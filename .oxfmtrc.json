@@ -17,7 +17,7 @@
     "sortSideEffects": false
   },
   "experimentalSortPackageJson": true,
-  "ignorePatterns": ["dist/**", "test/parser/fixtures/**"],
+  "ignorePatterns": ["**/dist/**", "**/test/parser/fixtures/**"],
   "insertFinalNewline": true,
   "objectWrap": "preserve",
   "overrides": [
@@ -29,7 +29,7 @@
       }
     },
     {
-      "files": ["README.md"],
+      "files": ["**/README.md"],
       "options": {
         "useTabs": false,
         "tabWidth": 2

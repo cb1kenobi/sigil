@@ -4,7 +4,7 @@
     "node": true,
     "es2024": true
   },
-  "ignorePatterns": ["dist/**", "test/parser/fixtures/**"],
+  "ignorePatterns": ["**/dist/**", "**/test/parser/fixtures/**"],
   "rules": {
     "no-console": "off"
   }

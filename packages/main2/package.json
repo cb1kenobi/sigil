@@ -1,0 +1,86 @@
+{
+  "name": "main2",
+  "version": "0.0.1",
+  "description": "CLI framework 2",
+  "keywords": [],
+  "homepage": "https://github.com/cb1kenobi/main2",
+  "bugs": {
+    "url": "https://github.com/cb1kenobi/main2/issues"
+  },
+  "license": "MIT",
+  "author": "Chris Barber <me@chrisbarber.dev>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cb1kenobi/main2.git",
+    "directory": "packages/main2"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    },
+    "./ansi": {
+      "types": "./dist/ansi.d.mts",
+      "default": "./dist/ansi.mjs"
+    },
+    "./components": {
+      "types": "./dist/components.d.mts",
+      "default": "./dist/components.mjs"
+    },
+    "./error-handler": {
+      "types": "./dist/error-handler.d.mts",
+      "default": "./dist/error-handler.mjs"
+    },
+    "./help": {
+      "types": "./dist/help.d.mts",
+      "default": "./dist/help.mjs"
+    },
+    "./paths": {
+      "types": "./dist/paths.d.mts",
+      "default": "./dist/paths.mjs"
+    },
+    "./terminal": {
+      "types": "./dist/terminal.d.mts",
+      "default": "./dist/terminal.mjs"
+    },
+    "./updates": {
+      "types": "./dist/updates.d.mts",
+      "default": "./dist/updates.mjs"
+    },
+    "./width": {
+      "types": "./dist/width.d.mts",
+      "default": "./dist/width.mjs"
+    },
+    "./wrap": {
+      "types": "./dist/wrap.d.mts",
+      "default": "./dist/wrap.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "rimraf dist && tsdown -c tsdown.config.ts",
+    "coverage": "vitest --coverage",
+    "prepublishOnly": "pnpm run build",
+    "test": "vitest",
+    "test:bun": "bun --bun test --config=bunfig.toml",
+    "test:deno": "deno run --allow-all --sloppy-imports ../../node_modules/vitest/vitest.mjs",
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "26.5.1",
+    "@vitest/coverage-v8": "5.0.0",
+    "rimraf": "6.1.3",
+    "tsdown": "0.23.0",
+    "typescript": "7.0.2",
+    "vitest": "5.0.0"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  }
+}

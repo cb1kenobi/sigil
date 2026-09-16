@@ -1,0 +1,24 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "globalDependencies": ["tsconfig.base.json"],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": ["src/**", "tsdown.config.ts", "tsconfig*.json", "package.json"],
+      "outputs": ["dist/**"]
+    },
+    "type-check": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "src/**",
+        "test/**",
+        "tsconfig*.json",
+        "tsdown.config.ts",
+        "vitest.config.ts",
+        "package.json"
+      ],
+      "outputs": []
+    }
+  },
+  "ui": "stream"
+}
