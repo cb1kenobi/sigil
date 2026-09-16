@@ -1,13 +1,12 @@
 import { main2, type ParseState, type Schema } from 'main2';
-import { createRequire } from 'node:module';
-
-const require = createRequire(import.meta.url);
+import { readFileSync } from 'node:fs';
 
 /**
  * The toolchain's version, read from its own manifest.
  *
  * Read rather than inlined at build time so a globally linked checkout reports
- * what is actually on disk.
+ * what is actually on disk. Read rather than `require`d because the manifest is
+ * wanted once and the module cache would hold it for the life of the process.
  *
  * `../package.json` resolves from both `src/index.ts` and the built
  * `dist/index.mjs` because both sit exactly one directory below the package
@@ -16,7 +15,8 @@ const require = createRequire(import.meta.url);
  * only the published package would notice.
  */
 export function version(): string {
-	return require('../package.json').version as string;
+	const manifest = new URL('../package.json', import.meta.url);
+	return JSON.parse(readFileSync(manifest, 'utf-8')).version as string;
 }
 
 /**
