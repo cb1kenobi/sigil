@@ -294,6 +294,35 @@ function boundary(value: string, at: number, direction: -1 | 1): number {
 }
 
 /**
+ * Where an offset lands once the clusters around it are taken into account.
+ *
+ * An insertion is the one edit that does not move by whole clusters: what was
+ * typed can join the cluster that follows the cursor rather than standing on its
+ * own. A combining mark with nothing before it is its own cluster, so typing a
+ * letter in front of one makes the two a single cluster two code units long and
+ * leaves the cursor one unit into it -- and the backspace after that splits the
+ * pair and leaves the mark behind, which is the same damage the astral case
+ * causes with a surrogate.
+ *
+ * @param value - What has been typed.
+ * @param at - The offset to place.
+ * @returns `at` when it is already a boundary, else the end of the cluster it
+ *   fell inside.
+ */
+function snap(value: string, at: number): number {
+	let offset = 0;
+
+	for (const cluster of graphemes(value)) {
+		if (offset >= at) {
+			return offset;
+		}
+		offset += cluster.length;
+	}
+
+	return value.length;
+}
+
+/**
  * Asks for a line of text.
  *
  * @param opts - What to ask, and how to check the answer.
@@ -398,7 +427,7 @@ export function text(opts: TextOptions): Promise<string> {
 					const ch = k.name === 'space' ? ' ' : k.sequence;
 					if (!controlChar.test(ch)) {
 						value = value.slice(0, cursor) + ch + value.slice(cursor);
-						cursor += ch.length;
+						cursor = snap(value, cursor + ch.length);
 					}
 				}
 			},

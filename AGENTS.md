@@ -864,7 +864,10 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   ordinary string work -- and it only ever lands on a boundary `graphemes()`
   agrees with: `cursor ± 1` walks UTF-16 code units, so a backspace over an emoji
   left its high surrogate in the value and every edit after it worked on a string
-  no terminal can draw. `truncateCell()` in the table already read text this way;
+  no terminal can draw. An insertion is the one edit that does not move by whole
+  clusters, because what was typed can join the cluster after the cursor -- a
+  letter typed in front of a lone combining mark makes one cluster of the two --
+  so it snaps forward to the end of what it landed inside. `truncateCell()` in the table already read text this way;
   the prompt was the one place that did not. See
   `test/components/prompt.test.ts`.
 

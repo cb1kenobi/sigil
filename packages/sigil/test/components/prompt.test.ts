@@ -176,14 +176,27 @@ describe('text()', () => {
 	});
 
 	// a cluster is what a reader calls a character, so backspace takes the mark
-	// and the letter it sits on together
-	it('should erase a combining mark with the letter it modifies', async () => {
+	// and what it sits on together -- here an emoji, which the old cursor cut in
+	// half and left a lone surrogate under the mark
+	it('should erase a combining mark with the character it modifies', async () => {
 		const { ansi, region, stdin } = setup();
 		const answer = text({ ansi, message: 'Name?', region });
 
-		await type(stdin, 'cafe', '\u0301', BACKSPACE, ENTER);
+		await type(stdin, '😀', '\u0301', BACKSPACE, 'x', ENTER);
 
-		expect(await answer).to.equal('caf');
+		expect(await answer).to.equal('x');
+	});
+
+	// an insertion is the one edit that does not move by whole clusters: a mark
+	// with nothing before it is its own cluster, and the letter typed in front of
+	// it joins that cluster rather than making one of its own
+	it('should stay on a boundary when what is typed joins the cluster after it', async () => {
+		const { ansi, region, stdin } = setup();
+		const answer = text({ ansi, message: 'Name?', region });
+
+		await type(stdin, '\u0301', LEFT, 'a', BACKSPACE, 'ok', ENTER);
+
+		expect(await answer).to.equal('ok');
 	});
 
 	describe('validation', () => {
@@ -237,12 +250,16 @@ describe('text()', () => {
 
 describe('password()', () => {
 	it('should keep an astral character whole behind the mask', async () => {
-		const { ansi, region, stdin } = setup();
+		const { ansi, region, stdin, stdout } = setup();
 		const answer = password({ ansi, message: 'Password?', region });
 
-		await type(stdin, 'a', '😀', 'b', BACKSPACE, ENTER);
+		await type(stdin, 'a', '😀');
+		// the mask is a column count, so a two-column emoji is two bullets
+		expect(stdout.frame).to.contain('•••');
 
-		expect(await answer).to.equal('a😀');
+		await type(stdin, BACKSPACE, ENTER);
+
+		expect(await answer).to.equal('a');
 	});
 
 	it('should not show what was typed', async () => {
