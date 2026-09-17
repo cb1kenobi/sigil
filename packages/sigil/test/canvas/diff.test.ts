@@ -426,6 +426,30 @@ describe('diff', () => {
 			});
 		});
 
+		// the diff never emits either of these -- it moves before it writes again --
+		// but the model is what stands in for a terminal, and these are the halves
+		// of the deferred wrap that everything above is relying on
+		it('should take the wrap on the next character rather than when it was armed', () => {
+			const terminal = new FakeTerminal(3, 2);
+			terminal.apply('abcd', () => 0);
+
+			expect(terminal.toLines()).toEqual(['abc', 'd  ']);
+			expect({
+				column: terminal.column,
+				row: terminal.row,
+				wrapPending: terminal.wrapPending,
+			}).toEqual({ column: 1, row: 1, wrapPending: false });
+		});
+
+		it('should disarm it on a carriage return', () => {
+			const terminal = new FakeTerminal(3, 2);
+			terminal.apply('abc\rx', () => 0);
+
+			// the wrap was armed and then thrown away, so `x` lands back on this row
+			expect(terminal.toLines()).toEqual(['xbc', '   ']);
+			expect(terminal.row).toBe(0);
+		});
+
 		it('should leave it clear when the last run stopped short of the edge', () => {
 			const styles = new StyleTable();
 			const a = new CellBuffer(6, 1);
