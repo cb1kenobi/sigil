@@ -871,3 +871,88 @@ describe('percentage margins', () => {
 		expect(layout(tree, { height: 20, width: 10 }).children[0].box.y).toBe(5);
 	});
 });
+
+describe('min and max are applied once, by whoever sized the node', () => {
+	it('should resolve a percentage against the containing block and not the size allocated', () => {
+		// `max-width: 50%` was read twice: once against the row's ten columns, which
+		// clamped each growing item to five, and again against the five it had just
+		// been given, which clamped it to three. The siblings' positions still came
+		// from the first answer, so each box came back two columns short of the hole
+		// reserved for it
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box({ 'flex-grow': '1', 'max-width': '50%' }),
+			box({ 'flex-grow': '1', 'max-width': '50%' })
+		);
+
+		expect(picture(tree, 10, 2)).toBe(['bbbbbccccc', 'bbbbbccccc'].join('\n'));
+		checkInvariants(layout(tree, { height: 2, width: 10 }));
+	});
+
+	it('should resolve a cross-axis maximum against the containing block', () => {
+		// the same defect on the other axis: stretched to eight rows, clamped to
+		// four by `max-height: 50%`, then clamped to two by reading the four back
+		const tree = box(
+			{ 'flex-direction': 'row', height: '8', width: '4' },
+			box({ 'flex-grow': '1', 'max-height': '50%' })
+		);
+
+		expect(picture(tree, 4, 8)).toBe(
+			['bbbb', 'bbbb', 'bbbb', 'bbbb', 'aaaa', 'aaaa', 'aaaa', 'aaaa'].join('\n')
+		);
+	});
+
+	it('should resolve down a column against the containing block', () => {
+		const tree = box(
+			{ 'flex-direction': 'column', height: '8', width: '3' },
+			box({ 'flex-grow': '1', 'max-height': '50%' }),
+			box({ 'flex-grow': '1', 'max-height': '50%' })
+		);
+
+		expect(picture(tree, 3, 8)).toBe(
+			['bbb', 'bbb', 'bbb', 'bbb', 'ccc', 'ccc', 'ccc', 'ccc'].join('\n')
+		);
+		checkInvariants(layout(tree, { height: 8, width: 3 }));
+	});
+
+	it('should resolve the root against the space it was given', () => {
+		// the root has no parent, so its containing block is `opts` -- not the width
+		// its own declaration asked for, which is what the second resolution read
+		const panel = box({ width: '20', 'max-width': '50%', height: '2' });
+
+		expect(layout(panel, { height: 4, width: 40 }).box.width).toBe(20);
+	});
+
+	it('should resolve a nested percentage against its own parent', () => {
+		// three levels, each half the one above: 40, then 20, then 10
+		const tree = box(
+			{ 'flex-direction': 'row', height: '1' },
+			box(
+				{ 'flex-direction': 'row', 'flex-grow': '1', 'max-width': '50%' },
+				box({ 'flex-grow': '1', 'max-width': '50%' })
+			)
+		);
+
+		const result = layout(tree, { height: 1, width: 40 });
+		expect(result.children[0].box.width).toBe(20);
+		expect(result.children[0].children[0].box.width).toBe(10);
+	});
+
+	it('should not re-clamp a size against an automatic minimum it cannot see', () => {
+		// the other half of the same defect, with nothing percentage about it. The
+		// parent held this text at the three rows it needs -- `min` wins over `max`
+		// -- and the second clamp read `min-height: auto` as no minimum at all,
+		// because the content-based one lives in a measurement only the parent takes.
+		// So the text came back one row tall into a three-row hole
+		const tree = box(
+			{ 'flex-direction': 'column', height: '6', width: '5' },
+			text('one two three', { 'max-height': '1' }),
+			box({ height: '1' })
+		);
+
+		expect(picture(tree, 5, 6)).toBe(
+			['bbbbb', 'bbbbb', 'bbbbb', 'ccccc', 'aaaaa', 'aaaaa'].join('\n')
+		);
+		checkInvariants(layout(tree, { height: 6, width: 5 }));
+	});
+});
