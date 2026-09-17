@@ -843,28 +843,21 @@ describe('measurement', () => {
 		checkInvariants(result);
 	});
 
-	it('should wrap a declared width at the width its own max-width leaves it', () => {
-		// the declaration is read back off the child here rather than taken from the
-		// caller, so a `width: 10` under a `max-width: 6` wrapped at ten and was then
-		// drawn at six -- on both axes, since a row's re-measure asks this same
-		// function and got the same ten back
-		const column = box(
+	it('should not resolve a percentage limit against a width that limit narrowed', () => {
+		// the clamp lives in `measureUncached()` and nowhere else, because that is
+		// where the containing width is. Clamping at the call site as well resolved
+		// `50%` against the ten it had just produced, so the text wrapped at five
+		// and was placed at ten
+		const tree = box(
 			{ 'flex-direction': 'column', width: '20' },
-			text('one two three four five six', { 'max-width': '6', width: '10' })
-		);
-		const row = box(
-			{ 'align-items': 'flex-start', 'flex-direction': 'row', width: '20' },
-			text('one two three four five six', { 'max-width': '6', width: '10' })
+			text('one two three four five six', { 'max-width': '50%' })
 		);
 
-		expect(layout(column, { height: 20, width: 20 }).children[0].box).toMatchObject({
-			height: 6,
-			width: 6,
-		});
-		expect(layout(row, { height: 20, width: 20 }).children[0].box).toMatchObject({
-			height: 6,
-			width: 6,
-		});
+		const result = layout(tree, { height: 20, width: 20 });
+		// three rows is the wrap at ten; two would be the wrap at twenty and six
+		// the wrap at five
+		expect(result.children[0].box.height).toBe(3);
+		checkInvariants(result);
 	});
 
 	it('should measure a declared size on a text as the size it will be placed at', () => {

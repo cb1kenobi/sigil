@@ -489,19 +489,25 @@ false` rethrows instead; a function replaces the handler.
   same width has to reach the intrinsic measure as well, or the fix only moves
   the error: a column asked how tall its child was at the container's width, got
   two, and was drawn two rows around a child six rows tall.
-- **A declared width is clamped by the node's own limits before anything wraps at
-  it, and a `measure` node reports its declaration rather than its content.** The
-  declaration is the width the node is placed at on either axis -- a row clamps
-  the main size in `resolveFlexible()`, a column the cross size in `makeItem()`
-  -- so reading it raw wrapped a `width: 10` under a `max-width: 6` at ten and
-  drew it at six, and the row's own re-measure could not undo that, because it
-  asks `measureUncached()` again and `measureUncached()` reads the declaration
-  back off the node. An _undeclared_ width is deliberately left alone there: what
-  to measure at is the caller's business, and clamping it in a row would freeze
-  the basis at the clamped size instead of letting the flex algorithm clamp. The
-  `node.measure` branch reports `declaredWidth ?? content` the way the two
-  branches below it already did, because what an ancestor sizing itself around a
-  node needs is the size it will be _placed_ at: a `width: 10` text whose content
+- **The width limits are applied in `measureUncached()` and nowhere else,
+  because that is where the width they are a percentage _of_ is.** The callers
+  hand it the containing width and a flag saying whether that width is the
+  container's cross axis; clamping at the call site as well resolved a
+  `max-width: 50%` against the ten it had just produced, so the text wrapped at
+  five and was placed at ten -- the same defect the clamp exists to fix, one
+  level along. Neither clamp alone does that, which is what made it worth a third
+  review round. A node's own declared `width` still wins over the clamp,
+  unclamped: what a `width: 10` under a `max-width: 6` should wrap at is a real
+  question with a wrong answer available, because the containing width a
+  percentage limit resolves against while measuring is not the one the node is
+  finally placed in -- clamping it there wrapped a text for five and placed it at
+  three, outside its parent. Left as it is, which is what `main` does.
+- **A `measure` node reports its declaration rather than its content.** The
+  `node.measure` branch reports `declaredWidth ?? content` and
+  `declaredHeight ?? content`, with `min(content, declaration)` for the automatic
+  minimums, the way the two branches below it already did. What an ancestor
+  sizing itself around a node needs is the size the node will be _placed_ at, and
+  `makeItem()` places it at its declaration: a `width: 10` text whose content
   wraps to five reported five, so an auto-width column measured itself five wide
   and drew the child outside its own box.
 - **Percentage lengths are rounded per box, and no per-box rule can make siblings
@@ -1213,6 +1219,17 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   Found while writing `--version` for `@ttylabs/cli`, which reads the state
   `main()` returns instead. Do not reach for `afterParse` to read a parsed
   value until this is fixed.
+- **A `width` under a narrower `max-width` wraps at the `width`.**
+  `measureUncached()` reads the declaration back off the node and wraps at it,
+  and the limits do not touch it -- so a `width: 10` under a `max-width: 6` lays
+  its text out for ten columns and is then drawn at six, on both axes, since a
+  row's re-measure in `placeLine()` asks the same function and gets the same ten
+  back. Clamping there is not the fix: the containing width a _percentage_ limit
+  resolves against while measuring is not the one the node is finally placed in,
+  so `max-width: 50%` then wrapped at five and placed at three, outside its own
+  parent. Settling it needs the percentage phase question -- what a percentage
+  resolves against while a containing block is still being sized -- and the
+  single-clamp rule that SIG-90 is taking to `layoutNode()`.
 - A subcommand's option used before its subcommand is not protected from being
   consumed as an earlier option's value, because it is not declared yet on the
   pass that reads it. A default command's options are always in that position,

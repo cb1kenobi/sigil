@@ -127,8 +127,11 @@ export interface LayoutOptions {
  * Per call rather than persistent: a node's content can change between frames,
  * and a cache that outlives the pass needs invalidating, which is the renderer's
  * job and not this module's.
+ *
+ * Keyed by the containing width *and* by whether that width is the container's
+ * cross axis, because the second changes what the measure does with the first.
  */
-type MeasureCache = WeakMap<LayoutNode, Map<number, Measurement>>;
+type MeasureCache = WeakMap<LayoutNode, Map<string, Measurement>>;
 
 /**
  * Lays out a tree.
@@ -178,31 +181,43 @@ export function measureNode(node: LayoutNode, availableWidth: number): Measureme
  * The cached measure.
  *
  * @param node - The node to measure.
- * @param availableWidth - The width to measure against.
+ * @param availableWidth - The containing width, which is what a percentage here
+ * is a percentage *of*. Never a width something upstream has already clamped:
+ * a percentage limit resolved against an already-limited width applies twice.
  * @param cache - What this pass has measured already.
+ * @param crossWidth - Whether the width is the container's cross axis, which is
+ * the axis that does not flex -- so the node's own limits settle its width here
+ * rather than after `resolveFlexible()`.
  * @returns The intrinsic size.
  */
-function measure(node: LayoutNode, availableWidth: number, cache: MeasureCache): Measurement {
+function measure(
+	node: LayoutNode,
+	availableWidth: number,
+	cache: MeasureCache,
+	crossWidth = false
+): Measurement {
 	let byWidth = cache.get(node);
 	if (!byWidth) {
 		byWidth = new Map();
 		cache.set(node, byWidth);
 	}
 
-	const hit = byWidth.get(availableWidth);
+	const key = `${availableWidth}|${crossWidth ? 'c' : 'm'}`;
+	const hit = byWidth.get(key);
 	if (hit) {
 		return hit;
 	}
 
-	const result = measureUncached(node, availableWidth, cache);
-	byWidth.set(availableWidth, result);
+	const result = measureUncached(node, availableWidth, cache, crossWidth);
+	byWidth.set(key, result);
 	return result;
 }
 
 function measureUncached(
 	node: LayoutNode,
 	availableWidth: number,
-	cache: MeasureCache
+	cache: MeasureCache,
+	crossWidth: boolean
 ): Measurement {
 	const { style } = node;
 
@@ -215,22 +230,36 @@ function measureUncached(
 	const horizontal = axis.column ? inset.cross : inset.main;
 	const vertical = axis.column ? inset.main : inset.cross;
 
-	// a declared width is clamped by the node's own limits, because that is the
-	// width it will be laid out at whichever axis it is on: a row clamps the main
-	// size in `resolveFlexible()` and a column clamps the cross size in
-	// `makeItem()`. Read raw, a `width: 10` under a `max-width: 6` wrapped its text
-	// at ten and was drawn at six -- and the row's re-measure in `placeLine()`
-	// could not undo it, because it asks this function again and this function
-	// read the declaration back off the node. An *undeclared* width is left alone:
-	// there the available width is the caller's business, and clamping it in a row
-	// would freeze the basis at the clamped size rather than let the flex
-	// algorithm clamp it
-	const declaredMin = outerSize(style, resolve(style.minWidth, availableWidth), horizontal);
-	const declaredMax = outerSize(style, resolve(style.maxWidth, availableWidth), horizontal);
-	const declared = outerSize(style, resolve(style.width, availableWidth), horizontal);
-	const declaredWidth =
-		declared === undefined ? undefined : clamp(declared, declaredMin, declaredMax);
-	const inner = Math.max(0, (declaredWidth ?? availableWidth) - horizontal);
+	// the limits are resolved here, against the containing width, and applied
+	// here -- the callers hand this function the width a percentage is a
+	// percentage *of* and never one they have clamped themselves, because a
+	// percentage limit resolved against an already-limited width applies twice: a
+	// `max-width: 50%` child of a twenty-wide column wrapped at five and was
+	// placed at ten.
+	//
+	// Applied only when the width is the container's *cross* axis, which is the
+	// axis that does not flex: there the node's own limits are the whole of the
+	// answer and they are known now. On the main axis the basis has to stay the
+	// unclamped content size, or the flex algorithm is handed a number already
+	// clamped past its limit and pays for it twice -- so a row measures wide and
+	// is re-measured in `placeLine()` at the width flexing settled on.
+	//
+	// A node's own declared `width` still wins over both, unclamped: what a
+	// `width` under a narrower `max-width` should wrap at is a real question and
+	// the answer is not this function's to give, because the containing width it
+	// would resolve a percentage limit against is the measure-time one and not
+	// the one the node is finally placed in
+	const declaredWidth = outerSize(style, resolve(style.width, availableWidth), horizontal);
+	const used =
+		declaredWidth ??
+		(crossWidth
+			? clamp(
+					availableWidth,
+					outerSize(style, resolve(style.minWidth, availableWidth), horizontal),
+					outerSize(style, resolve(style.maxWidth, availableWidth), horizontal)
+				)
+			: availableWidth);
+	const inner = Math.max(0, used - horizontal);
 
 	if (node.measure) {
 		const measured = node.measure(inner);
@@ -292,7 +321,6 @@ function measureUncached(
 		const widthInset = axis.column ? childInset.cross : childInset.main;
 		const declaredMinW =
 			outerSize(child.style, resolve(child.style.minWidth, inner), widthInset) ?? 0;
-		const declaredMaxW = outerSize(child.style, resolve(child.style.maxWidth, inner), widthInset);
 		const declaredMinH =
 			outerSize(
 				child.style,
@@ -300,17 +328,12 @@ function measureUncached(
 				axis.column ? childInset.main : childInset.cross
 			) ?? 0;
 
-		// measured at the width the child will be given, which is what `makeItem()`
-		// does for the same reason: in a column the width is the cross axis and the
-		// child's own limits settle it, so a `max-width` decides what the content
-		// wraps at. Asking at the container's width instead made the container's
-		// intrinsic height the height of a wrap that never happens, and a column
-		// sized from it came out shorter than the child it was measuring
-		const measured = measure(
-			child,
-			axis.column ? clamp(inner, declaredMinW, declaredMaxW) : inner,
-			cache
-		);
+		// told whether the width is this container's cross axis, so that a child's
+		// own `max-width` decides what its content wraps at. Measured at the
+		// container's width regardless, the intrinsic height was the height of a
+		// wrap that never happens, and a column sized from it came out shorter than
+		// the child it was measuring
+		const measured = measure(child, inner, cache, axis.column);
 
 		const mainSize = axis.column ? measured.height + extraV : measured.width + extraH;
 		const minMain = axis.column
@@ -571,21 +594,22 @@ function makeItem(
 		? outerSize(style, resolve(style.maxWidth, content.width), crossInset)
 		: outerSize(style, resolve(style.maxHeight, content.height), crossInset);
 
-	const room = Math.max(0, content.width - margin.left - margin.right);
-
-	// measured at the width this child will actually be given, which in a column
-	// is a width its own limits have already decided: the cross axis does not flex,
-	// so a `max-width` is the whole of the answer and it is known here. Measuring at
-	// the container's width instead left the height wrapped for a width the child
-	// never got -- a `max-width: 6` text in a twenty-wide column measured two rows
-	// tall and was placed six wide, where it needs six.
+	// measured at the room there is, and told whether the width is this
+	// container's cross axis. `measure()` applies the child's own width limits
+	// itself, because it is the one that resolves them and the base they resolve
+	// against is the width handed in -- clamping here as well would resolve a
+	// percentage limit against a width that limit had already narrowed.
 	//
-	// A row measures at the container's width and is re-measured in `placeLine()`
-	// once flexing has settled its main size, because there the used width is not
-	// known until then -- and its basis has to be the *unclamped* content size for
-	// the flex algorithm to clamp itself, which is the other reason this is only
-	// the column's answer
-	const measured = measure(node, axis.column ? clamp(room, minCross, maxCross) : room, cache);
+	// The flag is what makes the answer the column's: a column's width is the
+	// cross axis, which does not flex, so the limits settle it now. A row's is the
+	// main axis, whose used width is not known until `resolveFlexible()` has run
+	// and whose basis has to stay the *unclamped* content size for the flex
+	// algorithm to do the clamping -- so a row measures wide here and is
+	// re-measured in `placeLine()` at the width flexing gave it. Measured at the
+	// container's width regardless, a `max-width: 6` text in a twenty-wide column
+	// was two rows tall and placed six wide, where it needs six
+	const room = Math.max(0, content.width - margin.left - margin.right);
+	const measured = measure(node, room, cache, axis.column);
 
 	const declaredMain = outerSize(
 		style,
