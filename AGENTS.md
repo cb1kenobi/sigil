@@ -55,9 +55,21 @@ Paths below are inside `packages/sigil/` unless noted.
 | `test/parser/yargs/`     | Ported yargs-parser test cases                       |
 
 At the repository root: `demos/` (runnable examples that import `@ttylabs/sigil` by
-name, so they need `pnpm build` first), `turbo.json`, `tsconfig.base.json`, and
-the shared oxlint and oxfmt configs. Each package extends the base tsconfig and
-sets its own `outDir`.
+name, so they need `pnpm build` first), `website/` (the Next.js site), `turbo.json`,
+`tsconfig.base.json`, and the shared oxlint and oxfmt configs. Each package extends
+the base tsconfig and sets its own `outDir`.
+
+**`packages/` holds the published packages and nothing else.** `packages/*` is
+the glob the workspace, turbo, vitest's `projects`, and the coverage `include`
+all read, so anything put there joins all four silently -- and the two entries
+that belong there are the ones the table above describes. The website is a
+private Next.js app at the top level, a workspace member so it shares the
+lockfile, with its own `website/turbo.json` overriding the root `build` task's
+`dist/**` for `.next/**`. Turbo captures nothing from an output glob that does
+not match, so inheriting the root's would cache a build it never saw and restore
+an empty directory on a hit. `pnpm test` and `pnpm coverage` filter their build
+to `./packages/*`: a test run has no use for the site, and CI runs the suite on
+nine node-and-os combinations.
 
 `packages/cli/src/` is a skeleton — the bin, `--version`, and the schema the
 filesystem router will replace. Its commands are not written yet.
