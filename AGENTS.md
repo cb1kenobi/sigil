@@ -891,7 +891,32 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   and stopping after one pass would leave that one a frame behind. The watcher is
   re-armed _before_ each pass, so a write made during one schedules the next.
   There is a bound, because two effects each writing what the other reads would
-  otherwise spin forever with nothing said about which two.
+  otherwise spin forever with nothing said about which two. The bound stops the
+  drain and only the drain; the entry below is what stops the scheduler.
+- **A flush that gave up re-arms silently, and the flush it had already asked
+  for does nothing.** The bound leaves the cycling effects dirty, which is
+  correct, and a bare `watch()` re-arm announces whatever is dirty, which is
+  also correct -- and together they are a livelock. The give-up announced the
+  cycle, the announcement scheduled a flush, that flush gave up and announced it
+  again: `Effects did not settle` once per microtask with the event loop never
+  idling, and under a synchronous scheduler an unbounded recursion out of the
+  `set()` that started it, because `flushing` is back to `false` by the time the
+  `finally` re-arms. So `Watcher.rearm()` arms without looking, and a `stalled`
+  latch -- set by a drain that gave up, cleared by the next notification --
+  makes the flush that the failed drain's own writes already asked for a no-op.
+  Armed is not deaf: a later clean-to-dirty transition anywhere in the scope is
+  still heard, and the first thing the next drain does is `getPending()`, so the
+  effects left dirty are retried by it. What is lost is the cycle announcing
+  _itself_, which is the one thing that has to be lost. An effect dirty for an
+  innocent reason during a failed settle is not stranded by it -- every pass
+  runs everything pending, so it ran a hundred times -- and a `flush()` the
+  _caller_ asked for is never refused, since breaking the cycle by disposing an
+  effect announces nothing and that call is how they find out it worked. The
+  error rate settles at once per failed settle rather than once per `set()`: a
+  burst of writes is already coalesced into one flush, and the report belongs to
+  the flush that could not settle. A drain whose error handler _threw_ takes the
+  same exit, which is the same failure one level up -- announcing work whose
+  report throws asks for that throw forever. See `test/signals/effect.test.ts`.
 - **An error in an effect is reported, never rethrown.** Under the default
   microtask scheduler a rethrow lands in a microtask nobody catches: Node prints
   a raw stack and kills the process, skipping `main()`'s error handling, the
@@ -941,7 +966,8 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   never announced again: the next write walks into it, finds it dirty, stops,
   and the watcher waits forever. Only a _bare_ re-arm checks; a computed is
   dirty from construction, so checking while signals are being added would
-  announce every newly watched computed as a change.
+  announce every newly watched computed as a change. A holder that _gave up_
+  wants the opposite and calls `rearm()`, which is the entry above.
 - **A cleanup that throws on a re-run is reported, not rethrown.** Letting it
   escape the effect body before `fn()` has read anything makes the sweep drop
   every dependency, leaving the effect alive, watched, and deaf to the signals
