@@ -1,6 +1,7 @@
 import {
 	ATTR,
 	CellBuffer,
+	cellWidth,
 	createCanvas,
 	DEFAULT_STYLE,
 	diff,
@@ -10,7 +11,7 @@ import {
 	StyleTable,
 	transition,
 } from '../../src/canvas/index.js';
-import { graphemes, graphemeWidth, stringWidth } from '../../src/width/index.js';
+import { graphemes, stringWidth } from '../../src/width/index.js';
 import { describe, expect, it, vi } from 'vitest';
 
 const ESC = String.fromCharCode(0x1b);
@@ -172,9 +173,14 @@ class FakeTerminal {
 				continue;
 			}
 
-			// a grapheme cluster, which may be more than one code unit
+			// a grapheme cluster, which may be more than one code unit. Measured with
+			// `cellWidth()` rather than `graphemeWidth()`, because the grid and the
+			// diff both take two as the most a cluster can occupy -- asking what the
+			// cluster contains instead put the model a column right of where the diff
+			// said the cursor was, and refused a three-wide cluster at the second
+			// column of a grid that had already fitted it into two cells
 			const cluster = graphemes(output.slice(i))[0];
-			const width = graphemeWidth(cluster);
+			const width = cellWidth(cluster);
 
 			// the deferred wrap is taken now rather than when it was armed: this is
 			// the character that had nowhere to go on the row it was written for
@@ -230,13 +236,13 @@ class FakeTerminal {
 
 				if (cell === '') {
 					const lead = x > 0 ? this.rows[y][x - 1] : undefined;
-					if (lead === undefined || graphemeWidth(lead) !== 2) {
+					if (lead === undefined || cellWidth(lead) !== 2) {
 						throw new Error(`orphaned continuation at ${x},${y}`);
 					}
 					continue;
 				}
 
-				if (graphemeWidth(cell) === 2) {
+				if (cellWidth(cell) === 2) {
 					if (x + 1 >= this.width || this.rows[y][x + 1] !== '') {
 						throw new Error(`wide cluster at ${x},${y} lost its continuation`);
 					}
@@ -682,6 +688,38 @@ describe('diff', () => {
 
 			const { lines } = replay(a, b, styles);
 			expect(lines).toEqual(['ab    ']);
+		});
+
+		// `graphemeWidth()` sums what a cluster contains and comes to three for a
+		// CJK character with a spacing mark; the grid holds it in two cells and the
+		// diff advances the cursor by two, because `cellWidth()` is the only width
+		// either asks about. The model asked `graphemeWidth()` instead, so it ended
+		// a column further right than the diff said it did -- and at the edge it
+		// refused a cluster the grid had already fitted
+		it('should advance by the cells a cluster takes, not by what it contains', () => {
+			const styles = new StyleTable();
+			const a = new CellBuffer(8, 1);
+			const b = new CellBuffer(8, 1);
+			b.write(0, 0, '漢ःx', 0);
+
+			const { lines, result } = replay(a, b, styles);
+			expect(lines[0]).toBe('漢ःx     ');
+			expect(result.column).toBe(3);
+		});
+
+		it('should fit one at the last column it has cells for', () => {
+			const styles = new StyleTable();
+			const a = new CellBuffer(2, 1);
+			const b = new CellBuffer(2, 1);
+			b.write(0, 0, '漢ः', 0);
+
+			// two cells is all it ever needed, so the row is full and the wrap is
+			// armed rather than the write being refused
+			const { result } = replay(a, b, styles);
+			expect({ column: result.column, wrapPending: result.wrapPending }).toEqual({
+				column: 1,
+				wrapPending: true,
+			});
 		});
 
 		it('should never write past the right edge', () => {

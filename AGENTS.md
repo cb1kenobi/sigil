@@ -893,10 +893,19 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   _harness_ and both fields went untested. Now every `replay()` checks all three
   against the model rather than the one test that thought to ask, since a backend
   positions itself by them and cannot see that they are wrong. Modelling it
-  found no disagreement with the diff: the diff already assumes the deferred
-  reading, which is why a full row followed by the row below it emits CUD before
-  the `\r` and lands where it meant to. Whether a terminal really defers is the
-  one thing neither can answer, and is `scripts/terminal-probe.mjs`'s to.
+  found no disagreement with the diff over the wrap itself: the diff already
+  assumes the deferred reading, which is why a full row followed by the row below
+  it emits CUD before the `\r` and lands where it meant to. It did find one next
+  door -- **the model measures with `cellWidth()`, because that is the only width
+  the grid and the diff ask about.** It was asking `graphemeWidth()`, which sums
+  what a cluster contains and comes to three for a CJK character with a spacing
+  mark, so the model ended a column to the right of where the diff said the
+  cursor was, refused such a cluster at the second column of a grid that had
+  already fitted it into two cells, and reported its own continuation as an
+  orphan. Nothing caught it because nothing pointed a replay at that cluster and
+  nothing asserted the cursor. Whether a terminal really defers, and what it
+  really does with a three-column cluster, are the things neither can answer, and
+  are `scripts/terminal-probe.mjs`'s.
 - **No passthrough image protocols: Kitty, iTerm2 and Sixel are out.** Fidelity
   is a capability tier the way colour depth already is -- cells always, then
   sub-cell block and braille characters everywhere, and that is where it stops.
