@@ -39,6 +39,7 @@ Paths below are inside `packages/main2/` unless noted.
 | `src/terminal/`          | Terminal wrapper, live region, sequences             |
 | `src/components/`        | Spinner, progress, table, prompts, key decoding      |
 | `src/signals/`           | The reactive graph: state, computed, watcher, effect |
+| `src/canvas/`            | Cell buffer, style interning, and the paint diff     |
 | `src/infer.ts`           | `initOption()` and `initArg()`, in the type system   |
 | `src/util/`              | Shared helpers (type coercion, camelCase, mkdir)     |
 | `src/debug/`             | `DEBUG`-driven logger; replaces snooplogg            |
@@ -59,7 +60,7 @@ sets its own `outDir`.
 `packages/cli/src/` is a skeleton — the bin, `--version`, and the schema the
 filesystem router will replace. Its commands are not written yet.
 
-`src/canvas/` and `src/i18n/` are empty placeholders.
+`src/i18n/` is an empty placeholder.
 
 `src/width/east-asian-width.ts` is generated. Regenerate it with
 `node scripts/generate-east-asian-width.mjs <unicode-version>` from inside
@@ -362,6 +363,115 @@ false` rethrows instead; a function replaces the handler.
   in place, while `alias`, `env`, `format`, `name`, and `negate` built the
   registry lookups and the destination, so they are read-only too. Covered by
   `test/parser/schema.test.ts`.
+
+### Canvas
+
+- **A canvas is a rect plus an anchor, and it does not know its anchor.** The
+  original ticket asked whether it owns the alternate screen or draws inline;
+  that is the wrong question. Every coordinate is relative to the canvas's own
+  top-left and every movement the diff emits is relative to where the cursor
+  started, so the same grid works parked at the bottom of a scrolling log or at
+  the origin of the alternate screen. Absolute positioning would have forced the
+  inline case to know a screen row it has no way to learn.
+- **A wide cluster leaves a continuation, and overwriting either half takes the
+  other with it.** Without the marker there is no answer to "what is in column
+  40" for a row containing one wide character, and every clip, overwrite, and
+  diff is off by one from there rightwards. Left alone, a survivor is half a
+  glyph. A zero-width cluster is refused a cell rather than given one, because
+  `graphemes()` has already attached it to what it modifies.
+- **A run never starts on a continuation cell.** Writing at that column would put
+  the cursor in the middle of a glyph, so a run that would begin there starts at
+  the lead instead -- even when the lead itself did not change.
+- **The diff starts every frame from the default style, not from the previous
+  frame's cell.** A frame ends by resetting, so the terminal's SGR state at the
+  start of the next one is default. Diffing against what the old cell looked like
+  would emit closing codes for attributes that are not open.
+- **An unchanged gap shorter than a cursor move is painted through.** A move
+  costs about four bytes, so skipping a two-cell gap is more expensive than
+  writing it -- and it avoids a move, which some terminals handle worse than a
+  write.
+- **Cells hold a style index, not a style.** A grid repeats a handful of styles
+  across thousands of cells and the diff's inner loop asks "same style?" once per
+  cell. Interning makes that an integer comparison and lets the grid keep its
+  styles in a typed array. The table copies what it interns, so a caller reusing
+  one object to paint many cells cannot retroactively change what a cell was
+  painted with.
+- **Extended colours are emitted in the semicolon form**, matching the styler.
+  `38:2::255:128:0` is what ITU T.416 specifies and the semicolon form is the
+  widespread misreading of it, but the misreading is what got implemented: the
+  colon form is a strict subset of terminals and the six-element spelling
+  narrower still. The ambiguity the colon form avoids is a problem for _parsers
+  inside this library_ -- which is why `reopen()` and `createSgrState()` each had
+  to learn about it -- and nothing here passes through either, since the terminal
+  is the only reader of the diff's output.
+- **A style is interned under a string key.** Packing two colours and the
+  attributes into one number is 58 bits: it runs past `Number.MAX_SAFE_INTEGER`
+  and rounds the attributes away, so bold truecolor text interned as plain
+  truecolor text and rendered unstyled, and unrelated colour pairs collided. The
+  string is built once per _distinct_ style rather than once per cell.
+- **A partial style is filled and a nonsense one is refused.** A style arrives as
+  `Partial<Style>`, so a missing field is `undefined`, and `undefined` reaches
+  the terminal as `38;5;undefined` -- output it drops and nobody can trace back.
+  `palette()` and `rgb()` refuse out-of-range channels for the same reason rather
+  than clamping them, which is the line `assertByte()` takes in the styler.
+  Interned styles are frozen, `DEFAULT_STYLE` included -- it is index zero, which
+  is what every cell starts with, so handing back the mutable object meant one
+  write could make the diff start every frame from a "default" that was not one.
+- **A cluster occupies one cell or two, never more.** `graphemeWidth()` sums what
+  a cluster contains and can exceed two -- a CJK character with a spacing mark,
+  two leading Hangul jamo -- and a grid has no third cell to put that in. Left
+  alone, the cluster went into one cell, the cursor advanced by three, and the
+  cells between were never drawn while still holding content nothing would paint
+  over. `cellWidth()` is the only width the grid asks about.
+- **A control character is refused, not dropped.** `\n` is zero width, so it took
+  no cell and `put()` returned `0` -- and `write()` only stopped on a
+  _positive_-width cluster that failed to land, so a wrapped paragraph painted as
+  one concatenated line with no complaint. A grid paints one row per call by
+  construction, so the caller has to say which row. Tab is refused too: its width
+  depends on a tab stop the grid does not model.
+- **`Painter.text()` strips escape sequences rather than painting them.** A cell
+  grid expresses styling as a style per cell, so a string carrying its own has
+  nowhere to put them -- and painting cluster by cluster puts `[31m` on screen as
+  text, because the ESC is zero width and the rest is not. Every existing
+  component builds strings like that.
+- **A backend must give the canvas its rows before presenting.** Movement is
+  relative and downward movement is CUD, which stops at the bottom margin and
+  never scrolls -- so a canvas rendered with the cursor on the last row of the
+  screen paints every row onto that line. The inline backend's first frame is
+  exactly that case; its recipe is `height - 1` newlines then walk back up.
+  `DiffResult.column` is never past the last column and `wrapPending` says
+  whether the deferred wrap is armed.
+- **`fill()` steps by what its cluster consumes and leaves the rectangle short
+  rather than overrunning it.** Advancing one column regardless made each
+  iteration break the continuation the last one left, so only the final column
+  kept its glyph -- and the last `put()` wrote its continuation one column _past_
+  the rectangle, over whatever else was painted there. Three columns cannot hold
+  two wide clusters, and half of one is worse than a gap.
+- **The cell class is `CellBuffer`, not `Buffer`.** The shorter name is Node's
+  global, and a file that forgets the import gets a byte buffer and a
+  deprecation warning rather than a type error.
+- **`paint()` clears and redraws the whole frame; there are no damage rects.**
+  That settles the question the ticket left open. The diff already reduces a
+  whole-frame repaint to the cells that changed, so damage tracking would buy
+  back only the painting, and it needs paint and diff to agree about who owns
+  invalidation. Revisit when a profile says the painting is the cost.
+- **A resize discards both buffers.** The layout is about to run again at the new
+  size and repaint everything, and a grid that described a terminal that no
+  longer exists is not something to diff against -- keeping it only gives the
+  diff something wrong to compare with.
+- **`present()` copies the frame forward rather than swapping buffers.**
+  Swapping saves an allocation and leaves `back` holding the frame before last,
+  which is what the canvas reports as its current contents. A `toString()` that
+  lies is a debugging trap worth more than the allocation.
+- **The diff is tested by replaying its output against a model terminal, not by
+  asserting on its bytes.** Asserting on bytes pins one implementation; replaying
+  pins the claim, which is "these bytes turn what is on screen into what should
+  be". The model refuses a write past the right edge, and checks after every
+  frame that no wide cluster lost its continuation and no continuation lost its
+  lead -- _after_, not during, because replacing `漢` with `ab` legitimately
+  splits it and the second write is what puts the row back together. What is
+  never legitimate is a frame ending with half a glyph on screen. See
+  `test/canvas/diff.test.ts`.
 
 ### Signals
 

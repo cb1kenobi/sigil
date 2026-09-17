@@ -29,6 +29,10 @@
       "types": "./dist/ansi.d.mts",
       "default": "./dist/ansi.mjs"
     },
+    "./canvas": {
+      "types": "./dist/canvas.d.mts",
+      "default": "./dist/canvas.mjs"
+    },
     "./components": {
       "types": "./dist/components.d.mts",
       "default": "./dist/components.mjs"

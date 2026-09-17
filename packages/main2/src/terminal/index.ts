@@ -5,6 +5,7 @@ export { createLiveRegion, frameHeight, type LiveRegion, type LiveRegionOptions 
 export {
 	CURSOR_HOME,
 	cursorDown,
+	cursorRight,
 	cursorUp,
 	ERASE_DOWN,
 	ERASE_LINE,

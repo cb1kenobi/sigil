@@ -59,3 +59,13 @@ export function cursorUp(n: number): string {
 export function cursorDown(n: number): string {
 	return n > 0 ? `${ESC}[${n}B` : '';
 }
+
+/**
+ * Moves the cursor right. Zero writes nothing, as with `cursorUp()`.
+ *
+ * @param n - How many columns.
+ * @returns The sequence, or an empty string.
+ */
+export function cursorRight(n: number): string {
+	return n > 0 ? `${ESC}[${n}C` : '';
+}

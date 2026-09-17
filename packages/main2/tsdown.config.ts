@@ -5,6 +5,7 @@ const config: UserConfig = defineConfig({
 	// map, and vice versa; `test/exports.test.ts` asserts they stay in sync.
 	entry: {
 		ansi: './src/ansi/index.ts',
+		canvas: './src/canvas/index.ts',
 		components: './src/components/index.ts',
 		'error-handler': './src/error-handler.ts',
 		help: './src/help/index.ts',

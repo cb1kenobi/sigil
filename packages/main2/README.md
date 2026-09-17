@@ -56,7 +56,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Hooks](#hooks)
 - [Help](#help)
 - [Typed argv](#typed-argv)
-- [Subpath modules](#subpath-modules) — `ansi`, `wrap`, `width`, `help`, `terminal`, `components`, `signals`, `paths`, `updates`
+- [Subpath modules](#subpath-modules) — `ansi`, `wrap`, `width`, `help`, `terminal`, `components`, `canvas`, `signals`, `paths`, `updates`
 
 ---
 
@@ -780,6 +780,121 @@ sits next to everything else that was printed, and rules around it are noise.
 
 `main2/components` also exports `decodeKeys()` and the `padCell()`,
 `truncateCell()`, and `renderBar()` helpers the above are built from.
+
+### `main2/canvas`
+
+A cell-addressable drawing surface, and the diff that puts it on screen.
+
+```js
+import { createCanvas, palette, ATTR } from 'main2/canvas';
+
+const canvas = createCanvas({ width: 20, height: 1 });
+
+canvas.paint((p) => {
+  p.text(0, 0, 'Loading', { fg: palette(4), bg: -1, attrs: ATTR.bold });
+});
+
+process.stdout.write(canvas.present().output);
+```
+
+A canvas is a rect of cells plus a way to reconcile it with what the terminal is
+already showing. It is deliberately **not** a rect plus a position: where the
+rect sits is a backend's business — inline at the bottom of a scrolling log, or
+the whole alternate screen — and nothing above the canvas should know which.
+Every coordinate here is relative to the canvas's own top-left, and every
+movement the diff emits is relative to where the cursor started.
+
+#### The diff is the point
+
+Redrawing every cell on every frame flickers locally and is unusable over ssh. A
+terminal is the one display where the wire between the renderer and the screen is
+narrow enough to be the bottleneck, so `present()` compares the frame you painted
+against the frame before it and emits only what differs:
+
+```js
+canvas.paint((p) => p.text(0, 0, 'hello'));
+canvas.present().output; // the first frame is always full: "hello" and the blanks after it
+
+canvas.paint((p) => p.text(0, 0, 'hallo'));
+canvas.present().output; // moves the cursor and writes "a"
+```
+
+Unchanged runs shorter than a cursor move are painted through rather than
+skipped, because a move costs bytes too. A style is emitted only where it
+changes, and the frame always ends by resetting — the next thing written is the
+app's own output, and it did not ask to be coloured.
+
+#### Cells and wide characters
+
+A cell holds one grapheme cluster. A cluster two columns wide — most CJK, most
+emoji — occupies its own cell and leaves a **continuation** in the next one, so
+the grid stays addressable by column even where the text is not:
+
+```js
+import { CellBuffer, StyleTable } from 'main2/canvas';
+
+const styles = new StyleTable();
+const buffer = new CellBuffer(10, 1);
+
+buffer.put(0, 0, '漢', styles.intern({}));
+buffer.charAt(0, 0); // '漢'
+buffer.charAt(1, 0); // '' — the continuation
+```
+
+`Painter.text()` takes **plain text**, one row per call. A cell grid expresses
+styling as a style per cell, so a string carrying its own escape sequences has
+nowhere to put them — they are stripped rather than painted, because painting
+them writes `[31m` on the screen as visible text.
+
+A control character is refused rather than dropped. A newline has no cell, so
+dropping it painted a wrapped paragraph as one concatenated line; the caller has
+to say which row each line goes on.
+
+Overwriting either half takes the other with it. Left alone, the survivor is
+half a glyph and every column after it on that row is shifted. A zero-width
+cluster — a lone combining mark — is refused rather than given a cell, since
+`graphemes()` has already attached it to whatever it modifies.
+
+#### Styles
+
+A cell's style is a foreground, a background, and a bitmask of attributes.
+Colours are one number whatever their kind, so any two compare with `===`:
+
+| Builder         | What it is                                                |
+| --------------- | --------------------------------------------------------- |
+| `DEFAULT_COLOR` | the terminal's own, whatever the user set                 |
+| `palette(n)`    | `0`–`7` basic, `8`–`15` bright, `16`–`255` the xterm cube |
+| `rgb(r, g, b)`  | 24-bit                                                    |
+
+Styles are interned: a cell holds an index into a `StyleTable` rather than an
+object, because a grid repeats a handful of styles across thousands of cells and
+the diff asks "same style?" once per cell.
+
+Extended colours are emitted in the semicolon form (`38;2;255;128;0`), matching
+`main2/ansi`. That is the spelling every terminal that does 256 or 24-bit colour
+accepts; the colon form the specification actually describes is implemented by a
+strict subset.
+
+Degrading a colour a terminal cannot show is not this module's job — what it is
+handed is what it emits.
+
+#### Reading a frame
+
+`canvas.toString()` and `CellBuffer.toLines()` give the frame as plain text, with
+no styling and with continuations contributing nothing — so a line reads the way
+it renders. That is what snapshots want, and what makes a failing layout test
+readable as a picture. `toString()` trims trailing blanks; `toLines()` does not,
+for when the exact width matters.
+
+#### What a backend owes it
+
+Movement is relative, and downward movement never scrolls — so **every row of the
+canvas has to exist below the cursor before `present()`'s output is written.** A
+canvas rendered with the cursor on the last row of the screen paints all of its
+rows onto that one line. `DiffResult` also reports `wrapPending`, set when the
+last thing written was a row's final column and the terminal's deferred wrap is
+armed; any cursor movement clears it, so only a backend that writes immediately
+afterwards has to care.
 
 ### `main2/signals`
 
