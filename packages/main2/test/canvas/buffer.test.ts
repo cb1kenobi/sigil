@@ -64,7 +64,40 @@ describe('StyleTable', () => {
 	it('should fill a partial style from the defaults', () => {
 		const table = new StyleTable();
 		const index = table.intern({ fg: palette(4) });
-		expect(table.get(index)).toEqual({ attrs: 0, bg: DEFAULT_COLOR, fg: palette(4) });
+		expect(table.get(index)).toEqual({ attrs: 0, bg: DEFAULT_COLOR, fg: palette(4), link: '' });
+	});
+
+	it('should share an index between cells with the same link', () => {
+		// a link rides the style table rather than a table beside the grid, so two
+		// cells that agree about it agree about their whole style
+		const table = new StyleTable();
+		expect(table.intern({ link: 'https://a.dev' })).toBe(table.intern({ link: 'https://a.dev' }));
+	});
+
+	it('should not collide two styles that differ only by link', () => {
+		const table = new StyleTable();
+		expect(table.intern({ link: 'https://a.dev' })).not.toBe(
+			table.intern({ link: 'https://b.dev' })
+		);
+	});
+
+	it('should not let a comma in a link forge another style', () => {
+		// the interning key is built by joining fields, so a link is put last:
+		// everything before it is a number of known shape and cannot be spoofed
+		const table = new StyleTable();
+		expect(table.intern({ fg: palette(1), link: '' })).not.toBe(
+			table.intern({ fg: DEFAULT_COLOR, link: `${palette(1)},0` })
+		);
+	});
+
+	it('should refuse a link carrying a control character', () => {
+		// an OSC sequence runs until its terminator, so a control character inside
+		// the URI ends it early and everything after it reaches the terminal as
+		// commands. Building a URL out of user input is the ordinary case
+		const table = new StyleTable();
+		for (const bad of [`http://x\u001b]8;;evil`, 'http://x\u0007', 'x\u009f', 'a\u0000b']) {
+			expect(() => table.intern({ link: bad })).toThrow(/control characters/);
+		}
 	});
 
 	it('should freeze the default style, which is index zero', () => {

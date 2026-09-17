@@ -27,6 +27,7 @@ export {
 	type Color,
 	DEFAULT_COLOR,
 	DEFAULT_STYLE,
+	LINK_OFF,
 	palette,
 	RESET,
 	rgb,

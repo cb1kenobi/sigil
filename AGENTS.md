@@ -686,6 +686,34 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   real terminal and says what you should see; it is run by hand, against every
   terminal worth supporting, and it is the only thing here that puts a byte on
   one.
+- **A hyperlink is a style, not a region.** OSC 8 is terminal state that applies
+  to everything written after it until it is changed, which is what `Style`
+  already models -- so `link` lives there and is interned, compared and diffed
+  by the machinery that already does all three. A cell still holds one integer.
+  The alternative considered was a third parallel array beside `#chars` and
+  `#styles`, marking which attachment each cell belongs to; that earns its keep
+  only if something needs a _rectangle_, and nothing does now that passthrough
+  images are out. The interning key puts the link last, because everything
+  before it is a number of known shape and a comma inside a URL would otherwise
+  let one style forge another. A link carrying a control character is refused:
+  an OSC sequence runs until its terminator, so one hidden inside the URI ends
+  it early and the rest reaches the terminal as commands, and building a URL out
+  of user input is the ordinary case rather than the exotic one.
+- **`RESET` does not close a hyperlink, and the frame end has to.** SGR and OSC
+  are separate state: `\x1b[0m` puts the colours back and leaves the link open
+  over whatever is written next, which at the end of a frame is the
+  application's own output. `LINK_OFF` is emitted before `RESET` when a link is
+  in effect. This is also why `FakeTerminal` had to learn OSC -- it parsed only
+  `ESC [`, so an unrecognised link sequence fell through to the text path and
+  painted the URL into the grid.
+- **No passthrough image protocols: Kitty, iTerm2 and Sixel are out.** Fidelity
+  is a capability tier the way colour depth already is -- cells always, then
+  sub-cell block and braille characters everywhere, and that is where it stops.
+  The tier above needs a rectangle of the screen that the cell grid does not
+  own, which the diff cannot reason about, and it is unavailable in tmux, over
+  most of ssh, in CI, and in Terminal.app. Images are approximated with half
+  blocks instead: two pixels per cell, the top as the foreground and the bottom
+  as the background, which is nothing but cells and works everywhere.
 
 ### Signals
 
