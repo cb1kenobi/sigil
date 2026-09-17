@@ -891,13 +891,33 @@ describe('position: relative', () => {
 		// placed as though nothing moved
 		const tree = box(
 			{ 'flex-direction': 'row' },
-			box({ position: 'relative', left: '3', width: '2', height: '1' }),
+			box({ position: 'relative', top: '1', left: '3', width: '2', height: '1' }),
 			box({ width: '2', height: '1' })
 		);
 
-		const result = layout(tree, { height: 1, width: 10 });
-		expect(result.children[0].box.x).toBe(3);
-		expect(result.children[1].box.x).toBe(2);
+		const result = layout(tree, { height: 3, width: 10 });
+		expect(result.children[0].box).toMatchObject({ x: 3, y: 1 });
+		expect(result.children[1].box).toMatchObject({ x: 2, y: 0 });
+	});
+
+	it('should keep an inset physical when the direction is reversed', () => {
+		// `top` is down the screen and `left` is across it, whatever the main axis
+		// is doing. Reading them as main-start and cross-start would make one
+		// declaration mean two things depending on the container it landed in
+		const declarations = { height: '1', left: '1', position: 'relative', top: '1', width: '2' };
+		const forward = box({ 'flex-direction': 'row' }, box(declarations));
+		const reversed = box({ 'flex-direction': 'row-reverse' }, box(declarations));
+
+		// the flow put them at opposite ends, and both moved one cell right and one
+		// cell down from wherever that was
+		expect(layout(forward, { height: 3, width: 10 }).children[0].box).toMatchObject({
+			x: 0 + 1,
+			y: 1,
+		});
+		expect(layout(reversed, { height: 3, width: 10 }).children[0].box).toMatchObject({
+			x: 10 - 2 + 1,
+			y: 1,
+		});
 	});
 
 	it('should ignore an inset on a static box', () => {
@@ -913,16 +933,18 @@ describe('position: relative', () => {
 	});
 
 	it('should read bottom and right as a push the other way', () => {
+		// the padding is two and the push is one, so neither an ignored offset nor
+		// an ignored padding lands on the same answer
 		const tree = box(
-			{ 'flex-direction': 'column', padding: '1' },
+			{ 'flex-direction': 'column', padding: '2' },
 			box({ position: 'relative', bottom: '1', right: '1', width: '2', height: '1' })
 		);
 
-		expect(layout(tree, { height: 4, width: 6 }).children[0].box).toEqual({
+		expect(layout(tree, { height: 6, width: 8 }).children[0].box).toEqual({
 			height: 1,
 			width: 2,
-			x: 0,
-			y: 0,
+			x: 1,
+			y: 1,
 		});
 	});
 
@@ -1026,15 +1048,22 @@ describe('position: relative', () => {
 		expect(() => checkInvariants(result)).not.toThrow();
 	});
 
-	it('should still catch a relative box that overflows without an inset', () => {
-		// the exemption is keyed on an inset being declared, not on the keyword: a
-		// box that says `position: relative` and moves nowhere is checked like any
-		// other, so a placement bug under one cannot hide behind the property
-		const tree = box(
-			{ 'flex-direction': 'row' },
-			box({ position: 'relative', width: '20', 'flex-shrink': '0', height: '1' })
-		);
+	it('should still catch a relative box that overflows without having moved', () => {
+		// the exemption is keyed on the box having moved, not on the keyword and
+		// not on the declaration: a `top: 0` is declared and moves nothing, and a
+		// placement bug under either box must not hide behind the property
+		const nowhere: Record<string, string>[] = [{}, { top: '0' }, { left: '0%' }];
 
-		expect(() => checkInvariants(layout(tree, { height: 1, width: 10 }))).toThrow(/escapes/);
+		for (const declared of nowhere) {
+			const tree = box(
+				{ 'flex-direction': 'row' },
+				box({ position: 'relative', width: '20', 'flex-shrink': '0', height: '1', ...declared })
+			);
+
+			expect(
+				() => checkInvariants(layout(tree, { height: 1, width: 10 })),
+				JSON.stringify(declared)
+			).toThrow(/escapes/);
+		}
 	});
 });

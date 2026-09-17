@@ -432,12 +432,17 @@ false` rethrows instead; a function replaces the handler.
   where the value is read anyway: `position` may be set by a different rule in a
   different sheet, and a declaration is parsed on its own. A declaration whose
   effect depends on another declaration is not a property the engine ignores.
-- **An offset box is excused `checkInvariants()`, and nothing else is.** Landing
-  on a sibling or leaving the parent's content box is what `relative` is _for_,
-  so the containment and overlap checks skip a pair where either side is
+- **A box that _moved_ is excused `checkInvariants()`, and nothing else is.**
+  Landing on a sibling or leaving the parent's content box is what `relative` is
+  _for_, so the containment and overlap checks skip a pair where either side was
   offset -- a check that fails on the behaviour it is checking is a check that
-  gets deleted. Everything else on the tree, the offset box's own children
-  included, is checked as before.
+  gets deleted. Keyed on the used offset rather than on the keyword or on the
+  declaration: `position: relative` alone moves nothing, and `top: 0` is a
+  declaration that also moves nothing, so excusing either would reopen the net
+  for every overflow that happens to sit under one. The helper resolves the
+  insets itself rather than asking the engine, because a check that computes its
+  own answer is what makes it a check. Everything else on the tree, the offset
+  box's own children included, is checked as before.
 - **The insets resolve a percentage per axis, unlike the margins.** `top: 50%` is
   half the containing block's height, which is CSS; percentage margins resolve
   against the _width_ on both axes there and here. Copying the margins' rule over

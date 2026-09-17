@@ -1,4 +1,10 @@
-import { type LayoutNode, type LayoutResult, layout } from '../../src/layout/index.js';
+import {
+	type Box,
+	type LayoutNode,
+	type LayoutResult,
+	layout,
+	resolve,
+} from '../../src/layout/index.js';
 import { declare, type Declarations, type Style } from '../../src/style/index.js';
 import { stringWidth } from '../../src/width/index.js';
 import { wrap } from '../../src/wrap/index.js';
@@ -129,19 +135,33 @@ export function boxes(
 /**
  * Whether a node was moved off where the flow put it.
  *
- * Both halves are asked, because `position: relative` on its own moves nothing:
- * excusing a box that merely names the keyword would open the net for every one
- * that then overflows for an unrelated reason.
+ * The used offset is worked out rather than the declaration read, because
+ * declaring an inset and moving are different things: `top: 0` and a percentage
+ * of a containing block with no room both resolve to nowhere, and excusing a box
+ * that has not moved opens the net for every overflow that happens to sit under
+ * a `position: relative`. Re-derived here rather than asked of the engine on
+ * purpose -- a check that computes the answer independently is what makes it a
+ * check.
  *
  * @param node - The laid-out node.
- * @returns Whether `relative` and an inset were both declared.
+ * @param content - The containing block it was placed in.
+ * @returns Whether it ended up anywhere other than where the flow put it.
  */
-function isOffset(node: LayoutResult): boolean {
+function isOffset(node: LayoutResult, content: Box): boolean {
 	const { style } = node.node;
-	return (
-		style.position === 'relative' &&
-		[style.top, style.right, style.bottom, style.left].some((inset) => inset.type !== 'auto')
-	);
+	if (style.position !== 'relative') {
+		return false;
+	}
+
+	// `top` beats `bottom` and `left` beats `right`, as the engine resolves them
+	const left = resolve(style.left, content.width);
+	const right = resolve(style.right, content.width);
+	const top = resolve(style.top, content.height);
+	const bottom = resolve(style.bottom, content.height);
+
+	const x = left ?? (right === undefined ? 0 : -right);
+	const y = top ?? (bottom === undefined ? 0 : -bottom);
+	return x !== 0 || y !== 0;
 }
 
 /**
@@ -152,14 +172,14 @@ function isOffset(node: LayoutResult): boolean {
  * placed past the edge simply does not appear. A fuzzer found five hundred
  * containment violations that forty-two picture tests had no way to see.
  *
- * A `position: relative` child that declares an inset is excused both of them,
- * and that is the whole meaning of the property rather than a hole in the check:
- * the flow reserves its space at the un-offset position and the box is then
- * moved off it, so escaping the parent and landing on a sibling are what was
- * asked for. Keyed on the inset rather than on the keyword, because a box that
- * says `relative` and moves nowhere has nothing to excuse. Everything else on
- * the same tree is still checked, including the offset box's own children
- * against the offset box.
+ * A child the insets actually moved is excused both of them, and that is the
+ * whole meaning of `position: relative` rather than a hole in the check: the
+ * flow reserves its space at the un-offset position and the box is then moved
+ * off it, so escaping the parent and landing on a sibling are what was asked
+ * for. Keyed on having moved rather than on the keyword or on the declaration,
+ * because a box that says `relative` and stays put has nothing to excuse.
+ * Everything else on the same tree is still checked, including the offset box's
+ * own children against the offset box.
  *
  * @param result - The laid-out tree.
  * @param opts - `overflow` allows a child larger than its parent, which is what
@@ -174,7 +194,7 @@ export function checkInvariants(result: LayoutResult, opts: { overflow?: boolean
 		const line: LayoutResult[] = [];
 
 		for (const child of node.children) {
-			const offset = isOffset(child);
+			const offset = isOffset(child, node.content);
 
 			// a box with no area paints nothing, so where it sits cannot be wrong.
 			// A gap still advances the cursor in a container with no room, which
@@ -197,7 +217,7 @@ export function checkInvariants(result: LayoutResult, opts: { overflow?: boolean
 			}
 
 			for (const sibling of line) {
-				if (offset || isOffset(sibling)) {
+				if (offset || isOffset(sibling, node.content)) {
 					continue;
 				}
 				const apart =
