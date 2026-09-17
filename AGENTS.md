@@ -1163,8 +1163,13 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   is on. `~user` is a shell convention `expand()` does not implement, so it stays
   literal and is refused by the same rule rather than becoming a directory named
   `~nobody`, and a `~` with no home to put over it stays a `~` for the same
-  reason: interpolating the missing home wrote the word `undefined` into the
-  path, which is a directory name and not an error. See `test/paths.test.ts`.
+  reason. That last one needed `home()` fixed to mean it: it was
+  `paths ? join(_home, ...paths) : _home` and an array is always truthy, so a
+  bare `home()` went through `join()` and there was no way back out --
+  `join('')` is `'.'`, so a home the platform could not name came back as the
+  working directory, and `expand()` had no falsy value to leave the `~` alone
+  over. A real path where there is none is the one failure the caller cannot
+  see. See `test/paths.test.ts`.
 
 ## Known bugs
 

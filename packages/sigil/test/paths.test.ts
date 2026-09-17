@@ -43,9 +43,15 @@ const vars = [
 async function withPaths<T>(
 	env: Record<string, string | undefined>,
 	fn: (paths: Paths) => T,
-	platform?: NodeJS.Platform
+	{ platform, home }: { platform?: NodeJS.Platform; home?: string } = {}
 ): Promise<T> {
 	vi.resetModules();
+	if (home !== undefined) {
+		vi.doMock('node:os', async (importOriginal) => ({
+			...(await importOriginal<typeof import('node:os')>()),
+			homedir: () => home,
+		}));
+	}
 	const paths = await import('../src/paths.js');
 	const origEnv = new Map(vars.map((name) => [name, process.env[name]]));
 	const origPlatform = Object.getOwnPropertyDescriptor(process, 'platform')!;
@@ -64,6 +70,7 @@ async function withPaths<T>(
 		}
 		return fn(paths);
 	} finally {
+		vi.doUnmock('node:os');
 		Object.defineProperty(process, 'platform', origPlatform);
 		for (const [name, value] of origEnv) {
 			if (value === undefined) {
@@ -294,6 +301,14 @@ describe('paths', () => {
 			expect(dir).to.equal(fallback);
 		});
 
+		// a UNC share is absolute on Windows and a relative filename anywhere else,
+		// which is `node:path`'s answer and so is this module's
+		it.runIf(process.platform === 'win32')('should keep a UNC path', async () => {
+			const value = '\\\\server\\share\\cache';
+			const dir = await withPaths({ XDG_CACHE_HOME: value }, (paths) => paths.cache());
+			expect(dir).to.equal(value);
+		});
+
 		it('should be ignored for the runtime directory, which has no fallback', async () => {
 			const dir = await withPaths({ XDG_RUNTIME_DIR: './run' }, (paths) => paths.runtime());
 			expect(dir).to.equal(undefined);
@@ -388,19 +403,50 @@ describe('paths', () => {
 	// and `~/AppData/Local`, the fallback the array exists for, was unreachable
 	describe('an unexpanded %VAR% in a Windows fallback', () => {
 		it('should fall through to the next entry', async () => {
-			const dir = await withPaths({ LOCALAPPDATA: undefined }, (paths) => paths.cache(), 'win32');
+			const dir = await withPaths({ LOCALAPPDATA: undefined }, (paths) => paths.cache(), {
+				platform: 'win32',
+			});
 			expect(dir).to.equal(join(homedir(), 'AppData', 'Local'));
 		});
 
 		it('should still take the variable when it is set', async () => {
 			const local = join(homedir(), 'AppData', 'Sigil');
-			const dir = await withPaths({ LOCALAPPDATA: local }, (paths) => paths.cache(), 'win32');
+			const dir = await withPaths({ LOCALAPPDATA: local }, (paths) => paths.cache(), {
+				platform: 'win32',
+			});
 			expect(dir).to.equal(local);
 		});
 
 		it('should fall through a variable set to something relative', async () => {
-			const dir = await withPaths({ APPDATA: 'AppData' }, (paths) => paths.data(), 'win32');
+			const dir = await withPaths({ APPDATA: 'AppData' }, (paths) => paths.data(), {
+				platform: 'win32',
+			});
 			expect(dir).to.equal(join(homedir(), 'AppData', 'Roaming'));
+		});
+	});
+
+	// `home()` was `paths ? join(_home, ...paths) : _home`, and an array is always
+	// truthy -- so a bare `home()` went through `join()`, `join('')` is `'.'`, and
+	// a home the platform could not name came back as the working directory. The
+	// `~` guard in `expand()` was reading a value that could never be falsy
+	describe('a home directory the platform cannot name', () => {
+		it('should leave a ~ alone rather than answering with the working directory', async () => {
+			const dir = await withPaths({}, (paths) => paths.expand('~'), { home: '' });
+			expect(dir).to.equal('~');
+		});
+
+		it('should report the empty home rather than a path built from it', async () => {
+			const dir = await withPaths({}, (paths) => paths.home(), { home: '' });
+			expect(dir).to.equal('');
+		});
+
+		it('should leave every base directory unanswered rather than relative', async () => {
+			const dirs = await withPaths(
+				{},
+				(paths) => [paths.cache(), paths.config(), paths.data(), paths.state()],
+				{ home: '' }
+			);
+			expect(dirs).to.deep.equal([undefined, undefined, undefined, undefined]);
 		});
 	});
 

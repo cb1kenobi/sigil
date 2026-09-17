@@ -85,10 +85,11 @@ const winEnvVarRegExp = /(%([^%]*)%)/g;
 export function expand(...segments: string[]): string {
 	const dir = home();
 	if (dir) {
-		// a `~` with no home to put over it stays a `~`. Interpolating the
-		// `undefined` wrote that word into the path, which is a directory name
-		// rather than an error, while a literal `~` is at least refused by
-		// `baseDir()` and falls back
+		// a `~` with no home to put over it stays a `~`, which `baseDir()` then
+		// refuses the way it refuses any other relative path. An empty home used
+		// to reach this as `'.'` -- see `home()` -- so `expand('~')` answered with
+		// the working directory, which is a real path and therefore the one
+		// failure the caller cannot see
 		segments[0] = segments[0].replace(homeDirRegExp, `${dir}$1`);
 	}
 
@@ -107,7 +108,11 @@ export function home(...paths: string[]): string | undefined {
 	if (!_home) {
 		_home = homedir();
 	}
-	return paths ? join(_home, ...paths) : _home;
+	// `paths.length`, not `paths`: an array is always truthy, so a bare `home()`
+	// went through `join()` and there was no way back out of it. `join('')` is
+	// `'.'`, so a home the platform could not name came back as the working
+	// directory, and `expand()` had no falsy value to leave a `~` alone over
+	return paths.length ? join(_home, ...paths) : _home;
 }
 
 export function runtime(...paths: string[]): string | undefined {
