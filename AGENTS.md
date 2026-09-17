@@ -40,7 +40,7 @@ Paths below are inside `packages/sigil/` unless noted.
 | `src/components/`        | Spinner, progress, table, prompts, key decoding      |
 | `src/signals/`           | The reactive graph: state, computed, watcher, effect |
 | `src/canvas/`            | Cell buffer, style interning, paint diff, sub-cell   |
-| `src/style/`             | The style property set, its values, and shorthands   |
+| `src/style/`             | Properties, values, shorthands, selectors, cascade   |
 | `src/layout/`            | The flexbox subset, over whole cells                 |
 | `src/infer.ts`           | `initOption()` and `initArg()`, in the type system   |
 | `src/util/`              | Shared helpers (type coercion, camelCase, mkdir)     |
@@ -567,6 +567,112 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
 - **Margins take a length and paddings take a count.** `auto` is how a box is
   centred and how it is pushed to one end, and a negative margin is a real
   thing; neither is true of padding.
+
+### Stylesheets and the cascade
+
+- **The sheet supplies defaults and props win, per property.** A sheet setting
+  `color` and a prop setting `padding` both apply, and the prop only beats the
+  sheet on properties it actually names -- which is where `style=""` sits in a
+  browser, so it is the familiar rule rather than a new one. The useful
+  consequence is a fast path: a prop write cannot change any _other_ element's
+  resolved style, so it skips the cascade entirely. `resolveSheets()` hands back
+  a `CascadeResult` that a caller keeps, and `applyProps()` re-applies props over
+  it with no selector matched and nothing else touched.
+- **No attribute selectors.** They were in the original sketch and are
+  deliberately out: if a rule can match on a prop, then writing a prop can
+  restyle some other element and the fast path above disappears. State a
+  component would have expressed as `[disabled]` goes through a class or a state
+  pseudo-class instead. Cheap trade for a clean invalidation boundary, and the
+  error message says so rather than reading as an unimplemented feature.
+- **The selector engine takes a `StyleNode`, not an element**, for the reason
+  the layout engine takes a `LayoutNode`: this is the layer testable with no
+  terminal, no renderer, and no reactivity, and it keeps that only by not
+  knowing what an element is. There is no bag of attributes on it, which is the
+  same decision as the one above seen from the other side.
+- **The cascade sorts by layer, then origin, then specificity, then source
+  order.** The standard algorithm with the one axis a terminal UI needs added;
+  inventing a different one buys nothing and costs everyone's intuition. The
+  layer axis is what the utility layer (SIG-80) proves is necessary:
+  `.button { padding: 4 }` and `.p-2 { padding: 2 }` are both `(0,1,0)`, so
+  without layers the winner is whichever sheet happened to be concatenated last.
+  It is here now rather than later because retrofitting an ordering axis into a
+  shipped cascade changes the meaning of every stylesheet written against it.
+- **The three layers are fixed and an author cannot declare more.** `base`, then
+  `components`, then `utilities`. Fixed is smaller and nobody has a case for a
+  fourth; `@layer mine` and the bare `@layer a, b;` ordering statement are both
+  refused rather than quietly accepted, since the second would be a lie.
+- **A rule outside an `@layer` block is in `components`.** That is where a
+  hand-written app or component sheet belongs -- it is precisely what the
+  utilities layer has to be able to beat -- and it is why the default is not the
+  CSS answer, where unlayered rules outrank every layer.
+- **`!important` inverts origin and layer, and nothing else.** Specificity and
+  source order are never inverted, which is CSS. The inversion is the whole
+  reason `!important` is retained: a component copied in by `sigil add` that
+  bakes `color="red"` into its template would otherwise be unthemeable with no
+  recourse. The convention that goes with it is that component templates set
+  classes, not style props.
+- **Props are the band between normal and important, and they never carry a
+  precedence.** Applying them last and skipping the properties an important
+  declaration won says exactly the same thing as giving them a band of their
+  own, and it is the fast path rather than a second pass over the rules.
+  `CascadeResult.locked` is how that survives being cached.
+- **The cascade hands back a plain resolved style per element; interning is the
+  canvas's business.** That settles the question the ticket left open. A
+  resolved `Style` is fifty-odd properties that mostly differ per element, while
+  a canvas cell style is a foreground, a background, and some attributes
+  repeated across thousands of cells -- interning pays there and not here, and
+  the renderer maps one to the other at paint time.
+- **A rule's selector list reports the highest specificity that matched.** A
+  rule written `#go, box { ... }` behaves as though it were written once per
+  selector, which is CSS; matching it once per bucket and keeping the best is
+  how one rule with several selectors avoids being counted twice.
+- **Matching is right-to-left and rules are bucketed by their rightmost simple
+  selector** -- an id, else the last class, else the type, else the universal
+  bucket -- so an element only tests rules that could possibly match it. Worth
+  keeping in proportion: browsers optimize this hard because they have ten
+  thousand elements and ten thousand rules, and a terminal UI has a couple of
+  hundred of each. Naive may simply be the permanent answer; see SIG-65.
+- **An element with no parent is a first child.** It has no siblings, so it is
+  the first of them, which is what browsers answer for the root element.
+- **`:hover` parses and matches nothing.** Mouse tracking does not exist yet and
+  the selector engine must not assume it never will; a selector that reads
+  correctly and matches nothing is an answer, and one that throws is a missing
+  feature somebody works around with a class they then cannot remove.
+- **Types, classes, and ids match case-sensitively; keywords do not.** They are
+  JavaScript-land names rather than CSS keywords, so `Box` and `box` are
+  different elements, while `:FOCUS` and `inherit` are read in any case the way
+  every property name already is.
+- **`inherit`, `initial`, and `unset` are cascade-level and a value parser never
+  sees one.** `inherit` is not a colour, and it is not fourteen other things
+  either, so they are recognised once rather than added to every grammar --
+  which is also why `readDeclarations()` refuses them: "what does this
+  declaration set" has no answer for `inherit` without a parent, and only
+  `declare()` and the cascade have one. `currentcolor` is deliberately not among
+  them: it needs a resolution order of its own -- a value depending on another
+  property of the same element, resolved after the winners are picked -- and
+  nothing needs it yet.
+- **A shorthand carries the longhands it covers, next to its expander.** The
+  cascade asks for the set before there is a value to expand, since
+  `padding: inherit` has to reach all four edges, and a list kept in a second
+  table is a list that drifts. The three multi-longhand aliases -- `font-weight`,
+  `font-style`, `text-decoration` -- carry theirs the same way.
+- **One scale for colour in a media query, and it is `ColorLevel`'s 0-3.** CSS's
+  `color` feature counts bits per component; a second, narrower spelling of a
+  scale the library already has is how two parts of one library come to disagree
+  about what `2` means. Media types and `not`/`only` are out: there is one
+  medium, and the other two exist to hide queries from parsers that predate them.
+- **An unknown property in a stylesheet is an error, not a skipped
+  declaration.** CSS skips because the web has to survive a sheet written for a
+  browser that does not exist yet; a CLI ships its sheet with its runtime, so a
+  typo is a bug and reporting it where it was written is worth more than
+  forward-compatibility nobody needs.
+- **A stylesheet error says which line, and the line is counted only when one is
+  thrown.** The parser carries indices rather than lines, because counting
+  newlines per rule makes parsing a sheet with nothing wrong with it quadratic
+  in its own length.
+- **Comments are removed by the cursor, not by each reader.** A comment may sit
+  anywhere, mid-selector included, and every reader downstream would otherwise
+  have to know that -- and a semicolon inside one is not a declaration boundary.
 
 ### Canvas
 

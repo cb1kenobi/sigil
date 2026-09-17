@@ -10,6 +10,7 @@ import {
 	isKnownProperty,
 	isShorthand,
 	kebab,
+	longhandsFor,
 	NONE,
 	parseColor,
 	parseDeclaration,
@@ -700,5 +701,62 @@ describe('number grammar edges', () => {
 		const zero = parseLength('-0');
 		expect(zero).toEqual(cells(0));
 		expect(Object.is((zero as { value: number }).value, 0)).toBe(true);
+	});
+});
+
+describe('the longhands a name covers', () => {
+	/** One value per shorthand, so a shorthand added without one fails here. */
+	const SAMPLES: Record<string, string> = {
+		border: 'single red',
+		flex: '1 1 2',
+		'flex-flow': 'row wrap',
+		gap: '1',
+		inset: '1',
+		margin: '1',
+		padding: '1',
+	};
+
+	it('should be exactly what expanding one produces', () => {
+		// the longhand list and the expander are one table entry for this reason:
+		// the cascade asks for the list before there is a value to expand, and a
+		// list that disagrees with its own expander is a `padding: inherit` that
+		// misses an edge
+		for (const name of SHORTHAND_NAMES) {
+			const sample = SAMPLES[name];
+			expect(sample, `no sample value for the "${name}" shorthand`).toBeDefined();
+			expect(new Set(expandShorthand(name, sample).map(([property]) => property)), name).toEqual(
+				new Set(longhandsFor(name))
+			);
+		}
+	});
+
+	it('should cover both halves of an alias that maps onto two properties', () => {
+		expect(longhandsFor('font-weight')).toEqual(['bold', 'dim']);
+		expect(longhandsFor('fontWeight')).toEqual(['bold', 'dim']);
+		expect(longhandsFor('text-decoration')).toEqual(['underline', 'strikethrough', 'overline']);
+		for (const [name, value] of [
+			['font-weight', 'bold'],
+			['font-style', 'italic'],
+			['text-decoration', 'underline'],
+		]) {
+			expect(new Set(parseDeclaration(name, value).map(([property]) => property)), name).toEqual(
+				new Set(longhandsFor(name))
+			);
+		}
+	});
+
+	it('should be the property itself for an ordinary one, in either spelling', () => {
+		expect(longhandsFor('background-color')).toEqual(['backgroundColor']);
+		expect(longhandsFor('backgroundColor')).toEqual(['backgroundColor']);
+		expect(() => longhandsFor('nonsense')).toThrow(StyleError);
+	});
+});
+
+describe('a cascade keyword outside a cascade', () => {
+	it('should be refused rather than guessed at', () => {
+		// "what does this declaration set" has no answer for `inherit` without a
+		// parent, and `readDeclarations` has none
+		expect(() => readDeclarations({ color: 'inherit' })).toThrow(/cascade keyword/);
+		expect(() => readDeclarations({ padding: 'unset' })).toThrow(StyleError);
 	});
 });
