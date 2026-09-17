@@ -1,13 +1,15 @@
 /**
- * The style property set: every property a terminal can express, what it
- * starts as, and whether it inherits.
+ * Style: the property set, the stylesheet, and the cascade.
  *
- * This is the table everything in the style system reads. The cascade, the
- * layout engine, invalidation, and animation all ask it rather than carrying
- * lists of their own, so a property is added in one place.
+ * `properties.ts` is the table everything else reads -- every property a
+ * terminal can express, what it starts as, and whether it inherits. The layout
+ * engine, invalidation, and animation all ask it rather than carrying lists of
+ * their own, so a property is added in one place. `selector.ts`,
+ * `stylesheet.ts`, and `cascade.ts` are the rest: what a rule matches, where it
+ * sits, and which declaration wins.
  *
  * ```js
- * import { declare, initialStyle, PROPERTIES } from '@ttylabs/sigil/style';
+ * import { Cascade, declare, parseStylesheet, PROPERTIES } from '@ttylabs/sigil/style';
  *
  * const style = declare({ padding: '1 2', color: 'red', 'flex-grow': '1' });
  * style.paddingLeft;  // 2
@@ -15,19 +17,21 @@
  *
  * PROPERTIES.color.inherits;  // true
  * PROPERTIES.width.initial;   // { type: 'auto' }
+ *
+ * const cascade = new Cascade([parseStylesheet('.panel:focus > text { color: cyan }')]);
+ * cascade.resolve(node, { parent: parentStyle, props: { padding: '1' } });
  * ```
  */
 
+import { readSettings, resolveKeyword } from './declaration.js';
 import {
 	initialStyle,
 	inheritFrom,
 	isProperty,
-	parseDeclaration,
 	type PropertyName,
-	PROPERTIES,
 	type Style,
 } from './properties.js';
-import { expandShorthand, isShorthand } from './shorthand.js';
+import { isShorthand } from './shorthand.js';
 
 export {
 	type AlignContent,
@@ -57,7 +61,59 @@ export {
 	type Visibility,
 	type WhiteSpace,
 } from './properties.js';
-export { expandShorthand, isShorthand, SHORTHAND_NAMES } from './shorthand.js';
+export {
+	Cascade,
+	type CascadeResult,
+	type Matched,
+	type PropValues,
+	type ResolveOptions,
+	applyProps,
+} from './cascade.js';
+export {
+	type Setting,
+	type WideKeyword,
+	longhandsFor,
+	readSettings,
+	resolveKeyword,
+	wideKeyword,
+} from './declaration.js';
+export {
+	type Combinator,
+	type Compound,
+	type Selector,
+	type Simple,
+	type Specificity,
+	type Step,
+	type StyleNode,
+	type StyleState,
+	compareSpecificity,
+	keysFor,
+	matches,
+	parseSelector,
+	parseSelectorList,
+	STATES,
+	UNIVERSAL_KEY,
+} from './selector.js';
+export { expandShorthand, isShorthand, SHORTHAND_NAMES, shorthandLonghands } from './shorthand.js';
+export {
+	type Layer,
+	type MediaCondition,
+	type MediaContext,
+	type MediaFeature,
+	type MediaQuery,
+	type MediaQueryList,
+	type Origin,
+	type Rule,
+	type RuleDeclaration,
+	type Stylesheet,
+	type StylesheetOptions,
+	DEFAULT_MEDIA,
+	LAYERS,
+	matchesMedia,
+	ORIGINS,
+	parseMediaQueryList,
+	parseStylesheet,
+} from './stylesheet.js';
 export {
 	AUTO,
 	cells,
@@ -70,6 +126,7 @@ export {
 	percent,
 	StyleError,
 } from './value.js';
+import { StyleError } from './value.js';
 
 /** One declaration, as written: a property or shorthand, and its value. */
 export type Declarations = Record<string, string>;
@@ -82,6 +139,10 @@ export type Declarations = Record<string, string>;
  * which is the property that could not take it, rather than against the
  * shorthand, which could not say which part was wrong.
  *
+ * A cascade keyword is refused here rather than guessed at: "what does this
+ * declaration set" has no answer for `inherit` without a parent, and this
+ * function has none. `declare()` does, and takes them.
+ *
  * @param declarations - What was written.
  * @returns The properties and their parsed values.
  */
@@ -91,15 +152,13 @@ export function readDeclarations(
 	const out: Partial<Record<PropertyName, unknown>> = {};
 
 	for (const [name, value] of Object.entries(declarations)) {
-		if (isShorthand(name)) {
-			for (const [property, raw] of expandShorthand(name, value)) {
-				out[property] = PROPERTIES[property].parse(raw);
+		for (const setting of readSettings(name, value)) {
+			if (setting.keyword) {
+				throw new StyleError(
+					`"${setting.keyword}" is a cascade keyword: it means nothing without a cascade to resolve it against`
+				);
 			}
-			continue;
-		}
-
-		for (const [property, parsed] of parseDeclaration(name, value)) {
-			out[property] = parsed;
+			out[setting.property] = setting.value;
 		}
 	}
 
@@ -121,8 +180,12 @@ export function readDeclarations(
  */
 export function declare(declarations: Declarations = {}, parent?: Style): Style {
 	const style = (parent ? inheritFrom(parent) : initialStyle()) as Record<PropertyName, unknown>;
-	for (const [name, value] of Object.entries(readDeclarations(declarations))) {
-		style[name as PropertyName] = value;
+	for (const [name, value] of Object.entries(declarations)) {
+		for (const setting of readSettings(name, value)) {
+			style[setting.property] = setting.keyword
+				? resolveKeyword(setting.keyword, setting.property, parent)
+				: setting.value;
+		}
 	}
 	return style as Style;
 }

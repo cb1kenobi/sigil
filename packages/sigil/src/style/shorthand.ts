@@ -68,20 +68,43 @@ function edges(values: string[], edgeNames: Edges, name: string): [PropertyName,
 const PADDING: Edges = ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft'];
 const MARGIN: Edges = ['marginTop', 'marginRight', 'marginBottom', 'marginLeft'];
 const INSET: Edges = ['top', 'right', 'bottom', 'left'];
+const GAP: readonly PropertyName[] = ['rowGap', 'columnGap'];
+const BORDER: readonly PropertyName[] = ['borderStyle', 'borderColor'];
+const FLEX: readonly PropertyName[] = ['flexGrow', 'flexShrink', 'flexBasis'];
+const FLEX_FLOW: readonly PropertyName[] = ['flexDirection', 'flexWrap'];
 
 type Expander = (values: string[]) => [PropertyName, string][];
 
-const SHORTHANDS: Record<string, Expander> = {
+/**
+ * A shorthand: the longhands it covers, and how it reads a value into them.
+ *
+ * The two are one entry rather than two tables, for the reason the property
+ * table gives: a shorthand is added in one place or it is added wrong. The
+ * longhand list is the fixed set the shorthand *covers*, which is not what one
+ * use of it happens to mention -- a shorthand resets every longhand it covers,
+ * and `inherit` needs the whole set before any value has been read.
+ */
+interface Shorthand {
+	readonly expand: Expander;
+	readonly longhands: readonly PropertyName[];
+}
+
+/** Builds one entry, so that each reads as a list and a reader. */
+function shorthand(longhands: readonly PropertyName[], expand: Expander): Shorthand {
+	return { expand, longhands };
+}
+
+const SHORTHANDS: Record<string, Shorthand> = {
 	// null-prototype, for the reason AGENTS.md gives under Conventions: on a plain
 	// object `__proto__` and `constructor` read back truthy, so `isShorthand`
 	// answered yes and the expander lookup then handed back something that is not
 	// a function
 	__proto__: null,
-	padding: (v) => edges(v, PADDING, 'padding'),
-	margin: (v) => edges(v, MARGIN, 'margin'),
-	inset: (v) => edges(v, INSET, 'inset'),
+	padding: shorthand(PADDING, (v) => edges(v, PADDING, 'padding')),
+	margin: shorthand(MARGIN, (v) => edges(v, MARGIN, 'margin')),
+	inset: shorthand(INSET, (v) => edges(v, INSET, 'inset')),
 
-	gap: (v) => {
+	gap: shorthand(GAP, (v) => {
 		if (v.length === 1) {
 			return [
 				['rowGap', v[0]],
@@ -95,7 +118,7 @@ const SHORTHANDS: Record<string, Expander> = {
 			];
 		}
 		throw new StyleError('Invalid gap: expected one or two values');
-	},
+	}),
 
 	/**
 	 * `border: <style> <color>`, in either order and either alone.
@@ -105,7 +128,7 @@ const SHORTHANDS: Record<string, Expander> = {
 	 */
 	// `none` is the one ambiguous token: a valid border-style *and* a valid way to
 	// spell "no colour". Style wins, because the first position is the style's
-	border: (v) => {
+	border: shorthand(BORDER, (v) => {
 		if (v.length === 0 || v.length > 2) {
 			throw new StyleError('Invalid border: expected a style, a colour, or both');
 		}
@@ -152,7 +175,7 @@ const SHORTHANDS: Record<string, Expander> = {
 		}
 
 		return out;
-	},
+	}),
 
 	/**
 	 * `flex: <grow> <shrink> <basis>`, with the CSS shorthand's defaults.
@@ -161,7 +184,7 @@ const SHORTHANDS: Record<string, Expander> = {
 	 * people every time and it is the behavior everyone's muscle memory expects,
 	 * so it is what this does.
 	 */
-	flex: (v) => {
+	flex: shorthand(FLEX, (v) => {
 		if (v.length === 0 || v.length > 3) {
 			throw new StyleError('Invalid flex: expected one to three values');
 		}
@@ -211,7 +234,7 @@ const SHORTHANDS: Record<string, Expander> = {
 			// everybody's muscle memory expects
 			['flexBasis', basis ?? (numbers.length > 0 ? '0' : 'auto')],
 		];
-	},
+	}),
 
 	/**
 	 * `<flex-direction> || <flex-wrap>` -- either alone, in either order, which is
@@ -219,7 +242,7 @@ const SHORTHANDS: Record<string, Expander> = {
 	 * positional form was read, so `flex-flow: wrap` was rejected as an invalid
 	 * direction.
 	 */
-	'flex-flow': (v) => {
+	'flex-flow': shorthand(FLEX_FLOW, (v) => {
 		if (v.length === 0 || v.length > 2) {
 			throw new StyleError('Invalid flex-flow: expected a direction, a wrap, or both');
 		}
@@ -245,8 +268,8 @@ const SHORTHANDS: Record<string, Expander> = {
 			['flexDirection', direction ?? 'row'],
 			['flexWrap', wrap ?? 'nowrap'],
 		];
-	},
-} as unknown as Record<string, Expander>;
+	}),
+} as unknown as Record<string, Shorthand>;
 
 /** A plain `<number>`, for telling a flex factor from a basis. */
 const NUMBER = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i;
@@ -269,7 +292,7 @@ function accepts(property: PropertyName, value: string): boolean {
 }
 
 /** The shorthand a name refers to, in either spelling and any case. */
-function shorthandFor(name: string): Expander | undefined {
+function shorthandFor(name: string): Shorthand | undefined {
 	const trimmed = name.trim();
 	const kebab = trimmed.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
 	for (const candidate of [trimmed.toLowerCase(), kebab.toLowerCase()]) {
@@ -298,9 +321,22 @@ export const SHORTHAND_NAMES: readonly string[] = Object.keys(SHORTHANDS);
  * @returns The longhand declarations.
  */
 export function expandShorthand(name: string, value: string): [PropertyName, string][] {
-	const expander = shorthandFor(name);
-	if (!expander) {
+	const entry = shorthandFor(name);
+	if (!entry) {
 		throw new StyleError(`"${name}" is not a shorthand`);
 	}
-	return expander(parts(value));
+	return entry.expand(parts(value));
+}
+
+/**
+ * The longhands a shorthand covers, whatever a given use of it mentions.
+ *
+ * Asked by the cascade, which has to expand `padding: inherit` into four
+ * properties without a value for any parser to read.
+ *
+ * @param name - The shorthand, in either spelling and any case.
+ * @returns The longhands, or `undefined` if the name is not a shorthand.
+ */
+export function shorthandLonghands(name: string): readonly PropertyName[] | undefined {
+	return shorthandFor(name)?.longhands;
 }

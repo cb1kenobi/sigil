@@ -373,6 +373,29 @@ const WEIGHT_TO_FLAG: Record<string, PropertyName> = {
 } as unknown as Record<string, PropertyName>;
 
 /**
+ * An alias: the longhands it sets, and how it reads a value into them. A plain
+ * string is the ordinary case, where one CSS name is one property.
+ *
+ * The longhand list travels with the reader for the reason the shorthand table
+ * gives -- `font-weight: inherit` has to reach `bold` and `dim` with no value
+ * for either parser to read.
+ */
+type Alias =
+	| PropertyName
+	| {
+			readonly expand: (value: string) => [PropertyName, string][];
+			readonly longhands: readonly PropertyName[];
+	  };
+
+/** Builds one multi-longhand alias entry. */
+function alias(
+	longhands: readonly PropertyName[],
+	expand: (value: string) => [PropertyName, string][]
+): Alias {
+	return { expand, longhands };
+}
+
+/**
  * Properties whose CSS name is not a simple kebab-case of the property, or that
  * are spelled differently here because the terminal version is a different idea.
  */
@@ -383,7 +406,7 @@ const ALIASES = {
 	// `declare({ constructor: 'red' })` was a TypeError rather than an error
 	// anybody could act on
 	__proto__: null,
-	'font-weight': (value: string) => {
+	'font-weight': alias(['bold', 'dim'], (value: string) => {
 		const key = value.trim().toLowerCase();
 		if (key === 'normal') {
 			return [
@@ -409,8 +432,8 @@ const ALIASES = {
 					['bold', 'false'],
 					['dim', 'true'],
 				];
-	},
-	'font-style': (value: string) => {
+	}),
+	'font-style': alias(['italic'], (value: string) => {
 		const key = value.trim().toLowerCase();
 		if (key === 'normal') {
 			return [['italic', 'false']];
@@ -419,8 +442,8 @@ const ALIASES = {
 			return [['italic', 'true']];
 		}
 		throw new StyleError(`Invalid font-style "${value}": expected normal or italic`);
-	},
-	'text-decoration': (value: string) => {
+	}),
+	'text-decoration': alias(['underline', 'strikethrough', 'overline'], (value: string) => {
 		const wanted = new Set(value.trim().toLowerCase().split(/\s+/));
 		const known: [PropertyName, string][] = [
 			['underline', String(wanted.has('underline'))],
@@ -433,8 +456,8 @@ const ALIASES = {
 			}
 		}
 		return known;
-	},
-} as unknown as Record<string, PropertyName | ((value: string) => [PropertyName, string][])>;
+	}),
+} as unknown as Record<string, Alias>;
 
 /**
  * Whether a name is a property this table holds, in either spelling and in any
@@ -457,9 +480,7 @@ export function isProperty(name: string): boolean {
  * @param name - The property name.
  * @returns The alias, if there is one.
  */
-function aliasFor(
-	name: string
-): PropertyName | ((value: string) => [PropertyName, string][]) | undefined {
+function aliasFor(name: string): Alias | undefined {
 	const trimmed = name.trim();
 	for (const candidate of [trimmed.toLowerCase(), kebabOf(trimmed).toLowerCase()]) {
 		if (Object.hasOwn(ALIASES, candidate)) {
@@ -522,10 +543,10 @@ export function kebab(name: PropertyName): string {
  * @returns The longhand properties and their parsed values.
  */
 export function parseDeclaration(name: string, value: string): [PropertyName, unknown][] {
-	const alias = aliasFor(name);
-	if (alias) {
+	const entry = aliasFor(name);
+	if (entry) {
 		const pairs: [PropertyName, string][] =
-			typeof alias === 'function' ? alias(value) : [[alias, value]];
+			typeof entry === 'string' ? [[entry, value]] : entry.expand(value);
 		return pairs.map(([prop, raw]) => [prop, PROPERTIES[prop].parse(raw)]);
 	}
 
@@ -566,4 +587,23 @@ export function inheritFrom(parent: Style): Style {
 		style[name] = parent[name];
 	}
 	return style as Style;
+}
+
+/**
+ * The longhands a property name sets, whatever value it is given.
+ *
+ * One for an ordinary property, more for an alias that maps onto several --
+ * `font-weight` is `bold` and `dim`. Asked by the cascade, which has to expand
+ * `font-weight: inherit` without a value for any parser to read.
+ *
+ * @param name - The property, in either spelling and any case.
+ * @returns The longhands, or `undefined` if there is no such property.
+ */
+export function propertyLonghands(name: string): readonly PropertyName[] | undefined {
+	const entry = aliasFor(name);
+	if (entry !== undefined) {
+		return typeof entry === 'string' ? [entry] : entry.longhands;
+	}
+	const key = resolveName(name);
+	return key === undefined ? undefined : [key];
 }
