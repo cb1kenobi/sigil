@@ -14,8 +14,7 @@ export async function loadCommand(cmd: InternalCommand): Promise<InternalCommand
 	}
 
 	if (internal.path) {
-		const file = pathToFileURL(internal.path).toString();
-		log(`Loading command: ${file}`);
+		log(`Loading command: ${internal.path}`);
 
 		if (!existsSync(internal.path)) {
 			throw new Error(`Command module not found: ${internal.path}`);
@@ -23,7 +22,11 @@ export async function loadCommand(cmd: InternalCommand): Promise<InternalCommand
 
 		let def;
 		try {
-			def = (await import(file)).default;
+			// the URL is for the loader and goes no further: everything else here
+			// answers questions about the file system -- where the module sits, and
+			// so what the paths it declares are relative to -- and `file:///a/b.js`
+			// is not a directory anything can be resolved against
+			def = (await import(pathToFileURL(internal.path).href)).default;
 		} catch (e: unknown) {
 			throw new Error(`Failed to load command module: ${(<Error>e).message}`);
 		}
@@ -49,8 +52,13 @@ export async function loadCommand(cmd: InternalCommand): Promise<InternalCommand
 		// would leak the placeholder's name and aliases into the next parse
 		const merged: Command = { ...def };
 
+		// every key but `path`: that is how this module was found rather than
+		// something the command it declares still needs, and carried across it
+		// would be resolved a second time -- against this module rather than
+		// against the file that declared the placeholder, which is a different
+		// directory
 		for (const [key, value] of Object.entries(cmd)) {
-			if (merged[key] === undefined) {
+			if (key !== 'path' && merged[key] === undefined) {
 				merged[key] = value;
 			}
 		}
@@ -79,7 +87,16 @@ export async function loadCommand(cmd: InternalCommand): Promise<InternalCommand
 			];
 		}
 
-		const loaded = await initCommand(merged, file);
+		// `merged` is two declarations in one object, and a relative path means
+		// something different in each: what the module declared is relative to the
+		// module, while what the placeholder filled in is relative to the file
+		// that declared the placeholder. The subcommands came from one or the
+		// other and never both, so the base follows them
+		const loaded = await initCommand(
+			merged,
+			internal.path,
+			def.commands === undefined ? internal.baseDir : undefined
+		);
 
 		// ...and the same goes for the help label, unless the module renamed
 		// the command and brought its own labels

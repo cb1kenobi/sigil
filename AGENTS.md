@@ -362,6 +362,29 @@ false` rethrows instead; a function replaces the handler.
   conditions this loader can honor are read: `import`, `node`, `default`, then
   `require`, since a CommonJS entry still loads. `browser`, `types`, and user
   conditions are skipped rather than guessed at.
+- **A path in a command declaration is relative to the file that declared it.**
+  A command's own `path` was resolved against the module it came from and the
+  subcommands that module declared were not, so a module exporting
+  `commands: { all: './all.js' }` -- the layout a large CLI actually wants --
+  was looked up from the process's working directory, which for an installed
+  CLI is wherever the user was standing and has nothing to do with where the
+  command modules live. Three things hold it together. The directory is settled
+  before the subcommands are registered rather than after, because registering
+  them is what reads their paths. It is carried as `cmd[Internal].baseDir`
+  rather than recovered from the command's own resolved `path`: a placeholder's
+  `path` points one directory away from the file that declared it, and a lazily
+  loaded command's declaration is two files mixed into one -- what the module
+  declared is relative to the module, what the placeholder filled in is
+  relative to the file that declared the placeholder, and only one of the two
+  brought the subcommands. And it is `resolve()` rather than `join()`, so an
+  absolute path stays the answer it already was instead of being hung off a
+  base. `loadCommand()` therefore hands `initCommand()` the file system path
+  and builds the `file://` URL only for the dynamic `import()`, which is the
+  one reader that wants one: `dirname('file:///a/b.js')` is not a directory
+  anything can be resolved against. A schema the app wrote inline has no file
+  to be relative to, so its own paths still resolve from the working directory
+  -- which is why every example passes an absolute one. Covered by
+  `test/parser/regressions.test.ts`.
 - **A command is fixed once it is initialized, and its declaration containers
   are read-only.** `cmd.args`, `cmd.commands`, and `cmd.options` echo the
   declaration; the parser reads the normalized arguments and the registries at

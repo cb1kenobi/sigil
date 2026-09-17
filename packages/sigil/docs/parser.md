@@ -206,6 +206,13 @@ honored.
 The module must default-export a command object. Loading is deferred until the
 command is actually matched, so a large CLI only pays for the branch it takes.
 
+A path is relative to the file that declared it, the same as an `import` in
+that file: a command module exporting `commands: { all: './all.js' }` is
+answered by the `all.js` sitting next to it, whatever directory the app was run
+from. The schema the app hands `parse()` is the exception, because there is no
+file to be relative to — a path there resolves from the working directory, so
+pass an absolute one, built from `import.meta.url`.
+
 Only the placeholder sees the name string, so the aliases and help label parsed
 from it are carried onto the loaded command; a module that declares its own
 `name` string brings its own label instead. An `alias` the module declares is
