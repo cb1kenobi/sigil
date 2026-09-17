@@ -42,6 +42,7 @@ export {
 	type Display,
 	type FlexDirection,
 	type FlexWrap,
+	COLOR_PROPERTIES,
 	inheritFrom,
 	INHERITED,
 	initialStyle,

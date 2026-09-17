@@ -724,6 +724,22 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   `media.colorLevel`, and level 0 drops colour. One mechanism is easier to
   reason about than two, and it means `@media (color-level: 0)` is a thing an
   author can write.
+- **A `CascadeResult` carries the depth it was resolved at.** A prop can name a
+  colour, so the fast path has to degrade too -- and a `level` argument on
+  `applyProps()` defaulting to truecolor is a fast path that silently disagrees
+  with `resolve()` on exactly the terminals degradation exists for. The depth
+  travels with the result that was resolved at it.
+- **The colour properties are read off the property table, not listed again.**
+  A hand-written list is a second list to keep in agreement, and a fourth colour
+  property that it missed would parse and cascade and then quietly skip
+  degradation -- a wrong colour on screen with nothing to point at. Same rule
+  `INHERITED` already follows.
+- **The Oklab `b` row is the value that sums to zero, not the published
+  transcription.** For D65 white the LMS rows each sum to one, so `l`, `m` and
+  `s` are all 1 and the `a` and `b` rows have to sum to exactly zero or a grey
+  acquires chroma. The `a` row does; the published `b` row leaves a residue of
+  3.7e-8, a bias in one direction on every neutral colour there is. The test
+  pins the property rather than the digits.
 - **The memo is never evicted, because what reaches it is a declared colour.** An
   app has a few dozen of those, not the 16.7 million a cap would be protecting
   against -- a gradient painted cell by cell goes to the canvas directly and

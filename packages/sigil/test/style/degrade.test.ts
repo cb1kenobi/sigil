@@ -1,5 +1,6 @@
 import { DEFAULT_COLOR, palette, rgb } from '../../src/canvas/index.js';
 import {
+	applyProps,
 	Cascade,
 	declare,
 	degradeColor,
@@ -152,9 +153,14 @@ describe('oklab', () => {
 	});
 
 	it('should give a grey no chroma', () => {
-		const [, a, b] = oklab([128, 128, 128]);
-		expect(a).toBeCloseTo(0, 6);
-		expect(b).toBeCloseTo(0, 6);
+		// the property the b coefficient is pinned to, at a precision the published
+		// transcription does not reach: it leaves a 3.7e-8 residue, which is a bias
+		// in one direction on every neutral colour there is
+		for (const level of [0, 1, 64, 128, 200, 255]) {
+			const [, a, b] = oklab([level, level, level]);
+			expect(a, `a at ${level}`).toBeCloseTo(0, 9);
+			expect(b, `b at ${level}`).toBeCloseTo(0, 9);
+		}
 	});
 
 	it('should order lightness the way eyes do', () => {
@@ -236,10 +242,32 @@ describe('degrading through the cascade', () => {
 		expect(cascade.resolve(node).color).toBe(9);
 	});
 
-	it('should degrade what a prop set, on the fast path too', () => {
+	it('should degrade what a prop set', () => {
 		const cascade = new Cascade([sheet]);
 		cascade.media = { colorLevel: 1, height: 24, width: 80 };
 		expect(cascade.resolve(node, { props: { color: '#00ff00' } }).color).toBe(10);
+	});
+
+	it('should degrade a colour prop on the fast path, at the depth the result was resolved at', () => {
+		// the fast path is documented to give the same answer as resolving the
+		// whole thing, and a level argument defaulting to truecolor made it
+		// disagree on exactly the terminals degradation exists for
+		const cascade = new Cascade([sheet]);
+		cascade.media = { colorLevel: 1, height: 24, width: 80 };
+
+		const result = cascade.resolveSheets(node);
+		expect(result.colorLevel).toBe(1);
+		expect(applyProps(result, { color: '#00ff00' })).toEqual(
+			cascade.resolve(node, { props: { color: '#00ff00' } })
+		);
+		expect(applyProps(result, { color: '#00ff00' }).color).toBe(10);
+	});
+
+	it('should degrade a colour that was inherited rather than declared here', () => {
+		const cascade = new Cascade();
+		cascade.media = { colorLevel: 1, height: 24, width: 80 };
+		const parent = declare({ color: '#ff0000' });
+		expect(cascade.resolve({ type: 'text' }, { parent }).color).toBe(9);
 	});
 
 	it('should let the author say what a colour means at a depth', () => {

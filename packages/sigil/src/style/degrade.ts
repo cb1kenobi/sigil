@@ -21,13 +21,10 @@
 
 import type { ColorLevel } from '../ansi/color-support.js';
 import { type Color, DEFAULT_COLOR, palette } from '../canvas/style.js';
-import type { Style } from './properties.js';
+import { COLOR_PROPERTIES, type Style } from './properties.js';
 
 /** Where the 24-bit range starts, past the 256 palette. Mirrors `canvas/style.ts`. */
 const RGB_BASE = 0x100;
-
-/** The properties degradation touches. Everything else in a style is not a colour. */
-const COLOR_PROPERTIES = ['color', 'backgroundColor', 'borderColor'] as const;
 
 /**
  * The xterm default palette for the basic sixteen.
@@ -119,7 +116,14 @@ export function oklab(
 	return [
 		0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
 		1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
-		0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
+		// -0.8086758033 rather than Ottosson's published -0.808675766. For D65
+		// white the LMS rows each sum to one, so l, m and s are all 1 and the a and
+		// b rows have to sum to exactly zero or a grey acquires chroma. The a row
+		// does; the published b row leaves a residue of 3.7e-8, which is small but
+		// is a bias in one direction on every neutral colour there is. This is the
+		// value that makes the row sum zero, and `should give a grey no chroma`
+		// pins the property rather than the digits
+		0.0259040371 * l + 0.7827717662 * m - 0.8086758033 * s,
 	];
 }
 
@@ -250,9 +254,11 @@ export function degradeInto(style: Style, level: ColorLevel): Style {
 	if (level >= 3) {
 		return style;
 	}
+	// the table says which properties hold a colour, so the cast is a statement
+	// about that rather than about any particular property
 	const writable = style as unknown as Record<string, Color>;
 	for (const property of COLOR_PROPERTIES) {
-		writable[property] = degradeColor(style[property], level);
+		writable[property] = degradeColor(writable[property], level);
 	}
 	return style;
 }
