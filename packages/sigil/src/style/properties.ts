@@ -353,6 +353,68 @@ export const INHERITED: readonly PropertyName[] = PROPERTY_NAMES.filter(
 );
 
 /**
+ * The properties a change to which can move a box.
+ *
+ * The one piece of knowledge about the property set that cannot be derived from
+ * the definitions: the table knows what `white-space` accepts and cannot know
+ * that changing it re-wraps text. It sits here rather than in the invalidator so
+ * that it is next to the table a property is added to, and
+ * `properties.test.ts` checks that every property is classified one way or the
+ * other -- a property nobody classified would default to paint-only and move a
+ * box without anything re-laying it out, which is a frame that is simply wrong.
+ *
+ * Three that surprise people, and why each is here:
+ *
+ * - `borderStyle`, because a border takes a cell on each edge. The *colour* does
+ *   not, so `borderColor` is paint.
+ * - `textTransform` and `whiteSpace`, because both change how wide a text
+ *   measures -- uppercasing is not width-preserving outside ASCII, and wrapping
+ *   is the whole question `measure()` answers.
+ *
+ * And one that surprises people the other way: `visibility` is paint-only,
+ * because hidden content still takes its space. That is the layout engine's own
+ * recorded decision, not a shortcut taken here.
+ */
+export const LAYOUT_PROPERTIES: ReadonlySet<PropertyName> = new Set([
+	'display',
+	'flexDirection',
+	'flexGrow',
+	'flexShrink',
+	'flexBasis',
+	'flexWrap',
+	'justifyContent',
+	'alignItems',
+	'alignSelf',
+	'alignContent',
+	'order',
+	'rowGap',
+	'columnGap',
+	'boxSizing',
+	'width',
+	'height',
+	'minWidth',
+	'minHeight',
+	'maxWidth',
+	'maxHeight',
+	'paddingTop',
+	'paddingRight',
+	'paddingBottom',
+	'paddingLeft',
+	'marginTop',
+	'marginRight',
+	'marginBottom',
+	'marginLeft',
+	'borderStyle',
+	'position',
+	'top',
+	'right',
+	'bottom',
+	'left',
+	'textTransform',
+	'whiteSpace',
+]);
+
+/**
  * The properties that hold a colour, read off the table the way `INHERITED` is.
  *
  * Degradation walks these, and a hand-written list of them would be a second
