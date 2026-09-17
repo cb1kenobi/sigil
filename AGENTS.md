@@ -496,12 +496,19 @@ false` rethrows instead; a function replaces the handler.
   `max-width: 50%` against the ten it had just produced, so the text wrapped at
   five and was placed at ten -- the same defect the clamp exists to fix, one
   level along. Neither clamp alone does that, which is what made it worth a third
-  review round. A node's own declared `width` still wins over the clamp,
-  unclamped: what a `width: 10` under a `max-width: 6` should wrap at is a real
-  question with a wrong answer available, because the containing width a
-  percentage limit resolves against while measuring is not the one the node is
-  finally placed in -- clamping it there wrapped a text for five and placed it at
-  three, outside its parent. Left as it is, which is what `main` does.
+  review round.
+- **Only a limit in cells is honoured while measuring, which is the rule that a
+  percentage of an unknown size is `auto` applied where it belongs.** A node is
+  measured twice against different widths -- once for the intrinsic size of an
+  ancestor that is still being sized, once at the width that ancestor settled on
+  -- and a percentage limit resolves to a different number each time. Honoured,
+  `max-width: 50%` wrapped a text at ten for an auto-width column's own measure
+  and at five for its placement, so the column was drawn three rows around a
+  child six rows tall: a containment violation where cells produce none, and
+  where `main` produced none only by wrapping at the wrong width in the first
+  place. A cell limit is the same number both times, which is what makes it the
+  one that can be answered here. A node's own declared `width` wins over the
+  clamp for the same reason, and both leftovers are in Known bugs.
 - **A `measure` node reports its declaration rather than its content.** The
   `node.measure` branch reports `declaredWidth ?? content` and
   `declaredHeight ?? content`, with `min(content, declaration)` for the automatic
@@ -1219,17 +1226,18 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   Found while writing `--version` for `@ttylabs/cli`, which reads the state
   `main()` returns instead. Do not reach for `afterParse` to read a parsed
   value until this is fixed.
-- **A `width` under a narrower `max-width` wraps at the `width`.**
-  `measureUncached()` reads the declaration back off the node and wraps at it,
-  and the limits do not touch it -- so a `width: 10` under a `max-width: 6` lays
-  its text out for ten columns and is then drawn at six, on both axes, since a
-  row's re-measure in `placeLine()` asks the same function and gets the same ten
-  back. Clamping there is not the fix: the containing width a _percentage_ limit
-  resolves against while measuring is not the one the node is finally placed in,
-  so `max-width: 50%` then wrapped at five and placed at three, outside its own
-  parent. Settling it needs the percentage phase question -- what a percentage
-  resolves against while a containing block is still being sized -- and the
-  single-clamp rule that SIG-90 is taking to `layoutNode()`.
+- **A node wraps its content at a width a percentage limit or a declared `width`
+  can still narrow.** `measureUncached()` honours a limit in cells when the width
+  is the container's cross axis, and nothing else: a `max-width: 50%` and a
+  `width: 10` under a `max-width: 6` both lay their text out for a width the node
+  is not finally drawn at -- the same answer `main` gives. Both are the one
+  question: what a percentage resolves against while the containing block is
+  itself still being sized, and which of the two widths a node measured twice
+  should wrap at. Answering it half way is worse than not answering it: honouring
+  a percentage limit while measuring drew an auto-width column three rows around
+  a child six rows tall, and clamping the declared `width` put a text outside its
+  own parent. Settling it properly needs that phase rule and the single-clamp
+  rule SIG-90 is taking to `layoutNode()`.
 - A subcommand's option used before its subcommand is not protected from being
   consumed as an earlier option's value, because it is not declared yet on the
   pass that reads it. A default command's options are always in that position,

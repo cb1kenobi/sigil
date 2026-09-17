@@ -843,21 +843,22 @@ describe('measurement', () => {
 		checkInvariants(result);
 	});
 
-	it('should not resolve a percentage limit against a width that limit narrowed', () => {
-		// the clamp lives in `measureUncached()` and nowhere else, because that is
-		// where the containing width is. Clamping at the call site as well resolved
-		// `50%` against the ten it had just produced, so the text wrapped at five
-		// and was placed at ten
+	it('should not wrap at a percentage limit, which is a different width each time', () => {
+		// a node is measured twice against different widths -- once for the
+		// intrinsic size of an ancestor still being sized, once at the width that
+		// ancestor settled on -- and a percentage resolves to a different number
+		// each time. Honoured while measuring, `50%` wrapped at ten for the auto
+		// column's own measure and at five for its placement, so the column was
+		// three rows around a child six rows tall
 		const tree = box(
-			{ 'flex-direction': 'column', width: '20' },
-			text('one two three four five six', { 'max-width': '50%' })
+			{ 'align-items': 'flex-start', 'flex-direction': 'row', width: '20' },
+			box(
+				{ 'flex-direction': 'column' },
+				text('one two three four five six', { 'max-width': '50%' })
+			)
 		);
 
-		const result = layout(tree, { height: 20, width: 20 });
-		// three rows is the wrap at ten; two would be the wrap at twenty and six
-		// the wrap at five
-		expect(result.children[0].box.height).toBe(3);
-		checkInvariants(result);
+		checkInvariants(layout(tree, { height: 10, width: 20 }));
 	});
 
 	it('should measure a declared size on a text as the size it will be placed at', () => {

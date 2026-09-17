@@ -244,19 +244,26 @@ function measureUncached(
 	// clamped past its limit and pays for it twice -- so a row measures wide and
 	// is re-measured in `placeLine()` at the width flexing settled on.
 	//
-	// A node's own declared `width` still wins over both, unclamped: what a
-	// `width` under a narrower `max-width` should wrap at is a real question and
-	// the answer is not this function's to give, because the containing width it
-	// would resolve a percentage limit against is the measure-time one and not
-	// the one the node is finally placed in
+	// And only a limit in *cells*, resolved against nothing, which is the rule
+	// that a percentage of an unknown size is `auto` applied where it belongs: a
+	// node is measured twice against different widths -- once for the intrinsic
+	// size of an ancestor that is still being sized, once at the width that
+	// ancestor settled on -- and a percentage limit resolves to a different number
+	// each time. A `max-width: 50%` child of an auto-width column wrapped at ten
+	// for the column's measure and at five for its placement, so the column was
+	// drawn three rows around a child six rows tall. A cell limit is the same
+	// number both times, which is why it is the one that can be honoured here.
+	//
+	// A node's own declared `width` wins over the clamp, unclamped, for the same
+	// reason a percentage limit is skipped -- see the Known bugs entry
 	const declaredWidth = outerSize(style, resolve(style.width, availableWidth), horizontal);
 	const used =
 		declaredWidth ??
 		(crossWidth
 			? clamp(
 					availableWidth,
-					outerSize(style, resolve(style.minWidth, availableWidth), horizontal),
-					outerSize(style, resolve(style.maxWidth, availableWidth), horizontal)
+					outerSize(style, resolve(style.minWidth, undefined), horizontal),
+					outerSize(style, resolve(style.maxWidth, undefined), horizontal)
 				)
 			: availableWidth);
 	const inner = Math.max(0, used - horizontal);
