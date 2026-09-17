@@ -46,17 +46,19 @@ async function withPaths<T>(
 	{ platform, home }: { platform?: NodeJS.Platform; home?: string } = {}
 ): Promise<T> {
 	vi.resetModules();
-	if (home !== undefined) {
-		vi.doMock('node:os', async (importOriginal) => ({
-			...(await importOriginal<typeof import('node:os')>()),
-			homedir: () => home,
-		}));
-	}
-	const paths = await import('../src/paths.js');
 	const origEnv = new Map(vars.map((name) => [name, process.env[name]]));
 	const origPlatform = Object.getOwnPropertyDescriptor(process, 'platform')!;
 
+	// the mock and the import are inside the `try` so that a case that cannot
+	// even load the module still puts `node:os` back
 	try {
+		if (home !== undefined) {
+			vi.doMock('node:os', async (importOriginal) => ({
+				...(await importOriginal<typeof import('node:os')>()),
+				homedir: () => home,
+			}));
+		}
+		const paths = await import('../src/paths.js');
 		for (const name of vars) {
 			delete process.env[name];
 		}
@@ -422,6 +424,16 @@ describe('paths', () => {
 				platform: 'win32',
 			});
 			expect(dir).to.equal(join(homedir(), 'AppData', 'Roaming'));
+		});
+
+		// the one win32 entry that is a bare string rather than an array, and so
+		// the one that reaches `baseDir()` by the other branch of `resolveTypePath()`
+		it('should expand the ~ of the entry that is not an array', async () => {
+			const dir = await withPaths({}, (paths) => paths.config(), { platform: 'win32' });
+			expect(dir).toBeTruthy();
+			expect(dir).to.not.contain('~');
+			expect(dir!.startsWith(homedir())).to.equal(true);
+			expect(isAbsolute(dir!)).to.equal(true);
 		});
 	});
 
