@@ -22,11 +22,13 @@ import { StyleTable } from './style.js';
 
 export { BLANK, CellBuffer, cellWidth, CONTINUATION, Painter } from './buffer.js';
 export { diff, type DiffOptions, type DiffResult } from './diff.js';
+export { Dots, Pixels } from './subcell.js';
 export {
 	ATTR,
 	type Color,
 	DEFAULT_COLOR,
 	DEFAULT_STYLE,
+	LINK_OFF,
 	palette,
 	RESET,
 	rgb,

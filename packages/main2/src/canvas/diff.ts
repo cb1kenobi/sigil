@@ -1,6 +1,6 @@
 import { cursorDown, cursorRight, cursorUp } from '../terminal/sequences.js';
 import { type CellBuffer, cellWidth, CONTINUATION } from './buffer.js';
-import { DEFAULT_STYLE, RESET, type Style, StyleTable, transition } from './style.js';
+import { DEFAULT_STYLE, LINK_OFF, RESET, type Style, StyleTable, transition } from './style.js';
 
 /**
  * Turning two grids into the fewest bytes that reconcile them.
@@ -222,6 +222,11 @@ export function diff(previous: CellBuffer, next: CellBuffer, opts: DiffOptions):
 	if (output && styleIndex !== StyleTable.DEFAULT) {
 		// never hand the terminal back with a style still open: the next thing
 		// written is the app's own output, and it did not ask to be coloured
+		if (style.link) {
+			// and `RESET` will not do it -- SGR and OSC are separate state, so a
+			// link left open swallows the app's next line into the last cell's URL
+			output += LINK_OFF;
+		}
 		output += RESET;
 		style = DEFAULT_STYLE;
 		styleIndex = StyleTable.DEFAULT;

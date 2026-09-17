@@ -22,6 +22,16 @@ const ESC = String.fromCharCode(0x1b);
  */
 const CSI = new RegExp(`^${ESC}\\[([\\d;:]*)([A-Za-z])`);
 
+/**
+ * An OSC sequence and its body, up to either terminator.
+ *
+ * Both spellings are matched because both are in the wild: `ESC \` is what the
+ * specification says and what the diff emits, and BEL is the older form that
+ * plenty of terminals still accept. A model that knew only one would pass a
+ * frame that no terminal could read.
+ */
+const OSC = new RegExp(`^${ESC}\\]([^${ESC}\\u0007]*)(?:${ESC}\\\\|\\u0007)`);
+
 /** Every escape sequence, for asking what text a frame actually wrote. */
 const SEQUENCES = new RegExp(`${ESC}\\[[\\d;:]*[A-Za-z]`, 'g');
 
@@ -49,6 +59,15 @@ function readable(output: string): string {
 class FakeTerminal {
 	rows: string[][];
 	styles: number[][];
+	/**
+	 * The hyperlink in effect when each cell was written.
+	 *
+	 * Tracked separately from `styles` because OSC 8 is separate state: it is not
+	 * carried by SGR, it is not cleared by `\x1b[0m`, and two styles that differ
+	 * only by link emit the same SGR parameters -- so the parameter list cannot
+	 * tell them apart and this is where the difference has to live.
+	 */
+	links: string[][];
 	row = 0;
 	column = 0;
 
@@ -58,6 +77,7 @@ class FakeTerminal {
 	) {
 		this.rows = Array.from({ length: height }, () => Array.from({ length: width }, () => ' '));
 		this.styles = Array.from({ length: height }, () => Array.from({ length: width }, () => 0));
+		this.links = Array.from({ length: height }, () => Array.from({ length: width }, () => ''));
 	}
 
 	/** Paints a buffer onto the model directly, standing in for a prior frame. */
@@ -76,6 +96,7 @@ class FakeTerminal {
 		this.row = 0;
 		this.column = 0;
 		let currentStyle = 0;
+		let currentLink = '';
 		let i = 0;
 
 		while (i < output.length) {
@@ -84,6 +105,24 @@ class FakeTerminal {
 			if (ch === '\r') {
 				this.column = 0;
 				i++;
+				continue;
+			}
+
+			// OSC: `ESC ] ... ST`, where ST is `ESC \` or BEL. A real terminal
+			// consumes the whole thing and paints none of it; before this, the model
+			// fell through to the text path and wrote the URL into the grid
+			if (ch === ESC && output[i + 1] === ']') {
+				const match = OSC.exec(output.slice(i));
+				if (!match) {
+					throw new Error(`unterminated OSC at ${i}: ${readable(output.slice(i, i + 16))}`);
+				}
+				const [whole, body] = match;
+				const link = /^8;[^;]*;(.*)$/s.exec(body);
+				if (!link) {
+					throw new Error(`unhandled OSC ${readable(body.slice(0, 16))}`);
+				}
+				currentLink = link[1];
+				i += whole.length;
 				continue;
 			}
 
@@ -125,9 +164,11 @@ class FakeTerminal {
 			}
 			this.rows[this.row][this.column] = cluster;
 			this.styles[this.row][this.column] = currentStyle;
+			this.links[this.row][this.column] = currentLink;
 			if (width === 2) {
 				this.rows[this.row][this.column + 1] = '';
 				this.styles[this.row][this.column + 1] = currentStyle;
+				this.links[this.row][this.column + 1] = currentLink;
 			}
 			this.column += width;
 			i += cluster.length;
@@ -187,15 +228,28 @@ function replay(previous: CellBuffer, next: CellBuffer, styles: StyleTable, full
 	// which is what this was -- cannot recognise a colour, so every coloured cell
 	// reads back as the default style and a `colorParams()` that emitted a
 	// background for a foreground would pass every replay test.
+	// The link is stripped before building the map because `transition()` emits
+	// OSC 8 alongside SGR, and the model resolves the two separately -- an SGR
+	// parameter list cannot name a link, so two styles differing only by one
+	// share an entry here and are told apart by `terminal.links` instead.
 	const byParams = new Map<string, number>();
 	for (let i = 0; i < styles.size; i++) {
-		const sgr = transition(DEFAULT_STYLE, styles.get(i));
-		byParams.set(sgr.replace(ESC + '[', '').replace(/m$/, ''), i);
+		const sgr = transition(DEFAULT_STYLE, { ...styles.get(i), link: '' });
+		const params = sgr.replace(ESC + '[', '').replace(/m$/, '');
+		if (!byParams.has(params)) {
+			byParams.set(params, i);
+		}
 	}
 
 	terminal.apply(result.output, (params) => byParams.get(params) ?? 0);
 	terminal.checkClusters();
-	return { lines: terminal.toLines(), output: result.output, result, styles: terminal.styles };
+	return {
+		lines: terminal.toLines(),
+		links: terminal.links,
+		output: result.output,
+		result,
+		styles: terminal.styles,
+	};
 }
 
 describe('diff', () => {
@@ -394,6 +448,72 @@ describe('diff', () => {
 			const output = diff(a, b, { styles }).output;
 			expect(output).not.toContain('22');
 			expect(output).toContain('3');
+		});
+	});
+
+	describe('hyperlinks', () => {
+		it('should link the cells it was painted on and no others', () => {
+			const styles = new StyleTable();
+			const linked = styles.intern(style({ link: 'https://a.dev' }));
+			const a = new CellBuffer(10, 1);
+			const b = new CellBuffer(10, 1);
+			b.write(0, 0, 'no', 0);
+			b.write(2, 0, 'yes', linked);
+			b.write(5, 0, 'no', 0);
+
+			const { links } = replay(a, b, styles);
+			expect(links[0].slice(0, 7)).toEqual([
+				'',
+				'',
+				'https://a.dev',
+				'https://a.dev',
+				'https://a.dev',
+				'',
+				'',
+			]);
+		});
+
+		it('should not paint the URL as text', () => {
+			// the whole failure mode this guards: an OSC sequence the terminal does
+			// not consume is just characters, and they land on screen
+			const styles = new StyleTable();
+			const linked = styles.intern(style({ link: 'https://example.dev/path' }));
+			const a = new CellBuffer(12, 1);
+			const b = new CellBuffer(12, 1);
+			b.write(0, 0, 'click', linked);
+
+			const { lines } = replay(a, b, styles);
+			expect(lines[0]).toBe('click       ');
+		});
+
+		it('should close a link the frame ended inside', () => {
+			// `RESET` does not close OSC 8 -- SGR and OSC are separate state -- so a
+			// frame that ends mid-link hands the terminal back with it still open and
+			// swallows the application's next line into the last cell's URL
+			const styles = new StyleTable();
+			const linked = styles.intern(style({ link: 'https://a.dev' }));
+			const a = new CellBuffer(4, 1);
+			const b = new CellBuffer(4, 1);
+			b.write(0, 0, 'abcd', linked);
+
+			const { output } = replay(a, b, styles);
+			expect(output.endsWith(`${ESC}]8;;${ESC}\\${ESC}[0m`)).toBe(true);
+		});
+
+		it('should treat a changed link as a changed cell', () => {
+			// same glyph, same colours, different target: the style index moved, so
+			// the cell has to be repainted or the link points at the old place
+			const styles = new StyleTable();
+			const before = styles.intern(style({ link: 'https://a.dev' }));
+			const after = styles.intern(style({ link: 'https://b.dev' }));
+			const a = new CellBuffer(4, 1);
+			const b = new CellBuffer(4, 1);
+			a.write(0, 0, 'abcd', before);
+			b.write(0, 0, 'abcd', after);
+
+			const { links, output } = replay(a, b, styles);
+			expect(output).not.toBe('');
+			expect(links[0][0]).toBe('https://b.dev');
 		});
 	});
 
