@@ -244,6 +244,11 @@ command module, which is checked when the module loads.
 An optional argument that precedes a required one is promoted to required,
 since there is no way to skip it.
 
+A required argument that was given no value — and that no `env` or `default`
+filled — is reported by name: `Missing required arguments: <entry>`. Only the
+empty ones are named, so a slot a `default` filled is left out of the message
+even when a later one is missing.
+
 ### Argument properties
 
 | Property    | Type                    | Notes                                    |
@@ -575,17 +580,17 @@ retried once more contexts are known.
 
 ## Data types
 
-| Type     | Accepts                                      | Produces  |
-| -------- | -------------------------------------------- | --------- |
-| `string` | anything                                     | `string`  |
-| `bool`   | `true`/`t`/`yes`/`y`/`on`/`1` and negations  | `boolean` |
-| `yesno`  | `y`, `yes`, `n`, `no` (case-insensitive)     | `boolean` |
-| `int`    | `-?\d+` or `0x…`, within the safe range      | `number`  |
-| `number` | anything `Number()` accepts but blank        | `number`  |
-| `date`   | `YYYY-MM-DD`, ISO 8601, or 13-digit epoch ms | `Date`    |
-| `json`   | valid JSON                                   | `unknown` |
-| `count`  | flags only; counts occurrences               | `number`  |
-| `auto`   | guesses bool, then date, then number, JSON   | varies    |
+| Type     | Accepts                                         | Produces  |
+| -------- | ----------------------------------------------- | --------- |
+| `string` | anything                                        | `string`  |
+| `bool`   | `true`/`t`/`yes`/`y`/`on`/`1` and negations     | `boolean` |
+| `yesno`  | `y`, `yes`, `n`, `no` (case-insensitive)        | `boolean` |
+| `int`    | `-?\d+` or `0x…`, within the safe range         | `number`  |
+| `number` | anything `Number()` accepts but blank           | `number`  |
+| `date`   | `YYYY-MM-DD`, a date-time, or 13-digit epoch ms | `Date`    |
+| `json`   | valid JSON                                      | `unknown` |
+| `count`  | flags only; counts occurrences                  | `number`  |
+| `auto`   | guesses bool, then date, then number, JSON      | varies    |
 
 `string` is the default. `auto` is opt-in because its guesses are lossy —
 it turns `007` into `7` — and because it makes static types unusable.
@@ -615,6 +620,24 @@ overflows rather than refusing: `2024-02-30` used to come back as March 1st. A
 day that does not exist now throws `Invalid date`, the same as `9999-99-99`
 always did. The check is arithmetic, so it does not depend on the time zone the
 process is running in.
+
+The clock is checked the same way and for the same reason. Hour `24` is the one
+`Date` takes outright — `2024-01-01T24:00:00` is a perfectly valid `Date` for
+the next midnight — so a value naming one day used to come back as the day
+after it. Minute and second `60` are refused with it, which means a leap second
+is not a value this type will hand you.
+
+The spelling accepted is `YYYY-MM-DD`, optionally followed by `THH:MM:SS`,
+optional fractional seconds, and an optional `Z` or `±HH:MM` offset — the
+date-time format ECMAScript specifies, and the one `Date` is specified to
+parse. Offsets are taken because a date-time without one is read in the local
+zone, and `2024-06-15T12:00:00+00:00`, which is what `date -Is` prints, is the
+same instant as the `Z` form that was always accepted; taking one spelling and
+refusing the other was arbitrary. The wider ISO 8601 spellings are deliberately
+not accepted: the basic form `20240615`, week and ordinal dates, `±HHMM`, and a
+space in place of the `T` all fall outside that format, where what an engine
+does is its own business rather than something this reference could promise. A
+date given with no time at all is local midnight.
 
 `bool` accepts `true`, `t`, `yes`, `y`, `on`, and `1` as true, and `false`,
 `f`, `no`, `n`, `off`, `0`, and the empty string as false. Case is ignored.

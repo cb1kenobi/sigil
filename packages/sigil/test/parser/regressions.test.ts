@@ -1228,4 +1228,86 @@ describe('regressions', () => {
 			}
 		});
 	});
+
+	describe('the clock in a date', () => {
+		// only the calendar was checked, and hour 24 is a legal two-digit match that
+		// `Date` accepts: `2024-01-01T24:00:00` is a perfectly valid `Date` for the
+		// next midnight, so the `Invalid Date` guard never fired and a value naming
+		// January 1st arrived as the 2nd -- the same overflow as `2024-02-30`
+		it.each([
+			'2024-01-01T24:00:00',
+			'2024-01-01T24:00:00Z',
+			'2024-06-15T99:00:00',
+			'2024-06-15T12:60:00',
+			'2024-06-15T23:59:60',
+			'2024-06-15T12:00:00+24:00',
+			'2024-06-15T12:00:00-05:60',
+		])('should reject the impossible clock %s', async (value) => {
+			await expect(
+				parse({ argv: ['--when', value], schema: { options: { '--when <d>': { type: 'date' } } } })
+			).rejects.toThrow(`Invalid date: "${value}"`);
+		});
+
+		// the control: the ends of a real clock, and the offsets the docs promised
+		// while the pattern took only `Z`
+		it.each([
+			'2024-06-15T00:00:00',
+			'2024-06-15T23:59:59',
+			'2024-06-15T23:59:59.999Z',
+			'2024-06-15T12:00:00+00:00',
+			'2024-06-15T12:00:00-05:30',
+			'2024-06-15T12:00:00+14:00',
+		])('should still accept the valid clock %s', async (value) => {
+			const result = await parse({
+				argv: ['--when', value],
+				schema: { options: { '--when <d>': { type: 'date' } } },
+			});
+			expect(result.argv.when).to.be.instanceOf(Date);
+		});
+
+		// an offset is not decoration: it names an instant, and the value has to be
+		// that instant wherever the process happens to be running
+		it('should read a UTC offset as the instant it names', async () => {
+			const result = await parse({
+				argv: ['--when', '2024-06-15T12:00:00+05:30'],
+				schema: { options: { '--when <d>': { type: 'date' } } },
+			});
+			expect((result.argv.when as Date).toISOString()).to.equal('2024-06-15T06:30:00.000Z');
+		});
+	});
+
+	describe('a filled argument reported as missing', () => {
+		// the walk is backwards and reported every argument before one it had already
+		// found missing, which named a slot `applyFallback()` had just filled: only
+		// `<b>` was ever missing, and `<a>` was a value the user had supplied
+		it('should not name an argument its default filled', async () => {
+			await expect(
+				parse({ schema: { args: [{ default: 'filled', name: '<a>' }, '<b>'] } })
+			).rejects.toThrow('Missing required arguments: <b>');
+		});
+
+		it('should not name an argument its environment variable filled', async () => {
+			await expect(
+				parse({ env: { A: 'filled' }, schema: { args: [{ env: 'A', name: '<a>' }, '<b>'] } })
+			).rejects.toThrow('Missing required arguments: <b>');
+		});
+
+		// the control: promotion is what collects the run now, and it makes every
+		// argument before a required one required, variadic or not
+		it.each([
+			[['<a>', '<b>', '<c>'], '<a> <b> <c>'],
+			[['[a]', '<b>'], '<a> <b>'],
+			[['<a>', '<rest...>'], '<a> <rest>'],
+			[['[a]', '<b>', 'c'], '<a> <b>'],
+		])('should still name every missing required argument in %s', async (args, expected) => {
+			await expect(parse({ schema: { args } })).rejects.toThrow(
+				`Missing required arguments: ${expected}`
+			);
+		});
+
+		it('should still accept a list of arguments that are all optional', async () => {
+			const result = await parse({ schema: { args: ['a', 'b'] } });
+			expect(result.argv).to.deep.equal({});
+		});
+	});
 });

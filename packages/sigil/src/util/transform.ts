@@ -2,7 +2,8 @@ import type { DataType } from '../types.js';
 
 const boolFalseRE = /^(false|f|no|n|off|0)$/i;
 const boolTrueRE = /^(true|t|yes|y|on|1)$/i;
-const dateRE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(\.\d+)?Z?)?$/i;
+const dateRE =
+	/^\d{4}-\d{2}-\d{2}(T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|([+-]\d{2}):(\d{2}))?)?$/i;
 const dateIntRE = /^\d{13}$/;
 const dateInvalid = /^Invalid Date$/i;
 const hexRE = /^0x[A-Fa-f0-9]+$/;
@@ -64,6 +65,25 @@ export function transformValue(
 				const [year, month, day] = m[0].split(/\D/, 3).map(Number);
 
 				if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)) {
+					throw new Error(`Invalid date: "${value}"`);
+				}
+
+				// the clock overflows the same way the calendar does, and hour 24 is the
+				// overflow the `Invalid Date` guard below cannot see: `24` is a legal
+				// two-digit match and `2024-01-01T24:00:00` is a perfectly valid `Date` --
+				// the next midnight -- so a value naming one day arrived as the day after
+				// it, exactly as `2024-02-30` arrived as March 1st. Minute and second 60
+				// happen to be refused by `Date`, and are refused here anyway so that a
+				// leap second is this library's answer rather than an engine's
+				if (m[1] && (Number(m[2]) > 23 || Number(m[3]) > 59 || Number(m[4]) > 59)) {
+					throw new Error(`Invalid date: "${value}"`);
+				}
+
+				// an offset is the rest of the clock and is read the same way: out of range
+				// it falls outside the one string format `Date` is specified to parse, and
+				// what an engine does with a string outside that format is its own business
+				// -- which is the reason none of this is left to `Date` to begin with
+				if (m[5] !== undefined && (Math.abs(Number(m[5])) > 23 || Number(m[6]) > 59)) {
 					throw new Error(`Invalid date: "${value}"`);
 				}
 

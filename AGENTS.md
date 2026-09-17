@@ -229,6 +229,25 @@ These look like bugs and are not. Each is intentional and covered by tests.
   value may be UTC, so `2024-06-15T00:00:00Z` is the 14th in Chicago and the
   15th in Auckland, and a round trip rejected real instants depending on where
   it ran.
+- **A `date` has its clock checked as well as its calendar, and it takes a UTC
+  offset.** The calendar check above stopped at the day, and hour `24` is the
+  overflow the `Invalid Date` guard cannot see: `24` is a legal two-digit match
+  and `new Date('2024-01-01T24:00:00')` is a perfectly valid `Date` for the next
+  midnight, so a value naming January 1st arrived as the 2nd -- the same failure
+  `2024-02-30` arrived as March 1st is written down for. Minute and second `60`
+  are refused alongside it, so a leap second is this library's answer rather
+  than whatever the engine happens to do. Read off the matched text and never
+  off the built `Date`, for the reason already recorded: those getters are local
+  while the value may be UTC. The offset is the other half of it -- the docs
+  said ISO 8601 while `dateRE` took a trailing `Z` and nothing else, so
+  `2024-06-15T12:00:00+00:00`, which is what `date -Is` prints, was rejected
+  while the `Z` spelling of the same instant was taken. The subset is the
+  date-time format ECMAScript specifies and no wider: the basic form
+  `20240615`, week and ordinal dates, `±HHMM`, and a space in place of the `T`
+  are all outside what `Date` is _specified_ to parse, and an engine's fallback
+  heuristics are not a grammar to document. An out-of-range offset is refused
+  arithmetically for the reason the clock is, rather than left to `Date`, which
+  only happens to reject it. See `test/parser/regressions.test.ts`.
 - **A data type name is matched anchored.** `optionTypesRE` and `argTypesRE`
   were written `/^auto|bool|...|yesno$/`, where the alternation binds looser
   than the anchors -- so the pattern read as `^auto` OR `bool` OR ... OR
@@ -260,6 +279,17 @@ These look like bugs and are not. Each is intentional and covered by tests.
 - **A bare positional name is optional; `<name>` is required.** Commander
   treats a bare name as required. Brackets are the only thing that decides it
   here, which keeps `args` readable at a glance.
+- **`Missing required arguments` names the arguments that are missing, and
+  nothing else.** The walk is backwards and used to report every argument
+  sitting before one it had already found missing, to collect the trailing run
+  of them -- which is the promotion rule said a second time and said less
+  accurately. `initArgs()` already makes an optional argument before a required
+  one required, so each slot in a run answers for itself, while the run also
+  named a slot `applyFallback()` had just filled from a `default` or an
+  environment variable: `<a>` with a default and `<b>` with nothing reported
+  `<a> <b>` and asked for a value the user had supplied. The parse still fails,
+  because `<b>` really is missing; only the message changed. See
+  `test/parser/regressions.test.ts`.
 - **String `default`s and environment values are coerced to the declared
   type.** So `default: 'yes'` on a flag is `true`, not `'yes'`, and a value
   the type rejects throws — `default: 'black'` on a flag is an error, the
@@ -362,6 +392,22 @@ false` rethrows instead; a function replaces the handler.
   conditions this loader can honor are read: `import`, `node`, `default`, then
   `require`, since a CommonJS entry still loads. `browser`, `types`, and user
   conditions are skipped rather than guessed at.
+- **A uid of `0` is a uid, and an owner walk stops at the root.** Root is `0`
+  and `0` is falsy, so `mkdirOwnerSync()` asking `uid && gid` read a caller who
+  asked for group `0` -- `wheel`, and the group of every ancestor under `/var`,
+  `/usr`, and `/root` -- as a caller who asked for nothing; the walk then put
+  the same `0` back through `gid ||= st.gid`, and the falsy `gid` failed the
+  guard on the chown pass, so the ownership that was asked for was never
+  applied. An explicit `uid: 0` was overwritten by whatever owned the nearest
+  existing directory for the same reason. Whether an owner was given is a
+  question about `undefined`, so that is what is asked. The walk stopping at the
+  root is the other half: it climbed until it found a directory and
+  `dirname('/')` is `'/'`, so on a path whose every ancestor `lstatSync()`
+  refuses it had nothing left to climb and no reason to stop climbing -- a loop
+  that relies on finding something is a loop that can run off the top of the
+  filesystem, and the chown pass carries the same guard for the same reason.
+  Reached from the update cache, which a CLI run as root creates. See
+  `test/mkdir-owner-sync.test.ts`.
 - **A command is fixed once it is initialized, and its declaration containers
   are read-only.** `cmd.args`, `cmd.commands`, and `cmd.options` echo the
   declaration; the parser reads the normalized arguments and the registries at
