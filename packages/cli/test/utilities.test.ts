@@ -269,4 +269,24 @@ describe('@apply', () => {
 	it('should refuse an @apply that names nothing', () => {
 		expect(() => expandApply('.a { @apply ; }')).toThrow(/names no utilities/);
 	});
+
+	it('should treat a comment inside the name list as whitespace', () => {
+		// a comment is trivia everywhere else in a stylesheet, and treating it as
+		// a statement boundary expanded only half of an @apply and left the rest
+		// behind as a declaration the parser then choked on
+		const expanded = expandApply('.a { @apply p-1 /* and */ mt-2; }');
+		expect(expanded).toContain('padding-top: 1');
+		expect(expanded).toContain('margin-top: 2');
+		expect(() => parseStylesheet(expanded)).not.toThrow();
+
+		expect(expandApply('.a { @apply /* first */ p-1; }')).toContain('padding-top: 1');
+	});
+
+	it('should refuse an unterminated comment rather than walking through it', () => {
+		expect(() => expandApply('.a { /* @apply p-1; }')).toThrow(/Unterminated comment/);
+	});
+
+	it('should not read @applysomething as @apply', () => {
+		expect(expandApply('.a { @applyx p-1; }')).toBe('.a { @applyx p-1; }');
+	});
 });
