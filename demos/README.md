@@ -77,12 +77,18 @@ NO_COLOR=1 node demos/components/06-ansi-and-wrap.js
 | -------------------------------------------------- | ------------------------------------------ |
 | [`canvas/01-sparkline.js`](canvas/01-sparkline.js) | A chart at 2x4 the resolution the grid has |
 | [`canvas/02-image.js`](canvas/02-image.js)         | A picture at two pixels per cell           |
+| [`canvas/03-links.js`](canvas/03-links.js)         | Text that is also a URL                    |
 
-Both draw with ordinary characters — braille patterns and half blocks — so they
-need nothing from the terminal but the font. Each prints what the frame cost in
-bytes, and the two answers are very different:
+The first two draw with ordinary characters — braille patterns and half blocks —
+so they need nothing from the terminal but the font. Each prints what the frame
+cost in bytes, and the two answers are very different:
 
 ```sh
 node demos/canvas/01-sparkline.js   # a plot: cheap to change
 node demos/canvas/02-image.js       # a picture: every cell its own two colours
 ```
+
+The third is worth running in a terminal that implements OSC 8 — Ctrl-click or
+Cmd-click the underlined text. In one that does not, you get the same words with
+no link and nothing broken, which is why setting the underline and the colour
+matters: they are what says "this is a link" when the link itself is invisible.
