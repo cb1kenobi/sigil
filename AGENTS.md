@@ -49,7 +49,7 @@ Paths below are inside `packages/main2/` unless noted.
 | `src/updates/`           | npm update check, run in a spawned worker            |
 | `src/error-handler.ts`   | Renders an error and sets the exit code              |
 | `src/error-hooks.ts`     | Fires `beforeError` hooks; carries state on an error |
-| `scripts/`               | Generators, run by hand and their output committed   |
+| `scripts/`               | Run by hand: generators, and the real-terminal probe |
 | `docs/parser.md`         | Parser reference: syntax, semantics, precedence      |
 | `test/parser/commander/` | Ported Commander test cases                          |
 | `test/parser/yargs/`     | Ported yargs-parser test cases                       |
@@ -676,6 +676,16 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   splits it and the second write is what puts the row back together. What is
   never legitimate is a frame ending with half a glyph on screen. See
   `test/canvas/diff.test.ts`.
+- **The model cannot check itself, so `scripts/terminal-probe.mjs` exists.** The
+  model and the diff share an author and a mental model, so an assumption wrong
+  in both passes green forever -- and the canvas makes several claims only a
+  terminal can falsify: that CUD stops at the bottom margin rather than
+  scrolling, that a wide cluster at the last column is refused rather than
+  wrapped, that the deferred wrap is deferred, that the semicolon form of an
+  extended colour is the one terminals take. The probe paints those frames to a
+  real terminal and says what you should see; it is run by hand, against every
+  terminal worth supporting, and it is the only thing here that puts a byte on
+  one.
 
 ### Signals
 
