@@ -939,6 +939,19 @@ describe('position: relative', () => {
 		expect(placed.y).toBe(2);
 	});
 
+	it('should let a zero top beat a bottom', () => {
+		// the winner is whichever inset was *declared*, so a `top: 0` is an answer
+		// rather than a falsy value the other edge gets to overrule
+		const tree = box(
+			{ 'flex-direction': 'column', padding: '2' },
+			box({ position: 'relative', top: '0', bottom: '2', left: '0', right: '2', height: '1' })
+		);
+
+		const { box: placed } = layout(tree, { height: 6, width: 8 }).children[0];
+		expect(placed.x).toBe(2);
+		expect(placed.y).toBe(2);
+	});
+
 	it('should resolve a percentage inset per axis', () => {
 		// `top` against the containing block's height, which is CSS and is *not*
 		// what the margins do -- those resolve against the width on both axes
@@ -950,6 +963,20 @@ describe('position: relative', () => {
 		const { box: placed } = layout(tree, { height: 4, width: 10 }).children[0];
 		expect(placed.x).toBe(5);
 		expect(placed.y).toBe(2);
+	});
+
+	it('should resolve a percentage inset against the content box, not the border box', () => {
+		// the containing block is what is inside the padding and border, so a
+		// padded parent answers for less than it is wide
+		const tree = box(
+			{ 'flex-direction': 'row', padding: '1', border: 'single' },
+			box({ position: 'relative', left: '50%', width: '2', height: '1' })
+		);
+
+		// twelve wide, four of that border and padding, so the containing block is
+		// eight and half of it is four -- against the border box it would be six
+		const { box: placed } = layout(tree, { height: 5, width: 12 }).children[0];
+		expect(placed.x).toBe(2 + 4);
 	});
 
 	it('should carry the children of an offset box with it', () => {
@@ -992,6 +1019,22 @@ describe('position: relative', () => {
 			box({ position: 'relative', left: '-4', top: '1', width: '4', height: '2' })
 		);
 
-		expect(() => checkInvariants(layout(tree, { height: 4, width: 10 }))).not.toThrow();
+		const result = layout(tree, { height: 4, width: 10 });
+		// the overlap is asserted rather than assumed: an exemption that is never
+		// exercised would pass this test with the offset never applied at all
+		expect(result.children[1].box).toEqual({ height: 2, width: 4, x: 0, y: 1 });
+		expect(() => checkInvariants(result)).not.toThrow();
+	});
+
+	it('should still catch a relative box that overflows without an inset', () => {
+		// the exemption is keyed on an inset being declared, not on the keyword: a
+		// box that says `position: relative` and moves nowhere is checked like any
+		// other, so a placement bug under one cannot hide behind the property
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box({ position: 'relative', width: '20', 'flex-shrink': '0', height: '1' })
+		);
+
+		expect(() => checkInvariants(layout(tree, { height: 1, width: 10 }))).toThrow(/escapes/);
 	});
 });

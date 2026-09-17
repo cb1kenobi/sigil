@@ -127,6 +127,24 @@ export function boxes(
 }
 
 /**
+ * Whether a node was moved off where the flow put it.
+ *
+ * Both halves are asked, because `position: relative` on its own moves nothing:
+ * excusing a box that merely names the keyword would open the net for every one
+ * that then overflows for an unrelated reason.
+ *
+ * @param node - The laid-out node.
+ * @returns Whether `relative` and an inset were both declared.
+ */
+function isOffset(node: LayoutResult): boolean {
+	const { style } = node.node;
+	return (
+		style.position === 'relative' &&
+		[style.top, style.right, style.bottom, style.left].some((inset) => inset.type !== 'auto')
+	);
+}
+
+/**
  * Every invariant a layout has to keep, whatever it was asked for.
  *
  * The picture helper cannot check these: it paints later nodes over earlier ones
@@ -134,12 +152,14 @@ export function boxes(
  * placed past the edge simply does not appear. A fuzzer found five hundred
  * containment violations that forty-two picture tests had no way to see.
  *
- * A `position: relative` child is excused both of them, and that is the whole
- * meaning of the property rather than a hole in the check: the flow reserves its
- * space at the un-offset position and the box is then moved off it, so escaping
- * the parent and landing on a sibling are what was asked for. Everything else on
- * the same tree is still checked, including the relative box's own children
- * against the relative box.
+ * A `position: relative` child that declares an inset is excused both of them,
+ * and that is the whole meaning of the property rather than a hole in the check:
+ * the flow reserves its space at the un-offset position and the box is then
+ * moved off it, so escaping the parent and landing on a sibling are what was
+ * asked for. Keyed on the inset rather than on the keyword, because a box that
+ * says `relative` and moves nowhere has nothing to excuse. Everything else on
+ * the same tree is still checked, including the offset box's own children
+ * against the offset box.
  *
  * @param result - The laid-out tree.
  * @param opts - `overflow` allows a child larger than its parent, which is what
@@ -154,7 +174,7 @@ export function checkInvariants(result: LayoutResult, opts: { overflow?: boolean
 		const line: LayoutResult[] = [];
 
 		for (const child of node.children) {
-			const offset = child.node.style.position === 'relative';
+			const offset = isOffset(child);
 
 			// a box with no area paints nothing, so where it sits cannot be wrong.
 			// A gap still advances the cursor in a container with no room, which
@@ -177,7 +197,7 @@ export function checkInvariants(result: LayoutResult, opts: { overflow?: boolean
 			}
 
 			for (const sibling of line) {
-				if (offset || sibling.node.style.position === 'relative') {
+				if (offset || isOffset(sibling)) {
 					continue;
 				}
 				const apart =

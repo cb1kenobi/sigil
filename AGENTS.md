@@ -420,9 +420,11 @@ false` rethrows instead; a function replaces the handler.
   change nobody can see coming. The alternative was dropping `position` and the
   four insets from the table entirely; it is smaller and equally honest, and it
   was not taken because `relative` is a handful of lines, is what people reach
-  for to nudge a border or overlap a label, and is what keeps `inset-0` and
-  `top-N` meaningful in the generated utilities -- while the property that was
-  actually lying, `absolute`, is refused either way. `z-index` is left alone: it
+  for to nudge a border or overlap a label, and is what keeps `top-N` and the
+  `inset` shorthand meaningful -- while the property that was actually lying,
+  `absolute`, is refused either way. `inset-0` is not part of that argument: it
+  is an out-of-flow idiom and on a `relative` box it is an offset of zero.
+  `z-index` is left alone: it
   is a paint-order property, it is not in `LAYOUT_PROPERTIES`, and nothing here
   is what would honour it.
 - **An inset on a `static` box does nothing, and that is not the same lie.** It
