@@ -472,6 +472,38 @@ false` rethrows instead; a function replaces the handler.
   its width, and the first measure happens at the whole content box before any
   flexing -- so two texts sharing twenty columns each measured twenty wide and
   one row tall, then got ten each and stayed one row.
+- **That re-measure is a row's, and a column measures at the right width to begin
+  with.** A row's width is its _main_ axis, so the used width is not known until
+  `resolveFlexible()` has run and the basis has to stay the unclamped content
+  size for the flex algorithm to do the clamping itself. A column's width is its
+  _cross_ axis, which never flexes -- the child's own `max-width` is the whole of
+  the answer and `makeItem()` knows it before it measures. Measuring at the
+  container's width instead wrapped the text for a width the child never got: a
+  `max-width: 6` text in a twenty-wide column measured two rows tall and was then
+  placed six wide, where it needs six. Patching it at placement time is not the
+  fix and could not be: what would have to change there is the column child's
+  _main_ size, which `resolveFlexible()` has already handed out and `cursor` has
+  already begun placing from. A declared `width` was never the broken case,
+  because `measureUncached()` reads the child's own `width` back off it and
+  measures at that -- which is why the obvious repro comes out right. The same
+  width has to reach the intrinsic measure as well, or the fix only moves the
+  error: a column asked how tall its child was at the container's width, got two,
+  and was drawn two rows around a child six rows tall.
+- **Percentage lengths are rounded per box, and no per-box rule can make siblings
+  add up.** `resolve()` rounds -- `50%` of five is three -- and the reason
+  recorded for it, that two boxes at 50% should still fill the row, is not
+  something rounding can deliver: each sibling rounds on its own, so the two ask
+  for three each in a five-wide row. What rounding does buy is that a percentage
+  never collapses a box that asked for most of a cell: truncation makes those two
+  two cells each and leaves a hole, and makes `10%` of five nothing at all. The
+  row is put back to exactly full by the _shrink_ pass, which does go through
+  `distribute()` -- three and three become three and two. Where the items cannot
+  flex the overflow is real and `checkInvariants()` says so. `distribute()` is
+  not available here: it hands out one total across weights that partition it,
+  and a percentage is not a partition -- siblings' percentages need not sum to
+  100%, cross sizes and limits and margins overlap rather than divide, and the
+  same declaration is read once while measuring and again while placing, where
+  the line it would be distributed over does not exist yet.
 - **Pictures cannot check containment, so `checkInvariants()` does.** The picture
   helper paints later nodes over earlier ones, so an overlap is invisible, and it
   bounds-checks against the grid, so anything placed past the edge does not
@@ -931,6 +963,21 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   added from inside a body -- walks a half-built set and leaves the counts
   wrong. It surfaces much later, as an `unwatched` that never fires or one that
   fires while something is still watching.
+- **A recompute commits its value before it sweeps, and a sweep that throws
+  leaves the computed dirty.** The sweep is the half of `#run()` that runs user
+  code again -- dropping a source fires its `unwatched` -- and it used to run
+  from inside the `finally`, which had already set the state to `CLEAN` and had
+  not yet written `#value`. So a callback that threw escaped the caller once and
+  then every read after it handed back the value from _before_ the recompute,
+  clean, with nothing left to say the run had happened: a `get()` that throws is
+  a bad frame, a `get()` that quietly answers last frame's value forever is a
+  bug nobody can see. Each edge is now removed on its own, so one throwing
+  callback does not leave the sources after it in the walk still holding an edge,
+  and the errors are raised together the way `State.set()` raises a watcher's.
+  `dispose()` had the identical shape and the identical fix: a throw there took
+  the rest of the release with it and skipped `sources.clear()`, so the computed
+  stayed reachable from every source after the first -- the leak `dispose()`
+  exists to close. See `test/signals/signals.test.ts`.
 - **A liveness walk happens before its callback, not after.** A `watched` or
   `unwatched` that throws then leaves the counts consistent and only its own
   error escapes. The other order skips the walk entirely and strands every

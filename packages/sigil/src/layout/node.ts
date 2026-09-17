@@ -83,8 +83,15 @@ export function resolve(length: Length, available: number | undefined): number |
 		return length.value;
 	}
 	if (length.type === 'percent') {
-		// rounded rather than truncated: `33%` of 100 is 33 either way, but `50%`
-		// of 5 is 2.5, and two boxes at 50% should still fill the row
+		// rounded rather than truncated, and rounded one box at a time: `33%` of 100
+		// is 33 either way, but `50%` of 5 is 2.5, and the nearest cell to what was
+		// asked for is 3. It is not `distribute()` and cannot be -- siblings'
+		// percentages need not partition anything, and this is read once while
+		// measuring and again while placing, where there is no line to divide. So
+		// two boxes at 50% of five ask for three each: the shrink pass, which *is*
+		// `distribute()`, gives back 3 and 2, and where they cannot flex they
+		// overflow. Truncating instead trades that for a guaranteed hole and rounds
+		// `10%` of five away entirely
 		return available === undefined ? undefined : Math.round((available * length.value) / 100);
 	}
 	return undefined;

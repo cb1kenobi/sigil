@@ -253,7 +253,6 @@ function measureUncached(
 
 	for (const child of children) {
 		const childMargin = margins(child.style, inner);
-		const measured = measure(child, inner, cache);
 		const extraH = childMargin.left + childMargin.right;
 		const extraV = childMargin.top + childMargin.bottom;
 
@@ -262,18 +261,28 @@ function measureUncached(
 		// computed itself smaller than its own child's `min-width` would force at
 		// placement time, and the child ended up outside its parent's box
 		const childInset = insets(child.style, axis);
+		const widthInset = axis.column ? childInset.cross : childInset.main;
 		const declaredMinW =
-			outerSize(
-				child.style,
-				resolve(child.style.minWidth, inner),
-				axis.column ? childInset.cross : childInset.main
-			) ?? 0;
+			outerSize(child.style, resolve(child.style.minWidth, inner), widthInset) ?? 0;
+		const declaredMaxW = outerSize(child.style, resolve(child.style.maxWidth, inner), widthInset);
 		const declaredMinH =
 			outerSize(
 				child.style,
 				resolve(child.style.minHeight, undefined),
 				axis.column ? childInset.main : childInset.cross
 			) ?? 0;
+
+		// measured at the width the child will be given, which is what `makeItem()`
+		// does for the same reason: in a column the width is the cross axis and the
+		// child's own limits settle it, so a `max-width` decides what the content
+		// wraps at. Asking at the container's width instead made the container's
+		// intrinsic height the height of a wrap that never happens, and a column
+		// sized from it came out shorter than the child it was measuring
+		const measured = measure(
+			child,
+			axis.column ? clamp(inner, declaredMinW, declaredMaxW) : inner,
+			cache
+		);
 
 		const mainSize = axis.column ? measured.height + extraV : measured.width + extraH;
 		const minMain = axis.column
@@ -519,7 +528,6 @@ function makeItem(
 	// resolving against the main axis made the same declaration mean one thing at
 	// measure time and another at placement
 	const margin = margins(style, content.width);
-	const measured = measure(node, Math.max(0, content.width - margin.left - margin.right), cache);
 
 	// `insets()` already answers for this axis, so these are its answers. Swapping
 	// them again gave a row container the *vertical* inset as its main one, and a
@@ -527,6 +535,29 @@ function makeItem(
 	const inset = insets(style, axis);
 	const mainInset = inset.main;
 	const crossInset = inset.cross;
+
+	const minCross = axis.column
+		? outerSize(style, resolve(style.minWidth, content.width), crossInset)
+		: outerSize(style, resolve(style.minHeight, content.height), crossInset);
+	const maxCross = axis.column
+		? outerSize(style, resolve(style.maxWidth, content.width), crossInset)
+		: outerSize(style, resolve(style.maxHeight, content.height), crossInset);
+
+	const room = Math.max(0, content.width - margin.left - margin.right);
+
+	// measured at the width this child will actually be given, which in a column
+	// is a width its own limits have already decided: the cross axis does not flex,
+	// so a `max-width` is the whole of the answer and it is known here. Measuring at
+	// the container's width instead left the height wrapped for a width the child
+	// never got -- a `max-width: 6` text in a twenty-wide column measured two rows
+	// tall and was placed six wide, where it needs six.
+	//
+	// A row measures at the container's width and is re-measured in `placeLine()`
+	// once flexing has settled its main size, because there the used width is not
+	// known until then -- and its basis has to be the *unclamped* content size for
+	// the flex algorithm to clamp itself, which is the other reason this is only
+	// the column's answer
+	const measured = measure(node, axis.column ? clamp(room, minCross, maxCross) : room, cache);
 
 	const declaredMain = outerSize(
 		style,
@@ -565,13 +596,6 @@ function makeItem(
 		crossInset
 	);
 	const contentCross = axis.column ? measured.width : measured.height;
-
-	const minCross = axis.column
-		? outerSize(style, resolve(style.minWidth, content.width), crossInset)
-		: outerSize(style, resolve(style.minHeight, content.height), crossInset);
-	const maxCross = axis.column
-		? outerSize(style, resolve(style.maxWidth, content.width), crossInset)
-		: outerSize(style, resolve(style.maxHeight, content.height), crossInset);
 
 	return {
 		basis,
@@ -884,7 +908,15 @@ function placeLine(line: Item[], opts: PlaceOptions): void {
 		// computed from it: a text's height depends on its width, and the first
 		// measure happened at the whole content box before any flexing. Two texts
 		// sharing twenty columns each measured twenty wide and one row tall, then
-		// got ten each and stayed one row
+		// got ten each and stayed one row.
+		//
+		// A row only, and not because a column cannot go wrong the same way: a
+		// column's width is its *cross* size, so flexing never touches it and
+		// `makeItem()` already measures at the width its limits settle on. Patching
+		// it here instead would mean changing a column item's main size after
+		// `resolveFlexible()` has handed the line's space out and `cursor` has begun
+		// placing from it, which moves every item after this one and overruns the
+		// container
 		if (!axis.column && item.node.measure && !crossIsDeclared(item, axis)) {
 			const remeasured = measure(item.node, item.mainSize, cache);
 			itemCross = clamp(
