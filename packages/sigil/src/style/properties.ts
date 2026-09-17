@@ -187,7 +187,17 @@ function fromKeywords<T extends string>(
 	name: string,
 	inherits = false
 ): { inherits: boolean; initial: T; keywords: readonly T[]; parse: (input: string) => T } {
-	return { inherits, initial, keywords, parse: (input) => parseKeyword(input, keywords, name) };
+	// frozen, for the reason the table's own entry gives about initial values:
+	// `Object.freeze` on the definition freezes the slot, not the array in it, and
+	// `parseKeyword` closes over this same array -- so a push onto it would make
+	// `display: grid` parse
+	const frozen = Object.freeze([...keywords]);
+	return {
+		inherits,
+		initial,
+		keywords: frozen,
+		parse: (input) => parseKeyword(input, frozen, name),
+	};
 }
 
 /** The table. */

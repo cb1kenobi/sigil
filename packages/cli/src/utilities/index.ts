@@ -412,7 +412,17 @@ function rule(utility: Utility, variant: string, pseudo = ''): string {
 	return `.${escapeClass(name)}${pseudo} { ${declarations} }`;
 }
 
-const APPLY = /@apply\s+([^;}]+);?/g;
+/**
+ * `@apply` is one statement, so its name list stops at `;`, `{` or `}`.
+ *
+ * `[^;}]+` also matched `{`, so `@apply foo { bar: 1; }` swallowed the brace and
+ * the declaration after it, and a missing semicolon ran the list on into the
+ * next declaration.
+ */
+const APPLY = /@apply\b([^;{}]*)(;?)/g;
+
+/** A comment, which `@apply` inside is not an `@apply`. */
+const COMMENT = /\/\*[\s\S]*?\*\//g;
 
 /**
  * Expands `@apply` into the declarations the named utilities stand for.
@@ -436,20 +446,46 @@ const APPLY = /@apply\s+([^;}]+);?/g;
 export function expandApply(source: string, opts: UtilityOptions = {}): string {
 	const byName = new Map(utilities(opts).map((utility) => [utility.name, utility]));
 
-	return source.replace(APPLY, (_, names: string) => {
-		const wanted = names.trim().split(/\s+/).filter(Boolean);
-		const out: string[] = [];
-
-		for (const name of wanted) {
-			const utility = byName.get(name);
-			if (!utility) {
-				throw new Error(
-					`@apply names "${name}", which is not a utility. A variant cannot be applied -- it is a rule in another context, not a set of declarations`
-				);
+	const expand = (text: string): string =>
+		text.replace(APPLY, (_, names: string, semicolon: string) => {
+			// what follows the last name is put back: a source transform that eats
+			// the space before a `}` is a transform whose output nobody can diff
+			const trimmed = names.trimEnd();
+			const trailing = names.slice(trimmed.length);
+			const wanted = trimmed.trim().split(/\s+/).filter(Boolean);
+			if (wanted.length === 0) {
+				throw new Error('@apply names no utilities');
 			}
-			out.push(...utility.declarations.map(([property, value]) => `${property}: ${value}`));
-		}
 
-		return `${out.join('; ')};`;
-	});
+			const out: string[] = [];
+			for (const name of wanted) {
+				const utility = byName.get(name);
+				if (!utility) {
+					throw new Error(
+						`@apply names "${name}", which is not a utility. A variant cannot be applied -- it is a rule in another context, not a set of declarations`
+					);
+				}
+				out.push(...utility.declarations.map(([property, value]) => `${property}: ${value}`));
+			}
+
+			// the semicolon is put back only if it was there: without one the
+			// statement ran to the block's `}`, and adding a `;` before it is
+			// harmless, but consuming a `}` that was never matched is not
+			return `${out.join('; ')}${semicolon}${trailing}`;
+		});
+
+	// comments are stepped over rather than expanded. An `@apply` inside one is a
+	// note about `@apply`, and a stylesheet full of commented-out rules is the
+	// ordinary case rather than the exotic one
+	const out: string[] = [];
+	let at = 0;
+	COMMENT.lastIndex = 0;
+
+	for (let match = COMMENT.exec(source); match; match = COMMENT.exec(source)) {
+		out.push(expand(source.slice(at, match.index)), match[0]);
+		at = match.index + match[0].length;
+	}
+	out.push(expand(source.slice(at)));
+
+	return out.join('');
 }

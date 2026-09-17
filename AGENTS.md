@@ -573,6 +573,10 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
 - **`none` parses only where "no limit" is a thing to say.** Accepting it on all
   fourteen length properties made `width: none` and `margin: none` parse and then
   behave as `auto` or as zero -- not CSS, and not what the author meant.
+- **A keyword list is frozen too, not just the slot holding it.** `Object.freeze`
+  on a definition freezes the reference, and `parseKeyword` closes over the same
+  array -- so a push onto `PROPERTIES.display.keywords` made `display: grid`
+  parse. Same hole as the one below, one level further in.
 - **The property table is frozen, definitions included.** The initial values were
   frozen and the slots holding them were not, which is the same TypeScript
   fiction one level up: `PROPERTIES.width.initial = cells(7)` changed what
@@ -808,6 +812,13 @@ stylesheet rather than anything the runtime knows about.
   well today; `c16:text-red` is SIG-61's "give the author control" in a shape
   people already know. Not `hover:` until mouse tracking exists, and not `dark:`
   -- a terminal has no such mode.
+- **`@apply` is one statement, and an `@apply` in a comment is not one.** The
+  name list stops at `;`, `{` or `}`: `[^;}]+` also matched a brace, so
+  `@apply foo { bar: 1; }` swallowed the block after it and a missing semicolon
+  ran the list on into the next declaration. Comments are stepped over rather
+  than expanded, because a sheet full of commented-out rules is the ordinary
+  case. Whatever followed the last name is put back, since a source transform
+  that eats the space before a `}` is one whose output nobody can diff.
 - **`@apply` expands at build time into the component layer.** That is where the
   cascade's layer ordering puts a component rule, so an app can still override
   it with a utility -- which is the whole reason `@apply` works in Tailwind.

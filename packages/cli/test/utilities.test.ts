@@ -4,7 +4,13 @@ import {
 	utilities,
 	VARIANT_NAMES,
 } from '../src/utilities/index.js';
-import { Cascade, parseStylesheet, PROPERTIES } from '@ttylabs/sigil/style';
+import {
+	Cascade,
+	parseStylesheet,
+	PROPERTIES,
+	PROPERTY_NAMES,
+	readDeclarations,
+} from '@ttylabs/sigil/style';
 import { describe, expect, it } from 'vitest';
 
 const all = utilities();
@@ -19,30 +25,37 @@ function resolve(classes: string[], width = 100, colorLevel = 3) {
 }
 
 describe('generated from the property table', () => {
-	it('should give every keyword of a keyword family a utility', () => {
-		// the point of putting the keyword lists on the table: a keyword added to
-		// a property gets its utility for free rather than needing a second list
-		// here to be remembered
-		const declared = new Set(
-			all.flatMap((utility) => utility.declarations.map(([property]) => property))
-		);
-		for (const property of ['justifyContent', 'alignItems', 'flexDirection', 'borderStyle']) {
-			const keywords = PROPERTIES[property as 'display'].keywords;
-			expect(keywords, property).toBeDefined();
-			for (const keyword of keywords ?? []) {
+	it('should give every keyword of every keyword property a utility', () => {
+		// walks the table rather than a sample of it: the point of putting the
+		// keyword lists there is that a keyword added to a property gets its
+		// utility for free, and a family dropped from the generator should fail
+		// here rather than only when somebody notices the class is missing
+		let checked = 0;
+		for (const property of PROPERTY_NAMES) {
+			const keywords = PROPERTIES[property].keywords;
+			if (!keywords) {
+				continue;
+			}
+			for (const keyword of keywords) {
 				const found = all.some((utility) =>
 					utility.declarations.some(([p, v]) => p === property && v === keyword)
 				);
 				expect(found, `no utility sets ${property}: ${keyword}`).toBe(true);
+				checked++;
 			}
 		}
-		expect(declared.size).toBeGreaterThan(20);
+		expect(checked).toBeGreaterThan(50);
 	});
 
-	it('should refuse a utility whose value its own property would refuse', () => {
-		// every declaration is parsed on the way out, which is what caught
-		// `bright-black` -- a legal class name and not a colour the parser takes
-		expect(() => generateUtilities()).not.toThrow();
+	it('should only ever emit a declaration the property would accept', () => {
+		// asserted over the declarations themselves rather than by watching
+		// `generateUtilities()` not throw: the generator checks this on the way
+		// out, and a test that only calls it would pass with the check deleted
+		for (const utility of all) {
+			for (const [property, value] of utility.declarations) {
+				expect(() => readDeclarations({ [property]: value }), `${utility.name}`).not.toThrow();
+			}
+		}
 	});
 
 	it('should never generate two utilities of one name', () => {
@@ -81,6 +94,17 @@ describe('the vocabulary', () => {
 			['margin-left', 'auto'],
 			['margin-right', 'auto'],
 		]);
+	});
+
+	it('should let border and a border colour be worn together', () => {
+		// `border` emits the border-style longhand rather than the `border`
+		// shorthand, which would reset the colour: `class="border border-blue"` is
+		// the documented combination and the shorthand would silently undo half of
+		// it depending on which rule came last
+		const style = resolve(['border', 'border-blue']);
+		expect(style.borderStyle).toBe('single');
+		expect(style.borderColor).toBe(4);
+		expect(resolve(['border-blue', 'border']).borderColor).toBe(4);
 	});
 
 	it('should give border a meaning a terminal can have', () => {
@@ -218,5 +242,31 @@ describe('@apply', () => {
 
 	it('should refuse a variant, which is a rule rather than a set of declarations', () => {
 		expect(() => expandApply('.a { @apply md:flex-row; }')).toThrow(/not a utility/);
+	});
+
+	it('should leave an @apply inside a comment alone', () => {
+		// a stylesheet full of commented-out rules is the ordinary case, and an
+		// @apply inside a comment is a note about @apply
+		const source = '/* .old { @apply p-9 nonsense; } */ .a { @apply p-1; }';
+		const expanded = expandApply(source);
+		expect(expanded).toContain('/* .old { @apply p-9 nonsense; } */');
+		expect(expanded).toContain('padding-top: 1');
+	});
+
+	it('should stop at the end of its own statement', () => {
+		// `[^;}]+` also matched `{`, so the name list ran on into whatever
+		// followed: a missing semicolon ate the next declaration and a brace ate
+		// the next block
+		expect(expandApply('.a { @apply p-1 }')).toBe(
+			'.a { padding-top: 1; padding-right: 1; padding-bottom: 1; padding-left: 1 }'
+		);
+		expect(expandApply('.a { @apply p-1; color: red }')).toContain('color: red');
+		// the brace is left where it is rather than being read as a utility name;
+		// a nested block is the stylesheet parser's to refuse, not this one's
+		expect(expandApply('.a { @apply p-1 { color: red } }')).toContain('{ color: red }');
+	});
+
+	it('should refuse an @apply that names nothing', () => {
+		expect(() => expandApply('.a { @apply ; }')).toThrow(/names no utilities/);
 	});
 });
