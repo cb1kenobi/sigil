@@ -163,11 +163,12 @@ export function layout(root: LayoutNode, opts: LayoutOptions): LayoutResult {
 		outerSize(style, resolve(style.minWidth, opts.width), horizontal),
 		outerSize(style, resolve(style.maxWidth, opts.width), horizontal)
 	);
-	// measured against the width its own declaration was resolved against, not
-	// against the width it ended up with: `measure()` takes a containing block and
-	// reads the node's `width` off it again, so handing it a used size makes a
-	// percentage width a percentage of itself. A root `width: 50%; max-width: 8`
-	// in forty columns is eight wide either way, and measured at the eight it
+	// measured at the width it was measured at before, deliberately. `measure()`
+	// has one argument doing two jobs -- it reads the node's own `width` back off
+	// it, then wraps at whatever that produced -- so no single number is both the
+	// base a percentage is of and the width the box ends up with. Handing it the
+	// clamped width is the one answer wrong twice over: a root `width: 50%` under
+	// a `max-width` of eight then resolved the `50%` against that eight and
 	// wrapped its text at four
 	const height = clamp(
 		declaredHeight ?? opts.height ?? measure(root, declaredWidth ?? opts.width, cache).height,

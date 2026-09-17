@@ -938,12 +938,12 @@ describe('min and max are applied once, by whoever sized the node', () => {
 		expect(result.children[0].children[0].box.width).toBe(10);
 	});
 
-	it('should measure the root against its containing block and not the size it got', () => {
-		// moving the root's clamp into `layout()` put a used size where `measure()`
-		// wants a containing block -- it reads the node's own `width` back off that
-		// argument, so `width: 50%` measured at the eight `max-width` left it
-		// resolved to four, and the text wrapped six rows deep inside a box eight
-		// columns wide
+	it('should not measure the root at the width its own limits clamped it to', () => {
+		// moving the root's clamp into `layout()` made it tempting to measure at the
+		// clamped width, and `measure()` reads the node's own `width` back off that
+		// argument: `50%` of the eight the `max-width` left it is four, so the text
+		// wrapped six rows deep inside a box eight columns wide. Two rows is what it
+		// needs at eight, and what measuring at the declared twenty also gives
 		const root = text('aa bb cc dd ee ff', { width: '50%', 'max-width': '8' });
 
 		expect(layout(root, { width: 40 }).box).toEqual({ height: 2, width: 8, x: 0, y: 0 });

@@ -500,15 +500,19 @@ false` rethrows instead; a function replaces the handler.
   did not fill its hole moves its neighbour -- because the allocation itself is
   not in the result, which leaves an only child and the last item on a line
   uncovered.
-- **`measure()` takes a containing block, not a used size.** It reads the node's
-  own `width` back off that argument -- which is how a declared width reaches the
-  measure pass at all -- so handing it the size a node ended up with makes a
-  percentage width a percentage of itself. Moving the root's clamp into
-  `layout()` and then measuring the root at the clamped width did exactly that: a
-  root `width: 50%` under a `max-width` of eight, in forty columns, measured its
-  text at four and came back six rows tall inside a box eight columns wide. The
-  width a node was _sized against_ and the width it _got_ are different numbers,
-  and only the first one answers a percentage.
+- **`measure()` has one argument doing two jobs, and the root's is left as it
+  was.** It reads the node's own `width` back off that argument -- which is how a
+  declared width reaches the measure pass at all -- and then wraps at whatever
+  that produced, so the number a percentage is _of_ and the number the box ends
+  up with cannot both be passed. Moving the root's clamp into `layout()` made it
+  tempting to measure at the clamped width, which is the one answer wrong twice
+  over: a root `width: 50%` under a `max-width` of eight, in forty columns,
+  resolved the `50%` against that eight and came back six rows tall inside a box
+  eight columns wide. So the base stays what it always was -- the width the
+  declaration resolved to, else the space the root was given -- and a root whose
+  `min` or `max` binds is still measured at a width it does not have. Fixing that
+  means `measure()` taking a used size as well, which is every caller, and is not
+  this rule's to do.
 
 ### Style
 
