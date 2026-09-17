@@ -13,7 +13,9 @@
  * a different one buys nothing and costs everyone's intuition.
  */
 
+import type { ColorLevel } from '../ansi/color-support.js';
 import { readSettings, resolveKeyword } from './declaration.js';
+import { degradeInto } from './degrade.js';
 import { inheritFrom, initialStyle, type PropertyName, type Style } from './properties.js';
 import {
 	compareSpecificity,
@@ -254,7 +256,10 @@ export class Cascade {
 			}
 		}
 
-		return { locked, style: style as Style };
+		// the last pass over a resolved style, so nothing downstream ever holds a
+		// colour the terminal cannot emit and the diff never compares a colour
+		// against its own approximation
+		return { locked, style: degradeInto(style as Style, this.media.colorLevel as ColorLevel) };
 	}
 
 	/**
@@ -269,7 +274,13 @@ export class Cascade {
 		// written into in place: the result is freshly built and nothing else holds
 		// it, so there is nothing to protect by copying it first
 		return opts.props
-			? writeProps(result.style, opts.props, result.locked, opts.parent)
+			? writeProps(
+					result.style,
+					opts.props,
+					result.locked,
+					opts.parent,
+					this.media.colorLevel as ColorLevel
+				)
 			: result.style;
 	}
 
@@ -320,8 +331,13 @@ export class Cascade {
  * @param parent - The parent's style, which `inherit` in a prop reads.
  * @returns The style, props applied.
  */
-export function applyProps(result: CascadeResult, props: PropValues, parent?: Style): Style {
-	return writeProps({ ...result.style }, props, result.locked, parent);
+export function applyProps(
+	result: CascadeResult,
+	props: PropValues,
+	parent?: Style,
+	level: ColorLevel = 3
+): Style {
+	return writeProps({ ...result.style }, props, result.locked, parent, level);
 }
 
 /** Writes props into a style, taking it over. */
@@ -329,7 +345,8 @@ function writeProps(
 	target: Style,
 	props: PropValues,
 	locked: ReadonlySet<PropertyName>,
-	parent: Style | undefined
+	parent: Style | undefined,
+	level: ColorLevel
 ): Style {
 	const style = target as Record<PropertyName, unknown>;
 
@@ -349,5 +366,7 @@ function writeProps(
 		}
 	}
 
-	return style as Style;
+	// a prop can name a colour too, so the fast path degrades as well -- three
+	// memoized lookups, which is what keeps it a fast path
+	return degradeInto(style as Style, level);
 }

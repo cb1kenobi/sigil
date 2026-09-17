@@ -69,6 +69,7 @@ export {
 	type ResolveOptions,
 	applyProps,
 } from './cascade.js';
+export { degradeColor, degradeInto, degradeStyle, oklab, paletteRgb } from './degrade.js';
 export {
 	type Setting,
 	type WideKeyword,

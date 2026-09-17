@@ -40,7 +40,7 @@ Paths below are inside `packages/sigil/` unless noted.
 | `src/components/`        | Spinner, progress, table, prompts, key decoding      |
 | `src/signals/`           | The reactive graph: state, computed, watcher, effect |
 | `src/canvas/`            | Cell buffer, style interning, paint diff, sub-cell   |
-| `src/style/`             | Properties, values, shorthands, selectors, cascade   |
+| `src/style/`             | Properties, values, selectors, cascade, degradation  |
 | `src/layout/`            | The flexbox subset, over whole cells                 |
 | `src/infer.ts`           | `initOption()` and `initArg()`, in the type system   |
 | `src/util/`              | Shared helpers (type coercion, camelCase, mkdir)     |
@@ -685,6 +685,52 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
 - **Comments are removed by the cursor, not by each reader.** A comment may sit
   anywhere, mid-selector included, and every reader downstream would otherwise
   have to know that -- and a semicolon inside one is not a declaration boundary.
+
+### Colour degradation
+
+- **Degradation happens at resolve time, not at paint time.** The cascade
+  produces a resolved style and degradation is the last pass over it, so the
+  canvas only ever holds colours the terminal can actually emit and the diff
+  never compares a colour against its own approximation. The depth it degrades
+  to is `media.colorLevel` -- the same number `@media (color-level: N)` reads, so
+  an author's override and the automatic ladder cannot disagree about what depth
+  they are on.
+- **Level 2 never _lands_ on `0`-`15`, and level 2 never _rewrites_ them
+  either.** Those sixteen are whatever the user's theme says they are, so
+  quantizing an ordinary colour onto one makes the answer depend on a setting
+  nothing here can read -- the cube and the grey ramp are fixed by the spec and
+  are the only targets. A colour _declared_ as one of the sixteen is the other
+  half of the same rule and passes through untouched, because AGENTS.md already
+  records that a named colour stays a palette index. Getting this backwards
+  turned a declared `blue` into the cube's `#0000ff` and overrode a choice the
+  user had already made.
+- **Matching is in Oklab, not in RGB.** The sixteen are perceptually scattered
+  rather than evenly spaced, so RGB distance picks visibly wrong answers --
+  `#ff8800` is numerically nearer xterm's green than its red, and perceptually
+  nowhere near it. Oklab over CIELAB because it is simpler and better behaved
+  around blues; either beats RGB, which is the thing actually worth avoiding.
+- **Nothing is invented at level 0.** Colour is dropped and no attribute is
+  synthesised to carry what it meant: turning red into bold makes red and blue
+  both bold, which preserves the emphasis while destroying the distinction it is
+  pretending to keep. The rule that follows is a rule for components rather than
+  for the degrader -- do not encode meaning in colour alone -- and it is an
+  accessibility argument as much as a compatibility one.
+- **A background degrades exactly like a foreground.** The argument for treating
+  it differently is that a wrong background is more visible, and that argues for
+  a _better_ match rather than a _different_ one; Oklab is already the better
+  match, and a second metric would be two tables and two sets of surprises.
+- **`NO_COLOR` comes through this path rather than short-circuiting.**
+  `supportsColor()` already reads it and answers `0`, the renderer puts that on
+  `media.colorLevel`, and level 0 drops colour. One mechanism is easier to
+  reason about than two, and it means `@media (color-level: 0)` is a thing an
+  author can write.
+- **The memo is never evicted, because what reaches it is a declared colour.** An
+  app has a few dozen of those, not the 16.7 million a cap would be protecting
+  against -- a gradient painted cell by cell goes to the canvas directly and
+  never passes through the cascade at all.
+- **The basic sixteen are matched against the xterm defaults.** Terminal themes
+  make them unknowable, and being wrong for somebody running Solarized is a
+  smaller failure than refusing to degrade.
 
 ### Canvas
 
