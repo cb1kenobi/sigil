@@ -23,8 +23,14 @@ try {
 		throw new Error('DIST_TAGS_URL must use https');
 	}
 
-	// an empty variable is read as unset, the way the parser reads one
-	const timeout = Number(requestTimeout || 5000);
+	// an empty variable is read as unset, the way the parser reads one -- but
+	// whitespace is not empty, and `Number(' ')` is `0`, which is the one value
+	// that means "no timeout at all". A variable nobody meant to set must not be
+	// the way the timeout gets switched off
+	let timeout = 5000;
+	if (requestTimeout) {
+		timeout = requestTimeout.trim() ? Number(requestTimeout) : NaN;
+	}
 	if (!Number.isFinite(timeout) || timeout < 0) {
 		throw new Error(`Invalid REQUEST_TIMEOUT: "${requestTimeout}"`);
 	}

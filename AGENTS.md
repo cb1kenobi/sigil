@@ -1138,19 +1138,24 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
 
 - **A package name is percent-encoded into the registry URL and out of the cache
   filename.** It is one path segment and it is not a filename, and a scoped name
-  -- which is what this framework publishes under -- broke both: interpolated raw,
-  `/-/package/@ttylabs/sigil/dist-tags` asks for a package called `@ttylabs` with
-  `/sigil/dist-tags` trailing, and `join(cacheDir, '@ttylabs/sigil-latest.json')`
-  is a file in a directory nobody created. registry.npmjs.org happens to accept
-  `%40scope%2Fname`, `@scope%2fname` and the raw slash alike -- verified by hand
-  against the real endpoint, never from the suite -- but `registryURL` is the
-  caller's, and a self-hosted registry behind a path-normalizing proxy owes
-  nothing. The cache transform has to be _injective_, which is why it is not a
-  slash swapped for a dash: `@a/b-c` and `@a-b/c` both come out `@a-b-c`, and two
-  packages sharing a cache file share a version. The `@` between the name and the
-  dist tag is the same argument -- `encodeURIComponent()` leaves `-` alone, so
-  `a-b` at `c` and `a` at `b-c` would be one file, while a literal `@` cannot
-  survive encoding and so cannot appear inside either half.
+  -- which is what this framework publishes under -- was wrong as both.
+  Interpolated raw, `/-/package/@ttylabs/sigil/dist-tags` asks for a package
+  called `@ttylabs` with `/sigil/dist-tags` trailing. registry.npmjs.org happens
+  to accept `%40scope%2Fname`, `@scope%2fname` and the raw slash alike --
+  verified by hand against the real endpoint, never from the suite -- but
+  `registryURL` is the caller's, and a self-hosted registry behind a
+  path-normalizing proxy owes nothing.
+- **The cache filename was a collision, not a broken write.** Worth saying plainly,
+  because the obvious reading of `join(cacheDir, '@ttylabs/sigil-latest.json')` is
+  a file in a directory nobody created, and that is not what happened: `check()`
+  creates `dirname()` of the whole path, so the scope was created too and the
+  cache merely scattered a level down. What was actually broken is that a dash
+  cannot separate a name from a tag when a name may contain one -- `a-b` at tag
+  `c` and `a` at tag `b-c` were one file, and two packages sharing a cache file
+  share a version, so one of them is told the wrong thing to upgrade to. The
+  transform therefore has to be _injective_, which percent-encoding is; the `@`
+  separator is the same argument, since `encodeURIComponent()` leaves `-` alone
+  but never leaves an `@`, so splitting on it recovers exactly what went in.
 - **The parent builds the registry URL; the worker is handed it.** The worker is a
   string piped into `node --input-type=module`, so nothing can import it, stub its
   `https`, or call one function out of it -- anything it computes is observable
@@ -1166,7 +1171,15 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   inactivity timeout, which covers a stall partway through a response as well as a
   first byte that never comes; destroying the request surfaces through the `error`
   handler that already exits non-zero. `timeout: 0` opts out in the worker the same
-  way it skips the timer in the parent.
+  way it skips the timer in the parent, and a whitespace-only `REQUEST_TIMEOUT`
+  is refused rather than read as that opt-out, because `Number(' ')` is `0` and a
+  variable nobody meant to set must not be how the timeout gets switched off.
+  What it does not cover is a registry that dribbles: one byte every
+  `timeout - 1` ms resets an inactivity timer forever. That is the same deadline
+  the parent's timer means when the parent is still alive, and closing it in the
+  orphan case means a second, absolute timer whose expiry would have to mean
+  something different from the option's name -- left alone deliberately, and
+  written down here rather than discovered again.
 - **The response gets its own `error` listener, because the timeout does not
   cover a body that stops half way.** A connection dropped mid-body destroys the
   socket, and the inactivity timer goes with it, while `end` never comes because

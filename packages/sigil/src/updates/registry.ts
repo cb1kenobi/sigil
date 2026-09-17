@@ -25,20 +25,22 @@ export function distTagsURL(packageName: string, registryURL: string = defaultRe
  * Builds the name of the file an update check caches a version in.
  */
 export function cacheFileName(packageName: string, distTag: string): string {
-	// A package name is not a filename: `@ttylabs/sigil` carries a slash, so
-	// `join(cacheDir, ...)` named a file inside a `@ttylabs` directory that only
-	// `dirname()` of the whole path would have created, and the cache write
-	// failed in a worker nobody was waiting on.
+	// A package name is not a filename. `@ttylabs/sigil` carries a slash, so
+	// `join(cacheDir, ...)` made the scope a directory and scattered the cache
+	// one level down -- not a failed write, since `check()` creates `dirname()`
+	// of the whole path and so created the scope too, which is the half of this
+	// that looks worse than it is.
 	//
-	// Percent-encoding rather than swapping the slash for a dash, because the
-	// transform has to be injective -- two packages sharing a cache file share a
-	// version, and one of them is then told the wrong thing to upgrade to.
-	// A dash collides: `@a/b-c` and `@a-b/c` both come out `@a-b-c`. The
-	// separator is `@` for the same reason: `encodeURIComponent()` leaves `-`
-	// alone, so `a-b` at tag `c` and `a` at tag `b-c` would be one file, while
-	// a literal `@` cannot survive encoding and so cannot appear inside either
-	// half. `*` is the one character it leaves that Windows refuses in a
-	// filename, so that one goes too.
+	// The half that is worse than it looks is the collision, and it is why the
+	// transform is percent-encoding rather than a slash swapped for a dash: two
+	// packages sharing a cache file share a version, and one of them is then
+	// told the wrong thing to upgrade to. A dash cannot separate a name from a
+	// tag, because a name may contain one -- `a-b` at tag `c` and `a` at tag
+	// `b-c` were both `a-b-c.json`. The separator is `@` because
+	// `encodeURIComponent()` leaves `-` alone but never leaves an `@`, so a
+	// literal one cannot appear inside either half and splitting on it recovers
+	// exactly what went in. `*` is the one character it leaves that Windows
+	// refuses in a filename, so that one goes too.
 	const enc = (s: string) => encodeURIComponent(s).replace(/\*/g, '%2A');
 	return `${enc(packageName)}@${enc(distTag)}.json`;
 }
