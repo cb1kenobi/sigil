@@ -5,7 +5,7 @@
  *
  * | What changed | What has to re-run |
  * | -- | -- |
- * | a prop on one element | that element's paint |
+ * | a prop on one element | that element's paint, and its subtree if descendants can read what changed |
  * | `color` via the sheet | that element's paint |
  * | `width` via the sheet | that subtree's layout, then paint |
  * | a class on one element | restyle it, and anything a selector relates to it |
@@ -224,14 +224,32 @@ export class Restyler {
 				}
 			}
 
-			// children are forced only when what they inherit actually changed.
-			// A class change already marked the subtree, so forcing on any restyle
-			// would be redundant there -- and doing it only here is what makes an
-			// inherited *prop* reach its descendants at all
-			const inherited = changed.some((property) => INHERITS.has(property));
+			// What a child reads from its parent is every inherited property, plus
+			// any property it wrote `inherit` on -- and `inherit` works on a
+			// property that does not inherit by default, which is the whole reason
+			// to write it. `width: inherit` on a child is read from a parent whose
+			// `width` is not in INHERITED, so narrowing the force to INHERITED left
+			// that child stale.
+			//
+			// A restyle needs no such care: a class change already marked the
+			// subtree and a sheet change or a resize marked everything, so the only
+			// path that has to decide is the prop one -- and there, anything having
+			// changed is the answer, because which properties a child reads through
+			// `inherit` is not something this can see from here.
+			//
+			// The precise version records, per element, the properties it resolved
+			// from an `inherit` keyword, and forces only children whose set the
+			// change intersects. That is the optimization to reach for if a profile
+			// ever asks for it; it is not free, since the cascade would have to
+			// report which declaration won each property, and the conservative rule
+			// costs nothing at all on a leaf, which is where a prop write usually
+			// lands.
+			const force = restyle
+				? changed.some((property) => INHERITS.has(property))
+				: changed.length > 0;
 
 			for (const child of node.children ?? []) {
-				walk(child, style, inherited);
+				walk(child, style, force);
 			}
 		};
 

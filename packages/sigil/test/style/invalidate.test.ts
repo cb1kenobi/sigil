@@ -526,3 +526,53 @@ describe('the size of the naive answer', () => {
 		expect(slowest).toBeLessThan(50);
 	});
 });
+
+describe('the inherit keyword', () => {
+	// `inherit` works on a property that does not inherit by default -- that is
+	// the whole reason to write it -- so "force children when an INHERITED
+	// property changed" is not the same question as "can a child read this"
+	const sheet = parseStylesheet('.child { width: inherit }');
+
+	it('should reach a child that inherits a property which does not inherit', () => {
+		const child = el('box.child');
+		const parent = el('box.parent', [child]);
+		const restyler = new Restyler(new Cascade([sheet]));
+		parent.props = { width: '10' };
+		restyler.update(as(parent));
+		expect(restyler.styleOf(as(child))?.width).toEqual({ type: 'cells', value: 10 });
+
+		parent.props = { width: '20' };
+		restyler.touchProps(as(parent));
+		const update = restyler.update(as(parent));
+
+		expect(restyler.styleOf(as(child))?.width).toEqual({ type: 'cells', value: 20 });
+		expect(update.layout.has(as(child))).toBe(true);
+	});
+
+	it('should still cost nothing when a prop write changed nothing', () => {
+		const child = el('box.child');
+		const parent = el('box.parent', [child]);
+		const restyler = new Restyler(new Cascade([sheet]));
+		parent.props = { width: '10' };
+		restyler.update(as(parent));
+
+		restyler.touchProps(as(parent));
+		const update = restyler.update(as(parent));
+		expect(update.restyled).toBe(0);
+		expect(update.paint.size).toBe(0);
+	});
+
+	it('should cost nothing on a leaf, which is where a prop write usually lands', () => {
+		const leaf = el('text');
+		const parent = el('box', [leaf]);
+		const restyler = new Restyler(new Cascade([parseStylesheet('text { color: red }')]));
+		restyler.update(as(parent));
+
+		leaf.props = { color: 'blue' };
+		restyler.touchProps(as(leaf));
+		const update = restyler.update(as(parent));
+
+		expect(update.restyled).toBe(0);
+		expect([...update.paint]).toEqual([as(leaf)]);
+	});
+});
