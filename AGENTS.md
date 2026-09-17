@@ -911,7 +911,17 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   a cycle -- so disposing while stalled takes the latch off and announces what is
   still pending. Without that, an effect the give-up left dirty swallows every
   later write to it, since propagation stops at a node already dirty, and the
-  flush that would have caught it is the one the latch refuses. What is lost is
+  flush that would have caught it is the one the latch refuses. A disposal made
+  from _inside_ the drain that gave up -- by an effect body, or by an error
+  handler that shuts the cycle down -- is deliberately not counted: a cycling
+  drain churns the watched set on every pass, because a parent re-run disposes
+  its children, so "something was disposed while draining" cannot tell breaking
+  the cycle from the cycle running, and trusting it is the storm again one level
+  slower. That costs one sequence, which is written down rather than fixed: work
+  the give-up left dirty then waits for the next notification, the next
+  disposal, or a `flush()` the caller asks for -- in a live app the next
+  keystroke or resize, in a test the `flush()` the test already calls. What is
+  lost is
   the cycle announcing _itself_, which is the one thing that has to be lost. An
   effect dirty for an
   innocent reason during a failed settle is not stranded by it -- every pass

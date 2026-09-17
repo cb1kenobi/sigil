@@ -562,6 +562,50 @@ describe('effect', () => {
 			expect(seen.length).toBeGreaterThan(stranded);
 			expect(seen.at(-1)).toBe(1000);
 		});
+
+		it('should wait for a real change when the cycle is disposed mid-drain', async () => {
+			const own = createEffects();
+			const errors: unknown[] = [];
+			const a = new State(0);
+			const b = new State(0);
+			const input = new State(0);
+			const seen: number[] = [];
+			let stopA = (): void => {};
+			let stopB = (): void => {};
+
+			// the handler shuts the cycle down, which is a graph change made from
+			// inside the drain that gave up rather than after it
+			own.setErrorHandler((err) => {
+				errors.push(err);
+				stopA();
+				stopB();
+			});
+
+			own.effect(() => {
+				a.get();
+				b.get();
+				seen.push(input.get());
+			});
+			stopA = own.effect(() => a.set(b.get() + 1));
+			stopB = own.effect(() => b.set(a.get() + 1));
+
+			own.flush();
+			expect(errors).toHaveLength(1);
+			const waiting = seen.length;
+
+			// a disposal made *while draining* is not evidence that the cycle was
+			// broken -- a cycling drain churns the watched set on every pass, since
+			// a parent re-run disposes its children -- so it is not counted, and the
+			// effect the give-up left dirty swallows this write
+			input.set(1000);
+			await tick();
+			expect(seen).toHaveLength(waiting);
+
+			// waiting, not lost: the flush the caller asks for runs it, and so would
+			// the next notification or the next disposal
+			own.flush();
+			expect(seen.at(-1)).toBe(1000);
+		});
 	});
 
 	it('should not run an effect disposed by another effect in the same flush', () => {
