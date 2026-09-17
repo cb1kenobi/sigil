@@ -392,22 +392,28 @@ false` rethrows instead; a function replaces the handler.
   conditions this loader can honor are read: `import`, `node`, `default`, then
   `require`, since a CommonJS entry still loads. `browser`, `types`, and user
   conditions are skipped rather than guessed at.
-- **A uid of `0` is a uid, and an owner walk stops at the root.** Root is `0`
-  and `0` is falsy, so `mkdirOwnerSync()` asking `uid && gid` read a caller who
+- **A uid of `0` is a uid, and `mkdirOwnerSync()` owns what it made and nothing
+  else.** Root is `0` and `0` is falsy, so asking `uid && gid` read a caller who
   asked for group `0` -- `wheel`, and the group of every ancestor under `/var`,
   `/usr`, and `/root` -- as a caller who asked for nothing; the walk then put
   the same `0` back through `gid ||= st.gid`, and the falsy `gid` failed the
   guard on the chown pass, so the ownership that was asked for was never
   applied. An explicit `uid: 0` was overwritten by whatever owned the nearest
   existing directory for the same reason. Whether an owner was given is a
-  question about `undefined`, so that is what is asked. The walk stopping at the
-  root is the other half: it climbed until it found a directory and
-  `dirname('/')` is `'/'`, so on a path whose every ancestor `lstatSync()`
-  refuses it had nothing left to climb and no reason to stop climbing -- a loop
-  that relies on finding something is a loop that can run off the top of the
-  filesystem, and the chown pass carries the same guard for the same reason.
-  Reached from the update cache, which a CLI run as root creates. See
-  `test/mkdir-owner-sync.test.ts`.
+  question about `undefined`, so that is what is asked. Both halves of the
+  answer are asked about too: a directory `mkdirSync()` has just made as root is
+  `0:0`, so a caller asking for `{ uid: 0, gid: 1000 }` matched on the uid alone
+  and stopped with the group never applied. The deepest directory that already
+  exists is the last one the call did not make, so it is where the chown pass
+  stops as well as where an owner is read from -- it used to be looked for only
+  in the second case, and the first was given the file system root, which is no
+  ceiling: that pass climbs until it meets a directory already owned by the
+  target, so a cache under `/var` handed `/var` away along with what it had just
+  made. The walk itself stops at the root whether or not it found anything,
+  because it climbed until it found a directory and `dirname('/')` is `'/'`: a
+  loop that relies on finding something is a loop that can run off the top of
+  the filesystem. Reached from the update cache, which a CLI run as root
+  creates. See `test/mkdir-owner-sync.test.ts`.
 - **A command is fixed once it is initialized, and its declaration containers
   are read-only.** `cmd.args`, `cmd.commands`, and `cmd.options` echo the
   declaration; the parser reads the normalized arguments and the registries at

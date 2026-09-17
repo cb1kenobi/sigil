@@ -85,6 +85,22 @@ describe('mkdirOwnerSync', () => {
 		mkdirOwnerSync(dest, { gid: 0, uid: 1000 });
 
 		expect(fs.lchownSync).toHaveBeenCalledWith(dest, 1000, 0);
+		// what it made, and not a directory that was already there
+		expect(fs.lchownSync).toHaveBeenCalledWith(dirname(dirname(dest)), 1000, 0);
+		expect(fs.dirs.get(ancestor)).to.deep.equal({ gid: 0, uid: 0 });
+	});
+
+	// a directory `mkdirSync()` has just made as root is `0:0`, so a caller asking
+	// for `{ uid: 0, gid: 1000 }` matched on the uid and stopped, and the group it
+	// asked for was never applied: the pair is one answer, not two
+	it('should apply a group the owner already matches', () => {
+		fs.dirs.set(root, { gid: 0, uid: 0 });
+		fs.dirs.set(ancestor, { gid: 0, uid: 0 });
+
+		mkdirOwnerSync(dest, { gid: 1000, uid: 0 });
+
+		expect(fs.lchownSync).toHaveBeenCalledWith(dest, 0, 1000);
+		expect(fs.dirs.get(ancestor)).to.deep.equal({ gid: 0, uid: 0 });
 	});
 
 	// an owner given outright is the answer, and `||=` read one off an ancestor over
