@@ -30,15 +30,15 @@
     "@ttylabs/cli": "workspace:*",
     "@ttylabs/sigil": "workspace:*",
     "@types/node": "26.5.1",
-    "@vitest/coverage-v8": "5.0.0",
-    "lefthook": "2.1.12",
-    "oxfmt": "0.67.0",
-    "oxlint": "1.82.0",
+    "@vitest/coverage-v8": "5.0.1",
+    "lefthook": "2.1.14",
+    "oxfmt": "0.68.0",
+    "oxlint": "1.83.0",
     "rimraf": "6.1.3",
     "tsdown": "0.23.0",
     "turbo": "2.10.13",
     "typescript": "7.0.2",
-    "vitest": "5.0.0"
+    "vitest": "5.0.1"
   },
   "engines": {
     "node": ">=22.19.0"
