@@ -363,6 +363,19 @@ export const INHERITED: readonly PropertyName[] = PROPERTY_NAMES.filter(
 );
 
 /**
+ * The properties that hold a colour, read off the table the way `INHERITED` is.
+ *
+ * Degradation walks these, and a hand-written list of them would be a second
+ * list to keep in agreement: a fourth colour property would parse and cascade
+ * and then quietly skip degradation, which is a wrong colour on screen with
+ * nothing to point at. `properties.test.ts` checks the derivation against the
+ * initial value, since `DEFAULT_COLOR` is a value no other numeric property has.
+ */
+export const COLOR_PROPERTIES: readonly PropertyName[] = PROPERTY_NAMES.filter(
+	(name) => PROPERTIES[name].parse === parseColor
+);
+
+/**
  * `font-weight: bold` is the spelling people reach for, and `bold: true` is the
  * property. Rather than refuse the familiar one, these map onto it.
  */
