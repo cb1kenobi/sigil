@@ -166,9 +166,12 @@ importers:
 
   .:
     devDependencies:
-      '@main2/cli':
+      '@ttylabs/cli':
         specifier: workspace:*
         version: link:packages/cli
+      '@ttylabs/sigil':
+        specifier: workspace:*
+        version: link:packages/sigil
       '@types/node':
         specifier: 26.5.1
         version: 26.5.1
@@ -178,9 +181,6 @@ importers:
       lefthook:
         specifier: 2.1.12
         version: 2.1.12
-      main2:
-        specifier: workspace:*
-        version: link:packages/main2
       oxfmt:
         specifier: 0.67.0
         version: 0.67.0
@@ -205,9 +205,9 @@ importers:
 
   packages/cli:
     dependencies:
-      main2:
+      '@ttylabs/sigil':
         specifier: workspace:*
-        version: link:../main2
+        version: link:../sigil
     devDependencies:
       '@types/node':
         specifier: 26.5.1
@@ -228,7 +228,7 @@ importers:
         specifier: 5.0.0
         version: 5.0.0(@types/node@26.5.1)(@vitest/coverage-v8@5.0.0)(vite@8.2.2(@types/node@26.5.1))
 
-  packages/main2:
+  packages/sigil:
     devDependencies:
       '@types/node':
         specifier: 26.5.1

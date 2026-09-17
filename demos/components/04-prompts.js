@@ -4,7 +4,14 @@
  *   node demos/components/04-prompts.js
  *   node demos/components/04-prompts.js < /dev/null    <- fails loudly, does not hang
  */
-import { confirm, multiselect, password, PromptError, select, text } from 'main2/components';
+import {
+	confirm,
+	multiselect,
+	password,
+	PromptError,
+	select,
+	text,
+} from '@ttylabs/sigil/components';
 
 try {
 	const name = await text({

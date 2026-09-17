@@ -6,9 +6,9 @@
  *   node demos/parser/03-arguments.js env prod
  *   node demos/parser/03-arguments.js env nope
  */
-import { main2 } from 'main2';
+import { main } from '@ttylabs/sigil';
 
-await main2({
+await main({
 	argv: process.argv.length > 2 ? undefined : ['copy', 'a.txt', 'b.txt', 'dist/'],
 	schema: {
 		name: 'args',

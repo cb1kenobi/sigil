@@ -1,18 +1,18 @@
 {
-  "name": "@main2/monorepo",
+  "name": "@ttylabs/monorepo",
   "version": "0.0.0",
   "private": true,
-  "description": "Workspace root for main2 and its toolchain",
+  "description": "Workspace root for sigil and its toolchain",
   "keywords": [],
-  "homepage": "https://github.com/cb1kenobi/main2",
+  "homepage": "https://github.com/cb1kenobi/sigil",
   "bugs": {
-    "url": "https://github.com/cb1kenobi/main2/issues"
+    "url": "https://github.com/cb1kenobi/sigil/issues"
   },
   "license": "MIT",
   "author": "Chris Barber <me@chrisbarber.dev>",
   "repository": {
     "type": "git",
-    "url": "https://github.com/cb1kenobi/main2.git"
+    "url": "https://github.com/cb1kenobi/sigil.git"
   },
   "type": "module",
   "scripts": {
@@ -27,11 +27,11 @@
     "type-check": "turbo run type-check"
   },
   "devDependencies": {
-    "@main2/cli": "workspace:*",
+    "@ttylabs/cli": "workspace:*",
+    "@ttylabs/sigil": "workspace:*",
     "@types/node": "26.5.1",
     "@vitest/coverage-v8": "5.0.0",
     "lefthook": "2.1.12",
-    "main2": "workspace:*",
     "oxfmt": "0.67.0",
     "oxlint": "1.82.0",
     "rimraf": "6.1.3",

@@ -5,9 +5,9 @@
  *   node demos/parser/01-hello.js greet world --loud
  *   node demos/parser/01-hello.js --help
  */
-import { main2 } from 'main2';
+import { main } from '@ttylabs/sigil';
 
-await main2({
+await main({
 	// a demo argv when you did not pass one, so the file does something on its own
 	argv: process.argv.length > 2 ? undefined : ['greet', 'world'],
 	schema: {

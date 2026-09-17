@@ -19,7 +19,7 @@ const config: ViteUserConfig = defineConfig({
 	test: {
 		// coverage is workspace-global rather than per-project, so each package's
 		// own `coverage.include` is silently ignored when the run comes through
-		// here. Without this the report mixes in `packages/main2/dist/*.mjs` --
+		// here. Without this the report mixes in `packages/sigil/dist/*.mjs` --
 		// minified bundle chunks nobody meant to measure -- and the aggregate
 		// stops meaning anything
 		coverage: {

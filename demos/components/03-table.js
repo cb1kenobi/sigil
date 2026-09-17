@@ -3,7 +3,7 @@
  *
  *   node demos/components/03-table.js
  */
-import { table } from 'main2/components';
+import { table } from '@ttylabs/sigil/components';
 
 const rows = [
 	{ file: 'dist/index.mjs', size: '12.4 kB', note: 'entry' },

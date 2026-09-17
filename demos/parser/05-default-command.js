@@ -6,9 +6,9 @@
  *   node demos/parser/05-default-command.js clean
  *   node demos/parser/05-default-command.js
  */
-import { main2 } from 'main2';
+import { main } from '@ttylabs/sigil';
 
-await main2({
+await main({
 	argv: process.argv.length > 2 ? undefined : ['src/index.js', '--minify'],
 	schema: {
 		name: 'bundle',

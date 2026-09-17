@@ -4,7 +4,7 @@
  *   node demos/components/02-progress.js
  *   node demos/components/02-progress.js | cat     <- one line every 10%
  */
-import { createProgress } from 'main2/components';
+import { createProgress } from '@ttylabs/sigil/components';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const files = Array.from({ length: 40 }, (_, i) => `src/file-${i + 1}.js`);

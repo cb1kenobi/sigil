@@ -1,21 +1,21 @@
 {
-  "name": "@main2/cli",
+  "name": "@ttylabs/cli",
   "version": "0.0.1",
-  "description": "The main2 toolchain: builds and packages CLI apps",
+  "description": "The sigil toolchain: builds and packages CLI apps",
   "keywords": [],
-  "homepage": "https://github.com/cb1kenobi/main2",
+  "homepage": "https://github.com/cb1kenobi/sigil",
   "bugs": {
-    "url": "https://github.com/cb1kenobi/main2/issues"
+    "url": "https://github.com/cb1kenobi/sigil/issues"
   },
   "license": "MIT",
   "author": "Chris Barber <me@chrisbarber.dev>",
   "repository": {
     "type": "git",
-    "url": "https://github.com/cb1kenobi/main2.git",
+    "url": "https://github.com/cb1kenobi/sigil.git",
     "directory": "packages/cli"
   },
   "bin": {
-    "main2": "./dist/main2.mjs"
+    "sigil": "./dist/sigil.mjs"
   },
   "files": [
     "dist"
@@ -41,7 +41,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "main2": "workspace:*"
+    "@ttylabs/sigil": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "26.5.1",
