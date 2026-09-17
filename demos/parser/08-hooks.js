@@ -6,9 +6,9 @@
  *   node demos/parser/08-hooks.js build app.js --added
  *   node demos/parser/08-hooks.js missing
  */
-import { main2 } from 'main2';
+import { main } from '@ttylabs/sigil';
 
-await main2({
+await main({
 	argv: process.argv.length > 2 ? undefined : ['build', 'app.js', '--added'],
 	schema: {
 		name: 'hooks',

@@ -1,4 +1,4 @@
-import { main2, type ParseState, type Schema } from 'main2';
+import { main, type ParseState, type Schema } from '@ttylabs/sigil';
 import { readFileSync } from 'node:fs';
 
 /**
@@ -28,7 +28,7 @@ export function version(): string {
  */
 export function schema(): Schema {
 	return {
-		name: 'main2',
+		name: 'sigil',
 		options: {
 			'-v, --version': {
 				desc: "Print the toolchain's version",
@@ -43,10 +43,10 @@ export function schema(): Schema {
 }
 
 /**
- * Whether `main2()` handed back a parse state rather than a command's return
+ * Whether `main()` handed back a parse state rather than a command's return
  * value or the `undefined` it resolves with after handling an error.
  *
- * @param value - Whatever `main2()` resolved with.
+ * @param value - Whatever `main()` resolved with.
  * @returns Whether it is a state worth reading.
  */
 function isParseState(value: unknown): value is ParseState {
@@ -61,10 +61,10 @@ function isParseState(value: unknown): value is ParseState {
  * `processOptions()` writes anything, so `state.argv` is still empty inside it.
  *
  * @param argv - Arguments, defaulting to the process's.
- * @returns Whatever `main2()` resolves with.
+ * @returns Whatever `main()` resolves with.
  */
 export async function run(argv?: string[]): Promise<ParseState | unknown> {
-	const result = await main2({ argv, schema: schema() });
+	const result = await main({ argv, schema: schema() });
 
 	// help already answered, and it outranks `--version` for the same reason it
 	// outranks everything else: being asked what the program does and answering

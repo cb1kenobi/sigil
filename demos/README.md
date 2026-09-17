@@ -1,7 +1,7 @@
 # Demos
 
 Small runnable examples, one idea each. Every file is plain JavaScript and
-imports `main2` by name, so what you read is what you would write in an app.
+imports `@ttylabs/sigil` by name, so what you read is what you would write in an app.
 
 ```sh
 pnpm build            # the demos import the built output

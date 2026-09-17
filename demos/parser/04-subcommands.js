@@ -8,9 +8,9 @@
  *   node demos/parser/04-subcommands.js --help
  *   node demos/parser/04-subcommands.js help db
  */
-import { main2 } from 'main2';
+import { main } from '@ttylabs/sigil';
 
-await main2({
+await main({
 	argv: process.argv.length > 2 ? undefined : ['db', 'migrate', 'up', '--steps', '2'],
 	schema: {
 		name: 'stack',

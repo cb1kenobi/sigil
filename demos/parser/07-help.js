@@ -6,9 +6,9 @@
  *   node demos/parser/07-help.js release --help
  *   node demos/parser/07-help.js help build
  */
-import { main2 } from 'main2';
+import { main } from '@ttylabs/sigil';
 
-await main2({
+await main({
 	argv: process.argv.length > 2 ? undefined : ['build', '--help'],
 	schema: {
 		name: 'helpdemo',

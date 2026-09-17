@@ -14,7 +14,7 @@
  * Generated rather than loaded, because decoding a PNG would need a dependency
  * and the runtime does not get to have any.
  */
-import { createCanvas, Pixels, rgb } from 'main2/canvas';
+import { createCanvas, Pixels, rgb } from '@ttylabs/sigil/canvas';
 
 const WIDTH = 70;
 const HEIGHT = 18;

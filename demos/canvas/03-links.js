@@ -14,7 +14,7 @@
  * it changes, exactly like bold. So it interns, compares and diffs with
  * everything else, and a cell still holds one integer.
  */
-import { ATTR, createCanvas, palette } from 'main2/canvas';
+import { ATTR, createCanvas, palette } from '@ttylabs/sigil/canvas';
 
 const WIDTH = 64;
 const HEIGHT = 8;

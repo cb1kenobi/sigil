@@ -1,33 +1,33 @@
-# main2
+# sigil
 
 A framework for building CLI apps in Node.js, and the successor to `cli-kit`.
 The heart of it is a multi-pass hierarchical argument parser built for CLIs
 that lean heavily on subcommands.
 
 Unqualified `src/...` and `test/...` paths in this file mean
-`packages/main2/src/...` and `packages/main2/test/...`.
+`packages/sigil/src/...` and `packages/sigil/test/...`.
 
 This is a pnpm workspace with two published packages, and the split is load
 bearing.
 
-| Package          | Name         | Dependencies                                |
-| ---------------- | ------------ | ------------------------------------------- |
-| `packages/main2` | `main2`      | **Zero, and that is a hard constraint**     |
-| `packages/cli`   | `@main2/cli` | Whatever it needs. Provides the `main2` bin |
+| Package          | Name             | Dependencies                                |
+| ---------------- | ---------------- | ------------------------------------------- |
+| `packages/sigil` | `@ttylabs/sigil` | **Zero, and that is a hard constraint**     |
+| `packages/cli`   | `@ttylabs/cli`   | Whatever it needs. Provides the `sigil` bin |
 
-**Zero production dependencies in `main2` is a hard constraint.** Anything the
+**Zero production dependencies in `@ttylabs/sigil` is a hard constraint.** Anything the
 runtime needs — ANSI handling, text wrapping, dotenv, `which`, debug logging,
-and everything the 2.0 stack adds on top — gets written there and bundled. Do not add a runtime dependency to `packages/main2`; if one seems
+and everything the 2.0 stack adds on top — gets written there and bundled. Do not add a runtime dependency to `packages/sigil`; if one seems
 necessary, raise it rather than adding it.
 
-`@main2/cli` is the opposite: it is a devDependency of the app rather than part
+`@ttylabs/cli` is the opposite: it is a devDependency of the app rather than part
 of what the app ships, so it may depend on rollup and anything else it needs.
 What it _produces_ has no dependencies. Do not let that licence leak back into
 the runtime.
 
 ## Layout
 
-Paths below are inside `packages/main2/` unless noted.
+Paths below are inside `packages/sigil/` unless noted.
 
 | Path                     | Contents                                             |
 | ------------------------ | ---------------------------------------------------- |
@@ -54,7 +54,7 @@ Paths below are inside `packages/main2/` unless noted.
 | `test/parser/commander/` | Ported Commander test cases                          |
 | `test/parser/yargs/`     | Ported yargs-parser test cases                       |
 
-At the repository root: `demos/` (runnable examples that import `main2` by
+At the repository root: `demos/` (runnable examples that import `@ttylabs/sigil` by
 name, so they need `pnpm build` first), `turbo.json`, `tsconfig.base.json`, and
 the shared oxlint and oxfmt configs. Each package extends the base tsconfig and
 sets its own `outDir`.
@@ -66,7 +66,7 @@ filesystem router will replace. Its commands are not written yet.
 
 `src/width/east-asian-width.ts` is generated. Regenerate it with
 `node scripts/generate-east-asian-width.mjs <unicode-version>` from inside
-`packages/main2`, then `pnpm fmt`; the version is pinned in the script so
+`packages/sigil`, then `pnpm fmt`; the version is pinned in the script so
 re-running reproduces what is committed.
 
 ## Commands
@@ -86,10 +86,10 @@ from the root: tests run through one vitest over both packages rather than
 through turbo, so a path argument means what it says. Turbo drives `build` and
 `type-check` only.
 
-`pnpm --filter main2 test` scopes to one package, as does running the script
-from inside its directory. **`@main2/cli` needs a build first** -- its source
-and its tests import `main2` through that package's `exports` map, which points
-at `dist/`, so on a fresh clone `pnpm --filter @main2/cli test` and the editor's
+`pnpm --filter @ttylabs/sigil test` scopes to one package, as does running the script
+from inside its directory. **`@ttylabs/cli` needs a build first** -- its source
+and its tests import `@ttylabs/sigil` through that package's `exports` map, which points
+at `dist/`, so on a fresh clone `pnpm --filter @ttylabs/cli test` and the editor's
 type-checking both fail until `pnpm build` has run once. Testing across the real
 package boundary is the point; paying for it with a build is the price.
 
@@ -101,17 +101,17 @@ matching it by hand.
 
 **The old 1.0 scope is gone.** It was the parser, help, ANSI wrapping, and ANSI
 strip, with Titanium CLI as the acceptance test. All four shipped. The goal is
-now considerably larger: main2 is a component runtime and a toolchain — the
+now considerably larger: sigil is a component runtime and a toolchain — the
 Next.js for CLIs — and there is no 1.0 without it.
 
 What that adds, bottom to top: a cell-addressable canvas that diffs frames,
 cascading stylesheets with real selectors, a flexbox layout engine over whole
 cells, TC39-shaped signals, an element tree, a renderer, compiled templates
-with one IR behind several syntaxes, and a `main2` CLI that builds and packages
-apps. See the "main2 2.0" project in Linear; each layer is its own ticket and
+with one IR behind several syntaxes, and a `sigil` CLI that builds and packages
+apps. See the "sigil 2.0" project in Linear; each layer is its own ticket and
 each ticket carries the decisions behind it.
 
-The acceptance test is now `@main2/cli` itself — a framework whose own
+The acceptance test is now `@ttylabs/cli` itself — a framework whose own
 toolchain is not written in it has not been tested by anyone who had to live
 with it. The Titanium port follows rather than leads, so that it finds product
 problems instead of framework bugs.
@@ -264,9 +264,9 @@ These look like bugs and are not. Each is intentional and covered by tests.
   default, so the pair is `undefined` until something sets it rather than
   silently `true`. A `default` declared on the flag is still honored, and
   `negate: false` opts out of the pairing. See `test/parser/options.test.ts`.
-- **`main2()` handles errors instead of rejecting.** A thrown value from
+- **`main()` handles errors instead of rejecting.** A thrown value from
   `parse()` or from the command's `run()` is rendered by `errorHandler()` —
-  the message, never a stack — `process.exitCode` is set, and `main2()`
+  the message, never a stack — `process.exitCode` is set, and `main()`
   resolves with `undefined`. Its caller is a bin script, so an unhandled
   rejection dumping a stack is the wrong default. `settings.errorHandler:
 false` rethrows instead; a function replaces the handler.
@@ -276,7 +276,7 @@ false` rethrows instead; a function replaces the handler.
   have to mean something different at every throw site — what `parse()`
   returns, whether the command still runs — and a rule that cannot hold
   everywhere is worse than no rule. Hooks fire for every throw site, inside
-  `parse()` for what `parse()` throws and inside `main2()` for everything
+  `parse()` for what `parse()` throws and inside `main()` for everything
   else, innermost command first and the schema last, before rendering and
   before the `errorHandler: false` opt-out. See `test/parser/hooks.test.ts`.
 - **A `default` command is dispatched whenever argv named no command, even
@@ -340,7 +340,7 @@ false` rethrows instead; a function replaces the handler.
   `'object'` and so is an array, so a bare `typeof` check let both past: `null`
   fell through the merge and marked the placeholder loaded, an array merged into
   an empty command, and either way the parse succeeded with a command that has
-  no `run` and a load recorded as done -- so `main2()` did nothing at all, which
+  no `run` and a load recorded as done -- so `main()` did nothing at all, which
   is a worse answer than the error a string export already got.
 - **A package's `exports` is resolved recursively.** The map nests -- `"."`
   holds conditions, a condition holds more, an array is a fallback list -- and
@@ -776,7 +776,7 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   otherwise spin forever with nothing said about which two.
 - **An error in an effect is reported, never rethrown.** Under the default
   microtask scheduler a rethrow lands in a microtask nobody catches: Node prints
-  a raw stack and kills the process, skipping `main2()`'s error handling, the
+  a raw stack and kills the process, skipping `main()`'s error handling, the
   `beforeError` hooks, and any chance of putting the terminal back -- the exact
   opposite of the rule that a CLI shows a message and not a stack. Errors go to
   `setErrorHandler()`, whose default writes the message and sets the exit code,
@@ -847,7 +847,7 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
 - **Effects come in scopes, and the module-level ones are a default scope.**
   `createEffects()` gives an independent watcher, scheduler, queue, and error
   handler. One global scheduler is a trap the moment there is more than one thing
-  driving frames -- two canvases with different loops, a library using main2
+  driving frames -- two canvases with different loops, a library using sigil
   inside a host that also does, or two tests in one file where the first leaves a
   scheduler that never ran and the second is dead before it starts.
 - **Coalescing is about how many times an effect runs, not whether it runs.** A
@@ -1022,8 +1022,8 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   `parseArgv()`, which is before `processArgs()` and `processOptions()` write
   anything, so `state.argv` is `{}` inside it while `state.$` is populated. The
   one thing a hook named "after parse" is for is the one thing it cannot do.
-  Found while writing `--version` for `@main2/cli`, which reads the state
-  `main2()` returns instead. Do not reach for `afterParse` to read a parsed
+  Found while writing `--version` for `@ttylabs/cli`, which reads the state
+  `main()` returns instead. Do not reach for `afterParse` to read a parsed
   value until this is fixed.
 - A subcommand's option used before its subcommand is not protected from being
   consumed as an earlier option's value, because it is not declared yet on the

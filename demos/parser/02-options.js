@@ -15,9 +15,9 @@
  *   node demos/parser/02-options.js --port=    # Invalid integer:
  *   node demos/parser/02-options.js --help
  */
-import { main2 } from 'main2';
+import { main } from '@ttylabs/sigil';
 
-await main2({
+await main({
 	argv: process.argv.length > 2 ? undefined : ['--target', 'cjs', '-vv', '--define', 'A=1'],
 	schema: {
 		name: 'options',

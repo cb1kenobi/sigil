@@ -4,10 +4,10 @@
  *   node demos/components/06-ansi-and-wrap.js
  *   NO_COLOR=1 node demos/components/06-ansi-and-wrap.js
  */
-import { ansi } from 'main2/ansi';
-import { padCell } from 'main2/components';
-import { stringWidth } from 'main2/width';
-import { terminalWidth, wrap } from 'main2/wrap';
+import { ansi } from '@ttylabs/sigil/ansi';
+import { padCell } from '@ttylabs/sigil/components';
+import { stringWidth } from '@ttylabs/sigil/width';
+import { terminalWidth, wrap } from '@ttylabs/sigil/wrap';
 
 console.log(ansi.bold.red('bold red'), ansi.dim('dim'), ansi.underline.cyan('underlined cyan'));
 console.log(ansi.hex('#ff8800')('a hex color'), ansi.bgBlue.white(' a background '));

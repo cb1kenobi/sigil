@@ -5,7 +5,7 @@
  *   node demos/components/05-live-region.js
  *   node demos/components/05-live-region.js | cat
  */
-import { createLiveRegion } from 'main2/terminal';
+import { createLiveRegion } from '@ttylabs/sigil/terminal';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const region = createLiveRegion();

@@ -1,4 +1,4 @@
-import { main2 } from 'main2';
+import { main } from '@ttylabs/sigil';
 /**
  * Commands loaded from disk. Point at a directory and every module in it is a
  * command; the module is not read until that command is matched.
@@ -12,7 +12,7 @@ import { main2 } from 'main2';
  */
 import { join } from 'node:path';
 
-await main2({
+await main({
 	argv: process.argv.length > 2 ? undefined : ['deploy', 'staging', '--dry-run'],
 	schema: {
 		name: 'lazy',

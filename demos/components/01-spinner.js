@@ -7,7 +7,7 @@
  * Piped, there is nothing to animate, so it writes one line per change instead
  * of one per frame. That is the whole of the CI handling.
  */
-import { createSpinner } from 'main2/components';
+import { createSpinner } from '@ttylabs/sigil/components';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

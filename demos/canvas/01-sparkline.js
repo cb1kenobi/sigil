@@ -13,7 +13,7 @@
  * The numbers at the bottom are the point of the canvas rather than of braille:
  * what it costs to change what is on screen.
  */
-import { createCanvas, Dots, palette } from 'main2/canvas';
+import { createCanvas, Dots, palette } from '@ttylabs/sigil/canvas';
 
 const WIDTH = 60;
 const HEIGHT = 8;

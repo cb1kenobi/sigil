@@ -10,7 +10,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
 
 /**
- * Captures whatever is written to the real stdout, the way `main2.test.ts`
+ * Captures whatever is written to the real stdout, the way `sigil.test.ts`
  * captures stderr. `run()` writes through the framework, so there is no stream
  * to inject.
  */
@@ -31,7 +31,7 @@ function captureStdout() {
 	};
 }
 
-describe('@main2/cli', () => {
+describe('@ttylabs/cli', () => {
 	let exitCode: typeof process.exitCode;
 
 	beforeEach(() => {
@@ -52,8 +52,8 @@ describe('@main2/cli', () => {
 
 	describe('schema()', () => {
 		it('should name the program after the bin', () => {
-			expect(schema().name).toBe('main2');
-			expect(Object.keys(pkg.bin)).toEqual(['main2']);
+			expect(schema().name).toBe('sigil');
+			expect(Object.keys(pkg.bin)).toEqual(['sigil']);
 		});
 
 		it('should declare --version', () => {
@@ -85,7 +85,7 @@ describe('@main2/cli', () => {
 			} finally {
 				out.restore();
 			}
-			expect(out.text).toContain('main2');
+			expect(out.text).toContain('sigil');
 			expect(out.text).toContain('--version');
 		});
 
@@ -126,8 +126,8 @@ describe('@main2/cli', () => {
 		});
 
 		it('should depend on the runtime rather than bundling it', () => {
-			expect(pkg.dependencies).toEqual({ main2: 'workspace:*' });
-			expect(config.external).toContain('main2');
+			expect(pkg.dependencies).toEqual({ '@ttylabs/sigil': 'workspace:*' });
+			expect(config.external).toContain('@ttylabs/sigil');
 		});
 	});
 
@@ -136,7 +136,7 @@ describe('@main2/cli', () => {
 		// against `src/` instead would be worse than no test: the shebang and the
 		// bundling are things only the *build* can get wrong, so a check that
 		// never opens the build output cannot fail for the reason it exists.
-		const bin = resolve(root, 'dist/main2.mjs');
+		const bin = resolve(root, 'dist/sigil.mjs');
 
 		function built(): string {
 			if (!existsSync(bin)) {
@@ -160,7 +160,7 @@ describe('@main2/cli', () => {
 		});
 
 		it('should leave the runtime as an import rather than inlining it', () => {
-			// `main2` is a real dependency, and inlining it would ship a second copy
+			// `sigil` is a real dependency, and inlining it would ship a second copy
 			// of the framework to anyone who also depends on it directly. The import
 			// lands in whichever chunk tsdown puts the entry's code in, so this asks
 			// the build as a whole rather than guessing at a file
@@ -168,7 +168,7 @@ describe('@main2/cli', () => {
 				.filter((name) => name.endsWith('.mjs'))
 				.map((name) => readFileSync(resolve(dirname(bin), name), 'utf-8'));
 
-			expect(chunks.some((chunk) => /from\s*["']main2["']/.test(chunk))).toBe(true);
+			expect(chunks.some((chunk) => /from\s*["']@ttylabs\/sigil["']/.test(chunk))).toBe(true);
 		});
 
 		it('should answer --version when run as a real process', () => {
@@ -180,7 +180,7 @@ describe('@main2/cli', () => {
 		it('should answer --help when run as a real process', () => {
 			const result = spawnSync(process.execPath, [bin, '--help'], { encoding: 'utf-8' });
 			expect(result.status).toBe(0);
-			expect(result.stdout).toContain('main2');
+			expect(result.stdout).toContain('sigil');
 			expect(result.stdout).toContain('--version');
 		});
 
