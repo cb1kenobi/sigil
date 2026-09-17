@@ -185,13 +185,6 @@ function checkPacking(node: LayoutResult): void {
 
 	const visible = node.children.filter((child) => child.node.style.display !== 'none');
 
-	// an auto margin eats the free space, so the items are no longer packed
-	if (
-		visible.some((child) => margin(child, false) === undefined || margin(child, true) === undefined)
-	) {
-		return;
-	}
-
 	// placement order, which `order` and a reversed direction both change
 	const ordered = [...visible].sort((a, b) => a.node.style.order - b.node.style.order);
 	if (reverse) {
@@ -205,12 +198,17 @@ function checkPacking(node: LayoutResult): void {
 	for (let i = 1; i < ordered.length; i++) {
 		const before = ordered[i - 1];
 		const after = ordered[i];
-		const expected =
-			start(before) +
-			size(before) +
-			(margin(before, true) ?? 0) +
-			gap +
-			(margin(after, false) ?? 0);
+		const ends = margin(before, true);
+		const starts = margin(after, false);
+
+		// an auto margin eats free space, so this pair is not packed -- but only
+		// this pair: every other gap on the line is still the declared one, which
+		// is why the whole container is not skipped over one auto margin
+		if (ends === undefined || starts === undefined) {
+			continue;
+		}
+
+		const expected = start(before) + size(before) + ends + gap + starts;
 
 		if (start(after) !== expected) {
 			throw new Error(

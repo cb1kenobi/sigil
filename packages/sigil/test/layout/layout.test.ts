@@ -938,6 +938,17 @@ describe('min and max are applied once, by whoever sized the node', () => {
 		expect(result.children[0].children[0].box.width).toBe(10);
 	});
 
+	it('should measure the root against its containing block and not the size it got', () => {
+		// moving the root's clamp into `layout()` put a used size where `measure()`
+		// wants a containing block -- it reads the node's own `width` back off that
+		// argument, so `width: 50%` measured at the eight `max-width` left it
+		// resolved to four, and the text wrapped six rows deep inside a box eight
+		// columns wide
+		const root = text('aa bb cc dd ee ff', { width: '50%', 'max-width': '8' });
+
+		expect(layout(root, { width: 40 }).box).toEqual({ height: 2, width: 8, x: 0, y: 0 });
+	});
+
 	it('should not re-clamp a size against an automatic minimum it cannot see', () => {
 		// the other half of the same defect, with nothing percentage about it. The
 		// parent held this text at the three rows it needs -- `min` wins over `max`

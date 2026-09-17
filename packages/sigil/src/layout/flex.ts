@@ -163,8 +163,14 @@ export function layout(root: LayoutNode, opts: LayoutOptions): LayoutResult {
 		outerSize(style, resolve(style.minWidth, opts.width), horizontal),
 		outerSize(style, resolve(style.maxWidth, opts.width), horizontal)
 	);
+	// measured against the width its own declaration was resolved against, not
+	// against the width it ended up with: `measure()` takes a containing block and
+	// reads the node's `width` off it again, so handing it a used size makes a
+	// percentage width a percentage of itself. A root `width: 50%; max-width: 8`
+	// in forty columns is eight wide either way, and measured at the eight it
+	// wrapped its text at four
 	const height = clamp(
-		declaredHeight ?? opts.height ?? measure(root, width, cache).height,
+		declaredHeight ?? opts.height ?? measure(root, declaredWidth ?? opts.width, cache).height,
 		outerSize(style, resolve(style.minHeight, opts.height), vertical),
 		outerSize(style, resolve(style.maxHeight, opts.height), vertical)
 	);
