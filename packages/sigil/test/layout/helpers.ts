@@ -134,6 +134,13 @@ export function boxes(
  * placed past the edge simply does not appear. A fuzzer found five hundred
  * containment violations that forty-two picture tests had no way to see.
  *
+ * A `position: relative` child is excused both of them, and that is the whole
+ * meaning of the property rather than a hole in the check: the flow reserves its
+ * space at the un-offset position and the box is then moved off it, so escaping
+ * the parent and landing on a sibling are what was asked for. Everything else on
+ * the same tree is still checked, including the relative box's own children
+ * against the relative box.
+ *
  * @param result - The laid-out tree.
  * @param opts - `overflow` allows a child larger than its parent, which is what
  * a declared size too big for its container legitimately produces.
@@ -147,12 +154,14 @@ export function checkInvariants(result: LayoutResult, opts: { overflow?: boolean
 		const line: LayoutResult[] = [];
 
 		for (const child of node.children) {
+			const offset = child.node.style.position === 'relative';
+
 			// a box with no area paints nothing, so where it sits cannot be wrong.
 			// A gap still advances the cursor in a container with no room, which
 			// leaves a zero-size child one column past a zero-width content box
 			const occupies = child.box.width > 0 && child.box.height > 0;
 
-			if (!opts.overflow && occupies) {
+			if (!opts.overflow && occupies && !offset) {
 				const fitsX =
 					child.box.x >= node.content.x &&
 					child.box.x + child.box.width <= node.content.x + node.content.width;
@@ -168,6 +177,9 @@ export function checkInvariants(result: LayoutResult, opts: { overflow?: boolean
 			}
 
 			for (const sibling of line) {
+				if (offset || sibling.node.style.position === 'relative') {
+					continue;
+				}
 				const apart =
 					child.box.x >= sibling.box.x + sibling.box.width ||
 					sibling.box.x >= child.box.x + child.box.width ||

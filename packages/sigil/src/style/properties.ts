@@ -54,7 +54,7 @@ export type AlignContent =
 export type BoxSizing = 'border-box' | 'content-box';
 export type Visibility = 'visible' | 'hidden';
 export type AlignSelf = AlignItems | 'auto';
-export type Position = 'static' | 'relative' | 'absolute';
+export type Position = 'static' | 'relative';
 export type Overflow = 'visible' | 'hidden' | 'scroll' | 'auto';
 export type TextAlign = 'left' | 'center' | 'right';
 export type TextTransform = 'none' | 'uppercase' | 'lowercase' | 'capitalize';
@@ -271,14 +271,30 @@ export const PROPERTIES: { readonly [K in PropertyName]: Definition<K> } = {
 	},
 	borderColor: { inherits: false, initial: DEFAULT_COLOR, parse: parseColor },
 
-	// `static` rather than `relative`, and the difference is not cosmetic: only a
-	// positioned ancestor is a containing block, so defaulting to `relative` would
-	// make every box in the tree an anchor an `absolute` descendant stops at
+	// `static` rather than `relative`, and the difference is not cosmetic: the
+	// insets are read only on a `relative` box, so defaulting to `relative` would
+	// make every stray `top` in a stylesheet move something.
+	//
+	// `absolute` is refused rather than accepted and ignored. There is no
+	// out-of-flow engine, and a keyword that parses and does nothing is worse than
+	// one that does not exist -- it is a stylesheet written against a behaviour
+	// that is not there, and the release that implements it changes what that
+	// stylesheet means
 	position: {
 		inherits: false,
 		initial: 'static',
-		parse: (v) => parseKeyword(v, ['static', 'relative', 'absolute'] as const, 'position'),
+		parse: (v) => {
+			if (v.trim().toLowerCase() === 'absolute') {
+				throw new StyleError(
+					`Invalid position "${v}": out-of-flow layout is not implemented -- "relative" offsets a box without moving anything else`
+				);
+			}
+			return parseKeyword(v, ['static', 'relative'] as const, 'position');
+		},
 	},
+	// read only where `position` is `relative`, which is CSS and cannot be
+	// checked here: `position` may be set by a different rule in a different
+	// sheet, and a declaration is parsed on its own
 	top: { inherits: false, initial: AUTO, parse: parseLength },
 	right: { inherits: false, initial: AUTO, parse: parseLength },
 	bottom: { inherits: false, initial: AUTO, parse: parseLength },

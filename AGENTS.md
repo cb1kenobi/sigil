@@ -408,6 +408,39 @@ false` rethrows instead; a function replaces the handler.
   `align-content` were added to the table and are honoured here for that reason.
   `visibility` and `overflow` are deliberately _not_ layout's: hidden content
   still takes its space, and clipping is M2-64's.
+- **`position: relative` offsets the box and `absolute` is refused.** Both halves
+  are the rule above applied to the same property: the half that can be
+  implemented today is, and the half that cannot stops existing rather than
+  parsing into a no-op. `relative` moves the box by its insets from where the
+  flow put it and changes nothing else -- the space stays reserved at the
+  un-offset position, so siblings are placed as though it never moved and its own
+  children move with it, which is CSS. `absolute` throws at parse time saying so,
+  because a stylesheet written against a keyword that lays out in flow anyway
+  means something different the day out-of-flow layout lands, and that is a
+  change nobody can see coming. The alternative was dropping `position` and the
+  four insets from the table entirely; it is smaller and equally honest, and it
+  was not taken because `relative` is a handful of lines, is what people reach
+  for to nudge a border or overlap a label, and is what keeps `inset-0` and
+  `top-N` meaningful in the generated utilities -- while the property that was
+  actually lying, `absolute`, is refused either way. `z-index` is left alone: it
+  is a paint-order property, it is not in `LAYOUT_PROPERTIES`, and nothing here
+  is what would honour it.
+- **An inset on a `static` box does nothing, and that is not the same lie.** It
+  is CSS, it is the interaction everyone already knows, and it cannot be refused
+  where the value is read anyway: `position` may be set by a different rule in a
+  different sheet, and a declaration is parsed on its own. A declaration whose
+  effect depends on another declaration is not a property the engine ignores.
+- **An offset box is excused `checkInvariants()`, and nothing else is.** Landing
+  on a sibling or leaving the parent's content box is what `relative` is _for_,
+  so the containment and overlap checks skip a pair where either side is
+  offset -- a check that fails on the behaviour it is checking is a check that
+  gets deleted. Everything else on the tree, the offset box's own children
+  included, is checked as before.
+- **The insets resolve a percentage per axis, unlike the margins.** `top: 50%` is
+  half the containing block's height, which is CSS; percentage margins resolve
+  against the _width_ on both axes there and here. Copying the margins' rule over
+  would have been inventing a second oddity to keep one file consistent with
+  itself.
 - **An item that cannot flex is frozen at its hypothetical size; everything else
   flexes from its _basis_.** Both halves matter and getting either wrong is
   visible. Flexing from the raw basis leaves a sibling's `min-width`
@@ -518,9 +551,9 @@ false` rethrows instead; a function replaces the handler.
   border silently making it twenty-two is the surprise. `display` starts at
   `flex`. `z-index` starts at `0` rather than `auto`, since the paint order is
   flat enough that "does not establish a stacking context" has nothing to bite
-  on. `position` starts at `static` and that is _not_ an exception: only a
-  positioned ancestor is a containing block, so defaulting to `relative` would
-  make every box an anchor an `absolute` descendant stops at.
+  on. `position` starts at `static` and that is _not_ an exception: the insets
+  are read only on a `relative` box, so defaulting to `relative` would make every
+  stray `top` in a stylesheet move something.
 - **`background-color` and `text-overflow` do not inherit**, as in CSS. A
   container's background showing through its children is paint order, not the
   cascade; pushing the value down would make every descendant _own_ that colour.
@@ -579,6 +612,13 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
 - **Margins take a length and paddings take a count.** `auto` is how a box is
   centred and how it is pushed to one end, and a negative margin is a real
   thing; neither is true of padding.
+- **`position` takes `static` and `relative`, and `absolute` is a parse error.**
+  A keyword the layout engine cannot honour is refused rather than accepted and
+  ignored, for the reason the Layout entry gives at length; the message names
+  `relative` so that the error reads as an answer rather than as a missing
+  feature. The insets stay -- `relative` reads all four -- and they are a length
+  rather than a count, because pushing a box back the way it came is the ordinary
+  use and a negative value is how CSS says it.
 
 ### Stylesheets and the cascade
 

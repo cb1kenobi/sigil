@@ -91,6 +91,52 @@ function margins(style: Style, available: number | undefined) {
 	};
 }
 
+/**
+ * How far `position: relative` moves a box from where the flow put it.
+ *
+ * The offset is applied where the box is placed and nowhere else, which is what
+ * CSS's relative positioning is: the space stays reserved at the un-offset
+ * position, siblings are laid out as though nothing moved, and the box's own
+ * children move with it because they are placed inside it. That is also why a
+ * relative box may overlap a sibling or leave its parent's content box -- it is
+ * the point of the property rather than a failure of the engine, which is why
+ * `checkInvariants()` excuses it.
+ *
+ * `static` reads no inset at all. Over-constrained is resolved the way CSS
+ * resolves it in a left-to-right, top-to-bottom flow: `top` beats `bottom` and
+ * `left` beats `right`, rather than being averaged into a compromise neither
+ * declaration asked for.
+ *
+ * Percentages resolve per axis -- `top` against the containing block's height --
+ * which is CSS and is *not* what the margins do. Margins resolve against the
+ * width on both axes there and here; that is CSS's own oddity and copying it
+ * over to the insets would be inventing a second one.
+ *
+ * @param style - The node's style.
+ * @param width - The containing block's content width.
+ * @param height - The containing block's content height, if it has one.
+ * @returns The cells to move by, positive being right and down.
+ */
+function relativeOffset(
+	style: Style,
+	width: number | undefined,
+	height: number | undefined
+): { x: number; y: number } {
+	if (style.position !== 'relative') {
+		return { x: 0, y: 0 };
+	}
+
+	const left = resolve(style.left, width);
+	const right = resolve(style.right, width);
+	const top = resolve(style.top, height);
+	const bottom = resolve(style.bottom, height);
+
+	return {
+		x: left ?? (right === undefined ? 0 : -right),
+		y: top ?? (bottom === undefined ? 0 : -bottom),
+	};
+}
+
 /** An item during layout: everything resolved, nothing placed yet. */
 interface Item {
 	basis: number;
@@ -159,7 +205,20 @@ export function layout(root: LayoutNode, opts: LayoutOptions): LayoutResult {
 		axis.column ? inset.main : inset.cross
 	);
 
-	return layoutNode(root, declaredWidth ?? opts.width, declaredHeight ?? opts.height, 0, 0, cache);
+	// the root's own relative offset is applied here for the same reason its
+	// declared size is: every other node's is applied by the parent that places
+	// it, and the root has no parent. The space it is offset from is the space it
+	// was handed
+	const offset = relativeOffset(style, opts.width, opts.height);
+
+	return layoutNode(
+		root,
+		declaredWidth ?? opts.width,
+		declaredHeight ?? opts.height,
+		offset.x,
+		offset.y,
+		cache
+	);
 }
 
 /**
@@ -906,9 +965,21 @@ function placeLine(line: Item[], opts: PlaceOptions): void {
 		const childWidth = axis.column ? itemCross : item.mainSize;
 		const childHeight = axis.column ? item.mainSize : itemCross;
 
+		// `position: relative` moves the box after the flow has decided where it
+		// goes, so it is added to the placement and to nothing else -- the cursor
+		// below advances from `mainStart`, which is where the box would have been
+		const offset = relativeOffset(item.style, content.width, content.height);
+
 		results.push({
 			index: item.index,
-			result: layoutNode(item.node, childWidth, childHeight, childX, childY, cache),
+			result: layoutNode(
+				item.node,
+				childWidth,
+				childHeight,
+				childX + offset.x,
+				childY + offset.y,
+				cache
+			),
 		});
 
 		cursor = mainStart + item.mainSize + marginMainEnd + (autoAfter.get(item) ?? 0);

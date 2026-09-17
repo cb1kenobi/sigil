@@ -871,3 +871,127 @@ describe('percentage margins', () => {
 		expect(layout(tree, { height: 20, width: 10 }).children[0].box.y).toBe(5);
 	});
 });
+
+describe('position: relative', () => {
+	it('should offset a box by its insets', () => {
+		// `position` and the four insets parsed, marked layout dirty, and were
+		// never read: the box laid out in flow at the origin and `top`/`left` did
+		// nothing at all
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box({ position: 'relative', top: '2', left: '2', width: '3', height: '1' })
+		);
+
+		expect(picture(tree, 10, 3)).toBe(['aaaaaaaaaa', 'aaaaaaaaaa', 'aabbbaaaaa'].join('\n'));
+	});
+
+	it('should leave the flow where it was', () => {
+		// the space stays reserved at the un-offset position, which is what
+		// separates `relative` from taking the box out of flow: the sibling is
+		// placed as though nothing moved
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box({ position: 'relative', left: '3', width: '2', height: '1' }),
+			box({ width: '2', height: '1' })
+		);
+
+		const result = layout(tree, { height: 1, width: 10 });
+		expect(result.children[0].box.x).toBe(3);
+		expect(result.children[1].box.x).toBe(2);
+	});
+
+	it('should ignore an inset on a static box', () => {
+		// what CSS does, and the reason `position` starts at `static`: a stray
+		// `top` in a stylesheet moves nothing until something says it may
+		const tree = box({ 'flex-direction': 'row' }, box({ top: '2', left: '2', width: '3' }));
+		expect(layout(tree, { height: 3, width: 10 }).children[0].box).toEqual({
+			height: 3,
+			width: 3,
+			x: 0,
+			y: 0,
+		});
+	});
+
+	it('should read bottom and right as a push the other way', () => {
+		const tree = box(
+			{ 'flex-direction': 'column', padding: '1' },
+			box({ position: 'relative', bottom: '1', right: '1', width: '2', height: '1' })
+		);
+
+		expect(layout(tree, { height: 4, width: 6 }).children[0].box).toEqual({
+			height: 1,
+			width: 2,
+			x: 0,
+			y: 0,
+		});
+	});
+
+	it('should let top beat bottom and left beat right', () => {
+		// over-constrained, and CSS picks a winner rather than averaging the two
+		// into a compromise neither declaration asked for
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box({ position: 'relative', top: '2', bottom: '1', left: '2', right: '1', width: '2' })
+		);
+
+		const { box: placed } = layout(tree, { height: 4, width: 10 }).children[0];
+		expect(placed.x).toBe(2);
+		expect(placed.y).toBe(2);
+	});
+
+	it('should resolve a percentage inset per axis', () => {
+		// `top` against the containing block's height, which is CSS and is *not*
+		// what the margins do -- those resolve against the width on both axes
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box({ position: 'relative', top: '50%', left: '50%', width: '2', height: '1' })
+		);
+
+		const { box: placed } = layout(tree, { height: 4, width: 10 }).children[0];
+		expect(placed.x).toBe(5);
+		expect(placed.y).toBe(2);
+	});
+
+	it('should carry the children of an offset box with it', () => {
+		// the offset is applied where the box is placed, so everything inside it is
+		// placed relative to a box that has already moved
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box(
+				{ position: 'relative', top: '1', left: '1', width: '4', height: '3', padding: '1' },
+				box({ width: '2', height: '1' })
+			)
+		);
+
+		const result = layout(tree, { height: 5, width: 10 });
+		expect(result.children[0].box).toMatchObject({ x: 1, y: 1 });
+		// one for the offset and one for the padding, where an unmoved box would
+		// have put it at (1, 1)
+		expect(result.children[0].children[0].box).toMatchObject({ x: 2, y: 2 });
+	});
+
+	it('should offset the root it was handed', () => {
+		// every other node's offset is applied by the parent that places it, and
+		// the root has no parent -- the same gap its declared size had
+		const root = box({ position: 'relative', top: '1', left: '1', width: '2', height: '1' });
+		expect(layout(root, { height: 4, width: 10 }).box).toEqual({
+			height: 1,
+			width: 2,
+			x: 1,
+			y: 1,
+		});
+	});
+
+	it('should hold the invariants while overlapping a sibling', () => {
+		// an offset box landing on a sibling or leaving its parent is the point of
+		// the property rather than a failure of the engine, so `checkInvariants()`
+		// excuses it -- and excuses nothing else on the tree
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box({ width: '4', height: '2' }),
+			box({ position: 'relative', left: '-4', top: '1', width: '4', height: '2' })
+		);
+
+		expect(() => checkInvariants(layout(tree, { height: 4, width: 10 }))).not.toThrow();
+	});
+});

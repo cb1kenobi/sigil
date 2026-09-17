@@ -480,8 +480,8 @@ describe('initial values against CSS', () => {
 	});
 
 	it('should start position at static', () => {
-		// only a *positioned* ancestor is a containing block. Defaulting to
-		// `relative` makes every box an anchor an `absolute` descendant stops at
+		// the insets are read only on a `relative` box, so defaulting to
+		// `relative` would make every stray `top` in a stylesheet move something
 		expect(declare().position).toBe('static');
 	});
 
@@ -758,5 +758,28 @@ describe('a cascade keyword outside a cascade', () => {
 		// parent, and `readDeclarations` has none
 		expect(() => readDeclarations({ color: 'inherit' })).toThrow(/cascade keyword/);
 		expect(() => readDeclarations({ padding: 'unset' })).toThrow(StyleError);
+	});
+});
+
+describe('position: absolute', () => {
+	it('should be refused rather than parsed and ignored', () => {
+		// there is no out-of-flow engine, so `absolute` used to parse, mark layout
+		// dirty, and then place the box exactly where the flow would have. The
+		// first release that took it out of flow would have changed what every
+		// stylesheet written against it meant
+		expect(() => declare({ position: 'absolute' })).toThrow(StyleError);
+		expect(() => parseDeclaration('position', ' ABSOLUTE ')).toThrow(/not implemented/);
+	});
+
+	it('should leave the keywords the engine does honour alone', () => {
+		expect(declare({ position: 'relative' }).position).toBe('relative');
+		expect(declare({ position: 'static' }).position).toBe('static');
+	});
+
+	it('should still take an inset on a static box', () => {
+		// what CSS does, and it could not be refused here anyway: `position` may
+		// be set by a different rule in a different sheet, and a declaration is
+		// parsed on its own
+		expect(declare({ top: '2' }).top).toEqual(cells(2));
 	});
 });
