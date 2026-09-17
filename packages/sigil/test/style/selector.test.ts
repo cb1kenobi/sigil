@@ -118,6 +118,55 @@ describe('reading a selector', () => {
 	});
 });
 
+describe('escapes', () => {
+	// what makes a class called `md:flex-row` or `w-1/2` writable at all: the
+	// colon and the slash mean something else to this grammar, so the rule is
+	// written `.md\:flex-row` and the name is `md:flex-row`
+	it('should read a backslash as escaping the next character', () => {
+		expect(parseSelector('.md\\:flex-row').steps[0].compound.simples).toEqual([
+			{ kind: 'class', name: 'md:flex-row' },
+		]);
+		expect(parseSelector('.w-1\\/2').steps[0].compound.simples).toEqual([
+			{ kind: 'class', name: 'w-1/2' },
+		]);
+	});
+
+	it('should store the unescaped name, which is what an element carries', () => {
+		const node = { classes: ['md:flex-row', 'w-1/2'], type: 'box' } as unknown as Node;
+		expect(matches(parseSelector('.md\\:flex-row'), node)).toBe(true);
+		expect(matches(parseSelector('.w-1\\/2'), node)).toBe(true);
+		expect(parseSelector('.md\\:flex-row').key).toBe('.md:flex-row');
+		expect(keysFor(node)).toContain('.md:flex-row');
+	});
+
+	it('should escape at the start of a name', () => {
+		expect(parseSelector('.\\:odd').steps[0].compound.simples).toEqual([
+			{ kind: 'class', name: ':odd' },
+		]);
+	});
+
+	it('should let a backslash escape a backslash', () => {
+		expect(parseSelector('.a\\\\b').steps[0].compound.simples).toEqual([
+			{ kind: 'class', name: 'a\\b' },
+		]);
+	});
+
+	it('should refuse a trailing backslash, which escapes nothing', () => {
+		expect(() => parseSelector('.a\\')).toThrow(/escapes nothing/);
+	});
+
+	it('should not read a pseudo-class out of an escaped colon', () => {
+		// `.focus\:text-red:focus` is one class and one pseudo-class, and reading
+		// the escaped colon as the pseudo-class would make every variant rule
+		// match on state it never asked about
+		const selector = parseSelector('.focus\\:text-red:focus');
+		expect(selector.steps[0].compound.simples).toEqual([
+			{ kind: 'class', name: 'focus:text-red' },
+			{ kind: 'state', name: 'focus' },
+		]);
+	});
+});
+
 describe('specificity', () => {
 	it('should count ids, classes, and types', () => {
 		expect(parseSelector('*').specificity).toEqual([0, 0, 0]);
