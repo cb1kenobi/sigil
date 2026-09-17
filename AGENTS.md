@@ -1134,6 +1134,46 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   required one is promoted; and `multiple`, `required`, `type`, and `choices`
   written out on an argument object are all read.
 
+### Updates
+
+- **A package name is percent-encoded into the registry URL and out of the cache
+  filename.** It is one path segment and it is not a filename, and a scoped name
+  -- which is what this framework publishes under -- broke both: interpolated raw,
+  `/-/package/@ttylabs/sigil/dist-tags` asks for a package called `@ttylabs` with
+  `/sigil/dist-tags` trailing, and `join(cacheDir, '@ttylabs/sigil-latest.json')`
+  is a file in a directory nobody created. registry.npmjs.org happens to accept
+  `%40scope%2Fname`, `@scope%2fname` and the raw slash alike -- verified by hand
+  against the real endpoint, never from the suite -- but `registryURL` is the
+  caller's, and a self-hosted registry behind a path-normalizing proxy owes
+  nothing. The cache transform has to be _injective_, which is why it is not a
+  slash swapped for a dash: `@a/b-c` and `@a-b/c` both come out `@a-b-c`, and two
+  packages sharing a cache file share a version. The `@` between the name and the
+  dist tag is the same argument -- `encodeURIComponent()` leaves `-` alone, so
+  `a-b` at `c` and `a` at `b-c` would be one file, while a literal `@` cannot
+  survive encoding and so cannot appear inside either half.
+- **The parent builds the registry URL; the worker is handed it.** The worker is a
+  string piped into `node --input-type=module`, so nothing can import it, stub its
+  `https`, or call one function out of it -- anything it computes is observable
+  only by making a real request, and a test suite here does not make those.
+  Encoding a package name is exactly the kind of thing that has to be pinned by a
+  test, so it happens in `registry.ts` where a test can reach it. The rule
+  generalizes: what the worker decides for itself is what nothing else can check.
+- **The worker times out its own request, because nothing else will.** `https.get()`
+  has no timeout, and on the default `wait: false` path the parent's timer is
+  unreffed precisely so the check costs the run nothing -- so a registry that
+  accepts the connection and then says nothing left a node process alive for as
+  long as its socket was, with the CLI that spawned it long gone. It is an
+  inactivity timeout, which covers a stall partway through a response as well as a
+  first byte that never comes; destroying the request surfaces through the `error`
+  handler that already exits non-zero. `timeout: 0` opts out in the worker the same
+  way it skips the timer in the parent.
+- **Unreffing the child's stdin cannot cost the worker the script it is being
+  fed.** An unflushed write is a libuv _request_, not a handle, and `unref()` only
+  touches handles -- measured: a parent with every pipe unreffed still stays alive
+  for a two-megabyte write to a child that is not reading. So stdin joins its two
+  siblings in the loop rather than being the one pipe left holding the event loop
+  open on a path whose whole point is to hold nothing.
+
 ## Known bugs
 
 - **`afterParse` fires before `state.argv` exists.** The hook runs at the end of

@@ -6,28 +6,29 @@ import https from 'node:https';
 try {
 	const {
 		CACHE_FILE: cacheFile,
-		PACKAGE_NAME: packageName,
 		DIST_TAG: distTag = 'latest',
-		REGISTRY_URL: registryURL = 'https://registry.npmjs.org',
+		DIST_TAGS_URL: url,
+		REQUEST_TIMEOUT: requestTimeout,
 	} = process.env;
-
-	if (!packageName) {
-		throw new Error('PACKAGE_NAME is not set');
-	}
 
 	if (!distTag) {
 		throw new Error('DIST_TAG is not set');
 	}
 
-	if (!registryURL) {
-		throw new Error('REGISTRY_URL is not set');
+	if (!url) {
+		throw new Error('DIST_TAGS_URL is not set');
 	}
 
-	if (!registryURL.startsWith('https')) {
-		throw new Error('REGISTRY_URL must use https');
+	if (!url.startsWith('https')) {
+		throw new Error('DIST_TAGS_URL must use https');
 	}
 
-	const url = `${registryURL.replace(/\/$/, '')}/-/package/${packageName}/dist-tags`;
+	// an empty variable is read as unset, the way the parser reads one
+	const timeout = Number(requestTimeout || 5000);
+	if (!Number.isFinite(timeout) || timeout < 0) {
+		throw new Error(`Invalid REQUEST_TIMEOUT: "${requestTimeout}"`);
+	}
+
 	const distTags = await new Promise((resolve, reject) => {
 		const req = https.get(
 			url,
@@ -53,6 +54,20 @@ try {
 				});
 			}
 		);
+
+		// `https.get()` has no timeout of its own, so a registry that accepts the
+		// connection and then says nothing leaves this process running forever --
+		// and on the default fire-and-forget path the parent has unreffed its own
+		// timer, so nothing else is coming to end it. An inactivity timeout is the
+		// one that covers a stall partway through a response as well as a first
+		// byte that never arrives; destroying the request surfaces as the `error`
+		// below, which is the path that already exits non-zero. A timeout of `0`
+		// is the caller opting out, the same way the parent skips its own timer
+		if (timeout) {
+			req.setTimeout(timeout, () => {
+				req.destroy(new Error(`Fetch dist-tags timed out after ${timeout}ms`));
+			});
+		}
 
 		req.on('error', reject);
 		req.end();
