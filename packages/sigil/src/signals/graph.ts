@@ -584,10 +584,14 @@ export class Computed<T> implements Producer, Consumer {
 	 * callback and a callback that throws must not leave the sources after it in
 	 * the walk holding an edge to a computed that no longer reads them.
 	 *
-	 * A failed sweep leaves this DIRTY. The value is committed by then and would
-	 * be safe to serve, but the sweep is the half of a recompute that runs user
-	 * code, and a cache whose dependency list could not be brought up to date is
-	 * not one to trust for the sake of saving a recomputation.
+	 * A failed sweep leaves a derivation DIRTY, so that the next read recomputes
+	 * rather than trusting a cache whose dependency list user code interrupted --
+	 * a recomputation is the whole cost, because a derivation is a pure function
+	 * of what it read. It leaves an *effect body* alone. There the re-run is the
+	 * observable thing rather than the price of being careful: `fn()` has already
+	 * run and already written whatever it writes, the flush reads anything not
+	 * CLEAN as still pending, and marking it dirty ran the body a second time in
+	 * the same flush -- one write to a counter became two.
 	 *
 	 * @param seen - What the run actually read.
 	 */
@@ -607,7 +611,7 @@ export class Computed<T> implements Producer, Consumer {
 			}
 		}
 
-		if (errors.length > 0) {
+		if (errors.length > 0 && !this.#writes) {
 			this.state = DIRTY;
 		}
 		raise(errors, 'unwatched callbacks threw');

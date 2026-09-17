@@ -483,12 +483,27 @@ false` rethrows instead; a function replaces the handler.
   placed six wide, where it needs six. Patching it at placement time is not the
   fix and could not be: what would have to change there is the column child's
   _main_ size, which `resolveFlexible()` has already handed out and `cursor` has
-  already begun placing from. A declared `width` was never the broken case,
-  because `measureUncached()` reads the child's own `width` back off it and
-  measures at that -- which is why the obvious repro comes out right. The same
-  width has to reach the intrinsic measure as well, or the fix only moves the
-  error: a column asked how tall its child was at the container's width, got two,
-  and was drawn two rows around a child six rows tall.
+  already begun placing from. A declared `width` looks like the broken case and
+  is not, because `measureUncached()` reads the child's own `width` back off it
+  and measures at that -- which is why the obvious repro comes out right. The
+  same width has to reach the intrinsic measure as well, or the fix only moves
+  the error: a column asked how tall its child was at the container's width, got
+  two, and was drawn two rows around a child six rows tall.
+- **A declared width is clamped by the node's own limits before anything wraps at
+  it, and a `measure` node reports its declaration rather than its content.** The
+  declaration is the width the node is placed at on either axis -- a row clamps
+  the main size in `resolveFlexible()`, a column the cross size in `makeItem()`
+  -- so reading it raw wrapped a `width: 10` under a `max-width: 6` at ten and
+  drew it at six, and the row's own re-measure could not undo that, because it
+  asks `measureUncached()` again and `measureUncached()` reads the declaration
+  back off the node. An _undeclared_ width is deliberately left alone there: what
+  to measure at is the caller's business, and clamping it in a row would freeze
+  the basis at the clamped size instead of letting the flex algorithm clamp. The
+  `node.measure` branch reports `declaredWidth ?? content` the way the two
+  branches below it already did, because what an ancestor sizing itself around a
+  node needs is the size it will be _placed_ at: a `width: 10` text whose content
+  wraps to five reported five, so an auto-width column measured itself five wide
+  and drew the child outside its own box.
 - **Percentage lengths are rounded per box, and no per-box rule can make siblings
   add up.** `resolve()` rounds -- `50%` of five is three -- and the reason
   recorded for it, that two boxes at 50% should still fill the row, is not
@@ -978,6 +993,14 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   the rest of the release with it and skipped `sources.clear()`, so the computed
   stayed reachable from every source after the first -- the leak `dispose()`
   exists to close. See `test/signals/signals.test.ts`.
+- **The dirty-after-a-failed-sweep rule is a derivation's, and an effect body is
+  exempt.** A derivation is a pure function of what it read, so the retry costs a
+  recomputation and buys a cache nobody has to trust. An effect body has already
+  run and already written whatever it writes, and a flush reads anything not
+  `CLEAN` as still pending -- so marking one dirty ran it a second time in the
+  same flush and turned one write to a counter into two. The re-run is the
+  observable thing there rather than the price of being careful. See
+  `test/signals/effect.test.ts`.
 - **A liveness walk happens before its callback, not after.** A `watched` or
   `unwatched` that throws then leaves the counts consistent and only its own
   error escapes. The other order skips the walk entirely and strands every

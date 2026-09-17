@@ -791,6 +791,44 @@ describe('createEffects', () => {
 		stopTheirs();
 	});
 
+	it('should run a body once when a dropped source unwatches by throwing', async () => {
+		const { unwatched } = await import('../../src/signals/index.js');
+		const own = createEffects();
+		const seen: unknown[] = [];
+		own.setErrorHandler((err) => seen.push(err));
+		own.setScheduler((fn) => fn());
+
+		const dropped = new State(0, {
+			[unwatched]: () => {
+				throw new Error('bye');
+			},
+		});
+		const flag = new State(true);
+		const writes = new State(0);
+		let runs = 0;
+
+		const stop = own.effect(() => {
+			runs++;
+			if (flag.get()) {
+				dropped.get();
+			} else {
+				writes.set(writes.get() + 1);
+			}
+		});
+		expect(runs).toBe(1);
+
+		// a failed sweep leaves a derivation dirty so the next read recomputes,
+		// and a flush reads anything not clean as still pending -- so an effect
+		// body marked the same way ran a second time in the same flush, and the
+		// write it had already made was made again
+		flag.set(false);
+		expect((seen[0] as Error).message).toBe('bye');
+		expect(runs).toBe(2);
+		expect(writes.get()).toBe(1);
+
+		stop();
+	});
+
 	it('should keep its error handler to itself', () => {
 		const own = createEffects();
 		own.setScheduler((fn) => fn());

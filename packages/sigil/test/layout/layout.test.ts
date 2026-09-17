@@ -843,6 +843,45 @@ describe('measurement', () => {
 		checkInvariants(result);
 	});
 
+	it('should wrap a declared width at the width its own max-width leaves it', () => {
+		// the declaration is read back off the child here rather than taken from the
+		// caller, so a `width: 10` under a `max-width: 6` wrapped at ten and was then
+		// drawn at six -- on both axes, since a row's re-measure asks this same
+		// function and got the same ten back
+		const column = box(
+			{ 'flex-direction': 'column', width: '20' },
+			text('one two three four five six', { 'max-width': '6', width: '10' })
+		);
+		const row = box(
+			{ 'align-items': 'flex-start', 'flex-direction': 'row', width: '20' },
+			text('one two three four five six', { 'max-width': '6', width: '10' })
+		);
+
+		expect(layout(column, { height: 20, width: 20 }).children[0].box).toMatchObject({
+			height: 6,
+			width: 6,
+		});
+		expect(layout(row, { height: 20, width: 20 }).children[0].box).toMatchObject({
+			height: 6,
+			width: 6,
+		});
+	});
+
+	it('should measure a declared size on a text as the size it will be placed at', () => {
+		// the `measure` branch reported the content's own size and ignored the
+		// declaration the two branches below it honour, so an auto-width column
+		// around a `width: 10` text whose content wraps to five measured itself five
+		// and drew the child outside its own box
+		const tree = box(
+			{ 'align-items': 'flex-start', 'flex-direction': 'row' },
+			box({ 'flex-direction': 'column' }, text('aa bb', { width: '10' }))
+		);
+
+		const result = layout(tree, { height: 10, width: 20 });
+		expect(result.children[0].box.width).toBe(10);
+		checkInvariants(result);
+	});
+
 	it('should leave a row child measured at the width flexing gave it', () => {
 		// the mirror of the two above, pinned so the column fix stays the column's:
 		// a row's main axis is the width, so the basis has to stay the unclamped

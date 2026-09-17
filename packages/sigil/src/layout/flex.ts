@@ -215,16 +215,44 @@ function measureUncached(
 	const horizontal = axis.column ? inset.cross : inset.main;
 	const vertical = axis.column ? inset.main : inset.cross;
 
-	const declaredWidth = outerSize(style, resolve(style.width, availableWidth), horizontal);
+	// a declared width is clamped by the node's own limits, because that is the
+	// width it will be laid out at whichever axis it is on: a row clamps the main
+	// size in `resolveFlexible()` and a column clamps the cross size in
+	// `makeItem()`. Read raw, a `width: 10` under a `max-width: 6` wrapped its text
+	// at ten and was drawn at six -- and the row's re-measure in `placeLine()`
+	// could not undo it, because it asks this function again and this function
+	// read the declaration back off the node. An *undeclared* width is left alone:
+	// there the available width is the caller's business, and clamping it in a row
+	// would freeze the basis at the clamped size rather than let the flex
+	// algorithm clamp it
+	const declaredMin = outerSize(style, resolve(style.minWidth, availableWidth), horizontal);
+	const declaredMax = outerSize(style, resolve(style.maxWidth, availableWidth), horizontal);
+	const declared = outerSize(style, resolve(style.width, availableWidth), horizontal);
+	const declaredWidth =
+		declared === undefined ? undefined : clamp(declared, declaredMin, declaredMax);
 	const inner = Math.max(0, (declaredWidth ?? availableWidth) - horizontal);
 
 	if (node.measure) {
 		const measured = node.measure(inner);
+		// a declaration is reported the way the branches below report it, rather
+		// than the content's own size: what an ancestor sizing itself around this
+		// node needs to know is the width and height it will be *placed* at, and
+		// `makeItem()` places it at its declaration. A `width: 10` text whose
+		// content wraps to five reported five, so an auto-width column measured
+		// itself five wide and drew the child outside it
+		const declaredHeight = outerSize(style, resolve(style.height, undefined), vertical);
+		const contentHeight = measured.height + vertical;
+		const contentMinHeight = (measured.minHeight ?? measured.height) + vertical;
+		const contentMinWidth = (measured.minWidth ?? measured.width) + horizontal;
 		return {
-			height: measured.height + vertical,
-			minHeight: (measured.minHeight ?? measured.height) + vertical,
-			minWidth: (measured.minWidth ?? measured.width) + horizontal,
-			width: measured.width + horizontal,
+			height: declaredHeight ?? contentHeight,
+			minHeight:
+				declaredHeight === undefined
+					? contentMinHeight
+					: Math.min(contentMinHeight, declaredHeight),
+			minWidth:
+				declaredWidth === undefined ? contentMinWidth : Math.min(contentMinWidth, declaredWidth),
+			width: declaredWidth ?? measured.width + horizontal,
 		};
 	}
 
