@@ -863,18 +863,28 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   pixel short at small font sizes. Out-of-range points are ignored rather than
   refused: a plot clips at its box, and requiring every caller to bounds-check
   each point is how the check ends up in the wrong place.
-- **A point that is not finite is out of range, and it is refused before
-  anything loops.** `Dots.line()` is Bresenham, which ends by arriving at the end
-  point: `NaN === NaN` is false and a step towards an infinity never arrives, so
-  one missing sample from a plot spun forever -- painting nothing while it did,
-  since `set()` ignores what it cannot place. Only the non-finite case is
-  guarded; a finite point outside the grid still clips, which is the rule above.
-  `Dots.#locate()` and `Pixels.#index()` carry the same test rather than only
-  `line()`, because every comparison in a bounds check is false for `NaN`: it
-  reached `DOT_BITS[NaN]` and the row lookup threw a `TypeError` out of a method
-  whose whole contract is to ignore what it cannot place, and on the `Pixels`
-  side it wrote to index `NaN`, which a typed array drops, and `get()` handed
-  back `undefined` with `Color` written on it.
+- **A point the loop cannot step towards is out of range, and it is refused
+  before anything loops.** `Dots.line()` is Bresenham, which ends by arriving at
+  the end point: `NaN === NaN` is false, a step towards an infinity never
+  arrives, and past 2^53 adding one is a no-op -- so `line(1e308, 0, 0, 0)` steps
+  forever without moving, exactly the way one missing sample from a plot did,
+  painting nothing while it did since `set()` ignores what it cannot place. The
+  endpoints are truncated already, so what the guard asks is whether a step of
+  one still means something, which is `Number.isSafeInteger` and not
+  `Number.isFinite`. A point it can walk to is a different thing and still
+  clips, which is the rule above -- including a long line that is merely slow to
+  walk, since bounding that is a decision about clipping rather than about a
+  loop that cannot end.
+- **Every sub-cell entry point answers for a coordinate that is not a number,
+  because none of them can.** Each comparison in a bounds check is false for
+  `NaN`, so it passed straight through: `Dots.#locate()` reached `DOT_BITS[NaN]`
+  and the row lookup threw a `TypeError`, `Dots.charAt()` reached `#cells[NaN]`
+  and `String.fromCodePoint(NaN)` threw a `RangeError`, and `Pixels.#index()`
+  wrote to index `NaN`, which a typed array drops, then handed `undefined` back
+  with `Color` written on it. Three spellings of one hole in three methods whose
+  shared contract is to ignore what they cannot place. `charAt()` truncates as
+  well, because it builds its own cell index and a fraction reached the same
+  `undefined`.
 - **No passthrough image protocols: Kitty, iTerm2 and Sixel are out.** Fidelity
   is a capability tier the way colour depth already is -- cells always, then
   sub-cell block and braille characters everywhere, and that is where it stops.

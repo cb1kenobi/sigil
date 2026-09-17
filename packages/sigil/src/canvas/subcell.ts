@@ -152,16 +152,19 @@ export class Dots {
 		const endY = Math.trunc(y1);
 
 		// a missing sample is the ordinary way a plot reaches this, and the loop
-		// below ends only by arriving at the end point. `NaN === NaN` is false and
-		// a step towards an infinity never arrives, so a non-finite endpoint spins
-		// forever -- and paints nothing while it does, since `set()` ignores what
-		// is out of range. A finite point outside the grid is a different thing and
-		// still clips, which is what a plot wants
+		// below ends only by arriving at the end point. `NaN === NaN` is false, a
+		// step towards an infinity never arrives, and past 2^53 adding one is a
+		// no-op -- so `line(1e308, 0, 0, 0)` steps forever without moving, exactly
+		// the way `NaN` does, and paints nothing while it does, since `set()`
+		// ignores what is out of range. The endpoints are already truncated, so
+		// what is asked here is whether a step of one still means something. A
+		// point the loop can actually walk to is a different thing and still
+		// clips, which is what a plot wants
 		if (
-			!Number.isFinite(x) ||
-			!Number.isFinite(y) ||
-			!Number.isFinite(endX) ||
-			!Number.isFinite(endY)
+			!Number.isSafeInteger(x) ||
+			!Number.isSafeInteger(y) ||
+			!Number.isSafeInteger(endX) ||
+			!Number.isSafeInteger(endY)
 		) {
 			return;
 		}
@@ -197,10 +200,24 @@ export class Dots {
 	 * @returns The character, or `undefined` when no dot in it is set.
 	 */
 	charAt(x: number, y: number): string | undefined {
-		if (x < 0 || y < 0 || x >= this.#width || y >= this.#height) {
+		// truncated and checked the way `#locate()` does it, because the cell index
+		// is built here rather than there and the arithmetic is as unforgiving: a
+		// fraction or a `NaN` reached `#cells[NaN]` -- `undefined` -- and
+		// `String.fromCodePoint(NaN)` is a `RangeError` out of the one method whose
+		// answer for everything it cannot find is `undefined`
+		const cellX = Math.trunc(x);
+		const cellY = Math.trunc(y);
+		if (
+			!Number.isFinite(cellX) ||
+			!Number.isFinite(cellY) ||
+			cellX < 0 ||
+			cellY < 0 ||
+			cellX >= this.#width ||
+			cellY >= this.#height
+		) {
 			return undefined;
 		}
-		const mask = this.#cells[y * this.#width + x];
+		const mask = this.#cells[cellY * this.#width + cellX];
 		return mask === 0 ? undefined : String.fromCodePoint(BRAILLE_BASE + mask);
 	}
 

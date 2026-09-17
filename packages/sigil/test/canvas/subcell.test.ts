@@ -129,6 +129,32 @@ describe('Dots', () => {
 		expect(dots.charAt(0, 0)).toBeUndefined();
 	});
 
+	// the same hang with a finite endpoint: `1e308 - 1` is `1e308`, so the step
+	// runs and the position does not change. Past 2^53 adding one is a no-op,
+	// which is what the guard asks about rather than asking about infinity
+	it('should return rather than spin on an endpoint it cannot step towards', () => {
+		const dots = new Dots(2, 2);
+		expect(() => {
+			dots.line(1e308, 0, 0, 0);
+			dots.line(0, 0, 2 ** 53, 0);
+			dots.line(-(2 ** 53), 0, 0, 0);
+		}).not.toThrow();
+		expect(dots.charAt(0, 0)).toBeUndefined();
+	});
+
+	it('should answer undefined for a cell that is not a number rather than throwing', () => {
+		// every comparison is false for `NaN`, so `charAt` indexed `#cells[NaN]`
+		// and `String.fromCodePoint(NaN)` threw out of the method that answers
+		// `undefined` for everything it cannot find
+		const dots = new Dots(2, 2);
+		dots.set(0, 0);
+		expect(dots.charAt(Number.NaN, 0)).toBeUndefined();
+		expect(dots.charAt(0, Number.NaN)).toBeUndefined();
+		expect(dots.charAt(Number.POSITIVE_INFINITY, 0)).toBeUndefined();
+		// a fraction is the same arithmetic and is truncated, as everywhere else
+		expect(dots.charAt(0.5, 0)).toBe(dots.charAt(0, 0));
+	});
+
 	it('should ignore a dot that is not a number rather than throwing', () => {
 		// every comparison is false for `NaN`, so the bounds test let it through
 		// and the row of the bit table read back `undefined`
