@@ -70,3 +70,19 @@ And `NO_COLOR=1` turns the styling off everywhere:
 ```sh
 NO_COLOR=1 node demos/components/06-ansi-and-wrap.js
 ```
+
+## The canvas
+
+|                                                    |                                            |
+| -------------------------------------------------- | ------------------------------------------ |
+| [`canvas/01-sparkline.js`](canvas/01-sparkline.js) | A chart at 2x4 the resolution the grid has |
+| [`canvas/02-image.js`](canvas/02-image.js)         | A picture at two pixels per cell           |
+
+Both draw with ordinary characters — braille patterns and half blocks — so they
+need nothing from the terminal but the font. Each prints what the frame cost in
+bytes, and the two answers are very different:
+
+```sh
+node demos/canvas/01-sparkline.js   # a plot: cheap to change
+node demos/canvas/02-image.js       # a picture: every cell its own two colours
+```
