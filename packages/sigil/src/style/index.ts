@@ -42,6 +42,7 @@ export {
 	type Display,
 	type FlexDirection,
 	type FlexWrap,
+	COLOR_PROPERTIES,
 	inheritFrom,
 	INHERITED,
 	initialStyle,
@@ -69,6 +70,7 @@ export {
 	type ResolveOptions,
 	applyProps,
 } from './cascade.js';
+export { degradeColor, degradeInto, degradeStyle, oklab, paletteRgb } from './degrade.js';
 export {
 	type Setting,
 	type WideKeyword,

@@ -2,6 +2,7 @@ import { DEFAULT_COLOR, palette, rgb } from '../../src/canvas/index.js';
 import {
 	AUTO,
 	cells,
+	COLOR_PROPERTIES,
 	declare,
 	expandShorthand,
 	INHERITED,
@@ -758,6 +759,23 @@ describe('a cascade keyword outside a cascade', () => {
 		// parent, and `readDeclarations` has none
 		expect(() => readDeclarations({ color: 'inherit' })).toThrow(/cascade keyword/);
 		expect(() => readDeclarations({ padding: 'unset' })).toThrow(StyleError);
+	});
+});
+
+describe('the properties that hold a colour', () => {
+	it('should be read off the table rather than listed a second time', () => {
+		// degradation walks these; a fourth colour property that the derivation
+		// missed would parse and cascade and then quietly skip degradation, which
+		// is a wrong colour on screen with nothing to point at. DEFAULT_COLOR is a
+		// value no other numeric property has as its initial, so it is an
+		// independent way to ask the same question
+		const byInitial = PROPERTY_NAMES.filter(
+			(name) => (PROPERTIES[name].initial as unknown) === DEFAULT_COLOR
+		);
+		expect([...COLOR_PROPERTIES].sort()).toEqual(byInitial.sort());
+		expect(COLOR_PROPERTIES).toContain('color');
+		expect(COLOR_PROPERTIES).toContain('backgroundColor');
+		expect(COLOR_PROPERTIES).toContain('borderColor');
 	});
 });
 
