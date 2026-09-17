@@ -131,6 +131,61 @@ describe('@ttylabs/cli', () => {
 		});
 	});
 
+	describe('the root build filter', () => {
+		// `pnpm test` and `pnpm coverage` build the packages before vitest runs,
+		// because `the built bin` above reads `dist/`. The filter that picks those
+		// packages is the one thing between a green suite and four failures whose
+		// message points at the wrong cause.
+		const rootPkg = JSON.parse(readFileSync(resolve(root, '../../package.json'), 'utf-8')) as {
+			scripts: Record<string, string>;
+		};
+
+		const filtered = ['test', 'coverage'];
+
+		it('should not quote an argument the way only a POSIX shell understands', () => {
+			// pnpm runs a script through `cmd.exe` on Windows, which does not strip
+			// single quotes -- so `--filter='./packages/*'` arrived at turbo with the
+			// quotes still on, matched no package, and *exited zero*. The build was
+			// skipped in silence and vitest then failed on a missing `dist/`, on
+			// Windows only, on every branch at once.
+			for (const [name, script] of Object.entries(rootPkg.scripts)) {
+				expect(script, `the "${name}" script`).not.toContain("'");
+			}
+		});
+
+		it('should name every package it has to build', () => {
+			// read off the workspace rather than repeated here: a third package under
+			// `packages/` must join the build or fail this test. It cannot go missing
+			// quietly, which is what a glob allows -- turbo exits 0 when a *name
+			// glob* matches nothing, and only an exact name that does not resolve
+			// fails loudly. That is why these are spelled out.
+			const packages = readdirSync(resolve(root, '..'), { withFileTypes: true })
+				.filter((entry) => entry.isDirectory())
+				.map(
+					(entry) =>
+						(
+							JSON.parse(
+								readFileSync(resolve(root, '..', entry.name, 'package.json'), 'utf-8')
+							) as { name: string }
+						).name
+				);
+
+			expect(packages.length).toBeGreaterThan(1);
+
+			for (const script of filtered) {
+				for (const name of packages) {
+					expect(rootPkg.scripts[script], `the "${script}" script`).toContain(`--filter=${name}`);
+				}
+			}
+		});
+
+		it('should build before it tests, and stop if the build fails', () => {
+			for (const script of filtered) {
+				expect(rootPkg.scripts[script]).toMatch(/^turbo run build .*&& vitest/);
+			}
+		});
+	});
+
 	describe('the built bin', () => {
 		// these read `dist/`, which the root `pnpm test` builds first. Asserting
 		// against `src/` instead would be worse than no test: the shebang and the
@@ -140,7 +195,10 @@ describe('@ttylabs/cli', () => {
 
 		function built(): string {
 			if (!existsSync(bin)) {
-				throw new Error(`${bin} is missing -- run \`pnpm build\` before these tests`);
+				throw new Error(
+					`${bin} is missing -- run \`pnpm build\` before these tests, or the root ` +
+						`build filter matched no packages (see "the root build filter" below)`
+				);
 			}
 			return readFileSync(bin, 'utf-8');
 		}
