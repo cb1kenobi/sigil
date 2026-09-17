@@ -39,7 +39,7 @@ Paths below are inside `packages/main2/` unless noted.
 | `src/terminal/`          | Terminal wrapper, live region, sequences             |
 | `src/components/`        | Spinner, progress, table, prompts, key decoding      |
 | `src/signals/`           | The reactive graph: state, computed, watcher, effect |
-| `src/canvas/`            | Cell buffer, style interning, and the paint diff     |
+| `src/canvas/`            | Cell buffer, style interning, paint diff, sub-cell   |
 | `src/style/`             | The style property set, its values, and shorthands   |
 | `src/layout/`            | The flexbox subset, over whole cells                 |
 | `src/infer.ts`           | `initOption()` and `initArg()`, in the type system   |
@@ -706,6 +706,21 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   in effect. This is also why `FakeTerminal` had to learn OSC -- it parsed only
   `ESC [`, so an unrecognised link sequence fell through to the text path and
   painted the URL into the grid.
+- **Sub-cell drawing picks a character, it does not change the grid.** A braille
+  pattern and a half block are ordinary single-width clusters, which is the
+  whole reason this is the tier that works everywhere. `Dots` is 2x4 per cell
+  and monochrome -- a braille cell is one character, so it carries one
+  foreground -- and is for shape: plots, sparklines, anything where the line
+  matters more than the colour. `Pixels` is 1x2 with a colour per half, painted
+  as an upper block whose foreground is the top pixel and whose background is
+  the bottom, and is for pictures. Both skip a cell nothing was drawn in rather
+  than painting it blank, which is what lets either sit on a background someone
+  else drew; the braille blank is a real character that some fonts draw the dot
+  frame for. A solid `Pixels` cell goes out as `█` in one colour rather than as
+  a half block over itself, because several terminals render the half blocks a
+  pixel short at small font sizes. Out-of-range points are ignored rather than
+  refused: a plot clips at its box, and requiring every caller to bounds-check
+  each point is how the check ends up in the wrong place.
 - **No passthrough image protocols: Kitty, iTerm2 and Sixel are out.** Fidelity
   is a capability tier the way colour depth already is -- cells always, then
   sub-cell block and braille characters everywhere, and that is where it stops.
