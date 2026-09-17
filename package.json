@@ -18,12 +18,12 @@
   "scripts": {
     "build": "turbo run build",
     "check": "pnpm type-check && pnpm lint && pnpm fmt:check",
-    "coverage": "turbo run build --filter='./packages/*' && vitest --coverage",
+    "coverage": "turbo run build --filter=@ttylabs/sigil --filter=@ttylabs/cli && vitest --coverage",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "lint": "oxlint",
     "ncu": "ncu  -c 1d --",
-    "test": "turbo run build --filter='./packages/*' && vitest",
+    "test": "turbo run build --filter=@ttylabs/sigil --filter=@ttylabs/cli && vitest",
     "type-check": "turbo run type-check"
   },
   "devDependencies": {
