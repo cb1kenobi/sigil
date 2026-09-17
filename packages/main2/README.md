@@ -56,7 +56,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Hooks](#hooks)
 - [Help](#help)
 - [Typed argv](#typed-argv)
-- [Subpath modules](#subpath-modules) — `ansi`, `wrap`, `width`, `help`, `terminal`, `components`, `paths`, `updates`
+- [Subpath modules](#subpath-modules) — `ansi`, `wrap`, `width`, `help`, `terminal`, `components`, `signals`, `paths`, `updates`
 
 ---
 
@@ -780,6 +780,130 @@ sits next to everything else that was printed, and rules around it are noise.
 
 `main2/components` also exports `decodeKeys()` and the `padCell()`,
 `truncateCell()`, and `renderBar()` helpers the above are built from.
+
+### `main2/signals`
+
+The reactive core, shaped like the [TC39 Signals proposal][signals] (stage 1)
+rather than invented here — so `Signal.State` and `Signal.Computed` can be
+swapped for the native ones when they land, and anyone who has used signals
+anywhere already knows them. `effect()`, `flush()`, and the scheduler are main2's
+own: the proposal deliberately leaves scheduling out.
+
+```js
+import { Signal, effect } from 'main2/signals';
+
+const count = new Signal.State(0);
+const doubled = new Signal.Computed(() => count.get() * 2);
+
+const stop = effect(() => console.log(doubled.get())); // logs 0 now
+count.set(21); // logs 42 on the next microtask
+stop();
+```
+
+[signals]: https://github.com/tc39/proposal-signals
+
+A `State` is a cell you write. A `Computed` derives from whatever it reads, and
+is **lazy** — it does not run until something reads it, and a computed nobody
+reads never runs however often its inputs change. Dependencies are recorded on
+every run, so a branch that stops reading a signal stops depending on it.
+
+An `effect()` runs immediately and again whenever something it read changed. It
+**may write signals** — reacting to a change by setting something else is most
+of what an effect is for — and a flush keeps draining until nothing is left
+dirty, so an effect that another effect's write dirtied still settles in the same
+pass.
+
+It may return a cleanup, which runs before each re-run and once more on dispose:
+
+```js
+const stop = effect(() => {
+  const off = terminal.onResize(redraw);
+  return off;
+});
+```
+
+Writes are coalesced: a burst settles into one run, on a microtask by default.
+`setScheduler()` replaces that — the renderer hands it the frame loop, because a
+terminal cannot absorb a repaint per microtask.
+
+```js
+import { setScheduler, flush } from 'main2/signals';
+
+const previous = setScheduler((run) => setTimeout(run, 16));
+flush(); // or drive it by hand
+setScheduler(previous);
+```
+
+Coalescing is about how many times an effect runs, not whether it runs: a signal
+written to `1` and back to `0` before the flush re-runs its effects once, with
+the value it settled on.
+
+An effect created inside another effect's body belongs to it, and is disposed
+when the parent re-runs or is disposed. That is what keeps a component from
+leaking an effect per render.
+
+An error thrown by an effect goes to `setErrorHandler()` rather than out of the
+flush. Under the default scheduler a rethrow would land in a microtask nobody
+catches, which kills the process with a raw stack and skips every bit of error
+handling the framework has. The default handler writes the message and sets the
+exit code; the renderer replaces it with the real one.
+
+`createEffects()` gives an independent scope — its own watcher, scheduler, queue,
+and error handler — for when one global is not enough: two canvases with
+different frame loops, or a test that wants isolation.
+
+#### `Signal.subtle`
+
+The sharp edges, under the name the proposal gives them. Reaching for one is a
+signal in itself — ordinary code wants `State`, `Computed`, and `effect()`.
+
+| Export                        | What it is                                                                 |
+| ----------------------------- | -------------------------------------------------------------------------- |
+| `Watcher`                     | Notified that a watched signal may have changed. Never what to do about it |
+| `untrack(fn)`                 | Runs `fn` without recording what it reads                                  |
+| `currentComputed()`           | The `Computed` being evaluated, if any                                     |
+| `watched` / `unwatched`       | Option keys, called when a signal becomes live and stops being             |
+| `introspectSources` / `Sinks` | What a node reads, and what reads it                                       |
+| `hasSources` / `hasSinks`     | The same questions, answered cheaply                                       |
+
+`watched` and `unwatched` are about being **observed**, not about being read: a
+signal read only by a computed that nothing watches is not live, and its
+`watched` never fires. That is what makes them the right place to subscribe to
+something external — a `SIGWINCH` handler, a file watcher — since the
+subscription then lasts exactly as long as something is actually rendering.
+
+A `Watcher` fires at most once until `watch()` is called again, which is what
+turns a burst of writes into one notification. The holder schedules, drains with
+`getPending()`, and re-arms — which is all `effect()` is.
+
+```js
+const w = new Signal.subtle.Watcher(() => queueMicrotask(run));
+w.watch(someComputed);
+
+function run() {
+  for (const pending of w.getPending()) pending.get();
+  w.watch(); // re-arm
+}
+```
+
+#### What it refuses
+
+A `Computed` may not write a signal, may not read itself, and a `Watcher`'s
+notify callback may not touch the graph at all. Each throws rather than being
+merely discouraged: all three make the result depend on evaluation order, and
+laziness is exactly what makes evaluation order unpredictable.
+
+An **effect** is exempt from the first of those. A derivation has an answer and a
+write would make that answer depend on who read it first; an effect has no
+answer. `untrack()` is not the escape hatch here — it hides a read, not a write.
+
+An effect may not be `async`. Tracking stops at the first `await`, so nothing
+read after it would be a dependency, and the returned promise would be stored as
+the cleanup and called on the next run. It throws rather than failing a run
+later.
+
+An error thrown by a `Computed` is cached the way a value is, rethrown on every
+read until something it depends on changes.
 
 ### `main2/paths`
 

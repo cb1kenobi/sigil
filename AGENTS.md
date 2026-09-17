@@ -38,6 +38,7 @@ Paths below are inside `packages/main2/` unless noted.
 | `src/help/`              | The generated help screen and its two-column layout  |
 | `src/terminal/`          | Terminal wrapper, live region, sequences             |
 | `src/components/`        | Spinner, progress, table, prompts, key decoding      |
+| `src/signals/`           | The reactive graph: state, computed, watcher, effect |
 | `src/infer.ts`           | `initOption()` and `initArg()`, in the type system   |
 | `src/util/`              | Shared helpers (type coercion, camelCase, mkdir)     |
 | `src/debug/`             | `DEBUG`-driven logger; replaces snooplogg            |
@@ -361,6 +362,131 @@ false` rethrows instead; a function replaces the handler.
   in place, while `alias`, `env`, `format`, `name`, and `negate` built the
   registry lookups and the destination, so they are read-only too. Covered by
   `test/parser/schema.test.ts`.
+
+### Signals
+
+- **The read is recorded after the refresh, not before.** `Computed.get()`
+  refreshes and then calls `track()`, because what a consumer records is the
+  producer's _version_ and a computed being read for the first time is about to
+  change it. Recording first stored a version the producer had already left
+  behind, so the dependent re-ran once spuriously after every first read -- the
+  cache off by one rather than exact. It looks like an ordering
+  nicety and it is the difference between caching and not. Pinned by "should not
+  re-run a dependent when its own value did not change" in
+  `test/signals/signals.test.ts`.
+- **`watched` and `unwatched` are about being observed, not about being read.**
+  A signal read only by a computed that nothing watches is not live and its
+  `watched` never fires. Liveness is counted and propagates transitively through
+  computeds, which is more work than firing on the first reader -- and it is the
+  only version that makes the callbacks usable for what they are for:
+  subscribing to something external for exactly as long as something is
+  rendering. Firing on any reader would subscribe on behalf of a computed that
+  nobody will ever read again.
+- **A recompute sweeps its old dependencies afterwards rather than clearing them
+  first.** Clearing up front is simpler and makes a source that is read both
+  before and after lose its last live sink and immediately regain it, firing
+  `unwatched` then `watched` for a dependency that never went away. Anything
+  that subscribes in those callbacks would tear down and rebuild a subscription
+  on every recompute.
+- **A `Computed` that writes, that reads itself, or a `Watcher` callback that
+  touches the graph all throw.** Each makes the result depend on evaluation
+  order, and laziness is precisely what makes evaluation order unpredictable --
+  the same program gives different answers depending on who read what first.
+  Merely discouraging them means the bug surfaces later, somewhere else.
+- **An effect may write a signal; a `Computed` still may not.** Reacting to a
+  change by setting something else is most of what an effect is _for_ -- focus
+  moving, a resize landing on a width, a dirty bit going up -- and banning it
+  would have made the whole layer useless to the renderer. The ban on a
+  _derivation_ writing stands, because a derivation has an answer and a write
+  makes that answer depend on evaluation order. An effect has no answer. An
+  effect body is a `Computed` carrying an internal `effectBody` marker, which is
+  the only thing that lifts the ban.
+- **A flush drains until nothing is dirty, not once.** It follows from the
+  above: an effect that writes can dirty an effect that already ran this pass,
+  and stopping after one pass would leave that one a frame behind. The watcher is
+  re-armed _before_ each pass, so a write made during one schedules the next.
+  There is a bound, because two effects each writing what the other reads would
+  otherwise spin forever with nothing said about which two.
+- **An error in an effect is reported, never rethrown.** Under the default
+  microtask scheduler a rethrow lands in a microtask nobody catches: Node prints
+  a raw stack and kills the process, skipping `main2()`'s error handling, the
+  `beforeError` hooks, and any chance of putting the terminal back -- the exact
+  opposite of the rule that a CLI shows a message and not a stack. Errors go to
+  `setErrorHandler()`, whose default writes the message and sets the exit code,
+  and which the renderer replaces with the real handler. The watcher is re-armed
+  either way: one bad effect silently ending all future reactivity is worse than
+  a loud failure.
+- **A `flush()` run from inside a notify callback is allowed; a read from the
+  callback itself is not.** A scheduler may run its flush synchronously, which is
+  what a frame loop driving its own timing does. That is only compatible with the
+  callback's ban on touching the graph because the flush is the work the callback
+  _scheduled_ rather than the callback -- which is what `outsideNotify()` marks.
+  Without it a synchronous scheduler threw out of the `set()` that triggered it
+  and left the watcher disarmed for the life of the process.
+- **An effect created inside another effect's body dies with it.** Otherwise a
+  component that creates an effect while rendering leaks one per render, and
+  nothing above can see them to clean up. The initial run is `untrack`ed for the
+  same reason: without it the child registers as a dependency of the parent.
+- **`Computed.dispose()` exists and the proposal has no such thing.** Garbage
+  collection would be enough if the edges pointed the other way, but a source
+  holds its sinks in a `Set`, so a long-lived signal keeps every computed that
+  ever read it reachable. An effect that is disposed has to say so.
+- **An effect that returns a promise throws; any other non-cleanup return is
+  ignored.** A promise stored as the cleanup is called on the _next_ run and
+  fails with "previous is not a function", one run later and nowhere near the
+  mistake -- and tracking stopped at the first `await` anyway. Everything else is
+  let through, because `effect(() => a.set(b.get()))` is the spelling worth
+  encouraging and a concise arrow body returns whatever its last call did.
+- **A recompute marks its sources rather than swapping the map.** `sources`
+  stays whole for the whole run -- the old set plus whatever has been read so
+  far -- and is swept at the end against a per-run `seen` set. Swapping in an
+  empty map is the obvious implementation and it breaks liveness: `incLive` and
+  `decLive` walk `producerSources()`, so anything that changes a computed's
+  liveness _while it is evaluating_ -- an effect disposing itself, a watcher
+  added from inside a body -- walks a half-built set and leaves the counts
+  wrong. It surfaces much later, as an `unwatched` that never fires or one that
+  fires while something is still watching.
+- **A liveness walk happens before its callback, not after.** A `watched` or
+  `unwatched` that throws then leaves the counts consistent and only its own
+  error escapes. The other order skips the walk entirely and strands every
+  source one short, after which no later watcher can make them live again.
+- **A bare `watch()` re-arm looks for what went stale while it was disarmed.** A
+  watcher is only told about a node going from clean to dirty, and propagation
+  stops at a node already dirty -- so a computed left dirty across a re-arm is
+  never announced again: the next write walks into it, finds it dirty, stops,
+  and the watcher waits forever. Only a _bare_ re-arm checks; a computed is
+  dirty from construction, so checking while signals are being added would
+  announce every newly watched computed as a change.
+- **A cleanup that throws on a re-run is reported, not rethrown.** Letting it
+  escape the effect body before `fn()` has read anything makes the sweep drop
+  every dependency, leaving the effect alive, watched, and deaf to the signals
+  it was watching -- a cleanup failing should not silently unsubscribe the effect
+  from the world. At `dispose()` it does throw, because there the caller asked.
+- **Replacing a scheduler hands it any flush the old one was given.** A
+  scheduler that was asked and is then thrown away without running takes the
+  pending work with it, which reads as reactivity having stopped.
+- **A source dropped in the same run that the computed gains a watcher fires
+  `watched` and then `unwatched`.** Known and left alone: the counts end
+  correct, and avoiding the transient means deferring every liveness change to
+  the end of a run, which is a larger redesign than the flicker is worth.
+- **An unwatched `Computed` that is dropped is not collected.** Edges are strong
+  and bidirectional, so a long-lived `State` keeps every computed that ever read
+  it reachable through its sink set. The proposal solves this with generation
+  numbers; we have `Computed.dispose()` instead, and `effect()` calls it. A bare
+  `new Signal.Computed()` that is read once and dropped leaks its edge until the
+  source dies. Known, and it matters most in exactly this project's target -- a
+  long-running TUI -- so it gets revisited if a real graph ever grows large
+  enough to notice.
+- **Effects come in scopes, and the module-level ones are a default scope.**
+  `createEffects()` gives an independent watcher, scheduler, queue, and error
+  handler. One global scheduler is a trap the moment there is more than one thing
+  driving frames -- two canvases with different loops, a library using main2
+  inside a host that also does, or two tests in one file where the first leaves a
+  scheduler that never ran and the second is dead before it starts.
+- **Coalescing is about how many times an effect runs, not whether it runs.** A
+  signal written to `1` and back to `0` before the flush still re-runs its
+  effects, once, with the value it settled on. Nothing records what a signal held
+  before a burst, and both writes were real changes when they happened.
 
 ### Help
 

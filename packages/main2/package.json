@@ -45,6 +45,10 @@
       "types": "./dist/paths.d.mts",
       "default": "./dist/paths.mjs"
     },
+    "./signals": {
+      "types": "./dist/signals.d.mts",
+      "default": "./dist/signals.mjs"
+    },
     "./terminal": {
       "types": "./dist/terminal.d.mts",
       "default": "./dist/terminal.mjs"
