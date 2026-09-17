@@ -13,7 +13,9 @@
  * a different one buys nothing and costs everyone's intuition.
  */
 
+import type { ColorLevel } from '../ansi/color-support.js';
 import { readSettings, resolveKeyword } from './declaration.js';
+import { degradeInto } from './degrade.js';
 import { inheritFrom, initialStyle, type PropertyName, type Style } from './properties.js';
 import {
 	compareSpecificity,
@@ -56,6 +58,15 @@ export type PropValues = Record<string, boolean | number | string | undefined>;
  * how that survives the fast path.
  */
 export interface CascadeResult {
+	/**
+	 * The colour depth this was resolved at.
+	 *
+	 * Carried on the result rather than passed to `applyProps()` separately: a
+	 * prop can name a colour, so the fast path has to degrade too, and a `level`
+	 * argument defaulting to truecolor is a fast path that silently disagrees
+	 * with `resolve()` on exactly the terminals degradation exists for.
+	 */
+	readonly colorLevel: ColorLevel;
 	readonly locked: ReadonlySet<PropertyName>;
 	readonly style: Style;
 }
@@ -254,7 +265,11 @@ export class Cascade {
 			}
 		}
 
-		return { locked, style: style as Style };
+		// the last pass over a resolved style, so nothing downstream ever holds a
+		// colour the terminal cannot emit and the diff never compares a colour
+		// against its own approximation
+		const level = this.media.colorLevel as ColorLevel;
+		return { colorLevel: level, locked, style: degradeInto(style as Style, level) };
 	}
 
 	/**
@@ -269,7 +284,7 @@ export class Cascade {
 		// written into in place: the result is freshly built and nothing else holds
 		// it, so there is nothing to protect by copying it first
 		return opts.props
-			? writeProps(result.style, opts.props, result.locked, opts.parent)
+			? applyPropsInto(result, opts.props, opts.parent, result.style)
 			: result.style;
 	}
 
@@ -321,16 +336,24 @@ export class Cascade {
  * @returns The style, props applied.
  */
 export function applyProps(result: CascadeResult, props: PropValues, parent?: Style): Style {
-	return writeProps({ ...result.style }, props, result.locked, parent);
+	return applyPropsInto(result, props, parent, { ...result.style });
 }
 
-/** Writes props into a style, taking it over. */
-function writeProps(
-	target: Style,
+/**
+ * Writes props into a style, taking it over.
+ *
+ * `into` is the caller's to give away: `resolve()` hands over the style it has
+ * just built, which nothing else holds, and `applyProps()` hands over a copy so
+ * that a kept result answers again.
+ */
+function applyPropsInto(
+	result: CascadeResult,
 	props: PropValues,
-	locked: ReadonlySet<PropertyName>,
-	parent: Style | undefined
+	parent: Style | undefined,
+	into: Style
 ): Style {
+	const { colorLevel: level, locked } = result;
+	const target = into;
 	const style = target as Record<PropertyName, unknown>;
 
 	for (const [name, raw] of Object.entries(props)) {
@@ -349,5 +372,7 @@ function writeProps(
 		}
 	}
 
-	return style as Style;
+	// a prop can name a colour too, so the fast path degrades as well -- three
+	// memoized lookups, which is what keeps it a fast path
+	return degradeInto(style as Style, level);
 }
