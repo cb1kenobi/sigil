@@ -1167,6 +1167,14 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   first byte that never comes; destroying the request surfaces through the `error`
   handler that already exits non-zero. `timeout: 0` opts out in the worker the same
   way it skips the timer in the parent.
+- **The response gets its own `error` listener, because the timeout does not
+  cover a body that stops half way.** A connection dropped mid-body destroys the
+  socket, and the inactivity timer goes with it, while `end` never comes because
+  the response did not finish -- so nothing settles the promise and the worker
+  waits forever. It does not surface as an uncaught exception either, which is
+  why it reads as a process that simply never exits. Measured, not reasoned; it
+  is untested in the suite for the same reason the URL moved out of the worker,
+  since reaching it means a real TLS server dropping a real connection.
 - **Unreffing the child's stdin cannot cost the worker the script it is being
   fed.** An unflushed write is a libuv _request_, not a handle, and `unref()` only
   touches handles -- measured: a parent with every pipe unreffed still stays alive

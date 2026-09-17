@@ -39,6 +39,14 @@ try {
 			},
 			(res) => {
 				let buf = '';
+				// a connection that drops part way through a body is the other way a
+				// fetch never ends, and the timeout above does not cover it: the
+				// socket is gone, so the inactivity timer went with it, while `end`
+				// never comes because the response did not finish. Without this
+				// listener nothing settles the promise and the worker waits forever --
+				// measured, and it is not an uncaught exception, which is why it reads
+				// as the process simply never exiting
+				res.on('error', reject);
 				res.on('data', (chunk) => {
 					buf += chunk;
 				});
