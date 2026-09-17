@@ -48,10 +48,7 @@ describe('the dirty bits', () => {
 		expect(DIRTY_ORDER).toEqual(['style', 'layout', 'paint']);
 	});
 
-	it('should have every property classified as moving a box or not', () => {
-		for (const property of PROPERTY_NAMES) {
-			expect(typeof LAYOUT_PROPERTIES.has(property), property).toBe('boolean');
-		}
+	it('should classify the ones people get wrong', () => {
 		expect(LAYOUT_PROPERTIES.has('width')).toBe(true);
 		expect(LAYOUT_PROPERTIES.has('color')).toBe(false);
 		// a border takes a cell on each edge; its colour does not
@@ -139,6 +136,124 @@ describe('what a change implies', () => {
 		expect(restyler.styleOf(as(hint))?.color).toBe(2);
 	});
 
+	it('should carry an inherited prop down to descendants', () => {
+		// the claim that broke: props cannot change what another element *matches*,
+		// which is not the same as cannot change another element. `color` inherits,
+		// so a prop on the parent is a different resolved style on every child
+		const { form, hint, label, panel } = build();
+		const restyler = new Restyler(new Cascade([sheet]));
+		restyler.update(as(form));
+		expect(restyler.styleOf(as(label))?.color).toBe(4);
+
+		panel.props = { color: 'magenta' };
+		restyler.touchProps(as(panel));
+		const update = restyler.update(as(form));
+
+		expect(restyler.styleOf(as(panel))?.color).toBe(5);
+		// text { color: blue } still wins over what it inherits, because a
+		// matching rule beats inheritance -- but the hint has no rule of its own
+		expect(restyler.styleOf(as(label))?.color).toBe(4);
+		expect(update.paint.has(as(panel))).toBe(true);
+		expect(update.restyled).toBeGreaterThan(0);
+		expect(restyler.styleOf(as(hint))?.color).toBe(4);
+	});
+
+	it('should carry an inherited prop to a child with no rule of its own', () => {
+		const bare = parseStylesheet('.panel { color: red }');
+		const child = el('box');
+		const panel = el('box.panel', [child]);
+		const restyler = new Restyler(new Cascade([bare]));
+		restyler.update(as(panel));
+		expect(restyler.styleOf(as(child))?.color).toBe(1);
+
+		panel.props = { color: 'cyan' };
+		restyler.touchProps(as(panel));
+		const update = restyler.update(as(panel));
+
+		expect(restyler.styleOf(as(child))?.color).toBe(6);
+		expect(update.paint.has(as(child))).toBe(true);
+	});
+
+	it('should mark layout when a prop sets a property that moves a box', () => {
+		// a renderer that trusts Update.layout would paint the new style into the
+		// old box
+		const { form, panel } = build();
+		const restyler = new Restyler(new Cascade([sheet]));
+		restyler.update(as(form));
+
+		panel.props = { width: '40' };
+		restyler.touchProps(as(panel));
+		const update = restyler.update(as(form));
+
+		expect(update.layout.has(as(panel))).toBe(true);
+		expect(update.paint.has(as(panel))).toBe(true);
+	});
+
+	it('should not paint an element whose prop write changed nothing', () => {
+		const { form, panel } = build();
+		const restyler = new Restyler(new Cascade([sheet]));
+		panel.props = { color: 'red' };
+		restyler.update(as(form));
+
+		restyler.touchProps(as(panel));
+		const update = restyler.update(as(form));
+		expect(update.paint.has(as(panel))).toBe(false);
+	});
+
+	it('should settle a prop on a parent and a child in one update', () => {
+		const bare = parseStylesheet('.panel { color: red }');
+		const child = el('box');
+		const panel = el('box.panel', [child]);
+		const restyler = new Restyler(new Cascade([bare]));
+		restyler.update(as(panel));
+
+		panel.props = { color: 'cyan' };
+		child.props = { bold: 'true' };
+		restyler.touchProps(as(panel));
+		restyler.touchProps(as(child));
+		restyler.update(as(panel));
+
+		// the child is restyled because its parent's inherited value changed, and
+		// its own prop still applies on top
+		expect(restyler.styleOf(as(child))?.color).toBe(6);
+		expect(restyler.styleOf(as(child))?.bold).toBe(true);
+	});
+
+	it('should not paint an element that was restyled to the same answer', () => {
+		const { form, panel } = build();
+		const restyler = new Restyler(new Cascade([sheet]));
+		restyler.update(as(form));
+
+		panel.classes.push('irrelevant');
+		restyler.touchClasses(as(panel));
+		const update = restyler.update(as(form));
+
+		expect(update.restyled).toBeGreaterThan(0);
+		expect(update.paint.has(as(panel))).toBe(false);
+		expect(update.layout.size).toBe(0);
+	});
+
+	it('should put everything in layout on the first resolution', () => {
+		const { form, panel } = build();
+		const update = new Restyler(new Cascade([sheet])).update(as(form));
+		expect(update.layout.has(as(form))).toBe(true);
+		expect(update.layout.has(as(panel))).toBe(true);
+	});
+
+	it('should restyle for a state change the way it does for a class', () => {
+		const focus = parseStylesheet('.panel:focus text { bold: true }');
+		const { form, label, panel } = build();
+		const restyler = new Restyler(new Cascade([focus]));
+		restyler.update(as(form));
+		expect(restyler.styleOf(as(label))?.bold).toBe(false);
+
+		panel.states.push('focus');
+		restyler.touchClasses(as(panel));
+		restyler.update(as(form));
+
+		expect(restyler.styleOf(as(label))?.bold).toBe(true);
+	});
+
 	it('should restyle a subtree when a class changes, and anything a selector relates to it', () => {
 		// the price of keeping combinators: `.form.invalid .hint` means toggling a
 		// class on an ancestor restyles a descendant that never changed
@@ -221,6 +336,84 @@ describe('sideways', () => {
 		expect(restyler.styleOf(as(first))?.bold).toBe(false);
 		expect(restyler.styleOf(as(first))?.dim).toBe(true);
 		expect(update.paint.has(as(first))).toBe(true);
+	});
+
+	it('should restyle who is left when a child is removed', () => {
+		const a = el('text');
+		const b = el('text');
+		const parent = el('box', [a, b]);
+		const restyler = new Restyler(new Cascade([sheet]));
+		restyler.update(as(parent));
+		expect(restyler.styleOf(as(b))?.dim).toBe(true);
+
+		parent.children.shift();
+		restyler.forget(as(a));
+		restyler.touchChildren(as(parent));
+		restyler.update(as(parent));
+
+		expect(restyler.styleOf(as(b))?.bold).toBe(true);
+		expect(restyler.styleOf(as(b))?.dim).toBe(false);
+		// and the removed element is gone rather than held for the life of the
+		// Restyler, which in a long-running TUI is a leak
+		expect(restyler.styleOf(as(a))).toBeUndefined();
+	});
+
+	it('should resolve a reinserted element against where it is now', () => {
+		// the "never resolved" branch is the safety net and it does not fire for
+		// an element object that was detached and put back somewhere else
+		const moving = el('text');
+		const here = el('box.here', [moving]);
+		const there = el('box.there');
+		const root = el('box', [here, there]);
+		const sheets = parseStylesheet('.here text { bold: true } .there text { dim: true }');
+		const restyler = new Restyler(new Cascade([sheets]));
+		restyler.update(as(root));
+		expect(restyler.styleOf(as(moving))?.bold).toBe(true);
+
+		here.children.pop();
+		restyler.forget(as(moving));
+		there.children.push(moving);
+		moving.parent = there;
+		restyler.touchChildren(as(here));
+		restyler.touchChildren(as(there));
+		restyler.update(as(root));
+
+		expect(restyler.styleOf(as(moving))?.bold).toBe(false);
+		expect(restyler.styleOf(as(moving))?.dim).toBe(true);
+	});
+
+	it('should restyle a later sibling for a ~ combinator', () => {
+		const later = parseStylesheet('.on ~ text { bold: true }');
+		const a = el('text');
+		const b = el('text');
+		const c = el('text');
+		const parent = el('box', [a, b, c]);
+		const restyler = new Restyler(new Cascade([later]));
+		restyler.update(as(parent));
+
+		a.classes.push('on');
+		restyler.touchClasses(as(a));
+		restyler.update(as(parent));
+
+		expect(restyler.styleOf(as(b))?.bold).toBe(true);
+		expect(restyler.styleOf(as(c))?.bold).toBe(true);
+	});
+
+	it('should restyle a descendant of a sibling', () => {
+		const deep = parseStylesheet('.on + box text { bold: true }');
+		const inner = el('text');
+		const a = el('box');
+		const b = el('box', [inner]);
+		const parent = el('box', [a, b]);
+		const restyler = new Restyler(new Cascade([deep]));
+		restyler.update(as(parent));
+		expect(restyler.styleOf(as(inner))?.bold).toBe(false);
+
+		a.classes.push('on');
+		restyler.touchClasses(as(a));
+		restyler.update(as(parent));
+
+		expect(restyler.styleOf(as(inner))?.bold).toBe(true);
 	});
 
 	it('should restyle siblings when a class changes on one of them', () => {

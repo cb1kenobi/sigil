@@ -29,13 +29,19 @@
  * than asserting it.
  *
  * What must not happen is an architecture where the optimization could not be
- * added if the measurement surprises us. The seam is `#restyle()`: it is handed
- * the set of elements to re-resolve, and narrowing that set is the whole of what
- * an invalidation set would do.
+ * added if the measurement surprises us. The seam is the set of elements
+ * `update()` re-resolves -- `wanted` -- and narrowing that set is the whole of
+ * what an invalidation set would do.
  */
 
 import { applyProps, type Cascade, type CascadeResult, type PropValues } from './cascade.js';
-import { LAYOUT_PROPERTIES, type PropertyName, PROPERTY_NAMES, type Style } from './properties.js';
+import {
+	INHERITED,
+	LAYOUT_PROPERTIES,
+	type PropertyName,
+	PROPERTY_NAMES,
+	type Style,
+} from './properties.js';
 import type { StyleNode } from './selector.js';
 
 /**
@@ -88,8 +94,8 @@ export class Restyler {
 	readonly #styles = new Map<StyleTarget, Style>();
 	/** Elements whose resolved style has to be recomputed. */
 	#style = new Set<StyleTarget>();
-	/** Elements that need repainting for a reason that is not a style change. */
-	#paint = new Set<StyleTarget>();
+	/** Elements whose props changed, which is re-applied without re-matching. */
+	#props = new Set<StyleTarget>();
 	/** Everything is stale: the sheets changed, or the terminal did. */
 	#all = true;
 
@@ -105,16 +111,23 @@ export class Restyler {
 	/**
 	 * A prop was written.
 	 *
-	 * The common case, and it costs nothing. Props override the sheet per
+	 * The common case, and it skips the cascade: props override the sheet per
 	 * property and there are no attribute selectors, so writing a prop cannot
-	 * change any other element's resolved style -- there is no rule that could
-	 * have matched differently. So this does not restyle: it re-applies props
-	 * over the kept `CascadeResult` and marks paint.
+	 * change what any element *matches* -- there is no rule that could have
+	 * selected differently. Re-applying props over the kept `CascadeResult` is
+	 * the whole of the work, with no selector matched.
+	 *
+	 * What it does *not* skip is the two things that are not selector matching.
+	 * A prop can set a layout property, so the result is diffed and may mark
+	 * layout; and a prop can set an *inherited* property, in which case every
+	 * descendant's resolved style changed and they are re-resolved. "Cannot
+	 * change what another element matches" and "cannot change another element"
+	 * are different claims, and only the first one is true.
 	 *
 	 * @param node - The element whose props changed.
 	 */
 	touchProps(node: StyleTarget): void {
-		this.#paint.add(node);
+		this.#props.add(node);
 	}
 
 	/**
@@ -169,6 +182,11 @@ export class Restyler {
 	/**
 	 * Settles everything marked since the last call.
 	 *
+	 * One walk, in document order, and the prop fast path is a branch inside it
+	 * rather than a pass after it. A pass afterwards cannot be right: a prop that
+	 * sets an inherited property changes every descendant, and by then the walk
+	 * that would have carried it down has already finished.
+	 *
 	 * @param root - The root of the tree.
 	 * @returns What needs laying out and what needs painting.
 	 */
@@ -179,52 +197,78 @@ export class Restyler {
 
 		let restyled = 0;
 
-		// walked from the root in document order, because a child's inherited
-		// values come from its parent's resolved style and the parent has to have
-		// been resolved first. This is also why an element is never restyled
-		// without its subtree: inheritance flows down
+		// document order, because a child's inherited values come from its
+		// parent's *resolved* style and the parent has to have been resolved first
 		const walk = (node: StyleTarget, parent: Style | undefined, forced: boolean): void => {
-			const mine = forced || wanted === undefined || wanted.has(node);
-			let style = this.#styles.get(node);
+			const restyle = forced || wanted === undefined || wanted.has(node);
+			const before = this.#styles.get(node);
+			let style = before;
+			let changed: readonly PropertyName[] = [];
 
-			if (mine || style === undefined) {
-				const before = style;
+			if (restyle || style === undefined) {
 				style = this.#resolve(node, parent);
 				restyled++;
+				changed = before === undefined ? ALL : difference(before, style);
+			} else if (this.#props.has(node)) {
+				// the fast path: the kept result answers again, with no selector
+				// matched and nothing else touched
+				style = applyProps(this.#results.get(node) as CascadeResult, node.props ?? {}, parent);
+				this.#styles.set(node, style);
+				changed = difference(before as Style, style);
+			}
 
-				const changed = before === undefined ? ALL : difference(before, style);
-				if (changed.length > 0) {
-					paint.add(node);
-					if (changed.some((property) => LAYOUT_PROPERTIES.has(property))) {
-						layout.add(node);
-					}
+			if (changed.length > 0) {
+				paint.add(node);
+				if (changed.some((property) => LAYOUT_PROPERTIES.has(property))) {
+					layout.add(node);
 				}
 			}
 
+			// children are forced only when what they inherit actually changed.
+			// A class change already marked the subtree, so forcing on any restyle
+			// would be redundant there -- and doing it only here is what makes an
+			// inherited *prop* reach its descendants at all
+			const inherited = changed.some((property) => INHERITS.has(property));
+
 			for (const child of node.children ?? []) {
-				// a parent that was restyled forces its children, because what they
-				// inherit may have changed and nothing else would have told them
-				walk(child, style, mine);
+				walk(child, style, inherited);
 			}
 		};
 
 		walk(root, undefined, false);
 
-		// a prop write does not restyle, so its element is painted without ever
-		// having been compared -- which is the whole point of the fast path
-		for (const node of this.#paint) {
-			const result = this.#results.get(node);
-			if (result) {
-				this.#styles.set(node, applyProps(result, node.props ?? {}, this.#parentStyle(node)));
-			}
-			paint.add(node);
-		}
-
 		this.#style = new Set();
-		this.#paint = new Set();
+		this.#props = new Set();
 		this.#all = false;
 
 		return { layout, paint, restyled };
+	}
+
+	/**
+	 * Drops an element and its subtree from the cache.
+	 *
+	 * Called when an element is unmounted. Nothing can discover this on its own:
+	 * the caches are keyed by element identity, `touchChildren()` is handed the
+	 * parent, and by the time it is called the child is already gone from
+	 * `parent.children` -- so an unmounted subtree would stay reachable for the
+	 * life of the `Restyler`, which in a long-running TUI is a leak.
+	 *
+	 * It is also a correctness fix and not only a tidiness one: the "never
+	 * resolved" branch in `update()` is what catches an element with no cached
+	 * style, and it does not fire for an element object that was detached and
+	 * then reinserted somewhere else -- that one keeps the style it resolved to
+	 * under its old parent.
+	 *
+	 * @param node - The element that was removed.
+	 */
+	forget(node: StyleTarget): void {
+		this.#results.delete(node);
+		this.#styles.delete(node);
+		this.#style.delete(node);
+		this.#props.delete(node);
+		for (const child of node.children ?? []) {
+			this.forget(child);
+		}
 	}
 
 	/** Resolves one element and keeps both halves of the answer. */
@@ -234,10 +278,6 @@ export class Restyler {
 		const style = node.props ? applyProps(result, node.props, parent) : result.style;
 		this.#styles.set(node, style);
 		return style;
-	}
-
-	#parentStyle(node: StyleTarget): Style | undefined {
-		return node.parent ? this.#styles.get(node.parent) : undefined;
 	}
 
 	#markSubtree(node: StyleTarget): void {
@@ -258,6 +298,9 @@ export class Restyler {
 
 /** Every property, for the first time an element is resolved. */
 const ALL: readonly PropertyName[] = PROPERTY_NAMES;
+
+/** `INHERITED` as a set, because this is asked once per changed property. */
+const INHERITS: ReadonlySet<PropertyName> = new Set(INHERITED);
 
 /**
  * Which properties two styles disagree about.
