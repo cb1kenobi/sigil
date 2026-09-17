@@ -95,8 +95,9 @@ export function enable(pattern: string | RegExp = ''): Matchers {
 			// this runs at module load and every importer of the library is behind
 			// it, so a pattern that will not compile has to end here rather than as a
 			// `SyntaxError` thrown before `main()` exists to turn it into a message.
-			// Escaping leaves little that can reach this -- a pattern too large to
-			// compile is about all of it -- and logging off is the answer either way
+			// Escaping should leave nothing that reaches this; it is kept because
+			// escaping is a claim about a grammar, and being wrong about that one
+			// costs an import nobody can make rather than a log line nobody gets
 			allow = null;
 			ignore = null;
 		}

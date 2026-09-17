@@ -95,6 +95,11 @@ describe('debug', () => {
 			expect(on('sigil-parser', 'sigil-parser')).toBe(true);
 			expect(on('sigil-parser', 'parser')).toBe(false);
 		});
+
+		it('should read only the first dash as the exclusion', () => {
+			expect(on('--sigil', '-sigil')).toBe(false);
+			expect(on('--sigil', 'sigil')).toBe(true);
+		});
 	});
 
 	// `enable()` dropped each token into `new RegExp()` after turning `*` into
@@ -131,6 +136,12 @@ describe('debug', () => {
 			expect(on('a+*', 'aab')).toBe(false);
 			expect(on('(*)', '(anything)')).toBe(true);
 			expect(on('(*)', 'anything')).toBe(false);
+		});
+
+		it('should read a backslash before the wildcard as a backslash', () => {
+			expect(on('a\\*', 'a\\b')).toBe(true);
+			expect(on('a\\*', 'ab')).toBe(false);
+			expect(on('a\\', 'a\\')).toBe(true);
 		});
 
 		it('should escape an exclusion too', () => {
