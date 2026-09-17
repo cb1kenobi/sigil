@@ -1257,9 +1257,29 @@ describe('regressions', () => {
 			expect(result.cmd?.desc).to.equal('reached by the object form');
 		});
 
+		// the control: an absolute path never needed a base, and still does not
+		// get one -- `resolve()` hands it back rather than hanging it off the
+		// module's directory the way `join()` would have
 		it('should leave an absolute path alone', async () => {
 			const result = await parse({ argv: ['build', 'here'], schema: build });
 			expect(result.cmd?.desc).to.equal('reached by an absolute path');
+		});
+
+		it("should keep a placeholder's own subcommands with the file that declared it", async () => {
+			// `obj` is declared in `build.js` and its module is a directory further
+			// down, so the two halves of that command disagree about what `./` means:
+			// the subcommand the declaration gave belongs to `build.js`, and only the
+			// module's own paths belong to the module
+			const result = await parse({ argv: ['build', 'obj', 'carried'], schema: build });
+			expect(result.cmd?.desc).to.equal('declared beside the file that declared the placeholder');
+		});
+
+		it("should record the loaded module's own directory as its base", async () => {
+			// what a hook of the module's reads off the command it is handed, and
+			// what the module's own `path` and subcommands resolve against -- the
+			// placeholder's subcommands coming across does not drag its base along
+			const result = await parse({ argv: ['build', 'obj'], schema: build });
+			expect(result.cmd?.[Internal].baseDir).to.equal(path.join(nested, 'sub'));
 		});
 
 		it('should follow each module to its own directory', async () => {

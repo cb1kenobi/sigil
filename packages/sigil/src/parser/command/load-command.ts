@@ -52,9 +52,19 @@ export async function loadCommand(cmd: InternalCommand): Promise<InternalCommand
 		// would leak the placeholder's name and aliases into the next parse
 		const merged: Command = { ...def };
 
-		// every key but `path`: that is how this module was found rather than
-		// something the command it declares still needs, and carried across it
-		// would be resolved a second time -- against this module rather than
+		// the placeholder's subcommands come across as the commands they already
+		// are rather than as the paths they were declared as: those paths are
+		// relative to the file that declared the placeholder, and this module is a
+		// different file, so reading them again here would read them against the
+		// wrong directory. `initCommand()` hands an initialized command straight
+		// back, which is what makes registering them again cost nothing
+		if (def.commands === undefined && internal.commands.size) {
+			merged.commands = Object.fromEntries(internal.commands);
+		}
+
+		// every other key but `path`: that is how this module was found rather
+		// than something the command it declares still needs, and carried across
+		// it would be resolved a second time -- against this module rather than
 		// against the file that declared the placeholder, which is a different
 		// directory
 		for (const [key, value] of Object.entries(cmd)) {
@@ -87,16 +97,10 @@ export async function loadCommand(cmd: InternalCommand): Promise<InternalCommand
 			];
 		}
 
-		// `merged` is two declarations in one object, and a relative path means
-		// something different in each: what the module declared is relative to the
-		// module, while what the placeholder filled in is relative to the file
-		// that declared the placeholder. The subcommands came from one or the
-		// other and never both, so the base follows them
-		const loaded = await initCommand(
-			merged,
-			internal.path,
-			def.commands === undefined ? internal.baseDir : undefined
-		);
+		// every path still left in `merged` is the module's own, so the module is
+		// what they are relative to -- which is also the base a hook of the
+		// module's reads off the command it is handed
+		const loaded = await initCommand(merged, internal.path);
 
 		// ...and the same goes for the help label, unless the module renamed
 		// the command and brought its own labels

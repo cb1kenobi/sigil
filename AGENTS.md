@@ -371,13 +371,10 @@ false` rethrows instead; a function replaces the handler.
   command modules live. Three things hold it together. The directory is settled
   before the subcommands are registered rather than after, because registering
   them is what reads their paths. It is carried as `cmd[Internal].baseDir`
-  rather than recovered from the command's own resolved `path`: a placeholder's
-  `path` points one directory away from the file that declared it, and a lazily
-  loaded command's declaration is two files mixed into one -- what the module
-  declared is relative to the module, what the placeholder filled in is
-  relative to the file that declared the placeholder, and only one of the two
-  brought the subcommands. And it is `resolve()` rather than `join()`, so an
-  absolute path stays the answer it already was instead of being hung off a
+  rather than recovered from the command's own resolved `path`, which points
+  one directory away from the file that declared it -- and is what a hook reads
+  to resolve a path of its own. And it is `resolve()` rather than `join()`, so
+  an absolute path stays the answer it already was instead of being hung off a
   base. `loadCommand()` therefore hands `initCommand()` the file system path
   and builds the `file://` URL only for the dynamic `import()`, which is the
   one reader that wants one: `dirname('file:///a/b.js')` is not a directory
@@ -385,6 +382,21 @@ false` rethrows instead; a function replaces the handler.
   to be relative to, so its own paths still resolve from the working directory
   -- which is why every example passes an absolute one. Covered by
   `test/parser/regressions.test.ts`.
+- **A loaded module's declaration is one file's, because the placeholder's
+  subcommands are handed over already built.** They are the one thing in the
+  merge that a second file wrote, and a merged declaration cannot say which
+  directory each half is relative to: a placeholder giving `'./sub/build.js'` as
+  its `path` and `'./all.js'` as a subcommand means `all.js` beside the file
+  that declared the placeholder and everything `sub/build.js` declares beside
+  `sub/build.js`, and one base cannot be both.
+  So the placeholder's registry goes into `merged.commands` as initialized
+  commands rather than as the paths they were declared as -- `initCommand()`
+  hands an initialized command straight back, so registering them again costs
+  nothing and resolves nothing -- and every path left in the merge is the
+  module's own. Picking the base by where the subcommands came from was the
+  first answer and it was wrong in the other direction: it gave the loaded
+  command the placeholder's base, so the module's own `path` and anything a
+  hook of the module's resolved were read against the wrong directory.
 - **A command is fixed once it is initialized, and its declaration containers
   are read-only.** `cmd.args`, `cmd.commands`, and `cmd.options` echo the
   declaration; the parser reads the normalized arguments and the registries at
