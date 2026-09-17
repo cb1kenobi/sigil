@@ -98,6 +98,24 @@ from the root: tests run through one vitest over both packages rather than
 through turbo, so a path argument means what it says. Turbo drives `build` and
 `type-check` only.
 
+**`test` and `coverage` name the packages they build, one `--filter` each, and
+that spelling is load bearing.** They build first because `@ttylabs/cli`'s tests
+read `dist/`, and the filter keeps the website out of a run that has no use for
+it. It is written as exact names rather than `--filter='./packages/*'` for two
+reasons, and the second is the one that cost a morning:
+
+- pnpm runs a script through `cmd.exe` on Windows, which does not strip single
+  quotes. The filter reached turbo with the quotes still attached, so it matched
+  no package — and a _name glob_ that matches nothing **exits zero**. The build
+  was skipped in silence and vitest then failed on a missing `dist/`, on Windows
+  only, on every open branch at once, with an error telling the reader to run
+  the build they had just run. Double quotes would also survive `cmd.exe`, but
+  they leave the silent no-op armed for whoever edits the filter next.
+- An exact name that does not resolve exits **one**. Only a glob can match
+  nothing quietly, so spelling the packages out is what makes a wrong filter
+  loud. `the root build filter` in `packages/cli/test/cli.test.ts` reads the
+  workspace and fails if a package is added without joining the build.
+
 `pnpm --filter @ttylabs/sigil test` scopes to one package, as does running the script
 from inside its directory. **`@ttylabs/cli` needs a build first** -- its source
 and its tests import `@ttylabs/sigil` through that package's `exports` map, which points
