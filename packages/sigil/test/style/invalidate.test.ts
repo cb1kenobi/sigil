@@ -576,3 +576,56 @@ describe('the inherit keyword', () => {
 		expect([...update.paint]).toEqual([as(leaf)]);
 	});
 });
+
+describe('an inherit chain', () => {
+	// the fix that was one level too shallow: a node restyled because its parent
+	// forced it decided about its own children with the narrow rule, so the
+	// second link of the chain never moved
+	const sheet = parseStylesheet('.mid { width: inherit } .leaf { width: inherit }');
+
+	const chain = () => {
+		const leaf = el('box.leaf');
+		const mid = el('box.mid', [leaf]);
+		const grand = el('box.grand', [mid]);
+		return { grand, leaf, mid };
+	};
+
+	it('should reach every level of the chain', () => {
+		const { grand, leaf, mid } = chain();
+		const restyler = new Restyler(new Cascade([sheet]));
+		grand.props = { width: '10' };
+		restyler.update(as(grand));
+		expect(restyler.styleOf(as(leaf))?.width).toEqual({ type: 'cells', value: 10 });
+
+		grand.props = { width: '20' };
+		restyler.touchProps(as(grand));
+		restyler.update(as(grand));
+
+		expect(restyler.styleOf(as(mid))?.width).toEqual({ type: 'cells', value: 20 });
+		expect(restyler.styleOf(as(leaf))?.width).toEqual({ type: 'cells', value: 20 });
+	});
+
+	it('should agree with a Restyler that has never seen the tree', () => {
+		// the property worth pinning rather than any particular rule: after any
+		// sequence of marks, a cached style is what a fresh resolve would produce
+		const { grand, leaf, mid } = chain();
+		const cascade = new Cascade([sheet]);
+		const restyler = new Restyler(cascade);
+
+		grand.props = { width: '10' };
+		restyler.update(as(grand));
+		grand.props = { width: '20' };
+		restyler.touchProps(as(grand));
+		restyler.update(as(grand));
+		mid.classes.push('extra');
+		restyler.touchClasses(as(mid));
+		restyler.update(as(grand));
+
+		const fresh = new Restyler(cascade);
+		fresh.update(as(grand));
+
+		for (const node of [grand, mid, leaf]) {
+			expect(restyler.styleOf(as(node)), node.classes.join('.')).toEqual(fresh.styleOf(as(node)));
+		}
+	});
+});

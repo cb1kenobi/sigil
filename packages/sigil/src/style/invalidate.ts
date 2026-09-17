@@ -226,27 +226,28 @@ export class Restyler {
 
 			// What a child reads from its parent is every inherited property, plus
 			// any property it wrote `inherit` on -- and `inherit` works on a
-			// property that does not inherit by default, which is the whole reason
-			// to write it. `width: inherit` on a child is read from a parent whose
-			// `width` is not in INHERITED, so narrowing the force to INHERITED left
-			// that child stale.
+			// property that does *not* inherit by default, which is the whole
+			// reason to write it. So "did an inherited property change" is the
+			// wrong question: `width: inherit` on a child reads a parent `width`
+			// that is not in INHERITED, and a chain of them reads it two levels
+			// down.
 			//
-			// A restyle needs no such care: a class change already marked the
-			// subtree and a sheet change or a resize marked everything, so the only
-			// path that has to decide is the prop one -- and there, anything having
-			// changed is the answer, because which properties a child reads through
-			// `inherit` is not something this can see from here.
+			// The right question is whether this node's descendants are already
+			// going to be re-resolved anyway. They are when everything is stale,
+			// and when this node was marked -- `#markSubtree()` marks a subtree,
+			// not a node. Otherwise -- a node reached because its own parent forced
+			// it, or one that took the prop path -- nothing has marked the
+			// children, and anything having changed is the answer, because which
+			// properties a child reads through `inherit` is not visible from here.
 			//
 			// The precise version records, per element, the properties it resolved
 			// from an `inherit` keyword, and forces only children whose set the
 			// change intersects. That is the optimization to reach for if a profile
-			// ever asks for it; it is not free, since the cascade would have to
-			// report which declaration won each property, and the conservative rule
-			// costs nothing at all on a leaf, which is where a prop write usually
-			// lands.
-			const force = restyle
-				? changed.some((property) => INHERITS.has(property))
-				: changed.length > 0;
+			// ever asks; it is not free, since the cascade would have to report
+			// which declaration won each property, and this costs nothing at all on
+			// a leaf, which is where a prop write usually lands.
+			const covered = wanted === undefined || wanted.has(node);
+			const force = !covered && changed.length > 0;
 
 			for (const child of node.children ?? []) {
 				walk(child, style, force);
