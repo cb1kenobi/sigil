@@ -12,6 +12,7 @@ const config: UserConfig = defineConfig({
 		index: './src/index.ts',
 		paths: './src/paths.ts',
 		signals: './src/signals/index.ts',
+		style: './src/style/index.ts',
 		terminal: './src/terminal/index.ts',
 		updates: './src/updates/index.ts',
 		width: './src/width/index.ts',

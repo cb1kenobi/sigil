@@ -53,6 +53,10 @@
       "types": "./dist/signals.d.mts",
       "default": "./dist/signals.mjs"
     },
+    "./style": {
+      "types": "./dist/style.d.mts",
+      "default": "./dist/style.mjs"
+    },
     "./terminal": {
       "types": "./dist/terminal.d.mts",
       "default": "./dist/terminal.mjs"

@@ -56,7 +56,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Hooks](#hooks)
 - [Help](#help)
 - [Typed argv](#typed-argv)
-- [Subpath modules](#subpath-modules) — `ansi`, `wrap`, `width`, `help`, `terminal`, `components`, `canvas`, `signals`, `paths`, `updates`
+- [Subpath modules](#subpath-modules) — `ansi`, `wrap`, `width`, `help`, `terminal`, `components`, `canvas`, `signals`, `style`, `paths`, `updates`
 
 ---
 
@@ -895,6 +895,107 @@ rows onto that one line. `DiffResult` also reports `wrapPending`, set when the
 last thing written was a row's final column and the terminal's deferred wrap is
 armed; any cursor movement clears it, so only a backend that writes immediately
 afterwards has to care.
+
+### `main2/style`
+
+The property set: every property a terminal can express, what it starts as, and
+whether it inherits.
+
+```js
+import { declare, PROPERTIES } from 'main2/style';
+
+const style = declare({ padding: '1 2', color: 'red', 'flex-grow': '1' });
+style.paddingLeft; // 2
+style.flexGrow; // 1
+
+PROPERTIES.color.inherits; // true
+PROPERTIES.width.initial; // { type: 'auto' }
+```
+
+This is the table the rest of the style system reads — the cascade, the layout
+engine, invalidation, and animation all ask it rather than keeping lists of
+their own, so a property is added in one place.
+
+#### What is in, and what a terminal cannot have
+
+Watering CSS down means dropping what a grid of character cells cannot express,
+not dropping the model. Out permanently: `font-family` and `font-size` (the cell
+size is the user's, set in their terminal, and not ours to ask about),
+`border-radius`, `box-shadow`, transforms, and any fractional length.
+
+The nearest analogues survive under their own names. Weight is `bold`, and its
+opposite is `dim` — a terminal attribute rather than a point on an axis, which is
+why `font-weight: 600` is an error and `font-weight: bold` is not.
+
+In: the flex properties, the box model, `position`/`top`/`right`/`bottom`/`left`/
+`z-index`/`overflow`, and the text properties. Plus one that is terminal-shaped
+rather than CSS-shaped — `border-style` names a box-drawing set (`single`,
+`double`, `round`, `bold`, `ascii`) rather than a rendering mode, because which
+characters to draw with is the only question a terminal border has.
+
+#### One unit, and it is a cell
+
+```js
+parseLength('3'); // three cells — a bare number needs no unit
+parseLength('4ch'); // the same, for people used to writing it
+parseLength('50%'); // a share of the parent
+parseLength('auto');
+parseLength('1.5'); // throws: a terminal cannot draw half a cell
+```
+
+A fractional length is refused rather than rounded. Rounding silently is how a
+layout ends up a column out with nobody able to say which declaration did it.
+
+#### Colours
+
+```js
+parseColor('red'); // palette index 1
+parseColor('#ff8800'); // 24-bit
+parseColor('rgb(255, 136, 0)');
+parseColor('ansi(208)');
+parseColor('default'); // the terminal's own
+```
+
+A named colour stays a **palette index** rather than becoming an RGB value: the
+basic sixteen are whatever the user's terminal theme says they are, and resolving
+`red` to a specific RGB overrides a choice they already made.
+
+#### Inheritance
+
+The CSS rule, because it is the one people already know: text properties inherit,
+box and layout properties do not.
+
+```js
+const parent = declare({ color: 'red', padding: '4' });
+const child = declare({}, parent);
+
+child.color; // red — inherited
+child.paddingTop; // 0 — a box is not
+```
+
+Setting `color` on a container and having the text inside pick it up is the
+single most common thing anyone wants, and it is most of why a cascade beats
+styling through props.
+
+#### Shorthands
+
+`padding`, `margin`, `inset`, `gap`, `border`, `flex`, and `flex-flow`, filled
+the way CSS fills them — one value for every edge, two for vertical then
+horizontal, three leaving the left to match the right.
+
+```js
+declare({ padding: '1 2' }).paddingLeft; // 2
+declare({ flex: '1' }); // grow 1, shrink 1, basis 0 — as in CSS
+declare({ border: 'red' }).borderStyle; // 'single'
+```
+
+That last one is the one deliberate divergence: in CSS a `border-color` with no
+style draws nothing, which surprises everyone. Here a border given only a colour
+is still a border.
+
+A bad value inside a shorthand is reported against the longhand that could not
+take it — `padding: 1 nonsense` fails at `padding-right`, which is more use than
+saying the shorthand failed.
 
 ### `main2/signals`
 
