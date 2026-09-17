@@ -904,20 +904,19 @@ describe('position: relative', () => {
 		// `top` is down the screen and `left` is across it, whatever the main axis
 		// is doing. Reading them as main-start and cross-start would make one
 		// declaration mean two things depending on the container it landed in
-		const declarations = { height: '1', left: '1', position: 'relative', top: '1', width: '2' };
-		const forward = box({ 'flex-direction': 'row' }, box(declarations));
-		const reversed = box({ 'flex-direction': 'row-reverse' }, box(declarations));
+		// one across and two down, so reading them as main and cross would move the
+		// box somewhere else rather than to the same place by arithmetic accident
+		const child = { height: '1', left: '1', position: 'relative', top: '2', width: '2' };
+		const at = (direction: string) =>
+			layout(box({ 'flex-direction': direction }, box(child)), { height: 3, width: 10 }).children[0]
+				.box;
 
-		// the flow put them at opposite ends, and both moved one cell right and one
-		// cell down from wherever that was
-		expect(layout(forward, { height: 3, width: 10 }).children[0].box).toMatchObject({
-			x: 0 + 1,
-			y: 1,
-		});
-		expect(layout(reversed, { height: 3, width: 10 }).children[0].box).toMatchObject({
-			x: 10 - 2 + 1,
-			y: 1,
-		});
+		// the flow puts each of these somewhere different, and every one of them
+		// then moves one cell right and two cells down from wherever that was
+		expect(at('row')).toMatchObject({ x: 0 + 1, y: 0 + 2 });
+		expect(at('row-reverse')).toMatchObject({ x: 10 - 2 + 1, y: 0 + 2 });
+		expect(at('column')).toMatchObject({ x: 0 + 1, y: 0 + 2 });
+		expect(at('column-reverse')).toMatchObject({ x: 0 + 1, y: 3 - 1 + 2 });
 	});
 
 	it('should ignore an inset on a static box', () => {
