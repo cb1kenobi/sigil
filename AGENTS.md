@@ -41,6 +41,7 @@ Paths below are inside `packages/main2/` unless noted.
 | `src/signals/`           | The reactive graph: state, computed, watcher, effect |
 | `src/canvas/`            | Cell buffer, style interning, and the paint diff     |
 | `src/style/`             | The style property set, its values, and shorthands   |
+| `src/layout/`            | The flexbox subset, over whole cells                 |
 | `src/infer.ts`           | `initOption()` and `initArg()`, in the type system   |
 | `src/util/`              | Shared helpers (type coercion, camelCase, mkdir)     |
 | `src/debug/`             | `DEBUG`-driven logger; replaces snooplogg            |
@@ -364,6 +365,110 @@ false` rethrows instead; a function replaces the handler.
   in place, while `alias`, `env`, `format`, `name`, and `negate` built the
   registry lookups and the destination, so they are read-only too. Covered by
   `test/parser/schema.test.ts`.
+
+### Layout
+
+- **The layout engine takes a `LayoutNode`, not an element.** Layout is the one
+  layer in the stack testable with no terminal, no renderer, and no reactivity --
+  lay a tree out, render it to a grid of characters, read the result as a picture
+  -- and it keeps that only by not knowing what an element is. The element tree
+  will satisfy the interface; so does a literal in a test.
+- **Every division goes through `distribute()`.** Seven leftover columns across
+  three children means somebody gets three and somebody gets two, and the rule
+  for who has to be stable: a layout that reshuffles its rounding between frames
+  shimmers, and one whose parts do not add up leaves a gap that moves.
+- **`distribute()` floors and carries forward; it does not round.** Rounding
+  sends the remainder backwards half the time, which put the spare cell in the
+  _middle_ of a row of equal columns -- seven across three came out 2, 3, 2 --
+  and contradicted the rule the function exists to keep. Flooring moves the
+  remainder forward every time, so it lands on the last column.
+- **Layout tests are pictures.** `test/layout/helpers.ts` renders a laid-out tree
+  to a grid where each node paints its box with a letter, depth-first. A failing
+  assertion that prints two grids says what went wrong; one that prints
+  `{ x: 3, y: 0, width: 11, height: 2 }` does not, and there is enough arithmetic
+  here for the difference to matter.
+- **`order` changes where a child is placed, not where it lives.**
+  `result.children[i]` still answers for `node.children[i]` whatever the ordering
+  did, because everything above needs to match a box back to its element. Only
+  the placement walk is sorted, and stably, so equal orders keep source sequence.
+- **A property the layout engine ignores is worse than one that does not exist**,
+  because it parses and then silently lies. `box-sizing`, `order`, and
+  `align-content` were added to the table and are honoured here for that reason.
+  `visibility` and `overflow` are deliberately _not_ layout's: hidden content
+  still takes its space, and clipping is M2-64's.
+- **An item that cannot flex is frozen at its hypothetical size; everything else
+  flexes from its _basis_.** Both halves matter and getting either wrong is
+  visible. Flexing from the raw basis leaves a sibling's `min-width`
+  unaccounted for while the space is handed out to everyone else, and the
+  trailing clamp then pushes that item past the edge with the space already
+  spent. Flexing from the _clamped_ size instead pays the minimum twice, so two
+  `flex: 1` columns whose content minimums differ come out unequal. The freeze
+  condition is CSS §9.7.1 and it is easy to write backwards: freeze an item whose
+  basis was clamped _away_ from the direction there is room to move -- a max
+  pulling it down while growing, a min pushing it up while shrinking.
+- **The automatic minimum is `min(content-based, specified)`.** Reporting the
+  declared size flat meant a box with any children could not shrink at all,
+  which is every real panel. The empty case and the non-empty case are separate
+  branches and were fixed one round apart.
+- **A child's declared minimum counts towards what its parent needs.** Measuring
+  a shrink-to-fit container from its children's _content_ minimums alone let it
+  compute itself smaller than a child's `min-width` would force at placement
+  time, and the child ended up outside its parent's box.
+- **The automatic minimum is content-based, so a box with no children has none.**
+  Reporting its declared height as its minimum froze it at that height and
+  pushed it out of a container too short to hold it -- which is the one thing
+  shrinking exists to prevent.
+- **`justify-content` and `align-content` share one divider, and it goes through
+  `distribute()`.** A single `Math.floor()` per gap cannot hold a remainder:
+  `space-evenly` over seven cells and four slots gave three gaps of one and a
+  trailing gap of four, and `space-between` left the last item a cell short of
+  the edge it is defined to touch. The main axis was fixed one round before the
+  cross axis, which had the identical bug in the identical shape.
+- **Every auto margin on a line shares the free space, wherever it sits.** A
+  trailing one used to count towards the denominator and then contribute
+  nothing, so two adjacent items each pushing away from the other pushed once.
+- **`layout()` honours the root's own declared size.** Every other node's is
+  resolved by its parent before `layoutNode()` is reached, and the root has no
+  parent to do that -- so `layout(panel, { width: 80 })` gave the panel eighty
+  columns however wide it said it was.
+- **Measurements are cached for the length of one `layout()` call.** Without it a
+  node's subtree is re-measured once per ancestor level, which is the node count
+  times the depth rather than the node count -- a 5.3x multiplier at eight levels
+  deep, on the most expensive operation in the stack. Per call, not persistent:
+  content changes between frames and invalidating is the renderer's job.
+- **`insets()` already answers for the axis.** Asking it and then swapping main
+  for cross again gave a row container the _vertical_ inset as its main one, so
+  a `content-box` child with `padding-left` came out three rows tall.
+- **A line's cross size is the largest _clamped_ item on it.** Reading the
+  unclamped value made a line too short for an item with a `min-height`, and the
+  next line started on top of it.
+- **Wrapping counts margins.** A five-wide item with a two-wide margin takes
+  seven, and deciding on five put two of them on a ten-wide line.
+- **Percentage margins resolve against the width, on both axes**, which is what
+  CSS does. Resolving against the main axis made one declaration mean one thing
+  at measure time and another at placement.
+- **Reversing a direction moves main-start to the other edge**, so the
+  justification moves with it: `flex-start` on a `row-reverse` is the right.
+  Reversing only the list packed it on the left. `wrap-reverse` does the same to
+  the cross axis, for `align-content` and for each item's own alignment.
+- **A hidden child still gets a result, and results are matched by index.**
+  `result.children[i]` answers for `node.children[i]` with no caveat, which is
+  what everything above needs to match a box back to its element. Both halves
+  were wrong at different times: hidden children were dropped, and rebuilding the
+  list by node identity collapsed two appearances of one node into one entry.
+- **A text is re-measured at the width it actually got.** Its height depends on
+  its width, and the first measure happens at the whole content box before any
+  flexing -- so two texts sharing twenty columns each measured twenty wide and
+  one row tall, then got ten each and stayed one row.
+- **Pictures cannot check containment, so `checkInvariants()` does.** The picture
+  helper paints later nodes over earlier ones, so an overlap is invisible, and it
+  bounds-checks against the grid, so anything placed past the edge does not
+  appear at all. A fuzzer found five hundred containment violations that
+  forty-two picture tests had no way to see.
+- **A percentage of an unknown size is `auto`.** What CSS does, and what keeps a
+  column layout from resolving heights against nothing.
+- **`min` wins over `max` where they conflict**, as in CSS, which is what stops a
+  box collapsing below its content when a stylesheet says something impossible.
 
 ### Style
 

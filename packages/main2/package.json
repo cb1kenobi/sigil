@@ -45,6 +45,10 @@
       "types": "./dist/help.d.mts",
       "default": "./dist/help.mjs"
     },
+    "./layout": {
+      "types": "./dist/layout.d.mts",
+      "default": "./dist/layout.mjs"
+    },
     "./paths": {
       "types": "./dist/paths.d.mts",
       "default": "./dist/paths.mjs"

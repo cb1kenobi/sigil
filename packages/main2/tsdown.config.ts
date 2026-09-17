@@ -9,6 +9,7 @@ const config: UserConfig = defineConfig({
 		components: './src/components/index.ts',
 		'error-handler': './src/error-handler.ts',
 		help: './src/help/index.ts',
+		layout: './src/layout/index.ts',
 		index: './src/index.ts',
 		paths: './src/paths.ts',
 		signals: './src/signals/index.ts',
