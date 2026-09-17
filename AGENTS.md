@@ -229,6 +229,23 @@ These look like bugs and are not. Each is intentional and covered by tests.
   value may be UTC, so `2024-06-15T00:00:00Z` is the 14th in Chicago and the
   15th in Auckland, and a round trip rejected real instants depending on where
   it ran.
+- **`auto` runs the same calendar check and gives up rather than throwing.** That
+  check was added to `date` while `auto` went on matching the same `dateRE` with
+  neither half of it, so the defect stayed alive on a second path: `2024-02-30`
+  was March 1st and `2024-13-01` an `Invalid Date`, an object whose `getTime()`
+  is `NaN` with nothing having said so. That path is also the default one, since
+  an undeclared option is coerced with `auto` -- it is reachable without anybody
+  writing `type: 'auto'`. Both now read a match through one function, because two
+  readers of one pattern disagreeing about what it proves is how the first fix
+  reached only one of them. What follows differs and belongs to the caller:
+  `date` was asked for a date and throws, while `auto` is a ladder of guesses
+  that ends at the string it was handed -- it does not throw on JSON it cannot
+  parse either -- so a date-shaped string that is not a date is simply not the
+  date guess. Throwing there would fail a parse over an undeclared option nobody
+  declared a type for, which is the opposite of what `allowUnknownOptions` is
+  for. `auto` still reads a 13-digit epoch as a number rather than a date: the
+  two types match different shapes on purpose, and sharing the check does not
+  merge them. See `test/parser/regressions.test.ts`.
 - **A data type name is matched anchored.** `optionTypesRE` and `argTypesRE`
   were written `/^auto|bool|...|yesno$/`, where the alternation binds looser
   than the anchors -- so the pattern read as `^auto` OR `bool` OR ... OR
@@ -1176,6 +1193,16 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   option the registry holds -- and the registries are what a hook is handed. The
   inherited members are the other half of it, since `constructor` and `toString`
   read back truthy and answer a lookup nothing declared.
+- **A destination is cased by `toUpperCase()`, never by the process locale.**
+  `camelCase()` used `toLocaleUpperCase()`, which reads it -- and in Turkish and
+  Azeri `i` uppercases to `İ` (U+0130), so every destination a separator built
+  moved on a machine set to `tr-TR`: `--log-info` landed on `logİnfo`, as did an
+  undeclared option's and an argument's. `src/infer.ts` writes the same rule with
+  TypeScript's `Capitalize`, which has no locale, so the types said `logInfo`
+  while the runtime did not -- and only there, because `\w` is ASCII and `i` is
+  the only letter whose mapping differs, so an en-US CI can never see it. A
+  destination is a JavaScript identifier rather than prose, and an identifier has
+  no language. Covered by `test/parser/regressions.test.ts`.
 - Parser errors are thrown as plain `Error`s with user-facing messages; they
   are what the user sees, so write them accordingly.
 - Prefer a regression test named after the defect over a comment explaining it.
