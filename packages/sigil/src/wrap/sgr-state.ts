@@ -126,16 +126,39 @@ const closedBy = new Map<number, Slot>(
 );
 
 /**
- * How many parameters 38, 48, and 58 take in their semicolon form, counting
- * themselves and the mode: `38;5;n` is a palette index and takes three,
- * `38;2;r;g;b` is a color and takes five. Keyed on the mode, which is the
- * parameter right after the 38.
+ * How many parameters 38, 48, and 58 spend on a color in their semicolon form,
+ * counting themselves and the mode.
+ *
+ * `38;5;n` is a palette index and takes three. A color takes five as everything
+ * emits it -- `38;2;r;g;b` -- and six as ITU T.416 actually specifies it, with a
+ * color space identifier between the mode and the channels: `38;2;;r;g;b`. The
+ * longer form has to be counted for the reason the skip exists at all -- read as
+ * five it leaves the blue channel to be read as an attribute of its own, and a
+ * blue of `0` is a reset, so `ESC[1;38;2;;255;0;0m` left nothing in effect.
+ *
+ * An *empty* color space is the only one that can be told apart, because a
+ * non-empty one is exactly as plausible a red channel, and five is what every
+ * emitter writes -- this library's own included. So `38;2;1;255;0;0` is read as
+ * a color and a trailing attribute rather than as T.416's color space `1`.
  *
  * A mode that is neither is a malformed sequence, and taking the rest of it is
  * the only safe reading -- guessing a shorter run would leave its tail to be
  * read as attributes of their own.
+ *
+ * @param mode - The parameter right after the 38, as a number.
+ * @param space - The parameter after that, as it was written.
+ * @returns How many parameters the color spends, or `undefined` for a mode that
+ * is neither.
  */
-const extendedLengths: Record<number, number> = { 2: 5, 5: 3 };
+function extendedLength(mode: number | undefined, space: string | undefined): number | undefined {
+	if (mode === 5) {
+		return 3;
+	}
+	if (mode === 2) {
+		return space === '' ? 6 : 5;
+	}
+	return undefined;
+}
 
 /**
  * The attributes that take a color rather than being one. In the colon form
@@ -194,7 +217,7 @@ export function createSgrState(): SgrState {
 				// the part a number would throw away
 				if (extendable.has(code) && !text.includes(':')) {
 					// the semicolon form spreads one color over several parameters
-					const length = extendedLengths[params[i + 1]?.code ?? -1];
+					const length = extendedLength(params[i + 1]?.code, params[i + 2]?.text);
 
 					if (length === undefined || i + length > params.length) {
 						// a color naming no mode, or one whose parameters run out before it

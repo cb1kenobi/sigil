@@ -247,6 +247,21 @@ These look like bugs and are not. Each is intentional and covered by tests.
   `src/wrap/sgr-state.ts` already
   modeled this for the wrapper; the two say it separately rather than sharing a
   module across the styler and the wrapper.
+- **An extended color's semicolon form is five parameters or six, and only an
+  empty color space says which.** ITU T.416 puts a color space identifier
+  between the mode and the channels -- `38;2;;255;0;0` -- and both tables counted
+  five, which is the same bug the skip was written to fix, reintroduced by the
+  longer spelling: the blue channel was left to be read as an attribute, and a
+  blue of `0` is a reset, so `ESC[1;38;2;;255;0;0m` left nothing in effect and
+  `ansi.blue()` reopened over a red that came in written the long way. Six is
+  taken only when that parameter is _empty_, because a non-empty color space is
+  exactly as plausible a red channel and five is what every emitter writes --
+  sigil's own output included, which is why nothing it emits was ever affected.
+  So `38;2;1;255;0;0` is still a color and a trailing attribute. The colon form
+  is untouched either way: `38:2::255:0:0` is one parameter, so there is nothing
+  after it to count. Both tables changed and both stayed separate, for the reason
+  the entry above gives. See `test/ansi/style.test.ts` and
+  `test/wrap/sgr-state.test.ts`.
 - **`bool` is strict and symmetric.** `true`/`t`/`yes`/`y`/`on`/`1` are
   true, `false`/`f`/`no`/`n`/`off`/`0`/`''` are false, case-insensitively,
   and anything else throws. It does not follow minimist's
@@ -377,6 +392,16 @@ false` rethrows instead; a function replaces the handler.
   in place, while `alias`, `env`, `format`, `name`, and `negate` built the
   registry lookups and the destination, so they are read-only too. Covered by
   `test/parser/schema.test.ts`.
+- **A live region shows the cursor only if it is what hid it.** `begin()` called
+  `terminal.hideCursor()` and recorded the cursor as hidden whatever the call
+  did, so a full-screen app that hid the cursor itself and then ran a spinner got
+  it back the moment the spinner stopped -- over its own screen, which never
+  asked for one. `hideCursor()` already kept the flag that made the second call a
+  no-op; it now reports whether it did the work, which is the one question a
+  caller that owes a `showCursor()` has to ask. Eviction works out by ordering
+  rather than by a second mechanism: the region being evicted finishes, and hands
+  the cursor back, before the region evicting it claims and hides again. See
+  `test/terminal/live.test.ts`.
 
 ### Layout
 
@@ -839,6 +864,39 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   pixel short at small font sizes. Out-of-range points are ignored rather than
   refused: a plot clips at its box, and requiring every caller to bounds-check
   each point is how the check ends up in the wrong place.
+- **The style table is swept on growth, not on every frame.** Interning was the
+  only way in and there was no way out, so the table grew for the life of the
+  canvas: `paint()` clears the back buffer and interns again, and `Pixels.blit()`
+  interns a style per cell, which is a new entry per distinct pixel colour per
+  frame -- order of a million `Style` objects a minute at 80x24 and 60fps. Once
+  `present()` has copied back over front, the live set is exactly what `front`
+  names, and `StyleTable.compact()` keeps those and says where each one moved.
+  Sweeping every frame is the obvious version and is wrong in the case that
+  matters most: reading the live set walks every cell, which measures 0.013ms
+  against an ordinary TUI frame's 0.10ms -- an eighth of the frame, forever, to
+  reclaim nothing, since such a table settles at a couple of dozen entries and
+  never moves. So the trigger is growth past twice what survived the last sweep,
+  with a floor, which bounds the table at twice a frame's own usage and costs an
+  integer comparison to the canvas that never needs it. A resize sweeps
+  unconditionally and that is the cheap case: both grids come back blank, so
+  nothing names a style and there is nothing to walk or remap. Indices move, so
+  the sweep rewrites _both_ grids -- `back` is what the next `present()` is
+  compared against whether or not anything repainted it -- and nothing outside
+  the canvas may call `compact()`, because only the owner of both the table and
+  every grid painted with it knows when that is safe.
+- **`FakeTerminal` defers the wrap, because `DiffResult` says the diff does.**
+  Writing the last column of a row does not advance the cursor -- there is
+  nowhere to go, so the terminal stays put and arms a wrap that the next graphic
+  character takes, and any cursor movement disarms it. The model walked the
+  cursor off the edge instead, which agreed with neither a real terminal nor the
+  diff, so asserting `wrapPending` or the clamped `column` would have failed the
+  _harness_ and both fields went untested. Now every `replay()` checks all three
+  against the model rather than the one test that thought to ask, since a backend
+  positions itself by them and cannot see that they are wrong. Modelling it
+  found no disagreement with the diff: the diff already assumes the deferred
+  reading, which is why a full row followed by the row below it emits CUD before
+  the `\r` and lands where it meant to. Whether a terminal really defers is the
+  one thing neither can answer, and is `scripts/terminal-probe.mjs`'s to.
 - **No passthrough image protocols: Kitty, iTerm2 and Sixel are out.** Fidelity
   is a capability tier the way colour depth already is -- cells always, then
   sub-cell block and braille characters everywhere, and that is where it stops.

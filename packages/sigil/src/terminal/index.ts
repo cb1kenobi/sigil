@@ -95,8 +95,15 @@ export interface Terminal {
 	readonly closed: boolean;
 	/** Rows, from the stream, or 24 when there is nothing to ask. */
 	readonly height: number;
-	/** Hides the cursor, and registers to show it again however the process ends. */
-	hideCursor(): void;
+	/**
+	 * Hides the cursor, and registers to show it again however the process ends.
+	 *
+	 * @returns Whether this call is what hid it. `false` when something had
+	 * already hidden it, or when there is no terminal to hide one on -- either
+	 * way the caller owes no `showCursor()`, because showing it would put back a
+	 * cursor somebody else is still hiding.
+	 */
+	hideCursor(): boolean;
 	/** Whether this is a terminal, and so whether repainting means anything. */
 	readonly isTTY: boolean;
 	/**
@@ -377,13 +384,15 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
 			return height();
 		},
 
-		hideCursor(): void {
-			if (!cursorHidden && isTTY) {
-				cursorHidden = true;
-				attachRestore();
-				ensureGuarded();
-				writeTo(stdout, HIDE_CURSOR);
+		hideCursor(): boolean {
+			if (cursorHidden || !isTTY) {
+				return false;
 			}
+			cursorHidden = true;
+			attachRestore();
+			ensureGuarded();
+			writeTo(stdout, HIDE_CURSOR);
+			return true;
 		},
 
 		isTTY,

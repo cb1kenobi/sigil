@@ -76,6 +76,29 @@ describe('what stays in effect', () => {
 		expect(after(`${ESC}[1;38;2;1;2;3;4m`).open()).toBe(`${ESC}[1;38;2;1;2;3;4m`);
 	});
 
+	// the six-parameter form is the one ITU T.416 specifies: a color space
+	// identifier sits between the mode and the channels, written empty. Counted as
+	// five it left the blue channel to be read as an attribute of its own, and a
+	// blue of `0` is a reset -- so a bold red came back as nothing in effect
+	it('should read the six-parameter form of a truecolor', () => {
+		expect(after(`${ESC}[1;38;2;;255;0;0m`).active).toBe(true);
+		expect(after(`${ESC}[1;38;2;;255;0;0m`).open()).toBe(`${ESC}[1;38;2;;255;0;0m`);
+		expect(after(`${ESC}[48;2;;0;0;0m`, `${ESC}[1m`).open()).toBe(`${ESC}[48;2;;0;0;0;1m`);
+		// what follows one is still read as parameters of its own
+		expect(after(`${ESC}[38;2;;1;2;3;4m`).open()).toBe(`${ESC}[38;2;;1;2;3;4m`);
+		// and one whose parameters run out before it does is dropped like any other
+		expect(after(`${ESC}[38;2;;1;2m`).active).toBe(false);
+		expect(after(`${ESC}[38;2;;1;2m`, `${ESC}[1m`).open()).toBe(`${ESC}[1m`);
+	});
+
+	// a non-empty color space is exactly as plausible a red channel, and five is
+	// what every emitter writes -- so `38;2;1;2;3` is a color and the `4` after it
+	// is an attribute, which is what the test above already pins from the front
+	it('should read a non-empty color space as a channel', () => {
+		expect(after(`${ESC}[38;2;1;2;3;4m`).open()).toBe(`${ESC}[38;2;1;2;3;4m`);
+		expect(after(`${ESC}[38;2;1;2;3;0m`).active).toBe(false);
+	});
+
 	it('should let an extended color replace a simple one and the other way round', () => {
 		expect(after(`${ESC}[31m`, `${ESC}[38;5;214m`).open()).toBe(`${ESC}[38;5;214m`);
 		expect(after(`${ESC}[38;5;214m`, `${ESC}[31m`).open()).toBe(`${ESC}[31m`);
@@ -113,6 +136,9 @@ describe('what stays in effect', () => {
 	it('should keep a colon-form color whole', () => {
 		expect(after(`${ESC}[38:2:95:135:175m`).open()).toBe(`${ESC}[38:2:95:135:175m`);
 		expect(after(`${ESC}[38:5:214m`).open()).toBe(`${ESC}[38:5:214m`);
+		// including the six-element spelling, which is still one parameter and so
+		// has nothing after it to count
+		expect(after(`${ESC}[38:2::95:135:175m`).open()).toBe(`${ESC}[38:2::95:135:175m`);
 		expect(after(`${ESC}[48:2:0:0:0m`).close()).toBe(`${ESC}[49m`);
 		// and the parameters after it are still parameters of their own
 		expect(after(`${ESC}[38:2:95:135:175;1m`).open()).toBe(`${ESC}[38:2:95:135:175;1m`);

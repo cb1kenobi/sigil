@@ -173,6 +173,71 @@ describe('StyleTable', () => {
 	it('should answer with the default style for an index nothing interned', () => {
 		expect(new StyleTable().get(999)).toEqual(DEFAULT_STYLE);
 	});
+
+	// nothing else ever takes a style out, so a table that a frame keeps interning
+	// into grows for the life of the process
+	describe('compaction', () => {
+		it('should keep what is named and drop what is not', () => {
+			const table = new StyleTable();
+			const kept = table.intern(style({ fg: palette(1) }));
+			table.intern(style({ fg: palette(2) }));
+			const alsoKept = table.intern(style({ fg: palette(3) }));
+
+			const moved = table.compact([alsoKept, kept]);
+
+			expect(table.size).toBe(3);
+			expect(table.get(moved[kept])).toEqual(style({ fg: palette(1) }));
+			expect(table.get(moved[alsoKept])).toEqual(style({ fg: palette(3) }));
+		});
+
+		it('should keep the default whether or not it was named', () => {
+			const table = new StyleTable();
+			table.intern(style({ fg: palette(1) }));
+
+			const moved = table.compact([]);
+
+			expect(table.size).toBe(1);
+			expect(moved[StyleTable.DEFAULT]).toBe(StyleTable.DEFAULT);
+			expect(table.get(StyleTable.DEFAULT)).toEqual(DEFAULT_STYLE);
+		});
+
+		it('should point what it dropped at the default', () => {
+			// a cell cannot hold an index the table does not have, and a hole in the
+			// map would be one written straight back into a grid
+			const table = new StyleTable();
+			const dropped = table.intern(style({ fg: palette(1) }));
+
+			const moved = table.compact([]);
+
+			expect(moved[dropped]).toBe(StyleTable.DEFAULT);
+			expect([...moved].every((index) => index >= 0 && index < table.size)).toBe(true);
+		});
+
+		it('should intern into the compacted table rather than past it', () => {
+			// the index map is rebuilt with the survivors, so a style that is still
+			// there is found again rather than added a second time
+			const table = new StyleTable();
+			const red = style({ fg: palette(1) });
+			const kept = table.intern(red);
+			table.intern(style({ fg: palette(2) }));
+
+			const moved = table.compact([kept]);
+
+			expect(table.intern(red)).toBe(moved[kept]);
+			expect(table.size).toBe(2);
+			expect(table.intern(style({ fg: palette(2) }))).toBe(2);
+		});
+
+		it('should ignore an index it does not have and a repeat', () => {
+			const table = new StyleTable();
+			const kept = table.intern(style({ fg: palette(1) }));
+
+			const moved = table.compact([kept, kept, 999, -3]);
+
+			expect(table.size).toBe(2);
+			expect(moved[kept]).toBe(1);
+		});
+	});
 });
 
 describe('CellBuffer', () => {
