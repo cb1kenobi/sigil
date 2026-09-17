@@ -1,13 +1,15 @@
+import { createAnsi } from '../../src/ansi/index.js';
 import {
 	confirm,
+	ESCAPE_TIMEOUT,
 	multiselect,
 	password,
 	PromptError,
 	select,
 	text,
 } from '../../src/components/prompt.js';
-import { setup, tick } from './helpers.js';
-import { describe, expect, it } from 'vitest';
+import { type FakeStream, setup, tick } from './helpers.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * Starts a prompt and reports how it settled.
@@ -34,6 +36,27 @@ async function type(stdin: { send(chunk: string): void }, ...chunks: string[]) {
 		stdin.send(chunk);
 		await tick();
 	}
+}
+
+/**
+ * A styler that actually writes sequences.
+ *
+ * The harness's is level 0, so a test reads the text rather than the styling --
+ * but the caret *is* styling, and at level 0 there is nothing on screen to
+ * assert about. These tests ask for the markup instead.
+ */
+function styled() {
+	return createAnsi({ level: 1 });
+}
+
+/** The last frame exactly as it was written, sequences and all. */
+function raw(stdout: FakeStream): string {
+	return stdout.written.at(-1) ?? '';
+}
+
+/** What `ansi.inverse()` wraps the caret in. */
+function reversed(under: string): string {
+	return `[7m${under}[27m`;
 }
 
 const ENTER = '\r';
@@ -197,6 +220,110 @@ describe('text()', () => {
 		await type(stdin, '\u0301', LEFT, 'a', BACKSPACE, 'ok', ENTER);
 
 		expect(await answer).to.equal('ok');
+	});
+
+	// the arrows moved an index nothing drew: Left, Right, Home and End all
+	// changed where the next character would land and nothing on screen said so
+	// until that character was typed
+	describe('the caret', () => {
+		it('should draw a caret where the next character goes', async () => {
+			const { region, stdin, stdout } = setup();
+			const ansi = styled();
+			const answer = text({ ansi, message: 'Name?', region });
+
+			// past the last character there is nothing to mark, so the caret is a
+			// column of its own
+			await type(stdin, 'ab');
+			expect(raw(stdout)).to.contain(`ab${reversed(' ')}`);
+
+			await type(stdin, ENTER);
+			expect(await answer).to.equal('ab');
+		});
+
+		it('should repaint when only the cursor moved', async () => {
+			const { region, stdin, stdout } = setup();
+			const ansi = styled();
+			const answer = text({ ansi, message: 'Name?', region });
+
+			await type(stdin, 'ab');
+			stdout.written.length = 0;
+
+			// nothing was typed and the screen still has to change
+			await type(stdin, LEFT);
+			expect(raw(stdout)).to.contain(`a${reversed('b')}`);
+
+			await type(stdin, HOME);
+			expect(raw(stdout)).to.contain(reversed('a'));
+
+			await type(stdin, ENTER);
+			expect(await answer).to.equal('ab');
+		});
+
+		// the caret marks what the terminal draws as one character, so a wide one
+		// is reversed over both its columns rather than cut in half
+		it('should mark a whole cluster rather than a code unit', async () => {
+			const { region, stdin, stdout } = setup();
+			const ansi = styled();
+			const answer = text({ ansi, message: 'Name?', region });
+
+			await type(stdin, '😀', 'z', HOME);
+			expect(raw(stdout)).to.contain(`${reversed('😀')}z`);
+
+			await type(stdin, ENTER);
+			expect(await answer).to.equal('😀z');
+		});
+
+		it('should show a caret before anything has been typed', async () => {
+			const { region, stdin, stdout } = setup();
+			const ansi = styled();
+			const answer = text({ ansi, message: 'Name?', placeholder: 'your name', region });
+
+			await tick();
+			expect(raw(stdout)).to.contain(reversed('y'));
+
+			await type(stdin, ENTER);
+			await answer;
+		});
+
+		it('should show a caret with nothing to stand in for the answer', async () => {
+			const { region, stdin, stdout } = setup();
+			const ansi = styled();
+			const answer = text({ ansi, message: 'Name?', region });
+
+			await tick();
+			expect(raw(stdout)).to.contain(reversed(' '));
+
+			await type(stdin, ENTER);
+			await answer;
+		});
+
+		// the mask is a column count rather than a substitution, so the caret is
+		// placed in the masked text rather than in the value it stands for
+		it('should put the caret on the mask, not on what it hides', async () => {
+			const { region, stdin, stdout } = setup();
+			const ansi = styled();
+			const answer = password({ ansi, message: 'Password?', region });
+
+			await type(stdin, 'abc', LEFT);
+			expect(raw(stdout)).to.contain(`••${reversed('•')}`);
+
+			await type(stdin, ENTER);
+			expect(await answer).to.equal('abc');
+		});
+
+		it('should cover every column a masked character takes', async () => {
+			const { region, stdin, stdout } = setup();
+			const ansi = styled();
+			const answer = password({ ansi, message: 'Password?', region });
+
+			// one bullet for the `a`, then two for the emoji's two columns, both
+			// under the one caret
+			await type(stdin, 'a', '😀', LEFT);
+			expect(raw(stdout)).to.contain(`•${reversed('••')}`);
+
+			await type(stdin, ENTER);
+			expect(await answer).to.equal('a😀');
+		});
 	});
 
 	describe('validation', () => {
@@ -588,6 +715,74 @@ describe('leaving stdin alone', () => {
 		expect(stdin.listenerCount('data')).to.equal(before);
 		expect(stdin.listenerCount('end')).to.equal(0);
 		expect(stdin.listenerCount('error')).to.equal(0);
+	});
+
+	// a terminal sends Alt-x as ESC then x and Up as ESC [ A, both in one write --
+	// but ssh, a pty under load, or a small read buffer delivers the halves
+	// separately, and decoded on their own they are an unknown sequence and a
+	// literal `A` that lands in the answer
+	describe('a sequence split across chunks', () => {
+		beforeEach(() => {
+			// only `setTimeout`, so `tick()`'s `setImmediate` still lands and the
+			// stream still delivers
+			vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+		});
+
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		it('should hold an unfinished sequence until the rest of it arrives', async () => {
+			const { ansi, region, stdin } = setup();
+			const answer = text({ ansi, message: 'Name?', region });
+
+			// Left, arriving as `ESC [` and then `D`
+			await type(stdin, 'ac', '[', 'D', 'b', ENTER);
+
+			expect(await answer).to.equal('abc');
+		});
+
+		it('should join a lone escape to the character after it', async () => {
+			const { ansi, region, stdin } = setup();
+			const answer = text({ ansi, message: 'Name?', region });
+
+			// alt-b, which this prompt does not bind -- not Escape and a literal b
+			await type(stdin, 'a', ESCAPE, 'b', ENTER);
+
+			expect(await answer).to.equal('a');
+		});
+
+		// the tail that is genuinely ambiguous is a lone ESC: somebody pressing
+		// Escape sends nothing after it, so there is no byte to wait for
+		it('should stop waiting once the silence is long enough', async () => {
+			const { ansi, region, stdin } = setup();
+			const answer = text({ ansi, message: 'Name?', region });
+
+			await type(stdin, ESCAPE);
+			vi.advanceTimersByTime(ESCAPE_TIMEOUT);
+			await tick();
+
+			// the escape was read for what it is, so the `b` is a character of its
+			// own rather than the second half of alt-b
+			await type(stdin, 'b', ENTER);
+
+			expect(await answer).to.equal('b');
+		});
+
+		// a prompt that ended while it was still waiting for the rest of a sequence
+		// owes the loop the timer back
+		it('should not leave a timer behind when the prompt ends', async () => {
+			const { ansi, region, stdin } = setup();
+			const answer = settle(text({ ansi, message: 'Name?', region }));
+
+			await type(stdin, 'x', ESCAPE);
+			expect(vi.getTimerCount()).to.equal(1);
+
+			stdin.end();
+			await answer;
+
+			expect(vi.getTimerCount()).to.equal(0);
+		});
 	});
 
 	// a character split across two chunks is one key, not two broken ones

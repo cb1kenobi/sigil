@@ -2,7 +2,7 @@ import { ansi as defaultAnsi, type Ansi } from '../ansi/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { createLiveRegion, type LiveRegion } from '../terminal/live.js';
 import { graphemes, stringWidth } from '../width/index.js';
-import { decodeKeys, isAbort, type Key } from './keys.js';
+import { decodeKeys, isAbort, type Key, pendingLength } from './keys.js';
 import { StringDecoder } from 'node:string_decoder';
 
 /**
@@ -117,6 +117,23 @@ const SYMBOL = {
  */
 const controlChar = /^\p{Cc}$/u;
 
+/**
+ * How long to hold a sequence that has not finished arriving, in milliseconds.
+ *
+ * `pendingLength()` says which tail of a chunk could still be the start of a
+ * longer key; this is how long that reading is allowed to stay open before what
+ * is held is read for what it is. Something has to close it, because the tail
+ * that is genuinely ambiguous is a lone `ESC`, and a person pressing Escape
+ * sends nothing after it -- there is no byte to wait for.
+ *
+ * Fifty milliseconds is the usual answer to the same ambiguity elsewhere --
+ * tmux's `escape-time` and a terminal editor's escape timeout are this knob --
+ * and it sits where it does because the two failures are not symmetric. Too
+ * short and a split read types an `A` into somebody's answer, which is silent
+ * corruption; too long and Escape feels late, which is visible and harmless.
+ */
+export const ESCAPE_TIMEOUT: number = 50;
+
 function toChoice<T>(choice: Choice<T> | string): Choice<T> {
 	return typeof choice === 'string' ? { label: choice, value: choice as T } : choice;
 }
@@ -173,11 +190,21 @@ function run<T>(
 		// would apply its keys to a state that has not caught up
 		let queue: Promise<void> = Promise.resolve();
 
+		// the tail of a chunk that could still be the start of a longer key, and
+		// the timer that stops waiting for the rest of it
+		let held = '';
+		let timer: ReturnType<typeof setTimeout> | undefined;
+
 		function detach(): void {
 			const off = stdin!.off ?? stdin!.removeListener;
 			off?.call(stdin, 'data', onData);
 			off?.call(stdin, 'end', onEnd);
 			off?.call(stdin, 'error', onError);
+
+			// whatever was being waited for is not going to be answered now
+			clearTimeout(timer);
+			timer = undefined;
+			held = '';
 
 			// the stream is left as it was found: paused, undestroyed, and readable
 			// by whatever reads it next
@@ -203,16 +230,17 @@ function run<T>(
 			}
 		}
 
-		function onData(...args: unknown[]): void {
-			const chunk = args[0] as string | Uint8Array;
-
+		/**
+		 * Applies the keys a piece of input carries and draws what they changed.
+		 *
+		 * @param input - Whole keys, with nothing held back.
+		 */
+		function feed(input: string): void {
 			queue = queue
 				.then(async () => {
 					if (settled) {
 						return;
 					}
-
-					const input = typeof chunk === 'string' ? chunk : decoder.write(Buffer.from(chunk));
 
 					for (const k of decodeKeys(input)) {
 						if (settled) {
@@ -236,6 +264,37 @@ function run<T>(
 					}
 				})
 				.catch(fail);
+		}
+
+		/** Nothing more is coming: read what is held for whatever it already is. */
+		function expire(): void {
+			timer = undefined;
+
+			const input = held;
+			held = '';
+
+			if (input !== '') {
+				feed(input);
+			}
+		}
+
+		function onData(...args: unknown[]): void {
+			const chunk = args[0] as string | Uint8Array;
+			const input = held + (typeof chunk === 'string' ? chunk : decoder.write(Buffer.from(chunk)));
+
+			// the split happens here rather than inside the queued work above: the
+			// queue is one chunk at a time and a second chunk can arrive while the
+			// first is still being handled, so both would be joined to the same
+			// remainder and the first half of a sequence would be read twice
+			const length = pendingLength(input);
+			held = length > 0 ? input.slice(input.length - length) : '';
+
+			clearTimeout(timer);
+			timer = held === '' ? undefined : setTimeout(expire, ESCAPE_TIMEOUT);
+
+			if (input.length > length) {
+				feed(input.slice(0, input.length - length));
+			}
 		}
 
 		function onEnd(): void {
@@ -334,23 +393,80 @@ export function text(opts: TextOptions): Promise<string> {
 	let cursor = 0;
 	let error: string | undefined;
 
-	function shown(): string {
-		if (opts.mask !== undefined) {
-			return opts.mask.repeat(stringWidth(value));
-		}
-		return value;
+	/**
+	 * What is drawn in place of a piece of the value.
+	 *
+	 * A mask is a column count rather than a substitution -- a two-column emoji
+	 * is two bullets -- so it is applied per piece rather than to the whole
+	 * value, which is what lets the caret sit between two of them. The pieces
+	 * still add up to what the whole value masked to, because they are split on
+	 * cluster boundaries and a width is the sum of its parts.
+	 *
+	 * @param part - A piece of the value.
+	 * @returns The piece, or the mask standing in for it.
+	 */
+	function shown(part: string): string {
+		return opts.mask === undefined ? part : opts.mask.repeat(stringWidth(part));
+	}
+
+	/**
+	 * The caret: whatever the cursor is in front of, drawn in reverse video.
+	 *
+	 * Painted into the frame rather than placed with the terminal's own cursor,
+	 * which the live region hides and which would cost the region the one thing
+	 * its repaint math rests on -- that the cursor is at the end of the last
+	 * frame it wrote. A caret that is part of the frame also needs no putting
+	 * back when the region is cleared, evicted, or resized.
+	 *
+	 * @param under - What the cursor is in front of, already masked.
+	 * @returns The caret.
+	 */
+	function caret(under: string): string {
+		// past the last character there is nothing to mark, so the caret is a
+		// column of its own rather than a mark on one
+		return ansi.inverse(under === '' ? ' ' : under);
+	}
+
+	/**
+	 * The stand-in drawn before anything has been typed, with the caret on it.
+	 *
+	 * The caret is on screen from the first frame rather than from the first
+	 * keystroke: a prompt that only shows where it will type once something has
+	 * been typed is the same bug one keystroke smaller.
+	 *
+	 * @returns The placeholder or the default, dimmed, or a bare caret.
+	 */
+	function stand(): string {
+		const hint = opts.placeholder ? opts.placeholder : (opts.default ?? '');
+		const end = boundary(hint, 0, 1);
+
+		// the caret is not dimmed along with the rest: it is under the reverse
+		// video either way, and dimming it is how a caret comes to read as part of
+		// the hint rather than as the place the next character goes
+		return caret(hint.slice(0, end)) + ansi.dim(hint.slice(end));
+	}
+
+	/**
+	 * The value, with the caret on the cluster the cursor is in front of.
+	 *
+	 * A whole cluster and not a code unit: the caret marks what the terminal
+	 * draws as one character, so a wide one is reversed over both its columns
+	 * and an emoji is not cut in half by the reverse.
+	 *
+	 * @returns The body of the frame.
+	 */
+	function typed(): string {
+		const end = boundary(value, cursor, 1);
+		return (
+			shown(value.slice(0, cursor)) +
+			caret(shown(value.slice(cursor, end))) +
+			shown(value.slice(end))
+		);
 	}
 
 	function draw(): string {
 		const head = `${ansi.cyan(SYMBOL.question)} ${ansi.bold(opts.message)}`;
-		const body =
-			value === ''
-				? opts.placeholder
-					? ansi.dim(opts.placeholder)
-					: opts.default
-						? ansi.dim(opts.default)
-						: ''
-				: shown();
+		const body = value === '' ? stand() : typed();
 
 		return error ? `${head} ${body}\n  ${ansi.red(error)}` : `${head} ${body}`;
 	}

@@ -1,4 +1,4 @@
-import { decodeKeys, isAbort } from '../../src/components/keys.js';
+import { decodeKeys, isAbort, pendingLength } from '../../src/components/keys.js';
 import { describe, expect, it } from 'vitest';
 
 /** The one key in a chunk, for the cases that are about decoding rather than splitting. */
@@ -138,6 +138,46 @@ describe('decodeKeys()', () => {
 		it('should read nothing from an empty chunk', () => {
 			expect(decodeKeys('')).to.deep.equal([]);
 		});
+	});
+});
+
+describe('pendingLength()', () => {
+	// `decodeKeys()` answers for the bytes it was given and cannot wait for more,
+	// so this is what a caller holds back until it has them: the tail that could
+	// still be the start of a longer key
+	it('should hold a trailing escape', () => {
+		expect(pendingLength('')).to.equal(1);
+		expect(pendingLength('ab')).to.equal(1);
+	});
+
+	it('should hold a sequence with no final byte yet', () => {
+		expect(pendingLength('[')).to.equal(2);
+		expect(pendingLength('O')).to.equal(2);
+		expect(pendingLength('[1;')).to.equal(4);
+		expect(pendingLength('a[A[1')).to.equal(3);
+	});
+
+	// the modifier is the ESC in front of the sequence, so all three bytes are
+	// what the `A` after them completes
+	it('should hold an alt held over a sequence that has not finished', () => {
+		expect(pendingLength('[')).to.equal(3);
+	});
+
+	it('should hold nothing when the chunk ends on a whole key', () => {
+		for (const input of ['', 'a', 'hi\r', '[A', 'OA', 'b', '[200~', '😀']) {
+			expect(pendingLength(input), JSON.stringify(input)).to.equal(0);
+		}
+	});
+
+	// the two are read by the same walk rather than by a search for the last ESC,
+	// which would find one inside a sequence that had already finished
+	it('should agree with the decoder about where the last key starts', () => {
+		const input = 'x[A[';
+		const held = pendingLength(input);
+		expect(decodeKeys(input.slice(0, input.length - held)).map((k) => k.name)).to.deep.equal([
+			'x',
+			'up',
+		]);
 	});
 });
 

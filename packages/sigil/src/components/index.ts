@@ -14,7 +14,7 @@ export {
 } from './prompt.js';
 export { createProgress, type Progress, type ProgressOptions, renderBar } from './progress.js';
 export { createSpinner, DOTS, LINE, type Spinner, type SpinnerOptions } from './spinner.js';
-export { decodeKeys, isAbort, type Key } from './keys.js';
+export { decodeKeys, isAbort, type Key, pendingLength } from './keys.js';
 export {
 	type Align,
 	type Column,

@@ -65,19 +65,39 @@ function key(partial: Partial<Key> & { name: string; sequence: string }): Key {
 }
 
 /**
+ * One key read out of a chunk, and whether the chunk ran out while reading it.
+ *
+ * `pending` is what `decodeKeys()` decides not to act on and `pendingLength()`
+ * reports: the chunk ended where a longer sequence could still have continued,
+ * so the key is the best reading of what is there rather than a reading of a
+ * whole key. Only the last read of a chunk can carry it, because a pending read
+ * consumes everything to the end.
+ */
+interface Read {
+	key: Key;
+	length: number;
+	pending: boolean;
+}
+
+/**
  * Reads one escape sequence from `input` at `start`.
  *
  * @param input - The whole chunk.
  * @param start - The index of the `ESC`.
- * @returns The key and how much of the input it took.
+ * @returns The key, how much of the input it took, and whether it finished.
  */
-function readEscape(input: string, start: number): { key: Key; length: number } {
+function readEscape(input: string, start: number): Read {
 	const next = input[start + 1];
 
 	// a lone ESC, or one at the very end of a chunk. Terminals send Alt-x as ESC
-	// followed by x in the same chunk, so a trailing ESC really is Escape
+	// followed by x in the same chunk, so a trailing ESC really is Escape -- and
+	// it is pending, because a read that split puts the x in the next chunk
 	if (next === undefined) {
-		return { key: key({ name: 'escape', sequence: input.slice(start, start + 1) }), length: 1 };
+		return {
+			key: key({ name: 'escape', sequence: input.slice(start, start + 1) }),
+			length: 1,
+			pending: true,
+		};
 	}
 
 	if (next === '[' || next === 'O') {
@@ -93,7 +113,7 @@ function readEscape(input: string, start: number): { key: Key; length: number } 
 			// an unfinished sequence: take what is here rather than leaving the
 			// bytes to be read as separate keys on the next chunk
 			const sequence = input.slice(start);
-			return { key: key({ name: 'unknown', sequence }), length: sequence.length };
+			return { key: key({ name: 'unknown', sequence }), length: sequence.length, pending: true };
 		}
 
 		const params = input.slice(start + 2, i);
@@ -116,14 +136,18 @@ function readEscape(input: string, start: number): { key: Key; length: number } 
 				shift: final === 'Z' || (bits & 1) !== 0,
 			}),
 			length: sequence.length,
+			pending: false,
 		};
 	}
 
-	// ESC followed by anything else is Alt-that
+	// ESC followed by anything else is Alt-that. Whether it finished is whatever
+	// that key says: `ESC ESC [` is Alt held over a sequence still arriving, and
+	// holding all three is what lets the `A` after it make Alt-Up
 	const read = readOne(input, start + 1);
 	return {
 		key: key({ ...read.key, meta: true, sequence: input.slice(start, start + 1 + read.length) }),
 		length: 1 + read.length,
+		pending: read.pending,
 	};
 }
 
@@ -132,9 +156,9 @@ function readEscape(input: string, start: number): { key: Key; length: number } 
  *
  * @param input - The whole chunk.
  * @param start - Where to read from.
- * @returns The key and how much of the input it took.
+ * @returns The key, how much of the input it took, and whether it finished.
  */
-function readOne(input: string, start: number): { key: Key; length: number } {
+function readOne(input: string, start: number): Read {
 	const ch = input[start];
 
 	if (ch === '\u001b') {
@@ -145,7 +169,7 @@ function readOne(input: string, start: number): { key: Key; length: number } {
 	if (named !== undefined) {
 		// the two that are control bytes rather than keys of their own
 		const ctrl = ch === '\u0003' || ch === '\u0004';
-		return { key: key({ ctrl, name: named, sequence: ch }), length: 1 };
+		return { key: key({ ctrl, name: named, sequence: ch }), length: 1, pending: false };
 	}
 
 	// read from the whole string, not from `ch`: `input[start]` is one UTF-16 code
@@ -158,13 +182,51 @@ function readOne(input: string, start: number): { key: Key; length: number } {
 		return {
 			key: key({ ctrl: true, name: String.fromCharCode(code + 0x60), sequence: ch }),
 			length: 1,
+			pending: false,
 		};
 	}
 
 	// anything else is the character itself, taken whole: an emoji is a surrogate
 	// pair and half of one is not a key
 	const char = String.fromCodePoint(code);
-	return { key: key({ name: char, sequence: char }), length: char.length };
+	return { key: key({ name: char, sequence: char }), length: char.length, pending: false };
+}
+
+/**
+ * How much of the end of a chunk is a sequence that has not finished arriving.
+ *
+ * `decodeKeys()` is a pure reading of one chunk and has to stay one: it answers
+ * for the bytes it was given and cannot wait for more. What it cannot know is
+ * whether a chunk that ends mid-sequence ended because the key ended or because
+ * the read split -- a terminal sends Alt-x as `ESC x` and Up as `ESC [ A`, both
+ * in one write, but ssh, a pty under load, or a small read buffer can deliver
+ * the halves separately. Decoded on their own the halves are an unknown
+ * sequence and a literal `A`, and the `A` is what a text prompt puts in the
+ * answer.
+ *
+ * So the waiting belongs to whatever feeds the decoder, and this is what it
+ * needs to do it: the tail to hold back, measured by the same reader, so that
+ * the two can never disagree about where the last key starts. Searching for the
+ * last `ESC` instead would find one inside a sequence that had already finished.
+ *
+ * Nothing is held forever. A caller flushes what it held after a short silence,
+ * which is where the reading this returns to would have been used anyway.
+ *
+ * @param input - What the terminal sent.
+ * @returns The length of the unfinished tail, or `0` when the chunk ends on a
+ *   whole key.
+ */
+export function pendingLength(input: string): number {
+	let i = 0;
+	let held = 0;
+
+	while (i < input.length) {
+		const read = readOne(input, i);
+		i += read.length;
+		held = read.pending ? read.length : 0;
+	}
+
+	return held;
 }
 
 /**
