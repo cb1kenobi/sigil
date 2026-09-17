@@ -247,6 +247,19 @@ These look like bugs and are not. Each is intentional and covered by tests.
   `src/wrap/sgr-state.ts` already
   modeled this for the wrapper; the two say it separately rather than sharing a
   module across the styler and the wrapper.
+- **A sequence the wrapper cannot reopen travels with the word it applies to.**
+  A break throws away the gap between two words and keeps the effect of the SGR
+  that was in it, because opening the next line from the state is what writes
+  those attributes back. A hyperlink has no slot in that state -- `sgr-state.ts`
+  passes OSC through _untouched_, and untouched only happens when the sequence
+  is written out -- so one still pending at a break was deleted: an OSC 8 open in
+  front of a word that wrapped took the link away, and a close in the gap left
+  every later line, and anything joined onto the result, inside the hyperlink.
+  `isSgr()` is what says which of the two a sequence is, asked in one place so
+  that the wrapper and the state cannot come to disagree. What is carried is
+  written at the start of the next line, after the attributes that line reopens:
+  SGR and OSC are separate terminal state, so their order between themselves
+  says nothing. See `test/wrap/wrap.test.ts`.
 - **`bool` is strict and symmetric.** `true`/`t`/`yes`/`y`/`on`/`1` are
   true, `false`/`f`/`no`/`n`/`off`/`0`/`''` are false, case-insensitively,
   and anything else throws. It does not follow minimist's
@@ -769,6 +782,17 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   kept its glyph -- and the last `put()` wrote its continuation one column _past_
   the rectangle, over whatever else was painted there. Three columns cannot hold
   two wide clusters, and half of one is worse than a gap.
+- **`write()` clips at the left edge and gives up at the right.** `put()` answers
+  `0` for any off-grid column, and reading that as "nothing further will land" is
+  true walking off the right edge and false at a negative one, where advancing
+  walks _into_ the grid -- so `write(-2, 0, 'hello')` on a five-wide grid painted
+  nothing at all while `fill()` clipped the same rectangle correctly, and two
+  sibling APIs disagreed about what off-grid means. A wide cluster straddling
+  column zero is still refused, because a survivor is half a glyph, but only that
+  cluster and not the rest of the string. What comes back is the **advance from
+  `x`**, not a count of the cells painted: `x + returned` is where a next run goes
+  whichever edge clipped this one, it is the same number for a run that fits, and
+  a caller that needs to know what landed has `inside()`.
 - **The cell class is `CellBuffer`, not `Buffer`.** The shorter name is Node's
   global, and a file that forgets the import gets a byte buffer and a
   deprecation warning rather than a type error.
@@ -839,6 +863,18 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   pixel short at small font sizes. Out-of-range points are ignored rather than
   refused: a plot clips at its box, and requiring every caller to bounds-check
   each point is how the check ends up in the wrong place.
+- **A point that is not finite is out of range, and it is refused before
+  anything loops.** `Dots.line()` is Bresenham, which ends by arriving at the end
+  point: `NaN === NaN` is false and a step towards an infinity never arrives, so
+  one missing sample from a plot spun forever -- painting nothing while it did,
+  since `set()` ignores what it cannot place. Only the non-finite case is
+  guarded; a finite point outside the grid still clips, which is the rule above.
+  `Dots.#locate()` and `Pixels.#index()` carry the same test rather than only
+  `line()`, because every comparison in a bounds check is false for `NaN`: it
+  reached `DOT_BITS[NaN]` and the row lookup threw a `TypeError` out of a method
+  whose whole contract is to ignore what it cannot place, and on the `Pixels`
+  side it wrote to index `NaN`, which a typed array drops, and `get()` handed
+  back `undefined` with `Color` written on it.
 - **No passthrough image protocols: Kitty, iTerm2 and Sixel are out.** Fidelity
   is a capability tier the way colour depth already is -- cells always, then
   sub-cell block and braille characters everywhere, and that is where it stops.

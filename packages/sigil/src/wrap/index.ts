@@ -1,8 +1,8 @@
 import { stringWidth } from '../width/index.js';
-import { createSgrState, type SgrState } from './sgr-state.js';
+import { createSgrState, isSgr, type SgrState } from './sgr-state.js';
 import { type Token, tokenize } from './tokens.js';
 
-export { createSgrState, type SgrState } from './sgr-state.js';
+export { createSgrState, isSgr, type SgrState } from './sgr-state.js';
 export { type Token, tokenize } from './tokens.js';
 
 /** What a terminal is assumed to be when there is no terminal to ask. */
@@ -197,9 +197,9 @@ function wrapLine(
 	let started = false;
 
 	// read but not committed: the spaces between two words, and any sequences
-	// among them. A break here drops the spaces; the sequences are dropped from
+	// among them. A break here drops the spaces; an SGR sequence is dropped from
 	// the output too, because opening the next line from the state is what puts
-	// them back.
+	// it back. Anything else travels with the word -- see `dropPending()`.
 	let pending: Token[] = [];
 	let pendingWidth = 0;
 
@@ -237,15 +237,34 @@ function wrapLine(
 	/**
 	 * Throws away the pending run, keeping the effect of the sequences in it: the
 	 * text they styled is not being written here, but they still happened.
+	 *
+	 * A sequence the state does not model is handed back instead of dropped.
+	 * Nothing puts one back the way `open()` puts an attribute back -- a
+	 * hyperlink passes through untouched, and untouched only happens when it is
+	 * written out -- so deleting it deletes what it said: an OSC 8 open in the gap
+	 * before a word that wrapped took the link away, and the close after one left
+	 * every later line, and anything concatenated onto the result, inside the
+	 * hyperlink.
+	 *
+	 * @returns The sequences that have to be written on the next line.
 	 */
-	const dropPending = () => {
+	const dropPending = (): Token[] => {
+		const carried: Token[] = [];
+
 		for (const token of pending) {
-			if (token.type === 'sequence') {
+			if (token.type !== 'sequence') {
+				continue;
+			}
+			if (isSgr(token.text)) {
 				state.apply(token.text);
+			} else {
+				carried.push(token);
 			}
 		}
+
 		pending = [];
 		pendingWidth = 0;
+		return carried;
 	};
 
 	/** Writes a word too long for one line, breaking between clusters. */
@@ -267,9 +286,11 @@ function wrapLine(
 			emit(pending);
 			emit(word);
 		} else if (used > 0) {
-			// there is something to break away from, so the word moves down whole
+			// there is something to break away from, so the word moves down whole.
+			// What the gap carried that the state cannot reopen goes down with it,
+			// in front of the word it applies to
 			endLine();
-			dropPending();
+			emit(dropPending());
 			if (hard && wordWidth > room) {
 				emitBroken();
 			} else {
@@ -290,7 +311,7 @@ function wrapLine(
 		} else {
 			// already at the start of a line: no break will help, so the word is
 			// either split or allowed to run over
-			dropPending();
+			emit(dropPending());
 			if (hard && wordWidth > room) {
 				emitBroken();
 			} else {
