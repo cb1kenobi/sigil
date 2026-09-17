@@ -40,7 +40,7 @@ Paths below are inside `packages/sigil/` unless noted.
 | `src/components/`        | Spinner, progress, table, prompts, key decoding      |
 | `src/signals/`           | The reactive graph: state, computed, watcher, effect |
 | `src/canvas/`            | Cell buffer, style interning, paint diff, sub-cell   |
-| `src/style/`             | Properties, values, shorthands, selectors, cascade   |
+| `src/style/`             | Properties, values, selectors, cascade, degradation  |
 | `src/layout/`            | The flexbox subset, over whole cells                 |
 | `src/infer.ts`           | `initOption()` and `initArg()`, in the type system   |
 | `src/util/`              | Shared helpers (type coercion, camelCase, mkdir)     |
@@ -97,6 +97,24 @@ pnpm fmt           # oxfmt --write
 from the root: tests run through one vitest over both packages rather than
 through turbo, so a path argument means what it says. Turbo drives `build` and
 `type-check` only.
+
+**`test` and `coverage` name the packages they build, one `--filter` each, and
+that spelling is load bearing.** They build first because `@ttylabs/cli`'s tests
+read `dist/`, and the filter keeps the website out of a run that has no use for
+it. It is written as exact names rather than `--filter='./packages/*'` for two
+reasons, and the second is the one that cost a morning:
+
+- pnpm runs a script through `cmd.exe` on Windows, which does not strip single
+  quotes. The filter reached turbo with the quotes still attached, so it matched
+  no package — and a _name glob_ that matches nothing **exits zero**. The build
+  was skipped in silence and vitest then failed on a missing `dist/`, on Windows
+  only, on every open branch at once, with an error telling the reader to run
+  the build they had just run. Double quotes would also survive `cmd.exe`, but
+  they leave the silent no-op armed for whoever edits the filter next.
+- An exact name that does not resolve exits **one**. Only a glob can match
+  nothing quietly, so spelling the packages out is what makes a wrong filter
+  loud. `the root build filter` in `packages/cli/test/cli.test.ts` reads the
+  workspace and fails if a package is added without joining the build.
 
 `pnpm --filter @ttylabs/sigil test` scopes to one package, as does running the script
 from inside its directory. **`@ttylabs/cli` needs a build first** -- its source
@@ -710,6 +728,68 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
 - **Comments are removed by the cursor, not by each reader.** A comment may sit
   anywhere, mid-selector included, and every reader downstream would otherwise
   have to know that -- and a semicolon inside one is not a declaration boundary.
+
+### Colour degradation
+
+- **Degradation happens at resolve time, not at paint time.** The cascade
+  produces a resolved style and degradation is the last pass over it, so the
+  canvas only ever holds colours the terminal can actually emit and the diff
+  never compares a colour against its own approximation. The depth it degrades
+  to is `media.colorLevel` -- the same number `@media (color-level: N)` reads, so
+  an author's override and the automatic ladder cannot disagree about what depth
+  they are on.
+- **Level 2 never _lands_ on `0`-`15`, and level 2 never _rewrites_ them
+  either.** Those sixteen are whatever the user's theme says they are, so
+  quantizing an ordinary colour onto one makes the answer depend on a setting
+  nothing here can read -- the cube and the grey ramp are fixed by the spec and
+  are the only targets. A colour _declared_ as one of the sixteen is the other
+  half of the same rule and passes through untouched, because AGENTS.md already
+  records that a named colour stays a palette index. Getting this backwards
+  turned a declared `blue` into the cube's `#0000ff` and overrode a choice the
+  user had already made.
+- **Matching is in Oklab, not in RGB.** The sixteen are perceptually scattered
+  rather than evenly spaced, so RGB distance picks visibly wrong answers --
+  `#ff8800` is numerically nearer xterm's green than its red, and perceptually
+  nowhere near it. Oklab over CIELAB because it is simpler and better behaved
+  around blues; either beats RGB, which is the thing actually worth avoiding.
+- **Nothing is invented at level 0.** Colour is dropped and no attribute is
+  synthesised to carry what it meant: turning red into bold makes red and blue
+  both bold, which preserves the emphasis while destroying the distinction it is
+  pretending to keep. The rule that follows is a rule for components rather than
+  for the degrader -- do not encode meaning in colour alone -- and it is an
+  accessibility argument as much as a compatibility one.
+- **A background degrades exactly like a foreground.** The argument for treating
+  it differently is that a wrong background is more visible, and that argues for
+  a _better_ match rather than a _different_ one; Oklab is already the better
+  match, and a second metric would be two tables and two sets of surprises.
+- **`NO_COLOR` comes through this path rather than short-circuiting.**
+  `supportsColor()` already reads it and answers `0`, the renderer puts that on
+  `media.colorLevel`, and level 0 drops colour. One mechanism is easier to
+  reason about than two, and it means `@media (color-level: 0)` is a thing an
+  author can write.
+- **A `CascadeResult` carries the depth it was resolved at.** A prop can name a
+  colour, so the fast path has to degrade too -- and a `level` argument on
+  `applyProps()` defaulting to truecolor is a fast path that silently disagrees
+  with `resolve()` on exactly the terminals degradation exists for. The depth
+  travels with the result that was resolved at it.
+- **The colour properties are read off the property table, not listed again.**
+  A hand-written list is a second list to keep in agreement, and a fourth colour
+  property that it missed would parse and cascade and then quietly skip
+  degradation -- a wrong colour on screen with nothing to point at. Same rule
+  `INHERITED` already follows.
+- **The Oklab `b` row is the value that sums to zero, not the published
+  transcription.** For D65 white the LMS rows each sum to one, so `l`, `m` and
+  `s` are all 1 and the `a` and `b` rows have to sum to exactly zero or a grey
+  acquires chroma. The `a` row does; the published `b` row leaves a residue of
+  3.7e-8, a bias in one direction on every neutral colour there is. The test
+  pins the property rather than the digits.
+- **The memo is never evicted, because what reaches it is a declared colour.** An
+  app has a few dozen of those, not the 16.7 million a cap would be protecting
+  against -- a gradient painted cell by cell goes to the canvas directly and
+  never passes through the cascade at all.
+- **The basic sixteen are matched against the xterm defaults.** Terminal themes
+  make them unknowable, and being wrong for somebody running Solarized is a
+  smaller failure than refusing to degrade.
 
 ### Canvas
 
