@@ -1,7 +1,7 @@
 import { ansi as defaultAnsi, type Ansi } from '../ansi/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { createLiveRegion, type LiveRegion } from '../terminal/live.js';
-import { stringWidth } from '../width/index.js';
+import { graphemes, stringWidth } from '../width/index.js';
 import { decodeKeys, isAbort, type Key } from './keys.js';
 import { StringDecoder } from 'node:string_decoder';
 
@@ -106,6 +106,16 @@ const SYMBOL = {
 	on: '◉',
 	question: '?',
 };
+
+/**
+ * A C0 or C1 control character.
+ *
+ * `decodeKeys()` names every C0 byte -- as Enter, Tab, Backspace, or Ctrl with a
+ * letter -- so the only one that reaches a text prompt as a character is a C1,
+ * which a paste can carry. It draws as nothing or as a command, and neither is
+ * something to put in an answer.
+ */
+const controlChar = /^\p{Cc}$/u;
 
 function toChoice<T>(choice: Choice<T> | string): Choice<T> {
 	return typeof choice === 'string' ? { label: choice, value: choice as T } : choice;
@@ -245,6 +255,45 @@ function run<T>(
 }
 
 /**
+ * The offset of the cluster boundary one step from `at`.
+ *
+ * The cursor is an offset into the value rather than an index into its clusters,
+ * so that inserting and slicing stay ordinary string work -- but it only ever
+ * lands where `graphemes()` says one character ends and the next begins.
+ * `cursor ± 1` walks UTF-16 code units instead: an emoji is two of them, so a
+ * backspace over one left a lone surrogate in the value and every edit after it
+ * was working on a string no terminal can draw.
+ *
+ * An offset that is somehow not on a boundary snaps to one rather than being
+ * refused, because the alternative to moving is a cursor that cannot move.
+ *
+ * @param value - What has been typed.
+ * @param at - Where the cursor is.
+ * @param direction - `-1` for the boundary before it, `1` for the one after.
+ * @returns The offset, clamped to the ends of the value.
+ */
+function boundary(value: string, at: number, direction: -1 | 1): number {
+	let offset = 0;
+	let previous = 0;
+
+	for (const cluster of graphemes(value)) {
+		offset += cluster.length;
+
+		if (direction === 1) {
+			if (offset > at) {
+				return offset;
+			}
+		} else if (offset >= at) {
+			return previous;
+		}
+
+		previous = offset;
+	}
+
+	return direction === 1 ? value.length : previous;
+}
+
+/**
  * Asks for a line of text.
  *
  * @param opts - What to ask, and how to check the answer.
@@ -300,25 +349,26 @@ export function text(opts: TextOptions): Promise<string> {
 				}
 
 				if (k.name === 'backspace') {
-					if (cursor > 0) {
-						value = value.slice(0, cursor - 1) + value.slice(cursor);
-						cursor--;
+					const start = boundary(value, cursor, -1);
+					if (start < cursor) {
+						value = value.slice(0, start) + value.slice(cursor);
+						cursor = start;
 					}
 					return;
 				}
 
 				if (k.name === 'delete') {
-					value = value.slice(0, cursor) + value.slice(cursor + 1);
+					value = value.slice(0, cursor) + value.slice(boundary(value, cursor, 1));
 					return;
 				}
 
 				if (k.name === 'left') {
-					cursor = Math.max(0, cursor - 1);
+					cursor = boundary(value, cursor, -1);
 					return;
 				}
 
 				if (k.name === 'right') {
-					cursor = Math.min(value.length, cursor + 1);
+					cursor = boundary(value, cursor, 1);
 					return;
 				}
 
@@ -339,10 +389,14 @@ export function text(opts: TextOptions): Promise<string> {
 				}
 
 				// a printable key, which is anything that named itself rather than a
-				// key this knows about. Space is named, and is still a character
-				if (!k.ctrl && !k.meta && (k.name === 'space' || stringWidth(k.name) > 0)) {
-					const ch = k.name === 'space' ? ' ' : k.name;
-					if (ch.length > 0 && ![...'\r\n\t'].includes(ch)) {
+				// key this knows about: a character arrives with its name and its
+				// sequence the same string, while a named key's name is one the
+				// terminal never sent -- `up` for `ESC [ A`, `tab` for a `\t`. Space is
+				// named, and is still a character. What is inserted is the sequence
+				// rather than the name, so that the two can never disagree
+				if (!k.ctrl && !k.meta && (k.name === 'space' || k.name === k.sequence)) {
+					const ch = k.name === 'space' ? ' ' : k.sequence;
+					if (!controlChar.test(ch)) {
 						value = value.slice(0, cursor) + ch + value.slice(cursor);
 						cursor += ch.length;
 					}

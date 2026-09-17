@@ -40,6 +40,15 @@ const ENTER = '\r';
 const UP = '\u001b[A';
 const DOWN = '\u001b[B';
 const SPACE = ' ';
+const LEFT = '\u001b[D';
+const RIGHT = '\u001b[C';
+const HOME = '\u001b[H';
+const DELETE = '\u001b[3~';
+const BACKSPACE = '\u007f';
+const TAB = '\t';
+const ESCAPE = '\u001b';
+/** What a terminal sends before a bracketed paste, which nothing here names. */
+const PASTE_START = '\u001b[200~';
 
 describe('text()', () => {
 	it('should return what was typed', async () => {
@@ -105,6 +114,78 @@ describe('text()', () => {
 		expect(await answer).to.equal('a b');
 	});
 
+	// every named key used to type its own name: the test was whether the *name*
+	// had a display width, and `up`, `tab`, `escape` and `unknown` all do
+	it('should not type the name of a key that is not a character', async () => {
+		const { ansi, region, stdin } = setup();
+		const answer = text({ ansi, message: 'Name?', region });
+
+		await type(stdin, UP, DOWN, TAB, ESCAPE, PASTE_START, 'ok', ENTER);
+
+		expect(await answer).to.equal('ok');
+	});
+
+	// the same test dropped what has no width, which is every combining mark
+	it('should keep a combining mark, as an NFD paste carries', async () => {
+		const { ansi, region, stdin } = setup();
+		const answer = text({ ansi, message: 'Name?', region });
+
+		await type(stdin, 'cafe', '\u0301', ENTER);
+
+		// NFD: the letter and the mark it carries, which is what was typed
+		expect(await answer).to.equal('cafe\u0301');
+	});
+
+	it('should not type a key held with ctrl or alt', async () => {
+		const { ansi, region, stdin } = setup();
+		const answer = text({ ansi, message: 'Name?', region });
+
+		// alt-b, then ctrl-b, neither of which this prompt binds
+		await type(stdin, 'a', '\u001bb', '\u0002', ENTER);
+
+		expect(await answer).to.equal('a');
+	});
+
+	// the cursor used to move by a UTF-16 code unit, so a backspace over an emoji
+	// left its high surrogate in the value and corrupted every edit after it
+	it('should erase a whole astral character with backspace', async () => {
+		const { ansi, region, stdin } = setup();
+		const answer = text({ ansi, message: 'Name?', region });
+
+		await type(stdin, 'a', '😀', BACKSPACE, 'b', ENTER);
+
+		expect(await answer).to.equal('ab');
+	});
+
+	it('should step over an astral character with the arrows', async () => {
+		const { ansi, region, stdin } = setup();
+		const answer = text({ ansi, message: 'Name?', region });
+
+		await type(stdin, '😀', 'z', LEFT, LEFT, 'x', RIGHT, 'y', ENTER);
+
+		expect(await answer).to.equal('x😀yz');
+	});
+
+	it('should delete a whole astral character forwards', async () => {
+		const { ansi, region, stdin } = setup();
+		const answer = text({ ansi, message: 'Name?', region });
+
+		await type(stdin, '😀', 'b', HOME, DELETE, ENTER);
+
+		expect(await answer).to.equal('b');
+	});
+
+	// a cluster is what a reader calls a character, so backspace takes the mark
+	// and the letter it sits on together
+	it('should erase a combining mark with the letter it modifies', async () => {
+		const { ansi, region, stdin } = setup();
+		const answer = text({ ansi, message: 'Name?', region });
+
+		await type(stdin, 'cafe', '\u0301', BACKSPACE, ENTER);
+
+		expect(await answer).to.equal('caf');
+	});
+
 	describe('validation', () => {
 		it('should refuse an answer and say why', async () => {
 			const { ansi, region, stdin, stdout } = setup();
@@ -155,6 +236,15 @@ describe('text()', () => {
 });
 
 describe('password()', () => {
+	it('should keep an astral character whole behind the mask', async () => {
+		const { ansi, region, stdin } = setup();
+		const answer = password({ ansi, message: 'Password?', region });
+
+		await type(stdin, 'a', '😀', 'b', BACKSPACE, ENTER);
+
+		expect(await answer).to.equal('a😀');
+	});
+
 	it('should not show what was typed', async () => {
 		const { ansi, region, stdin, stdout } = setup();
 		const answer = password({ ansi, message: 'Password?', region });

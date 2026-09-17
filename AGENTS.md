@@ -848,6 +848,26 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   blocks instead: two pixels per cell, the top as the foreground and the bottom
   as the background, which is nothing but cells and works everywhere.
 
+### Prompts and keys
+
+- **A text prompt inserts the key that named itself, and it moves over grapheme
+  clusters.** A real character decodes with its `name` and its `sequence` the
+  same string, while a named key's name is one the terminal never sent -- `up`
+  for `ESC [ A`, `tab` for a `\t`, `unknown` for the bracketed paste marker. The
+  test used to be whether the _name_ had a display width, which is true of every
+  one of them, so Up typed `up` and Escape typed `escape`; it was false of a
+  combining mark, so an NFD paste of `café` arrived as `cafe`. What is inserted
+  is the sequence rather than the name, so the two can never disagree, and a C1
+  control is refused there because `decodeKeys()` already names every C0 one as
+  Enter, Tab, Backspace, or Ctrl with a letter. The cursor is an offset into the
+  value rather than an index into its clusters -- inserting and slicing stay
+  ordinary string work -- and it only ever lands on a boundary `graphemes()`
+  agrees with: `cursor ± 1` walks UTF-16 code units, so a backspace over an emoji
+  left its high surrogate in the value and every edit after it worked on a string
+  no terminal can draw. `truncateCell()` in the table already read text this way;
+  the prompt was the one place that did not. See
+  `test/components/prompt.test.ts`.
+
 ### Signals
 
 - **The read is recorded after the refresh, not before.** `Computed.get()`
