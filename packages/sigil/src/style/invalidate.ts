@@ -35,13 +35,7 @@
  */
 
 import { applyProps, type Cascade, type CascadeResult, type PropValues } from './cascade.js';
-import {
-	INHERITED,
-	LAYOUT_PROPERTIES,
-	type PropertyName,
-	PROPERTY_NAMES,
-	type Style,
-} from './properties.js';
+import { LAYOUT_PROPERTIES, type PropertyName, PROPERTY_NAMES, type Style } from './properties.js';
 import type { StyleNode } from './selector.js';
 
 /**
@@ -317,9 +311,6 @@ export class Restyler {
 
 /** Every property, for the first time an element is resolved. */
 const ALL: readonly PropertyName[] = PROPERTY_NAMES;
-
-/** `INHERITED` as a set, because this is asked once per changed property. */
-const INHERITS: ReadonlySet<PropertyName> = new Set(INHERITED);
 
 /**
  * Which properties two styles disagree about.

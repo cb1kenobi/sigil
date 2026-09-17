@@ -855,10 +855,12 @@ stylesheet rather than anything the runtime knows about.
   is easy to forget and visible immediately when wrong: `:nth-child()` and
   `+`/`~` mean inserting a child changes what its siblings match, and none of
   those siblings changed in any way an element-level check would see.
-- **A restyled parent forces its children.** Inheritance flows down, so a child
-  of an element whose style changed may have inherited something different and
-  nothing else would have told it. This is also why the walk is in document
-  order: a child's inherited values come from its parent's _resolved_ style.
+- **The walk is in document order, because a child's inherited values come from
+  its parent's _resolved_ style.** The parent has to have been resolved first,
+  which is also why the prop path is a branch inside the walk rather than a pass
+  after it. _When_ a parent forces its children is the entry below, and it is
+  not "whenever it was restyled" -- that wording is what both of the misses
+  below were compatible with.
 - **Styles are compared by value, not by identity.** A `Length` is an object and
   two resolutions of `width: 4` produce two equal objects, so comparing by
   identity reports every property as changed on every restyle and makes the
