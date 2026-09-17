@@ -71,8 +71,9 @@ an empty directory on a hit. `pnpm test` and `pnpm coverage` filter their build
 to `./packages/*`: a test run has no use for the site, and CI runs the suite on
 nine node-and-os combinations.
 
-`packages/cli/src/` is a skeleton — the bin, `--version`, and the schema the
-filesystem router will replace. Its commands are not written yet.
+`packages/cli/src/` is the bin, `--version`, the schema the filesystem router
+will replace, and `src/utilities/` — the utility generator. Its commands are not
+written yet.
 
 `src/i18n/` is an empty placeholder.
 
@@ -685,6 +686,14 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
 - **Comments are removed by the cursor, not by each reader.** A comment may sit
   anywhere, mid-selector included, and every reader downstream would otherwise
   have to know that -- and a semicolon inside one is not a declaration boundary.
+- **A backslash escapes the next character in an identifier, and the name that
+  comes back is unescaped.** `.md\:flex-row` is how a class _called_
+  `md:flex-row` is written, because the colon means something else to this
+  grammar -- which is what Tailwind does and why its class names are legal CSS.
+  What the name is compared against is the class an element carries, so it is
+  the unescaped form that is stored. CSS's hex escapes (`\3a `) are deliberately
+  not read: nothing generates them and they carry a trailing-space rule that is
+  its own source of surprises.
 
 ### Colour degradation
 
@@ -747,6 +756,65 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
 - **The basic sixteen are matched against the xterm defaults.** Terminal themes
   make them unknowable, and being wrong for somebody running Solarized is a
   smaller failure than refusing to degrade.
+
+### The utility layer
+
+Lives in `packages/cli/src/utilities/`, because it is a generator and a
+stylesheet rather than anything the runtime knows about.
+
+- **A utility is a generated stylesheet rule, and nothing in the runtime knows
+  the difference.** `p-2` is `.p-2 { padding: 2 }` -- the same class selector,
+  the same specificity, the same cascade. No new resolution path, no new
+  precedence rule, nothing added to the matching engine. It is a rule rather
+  than an implementation detail because the obvious optimization breaks it: the
+  moment somebody special-cases `class="p-2"` into a direct property write it
+  becomes a parallel mechanism with its own precedence, its own bugs, and a
+  divergence from the cascade that only shows up where nobody tested.
+- **The keyword lists live on the property table, not in the generator.** They
+  used to be reachable only inside each parser's closure, so the table could say
+  whether a string was accepted but not what a property accepts -- and a
+  generator had to carry a second copy of all sixteen lists and go quietly out
+  of date. `fromKeywords()` puts one list where both the parser and the
+  generator read it, so a keyword added to a property gets its utility free.
+- **What the table cannot supply is the naming, and that is the honest split.**
+  The table knows `justify-content` takes `space-between`; that the utility is
+  spelled `justify-between` is ours to decide, and every invented name is one
+  somebody has to learn. Tailwind's spelling wherever it exists, ours only where
+  a terminal has no web analogue -- `border` meaning one cell of single-line
+  border, because a terminal border has exactly one width and `border-2` has
+  nothing to mean here.
+- **Every generated declaration is parsed on the way out.** A utility that names
+  a property the table does not have, or a value the property would refuse,
+  fails the build rather than shipping a rule that silently matches nothing.
+  This caught `bright-black` on the first run: a fine class name and not a
+  colour `parseColor()` takes, which is the hyphenated-class/unhyphenated-value
+  split this file is built on.
+- **Two utilities of one name is an error.** A class that quietly applies both
+  is the failure a generated vocabulary is most prone to, and it happened
+  immediately: `hidden` was `display: none` and `visibility: hidden` at the same
+  time. Visibility's is `invisible` now, which is Tailwind's spelling anyway.
+- **The whole base set ships; there is no scanner.** Tailwind's central problem
+  is that the utility space is combinatorially enormous, so it cannot ship them
+  all. Here the scale is bounded by the medium -- spacing is a handful of cells
+  because there is nothing between one cell and two, there are sixteen colours,
+  and the property set is forty entries -- so the base set is a few hundred
+  rules and shipping it whole is much simpler than deciding what to leave out.
+- **Arbitrary values are deliberately out.** `p-[13]` and `text-[#ff8800]` are
+  what make the space unbounded again, and they are the reason a scanner has to
+  exist at all. They are SIG-81's, along with the question of what a computed
+  `class` expression does, which should be answered once rather than twice.
+- **Two variants are better here than on the web, and two are missing.**
+  `md:flex-row` is the responsive problem a TUI actually has and nothing solves
+  well today; `c16:text-red` is SIG-61's "give the author control" in a shape
+  people already know. Not `hover:` until mouse tracking exists, and not `dark:`
+  -- a terminal has no such mode.
+- **`@apply` expands at build time into the component layer.** That is where the
+  cascade's layer ordering puts a component rule, so an app can still override
+  it with a utility -- which is the whole reason `@apply` works in Tailwind.
+  Expanding at build time is also what keeps the runtime ignorant: what it sees
+  is a component rule with ordinary declarations in it. A _variant_ cannot be
+  applied and says so, because it is a rule in another context rather than a set
+  of declarations.
 
 ### Canvas
 

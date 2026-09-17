@@ -145,6 +145,14 @@ interface Definition<K extends PropertyName = PropertyName> {
 	 */
 	readonly inherits: boolean;
 	readonly initial: Style[K];
+	/**
+	 * Every value this property accepts, where that is a fixed set.
+	 *
+	 * Absent for a property whose values are open -- a length, a colour, a plain
+	 * number. Present for the sixteen that take keywords, so the table can answer
+	 * what a property accepts rather than only whether a given string is one.
+	 */
+	readonly keywords?: readonly string[];
 	/** Reads the property's value from source. Throws `StyleError` on nonsense. */
 	readonly parse: (input: string) => Style[K];
 }
@@ -157,74 +165,68 @@ interface Definition<K extends PropertyName = PropertyName> {
  */
 const flag = (name: string) => (input: string) => parseBoolean(input, name);
 
+/**
+ * A property whose value is one of a fixed set of keywords.
+ *
+ * The set lives on the definition rather than only inside the parser's closure.
+ * In the closure it was unreachable, so the table could say whether a string is
+ * accepted but not what the property accepts -- and anything needing to
+ * enumerate them, the utility generator above all, had to carry a second copy of
+ * all sixteen lists and go quietly out of date. One list, read by the parser and
+ * by everything else.
+ *
+ * @param keywords - What the property accepts.
+ * @param initial - What it starts as.
+ * @param name - The CSS spelling, for the message.
+ * @param inherits - Whether a child takes it from its parent.
+ * @returns The definition.
+ */
+function fromKeywords<T extends string>(
+	keywords: readonly T[],
+	initial: T,
+	name: string,
+	inherits = false
+): { inherits: boolean; initial: T; keywords: readonly T[]; parse: (input: string) => T } {
+	return { inherits, initial, keywords, parse: (input) => parseKeyword(input, keywords, name) };
+}
+
 /** The table. */
 export const PROPERTIES: { readonly [K in PropertyName]: Definition<K> } = {
-	display: {
-		inherits: false,
-		initial: 'flex',
-		parse: (v) => parseKeyword(v, ['flex', 'none'] as const, 'display'),
-	},
-	flexDirection: {
-		inherits: false,
-		initial: 'row',
-		parse: (v) =>
-			parseKeyword(
-				v,
-				['row', 'row-reverse', 'column', 'column-reverse'] as const,
-				'flex-direction'
-			),
-	},
+	display: fromKeywords(['flex', 'none'] as const, 'flex', 'display', false),
+	flexDirection: fromKeywords(
+		['row', 'row-reverse', 'column', 'column-reverse'] as const,
+		'row',
+		'flex-direction',
+		false
+	),
 	flexGrow: { inherits: false, initial: 0, parse: (v) => parseFactor(v, 'flex-grow') },
 	flexShrink: { inherits: false, initial: 1, parse: (v) => parseFactor(v, 'flex-shrink') },
 	flexBasis: { inherits: false, initial: AUTO, parse: parseLength },
-	flexWrap: {
-		inherits: false,
-		initial: 'nowrap',
-		parse: (v) => parseKeyword(v, ['nowrap', 'wrap', 'wrap-reverse'] as const, 'flex-wrap'),
-	},
-	justifyContent: {
-		inherits: false,
-		initial: 'flex-start',
-		parse: (v) =>
-			parseKeyword(
-				v,
-				[
-					'flex-start',
-					'flex-end',
-					'center',
-					'space-between',
-					'space-around',
-					'space-evenly',
-				] as const,
-				'justify-content'
-			),
-	},
-	alignItems: {
-		inherits: false,
-		initial: 'stretch',
-		parse: (v) =>
-			parseKeyword(v, ['flex-start', 'flex-end', 'center', 'stretch'] as const, 'align-items'),
-	},
-	alignSelf: {
-		inherits: false,
-		initial: 'auto',
-		parse: (v) =>
-			parseKeyword(
-				v,
-				['auto', 'flex-start', 'flex-end', 'center', 'stretch'] as const,
-				'align-self'
-			),
-	},
-	alignContent: {
-		inherits: false,
-		initial: 'stretch',
-		parse: (v) =>
-			parseKeyword(
-				v,
-				['flex-start', 'flex-end', 'center', 'stretch', 'space-between', 'space-around'] as const,
-				'align-content'
-			),
-	},
+	flexWrap: fromKeywords(['nowrap', 'wrap', 'wrap-reverse'] as const, 'nowrap', 'flex-wrap', false),
+	justifyContent: fromKeywords(
+		['flex-start', 'flex-end', 'center', 'space-between', 'space-around', 'space-evenly'] as const,
+		'flex-start',
+		'justify-content',
+		false
+	),
+	alignItems: fromKeywords(
+		['flex-start', 'flex-end', 'center', 'stretch'] as const,
+		'stretch',
+		'align-items',
+		false
+	),
+	alignSelf: fromKeywords(
+		['auto', 'flex-start', 'flex-end', 'center', 'stretch'] as const,
+		'auto',
+		'align-self',
+		false
+	),
+	alignContent: fromKeywords(
+		['flex-start', 'flex-end', 'center', 'stretch', 'space-between', 'space-around'] as const,
+		'stretch',
+		'align-content',
+		false
+	),
 	order: { inherits: false, initial: 0, parse: (v) => parseInteger(v, 'order') },
 	rowGap: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'row-gap') },
 	columnGap: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'column-gap') },
@@ -232,11 +234,12 @@ export const PROPERTIES: { readonly [K in PropertyName]: Definition<K> } = {
 	// `border-box` rather than CSS's `content-box`. In a terminal, `width: 20`
 	// meaning "twenty columns on screen" is what everybody means; having a border
 	// silently make the box twenty-two wide is the surprise, not the convenience
-	boxSizing: {
-		inherits: false,
-		initial: 'border-box',
-		parse: (v) => parseKeyword(v, ['border-box', 'content-box'] as const, 'box-sizing'),
-	},
+	boxSizing: fromKeywords(
+		['border-box', 'content-box'] as const,
+		'border-box',
+		'box-sizing',
+		false
+	),
 	width: { inherits: false, initial: AUTO, parse: parseLength },
 	height: { inherits: false, initial: AUTO, parse: parseLength },
 	// `auto` rather than CSS 2.1's `0`, matching CSS Sizing 3: a flex item's
@@ -259,26 +262,18 @@ export const PROPERTIES: { readonly [K in PropertyName]: Definition<K> } = {
 	marginRight: { inherits: false, initial: cells(0), parse: parseLength },
 	marginBottom: { inherits: false, initial: cells(0), parse: parseLength },
 	marginLeft: { inherits: false, initial: cells(0), parse: parseLength },
-	borderStyle: {
-		inherits: false,
-		initial: 'none',
-		parse: (v) =>
-			parseKeyword(
-				v,
-				['none', 'single', 'double', 'round', 'bold', 'ascii'] as const,
-				'border-style'
-			),
-	},
+	borderStyle: fromKeywords(
+		['none', 'single', 'double', 'round', 'bold', 'ascii'] as const,
+		'none',
+		'border-style',
+		false
+	),
 	borderColor: { inherits: false, initial: DEFAULT_COLOR, parse: parseColor },
 
 	// `static` rather than `relative`, and the difference is not cosmetic: only a
 	// positioned ancestor is a containing block, so defaulting to `relative` would
 	// make every box in the tree an anchor an `absolute` descendant stops at
-	position: {
-		inherits: false,
-		initial: 'static',
-		parse: (v) => parseKeyword(v, ['static', 'relative', 'absolute'] as const, 'position'),
-	},
+	position: fromKeywords(['static', 'relative', 'absolute'] as const, 'static', 'position', false),
 	top: { inherits: false, initial: AUTO, parse: parseLength },
 	right: { inherits: false, initial: AUTO, parse: parseLength },
 	bottom: { inherits: false, initial: AUTO, parse: parseLength },
@@ -291,17 +286,14 @@ export const PROPERTIES: { readonly [K in PropertyName]: Definition<K> } = {
 		// enough that the distinction has nothing to bite on yet
 		parse: (v) => parseInteger(v, 'z-index'),
 	},
-	overflow: {
-		inherits: false,
-		initial: 'visible',
-		parse: (v) => parseKeyword(v, ['visible', 'hidden', 'scroll', 'auto'] as const, 'overflow'),
-	},
+	overflow: fromKeywords(
+		['visible', 'hidden', 'scroll', 'auto'] as const,
+		'visible',
+		'overflow',
+		false
+	),
 	// different from `display: none`: this one still takes its space
-	visibility: {
-		inherits: true,
-		initial: 'visible',
-		parse: (v) => parseKeyword(v, ['visible', 'hidden'] as const, 'visibility'),
-	},
+	visibility: fromKeywords(['visible', 'hidden'] as const, 'visible', 'visibility', true),
 
 	color: { inherits: true, initial: DEFAULT_COLOR, parse: parseColor },
 	// not inherited, as in CSS. A container's background showing through its
@@ -315,34 +307,22 @@ export const PROPERTIES: { readonly [K in PropertyName]: Definition<K> } = {
 	strikethrough: { inherits: true, initial: false, parse: flag('strikethrough') },
 	overline: { inherits: true, initial: false, parse: flag('overline') },
 	inverse: { inherits: true, initial: false, parse: flag('inverse') },
-	textAlign: {
-		inherits: true,
-		initial: 'left',
-		parse: (v) => parseKeyword(v, ['left', 'center', 'right'] as const, 'text-align'),
-	},
-	textTransform: {
-		inherits: true,
-		initial: 'none',
-		parse: (v) =>
-			parseKeyword(v, ['none', 'uppercase', 'lowercase', 'capitalize'] as const, 'text-transform'),
-	},
+	textAlign: fromKeywords(['left', 'center', 'right'] as const, 'left', 'text-align', true),
+	textTransform: fromKeywords(
+		['none', 'uppercase', 'lowercase', 'capitalize'] as const,
+		'none',
+		'text-transform',
+		true
+	),
 	// not inherited, as in CSS: it only means anything on the box doing the
 	// clipping
-	textOverflow: {
-		inherits: false,
-		initial: 'clip',
-		parse: (v) =>
-			parseKeyword(
-				v,
-				['clip', 'ellipsis', 'ellipsis-start', 'ellipsis-middle'] as const,
-				'text-overflow'
-			),
-	},
-	whiteSpace: {
-		inherits: true,
-		initial: 'normal',
-		parse: (v) => parseKeyword(v, ['normal', 'pre', 'nowrap'] as const, 'white-space'),
-	},
+	textOverflow: fromKeywords(
+		['clip', 'ellipsis', 'ellipsis-start', 'ellipsis-middle'] as const,
+		'clip',
+		'text-overflow',
+		false
+	),
+	whiteSpace: fromKeywords(['normal', 'pre', 'nowrap'] as const, 'normal', 'white-space', true),
 };
 
 // the definitions and the table are frozen too. The initial values already were,
