@@ -65,6 +65,22 @@ function key(partial: Partial<Key> & { name: string; sequence: string }): Key {
 }
 
 /**
+ * A byte that carries on a CSI rather than ending one.
+ *
+ * ECMA-48 puts the parameter bytes in 0x30-0x3f -- the digits and the
+ * semicolon, plus the private-use markers a mouse report leads with -- and the
+ * intermediates in 0x20-0x2f. Only `[\d;]` was read before, which ended the
+ * sequence on the `<` of `ESC [ < 0 ; 1 ; 1 M` and left `0;1;1M` to be typed
+ * into the answer a character at a time.
+ *
+ * @param code - The byte.
+ * @returns Whether the sequence continues through it.
+ */
+function isParameter(code: number): boolean {
+	return code >= 0x20 && code <= 0x3f;
+}
+
+/**
  * One key read out of a chunk, and whether the chunk ran out while reading it.
  *
  * `pending` is what `decodeKeys()` decides not to act on and `pendingLength()`
@@ -102,9 +118,9 @@ function readEscape(input: string, start: number): Read {
 
 	if (next === '[' || next === 'O') {
 		// the parameters, then the byte that ends it. A CSI ends on a byte in
-		// 0x40-0x7e; the digits and semicolons before it are parameters
+		// 0x40-0x7e; everything before it carries on the sequence
 		let i = start + 2;
-		while (i < input.length && /[\d;]/.test(input[i])) {
+		while (i < input.length && isParameter(input.charCodeAt(i))) {
 			i++;
 		}
 
@@ -114,6 +130,18 @@ function readEscape(input: string, start: number): Read {
 			// bytes to be read as separate keys on the next chunk
 			const sequence = input.slice(start);
 			return { key: key({ name: 'unknown', sequence }), length: sequence.length, pending: true };
+		}
+
+		// a byte that can neither carry the sequence on nor end it, which is a key
+		// pressed while one was still arriving. Taking it as the terminator anyway
+		// swallowed it -- `ESC [` and then Ctrl-C was one unknown sequence and a
+		// prompt that could not be escaped, and the window for that is as wide as
+		// the wait for the rest of a split read. The sequence stops in front of it
+		// and it is read as the key it is
+		const code = input.charCodeAt(i);
+		if (code < 0x40 || code > 0x7e) {
+			const sequence = input.slice(start, i);
+			return { key: key({ name: 'unknown', sequence }), length: sequence.length, pending: false };
 		}
 
 		const params = input.slice(start + 2, i);

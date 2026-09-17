@@ -769,6 +769,18 @@ describe('leaving stdin alone', () => {
 			expect(await answer).to.equal('b');
 		});
 
+		// a prompt that cannot be escaped is worse than no prompt, and a half
+		// arrived sequence is the window where that was easiest to do
+		it('should still abort on ctrl-c while a sequence is being held', async () => {
+			const { ansi, region, stdin } = setup();
+			const answer = settle(text({ ansi, message: 'Name?', region }));
+
+			await type(stdin, 'x', '[', '');
+
+			const { error } = await answer;
+			expect(error?.aborted).to.equal(true);
+		});
+
 		// a prompt that ended while it was still waiting for the rest of a sequence
 		// owes the loop the timer back
 		it('should not leave a timer behind when the prompt ends', async () => {

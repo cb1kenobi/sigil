@@ -114,6 +114,32 @@ describe('decodeKeys()', () => {
 		it('should name a sequence it does not know rather than guess', () => {
 			expect(one('\u001b[200~').name).to.equal('unknown');
 		});
+
+		// a CSI ends on a byte in 0x40-0x7e, and taking anything at all as the
+		// terminator swallowed whatever was pressed while one was still arriving:
+		// `ESC [` and then ctrl-c was one unknown sequence and a prompt that could
+		// not be escaped
+		it('should not swallow a key pressed while a sequence was arriving', () => {
+			const abort = decodeKeys('[');
+			expect(abort.map((k) => k.name)).to.deep.equal(['unknown', 'c']);
+			expect(abort[1].ctrl).to.equal(true);
+
+			expect(decodeKeys('[\r').map((k) => k.name)).to.deep.equal(['unknown', 'enter']);
+			expect(decodeKeys('O').map((k) => k.name)).to.deep.equal(['unknown', 'c']);
+		});
+
+		// the sequence used to stop at the ESC and leave `[A` to be read as two
+		// characters, which a text prompt types into the answer
+		it('should read a whole sequence after one that could not finish', () => {
+			expect(decodeKeys('[[A').map((k) => k.name)).to.deep.equal(['unknown', 'up']);
+		});
+
+		// the parameter bytes are 0x30-0x3f, not just the digits and the semicolon:
+		// the `<` a mouse report leads with was read as the terminator, and
+		// `0;1;1M` was then typed a character at a time
+		it('should read a mouse report as one sequence', () => {
+			expect(decodeKeys('[<0;1;1M').map((k) => k.name)).to.deep.equal(['unknown']);
+		});
 	});
 
 	describe('chunks carrying more than one key', () => {
@@ -161,6 +187,13 @@ describe('pendingLength()', () => {
 	// what the `A` after them completes
 	it('should hold an alt held over a sequence that has not finished', () => {
 		expect(pendingLength('[')).to.equal(3);
+	});
+
+	// a byte that can neither carry a sequence on nor end it has ended it, so
+	// there is nothing to wait for -- and waiting would hold a ctrl-c
+	it('should hold nothing when a sequence was cut short by another key', () => {
+		expect(pendingLength('[')).to.equal(0);
+		expect(pendingLength('[\r')).to.equal(0);
 	});
 
 	it('should hold nothing when the chunk ends on a whole key', () => {

@@ -886,7 +886,11 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   right place rather than needing a scrolled view and a column to put it in. It
   is reverse video over a whole grapheme cluster, so a wide character is marked
   across both its columns; past the last character there is nothing to mark, so
-  the caret is a column of its own.
+  the caret is a column of its own. A styler at level 0 therefore draws no
+  caret, which is deliberate: the same setting takes the cyan `?`, the bold
+  message, and the dimmed placeholder with it, and a prompt asked for plain text
+  gets plain text rather than the one sequence the library decided was too
+  important to turn off.
 - **A mask is applied per piece of the value, not to the whole of it.** It is a
   column count rather than a substitution -- a two-column emoji is two bullets --
   and masking the value in one go leaves nowhere to put the caret. The pieces are
@@ -915,6 +919,19 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   Fifty milliseconds because the two failures are not symmetric: too short types
   a stray character into an answer, too long makes Escape feel late. See
   `test/components/keys.test.ts` and `test/components/prompt.test.ts`.
+- **A CSI ends on a byte in 0x40-0x7e, and a byte that is neither that nor a
+  parameter has ended it.** Anything at all was taken as the terminator, so a
+  key pressed while a sequence was still arriving was eaten by it: `ESC [` then
+  Ctrl-C was one unknown sequence and a prompt that could not be escaped, and
+  `ESC [` then `ESC [ A` stopped at the second ESC and left `[A` to be typed
+  into the answer two characters at a time. Holding a half-arrived sequence is
+  what made that worth fixing rather than noting -- it widens the window from
+  "the same read" to "the same read or the next fifty milliseconds", and Ctrl-C
+  is the key most likely to be pressed in it. The sequence now stops in front of
+  such a byte and the byte is read as the key it is. The parameters widened to
+  ECMA-48's 0x30-0x3f at the same time, because only `[\d;]` was read: the `<`
+  a mouse report leads with was taken for the terminator, and `0;1;1M` was typed
+  a character at a time after it.
 
 ### Signals
 
