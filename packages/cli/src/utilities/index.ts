@@ -412,80 +412,89 @@ function rule(utility: Utility, variant: string, pseudo = ''): string {
 	return `.${escapeClass(name)}${pseudo} { ${declarations} }`;
 }
 
-/**
- * `@apply` is one statement, so its name list stops at `;`, `{` or `}`.
- *
- * `[^;}]+` also matched `{`, so `@apply foo { bar: 1; }` swallowed the brace and
- * the declaration after it, and a missing semicolon ran the list on into the
- * next declaration.
- */
-const APPLY = /@apply\b([^;{}]*)(;?)/g;
-
-/** A comment, which `@apply` inside is not an `@apply`. */
-const COMMENT = /\/\*[\s\S]*?\*\//g;
-
-/**
- * Expands `@apply` into the declarations the named utilities stand for.
- *
- * ```
- * .button { @apply px-2 bold border border-blue; }
- * ```
- *
- * What keeps a reusable component from carrying a class string of twenty
- * utilities. It expands at build time into the component layer, which is where
- * the cascade's layer ordering puts it -- so an app can still override with a
- * utility, which is the whole reason `@apply` works in Tailwind at all.
- *
- * Build time rather than runtime, so the runtime still knows nothing about
- * utilities: what it sees is a component rule with ordinary declarations in it.
- *
- * @param source - The stylesheet source.
- * @param opts - The scales the utilities were generated with.
- * @returns The source, with every `@apply` replaced.
- */
 export function expandApply(source: string, opts: UtilityOptions = {}): string {
 	const byName = new Map(utilities(opts).map((utility) => [utility.name, utility]));
 
-	const expand = (text: string): string =>
-		text.replace(APPLY, (_, names: string, semicolon: string) => {
-			// what follows the last name is put back: a source transform that eats
-			// the space before a `}` is a transform whose output nobody can diff
-			const trimmed = names.trimEnd();
-			const trailing = names.slice(trimmed.length);
-			const wanted = trimmed.trim().split(/\s+/).filter(Boolean);
-			if (wanted.length === 0) {
-				throw new Error('@apply names no utilities');
+	/** The declarations a name list stands for. */
+	const expand = (names: string): string => {
+		const wanted = names.trim().split(/\s+/).filter(Boolean);
+		if (wanted.length === 0) {
+			throw new Error('@apply names no utilities');
+		}
+
+		const out: string[] = [];
+		for (const name of wanted) {
+			const utility = byName.get(name);
+			if (!utility) {
+				throw new Error(
+					`@apply names "${name}", which is not a utility. A variant cannot be applied -- it is a rule in another context, not a set of declarations`
+				);
 			}
+			out.push(...utility.declarations.map(([property, value]) => `${property}: ${value}`));
+		}
+		return out.join('; ');
+	};
 
-			const out: string[] = [];
-			for (const name of wanted) {
-				const utility = byName.get(name);
-				if (!utility) {
-					throw new Error(
-						`@apply names "${name}", which is not a utility. A variant cannot be applied -- it is a rule in another context, not a set of declarations`
-					);
-				}
-				out.push(...utility.declarations.map(([property, value]) => `${property}: ${value}`));
-			}
+	/** Steps over a comment, or answers `undefined` if there is not one here. */
+	const comment = (at: number): number | undefined => {
+		if (!source.startsWith('/*', at)) {
+			return undefined;
+		}
+		const end = source.indexOf('*/', at + 2);
+		if (end === -1) {
+			throw new Error('Unterminated comment');
+		}
+		return end + 2;
+	};
 
-			// the semicolon is put back only if it was there: without one the
-			// statement ran to the block's `}`, and adding a `;` before it is
-			// harmless, but consuming a `}` that was never matched is not
-			return `${out.join('; ')}${semicolon}${trailing}`;
-		});
-
-	// comments are stepped over rather than expanded. An `@apply` inside one is a
-	// note about `@apply`, and a stylesheet full of commented-out rules is the
-	// ordinary case rather than the exotic one
 	const out: string[] = [];
 	let at = 0;
-	COMMENT.lastIndex = 0;
 
-	for (let match = COMMENT.exec(source); match; match = COMMENT.exec(source)) {
-		out.push(expand(source.slice(at, match.index)), match[0]);
-		at = match.index + match[0].length;
+	while (at < source.length) {
+		// a comment is copied through untouched, so an `@apply` that lives inside
+		// one is a note about `@apply` rather than one
+		const past = comment(at);
+		if (past !== undefined) {
+			out.push(source.slice(at, past));
+			at = past;
+			continue;
+		}
+
+		if (!source.startsWith('@apply', at) || /[\w-]/.test(source[at + 6] ?? '')) {
+			out.push(source[at]);
+			at++;
+			continue;
+		}
+
+		// the name list runs to the end of the statement: a semicolon, or the `}`
+		// that closes the block. A comment inside it is *trivia*, the way it is
+		// everywhere else in a stylesheet -- treating it as a boundary made
+		// `@apply p-1 /* and */ m-1;` expand only half of itself and leave the
+		// rest behind as a declaration the parser then choked on
+		let i = at + '@apply'.length;
+		let names = '';
+
+		for (; i < source.length; i++) {
+			const skip = comment(i);
+			if (skip !== undefined) {
+				names += ' ';
+				i = skip - 1;
+				continue;
+			}
+			const ch = source[i];
+			if (ch === ';' || ch === '{' || ch === '}') {
+				break;
+			}
+			names += ch;
+		}
+
+		const semicolon = source[i] === ';' ? ';' : '';
+		// whatever followed the last name is put back: a source transform that
+		// eats the space before a `}` is one whose output nobody can diff
+		const trimmed = names.trimEnd();
+		out.push(expand(trimmed), semicolon, names.slice(trimmed.length));
+		at = i + (semicolon ? 1 : 0);
 	}
-	out.push(expand(source.slice(at)));
 
 	return out.join('');
 }

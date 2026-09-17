@@ -99,6 +99,24 @@ from the root: tests run through one vitest over both packages rather than
 through turbo, so a path argument means what it says. Turbo drives `build` and
 `type-check` only.
 
+**`test` and `coverage` name the packages they build, one `--filter` each, and
+that spelling is load bearing.** They build first because `@ttylabs/cli`'s tests
+read `dist/`, and the filter keeps the website out of a run that has no use for
+it. It is written as exact names rather than `--filter='./packages/*'` for two
+reasons, and the second is the one that cost a morning:
+
+- pnpm runs a script through `cmd.exe` on Windows, which does not strip single
+  quotes. The filter reached turbo with the quotes still attached, so it matched
+  no package — and a _name glob_ that matches nothing **exits zero**. The build
+  was skipped in silence and vitest then failed on a missing `dist/`, on Windows
+  only, on every open branch at once, with an error telling the reader to run
+  the build they had just run. Double quotes would also survive `cmd.exe`, but
+  they leave the silent no-op armed for whoever edits the filter next.
+- An exact name that does not resolve exits **one**. Only a glob can match
+  nothing quietly, so spelling the packages out is what makes a wrong filter
+  loud. `the root build filter` in `packages/cli/test/cli.test.ts` reads the
+  workspace and fails if a package is added without joining the build.
+
 `pnpm --filter @ttylabs/sigil test` scopes to one package, as does running the script
 from inside its directory. **`@ttylabs/cli` needs a build first** -- its source
 and its tests import `@ttylabs/sigil` through that package's `exports` map, which points
@@ -801,7 +819,7 @@ stylesheet rather than anything the runtime knows about.
   is that the utility space is combinatorially enormous, so it cannot ship them
   all. Here the scale is bounded by the medium -- spacing is a handful of cells
   because there is nothing between one cell and two, there are sixteen colours,
-  and the property set is forty entries -- so the base set is a few hundred
+  and the property set is fifty-odd entries -- so the base set is a few hundred
   rules and shipping it whole is much simpler than deciding what to leave out.
 - **Arbitrary values are deliberately out.** `p-[13]` and `text-[#ff8800]` are
   what make the space unbounded again, and they are the reason a scanner has to
@@ -813,12 +831,19 @@ stylesheet rather than anything the runtime knows about.
   people already know. Not `hover:` until mouse tracking exists, and not `dark:`
   -- a terminal has no such mode.
 - **`@apply` is one statement, and an `@apply` in a comment is not one.** The
-  name list stops at `;`, `{` or `}`: `[^;}]+` also matched a brace, so
-  `@apply foo { bar: 1; }` swallowed the block after it and a missing semicolon
-  ran the list on into the next declaration. Comments are stepped over rather
-  than expanded, because a sheet full of commented-out rules is the ordinary
-  case. Whatever followed the last name is put back, since a source transform
-  that eats the space before a `}` is one whose output nobody can diff.
+  name list stops at `;`, `{` or `}`: a regex of `[^;}]+` also matched a brace,
+  so `@apply foo { bar: 1; }` swallowed the block after it and a missing
+  semicolon ran the list on into the next declaration. Whatever followed the
+  last name is put back, since a source transform that eats the space before a
+  `}` is one whose output nobody can diff.
+- **A comment inside an `@apply` is trivia, not a boundary.** The first fix
+  split the source on comments and expanded each side, which made
+  `@apply p-1 /* and */ mt-2;` expand half of itself and leave the rest behind
+  as a declaration the parser then choked on. Comments are trivia everywhere
+  else in a stylesheet -- `#trivia()` and `#until()` in the parser already treat
+  them that way -- and this reads them the same. An `@apply` that lives wholly
+  inside a comment is still just a note about `@apply`, and an unterminated
+  comment is an error rather than a hole to walk through.
 - **`@apply` expands at build time into the component layer.** That is where the
   cascade's layer ordering puts a component rule, so an app can still override
   it with a utility -- which is the whole reason `@apply` works in Tailwind.
