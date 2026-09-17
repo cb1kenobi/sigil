@@ -525,6 +525,43 @@ describe('effect', () => {
 			expect(b.get()).toBe(51);
 			expect(errors).toHaveLength(1);
 		});
+
+		it('should look again when a disposal breaks a cycle', async () => {
+			const own = createEffects();
+			const errors: unknown[] = [];
+			own.setErrorHandler((err) => errors.push(err));
+
+			const a = new State(0);
+			const b = new State(0);
+			const input = new State(0);
+			const seen: number[] = [];
+			// first in the watch order and reading both sides of the cycle, so
+			// whichever of them runs after it dirties it again -- the drain gives up
+			// with this one pending, however the passes fall
+			own.effect(() => {
+				a.get();
+				b.get();
+				seen.push(input.get());
+			});
+			const stopA = own.effect(() => a.set(b.get() + 1));
+			const stopB = own.effect(() => b.set(a.get() + 1));
+
+			own.flush();
+			expect(errors).toHaveLength(1);
+			const stranded = seen.length;
+
+			stopA();
+			stopB();
+			// the write lands on an effect that is already dirty, so propagation
+			// stops there and the watcher hears nothing -- and the flush the failed
+			// drain had already asked for is the one `stalled` refuses. Disposing is
+			// what says the next drain would do something different, and it is how a
+			// caller breaks a cycle, so it has to take the latch off
+			input.set(1000);
+			await tick();
+			expect(seen.length).toBeGreaterThan(stranded);
+			expect(seen.at(-1)).toBe(1000);
+		});
 	});
 
 	it('should not run an effect disposed by another effect in the same flush', () => {

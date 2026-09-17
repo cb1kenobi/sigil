@@ -906,8 +906,14 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   makes the flush that the failed drain's own writes already asked for a no-op.
   Armed is not deaf: a later clean-to-dirty transition anywhere in the scope is
   still heard, and the first thing the next drain does is `getPending()`, so the
-  effects left dirty are retried by it. What is lost is the cycle announcing
-  _itself_, which is the one thing that has to be lost. An effect dirty for an
+  effects left dirty are retried by it. The one thing that changes what a drain
+  would do and announces nothing is a _disposal_ -- which is how a caller breaks
+  a cycle -- so disposing while stalled takes the latch off and announces what is
+  still pending. Without that, an effect the give-up left dirty swallows every
+  later write to it, since propagation stops at a node already dirty, and the
+  flush that would have caught it is the one the latch refuses. What is lost is
+  the cycle announcing _itself_, which is the one thing that has to be lost. An
+  effect dirty for an
   innocent reason during a failed settle is not stranded by it -- every pass
   runs everything pending, so it ran a hundred times -- and a `flush()` the
   _caller_ asked for is never refused, since breaking the cycle by disposing an

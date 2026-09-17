@@ -340,6 +340,19 @@ export function createEffects(): Effects {
 			// unwatching stops it being *notified*; its sources still hold it as a
 			// sink, and a long-lived signal would keep it reachable forever
 			computed.dispose();
+
+			// disposing changes what a drain would do and announces nothing, and a
+			// stalled scope is waiting for exactly that: breaking a cycle by
+			// disposing one side of it is how a caller fixes one. Nothing else says
+			// so -- an effect the give-up left dirty swallows a later write, since
+			// propagation stops at a node already dirty. So the latch comes off and
+			// what is still pending is announced, which settles now that the cycle
+			// is gone, or gives up once more and stalls again
+			if (stalled) {
+				stalled = false;
+				watcher.watch();
+			}
+
 			runCleanups();
 		};
 
