@@ -565,6 +565,7 @@ function layoutChildren(
 
 	for (const line of lines) {
 		resolveFlexible(line, mainSpace, gap, axis);
+		remeasureLine(line, axis, cache);
 		lineCrossSizes.push(Math.max(0, ...line.map((item) => outerCross(item, axis))));
 	}
 
@@ -638,6 +639,45 @@ function outerMain(item: Item, axis: Axis): number {
 }
 
 /** The cross-axis size an item occupies including its margins. */
+/**
+ * Re-measures a row's items at the main size flexing settled on.
+ *
+ * A text's height depends on its width and the first measure was taken at the
+ * whole content box, before there was any question of flexing -- so an item that
+ * ended up narrower than that is taller than it was measured, and a line's cross
+ * size is the largest item on it.
+ *
+ * Which is why this runs here rather than where the item is placed, where it
+ * used to: the line's cross size is what the next line starts after, so a height
+ * that grows after that size is fixed puts the next line on top of this one. Two
+ * texts in a wrapping row is all it takes -- the first wrapped to two rows at the
+ * width it got, the line stayed one row tall, and the second was placed over the
+ * first one's second row.
+ *
+ * A row only, for the reason `placeLine()` gives at length: a column's cross size
+ * is its width, which never flexes, so `makeItem()` has already measured it at
+ * the width its own limits settle on.
+ *
+ * @param line - The items on one line, already flexed.
+ * @param axis - Which way the container runs.
+ * @param cache - The measurements taken so far, so this costs a lookup.
+ */
+function remeasureLine(line: Item[], axis: Axis, cache: MeasureCache): void {
+	if (axis.column) {
+		return;
+	}
+
+	for (const item of line) {
+		if (item.node.measure && !crossIsDeclared(item, axis)) {
+			item.crossSize = clamp(
+				measure(item.node, item.mainSize, cache).height,
+				item.minCross,
+				item.maxCross
+			);
+		}
+	}
+}
+
 function outerCross(item: Item, axis: Axis): number {
 	const { margin } = item;
 	return item.crossSize + (axis.column ? margin.left + margin.right : margin.top + margin.bottom);
@@ -1027,33 +1067,23 @@ function placeLine(line: Item[], opts: PlaceOptions): void {
 		const marginCrossEnd = axis.column ? item.margin.right : item.margin.bottom;
 		const roomCross = Math.max(0, crossSize - marginCrossStart - marginCrossEnd);
 
+		// a row item measuring text has already been re-measured at the main size
+		// flexing settled on, by `remeasureLine()` -- which runs there rather than
+		// here because the line's cross size is taken from `item.crossSize` and the
+		// next line starts after it. Read back rather than measured again, so the
+		// height a line was sized for and the height its item is placed at cannot
+		// come to disagree
 		let itemCross = item.crossSize;
 		if (align === 'stretch' && !crossIsDeclared(item, axis)) {
-			itemCross = roomCross;
+			// content that measures cannot be crushed below the height it wrapped
+			// to, because the rows past the bottom of the box are simply lost. A
+			// box can be, and its children overflow it instead. A column's cross
+			// size is its width, which `makeItem()` settled and stretching is
+			// entitled to widen, so this is the row's rule only
+			itemCross =
+				!axis.column && item.node.measure ? Math.max(roomCross, item.crossSize) : roomCross;
 		}
 		itemCross = clamp(itemCross, item.minCross, item.maxCross);
-
-		// re-measured at the size it actually got, *before* the cross offset is
-		// computed from it: a text's height depends on its width, and the first
-		// measure happened at the whole content box before any flexing. Two texts
-		// sharing twenty columns each measured twenty wide and one row tall, then
-		// got ten each and stayed one row.
-		//
-		// A row only, and not because a column cannot go wrong the same way: a
-		// column's width is its *cross* size, so flexing never touches it and
-		// `makeItem()` already measures at the width its limits settle on. Patching
-		// it here instead would mean changing a column item's main size after
-		// `resolveFlexible()` has handed the line's space out and `cursor` has begun
-		// placing from it, which moves every item after this one and overruns the
-		// container
-		if (!axis.column && item.node.measure && !crossIsDeclared(item, axis)) {
-			const remeasured = measure(item.node, item.mainSize, cache);
-			itemCross = clamp(
-				align === 'stretch' ? Math.max(roomCross, remeasured.height) : remeasured.height,
-				item.minCross,
-				item.maxCross
-			);
-		}
 
 		let crossStart = crossOffset + marginCrossStart;
 		if (align === 'flex-end') {

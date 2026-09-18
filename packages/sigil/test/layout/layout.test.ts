@@ -1290,3 +1290,38 @@ describe('min and max are applied once, by whoever sized the node', () => {
 		checkInvariants(layout(tree, { height: 6, width: 5 }));
 	});
 });
+
+describe('a wrapped line is as tall as its text turned out to be', () => {
+	it('should size a line from the height its text re-measured to', () => {
+		// a line's cross size was taken from `item.crossSize`, which is the height
+		// the item measured at the whole content box -- and the re-measure that
+		// makes a narrowed text taller ran later, in `placeLine()`. So the line
+		// stayed one row tall around a text that had wrapped to two, and the next
+		// line was placed on top of the first one's second row. The picture shows
+		// it: `c` is painted after `b`, so the overlap reads as `b` losing a row
+		const tree = box(
+			{ 'flex-direction': 'row', 'flex-wrap': 'wrap', 'align-content': 'flex-start' },
+			text('hello world', { 'flex-basis': '6' }),
+			text('again', { 'flex-basis': '6' })
+		);
+
+		expect(picture(tree, 11, 4)).toBe(
+			['bbbbbbaaaaa', 'bbbbbbaaaaa', 'ccccccaaaaa', 'aaaaaaaaaaa'].join('\n')
+		);
+		checkInvariants(layout(tree, { height: 4, width: 11 }));
+	});
+
+	it('should still let a stretched line grow a text to fill it', () => {
+		// the re-measure moving out of `placeLine()` left it reading the height
+		// back off the item, and `stretch` has to keep taking the larger of the
+		// room and that height: a text's rows past the bottom of its box are lost,
+		// while a box crushed by `stretch` merely overflows with its children
+		const tree = box(
+			{ 'flex-direction': 'row', 'align-items': 'stretch' },
+			text('hello there world', { 'flex-basis': '5' })
+		);
+
+		expect(layout(tree, { height: 6, width: 11 }).children[0].box.height).toBe(6);
+		expect(layout(tree, { height: 1, width: 11 }).children[0].box.height).toBe(3);
+	});
+});
