@@ -849,6 +849,74 @@ it is placed at`.
   replaced said the fix "means `measure()` taking a used size as well, which is
   every caller": it was, and it is.
 
+### The element tree
+
+- **Three host types, and the third one is a trapdoor.** `box` lays its children
+  out, `text` measures a string, and `raw` paints its own cells. Everything else
+  is a component that resolves to these, which is what keeps the layout engine
+  small and matches what a terminal can draw. `raw` is designed in rather than
+  discovered: a sparkline or an image is a thing the layout engine cannot
+  express, and the alternative to a node type for it is somebody reaching for the
+  canvas behind the tree's back, after which the tree is wrong about what is on
+  screen. It measures like a text and is placed like one; what goes inside the
+  box it got is its own business.
+- **No fragment: a component produces exactly one node.** A transparent node
+  would have to be transparent to layout, to `:nth-child()`, and to paint order,
+  which is three different definitions of "not there" -- and the third one is
+  found to be wrong months later. The cost is a wrapper box where a list of
+  siblings would do, which is a real cost in a flexbox world and is still the
+  smaller one. The renderer may add it knowing what it is buying.
+- **`key` is carried and read by nobody here.** A keyed list diff needs stable
+  identity across renders, and matching on it is the renderer's; retrofitting a
+  key into a shipped tree is worse than carrying an unused prop, which is the
+  whole of why it exists before anything reads it.
+- **The tree records what changed; what that implies is the `Restyler`'s.**
+  `Marks` is exactly the four questions the invalidator asks -- props, classes,
+  children, sheets -- plus the layout and paint ones, and nothing else. Keeping
+  the two apart is what lets either be tested without the other, and it is why a
+  mutation is a set membership rather than a call into the cascade.
+- **A subtree not in a tree records nothing.** A page built up before it is
+  attached has nothing on screen to invalidate, and marking every `append()`
+  would hand the first frame a set naming every element in it. Joining a tree
+  carries membership down the whole subtree, so the first mutation after that is
+  recorded.
+- **`take()` drains rather than the caller clearing.** A mutation made _while_ a
+  frame is settling lands in the next set rather than in the one being walked,
+  which is the difference between a change arriving a frame late and a change
+  being dropped.
+- **A text's measurement is cached per width and keyed on the resolved style
+  _object_.** The cascade hands back a new `Style` when anything about it changed
+  and the same one when nothing did, so comparing the reference answers "does
+  this measurement still hold" exactly -- with no list of layout-affecting
+  properties to keep in agreement with `LAYOUT_PROPERTIES`. A list would be a
+  second copy of that set, and the day they disagree is the day a text is drawn
+  at a width it was not measured at.
+- **`text-transform` is applied before the measure, not at paint time.**
+  `uppercase` is what makes a line wider, which is the reason `LAYOUT_PROPERTIES`
+  carries it at all -- so `displayText` is what both the measure and the paint
+  read, and they cannot come to disagree about what the string is.
+- **`resolveStyles()` with no sheets is the degenerate case of the cascade, not a
+  second way of resolving a style.** It builds a `Restyler` over no stylesheets,
+  which is props and inheritance with nothing matched -- so `box({ padding: '1' })`
+  lays out padded without anybody having written a sheet, and there is still only
+  one implementation of what a resolved style is. The walk is in document order,
+  because a child's inherited values come from its parent's resolved style.
+- **`arrange()` matches boxes to elements by index.** That is what the layout
+  engine guarantees and says so: `result.children[i]` answers for
+  `node.children[i]` whatever `order`, `display: none`, or the same node
+  appearing twice did to the placement. Matching by identity would collapse two
+  appearances of one node into one box, which is the bug the layout engine
+  already carries an entry for.
+- **Paint is document order, and `visibility: hidden` skips the element rather
+  than the subtree.** A later sibling draws over an earlier one; `z-index` parses
+  and is not read, because a paint order that honours it belongs with clipping
+  and `overflow`, which are SIG-64's. Hidden is a skip rather than a return
+  because `visibility` inherits: a descendant is hidden because it inherited the
+  value, and one that sets `visible` is drawn. That is CSS.
+- **`LayoutNode.children` is readonly, because the element tree's children are
+  its own.** Nothing in the layout engine writes them, and an implementation
+  cannot hand out an array anything may splice.
+
 ### Style
 
 - **The property table is the single source of truth.** Every property's initial

@@ -7,6 +7,7 @@ const config: UserConfig = defineConfig({
 		ansi: './src/ansi/index.ts',
 		canvas: './src/canvas/index.ts',
 		components: './src/components/index.ts',
+		element: './src/element/index.ts',
 		'error-handler': './src/error-handler.ts',
 		help: './src/help/index.ts',
 		layout: './src/layout/index.ts',
