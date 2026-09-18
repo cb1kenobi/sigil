@@ -7,6 +7,7 @@ const config: UserConfig = defineConfig({
 	entry: {
 		index: './src/index.ts',
 		sigil: './src/sigil.ts',
+		utilities: './src/utilities/index.ts',
 	},
 	format: ['es'],
 	minify: true,

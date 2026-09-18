@@ -71,8 +71,9 @@ an empty directory on a hit. `pnpm test` and `pnpm coverage` filter their build
 to `./packages/*`: a test run has no use for the site, and CI runs the suite on
 nine node-and-os combinations.
 
-`packages/cli/src/` is a skeleton — the bin, `--version`, and the schema the
-filesystem router will replace. Its commands are not written yet.
+`packages/cli/src/` is the bin, `--version`, the schema the filesystem router
+will replace, and `src/utilities/` — the utility generator. Its commands are not
+written yet.
 
 `src/i18n/` is an empty placeholder.
 
@@ -607,6 +608,10 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
 - **`none` parses only where "no limit" is a thing to say.** Accepting it on all
   fourteen length properties made `width: none` and `margin: none` parse and then
   behave as `auto` or as zero -- not CSS, and not what the author meant.
+- **A keyword list is frozen too, not just the slot holding it.** `Object.freeze`
+  on a definition freezes the reference, and `parseKeyword` closes over the same
+  array -- so a push onto `PROPERTIES.display.keywords` made `display: grid`
+  parse. Same hole as the one below, one level further in.
 - **The property table is frozen, definitions included.** The initial values were
   frozen and the slots holding them were not, which is the same TypeScript
   fiction one level up: `PROPERTIES.width.initial = cells(7)` changed what
@@ -720,6 +725,14 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
 - **Comments are removed by the cursor, not by each reader.** A comment may sit
   anywhere, mid-selector included, and every reader downstream would otherwise
   have to know that -- and a semicolon inside one is not a declaration boundary.
+- **A backslash escapes the next character in an identifier, and the name that
+  comes back is unescaped.** `.md\:flex-row` is how a class _called_
+  `md:flex-row` is written, because the colon means something else to this
+  grammar -- which is what Tailwind does and why its class names are legal CSS.
+  What the name is compared against is the class an element carries, so it is
+  the unescaped form that is stored. CSS's hex escapes (`\3a `) are deliberately
+  not read: nothing generates them and they carry a trailing-space rule that is
+  its own source of surprises.
 
 ### Colour degradation
 
@@ -782,6 +795,143 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
 - **The basic sixteen are matched against the xterm defaults.** Terminal themes
   make them unknowable, and being wrong for somebody running Solarized is a
   smaller failure than refusing to degrade.
+
+### The utility layer
+
+Lives in `packages/cli/src/utilities/`, because it is a generator and a
+stylesheet rather than anything the runtime knows about.
+
+- **A utility is a generated stylesheet rule, and nothing in the runtime knows
+  the difference.** `p-2` is `.p-2 { padding: 2 }` -- the same class selector,
+  the same specificity, the same cascade. No new resolution path, no new
+  precedence rule, nothing added to the matching engine. It is a rule rather
+  than an implementation detail because the obvious optimization breaks it: the
+  moment somebody special-cases `class="p-2"` into a direct property write it
+  becomes a parallel mechanism with its own precedence, its own bugs, and a
+  divergence from the cascade that only shows up where nobody tested.
+- **The keyword lists live on the property table, not in the generator.** They
+  used to be reachable only inside each parser's closure, so the table could say
+  whether a string was accepted but not what a property accepts -- and a
+  generator had to carry a second copy of all sixteen lists and go quietly out
+  of date. `fromKeywords()` puts one list where both the parser and the
+  generator read it, so a keyword added to a property gets its utility free.
+- **What the table cannot supply is the naming, and that is the honest split.**
+  The table knows `justify-content` takes `space-between`; that the utility is
+  spelled `justify-between` is ours to decide, and every invented name is one
+  somebody has to learn. Tailwind's spelling wherever it exists, ours only where
+  a terminal has no web analogue -- `border` meaning one cell of single-line
+  border, because a terminal border has exactly one width and `border-2` has
+  nothing to mean here.
+- **Every generated declaration is parsed on the way out.** A utility that names
+  a property the table does not have, or a value the property would refuse,
+  fails the build rather than shipping a rule that silently matches nothing.
+  This caught `bright-black` on the first run: a fine class name and not a
+  colour `parseColor()` takes, which is the hyphenated-class/unhyphenated-value
+  split this file is built on.
+- **Two utilities of one name is an error.** A class that quietly applies both
+  is the failure a generated vocabulary is most prone to, and it happened
+  immediately: `hidden` was `display: none` and `visibility: hidden` at the same
+  time. Visibility's is `invisible` now, which is Tailwind's spelling anyway.
+- **The whole base set ships; there is no scanner.** Tailwind's central problem
+  is that the utility space is combinatorially enormous, so it cannot ship them
+  all. Here the scale is bounded by the medium -- spacing is a handful of cells
+  because there is nothing between one cell and two, there are sixteen colours,
+  and the property set is fifty-odd entries -- so the base set is a few hundred
+  rules and shipping it whole is much simpler than deciding what to leave out.
+- **Arbitrary values are deliberately out.** `p-[13]` and `text-[#ff8800]` are
+  what make the space unbounded again, and they are the reason a scanner has to
+  exist at all. They are SIG-81's, along with the question of what a computed
+  `class` expression does, which should be answered once rather than twice.
+- **Two variants are better here than on the web, and two are missing.**
+  `md:flex-row` is the responsive problem a TUI actually has and nothing solves
+  well today; `c16:text-red` is SIG-61's "give the author control" in a shape
+  people already know. Not `hover:` until mouse tracking exists, and not `dark:`
+  -- a terminal has no such mode.
+- **`@apply` is one statement, and an `@apply` in a comment is not one.** The
+  name list stops at `;`, `{` or `}`: a regex of `[^;}]+` also matched a brace,
+  so `@apply foo { bar: 1; }` swallowed the block after it and a missing
+  semicolon ran the list on into the next declaration. Whatever followed the
+  last name is put back, since a source transform that eats the space before a
+  `}` is one whose output nobody can diff.
+- **A comment inside an `@apply` is trivia, not a boundary.** The first fix
+  split the source on comments and expanded each side, which made
+  `@apply p-1 /* and */ mt-2;` expand half of itself and leave the rest behind
+  as a declaration the parser then choked on. Comments are trivia everywhere
+  else in a stylesheet -- `#trivia()` and `#until()` in the parser already treat
+  them that way -- and this reads them the same. An `@apply` that lives wholly
+  inside a comment is still just a note about `@apply`, and an unterminated
+  comment is an error rather than a hole to walk through.
+- **`@apply` expands at build time into the component layer.** That is where the
+  cascade's layer ordering puts a component rule, so an app can still override
+  it with a utility -- which is the whole reason `@apply` works in Tailwind.
+  Expanding at build time is also what keeps the runtime ignorant: what it sees
+  is a component rule with ordinary declarations in it. A _variant_ cannot be
+  applied and says so, because it is a rule in another context rather than a set
+  of declarations.
+
+### Style invalidation
+
+- **Props do not participate in invalidation.** Props override the sheet per
+  property and there are no attribute selectors, so writing a prop cannot change
+  any _other_ element's resolved style -- there is no rule that could have
+  matched differently. A prop write therefore skips style resolution entirely,
+  re-applies props over the kept `CascadeResult`, and marks paint. That is the
+  common case for a component updating itself and it costs nothing. It only
+  holds because attribute selectors are out, which is why those two decisions
+  are one decision.
+- **Three dirty bits, each implying the ones after it.** `style`, `layout`,
+  `paint`. A style change can move a box so it implies layout; a layout change
+  moves what is on screen so it implies paint. `DIRTY_ORDER` is the order a
+  frame settles them in and the order they imply each other in.
+- **Naive, and measured rather than asserted.** A full re-match of 201 elements
+  against 100 rules is 0.67ms median, 1.05ms at p95 -- once per frame at most.
+  Browsers build invalidation sets because they have two orders of magnitude
+  more of both. Start naive, expect naive to win permanently, and measure before
+  believing otherwise. What must not happen is an architecture where the
+  optimization could not be added: the seam is the set of elements `update()`
+  re-resolves, and narrowing that set is the whole of what an invalidation set
+  would do.
+- **A class change restyles the subtree and the siblings, not the tree.** A
+  combinator reaches downwards and sideways from an element, never up, so those
+  are the only elements whose match can depend on it. Sideways is the half that
+  is easy to forget and visible immediately when wrong: `:nth-child()` and
+  `+`/`~` mean inserting a child changes what its siblings match, and none of
+  those siblings changed in any way an element-level check would see.
+- **The walk is in document order, because a child's inherited values come from
+  its parent's _resolved_ style.** The parent has to have been resolved first,
+  which is also why the prop path is a branch inside the walk rather than a pass
+  after it. _When_ a parent forces its children is the entry below, and it is
+  not "whenever it was restyled" -- that wording is what both of the misses
+  below were compatible with.
+- **Styles are compared by value, not by identity.** A `Length` is an object and
+  two resolutions of `width: 4` produce two equal objects, so comparing by
+  identity reports every property as changed on every restyle and makes the
+  dirty bits mean nothing. Shallow is enough -- the only non-primitive a style
+  holds is a `Length`, and `JSON.stringify` on this path is not.
+- **`LAYOUT_PROPERTIES` sits next to the property table.** It is the one thing
+  about the property set that cannot be derived from the definitions: the table
+  knows what `white-space` accepts and cannot know that changing it re-wraps
+  text. Three that surprise people -- `borderStyle` is layout because a border
+  takes a cell on each edge while its _colour_ does not, and `textTransform` and
+  `whiteSpace` are layout because both change how wide a text measures. One that
+  surprises the other way: `visibility` is paint-only, because hidden content
+  still takes its space, which is the layout engine's own recorded decision.
+- **The resolved style does not live in a `Computed`, and that is settled rather
+  than deferred.** It would make invalidation fall out of the signal graph for
+  free, and it costs a graph node per element per property -- thousands for a
+  tree of hundreds -- against a full re-match already measured at well under a
+  millisecond. It also lands on the signals layer's own known limitation: edges
+  are strong and bidirectional, so every element ever removed stays reachable
+  until its sources die. Elegance that buys nothing measurable and costs a
+  lifecycle problem.
+- **An animation writes through to paint rather than marking style dirty.**
+  Not built yet, decided now: marking style dirty every frame drags the whole
+  cascade behind a 60fps animation, which is the one workload where the naive
+  re-match above stops being free.
+- **What is deliberately not here: the signal wiring.** An `effect()` per
+  reactive binding is the renderer's, and building it now would be an
+  architecture guess with nothing to check it against. `Restyler` takes marks
+  from whatever calls it.
 
 ### Canvas
 
