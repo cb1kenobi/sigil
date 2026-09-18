@@ -248,7 +248,26 @@ These look like bugs and are not. Each is intentional and covered by tests.
   value may be UTC, so `2024-06-15T00:00:00Z` is the 14th in Chicago and the
   15th in Auckland, and a round trip rejected real instants depending on where
   it ran.
-- **`auto` runs the same calendar check and gives up rather than throwing.** That
+- **A `date` has its clock checked as well as its calendar, and it takes a UTC
+  offset.** The calendar check above stopped at the day, and hour `24` is the
+  overflow the `Invalid Date` guard cannot see: `24` is a legal two-digit match
+  and `new Date('2024-01-01T24:00:00')` is a perfectly valid `Date` for the next
+  midnight, so a value naming January 1st arrived as the 2nd -- the same failure
+  `2024-02-30` arrived as March 1st is written down for. Minute and second `60`
+  are refused alongside it, so a leap second is this library's answer rather
+  than whatever the engine happens to do. Read off the matched text and never
+  off the built `Date`, for the reason already recorded: those getters are local
+  while the value may be UTC. The offset is the other half of it -- the docs
+  said ISO 8601 while `dateRE` took a trailing `Z` and nothing else, so
+  `2024-06-15T12:00:00+00:00`, which is what `date -Is` prints, was rejected
+  while the `Z` spelling of the same instant was taken. The subset is the
+  date-time format ECMAScript specifies and no wider: the basic form
+  `20240615`, week and ordinal dates, `±HHMM`, and a space in place of the `T`
+  are all outside what `Date` is _specified_ to parse, and an engine's fallback
+  heuristics are not a grammar to document. An out-of-range offset is refused
+  arithmetically for the reason the clock is, rather than left to `Date`, which
+  only happens to reject it. See `test/parser/regressions.test.ts`.
+- **`auto` runs the same checks and gives up rather than throwing.** The calendar
   check was added to `date` while `auto` went on matching the same `dateRE` with
   neither half of it, so the defect stayed alive on a second path: `2024-02-30`
   was March 1st and `2024-13-01` an `Invalid Date`, an object whose `getTime()`
@@ -256,7 +275,10 @@ These look like bugs and are not. Each is intentional and covered by tests.
   an undeclared option is coerced with `auto` -- it is reachable without anybody
   writing `type: 'auto'`. Both now read a match through one function, because two
   readers of one pattern disagreeing about what it proves is how the first fix
-  reached only one of them. What follows differs and belongs to the caller:
+  reached only one of them -- and it is why the clock and the offset above cost
+  nothing to share: they went into that function rather than beside it, so the
+  widened pattern and everything that reads it stayed one answer. What follows
+  differs and belongs to the caller:
   `date` was asked for a date and throws, while `auto` is a ladder of guesses
   that ends at the string it was handed -- it does not throw on JSON it cannot
   parse either -- so a date-shaped string that is not a date is simply not the
@@ -309,6 +331,17 @@ These look like bugs and are not. Each is intentional and covered by tests.
 - **A bare positional name is optional; `<name>` is required.** Commander
   treats a bare name as required. Brackets are the only thing that decides it
   here, which keeps `args` readable at a glance.
+- **`Missing required arguments` names the arguments that are missing, and
+  nothing else.** The walk is backwards and used to report every argument
+  sitting before one it had already found missing, to collect the trailing run
+  of them -- which is the promotion rule said a second time and said less
+  accurately. `initArgs()` already makes an optional argument before a required
+  one required, so each slot in a run answers for itself, while the run also
+  named a slot `applyFallback()` had just filled from a `default` or an
+  environment variable: `<a>` with a default and `<b>` with nothing reported
+  `<a> <b>` and asked for a value the user had supplied. The parse still fails,
+  because `<b>` really is missing; only the message changed. See
+  `test/parser/regressions.test.ts`.
 - **String `default`s and environment values are coerced to the declared
   type.** So `default: 'yes'` on a flag is `true`, not `'yes'`, and a value
   the type rejects throws — `default: 'black'` on a flag is an error, the
@@ -446,6 +479,28 @@ false` rethrows instead; a function replaces the handler.
   first answer and it was wrong in the other direction: it gave the loaded
   command the placeholder's base, so the module's own `path` and anything a
   hook of the module's resolved were read against the wrong directory.
+- **A uid of `0` is a uid, and `mkdirOwnerSync()` owns what it made and nothing
+  else.** Root is `0` and `0` is falsy, so asking `uid && gid` read a caller who
+  asked for group `0` -- `wheel`, and the group of every ancestor under `/var`,
+  `/usr`, and `/root` -- as a caller who asked for nothing; the walk then put
+  the same `0` back through `gid ||= st.gid`, and the falsy `gid` failed the
+  guard on the chown pass, so the ownership that was asked for was never
+  applied. An explicit `uid: 0` was overwritten by whatever owned the nearest
+  existing directory for the same reason. Whether an owner was given is a
+  question about `undefined`, so that is what is asked. Both halves of the
+  answer are asked about too: a directory `mkdirSync()` has just made as root is
+  `0:0`, so a caller asking for `{ uid: 0, gid: 1000 }` matched on the uid alone
+  and stopped with the group never applied. The deepest directory that already
+  exists is the last one the call did not make, so it is where the chown pass
+  stops as well as where an owner is read from -- it used to be looked for only
+  in the second case, and the first was given the file system root, which is no
+  ceiling: that pass climbs until it meets a directory already owned by the
+  target, so a cache under `/var` handed `/var` away along with what it had just
+  made. The walk itself stops at the root whether or not it found anything,
+  because it climbed until it found a directory and `dirname('/')` is `'/'`: a
+  loop that relies on finding something is a loop that can run off the top of
+  the filesystem. Reached from the update cache, which a CLI run as root
+  creates. See `test/mkdir-owner-sync.test.ts`.
 - **A command is fixed once it is initialized, and its declaration containers
   are read-only.** `cmd.args`, `cmd.commands`, and `cmd.options` echo the
   declaration; the parser reads the normalized arguments and the registries at
