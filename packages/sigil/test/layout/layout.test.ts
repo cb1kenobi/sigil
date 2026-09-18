@@ -843,13 +843,57 @@ describe('measurement', () => {
 		checkInvariants(result);
 	});
 
-	it('should not wrap at a percentage limit, which is a different width each time', () => {
-		// a node is measured twice against different widths -- once for the
-		// intrinsic size of an ancestor still being sized, once at the width that
-		// ancestor settled on -- and a percentage resolves to a different number
-		// each time. Honoured while measuring, `50%` wrapped at ten for the auto
-		// column's own measure and at five for its placement, so the column was
-		// three rows around a child six rows tall
+	it('should lay a text out at the width its own limit leaves it', () => {
+		// `measure()` had one argument doing two jobs: the width to lay the content
+		// out in, and the block a percentage resolves against. A declared `width`
+		// won over the clamp so that the second job stayed correct, and the text was
+		// then wrapped for a width the box never had -- six wide, three rows, around
+		// six rows of text, so half of it was simply gone. The two jobs are two
+		// arguments now, so the declaration is resolved against the containing block
+		// and the content is laid out at what the limit left
+		const tree = box(
+			{ 'align-items': 'flex-start', 'flex-direction': 'row', width: '20' },
+			text('one two three four five six', { 'max-width': '6', width: '10' })
+		);
+
+		expect(layout(tree, { height: 10, width: 20 }).children[0].box).toMatchObject({
+			height: 6,
+			width: 6,
+		});
+	});
+
+	it('should resolve a percentage width against the block, not the room left by a margin', () => {
+		// the same argument doing two jobs, one level along: `makeItem()` resolved
+		// this child's `50%` against the content box and handed `measure()` the room
+		// left after its margin, which resolved the same declaration against
+		// sixteen. So the box was placed ten wide with its text wrapped for eight,
+		// and one declaration meant two things four lines apart
+		const tree = box(
+			{ 'align-items': 'flex-start', 'flex-direction': 'row', width: '20' },
+			text('aa bb cc', { 'margin-left': '4', width: '50%' })
+		);
+
+		expect(layout(tree, { height: 10, width: 20 }).children[0].box).toMatchObject({
+			height: 1,
+			width: 10,
+		});
+	});
+
+	it('should lay a percentage-limited text out at the width it is placed at', () => {
+		// the limit is honoured where the containing block is settled, and is `auto`
+		// where it is not, which is CSS's rule for a percentage of an indefinite
+		// size. So the column sizes itself around a child measured without the
+		// limit -- eighteen wide, two rows -- and then places that child at the nine
+		// its own `50%` comes to, four rows deep because that is what the text needs
+		// at nine.
+		//
+		// The overflow is the intrinsic-sizing one every browser produces and it is
+		// the better of the two answers available: the height used to be measured at
+		// eighteen and the box drawn at nine, so the box was two rows around four
+		// rows of text and the last two were simply lost. Nothing is lost now, and
+		// what is wrong is a parent's size rather than a child's own geometry.
+		// Settling *that* needs the containing block to be known before the subtree
+		// is measured, which is iteration and is nobody's ticket yet
 		const tree = box(
 			{ 'align-items': 'flex-start', 'flex-direction': 'row', width: '20' },
 			box(
@@ -858,7 +902,10 @@ describe('measurement', () => {
 			)
 		);
 
-		checkInvariants(layout(tree, { height: 10, width: 20 }));
+		const result = layout(tree, { height: 10, width: 20 });
+		expect(result.children[0].box).toMatchObject({ height: 2, width: 18 });
+		expect(result.children[0].children[0].box).toMatchObject({ height: 4, width: 9 });
+		checkInvariants(result, { overflow: true });
 	});
 
 	it('should measure a declared size on a text as the size it will be placed at', () => {

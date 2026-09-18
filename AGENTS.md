@@ -711,24 +711,40 @@ false` rethrows instead; a function replaces the handler.
   two, and was drawn two rows around a child six rows tall.
 - **The width limits are applied in `measureUncached()` and nowhere else,
   because that is where the width they are a percentage _of_ is.** The callers
-  hand it the containing width and a flag saying whether that width is the
-  container's cross axis; clamping at the call site as well resolved a
-  `max-width: 50%` against the ten it had just produced, so the text wrapped at
-  five and was placed at ten -- the same defect the clamp exists to fix, one
-  level along. Neither clamp alone does that, which is what made it worth a third
-  review round.
-- **Only a limit in cells is honoured while measuring, which is the rule that a
-  percentage of an unknown size is `auto` applied where it belongs.** A node is
-  measured twice against different widths -- once for the intrinsic size of an
-  ancestor that is still being sized, once at the width that ancestor settled on
-  -- and a percentage limit resolves to a different number each time. Honoured,
-  `max-width: 50%` wrapped a text at ten for an auto-width column's own measure
-  and at five for its placement, so the column was drawn three rows around a
-  child six rows tall: a containment violation where cells produce none, and
-  where `main` produced none only by wrapping at the wrong width in the first
-  place. A cell limit is the same number both times, which is what makes it the
-  one that can be answered here. A node's own declared `width` wins over the
-  clamp for the same reason, and both leftovers are in Known bugs.
+  hand it the containing width and what is settled about it; clamping at the call
+  site as well resolved a `max-width: 50%` against the ten it had just produced,
+  so the text wrapped at five and was placed at ten -- the same defect the clamp
+  exists to fix, one level along. Neither clamp alone does that, which is what
+  made it worth a third review round.
+- **`measure()` takes a width to lay content out in and a block to resolve
+  percentages against, and they are two arguments because they are two
+  questions.** One argument answering both was `MeasureAt`'s reason for existing.
+  They are the same number for an ordinary child and they part the moment a limit
+  binds: a node whose `max-width` narrowed it wraps at the narrowed width, while
+  its `width: 50%` still means half of the block that contains it -- so one number
+  could only ever be wrong about one of them, and each caller had picked which.
+  Three defects were that one shape. A `width: 10` under a `max-width: 6` was
+  drawn six wide with its text wrapped for ten, so a six-row text came out three
+  rows and half of it was gone. `makeItem()` resolved a child's `50%` against the
+  content box and handed the measure the room left after that child's margin, so
+  one declaration meant ten in one line and eight four lines down. And the root
+  resolved `width: 50%` against the eight its own `max-width` left it, in forty
+  columns, and wrapped its text at four.
+- **A percentage against a containing block that is not settled is `auto`, and
+  that is the same rule as "only a limit in cells is honoured while measuring",
+  reached properly.** `MeasureAt.containing` is `undefined` rather than a number
+  while an ancestor is still sizing itself, so every percentage on the node reads
+  as `auto` there -- which is CSS, and which is what keeps one node from being
+  measured twice to two different answers. The old spelling picked cells because a
+  cell limit is the one that cannot move; this says why. What it does not buy is
+  agreement between the two passes, and nothing non-iterative can: an auto-width
+  column sizes itself around a child measured without the child's `max-width: 50%`
+  and then places that child at the nine the percentage comes to, four rows deep
+  where the column is two. That overflow is the one every browser produces, and it
+  is the better of the two answers available -- the height used to be measured at
+  eighteen and the box drawn at nine, so two rows of text were lost with nothing
+  to show for it. Pinned by `should lay a percentage-limited text out at the width
+it is placed at`.
 - **A `measure` node reports its declaration rather than its content.** The
   `node.measure` branch reports `declaredWidth ?? content` and
   `declaredHeight ?? content`, with `min(content, declaration)` for the automatic
@@ -823,19 +839,15 @@ false` rethrows instead; a function replaces the handler.
   did not fill its hole moves its neighbour -- because the allocation itself is
   not in the result, which leaves an only child and the last item on a line
   uncovered.
-- **`measure()` has one argument doing two jobs, and the root's is left as it
-  was.** It reads the node's own `width` back off that argument -- which is how a
-  declared width reaches the measure pass at all -- and then wraps at whatever
-  that produced, so the number a percentage is _of_ and the number the box ends
-  up with cannot both be passed. Moving the root's clamp into `layout()` made it
-  tempting to measure at the clamped width, which is the one answer wrong twice
-  over: a root `width: 50%` under a `max-width` of eight, in forty columns,
-  resolved the `50%` against that eight and came back six rows tall inside a box
-  eight columns wide. So the base stays what it always was -- the width the
-  declaration resolved to, else the space the root was given -- and a root whose
-  `min` or `max` binds is still measured at a width it does not have. Fixing that
-  means `measure()` taking a used size as well, which is every caller, and is not
-  this rule's to do.
+- **The root is measured at the width it has, against the block it was given.**
+  Both numbers are needed and they are not the same one: a root `width: 50%` under
+  a `max-width` of eight, in forty columns, means half of forty asked for and
+  eight received, so the percentage resolves against forty while the text wraps at
+  eight. Every candidate for a single argument was wrong -- the clamped width
+  wrapped the text at four, and the unclamped one reported a height for a box it
+  would not have. This is the case that named the defect, and the entry it
+  replaced said the fix "means `measure()` taking a used size as well, which is
+  every caller": it was, and it is.
 
 ### Style
 
@@ -2058,18 +2070,16 @@ stylesheet rather than anything the runtime knows about.
 
 ## Known bugs
 
-- **A node wraps its content at a width a percentage limit or a declared `width`
-  can still narrow.** `measureUncached()` honours a limit in cells when the width
-  is the container's cross axis, and nothing else: a `max-width: 50%` and a
-  `width: 10` under a `max-width: 6` both lay their text out for a width the node
-  is not finally drawn at -- the same answer `main` gives. Both are the one
-  question: what a percentage resolves against while the containing block is
-  itself still being sized, and which of the two widths a node measured twice
-  should wrap at. Answering it half way is worse than not answering it: honouring
-  a percentage limit while measuring drew an auto-width column three rows around
-  a child six rows tall, and clamping the declared `width` put a text outside its
-  own parent. Settling it properly needs that phase rule and the single-clamp
-  rule SIG-90 is taking to `layoutNode()`.
+- **An auto-width node is sized around a subtree measured without its own
+  percentages.** What is left of the entry above once `measure()` takes its two
+  widths separately: a node lays its content out at the width it is drawn at now,
+  but an ancestor that is still sizing itself measured that subtree with every
+  percentage read as `auto`, so the ancestor can come out too small for what it
+  then places. CSS produces the same overflow and browsers live with it; closing
+  it needs the containing block known before the subtree is measured, which is
+  iteration. The layout invariants allow it -- `checkInvariants()` takes
+  `overflow` -- and `should lay a percentage-limited text out at the width it is
+placed at` pins the shape of it.
 - A subcommand's option used before its subcommand is not protected from being
   consumed as an earlier option's value, because it is not declared yet on the
   pass that reads it. A default command's options are always in that position,
