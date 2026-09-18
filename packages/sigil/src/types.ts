@@ -169,6 +169,14 @@ export interface InternalCommand extends AnyCommand {
 export interface InternalCommandBase extends InternalBase {
 	aliases: Set<string>;
 	args: InternalArgument[];
+	/**
+	 * The directory this command's declaration gave its paths relative to: the
+	 * directory of the module that declared it, which for a lazily loaded
+	 * command is not the directory its own `path` resolved to. `undefined` for a
+	 * schema the app wrote inline, which has no file to be relative to and
+	 * leaves a relative path to the process's working directory.
+	 */
+	baseDir?: string;
 	commands: CommandRegistry;
 	label: string;
 	/**

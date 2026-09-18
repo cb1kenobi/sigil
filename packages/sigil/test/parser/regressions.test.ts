@@ -2,6 +2,7 @@ import { loadCommand } from '../../src/parser/command/load-command.js';
 import { parse } from '../../src/parser/parse.js';
 import { Argument, Internal } from '../../src/types.js';
 import { camelCase } from '../../src/util/camel-case.js';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
@@ -1350,6 +1351,84 @@ describe('regressions', () => {
 			} finally {
 				spy.mockRestore();
 			}
+		});
+	});
+
+	/**
+	 * A command's own `path` was joined with the directory of the module that
+	 * declared it and the subcommands that module declared were not, so an
+	 * installed CLI looked for them in whatever directory the user was standing
+	 * in. The fixtures under `fixtures/nested` say the same thing from every
+	 * direction: nothing in them resolves from the working directory, whichever
+	 * that is, so a path that is not read against the module it was written in
+	 * does not resolve at all.
+	 */
+	describe("a loaded module's nested commands", () => {
+		const nested = path.join(__dirname, 'fixtures/nested');
+		const build = { commands: { build: path.join(nested, 'build.js') } };
+
+		it('should resolve a string path against the module that declared it', async () => {
+			// vitest runs each test file in a worker thread, where `process.chdir()`
+			// throws, so the working directory is left alone and the fixture is what
+			// keeps the test honest: this is the path the old resolution produced
+			expect(existsSync(path.resolve(process.cwd(), 'all.js'))).to.equal(false);
+
+			const result = await parse({ argv: ['build', 'all'], schema: build });
+			expect(result.cmd?.desc).to.equal('build everything');
+		});
+
+		it('should resolve an object path against the module that declared it', async () => {
+			const result = await parse({ argv: ['build', 'obj'], schema: build });
+			expect(result.cmd?.desc).to.equal('reached by the object form');
+		});
+
+		// the control: an absolute path never needed a base, and still does not
+		// get one -- `resolve()` hands it back rather than hanging it off the
+		// module's directory the way `join()` would have
+		it('should leave an absolute path alone', async () => {
+			const result = await parse({ argv: ['build', 'here'], schema: build });
+			expect(result.cmd?.desc).to.equal('reached by an absolute path');
+		});
+
+		it("should keep a placeholder's own subcommands with the file that declared it", async () => {
+			// `obj` is declared in `build.js` and its module is a directory further
+			// down, so the two halves of that command disagree about what `./` means:
+			// the subcommand the declaration gave belongs to `build.js`, and only the
+			// module's own paths belong to the module
+			const result = await parse({ argv: ['build', 'obj', 'carried'], schema: build });
+			expect(result.cmd?.desc).to.equal('declared beside the file that declared the placeholder');
+		});
+
+		it("should record the loaded module's own directory as its base", async () => {
+			// what a hook of the module's reads off the command it is handed, and
+			// what the module's own `path` and subcommands resolve against -- the
+			// placeholder's subcommands coming across does not drag its base along
+			const result = await parse({ argv: ['build', 'obj'], schema: build });
+			expect(result.cmd?.[Internal].baseDir).to.equal(path.join(nested, 'sub'));
+		});
+
+		it('should follow each module to its own directory', async () => {
+			// `all.js` reaches down into `sub/`, and what `sub/deep.js` declares is
+			// relative to `sub/` rather than to the module two levels above it
+			const result = await parse({ argv: ['build', 'all', 'deep', 'deeper'], schema: build });
+			expect(result.cmd?.desc).to.equal('four levels down');
+			expect(result.contexts.map((c) => c.name)).to.deep.equal([
+				'deeper',
+				'deep',
+				'all',
+				'build',
+				'global',
+			]);
+		});
+
+		it('should resolve a directory and a package against the module', async () => {
+			const schema = { commands: { dirs: path.join(nested, 'dirs.js') } };
+
+			let result = await parse({ argv: ['dirs', 'extra'], schema });
+			expect(result.cmd?.desc).to.equal('from a directory next to the module');
+
+			result = await parse({ argv: ['dirs', 'pkg'], schema });
+			expect(result.cmd?.desc).to.equal('from a package next to the module');
 		});
 	});
 });

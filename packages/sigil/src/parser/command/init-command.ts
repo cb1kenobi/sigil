@@ -13,7 +13,8 @@ import { initArgs } from '../argument/init-args.js';
 import { OptionRegistry } from '../option/option-registry.js';
 import { CommandRegistry } from './command-registry.js';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join, parse } from 'node:path';
+import { dirname, join, parse, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const { log } = debug('sigil:init-command');
 
@@ -51,9 +52,17 @@ interface ParsedName {
  *
  * @param it - The command or schema declaration.
  * @param entryFile - The module this declaration came from, when lazy loaded.
+ * @param baseDir - The directory this declaration's relative paths are
+ * relative to, when that is not the directory `entryFile` sits in -- a command
+ * declared inline inside a lazily loaded module came from that module's file
+ * without being that file.
  * @returns A new internal command.
  */
-export async function initCommand(it: CommandsLike, entryFile?: string): Promise<InternalCommand> {
+export async function initCommand(
+	it: CommandsLike,
+	entryFile?: string,
+	baseDir?: string
+): Promise<InternalCommand> {
 	if (typeof it === 'object' && Internal in it && it[Internal].state === InternalState.OK) {
 		return it as InternalCommand;
 	}
@@ -124,10 +133,33 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 		log(`Command name changed "${decl.name}" -> "${parsed.name}"`);
 	}
 
+	// where the declaration came from has to be settled before its subcommands
+	// are registered rather than after: a path one of them gives is relative to
+	// the file that declared it, and asking after they are built is asking too
+	// late
+	//
+	// a command left dirty by a failed init hook is rebuilt from scratch, so
+	// recover the module it came from -- and the directory its paths were
+	// resolved against, which is the file that declared the command rather than
+	// the file its `path` resolved to, and is not recoverable from that file
+	const dirty = it[Internal];
+	if (dirty) {
+		entryFile ??= dirty.path;
+		baseDir ??= dirty.baseDir;
+	} else if (entryFile) {
+		baseDir ??= dirname(entryFile);
+	}
+
+	const commandPath = decl.path;
+	if (commandPath) {
+		entryFile = resolveDeclaredPath(baseDir, commandPath);
+	}
+
 	// commands
 	if (decl.commands !== undefined) {
 		if (decl.commands && typeof decl.commands === 'string') {
 			await registerCommandPath({
+				baseDir,
 				commands,
 				file: decl.commands,
 			});
@@ -135,6 +167,7 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 			await Promise.all(
 				decl.commands.map((cmdOrPath) =>
 					registerCommand({
+						baseDir,
 						cmdOrPath,
 						commands,
 					})
@@ -144,6 +177,7 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 			await Promise.all(
 				Object.entries(decl.commands).map(([name, cmdOrPath]) =>
 					registerCommand({
+						baseDir,
 						cmdOrPath,
 						commands,
 						name,
@@ -176,20 +210,12 @@ export async function initCommand(it: CommandsLike, entryFile?: string): Promise
 		}
 	}
 
-	// a command left dirty by a failed init hook is rebuilt from scratch, so
-	// recover the module it came from rather than losing it
-	entryFile ??= it[Internal]?.path;
-
-	const commandPath = decl.path;
-	if (commandPath) {
-		entryFile = entryFile ? join(dirname(entryFile), commandPath) : commandPath;
-	}
-
 	const cmd = Object.defineProperty(cloneDeclaration(decl, parsed, argDecls), Internal, {
 		configurable: true,
 		value: {
 			aliases,
 			args,
+			baseDir,
 			commands,
 			label: parsed.label,
 			// a placeholder has not pulled its module in yet; `loadCommand()`
@@ -372,17 +398,43 @@ function parseName(unparsedName: string): ParsedName {
 	};
 }
 
+/**
+ * Resolves a path a declaration gave against the file that declared it.
+ *
+ * A relative path in a command module means there what it means in an `import`:
+ * a file alongside that module. Left to resolve on its own it is relative to
+ * the process's working directory instead, which for an installed CLI is
+ * whatever directory the user happened to be standing in and has nothing to do
+ * with where its command modules live.
+ *
+ * `resolve()` rather than `join()`, because an absolute path is already an
+ * answer: joining one onto a base makes a path to nowhere out of a path that
+ * was never ambiguous.
+ *
+ * @param baseDir - The directory the declaration's paths are relative to, or
+ * `undefined` for a schema the app wrote inline, which has no file to be
+ * relative to.
+ * @param file - The path as it was declared.
+ * @returns Where to look for the module.
+ */
+function resolveDeclaredPath(baseDir: string | undefined, file: string): string {
+	return baseDir ? resolve(baseDir, file) : file;
+}
+
 async function registerCommand({
+	baseDir,
 	cmdOrPath,
 	commands,
 	name,
 }: {
+	baseDir?: string;
 	cmdOrPath: string | Command;
 	commands: CommandRegistry;
 	name?: string;
 }): Promise<void> {
 	if (cmdOrPath && typeof cmdOrPath === 'string') {
 		await registerCommandPath({
+			baseDir,
 			commands,
 			file: cmdOrPath,
 			name,
@@ -390,8 +442,17 @@ async function registerCommand({
 	} else if (cmdOrPath && typeof cmdOrPath === 'object') {
 		// the key a command is declared under names it, but that name belongs on
 		// the copy `initCommand()` makes, not on the caller's object
+		//
+		// the declaration is inline, so it came from the same file its parent did
+		// and its paths are relative to that file -- it has no module of its own
+		// for them to be relative to, which is why the base is passed rather than
+		// the entry file
 		commands.add(
-			await initCommand(cmdOrPath.name === undefined ? { ...cmdOrPath, name } : cmdOrPath)
+			await initCommand(
+				cmdOrPath.name === undefined ? { ...cmdOrPath, name } : cmdOrPath,
+				undefined,
+				baseDir
+			)
 		);
 	} else {
 		throw new TypeError('Expected commands to be one or more paths or an object');
@@ -399,15 +460,19 @@ async function registerCommand({
 }
 
 async function registerCommandPath({
+	baseDir,
 	commands,
 	file,
 	name,
 }: {
+	baseDir?: string;
 	commands: CommandRegistry;
 	file: string;
 	name?: string;
 }): Promise<void> {
-	const cmd = await registerCommandPackage(file);
+	const modulePath = resolveDeclaredPath(baseDir, file);
+
+	const cmd = await registerCommandPackage(modulePath);
 	if (cmd) {
 		commands.add(cmd);
 		return;
@@ -415,11 +480,11 @@ async function registerCommandPath({
 
 	if (!name) {
 		try {
-			const files = readdirSync(file);
+			const files = readdirSync(modulePath);
 			for (const filename of files) {
 				const { ext, name } = parse(filename);
 				if (fileTypeRegExp.test(ext)) {
-					const cmdFile = join(file, filename);
+					const cmdFile = join(modulePath, filename);
 					commands.add(await initCommand({ name }, cmdFile));
 				}
 			}
@@ -429,20 +494,20 @@ async function registerCommandPath({
 		}
 	}
 
-	// `file` is not a package or directory or `name` is set and we didn't want
-	// to treat it as a directory
+	// `modulePath` is not a package or directory or `name` is set and we didn't
+	// want to treat it as a directory
 
-	const { ext, name: filename } = parse(file);
+	const { ext, name: filename } = parse(modulePath);
 
 	if (!name) {
 		name = filename;
 	}
 
 	if (!ext || !name || !fileTypeRegExp.test(ext)) {
-		throw new Error(`Unsupported command module "${file}"`);
+		throw new Error(`Unsupported command module "${modulePath}"`);
 	}
 
-	commands.add(await initCommand({ name }, file));
+	commands.add(await initCommand({ name }, modulePath));
 }
 
 /**
@@ -547,7 +612,9 @@ async function registerCommandPackage(dir: string): Promise<InternalCommand | un
 		);
 	}
 
-	const { default: cmd } = await import(entryFile);
+	// the file URL rather than the path: an absolute path on Windows starts with
+	// a drive letter, which the ESM loader reads as a scheme it does not know
+	const { default: cmd } = await import(pathToFileURL(entryFile).href);
 
 	if (!cmd || typeof cmd !== 'object') {
 		throw new TypeError(`Expected command package to default export an object: ${entryFile}`);
