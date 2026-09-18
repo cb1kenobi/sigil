@@ -852,6 +852,70 @@ stylesheet rather than anything the runtime knows about.
   applied and says so, because it is a rule in another context rather than a set
   of declarations.
 
+### Style invalidation
+
+- **Props do not participate in invalidation.** Props override the sheet per
+  property and there are no attribute selectors, so writing a prop cannot change
+  any _other_ element's resolved style -- there is no rule that could have
+  matched differently. A prop write therefore skips style resolution entirely,
+  re-applies props over the kept `CascadeResult`, and marks paint. That is the
+  common case for a component updating itself and it costs nothing. It only
+  holds because attribute selectors are out, which is why those two decisions
+  are one decision.
+- **Three dirty bits, each implying the ones after it.** `style`, `layout`,
+  `paint`. A style change can move a box so it implies layout; a layout change
+  moves what is on screen so it implies paint. `DIRTY_ORDER` is the order a
+  frame settles them in and the order they imply each other in.
+- **Naive, and measured rather than asserted.** A full re-match of 201 elements
+  against 100 rules is 0.67ms median, 1.05ms at p95 -- once per frame at most.
+  Browsers build invalidation sets because they have two orders of magnitude
+  more of both. Start naive, expect naive to win permanently, and measure before
+  believing otherwise. What must not happen is an architecture where the
+  optimization could not be added: the seam is the set of elements `update()`
+  re-resolves, and narrowing that set is the whole of what an invalidation set
+  would do.
+- **A class change restyles the subtree and the siblings, not the tree.** A
+  combinator reaches downwards and sideways from an element, never up, so those
+  are the only elements whose match can depend on it. Sideways is the half that
+  is easy to forget and visible immediately when wrong: `:nth-child()` and
+  `+`/`~` mean inserting a child changes what its siblings match, and none of
+  those siblings changed in any way an element-level check would see.
+- **The walk is in document order, because a child's inherited values come from
+  its parent's _resolved_ style.** The parent has to have been resolved first,
+  which is also why the prop path is a branch inside the walk rather than a pass
+  after it. _When_ a parent forces its children is the entry below, and it is
+  not "whenever it was restyled" -- that wording is what both of the misses
+  below were compatible with.
+- **Styles are compared by value, not by identity.** A `Length` is an object and
+  two resolutions of `width: 4` produce two equal objects, so comparing by
+  identity reports every property as changed on every restyle and makes the
+  dirty bits mean nothing. Shallow is enough -- the only non-primitive a style
+  holds is a `Length`, and `JSON.stringify` on this path is not.
+- **`LAYOUT_PROPERTIES` sits next to the property table.** It is the one thing
+  about the property set that cannot be derived from the definitions: the table
+  knows what `white-space` accepts and cannot know that changing it re-wraps
+  text. Three that surprise people -- `borderStyle` is layout because a border
+  takes a cell on each edge while its _colour_ does not, and `textTransform` and
+  `whiteSpace` are layout because both change how wide a text measures. One that
+  surprises the other way: `visibility` is paint-only, because hidden content
+  still takes its space, which is the layout engine's own recorded decision.
+- **The resolved style does not live in a `Computed`, and that is settled rather
+  than deferred.** It would make invalidation fall out of the signal graph for
+  free, and it costs a graph node per element per property -- thousands for a
+  tree of hundreds -- against a full re-match already measured at well under a
+  millisecond. It also lands on the signals layer's own known limitation: edges
+  are strong and bidirectional, so every element ever removed stays reachable
+  until its sources die. Elegance that buys nothing measurable and costs a
+  lifecycle problem.
+- **An animation writes through to paint rather than marking style dirty.**
+  Not built yet, decided now: marking style dirty every frame drags the whole
+  cascade behind a 60fps animation, which is the one workload where the naive
+  re-match above stops being free.
+- **What is deliberately not here: the signal wiring.** An `effect()` per
+  reactive binding is the renderer's, and building it now would be an
+  architecture guess with nothing to check it against. `Restyler` takes marks
+  from whatever calls it.
+
 ### Canvas
 
 - **A canvas is a rect plus an anchor, and it does not know its anchor.** The
