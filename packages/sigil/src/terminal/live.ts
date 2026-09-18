@@ -101,7 +101,10 @@ export function createLiveRegion(opts: LiveRegionOptions = {}): LiveRegion {
 	let plainWritten: string | undefined;
 	let height = 0;
 	let offResize: (() => void) | undefined;
-	let cursorHidden = false;
+
+	// whether this region is what hid the cursor, rather than whether the cursor
+	// is hidden: showing it again is only this region's to do if it was
+	let hidCursor = false;
 
 	// after a resize the rows the last frame occupies is not the number it
 	// occupied when it was drawn, and there is no way to recover the real one.
@@ -131,8 +134,11 @@ export function createLiveRegion(opts: LiveRegionOptions = {}): LiveRegion {
 		});
 
 		if (isLive()) {
-			terminal.hideCursor();
-			cursorHidden = true;
+			// only if this is the call that hid it. A full-screen app that hid the
+			// cursor before running a spinner is still hiding it when the spinner
+			// stops, and a region that showed it anyway would be putting back a
+			// cursor over somebody else's screen
+			hidCursor = terminal.hideCursor();
 		}
 
 		return true;
@@ -143,8 +149,8 @@ export function createLiveRegion(opts: LiveRegionOptions = {}): LiveRegion {
 		offResize?.();
 		offResize = undefined;
 
-		if (cursorHidden) {
-			cursorHidden = false;
+		if (hidCursor) {
+			hidCursor = false;
 			terminal.showCursor();
 		}
 
