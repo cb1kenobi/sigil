@@ -71,8 +71,9 @@ an empty directory on a hit. `pnpm test` and `pnpm coverage` filter their build
 to `./packages/*`: a test run has no use for the site, and CI runs the suite on
 nine node-and-os combinations.
 
-`packages/cli/src/` is a skeleton — the bin, `--version`, and the schema the
-filesystem router will replace. Its commands are not written yet.
+`packages/cli/src/` is the bin, `--version`, the schema the filesystem router
+will replace, and `src/utilities/` — the utility generator. Its commands are not
+written yet.
 
 `src/i18n/` is an empty placeholder.
 
@@ -266,6 +267,26 @@ These look like bugs and are not. Each is intentional and covered by tests.
   heuristics are not a grammar to document. An out-of-range offset is refused
   arithmetically for the reason the clock is, rather than left to `Date`, which
   only happens to reject it. See `test/parser/regressions.test.ts`.
+- **`auto` runs the same checks and gives up rather than throwing.** The calendar
+  check was added to `date` while `auto` went on matching the same `dateRE` with
+  neither half of it, so the defect stayed alive on a second path: `2024-02-30`
+  was March 1st and `2024-13-01` an `Invalid Date`, an object whose `getTime()`
+  is `NaN` with nothing having said so. That path is also the default one, since
+  an undeclared option is coerced with `auto` -- it is reachable without anybody
+  writing `type: 'auto'`. Both now read a match through one function, because two
+  readers of one pattern disagreeing about what it proves is how the first fix
+  reached only one of them -- and it is why the clock and the offset above cost
+  nothing to share: they went into that function rather than beside it, so the
+  widened pattern and everything that reads it stayed one answer. What follows
+  differs and belongs to the caller:
+  `date` was asked for a date and throws, while `auto` is a ladder of guesses
+  that ends at the string it was handed -- it does not throw on JSON it cannot
+  parse either -- so a date-shaped string that is not a date is simply not the
+  date guess. Throwing there would fail a parse over an undeclared option nobody
+  declared a type for, which is the opposite of what `allowUnknownOptions` is
+  for. `auto` still reads a 13-digit epoch as a number rather than a date: the
+  two types match different shapes on purpose, and sharing the check does not
+  merge them. See `test/parser/regressions.test.ts`.
 - **A data type name is matched anchored.** `optionTypesRE` and `argTypesRE`
   were written `/^auto|bool|...|yesno$/`, where the alternation binds looser
   than the anchors -- so the pattern read as `^auto` OR `bool` OR ... OR
@@ -284,6 +305,19 @@ These look like bugs and are not. Each is intentional and covered by tests.
   `src/wrap/sgr-state.ts` already
   modeled this for the wrapper; the two say it separately rather than sharing a
   module across the styler and the wrapper.
+- **A sequence the wrapper cannot reopen travels with the word it applies to.**
+  A break throws away the gap between two words and keeps the effect of the SGR
+  that was in it, because opening the next line from the state is what writes
+  those attributes back. A hyperlink has no slot in that state -- `sgr-state.ts`
+  passes OSC through _untouched_, and untouched only happens when the sequence
+  is written out -- so one still pending at a break was deleted: an OSC 8 open in
+  front of a word that wrapped took the link away, and a close in the gap left
+  every later line, and anything joined onto the result, inside the hyperlink.
+  `isSgr()` is what says which of the two a sequence is, asked in one place so
+  that the wrapper and the state cannot come to disagree. What is carried is
+  written at the start of the next line, after the attributes that line reopens:
+  SGR and OSC are separate terminal state, so their order between themselves
+  says nothing. See `test/wrap/wrap.test.ts`.
 - **`bool` is strict and symmetric.** `true`/`t`/`yes`/`y`/`on`/`1` are
   true, `false`/`f`/`no`/`n`/`off`/`0`/`''` are false, case-insensitively,
   and anything else throws. It does not follow minimist's
@@ -410,6 +444,41 @@ false` rethrows instead; a function replaces the handler.
   conditions this loader can honor are read: `import`, `node`, `default`, then
   `require`, since a CommonJS entry still loads. `browser`, `types`, and user
   conditions are skipped rather than guessed at.
+- **A path in a command declaration is relative to the file that declared it.**
+  A command's own `path` was resolved against the module it came from and the
+  subcommands that module declared were not, so a module exporting
+  `commands: { all: './all.js' }` -- the layout a large CLI actually wants --
+  was looked up from the process's working directory, which for an installed
+  CLI is wherever the user was standing and has nothing to do with where the
+  command modules live. Three things hold it together. The directory is settled
+  before the subcommands are registered rather than after, because registering
+  them is what reads their paths. It is carried as `cmd[Internal].baseDir`
+  rather than recovered from the command's own resolved `path`, which points
+  one directory away from the file that declared it -- and is what a hook reads
+  to resolve a path of its own. And it is `resolve()` rather than `join()`, so
+  an absolute path stays the answer it already was instead of being hung off a
+  base. `loadCommand()` therefore hands `initCommand()` the file system path
+  and builds the `file://` URL only for the dynamic `import()`, which is the
+  one reader that wants one: `dirname('file:///a/b.js')` is not a directory
+  anything can be resolved against. A schema the app wrote inline has no file
+  to be relative to, so its own paths still resolve from the working directory
+  -- which is why every example passes an absolute one. Covered by
+  `test/parser/regressions.test.ts`.
+- **A loaded module's declaration is one file's, because the placeholder's
+  subcommands are handed over already built.** They are the one thing in the
+  merge that a second file wrote, and a merged declaration cannot say which
+  directory each half is relative to: a placeholder giving `'./sub/build.js'` as
+  its `path` and `'./all.js'` as a subcommand means `all.js` beside the file
+  that declared the placeholder and everything `sub/build.js` declares beside
+  `sub/build.js`, and one base cannot be both.
+  So the placeholder's registry goes into `merged.commands` as initialized
+  commands rather than as the paths they were declared as -- `initCommand()`
+  hands an initialized command straight back, so registering them again costs
+  nothing and resolves nothing -- and every path left in the merge is the
+  module's own. Picking the base by where the subcommands came from was the
+  first answer and it was wrong in the other direction: it gave the loaded
+  command the placeholder's base, so the module's own `path` and anything a
+  hook of the module's resolved were read against the wrong directory.
 - **A uid of `0` is a uid, and `mkdirOwnerSync()` owns what it made and nothing
   else.** Root is `0` and `0` is falsy, so asking `uid && gid` read a caller who
   asked for group `0` -- `wheel`, and the group of every ancestor under `/var`,
@@ -551,6 +620,38 @@ false` rethrows instead; a function replaces the handler.
   column layout from resolving heights against nothing.
 - **`min` wins over `max` where they conflict**, as in CSS, which is what stops a
   box collapsing below its content when a stylesheet says something impossible.
+- **A node's size is settled by whoever placed it, and `layoutNode()` never
+  clamps it again.** `makeItem()` resolves a child's `min` and `max` against the
+  containing block -- the parent's content box, which is what a percentage is
+  _of_ -- and the flexible resolution clamps to them; `layout()` does the same
+  for the root, whose containing block is the space it was given. Clamping a
+  second time on the way down read the same declarations with less to go on, in
+  two ways. A percentage resolved against the size just handed out, so a growing
+  item under `max-width: 50%` in a ten-wide row was clamped to five, and the five
+  was then read back as the base and clamped to three. And `min-height: auto`
+  resolved to no minimum at all, because that one lives in a measurement only
+  `makeItem()` takes -- so a `max` beat a minimum that is defined to beat it, and
+  a three-row text came back one row tall. Either way the box was smaller than
+  the hole its siblings' positions had already reserved, which is a gap nothing
+  declared and which containment cannot see: a shrunken box is still inside its
+  parent and still clear of its siblings. `checkInvariants()` checks the
+  observable half instead -- adjacent items on a packed line abut, so a box that
+  did not fill its hole moves its neighbour -- because the allocation itself is
+  not in the result, which leaves an only child and the last item on a line
+  uncovered.
+- **`measure()` has one argument doing two jobs, and the root's is left as it
+  was.** It reads the node's own `width` back off that argument -- which is how a
+  declared width reaches the measure pass at all -- and then wraps at whatever
+  that produced, so the number a percentage is _of_ and the number the box ends
+  up with cannot both be passed. Moving the root's clamp into `layout()` made it
+  tempting to measure at the clamped width, which is the one answer wrong twice
+  over: a root `width: 50%` under a `max-width` of eight, in forty columns,
+  resolved the `50%` against that eight and came back six rows tall inside a box
+  eight columns wide. So the base stays what it always was -- the width the
+  declaration resolved to, else the space the root was given -- and a root whose
+  `min` or `max` binds is still measured at a width it does not have. Fixing that
+  means `measure()` taking a used size as well, which is every caller, and is not
+  this rule's to do.
 
 ### Style
 
@@ -642,6 +743,10 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
 - **`none` parses only where "no limit" is a thing to say.** Accepting it on all
   fourteen length properties made `width: none` and `margin: none` parse and then
   behave as `auto` or as zero -- not CSS, and not what the author meant.
+- **A keyword list is frozen too, not just the slot holding it.** `Object.freeze`
+  on a definition freezes the reference, and `parseKeyword` closes over the same
+  array -- so a push onto `PROPERTIES.display.keywords` made `display: grid`
+  parse. Same hole as the one below, one level further in.
 - **The property table is frozen, definitions included.** The initial values were
   frozen and the slots holding them were not, which is the same TypeScript
   fiction one level up: `PROPERTIES.width.initial = cells(7)` changed what
@@ -755,6 +860,14 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
 - **Comments are removed by the cursor, not by each reader.** A comment may sit
   anywhere, mid-selector included, and every reader downstream would otherwise
   have to know that -- and a semicolon inside one is not a declaration boundary.
+- **A backslash escapes the next character in an identifier, and the name that
+  comes back is unescaped.** `.md\:flex-row` is how a class _called_
+  `md:flex-row` is written, because the colon means something else to this
+  grammar -- which is what Tailwind does and why its class names are legal CSS.
+  What the name is compared against is the class an element carries, so it is
+  the unescaped form that is stored. CSS's hex escapes (`\3a `) are deliberately
+  not read: nothing generates them and they carry a trailing-space rule that is
+  its own source of surprises.
 
 ### Colour degradation
 
@@ -817,6 +930,143 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
 - **The basic sixteen are matched against the xterm defaults.** Terminal themes
   make them unknowable, and being wrong for somebody running Solarized is a
   smaller failure than refusing to degrade.
+
+### The utility layer
+
+Lives in `packages/cli/src/utilities/`, because it is a generator and a
+stylesheet rather than anything the runtime knows about.
+
+- **A utility is a generated stylesheet rule, and nothing in the runtime knows
+  the difference.** `p-2` is `.p-2 { padding: 2 }` -- the same class selector,
+  the same specificity, the same cascade. No new resolution path, no new
+  precedence rule, nothing added to the matching engine. It is a rule rather
+  than an implementation detail because the obvious optimization breaks it: the
+  moment somebody special-cases `class="p-2"` into a direct property write it
+  becomes a parallel mechanism with its own precedence, its own bugs, and a
+  divergence from the cascade that only shows up where nobody tested.
+- **The keyword lists live on the property table, not in the generator.** They
+  used to be reachable only inside each parser's closure, so the table could say
+  whether a string was accepted but not what a property accepts -- and a
+  generator had to carry a second copy of all sixteen lists and go quietly out
+  of date. `fromKeywords()` puts one list where both the parser and the
+  generator read it, so a keyword added to a property gets its utility free.
+- **What the table cannot supply is the naming, and that is the honest split.**
+  The table knows `justify-content` takes `space-between`; that the utility is
+  spelled `justify-between` is ours to decide, and every invented name is one
+  somebody has to learn. Tailwind's spelling wherever it exists, ours only where
+  a terminal has no web analogue -- `border` meaning one cell of single-line
+  border, because a terminal border has exactly one width and `border-2` has
+  nothing to mean here.
+- **Every generated declaration is parsed on the way out.** A utility that names
+  a property the table does not have, or a value the property would refuse,
+  fails the build rather than shipping a rule that silently matches nothing.
+  This caught `bright-black` on the first run: a fine class name and not a
+  colour `parseColor()` takes, which is the hyphenated-class/unhyphenated-value
+  split this file is built on.
+- **Two utilities of one name is an error.** A class that quietly applies both
+  is the failure a generated vocabulary is most prone to, and it happened
+  immediately: `hidden` was `display: none` and `visibility: hidden` at the same
+  time. Visibility's is `invisible` now, which is Tailwind's spelling anyway.
+- **The whole base set ships; there is no scanner.** Tailwind's central problem
+  is that the utility space is combinatorially enormous, so it cannot ship them
+  all. Here the scale is bounded by the medium -- spacing is a handful of cells
+  because there is nothing between one cell and two, there are sixteen colours,
+  and the property set is fifty-odd entries -- so the base set is a few hundred
+  rules and shipping it whole is much simpler than deciding what to leave out.
+- **Arbitrary values are deliberately out.** `p-[13]` and `text-[#ff8800]` are
+  what make the space unbounded again, and they are the reason a scanner has to
+  exist at all. They are SIG-81's, along with the question of what a computed
+  `class` expression does, which should be answered once rather than twice.
+- **Two variants are better here than on the web, and two are missing.**
+  `md:flex-row` is the responsive problem a TUI actually has and nothing solves
+  well today; `c16:text-red` is SIG-61's "give the author control" in a shape
+  people already know. Not `hover:` until mouse tracking exists, and not `dark:`
+  -- a terminal has no such mode.
+- **`@apply` is one statement, and an `@apply` in a comment is not one.** The
+  name list stops at `;`, `{` or `}`: a regex of `[^;}]+` also matched a brace,
+  so `@apply foo { bar: 1; }` swallowed the block after it and a missing
+  semicolon ran the list on into the next declaration. Whatever followed the
+  last name is put back, since a source transform that eats the space before a
+  `}` is one whose output nobody can diff.
+- **A comment inside an `@apply` is trivia, not a boundary.** The first fix
+  split the source on comments and expanded each side, which made
+  `@apply p-1 /* and */ mt-2;` expand half of itself and leave the rest behind
+  as a declaration the parser then choked on. Comments are trivia everywhere
+  else in a stylesheet -- `#trivia()` and `#until()` in the parser already treat
+  them that way -- and this reads them the same. An `@apply` that lives wholly
+  inside a comment is still just a note about `@apply`, and an unterminated
+  comment is an error rather than a hole to walk through.
+- **`@apply` expands at build time into the component layer.** That is where the
+  cascade's layer ordering puts a component rule, so an app can still override
+  it with a utility -- which is the whole reason `@apply` works in Tailwind.
+  Expanding at build time is also what keeps the runtime ignorant: what it sees
+  is a component rule with ordinary declarations in it. A _variant_ cannot be
+  applied and says so, because it is a rule in another context rather than a set
+  of declarations.
+
+### Style invalidation
+
+- **Props do not participate in invalidation.** Props override the sheet per
+  property and there are no attribute selectors, so writing a prop cannot change
+  any _other_ element's resolved style -- there is no rule that could have
+  matched differently. A prop write therefore skips style resolution entirely,
+  re-applies props over the kept `CascadeResult`, and marks paint. That is the
+  common case for a component updating itself and it costs nothing. It only
+  holds because attribute selectors are out, which is why those two decisions
+  are one decision.
+- **Three dirty bits, each implying the ones after it.** `style`, `layout`,
+  `paint`. A style change can move a box so it implies layout; a layout change
+  moves what is on screen so it implies paint. `DIRTY_ORDER` is the order a
+  frame settles them in and the order they imply each other in.
+- **Naive, and measured rather than asserted.** A full re-match of 201 elements
+  against 100 rules is 0.67ms median, 1.05ms at p95 -- once per frame at most.
+  Browsers build invalidation sets because they have two orders of magnitude
+  more of both. Start naive, expect naive to win permanently, and measure before
+  believing otherwise. What must not happen is an architecture where the
+  optimization could not be added: the seam is the set of elements `update()`
+  re-resolves, and narrowing that set is the whole of what an invalidation set
+  would do.
+- **A class change restyles the subtree and the siblings, not the tree.** A
+  combinator reaches downwards and sideways from an element, never up, so those
+  are the only elements whose match can depend on it. Sideways is the half that
+  is easy to forget and visible immediately when wrong: `:nth-child()` and
+  `+`/`~` mean inserting a child changes what its siblings match, and none of
+  those siblings changed in any way an element-level check would see.
+- **The walk is in document order, because a child's inherited values come from
+  its parent's _resolved_ style.** The parent has to have been resolved first,
+  which is also why the prop path is a branch inside the walk rather than a pass
+  after it. _When_ a parent forces its children is the entry below, and it is
+  not "whenever it was restyled" -- that wording is what both of the misses
+  below were compatible with.
+- **Styles are compared by value, not by identity.** A `Length` is an object and
+  two resolutions of `width: 4` produce two equal objects, so comparing by
+  identity reports every property as changed on every restyle and makes the
+  dirty bits mean nothing. Shallow is enough -- the only non-primitive a style
+  holds is a `Length`, and `JSON.stringify` on this path is not.
+- **`LAYOUT_PROPERTIES` sits next to the property table.** It is the one thing
+  about the property set that cannot be derived from the definitions: the table
+  knows what `white-space` accepts and cannot know that changing it re-wraps
+  text. Three that surprise people -- `borderStyle` is layout because a border
+  takes a cell on each edge while its _colour_ does not, and `textTransform` and
+  `whiteSpace` are layout because both change how wide a text measures. One that
+  surprises the other way: `visibility` is paint-only, because hidden content
+  still takes its space, which is the layout engine's own recorded decision.
+- **The resolved style does not live in a `Computed`, and that is settled rather
+  than deferred.** It would make invalidation fall out of the signal graph for
+  free, and it costs a graph node per element per property -- thousands for a
+  tree of hundreds -- against a full re-match already measured at well under a
+  millisecond. It also lands on the signals layer's own known limitation: edges
+  are strong and bidirectional, so every element ever removed stays reachable
+  until its sources die. Elegance that buys nothing measurable and costs a
+  lifecycle problem.
+- **An animation writes through to paint rather than marking style dirty.**
+  Not built yet, decided now: marking style dirty every frame drags the whole
+  cascade behind a 60fps animation, which is the one workload where the naive
+  re-match above stops being free.
+- **What is deliberately not here: the signal wiring.** An `effect()` per
+  reactive binding is the renderer's, and building it now would be an
+  architecture guess with nothing to check it against. `Restyler` takes marks
+  from whatever calls it.
 
 ### Canvas
 
@@ -901,6 +1151,17 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   kept its glyph -- and the last `put()` wrote its continuation one column _past_
   the rectangle, over whatever else was painted there. Three columns cannot hold
   two wide clusters, and half of one is worse than a gap.
+- **`write()` clips at the left edge and gives up at the right.** `put()` answers
+  `0` for any off-grid column, and reading that as "nothing further will land" is
+  true walking off the right edge and false at a negative one, where advancing
+  walks _into_ the grid -- so `write(-2, 0, 'hello')` on a five-wide grid painted
+  nothing at all while `fill()` clipped the same rectangle correctly, and two
+  sibling APIs disagreed about what off-grid means. A wide cluster straddling
+  column zero is still refused, because a survivor is half a glyph, but only that
+  cluster and not the rest of the string. What comes back is the **advance from
+  `x`**, not a count of the cells painted: `x + returned` is where a next run goes
+  whichever edge clipped this one, it is the same number for a run that fits, and
+  a caller that needs to know what landed has `inside()`.
 - **The cell class is `CellBuffer`, not `Buffer`.** The shorter name is Node's
   global, and a file that forgets the import gets a byte buffer and a
   deprecation warning rather than a type error.
@@ -971,6 +1232,28 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   pixel short at small font sizes. Out-of-range points are ignored rather than
   refused: a plot clips at its box, and requiring every caller to bounds-check
   each point is how the check ends up in the wrong place.
+- **A point the loop cannot step towards is out of range, and it is refused
+  before anything loops.** `Dots.line()` is Bresenham, which ends by arriving at
+  the end point: `NaN === NaN` is false, a step towards an infinity never
+  arrives, and past 2^53 adding one is a no-op -- so `line(1e308, 0, 0, 0)` steps
+  forever without moving, exactly the way one missing sample from a plot did,
+  painting nothing while it did since `set()` ignores what it cannot place. The
+  endpoints are truncated already, so what the guard asks is whether a step of
+  one still means something, which is `Number.isSafeInteger` and not
+  `Number.isFinite`. A point it can walk to is a different thing and still
+  clips, which is the rule above -- including a long line that is merely slow to
+  walk, since bounding that is a decision about clipping rather than about a
+  loop that cannot end.
+- **Every sub-cell entry point answers for a coordinate that is not a number,
+  because none of them can.** Each comparison in a bounds check is false for
+  `NaN`, so it passed straight through: `Dots.#locate()` reached `DOT_BITS[NaN]`
+  and the row lookup threw a `TypeError`, `Dots.charAt()` reached `#cells[NaN]`
+  and `String.fromCodePoint(NaN)` threw a `RangeError`, and `Pixels.#index()`
+  wrote to index `NaN`, which a typed array drops, then handed `undefined` back
+  with `Color` written on it. Three spellings of one hole in three methods whose
+  shared contract is to ignore what they cannot place. `charAt()` truncates as
+  well, because it builds its own cell index and a fraction reached the same
+  `undefined`.
 - **No passthrough image protocols: Kitty, iTerm2 and Sixel are out.** Fidelity
   is a capability tier the way colour depth already is -- cells always, then
   sub-cell block and braille characters everywhere, and that is where it stops.
@@ -979,6 +1262,29 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   most of ssh, in CI, and in Terminal.app. Images are approximated with half
   blocks instead: two pixels per cell, the top as the foreground and the bottom
   as the background, which is nothing but cells and works everywhere.
+
+### Prompts and keys
+
+- **A text prompt inserts the key that named itself, and it moves over grapheme
+  clusters.** A real character decodes with its `name` and its `sequence` the
+  same string, while a named key's name is one the terminal never sent -- `up`
+  for `ESC [ A`, `tab` for a `\t`, `unknown` for the bracketed paste marker. The
+  test used to be whether the _name_ had a display width, which is true of every
+  one of them, so Up typed `up` and Escape typed `escape`; it was false of a
+  combining mark, so an NFD paste of `café` arrived as `cafe`. What is inserted
+  is the sequence rather than the name, so the two can never disagree, and a C1
+  control is refused there because `decodeKeys()` already names every C0 one as
+  Enter, Tab, Backspace, or Ctrl with a letter. The cursor is an offset into the
+  value rather than an index into its clusters -- inserting and slicing stay
+  ordinary string work -- and it only ever lands on a boundary `graphemes()`
+  agrees with: `cursor ± 1` walks UTF-16 code units, so a backspace over an emoji
+  left its high surrogate in the value and every edit after it worked on a string
+  no terminal can draw. An insertion is the one edit that does not move by whole
+  clusters, because what was typed can join the cluster after the cursor -- a
+  letter typed in front of a lone combining mark makes one cluster of the two --
+  so it snaps forward to the end of what it landed inside. `truncateCell()` in the table already read text this way;
+  the prompt was the one place that did not. See
+  `test/components/prompt.test.ts`.
 
 ### Signals
 
@@ -1104,6 +1410,26 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   signal written to `1` and back to `0` before the flush still re-runs its
   effects, once, with the value it settled on. Nothing records what a signal held
   before a burst, and both writes were real changes when they happened.
+
+### Debug logging
+
+- **A `DEBUG` namespace is a literal with one wildcard, and a pattern that will
+  not compile turns logging off rather than the library.** Every token is
+  escaped except `*`, which becomes `.*?`. Nothing was escaped before, so
+  `DEBUG='('` threw a `SyntaxError` out of `enable()` -- which runs at module
+  load, behind every entry point there is -- and the import died before `main()`
+  existed to render it as a message, while the quieter half of it had
+  `DEBUG='sigil.updates'` matching `sigilXupdates` too. The `new RegExp` calls
+  are wrapped anyway, because escaping is a claim about a grammar and the cost
+  of being wrong about that one is a library nobody can import; `metaRE` is
+  declared above the call that reads it for the same reason, since a `const`
+  further down the file is in its temporal dead zone at load and that is the
+  identical dead import with a `ReferenceError` on it.
+- **A pattern that names nothing leaves logging off.** `,,`, whitespace, and a
+  lone `-` all reach the token loop and add neither an allowed namespace nor an
+  excluded one, and they used to fall through to the `/./` that means
+  "everything the exclusions left" -- so a `DEBUG` naming nothing at all turned
+  every logger in the process on. Covered by `test/debug/debug.test.ts`.
 
 ### Help
 
@@ -1266,6 +1592,104 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   required one is promoted; and `multiple`, `required`, `type`, and `choices`
   written out on an argument object are all read.
 
+### Paths
+
+- **Every base directory is read through one rule: expand, then require
+  absolute.** The XDG spec says a base directory must be absolute and that a
+  relative one is to be ignored, so `XDG_CACHE_HOME=./.cache` falls back rather
+  than putting a cache in whatever directory the app happened to be started
+  from. The `~` is expanded _before_ that is asked, and that ordering is the
+  half the module used to disagree with itself about: `XDG_CONFIG_DIRS` always
+  expanded its segments and the four `_HOME` variables never did, so
+  `XDG_CACHE_HOME=~/.cache` reached `mkdir` as a directory named `~` -- the same
+  defect the table's own `~/Library/Caches` entries carry an entry for, fixed
+  there and not here. The rule is `baseDir()` and everything asks it: each
+  environment variable, each segment of a `_DIRS` list, and each entry of the
+  platform table. Two consequences follow from asking it everywhere. An empty
+  `_DIRS` segment -- `XDG_CONFIG_DIRS=:/etc/xdg`, or a list with a trailing
+  separator -- is a hole rather than a directory, where `expand('')` is `'.'`
+  and truthy and `combinePaths()` could not tell it from a real entry, so the
+  working directory joined the config search path. And a Windows fallback array
+  walks past an entry that did not expand: `expand()` leaves `%LOCALAPPDATA%` as
+  it found it when the variable is unset and the literal is truthy, so the array
+  stopped at its first entry and `~/AppData/Local`, the fallback the array
+  exists for, was unreachable. Absoluteness is `node:path`'s, so it is the
+  running platform's -- a drive-relative `C:foo` is absolute nowhere, which is
+  the answer Windows itself gives -- and `join`, `normalize` and `delimiter` are
+  already bound that way; a second, call-time platform decision for this one
+  check is how one line comes to disagree with the next about which platform it
+  is on. `~user` is a shell convention `expand()` does not implement, so it stays
+  literal and is refused by the same rule rather than becoming a directory named
+  `~nobody`, and a `~` with no home to put over it stays a `~` for the same
+  reason. That last one needed `home()` fixed to mean it: it was
+  `paths ? join(_home, ...paths) : _home` and an array is always truthy, so a
+  bare `home()` went through `join()` and there was no way back out --
+  `join('')` is `'.'`, so a home the platform could not name came back as the
+  working directory, and `expand()` had no falsy value to leave the `~` alone
+  over. A real path where there is none is the one failure the caller cannot
+  see. See `test/paths.test.ts`.
+
+### Updates
+
+- **A package name is percent-encoded into the registry URL and out of the cache
+  filename.** It is one path segment and it is not a filename, and a scoped name
+  -- which is what this framework publishes under -- was wrong as both.
+  Interpolated raw, `/-/package/@ttylabs/sigil/dist-tags` asks for a package
+  called `@ttylabs` with `/sigil/dist-tags` trailing. registry.npmjs.org happens
+  to accept `%40scope%2Fname`, `@scope%2fname` and the raw slash alike --
+  verified by hand against the real endpoint, never from the suite -- but
+  `registryURL` is the caller's, and a self-hosted registry behind a
+  path-normalizing proxy owes nothing.
+- **The cache filename was a collision, not a broken write.** Worth saying plainly,
+  because the obvious reading of `join(cacheDir, '@ttylabs/sigil-latest.json')` is
+  a file in a directory nobody created, and that is not what happened: `check()`
+  creates `dirname()` of the whole path, so the scope was created too and the
+  cache merely scattered a level down. What was actually broken is that a dash
+  cannot separate a name from a tag when a name may contain one -- `a-b` at tag
+  `c` and `a` at tag `b-c` were one file, and two packages sharing a cache file
+  share a version, so one of them is told the wrong thing to upgrade to. The
+  transform therefore has to be _injective_, which percent-encoding is; the `@`
+  separator is the same argument, since `encodeURIComponent()` leaves `-` alone
+  but never leaves an `@`, so splitting on it recovers exactly what went in.
+- **The parent builds the registry URL; the worker is handed it.** The worker is a
+  string piped into `node --input-type=module`, so nothing can import it, stub its
+  `https`, or call one function out of it -- anything it computes is observable
+  only by making a real request, and a test suite here does not make those.
+  Encoding a package name is exactly the kind of thing that has to be pinned by a
+  test, so it happens in `registry.ts` where a test can reach it. The rule
+  generalizes: what the worker decides for itself is what nothing else can check.
+- **The worker times out its own request, because nothing else will.** `https.get()`
+  has no timeout, and on the default `wait: false` path the parent's timer is
+  unreffed precisely so the check costs the run nothing -- so a registry that
+  accepts the connection and then says nothing left a node process alive for as
+  long as its socket was, with the CLI that spawned it long gone. It is an
+  inactivity timeout, which covers a stall partway through a response as well as a
+  first byte that never comes; destroying the request surfaces through the `error`
+  handler that already exits non-zero. `timeout: 0` opts out in the worker the same
+  way it skips the timer in the parent, and a whitespace-only `REQUEST_TIMEOUT`
+  is refused rather than read as that opt-out, because `Number(' ')` is `0` and a
+  variable nobody meant to set must not be how the timeout gets switched off.
+  What it does not cover is a registry that dribbles: one byte every
+  `timeout - 1` ms resets an inactivity timer forever. That is the same deadline
+  the parent's timer means when the parent is still alive, and closing it in the
+  orphan case means a second, absolute timer whose expiry would have to mean
+  something different from the option's name -- left alone deliberately, and
+  written down here rather than discovered again.
+- **The response gets its own `error` listener, because the timeout does not
+  cover a body that stops half way.** A connection dropped mid-body destroys the
+  socket, and the inactivity timer goes with it, while `end` never comes because
+  the response did not finish -- so nothing settles the promise and the worker
+  waits forever. It does not surface as an uncaught exception either, which is
+  why it reads as a process that simply never exits. Measured, not reasoned; it
+  is untested in the suite for the same reason the URL moved out of the worker,
+  since reaching it means a real TLS server dropping a real connection.
+- **Unreffing the child's stdin cannot cost the worker the script it is being
+  fed.** An unflushed write is a libuv _request_, not a handle, and `unref()` only
+  touches handles -- measured: a parent with every pipe unreffed still stays alive
+  for a two-megabyte write to a child that is not reading. So stdin joins its two
+  siblings in the loop rather than being the one pipe left holding the event loop
+  open on a path whose whole point is to hold nothing.
+
 ## Known bugs
 
 - **`afterParse` fires before `state.argv` exists.** The hook runs at the end of
@@ -1308,6 +1732,16 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   option the registry holds -- and the registries are what a hook is handed. The
   inherited members are the other half of it, since `constructor` and `toString`
   read back truthy and answer a lookup nothing declared.
+- **A destination is cased by `toUpperCase()`, never by the process locale.**
+  `camelCase()` used `toLocaleUpperCase()`, which reads it -- and in Turkish and
+  Azeri `i` uppercases to `İ` (U+0130), so every destination a separator built
+  moved on a machine set to `tr-TR`: `--log-info` landed on `logİnfo`, as did an
+  undeclared option's and an argument's. `src/infer.ts` writes the same rule with
+  TypeScript's `Capitalize`, which has no locale, so the types said `logInfo`
+  while the runtime did not -- and only there, because `\w` is ASCII and `i` is
+  the only letter whose mapping differs, so an en-US CI can never see it. A
+  destination is a JavaScript identifier rather than prose, and an identifier has
+  no language. Covered by `test/parser/regressions.test.ts`.
 - Parser errors are thrown as plain `Error`s with user-facing messages; they
   are what the user sees, so write them accordingly.
 - Prefer a regression test named after the defect over a comment explaining it.
