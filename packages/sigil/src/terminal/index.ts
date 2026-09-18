@@ -1,5 +1,12 @@
 import { DEFAULT_WIDTH, terminalWidth } from '../wrap/index.js';
-import { ENTER_ALT_SCREEN, HIDE_CURSOR, LEAVE_ALT_SCREEN, SHOW_CURSOR } from './sequences.js';
+import {
+	DISABLE_PASTE,
+	ENABLE_PASTE,
+	ENTER_ALT_SCREEN,
+	HIDE_CURSOR,
+	LEAVE_ALT_SCREEN,
+	SHOW_CURSOR,
+} from './sequences.js';
 
 export { createLiveRegion, frameHeight, type LiveRegion, type LiveRegionOptions } from './live.js';
 export {
@@ -8,12 +15,16 @@ export {
 	cursorDown,
 	cursorRight,
 	cursorUp,
+	DISABLE_PASTE,
+	ENABLE_PASTE,
 	ENTER_ALT_SCREEN,
 	ERASE_DOWN,
 	ERASE_LINE,
 	ERASE_LINE_END,
 	HIDE_CURSOR,
 	LEAVE_ALT_SCREEN,
+	PASTE_END,
+	PASTE_START,
 	SHOW_CURSOR,
 } from './sequences.js';
 
@@ -127,6 +138,19 @@ export interface Terminal {
 	/** Returns to the main screen, if this terminal is what left it. */
 	leaveAltScreen(): void;
 	/**
+	 * Asks the terminal to wrap a paste in markers, and registers to stop asking
+	 * however the process ends.
+	 *
+	 * On the restore list for the same reason the alternate screen is: a CLI that
+	 * dies with this left on hands the user a shell that puts `ESC [ 200 ~` into
+	 * every paste, which is a terminal that has to be reset by hand.
+	 *
+	 * @returns Whether this call is what turned it on, mirroring `hideCursor()`.
+	 */
+	enableBracketedPaste(): boolean;
+	/** Stops the markers, if this terminal is what asked for them. */
+	disableBracketedPaste(): void;
+	/**
 	 * Subscribes to resizes.
 	 *
 	 * @param fn - Called with the new size.
@@ -180,6 +204,7 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
 
 	let closed = false;
 	let altScreen = false;
+	let bracketedPaste = false;
 	let cursorHidden = false;
 	let rawMode = false;
 	let claim: InternalClaim | undefined;
@@ -307,7 +332,7 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
 	 * holding the process's signal handling.
 	 */
 	function syncRestore(): void {
-		if (altScreen || cursorHidden || rawMode || claim?.active) {
+		if (altScreen || bracketedPaste || cursorHidden || rawMode || claim?.active) {
 			attachRestore();
 		} else {
 			detachRestore();
@@ -317,12 +342,19 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
 	function onStreamResize(): void {
 		const size = { height: height(), width: width() };
 
-		// a copy, so the set being iterated is the listeners as they were when the
-		// resize happened: one of them unsubscribing another mid-notify would
-		// otherwise decide by registration order whether that one still hears about
-		// this resize
+		// a copy, and `has`. The copy is not for the reason this used to give: a
+		// listener *unsubscribing* during the walk is handled by a bare `Set`
+		// iterator, which skips an entry removed before it is reached. It is for
+		// the other direction -- a listener that subscribes another would otherwise
+		// have that one notified about a resize it was not yet listening for -- and
+		// the copy then costs the first half back, since a snapshot still holds the
+		// listener that has just gone. Asking the live set is what keeps both. The
+		// same rule as the input router's, written there at length
 		// eslint-disable-next-line unicorn/no-useless-spread
 		for (const fn of [...resizeListeners]) {
+			if (!resizeListeners.has(fn)) {
+				continue;
+			}
 			fn(size);
 		}
 	}
@@ -353,6 +385,11 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
 		if (rawMode) {
 			rawMode = false;
 			stdin?.setRawMode?.(false);
+		}
+
+		if (bracketedPaste) {
+			bracketedPaste = false;
+			writeTo(stdout, DISABLE_PASTE);
 		}
 
 		// the alternate screen goes back first, so that a cursor hidden while it was
@@ -406,6 +443,25 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
 
 		get closed() {
 			return closed;
+		},
+
+		disableBracketedPaste(): void {
+			if (bracketedPaste) {
+				bracketedPaste = false;
+				writeTo(stdout, DISABLE_PASTE);
+				syncRestore();
+			}
+		},
+
+		enableBracketedPaste(): boolean {
+			if (bracketedPaste || !isTTY) {
+				return false;
+			}
+			bracketedPaste = true;
+			attachRestore();
+			ensureGuarded();
+			writeTo(stdout, ENABLE_PASTE);
+			return true;
 		},
 
 		enterAltScreen(): boolean {
