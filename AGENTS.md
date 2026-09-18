@@ -1636,16 +1636,20 @@ stylesheet rather than anything the runtime knows about.
   later write to it, since propagation stops at a node already dirty, and the
   flush that would have caught it is the one the latch refuses. A disposal made
   from _inside_ the drain that gave up -- by an effect body, or by an error
-  handler that shuts the cycle down -- is deliberately not counted: a cycling
-  drain churns the watched set on every pass, because a parent re-run disposes
-  its children, so "something was disposed while draining" cannot tell breaking
-  the cycle from the cycle running, and trusting it is the storm again one level
-  slower. That costs one sequence, which is written down rather than fixed: work
-  the give-up left dirty then waits for the next notification, the next
-  disposal, or a `flush()` the caller asks for -- in a live app the next
-  keystroke or resize, in a test the `flush()` the test already calls. What is
-  lost is
-  the cycle announcing _itself_, which is the one thing that has to be lost. An
+  handler that shuts the cycle down -- counts too, and telling it from the
+  scope's own churn is what took two attempts. A cycling drain disposes effects
+  all by itself, because an effect re-running tears its children down first, so
+  "something was disposed while draining" fires on every pass of a drain going
+  nowhere and cannot, by counting, tell breaking the cycle from the cycle
+  running -- three ways of counting were tried and each was the storm again one
+  level slower. The question is not how many but _who_: the machinery knows
+  exactly which disposals are its own, because it is the one making them, so
+  `teardown` brackets `runCleanups()` and a disposal raised inside it is not
+  evidence of anything. What is left is a disposal the caller made, which is the
+  one thing that changes what the next drain would do and announces nothing of
+  its own. It clears the latch for exactly one retry: if the cycle really was
+  broken the retry settles, and if it was not, the next give-up latches again
+  with no new disposal to clear it. An
   effect dirty for an
   innocent reason during a failed settle is not stranded by it -- every pass
   runs everything pending, so it ran a hundred times -- and a `flush()` the
@@ -1656,6 +1660,41 @@ stylesheet rather than anything the runtime knows about.
   the flush that could not settle. A drain whose error handler _threw_ takes the
   same exit, which is the same failure one level up -- announcing work whose
   report throws asks for that throw forever. See `test/signals/effect.test.ts`.
+- **The bound counts work passes, not loop iterations.** The check for "anything
+  left?" happens at the _start_ of a pass, so the last pass's own work was never
+  looked at: a chain needing exactly `MAX_PASSES` passes did all of it, settled,
+  and was reported as a cycle anyway -- with the right values sitting there
+  already computed. Ninety-nine was clean, a hundred was a lie, a hundred and one
+  was the truth. A false "did not settle" is a lie of exactly the kind that
+  erodes trust in the true one, so the loop asks once more before it reports.
+- **A flush refuses to drain into a run that has not finished.** An effect body
+  may write, and a synchronous scheduler flushes that write where it happens --
+  which during an effect's _first_ run is from inside the `get()` that is running
+  it. The drain then reached that very computed and asked it for the value it was
+  in the middle of producing: `A Computed may not read itself`, once per pass, a
+  hundred times, on top of the one report a cycle actually deserves. The
+  `flushing` guard never covered it, because an initial run is not part of any
+  drain. `bodies` is counted across the whole run rather than around the body
+  alone -- the body returning is not the run finishing, and the commit and the
+  dependency sweep come after it -- and the refused flush is asked for again on
+  the way out, since clearing `queued` had left nothing else to ask. Nested
+  creation unwinds to the outermost run first, which is why it is a count rather
+  than a flag.
+- **A cycle between two scopes is bounded by the chain, since `MAX_PASSES`
+  cannot see it.** The pass bound is per scope by construction: two scopes
+  writing what the other reads settle in a pass or two each, announce the other's
+  work on the way out, and neither ever reaches its own bound -- so it spun
+  forever reporting nothing at all, which is the failure the bound exists to
+  prevent one level up. A flush asked for while any scope was already flushing is
+  _chained_, counted across scopes, and a hundred and one of them in a row is
+  reported and stalled the same way an in-scope cycle is. Recorded when the flush
+  is queued rather than when it runs, because a microtask flush runs after the one
+  that scheduled it has finished and by then there is nothing left to ask. A flush
+  nobody was mid-flush for starts the count again, so ordinary reactivity never
+  approaches it. Worth knowing that the synchronous spelling of this cycle damps
+  itself out instead: each write lands on a run further up the stack that has not
+  committed, and a notification to a computed that is mid-run is swallowed by its
+  own commit.
 - **An error in an effect is reported, never rethrown.** Under the default
   microtask scheduler a rethrow lands in a microtask nobody catches: Node prints
   a raw stack and kills the process, skipping `main()`'s error handling, the

@@ -134,6 +134,29 @@ const report: EffectErrorHandler = (error) => {
 const MAX_PASSES = 100;
 
 /**
+ * How many flushes may follow one another before the chain is called a cycle.
+ *
+ * `MAX_PASSES` is per scope by construction, so it never sees two scopes writing
+ * what the other reads: each drain settles in a pass or two, announces the other
+ * scope's work on the way out, and neither ever reaches its own bound. That is
+ * the same failure the bound exists to prevent, one level up, and it spun
+ * forever reporting nothing at all.
+ *
+ * A chained flush is one that was asked for while some scope was already
+ * flushing, which is both shapes of it: a synchronous scheduler re-enters and a
+ * microtask one runs next. A flush nobody was mid-flush for starts the count
+ * again, so ordinary reactivity -- an effect writing something another scope
+ * watches, once -- never approaches this.
+ */
+const MAX_CHAIN = 100;
+
+/** Flushes running right now, across every scope. */
+let flushesRunning = 0;
+
+/** How many flushes have followed one another without the chain being broken. */
+let flushChain = 0;
+
+/**
  * Builds an independent set of effects.
  *
  * @returns The effect scope.
@@ -151,13 +174,55 @@ export function createEffects(): Effects {
 	 * writes the failed drain made itself all happened before this was set.
 	 */
 	let stalled = false;
+	/**
+	 * Effect bodies running right now in this scope, and whether a flush was
+	 * refused because of one.
+	 *
+	 * An effect body may write, and under a synchronous scheduler that write is
+	 * flushed where it happens -- which for an effect's *first* run is from inside
+	 * the very `get()` that is running it. The drain then reaches that computed,
+	 * asks it for a value it is in the middle of producing, and gets
+	 * "A Computed may not read itself" once per pass, a hundred times. The
+	 * `flushing` guard below does not cover it, because an initial run is not part
+	 * of any drain.
+	 */
+	let bodies = 0;
+	let deferred = false;
+	/**
+	 * Whether a disposal this scope's caller made reached a drain that gave up.
+	 *
+	 * Disposing one side of a cycle is how a caller breaks it, and it announces
+	 * nothing -- so without this the give-up latches `stalled` anyway and the work
+	 * waits for a notification that the disposal was supposed to make unnecessary.
+	 * What made this hard is that a cycling drain disposes effects all by itself:
+	 * an effect re-running tears its children down first, so "something was
+	 * disposed while draining" fires on every pass and cannot tell breaking the
+	 * cycle from the cycle running. `teardown` is what separates them -- not by
+	 * counting disposals but by asking who made them, which the machinery knows
+	 * exactly because it is the one doing it.
+	 */
+	let broken = false;
+	/** Disposals the effect machinery is making itself, tearing children down. */
+	let teardown = 0;
+
+	/** Asks the scheduler for a flush, if one is not already asked for. */
+	function requestFlush(): void {
+		if (!queued) {
+			queued = true;
+			// recorded now rather than when it runs: a microtask flush runs after the
+			// one that scheduled it has finished, so by then there is nothing left to
+			// ask. This is the only moment that knows
+			chained = flushesRunning > 0;
+			scheduler(scheduledFlush);
+		}
+	}
+
+	/** Whether the flush now queued was asked for from inside another one. */
+	let chained = false;
 
 	const watcher = new Watcher(() => {
 		stalled = false;
-		if (!queued) {
-			queued = true;
-			scheduler(scheduledFlush);
-		}
+		requestFlush();
 	});
 
 	/**
@@ -187,17 +252,46 @@ export function createEffects(): Effects {
 			return;
 		}
 
+		if (bodies > 0) {
+			// re-entered from inside an effect body that is not part of a drain,
+			// which is an initial run under a synchronous scheduler. Draining now
+			// would ask a computed that is mid-run for its value. Noted rather than
+			// dropped: the body will ask again on its way out, since clearing
+			// `queued` above has left nothing else to
+			deferred = true;
+			return;
+		}
+
 		flushing = true;
+		flushesRunning++;
+		flushChain = chained ? flushChain + 1 : 0;
+		chained = false;
 		let settled = false;
 		try {
+			if (flushChain > MAX_CHAIN) {
+				// the cross-scope cycle. Reported once and then stalled the same way
+				// an in-scope one is, so the chain stops here rather than at whichever
+				// scope happens to run out of patience first
+				errorHandler(
+					new Error(
+						`Effects did not settle after ${MAX_CHAIN} chained flushes, which usually means two scopes write what the other reads`
+					)
+				);
+				return;
+			}
 			// a scheduler may run this synchronously from inside the watcher's notify
 			// callback. The callback may not touch the graph; the work it scheduled
 			// may, and this is the line between them
 			settled = outsideNotify(() => drain());
 		} finally {
 			flushing = false;
-			stalled = !settled;
-			if (settled) {
+			flushesRunning--;
+			// a disposal the caller made during the drain is the one piece of
+			// evidence that the next attempt may go differently, and it announces
+			// nothing of its own
+			stalled = !settled && !broken;
+			broken = false;
+			if (!stalled) {
 				watcher.watch();
 			} else {
 				// what is dirty is what the drain just gave up on, and a bare re-arm
@@ -221,7 +315,14 @@ export function createEffects(): Effects {
 	 * @returns Whether it settled, as opposed to giving up at `MAX_PASSES`.
 	 */
 	function drain(): boolean {
-		for (let pass = 0; pass < MAX_PASSES; pass++) {
+		// the check is at the *start* of a pass, so the last pass's own work was
+		// never looked at: a chain needing exactly `MAX_PASSES` passes did all of
+		// it, settled, and was reported as a cycle anyway -- with the right values
+		// already computed. Counting the work rather than the loop is what makes
+		// the bound mean what it says, and it is worth the shape: a false "did not
+		// settle" is a lie of exactly the kind that erodes trust in the true one
+		let passes = 0;
+		for (;;) {
 			// re-armed *before* draining, so a write made by an effect during
 			// this pass still schedules the next one
 			watcher.watch();
@@ -229,6 +330,10 @@ export function createEffects(): Effects {
 			if (pending.length === 0) {
 				return true;
 			}
+			if (passes === MAX_PASSES) {
+				break;
+			}
+			passes++;
 			for (const computed of pending) {
 				try {
 					computed.get();
@@ -271,15 +376,24 @@ export function createEffects(): Effects {
 		const runCleanups = (report?: (error: unknown) => void): void => {
 			// a copy, because disposing a child removes it from `children`
 			// eslint-disable-next-line unicorn/no-useless-spread
-			for (const dispose of [...children]) {
-				try {
-					dispose();
-				} catch (err) {
-					if (!report) {
-						throw err;
+			teardown++;
+			try {
+				for (const dispose of [...children]) {
+					try {
+						dispose();
+					} catch (err) {
+						if (!report) {
+							throw err;
+						}
+						report(err);
 					}
-					report(err);
 				}
+			} finally {
+				// these are the scope's own disposals, not a caller's, and telling
+				// them apart is the whole of what makes a disposal usable as evidence
+				// that a cycle was broken -- an effect re-running tears its children
+				// down on every pass of a drain that is going nowhere
+				teardown--;
 			}
 			children.clear();
 
@@ -312,10 +426,12 @@ export function createEffects(): Effects {
 				runCleanups(errorHandler);
 				const outer = currentOwner;
 				currentOwner = children;
+				bodies++;
 				try {
 					cleanup = asCleanup(fn());
 				} finally {
 					currentOwner = outer;
+					bodies--;
 				}
 
 				// the body may have disposed this very effect, in which case the
@@ -353,16 +469,48 @@ export function createEffects(): Effects {
 				watcher.watch();
 			}
 
+			// and a disposal made *during* a drain is the same evidence arriving a
+			// moment earlier -- an error handler shutting the cycle down, or a body
+			// disposing something. It cannot latch `stalled` itself, because the
+			// drain has not given up yet, so it leaves this for the `finally` to read
+			if (flushing && teardown === 0) {
+				broken = true;
+			}
+
 			runCleanups();
 		};
 
 		watcher.watch(computed);
 
 		try {
+			// counted across the whole run rather than around the body alone,
+			// because the body returning is not the run finishing: the commit and
+			// the dependency sweep come after it, and until those are done this
+			// computed still refuses to be read. A flush let in through that window
+			// asks it for the value it is in the middle of producing, which is
+			// "A Computed may not read itself", once per pass, a hundred times --
+			// and that is the whole of the synchronous-creation storm.
+			//
 			// untracked: the first run happens wherever `effect()` was called, and
 			// inside another effect's body that would register this effect as a
 			// dependency of the outer one
-			untrack(() => computed.get());
+			bodies++;
+			try {
+				untrack(() => computed.get());
+			} finally {
+				bodies--;
+				// a synchronous scheduler flushed a write this run made, and that
+				// flush was refused because this run was the thing it would have
+				// drained. Nothing else will ask for it -- the refusal happened after
+				// `queued` had been cleared -- so it is asked for here, where the run
+				// is over and a drain is safe again. Nested creation unwinds to the
+				// outermost run before anything is asked for, which is what `bodies`
+				// counts rather than flags
+				if (bodies === 0 && deferred) {
+					deferred = false;
+					requestFlush();
+				}
+			}
 		} catch (err) {
 			// a throw leaves no disposer with the caller, so nothing could ever
 			// unwatch it -- it would re-run on every later change, forever
