@@ -46,6 +46,8 @@ class OwnerNode implements Owner {
 	/** Set on a root owner only: callbacks waiting for a frame to have happened. */
 	mounts: Cleanup[] | undefined;
 	readonly parent: OwnerNode | undefined;
+	/** Set on a root owner only: where an unmount's throws go. */
+	report: ((error: unknown) => void) | undefined;
 
 	constructor(parent: OwnerNode | undefined) {
 		this.parent = parent;
@@ -139,10 +141,15 @@ export function runWithOwner<T>(owner: Owner | undefined, fn: () => T): T {
  *   module's `effect()`.
  * @returns Whatever `fn` returned.
  */
-export function createRoot<T>(fn: (dispose: Cleanup) => T, effects?: EffectFactory): T {
+export function createRoot<T>(
+	fn: (dispose: Cleanup) => T,
+	effects?: EffectFactory,
+	report?: (error: unknown) => void
+): T {
 	const owner = new OwnerNode(undefined);
 	owner.effects = effects;
 	owner.mounts = [];
+	owner.report = report;
 	return runWithOwner(owner, () => fn(() => disposeOwner(owner, true)));
 }
 
@@ -157,7 +164,39 @@ export function createRoot<T>(fn: (dispose: Cleanup) => T, effects?: EffectFacto
  */
 export function createBranch(): { dispose: Cleanup; owner: Owner } {
 	const owner = new OwnerNode(current);
-	return { dispose: () => disposeOwner(owner, false), owner };
+	return {
+		// what the disposal threw is reported rather than returned and dropped.
+		// `Show` and `For` are the callers, and neither is in a position to do
+		// anything with a cleanup's throw -- while dropping it is how an unmount
+		// that failed to unsubscribe something becomes silent
+		dispose: () => {
+			const errors = disposeOwner(owner, false);
+			if (errors.length > 0) {
+				reportTo(owner, errors);
+			}
+		},
+		owner,
+	};
+}
+
+/**
+ * Hands errors to the root owner's sink, or throws them where there is none.
+ *
+ * Throwing is the fallback rather than dropping, because a `createRoot()` with
+ * no renderer over it has nowhere else to put them and silence is the one answer
+ * that is always wrong.
+ *
+ * @param owner - Any owner in the tree.
+ * @param errors - What was thrown.
+ */
+function reportTo(owner: OwnerNode, errors: readonly unknown[]): void {
+	const sink = owner.root().report;
+	if (!sink) {
+		throw errors.length === 1 ? errors[0] : new AggregateError(errors, 'Errors while unmounting');
+	}
+	for (const error of errors) {
+		sink(error);
+	}
 }
 
 /**
@@ -172,6 +211,13 @@ export function createBranch(): { dispose: Cleanup; owner: Owner } {
 export function onCleanup(fn: Cleanup): void {
 	if (runCleanups) {
 		runCleanups.push(fn);
+		return;
+	}
+
+	if (current?.disposed) {
+		// nothing will ever run it otherwise, and a cleanup that never runs is the
+		// subscription this whole file exists to cancel
+		fn();
 		return;
 	}
 
@@ -246,6 +292,14 @@ export function drainMounts(owner: Owner): unknown[] {
  */
 export function createEffect(fn: () => void | Cleanup): Cleanup {
 	const owner = current;
+	if (owner?.disposed) {
+		// the component this belongs to is gone, so there is nothing for an effect
+		// to keep up to date and nothing left that would ever dispose it. Reached
+		// by a callback that outlived its owner -- a key handler, a promise landing
+		// after unmount -- which is exactly the case `runWithOwner()` exists for and
+		// exactly the case where the answer is to do nothing
+		return () => {};
+	}
 	const run = owner?.root().effects ?? defaultEffect;
 	const owned = inBody === 0;
 

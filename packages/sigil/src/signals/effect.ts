@@ -598,6 +598,13 @@ const defaultEffects: Effects = createEffects();
  * following its own state. Nothing leaks by opting out, because the caller
  * opting out is the one that owns the branch and disposes it.
  *
+ * Which is the whole of the contract: **what is created in here is yours to
+ * dispose**, and there is nothing left that will do it for you. Inside a
+ * component, reach for the renderer's `runWithOwner()` instead -- it does this
+ * and hands the result to an owner, so the effect still dies with something. A
+ * bare `unowned()` around a `createEffect()` in a component body opts out of
+ * both, and the disposer it returns is the only way back.
+ *
  * @param fn - What to run.
  * @returns Whatever it returned.
  */

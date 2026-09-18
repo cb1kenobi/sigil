@@ -44,7 +44,7 @@ import {
 } from '../element/index.js';
 import { errorHandler as defaultErrorHandler } from '../error-handler.js';
 import { measureNode } from '../layout/index.js';
-import { type Effects, effect, flush, setErrorHandler, setScheduler } from '../signals/index.js';
+import { createEffects, type Effects } from '../signals/index.js';
 import { Cascade, Restyler } from '../style/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { createRoot, disposeOwner, drainMounts, getOwner, type Owner } from './owner.js';
@@ -101,12 +101,16 @@ export interface RenderOptions {
 	 */
 	colorLevel?: ColorLevel;
 	/**
-	 * The effect scope. Defaults to the module's, which is what makes a bare
-	 * `createEffect()` inside a component reach this renderer's frame loop.
+	 * The effect scope. Defaults to one of this renderer's own.
 	 *
-	 * Pass an independent one from `createEffects()` where two things drive
-	 * frames -- two renderers sharing the module's scope would each install a
-	 * scheduler over the other's.
+	 * Its own rather than the module's, which was the first answer and is a trap:
+	 * a scope holds one scheduler and one error handler, so a second `render()`
+	 * installed its frame loop over the first's. The first renderer then painted
+	 * nothing ever again, an effect that threw in *either* tore down whichever
+	 * had installed last -- restoring the terminal out from under the other --
+	 * and disposing one put back the handlers it had saved rather than the ones
+	 * in place. A `createEffect()` inside a component still reaches this loop,
+	 * because it asks the owner it was created under rather than the module.
 	 */
 	effects?: Effects;
 	/** Milliseconds between frames. Defaults to 1000/30. */
@@ -141,6 +145,14 @@ export interface Renderer {
 	readonly mounted: boolean;
 	/** What the component built. Hand this to `createInput()` for keys and focus. */
 	readonly root: Element;
+	/**
+	 * What holds each element's resolved style.
+	 *
+	 * Exposed because there is one thing only its owner can do and an app
+	 * legitimately needs: `touchSheets()`, for a stylesheet swapped at runtime --
+	 * a theme change has no other way to say that every rule is stale.
+	 */
+	readonly restyler: Restyler;
 	/** The element tree, for anything that wants the marks. */
 	readonly tree: Tree;
 }
@@ -166,7 +178,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 	 */
 	const autoHeight = ownBackend && opts.height === undefined;
 	const frameMs = Math.max(0, opts.frameMs ?? FRAME_MS);
-	const scope: Effects = opts.effects ?? { effect, flush, setErrorHandler, setScheduler };
+	const scope: Effects = opts.effects ?? createEffects();
 	const cascade = opts.cascade ?? new Cascade([]);
 	const restyler = new Restyler(cascade);
 	const onError = opts.onError ?? ((error: unknown) => defaultErrorHandler(error));
@@ -282,6 +294,16 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 		//    produces the marks the rest of the frame reads
 		scope.flush();
 
+		// an effect that threw was reported by the scope's error handler, which is
+		// `fail()` -- and a handler is called rather than thrown through, so the
+		// flush returns normally and this frame would otherwise carry on over a
+		// renderer that has already given the screen back: painting onto the
+		// restored terminal, and draining mount callbacks against an owner whose
+		// cleanups have all run
+		if (disposed || failed) {
+			return;
+		}
+
 		// 2. hand what the tree recorded to the restyler, which is the join between
 		//    what changed and what that implies. Without it a restyler kept across
 		//    frames re-resolves nothing after the first, and does it silently: the
@@ -296,6 +318,14 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 		}
 		for (const element of marks.children) {
 			restyler.touchChildren(element);
+		}
+		for (const element of marks.removed) {
+			// still attached means it was moved rather than removed, and a move is a
+			// removal and an insertion -- forgetting one of those would throw away
+			// the style of every row a `For` reordered
+			if (!element.tree) {
+				restyler.forget(element);
+			}
 		}
 
 		const update = settleStyles(root, restyler);
@@ -331,6 +361,16 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 		if (disposed || failed) {
 			return;
 		}
+		// whatever was pending is this frame: a frame asked for during mount, or by
+		// an effect between two `frame()` calls, would otherwise fire again with
+		// nothing to do -- and worse, `scheduled` left standing makes the *next*
+		// request a no-op, so a mutation made after this frame's `take()` waits for
+		// a timer that has already been consumed
+		if (timer) {
+			clearTimeout(timer);
+			timer = undefined;
+		}
+		scheduled = false;
 		last = Date.now();
 		try {
 			settle();
@@ -347,16 +387,28 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 	let root: Element;
 	let tree: Tree;
 	try {
-		root = createRoot(() => {
-			// the owner rather than the disposer `createRoot()` hands over:
-			// `teardown()` disposes it directly, and reporting what the cleanups
-			// threw is the renderer's rather than the caller's
-			owner = getOwner();
-			return component();
-		}, scope.effect);
+		root = createRoot(
+			() => {
+				// the owner rather than the disposer `createRoot()` hands over:
+				// `teardown()` disposes it directly, and reporting what the cleanups
+				// threw is the renderer's rather than the caller's
+				owner = getOwner();
+				return component();
+			},
+			scope.effect,
+			onError
+		);
 		tree = createTree(root, () => requestFrame());
 	} catch (error) {
-		fail(error);
+		// the terminal goes back, and the error goes to the caller rather than to
+		// `onError`: `render()` is still on the stack, so there is somebody to hand
+		// it to, and reporting it as well is the same failure said twice. A throw
+		// from an effect during the *first frame* has no such caller and is
+		// reported, which is why the two paths differ
+		failed = true;
+		teardown();
+		backend.stop();
+		terminal.restore();
 		throw error;
 	}
 
@@ -380,18 +432,12 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 	return {
 		backend,
 		dispose: teardown,
-		frame() {
-			if (timer) {
-				clearTimeout(timer);
-				timer = undefined;
-				scheduled = false;
-			}
-			runFrame();
-		},
+		frame: runFrame,
 		invalidate: requestFrame,
 		get mounted() {
 			return !disposed && !failed;
 		},
+		restyler,
 		root,
 		tree,
 	};

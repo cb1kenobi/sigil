@@ -758,3 +758,420 @@ describe('errors', () => {
 		expect(reports).toBe(1);
 	});
 });
+
+describe('a frame that failed part way', () => {
+	it('should stop the frame it failed in rather than finishing it', () => {
+		// an effect that throws is *reported* by the scope's handler rather than
+		// thrown through it, so the flush returns normally -- and the rest of the
+		// frame would then paint onto a terminal the failure had already given back
+		// and drain mount callbacks against an owner whose cleanups had all run
+		const h = harness();
+		const count = new State(0);
+		const mounted: string[] = [];
+
+		const view = render(
+			() => {
+				const first = text('');
+				const second = text('');
+				// the first effect gives the frame something to paint, so that a frame
+				// which carried on past the failure would be visible as a paint after
+				// the screen was handed back
+				createEffect(() => {
+					first.setText(`n=${count.get()}`);
+				});
+				createEffect(() => {
+					if (count.get() > 0) {
+						throw new Error('boom');
+					}
+					second.setText('ok');
+				});
+				onMount(() => mounted.push('one'));
+				return box({ 'flex-direction': 'column' }, first, second);
+			},
+			{ backend: h.backend, effects, onError: () => {}, terminal: h.terminal }
+		);
+
+		const paintedBefore = h.painted;
+		expect(mounted).toEqual(['one']);
+
+		count.set(1);
+		view.frame();
+
+		// nothing was drawn after the screen was given back, though the tree had
+		// changed and the frame had every reason to draw
+		expect(h.painted).toBe(paintedBefore);
+		expect(view.mounted).toBe(false);
+	});
+
+	it('should hand a throw from the body to its caller rather than reporting it', () => {
+		// `render()` is still on the stack, so there is somebody to hand it to, and
+		// reporting it as well is the same failure said twice
+		const h = harness();
+		const reports: unknown[] = [];
+
+		expect(() =>
+			render(
+				() => {
+					throw new Error('during mount');
+				},
+				{ backend: h.backend, effects, onError: (e) => void reports.push(e), terminal: h.terminal }
+			)
+		).toThrow('during mount');
+
+		expect(reports).toEqual([]);
+	});
+});
+
+describe('independence', () => {
+	it("should not install its frame loop over another renderer's", () => {
+		// a scope holds one scheduler and one error handler, so sharing the module's
+		// meant a second `render()` stopped the first painting, and an effect that
+		// threw in either tore down whichever had installed last
+		const a = harness();
+		const b = harness();
+		const one = new State(0);
+		const two = new State(0);
+
+		const first = render(
+			() => {
+				const label = text('');
+				createEffect(() => {
+					label.setText(`a=${one.get()}`);
+				});
+				return box({}, label);
+			},
+			{ backend: a.backend, terminal: a.terminal }
+		);
+		const second = render(
+			() => {
+				const label = text('');
+				createEffect(() => {
+					label.setText(`b=${two.get()}`);
+				});
+				return box({}, label);
+			},
+			{ backend: b.backend, terminal: b.terminal }
+		);
+
+		one.set(1);
+		two.set(1);
+		first.frame();
+		second.frame();
+
+		expect(a.picture().split('\n')[0]).toBe('a=1.................');
+		expect(b.picture().split('\n')[0]).toBe('b=1.................');
+
+		// and disposing one leaves the other painting
+		first.dispose();
+		two.set(2);
+		second.frame();
+		expect(b.picture().split('\n')[0]).toBe('b=2.................');
+		second.dispose();
+	});
+
+	it('should fail the renderer whose effect threw, and only that one', () => {
+		// a shared scope holds one error handler, so a throw in either tore down
+		// whichever had installed last -- restoring the terminal out from under the
+		// one that was still running
+		const a = harness();
+		const b = harness();
+		const boom = new State(0);
+		const restored: string[] = [];
+		(a.terminal as unknown as { restore: () => void }).restore = () => restored.push('a');
+		(b.terminal as unknown as { restore: () => void }).restore = () => restored.push('b');
+
+		const first = render(
+			() => {
+				const label = text('');
+				createEffect(() => {
+					if (boom.get() > 0) {
+						throw new Error('boom');
+					}
+					label.setText('a');
+				});
+				return box({}, label);
+			},
+			{ backend: a.backend, onError: () => {}, terminal: a.terminal }
+		);
+		const second = render(() => box({}, text('b')), {
+			backend: b.backend,
+			onError: () => {},
+			terminal: b.terminal,
+		});
+
+		boom.set(1);
+		first.frame();
+
+		expect(first.mounted).toBe(false);
+		expect(second.mounted).toBe(true);
+		expect(restored).toEqual(['a']);
+		second.dispose();
+	});
+});
+
+describe('a builder that throws', () => {
+	it('should leave Show able to try again', () => {
+		// presence is committed after the branch exists. Committed first, an effect
+		// caches what it threw and goes clean -- so the next truthy `when()` matched
+		// the recorded presence, returned early, and the host stayed empty for good
+		const which = new State(0);
+		let explode = true;
+		const thrown: unknown[] = [];
+		effects.setErrorHandler((error) => void thrown.push(error));
+
+		let host: Element | undefined;
+		createRoot(() => {
+			host = Show({
+				children: (n) => {
+					if (explode) {
+						throw new Error('nope');
+					}
+					return text(`v${n}`);
+				},
+				when: () => which.get() || false,
+			});
+		}, effects.effect);
+
+		which.set(1);
+		effects.flush();
+		expect((thrown[0] as Error).message).toBe('nope');
+		expect(host?.children.length).toBe(0);
+
+		// a different truthy value: presence did not change, so only a `showing`
+		// that was never committed lets this build
+		explode = false;
+		which.set(2);
+		effects.flush();
+		expect(host?.children[0]?.text).toBe('v2');
+	});
+
+	it('should leave For describing what is still on screen', () => {
+		// the rows built before the throw were owned by nothing -- `rows` never took
+		// them, and an effect caches what it threw, so the next reconcile started
+		// from the stale list and those branches ran for the life of the `For`
+		const a = { n: 'a' };
+		const bad = { n: 'bad' };
+		const items = new State<readonly { n: string }[]>([a]);
+		let live = 0;
+		const thrown: unknown[] = [];
+		effects.setErrorHandler((error) => void thrown.push(error));
+
+		createRoot(() => {
+			For({
+				children: (item) => {
+					if (item === bad) {
+						throw new Error('nope');
+					}
+					live++;
+					onCleanup(() => live--);
+					return text(item.n);
+				},
+				each: () => items.get(),
+			});
+		}, effects.effect);
+
+		expect(live).toBe(1);
+
+		// `bad` is second, so the row before it is built and then has to be undone
+		items.set([{ n: 'c' }, bad]);
+		effects.flush();
+		expect((thrown[0] as Error).message).toBe('nope');
+		expect(live).toBe(1);
+
+		// and the next reconcile starts from what is still there rather than from a
+		// list holding a row nothing owns
+		items.set([a]);
+		effects.flush();
+		expect(live).toBe(1);
+	});
+});
+
+describe('unmounting', () => {
+	it('should let the restyler forget a subtree that left', () => {
+		// `Restyler` keys its caches by element identity, so a panel shown and
+		// hidden for an hour leaves an entry per node per mount with nothing to
+		// point at
+		const h = harness();
+		const on = new State(true);
+		let gone: Element | undefined;
+
+		const view = render(
+			() =>
+				box(
+					{},
+					Show({
+						children: () => {
+							gone = box({ class: 'x' }, text('here'));
+							return gone;
+						},
+						when: () => on.get(),
+					})
+				),
+			{ backend: h.backend, effects, terminal: h.terminal }
+		);
+
+		expect(gone?.tree).toBeDefined();
+		expect(view.restyler.styleOf(gone as Element)).toBeDefined();
+
+		on.set(false);
+		view.frame();
+
+		// detached, and the frame that saw it leave is what told the restyler --
+		// which keys by element identity and would otherwise hold every node of
+		// every branch ever shown, for the life of the renderer
+		expect(gone?.tree).toBeUndefined();
+		expect(view.restyler.styleOf(gone as Element)).toBeUndefined();
+		expect(view.restyler.styleOf(gone?.children[0] as Element)).toBeUndefined();
+		view.dispose();
+	});
+
+	it('should keep the style of a row that only moved', () => {
+		// a move is a removal and an insertion, so forgetting everything that was
+		// removed would throw away the style of every row a `For` reordered
+		const h = harness();
+		const a = { n: 'a' };
+		const b = { n: 'b' };
+		const items = new State<readonly { n: string }[]>([a, b]);
+		const sheet = parseStylesheet(`.row { color: cyan }`);
+		const made = new Map<{ n: string }, Element>();
+
+		const view = render(
+			() =>
+				box(
+					{},
+					For({
+						children: (item) => {
+							const element = box({ class: 'row' }, text(item.n));
+							made.set(item, element);
+							return element;
+						},
+						each: () => items.get(),
+						props: { 'flex-direction': 'column' },
+					})
+				),
+			{
+				backend: h.backend,
+				cascade: new Cascade([sheet]),
+				colorLevel: 3,
+				effects,
+				terminal: h.terminal,
+			}
+		);
+
+		expect(made.get(a)?.style.color).toBe(6);
+		items.set([b, a]);
+		view.frame();
+		expect(made.get(a)?.style.color).toBe(6);
+		expect(made.get(a)?.tree).toBeDefined();
+		view.dispose();
+	});
+
+	it('should refuse to start anything new under a disposed owner', () => {
+		// a key handler or a promise landing after unmount is exactly what
+		// `runWithOwner()` is for, and exactly where the answer is to do nothing:
+		// there is no component left to keep up to date and nothing that would
+		// ever dispose the effect
+		const h = harness();
+		const count = new State(0);
+		let runs = 0;
+		let owner: ReturnType<typeof getOwner>;
+
+		const view = render(
+			() => {
+				owner = getOwner();
+				return box({}, text('x'));
+			},
+			{ backend: h.backend, effects, terminal: h.terminal }
+		);
+
+		view.dispose();
+		runWithOwner(owner, () => {
+			createEffect(() => {
+				runs++;
+				count.get();
+			});
+		});
+
+		expect(runs).toBe(0);
+		count.set(1);
+		effects.flush();
+		expect(runs).toBe(0);
+	});
+
+	it('should run a cleanup registered after disposal rather than keeping it', () => {
+		const ran: string[] = [];
+		let owner: ReturnType<typeof getOwner>;
+		createRoot((dispose) => {
+			owner = getOwner();
+			dispose();
+		}, effects.effect);
+
+		runWithOwner(owner, () => onCleanup(() => ran.push('now')));
+		expect(ran).toEqual(['now']);
+	});
+
+	it('should report what a branch cleanup threw rather than dropping it', () => {
+		// `Show` and `For` are not in a position to do anything with a cleanup's
+		// throw, and dropping it is how an unmount that failed to unsubscribe
+		// something becomes silent
+		const h = harness();
+		const on = new State(true);
+		const reports: unknown[] = [];
+
+		const view = render(
+			() =>
+				box(
+					{},
+					Show({
+						children: () => {
+							onCleanup(() => {
+								throw new Error('unsubscribe failed');
+							});
+							return text('here');
+						},
+						when: () => on.get(),
+					})
+				),
+			{
+				backend: h.backend,
+				effects,
+				onError: (error) => void reports.push(error),
+				terminal: h.terminal,
+			}
+		);
+
+		on.set(false);
+		view.frame();
+
+		expect((reports[0] as Error).message).toBe('unsubscribe failed');
+		expect(view.mounted).toBe(true);
+		view.dispose();
+	});
+
+	it('should report an onMount throw and stay mounted', () => {
+		// a mount callback is not the frame: it runs after one, its throw says
+		// nothing about whether the screen is right, and tearing the app down over
+		// it would be a worse answer than saying so
+		const h = harness();
+		const reports: unknown[] = [];
+
+		const view = render(
+			() => {
+				onMount(() => {
+					throw new Error('mount hook');
+				});
+				return box({}, text('x'));
+			},
+			{
+				backend: h.backend,
+				effects,
+				onError: (error) => void reports.push(error),
+				terminal: h.terminal,
+			}
+		);
+
+		expect((reports[0] as Error).message).toBe('mount hook');
+		expect(view.mounted).toBe(true);
+		view.dispose();
+	});
+});

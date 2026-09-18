@@ -1962,6 +1962,67 @@ stylesheet rather than anything the runtime knows about.
   error handler. Stopping is the other half: a renderer that reported and carried
   on would throw the same frame away thirty times a second, so the first failure
   ends the loop and the report happens once.
+- **A frame that failed stops being a frame.** An effect that throws is
+  _reported_ by the scope's error handler rather than thrown through it, so the
+  flush returns normally and the rest of the frame ran over a renderer that had
+  already given the screen back -- painting onto the restored terminal, and
+  draining mount callbacks against an owner whose cleanups had all run. The
+  handler cannot throw instead, because the signals layer is explicit that an
+  error in an effect is never rethrown; so the frame asks whether it is still
+  alive after the flush. That is the only place it can be asked, and it is why
+  `runFrame()` checking on the way in was not enough.
+- **A renderer gets its own effect scope, and sharing the module's was a trap.**
+  A scope holds one scheduler and one error handler, so a second `render()`
+  installed its frame loop over the first's: the first then painted nothing ever
+  again, an effect that threw in _either_ tore down whichever had installed last
+  -- restoring the terminal out from under the one still running -- and disposing
+  one put back the handlers it had saved rather than the ones in place. The
+  default is now a scope of its own, and it costs nothing, because
+  `createEffect()` asks the owner it was created under for the factory rather
+  than reaching for the module.
+- **A branch builder that throws undoes its own half.** Both control components
+  had the same shape of bug, and an effect caching what it threw is what made
+  each permanent. `Show` committed presence _before_ the branch existed, so a
+  `children()` that threw left `showing` claiming a branch that was not there --
+  and the next truthy `when()` matched the recorded presence and returned early,
+  leaving the host empty for good. `For` built rows into a local list and
+  committed it at the end, so a row builder that threw left the rows built before
+  it owned by nothing: `rows` never took them, the next reconcile started from
+  the stale list, and those branches ran for the life of the `For`. Both now
+  dispose what the failed pass created and leave the recorded state describing
+  what is still on screen, so the throw is the only thing that escapes.
+- **A disposed owner starts nothing new.** `runWithOwner()` is for a callback
+  that outlived the body that registered it -- a key handler, a promise landing
+  -- which is exactly the case where the owner may be gone by the time it runs.
+  An effect created there would have no component to keep up to date and nothing
+  that would ever dispose it, so it is not created. A cleanup registered there
+  runs immediately instead, because nothing else ever will and a cleanup that
+  never runs is the subscription the owner tree exists to cancel.
+- **What a branch's cleanup threw is reported, not dropped.** `Show` and `For`
+  dispose branches and are in no position to do anything with a throw, and
+  `disposeOwner()` hands its errors back rather than raising them -- so they went
+  nowhere. The root owner carries a sink that `render()` fills with `onError`;
+  where there is none, they are raised, because a `createRoot()` with no renderer
+  over it has nowhere to put them and silence is the one answer that is always
+  wrong.
+- **`Marks` grew a fifth question, and it is the one about an element that is no
+  longer here.** `Restyler.forget()` was written for the leak it describes -- an
+  unmounted subtree stays reachable for the life of the restyler, which in a TUI
+  that shows and hides a panel is unbounded -- and nothing called it, because
+  nothing knew what had been removed: `marks.children` names the _parent_, and by
+  then the child is already gone from it. `removeChild()` records the child, and
+  the frame forgets the ones that ended it detached. Ended, rather than were
+  removed: `insertBefore()` is a move and a move is a removal followed by an
+  insertion, so forgetting everything recorded would throw away the resolved
+  style of every row a `For` reordered.
+- **The restyler is on the handle, because one thing only its owner can do is
+  something an app needs.** `touchSheets()` is how a stylesheet swapped at
+  runtime says that every rule is stale, and a theme change has no other way to
+  say it.
+- **An `onMount` throw is reported and the renderer stays up.** A mount callback
+  is not the frame: it runs after one, its throw says nothing about whether what
+  is on screen is right, and tearing the app down over it is a worse answer than
+  saying so.
 - **What is deliberately deferred, and why it is not an oversight.** Whether
   `main()` grows a way for a command's `run()` to return a view is the parser's
   surface rather than the renderer's, and it wants the component rewrite (SIG-76)

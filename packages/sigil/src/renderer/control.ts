@@ -64,7 +64,6 @@ export function Show<T>(props: ShowProps<T>): Element {
 		if (present === showing) {
 			return;
 		}
-		showing = present;
 
 		dispose?.();
 		dispose = undefined;
@@ -78,12 +77,27 @@ export function Show<T>(props: ShowProps<T>): Element {
 
 		const build = present ? () => props.children(value as Truthy<T>) : props.fallback;
 		if (!build) {
+			showing = present;
 			return;
 		}
 
 		const branch = createBranch();
+		let built: Element;
+		try {
+			built = runWithOwner(branch.owner, () => untrack(build));
+		} catch (error) {
+			// presence is committed *after* the branch exists, and a failed build
+			// leaves nothing of itself behind. Committing first left `showing`
+			// claiming a branch that had thrown, and an effect caches what it threw
+			// and goes clean -- so the next truthy `when()` matched the recorded
+			// presence and returned early, and the host stayed empty for good
+			branch.dispose();
+			throw error;
+		}
+
+		showing = present;
 		dispose = branch.dispose;
-		host.append(runWithOwner(branch.owner, () => untrack(build)));
+		host.append(built);
 	});
 
 	return host;
@@ -149,22 +163,38 @@ export function For<T>(props: ForProps<T>): Element {
 		}
 
 		const next: Row<T>[] = [];
-		for (const [at, item] of items.entries()) {
-			const kept = spare.get(item)?.shift();
-			if (kept) {
-				// the same row, possibly somewhere else: tell it where, and leave
-				// everything it built alone
-				kept.index.set(at);
-				next.push(kept);
-				continue;
-			}
+		const made: Row<T>[] = [];
+		try {
+			for (const [at, item] of items.entries()) {
+				const kept = spare.get(item)?.shift();
+				if (kept) {
+					// the same row, possibly somewhere else: tell it where, and leave
+					// everything it built alone
+					kept.index.set(at);
+					next.push(kept);
+					continue;
+				}
 
-			const branch = createBranch();
-			const index = new State(at);
-			const element = runWithOwner(branch.owner, () =>
-				untrack(() => props.children(item, () => index.get()))
-			);
-			next.push({ dispose: branch.dispose, element, index, item });
+				const branch = createBranch();
+				const index = new State(at);
+				const element = runWithOwner(branch.owner, () =>
+					untrack(() => props.children(item, () => index.get()))
+				);
+				const row = { dispose: branch.dispose, element, index, item };
+				made.push(row);
+				next.push(row);
+			}
+		} catch (error) {
+			// a row builder that threw leaves this reconcile with nothing to commit,
+			// so it undoes its own half and leaves `rows` describing what is still on
+			// screen. Without it the rows built before the throw were owned by
+			// nothing -- `rows` never took them, and an effect caches what it threw,
+			// so the next reconcile started from the stale list and those branches
+			// ran for the life of the `For`
+			for (const row of made) {
+				row.dispose();
+			}
+			throw error;
 		}
 
 		for (const left of spare.values()) {

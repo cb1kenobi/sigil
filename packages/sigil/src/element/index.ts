@@ -93,6 +93,19 @@ export interface Marks {
 	paint: Set<Element>;
 	/** Elements whose style props were written, which skips selector matching. */
 	props: Set<Element>;
+	/**
+	 * Elements taken out of a parent, so that a restyler can forget them.
+	 *
+	 * The fifth question, and the one that is asked about an element that is no
+	 * longer here: everything else names something still in the tree. `Restyler`
+	 * keys its caches by element identity, so without this an unmounted subtree
+	 * stays reachable for the life of it -- which in a long-running TUI that
+	 * shows and hides a panel is a leak with nothing to point at. An element that
+	 * was moved rather than removed is in here too, because a move is a removal
+	 * and an insertion; the reader is expected to check whether it ended the frame
+	 * attached, which is what tells the two apart.
+	 */
+	removed: Set<Element>;
 }
 
 function emptyMarks(): Marks {
@@ -102,6 +115,7 @@ function emptyMarks(): Marks {
 		layout: new Set(),
 		paint: new Set(),
 		props: new Set(),
+		removed: new Set(),
 	};
 }
 
@@ -354,6 +368,10 @@ export class Element implements LayoutNode {
 			return this;
 		}
 
+		// recorded before the child is detached, because afterwards it has no tree
+		// to record against -- and it is recorded against *this* tree rather than
+		// the child's own mark, for the same reason
+		this.#tree?.mark('removed', child);
 		this.#children.splice(at, 1);
 		child.#parent = undefined;
 		child.#adopt(undefined);
