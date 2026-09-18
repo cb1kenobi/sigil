@@ -49,6 +49,10 @@
       "types": "./dist/help.d.mts",
       "default": "./dist/help.mjs"
     },
+    "./input": {
+      "types": "./dist/input.d.mts",
+      "default": "./dist/input.mjs"
+    },
     "./layout": {
       "types": "./dist/layout.d.mts",
       "default": "./dist/layout.mjs"

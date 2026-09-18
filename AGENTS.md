@@ -1750,6 +1750,82 @@ stylesheet rather than anything the runtime knows about.
   blocks instead: two pixels per cell, the top as the foreground and the bottom
   as the background, which is nothing but cells and works everywhere.
 
+### Input and focus
+
+- **One thing owns stdin, and it is the router.** Every prompt used to set raw
+  mode, attach its own `data` listener, decode, and put it all back -- which
+  works exactly as long as there is one prompt. Two at once fight over the
+  stream and neither can see what the other consumed. The router reads, decodes
+  through `decodeKeys()`, and dispatches; components subscribe rather than
+  listen. The holding-a-split-sequence machinery is the prompt's, moved rather
+  than rewritten: `pendingLength()` says what could still be the start of a
+  longer key and `ESCAPE_TIMEOUT` is what makes a lone Escape a key rather than
+  a wait with no end.
+- **A router refuses to exist where stdin is not a terminal.** `PromptError`'s
+  rule generalized: a prompt with nobody to answer it fails loudly rather than
+  hanging, and a router exists to read keys -- so one that never can is a bug in
+  the app rather than a state to carry through every dispatch as a branch. An app
+  that runs without input does not build one.
+- **Bindings, then the focused element, then its ancestors, then the default.**
+  A binding sees every key first, which is where quitting belongs: an app that
+  cannot be quit because a focused input swallowed Ctrl-C is the failure the
+  order exists to prevent. Tab is _last_, so a component that wants it -- a
+  completion, a cell in a grid -- keeps it by stopping the event rather than by
+  asking to be excluded from something.
+- **An event is stoppable, or a text input's Left is also the list's "previous
+  item".** The key reaches the focused element and every ancestor after it, and
+  the only thing that can know the key was meant for the input is the input.
+- **`onKey` is one function on the element, not a list of listeners.** The same
+  argument the parser's hooks settled on: a list reads as though order mattered
+  between entries nobody wrote, and a component that wants two things to happen
+  writes one handler that does both.
+- **The ring is rebuilt from the tree on every move rather than kept.** It
+  reorders itself as the tree does, and there is nothing to keep in agreement --
+  a couple of hundred elements walked on a keystroke is not a cost worth a cache
+  that can be wrong. It skips a `display: none` subtree, read off the _resolved_
+  style rather than the prop, because there is nothing on screen there to move
+  the focus to.
+- **Focus is a signal, and the `:focus` state is what it writes.** The signal is
+  what a frame reacts to; the state is what the cascade matches, which is what
+  makes an input that highlights when focused zero lines of component code. One
+  source with the other derived, rather than two things to keep in agreement.
+- **Nothing focused is a legitimate state.** An earlier version repaired the
+  focus on every key, which also _grabbed_ it when there was none -- so the first
+  Tab landed on the second element, because the first key had quietly focused
+  the first. Repair is only for the element that has gone.
+- **A focused element that is unmounted hands focus on by position.** Dropping it
+  into nothing reads as an app that stopped responding: every key then goes to
+  the bindings and nowhere else. What is kept is where it sat in the ring, not
+  which element it was, because the element is exactly what has gone.
+- **`focusable` and `tabindex` are reserved props.** Everything a prop names that
+  this list does not is a style property, and the cascade refuses one it does not
+  know -- so a typo is an error rather than a value nothing reads. A `tabindex`
+  implies `focusable`, because giving something a place in the ring and then
+  leaving it out of the ring is not a thing anybody means.
+- **A paste arrives whole, and bracketed paste joins the restore list.** Without
+  the markers a pasted block arrives as though it had been typed, so a newline in
+  the middle of an address is Enter and a text input submits half of it. With
+  them the router holds what is between `ESC [ 200 ~` and `ESC [ 201 ~` -- across
+  chunk boundaries, since a paste splits like anything else -- and hands it over
+  as text. Nobody wanting it whole is not an error: it is then typed in, which is
+  what a terminal that cannot bracket a paste sends anyway. `Terminal.restore()`
+  turns the mode off for the reason it leaves the alternate screen: a CLI that
+  dies with it on hands the user a shell that puts `ESC [ 200 ~` into every
+  paste, which has to be reset by hand.
+- **Resize is the router's to carry and the renderer's to mean.** The event
+  belongs with the other one a terminal produces, so an app subscribes in one
+  place for the two halves of one frame. What it _means_ -- re-evaluate the width
+  and height media queries, re-lay out, repaint whole rather than diff against a
+  grid that described a different screen -- is a frame's, and is deliberately not
+  decided here.
+- **Mouse tracking is a follow-up, not a no.** It would give `:hover`,
+  click-to-focus and a scroll wheel, and it costs a capability check and a mode
+  that must go back on exit. The event model does not preclude it, which is why
+  the type is `KeyEvent` rather than `Event`: a mouse event can join it without
+  either having to become the other. The Kitty keyboard protocol is the same
+  shape of answer, opt-in by query, and worth having the day something needs a
+  key the legacy encoding cannot spell.
+
 ### Prompts and keys
 
 - **A text prompt inserts the key that named itself, and it moves over grapheme

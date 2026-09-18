@@ -91,3 +91,22 @@ export const ENTER_ALT_SCREEN: string = `${ESC}[?1049h`;
 
 /** Returns to the main screen. Whatever left it owes the terminal this one. */
 export const LEAVE_ALT_SCREEN: string = `${ESC}[?1049l`;
+
+/**
+ * Asks the terminal to wrap a paste in markers.
+ *
+ * Without it a pasted block arrives as though it had been typed, so a newline in
+ * the middle of it is Enter and a text input submits half an address. With it
+ * the paste arrives between `ESC [ 200 ~` and `ESC [ 201 ~`, and what is between
+ * them is content rather than keys.
+ */
+export const ENABLE_PASTE: string = `${ESC}[?2004h`;
+
+/** Stops the markers. Whatever asked for them owes the terminal this one. */
+export const DISABLE_PASTE: string = `${ESC}[?2004l`;
+
+/** What a bracketed paste starts with. */
+export const PASTE_START: string = `${ESC}[200~`;
+
+/** What a bracketed paste ends with. */
+export const PASTE_END: string = `${ESC}[201~`;

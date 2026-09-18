@@ -44,6 +44,7 @@
  */
 
 import type { Painter } from '../canvas/index.js';
+import type { KeyHandler } from '../input/index.js';
 import type { Box, LayoutNode, Measurement } from '../layout/index.js';
 import type { PropValues, Style, StyleState } from '../style/index.js';
 import { Cascade, declare, Restyler } from '../style/index.js';
@@ -120,17 +121,30 @@ export interface Tree {
 	take(): Marks;
 }
 
-/** The reserved prop names, which are not style properties. */
-const RESERVED = new Set(['class', 'id', 'key']);
+/**
+ * The prop names that are not style properties.
+ *
+ * Reserved rather than carried in a bag of their own, because every one of them
+ * is a question the layers above ask of every element: what selectors match it,
+ * what the renderer reconciles it by, and whether input can land on it. A prop
+ * this list does not name is a style property and is handed to the cascade,
+ * which refuses one it does not know -- so a typo is an error rather than a
+ * value nothing reads.
+ */
+const RESERVED = new Set(['class', 'focusable', 'id', 'key', 'tabindex']);
 
 export type PropValue = boolean | number | string | undefined;
 
-/** What an element is built with: style props, plus the three reserved names. */
+/** What an element is built with: style props, plus the reserved names. */
 export interface ElementProps {
 	[name: string]: PropValue | readonly string[];
 	class?: string | readonly string[];
+	/** Whether the focus ring stops here. A `tabindex` implies it. */
+	focusable?: boolean;
 	id?: string;
 	key?: number | string;
+	/** Where in the ring, for an element that should not be in document order. */
+	tabindex?: number;
 }
 
 /**
@@ -190,6 +204,8 @@ export class Element implements LayoutNode {
 	#props: PropValues = {};
 	#text = '';
 	#raw: RawOptions | undefined;
+	#focusable = false;
+	#tabIndex: number | undefined;
 
 	/**
 	 * The last measurement, and what it was taken against.
@@ -226,6 +242,21 @@ export class Element implements LayoutNode {
 	/** The reconciliation key, if one was given. Read by the renderer, not here. */
 	get key(): number | string | undefined {
 		return this.#key;
+	}
+
+	/**
+	 * Whether the focus ring stops here.
+	 *
+	 * A `tabindex` implies it, because giving something a place in the ring and
+	 * then leaving it out of the ring is not a thing anybody means.
+	 */
+	get focusable(): boolean {
+		return this.#focusable || this.#tabIndex !== undefined;
+	}
+
+	/** Where in the ring this element sits, if it asked not to be in tree order. */
+	get tabIndex(): number | undefined {
+		return this.#tabIndex;
 	}
 
 	get parent(): Element | undefined {
@@ -491,6 +522,19 @@ export class Element implements LayoutNode {
 
 	// -- what the layers above read ------------------------------------------
 
+	/**
+	 * What this element does with a key that reaches it.
+	 *
+	 * A plain property rather than a list of listeners: one element has one
+	 * handler, for the reason every hook in the parser has one function -- a list
+	 * reads as though order mattered between entries nobody wrote, and a component
+	 * that wants two things to happen writes one handler that does both.
+	 *
+	 * Set by whatever built the element; read by the input router, which walks
+	 * from the focused element upwards until something stops the event.
+	 */
+	onKey: KeyHandler | undefined;
+
 	/** A `raw` element's painter, for the paint walk. */
 	get rawPaint(): RawPaint | undefined {
 		return this.#raw?.paint;
@@ -544,6 +588,21 @@ export class Element implements LayoutNode {
 				}
 			} else if (name === 'key') {
 				this.#key = value as number | string | undefined;
+			} else if (name === 'focusable') {
+				const next = value === undefined ? false : value !== false && value !== 'false';
+				if (next !== this.#focusable) {
+					this.#focusable = next;
+					// the ring is rebuilt from the tree rather than kept, so nothing has
+					// to be told -- but a selector can match on the state this enables,
+					// and that is a class-level change
+					this.#mark('classes');
+				}
+			} else if (name === 'tabindex') {
+				const next = value === undefined ? undefined : Number(value);
+				if (next !== this.#tabIndex) {
+					this.#tabIndex = Number.isFinite(next) ? next : undefined;
+					this.#mark('classes');
+				}
 			} else {
 				this.setProp(name, value as PropValue);
 			}
