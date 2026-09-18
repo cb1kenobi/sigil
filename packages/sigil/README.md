@@ -933,6 +933,11 @@ rather than CSS-shaped — `border-style` names a box-drawing set (`single`,
 `double`, `round`, `bold`, `ascii`) rather than a rendering mode, because which
 characters to draw with is the only question a terminal border has.
 
+`position` takes `static` and `relative`, and `absolute` is an error rather than
+a keyword that parses and lays out in flow anyway. A `relative` box is offset by
+its insets from where the flow put it, without moving anything else; the insets
+are read nowhere else, which is CSS and is why `position` starts at `static`.
+
 #### One unit, and it is a cell
 
 ```js

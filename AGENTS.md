@@ -572,6 +572,46 @@ false` rethrows instead; a function replaces the handler.
   `align-content` were added to the table and are honoured here for that reason.
   `visibility` and `overflow` are deliberately _not_ layout's: hidden content
   still takes its space, and clipping is M2-64's.
+- **`position: relative` offsets the box and `absolute` is refused.** Both halves
+  are the rule above applied to the same property: the half that can be
+  implemented today is, and the half that cannot stops existing rather than
+  parsing into a no-op. `relative` moves the box by its insets from where the
+  flow put it and changes nothing else -- the space stays reserved at the
+  un-offset position, so siblings are placed as though it never moved and its own
+  children move with it, which is CSS. `absolute` throws at parse time saying so,
+  because a stylesheet written against a keyword that lays out in flow anyway
+  means something different the day out-of-flow layout lands, and that is a
+  change nobody can see coming. The alternative was dropping `position` and the
+  four insets from the table entirely; it is smaller and equally honest, and it
+  was not taken because `relative` is a handful of lines, is what people reach
+  for to nudge a border or overlap a label, and is what keeps `top-N` and the
+  `inset` shorthand meaningful -- while the property that was actually lying,
+  `absolute`, is refused either way. `inset-0` is not part of that argument: it
+  is an out-of-flow idiom and on a `relative` box it is an offset of zero.
+  `z-index` is left alone: it
+  is a paint-order property, it is not in `LAYOUT_PROPERTIES`, and nothing here
+  is what would honour it.
+- **An inset on a `static` box does nothing, and that is not the same lie.** It
+  is CSS, it is the interaction everyone already knows, and it cannot be refused
+  where the value is read anyway: `position` may be set by a different rule in a
+  different sheet, and a declaration is parsed on its own. A declaration whose
+  effect depends on another declaration is not a property the engine ignores.
+- **A box that _moved_ is excused `checkInvariants()`, and nothing else is.**
+  Landing on a sibling or leaving the parent's content box is what `relative` is
+  _for_, so the containment and overlap checks skip a pair where either side was
+  offset -- a check that fails on the behaviour it is checking is a check that
+  gets deleted. Keyed on the used offset rather than on the keyword or on the
+  declaration: `position: relative` alone moves nothing, and `top: 0` is a
+  declaration that also moves nothing, so excusing either would reopen the net
+  for every overflow that happens to sit under one. The helper resolves the
+  insets itself rather than asking the engine, because a check that computes its
+  own answer is what makes it a check. Everything else on the tree, the offset
+  box's own children included, is checked as before.
+- **The insets resolve a percentage per axis, unlike the margins.** `top: 50%` is
+  half the containing block's height, which is CSS; percentage margins resolve
+  against the _width_ on both axes there and here. Copying the margins' rule over
+  would have been inventing a second oddity to keep one file consistent with
+  itself.
 - **An item that cannot flex is frozen at its hypothetical size; everything else
   flexes from its _basis_.** Both halves matter and getting either wrong is
   visible. Flexing from the raw basis leaves a sibling's `min-width`
@@ -714,9 +754,9 @@ false` rethrows instead; a function replaces the handler.
   border silently making it twenty-two is the surprise. `display` starts at
   `flex`. `z-index` starts at `0` rather than `auto`, since the paint order is
   flat enough that "does not establish a stacking context" has nothing to bite
-  on. `position` starts at `static` and that is _not_ an exception: only a
-  positioned ancestor is a containing block, so defaulting to `relative` would
-  make every box an anchor an `absolute` descendant stops at.
+  on. `position` starts at `static` and that is _not_ an exception: the insets
+  are read only on a `relative` box, so defaulting to `relative` would make every
+  stray `top` in a stylesheet move something.
 - **`background-color` and `text-overflow` do not inherit**, as in CSS. A
   container's background showing through its children is paint order, not the
   cascade; pushing the value down would make every descendant _own_ that colour.
@@ -779,6 +819,13 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
 - **Margins take a length and paddings take a count.** `auto` is how a box is
   centred and how it is pushed to one end, and a negative margin is a real
   thing; neither is true of padding.
+- **`position` takes `static` and `relative`, and `absolute` is a parse error.**
+  A keyword the layout engine cannot honour is refused rather than accepted and
+  ignored, for the reason the Layout entry gives at length; the message names
+  `relative` so that the error reads as an answer rather than as a missing
+  feature. The insets stay -- `relative` reads all four -- and they are a length
+  rather than a count, because pushing a box back the way it came is the ordinary
+  use and a negative value is how CSS says it.
 
 ### Stylesheets and the cascade
 
@@ -975,6 +1022,12 @@ stylesheet rather than anything the runtime knows about.
   generator had to carry a second copy of all sixteen lists and go quietly out
   of date. `fromKeywords()` puts one list where both the parser and the
   generator read it, so a keyword added to a property gets its utility free.
+  What that list holds is what the engine accepts rather than what CSS has, and
+  `position` is where the two part: `absolute` is a parse error, so it is out of
+  the list as well, and the two utilities generated are the two that do
+  something. Leaving it in would have generated a rule that the generator's own
+  parse-on-the-way-out then refuses -- the build failing closed, which is that
+  check working, and still not a table worth shipping.
 - **What the table cannot supply is the naming, and that is the honest split.**
   The table knows `justify-content` takes `space-between`; that the utility is
   spelled `justify-between` is ours to decide, and every invented name is one

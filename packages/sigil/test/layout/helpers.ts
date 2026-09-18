@@ -1,4 +1,10 @@
-import { type LayoutNode, type LayoutResult, layout, resolve } from '../../src/layout/index.js';
+import {
+	type Box,
+	type LayoutNode,
+	type LayoutResult,
+	layout,
+	resolve,
+} from '../../src/layout/index.js';
 import { declare, type Declarations, type Style } from '../../src/style/index.js';
 import { stringWidth } from '../../src/width/index.js';
 import { wrap } from '../../src/wrap/index.js';
@@ -127,6 +133,45 @@ export function boxes(
 }
 
 /**
+ * How far a node was moved off where the flow put it.
+ *
+ * The used offset is worked out rather than the declaration read, because
+ * declaring an inset and moving are different things: `top: 0` and a percentage
+ * of a containing block with no room both resolve to nowhere, and excusing a box
+ * that has not moved opens the net for every overflow that happens to sit under
+ * a `position: relative`. Re-derived here rather than asked of the engine on
+ * purpose -- a check that computes the answer independently is what makes it a
+ * check.
+ *
+ * @param node - The laid-out node.
+ * @param content - The containing block it was placed in.
+ * @returns The cells it was moved by, which is `0, 0` for a box that stayed.
+ */
+function offsetOf(node: LayoutResult, content: Box): { x: number; y: number } {
+	const { style } = node.node;
+	if (style.position !== 'relative') {
+		return { x: 0, y: 0 };
+	}
+
+	// `top` beats `bottom` and `left` beats `right`, as the engine resolves them
+	const left = resolve(style.left, content.width);
+	const right = resolve(style.right, content.width);
+	const top = resolve(style.top, content.height);
+	const bottom = resolve(style.bottom, content.height);
+
+	return {
+		x: left ?? (right === undefined ? 0 : -right),
+		y: top ?? (bottom === undefined ? 0 : -bottom),
+	};
+}
+
+/** Whether `offsetOf()` came to anywhere other than where the flow put the box. */
+function isOffset(node: LayoutResult, content: Box): boolean {
+	const { x, y } = offsetOf(node, content);
+	return x !== 0 || y !== 0;
+}
+
+/**
  * Whether a container's `justify-content` leaves its items against each other.
  *
  * These three put all the free space at one end or split it between the two, so
@@ -192,7 +237,16 @@ function checkPacking(node: LayoutResult): void {
 	}
 
 	const gap = column ? style.rowGap : style.columnGap;
-	const start = (child: LayoutResult) => (column ? child.box.y : child.box.x);
+	// the flow position rather than the painted one: `position: relative` moves a
+	// box without moving the space reserved for it, so its neighbour was placed
+	// against the hole and the packing rule still holds there. Taking the offset
+	// back off keeps the check live for an offset box instead of excusing the
+	// pair, which is what the containment and overlap checks have to do because
+	// there the offset box really may land anywhere
+	const start = (child: LayoutResult) => {
+		const offset = offsetOf(child, node.content);
+		return column ? child.box.y - offset.y : child.box.x - offset.x;
+	};
 	const size = (child: LayoutResult) => (column ? child.box.height : child.box.width);
 
 	for (let i = 1; i < ordered.length; i++) {
@@ -227,6 +281,15 @@ function checkPacking(node: LayoutResult): void {
  * placed past the edge simply does not appear. A fuzzer found five hundred
  * containment violations that forty-two picture tests had no way to see.
  *
+ * A child the insets actually moved is excused both of them, and that is the
+ * whole meaning of `position: relative` rather than a hole in the check: the
+ * flow reserves its space at the un-offset position and the box is then moved
+ * off it, so escaping the parent and landing on a sibling are what was asked
+ * for. Keyed on having moved rather than on the keyword or on the declaration,
+ * because a box that says `relative` and stays put has nothing to excuse.
+ * Everything else on the same tree is still checked, including the offset box's
+ * own children against the offset box.
+ *
  * @param result - The laid-out tree.
  * @param opts - `overflow` allows a child larger than its parent, which is what
  * a declared size too big for its container legitimately produces.
@@ -240,12 +303,14 @@ export function checkInvariants(result: LayoutResult, opts: { overflow?: boolean
 		const line: LayoutResult[] = [];
 
 		for (const child of node.children) {
+			const offset = isOffset(child, node.content);
+
 			// a box with no area paints nothing, so where it sits cannot be wrong.
 			// A gap still advances the cursor in a container with no room, which
 			// leaves a zero-size child one column past a zero-width content box
 			const occupies = child.box.width > 0 && child.box.height > 0;
 
-			if (!opts.overflow && occupies) {
+			if (!opts.overflow && occupies && !offset) {
 				const fitsX =
 					child.box.x >= node.content.x &&
 					child.box.x + child.box.width <= node.content.x + node.content.width;
@@ -261,6 +326,9 @@ export function checkInvariants(result: LayoutResult, opts: { overflow?: boolean
 			}
 
 			for (const sibling of line) {
+				if (offset || isOffset(sibling, node.content)) {
+					continue;
+				}
 				const apart =
 					child.box.x >= sibling.box.x + sibling.box.width ||
 					sibling.box.x >= child.box.x + child.box.width ||

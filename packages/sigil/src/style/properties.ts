@@ -54,7 +54,7 @@ export type AlignContent =
 export type BoxSizing = 'border-box' | 'content-box';
 export type Visibility = 'visible' | 'hidden';
 export type AlignSelf = AlignItems | 'auto';
-export type Position = 'static' | 'relative' | 'absolute';
+export type Position = 'static' | 'relative';
 export type Overflow = 'visible' | 'hidden' | 'scroll' | 'auto';
 export type TextAlign = 'left' | 'center' | 'right';
 export type TextTransform = 'none' | 'uppercase' | 'lowercase' | 'capitalize';
@@ -200,6 +200,14 @@ function fromKeywords<T extends string>(
 	};
 }
 
+/**
+ * What `position` accepts, named because two readers share it: `parse()` closes
+ * over it and the utility generator reads it off the table. Frozen for the
+ * reason `fromKeywords()` freezes its own -- a push onto it would make a
+ * keyword parse that the engine cannot honour.
+ */
+const POSITIONS = Object.freeze(['static', 'relative'] as const);
+
 /** The table. */
 export const PROPERTIES: { readonly [K in PropertyName]: Definition<K> } = {
 	display: fromKeywords(['flex', 'none'] as const, 'flex', 'display', false),
@@ -280,10 +288,38 @@ export const PROPERTIES: { readonly [K in PropertyName]: Definition<K> } = {
 	),
 	borderColor: { inherits: false, initial: DEFAULT_COLOR, parse: parseColor },
 
-	// `static` rather than `relative`, and the difference is not cosmetic: only a
-	// positioned ancestor is a containing block, so defaulting to `relative` would
-	// make every box in the tree an anchor an `absolute` descendant stops at
-	position: fromKeywords(['static', 'relative', 'absolute'] as const, 'static', 'position', false),
+	// `static` rather than `relative`, and the difference is not cosmetic twice
+	// over. Only a positioned ancestor is a containing block, so defaulting to
+	// `relative` would make every box in the tree an anchor an `absolute`
+	// descendant stops at -- and the insets are read only on a `relative` box, so
+	// it would also make every stray `top` in a stylesheet move something.
+	//
+	// `absolute` is refused rather than accepted and ignored. There is no
+	// out-of-flow engine, and a keyword that parses and does nothing is worse than
+	// one that does not exist -- it is a stylesheet written against a behaviour
+	// that is not there, and the release that implements it changes what that
+	// stylesheet means. It is out of `keywords` as well as out of `parse()`,
+	// because that list is what the utility generator builds a rule per entry
+	// from: leaving `absolute` in it would generate a utility that the
+	// generator's own parse-on-the-way-out then refuses, which is that check
+	// doing its job rather than a table worth shipping. What a list cannot carry
+	// is why, so the message does
+	position: {
+		inherits: false,
+		initial: 'static',
+		keywords: POSITIONS,
+		parse: (v) => {
+			if (v.trim().toLowerCase() === 'absolute') {
+				throw new StyleError(
+					`Invalid position "${v}": out-of-flow layout is not implemented -- "relative" offsets a box without moving anything else`
+				);
+			}
+			return parseKeyword(v, POSITIONS, 'position');
+		},
+	},
+	// read only where `position` is `relative`, which is CSS and cannot be
+	// checked here: `position` may be set by a different rule in a different
+	// sheet, and a declaration is parsed on its own
 	top: { inherits: false, initial: AUTO, parse: parseLength },
 	right: { inherits: false, initial: AUTO, parse: parseLength },
 	bottom: { inherits: false, initial: AUTO, parse: parseLength },
