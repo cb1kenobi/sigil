@@ -99,7 +99,9 @@ export interface Selector {
 	readonly steps: readonly Step[];
 }
 
-const IDENT = /[-_a-zA-Z][-_a-zA-Z0-9]*/y;
+/** What an identifier may start with, and what it may continue with. */
+const START = /[-_a-zA-Z]/;
+const PART = /[-_a-zA-Z0-9]/;
 
 /**
  * A cursor over selector source.
@@ -125,15 +127,49 @@ class Cursor {
 		return this.text[this.at] ?? '';
 	}
 
-	/** Reads an identifier, or throws saying what was expected. */
+	/**
+	 * Reads an identifier, or throws saying what was expected.
+	 *
+	 * A backslash escapes the character after it, which is what makes a class
+	 * like `md:flex-row` or `w-1/2` writable at all -- the colon and the slash
+	 * mean something else to this grammar, so the rule is written `.md\:flex-row`
+	 * and the *name* is `md:flex-row`. That is what Tailwind does and why its
+	 * class names are legal CSS. The name that comes back is unescaped, because
+	 * what it gets compared against is the class an element actually carries.
+	 *
+	 * CSS's hex escapes (`\3a `) are not read. Nothing generates them, and they
+	 * carry a trailing-space rule that is its own source of surprises; a
+	 * backslash before a hex digit is taken literally, like any other.
+	 */
 	ident(what: string): string {
-		IDENT.lastIndex = this.at;
-		const match = IDENT.exec(this.text);
-		if (!match) {
+		let out = '';
+
+		while (!this.done) {
+			const ch = this.peek;
+
+			if (ch === '\\') {
+				const escaped = this.text[this.at + 1];
+				if (escaped === undefined) {
+					throw this.fail('a trailing backslash escapes nothing');
+				}
+				out += escaped;
+				this.at += 2;
+				continue;
+			}
+
+			if (out === '' ? START.test(ch) : PART.test(ch)) {
+				out += ch;
+				this.at++;
+				continue;
+			}
+
+			break;
+		}
+
+		if (out === '') {
 			throw this.fail(`expected ${what}`);
 		}
-		this.at = IDENT.lastIndex;
-		return match[0];
+		return out;
 	}
 
 	/** Whether any whitespace was skipped, which is the descendant combinator. */
@@ -249,7 +285,7 @@ function readCompound(cursor: Cursor): Compound {
 			throw cursor.fail(
 				'attribute selectors are deliberately out -- a rule that can match on a prop makes a prop write restyle other elements; use a class or a state pseudo-class'
 			);
-		} else if (/[-_a-zA-Z]/.test(ch)) {
+		} else if (START.test(ch)) {
 			simples.push({ kind: 'type', name: cursor.ident('an element type') });
 		} else if (simples.length === 0) {
 			throw cursor.fail('expected an element type, a class, an id, or *');

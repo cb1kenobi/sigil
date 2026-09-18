@@ -188,37 +188,48 @@ export function layout(root: LayoutNode, opts: LayoutOptions): LayoutResult {
 	const { style } = root;
 	const axis = axisOf(style);
 	const inset = insets(style, axis);
+	const horizontal = axis.column ? inset.cross : inset.main;
+	const vertical = axis.column ? inset.main : inset.cross;
 
 	// the root's own declared size is honoured, the way every other node's is.
 	// Nothing read it before, because a child's size is resolved by its parent
 	// before `layoutNode()` is reached -- and the root has no parent to do that,
 	// so `layout(panel, { width: 80 })` gave the panel eighty columns however wide
 	// it said it was
-	const declaredWidth = outerSize(
-		style,
-		resolve(style.width, opts.width),
-		axis.column ? inset.cross : inset.main
+	const declaredWidth = outerSize(style, resolve(style.width, opts.width), horizontal);
+	const declaredHeight = outerSize(style, resolve(style.height, opts.height), vertical);
+
+	// and its limits for the same reason, and in the same place: sizing a node is
+	// its parent's job and `layoutNode()` does none of it, so the root's limits are
+	// applied here or nowhere. They resolve against `opts`, which is the root's
+	// containing block -- what a percentage is *of* is never the size the node
+	// ended up with
+	const width = clamp(
+		declaredWidth ?? opts.width,
+		outerSize(style, resolve(style.minWidth, opts.width), horizontal),
+		outerSize(style, resolve(style.maxWidth, opts.width), horizontal)
 	);
-	const declaredHeight = outerSize(
-		style,
-		resolve(style.height, opts.height),
-		axis.column ? inset.main : inset.cross
+	// measured at the width it was measured at before, deliberately. `measure()`
+	// has one argument doing two jobs -- it reads the node's own `width` back off
+	// it, then wraps at whatever that produced -- so no single number is both the
+	// base a percentage is of and the width the box ends up with. Handing it the
+	// clamped width is the one answer wrong twice over: a root `width: 50%` under
+	// a `max-width` of eight then resolved the `50%` against that eight and
+	// wrapped its text at four
+	const height = clamp(
+		declaredHeight ?? opts.height ?? measure(root, declaredWidth ?? opts.width, cache).height,
+		outerSize(style, resolve(style.minHeight, opts.height), vertical),
+		outerSize(style, resolve(style.maxHeight, opts.height), vertical)
 	);
 
 	// the root's own relative offset is applied here for the same reason its
-	// declared size is: every other node's is applied by the parent that places
-	// it, and the root has no parent. The space it is offset from is the space it
-	// was handed
+	// declared size and its limits are: every other node's is applied by the
+	// parent that places it, and the root has no parent. It resolves against
+	// `opts` for the same reason those do -- the root's containing block is the
+	// space it was handed, never the size it ended up at
 	const offset = relativeOffset(style, opts.width, opts.height);
 
-	return layoutNode(
-		root,
-		declaredWidth ?? opts.width,
-		declaredHeight ?? opts.height,
-		offset.x,
-		offset.y,
-		cache
-	);
+	return layoutNode(root, width, height, offset.x, offset.y, cache);
 }
 
 /**
@@ -374,11 +385,22 @@ function measureUncached(
 }
 
 /**
- * Lays a node out at a known position and size.
+ * Lays a node out at the position and size its parent decided.
+ *
+ * It decides neither. A node's size is settled by whoever placed it -- by
+ * `makeItem()` and `resolveFlexible()` for a child, by `layout()` for the root --
+ * and clamping it again here read the same declarations a second time with less
+ * to go on: a percentage resolved against the size just handed out rather than
+ * against the containing block, so `max-width: 50%` on a growing item in a
+ * ten-wide row clamped it to five and then read the five as the base and clamped
+ * it to three; and an `auto` minimum resolved to nothing at all, because the
+ * content-based minimum lives in the measurement that only `makeItem()` has. Both
+ * ways the box came back smaller than the hole its siblings' positions had
+ * already reserved for it.
  *
  * @param node - The node.
- * @param availableWidth - The width its parent gave it.
- * @param availableHeight - The height its parent gave it, if it knows one.
+ * @param width - The border-box width its parent gave it.
+ * @param height - The border-box height its parent gave it.
  * @param x - Where the border box starts.
  * @param y - Where the border box starts.
  * @param cache - Measurements taken so far this pass.
@@ -386,8 +408,8 @@ function measureUncached(
  */
 function layoutNode(
 	node: LayoutNode,
-	availableWidth: number,
-	availableHeight: number | undefined,
+	width: number,
+	height: number,
 	x: number,
 	y: number,
 	cache: MeasureCache
@@ -404,18 +426,7 @@ function layoutNode(
 	const horizontal = axis.column ? inset.cross : inset.main;
 	const vertical = axis.column ? inset.main : inset.cross;
 
-	const width = clamp(
-		availableWidth,
-		outerSize(style, resolve(style.minWidth, availableWidth), horizontal),
-		outerSize(style, resolve(style.maxWidth, availableWidth), horizontal)
-	);
-
 	const innerWidth = Math.max(0, width - horizontal);
-
-	const minH = outerSize(style, resolve(style.minHeight, availableHeight), vertical);
-	const maxH = outerSize(style, resolve(style.maxHeight, availableHeight), vertical);
-	const height = clamp(availableHeight ?? measure(node, availableWidth, cache).height, minH, maxH);
-
 	const innerHeight = Math.max(0, height - vertical);
 
 	const box: Box = { height, width, x, y };

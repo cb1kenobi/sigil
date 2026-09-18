@@ -280,18 +280,45 @@ function render(level: ColorLevel, parts: Part[], args: unknown[]): string {
 	return `${openAll}${text}${closeAll}`;
 }
 
+/** The attributes that take a color rather than being one. */
+const extendable = new Set([38, 48, 58]);
+
 /**
- * The attributes that take a color rather than being one, and how many
- * parameters each spends on it in the semicolon form, counting itself and the
- * mode: `38;5;n` is a palette index and takes three, `38;2;r;g;b` is a color and
- * takes five. Keyed on the mode, which is the parameter right after the 38.
+ * How many parameters one of those spends on its color in the semicolon form,
+ * counting itself and the mode.
+ *
+ * `38;5;n` is a palette index and takes three. A color takes five as everything
+ * emits it -- `38;2;r;g;b` -- and six as ITU T.416 actually specifies it, with a
+ * color space identifier between the mode and the channels: `38;2;;r;g;b`. The
+ * longer form has to be counted for the reason the skip exists at all -- read as
+ * five it leaves the blue channel to be read as an attribute of its own, and a
+ * blue of `0` is a reset, so `ansi.blue(foreign)` reopened blue over a red that
+ * came in written the long way.
+ *
+ * An *empty* color space is the only one that can be told apart, because a
+ * non-empty one is exactly as plausible a red channel, and five is what every
+ * emitter writes -- this module's own output included. So `38;2;1;255;0;0` is
+ * read as a color and a trailing attribute rather than as T.416's color space
+ * `1`.
  *
  * `src/wrap/sgr-state.ts` models the same thing for the same reason; the two are
  * small enough, and far enough apart, to say it twice rather than share a module
  * across the styler and the wrapper.
+ *
+ * @param mode - The parameter right after the 38, as a number.
+ * @param space - The parameter after that, as it was written.
+ * @returns How many parameters the color spends, or `undefined` for a mode that
+ * is neither.
  */
-const extendable = new Set([38, 48, 58]);
-const extendedLengths: Record<number, number> = { 2: 5, 5: 3 };
+function extendedLength(mode: number | undefined, space: string | undefined): number | undefined {
+	if (mode === 5) {
+		return 3;
+	}
+	if (mode === 2) {
+		return space === '' ? 6 : 5;
+	}
+	return undefined;
+}
 
 /**
  * Reopens whatever one SGR sequence in the styled text turned off.
@@ -336,11 +363,10 @@ function reopen(
 		// to skip. Skipping anyway swallowed whatever followed: `ESC[38:2:255:0:0;39m`
 		// lost its `39` and left the outer style closed
 		if (extendable.has(values[i]) && !parts[i].includes(':')) {
-			// `38;5;n` is three parameters counting the 38, `38;2;r;g;b` is five. A
-			// mode that is neither is malformed, and the rest of the sequence is the
-			// only safe reading -- the alternative leaves its tail to be read as
-			// attributes, which is the bug this is fixing
-			i += (extendedLengths[values[i + 1]] ?? values.length - i) - 1;
+			// a mode that is neither `5` nor `2` is malformed, and the rest of the
+			// sequence is the only safe reading -- the alternative leaves its tail to
+			// be read as attributes, which is the bug this is fixing
+			i += (extendedLength(values[i + 1], parts[i + 2]) ?? values.length - i) - 1;
 		}
 	}
 

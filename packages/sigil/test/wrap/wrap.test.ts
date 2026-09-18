@@ -345,6 +345,31 @@ describe('styled text', () => {
 		expect(wrapped).toContain(`${ESC}]8;;https://example.com${BEL}`);
 		expectWithin(wrapped, 10);
 	});
+
+	// a sequence in the gap between two words is dropped at a break, because
+	// opening the next line from the state is what puts styling back -- and
+	// nothing puts a hyperlink back. Dropped, the open took the link away and the
+	// close left every later line, and anything joined onto the result, inside it
+	it('should move a hyperlink pending at a break down with its word', () => {
+		const BEL = String.fromCharCode(0x07);
+		const open = `${ESC}]8;;https://example.com${BEL}`;
+		const close = `${ESC}]8;;${BEL}`;
+
+		expect(lines(wrap(`aaa ${open}bbb${close}`, 3))).toEqual(['aaa', `${open}bbb${close}`]);
+		expect(lines(wrap(`${open}aaa ${close}bbb`, 3))).toEqual([`${open}aaa`, `${close}bbb`]);
+	});
+
+	// the SGR travels in the state and the hyperlink travels with the word, so
+	// the next line opens the one and writes the other
+	it('should carry a hyperlink and reopen an attribute from the same gap', () => {
+		const BEL = String.fromCharCode(0x07);
+		const open = `${ESC}]8;;https://example.com${BEL}`;
+
+		expect(lines(wrap(`aaa ${ESC}[31m${open}bbb`, 3))).toEqual([
+			'aaa',
+			`${ESC}[31m${open}bbb${ESC}[39m`,
+		]);
+	});
 });
 
 describe('tabs and wide text', () => {

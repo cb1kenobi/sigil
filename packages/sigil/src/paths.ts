@@ -1,7 +1,7 @@
 // spec: https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html
 
 import { homedir, tmpdir } from 'node:os';
-import { delimiter, join, normalize } from 'node:path';
+import { delimiter, isAbsolute, join, normalize } from 'node:path';
 
 const paths = {
 	darwin: {
@@ -49,10 +49,7 @@ export function config(...paths: string[]): string | undefined {
 
 export function configDirs(): string[] | undefined {
 	if (!_configDirs) {
-		_configDirs = combinePaths(
-			config(),
-			process.env.XDG_CONFIG_DIRS?.split(delimiter).map((p) => expand(p))
-		);
+		_configDirs = combinePaths(config(), splitDirs(process.env.XDG_CONFIG_DIRS));
 	}
 	return _configDirs;
 }
@@ -70,7 +67,7 @@ export function dataDirs(): string[] | undefined {
 			// `data()`, not `config()`: copied from `configDirs()` above, this put
 			// the config home at the head of the data search path
 			data(),
-			process.env.XDG_DATA_DIRS?.split(delimiter).map((p) => expand(p))
+			splitDirs(process.env.XDG_DATA_DIRS)
 		);
 	}
 	return _dataDirs;
@@ -86,7 +83,15 @@ const winEnvVarRegExp = /(%([^%]*)%)/g;
  * @returns the expanded path.
  */
 export function expand(...segments: string[]): string {
-	segments[0] = segments[0].replace(homeDirRegExp, `${home()}$1`);
+	const dir = home();
+	if (dir) {
+		// a `~` with no home to put over it stays a `~`, which `baseDir()` then
+		// refuses the way it refuses any other relative path. An empty home used
+		// to reach this as `'.'` -- see `home()` -- so `expand('~')` answered with
+		// the working directory, which is a real path and therefore the one
+		// failure the caller cannot see
+		segments[0] = segments[0].replace(homeDirRegExp, `${dir}$1`);
+	}
 
 	if (process.platform === 'win32') {
 		return normalize(
@@ -103,7 +108,11 @@ export function home(...paths: string[]): string | undefined {
 	if (!_home) {
 		_home = homedir();
 	}
-	return paths ? join(_home, ...paths) : _home;
+	// `paths.length`, not `paths`: an array is always truthy, so a bare `home()`
+	// went through `join()` and there was no way back out of it. `join('')` is
+	// `'.'`, so a home the platform could not name came back as the working
+	// directory, and `expand()` had no falsy value to leave a `~` alone over
+	return paths.length ? join(_home, ...paths) : _home;
 }
 
 export function runtime(...paths: string[]): string | undefined {
@@ -127,7 +136,7 @@ export function tmp(...paths: string[]): string | undefined {
 
 function combinePaths(
 	primary: string | undefined,
-	additional: string[] | undefined
+	additional: (string | undefined)[] | undefined
 ): string[] | undefined {
 	const paths = new Set<string>();
 	if (primary) {
@@ -146,7 +155,51 @@ function combinePaths(
 }
 
 function resolvePath(env: string, type?: string) {
-	return process.env[env] || (type && resolveTypePath(type));
+	return baseDir(process.env[env]) ?? (type && resolveTypePath(type));
+}
+
+/**
+ * Reads one candidate base directory -- an XDG environment variable, a segment
+ * of one of the `_DIRS` lists, or an entry from the table above -- and answers
+ * with it only if it survives.
+ *
+ * The spec says a base directory must be absolute and that a relative one is to
+ * be ignored, so `XDG_CACHE_HOME=./.cache` falls back instead of putting a
+ * cache in whatever directory the app was started from. `~` is expanded before
+ * that is asked, which is what makes the whole module agree on one spelling:
+ * the table's own entries are written `~/...`, `XDG_CONFIG_DIRS` has always
+ * expanded its segments, and only the environment variables read here were
+ * taken literally -- so `XDG_CACHE_HOME=~/.cache` reached `mkdir` as a
+ * directory named `~`, which is the defect the table entries were fixed for one
+ * round earlier.
+ *
+ * The absoluteness is `node:path`'s, so it is the running platform's: a
+ * drive-relative `C:foo` is not absolute on Windows and neither is a bare
+ * `C:\foo` anywhere else, and each is right for the platform it is asked on.
+ */
+function baseDir(value: string | undefined): string | undefined {
+	// a missing, empty, or whitespace-only value is one nobody configured, and
+	// none of them is absolute -- the blank ones fall out of `isAbsolute()`
+	// rather than being trimmed, since leading whitespace in a real path is the
+	// caller's
+	if (!value) {
+		return;
+	}
+
+	const dir = expand(value);
+	return isAbsolute(dir) ? dir : undefined;
+}
+
+/**
+ * Splits an `XDG_*_DIRS` value into the base directories it names.
+ *
+ * An empty segment -- `XDG_CONFIG_DIRS=:/etc/xdg`, or a list written with a
+ * trailing separator -- is a hole in the list rather than a directory, and
+ * `expand('')` is `'.'`: truthy, so `combinePaths()` could not tell it from a
+ * real entry and the working directory joined the config search path.
+ */
+function splitDirs(value: string | undefined): (string | undefined)[] | undefined {
+	return value?.split(delimiter).map((dir) => baseDir(dir));
 }
 
 function resolveTypePath(type: string) {
@@ -157,10 +210,14 @@ function resolveTypePath(type: string) {
 	const dirs = (paths[process.platform] ?? paths.linux)[type];
 
 	if (Array.isArray(dirs)) {
-		for (let dir of dirs) {
-			dir = expand(dir);
-			if (dir) {
-				return dir;
+		// a candidate that does not expand is not a candidate. `expand()` leaves
+		// `%LOCALAPPDATA%` as it found it when the variable is unset, and the
+		// literal is truthy -- so the array stopped at its first entry and
+		// `~/AppData/Local`, the fallback the array exists for, was unreachable
+		for (const dir of dirs) {
+			const path = baseDir(dir);
+			if (path) {
+				return path;
 			}
 		}
 		return;
@@ -170,5 +227,5 @@ function resolveTypePath(type: string) {
 	// were expanded, so `cache()` on macOS and Linux answered with a literal
 	// `'~/Library/Caches'` -- not a path anything can open, and one that
 	// `mkdirSync` turns into a directory named `~` in the working directory
-	return dirs && expand(dirs);
+	return dirs && baseDir(dirs);
 }

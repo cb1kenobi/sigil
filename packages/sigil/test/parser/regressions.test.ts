@@ -1,9 +1,11 @@
 import { loadCommand } from '../../src/parser/command/load-command.js';
 import { parse } from '../../src/parser/parse.js';
 import { Argument, Internal } from '../../src/types.js';
+import { camelCase } from '../../src/util/camel-case.js';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1226,6 +1228,299 @@ describe('regressions', () => {
 				const result = await parse({ argv: ['--when', value], schema });
 				expect((result.argv.when as Date).toISOString()).to.equal(new Date(value).toISOString());
 			}
+		});
+	});
+
+	describe('the clock in a date', () => {
+		// only the calendar was checked, and hour 24 is a legal two-digit match that
+		// `Date` accepts: `2024-01-01T24:00:00` is a perfectly valid `Date` for the
+		// next midnight, so the `Invalid Date` guard never fired and a value naming
+		// January 1st arrived as the 2nd -- the same overflow as `2024-02-30`
+		it.each([
+			'2024-01-01T24:00:00',
+			'2024-01-01T24:00:00Z',
+			'2024-06-15T99:00:00',
+			'2024-06-15T12:60:00',
+			'2024-06-15T23:59:60',
+			'2024-06-15T12:00:00+24:00',
+			'2024-06-15T12:00:00-05:60',
+		])('should reject the impossible clock %s', async (value) => {
+			await expect(
+				parse({ argv: ['--when', value], schema: { options: { '--when <d>': { type: 'date' } } } })
+			).rejects.toThrow(`Invalid date: "${value}"`);
+		});
+
+		// the control: the ends of a real clock, and the offsets the docs promised
+		// while the pattern took only `Z`
+		it.each([
+			'2024-06-15T00:00:00',
+			'2024-06-15T23:59:59',
+			'2024-06-15T23:59:59.999Z',
+			'2024-06-15T12:00:00+00:00',
+			'2024-06-15T12:00:00-05:30',
+			'2024-06-15T12:00:00+14:00',
+		])('should still accept the valid clock %s', async (value) => {
+			const result = await parse({
+				argv: ['--when', value],
+				schema: { options: { '--when <d>': { type: 'date' } } },
+			});
+			expect(result.argv.when).to.be.instanceOf(Date);
+		});
+
+		// an offset is not decoration: it names an instant, and the value has to be
+		// that instant wherever the process happens to be running
+		it('should read a UTC offset as the instant it names', async () => {
+			const result = await parse({
+				argv: ['--when', '2024-06-15T12:00:00+05:30'],
+				schema: { options: { '--when <d>': { type: 'date' } } },
+			});
+			expect((result.argv.when as Date).toISOString()).to.equal('2024-06-15T06:30:00.000Z');
+		});
+	});
+
+	describe('a filled argument reported as missing', () => {
+		// the walk is backwards and reported every argument before one it had already
+		// found missing, which named a slot `applyFallback()` had just filled: only
+		// `<b>` was ever missing, and `<a>` was a value the user had supplied
+		it('should not name an argument its default filled', async () => {
+			await expect(
+				parse({ schema: { args: [{ default: 'filled', name: '<a>' }, '<b>'] } })
+			).rejects.toThrow('Missing required arguments: <b>');
+		});
+
+		it('should not name an argument its environment variable filled', async () => {
+			await expect(
+				parse({ env: { A: 'filled' }, schema: { args: [{ env: 'A', name: '<a>' }, '<b>'] } })
+			).rejects.toThrow('Missing required arguments: <b>');
+		});
+
+		// the control: promotion is what collects the run now, and it makes every
+		// argument before a required one required, variadic or not
+		it.each([
+			[['<a>', '<b>', '<c>'], '<a> <b> <c>'],
+			[['[a]', '<b>'], '<a> <b>'],
+			[['<a>', '<rest...>'], '<a> <rest>'],
+			[['[a]', '<b>', 'c'], '<a> <b>'],
+		])('should still name every missing required argument in %s', async (args, expected) => {
+			await expect(parse({ schema: { args } })).rejects.toThrow(
+				`Missing required arguments: ${expected}`
+			);
+		});
+
+		it('should still accept a list of arguments that are all optional', async () => {
+			const result = await parse({ schema: { args: ['a', 'b'] } });
+			expect(result.argv).to.deep.equal({});
+		});
+	});
+
+	describe('auto and a date that does not exist', () => {
+		// `date` has its calendar checked before the `Date` is built and `auto`
+		// matched the same `dateRE` with no check at all, so the defect stayed alive
+		// on the second path: `2024-02-30` was March 1st and `2024-13-01` an
+		// `Invalid Date`, an object whose `getTime()` is `NaN` with nothing saying
+		// so. It is not a date, so it is not the date guess -- `auto` ends at the
+		// string it was handed, the way it does for JSON it cannot parse
+		const impossible = [
+			'2024-02-30',
+			'2023-02-29',
+			'2024-04-31',
+			'2024-13-01',
+			'2024-00-10',
+			'2024-06-15T25:00:00',
+			'2024-06-15T12:61:00',
+			// the clock and the offset reach `auto` for the same reason the calendar
+			// does: they went into the one function both types read a match through
+			// rather than beside it, so the widened pattern cannot mean one thing to
+			// `date` and another here
+			'2024-01-01T24:00:00',
+			'2024-06-15T23:59:60',
+			'2024-06-15T12:00:00+24:00',
+			'2024-06-15T12:00:00-05:60',
+		];
+
+		it.each(impossible)('should leave the impossible date %s a string', async (value) => {
+			const result = await parse({
+				argv: ['--when', value],
+				schema: { options: { '--when <d>': { type: 'auto' } } },
+			});
+			expect(result.argv.when).to.equal(value);
+		});
+
+		// the same values on the path nobody opted into: an undeclared option is
+		// coerced with `auto`, which is how this was reachable without anybody
+		// writing `type: 'auto'`
+		it.each(impossible)(
+			'should leave the impossible date %s a string on an undeclared option',
+			async (value) => {
+				const result = await parse({ argv: ['--when', value], schema: {} });
+				expect(result.argv.when).to.equal(value);
+			}
+		);
+
+		// the control: a date that exists is still a `Date`, the leap day and the
+		// forms that carry a time included
+		it.each([
+			'2024-02-29',
+			'2024-01-31',
+			'2024-12-31',
+			'2024-06-15T12:30:00',
+			'2024-06-15T12:30:00Z',
+			'2024-06-15T12:30:00.123Z',
+			'2024-06-15T12:00:00+00:00',
+			'2024-06-15T12:00:00-05:30',
+		])('should still read the valid date %s as a Date', async (value) => {
+			const result = await parse({
+				argv: ['--when', value],
+				schema: { options: { '--when <d>': { type: 'auto' } } },
+			});
+			expect(result.argv.when).to.be.instanceOf(Date);
+
+			// a value with no time is local midnight, which is what `auto` and `date`
+			// both build by appending `T00:00:00` -- `new Date('2024-01-31')` alone is
+			// UTC midnight and a different instant everywhere but UTC
+			const expected = new Date(value.includes('T') ? value : `${value}T00:00:00`);
+			expect((result.argv.when as Date).toISOString()).to.equal(expected.toISOString());
+		});
+
+		// the check `auto` now shares is arithmetic, so it does not reject a real
+		// instant for being a different day wherever the process happens to run
+		it.each(['2024-06-15T00:00:00Z', '2024-06-15T23:59:59Z', '2024-01-01T00:00:00Z'])(
+			'should accept the UTC instant %s whose local day differs',
+			async (value) => {
+				const result = await parse({ argv: ['--when', value], schema: {} });
+				expect((result.argv.when as Date).toISOString()).to.equal(new Date(value).toISOString());
+			}
+		);
+
+		// `date` reads a 13-digit epoch and `auto` reads a number: the two match
+		// different shapes on purpose, and sharing the calendar check must not
+		// quietly hand `auto` the epoch form as well
+		it('should still read a 13-digit epoch as a number', async () => {
+			const result = await parse({
+				argv: ['--when', '1718454600000'],
+				schema: { options: { '--when <d>': { type: 'auto' } } },
+			});
+			expect(result.argv.when).to.equal(1718454600000);
+		});
+	});
+
+	describe('destinations and the process locale', () => {
+		// `camelCase()` used `toLocaleUpperCase()`, which reads the process locale:
+		// in Turkish and Azeri `i` uppercases to `İ` (U+0130), so `--log-info` landed
+		// on `logİnfo` while `src/infer.ts` -- which writes the same rule with
+		// `Capitalize`, and is locale-independent -- still said `logInfo`. The types
+		// and the runtime disagreed on the user's machine and nowhere else
+		it('should not read the process locale for a destination', async () => {
+			// what the old implementation did wherever the locale was Turkish
+			expect('log-info'.replace(/[-_ ]+(\w)/g, (s, m) => m.toLocaleUpperCase('tr-TR'))).to.equal(
+				'logİnfo'
+			);
+
+			const localeUpper = String.prototype.toLocaleUpperCase;
+			const spy = vi.spyOn(String.prototype, 'toLocaleUpperCase').mockImplementation(function (
+				this: string
+			) {
+				return localeUpper.call(this, 'tr-TR');
+			});
+
+			try {
+				// the unit, with nothing awaited while the prototype is patched
+				expect(camelCase('log-info')).to.equal('logInfo');
+
+				const result = await parse({
+					argv: ['--log-info', 'x', '--log-init', 'y', 'z'],
+					schema: {
+						args: [{ name: 'out-file' }],
+						options: { '--log-info <v>': {} },
+					},
+				});
+
+				expect(result.argv.logInfo).to.equal('x');
+				// an undeclared option names its destination the same way
+				expect(result.argv.logInit).to.equal('y');
+				// and so does an argument
+				expect(result.argv.outFile).to.equal('z');
+			} finally {
+				spy.mockRestore();
+			}
+		});
+	});
+
+	/**
+	 * A command's own `path` was joined with the directory of the module that
+	 * declared it and the subcommands that module declared were not, so an
+	 * installed CLI looked for them in whatever directory the user was standing
+	 * in. The fixtures under `fixtures/nested` say the same thing from every
+	 * direction: nothing in them resolves from the working directory, whichever
+	 * that is, so a path that is not read against the module it was written in
+	 * does not resolve at all.
+	 */
+	describe("a loaded module's nested commands", () => {
+		const nested = path.join(__dirname, 'fixtures/nested');
+		const build = { commands: { build: path.join(nested, 'build.js') } };
+
+		it('should resolve a string path against the module that declared it', async () => {
+			// vitest runs each test file in a worker thread, where `process.chdir()`
+			// throws, so the working directory is left alone and the fixture is what
+			// keeps the test honest: this is the path the old resolution produced
+			expect(existsSync(path.resolve(process.cwd(), 'all.js'))).to.equal(false);
+
+			const result = await parse({ argv: ['build', 'all'], schema: build });
+			expect(result.cmd?.desc).to.equal('build everything');
+		});
+
+		it('should resolve an object path against the module that declared it', async () => {
+			const result = await parse({ argv: ['build', 'obj'], schema: build });
+			expect(result.cmd?.desc).to.equal('reached by the object form');
+		});
+
+		// the control: an absolute path never needed a base, and still does not
+		// get one -- `resolve()` hands it back rather than hanging it off the
+		// module's directory the way `join()` would have
+		it('should leave an absolute path alone', async () => {
+			const result = await parse({ argv: ['build', 'here'], schema: build });
+			expect(result.cmd?.desc).to.equal('reached by an absolute path');
+		});
+
+		it("should keep a placeholder's own subcommands with the file that declared it", async () => {
+			// `obj` is declared in `build.js` and its module is a directory further
+			// down, so the two halves of that command disagree about what `./` means:
+			// the subcommand the declaration gave belongs to `build.js`, and only the
+			// module's own paths belong to the module
+			const result = await parse({ argv: ['build', 'obj', 'carried'], schema: build });
+			expect(result.cmd?.desc).to.equal('declared beside the file that declared the placeholder');
+		});
+
+		it("should record the loaded module's own directory as its base", async () => {
+			// what a hook of the module's reads off the command it is handed, and
+			// what the module's own `path` and subcommands resolve against -- the
+			// placeholder's subcommands coming across does not drag its base along
+			const result = await parse({ argv: ['build', 'obj'], schema: build });
+			expect(result.cmd?.[Internal].baseDir).to.equal(path.join(nested, 'sub'));
+		});
+
+		it('should follow each module to its own directory', async () => {
+			// `all.js` reaches down into `sub/`, and what `sub/deep.js` declares is
+			// relative to `sub/` rather than to the module two levels above it
+			const result = await parse({ argv: ['build', 'all', 'deep', 'deeper'], schema: build });
+			expect(result.cmd?.desc).to.equal('four levels down');
+			expect(result.contexts.map((c) => c.name)).to.deep.equal([
+				'deeper',
+				'deep',
+				'all',
+				'build',
+				'global',
+			]);
+		});
+
+		it('should resolve a directory and a package against the module', async () => {
+			const schema = { commands: { dirs: path.join(nested, 'dirs.js') } };
+
+			let result = await parse({ argv: ['dirs', 'extra'], schema });
+			expect(result.cmd?.desc).to.equal('from a directory next to the module');
+
+			result = await parse({ argv: ['dirs', 'pkg'], schema });
+			expect(result.cmd?.desc).to.equal('from a package next to the module');
 		});
 	});
 });

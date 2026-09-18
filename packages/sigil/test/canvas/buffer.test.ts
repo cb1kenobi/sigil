@@ -173,6 +173,71 @@ describe('StyleTable', () => {
 	it('should answer with the default style for an index nothing interned', () => {
 		expect(new StyleTable().get(999)).toEqual(DEFAULT_STYLE);
 	});
+
+	// nothing else ever takes a style out, so a table that a frame keeps interning
+	// into grows for the life of the process
+	describe('compaction', () => {
+		it('should keep what is named and drop what is not', () => {
+			const table = new StyleTable();
+			const kept = table.intern(style({ fg: palette(1) }));
+			table.intern(style({ fg: palette(2) }));
+			const alsoKept = table.intern(style({ fg: palette(3) }));
+
+			const moved = table.compact([alsoKept, kept]);
+
+			expect(table.size).toBe(3);
+			expect(table.get(moved[kept])).toEqual(style({ fg: palette(1) }));
+			expect(table.get(moved[alsoKept])).toEqual(style({ fg: palette(3) }));
+		});
+
+		it('should keep the default whether or not it was named', () => {
+			const table = new StyleTable();
+			table.intern(style({ fg: palette(1) }));
+
+			const moved = table.compact([]);
+
+			expect(table.size).toBe(1);
+			expect(moved[StyleTable.DEFAULT]).toBe(StyleTable.DEFAULT);
+			expect(table.get(StyleTable.DEFAULT)).toEqual(DEFAULT_STYLE);
+		});
+
+		it('should point what it dropped at the default', () => {
+			// a cell cannot hold an index the table does not have, and a hole in the
+			// map would be one written straight back into a grid
+			const table = new StyleTable();
+			const dropped = table.intern(style({ fg: palette(1) }));
+
+			const moved = table.compact([]);
+
+			expect(moved[dropped]).toBe(StyleTable.DEFAULT);
+			expect([...moved].every((index) => index >= 0 && index < table.size)).toBe(true);
+		});
+
+		it('should intern into the compacted table rather than past it', () => {
+			// the index map is rebuilt with the survivors, so a style that is still
+			// there is found again rather than added a second time
+			const table = new StyleTable();
+			const red = style({ fg: palette(1) });
+			const kept = table.intern(red);
+			table.intern(style({ fg: palette(2) }));
+
+			const moved = table.compact([kept]);
+
+			expect(table.intern(red)).toBe(moved[kept]);
+			expect(table.size).toBe(2);
+			expect(table.intern(style({ fg: palette(2) }))).toBe(2);
+		});
+
+		it('should ignore an index it does not have and a repeat', () => {
+			const table = new StyleTable();
+			const kept = table.intern(style({ fg: palette(1) }));
+
+			const moved = table.compact([kept, kept, 999, -3]);
+
+			expect(table.size).toBe(2);
+			expect(moved[kept]).toBe(1);
+		});
+	});
 });
 
 describe('CellBuffer', () => {
@@ -201,6 +266,25 @@ describe('CellBuffer', () => {
 		const buffer = new CellBuffer(3, 1);
 		buffer.write(0, 0, 'hello', 0);
 		expect(buffer.toLines()).toEqual(['hel']);
+	});
+
+	// `put()` answers 0 for any off-grid column and `write()` read that as
+	// "nothing further will land" -- true walking off the right edge, false at the
+	// left, where advancing walks into the grid. `fill()` clipped this way all
+	// along, and the two are painting the same thing
+	it('should clip at the left edge rather than abandoning the string', () => {
+		const buffer = new CellBuffer(5, 1);
+		expect(buffer.write(-2, 0, 'hello', 0)).toBe(5);
+		expect(buffer.toLines()).toEqual(['llo  ']);
+	});
+
+	it('should report the advance from where it was asked to start', () => {
+		const buffer = new CellBuffer(5, 1);
+		// nothing landed, and the answer still says where a next run would go
+		expect(buffer.write(-9, 0, 'hi', 0)).toBe(2);
+		expect(buffer.toLines()).toEqual(['     ']);
+		// a row that is not on the grid is the case the break still exists for
+		expect(buffer.write(0, 5, 'hi', 0)).toBe(0);
 	});
 
 	it('should refuse coordinates off the grid', () => {
@@ -261,6 +345,14 @@ describe('CellBuffer', () => {
 			expect(buffer.put(2, 0, '漢', 0)).toBe(1);
 			// half a wide glyph is worse than none, so the column takes a blank
 			expect(buffer.charAt(2, 0)).toBe(BLANK);
+		});
+
+		it('should refuse one straddling the left edge without dropping the rest', () => {
+			const buffer = new CellBuffer(5, 1);
+			// the lead is off the grid and only the continuation would land, so the
+			// cluster is refused -- a survivor is half a glyph -- and only it
+			expect(buffer.write(-1, 0, '漢a', 0)).toBe(3);
+			expect(buffer.toLines()).toEqual([' a   ']);
 		});
 
 		it('should stop a string before a cluster that will not fit', () => {

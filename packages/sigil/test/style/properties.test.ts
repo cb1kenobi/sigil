@@ -11,6 +11,7 @@ import {
 	isKnownProperty,
 	isShorthand,
 	kebab,
+	LAYOUT_PROPERTIES,
 	longhandsFor,
 	NONE,
 	parseColor,
@@ -799,5 +800,52 @@ describe('position: absolute', () => {
 		// be set by a different rule in a different sheet, and a declaration is
 		// parsed on its own
 		expect(declare({ top: '2' }).top).toEqual(cells(2));
+	});
+});
+
+describe('every property is classified as moving a box or not', () => {
+	/**
+	 * The properties a change to which cannot move anything.
+	 *
+	 * Written out rather than derived as "the rest", so that a property added to
+	 * the table fails here until somebody decides which it is. A new layout
+	 * property that defaulted to paint-only would move a box with nothing
+	 * re-laying it out, which is a frame that is simply wrong and reproduces
+	 * only on the layout that happened to use it.
+	 */
+	const PAINT_ONLY: readonly PropertyName[] = [
+		'backgroundColor',
+		'bold',
+		'borderColor',
+		'color',
+		'dim',
+		'inverse',
+		'italic',
+		'overflow',
+		'overline',
+		'strikethrough',
+		'textAlign',
+		'textOverflow',
+		'underline',
+		'visibility',
+		'zIndex',
+	];
+
+	it('should put every property in exactly one of the two', () => {
+		const paint = new Set(PAINT_ONLY);
+		for (const property of PROPERTY_NAMES) {
+			const layout = LAYOUT_PROPERTIES.has(property);
+			expect(layout || paint.has(property), `"${property}" is classified neither way`).toBe(true);
+			expect(layout && paint.has(property), `"${property}" is classified both ways`).toBe(false);
+		}
+	});
+
+	it('should not classify anything that is not a property', () => {
+		for (const property of LAYOUT_PROPERTIES) {
+			expect(PROPERTY_NAMES, property).toContain(property);
+		}
+		for (const property of PAINT_ONLY) {
+			expect(PROPERTY_NAMES, property).toContain(property);
+		}
 	});
 });
