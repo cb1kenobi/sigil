@@ -114,6 +114,24 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
 		await processArgs(state);
 		await processOptions(state);
 
+		// after every value exists and before any of them is judged, which is where
+		// this hook has always been documented to fire -- "after, before validation
+		// results are returned" -- and where it could not usefully fire, because it
+		// ran at the end of `parseArgv()`: before `processArgs()` and
+		// `processOptions()`, which are the two that write `state.argv`. So a hook
+		// named "after parse" saw `{}` while `state.$` was fully populated, and the
+		// one thing it is for was the one thing it could not do. Producing the
+		// values and judging them are two steps now rather than one, and this is
+		// what goes between them
+		if (state.schema.hooks?.afterParse) {
+			for (const hook of state.schema.hooks.afterParse) {
+				await hook(state);
+			}
+		}
+
+		validateArgs(state);
+		validateOptions(state);
+
 		return state;
 	} catch (err) {
 		attachState(err, state);
@@ -738,12 +756,6 @@ async function parseArgv(state: ParseState): Promise<void> {
 	}
 
 	parseUnknownOptions(state);
-
-	if (state.schema.hooks?.afterParse) {
-		for (const hook of state.schema.hooks.afterParse) {
-			await hook(state);
-		}
-	}
 }
 
 /**
@@ -933,16 +945,32 @@ export async function processArgs(state: ParseState): Promise<void> {
 		}
 	}
 
-	// detect missing required args while populating optional args
-	const missingArguments: string[] = [];
-
+	// every slot argv did not fill takes its environment variable, else its default
 	for (let i = internal.args.length - 1; i >= argIdx; i--) {
 		const arg = internal.args[i];
-		const { name, required } = arg;
-
-		const { dest, envs } = arg[Internal];
-
+		const { envs } = arg[Internal];
 		applyFallback(state, arg, envValue(state, envs) ?? arg.default);
+	}
+}
+
+/**
+ * Judges what `processArgs()` produced.
+ *
+ * Separate from producing it so that `afterParse` can fire in between, which is
+ * where the hook has always been documented to fire -- "after, before validation
+ * results are returned" -- and where it could not usefully fire until the values
+ * were written first.
+ *
+ * @param state - The parse state.
+ */
+export function validateArgs(state: ParseState): void {
+	const internal = state.contexts[0][Internal];
+	const missingArguments: string[] = [];
+
+	for (let i = internal.args.length - 1; i >= 0; i--) {
+		const arg = internal.args[i];
+		const { name, required } = arg;
+		const { dest } = arg[Internal];
 
 		// only a slot that is required and still empty. The walk is backwards, and it
 		// used to report every argument before one it had already found missing, to
@@ -973,9 +1001,7 @@ export async function processArgs(state: ParseState): Promise<void> {
 }
 
 export async function processOptions(state: ParseState): Promise<void> {
-	const missingOptions: string[] = [];
 	const all = state.contexts.flatMap((ctx) => [...ctx[Internal].options.values()]);
-	const live = liveDeclarations(state);
 
 	// every environment fallback is applied before any default, and both before
 	// anything is validated, so that a destination two options share — a valued
@@ -997,6 +1023,18 @@ export async function processOptions(state: ParseState): Promise<void> {
 			applyFallback(state, opt, opt.default);
 		}
 	}
+}
+
+/**
+ * Judges what `processOptions()` produced, for the reason `validateArgs()` is
+ * separate: `afterParse` fires between the two.
+ *
+ * @param state - The parse state.
+ */
+export function validateOptions(state: ParseState): void {
+	const missingOptions: string[] = [];
+	const all = state.contexts.flatMap((ctx) => [...ctx[Internal].options.values()]);
+	const live = liveDeclarations(state);
 
 	for (const opt of all) {
 		const { choices, required } = opt;

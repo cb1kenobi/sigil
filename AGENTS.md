@@ -373,6 +373,22 @@ These look like bugs and are not. Each is intentional and covered by tests.
   default, so the pair is `undefined` until something sets it rather than
   silently `true`. A `default` declared on the flag is still honored, and
   `negate: false` opts out of the pairing. See `test/parser/options.test.ts`.
+- **Producing the values and judging them are two steps, and `afterParse` fires
+  between them.** It used to fire at the end of `parseArgv()`, which is before
+  `processArgs()` and `processOptions()` -- the two that write `state.argv` -- so
+  a hook named "after parse" saw `{}` there while `state.$` was fully populated,
+  and the one thing it is for was the one thing it could not do. The fix is not
+  to move it to the end: the README has always documented it as firing "after,
+  before validation results are returned", and a hook that fires after the
+  judging cannot fix up a value while one that fires before the values exist has
+  nothing to fix. So `processArgs()` and `processOptions()` write and apply
+  fallbacks, `validateArgs()` and `validateOptions()` do the judging, and the
+  hook goes in between. Keeping that window is also what keeps a rule below
+  reachable: a hook that replaces an option after its value was read leaves a
+  value with no live writer, and it is `validates()` at judging time that stops
+  that being a way around `choices`. A parse that throws on the way in -- an
+  unexpected argument, a value its type rejects -- still fires no `afterParse`,
+  because there is no parse to be after. See `test/parser/hooks.test.ts`.
 - **`main()` handles errors instead of rejecting.** A thrown value from
   `parse()` or from the command's `run()` is rendered by `errorHandler()` —
   the message, never a stack — `process.exitCode` is set, and `main()`
@@ -2093,13 +2109,6 @@ stylesheet rather than anything the runtime knows about.
 
 ## Known bugs
 
-- **`afterParse` fires before `state.argv` exists.** The hook runs at the end of
-  `parseArgv()`, which is before `processArgs()` and `processOptions()` write
-  anything, so `state.argv` is `{}` inside it while `state.$` is populated. The
-  one thing a hook named "after parse" is for is the one thing it cannot do.
-  Found while writing `--version` for `@ttylabs/cli`, which reads the state
-  `main()` returns instead. Do not reach for `afterParse` to read a parsed
-  value until this is fixed.
 - **An auto-width node is sized around a subtree measured without its own
   percentages.** What is left of the entry above once `measure()` takes its two
   widths separately: a node lays its content out at the width it is drawn at now,

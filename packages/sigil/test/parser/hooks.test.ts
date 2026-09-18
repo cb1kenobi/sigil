@@ -85,6 +85,56 @@ describe('hooks', () => {
 		});
 	});
 
+	it('should hand afterParse the values the parse produced', async () => {
+		// the hook ran at the end of `parseArgv()`, which is before `processArgs()`
+		// and `processOptions()` -- the two that write `state.argv` -- so a hook
+		// named "after parse" saw `{}` there while `state.$` was fully populated.
+		// The one thing it is for was the one thing it could not do, and reading a
+		// parsed value meant waiting for what `main()` returns instead
+		const seen: Record<string, unknown>[] = [];
+
+		await parse({
+			argv: ['--version', 'file.txt'],
+			env: { PORT: '8080' },
+			schema: {
+				args: ['<entry>'],
+				help: false,
+				options: {
+					'-v, --version': { type: 'bool' },
+					'--port [n]': { env: 'PORT', type: 'int' },
+				},
+				hooks: { afterParse: [(state) => void seen.push({ ...state.argv })] },
+			},
+		});
+
+		// argv as it walked in, the environment fallback included
+		expect(seen).toEqual([{ entry: 'file.txt', port: 8080, version: true }]);
+	});
+
+	it('should fire afterParse before a value is judged', async () => {
+		// producing the values and judging them are two steps, and the hook goes
+		// between them -- which is where it has always been documented to fire,
+		// "after, before validation results are returned". A hook that fires after
+		// the judging could not fix up a value, and one that fires before the values
+		// exist has nothing to fix
+		const state = await parse({
+			argv: ['--mode', 'loud'],
+			schema: {
+				help: false,
+				options: { '--mode [m]': { choices: ['quiet'] } },
+				hooks: {
+					afterParse: [
+						(s) => {
+							s.argv.mode = 'quiet';
+						},
+					],
+				},
+			},
+		});
+
+		expect(state.argv.mode).toBe('quiet');
+	});
+
 	describe('beforeError', () => {
 		it('should error if beforeError hooks are invalid', async () => {
 			await expect(
