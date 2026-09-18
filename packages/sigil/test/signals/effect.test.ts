@@ -759,6 +759,52 @@ describe('effect', () => {
 	});
 
 	describe('nested effects', () => {
+		it('should dispose every child, not every other one', () => {
+			// `runCleanups()` iterates the child set while each disposal deletes
+			// itself from it. That used to be done over a copy; it does not need to
+			// be, because a `Set` iterator is specified to cope -- and a copy is the
+			// kind of thing that is either load-bearing or noise, with no way to tell
+			// which from reading it. This is the test that says which
+			const own = createEffects();
+			const s = new State(0);
+			const disposed: number[] = [];
+
+			own.effect(() => {
+				s.get();
+				for (const n of [1, 2, 3, 4, 5]) {
+					own.effect(() => () => disposed.push(n));
+				}
+			});
+
+			s.set(1);
+			own.flush();
+			expect(disposed).toEqual([1, 2, 3, 4, 5]);
+		});
+
+		it('should survive a cleanup that disposes a sibling', () => {
+			// the other half of the same question: a disposal removes an entry the
+			// walk has not reached yet. Skipping it is correct -- it has just been
+			// disposed -- and it is what the iterator does
+			const own = createEffects();
+			const s = new State(0);
+			const disposed: string[] = [];
+			let stopB = (): void => {};
+
+			own.effect(() => {
+				s.get();
+				own.effect(() => () => {
+					disposed.push('a');
+					stopB();
+				});
+				stopB = own.effect(() => () => disposed.push('b'));
+				own.effect(() => () => disposed.push('c'));
+			});
+
+			s.set(1);
+			own.flush();
+			expect(disposed).toEqual(['a', 'b', 'c']);
+		});
+
 		it('should dispose a child when the parent re-runs', () => {
 			const outer = new State(0);
 			const inner = new State(0);

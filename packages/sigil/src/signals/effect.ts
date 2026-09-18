@@ -374,11 +374,15 @@ export function createEffects(): Effects {
 		 * @param report - Where to send a throw, or omitted to let it out.
 		 */
 		const runCleanups = (report?: (error: unknown) => void): void => {
-			// a copy, because disposing a child removes it from `children`
-			// eslint-disable-next-line unicorn/no-useless-spread
+			// iterated directly, and the copy that used to be here was not needed:
+			// disposing a child deletes it from this set, and a `Set` iterator is
+			// specified to cope with that -- an entry removed after it has been
+			// visited changes nothing, and one removed before it is skipped, which
+			// is what should happen to a child a sibling's cleanup disposed. The
+			// linter said as much and was silenced rather than believed
 			teardown++;
 			try {
-				for (const dispose of [...children]) {
+				for (const dispose of children) {
 					try {
 						dispose();
 					} catch (err) {
