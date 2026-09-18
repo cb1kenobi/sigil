@@ -395,6 +395,21 @@ These look like bugs and are not. Each is intentional and covered by tests.
   resolves with `undefined`. Its caller is a bin script, so an unhandled
   rejection dumping a stack is the wrong default. `settings.errorHandler:
 false` rethrows instead; a function replaces the handler.
+- **Every hook is one function, not a list of them.** `beforeParse`,
+  `afterParse`, `beforeError`, `init`, `parse` and `help` all take a function,
+  which is what `transform` and `settings.errorHandler` already take -- so the
+  one-element array that every example used to open with is gone, and with it
+  four `Array.isArray` checks and the loops behind them. What a list bought was
+  registration without coordination: a plugin could append to a command it did
+  not declare. That is a wrap now, and the docs say so -- read the hook, replace
+  it with one that calls what it found first. Deliberate, because the framework
+  has no plugin system to coordinate and a list is a worse default for the
+  ninety-nine cases that declare exactly one: it reads as though order matters
+  between entries nobody wrote. The `hooks` object is still copied by
+  `initCommand()`, for the reason the lists used to be -- a hook that replaces a
+  hook on the command it was handed must not reach back into the caller's
+  declaration and change what every later parse of that schema does. What is
+  _not_ copied any more is a list inside it, because there is no list.
 - **A `beforeError` hook may replace the error but never suppress it.**
   Returning nothing leaves the error alone, returning a value makes that value
   the error, and a hook that throws is logged and skipped. Suppression would
@@ -403,7 +418,9 @@ false` rethrows instead; a function replaces the handler.
   everywhere is worse than no rule. Hooks fire for every throw site, inside
   `parse()` for what `parse()` throws and inside `main()` for everything
   else, innermost command first and the schema last, before rendering and
-  before the `errorHandler: false` opt-out. See `test/parser/hooks.test.ts`.
+  before the `errorHandler: false` opt-out -- one per source, and a hook that
+  throws is skipped without stopping the next source's. See
+  `test/parser/hooks.test.ts`.
 - **A `default` command is dispatched whenever argv named no command, even
   when it declares required arguments.** `default` means the name is implied,
   not that the command is a fallback that steps aside when the arguments are
@@ -1841,7 +1858,7 @@ stylesheet rather than anything the runtime knows about.
   options while only the platform that was named may parse. Options that should
   do both are added to the registry by a `parse` hook, which already works.
   Sections come after the command's own groups and before the inherited options,
-  in the order they were added, and only the described command's hooks fire --
+  in the order they were added, and only the described command's hook fires --
   an ancestor's sections would appear under a command that has nothing to do
   with them. See `test/help/sections.test.ts`.
 - **A section title and a `group` are checked, and `Global` is taken.** Either
@@ -1854,7 +1871,7 @@ stylesheet rather than anything the runtime knows about.
   screen, which is the same call `format()` makes for a default that cannot be
   written as JSON.
 - **A section used twice is one section.** Two platforms sharing a title, or a
-  hook that ran twice, add to what is there. The argument rules are about the
+  hook that added to it twice, add to what is there. The argument rules are about the
   list, so they are applied to the whole of the merged one, and nothing is kept
   until everything validated -- an `add()` that throws leaves the section it was
   merging into alone.

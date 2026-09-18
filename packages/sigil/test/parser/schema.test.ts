@@ -227,19 +227,19 @@ describe('schema', () => {
 			expect(schema.options['--tag [t]'].default).to.deep.equal(['a']);
 		});
 
-		it('should not let a hook append to the declared hook lists', async () => {
-			const init = () => {};
+		it('should not let a hook rewrite the declaration it came from', async () => {
+			const late = () => {};
 			const schema = {
 				commands: {
 					build: {
 						alias: ['b'],
 						hooks: {
-							init: [
-								({ cmd }: { cmd: Command }) => {
-									cmd.hooks?.init?.push(init);
-									(cmd.alias as string[]).push('bld');
-								},
-							],
+							init: ({ cmd }: { cmd: Command }) => {
+								if (cmd.hooks) {
+									cmd.hooks.init = late;
+								}
+								(cmd.alias as string[]).push('bld');
+							},
 						},
 					},
 				},
@@ -248,11 +248,11 @@ describe('schema', () => {
 			const { contexts } = await parse({ argv: ['build'], schema });
 			expect([...contexts[0][Internal].aliases]).to.deep.equal(['b']);
 			expect(schema.commands.build.alias).to.deep.equal(['b']);
-			expect(schema.commands.build.hooks.init).to.have.lengthOf(1);
+			expect(schema.commands.build.hooks.init).to.not.equal(late);
 
-			// and the second parse still sees one hook and one alias
+			// and the second parse still sees the hook it was given and one alias
 			await parse({ argv: ['build'], schema });
-			expect(schema.commands.build.hooks.init).to.have.lengthOf(1);
+			expect(schema.commands.build.hooks.init).to.not.equal(late);
 			expect(schema.commands.build.alias).to.deep.equal(['b']);
 		});
 
@@ -270,11 +270,9 @@ describe('schema', () => {
 					build: {
 						options: { '--target [name]': { choices: ['esm'] } },
 						hooks: {
-							init: [
-								({ options }) => {
-									options.get('target')?.choices?.push('cjs');
-								},
-							],
+							init: ({ options }) => {
+								options.get('target')?.choices?.push('cjs');
+							},
 						},
 					},
 				},
@@ -348,11 +346,9 @@ describe('schema', () => {
 							commands: { nested: {} },
 							options: { '--target [name]': null },
 							hooks: {
-								init: [
-									({ cmd }: CommandHookData) => {
-										(cmd as Record<string, unknown>)[prop] = {};
-									},
-								],
+								init: ({ cmd }: CommandHookData) => {
+									(cmd as Record<string, unknown>)[prop] = {};
+								},
 							},
 						},
 					},
@@ -375,11 +371,9 @@ describe('schema', () => {
 							commands: { nested: {} },
 							options: { '--target [name]': null },
 							hooks: {
-								init: [
-									({ cmd }: CommandHookData) => {
-										delete (cmd as Record<string, unknown>)[prop];
-									},
-								],
+								init: ({ cmd }: CommandHookData) => {
+									delete (cmd as Record<string, unknown>)[prop];
+								},
 							},
 						},
 					},
@@ -397,11 +391,9 @@ describe('schema', () => {
 					build: {
 						options: { '--target [name]': null },
 						hooks: {
-							init: [
-								({ cmd }: CommandHookData) => {
-									(cmd.options as Record<string, unknown>)['--extra [v]'] = null;
-								},
-							],
+							init: ({ cmd }: CommandHookData) => {
+								(cmd.options as Record<string, unknown>)['--extra [v]'] = null;
+							},
 						},
 					},
 				},
@@ -417,11 +409,9 @@ describe('schema', () => {
 				commands: {
 					build: {
 						hooks: {
-							init: [
-								({ cmd }: CommandHookData) => {
-									cmd.options = { '--extra [v]': null };
-								},
-							],
+							init: ({ cmd }: CommandHookData) => {
+								cmd.options = { '--extra [v]': null };
+							},
 						},
 					},
 				},
@@ -444,11 +434,9 @@ describe('schema', () => {
 				commands: {
 					build: {
 						hooks: {
-							init: [
-								async ({ options }: CommandHookData) => {
-									await options.add({ format: '--extra [v]' });
-								},
-							],
+							init: async ({ options }: CommandHookData) => {
+								await options.add({ format: '--extra [v]' });
+							},
 						},
 					},
 				},
@@ -465,11 +453,9 @@ describe('schema', () => {
 				commands: {
 					build: {
 						hooks: {
-							init: [
-								({ args }: CommandHookData) => {
-									args.push(initArg('[entry]'));
-								},
-							],
+							init: ({ args }: CommandHookData) => {
+								args.push(initArg('[entry]'));
+							},
 						},
 					},
 				},
@@ -484,11 +470,9 @@ describe('schema', () => {
 				commands: {
 					build: {
 						hooks: {
-							init: [
-								async ({ commands }: CommandHookData) => {
-									commands.add(await initCommand({ name: 'nested' }));
-								},
-							],
+							init: async ({ commands }: CommandHookData) => {
+								commands.add(await initCommand({ name: 'nested' }));
+							},
 						},
 					},
 				},
@@ -506,11 +490,9 @@ describe('schema', () => {
 					'build <entry>': {
 						options: { '-t, --target [name]': null },
 						hooks: {
-							init: [
-								async ({ options }: CommandHookData) => {
-									await options.add({ format: '--extra [v]' });
-								},
-							],
+							init: async ({ options }: CommandHookData) => {
+								await options.add({ format: '--extra [v]' });
+							},
 						},
 					},
 				},
@@ -546,11 +528,9 @@ describe('schema', () => {
 					build: {
 						options: { '--target [name]': null },
 						hooks: {
-							parse: [
-								({ cmd }: CommandHookData) => {
-									cmd.options = {};
-								},
-							],
+							parse: ({ cmd }: CommandHookData) => {
+								cmd.options = {};
+							},
 						},
 					},
 				},
@@ -571,11 +551,9 @@ describe('schema', () => {
 						build: {
 							options: { '--target [name]': { alias: '-t', env: 'TARGET' } },
 							hooks: {
-								init: [
-									({ options }: CommandHookData) => {
-										(options.get('target') as Record<string, unknown>)[prop] = 'nope';
-									},
-								],
+								init: ({ options }: CommandHookData) => {
+									(options.get('target') as Record<string, unknown>)[prop] = 'nope';
+								},
 							},
 						},
 					},
@@ -594,11 +572,9 @@ describe('schema', () => {
 						build: {
 							args: [{ name: '<entry>', env: 'ENTRY' }],
 							hooks: {
-								init: [
-									({ args }: CommandHookData) => {
-										(args[0] as Record<string, unknown>)[prop] = 'nope';
-									},
-								],
+								init: ({ args }: CommandHookData) => {
+									(args[0] as Record<string, unknown>)[prop] = 'nope';
+								},
 							},
 						},
 					},
@@ -643,13 +619,11 @@ describe('schema', () => {
 					build: {
 						options: { '--target [name]': { choices: ['esm'] } },
 						hooks: {
-							init: [
-								({ options }: CommandHookData) => {
-									const target = options.get('target');
-									target!.choices = ['esm', 'cjs'];
-									target!.default = 'esm';
-								},
-							],
+							init: ({ options }: CommandHookData) => {
+								const target = options.get('target');
+								target!.choices = ['esm', 'cjs'];
+								target!.default = 'esm';
+							},
 						},
 					},
 				},
@@ -720,11 +694,9 @@ describe('schema', () => {
 					build: {
 						options: { '--cheese [type]': {}, '--no-cheese': {} },
 						hooks: {
-							init: [
-								({ options }: CommandHookData) => {
-									(options.get('cheese') as Record<string, unknown>).negate = true;
-								},
-							],
+							init: ({ options }: CommandHookData) => {
+								(options.get('cheese') as Record<string, unknown>).negate = true;
+							},
 						},
 					},
 				},
@@ -740,11 +712,9 @@ describe('schema', () => {
 						default: true,
 						options: { '--target [name]': null },
 						hooks: {
-							init: [
-								({ cmd }: CommandHookData) => {
-									cmd.options = {};
-								},
-							],
+							init: ({ cmd }: CommandHookData) => {
+								cmd.options = {};
+							},
 						},
 					},
 				},
@@ -759,11 +729,9 @@ describe('schema', () => {
 					build: {
 						options: { '--cheese [type]': { choices: ['brie'] }, '--no-cheese': {} },
 						hooks: {
-							init: [
-								({ options }: CommandHookData) => {
-									options.get('cheese')!.choices = ['brie', 'gouda'];
-								},
-							],
+							init: ({ options }: CommandHookData) => {
+								options.get('cheese')!.choices = ['brie', 'gouda'];
+							},
 						},
 					},
 				},
@@ -782,11 +750,9 @@ describe('schema', () => {
 					build: {
 						options: { '--cheese [type]': {}, '--no-cheese': {} },
 						hooks: {
-							init: [
-								({ options }: CommandHookData) => {
-									options.get('cheese')!.default = 'brie';
-								},
-							],
+							init: ({ options }: CommandHookData) => {
+								options.get('cheese')!.default = 'brie';
+							},
 						},
 					},
 				},
@@ -805,11 +771,9 @@ describe('schema', () => {
 					build: {
 						options: { '--cheese [type]': {}, '--no-cheese': {} },
 						hooks: {
-							init: [
-								({ options }: CommandHookData) => {
-									(options.find('--no-cheese') as Record<string, unknown>).default = true;
-								},
-							],
+							init: ({ options }: CommandHookData) => {
+								(options.find('--no-cheese') as Record<string, unknown>).default = true;
+							},
 						},
 					},
 				},

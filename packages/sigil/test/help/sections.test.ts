@@ -202,16 +202,14 @@ describe('the help hook', () => {
 				desc: 'Builds a project',
 				options: { '-p, --platform [name]': { choices: ['android', 'ios'], desc: 'The target' } },
 				hooks: {
-					help: [
-						async ({ sections, state }) => {
-							const only = state.argv.platform;
-							for (const [name, conf] of Object.entries(platforms)) {
-								if (!only || only === name) {
-									await sections.add(conf as HelpSection);
-								}
+					help: async ({ sections, state }) => {
+						const only = state.argv.platform;
+						for (const [name, conf] of Object.entries(platforms)) {
+							if (!only || only === name) {
+								await sections.add(conf as HelpSection);
 							}
-						},
-					],
+						}
+					},
 				},
 			},
 		},
@@ -263,15 +261,13 @@ describe('the help hook', () => {
 					options: { '--watch': 'Watch' },
 					commands: { targets: {} },
 					hooks: {
-						help: [
-							({ args, cmd, commands, options, state }) => {
-								seen.args = args.length;
-								seen.name = cmd.name;
-								seen.commands = commands.size;
-								seen.options = options.size;
-								seen.typed = state.$orig.join(' ');
-							},
-						],
+						help: ({ args, cmd, commands, options, state }) => {
+							seen.args = args.length;
+							seen.name = cmd.name;
+							seen.commands = commands.size;
+							seen.options = options.size;
+							seen.typed = state.$orig.join(' ');
+						},
 					},
 				},
 			},
@@ -292,13 +288,12 @@ describe('the help hook', () => {
 		const fired: string[] = [];
 		const nested: Schema = {
 			name: 'mycli',
-			hooks: { beforeParse: [] },
 			commands: {
 				build: {
 					desc: 'Build',
-					hooks: { help: [() => void fired.push('build')] },
+					hooks: { help: () => void fired.push('build') },
 					commands: {
-						targets: { desc: 'Targets', hooks: { help: [() => void fired.push('targets')] } },
+						targets: { desc: 'Targets', hooks: { help: () => void fired.push('targets') } },
 					},
 				},
 			},
@@ -314,14 +309,12 @@ describe('the help hook', () => {
 				build: {
 					desc: 'Build',
 					hooks: {
-						help: [
-							async ({ sections }) => {
-								await sections.add({
-									options: { '--shown': 'Shown', '--gone': { desc: 'Gone', hidden: true } },
-									title: 'Extra',
-								});
-							},
-						],
+						help: async ({ sections }) => {
+							await sections.add({
+								options: { '--shown': 'Shown', '--gone': { desc: 'Gone', hidden: true } },
+								title: 'Extra',
+							});
+						},
 					},
 				},
 			},
@@ -336,14 +329,12 @@ describe('the help hook', () => {
 				build: {
 					desc: 'Build',
 					hooks: {
-						help: [
-							async ({ sections }) => {
-								await sections.add({
-									options: { '--cheese [type]': 'Add cheese', '--no-cheese': undefined },
-									title: 'Extra',
-								});
-							},
-						],
+						help: async ({ sections }) => {
+							await sections.add({
+								options: { '--cheese [type]': 'Add cheese', '--no-cheese': undefined },
+								title: 'Extra',
+							});
+						},
 					},
 				},
 			},
@@ -360,13 +351,11 @@ describe('the help hook', () => {
 				build: {
 					desc: 'Build',
 					hooks: {
-						help: [
-							async ({ sections }) => {
-								await sections.add({ title: 'Nothing' });
-								await sections.add({ options: {}, title: 'Also nothing' });
-								await sections.add({ options: { '--x': 'X' }, title: 'Something' });
-							},
-						],
+						help: async ({ sections }) => {
+							await sections.add({ title: 'Nothing' });
+							await sections.add({ options: {}, title: 'Also nothing' });
+							await sections.add({ options: { '--x': 'X' }, title: 'Something' });
+						},
 					},
 				},
 			},
@@ -385,11 +374,9 @@ describe('the help hook', () => {
 				build: {
 					desc: 'Build',
 					hooks: {
-						help: [
-							async ({ sections }) => {
-								await sections.add({ options: { '--mode [name]': 'Extra mode' }, title: 'Extra' });
-							},
-						],
+						help: async ({ sections }) => {
+							await sections.add({ options: { '--mode [name]': 'Extra mode' }, title: 'Extra' });
+						},
 					},
 				},
 			},
@@ -406,14 +393,12 @@ describe('the help hook', () => {
 				build: {
 					desc: 'Build',
 					hooks: {
-						help: [
-							async ({ sections }) => {
-								await sections.add({
-									options: { '--x': { desc: 'X', group: 'Nested' } },
-									title: 'Extra',
-								});
-							},
-						],
+						help: async ({ sections }) => {
+							await sections.add({
+								options: { '--x': { desc: 'X', group: 'Nested' } },
+								title: 'Extra',
+							});
+						},
 					},
 				},
 			},
@@ -431,11 +416,9 @@ describe('the help hook', () => {
 				build: {
 					desc: 'Build',
 					hooks: {
-						help: [
-							async ({ sections }) => {
-								await sections.add({ options: { '--x': 'X' }, title: 'Extra' });
-							},
-						],
+						help: async ({ sections }) => {
+							await sections.add({ options: { '--x': 'X' }, title: 'Extra' });
+						},
 					},
 				},
 			},
@@ -463,14 +446,12 @@ describe('the help hook', () => {
 				build: {
 					desc: 'Build',
 					hooks: {
-						help: [
-							async ({ sections }) => {
-								await sections.add({
-									options: { '--x': 'X' },
-									title: 'An exceptionally long platform configuration',
-								});
-							},
-						],
+						help: async ({ sections }) => {
+							await sections.add({
+								options: { '--x': 'X' },
+								title: 'An exceptionally long platform configuration',
+							});
+						},
 					},
 				},
 			},
@@ -491,12 +472,10 @@ describe('the help hook', () => {
 				build: {
 					desc: 'Build',
 					hooks: {
-						help: [
-							async ({ sections }) => {
-								await sections.add({ args: ['[one]'], options: { '--a': 'A' }, title: 'Extra' });
-								await sections.add({ args: ['[two]'], options: { '--b': 'B' }, title: 'Extra' });
-							},
-						],
+						help: async ({ sections }) => {
+							await sections.add({ args: ['[one]'], options: { '--a': 'A' }, title: 'Extra' });
+							await sections.add({ args: ['[two]'], options: { '--b': 'B' }, title: 'Extra' });
+						},
 					},
 				},
 			},
@@ -515,11 +494,9 @@ describe('the help hook', () => {
 				build: {
 					desc: 'Build',
 					hooks: {
-						help: [
-							async ({ sections }) => {
-								await sections.add({ args: ['[avd]'], title: 'Android' });
-							},
-						],
+						help: async ({ sections }) => {
+							await sections.add({ args: ['[avd]'], title: 'Android' });
+						},
 					},
 				},
 			},
@@ -584,9 +561,10 @@ describe('the help hook', () => {
 		);
 	});
 
-	// a hook that adds to the list it is being read from would extend the run it
-	// is already in, and would reach the caller's declaration while doing it
-	it('should fire the hooks the command had when help was asked for', async () => {
+	// replacing the hook on the command a hook was handed must not reach back into
+	// the caller's declaration, where it would change what every later parse of
+	// that schema does
+	it('should not let a hook rewrite the declaration it came from', async () => {
 		const late = vi.fn();
 		const growing: Schema = {
 			name: 'mycli',
@@ -594,11 +572,11 @@ describe('the help hook', () => {
 				build: {
 					desc: 'Build',
 					hooks: {
-						help: [
-							({ cmd }) => {
-								(cmd.hooks?.help as unknown[])?.push(late);
-							},
-						],
+						help: ({ cmd }) => {
+							if (cmd.hooks) {
+								cmd.hooks.help = late;
+							}
+						},
 					},
 				},
 			},
@@ -606,20 +584,20 @@ describe('the help hook', () => {
 		await help(growing, ['build']);
 		expect(late).not.toHaveBeenCalled();
 
-		// and the caller's own declaration is not where it landed
-		expect(
-			(growing.commands as Record<string, { hooks: { help: unknown[] } }>).build.hooks.help
-		).toHaveLength(1);
+		const declared = (growing.commands as Record<string, { hooks: { help: unknown } }>).build.hooks
+			.help;
+		expect(declared).not.toBe(late);
+		expect(typeof declared).toBe('function');
 	});
 });
 
 describe('bad sections', () => {
-	it('should reject a list of hooks that is not functions', async () => {
+	it('should reject a hook that is not a function', async () => {
 		await expect(initCommand({ hooks: { help: 'nope' as never }, name: 'x' })).rejects.toThrow(
-			'Expected command help hooks to be an array of functions'
+			'Expected command help hook to be a function'
 		);
-		await expect(initCommand({ hooks: { help: [1 as never] }, name: 'x' })).rejects.toThrow(
-			/help hooks to be an array of functions/
+		await expect(initCommand({ hooks: { help: [] as never }, name: 'x' })).rejects.toThrow(
+			/help hook to be a function/
 		);
 	});
 
@@ -652,7 +630,7 @@ describe('bad sections', () => {
 		const schema: Schema = {
 			name: 'mycli',
 			commands: {
-				notes: { desc: 'Notes', help: 'Read the manual.', hooks: { help: [fired] } },
+				notes: { desc: 'Notes', help: 'Read the manual.', hooks: { help: fired } },
 			},
 		};
 		const state = await parse({ argv: ['notes', '--help'], schema });
@@ -668,11 +646,9 @@ describe('bad sections', () => {
 					desc: 'Notes',
 					help: ({ generated }) => generated,
 					hooks: {
-						help: [
-							async ({ sections }) => {
-								await sections.add({ options: { '--x': 'X' }, title: 'Extra' });
-							},
-						],
+						help: async ({ sections }) => {
+							await sections.add({ options: { '--x': 'X' }, title: 'Extra' });
+						},
 					},
 				},
 			},
@@ -689,7 +665,7 @@ describe('bad sections', () => {
 			commands: {
 				build: {
 					desc: 'Build',
-					hooks: { help: [({ state }) => resolveHelp(state) as unknown as void] },
+					hooks: { help: ({ state }) => resolveHelp(state) as unknown as void },
 				},
 			},
 		};
@@ -708,15 +684,13 @@ describe('bad sections', () => {
 				build: {
 					desc: 'Build',
 					hooks: {
-						help: [
-							async ({ sections, state }) => {
-								if (recurse) {
-									recurse = false;
-									await resolveHelp(state);
-								}
-								await sections.add({ options: { '--x': 'X' }, title: 'Extra' });
-							},
-						],
+						help: async ({ sections, state }) => {
+							if (recurse) {
+								recurse = false;
+								await resolveHelp(state);
+							}
+							await sections.add({ options: { '--x': 'X' }, title: 'Extra' });
+						},
 					},
 				},
 			},
@@ -734,11 +708,9 @@ describe('bad sections', () => {
 				build: {
 					desc: 'Build',
 					hooks: {
-						help: [
-							() => {
-								throw new Error('the hook is broken');
-							},
-						],
+						help: () => {
+							throw new Error('the hook is broken');
+						},
 					},
 				},
 			},
@@ -754,7 +726,7 @@ describe('renderHelp() with sections', () => {
 		const schema: Schema = {
 			help: false,
 			name: 'mycli',
-			commands: { build: { desc: 'Build', hooks: { help: [fired] } } },
+			commands: { build: { desc: 'Build', hooks: { help: fired } } },
 		};
 		const state = await parse({ argv: ['build'], schema });
 		const sections = createSections();
@@ -777,11 +749,9 @@ describe('renderHelp() with sections', () => {
 				build: {
 					desc: 'Build',
 					hooks: {
-						help: [
-							async ({ sections }) => {
-								await sections.add({ options: { '--from-hook': 'Hook' }, title: 'Hook' });
-							},
-						],
+						help: async ({ sections }) => {
+							await sections.add({ options: { '--from-hook': 'Hook' }, title: 'Hook' });
+						},
 					},
 				},
 			},

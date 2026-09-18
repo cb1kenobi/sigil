@@ -677,16 +677,16 @@ export async function resolveHelp(state: ParseState, opts: HelpOptions = {}): Pr
  * describe something about its subcommands can say so in its own screen.
  *
  * @param cmd - The command being described.
- * @param state - The parse state, handed to each hook.
- * @returns The sections, or `undefined` when there are no hooks.
+ * @param state - The parse state, handed to the hook.
+ * @returns The sections, or `undefined` when there is no hook.
  */
 async function contributedSections(
 	cmd: InternalCommand,
 	state: ParseState
 ): Promise<BuiltSection[] | undefined> {
-	const hooks = cmd.hooks?.help;
+	const hook = cmd.hooks?.help;
 
-	if (!Array.isArray(hooks) || hooks.length === 0) {
+	if (typeof hook !== 'function') {
 		return undefined;
 	}
 
@@ -705,18 +705,14 @@ async function contributedSections(
 	rendering.add(cmd);
 
 	try {
-		// a copy: a hook that adds to the list it is being read from would otherwise
-		// extend the run it is already in
-		for (const hook of hooks.slice()) {
-			await hook({
-				args: internal.args,
-				cmd,
-				commands: internal.commands,
-				options: internal.options,
-				sections,
-				state,
-			});
-		}
+		await hook({
+			args: internal.args,
+			cmd,
+			commands: internal.commands,
+			options: internal.options,
+			sections,
+			state,
+		});
 	} finally {
 		rendering.delete(cmd);
 	}

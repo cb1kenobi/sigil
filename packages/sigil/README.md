@@ -347,17 +347,17 @@ await main({ schema, settings: { allowExtraArguments: true } });
 await main({
   schema: {
     hooks: {
-      beforeParse: [(state) => {}], // before argv is walked
-      afterParse: [(state) => {}], // `state.argv` is written, nothing is validated yet
-      beforeError: [(err, ctx) => {}],
+      beforeParse: (state) => {}, // before argv is walked
+      afterParse: (state) => {}, // `state.argv` is written, nothing is validated yet
+      beforeError: (err, ctx) => {},
     },
     commands: {
       build: {
         hooks: {
-          init: [({ options, args, commands }) => {}], // when the command is built
-          parse: [({ cmd, options }) => {}], // when argv matches it
-          help: [({ sections, state }) => {}], // when its help is rendered
-          beforeError: [(err, ctx) => {}],
+          init: ({ options, args, commands }) => {}, // when the command is built
+          parse: ({ cmd, options }) => {}, // when argv matches it
+          help: ({ sections, state }) => {}, // when its help is rendered
+          beforeError: (err, ctx) => {},
         },
         run() {},
       },
@@ -384,10 +384,20 @@ return nothing to leave it alone, return a value to make that value the error.
 
 ```js
 hooks: {
-  beforeError: [
-    (err) => (err.code === 'ENOENT' ? new Error('Run `mycli init` first') : undefined),
-  ],
+  beforeError: (err) =>
+    err.code === 'ENOENT' ? new Error('Run `mycli init` first') : undefined,
 }
+```
+
+Each hook is **one function**, not a list. Two things that both want to happen
+go in one hook, or wrap the one that is there:
+
+```js
+const previous = cmd.hooks.parse;
+cmd.hooks.parse = async (data) => {
+  await previous?.(data);
+  // ...and yours
+};
 ```
 
 ---

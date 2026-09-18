@@ -43,17 +43,20 @@ describe('hooks', () => {
 					},
 				},
 			})
-		).rejects.toThrow(new TypeError('Expected "beforeParse" hook to be an array of functions'));
+		).rejects.toThrow(new TypeError('Expected "beforeParse" hook to be a function'));
 
+		// an array is what a hook used to be, so it is the wrong shape somebody is
+		// most likely to write -- and a list that silently never fires is the worst
+		// way to find out
 		await expect(
 			parse({
 				schema: {
 					hooks: {
-						beforeParse: [123 as any],
+						beforeParse: [() => {}] as any,
 					},
 				},
 			})
-		).rejects.toThrow(new TypeError('Expected "beforeParse" hook to be an array of functions'));
+		).rejects.toThrow(new TypeError('Expected "beforeParse" hook to be a function'));
 	});
 
 	it('should fire hooks during parsing', async () => {
@@ -65,16 +68,12 @@ describe('hooks', () => {
 		await parse({
 			schema: {
 				hooks: {
-					beforeParse: [
-						() => {
-							result.beforeParseCalled = true;
-						},
-					],
-					afterParse: [
-						() => {
-							result.afterParseCalled = true;
-						},
-					],
+					beforeParse: () => {
+						result.beforeParseCalled = true;
+					},
+					afterParse: () => {
+						result.afterParseCalled = true;
+					},
 				},
 			},
 		});
@@ -103,7 +102,7 @@ describe('hooks', () => {
 					'-v, --version': { type: 'bool' },
 					'--port [n]': { env: 'PORT', type: 'int' },
 				},
-				hooks: { afterParse: [(state) => void seen.push({ ...state.argv })] },
+				hooks: { afterParse: (state) => void seen.push({ ...state.argv }) },
 			},
 		});
 
@@ -123,11 +122,9 @@ describe('hooks', () => {
 				help: false,
 				options: { '--mode [m]': { choices: ['quiet'] } },
 				hooks: {
-					afterParse: [
-						(s) => {
-							s.argv.mode = 'quiet';
-						},
-					],
+					afterParse: (s) => {
+						s.argv.mode = 'quiet';
+					},
 				},
 			},
 		});
@@ -136,7 +133,7 @@ describe('hooks', () => {
 	});
 
 	describe('beforeError', () => {
-		it('should error if beforeError hooks are invalid', async () => {
+		it('should error if a beforeError hook is invalid', async () => {
 			await expect(
 				parse({
 					schema: {
@@ -145,36 +142,35 @@ describe('hooks', () => {
 						},
 					},
 				})
-			).rejects.toThrow(new TypeError('Expected "beforeError" hook to be an array of functions'));
+			).rejects.toThrow(new TypeError('Expected "beforeError" hook to be a function'));
 
 			await expect(
 				parse({
 					schema: {
 						hooks: {
-							beforeError: [123 as any],
+							beforeError: [() => {}] as any,
 						},
 					},
 				})
-			).rejects.toThrow(new TypeError('Expected "beforeError" hook to be an array of functions'));
+			).rejects.toThrow(new TypeError('Expected "beforeError" hook to be a function'));
 		});
 
-		it('should error if a command beforeError hook list is invalid', async () => {
-			// a hook list that silently never fires is worst on the error path
+		it('should error if a command beforeError hook is invalid', async () => {
+			// a hook that silently never fires is worst on the error path, and an
+			// array is the shape it used to be
 			await expect(
 				parse({
 					schema: {
 						commands: {
 							build: {
 								hooks: {
-									beforeError: (() => {}) as any,
+									beforeError: [() => {}] as any,
 								},
 							},
 						},
 					},
 				})
-			).rejects.toThrow(
-				new TypeError('Expected command beforeError hooks to be an array of functions')
-			);
+			).rejects.toThrow(new TypeError('Expected command beforeError hook to be a function'));
 		});
 
 		it('should not fire when parsing succeeds', async () => {
@@ -183,7 +179,7 @@ describe('hooks', () => {
 			await parse({
 				argv: ['--name', 'bob'],
 				schema: {
-					hooks: { beforeError: [(err) => void calls.push(err)] },
+					hooks: { beforeError: (err) => void calls.push(err) },
 					options: { '--name [value]': 'Your name' },
 				},
 			});
@@ -200,12 +196,10 @@ describe('hooks', () => {
 				schema: {
 					commands: { build: { options: { '--target <name>': 'Where to build to' } } },
 					hooks: {
-						beforeError: [
-							(e, s) => {
-								seen = e;
-								state = s;
-							},
-						],
+						beforeError: (e, s) => {
+							seen = e;
+							state = s;
+						},
 					},
 				},
 			});
@@ -294,11 +288,9 @@ describe('hooks', () => {
 						argv: [],
 						schema: {
 							hooks: {
-								beforeParse: [
-									() => {
-										throw new Error('beforeParse exploded');
-									},
-								],
+								beforeParse: () => {
+									throw new Error('beforeParse exploded');
+								},
 							},
 						},
 					},
@@ -360,7 +352,7 @@ describe('hooks', () => {
 				it(`should fire for ${name}`, async () => {
 					const calls: unknown[] = [];
 					const schema = opts.schema as NonNullable<ParseOptions['schema']>;
-					schema.hooks = { ...schema.hooks, beforeError: [(err) => void calls.push(err)] };
+					schema.hooks = { ...schema.hooks, beforeError: (err) => void calls.push(err) };
 
 					const err = await failing(opts);
 
@@ -379,7 +371,7 @@ describe('hooks', () => {
 				get argv(): string[] {
 					throw new Error('bad argv getter');
 				},
-				schema: { hooks: { beforeError: [(e) => void calls.push(e)] } },
+				schema: { hooks: { beforeError: (e) => void calls.push(e) } },
 			});
 
 			expect((err as Error).message).toBe('bad argv getter');
@@ -398,17 +390,15 @@ describe('hooks', () => {
 					commands: {
 						foo: {
 							hooks: {
-								beforeError: [
-									(_e, s) => {
-										calls.push('foo');
-										state = s;
-									},
-								],
+								beforeError: (_e, s) => {
+									calls.push('foo');
+									state = s;
+								},
 							},
 							path: path.join(__dirname, 'fixtures/does-not-exist.js'),
 						},
 					},
-					hooks: { beforeError: [() => void calls.push('schema')] },
+					hooks: { beforeError: () => void calls.push('schema') },
 				},
 			});
 
@@ -423,7 +413,7 @@ describe('hooks', () => {
 			const err = await failing({
 				argv: [],
 				schema: {
-					hooks: { beforeError: [() => replacement] },
+					hooks: { beforeError: () => replacement },
 					options: { '--name <value>': 'Your name' },
 				},
 			});
@@ -437,7 +427,7 @@ describe('hooks', () => {
 				argv: ['build'],
 				schema: {
 					commands: { build: { options: { '--target <name>': 'Where to build to' } } },
-					hooks: { beforeError: [() => new Error('nicer message')] },
+					hooks: { beforeError: () => new Error('nicer message') },
 				},
 			});
 
@@ -448,7 +438,7 @@ describe('hooks', () => {
 			const err = await failing({
 				argv: [],
 				schema: {
-					hooks: { beforeError: [() => 'just a string'] },
+					hooks: { beforeError: () => 'just a string' },
 					options: { '--name <value>': 'Your name' },
 				},
 			});
@@ -462,7 +452,7 @@ describe('hooks', () => {
 			const err = await failing({
 				argv: [],
 				schema: {
-					hooks: { beforeError: [() => undefined, async () => {}] },
+					hooks: { beforeError: () => undefined },
 					options: { '--name <value>': 'Your name' },
 				},
 			});
@@ -475,11 +465,9 @@ describe('hooks', () => {
 				argv: [],
 				schema: {
 					hooks: {
-						beforeError: [
-							(e) => {
-								(e as Error).message = `${(e as Error).message} (try --help)`;
-							},
-						],
+						beforeError: (e) => {
+							(e as Error).message = `${(e as Error).message} (try --help)`;
+						},
 					},
 					options: { '--name <value>': 'Your name' },
 				},
@@ -493,12 +481,10 @@ describe('hooks', () => {
 				argv: [],
 				schema: {
 					hooks: {
-						beforeError: [
-							async (e) => {
-								await Promise.resolve();
-								return new Error(`wrapped: ${(e as Error).message}`);
-							},
-						],
+						beforeError: async (e) => {
+							await Promise.resolve();
+							return new Error(`wrapped: ${(e as Error).message}`);
+						},
 					},
 					options: { '--name <value>': 'Your name' },
 				},
@@ -508,30 +494,36 @@ describe('hooks', () => {
 		});
 
 		it('should skip a hook that throws and keep the error it was given', async () => {
+			// one hook per source now, so the hook that still has to run is the next
+			// source's: the command's throws and the schema's is handed the error
+			// unharmed. That is the same claim -- a hook's own failure never takes
+			// the original error's place, and never stops the hooks after it
 			const calls: string[] = [];
 
 			const err = await failing({
-				argv: [],
+				argv: ['build'],
 				schema: {
-					hooks: {
-						beforeError: [
-							() => {
-								calls.push('first');
-								throw new Error('hook exploded');
+					commands: {
+						build: {
+							hooks: {
+								beforeError: () => {
+									calls.push('command');
+									throw new Error('hook exploded');
+								},
 							},
-							(e) => {
-								calls.push((e as Error).message);
-							},
-						],
+							options: { '--name <value>': 'Your name' },
+						},
 					},
-					options: { '--name <value>': 'Your name' },
+					hooks: {
+						beforeError: (e) => {
+							calls.push((e as Error).message);
+						},
+					},
 				},
 			});
 
-			// the hook's own failure never takes the original error's place, and
-			// the hooks after it still run
 			expect((err as Error).message).toBe('Missing required options: --name');
-			expect(calls).toEqual(['first', 'Missing required options: --name']);
+			expect(calls).toEqual(['command', 'Missing required options: --name']);
 		});
 
 		it('should skip a hook whose promise rejects', async () => {
@@ -539,7 +531,7 @@ describe('hooks', () => {
 				argv: [],
 				schema: {
 					hooks: {
-						beforeError: [async () => Promise.reject(new Error('hook exploded'))],
+						beforeError: async () => Promise.reject(new Error('hook exploded')),
 					},
 					options: { '--name <value>': 'Your name' },
 				},
@@ -561,14 +553,14 @@ describe('hooks', () => {
 						build: {
 							commands: {
 								web: {
-									hooks: { beforeError: [record('web')] },
+									hooks: { beforeError: record('web') },
 									options: { '--target <name>': 'Where to build to' },
 								},
 							},
-							hooks: { beforeError: [record('build')] },
+							hooks: { beforeError: record('build') },
 						},
 					},
-					hooks: { beforeError: [record('schema')] },
+					hooks: { beforeError: record('schema') },
 				},
 			});
 
@@ -583,13 +575,13 @@ describe('hooks', () => {
 					commands: {
 						build: {
 							hooks: {
-								beforeError: [(e) => new Error(`build: ${(e as Error).message}`)],
+								beforeError: (e) => new Error(`build: ${(e as Error).message}`),
 							},
 							options: { '--target <name>': 'Where to build to' },
 						},
 					},
 					hooks: {
-						beforeError: [(e) => new Error(`cli: ${(e as Error).message}`)],
+						beforeError: (e) => new Error(`cli: ${(e as Error).message}`),
 					},
 				},
 			});
@@ -606,7 +598,7 @@ describe('hooks', () => {
 				argv: ['build'],
 				schema: {
 					commands: { build: { options: { '--target <name>': 'Where to build to' } } },
-					hooks: { beforeError: [(err) => void calls.push(err)] },
+					hooks: { beforeError: (err) => void calls.push(err) },
 				},
 			});
 
@@ -626,12 +618,10 @@ describe('hooks', () => {
 					name: 'mycli',
 					options: { '--mode [m]': { choices: ['three'] } },
 					hooks: {
-						afterParse: [
-							async (state) => {
-								const { options } = state.contexts[0][Internal];
-								await options.add(await initOption({ choices: ['two'], format: '--mode [m]' }));
-							},
-						],
+						afterParse: async (state) => {
+							const { options } = state.contexts[0][Internal];
+							await options.add(await initOption({ choices: ['two'], format: '--mode [m]' }));
+						},
 					},
 				},
 			})

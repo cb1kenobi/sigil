@@ -146,14 +146,14 @@ export interface Command<
 	help?: string | HelpRenderer;
 	hidden?: boolean;
 	hooks?: {
-		beforeError?: BeforeErrorHook[];
+		beforeError?: BeforeErrorHook;
 		/**
 		 * Fires when this command's help is about to be rendered, to contribute
 		 * titled sections. See `HelpHook`.
 		 */
-		help?: HelpHook[];
-		init?: CommandHook[];
-		parse?: CommandHook[];
+		help?: HelpHook;
+		init?: CommandHook;
+		parse?: CommandHook;
 	};
 	name?: string;
 	options?: O;
@@ -420,13 +420,13 @@ export interface Schema {
 	 */
 	help?: boolean;
 	hooks?: {
-		beforeParse?: SchemaHook[];
-		afterParse?: SchemaHook[];
+		beforeParse?: SchemaHook;
+		afterParse?: SchemaHook;
 		/**
 		 * Fires on the way out of any error. Commands in the context chain
 		 * declare their own, and those run first; see `BeforeErrorHook`.
 		 */
-		beforeError?: BeforeErrorHook[];
+		beforeError?: BeforeErrorHook;
 	};
 	name?: string;
 	options?: OptionDeclarations;

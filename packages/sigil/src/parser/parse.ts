@@ -68,15 +68,9 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
 		if (schema.hooks && typeof schema.hooks !== 'object') {
 			throw new TypeError('Expected hooks to be an object of hook names and callbacks');
 		}
-		const hooks = {
-			beforeParse: [],
-			afterParse: [],
-			beforeError: [],
-			...schema.hooks,
-		};
-		for (const [name, hookList] of Object.entries(hooks)) {
-			if (!Array.isArray(hookList) || hookList.some((h) => typeof h !== 'function')) {
-				throw new TypeError(`Expected "${name}" hook to be an array of functions`);
+		for (const [name, hook] of Object.entries(schema.hooks ?? {})) {
+			if (hook !== undefined && typeof hook !== 'function') {
+				throw new TypeError(`Expected "${name}" hook to be a function`);
 			}
 		}
 
@@ -123,11 +117,7 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
 		// one thing it is for was the one thing it could not do. Producing the
 		// values and judging them are two steps now rather than one, and this is
 		// what goes between them
-		if (state.schema.hooks?.afterParse) {
-			for (const hook of state.schema.hooks.afterParse) {
-				await hook(state);
-			}
-		}
+		await state.schema.hooks?.afterParse?.(state);
 
 		validateArgs(state);
 		validateOptions(state);
@@ -590,11 +580,7 @@ async function dispatchDefaultCommand(
 		visited.add(loaded);
 	}
 
-	if (loaded.hooks?.parse) {
-		for (const hook of loaded.hooks.parse) {
-			await hook({ cmd: loaded, ...loaded[Internal] });
-		}
-	}
+	await loaded.hooks?.parse?.({ cmd: loaded, ...loaded[Internal] });
 
 	return true;
 }
@@ -603,11 +589,7 @@ async function parseArgv(state: ParseState): Promise<void> {
 	const { $, contexts } = state;
 	const defaults = new Set<InternalCommand>();
 
-	if (state.schema.hooks?.beforeParse) {
-		for (const hook of state.schema.hooks.beforeParse) {
-			await hook(state);
-		}
-	}
+	await state.schema.hooks?.beforeParse?.(state);
 
 	// Options may appear before the command that declares them, so keep making
 	// passes for as long as new command contexts keep turning up.
@@ -663,11 +645,7 @@ async function parseArgv(state: ParseState): Promise<void> {
 					type: 'Command',
 				};
 
-				if (loaded.hooks?.parse) {
-					for (const hook of loaded.hooks.parse) {
-						await hook({ cmd: loaded, ...loaded[Internal] });
-					}
-				}
+				await loaded.hooks?.parse?.({ cmd: loaded, ...loaded[Internal] });
 
 				continue;
 			}

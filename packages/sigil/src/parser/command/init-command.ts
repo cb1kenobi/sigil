@@ -243,35 +243,19 @@ export async function initCommand(
 			`Cannot set "${prop}" on the initialized "${parsed.name}" command: the parser reads cmd[Internal].${prop}, so change that instead`
 	);
 
-	// a command's `beforeError` hooks are not fired from here, but a list that
-	// is not a list of functions has to be rejected while the schema is being
-	// built: the error path is the one place a silent no-op does the most harm
-	if (decl.hooks?.beforeError !== undefined) {
-		const beforeError = decl.hooks.beforeError;
-		if (!Array.isArray(beforeError) || beforeError.some((h) => typeof h !== 'function')) {
-			throw new TypeError('Expected command beforeError hooks to be an array of functions');
+	// `beforeError` and `help` are fired elsewhere -- by the error path and by the
+	// help module -- and are checked here anyway, because those are the two places
+	// where a value that is not a function does the most harm: one is reached only
+	// when something has already gone wrong, and the other only when somebody asks
+	// for help and gets an error instead
+	for (const name of ['beforeError', 'help', 'init', 'parse'] as const) {
+		const hook = decl.hooks?.[name];
+		if (hook !== undefined && typeof hook !== 'function') {
+			throw new TypeError(`Expected command ${name} hook to be a function`);
 		}
 	}
 
-	// `help` hooks are fired by the help module rather than from here, and for the
-	// same reason as `beforeError`: a list that is not a list of functions is
-	// worth rejecting now, because the alternative is finding out when somebody
-	// asks for help and gets an error instead
-	if (decl.hooks?.help !== undefined) {
-		const help = decl.hooks.help;
-		if (!Array.isArray(help) || help.some((h) => typeof h !== 'function')) {
-			throw new TypeError('Expected command help hooks to be an array of functions');
-		}
-	}
-
-	if (decl.hooks?.init !== undefined) {
-		if (!Array.isArray(decl.hooks.init)) {
-			throw new TypeError('Expected command init hooks to be an array');
-		}
-		for (const hook of decl.hooks.init) {
-			await hook({ cmd, ...cmd[Internal] });
-		}
-	}
+	await decl.hooks?.init?.({ cmd, ...cmd[Internal] });
 
 	cmd[Internal].state = InternalState.OK;
 
@@ -317,19 +301,13 @@ function cloneDeclaration(decl: Command, parsed: ParsedName, argDecls: Command['
 		cmd.options = { ...decl.options };
 	}
 
-	// the hook lists are copied as well, so a hook that registers another hook
-	// on the command it was handed does not append to the declaration — and
-	// does not extend the list `initCommand()` is in the middle of walking
+	// the hooks object is copied, so replacing one on the command a hook was
+	// handed does not reach back into the caller's declaration and change what
+	// every later parse of that schema does. One function rather than a list, so
+	// there is nothing inside it left to copy: a caller that wants two things to
+	// happen writes a hook that does both, or wraps the one that is there
 	if (decl.hooks && typeof decl.hooks === 'object') {
-		// every list, not a named few: a hook that adds to the list it was read from
-		// would otherwise reach the caller's declaration and grow it on every parse
-		const hooks: Record<string, unknown> = { ...decl.hooks };
-		for (const [name, list] of Object.entries(hooks)) {
-			if (Array.isArray(list)) {
-				hooks[name] = [...list];
-			}
-		}
-		cmd.hooks = hooks as Command['hooks'];
+		cmd.hooks = { ...decl.hooks };
 	}
 
 	return cmd;
