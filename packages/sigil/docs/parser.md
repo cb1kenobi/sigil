@@ -206,6 +206,13 @@ honored.
 The module must default-export a command object. Loading is deferred until the
 command is actually matched, so a large CLI only pays for the branch it takes.
 
+A path is relative to the file that declared it, the same as an `import` in
+that file: a command module exporting `commands: { all: './all.js' }` is
+answered by the `all.js` sitting next to it, whatever directory the app was run
+from. The schema the app hands `parse()` is the exception, because there is no
+file to be relative to — a path there resolves from the working directory, so
+pass an absolute one, built from `import.meta.url`.
+
 Only the placeholder sees the name string, so the aliases and help label parsed
 from it are carried onto the loaded command; a module that declares its own
 `name` string brings its own label instead. An `alias` the module declares is
@@ -615,6 +622,11 @@ overflows rather than refusing: `2024-02-30` used to come back as March 1st. A
 day that does not exist now throws `Invalid date`, the same as `9999-99-99`
 always did. The check is arithmetic, so it does not depend on the time zone the
 process is running in.
+
+`auto` runs the same check, and answers differently: a date-shaped string that
+is not a date is simply not its date guess, so it falls through to the string it
+was handed. `auto` never throws — it guesses and gives up — and it is what
+undeclared options are coerced with, where nobody asked for a date at all.
 
 `bool` accepts `true`, `t`, `yes`, `y`, `on`, and `1` as true, and `false`,
 `f`, `no`, `n`, `off`, `0`, and the empty string as false. Case is ignored.
