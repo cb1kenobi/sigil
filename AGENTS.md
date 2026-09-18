@@ -283,6 +283,19 @@ These look like bugs and are not. Each is intentional and covered by tests.
   `src/wrap/sgr-state.ts` already
   modeled this for the wrapper; the two say it separately rather than sharing a
   module across the styler and the wrapper.
+- **A sequence the wrapper cannot reopen travels with the word it applies to.**
+  A break throws away the gap between two words and keeps the effect of the SGR
+  that was in it, because opening the next line from the state is what writes
+  those attributes back. A hyperlink has no slot in that state -- `sgr-state.ts`
+  passes OSC through _untouched_, and untouched only happens when the sequence
+  is written out -- so one still pending at a break was deleted: an OSC 8 open in
+  front of a word that wrapped took the link away, and a close in the gap left
+  every later line, and anything joined onto the result, inside the hyperlink.
+  `isSgr()` is what says which of the two a sequence is, asked in one place so
+  that the wrapper and the state cannot come to disagree. What is carried is
+  written at the start of the next line, after the attributes that line reopens:
+  SGR and OSC are separate terminal state, so their order between themselves
+  says nothing. See `test/wrap/wrap.test.ts`.
 - **`bool` is strict and symmetric.** `true`/`t`/`yes`/`y`/`on`/`1` are
   true, `false`/`f`/`no`/`n`/`off`/`0`/`''` are false, case-insensitively,
   and anything else throws. It does not follow minimist's
@@ -1016,6 +1029,17 @@ stylesheet rather than anything the runtime knows about.
   kept its glyph -- and the last `put()` wrote its continuation one column _past_
   the rectangle, over whatever else was painted there. Three columns cannot hold
   two wide clusters, and half of one is worse than a gap.
+- **`write()` clips at the left edge and gives up at the right.** `put()` answers
+  `0` for any off-grid column, and reading that as "nothing further will land" is
+  true walking off the right edge and false at a negative one, where advancing
+  walks _into_ the grid -- so `write(-2, 0, 'hello')` on a five-wide grid painted
+  nothing at all while `fill()` clipped the same rectangle correctly, and two
+  sibling APIs disagreed about what off-grid means. A wide cluster straddling
+  column zero is still refused, because a survivor is half a glyph, but only that
+  cluster and not the rest of the string. What comes back is the **advance from
+  `x`**, not a count of the cells painted: `x + returned` is where a next run goes
+  whichever edge clipped this one, it is the same number for a run that fits, and
+  a caller that needs to know what landed has `inside()`.
 - **The cell class is `CellBuffer`, not `Buffer`.** The shorter name is Node's
   global, and a file that forgets the import gets a byte buffer and a
   deprecation warning rather than a type error.
@@ -1086,6 +1110,28 @@ stylesheet rather than anything the runtime knows about.
   pixel short at small font sizes. Out-of-range points are ignored rather than
   refused: a plot clips at its box, and requiring every caller to bounds-check
   each point is how the check ends up in the wrong place.
+- **A point the loop cannot step towards is out of range, and it is refused
+  before anything loops.** `Dots.line()` is Bresenham, which ends by arriving at
+  the end point: `NaN === NaN` is false, a step towards an infinity never
+  arrives, and past 2^53 adding one is a no-op -- so `line(1e308, 0, 0, 0)` steps
+  forever without moving, exactly the way one missing sample from a plot did,
+  painting nothing while it did since `set()` ignores what it cannot place. The
+  endpoints are truncated already, so what the guard asks is whether a step of
+  one still means something, which is `Number.isSafeInteger` and not
+  `Number.isFinite`. A point it can walk to is a different thing and still
+  clips, which is the rule above -- including a long line that is merely slow to
+  walk, since bounding that is a decision about clipping rather than about a
+  loop that cannot end.
+- **Every sub-cell entry point answers for a coordinate that is not a number,
+  because none of them can.** Each comparison in a bounds check is false for
+  `NaN`, so it passed straight through: `Dots.#locate()` reached `DOT_BITS[NaN]`
+  and the row lookup threw a `TypeError`, `Dots.charAt()` reached `#cells[NaN]`
+  and `String.fromCodePoint(NaN)` threw a `RangeError`, and `Pixels.#index()`
+  wrote to index `NaN`, which a typed array drops, then handed `undefined` back
+  with `Color` written on it. Three spellings of one hole in three methods whose
+  shared contract is to ignore what they cannot place. `charAt()` truncates as
+  well, because it builds its own cell index and a fraction reached the same
+  `undefined`.
 - **No passthrough image protocols: Kitty, iTerm2 and Sixel are out.** Fidelity
   is a capability tier the way colour depth already is -- cells always, then
   sub-cell block and braille characters everywhere, and that is where it stops.

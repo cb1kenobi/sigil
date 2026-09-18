@@ -203,6 +203,25 @@ describe('CellBuffer', () => {
 		expect(buffer.toLines()).toEqual(['hel']);
 	});
 
+	// `put()` answers 0 for any off-grid column and `write()` read that as
+	// "nothing further will land" -- true walking off the right edge, false at the
+	// left, where advancing walks into the grid. `fill()` clipped this way all
+	// along, and the two are painting the same thing
+	it('should clip at the left edge rather than abandoning the string', () => {
+		const buffer = new CellBuffer(5, 1);
+		expect(buffer.write(-2, 0, 'hello', 0)).toBe(5);
+		expect(buffer.toLines()).toEqual(['llo  ']);
+	});
+
+	it('should report the advance from where it was asked to start', () => {
+		const buffer = new CellBuffer(5, 1);
+		// nothing landed, and the answer still says where a next run would go
+		expect(buffer.write(-9, 0, 'hi', 0)).toBe(2);
+		expect(buffer.toLines()).toEqual(['     ']);
+		// a row that is not on the grid is the case the break still exists for
+		expect(buffer.write(0, 5, 'hi', 0)).toBe(0);
+	});
+
 	it('should refuse coordinates off the grid', () => {
 		const buffer = new CellBuffer(3, 1);
 		expect(buffer.put(-1, 0, 'x', 0)).toBe(0);
@@ -261,6 +280,14 @@ describe('CellBuffer', () => {
 			expect(buffer.put(2, 0, '漢', 0)).toBe(1);
 			// half a wide glyph is worse than none, so the column takes a blank
 			expect(buffer.charAt(2, 0)).toBe(BLANK);
+		});
+
+		it('should refuse one straddling the left edge without dropping the rest', () => {
+			const buffer = new CellBuffer(5, 1);
+			// the lead is off the grid and only the continuation would land, so the
+			// cluster is refused -- a survivor is half a glyph -- and only it
+			expect(buffer.write(-1, 0, '漢a', 0)).toBe(3);
+			expect(buffer.toLines()).toEqual([' a   ']);
 		});
 
 		it('should stop a string before a cluster that will not fit', () => {

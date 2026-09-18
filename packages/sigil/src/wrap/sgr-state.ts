@@ -145,6 +145,22 @@ const extendedLengths: Record<number, number> = { 2: 5, 5: 3 };
 const extendable = new Set([38, 48, 58]);
 
 /**
+ * Whether a sequence is one this state models.
+ *
+ * The wrapper has to be able to ask. A sequence `apply()` records survives a
+ * break by being closed and opened again, so dropping the text it was written in
+ * loses nothing; one it ignores survives only by being written out, and dropping
+ * it deletes what it said. Asked here rather than re-read at the call site,
+ * because two readings of "is this an SGR" are two readings that drift apart.
+ *
+ * @param sequence - The sequence to read.
+ * @returns Whether `apply()` would do anything with it.
+ */
+export function isSgr(sequence: string): boolean {
+	return sgrBody(sequence) !== undefined;
+}
+
+/**
  * Tracks what a stream of SGR sequences leaves in effect.
  *
  * @returns The state, empty.
