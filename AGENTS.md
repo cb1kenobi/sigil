@@ -1537,6 +1537,43 @@ stylesheet rather than anything the runtime knows about.
   required one is promoted; and `multiple`, `required`, `type`, and `choices`
   written out on an argument object are all read.
 
+### Paths
+
+- **Every base directory is read through one rule: expand, then require
+  absolute.** The XDG spec says a base directory must be absolute and that a
+  relative one is to be ignored, so `XDG_CACHE_HOME=./.cache` falls back rather
+  than putting a cache in whatever directory the app happened to be started
+  from. The `~` is expanded _before_ that is asked, and that ordering is the
+  half the module used to disagree with itself about: `XDG_CONFIG_DIRS` always
+  expanded its segments and the four `_HOME` variables never did, so
+  `XDG_CACHE_HOME=~/.cache` reached `mkdir` as a directory named `~` -- the same
+  defect the table's own `~/Library/Caches` entries carry an entry for, fixed
+  there and not here. The rule is `baseDir()` and everything asks it: each
+  environment variable, each segment of a `_DIRS` list, and each entry of the
+  platform table. Two consequences follow from asking it everywhere. An empty
+  `_DIRS` segment -- `XDG_CONFIG_DIRS=:/etc/xdg`, or a list with a trailing
+  separator -- is a hole rather than a directory, where `expand('')` is `'.'`
+  and truthy and `combinePaths()` could not tell it from a real entry, so the
+  working directory joined the config search path. And a Windows fallback array
+  walks past an entry that did not expand: `expand()` leaves `%LOCALAPPDATA%` as
+  it found it when the variable is unset and the literal is truthy, so the array
+  stopped at its first entry and `~/AppData/Local`, the fallback the array
+  exists for, was unreachable. Absoluteness is `node:path`'s, so it is the
+  running platform's -- a drive-relative `C:foo` is absolute nowhere, which is
+  the answer Windows itself gives -- and `join`, `normalize` and `delimiter` are
+  already bound that way; a second, call-time platform decision for this one
+  check is how one line comes to disagree with the next about which platform it
+  is on. `~user` is a shell convention `expand()` does not implement, so it stays
+  literal and is refused by the same rule rather than becoming a directory named
+  `~nobody`, and a `~` with no home to put over it stays a `~` for the same
+  reason. That last one needed `home()` fixed to mean it: it was
+  `paths ? join(_home, ...paths) : _home` and an array is always truthy, so a
+  bare `home()` went through `join()` and there was no way back out --
+  `join('')` is `'.'`, so a home the platform could not name came back as the
+  working directory, and `expand()` had no falsy value to leave the `~` alone
+  over. A real path where there is none is the one failure the caller cannot
+  see. See `test/paths.test.ts`.
+
 ### Updates
 
 - **A package name is percent-encoded into the registry URL and out of the cache
