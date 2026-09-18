@@ -27,6 +27,8 @@ const config: ViteUserConfig = defineConfig({
 			reporter: ['html', 'lcov', 'text'],
 		},
 		projects: ['packages/*'],
+		silent: false,
+		watch: false,
 	},
 });
 

@@ -191,7 +191,8 @@ describe('the inline backend', () => {
 
 		// no escape sequences, no carriage returns, one line per change
 		const out = chunks.join('');
-		expect(out).not.toMatch(/\u001B|\r/);
+		expect(out).not.toContain('\u001B');
+		expect(out).not.toContain('\r');
 		expect(
 			out
 				.split('\n')
