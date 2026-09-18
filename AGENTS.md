@@ -741,6 +741,49 @@ false` rethrows instead; a function replaces the handler.
   bounds-checks against the grid, so anything placed past the edge does not
   appear at all. A fuzzer found five hundred containment violations that
   forty-two picture tests had no way to see.
+- **The fuzzer is committed, and it allows overflow rather than checking
+  containment.** `test/layout/random.ts` generates trees and shrinks a failing
+  one back down; `layout-stress.test.ts` runs five seeds of two hundred on every
+  save and prints a seed and a minimal tree, written as the `box()` and `text()`
+  calls that build it, when one breaks. The entry above is why it exists and is
+  also why it is written down twice: the first version of it was run once, found
+  its bugs, and was never committed, so the line saying a fuzzer had found five
+  hundred violations described a file that did not exist for as long as anyone
+  read it. Containment is the invariant it leaves alone, which is a measurement
+  rather than an oversight: 41,038 of 42,000 random layouts escape something,
+  because a word longer than the room is an automatic minimum that cannot shrink,
+  a declared height in a shorter parent has no axis to flex on, and a `min-width`
+  beside a sibling's is a pair of constraints with no solution. Every one of
+  those that was shrunk and read was legitimate overflow, which is what CSS does
+  and what the `overflow` option exists for -- a check that fires on what the
+  engine is supposed to do is a check somebody deletes. What it does check holds
+  unconditionally: no negative boxes, siblings clear of each other, and
+  `checkPacking()`.
+- **A zero-area box is not excused the overlap check, though nothing can be
+  painted over one.** `apart` is false against a degenerate rectangle whatever
+  sits where it is -- no edge of it is past any edge of anything -- which reads
+  like a hole in the check and is its sharpest edge: four of the five defects the
+  fuzzer found arrived as a zero-area box reported inside a sibling, and
+  loosening the rule to match the intuition would have hidden all four. They were
+  one bug, the entry below, rather than the harness artifact they looked like.
+  Once it was fixed the strict rule fired zero times in 70,000 layouts.
+- **A line's cross size is taken after its text has been re-measured, not
+  before.** The two rules above -- a line is as tall as its largest clamped item,
+  and a text is re-measured at the width it actually got -- were true in the
+  wrong order: the re-measure ran in `placeLine()`, which is after
+  `lineCrossSizes` had been read off `item.crossSize` and after the cursor had
+  been walked from it. So a wrapping row whose first text wrapped to two rows at
+  the width flexing gave it stayed a one-row line, and the next line was placed
+  on top of that text's second row. `remeasureLine()` does it between
+  `resolveFlexible()` and the line's cross size instead, and `placeLine()` reads
+  the height back off the item rather than measuring again, so the height a line
+  was sized for and the height its item is placed at cannot come to disagree.
+  `stretch` still takes the larger of the room and that height for an item that
+  measures -- a text's rows past the bottom of its box are lost, while a box
+  crushed by `stretch` merely overflows with its children -- and that is a row's
+  rule only, since a column's cross size is its width and stretching is entitled
+  to widen it. Found by the fuzzer, through a hundred and nine hand-written tests
+  that never put a text that wraps on a line that wraps.
 - **A percentage of an unknown size is `auto`.** What CSS does, and what keeps a
   column layout from resolving heights against nothing.
 - **`min` wins over `max` where they conflict**, as in CSS, which is what stops a
