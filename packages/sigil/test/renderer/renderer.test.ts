@@ -1,6 +1,7 @@
 import { createCanvas } from '../../src/canvas/index.js';
 import { box, type Element, text } from '../../src/element/index.js';
 import {
+	createBranch,
 	createContext,
 	createEffect,
 	createRoot,
@@ -1173,5 +1174,241 @@ describe('unmounting', () => {
 		expect((reports[0] as Error).message).toBe('mount hook');
 		expect(view.mounted).toBe(true);
 		view.dispose();
+	});
+});
+
+describe('a builder that throws, going back the way it came', () => {
+	it('should leave Show able to return to the presence it had', () => {
+		// the inverse of committing presence too early, and just as permanent:
+		// tearing the old branch down first left `showing` claiming a branch that
+		// was gone, so the presence that came back matched the recorded one and
+		// returned early
+		const on = new State(false);
+		let explode = false;
+		const thrown: unknown[] = [];
+		effects.setErrorHandler((error) => void thrown.push(error));
+
+		let host: Element | undefined;
+		createRoot(() => {
+			host = Show({
+				children: () => {
+					if (explode) {
+						throw new Error('nope');
+					}
+					return text('yes');
+				},
+				fallback: () => text('no'),
+				when: () => on.get(),
+			});
+		}, effects.effect);
+
+		expect(host?.children[0]?.text).toBe('no');
+
+		explode = true;
+		on.set(true);
+		effects.flush();
+		expect((thrown[0] as Error).message).toBe('nope');
+		// the fallback that was on screen is still on screen: nothing was torn down
+		// for a branch that never got built
+		expect(host?.children[0]?.text).toBe('no');
+
+		// and going back to where it came from is not a no-op
+		on.set(false);
+		effects.flush();
+		expect(host?.children[0]?.text).toBe('no');
+
+		explode = false;
+		on.set(true);
+		effects.flush();
+		expect(host?.children[0]?.text).toBe('yes');
+	});
+
+	it('should dispose the row it was part way through building', () => {
+		// the branch for the item that threw is created before its builder runs, so
+		// tracking finished rows leaves exactly that one alive -- the leak the
+		// rollback was written to close, one item along
+		const ok = { n: 'ok' };
+		const bad = { n: 'bad' };
+		const items = new State<readonly { n: string }[]>([ok]);
+		let live = 0;
+		effects.setErrorHandler(() => {});
+
+		createRoot(() => {
+			For({
+				children: (item) => {
+					live++;
+					onCleanup(() => live--);
+					if (item === bad) {
+						throw new Error('nope');
+					}
+					return text(item.n);
+				},
+				each: () => items.get(),
+			});
+		}, effects.effect);
+
+		expect(live).toBe(1);
+
+		items.set([ok, bad]);
+		effects.flush();
+		// `bad`'s builder ran, registered a cleanup, and threw: the branch holding
+		// that cleanup is disposed with everything else this pass made
+		expect(live).toBe(1);
+	});
+
+	it('should put back the indexes it had already moved', () => {
+		// a row left reading a position the failed pass never placed it at paints
+		// the wrong number at the old spot
+		const a = { n: 'a' };
+		const b = { n: 'b' };
+		const bad = { n: 'bad' };
+		const items = new State<readonly { n: string }[]>([a, b]);
+		const labels = new Map<{ n: string }, Element>();
+		effects.setErrorHandler(() => {});
+
+		createRoot(() => {
+			For({
+				children: (item, index) => {
+					if (item === bad) {
+						throw new Error('nope');
+					}
+					const label = text('');
+					labels.set(item, label);
+					createEffect(() => {
+						label.setText(`${index()}${item.n}`);
+					});
+					return label;
+				},
+				each: () => items.get(),
+			});
+		}, effects.effect);
+
+		expect([labels.get(a)?.text, labels.get(b)?.text]).toEqual(['0a', '1b']);
+
+		// `b` is moved to 0 before `bad` throws
+		items.set([b, bad, a]);
+		effects.flush();
+
+		// and moved back, so no row paints a position it was never placed at. The
+		// effect does re-run -- a signal written and written back still re-runs its
+		// effects once, with the value it settled on -- and what it paints is right
+		expect([labels.get(a)?.text, labels.get(b)?.text]).toEqual(['0a', '1b']);
+	});
+
+	it('should not leak a fallback that threw', () => {
+		// the fallback is built after `rows` is committed, so it sat outside the
+		// rollback: the branch leaked and the list was already empty, which means
+		// `each()` never changes again and the effect never retries
+		const items = new State<readonly string[]>(['a']);
+		let live = 0;
+		effects.setErrorHandler(() => {});
+
+		createRoot(() => {
+			For({
+				children: (item) => text(item),
+				each: () => items.get(),
+				fallback: () => {
+					live++;
+					onCleanup(() => live--);
+					throw new Error('nope');
+				},
+			});
+		}, effects.effect);
+
+		items.set([]);
+		effects.flush();
+		expect(live).toBe(0);
+	});
+});
+
+describe('cleanups inside an effect body', () => {
+	it('should report a throw rather than swallowing it', () => {
+		// where an unsubscribe belongs, and the one place it failed in silence: the
+		// wrapper handed the errors back as an array instead of raising them, so
+		// the signals layer had nothing to report
+		const thrown: unknown[] = [];
+		effects.setErrorHandler((error) => void thrown.push(error));
+		const count = new State(0);
+
+		createRoot(() => {
+			createEffect(() => {
+				count.get();
+				onCleanup(() => {
+					throw new Error('unsubscribe failed');
+				});
+			});
+		}, effects.effect);
+
+		count.set(1);
+		effects.flush();
+
+		expect(thrown.map((e) => (e as Error).message)).toContain('unsubscribe failed');
+	});
+});
+
+describe('re-entrancy', () => {
+	it('should not let a frame start from inside one', () => {
+		// the inner flush is a no-op while one is draining, so what an inner frame
+		// really does is take the outer frame's marks and paint a half-settled
+		// graph -- here, one label updated and the next one not yet
+		const h = harness();
+		const count = new State(0);
+		let view: ReturnType<typeof render> | undefined;
+
+		view = render(
+			() => {
+				const first = text('');
+				const second = text('');
+				createEffect(() => {
+					first.setText(`a=${count.get()}`);
+					view?.frame();
+				});
+				createEffect(() => {
+					second.setText(`b=${count.get()}`);
+				});
+				return box({ 'flex-direction': 'column' }, first, second);
+			},
+			{ backend: h.backend, effects, terminal: h.terminal }
+		);
+
+		const before = h.painted;
+		count.set(7);
+		view.frame();
+
+		// one frame, not two, and the one that happened has both labels in it
+		expect(h.painted).toBe(before + 1);
+		expect(h.picture().split('\n').slice(0, 2)).toEqual([
+			'a=7.................',
+			'b=7.................',
+		]);
+		view.dispose();
+	});
+
+	it('should hand back a dead branch under a disposed owner', () => {
+		// asked of `createBranch()` rather than through `Show`, whose own effect
+		// never runs there: a live branch parented onto a disposed owner is one
+		// nothing will ever walk again, so what runs under it has to start nothing
+		const count = new State(0);
+		let runs = 0;
+		let owner: ReturnType<typeof getOwner>;
+		createRoot((dispose) => {
+			owner = getOwner();
+			dispose();
+		}, effects.effect);
+
+		runWithOwner(owner, () => {
+			const branch = createBranch();
+			runWithOwner(branch.owner, () => {
+				createEffect(() => {
+					runs++;
+					count.get();
+				});
+			});
+		});
+
+		expect(runs).toBe(0);
+		count.set(1);
+		effects.flush();
+		expect(runs).toBe(0);
 	});
 });

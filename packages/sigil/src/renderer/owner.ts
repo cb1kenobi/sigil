@@ -163,6 +163,16 @@ export function createRoot<T>(
  * @returns The owner and its disposer.
  */
 export function createBranch(): { dispose: Cleanup; owner: Owner } {
+	if (current?.disposed) {
+		// the same answer `createEffect()` gives, for the same reason: there is
+		// nothing left that would ever dispose this branch, so it does not start.
+		// Handed back already disposed, so that what runs under it starts nothing
+		// either
+		const dead = new OwnerNode(undefined);
+		dead.disposed = true;
+		return { dispose: () => {}, owner: dead };
+	}
+
 	const owner = new OwnerNode(current);
 	return {
 		// what the disposal threw is reported rather than returned and dropped.
@@ -335,7 +345,21 @@ export function createEffect(fn: () => void | Cleanup): Cleanup {
 			);
 		}
 
-		return cleanups.length > 0 ? () => runAll(cleanups) : undefined;
+		// raised rather than returned, because this is the cleanup the *signals*
+		// layer holds and that layer reports a throw from one on a re-run and raises
+		// it at `dispose()`. Handing back the array swallowed it: an `onCleanup()`
+		// written inside an effect body -- which is where an unsubscribe belongs --
+		// failed in silence, while the same call in a component body was reported
+		return cleanups.length > 0
+			? () => {
+					const errors = runAll(cleanups);
+					if (errors.length > 0) {
+						throw errors.length === 1
+							? errors[0]
+							: new AggregateError(errors, 'Errors in an effect cleanup');
+					}
+				}
+			: undefined;
 	});
 
 	if (owned) {

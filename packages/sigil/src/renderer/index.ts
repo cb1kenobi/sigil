@@ -211,6 +211,8 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 	let full = true;
 	let owner: Owner | undefined;
 	let offResize: (() => void) | undefined;
+	/** Whether a frame is settling, which is what makes `frame()` safe to call. */
+	let settling = false;
 
 	function requestFrame(): void {
 		if (disposed || failed || scheduled) {
@@ -358,7 +360,12 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 	}
 
 	function runFrame(): void {
-		if (disposed || failed) {
+		if (disposed || failed || settling) {
+			// re-entered from inside an effect that called `frame()`. The flush it
+			// would run is a no-op while one is already draining, so what the inner
+			// frame would actually do is take the outer frame's marks and paint a
+			// half-settled graph -- and the outer frame then finds nothing left to
+			// draw. The frame already running is the one that finishes this
 			return;
 		}
 		// whatever was pending is this frame: a frame asked for during mount, or by
@@ -372,10 +379,13 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 		}
 		scheduled = false;
 		last = Date.now();
+		settling = true;
 		try {
 			settle();
 		} catch (error) {
 			fail(error);
+		} finally {
+			settling = false;
 		}
 	}
 

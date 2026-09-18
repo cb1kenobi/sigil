@@ -21,7 +21,7 @@
 
 import { box, type Element, type ElementProps } from '../element/index.js';
 import { State, untrack } from '../signals/index.js';
-import { createBranch, createEffect, runWithOwner } from './owner.js';
+import { createBranch, createEffect, type Owner, runWithOwner } from './owner.js';
 
 /** Whatever `when` produced, where it counts as present. */
 type Truthy<T> = Exclude<T, false | null | undefined>;
@@ -65,8 +65,28 @@ export function Show<T>(props: ShowProps<T>): Element {
 			return;
 		}
 
+		// built first, and nothing that is on screen is touched until it is. Every
+		// other order leaves a failure half done, and both halves were written
+		// before this one: committing `showing` first left it claiming a branch
+		// that had thrown, and tearing the old branch down first left `showing`
+		// claiming a branch that was gone. Either way the effect caches what it
+		// threw and goes clean, so the presence that came back matched the recorded
+		// one and returned early -- and the host stayed empty for good
+		const build = present ? () => props.children(value as Truthy<T>) : props.fallback;
+		let branch: { dispose: () => void; owner: Owner } | undefined;
+		let built: Element | undefined;
+		if (build) {
+			branch = createBranch();
+			try {
+				built = runWithOwner(branch.owner, () => untrack(build));
+			} catch (error) {
+				branch.dispose();
+				throw error;
+			}
+		}
+
 		dispose?.();
-		dispose = undefined;
+		dispose = branch?.dispose;
 		// one child by construction, since a component produces exactly one node.
 		// Emptied by asking for the first one until there is none rather than by
 		// walking `children`, which hands back the live array -- removing while
@@ -74,30 +94,10 @@ export function Show<T>(props: ShowProps<T>): Element {
 		while (host.children[0]) {
 			host.children[0].remove();
 		}
-
-		const build = present ? () => props.children(value as Truthy<T>) : props.fallback;
-		if (!build) {
-			showing = present;
-			return;
-		}
-
-		const branch = createBranch();
-		let built: Element;
-		try {
-			built = runWithOwner(branch.owner, () => untrack(build));
-		} catch (error) {
-			// presence is committed *after* the branch exists, and a failed build
-			// leaves nothing of itself behind. Committing first left `showing`
-			// claiming a branch that had thrown, and an effect caches what it threw
-			// and goes clean -- so the next truthy `when()` matched the recorded
-			// presence and returned early, and the host stayed empty for good
-			branch.dispose();
-			throw error;
-		}
-
 		showing = present;
-		dispose = branch.dispose;
-		host.append(built);
+		if (built) {
+			host.append(built);
+		}
 	});
 
 	return host;
@@ -162,70 +162,78 @@ export function For<T>(props: ForProps<T>): Element {
 			}
 		}
 
-		const next: Row<T>[] = [];
-		const made: Row<T>[] = [];
+		/** Branches this pass built, and where each kept row's index came from. */
+		const made: { dispose: () => void }[] = [];
+		const moved: { from: number; row: Row<T> }[] = [];
+
 		try {
+			const next: Row<T>[] = [];
 			for (const [at, item] of items.entries()) {
 				const kept = spare.get(item)?.shift();
 				if (kept) {
 					// the same row, possibly somewhere else: tell it where, and leave
 					// everything it built alone
+					moved.push({ from: kept.index.get(), row: kept });
 					kept.index.set(at);
 					next.push(kept);
 					continue;
 				}
 
 				const branch = createBranch();
+				made.push(branch);
 				const index = new State(at);
 				const element = runWithOwner(branch.owner, () =>
 					untrack(() => props.children(item, () => index.get()))
 				);
-				const row = { dispose: branch.dispose, element, index, item };
-				made.push(row);
-				next.push(row);
+				next.push({ dispose: branch.dispose, element, index, item });
+			}
+
+			for (const left of spare.values()) {
+				for (const row of left) {
+					row.element.remove();
+					row.dispose();
+				}
+			}
+
+			if (next.length > 0 && fallback) {
+				fallback.element.remove();
+				fallback.dispose();
+				fallback = undefined;
+			}
+
+			// placed by walking the target order and moving only what is out of
+			// place, because `insertBefore` marks the parent's children dirty and a
+			// list that re-inserts every row restyles every sibling of every row
+			for (const [at, row] of next.entries()) {
+				if (host.children[at] !== row.element) {
+					host.insertBefore(row.element, host.children[at]);
+				}
+			}
+
+			rows = next;
+
+			if (next.length === 0 && !fallback && props.fallback) {
+				const branch = createBranch();
+				made.push(branch);
+				const element = runWithOwner(branch.owner, () => untrack(props.fallback as () => Element));
+				fallback = { dispose: branch.dispose, element };
+				host.append(element);
 			}
 		} catch (error) {
-			// a row builder that threw leaves this reconcile with nothing to commit,
-			// so it undoes its own half and leaves `rows` describing what is still on
-			// screen. Without it the rows built before the throw were owned by
-			// nothing -- `rows` never took them, and an effect caches what it threw,
-			// so the next reconcile started from the stale list and those branches
-			// ran for the life of the `For`
-			for (const row of made) {
-				row.dispose();
+			// a reconcile that threw undoes its own half and leaves `rows` and
+			// `fallback` describing what is still on screen. Everything it built goes
+			// -- including the branch it was part way through, which is why `made`
+			// takes the branch rather than the finished row -- and every index it had
+			// already moved goes back, since an effect caches what it threw and a row
+			// left reading a position this pass never placed it at paints the wrong
+			// number at the old spot
+			for (const branch of made) {
+				branch.dispose();
+			}
+			for (const { from, row } of moved) {
+				row.index.set(from);
 			}
 			throw error;
-		}
-
-		for (const left of spare.values()) {
-			for (const row of left) {
-				row.element.remove();
-				row.dispose();
-			}
-		}
-
-		if (next.length > 0 && fallback) {
-			fallback.element.remove();
-			fallback.dispose();
-			fallback = undefined;
-		}
-
-		// placed by walking the target order and moving only what is out of place,
-		// because `insertBefore` marks the parent's children dirty and a list that
-		// re-inserts every row restyles every sibling of every row
-		for (const [at, row] of next.entries()) {
-			if (host.children[at] !== row.element) {
-				host.insertBefore(row.element, host.children[at]);
-			}
-		}
-
-		rows = next;
-
-		if (next.length === 0 && !fallback && props.fallback) {
-			const branch = createBranch();
-			const element = runWithOwner(branch.owner, () => untrack(props.fallback as () => Element));
-			fallback = { dispose: branch.dispose, element };
-			host.append(element);
 		}
 	});
 

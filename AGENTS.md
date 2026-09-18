@@ -1980,24 +1980,46 @@ stylesheet rather than anything the runtime knows about.
   default is now a scope of its own, and it costs nothing, because
   `createEffect()` asks the owner it was created under for the factory rather
   than reaching for the module.
-- **A branch builder that throws undoes its own half.** Both control components
-  had the same shape of bug, and an effect caching what it threw is what made
-  each permanent. `Show` committed presence _before_ the branch existed, so a
-  `children()` that threw left `showing` claiming a branch that was not there --
-  and the next truthy `when()` matched the recorded presence and returned early,
-  leaving the host empty for good. `For` built rows into a local list and
-  committed it at the end, so a row builder that threw left the rows built before
-  it owned by nothing: `rows` never took them, the next reconcile started from
-  the stale list, and those branches ran for the life of the `For`. Both now
-  dispose what the failed pass created and leave the recorded state describing
-  what is still on screen, so the throw is the only thing that escapes.
+- **A branch builder that throws undoes its own half, and getting there took
+  three orders.** Both control components had the same shape of bug and an effect
+  caching what it threw is what made each permanent: the branch never retries
+  until a dependency changes, and the recorded state says it has nothing to do.
+  `Show` first committed presence _before_ the branch existed, so a `children()`
+  that threw left `showing` claiming a branch that was not there and the next
+  truthy `when()` returned early. Moving the commit after the build fixed that
+  and left the inverse: the old branch was still torn down first, so `showing`
+  kept the _old_ presence while what it named was already gone, and going back
+  the way it came returned early to an empty host. So `Show` builds first and
+  touches nothing on screen until it has something to put there -- which is also
+  the only order where a failure needs no undo. `For` cannot do that, since its
+  reconcile is a list, so it rolls back instead: every branch it made, _including
+  the one it was part way through_, and every index it had already moved, because
+  a row left reading a position the failed pass never placed it at paints the
+  wrong number at the old spot. Its `fallback` is inside the rollback too -- built
+  after `rows` was committed, it was the one branch outside it, and with the list
+  already empty `each()` never changes again and the effect never retries.
+- **A cleanup written inside an effect body is raised, not collected.** The
+  owner tree collects what a teardown threw, because one failing cleanup must not
+  leave the rest of it undone -- and the composite the _signals_ layer holds is
+  not a teardown, it is that layer's cleanup, which it reports on a re-run and
+  raises at `dispose()`. Handing it the array swallowed the throw: an
+  `onCleanup()` in an effect body, which is where an unsubscribe belongs, failed
+  in silence, while the same call one line up in the component body was reported.
+- **A frame does not start from inside a frame.** `frame()` called from an effect
+  re-entered `settle()`, and the flush it runs is a no-op while one is already
+  draining -- so what the inner frame actually did was take the outer frame's
+  marks and paint a half-settled graph, after which the outer frame found nothing
+  left to draw. The frame already running is the one that finishes.
 - **A disposed owner starts nothing new.** `runWithOwner()` is for a callback
   that outlived the body that registered it -- a key handler, a promise landing
   -- which is exactly the case where the owner may be gone by the time it runs.
   An effect created there would have no component to keep up to date and nothing
   that would ever dispose it, so it is not created. A cleanup registered there
   runs immediately instead, because nothing else ever will and a cleanup that
-  never runs is the subscription the owner tree exists to cancel.
+  never runs is the subscription the owner tree exists to cancel. A branch asked
+  for there comes back already disposed, so that what runs under it starts
+  nothing either -- a live branch parented onto a disposed owner is one nothing
+  will ever walk again.
 - **What a branch's cleanup threw is reported, not dropped.** `Show` and `For`
   dispose branches and are in no position to do anything with a throw, and
   `disposeOwner()` hands its errors back rather than raising them -- so they went
