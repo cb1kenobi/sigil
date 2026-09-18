@@ -82,6 +82,7 @@
   "scripts": {
     "build": "rimraf dist && tsdown -c tsdown.config.ts",
     "coverage": "vitest --coverage",
+    "ncu": "ncu -c 1d",
     "prepublishOnly": "pnpm run build",
     "test": "vitest",
     "test:bun": "bun --bun test --config=bunfig.toml",
@@ -89,12 +90,12 @@
     "type-check": "tsc --noEmit"
   },
   "devDependencies": {
-    "@types/node": "26.5.1",
-    "@vitest/coverage-v8": "5.0.0",
+    "@types/node": "26.6.1",
+    "@vitest/coverage-v8": "5.0.1",
     "rimraf": "6.1.3",
     "tsdown": "0.23.0",
     "typescript": "7.0.2",
-    "vitest": "5.0.0"
+    "vitest": "5.0.1"
   },
   "engines": {
     "node": ">=22.19.0"

@@ -255,11 +255,8 @@ describe('commands', () => {
 				},
 			});
 
-			expect(result.cmd).to.be.ok;
-			if (result.cmd !== undefined) {
-				expect(result.cmd.name).to.equal('foo');
-				expect(result.cmd.desc).to.equal('foo!');
-			}
+			expect(result.cmd?.name).to.equal('foo');
+			expect(result.cmd?.desc).to.equal('foo!');
 		});
 
 		it('should lazy load command module as .mjs file path', async () => {
@@ -272,11 +269,8 @@ describe('commands', () => {
 				},
 			});
 
-			expect(result.cmd).to.be.ok;
-			if (result.cmd !== undefined) {
-				expect(result.cmd.name).to.equal('foo');
-				expect(result.cmd.desc).to.equal('foo!');
-			}
+			expect(result.cmd?.name).to.equal('foo');
+			expect(result.cmd?.desc).to.equal('foo!');
 		});
 
 		it('should lazy load command module as .cjs file path', async () => {
@@ -289,11 +283,8 @@ describe('commands', () => {
 				},
 			});
 
-			expect(result.cmd).to.be.ok;
-			if (result.cmd !== undefined) {
-				expect(result.cmd.name).to.equal('foo');
-				expect(result.cmd.desc).to.equal('foo!');
-			}
+			expect(result.cmd?.name).to.equal('foo');
+			expect(result.cmd?.desc).to.equal('foo!');
 		});
 
 		it('should lazy load a command module as object', async () => {
@@ -309,11 +300,8 @@ describe('commands', () => {
 				},
 			});
 
-			expect(result.cmd).to.be.ok;
-			if (result.cmd !== undefined) {
-				expect(result.cmd.name).to.equal('foo');
-				expect(result.cmd.desc).to.equal('foo!');
-			}
+			expect(result.cmd?.name).to.equal('foo');
+			expect(result.cmd?.desc).to.equal('foo!');
 		});
 
 		it('should register command as hidden', async () => {
