@@ -622,27 +622,23 @@ false` rethrows instead; a function replaces the handler.
 - **A property the layout engine ignores is worse than one that does not exist**,
   because it parses and then silently lies. `box-sizing`, `order`, and
   `align-content` were added to the table and are honoured here for that reason.
-  `visibility` and `overflow` are deliberately _not_ layout's: hidden content
-  still takes its space, and clipping is M2-64's.
-- **`position: relative` offsets the box and `absolute` is refused.** Both halves
-  are the rule above applied to the same property: the half that can be
-  implemented today is, and the half that cannot stops existing rather than
-  parsing into a no-op. `relative` moves the box by its insets from where the
-  flow put it and changes nothing else -- the space stays reserved at the
-  un-offset position, so siblings are placed as though it never moved and its own
-  children move with it, which is CSS. `absolute` throws at parse time saying so,
-  because a stylesheet written against a keyword that lays out in flow anyway
-  means something different the day out-of-flow layout lands, and that is a
-  change nobody can see coming. The alternative was dropping `position` and the
-  four insets from the table entirely; it is smaller and equally honest, and it
-  was not taken because `relative` is a handful of lines, is what people reach
-  for to nudge a border or overlap a label, and is what keeps `top-N` and the
-  `inset` shorthand meaningful -- while the property that was actually lying,
-  `absolute`, is refused either way. `inset-0` is not part of that argument: it
-  is an out-of-flow idiom and on a `relative` box it is an offset of zero.
-  `z-index` is left alone: it
-  is a paint-order property, it is not in `LAYOUT_PROPERTIES`, and nothing here
-  is what would honour it.
+  `visibility` is deliberately not layout's: hidden content still takes its
+  space. `overflow` is half layout's and the halves are worth separating --
+  _clipping_ is the paint walk's, since it is about what reaches the screen, while
+  _scrolling_ is read here, because a scrolled child's box has to be where it is
+  drawn for anything above to match a box to an element.
+- **`position: relative` offsets the box; `absolute` and `fixed` take it out of
+  flow.** `relative` moves the box by its insets from where the flow put it and
+  changes nothing else -- the space stays reserved at the un-offset position, so
+  siblings are placed as though it never moved and its own children move with it,
+  which is CSS. The other two are placed against a containing block instead and
+  take no space at all: the flow never sees them, so an overlay does not reflow
+  the panel underneath it, which is the whole reason anybody reaches for one.
+  `absolute` was a parse error for as long as there was no engine to honour it,
+  on the rule that a keyword which parses and does nothing is worse than one that
+  does not exist; the same rule is what admits it now. `z-index` is still not
+  `LAYOUT_PROPERTIES`': it changes what is painted over what, and nothing about
+  where a box is.
 - **An inset on a `static` box does nothing, and that is not the same lie.** It
   is CSS, it is the interaction everyone already knows, and it cannot be refused
   where the value is read anyway: `position` may be set by a different rule in a
@@ -885,6 +881,76 @@ it is placed at`.
   replaced said the fix "means `measure()` taking a used size as well, which is
   every caller": it was, and it is.
 
+### Out of flow, paint order, and clipping
+
+- **An out-of-flow box is placed against a containing block and takes no space.**
+  `absolute` resolves against the padding box of the nearest positioned ancestor,
+  which is CSS's containing-block rule and worth keeping because everybody
+  already knows it: a dropdown anchors to the panel it was written inside rather
+  than to whatever happened to be laying it out. `fixed` resolves against the
+  root, which here is the canvas -- a status line pinned to the bottom of a
+  full-screen app is what it is for, and a canvas is the only thing a terminal
+  app has that answers to "the screen". Both frames are carried down the walk
+  rather than found by climbing back up, because the walk already knows what it
+  passed.
+- **It does not size the parent it was taken out of**, which is CSS and is the
+  useful answer: a dropdown that made its panel wider could not then be placed
+  inside it. `measureUncached()` filters them out of the children it measures,
+  which is the one line that makes "takes no space" true for intrinsic sizing as
+  well as for placement.
+- **Its size is two insets, else a declaration, else what it measures.** `left`
+  and `right` together say how wide the box is, which is what `inset-0` is for;
+  otherwise a declared width wins; otherwise it shrinks to fit, which is CSS.
+  Where neither inset on an axis is given, the box stays at the content origin
+  the flow would have started it from -- CSS's static position read as far as it
+  is worth reading, since the real rule describes where a box _would_ have gone
+  among siblings laid out without it.
+- **Paint order is `z-index` then document order, and a non-zero `z-index` keeps
+  its subtree together.** That is CSS's rule for flex items, which is every child
+  here: `display: flex` is the initial value and the only other one is `none`, so
+  the property applies to all of them rather than to positioned boxes alone --
+  simpler to say, and what CSS says for this layout mode. Sorted stably, so
+  children that share a value keep the order they were written in. A child
+  ordered above its sibling takes its own descendants with it and a descendant's
+  own `z-index` orders it _inside_ that child: a stacking context by another
+  name, and what stops `z-index` becoming a global free-for-all that every
+  component fights over with bigger integers.
+- **The clip lives in the cell grid, not in the painter.** `overflow` other than
+  `visible` clips what a box's descendants draw to its padding box -- never its
+  own border, because the border _is_ the edge and a box that clipped itself
+  would erase the frame it is drawing. It is enforced in `CellBuffer.inside()`
+  because that is where the rule it needs already lived: a wide cluster with one
+  column left is refused and a blank takes the column, which was written for the
+  grid's own right edge, and a clip edge is the same edge one column in. Asking
+  it anywhere else would be that rule said twice, and the two would come to
+  disagree about what half a glyph is.
+- **A nested clip intersects rather than replaces.** A panel that clips inside a
+  pane that clips cannot paint where its parent could not, which is what the
+  nesting means; replacing would let the inner one paint back out over the outer
+  one's edge.
+- **Scrolling moves the boxes rather than the drawing.** A scrolled child's box
+  has to _be_ where it is drawn: everything above matches a box back to an
+  element -- paint, and the hit testing input will want -- so an offset applied
+  at paint time would make `box` a position nothing is at. It is applied after
+  the children are placed rather than by moving the content box before them,
+  because the content box is what a percentage resolves against and what the flow
+  divides: scrolling must move the result, not the arithmetic. Only a box that
+  clips is scrolled, since scrolling what is not clipped moves content out from
+  under nothing.
+- **A scrollbar is a component, not a layout feature.** The layout knows how far
+  a box is scrolled and how tall its content came out; what to draw about that --
+  a track, a thumb, an arrow, nothing at all -- has a dozen answers and none of
+  them belong to the engine.
+- **`DECSTBM` is not used for a scrolled region, and that is a decision rather
+  than an omission.** A terminal's own scroll region would move a scrolled pane's
+  rows for free, which for a log viewer is the whole cost of the frame. It is
+  refused because the canvas's model is a grid it diffs: the diff would have to
+  know that some rows moved without anything having painted them, the region is a
+  rectangle of _screen_ rather than of canvas, and it cannot be used at all where
+  anything is drawn over the scrolled area -- a border, a status line, an overlay
+  -- which is most of the cases worth having. Revisit it behind a profile, and
+  only for a pane that owns its full width.
+
 ### The element tree
 
 - **Three host types, and the third one is a trapdoor.** `box` lays its children
@@ -943,10 +1009,8 @@ it is placed at`.
   appearing twice did to the placement. Matching by identity would collapse two
   appearances of one node into one box, which is the bug the layout engine
   already carries an entry for.
-- **Paint is document order, and `visibility: hidden` skips the element rather
-  than the subtree.** A later sibling draws over an earlier one; `z-index` parses
-  and is not read, because a paint order that honours it belongs with clipping
-  and `overflow`, which are SIG-64's. Hidden is a skip rather than a return
+- **Paint is `z-index` then document order, and `visibility: hidden` skips the
+  element rather than the subtree.** Hidden is a skip rather than a return
   because `visibility` inherits: a descendant is hidden because it inherited the
   value, and one that sets `visible` is drawn. That is CSS.
 - **`LayoutNode.children` is readonly, because the element tree's children are
@@ -1054,13 +1118,15 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
 - **Margins take a length and paddings take a count.** `auto` is how a box is
   centred and how it is pushed to one end, and a negative margin is a real
   thing; neither is true of padding.
-- **`position` takes `static` and `relative`, and `absolute` is a parse error.**
-  A keyword the layout engine cannot honour is refused rather than accepted and
-  ignored, for the reason the Layout entry gives at length; the message names
-  `relative` so that the error reads as an answer rather than as a missing
-  feature. The insets stay -- `relative` reads all four -- and they are a length
-  rather than a count, because pushing a box back the way it came is the ordinary
-  use and a negative value is how CSS says it.
+- **`position` takes all four keywords, and the insets are a length.** `absolute`
+  was a parse error for as long as there was no out-of-flow engine, on the rule
+  that a keyword which parses and does nothing is worse than one that does not
+  exist -- and the same rule admits it, and `fixed`, now that there is one. What
+  the table offers is what the engine honours, which is also what the utility
+  generator builds a rule per entry from, so `absolute` returning to `keywords`
+  is what puts `absolute` in the utility set. The insets are a length rather than
+  a count because pushing a box back the way it came is the ordinary use and a
+  negative value is how CSS says it.
 
 ### Stylesheets and the cascade
 

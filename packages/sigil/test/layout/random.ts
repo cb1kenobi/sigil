@@ -146,13 +146,21 @@ function itemDeclarations(random: () => number, opts: Options): Declarations {
 		}
 	}
 
-	if (opts.relative && chance(random, 0.1)) {
-		out.position = 'relative';
+	if (opts.relative && chance(random, 0.15)) {
+		// `absolute` and `fixed` are placed against a containing block rather than
+		// among their siblings, which is what `unplaced()` excuses -- they are in
+		// the corpus because the arithmetic that places them is new, not because
+		// the invariants can say much about where they land
+		out.position = pick(random, ['relative', 'relative', 'absolute', 'fixed']);
 		for (const edge of ['top', 'right', 'bottom', 'left']) {
 			if (chance(random, 0.4)) {
 				out[edge] = pick(random, ['0', '1', '2', '-1', '25%']);
 			}
 		}
+	}
+
+	if (chance(random, 0.1)) {
+		out['z-index'] = pick(random, ['-1', '0', '1', '2']);
 	}
 
 	return out;
@@ -188,6 +196,9 @@ function containerDeclarations(random: () => number): Declarations {
 	}
 	if (chance(random, 0.2)) {
 		out['box-sizing'] = 'content-box';
+	}
+	if (chance(random, 0.15)) {
+		out.overflow = pick(random, ['hidden', 'scroll', 'auto']);
 	}
 
 	return out;

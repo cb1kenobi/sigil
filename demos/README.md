@@ -105,9 +105,10 @@ node demos/canvas/05-fullscreen.js  # Ctrl-C it: the terminal comes back anyway
 
 ## The element tree
 
-|                                            |                                           |
-| ------------------------------------------ | ----------------------------------------- |
-| [`element/01-tree.js`](element/01-tree.js) | A tree, a stylesheet, a layout, and cells |
+|                                                  |                                                    |
+| ------------------------------------------------ | -------------------------------------------------- |
+| [`element/01-tree.js`](element/01-tree.js)       | A tree, a stylesheet, a layout, and cells          |
+| [`element/02-overlay.js`](element/02-overlay.js) | An overlay, a stacking order, and a scrolling pane |
 
 The whole stack in one file, and the point of it is what it prints at the end: a
 mutation says exactly what it implies and nothing else.

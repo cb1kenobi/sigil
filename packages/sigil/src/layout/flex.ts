@@ -239,7 +239,13 @@ export function layout(root: LayoutNode, opts: LayoutOptions): LayoutResult {
 	// space it was handed, never the size it ended up at
 	const offset = relativeOffset(style, opts.width, opts.height);
 
-	return layoutNode(root, width, height, offset.x, offset.y, cache);
+	// the root is the containing block for both until something positioned
+	// intervenes: `fixed` means the canvas, and the canvas is what the root is
+	const frame: Box = { height, width, x: offset.x, y: offset.y };
+	return layoutNode(root, width, height, offset.x, offset.y, cache, {
+		absolute: frame,
+		fixed: frame,
+	});
 }
 
 /**
@@ -422,7 +428,13 @@ function measureUncached(node: LayoutNode, at: MeasureAt, cache: MeasureCache): 
 		};
 	}
 
-	const children = (node.children ?? []).filter((c) => c.style.display !== 'none');
+	// an out-of-flow child is not measured into its parent: it is placed against a
+	// containing block rather than among these, so what it would take here is a
+	// number about a layout that never happens. CSS says the same, and a dropdown
+	// that made its panel wider would be a dropdown nobody could position
+	const children = (node.children ?? []).filter(
+		(c) => c.style.display !== 'none' && !isOutOfFlow(c.style)
+	);
 	if (children.length === 0) {
 		// `declaredWidth` is already the border box, so adding the insets again
 		// counted them twice -- a bordered `width: 17` measured nineteen wide and
@@ -526,6 +538,124 @@ function measureUncached(node: LayoutNode, at: MeasureAt, cache: MeasureCache): 
 }
 
 /**
+ * The two boxes an out-of-flow child can be placed against.
+ *
+ * `absolute` is the padding box of the nearest positioned ancestor, which is
+ * CSS's containing-block rule and worth keeping because everybody already knows
+ * it -- a dropdown anchors to the panel it was written inside rather than to
+ * whatever happened to be laying it out. `fixed` is the root's box, which here
+ * is the canvas: a status line pinned to the bottom of a full-screen app is what
+ * it is for, and a canvas is the only thing a terminal app has that answers to
+ * "the screen".
+ */
+interface Frames {
+	absolute: Box;
+	fixed: Box;
+}
+
+/** Whether a node is taken out of its parent's flow. */
+function isOutOfFlow(style: Style): boolean {
+	return style.position === 'absolute' || style.position === 'fixed';
+}
+
+/** Whether a node is a containing block for an `absolute` descendant. */
+function isPositioned(style: Style): boolean {
+	return style.position !== 'static';
+}
+
+/** Whether a node clips what its children draw, and so may be scrolled. */
+export function clips(style: Style): boolean {
+	return style.overflow !== 'visible';
+}
+
+/**
+ * Places one out-of-flow child against its containing block.
+ *
+ * The size comes from the declaration, else from both insets -- `left` and
+ * `right` together say how wide the box is, which is the idiom `inset-0` is for
+ * -- else from what it measures, which is CSS's shrink-to-fit. Where neither
+ * inset is given the box stays where the flow would have started it, which is
+ * CSS's static position read as far as it is worth reading: the real rule
+ * describes where the box *would* have been placed among siblings that have
+ * already been laid out without it, and the useful half of that is the content
+ * origin it would have started from.
+ *
+ * @param node - The out-of-flow child.
+ * @param frames - The boxes it may be placed against.
+ * @param origin - Where the parent's flow would have started it.
+ * @param cache - Measurements taken so far this pass.
+ * @returns The laid-out subtree.
+ */
+function layoutOutOfFlow(
+	node: LayoutNode,
+	frames: Frames,
+	origin: Box,
+	cache: MeasureCache
+): LayoutResult {
+	const { style } = node;
+	const block = style.position === 'fixed' ? frames.fixed : frames.absolute;
+	const axis = axisOf(style);
+	const inset = insets(style, axis);
+	const horizontal = axis.column ? inset.cross : inset.main;
+	const vertical = axis.column ? inset.main : inset.cross;
+
+	const left = resolve(style.left, block.width);
+	const right = resolve(style.right, block.width);
+	const top = resolve(style.top, block.height);
+	const bottom = resolve(style.bottom, block.height);
+
+	const declaredWidth = outerSize(style, resolve(style.width, block.width), horizontal);
+	const declaredHeight = outerSize(style, resolve(style.height, block.height), vertical);
+
+	const measured = measure(
+		node,
+		{
+			available: Math.max(0, block.width - (left ?? 0) - (right ?? 0)),
+			containing: block.width,
+			crossWidth: true,
+			definite: true,
+		},
+		cache
+	);
+
+	const stretchedWidth =
+		left !== undefined && right !== undefined ? block.width - left - right : undefined;
+	const stretchedHeight =
+		top !== undefined && bottom !== undefined ? block.height - top - bottom : undefined;
+
+	const width = clamp(
+		declaredWidth ?? stretchedWidth ?? measured.width,
+		outerSize(style, resolve(style.minWidth, block.width), horizontal),
+		outerSize(style, resolve(style.maxWidth, block.width), horizontal)
+	);
+	const height = clamp(
+		declaredHeight ?? stretchedHeight ?? measured.height,
+		outerSize(style, resolve(style.minHeight, block.height), vertical),
+		outerSize(style, resolve(style.maxHeight, block.height), vertical)
+	);
+
+	// `left` wins over `right` where both are given and a width was declared too,
+	// which is the over-constrained rule the relative offsets already follow
+	const x =
+		left === undefined
+			? right === undefined
+				? origin.x
+				: block.x + block.width - right - width
+			: block.x + left;
+	const y =
+		top === undefined
+			? bottom === undefined
+				? origin.y
+				: block.y + block.height - bottom - height
+			: block.y + top;
+
+	return layoutNode(node, width, height, x, y, cache, {
+		absolute: isPositioned(style) ? block : frames.absolute,
+		fixed: frames.fixed,
+	});
+}
+
+/**
  * Lays a node out at the position and size its parent decided.
  *
  * It decides neither. A node's size is settled by whoever placed it -- by
@@ -545,6 +675,7 @@ function measureUncached(node: LayoutNode, at: MeasureAt, cache: MeasureCache): 
  * @param x - Where the border box starts.
  * @param y - Where the border box starts.
  * @param cache - Measurements taken so far this pass.
+ * @param frames - What an out-of-flow descendant is placed against.
  * @returns The laid-out subtree.
  */
 function layoutNode(
@@ -553,7 +684,8 @@ function layoutNode(
 	height: number,
 	x: number,
 	y: number,
-	cache: MeasureCache
+	cache: MeasureCache,
+	frames: Frames
 ): LayoutResult {
 	const { style } = node;
 
@@ -579,12 +711,34 @@ function layoutNode(
 	};
 
 	const all = node.children ?? [];
-	const visible = all.filter((child) => child.style.display !== 'none');
 	if (all.length === 0) {
 		return { box, children: [], content, node };
 	}
 
-	const placed = layoutChildren(node, visible, content, axis, cache);
+	// an out-of-flow child is placed against a containing block rather than among
+	// its siblings, so the flow never sees it: it takes no space, it moves nothing,
+	// and the line it would have been on is the line it would have been on without
+	// it. That is CSS, and it is the useful answer -- an overlay that reflowed the
+	// panel underneath it would be an overlay nobody could use
+	const inFlow = all.filter((child) => child.style.display !== 'none' && !isOutOfFlow(child.style));
+
+	// this node's padding box is what its own positioned descendants resolve
+	// against, and only if it is positioned itself. Settled before the children
+	// are laid out rather than after, because laying them out is what reaches
+	// their own positioned descendants
+	const inner: Frames = {
+		absolute: isPositioned(style)
+			? {
+					height: Math.max(0, height - inset.border * 2),
+					width: Math.max(0, width - inset.border * 2),
+					x: x + inset.border,
+					y: y + inset.border,
+				}
+			: frames.absolute,
+		fixed: frames.fixed,
+	};
+
+	const placed = inFlow.length > 0 ? layoutChildren(node, inFlow, content, axis, cache, inner) : [];
 
 	// a hidden child still gets a result, so `result.children[i]` answers for
 	// `node.children[i]` without a caveat -- which is what everything above this
@@ -597,10 +751,42 @@ function layoutNode(
 			const nothing: Box = { height: 0, width: 0, x: content.x, y: content.y };
 			return { box: nothing, children: [], content: { ...nothing }, node: child };
 		}
+		if (isOutOfFlow(child.style)) {
+			return layoutOutOfFlow(child, inner, content, cache);
+		}
 		return placed[taken++];
 	});
 
+	// scrolling moves what this box contains, which is every descendant of it and
+	// nothing else -- the box itself stays where its own parent put it. Applied
+	// after placement rather than by shifting the content box before it, because
+	// the content box is what a percentage resolves against and what the flow
+	// divides: scrolling must move the result, not the arithmetic
+	const scroll = clips(style) ? node.scroll : undefined;
+	if (scroll && (scroll.x !== 0 || scroll.y !== 0)) {
+		for (const child of children) {
+			shift(child, -scroll.x, -scroll.y);
+		}
+	}
+
 	return { box, children, content, node };
+}
+
+/**
+ * Moves a laid-out subtree, which is what scrolling one is.
+ *
+ * @param result - The subtree.
+ * @param dx - Cells to move right.
+ * @param dy - Cells to move down.
+ */
+function shift(result: LayoutResult, dx: number, dy: number): void {
+	result.box.x += dx;
+	result.box.y += dy;
+	result.content.x += dx;
+	result.content.y += dy;
+	for (const child of result.children) {
+		shift(child, dx, dy);
+	}
 }
 
 /**
@@ -618,7 +804,8 @@ function layoutChildren(
 	children: LayoutNode[],
 	content: Box,
 	axis: Axis,
-	cache: MeasureCache
+	cache: MeasureCache,
+	frames: Frames
 ): LayoutResult[] {
 	const { style } = parent;
 	const mainSpace = axis.column ? content.height : content.width;
@@ -691,6 +878,7 @@ function layoutChildren(
 			content,
 			crossOffset: crossCursor,
 			crossSize: lineCross,
+			frames,
 			gap,
 			mainSpace,
 			results: placed,
@@ -1021,6 +1209,8 @@ interface PlaceOptions {
 	content: Box;
 	crossOffset: number;
 	crossSize: number;
+	/** What an out-of-flow descendant of these children is placed against. */
+	frames: Frames;
 	gap: number;
 	mainSpace: number;
 	results: { index: number; result: LayoutResult }[];
@@ -1100,7 +1290,8 @@ function mainGaps(
 
 /** Places one line of items and recurses into each. */
 function placeLine(line: Item[], opts: PlaceOptions): void {
-	const { axis, cache, content, crossOffset, crossSize, gap, mainSpace, results, style } = opts;
+	const { axis, cache, content, crossOffset, crossSize, frames, gap, mainSpace, results, style } =
+		opts;
 
 	if (line.length === 0) {
 		return;
@@ -1213,7 +1404,8 @@ function placeLine(line: Item[], opts: PlaceOptions): void {
 				childHeight,
 				childX + offset.x,
 				childY + offset.y,
-				cache
+				cache,
+				frames
 			),
 		});
 

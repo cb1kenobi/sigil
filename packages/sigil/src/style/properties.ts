@@ -54,7 +54,7 @@ export type AlignContent =
 export type BoxSizing = 'border-box' | 'content-box';
 export type Visibility = 'visible' | 'hidden';
 export type AlignSelf = AlignItems | 'auto';
-export type Position = 'static' | 'relative';
+export type Position = 'absolute' | 'fixed' | 'relative' | 'static';
 export type Overflow = 'visible' | 'hidden' | 'scroll' | 'auto';
 export type TextAlign = 'left' | 'center' | 'right';
 export type TextTransform = 'none' | 'uppercase' | 'lowercase' | 'capitalize';
@@ -206,7 +206,7 @@ function fromKeywords<T extends string>(
  * reason `fromKeywords()` freezes its own -- a push onto it would make a
  * keyword parse that the engine cannot honour.
  */
-const POSITIONS = Object.freeze(['static', 'relative'] as const);
+const POSITIONS = Object.freeze(['static', 'relative', 'absolute', 'fixed'] as const);
 
 /** The table. */
 export const PROPERTIES: { readonly [K in PropertyName]: Definition<K> } = {
@@ -291,33 +291,18 @@ export const PROPERTIES: { readonly [K in PropertyName]: Definition<K> } = {
 	// `static` rather than `relative`, and the difference is not cosmetic twice
 	// over. Only a positioned ancestor is a containing block, so defaulting to
 	// `relative` would make every box in the tree an anchor an `absolute`
-	// descendant stops at -- and the insets are read only on a `relative` box, so
+	// descendant stops at -- and the insets are read only on a positioned box, so
 	// it would also make every stray `top` in a stylesheet move something.
 	//
-	// `absolute` is refused rather than accepted and ignored. There is no
-	// out-of-flow engine, and a keyword that parses and does nothing is worse than
-	// one that does not exist -- it is a stylesheet written against a behaviour
-	// that is not there, and the release that implements it changes what that
-	// stylesheet means. It is out of `keywords` as well as out of `parse()`,
-	// because that list is what the utility generator builds a rule per entry
-	// from: leaving `absolute` in it would generate a utility that the
-	// generator's own parse-on-the-way-out then refuses, which is that check
-	// doing its job rather than a table worth shipping. What a list cannot carry
-	// is why, so the message does
-	position: {
-		inherits: false,
-		initial: 'static',
-		keywords: POSITIONS,
-		parse: (v) => {
-			if (v.trim().toLowerCase() === 'absolute') {
-				throw new StyleError(
-					`Invalid position "${v}": out-of-flow layout is not implemented -- "relative" offsets a box without moving anything else`
-				);
-			}
-			return parseKeyword(v, POSITIONS, 'position');
-		},
-	},
-	// read only where `position` is `relative`, which is CSS and cannot be
+	// `absolute` used to be refused here, and the reason was that a keyword which
+	// parses and does nothing is worse than one that does not exist. That was
+	// true for as long as there was no out-of-flow engine; there is one now, so
+	// the keyword is back -- along with `fixed`, whose containing block is the
+	// canvas rather than an ancestor. The rule it was refused under is the same
+	// rule that admits it: what the engine honours is what the table offers,
+	// which is also what the utility generator builds a rule per entry from
+	position: fromKeywords(POSITIONS, 'static', 'position', false),
+	// read only where `position` is not `static`, which is CSS and cannot be
 	// checked here: `position` may be set by a different rule in a different
 	// sheet, and a declaration is parsed on its own
 	top: { inherits: false, initial: AUTO, parse: parseLength },
