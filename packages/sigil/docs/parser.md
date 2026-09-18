@@ -1264,11 +1264,11 @@ The reasoning for each is in the deliberate-decisions list in `AGENTS.md`.
 
 Schema-level hooks are arrays of functions on `schema.hooks`:
 
-| Hook          | When                                                |
-| ------------- | --------------------------------------------------- |
-| `beforeParse` | Before argv is walked                               |
-| `afterParse`  | After argv is walked                                |
-| `beforeError` | On the way out of any error — see [Errors](#errors) |
+| Hook          | When                                                 |
+| ------------- | ---------------------------------------------------- |
+| `beforeParse` | Before argv is walked                                |
+| `afterParse`  | After the values exist, before any of them is judged |
+| `beforeError` | On the way out of any error — see [Errors](#errors)  |
 
 Command-level hooks live on `command.hooks`:
 

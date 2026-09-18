@@ -348,7 +348,7 @@ await main({
   schema: {
     hooks: {
       beforeParse: [(state) => {}], // before argv is walked
-      afterParse: [(state) => {}], // after, before validation results are returned
+      afterParse: [(state) => {}], // `state.argv` is written, nothing is validated yet
       beforeError: [(err, ctx) => {}],
     },
     commands: {
