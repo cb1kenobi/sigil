@@ -174,6 +174,72 @@ describe('the router', () => {
 		input.stop();
 	});
 
+	it('should not give the current key to a binding registered while it dispatches', () => {
+		// a component that binds a key in response to being focused would otherwise
+		// have that new binding see the very key that focused it, and whether it did
+		// would depend on where in the iteration it joined
+		const { feed, terminal } = harness();
+		const input = createInput({ root: box({}), terminal });
+		const seen: string[] = [];
+
+		input.bind(() => {
+			seen.push('first');
+			if (seen.length === 1) {
+				input.bind(() => seen.push('late'));
+			}
+		});
+
+		feed('a');
+		expect(seen).toEqual(['first']);
+
+		// and the next key reaches it, so what it missed was this key rather than
+		// every key
+		feed('b');
+		expect(seen).toEqual(['first', 'first', 'late']);
+		input.stop();
+	});
+
+	it('should not call a binding unbound while the key is dispatching', () => {
+		// the other half of the same rule, and the half a snapshot on its own gets
+		// wrong: a dialog closed by Escape must not then hand Escape to the bindings
+		// it was closing
+		const { feed, terminal } = harness();
+		const input = createInput({ root: box({}), terminal });
+		const seen: string[] = [];
+
+		const off = input.bind(() => seen.push('doomed'));
+		input.bind(() => {
+			seen.push('closer');
+			off();
+		});
+
+		// the closer is second, so the doomed one has already run once; what it must
+		// not do is run again on the *next* key
+		feed('a');
+		expect(seen).toEqual(['doomed', 'closer']);
+
+		feed('b');
+		expect(seen).toEqual(['doomed', 'closer', 'closer']);
+		input.stop();
+	});
+
+	it('should skip a binding another binding unbinds before it is reached', () => {
+		const { feed, terminal } = harness();
+		const input = createInput({ root: box({}), terminal });
+		const seen: string[] = [];
+
+		let off = () => {};
+		input.bind(() => {
+			seen.push('closer');
+			off();
+		});
+		off = input.bind(() => seen.push('doomed'));
+
+		feed('a');
+		expect(seen).toEqual(['closer']);
+		input.stop();
+	});
+
 	it('should hold a sequence that arrives split and read it whole', () => {
 		// ssh, a pty under load, and a small read buffer all split a chunk, and
 		// `ESC [` then `A` decodes as an unknown sequence and a literal `A`

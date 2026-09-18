@@ -1818,6 +1818,22 @@ stylesheet rather than anything the runtime knows about.
   and height media queries, re-lay out, repaint whole rather than diff against a
   grid that described a different screen -- is a frame's, and is deliberately not
   decided here.
+- **A handler set is dispatched over a copy _and_ a membership check, because
+  the two directions want opposite things.** A handler registered while an event
+  is being dispatched does not receive that event, and one removed during it is
+  not called -- and a bare `for..of` over the `Set` gives only the second, while a
+  snapshot on its own gives only the first. Without the copy, a component that
+  binds a key in response to being focused has that new binding see the very key
+  that focused it, and whether it does depends on where in the iteration it
+  joined. Without the check, the copy re-runs a handler that has just
+  unsubscribed: a one-shot binding fires twice, and a dialog torn down by Escape
+  still hands Escape to the handlers it was tearing down. The rule reads as the
+  copy alone right up until it is written down, which is how the terminal's
+  resize notify came to carry a comment justifying the snapshot by the one case
+  the snapshot breaks -- both are fixed, and both halves are pinned by a test
+  that fails when either is removed. Bindings, paste handlers, resize handlers,
+  and `Terminal.onResize()` all say it the same way. See
+  `test/input/input.test.ts`.
 - **Mouse tracking is a follow-up, not a no.** It would give `:hover`,
   click-to-focus and a scroll wheel, and it costs a capability check and a mode
   that must go back on exit. The event model does not preclude it, which is why

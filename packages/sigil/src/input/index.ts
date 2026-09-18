@@ -16,6 +16,18 @@
  * });
  * ```
  *
+ * A handler registered while an event is being dispatched does not receive that
+ * event, and one removed during it is not called. Every handler set here is
+ * therefore walked over a copy *and* asked whether each entry is still in the
+ * live set, because the two halves want opposite things and a bare `for..of`
+ * over the `Set` gives only one of them. Without the copy, a component that
+ * binds a key in response to being focused has that new binding see the very key
+ * that focused it, and whether it does depends on where in the iteration it
+ * joined. Without the membership check, the copy re-runs a handler that has just
+ * unsubscribed -- which is a one-shot binding firing twice, and a dialog torn
+ * down by Escape still handing Escape to the handlers it was tearing down.
+ * Order-dependent and unexplainable is worse than one rule said once.
+ *
  * What is deliberately not here: mouse tracking, which would give `:hover`,
  * click-to-focus and a scroll wheel, and which costs a capability check and a
  * mode that must go back on exit. It is a follow-up rather than a no -- and the
@@ -26,7 +38,7 @@
  * cannot spell.
  */
 
-import { decodeKeys, isAbort, type Key, pendingLength } from '../components/keys.js';
+import { decodeKeys, type Key, pendingLength } from '../components/keys.js';
 import type { Element } from '../element/index.js';
 import { State } from '../signals/index.js';
 import {
@@ -341,7 +353,12 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 			target,
 		};
 
+		// a copy, and `has`: the rule in the module docblock
+		// eslint-disable-next-line unicorn/no-useless-spread
 		for (const binding of [...bindings]) {
+			if (!bindings.has(binding)) {
+				continue;
+			}
 			binding(event);
 			if (stopped) {
 				return true;
@@ -376,7 +393,11 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 			text,
 		};
 
+		// eslint-disable-next-line unicorn/no-useless-spread
 		for (const handler of [...pasters]) {
+			if (!pasters.has(handler)) {
+				continue;
+			}
 			handler(event);
 			if (stopped) {
 				return;
@@ -489,7 +510,11 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 
 	const resizers = new Set<(size: { height: number; width: number }) => void>();
 	const offResize = terminal.onResize((size) => {
+		// eslint-disable-next-line unicorn/no-useless-spread
 		for (const handler of [...resizers]) {
+			if (!resizers.has(handler)) {
+				continue;
+			}
 			handler(size);
 		}
 	});

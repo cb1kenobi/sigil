@@ -5,8 +5,6 @@ import {
 	ENTER_ALT_SCREEN,
 	HIDE_CURSOR,
 	LEAVE_ALT_SCREEN,
-	PASTE_END,
-	PASTE_START,
 	SHOW_CURSOR,
 } from './sequences.js';
 
@@ -344,12 +342,19 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
 	function onStreamResize(): void {
 		const size = { height: height(), width: width() };
 
-		// a copy, so the set being iterated is the listeners as they were when the
-		// resize happened: one of them unsubscribing another mid-notify would
-		// otherwise decide by registration order whether that one still hears about
-		// this resize
+		// a copy, and `has`. The copy is not for the reason this used to give: a
+		// listener *unsubscribing* during the walk is handled by a bare `Set`
+		// iterator, which skips an entry removed before it is reached. It is for
+		// the other direction -- a listener that subscribes another would otherwise
+		// have that one notified about a resize it was not yet listening for -- and
+		// the copy then costs the first half back, since a snapshot still holds the
+		// listener that has just gone. Asking the live set is what keeps both. The
+		// same rule as the input router's, written there at length
 		// eslint-disable-next-line unicorn/no-useless-spread
 		for (const fn of [...resizeListeners]) {
+			if (!resizeListeners.has(fn)) {
+				continue;
+			}
 			fn(size);
 		}
 	}
