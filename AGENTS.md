@@ -1445,7 +1445,16 @@ stylesheet rather than anything the runtime knows about.
 - **What is deliberately not here: the signal wiring.** An `effect()` per
   reactive binding is the renderer's, and building it now would be an
   architecture guess with nothing to check it against. `Restyler` takes marks
-  from whatever calls it.
+  from whatever calls it. Nothing in `src/` calls `touchClasses()`,
+  `touchProps()` or `touchChildren()`, so the join between what the tree recorded
+  and what the restyler re-resolves does not exist yet either -- an app keeps a
+  `Restyler` across frames and gets one that re-resolves _nothing_ after the
+  first, which is silent: the state really does change, the selector really would
+  match, and the frame is simply never asked. `demos/element/03-focus.js` is what
+  found it -- Tab moved the focus ring and the `:focus` highlight stayed where it
+  started -- and it writes the bridge out by hand, which is what every app has to
+  do until SIG-67 owns it. Worth knowing before concluding a selector is broken:
+  resolve with a fresh `Restyler` to tell the two apart.
 
 ### Canvas
 

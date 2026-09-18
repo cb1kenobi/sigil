@@ -13,7 +13,7 @@
  * stylesheet matches it with `:focus`.
  */
 import { createInlineCanvas } from '@ttylabs/sigil/canvas';
-import { arrange, box, paint, resolveStyles, text } from '@ttylabs/sigil/element';
+import { arrange, box, createTree, paint, resolveStyles, text } from '@ttylabs/sigil/element';
 import { createInput, isAbort } from '@ttylabs/sigil/input';
 import { Cascade, parseStylesheet, Restyler } from '@ttylabs/sigil/style';
 
@@ -27,7 +27,9 @@ const sheet = parseStylesheet(`
 	.field { border: single; border-color: gray; padding-left: 1; padding-right: 1; height: 3 }
 	.field:focus { border-color: cyan }
 	.label { color: gray }
-	.label:focus { color: cyan; font-weight: bold }
+	/* the label never holds the focus -- the field does -- so it is reached
+	   through the field rather than by a :focus of its own */
+	.field:focus .label { color: cyan; font-weight: bold }
 	.hint { color: gray }
 `);
 
@@ -50,9 +52,19 @@ app.append(...fields, text('Tab moves, type, Ctrl-C quits', { class: 'hint' }));
 
 const backend = createInlineCanvas({ height: 12, width: 40 });
 const restyler = new Restyler(new Cascade([sheet]));
+const tree = createTree(app);
 const input = createInput({ root: app });
 
 const draw = () => {
+	// the tree records what changed and the restyler is told what that implies,
+	// which is the join the renderer (SIG-67) will own. Without it the restyler
+	// re-resolves nothing after the first frame: focus really does move and the
+	// `:focus` rule never re-matches, so the ring is invisible
+	const marks = tree.take();
+	for (const element of marks.classes) restyler.touchClasses(element);
+	for (const element of marks.props) restyler.touchProps(element);
+	for (const element of marks.children) restyler.touchChildren(element);
+
 	resolveStyles(app, restyler);
 	arrange(app, { height: backend.height, width: backend.width });
 	backend.render((painter) => paint(app, painter));
