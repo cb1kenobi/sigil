@@ -300,12 +300,10 @@ describe('sigil', () => {
 						},
 					},
 					hooks: {
-						beforeError: [
-							(err, s) => {
-								seen = err;
-								state = s;
-							},
-						],
+						beforeError: (err, s) => {
+							seen = err;
+							state = s;
+						},
 					},
 				},
 			});
@@ -333,7 +331,7 @@ describe('sigil', () => {
 							},
 						},
 					},
-					hooks: { beforeError: [(err) => void calls.push(err)] },
+					hooks: { beforeError: (err) => void calls.push(err) },
 				},
 			});
 			stderr.restore();
@@ -351,13 +349,13 @@ describe('sigil', () => {
 				schema: {
 					commands: {
 						build: {
-							hooks: { beforeError: [() => void calls.push('build')] },
+							hooks: { beforeError: () => void calls.push('build') },
 							run() {
 								throw new Error('build failed');
 							},
 						},
 					},
-					hooks: { beforeError: [() => void calls.push('schema')] },
+					hooks: { beforeError: () => void calls.push('schema') },
 				},
 			});
 			stderr.restore();
@@ -378,9 +376,8 @@ describe('sigil', () => {
 						},
 					},
 					hooks: {
-						beforeError: [
-							() => Object.assign(new Error('Could not read the project file'), { exitCode: 3 }),
-						],
+						beforeError: () =>
+							Object.assign(new Error('Could not read the project file'), { exitCode: 3 }),
 					},
 				},
 			});
@@ -397,7 +394,7 @@ describe('sigil', () => {
 			await main({
 				argv: [],
 				schema: {
-					hooks: { beforeError: [() => new Error('nicer message')] },
+					hooks: { beforeError: () => new Error('nicer message') },
 					options: { '--name <value>': 'Your name' },
 				},
 				settings: {
@@ -417,7 +414,7 @@ describe('sigil', () => {
 				main({
 					argv: [],
 					schema: {
-						hooks: { beforeError: [() => new Error('nicer message')] },
+						hooks: { beforeError: () => new Error('nicer message') },
 						options: { '--name <value>': 'Your name' },
 					},
 					settings: { errorHandler: false },
@@ -433,7 +430,7 @@ describe('sigil', () => {
 			await main({
 				argv: [],
 				schema: {
-					hooks: { beforeError: [(err) => void calls.push(err)] },
+					hooks: { beforeError: (err) => void calls.push(err) },
 					options: { '--name <value>': 'Your name' },
 				},
 			});
@@ -449,7 +446,7 @@ describe('sigil', () => {
 				argv: ['build'],
 				schema: {
 					commands: { build: { options: { '--target <name>': 'Where to build to' } } },
-					hooks: { beforeError: [() => new Error('nicer message')] },
+					hooks: { beforeError: () => new Error('nicer message') },
 				},
 				settings: {
 					errorHandler: (_err, c) => {
@@ -470,7 +467,7 @@ describe('sigil', () => {
 				get argv(): string[] {
 					throw new Error('bad argv getter');
 				},
-				schema: { hooks: { beforeError: [(err) => void calls.push(err)] } },
+				schema: { hooks: { beforeError: (err) => void calls.push(err) } },
 			});
 			stderr.restore();
 
@@ -487,7 +484,7 @@ describe('sigil', () => {
 			const stderr = captureStderr();
 			await main({
 				argv: [],
-				schema: { hooks: { beforeError: [(err) => void calls.push(err)] } },
+				schema: { hooks: { beforeError: (err) => void calls.push(err) } },
 				get settings(): undefined {
 					throw new Error('bad settings getter');
 				},
@@ -509,7 +506,7 @@ describe('sigil', () => {
 				argv: ['build'],
 				schema: {
 					commands: { build: { options: { '--target <name>': 'Where to build to' } } },
-					hooks: { beforeError: [() => 'just a string'] },
+					hooks: { beforeError: () => 'just a string' },
 				},
 				settings: {
 					errorHandler: (err, c) => {
@@ -529,11 +526,9 @@ describe('sigil', () => {
 				argv: [],
 				schema: {
 					hooks: {
-						beforeError: [
-							() => {
-								throw new Error('hook exploded');
-							},
-						],
+						beforeError: () => {
+							throw new Error('hook exploded');
+						},
 					},
 					options: { '--name <value>': 'Your name' },
 				},

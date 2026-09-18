@@ -1262,7 +1262,7 @@ The reasoning for each is in the deliberate-decisions list in `AGENTS.md`.
 
 ## Hooks
 
-Schema-level hooks are arrays of functions on `schema.hooks`:
+Schema-level hooks are functions on `schema.hooks` -- one each, not a list:
 
 | Hook          | When                                                 |
 | ------------- | ---------------------------------------------------- |
@@ -1281,6 +1281,21 @@ Command-level hooks live on `command.hooks`:
 A command hook is called with `{ cmd, ...cmd[Internal] }`, so it is handed the
 initialized command along with the registries the parser reads — see below for
 what it may change.
+
+Two things that both want to happen at one hook go in one function, or wrap the
+one that is already there:
+
+```js
+const previous = cmd.hooks.parse;
+cmd.hooks.parse = async (data) => {
+	await previous?.(data);
+	// ...and yours
+};
+```
+
+The command's `hooks` object is a copy, so replacing one on the command a hook
+was handed does not reach back into the declaration and change what every later
+parse of that schema does.
 
 ## Changing a command from a hook
 

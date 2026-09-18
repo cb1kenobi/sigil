@@ -416,7 +416,7 @@ describe('Command.help', () => {
 					help: () => {
 						throw new Error('help is broken');
 					},
-					hooks: { beforeError: [() => void fired.push('notes')] },
+					hooks: { beforeError: () => void fired.push('notes') },
 				},
 			},
 		};

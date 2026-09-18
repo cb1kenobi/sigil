@@ -682,11 +682,9 @@ describe('options', () => {
 						help: false,
 						options: { '--cheese [type]': { choices: ['brie'] }, '--no-cheese': {} },
 						hooks: {
-							beforeParse: [
-								(state) => {
-									state.argv.cheese = 'gouda';
-								},
-							],
+							beforeParse: (state) => {
+								state.argv.cheese = 'gouda';
+							},
 						},
 					},
 				})
@@ -1337,11 +1335,9 @@ describe('options', () => {
 					build: {
 						options: { '-v, --verbose': { type: 'count' } },
 						hooks: {
-							init: [
-								({ options }) => {
-									options.find('-v')!.multiple = true;
-								},
-							],
+							init: ({ options }) => {
+								options.find('-v')!.multiple = true;
+							},
 						},
 					},
 				},

@@ -115,7 +115,7 @@ describe('default command', () => {
 					commands: {
 						build: {
 							default: true,
-							hooks: { parse: [({ cmd }) => void names.push(cmd.name as string)] },
+							hooks: { parse: ({ cmd }) => void names.push(cmd.name as string) },
 						},
 					},
 				},
@@ -465,11 +465,11 @@ describe('default command', () => {
 						build: {
 							args: ['<entry>'],
 							default: true,
-							hooks: { beforeError: [(e) => void fired.push(`build:${(e as Error).message}`)] },
+							hooks: { beforeError: (e) => void fired.push(`build:${(e as Error).message}`) },
 						},
 					},
 					hooks: {
-						beforeError: [(e) => void fired.push(`global:${(e as Error).message}`)],
+						beforeError: (e) => void fired.push(`global:${(e as Error).message}`),
 					},
 				},
 			}).catch((e: unknown) => e);
@@ -492,7 +492,7 @@ describe('default command', () => {
 					commands: {
 						gone: {
 							default: true,
-							hooks: { beforeError: [() => void fired.push('gone')] },
+							hooks: { beforeError: () => void fired.push('gone') },
 							path: path.join(__dirname, 'fixtures/nope.js'),
 						},
 					},
@@ -522,7 +522,7 @@ describe('default command', () => {
 					commands: {
 						build: {
 							default: true,
-							hooks: { beforeError: [(e) => void fired.push(e)] },
+							hooks: { beforeError: (e) => void fired.push(e) },
 							run() {
 								throw new Error('build failed');
 							},

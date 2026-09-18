@@ -10,7 +10,7 @@ const { log } = debug('sigil:error');
  */
 type HookSource = {
 	hooks?: {
-		beforeError?: BeforeErrorHook[];
+		beforeError?: BeforeErrorHook;
 	};
 };
 
@@ -81,21 +81,17 @@ function collectHooks(
 	const hooks = new Set<BeforeErrorHook>();
 
 	for (const source of sources) {
-		let list: BeforeErrorHook[] | undefined;
+		let hook: BeforeErrorHook | undefined;
 
 		try {
-			list = source.hooks?.beforeError;
+			hook = source.hooks?.beforeError;
 		} catch {
 			// a throwing getter has nothing to contribute
 			continue;
 		}
 
-		if (Array.isArray(list)) {
-			for (const hook of list) {
-				if (typeof hook === 'function') {
-					hooks.add(hook);
-				}
-			}
+		if (typeof hook === 'function') {
+			hooks.add(hook);
 		}
 	}
 

@@ -734,22 +734,18 @@ describe('commands', () => {
 					commands: {
 						foo: {
 							hooks: {
-								init: [
-									async ({ options }) => {
-										const color = options.get('color');
-										if (color) {
-											color.choices = ['red', 'green', 'blue'];
-										}
-									},
-								],
-								parse: [
-									async ({ options }) => {
-										options.add({
-											name: 'shape',
-											choices: ['circle', 'square', 'triangle'],
-										});
-									},
-								],
+								init: async ({ options }) => {
+									const color = options.get('color');
+									if (color) {
+										color.choices = ['red', 'green', 'blue'];
+									}
+								},
+								parse: async ({ options }) => {
+									options.add({
+										name: 'shape',
+										choices: ['circle', 'square', 'triangle'],
+									});
+								},
 							},
 							options: {
 								'--color [value]': {

@@ -1,9 +1,7 @@
 export default {
 	hooks: {
-		init: [
-			() => {
-				throw new Error('init hook blew up');
-			},
-		],
+		init: () => {
+			throw new Error('init hook blew up');
+		},
 	},
 };

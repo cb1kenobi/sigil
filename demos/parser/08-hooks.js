@@ -13,31 +13,27 @@ await main({
 	schema: {
 		name: 'hooks',
 		hooks: {
-			beforeParse: [(state) => console.log('[beforeParse]', state.$orig.join(' '))],
-			afterParse: [(state) => console.log('[afterParse] command:', state.cmd?.name)],
+			beforeParse: (state) => console.log('[beforeParse]', state.$orig.join(' ')),
+			afterParse: (state) => console.log('[afterParse] command:', state.cmd?.name),
 
 			// a hook may replace an error, never swallow it
-			beforeError: [
-				(err) =>
-					err.message.startsWith('Unexpected argument')
-						? new Error(`${err.message} -- try \`hooks --help\``)
-						: undefined,
-			],
+			beforeError: (err) =>
+				err.message.startsWith('Unexpected argument')
+					? new Error(`${err.message} -- try \`hooks --help\``)
+					: undefined,
 		},
 
 		commands: {
 			build: {
 				args: ['<entry>'],
 				hooks: {
-					init: [({ options }) => console.log('[init] options so far:', options.size)],
+					init: ({ options }) => console.log('[init] options so far:', options.size),
 
 					// the registries are live: adding here means argv can use it
-					parse: [
-						async ({ options }) => {
-							console.log('[parse] adding --added');
-							await options.add({ format: '--added', desc: 'Added by a hook' });
-						},
-					],
+					parse: async ({ options }) => {
+						console.log('[parse] adding --added');
+						await options.add({ format: '--added', desc: 'Added by a hook' });
+					},
 				},
 				run: ({ argv }) => console.log('[run]', argv),
 			},
