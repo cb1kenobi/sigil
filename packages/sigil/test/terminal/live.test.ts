@@ -158,6 +158,47 @@ describe('createLiveRegion()', () => {
 			region.stop();
 			expect(stdout.output).to.contain(SHOW_CURSOR);
 		});
+
+		// a full-screen app that hid the cursor and then ran a spinner is still
+		// hiding it when the spinner stops: showing it there puts a cursor back on
+		// somebody else's screen, over a frame that never asked for one
+		it('should not show a cursor it did not hide', () => {
+			const { region, stdout, terminal } = setup();
+
+			terminal.hideCursor();
+			stdout.written.length = 0;
+
+			region.render('one');
+			expect(stdout.output).to.not.contain(HIDE_CURSOR);
+
+			region.stop();
+			expect(stdout.output).to.not.contain(SHOW_CURSOR);
+
+			// and the one that did hide it still owes it
+			terminal.showCursor();
+			expect(stdout.output).to.contain(SHOW_CURSOR);
+		});
+
+		// the region that evicts another is not the region that hid the cursor, and
+		// the one being evicted hands it back on the way out
+		it('should hand the cursor to the region that evicts it', () => {
+			const { stdout, terminal } = setup();
+			const first = createLiveRegion({ terminal });
+			const second = createLiveRegion({ terminal });
+
+			first.render('one');
+			stdout.written.length = 0;
+
+			second.render('two');
+			// the evicted region clears what it drew and hands the cursor back, and
+			// the new one hides it again, so the second region owns it from here
+			expect(stdout.output).to.contain(repaint(1) + SHOW_CURSOR);
+			expect(stdout.output.endsWith(HIDE_CURSOR + 'two')).to.equal(true);
+
+			stdout.written.length = 0;
+			second.stop();
+			expect(stdout.output).to.contain(SHOW_CURSOR);
+		});
 	});
 
 	describe('clearing and finishing', () => {

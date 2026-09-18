@@ -11,6 +11,7 @@ import {
 	isKnownProperty,
 	isShorthand,
 	kebab,
+	LAYOUT_PROPERTIES,
 	longhandsFor,
 	NONE,
 	parseColor,
@@ -481,8 +482,8 @@ describe('initial values against CSS', () => {
 	});
 
 	it('should start position at static', () => {
-		// only a *positioned* ancestor is a containing block. Defaulting to
-		// `relative` makes every box an anchor an `absolute` descendant stops at
+		// the insets are read only on a `relative` box, so defaulting to
+		// `relative` would make every stray `top` in a stylesheet move something
 		expect(declare().position).toBe('static');
 	});
 
@@ -776,5 +777,75 @@ describe('the properties that hold a colour', () => {
 		expect(COLOR_PROPERTIES).toContain('color');
 		expect(COLOR_PROPERTIES).toContain('backgroundColor');
 		expect(COLOR_PROPERTIES).toContain('borderColor');
+	});
+});
+
+describe('position: absolute', () => {
+	it('should be refused rather than parsed and ignored', () => {
+		// there is no out-of-flow engine, so `absolute` used to parse, mark layout
+		// dirty, and then place the box exactly where the flow would have. The
+		// first release that took it out of flow would have changed what every
+		// stylesheet written against it meant
+		expect(() => declare({ position: 'absolute' })).toThrow(StyleError);
+		expect(() => parseDeclaration('position', ' ABSOLUTE ')).toThrow(/not implemented/);
+	});
+
+	it('should leave the keywords the engine does honour alone', () => {
+		expect(declare({ position: 'relative' }).position).toBe('relative');
+		expect(declare({ position: 'static' }).position).toBe('static');
+	});
+
+	it('should still take an inset on a static box', () => {
+		// what CSS does, and it could not be refused here anyway: `position` may
+		// be set by a different rule in a different sheet, and a declaration is
+		// parsed on its own
+		expect(declare({ top: '2' }).top).toEqual(cells(2));
+	});
+});
+
+describe('every property is classified as moving a box or not', () => {
+	/**
+	 * The properties a change to which cannot move anything.
+	 *
+	 * Written out rather than derived as "the rest", so that a property added to
+	 * the table fails here until somebody decides which it is. A new layout
+	 * property that defaulted to paint-only would move a box with nothing
+	 * re-laying it out, which is a frame that is simply wrong and reproduces
+	 * only on the layout that happened to use it.
+	 */
+	const PAINT_ONLY: readonly PropertyName[] = [
+		'backgroundColor',
+		'bold',
+		'borderColor',
+		'color',
+		'dim',
+		'inverse',
+		'italic',
+		'overflow',
+		'overline',
+		'strikethrough',
+		'textAlign',
+		'textOverflow',
+		'underline',
+		'visibility',
+		'zIndex',
+	];
+
+	it('should put every property in exactly one of the two', () => {
+		const paint = new Set(PAINT_ONLY);
+		for (const property of PROPERTY_NAMES) {
+			const layout = LAYOUT_PROPERTIES.has(property);
+			expect(layout || paint.has(property), `"${property}" is classified neither way`).toBe(true);
+			expect(layout && paint.has(property), `"${property}" is classified both ways`).toBe(false);
+		}
+	});
+
+	it('should not classify anything that is not a property', () => {
+		for (const property of LAYOUT_PROPERTIES) {
+			expect(PROPERTY_NAMES, property).toContain(property);
+		}
+		for (const property of PAINT_ONLY) {
+			expect(PROPERTY_NAMES, property).toContain(property);
+		}
 	});
 });

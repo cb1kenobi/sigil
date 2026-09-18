@@ -1,5 +1,6 @@
 import debug from '../debug/index.js';
 import { mkdirOwnerSync } from '../util/mkdir-owner-sync.js';
+import { cacheFileName, distTagsURL } from './registry.js';
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -52,7 +53,7 @@ export async function check(
 		throw new TypeError('Update check dist tag must be a non-empty string');
 	}
 
-	const cacheFile = cacheDir ? join(cacheDir, `${packageName}-${distTag}.json`) : undefined;
+	const cacheFile = cacheDir ? join(cacheDir, cacheFileName(packageName, distTag)) : undefined;
 
 	let cache;
 	if (cacheFile) {
@@ -70,12 +71,18 @@ export async function check(
 		// than inheriting loader flags (`--import tsx`, coverage hooks, and so
 		// on) that are not installed for the spawned process.
 		const { NODE_OPTIONS: _ignored, ...parentEnv } = process.env;
+		// the URL is built here rather than in the worker because the worker is a
+		// string piped into `node --input-type=module`: nothing can import it,
+		// stub its `https`, or call one function out of it, so anything it
+		// computes is only observable by making a real request. Encoding a
+		// package name is exactly the kind of thing that has to be pinned by a
+		// test, so it happens where a test can reach it
 		const env = {
 			...parentEnv,
 			CACHE_FILE: cacheFile,
 			DIST_TAG: distTag,
-			PACKAGE_NAME: packageName,
-			REGISTRY_URL: registryURL,
+			DIST_TAGS_URL: distTagsURL(packageName, registryURL),
+			REQUEST_TIMEOUT: String(timeout),
 		};
 
 		// the worker cannot resolve relative imports, so create the cache
@@ -161,8 +168,13 @@ export async function check(
 			// the child's pipes are their own handles and hold the loop open on their
 			// own, so unreffing the child is not enough. They are sockets and do have
 			// `unref`, which the `Readable` they are typed as does not declare; the
-			// optional call is what keeps this honest if that ever stops being true
-			for (const stream of [worker.stdout, worker.stderr]) {
+			// optional call is what keeps this honest if that ever stops being true.
+			// stdin is in the list because the comment above is about pipes and it is
+			// one: it cannot cost the worker the script it is being fed, because an
+			// unflushed write is a libuv request rather than a handle and `unref()`
+			// does not touch those -- the parent stays alive for a write in flight
+			// either way
+			for (const stream of [worker.stdin, worker.stdout, worker.stderr]) {
 				(stream as unknown as { unref?: () => void }).unref?.();
 			}
 		}

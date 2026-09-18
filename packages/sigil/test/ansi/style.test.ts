@@ -177,11 +177,38 @@ describe('nesting', () => {
 		expect(ansi.red(`a${ESC}[38;5;1;0mb`)).toBe(`${ESC}[31ma${ESC}[38;5;1;0m${ESC}[31mb${ESC}[39m`);
 	});
 
+	// the six-parameter form is the one ITU T.416 specifies: a color space
+	// identifier sits between the mode and the channels, written empty. Counted as
+	// five it left the blue channel to be read as an attribute of its own, and a
+	// blue of `0` is a reset -- so the whole outer chain reopened on top of a red
+	// that came in written the long way, and the text rendered blue
+	it('should read the six-parameter form of an extended color', () => {
+		expect(ansi.blue(`a${ESC}[38;2;;255;0;0mb`)).toBe(
+			`${ESC}[34ma${ESC}[38;2;;255;0;0mb${ESC}[39m`
+		);
+		expect(ansi.bgBlue(`a${ESC}[48;2;;0;0;0mb`)).toBe(`${ESC}[44ma${ESC}[48;2;;0;0;0mb${ESC}[49m`);
+		// and the parameters after one are still attributes of their own
+		expect(ansi.red(`a${ESC}[38;2;;0;0;0;39mb`)).toBe(
+			`${ESC}[31ma${ESC}[38;2;;0;0;0;39m${ESC}[31mb${ESC}[39m`
+		);
+	});
+
+	// a non-empty color space is exactly as plausible a red channel, and five is
+	// what every emitter writes, so the trailing `0` is the reset it looks like
+	it('should read a non-empty color space as a channel', () => {
+		expect(ansi.red(`a${ESC}[38;2;1;255;0;0mb`)).toBe(
+			`${ESC}[31ma${ESC}[38;2;1;255;0;0m${ESC}[31mb${ESC}[39m`
+		);
+	});
+
 	// the colon form carries the color inside one parameter, so there is nothing
 	// to skip -- and a malformed run has no length, so the rest of the sequence
 	// belongs to it rather than being read as attributes
 	it('should handle the colon form and a malformed extended color', () => {
 		expect(ansi.red(`a${ESC}[38:2:255:0:0mb`)).toBe(`${ESC}[31ma${ESC}[38:2:255:0:0mb${ESC}[39m`);
+		// including the six-element spelling, which is still one parameter and so
+		// has nothing after it to count
+		expect(ansi.red(`a${ESC}[38:2::255:0:0mb`)).toBe(`${ESC}[31ma${ESC}[38:2::255:0:0mb${ESC}[39m`);
 
 		// and because it is one parameter, what follows it is an attribute of its
 		// own -- skipping as though it were the semicolon form swallowed the `39`

@@ -254,7 +254,11 @@ export class CellBuffer {
 	 * @param text - The text. Split into clusters, so combining marks and emoji
 	 * sequences stay whole.
 	 * @param styleIndex - The interned style.
-	 * @returns How many columns were consumed.
+	 * @returns How far the cursor advanced from `x`, which is not the same as how
+	 * many cells were painted: a run starting left of the grid advances over the
+	 * columns it could not land in, so `x + returned` is where the next run goes
+	 * whichever edge clipped this one. It stops at the right edge, because nothing
+	 * can be painted past it.
 	 */
 	write(x: number, y: number, text: string, styleIndex: number): number {
 		let column = x;
@@ -283,9 +287,22 @@ export class CellBuffer {
 			if (column >= this.#width) {
 				break;
 			}
+
+			if (column < 0) {
+				// left of the grid, which is not the answer the right edge gives:
+				// advancing from here walks *into* it, so the run is clipped rather
+				// than abandoned -- `fill()` already clips this way and the two are
+				// painting the same thing. A wide cluster straddling column zero is
+				// still refused, because a survivor is half a glyph, but only that
+				// cluster and not the rest of the string
+				column += cellWidth(cluster);
+				continue;
+			}
+
 			const consumed = this.put(column, y, cluster, styleIndex);
 			if (consumed === 0 && cellWidth(cluster) > 0) {
-				// off the grid rather than zero-width: nothing further will land
+				// off the grid rather than zero-width: the row is not one, so nothing
+				// further will land
 				break;
 			}
 			column += consumed;

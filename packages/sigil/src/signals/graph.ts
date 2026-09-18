@@ -666,7 +666,7 @@ export class Watcher implements Consumer {
 			this.sources.set(producer, producer.version);
 			addEdge(producer, this);
 		}
-		this.#armed = true;
+		this.rearm();
 
 		// A watcher is only told about a node going from clean to dirty, and
 		// propagation stops at a node that is already dirty. So a computed that
@@ -680,6 +680,23 @@ export class Watcher implements Consumer {
 		if (signals.length === 0 && this.getPending().length > 0) {
 			this.notify();
 		}
+	}
+
+	/**
+	 * Re-arms the notification and does not look for what went stale.
+	 *
+	 * The opposite of a bare `watch()`, and it exists for the holder that has
+	 * given up. What is dirty then is exactly what it just failed to settle, so
+	 * announcing it asks for the work that failed all over again -- and the
+	 * announcement is what schedules that work, which is a loop with nothing to
+	 * end it. Armed either way, so a later clean-to-dirty transition is still
+	 * heard.
+	 *
+	 * Not part of the proposal, for the same kind of reason `Computed.dispose()`
+	 * is not: the proposal has no scheduler of its own to livelock.
+	 */
+	rearm(): void {
+		this.#armed = true;
 	}
 
 	/**

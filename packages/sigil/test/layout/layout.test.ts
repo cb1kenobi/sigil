@@ -871,3 +871,294 @@ describe('percentage margins', () => {
 		expect(layout(tree, { height: 20, width: 10 }).children[0].box.y).toBe(5);
 	});
 });
+
+describe('position: relative', () => {
+	it('should offset a box by its insets', () => {
+		// `position` and the four insets parsed, marked layout dirty, and were
+		// never read: the box laid out in flow at the origin and `top`/`left` did
+		// nothing at all
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box({ position: 'relative', top: '2', left: '2', width: '3', height: '1' })
+		);
+
+		expect(picture(tree, 10, 3)).toBe(['aaaaaaaaaa', 'aaaaaaaaaa', 'aabbbaaaaa'].join('\n'));
+	});
+
+	it('should leave the flow where it was', () => {
+		// the space stays reserved at the un-offset position, which is what
+		// separates `relative` from taking the box out of flow: the sibling is
+		// placed as though nothing moved
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box({ position: 'relative', top: '1', left: '3', width: '2', height: '1' }),
+			box({ width: '2', height: '1' })
+		);
+
+		const result = layout(tree, { height: 3, width: 10 });
+		expect(result.children[0].box).toMatchObject({ x: 3, y: 1 });
+		expect(result.children[1].box).toMatchObject({ x: 2, y: 0 });
+	});
+
+	it('should keep an inset physical when the direction is reversed', () => {
+		// `top` is down the screen and `left` is across it, whatever the main axis
+		// is doing. Reading them as main-start and cross-start would make one
+		// declaration mean two things depending on the container it landed in
+		// one across and two down, so reading them as main and cross would move the
+		// box somewhere else rather than to the same place by arithmetic accident
+		const child = { height: '1', left: '1', position: 'relative', top: '2', width: '2' };
+		const at = (direction: string) =>
+			layout(box({ 'flex-direction': direction }, box(child)), { height: 3, width: 10 }).children[0]
+				.box;
+
+		// the flow puts each of these somewhere different, and every one of them
+		// then moves one cell right and two cells down from wherever that was
+		expect(at('row')).toMatchObject({ x: 0 + 1, y: 0 + 2 });
+		expect(at('row-reverse')).toMatchObject({ x: 10 - 2 + 1, y: 0 + 2 });
+		expect(at('column')).toMatchObject({ x: 0 + 1, y: 0 + 2 });
+		expect(at('column-reverse')).toMatchObject({ x: 0 + 1, y: 3 - 1 + 2 });
+	});
+
+	it('should ignore an inset on a static box', () => {
+		// what CSS does, and the reason `position` starts at `static`: a stray
+		// `top` in a stylesheet moves nothing until something says it may
+		const tree = box({ 'flex-direction': 'row' }, box({ top: '2', left: '2', width: '3' }));
+		expect(layout(tree, { height: 3, width: 10 }).children[0].box).toEqual({
+			height: 3,
+			width: 3,
+			x: 0,
+			y: 0,
+		});
+	});
+
+	it('should read bottom and right as a push the other way', () => {
+		// the padding is two and the push is one, so neither an ignored offset nor
+		// an ignored padding lands on the same answer
+		const tree = box(
+			{ 'flex-direction': 'column', padding: '2' },
+			box({ position: 'relative', bottom: '1', right: '1', width: '2', height: '1' })
+		);
+
+		expect(layout(tree, { height: 6, width: 8 }).children[0].box).toEqual({
+			height: 1,
+			width: 2,
+			x: 1,
+			y: 1,
+		});
+	});
+
+	it('should let top beat bottom and left beat right', () => {
+		// over-constrained, and CSS picks a winner rather than averaging the two
+		// into a compromise neither declaration asked for
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box({ position: 'relative', top: '2', bottom: '1', left: '2', right: '1', width: '2' })
+		);
+
+		const { box: placed } = layout(tree, { height: 4, width: 10 }).children[0];
+		expect(placed.x).toBe(2);
+		expect(placed.y).toBe(2);
+	});
+
+	it('should let a zero top beat a bottom', () => {
+		// the winner is whichever inset was *declared*, so a `top: 0` is an answer
+		// rather than a falsy value the other edge gets to overrule
+		const tree = box(
+			{ 'flex-direction': 'column', padding: '2' },
+			box({ position: 'relative', top: '0', bottom: '2', left: '0', right: '2', height: '1' })
+		);
+
+		const { box: placed } = layout(tree, { height: 6, width: 8 }).children[0];
+		expect(placed.x).toBe(2);
+		expect(placed.y).toBe(2);
+	});
+
+	it('should resolve a percentage inset per axis', () => {
+		// `top` against the containing block's height, which is CSS and is *not*
+		// what the margins do -- those resolve against the width on both axes
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box({ position: 'relative', top: '50%', left: '50%', width: '2', height: '1' })
+		);
+
+		const { box: placed } = layout(tree, { height: 4, width: 10 }).children[0];
+		expect(placed.x).toBe(5);
+		expect(placed.y).toBe(2);
+	});
+
+	it('should resolve a percentage inset against the content box, not the border box', () => {
+		// the containing block is what is inside the padding and border, so a
+		// padded parent answers for less than it is wide
+		const tree = box(
+			{ 'flex-direction': 'row', padding: '1', border: 'single' },
+			box({ position: 'relative', left: '50%', width: '2', height: '1' })
+		);
+
+		// twelve wide, four of that border and padding, so the containing block is
+		// eight and half of it is four -- against the border box it would be six
+		const { box: placed } = layout(tree, { height: 5, width: 12 }).children[0];
+		expect(placed.x).toBe(2 + 4);
+	});
+
+	it('should carry the children of an offset box with it', () => {
+		// the offset is applied where the box is placed, so everything inside it is
+		// placed relative to a box that has already moved
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box(
+				{ position: 'relative', top: '1', left: '1', width: '4', height: '3', padding: '1' },
+				box({ width: '2', height: '1' })
+			)
+		);
+
+		const result = layout(tree, { height: 5, width: 10 });
+		expect(result.children[0].box).toMatchObject({ x: 1, y: 1 });
+		// one for the offset and one for the padding, where an unmoved box would
+		// have put it at (1, 1)
+		expect(result.children[0].children[0].box).toMatchObject({ x: 2, y: 2 });
+	});
+
+	it('should offset the root it was handed', () => {
+		// every other node's offset is applied by the parent that places it, and
+		// the root has no parent -- the same gap its declared size had
+		const root = box({ position: 'relative', top: '1', left: '1', width: '2', height: '1' });
+		expect(layout(root, { height: 4, width: 10 }).box).toEqual({
+			height: 1,
+			width: 2,
+			x: 1,
+			y: 1,
+		});
+	});
+
+	it('should hold the invariants while overlapping a sibling', () => {
+		// an offset box landing on a sibling or leaving its parent is the point of
+		// the property rather than a failure of the engine, so `checkInvariants()`
+		// excuses it -- and excuses nothing else on the tree
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box({ width: '4', height: '2' }),
+			box({ position: 'relative', left: '-4', top: '1', width: '4', height: '2' })
+		);
+
+		const result = layout(tree, { height: 4, width: 10 });
+		// the overlap is asserted rather than assumed: an exemption that is never
+		// exercised would pass this test with the offset never applied at all
+		expect(result.children[1].box).toEqual({ height: 2, width: 4, x: 0, y: 1 });
+		expect(() => checkInvariants(result)).not.toThrow();
+	});
+
+	it('should still catch a relative box that overflows without having moved', () => {
+		// the exemption is keyed on the box having moved, not on the keyword and
+		// not on the declaration: a `top: 0` is declared and moves nothing, and a
+		// placement bug under either box must not hide behind the property
+		const nowhere: Record<string, string>[] = [{}, { top: '0' }, { left: '0%' }];
+
+		for (const declared of nowhere) {
+			const tree = box(
+				{ 'flex-direction': 'row' },
+				box({ position: 'relative', width: '20', 'flex-shrink': '0', height: '1', ...declared })
+			);
+
+			expect(
+				() => checkInvariants(layout(tree, { height: 1, width: 10 })),
+				JSON.stringify(declared)
+			).toThrow(/escapes/);
+		}
+	});
+});
+
+describe('min and max are applied once, by whoever sized the node', () => {
+	it('should resolve a percentage against the containing block and not the size allocated', () => {
+		// `max-width: 50%` was read twice: once against the row's ten columns, which
+		// clamped each growing item to five, and again against the five it had just
+		// been given, which clamped it to three. The siblings' positions still came
+		// from the first answer, so each box came back two columns short of the hole
+		// reserved for it
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box({ 'flex-grow': '1', 'max-width': '50%' }),
+			box({ 'flex-grow': '1', 'max-width': '50%' })
+		);
+
+		expect(picture(tree, 10, 2)).toBe(['bbbbbccccc', 'bbbbbccccc'].join('\n'));
+		checkInvariants(layout(tree, { height: 2, width: 10 }));
+	});
+
+	it('should resolve a cross-axis maximum against the containing block', () => {
+		// the same defect on the other axis: stretched to eight rows, clamped to
+		// four by `max-height: 50%`, then clamped to two by reading the four back
+		const tree = box(
+			{ 'flex-direction': 'row', height: '8', width: '4' },
+			box({ 'flex-grow': '1', 'max-height': '50%' })
+		);
+
+		expect(picture(tree, 4, 8)).toBe(
+			['bbbb', 'bbbb', 'bbbb', 'bbbb', 'aaaa', 'aaaa', 'aaaa', 'aaaa'].join('\n')
+		);
+	});
+
+	it('should resolve down a column against the containing block', () => {
+		const tree = box(
+			{ 'flex-direction': 'column', height: '8', width: '3' },
+			box({ 'flex-grow': '1', 'max-height': '50%' }),
+			box({ 'flex-grow': '1', 'max-height': '50%' })
+		);
+
+		expect(picture(tree, 3, 8)).toBe(
+			['bbb', 'bbb', 'bbb', 'bbb', 'ccc', 'ccc', 'ccc', 'ccc'].join('\n')
+		);
+		checkInvariants(layout(tree, { height: 8, width: 3 }));
+	});
+
+	it('should resolve the root against the space it was given', () => {
+		// the root has no parent, so its containing block is `opts` -- not the width
+		// its own declaration asked for, which is what the second resolution read
+		const panel = box({ width: '20', 'max-width': '50%', height: '2' });
+
+		expect(layout(panel, { height: 4, width: 40 }).box.width).toBe(20);
+	});
+
+	it('should resolve a nested percentage against its own parent', () => {
+		// three levels, each half the one above: 40, then 20, then 10
+		const tree = box(
+			{ 'flex-direction': 'row', height: '1' },
+			box(
+				{ 'flex-direction': 'row', 'flex-grow': '1', 'max-width': '50%' },
+				box({ 'flex-grow': '1', 'max-width': '50%' })
+			)
+		);
+
+		const result = layout(tree, { height: 1, width: 40 });
+		expect(result.children[0].box.width).toBe(20);
+		expect(result.children[0].children[0].box.width).toBe(10);
+	});
+
+	it('should not measure the root at the width its own limits clamped it to', () => {
+		// moving the root's clamp into `layout()` made it tempting to measure at the
+		// clamped width, and `measure()` reads the node's own `width` back off that
+		// argument: `50%` of the eight the `max-width` left it is four, so the text
+		// wrapped six rows deep inside a box eight columns wide. Two rows is what it
+		// needs at eight, and what measuring at the declared twenty also gives
+		const root = text('aa bb cc dd ee ff', { width: '50%', 'max-width': '8' });
+
+		expect(layout(root, { width: 40 }).box).toEqual({ height: 2, width: 8, x: 0, y: 0 });
+	});
+
+	it('should not re-clamp a size against an automatic minimum it cannot see', () => {
+		// the other half of the same defect, with nothing percentage about it. The
+		// parent held this text at the three rows it needs -- `min` wins over `max`
+		// -- and the second clamp read `min-height: auto` as no minimum at all,
+		// because the content-based one lives in a measurement only the parent takes.
+		// So the text came back one row tall into a three-row hole
+		const tree = box(
+			{ 'flex-direction': 'column', height: '6', width: '5' },
+			text('one two three', { 'max-height': '1' }),
+			box({ height: '1' })
+		);
+
+		expect(picture(tree, 5, 6)).toBe(
+			['bbbbb', 'bbbbb', 'bbbbb', 'ccccc', 'aaaaa', 'aaaaa'].join('\n')
+		);
+		checkInvariants(layout(tree, { height: 6, width: 5 }));
+	});
+});

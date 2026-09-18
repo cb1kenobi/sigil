@@ -1,6 +1,7 @@
 import {
 	ATTR,
 	CellBuffer,
+	cellWidth,
 	createCanvas,
 	DEFAULT_STYLE,
 	diff,
@@ -10,8 +11,8 @@ import {
 	StyleTable,
 	transition,
 } from '../../src/canvas/index.js';
-import { graphemes, graphemeWidth, stringWidth } from '../../src/width/index.js';
-import { describe, expect, it } from 'vitest';
+import { graphemes, stringWidth } from '../../src/width/index.js';
+import { describe, expect, it, vi } from 'vitest';
 
 const ESC = String.fromCharCode(0x1b);
 
@@ -70,6 +71,18 @@ class FakeTerminal {
 	links: string[][];
 	row = 0;
 	column = 0;
+	/**
+	 * Whether the last graphic write filled the final column, leaving the wrap
+	 * deferred.
+	 *
+	 * A terminal writing the last column of a row does not advance the cursor
+	 * past it -- there is nowhere to go -- so it stays put and arms this instead,
+	 * and the *next* graphic character is what moves to the next row. Any cursor
+	 * movement disarms it. Modelled because `DiffResult` claims both halves of it
+	 * and a model that walked the cursor off the edge agreed with neither the
+	 * diff nor a real terminal, so the claim could not be asserted anywhere.
+	 */
+	wrapPending = false;
 
 	constructor(
 		public width: number,
@@ -95,6 +108,7 @@ class FakeTerminal {
 	apply(output: string, styleOf: (sgr: string) => number): void {
 		this.row = 0;
 		this.column = 0;
+		this.wrapPending = false;
 		let currentStyle = 0;
 		let currentLink = '';
 		let i = 0;
@@ -104,6 +118,7 @@ class FakeTerminal {
 
 			if (ch === '\r') {
 				this.column = 0;
+				this.wrapPending = false;
 				i++;
 				continue;
 			}
@@ -134,14 +149,19 @@ class FakeTerminal {
 				const [whole, params, final] = match;
 				const n = params === '' ? 1 : Number.parseInt(params, 10);
 				switch (final) {
+					// every one of these moves the cursor, and a cursor that has been
+					// moved has nowhere deferred to wrap to
 					case 'A':
 						this.row -= n;
+						this.wrapPending = false;
 						break;
 					case 'B':
 						this.row += n;
+						this.wrapPending = false;
 						break;
 					case 'C':
 						this.column += n;
+						this.wrapPending = false;
 						break;
 					case 'm':
 						currentStyle = styleOf(params);
@@ -153,9 +173,23 @@ class FakeTerminal {
 				continue;
 			}
 
-			// a grapheme cluster, which may be more than one code unit
+			// a grapheme cluster, which may be more than one code unit. Measured with
+			// `cellWidth()` rather than `graphemeWidth()`, because the grid and the
+			// diff both take two as the most a cluster can occupy -- asking what the
+			// cluster contains instead put the model a column right of where the diff
+			// said the cursor was, and refused a three-wide cluster at the second
+			// column of a grid that had already fitted it into two cells
 			const cluster = graphemes(output.slice(i))[0];
-			const width = graphemeWidth(cluster);
+			const width = cellWidth(cluster);
+
+			// the deferred wrap is taken now rather than when it was armed: this is
+			// the character that had nowhere to go on the row it was written for
+			if (this.wrapPending) {
+				this.row++;
+				this.column = 0;
+				this.wrapPending = false;
+			}
+
 			if (this.row < 0 || this.row >= this.height) {
 				throw new Error(`wrote outside the canvas at row ${this.row}`);
 			}
@@ -171,6 +205,12 @@ class FakeTerminal {
 				this.links[this.row][this.column + 1] = currentLink;
 			}
 			this.column += width;
+			if (this.column >= this.width) {
+				// nowhere to advance to, so the cursor stays on the last column it
+				// wrote and the wrap waits for the next character
+				this.column = this.width - 1;
+				this.wrapPending = true;
+			}
 			i += cluster.length;
 		}
 	}
@@ -196,13 +236,13 @@ class FakeTerminal {
 
 				if (cell === '') {
 					const lead = x > 0 ? this.rows[y][x - 1] : undefined;
-					if (lead === undefined || graphemeWidth(lead) !== 2) {
+					if (lead === undefined || cellWidth(lead) !== 2) {
 						throw new Error(`orphaned continuation at ${x},${y}`);
 					}
 					continue;
 				}
 
-				if (graphemeWidth(cell) === 2) {
+				if (cellWidth(cell) === 2) {
 					if (x + 1 >= this.width || this.rows[y][x + 1] !== '') {
 						throw new Error(`wide cluster at ${x},${y} lost its continuation`);
 					}
@@ -243,12 +283,24 @@ function replay(previous: CellBuffer, next: CellBuffer, styles: StyleTable, full
 
 	terminal.apply(result.output, (params) => byParams.get(params) ?? 0);
 	terminal.checkClusters();
+
+	// where the cursor ended up is a claim the whole frame makes, so every replay
+	// checks it rather than the one test that thought to ask. A backend positions
+	// itself by these three and cannot see that they are wrong, which is how a
+	// field rots with the suite green
+	expect({
+		column: terminal.column,
+		row: terminal.row,
+		wrapPending: terminal.wrapPending,
+	}).toEqual({ column: result.column, row: result.row, wrapPending: result.wrapPending });
+
 	return {
 		lines: terminal.toLines(),
 		links: terminal.links,
 		output: result.output,
 		result,
 		styles: terminal.styles,
+		terminal,
 	};
 }
 
@@ -330,6 +382,89 @@ describe('diff', () => {
 		expect({ column: terminal.column, row: terminal.row }).toEqual({
 			column: result.column,
 			row: result.row,
+		});
+	});
+
+	// the model used to walk the cursor off the right edge, which agreed with
+	// neither the diff nor a terminal -- so asserting either of these would have
+	// failed the harness, and the two fields went untested instead
+	describe('the deferred wrap', () => {
+		it('should leave it armed after filling the last column', () => {
+			const styles = new StyleTable();
+			const a = new CellBuffer(6, 2);
+			const b = new CellBuffer(6, 2);
+			b.write(0, 0, 'abcdef', 0);
+
+			// writing the last column does not advance the cursor past it: there is
+			// nowhere to go, so the cursor stays and the wrap waits for the next
+			// character
+			const { result, terminal } = replay(a, b, styles);
+			expect(result.wrapPending).toBe(true);
+			expect(result.column).toBe(5);
+			expect({ column: terminal.column, row: terminal.row }).toEqual({ column: 5, row: 0 });
+		});
+
+		it('should arm it for a wide cluster that ends at the edge', () => {
+			const styles = new StyleTable();
+			const a = new CellBuffer(4, 1);
+			const b = new CellBuffer(4, 1);
+			b.write(0, 0, 'ab漢', 0);
+
+			const { result } = replay(a, b, styles);
+			expect(result.wrapPending).toBe(true);
+			expect(result.column).toBe(3);
+		});
+
+		it('should not let a filled row push the next one down a line', () => {
+			const styles = new StyleTable();
+			const a = new CellBuffer(4, 2);
+			const b = new CellBuffer(4, 2);
+			b.write(0, 0, 'abcd', 0);
+			b.write(0, 1, 'efgh', 0);
+
+			// the move to the next row disarms the wrap, so the row below is written
+			// where it was asked for rather than one further down
+			const { lines, result } = replay(a, b, styles);
+			expect(lines).toEqual(['abcd', 'efgh']);
+			expect({ row: result.row, wrapPending: result.wrapPending }).toEqual({
+				row: 1,
+				wrapPending: true,
+			});
+		});
+
+		// the diff never emits either of these -- it moves before it writes again --
+		// but the model is what stands in for a terminal, and these are the halves
+		// of the deferred wrap that everything above is relying on
+		it('should take the wrap on the next character rather than when it was armed', () => {
+			const terminal = new FakeTerminal(3, 2);
+			terminal.apply('abcd', () => 0);
+
+			expect(terminal.toLines()).toEqual(['abc', 'd  ']);
+			expect({
+				column: terminal.column,
+				row: terminal.row,
+				wrapPending: terminal.wrapPending,
+			}).toEqual({ column: 1, row: 1, wrapPending: false });
+		});
+
+		it('should disarm it on a carriage return', () => {
+			const terminal = new FakeTerminal(3, 2);
+			terminal.apply('abc\rx', () => 0);
+
+			// the wrap was armed and then thrown away, so `x` lands back on this row
+			expect(terminal.toLines()).toEqual(['xbc', '   ']);
+			expect(terminal.row).toBe(0);
+		});
+
+		it('should leave it clear when the last run stopped short of the edge', () => {
+			const styles = new StyleTable();
+			const a = new CellBuffer(6, 1);
+			const b = new CellBuffer(6, 1);
+			b.write(0, 0, 'abc', 0);
+
+			const { result } = replay(a, b, styles);
+			expect(result.wrapPending).toBe(false);
+			expect(result.column).toBe(3);
 		});
 	});
 
@@ -555,6 +690,38 @@ describe('diff', () => {
 			expect(lines).toEqual(['ab    ']);
 		});
 
+		// `graphemeWidth()` sums what a cluster contains and comes to three for a
+		// CJK character with a spacing mark; the grid holds it in two cells and the
+		// diff advances the cursor by two, because `cellWidth()` is the only width
+		// either asks about. The model asked `graphemeWidth()` instead, so it ended
+		// a column further right than the diff said it did -- and at the edge it
+		// refused a cluster the grid had already fitted
+		it('should advance by the cells a cluster takes, not by what it contains', () => {
+			const styles = new StyleTable();
+			const a = new CellBuffer(8, 1);
+			const b = new CellBuffer(8, 1);
+			b.write(0, 0, '漢ःx', 0);
+
+			const { lines, result } = replay(a, b, styles);
+			expect(lines[0]).toBe('漢ःx     ');
+			expect(result.column).toBe(3);
+		});
+
+		it('should fit one at the last column it has cells for', () => {
+			const styles = new StyleTable();
+			const a = new CellBuffer(2, 1);
+			const b = new CellBuffer(2, 1);
+			b.write(0, 0, '漢ः', 0);
+
+			// two cells is all it ever needed, so the row is full and the wrap is
+			// armed rather than the write being refused
+			const { result } = replay(a, b, styles);
+			expect({ column: result.column, wrapPending: result.wrapPending }).toEqual({
+				column: 1,
+				wrapPending: true,
+			});
+		});
+
 		it('should never write past the right edge', () => {
 			const styles = new StyleTable();
 			const a = new CellBuffer(5, 1);
@@ -614,6 +781,70 @@ describe('diff', () => {
 			// is nothing meaningful to diff against
 			const { output } = canvas.present();
 			expect(output).toContain('abc');
+		});
+
+		// `paint()` clears the back buffer and interns again, and nothing dropped an
+		// index -- so a canvas painting a colour per cell added a table entry per
+		// distinct colour per frame, for as long as the process ran
+		it('should stop the style table growing for the life of the canvas', () => {
+			const compact = vi.spyOn(StyleTable.prototype, 'compact');
+
+			try {
+				const canvas = createCanvas({ height: 8, width: 40 });
+				const cells = 8 * 40;
+
+				const paintFrame = (frame: number) =>
+					canvas.paint((p) => {
+						for (let y = 0; y < 8; y++) {
+							for (let x = 0; x < 40; x++) {
+								// a colour no other frame uses, which is what an animation over
+								// a photograph looks like to the table
+								p.text(x, y, 'x', { fg: rgb(frame, y, x) });
+							}
+						}
+					});
+
+				for (let frame = 0; frame < 20; frame++) {
+					paintFrame(frame);
+					canvas.present();
+				}
+
+				const table = compact.mock.instances[0] as unknown as StyleTable;
+				expect(compact).toHaveBeenCalled();
+				// twenty frames of three hundred and twenty distinct colours is six
+				// thousand four hundred entries in a table that never drops one. What
+				// is left is bounded by what a frame uses, not by how many were drawn
+				expect(table.size).toBeLessThan(cells * 4);
+
+				// and the sweep did not renumber the grids out from under each other:
+				// the same frame again is still the same frame
+				paintFrame(19);
+				expect(canvas.present().output).toBe('');
+
+				// nor lose what a surviving index meant
+				canvas.paint((p) => p.text(0, 0, 'z', { fg: rgb(19, 0, 0) }));
+				expect(canvas.present().output).toContain('38;2;19;0;0');
+			} finally {
+				compact.mockRestore();
+			}
+		});
+
+		it('should drop every style a resize made unreachable', () => {
+			const compact = vi.spyOn(StyleTable.prototype, 'compact');
+
+			try {
+				const canvas = createCanvas({ height: 1, width: 8 });
+				canvas.paint((p) => p.text(0, 0, 'abc', { fg: palette(1) }));
+				canvas.present();
+				canvas.resize(12, 2);
+
+				// both grids come back blank, so nothing names a style and the whole
+				// table is known to be garbage -- the one sweep that needs no walk
+				const table = compact.mock.instances[0] as unknown as StyleTable;
+				expect(table.size).toBe(1);
+			} finally {
+				compact.mockRestore();
+			}
 		});
 
 		it('should clear what a shrinking frame left behind', () => {

@@ -43,6 +43,7 @@ export {
 	type FlexDirection,
 	type FlexWrap,
 	COLOR_PROPERTIES,
+	LAYOUT_PROPERTIES,
 	inheritFrom,
 	INHERITED,
 	initialStyle,
@@ -71,6 +72,14 @@ export {
 	applyProps,
 } from './cascade.js';
 export { degradeColor, degradeInto, degradeStyle, oklab, paletteRgb } from './degrade.js';
+export {
+	type Dirty,
+	DIRTY_ORDER,
+	type StyleTarget,
+	type Update,
+	difference,
+	Restyler,
+} from './invalidate.js';
 export {
 	type Setting,
 	type WideKeyword,

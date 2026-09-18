@@ -143,13 +143,40 @@ export function createEffects(): Effects {
 	let errorHandler: EffectErrorHandler = report;
 	let queued = false;
 	let flushing = false;
+	/**
+	 * Set by a drain that gave up, and cleared by the next notification.
+	 *
+	 * A notification is the only evidence that something went clean to dirty
+	 * since, which is the only thing that makes the work worth retrying. The
+	 * writes the failed drain made itself all happened before this was set.
+	 */
+	let stalled = false;
 
 	const watcher = new Watcher(() => {
+		stalled = false;
 		if (!queued) {
 			queued = true;
-			scheduler(flush);
+			scheduler(scheduledFlush);
 		}
 	});
+
+	/**
+	 * What the scheduler is handed, and the only flush `stalled` refuses.
+	 *
+	 * A drain gives up with the cycling effects still dirty, and the writes it
+	 * made on the way have already asked the scheduler for another flush -- one
+	 * that would drain the same effects, fail the same way, and ask again. A
+	 * flush nobody has announced anything for since the last one gave up is that
+	 * flush, and it does nothing. A flush the *caller* asked for is not: they may
+	 * have disposed the effect that was cycling, and disposal announces nothing.
+	 */
+	function scheduledFlush(): void {
+		queued = false;
+		if (stalled) {
+			return;
+		}
+		flush();
+	}
 
 	function flush(): void {
 		queued = false;
@@ -161,26 +188,46 @@ export function createEffects(): Effects {
 		}
 
 		flushing = true;
+		let settled = false;
 		try {
 			// a scheduler may run this synchronously from inside the watcher's notify
 			// callback. The callback may not touch the graph; the work it scheduled
 			// may, and this is the line between them
-			outsideNotify(() => drain());
+			settled = outsideNotify(() => drain());
 		} finally {
 			flushing = false;
-			watcher.watch();
+			stalled = !settled;
+			if (settled) {
+				watcher.watch();
+			} else {
+				// what is dirty is what the drain just gave up on, and a bare re-arm
+				// announces exactly that -- which asks for the flush that failed, on
+				// every microtask, forever. Armed and silent instead: a later
+				// clean-to-dirty transition is still heard, and the next drain
+				// anybody asks for still finds these in `getPending()`.
+				//
+				// A drain that threw rather than returning lands here too, which is
+				// the same failure one level up: the only thing that can throw out of
+				// it is the error handler, and announcing work whose report throws
+				// asks for that throw again forever
+				watcher.rearm();
+			}
 		}
 	}
 
-	/** Runs pending effects until nothing is left dirty. */
-	function drain(): void {
+	/**
+	 * Runs pending effects until nothing is left dirty.
+	 *
+	 * @returns Whether it settled, as opposed to giving up at `MAX_PASSES`.
+	 */
+	function drain(): boolean {
 		for (let pass = 0; pass < MAX_PASSES; pass++) {
 			// re-armed *before* draining, so a write made by an effect during
 			// this pass still schedules the next one
 			watcher.watch();
 			const pending = watcher.getPending();
 			if (pending.length === 0) {
-				return;
+				return true;
 			}
 			for (const computed of pending) {
 				try {
@@ -195,6 +242,7 @@ export function createEffects(): Effects {
 				`Effects did not settle after ${MAX_PASSES} passes, which usually means two of them write what the other reads`
 			)
 		);
+		return false;
 	}
 
 	function effect(fn: () => void | (() => void)): () => void {
@@ -292,6 +340,19 @@ export function createEffects(): Effects {
 			// unwatching stops it being *notified*; its sources still hold it as a
 			// sink, and a long-lived signal would keep it reachable forever
 			computed.dispose();
+
+			// disposing changes what a drain would do and announces nothing, and a
+			// stalled scope is waiting for exactly that: breaking a cycle by
+			// disposing one side of it is how a caller fixes one. Nothing else says
+			// so -- an effect the give-up left dirty swallows a later write, since
+			// propagation stops at a node already dirty. So the latch comes off and
+			// what is still pending is announced, which settles now that the cycle
+			// is gone, or gives up once more and stalls again
+			if (stalled) {
+				stalled = false;
+				watcher.watch();
+			}
+
 			runCleanups();
 		};
 
@@ -342,7 +403,7 @@ export function createEffects(): Effects {
 			// already dirty, which reads as reactivity having stopped
 			if (pending) {
 				queued = true;
-				scheduler(flush);
+				scheduler(scheduledFlush);
 			}
 
 			return previous;
