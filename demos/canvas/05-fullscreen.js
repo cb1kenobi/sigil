@@ -32,7 +32,12 @@ for (let frame = 0; frame < 40; frame++) {
 		for (let x = 0; x < canvas.width; x++) {
 			const t = (x + frame) / 6;
 			const y = Math.round((Math.sin(t) * 0.5 + 0.5) * (canvas.height - 6)) + 4;
-			p.text(x, y, '•', { fg: rgb(120, 200 - x, 255) });
+			// the ramp is a fraction of the width rather than `200 - x`, which went
+			// negative past column 200 -- and `rgb()` refuses a channel out of range
+			// rather than clamping it, which is the right answer and was a crash on
+			// any terminal wider than that
+			const fade = Math.round(255 * (1 - x / Math.max(1, canvas.width - 1)));
+			p.text(x, y, '•', { fg: rgb(120, fade, 255) });
 		}
 
 		p.text(1, canvas.height - 1, 'Ctrl-C, or wait, and your log comes back', { fg: palette(8) });
