@@ -2064,3 +2064,11 @@ stylesheet rather than anything the runtime knows about.
 - Parser errors are thrown as plain `Error`s with user-facing messages; they
   are what the user sees, so write them accordingly.
 - Prefer a regression test named after the defect over a comment explaining it.
+- **An assertion is a call, and `expect(x).to.be.ok` is not one.** Chai spells
+  that one as a getter, so it reads to a linter as an expression nobody used --
+  and the narrowing it does not do is what made it worse than noise: each of the
+  four uses was followed by an `if (result.cmd !== undefined)` wrapping the
+  assertions that actually said something, so a command that failed to load
+  skipped them and was caught only by the getter. `expect(result.cmd?.name)` is
+  what the rest of the suite already writes, says the same thing in one line,
+  and fails on the value it was asked about.

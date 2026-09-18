@@ -5,7 +5,6 @@ import {
 	DIRTY_ORDER,
 	LAYOUT_PROPERTIES,
 	parseStylesheet,
-	PROPERTY_NAMES,
 	Restyler,
 	type StyleTarget,
 } from '../../src/style/index.js';
