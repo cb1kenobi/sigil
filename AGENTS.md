@@ -676,6 +676,66 @@ false` rethrows instead; a function replaces the handler.
   its width, and the first measure happens at the whole content box before any
   flexing -- so two texts sharing twenty columns each measured twenty wide and
   one row tall, then got ten each and stayed one row.
+- **That re-measure is a row's, and a column measures at the right width to begin
+  with.** A row's width is its _main_ axis, so the used width is not known until
+  `resolveFlexible()` has run and the basis has to stay the unclamped content
+  size for the flex algorithm to do the clamping itself. A column's width is its
+  _cross_ axis, which never flexes -- the child's own `max-width` is the whole of
+  the answer and `makeItem()` knows it before it measures. Measuring at the
+  container's width instead wrapped the text for a width the child never got: a
+  `max-width: 6` text in a twenty-wide column measured two rows tall and was then
+  placed six wide, where it needs six. Patching it at placement time is not the
+  fix and could not be: what would have to change there is the column child's
+  _main_ size, which `resolveFlexible()` has already handed out and `cursor` has
+  already begun placing from. A declared `width` looks like the broken case and
+  is not, because `measureUncached()` reads the child's own `width` back off it
+  and measures at that -- which is why the obvious repro comes out right. The
+  same width has to reach the intrinsic measure as well, or the fix only moves
+  the error: a column asked how tall its child was at the container's width, got
+  two, and was drawn two rows around a child six rows tall.
+- **The width limits are applied in `measureUncached()` and nowhere else,
+  because that is where the width they are a percentage _of_ is.** The callers
+  hand it the containing width and a flag saying whether that width is the
+  container's cross axis; clamping at the call site as well resolved a
+  `max-width: 50%` against the ten it had just produced, so the text wrapped at
+  five and was placed at ten -- the same defect the clamp exists to fix, one
+  level along. Neither clamp alone does that, which is what made it worth a third
+  review round.
+- **Only a limit in cells is honoured while measuring, which is the rule that a
+  percentage of an unknown size is `auto` applied where it belongs.** A node is
+  measured twice against different widths -- once for the intrinsic size of an
+  ancestor that is still being sized, once at the width that ancestor settled on
+  -- and a percentage limit resolves to a different number each time. Honoured,
+  `max-width: 50%` wrapped a text at ten for an auto-width column's own measure
+  and at five for its placement, so the column was drawn three rows around a
+  child six rows tall: a containment violation where cells produce none, and
+  where `main` produced none only by wrapping at the wrong width in the first
+  place. A cell limit is the same number both times, which is what makes it the
+  one that can be answered here. A node's own declared `width` wins over the
+  clamp for the same reason, and both leftovers are in Known bugs.
+- **A `measure` node reports its declaration rather than its content.** The
+  `node.measure` branch reports `declaredWidth ?? content` and
+  `declaredHeight ?? content`, with `min(content, declaration)` for the automatic
+  minimums, the way the two branches below it already did. What an ancestor
+  sizing itself around a node needs is the size the node will be _placed_ at, and
+  `makeItem()` places it at its declaration: a `width: 10` text whose content
+  wraps to five reported five, so an auto-width column measured itself five wide
+  and drew the child outside its own box.
+- **Percentage lengths are rounded per box, and no per-box rule can make siblings
+  add up.** `resolve()` rounds -- `50%` of five is three -- and the reason
+  recorded for it, that two boxes at 50% should still fill the row, is not
+  something rounding can deliver: each sibling rounds on its own, so the two ask
+  for three each in a five-wide row. What rounding does buy is that a percentage
+  never collapses a box that asked for most of a cell: truncation makes those two
+  two cells each and leaves a hole, and makes `10%` of five nothing at all. The
+  row is put back to exactly full by the _shrink_ pass, which does go through
+  `distribute()` -- three and three become three and two. Where the items cannot
+  flex the overflow is real and `checkInvariants()` says so. `distribute()` is
+  not available here: it hands out one total across weights that partition it,
+  and a percentage is not a partition -- siblings' percentages need not sum to
+  100%, cross sizes and limits and margins overlap rather than divide, and the
+  same declaration is read once while measuring and again while placing, where
+  the line it would be distributed over does not exist yet.
 - **Pictures cannot check containment, so `checkInvariants()` does.** The picture
   helper paints later nodes over earlier ones, so an overlap is invisible, and it
   bounds-checks against the grid, so anything placed past the edge does not
@@ -1592,6 +1652,29 @@ stylesheet rather than anything the runtime knows about.
   added from inside a body -- walks a half-built set and leaves the counts
   wrong. It surfaces much later, as an `unwatched` that never fires or one that
   fires while something is still watching.
+- **A recompute commits its value before it sweeps, and a sweep that throws
+  leaves the computed dirty.** The sweep is the half of `#run()` that runs user
+  code again -- dropping a source fires its `unwatched` -- and it used to run
+  from inside the `finally`, which had already set the state to `CLEAN` and had
+  not yet written `#value`. So a callback that threw escaped the caller once and
+  then every read after it handed back the value from _before_ the recompute,
+  clean, with nothing left to say the run had happened: a `get()` that throws is
+  a bad frame, a `get()` that quietly answers last frame's value forever is a
+  bug nobody can see. Each edge is now removed on its own, so one throwing
+  callback does not leave the sources after it in the walk still holding an edge,
+  and the errors are raised together the way `State.set()` raises a watcher's.
+  `dispose()` had the identical shape and the identical fix: a throw there took
+  the rest of the release with it and skipped `sources.clear()`, so the computed
+  stayed reachable from every source after the first -- the leak `dispose()`
+  exists to close. See `test/signals/signals.test.ts`.
+- **The dirty-after-a-failed-sweep rule is a derivation's, and an effect body is
+  exempt.** A derivation is a pure function of what it read, so the retry costs a
+  recomputation and buys a cache nobody has to trust. An effect body has already
+  run and already written whatever it writes, and a flush reads anything not
+  `CLEAN` as still pending -- so marking one dirty ran it a second time in the
+  same flush and turned one write to a counter into two. The re-run is the
+  observable thing there rather than the price of being careful. See
+  `test/signals/effect.test.ts`.
 - **A liveness walk happens before its callback, not after.** A `watched` or
   `unwatched` that throws then leaves the counts consistent and only its own
   error escapes. The other order skips the walk entirely and strands every
@@ -1923,6 +2006,18 @@ stylesheet rather than anything the runtime knows about.
   Found while writing `--version` for `@ttylabs/cli`, which reads the state
   `main()` returns instead. Do not reach for `afterParse` to read a parsed
   value until this is fixed.
+- **A node wraps its content at a width a percentage limit or a declared `width`
+  can still narrow.** `measureUncached()` honours a limit in cells when the width
+  is the container's cross axis, and nothing else: a `max-width: 50%` and a
+  `width: 10` under a `max-width: 6` both lay their text out for a width the node
+  is not finally drawn at -- the same answer `main` gives. Both are the one
+  question: what a percentage resolves against while the containing block is
+  itself still being sized, and which of the two widths a node measured twice
+  should wrap at. Answering it half way is worse than not answering it: honouring
+  a percentage limit while measuring drew an auto-width column three rows around
+  a child six rows tall, and clamping the declared `width` put a text outside its
+  own parent. Settling it properly needs that phase rule and the single-clamp
+  rule SIG-90 is taking to `layoutNode()`.
 - A subcommand's option used before its subcommand is not protected from being
   consumed as an earlier option's value, because it is not declared yet on the
   pass that reads it. A default command's options are always in that position,

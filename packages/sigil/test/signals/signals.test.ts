@@ -708,6 +708,119 @@ describe('liveness while a computed is evaluating', () => {
 	});
 });
 
+describe('an unwatched callback that throws during the sweep', () => {
+	it('should not leave a clean computed holding the value from before the recompute', () => {
+		const dropped = new State('old', {
+			[unwatched]: () => {
+				throw new Error('bye');
+			},
+		});
+		const flag = new State(true);
+		const c = new Computed(() => (flag.get() ? dropped.get() : 'new'));
+		new Watcher(() => {}).watch(c);
+
+		expect(c.get()).toBe('old');
+
+		flag.set(false);
+
+		// the callback fires from the sweep, which used to run from inside the
+		// `finally` before the value was committed: the state was already CLEAN, so
+		// the throw reached the caller once and every read after it handed back
+		// `'old'` with nothing left to say the recompute had happened
+		expect(() => c.get()).toThrow('bye');
+		expect(c.get()).toBe('new');
+		expect(c.get()).toBe('new');
+	});
+
+	it('should drop every source the run stopped reading, not just the ones before the throw', () => {
+		const messages: string[] = [];
+		const one = new State(1, {
+			[unwatched]: () => {
+				messages.push('one');
+				throw new Error('one');
+			},
+		});
+		const two = new State(2, {
+			[unwatched]: () => {
+				messages.push('two');
+				throw new Error('two');
+			},
+		});
+		const flag = new State(true);
+		const c = new Computed(() => (flag.get() ? one.get() + two.get() : 0));
+		new Watcher(() => {}).watch(c);
+		c.get();
+
+		flag.set(false);
+
+		let thrown: unknown;
+		try {
+			c.get();
+		} catch (err) {
+			thrown = err;
+		}
+
+		// both fired, so neither source is left holding an edge to a computed that
+		// no longer reads it -- and both errors are reported rather than the first
+		// one silencing the second
+		expect(messages).toEqual(['one', 'two']);
+		expect(thrown).toBeInstanceOf(AggregateError);
+		expect((thrown as AggregateError).errors.map((e: Error) => e.message)).toEqual(['one', 'two']);
+		expect(sinkCount(one)).toBe(0);
+		expect(sinkCount(two)).toBe(0);
+		expect(introspectSources(c)).toEqual([flag]);
+		expect(c.get()).toBe(0);
+	});
+
+	it('should leave the liveness counts able to go live again', () => {
+		const events: string[] = [];
+		const dropped = new State('d', {
+			[watched]: () => events.push('watched'),
+			[unwatched]: () => {
+				events.push('unwatched');
+				throw new Error('bye');
+			},
+		});
+		const flag = new State(true);
+		const c = new Computed(() => (flag.get() ? dropped.get() : 'other'));
+		new Watcher(() => {}).watch(c);
+		c.get();
+		expect(events).toEqual(['watched']);
+
+		flag.set(false);
+		expect(() => c.get()).toThrow('bye');
+
+		// the walk happens before the callback, so a throw there leaves the counts
+		// consistent: a later watcher can still make the source live
+		expect(hasSinks(dropped)).toBe(false);
+		new Watcher(() => {}).watch(dropped);
+		expect(events).toEqual(['watched', 'unwatched', 'watched']);
+	});
+
+	it('should release every source when one of them throws from dispose', () => {
+		const first = new State(1, {
+			[unwatched]: () => {
+				throw new Error('bye');
+			},
+		});
+		const second = new State(2);
+		const c = new Computed(() => first.get() + second.get());
+		const w = new Watcher(() => {});
+		w.watch(c);
+		c.get();
+
+		// a throwing callback used to take the rest of the release with it: the
+		// sources after it kept their edges and `sources` was never cleared, so the
+		// computed stayed reachable from every one of them -- the leak `dispose()`
+		// exists to close
+		expect(() => c.dispose()).toThrow('bye');
+		expect(hasSources(c)).toBe(false);
+		expect(sinkCount(first)).toBe(0);
+		expect(sinkCount(second)).toBe(0);
+		expect(hasSinks(second)).toBe(false);
+	});
+});
+
 describe('re-arming a watcher', () => {
 	it('should notice what went stale while it was disarmed', () => {
 		const s = new State(0);

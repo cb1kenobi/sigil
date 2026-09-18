@@ -286,6 +286,26 @@ function propagate(producer: Producer, state: NodeState, errors: unknown[]): voi
 }
 
 /**
+ * Rethrows what a walk collected, having finished the walk first.
+ *
+ * One callback must not take the rest of a graph mutation with it -- a sink left
+ * unmarked keeps serving a value from before the write, and a source left
+ * unswept keeps an edge nothing reads -- so the errors are gathered and raised
+ * once the structure is consistent again.
+ *
+ * @param errors - What was caught along the way.
+ * @param message - What to call the aggregate, when there is more than one.
+ */
+function raise(errors: unknown[], message: string): void {
+	if (errors.length === 1) {
+		throw errors[0];
+	}
+	if (errors.length > 1) {
+		throw new AggregateError(errors, message);
+	}
+}
+
+/**
  * Whether any source of a `CHECK` consumer actually changed.
  *
  * Each source is refreshed first -- a computed source may itself be stale --
@@ -379,12 +399,7 @@ export class State<T> implements Producer {
 		// that is no longer there
 		const errors: unknown[] = [];
 		propagate(this, DIRTY, errors);
-		if (errors.length === 1) {
-			throw errors[0];
-		}
-		if (errors.length > 1) {
-			throw new AggregateError(errors, 'Watcher notify callbacks threw');
-		}
+		raise(errors, 'Watcher notify callbacks threw');
 	}
 }
 
@@ -510,16 +525,24 @@ export class Computed<T> implements Producer, Consumer {
 			currentConsumer = previousConsumer;
 			this.seen = undefined;
 			this.state = CLEAN;
-
-			// eslint-disable-next-line unicorn/no-useless-spread
-			for (const source of [...this.sources.keys()]) {
-				if (!seen.has(source)) {
-					this.sources.delete(source);
-					removeEdge(source, this);
-				}
-			}
 		}
 
+		// committed before the sweep, and the sweep is where user code runs again: a
+		// dropped source's `unwatched` callback that threw used to escape from inside
+		// the `finally`, which skipped the commit entirely -- the state was already
+		// CLEAN, so the throw reached the caller once and every read after it handed
+		// back the value from before the recompute, with nothing left to say so
+		this.#commit(next, thrown);
+		this.#sweep(seen);
+	}
+
+	/**
+	 * Stores what the run produced, and bumps the version only on a change.
+	 *
+	 * @param next - What the callback returned.
+	 * @param thrown - What it threw instead, if it did.
+	 */
+	#commit(next: T | undefined, thrown: Thrown | undefined): void {
 		// an error is cached the way a value is, and counts as a change unless the
 		// very same error comes back -- otherwise a throwing computed would re-run
 		// every dependent on every read
@@ -555,6 +578,46 @@ export class Computed<T> implements Producer, Consumer {
 	}
 
 	/**
+	 * Drops the sources this run did not read.
+	 *
+	 * Each edge is removed on its own, because removing one fires an `unwatched`
+	 * callback and a callback that throws must not leave the sources after it in
+	 * the walk holding an edge to a computed that no longer reads them.
+	 *
+	 * A failed sweep leaves a derivation DIRTY, so that the next read recomputes
+	 * rather than trusting a cache whose dependency list user code interrupted --
+	 * a recomputation is the whole cost, because a derivation is a pure function
+	 * of what it read. It leaves an *effect body* alone. There the re-run is the
+	 * observable thing rather than the price of being careful: `fn()` has already
+	 * run and already written whatever it writes, the flush reads anything not
+	 * CLEAN as still pending, and marking it dirty ran the body a second time in
+	 * the same flush -- one write to a counter became two.
+	 *
+	 * @param seen - What the run actually read.
+	 */
+	#sweep(seen: Set<Producer>): void {
+		const errors: unknown[] = [];
+
+		// eslint-disable-next-line unicorn/no-useless-spread
+		for (const source of [...this.sources.keys()]) {
+			if (seen.has(source)) {
+				continue;
+			}
+			this.sources.delete(source);
+			try {
+				removeEdge(source, this);
+			} catch (err) {
+				errors.push(err);
+			}
+		}
+
+		if (errors.length > 0 && !this.#writes) {
+			this.state = DIRTY;
+		}
+		raise(errors, 'unwatched callbacks threw');
+	}
+
+	/**
 	 * Drops every dependency, so that nothing upstream keeps this alive.
 	 *
 	 * Not part of the proposal, which leaves this to garbage collection -- and
@@ -568,14 +631,25 @@ export class Computed<T> implements Producer, Consumer {
 	 * a destruction.
 	 */
 	dispose(): void {
+		const errors: unknown[] = [];
+
 		// a copy: `removeEdge` can fire an `unwatched` callback, and user code
-		// there is free to touch this graph
+		// there is free to touch this graph. Each edge on its own for the same
+		// reason the sweep does it: one callback that threw used to take the rest of
+		// the release with it -- the sources after it kept their edges, `sources` was
+		// never cleared, and the computed stayed reachable from every one of them,
+		// which is the leak `dispose()` exists to close
 		// eslint-disable-next-line unicorn/no-useless-spread
 		for (const source of [...this.sources.keys()]) {
-			removeEdge(source, this);
+			try {
+				removeEdge(source, this);
+			} catch (err) {
+				errors.push(err);
+			}
 		}
 		this.sources.clear();
 		this.state = DIRTY;
+		raise(errors, 'unwatched callbacks threw');
 	}
 
 	/**

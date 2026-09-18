@@ -813,6 +813,84 @@ describe('measurement', () => {
 		const result = layout(tree, { height: 5, width: 20 });
 		expect(result.children.map((c) => c.box.height)).toEqual([2, 2]);
 	});
+
+	it('should measure a column child at the width its own max-width leaves it', () => {
+		// a column's width is its *cross* size, so the post-flex re-measure in
+		// `placeLine()` is a row's alone -- and a `max-width` decides the column
+		// child's width outright. Measured at the container's twenty this text
+		// wrapped to two rows, and was then placed six wide, where it needs six
+		const tree = box(
+			{ 'flex-direction': 'column', width: '20' },
+			text('one two three four five six', { 'max-width': '6' })
+		);
+
+		const result = layout(tree, { height: 10, width: 20 });
+		expect(result.children[0].box).toMatchObject({ height: 6, width: 6 });
+		checkInvariants(result);
+	});
+
+	it('should size an auto column around what its max-width child really needs', () => {
+		// the same width has to reach the *intrinsic* measure, or the fix above only
+		// moves the error: the column asked how tall its child was at twenty columns,
+		// got two, and was drawn two rows around a child six rows tall
+		const tree = box(
+			{ 'align-items': 'flex-start', 'flex-direction': 'row', width: '20' },
+			box({ 'flex-direction': 'column' }, text('one two three four five six', { 'max-width': '6' }))
+		);
+
+		const result = layout(tree, { height: 10, width: 20 });
+		expect(result.children[0].box.height).toBe(6);
+		checkInvariants(result);
+	});
+
+	it('should not wrap at a percentage limit, which is a different width each time', () => {
+		// a node is measured twice against different widths -- once for the
+		// intrinsic size of an ancestor still being sized, once at the width that
+		// ancestor settled on -- and a percentage resolves to a different number
+		// each time. Honoured while measuring, `50%` wrapped at ten for the auto
+		// column's own measure and at five for its placement, so the column was
+		// three rows around a child six rows tall
+		const tree = box(
+			{ 'align-items': 'flex-start', 'flex-direction': 'row', width: '20' },
+			box(
+				{ 'flex-direction': 'column' },
+				text('one two three four five six', { 'max-width': '50%' })
+			)
+		);
+
+		checkInvariants(layout(tree, { height: 10, width: 20 }));
+	});
+
+	it('should measure a declared size on a text as the size it will be placed at', () => {
+		// the `measure` branch reported the content's own size and ignored the
+		// declaration the two branches below it honour, so an auto-width column
+		// around a `width: 10` text whose content wraps to five measured itself five
+		// and drew the child outside its own box
+		const tree = box(
+			{ 'align-items': 'flex-start', 'flex-direction': 'row' },
+			box({ 'flex-direction': 'column' }, text('aa bb', { width: '10' }))
+		);
+
+		const result = layout(tree, { height: 10, width: 20 });
+		expect(result.children[0].box.width).toBe(10);
+		checkInvariants(result);
+	});
+
+	it('should leave a row child measured at the width flexing gave it', () => {
+		// the mirror of the two above, pinned so the column fix stays the column's:
+		// a row's main axis is the width, so the basis has to stay the unclamped
+		// content size for the flex algorithm to do the clamping -- a `max-width: 6`
+		// item is still six wide, not the five its content wraps to at six
+		const tree = box(
+			{ 'align-items': 'flex-start', 'flex-direction': 'row', width: '20' },
+			text('one two three four five six', { 'max-width': '6' })
+		);
+
+		expect(layout(tree, { height: 10, width: 20 }).children[0].box).toMatchObject({
+			height: 6,
+			width: 6,
+		});
+	});
 });
 
 describe('wrapping counts margins', () => {
@@ -855,6 +933,56 @@ describe('the same node used twice', () => {
 		const result = layout(tree, { height: 1, width: 8 });
 		expect(result.children).toHaveLength(3);
 		expect(result.children.map((c) => c.box.x)).toEqual([0, 2, 3]);
+	});
+});
+
+describe('percentage sizes round per box', () => {
+	it('should round each box on its own, so two 50% siblings ask for more than there is', () => {
+		// `resolve()` rounds a percentage rather than truncating it, and it rounds
+		// one box at a time: 50% of five is 2.5 twice, and each answers 3. Nothing
+		// here is a partition to hand out, so `distribute()` is not what this is --
+		// the row is put back to exactly full by the shrink pass, which *is*
+		// `distribute()`, and 3 + 3 becomes 3 + 2
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box({ height: '1', width: '50%' }),
+			box({ height: '1', width: '50%' })
+		);
+
+		const result = layout(tree, { height: 1, width: 5 });
+		expect(result.children.map((c) => c.box.width)).toEqual([3, 2]);
+		checkInvariants(result);
+	});
+
+	it('should overflow when the boxes that rounded up cannot shrink', () => {
+		// with nothing to give back, the two threes stay three and the second one
+		// leaves the container. That is the price of whole cells: CSS keeps the
+		// halves and paints them, and there is no half cell to paint
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box({ 'flex-shrink': '0', height: '1', width: '50%' }),
+			box({ 'flex-shrink': '0', height: '1', width: '50%' })
+		);
+
+		const result = layout(tree, { height: 1, width: 5 });
+		expect(result.children.map((c) => c.box.width)).toEqual([3, 3]);
+		expect(() => checkInvariants(result)).toThrow(/escapes content/);
+	});
+
+	it('should not round a small percentage away', () => {
+		// the half that rounding buys: 50% of five is three rather than the two
+		// truncation gives, and 10% of five is a cell rather than nothing at all
+		const half = box(
+			{ 'flex-direction': 'row' },
+			box({ 'flex-shrink': '0', height: '1', width: '50%' })
+		);
+		const tenth = box(
+			{ 'flex-direction': 'row' },
+			box({ 'flex-shrink': '0', height: '1', width: '10%' })
+		);
+
+		expect(layout(half, { height: 1, width: 5 }).children[0].box.width).toBe(3);
+		expect(layout(tenth, { height: 1, width: 5 }).children[0].box.width).toBe(1);
 	});
 });
 
