@@ -1,10 +1,11 @@
 import { loadCommand } from '../../src/parser/command/load-command.js';
 import { parse } from '../../src/parser/parse.js';
 import { Argument, Internal } from '../../src/types.js';
+import { camelCase } from '../../src/util/camel-case.js';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1229,6 +1230,130 @@ describe('regressions', () => {
 			}
 		});
 	});
+
+	describe('auto and a date that does not exist', () => {
+		// `date` has its calendar checked before the `Date` is built and `auto`
+		// matched the same `dateRE` with no check at all, so the defect stayed alive
+		// on the second path: `2024-02-30` was March 1st and `2024-13-01` an
+		// `Invalid Date`, an object whose `getTime()` is `NaN` with nothing saying
+		// so. It is not a date, so it is not the date guess -- `auto` ends at the
+		// string it was handed, the way it does for JSON it cannot parse
+		const impossible = [
+			'2024-02-30',
+			'2023-02-29',
+			'2024-04-31',
+			'2024-13-01',
+			'2024-00-10',
+			'2024-06-15T25:00:00',
+			'2024-06-15T12:61:00',
+		];
+
+		it.each(impossible)('should leave the impossible date %s a string', async (value) => {
+			const result = await parse({
+				argv: ['--when', value],
+				schema: { options: { '--when <d>': { type: 'auto' } } },
+			});
+			expect(result.argv.when).to.equal(value);
+		});
+
+		// the same values on the path nobody opted into: an undeclared option is
+		// coerced with `auto`, which is how this was reachable without anybody
+		// writing `type: 'auto'`
+		it.each(impossible)(
+			'should leave the impossible date %s a string on an undeclared option',
+			async (value) => {
+				const result = await parse({ argv: ['--when', value], schema: {} });
+				expect(result.argv.when).to.equal(value);
+			}
+		);
+
+		// the control: a date that exists is still a `Date`, the leap day and the
+		// forms that carry a time included
+		it.each([
+			'2024-02-29',
+			'2024-01-31',
+			'2024-12-31',
+			'2024-06-15T12:30:00',
+			'2024-06-15T12:30:00Z',
+			'2024-06-15T12:30:00.123Z',
+		])('should still read the valid date %s as a Date', async (value) => {
+			const result = await parse({
+				argv: ['--when', value],
+				schema: { options: { '--when <d>': { type: 'auto' } } },
+			});
+			expect(result.argv.when).to.be.instanceOf(Date);
+
+			// a value with no time is local midnight, which is what `auto` and `date`
+			// both build by appending `T00:00:00` -- `new Date('2024-01-31')` alone is
+			// UTC midnight and a different instant everywhere but UTC
+			const expected = new Date(value.includes('T') ? value : `${value}T00:00:00`);
+			expect((result.argv.when as Date).toISOString()).to.equal(expected.toISOString());
+		});
+
+		// the check `auto` now shares is arithmetic, so it does not reject a real
+		// instant for being a different day wherever the process happens to run
+		it.each(['2024-06-15T00:00:00Z', '2024-06-15T23:59:59Z', '2024-01-01T00:00:00Z'])(
+			'should accept the UTC instant %s whose local day differs',
+			async (value) => {
+				const result = await parse({ argv: ['--when', value], schema: {} });
+				expect((result.argv.when as Date).toISOString()).to.equal(new Date(value).toISOString());
+			}
+		);
+
+		// `date` reads a 13-digit epoch and `auto` reads a number: the two match
+		// different shapes on purpose, and sharing the calendar check must not
+		// quietly hand `auto` the epoch form as well
+		it('should still read a 13-digit epoch as a number', async () => {
+			const result = await parse({
+				argv: ['--when', '1718454600000'],
+				schema: { options: { '--when <d>': { type: 'auto' } } },
+			});
+			expect(result.argv.when).to.equal(1718454600000);
+		});
+	});
+
+	describe('destinations and the process locale', () => {
+		// `camelCase()` used `toLocaleUpperCase()`, which reads the process locale:
+		// in Turkish and Azeri `i` uppercases to `İ` (U+0130), so `--log-info` landed
+		// on `logİnfo` while `src/infer.ts` -- which writes the same rule with
+		// `Capitalize`, and is locale-independent -- still said `logInfo`. The types
+		// and the runtime disagreed on the user's machine and nowhere else
+		it('should not read the process locale for a destination', async () => {
+			// what the old implementation did wherever the locale was Turkish
+			expect('log-info'.replace(/[-_ ]+(\w)/g, (s, m) => m.toLocaleUpperCase('tr-TR'))).to.equal(
+				'logİnfo'
+			);
+
+			const localeUpper = String.prototype.toLocaleUpperCase;
+			const spy = vi.spyOn(String.prototype, 'toLocaleUpperCase').mockImplementation(function (
+				this: string
+			) {
+				return localeUpper.call(this, 'tr-TR');
+			});
+
+			try {
+				// the unit, with nothing awaited while the prototype is patched
+				expect(camelCase('log-info')).to.equal('logInfo');
+
+				const result = await parse({
+					argv: ['--log-info', 'x', '--log-init', 'y', 'z'],
+					schema: {
+						args: [{ name: 'out-file' }],
+						options: { '--log-info <v>': {} },
+					},
+				});
+
+				expect(result.argv.logInfo).to.equal('x');
+				// an undeclared option names its destination the same way
+				expect(result.argv.logInit).to.equal('y');
+				// and so does an argument
+				expect(result.argv.outFile).to.equal('z');
+			} finally {
+				spy.mockRestore();
+			}
+		});
+	});
+
 	/**
 	 * A command's own `path` was joined with the directory of the module that
 	 * declared it and the subcommands that module declared were not, so an
