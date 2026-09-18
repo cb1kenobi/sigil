@@ -563,7 +563,127 @@ describe('effect', () => {
 			expect(seen.at(-1)).toBe(1000);
 		});
 
-		it('should wait for a real change when the cycle is disposed mid-drain', async () => {
+		it('should not report a cycle for a chain that settled on its last pass', () => {
+			// the bound counted loop iterations while the check for "anything left?"
+			// happened at the *start* of one, so the last pass's own work was never
+			// looked at: a chain needing exactly `MAX_PASSES` passes did all of it,
+			// settled, and was reported as a cycle anyway -- with the right values
+			// sitting there already computed. A false "did not settle" is a lie of
+			// exactly the kind that erodes trust in the true one
+			const settles = (links: number) => {
+				const own = createEffects();
+				const errors: unknown[] = [];
+				own.setErrorHandler((err) => errors.push(err));
+				own.setScheduler(() => {});
+
+				const states = Array.from({ length: links + 1 }, () => new State(0));
+				// created last link first, so each pass moves the value one step
+				for (let i = links - 1; i >= 0; i--) {
+					own.effect(() => states[i + 1].set(states[i].get()));
+				}
+
+				states[0].set(7);
+				own.flush();
+				return { errors: errors.length, last: states[links].get() };
+			};
+
+			// a hundred passes is what the bound allows, so a hundred passes settles
+			expect(settles(99)).toEqual({ errors: 0, last: 7 });
+			expect(settles(100)).toEqual({ errors: 0, last: 7 });
+			// and a hundred and one is a chain this really cannot drain
+			expect(settles(101)).toEqual({ errors: 1, last: 0 });
+		});
+
+		it('should not drain into a run that has not finished', () => {
+			// an effect body may write, and a synchronous scheduler flushes that
+			// write where it happens -- which during an effect's *first* run is from
+			// inside the `get()` that is running it. The drain then reached that very
+			// computed and asked it for the value it was in the middle of producing:
+			// "A Computed may not read itself", once per pass, a hundred times, on
+			// top of the one report the cycle actually deserves
+			const own = createEffects();
+			const errors: unknown[] = [];
+			own.setErrorHandler((err) => errors.push(err));
+			own.setScheduler((fn) => fn());
+
+			const a = new State(0);
+			const b = new State(0);
+			own.effect(() => a.set(b.get() + 1));
+			own.effect(() => b.set(a.get() + 1));
+
+			// one report, and it is the true one. It used to be a hundred and one
+			expect(errors).toHaveLength(1);
+			expect(String(errors[0])).toMatch(/did not settle/);
+			expect(String(errors[0])).not.toMatch(/read itself/);
+		});
+
+		it('should report a cycle that runs between two scopes', async () => {
+			// `MAX_PASSES` is per scope by construction, so it never saw this: each
+			// drain settles in a pass or two, announces the other scope's work on the
+			// way out, and neither ever reaches its own bound. Two scopes writing
+			// what the other reads spun forever reporting nothing at all -- the same
+			// failure the bound exists to prevent, one level up
+			const one = createEffects();
+			const two = createEffects();
+			const errors: unknown[] = [];
+			one.setErrorHandler((err) => errors.push(err));
+			two.setErrorHandler((err) => errors.push(err));
+			// nothing runs while the two are being created
+			one.setScheduler(() => {});
+			two.setScheduler(() => {});
+
+			const a = new State(0);
+			const b = new State(0);
+			one.effect(() => a.set(b.get() + 1));
+			two.effect(() => b.set(a.get() + 1));
+
+			// the default microtask scheduler, where each flush finishes before the
+			// next one starts -- which is what makes this a chain rather than a nest,
+			// and a nest damps itself out because a write lands on a run that has not
+			// committed yet
+			one.setScheduler(undefined);
+			two.setScheduler(undefined);
+			b.set(100);
+
+			for (let i = 0; i < 400; i++) {
+				await tick();
+			}
+
+			expect(errors).toHaveLength(1);
+			expect(String(errors[0])).toMatch(/chained flushes/);
+		}, 20000);
+
+		it('should not read its own teardown as a cycle being broken', async () => {
+			// the other half of the rule above, and the half that made it hard: a
+			// cycling drain disposes effects all by itself, because an effect
+			// re-running tears its children down first. So "something was disposed
+			// while draining" fires on every pass of a drain going nowhere, and
+			// counting those would clear the latch every time and ask for the same
+			// failing flush forever -- which is the storm `stalled` exists to stop.
+			// Asking *who* disposed separates them; counting cannot
+			const own = createEffects();
+			const errors: unknown[] = [];
+			own.setErrorHandler((err) => errors.push(err));
+
+			const a = new State(0);
+			const b = new State(0);
+			own.effect(() => {
+				// a child effect per run, disposed by the next one
+				own.effect(() => {});
+				a.set(b.get() + 1);
+			});
+			own.effect(() => b.set(a.get() + 1));
+
+			own.flush();
+			expect(errors).toHaveLength(1);
+
+			// the latch held: nothing announced anything, so the flush the failed
+			// drain's own writes asked for does nothing rather than failing again
+			await tick();
+			expect(errors).toHaveLength(1);
+		});
+
+		it('should retry when the caller disposes the cycle mid-drain', async () => {
 			const own = createEffects();
 			const errors: unknown[] = [];
 			const a = new State(0);
@@ -591,20 +711,16 @@ describe('effect', () => {
 
 			own.flush();
 			expect(errors).toHaveLength(1);
-			const waiting = seen.length;
 
-			// a disposal made *while draining* is not evidence that the cycle was
-			// broken -- a cycling drain churns the watched set on every pass, since
-			// a parent re-run disposes its children -- so it is not counted, and the
-			// effect the give-up left dirty swallows this write
+			// the disposal is the caller's, so it counts: the give-up does not latch,
+			// and the effect the cycle was starving hears this write. A disposal the
+			// *scope* made -- an effect re-running tears its children down, on every
+			// pass of a drain going nowhere -- is not evidence of anything and is not
+			// counted, which is what `teardown` separates
 			input.set(1000);
 			await tick();
-			expect(seen).toHaveLength(waiting);
-
-			// waiting, not lost: the flush the caller asks for runs it, and so would
-			// the next notification or the next disposal
-			own.flush();
 			expect(seen.at(-1)).toBe(1000);
+			expect(errors).toHaveLength(1);
 		});
 	});
 
@@ -643,6 +759,52 @@ describe('effect', () => {
 	});
 
 	describe('nested effects', () => {
+		it('should dispose every child, not every other one', () => {
+			// `runCleanups()` iterates the child set while each disposal deletes
+			// itself from it. That used to be done over a copy; it does not need to
+			// be, because a `Set` iterator is specified to cope -- and a copy is the
+			// kind of thing that is either load-bearing or noise, with no way to tell
+			// which from reading it. This is the test that says which
+			const own = createEffects();
+			const s = new State(0);
+			const disposed: number[] = [];
+
+			own.effect(() => {
+				s.get();
+				for (const n of [1, 2, 3, 4, 5]) {
+					own.effect(() => () => disposed.push(n));
+				}
+			});
+
+			s.set(1);
+			own.flush();
+			expect(disposed).toEqual([1, 2, 3, 4, 5]);
+		});
+
+		it('should survive a cleanup that disposes a sibling', () => {
+			// the other half of the same question: a disposal removes an entry the
+			// walk has not reached yet. Skipping it is correct -- it has just been
+			// disposed -- and it is what the iterator does
+			const own = createEffects();
+			const s = new State(0);
+			const disposed: string[] = [];
+			let stopB = (): void => {};
+
+			own.effect(() => {
+				s.get();
+				own.effect(() => () => {
+					disposed.push('a');
+					stopB();
+				});
+				stopB = own.effect(() => () => disposed.push('b'));
+				own.effect(() => () => disposed.push('c'));
+			});
+
+			s.set(1);
+			own.flush();
+			expect(disposed).toEqual(['a', 'b', 'c']);
+		});
+
 		it('should dispose a child when the parent re-runs', () => {
 			const outer = new State(0);
 			const inner = new State(0);
