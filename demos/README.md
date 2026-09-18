@@ -103,6 +103,19 @@ node demos/canvas/04-inline.js      # the log keeps scrolling above the frame
 node demos/canvas/05-fullscreen.js  # Ctrl-C it: the terminal comes back anyway
 ```
 
+## The element tree
+
+|                                            |                                           |
+| ------------------------------------------ | ----------------------------------------- |
+| [`element/01-tree.js`](element/01-tree.js) | A tree, a stylesheet, a layout, and cells |
+
+The whole stack in one file, and the point of it is what it prints at the end: a
+mutation says exactly what it implies and nothing else.
+
+```sh
+node demos/element/01-tree.js
+```
+
 The third is worth running in a terminal that implements OSC 8 — Ctrl-click or
 Cmd-click the underlined text. In one that does not, you get the same words with
 no link and nothing broken, which is why setting the underline and the colour

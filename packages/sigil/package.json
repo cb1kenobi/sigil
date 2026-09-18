@@ -37,6 +37,10 @@
       "types": "./dist/components.d.mts",
       "default": "./dist/components.mjs"
     },
+    "./element": {
+      "types": "./dist/element.d.mts",
+      "default": "./dist/element.mjs"
+    },
     "./error-handler": {
       "types": "./dist/error-handler.d.mts",
       "default": "./dist/error-handler.mjs"

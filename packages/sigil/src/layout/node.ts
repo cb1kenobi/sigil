@@ -11,7 +11,12 @@ import type { Length, Style } from '../style/index.js';
  * literal in a test.
  */
 export interface LayoutNode {
-	children?: LayoutNode[];
+	/**
+	 * Read-only, because nothing here writes them and an implementation whose
+	 * children are its own -- the element tree's are -- cannot hand out an array
+	 * anything may splice.
+	 */
+	children?: readonly LayoutNode[];
 	/**
 	 * Measures content that is not laid out from children -- text, almost always.
 	 *
