@@ -2,7 +2,8 @@ import type { DataType } from '../types.js';
 
 const boolFalseRE = /^(false|f|no|n|off|0)$/i;
 const boolTrueRE = /^(true|t|yes|y|on|1)$/i;
-const dateRE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(\.\d+)?Z?)?$/i;
+const dateRE =
+	/^\d{4}-\d{2}-\d{2}(T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|([+-]\d{2}):(\d{2}))?)?$/i;
 const dateIntRE = /^\d{13}$/;
 const dateInvalid = /^Invalid Date$/i;
 const hexRE = /^0x[A-Fa-f0-9]+$/;
@@ -21,6 +22,61 @@ const yesRE = /^y(es)?$/i;
  */
 function daysInMonth(year: number, month: number): number {
 	return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+/**
+ * Builds the `Date` that a `dateRE` match describes, or nothing where it
+ * describes a date that does not exist.
+ *
+ * `date` and `auto` match the same `dateRE`, and only `date` checked what it
+ * matched -- so `auto` kept the defect `date` was fixed for, on the path
+ * undeclared options coerce with. One function because the two reading one
+ * pattern and disagreeing about what it proves is how that happened. What
+ * follows a value that is not a date is the caller's: `date` throws, `auto`
+ * goes on guessing.
+ *
+ * @param m - A `dateRE` match.
+ * @returns The date, or `undefined` if the match is not one.
+ */
+function fromDateMatch(m: RegExpMatchArray): Date | undefined {
+	// `dateRE` only checks the shape, and `Date` overflows rather than refusing:
+	// `2024-02-30` came back as March 1st, so a day that does not exist produced
+	// the wrong day instead of the error `9999-99-99` already got. The calendar is
+	// checked here rather than by reading the parts back off the `Date`, because
+	// the getters that would read them are local while the value may be UTC --
+	// `2024-06-15T00:00:00Z` is the 14th in Chicago and the 15th in Auckland, so a
+	// round trip rejected real instants depending on where it ran
+	const [year, month, day] = m[0].split(/\D/, 3).map(Number);
+
+	if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)) {
+		return;
+	}
+
+	// the clock overflows the same way the calendar does, and hour 24 is the
+	// overflow the `Invalid Date` guard below cannot see: `24` is a legal two-digit
+	// match and `2024-01-01T24:00:00` is a perfectly valid `Date` -- the next
+	// midnight -- so a value naming one day arrived as the day after it, exactly as
+	// `2024-02-30` arrived as March 1st. Minute and second 60 happen to be refused
+	// by `Date`, and are refused here anyway so that a leap second is this
+	// library's answer rather than an engine's
+	if (m[1] && (Number(m[2]) > 23 || Number(m[3]) > 59 || Number(m[4]) > 59)) {
+		return;
+	}
+
+	// an offset is the rest of the clock and is read the same way: out of range it
+	// falls outside the one string format `Date` is specified to parse, and what an
+	// engine does with a string outside that format is its own business -- which is
+	// the reason none of this is left to `Date` to begin with
+	if (m[5] !== undefined && (Math.abs(Number(m[5])) > 23 || Number(m[6]) > 59)) {
+		return;
+	}
+
+	// the shape still admits what the guards above do not cover, and `Date` answers
+	// that with an `Invalid Date` rather than by refusing -- an object whose
+	// `getTime()` is `NaN` with nothing having said so
+	const date = new Date(m[1] ? m[0] : `${m[0]}T00:00:00`);
+
+	return dateInvalid.test(date.toString()) ? undefined : date;
 }
 
 export function transformValue(
@@ -43,7 +99,6 @@ export function transformValue(
 
 	if (type === 'date') {
 		let date;
-		let m;
 
 		if (dateIntRE.test(value)) {
 			const num = Number(value);
@@ -51,27 +106,13 @@ export function transformValue(
 				date = new Date(num);
 			}
 		} else {
-			m = value.match(dateRE);
+			const m = value.match(dateRE);
 			if (m) {
-				// `dateRE` only checks the shape, and `Date` overflows rather than
-				// refusing: `2024-02-30` came back as March 1st, so a day that does not
-				// exist produced the wrong day instead of the error `9999-99-99` already
-				// got. The calendar is checked here rather than by reading the parts back
-				// off the `Date`, because the getters that would read them are local while
-				// the value may be UTC -- `2024-06-15T00:00:00Z` is the 14th in Chicago
-				// and the 15th in Auckland, so a round trip rejected real instants
-				// depending on where it ran
-				const [year, month, day] = m[0].split(/\D/, 3).map(Number);
-
-				if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)) {
-					throw new Error(`Invalid date: "${value}"`);
-				}
-
-				date = new Date(m[1] ? m[0] : `${m[0]}T00:00:00`);
+				date = fromDateMatch(m);
 			}
 		}
 
-		if (!date || dateInvalid.test(date.toString())) {
+		if (!date) {
 			throw new Error(`Invalid date: "${value}"`);
 		}
 
@@ -166,10 +207,19 @@ export function transformValue(
 			return false;
 		}
 
-		// try as a date
+		// try as a date. A date-shaped string that is not a date is not an error
+		// here the way it is for `date`: `auto` is a ladder of guesses that ends at
+		// the string it was handed -- it does not throw on JSON it cannot parse
+		// either -- so `2024-02-30` is simply not the date guess, and falls through
+		// to the string it always was. Throwing would fail the parse over an
+		// undeclared option, which is the default path `auto` sits on and the one
+		// place nobody asked for a date at all
 		const m = value.match(dateRE);
 		if (m) {
-			return new Date(m[1] ? m[0] : `${m[0]}T00:00:00`);
+			const date = fromDateMatch(m);
+			if (date) {
+				return date;
+			}
 		}
 
 		// try as a number

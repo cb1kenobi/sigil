@@ -1,4 +1,4 @@
-import { type LayoutNode, type LayoutResult, layout } from '../../src/layout/index.js';
+import { type LayoutNode, type LayoutResult, layout, resolve } from '../../src/layout/index.js';
 import { declare, type Declarations, type Style } from '../../src/style/index.js';
 import { stringWidth } from '../../src/width/index.js';
 import { wrap } from '../../src/wrap/index.js';
@@ -127,6 +127,99 @@ export function boxes(
 }
 
 /**
+ * Whether a container's `justify-content` leaves its items against each other.
+ *
+ * These three put all the free space at one end or split it between the two, so
+ * the distance between adjacent items is the declared gap and nothing else. The
+ * `space-*` three are the ones that put free space *between* items, and how much
+ * goes where is not something this can recompute without being the engine.
+ *
+ * @param justify - What the container asked for.
+ * @returns Whether adjacent items must abut.
+ */
+function packsTogether(justify: Style['justifyContent']): boolean {
+	return justify === 'flex-start' || justify === 'flex-end' || justify === 'center';
+}
+
+/**
+ * The gap between adjacent items is the declared gap and their facing margins.
+ *
+ * This is the observable half of "a child's box is the size its parent allocated
+ * for it", which the result itself cannot be asked: the parent placed the next
+ * sibling at the far edge of the hole it reserved, so a child that came back
+ * smaller than its hole leaves a gap nothing declared. Containment cannot see it
+ * -- a shrunken box is still inside its parent and still clear of its siblings --
+ * which is how a size clamped a second time, against a percentage base and an
+ * automatic minimum that were both wrong by then, stayed green through forty-odd
+ * picture tests.
+ *
+ * Only where the placement is recomputable without being the layout engine: one
+ * line, a `justify-content` that does not space items out, and no auto margin on
+ * the main axis to absorb what is left. The allocation itself is not in the
+ * result, so the last item on a line -- or an only child -- is not covered.
+ *
+ * @param node - The container.
+ */
+function checkPacking(node: LayoutResult): void {
+	const { style } = node.node;
+	const column = style.flexDirection === 'column' || style.flexDirection === 'column-reverse';
+	const reverse = style.flexDirection === 'row-reverse' || style.flexDirection === 'column-reverse';
+
+	if (style.flexWrap !== 'nowrap' || !packsTogether(style.justifyContent)) {
+		return;
+	}
+
+	// a percentage margin resolves against the containing block's width whichever
+	// axis it is on, which is what the engine does
+	const margin = (child: LayoutResult, end: boolean) => {
+		const own = child.node.style;
+		const length = column
+			? end
+				? own.marginBottom
+				: own.marginTop
+			: end
+				? own.marginRight
+				: own.marginLeft;
+		return length.type === 'auto' ? undefined : (resolve(length, node.content.width) ?? 0);
+	};
+
+	const visible = node.children.filter((child) => child.node.style.display !== 'none');
+
+	// placement order, which `order` and a reversed direction both change
+	const ordered = [...visible].sort((a, b) => a.node.style.order - b.node.style.order);
+	if (reverse) {
+		ordered.reverse();
+	}
+
+	const gap = column ? style.rowGap : style.columnGap;
+	const start = (child: LayoutResult) => (column ? child.box.y : child.box.x);
+	const size = (child: LayoutResult) => (column ? child.box.height : child.box.width);
+
+	for (let i = 1; i < ordered.length; i++) {
+		const before = ordered[i - 1];
+		const after = ordered[i];
+		const ends = margin(before, true);
+		const starts = margin(after, false);
+
+		// an auto margin eats free space, so this pair is not packed -- but only
+		// this pair: every other gap on the line is still the declared one, which
+		// is why the whole container is not skipped over one auto margin
+		if (ends === undefined || starts === undefined) {
+			continue;
+		}
+
+		const expected = start(before) + size(before) + ends + gap + starts;
+
+		if (start(after) !== expected) {
+			throw new Error(
+				`sibling ${JSON.stringify(after.box)} starts at ${start(after)} where its neighbour ` +
+					`${JSON.stringify(before.box)} and a gap of ${gap} put it at ${expected}`
+			);
+		}
+	}
+}
+
+/**
  * Every invariant a layout has to keep, whatever it was asked for.
  *
  * The picture helper cannot check these: it paints later nodes over earlier ones
@@ -183,6 +276,8 @@ export function checkInvariants(result: LayoutResult, opts: { overflow?: boolean
 			line.push(child);
 			walk(child);
 		}
+
+		checkPacking(node);
 	};
 
 	walk(result);

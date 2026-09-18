@@ -150,6 +150,25 @@ export class Dots {
 		let y = Math.trunc(y0);
 		const endX = Math.trunc(x1);
 		const endY = Math.trunc(y1);
+
+		// a missing sample is the ordinary way a plot reaches this, and the loop
+		// below ends only by arriving at the end point. `NaN === NaN` is false, a
+		// step towards an infinity never arrives, and past 2^53 adding one is a
+		// no-op -- so `line(1e308, 0, 0, 0)` steps forever without moving, exactly
+		// the way `NaN` does, and paints nothing while it does, since `set()`
+		// ignores what is out of range. The endpoints are already truncated, so
+		// what is asked here is whether a step of one still means something. A
+		// point the loop can actually walk to is a different thing and still
+		// clips, which is what a plot wants
+		if (
+			!Number.isSafeInteger(x) ||
+			!Number.isSafeInteger(y) ||
+			!Number.isSafeInteger(endX) ||
+			!Number.isSafeInteger(endY)
+		) {
+			return;
+		}
+
 		const dx = Math.abs(endX - x);
 		const dy = -Math.abs(endY - y);
 		const stepX = x < endX ? 1 : -1;
@@ -181,10 +200,24 @@ export class Dots {
 	 * @returns The character, or `undefined` when no dot in it is set.
 	 */
 	charAt(x: number, y: number): string | undefined {
-		if (x < 0 || y < 0 || x >= this.#width || y >= this.#height) {
+		// truncated and checked the way `#locate()` does it, because the cell index
+		// is built here rather than there and the arithmetic is as unforgiving: a
+		// fraction or a `NaN` reached `#cells[NaN]` -- `undefined` -- and
+		// `String.fromCodePoint(NaN)` is a `RangeError` out of the one method whose
+		// answer for everything it cannot find is `undefined`
+		const cellX = Math.trunc(x);
+		const cellY = Math.trunc(y);
+		if (
+			!Number.isFinite(cellX) ||
+			!Number.isFinite(cellY) ||
+			cellX < 0 ||
+			cellY < 0 ||
+			cellX >= this.#width ||
+			cellY >= this.#height
+		) {
 			return undefined;
 		}
-		const mask = this.#cells[y * this.#width + x];
+		const mask = this.#cells[cellY * this.#width + cellX];
 		return mask === 0 ? undefined : String.fromCodePoint(BRAILLE_BASE + mask);
 	}
 
@@ -234,7 +267,19 @@ export class Dots {
 	#locate(x: number, y: number): { bit: number; index: number } | undefined {
 		const dotX = Math.trunc(x);
 		const dotY = Math.trunc(y);
-		if (dotX < 0 || dotY < 0 || dotX >= this.dotWidth || dotY >= this.dotHeight) {
+		// a point that is not a number is out of range, and the comparisons below
+		// cannot say so: every one of them is false for `NaN`, so it reached
+		// `DOT_BITS[NaN]` -- `undefined` -- and the row lookup threw a `TypeError`
+		// from inside a method whose whole contract is to ignore what it cannot
+		// place
+		if (
+			!Number.isFinite(dotX) ||
+			!Number.isFinite(dotY) ||
+			dotX < 0 ||
+			dotY < 0 ||
+			dotX >= this.dotWidth ||
+			dotY >= this.dotHeight
+		) {
 			return undefined;
 		}
 		const cellX = Math.floor(dotX / DOT_COLUMNS);
@@ -376,7 +421,18 @@ export class Pixels {
 	#index(x: number, y: number): number | undefined {
 		const pixelX = Math.trunc(x);
 		const pixelY = Math.trunc(y);
-		if (pixelX < 0 || pixelY < 0 || pixelX >= this.#width || pixelY >= this.pixelHeight) {
+		// out of range for the reason `Dots.#locate()` gives. It does not throw
+		// here, which is worse rather than better: the index came out `NaN`, a
+		// write to it was silently dropped, and `get()` handed back `undefined`
+		// with `Color` written on it
+		if (
+			!Number.isFinite(pixelX) ||
+			!Number.isFinite(pixelY) ||
+			pixelX < 0 ||
+			pixelY < 0 ||
+			pixelX >= this.#width ||
+			pixelY >= this.pixelHeight
+		) {
 			return undefined;
 		}
 		return pixelY * this.#width + pixelX;

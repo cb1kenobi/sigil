@@ -944,7 +944,15 @@ export async function processArgs(state: ParseState): Promise<void> {
 
 		applyFallback(state, arg, envValue(state, envs) ?? arg.default);
 
-		if (missingArguments.length || (required && resolved(state, dest) === undefined)) {
+		// only a slot that is required and still empty. The walk is backwards, and it
+		// used to report every argument before one it had already found missing, to
+		// collect the trailing run of them -- which is the promotion rule said a
+		// second time and said less accurately. `initArgs()` already makes an
+		// optional argument sitting before a required one required, so each slot
+		// answers for itself, while the run also named a slot `applyFallback()` had
+		// just filled: `<a>` with a `default` and `<b>` with nothing reported both,
+		// and asked for a value the user had supplied
+		if (required && resolved(state, dest) === undefined) {
 			missingArguments.unshift(`<${name}>`);
 		}
 	}

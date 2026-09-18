@@ -34,14 +34,29 @@ class StdioStream extends Writable {
 	}
 }
 
-const { allow, ignore } = enable(process.env.DEBUG);
+/**
+ * Every character a regular expression reads as syntax except `*`, which this
+ * pattern language keeps for itself as the wildcard. Declared above the call
+ * below rather than beside `enable()`: the call runs at module load, and a
+ * `const` it reads from further down the file is still in its temporal dead
+ * zone -- which is the same dead import, one `ReferenceError` instead of one
+ * `SyntaxError`.
+ */
+const metaRE = /[.+?^${}()|[\]\\]/g;
+
+const matchers = enable(process.env.DEBUG);
+
+export interface Matchers {
+	allow: RegExp | string | null;
+	ignore: RegExp | null;
+}
 
 /**
  * Generates regular expressions to match and allow or ignore log namespaces.
  * @param pattern - A pattern or list of patterns to generate matchers from.
  * @returns A map of allow and ignore matchers.
  */
-function enable(pattern: string | RegExp = '') {
+export function enable(pattern: string | RegExp = ''): Matchers {
 	let allow: RegExp | string | null = null;
 	let ignore: RegExp | null = null;
 
@@ -53,32 +68,53 @@ function enable(pattern: string | RegExp = '') {
 		const a: string[] = [];
 		const i: string[] = [];
 
-		for (let p of pattern.split(/[\s,]+/)) {
-			if (p) {
-				p = p.replace(/\*/g, '.*?');
-				if (p[0] === '-') {
-					i.push(p.slice(1));
-				} else {
-					a.push(p);
-				}
+		for (const p of pattern.split(/[\s,]+/)) {
+			const negated = p[0] === '-';
+			const ns = negated ? p.slice(1) : p;
+			if (ns) {
+				// a namespace is a literal with `*` for a wildcard, so everything a
+				// regular expression would have read as syntax is escaped before the
+				// wildcard becomes one. `DEBUG='sigil.updates'` used to match
+				// `sigilXupdates` as well, and `DEBUG='('` did not compile at all
+				(negated ? i : a).push(ns.replace(metaRE, '\\$&').replace(/\*/g, '.*?'));
 			}
 		}
 
-		if (a.length) {
-			allow = new RegExp(`^(${a.join('|')})$`);
-		} else {
-			allow = /./;
-		}
+		try {
+			if (a.length) {
+				allow = new RegExp(`^(${a.join('|')})$`);
+			} else if (i.length) {
+				// nothing named but something excluded means everything else
+				allow = /./;
+			}
 
-		if (i.length) {
-			ignore = new RegExp(`^(${i.join('|')})$`);
+			if (i.length) {
+				ignore = new RegExp(`^(${i.join('|')})$`);
+			}
+		} catch {
+			// this runs at module load and every importer of the library is behind
+			// it, so a pattern that will not compile has to end here rather than as a
+			// `SyntaxError` thrown before `main()` exists to turn it into a message.
+			// Escaping should leave nothing that reaches this; it is kept because
+			// escaping is a claim about a grammar, and being wrong about that one
+			// costs an import nobody can make rather than a log line nobody gets
+			allow = null;
+			ignore = null;
 		}
 	}
 
 	return { allow, ignore };
 }
 
-function isEnabled(ns: string | undefined): boolean {
+/**
+ * Determines whether a namespace should be logged.
+ * @param ns - The namespace to test.
+ * @param matchers - The allow and ignore matchers to test against; defaults to
+ * the ones `DEBUG` produced, and is a parameter so the pattern language can be
+ * exercised without reloading the module.
+ * @returns `true` if the namespace is enabled.
+ */
+export function isEnabled(ns: string | undefined, { allow, ignore }: Matchers = matchers): boolean {
 	if (allow === null) {
 		// all logging is silenced
 		return false;

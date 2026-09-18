@@ -409,6 +409,203 @@ describe('effect', () => {
 				setErrorHandler(previous);
 			}
 		});
+
+		it('should stop asking for a flush once it has given up', async () => {
+			// its own scope, because the cycle is deliberately left alive past the
+			// assertions -- the old cycle test disposed both effects before the
+			// queued microtask landed, which is exactly what hid this
+			const own = createEffects();
+			const errors: unknown[] = [];
+			own.setErrorHandler((err) => errors.push(err));
+
+			const a = new State(0);
+			const b = new State(0);
+			own.effect(() => a.set(b.get() + 1));
+			own.effect(() => b.set(a.get() + 1));
+
+			a.set(1);
+			own.flush();
+			expect(errors).toHaveLength(1);
+
+			for (let pass = 0; pass < 5; pass++) {
+				await tick();
+			}
+			// a macrotask only runs once the microtask queue has drained, so this is
+			// what says the loop went idle rather than merely that the count is
+			// small. Giving up used to leave the effects dirty and then re-arm the
+			// watcher bare, which announced them again and queued the same flush --
+			// one report per microtask, forever
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			expect(errors).toHaveLength(1);
+		});
+
+		it('should not recurse when a synchronous scheduler flushes a cycle', () => {
+			const own = createEffects();
+			const errors: unknown[] = [];
+			own.setErrorHandler((err) => errors.push(err));
+			own.setScheduler((run) => run());
+
+			const armed = new State(false);
+			const a = new State(0);
+			const b = new State(0);
+			// nothing writes until `armed` is set, so both effects start clean and
+			// the cycle begins at a write the test can point at
+			own.effect(() => {
+				if (armed.get()) {
+					a.set(b.get() + 1);
+				}
+			});
+			own.effect(() => {
+				if (armed.get()) {
+					b.set(a.get() + 1);
+				}
+			});
+
+			// the re-arm on the way out of a flush that gave up notified, the notify
+			// scheduled a flush, and a synchronous scheduler ran it there and then --
+			// with `flushing` already back to `false`, so nothing stopped it. The
+			// stack overflow came out of this `set()`
+			expect(() => armed.set(true)).not.toThrow();
+			expect(errors).toHaveLength(1);
+			expect((errors[0] as Error).message).toMatch(/did not settle/);
+		});
+
+		it('should still hear a later change after giving up', async () => {
+			const own = createEffects();
+			const errors: unknown[] = [];
+			own.setErrorHandler((err) => errors.push(err));
+
+			const a = new State(0);
+			const b = new State(0);
+			const c = new State(0);
+			const seen: number[] = [];
+			own.effect(() => a.set(b.get() + 1));
+			own.effect(() => b.set(a.get() + 1));
+			own.effect(() => {
+				seen.push(c.get());
+			});
+
+			c.set(1);
+			own.flush();
+			// an effect that was dirty for an innocent reason during the failed
+			// settle is not stranded by it: every pass runs everything pending
+			expect(seen).toEqual([0, 1]);
+			expect(errors).toHaveLength(1);
+
+			c.set(2);
+			await tick();
+			// the re-arm is silent, not deaf -- a later clean-to-dirty transition
+			// still schedules a flush
+			expect(seen).toEqual([0, 1, 2]);
+			// and that flush retries the cycle and gives up again, which is the
+			// error rate this settles on: once per failed settle, and a settle is
+			// only attempted when something outside the cycle changed
+			expect(errors).toHaveLength(2);
+		});
+
+		it('should still drain when the caller asks after giving up', () => {
+			const own = createEffects();
+			const errors: unknown[] = [];
+			own.setErrorHandler((err) => errors.push(err));
+
+			const a = new State(0);
+			const b = new State(0);
+			const stopA = own.effect(() => a.set(b.get() + 1));
+			own.effect(() => b.set(a.get() + 1));
+
+			own.flush();
+			expect(errors).toHaveLength(1);
+
+			// the caller has broken the cycle, and disposing announces nothing -- so
+			// a flush they asked for themselves is not the one the give-up asked for
+			// and must run whatever is pending
+			stopA();
+			a.set(50);
+			own.flush();
+			expect(b.get()).toBe(51);
+			expect(errors).toHaveLength(1);
+		});
+
+		it('should look again when a disposal breaks a cycle', async () => {
+			const own = createEffects();
+			const errors: unknown[] = [];
+			own.setErrorHandler((err) => errors.push(err));
+
+			const a = new State(0);
+			const b = new State(0);
+			const input = new State(0);
+			const seen: number[] = [];
+			// first in the watch order and reading both sides of the cycle, so
+			// whichever of them runs after it dirties it again -- the drain gives up
+			// with this one pending, however the passes fall
+			own.effect(() => {
+				a.get();
+				b.get();
+				seen.push(input.get());
+			});
+			const stopA = own.effect(() => a.set(b.get() + 1));
+			const stopB = own.effect(() => b.set(a.get() + 1));
+
+			own.flush();
+			expect(errors).toHaveLength(1);
+			const stranded = seen.length;
+
+			stopA();
+			stopB();
+			// the write lands on an effect that is already dirty, so propagation
+			// stops there and the watcher hears nothing -- and the flush the failed
+			// drain had already asked for is the one `stalled` refuses. Disposing is
+			// what says the next drain would do something different, and it is how a
+			// caller breaks a cycle, so it has to take the latch off
+			input.set(1000);
+			await tick();
+			expect(seen.length).toBeGreaterThan(stranded);
+			expect(seen.at(-1)).toBe(1000);
+		});
+
+		it('should wait for a real change when the cycle is disposed mid-drain', async () => {
+			const own = createEffects();
+			const errors: unknown[] = [];
+			const a = new State(0);
+			const b = new State(0);
+			const input = new State(0);
+			const seen: number[] = [];
+			let stopA = (): void => {};
+			let stopB = (): void => {};
+
+			// the handler shuts the cycle down, which is a graph change made from
+			// inside the drain that gave up rather than after it
+			own.setErrorHandler((err) => {
+				errors.push(err);
+				stopA();
+				stopB();
+			});
+
+			own.effect(() => {
+				a.get();
+				b.get();
+				seen.push(input.get());
+			});
+			stopA = own.effect(() => a.set(b.get() + 1));
+			stopB = own.effect(() => b.set(a.get() + 1));
+
+			own.flush();
+			expect(errors).toHaveLength(1);
+			const waiting = seen.length;
+
+			// a disposal made *while draining* is not evidence that the cycle was
+			// broken -- a cycling drain churns the watched set on every pass, since
+			// a parent re-run disposes its children -- so it is not counted, and the
+			// effect the give-up left dirty swallows this write
+			input.set(1000);
+			await tick();
+			expect(seen).toHaveLength(waiting);
+
+			// waiting, not lost: the flush the caller asks for runs it, and so would
+			// the next notification or the next disposal
+			own.flush();
+			expect(seen.at(-1)).toBe(1000);
+		});
 	});
 
 	it('should not run an effect disposed by another effect in the same flush', () => {
