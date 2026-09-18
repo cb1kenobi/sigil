@@ -20,6 +20,14 @@ import { CellBuffer, Painter } from './buffer.js';
 import { diff, type DiffResult } from './diff.js';
 import { StyleTable } from './style.js';
 
+export {
+	type CanvasBackend,
+	createFullscreenCanvas,
+	createInlineCanvas,
+	type Draw,
+	type FullscreenCanvasOptions,
+	type InlineCanvasOptions,
+} from './backend.js';
 export { BLANK, CellBuffer, cellWidth, CONTINUATION, Painter } from './buffer.js';
 export { diff, type DiffOptions, type DiffResult } from './diff.js';
 export { Dots, Pixels } from './subcell.js';

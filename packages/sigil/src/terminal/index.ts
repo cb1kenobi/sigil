@@ -1,16 +1,19 @@
 import { DEFAULT_WIDTH, terminalWidth } from '../wrap/index.js';
-import { HIDE_CURSOR, SHOW_CURSOR } from './sequences.js';
+import { ENTER_ALT_SCREEN, HIDE_CURSOR, LEAVE_ALT_SCREEN, SHOW_CURSOR } from './sequences.js';
 
 export { createLiveRegion, frameHeight, type LiveRegion, type LiveRegionOptions } from './live.js';
 export {
 	CURSOR_HOME,
+	CURSOR_TOP_LEFT,
 	cursorDown,
 	cursorRight,
 	cursorUp,
+	ENTER_ALT_SCREEN,
 	ERASE_DOWN,
 	ERASE_LINE,
 	ERASE_LINE_END,
 	HIDE_CURSOR,
+	LEAVE_ALT_SCREEN,
 	SHOW_CURSOR,
 } from './sequences.js';
 
@@ -93,6 +96,21 @@ export interface Terminal {
 	claimLive(onEvict?: () => void): LiveClaim;
 	/** Whether the far end has gone away, after which writes do nothing. */
 	readonly closed: boolean;
+	/**
+	 * Switches to the alternate screen, and registers to switch back however the
+	 * process ends.
+	 *
+	 * The switching back is the whole reason this lives here rather than in a
+	 * backend writing the sequence itself: a CLI that dies on the alternate
+	 * buffer and never comes back has eaten the user's terminal, and `restore()`
+	 * is what already runs on a signal, on `exit`, and on the way out of an
+	 * uncaught throw.
+	 *
+	 * @returns Whether this call is what switched, mirroring `hideCursor()`.
+	 * `false` when something had already switched or there is no terminal to
+	 * switch -- either way the caller owes no `leaveAltScreen()`.
+	 */
+	enterAltScreen(): boolean;
 	/** Rows, from the stream, or 24 when there is nothing to ask. */
 	readonly height: number;
 	/**
@@ -106,6 +124,8 @@ export interface Terminal {
 	hideCursor(): boolean;
 	/** Whether this is a terminal, and so whether repainting means anything. */
 	readonly isTTY: boolean;
+	/** Returns to the main screen, if this terminal is what left it. */
+	leaveAltScreen(): void;
 	/**
 	 * Subscribes to resizes.
 	 *
@@ -159,6 +179,7 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
 	const isTTY = opts.isTTY ?? !!stdout.isTTY;
 
 	let closed = false;
+	let altScreen = false;
 	let cursorHidden = false;
 	let rawMode = false;
 	let claim: InternalClaim | undefined;
@@ -286,7 +307,7 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
 	 * holding the process's signal handling.
 	 */
 	function syncRestore(): void {
-		if (cursorHidden || rawMode || claim?.active) {
+		if (altScreen || cursorHidden || rawMode || claim?.active) {
 			attachRestore();
 		} else {
 			detachRestore();
@@ -332,6 +353,13 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
 		if (rawMode) {
 			rawMode = false;
 			stdin?.setRawMode?.(false);
+		}
+
+		// the alternate screen goes back first, so that a cursor hidden while it was
+		// up is shown again on the screen that is about to be looked at
+		if (altScreen) {
+			altScreen = false;
+			writeTo(stdout, LEAVE_ALT_SCREEN);
 		}
 
 		if (cursorHidden) {
@@ -380,6 +408,17 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
 			return closed;
 		},
 
+		enterAltScreen(): boolean {
+			if (altScreen || !isTTY) {
+				return false;
+			}
+			altScreen = true;
+			attachRestore();
+			ensureGuarded();
+			writeTo(stdout, ENTER_ALT_SCREEN);
+			return true;
+		},
+
 		get height() {
 			return height();
 		},
@@ -396,6 +435,14 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
 		},
 
 		isTTY,
+
+		leaveAltScreen(): void {
+			if (altScreen) {
+				altScreen = false;
+				writeTo(stdout, LEAVE_ALT_SCREEN);
+				syncRestore();
+			}
+		},
 
 		onResize(fn: (size: { height: number; width: number }) => void): () => void {
 			resizeListeners.add(fn);

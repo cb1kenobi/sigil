@@ -69,3 +69,25 @@ export function cursorDown(n: number): string {
 export function cursorRight(n: number): string {
 	return n > 0 ? `${ESC}[${n}C` : '';
 }
+
+/**
+ * Moves the cursor to the top-left of the screen.
+ *
+ * `CURSOR_HOME` is a carriage return, which is the *line's* home; this is the
+ * screen's. A full-screen backend positions absolutely rather than relatively,
+ * because it owns every row and has no log above it to be careful of.
+ */
+export const CURSOR_TOP_LEFT: string = `${ESC}[H`;
+
+/**
+ * Switches to the alternate screen buffer, which has no scrollback of its own.
+ *
+ * `1049` rather than `47` or `1047`: it saves the cursor, switches, and clears
+ * in one sequence, and it is what every terminal worth supporting implements.
+ * The pair of these is what makes a full-screen app leave the user's scrollback
+ * exactly as it found it.
+ */
+export const ENTER_ALT_SCREEN: string = `${ESC}[?1049h`;
+
+/** Returns to the main screen. Whatever left it owes the terminal this one. */
+export const LEAVE_ALT_SCREEN: string = `${ESC}[?1049l`;
