@@ -1405,6 +1405,68 @@ stylesheet rather than anything the runtime knows about.
   so it snaps forward to the end of what it landed inside. `truncateCell()` in the table already read text this way;
   the prompt was the one place that did not. See
   `test/components/prompt.test.ts`.
+- **The caret is painted into the frame; the terminal's own cursor is not
+  moved.** Left, Right, Home and End moved an index nothing drew, so nothing on
+  screen changed until the next character was typed and landed somewhere
+  surprising. The alternative was to show the cursor for a prompt -- a live
+  region hides it, which is right for a spinner -- and walk it to
+  `stringWidth(value.slice(0, cursor))`, and it costs the region the one
+  invariant its repaint math rests on: that the cursor is where the last frame
+  it wrote ended. Every path that erases would have to walk up from wherever the
+  caret was left instead, and `done()`, `write()`, `clear()` and eviction would
+  each have to agree about it -- a second invariant carried by the whole region
+  for one component's benefit. A caret that is part of the frame also needs no
+  putting back: a region that is cleared, evicted, or resized owes the terminal
+  nothing, and a value wider than the screen wraps with the caret already in the
+  right place rather than needing a scrolled view and a column to put it in. It
+  is reverse video over a whole grapheme cluster, so a wide character is marked
+  across both its columns; past the last character there is nothing to mark, so
+  the caret is a column of its own. A styler at level 0 therefore draws no
+  caret, which is deliberate: the same setting takes the cyan `?`, the bold
+  message, and the dimmed placeholder with it, and a prompt asked for plain text
+  gets plain text rather than the one sequence the library decided was too
+  important to turn off.
+- **A mask is applied per piece of the value, not to the whole of it.** It is a
+  column count rather than a substitution -- a two-column emoji is two bullets --
+  and masking the value in one go leaves nowhere to put the caret. The pieces are
+  split on cluster boundaries and a width is the sum of its parts, so what is
+  drawn is the same text it always was, with the bullets standing for the
+  character under the caret reversed. Which is why the caret covers two of them
+  for an emoji and one for a letter, and why a `mask` wider than one column still
+  lines up with itself.
+- **`decodeKeys()` is a pure reading of one chunk, and the waiting belongs to
+  whatever feeds it.** A terminal sends Alt-x as `ESC x` and Up as `ESC [ A`,
+  both in one write, so decoding per chunk is right until the read splits --
+  which ssh, a pty under load, and a small read buffer all do. Split, `ESC [`
+  and `A` decode as an unknown sequence and a literal `A`, and the `A` is what a
+  text prompt puts in somebody's answer: silent corruption, and the reason this
+  was worth a timer in the input path rather than a line in this file saying it
+  was not. `pendingLength()` says how much of a chunk's tail could still be the
+  start of a longer key, measured by the same reader `decodeKeys()` uses so the
+  two can never disagree about where the last key starts -- searching for the
+  last `ESC` instead finds one inside a sequence that had already finished.
+  `run()` holds that tail, joins it to the next chunk, and flushes it after
+  `ESCAPE_TIMEOUT` of silence, which is what makes a lone Escape a key rather
+  than a wait with no end: nothing follows it, so nothing can complete it. The
+  split is made where the chunk arrives rather than inside the queued work,
+  because the queue is one chunk at a time and a second chunk landing while the
+  first is still being handled would be joined to the same stale remainder.
+  Fifty milliseconds because the two failures are not symmetric: too short types
+  a stray character into an answer, too long makes Escape feel late. See
+  `test/components/keys.test.ts` and `test/components/prompt.test.ts`.
+- **A CSI ends on a byte in 0x40-0x7e, and a byte that is neither that nor a
+  parameter has ended it.** Anything at all was taken as the terminator, so a
+  key pressed while a sequence was still arriving was eaten by it: `ESC [` then
+  Ctrl-C was one unknown sequence and a prompt that could not be escaped, and
+  `ESC [` then `ESC [ A` stopped at the second ESC and left `[A` to be typed
+  into the answer two characters at a time. Holding a half-arrived sequence is
+  what made that worth fixing rather than noting -- it widens the window from
+  "the same read" to "the same read or the next fifty milliseconds", and Ctrl-C
+  is the key most likely to be pressed in it. The sequence now stops in front of
+  such a byte and the byte is read as the key it is. The parameters widened to
+  ECMA-48's 0x30-0x3f at the same time, because only `[\d;]` was read: the `<`
+  a mouse report leads with was taken for the terminator, and `0;1;1M` was typed
+  a character at a time after it.
 
 ### Signals
 
