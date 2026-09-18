@@ -181,10 +181,12 @@ describe('the layout engine, over random trees', () => {
 			'min-height',
 			'min-width',
 			'order',
+			'overflow',
 			'padding',
 			'percent',
 			'position',
 			'text',
+			'z-index',
 		]) {
 			expect(seen.has(property), `generated no ${property}`).toBe(true);
 		}

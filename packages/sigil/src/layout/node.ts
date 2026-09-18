@@ -18,6 +18,17 @@ export interface LayoutNode {
 	 */
 	children?: readonly LayoutNode[];
 	/**
+	 * How far this node's content is scrolled, for a box that clips.
+	 *
+	 * Read here rather than applied by whoever draws, because a scrolled child's
+	 * box has to *be* where it is drawn: everything above matches a box to an
+	 * element -- paint, and the hit testing input will want -- and a second offset
+	 * applied later would make `box` a position nothing is at. Only read on a box
+	 * whose `overflow` clips, since scrolling what is not clipped moves content
+	 * out from under nothing.
+	 */
+	scroll?: { x: number; y: number };
+	/**
 	 * Measures content that is not laid out from children -- text, almost always.
 	 *
 	 * Called with the width available, because wrapping makes height a function

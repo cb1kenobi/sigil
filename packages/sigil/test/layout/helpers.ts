@@ -172,6 +172,26 @@ function isOffset(node: LayoutResult, content: Box): boolean {
 }
 
 /**
+ * Whether a box was placed somewhere the flow does not answer for.
+ *
+ * An out-of-flow box is placed against a containing block that may be any
+ * ancestor, or the canvas -- so landing on a sibling and leaving the parent are
+ * what it is *for*, exactly as they are for a box the insets moved. Unlike that
+ * one this is keyed on the keyword rather than on having moved, because an
+ * `absolute` box with no insets at all is still out of flow: it is at its static
+ * position by coincidence rather than by the flow having put it there, and the
+ * next thing laid out beside it is not its sibling in any sense a check can use.
+ *
+ * @param node - The laid-out node.
+ * @param content - The containing block it was placed in.
+ * @returns Whether the flow is answerable for where it is.
+ */
+function unplaced(node: LayoutResult, content: Box): boolean {
+	const { position } = node.node.style;
+	return position === 'absolute' || position === 'fixed' || isOffset(node, content);
+}
+
+/**
  * Whether a container's `justify-content` leaves its items against each other.
  *
  * These three put all the free space at one end or split it between the two, so
@@ -228,7 +248,14 @@ function checkPacking(node: LayoutResult): void {
 		return length.type === 'auto' ? undefined : (resolve(length, node.content.width) ?? 0);
 	};
 
-	const visible = node.children.filter((child) => child.node.style.display !== 'none');
+	// out of flow is out of the packing rule as well: it took no space, so the
+	// gap between the two boxes either side of it is the gap between *them*
+	const visible = node.children.filter(
+		(child) =>
+			child.node.style.display !== 'none' &&
+			child.node.style.position !== 'absolute' &&
+			child.node.style.position !== 'fixed'
+	);
 
 	// placement order, which `order` and a reversed direction both change
 	const ordered = [...visible].sort((a, b) => a.node.style.order - b.node.style.order);
@@ -303,7 +330,7 @@ export function checkInvariants(result: LayoutResult, opts: { overflow?: boolean
 		const line: LayoutResult[] = [];
 
 		for (const child of node.children) {
-			const offset = isOffset(child, node.content);
+			const offset = unplaced(child, node.content);
 
 			// a box with no area paints nothing, so where it sits cannot be wrong.
 			// A gap still advances the cursor in a container with no room, which
@@ -326,7 +353,7 @@ export function checkInvariants(result: LayoutResult, opts: { overflow?: boolean
 			}
 
 			for (const sibling of line) {
-				if (offset || isOffset(sibling, node.content)) {
+				if (offset || unplaced(sibling, node.content)) {
 					continue;
 				}
 				const apart =

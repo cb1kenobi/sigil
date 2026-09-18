@@ -780,19 +780,21 @@ describe('the properties that hold a colour', () => {
 	});
 });
 
-describe('position: absolute', () => {
-	it('should be refused rather than parsed and ignored', () => {
-		// there is no out-of-flow engine, so `absolute` used to parse, mark layout
-		// dirty, and then place the box exactly where the flow would have. The
-		// first release that took it out of flow would have changed what every
-		// stylesheet written against it meant
-		expect(() => declare({ position: 'absolute' })).toThrow(StyleError);
-		expect(() => parseDeclaration('position', ' ABSOLUTE ')).toThrow(/not implemented/);
+describe('position', () => {
+	it('should take every keyword the engine honours', () => {
+		// `absolute` was refused for as long as there was no out-of-flow engine,
+		// on the rule that a keyword which parses and does nothing is worse than
+		// one that does not exist. The same rule admits it now that there is one,
+		// along with `fixed`, whose containing block is the canvas
+		expect(declare({ position: 'static' }).position).toBe('static');
+		expect(declare({ position: 'relative' }).position).toBe('relative');
+		expect(declare({ position: 'absolute' }).position).toBe('absolute');
+		expect(declare({ position: 'fixed' }).position).toBe('fixed');
+		expect(parseDeclaration('position', ' ABSOLUTE ')).toEqual([['position', 'absolute']]);
 	});
 
-	it('should leave the keywords the engine does honour alone', () => {
-		expect(declare({ position: 'relative' }).position).toBe('relative');
-		expect(declare({ position: 'static' }).position).toBe('static');
+	it('should still refuse a keyword it does not have', () => {
+		expect(() => declare({ position: 'sticky' })).toThrow(StyleError);
 	});
 
 	it('should still take an inset on a static box', () => {

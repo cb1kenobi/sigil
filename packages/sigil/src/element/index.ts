@@ -169,6 +169,17 @@ export class Element implements LayoutNode {
 	/** The area inside padding and border, which is where children were placed. */
 	content: Box | undefined;
 
+	/**
+	 * How far this element's content is scrolled, which the layout engine reads.
+	 *
+	 * Only honoured on a box that clips, since scrolling what is not clipped moves
+	 * content out from under nothing. A scrollbar is a component drawing a column
+	 * of box-drawing characters rather than anything here: the layout knows how
+	 * far it has been scrolled and how tall its content is, and what to draw about
+	 * that is a decision with a dozen answers.
+	 */
+	scroll: { x: number; y: number } | undefined;
+
 	#children: Element[] = [];
 	#parent: Element | undefined;
 	#tree: TreeImpl | undefined;
@@ -448,6 +459,28 @@ export class Element implements LayoutNode {
 	/** Says the painted content changed with no consequence for its size. */
 	invalidatePaint(): void {
 		this.#mark('paint');
+	}
+
+	/**
+	 * Scrolls this element's content.
+	 *
+	 * Marks layout rather than paint: the boxes move, and a box is what everything
+	 * above matches to an element -- paint, and the hit testing input will want.
+	 * A scroll that only repainted would leave every descendant claiming a
+	 * position it is no longer drawn at.
+	 *
+	 * @param x - Cells scrolled right.
+	 * @param y - Cells scrolled down.
+	 * @returns This element.
+	 */
+	scrollTo(x: number, y: number): this {
+		const next = { x: Math.max(0, Math.trunc(x)), y: Math.max(0, Math.trunc(y)) };
+		if (this.scroll?.x === next.x && this.scroll?.y === next.y) {
+			return this;
+		}
+		this.scroll = next;
+		this.#mark('layout');
+		return this;
 	}
 
 	/** Says a `raw` element's content changed, so its measurement is stale. */

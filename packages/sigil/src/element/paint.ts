@@ -5,14 +5,18 @@
  * element that earned it. Paint walks the result in document order and draws
  * backgrounds, borders, text, and whatever a `raw` element draws for itself.
  *
- * What is deliberately not here: clipping, `overflow`, and `z-index`, which are
- * SIG-64's. Paint order is document order, and a box that overflows its parent
- * is drawn where the layout put it -- which is what `checkInvariants()` allows
- * and what the layout engine already documents itself as producing.
+ * Paint order is `z-index` then document order, and a box whose `overflow` is not
+ * `visible` clips what its descendants draw to its padding box.
  */
 
 import { ATTR, DEFAULT_COLOR, type Painter, type Style as CellStyle } from '../canvas/index.js';
-import { type Box, type LayoutOptions, type LayoutResult, layout } from '../layout/index.js';
+import {
+	borderWidth,
+	type Box,
+	type LayoutOptions,
+	type LayoutResult,
+	layout,
+} from '../layout/index.js';
 import type { Style } from '../style/index.js';
 import { stringWidth } from '../width/index.js';
 import { wrap } from '../wrap/index.js';
@@ -172,7 +176,7 @@ function paintText(painter: Painter, element: Element, area: Box, cell: CellStyl
  * @param painter - The painter to draw through.
  */
 export function paint(root: Element, painter: Painter): void {
-	const walk = (element: Element): void => {
+	const walk = (element: Element, into: Painter): void => {
 		const area = element.box;
 		if (!area || element.style.display === 'none') {
 			return;
@@ -187,23 +191,80 @@ export function paint(root: Element, painter: Painter): void {
 		// is CSS, and it is the only reason this is a skip rather than a return
 		if (style.visibility !== 'hidden') {
 			if (style.backgroundColor !== DEFAULT_COLOR) {
-				painter.fill(area.x, area.y, area.width, area.height, cell);
+				into.fill(area.x, area.y, area.width, area.height, cell);
 			}
 
-			paintBorder(painter, area, style, cell);
+			paintBorder(into, area, style, cell);
 
 			const inner = element.content ?? area;
 			if (element.type === 'text') {
-				paintText(painter, element, inner, cell);
+				paintText(into, element, inner, cell);
 			} else if (element.type === 'raw') {
-				element.rawPaint?.(painter, inner, element);
+				element.rawPaint?.(into, inner, element);
 			}
 		}
 
-		for (const child of element.children) {
-			walk(child);
+		if (element.children.length === 0) {
+			return;
+		}
+
+		// what a box clips is what its descendants draw, never its own border: the
+		// border *is* the edge, and a box that clipped itself would erase the frame
+		// it is drawing. The padding box is what CSS clips to, which is the border
+		// box with the border taken off
+		const border = borderWidth(style);
+		const paintChildren = (target: Painter): void => {
+			for (const child of ordered(element)) {
+				walk(child, target);
+			}
+		};
+
+		if (style.overflow === 'visible') {
+			paintChildren(into);
+		} else {
+			into.clip(
+				{
+					height: Math.max(0, area.height - border * 2),
+					width: Math.max(0, area.width - border * 2),
+					x: area.x + border,
+					y: area.y + border,
+				},
+				paintChildren
+			);
 		}
 	};
 
-	walk(root);
+	walk(root, painter);
+}
+
+/**
+ * A box's children in the order they are painted.
+ *
+ * `z-index` then document order, which is CSS's rule for flex items -- and every
+ * child here is one, since `display: flex` is the initial value and the only
+ * other one is `none`. So the property applies to all of them rather than to
+ * positioned boxes alone, which is both simpler to say and what CSS says for
+ * this layout mode.
+ *
+ * Sorted stably, so children that share a `z-index` keep the order they were
+ * written in: the ordering is a way to lift one box over another, not a way to
+ * shuffle everything that did not ask.
+ *
+ * What this does *not* do is let a descendant escape its ancestor. A child with a
+ * non-zero `z-index` is painted as a unit -- its own subtree is ordered inside
+ * it and cannot reach out past its siblings -- which is a stacking context by
+ * another name, and it is what stops `z-index` becoming a global free-for-all
+ * that every component fights over with bigger integers.
+ *
+ * @param element - The parent.
+ * @returns Its children, in paint order.
+ */
+function ordered(element: Element): readonly Element[] {
+	const children = element.children;
+	// the common case is that nobody asked, and sorting a few hundred children
+	// per frame to discover that is work a frame does not need
+	if (!children.some((child) => child.style.zIndex !== 0)) {
+		return children;
+	}
+	return [...children].sort((a, b) => a.style.zIndex - b.style.zIndex);
 }

@@ -3,6 +3,21 @@ import { graphemes, graphemeWidth } from '../width/index.js';
 import { DEFAULT_STYLE, type Style, StyleTable } from './style.js';
 
 /**
+ * A rectangle of cells, which is all a clip is.
+ *
+ * Four numbers of its own rather than the layout engine's `Box`: the canvas sits
+ * below layout and does not know what a laid-out box is, and a type-only import
+ * would still be this module pointing at that one. The shapes are identical and
+ * that is a coincidence of arithmetic rather than a relationship.
+ */
+export interface Clip {
+	height: number;
+	width: number;
+	x: number;
+	y: number;
+}
+
+/**
  * A grid of cells, addressed by row and column.
  *
  * A cell holds one grapheme cluster and a style index. A cluster two columns
@@ -61,6 +76,8 @@ export class CellBuffer {
 	#styles: Int32Array;
 	#width: number;
 	#height: number;
+	/** What may be painted, when something has narrowed it. */
+	#clip: Clip | undefined;
 
 	constructor(width: number, height: number) {
 		this.#width = Math.max(0, Math.trunc(width));
@@ -105,17 +122,45 @@ export class CellBuffer {
 	}
 
 	/**
-	 * Whether a coordinate is on the grid.
+	 * Whether a coordinate is on the grid, and inside the clip if there is one.
+	 *
+	 * The clip is the grid's rather than the painter's because this is where a
+	 * wide cluster is refused its second cell: the rule that half a glyph is
+	 * worse than none was already written here for the grid's own right edge, and
+	 * a clip edge is the same edge one column in. Asking it anywhere else would be
+	 * the same rule said twice, and the two would come to disagree.
 	 *
 	 * @param x - The column.
 	 * @param y - The row.
 	 * @returns Whether it can be addressed.
 	 */
 	inside(x: number, y: number): boolean {
-		return x >= 0 && y >= 0 && x < this.#width && y < this.#height;
+		if (x < 0 || y < 0 || x >= this.#width || y >= this.#height) {
+			return false;
+		}
+		const clip = this.#clip;
+		return (
+			!clip || (x >= clip.x && y >= clip.y && x < clip.x + clip.width && y < clip.y + clip.height)
+		);
 	}
 
-	/** The index of a cell, or `-1` when it is off the grid. */
+	/**
+	 * Restricts what can be painted to a rectangle, and says what it was before.
+	 *
+	 * Nothing outside is written -- not refused loudly, simply not painted, which
+	 * is what `overflow: hidden` means and what every caller already handles,
+	 * since a cell off the grid has always answered the same way.
+	 *
+	 * @param box - The rectangle, or `undefined` for the whole grid.
+	 * @returns The clip that was in effect, so a caller can put it back.
+	 */
+	clipTo(box: Clip | undefined): Clip | undefined {
+		const previous = this.#clip;
+		this.#clip = box;
+		return previous;
+	}
+
+	/** The index of a cell, or `-1` when it is off the grid or outside the clip. */
 	#at(x: number, y: number): number {
 		return this.inside(x, y) ? y * this.#width + x : -1;
 	}
@@ -221,9 +266,11 @@ export class CellBuffer {
 			return 0;
 		}
 
-		if (width === 2 && x + 1 >= this.#width) {
-			// no room for the second half. Half a wide glyph is worse than none, so
-			// a blank takes the column and the caller's clipping decides the rest
+		if (width === 2 && !this.inside(x + 1, y)) {
+			// no room for the second half, whether that is the grid's edge or a clip
+			// one column in. Half a wide glyph is worse than none, so a blank takes
+			// the column -- which is the whole of what "clipping happens in cell
+			// terms" asks for, and is why the clip lives down here
 			this.#breakCluster(x, y, styleIndex);
 			this.#chars[index] = BLANK;
 			this.#styles[index] = styleIndex;
@@ -453,4 +500,47 @@ export class Painter {
 	): void {
 		this.#buffer.fill(x, y, width, height, cluster, this.#styles.intern(style));
 	}
+
+	/**
+	 * Draws with everything outside a rectangle left alone.
+	 *
+	 * Intersected with whatever clip is already in effect rather than replacing
+	 * it, because a clipping box inside another one cannot paint where its parent
+	 * could not: nesting is what `overflow: hidden` on a panel inside a scrolling
+	 * pane means, and a clip that replaced would let the inner one paint back out
+	 * over the outer one's edge.
+	 *
+	 * @param box - The rectangle to draw inside.
+	 * @param draw - What to draw.
+	 */
+	clip(box: Clip, draw: (painter: Painter) => void): void {
+		const previous = this.#buffer.clipTo(undefined);
+		this.#buffer.clipTo(intersect(previous, box));
+		try {
+			draw(this);
+		} finally {
+			this.#buffer.clipTo(previous);
+		}
+	}
+}
+
+/**
+ * The rectangle two clips both allow.
+ *
+ * @param outer - The clip already in effect, if any.
+ * @param inner - The one being added.
+ * @returns The overlap, which may be empty.
+ */
+function intersect(outer: Clip | undefined, inner: Clip): Clip {
+	if (!outer) {
+		return inner;
+	}
+	const x = Math.max(outer.x, inner.x);
+	const y = Math.max(outer.y, inner.y);
+	return {
+		height: Math.max(0, Math.min(outer.y + outer.height, inner.y + inner.height) - y),
+		width: Math.max(0, Math.min(outer.x + outer.width, inner.x + inner.width) - x),
+		x,
+		y,
+	};
 }
