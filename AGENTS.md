@@ -39,6 +39,7 @@ Paths below are inside `packages/sigil/` unless noted.
 | `src/terminal/`          | Terminal wrapper, live region, sequences             |
 | `src/components/`        | Spinner, progress, table, prompts, key decoding      |
 | `src/signals/`           | The reactive graph: state, computed, watcher, effect |
+| `src/renderer/`          | Components, the owner tree, control flow, the frame  |
 | `src/canvas/`            | Cell buffer, style interning, paint diff, sub-cell   |
 | `src/style/`             | Properties, values, selectors, cascade, degradation  |
 | `src/layout/`            | The flexbox subset, over whole cells                 |
@@ -1442,19 +1443,16 @@ stylesheet rather than anything the runtime knows about.
   Not built yet, decided now: marking style dirty every frame drags the whole
   cascade behind a 60fps animation, which is the one workload where the naive
   re-match above stops being free.
-- **What is deliberately not here: the signal wiring.** An `effect()` per
-  reactive binding is the renderer's, and building it now would be an
-  architecture guess with nothing to check it against. `Restyler` takes marks
-  from whatever calls it. Nothing in `src/` calls `touchClasses()`,
-  `touchProps()` or `touchChildren()`, so the join between what the tree recorded
-  and what the restyler re-resolves does not exist yet either -- an app keeps a
-  `Restyler` across frames and gets one that re-resolves _nothing_ after the
-  first, which is silent: the state really does change, the selector really would
-  match, and the frame is simply never asked. `demos/element/03-focus.js` is what
-  found it -- Tab moved the focus ring and the `:focus` highlight stayed where it
-  started -- and it writes the bridge out by hand, which is what every app has to
-  do until SIG-67 owns it. Worth knowing before concluding a selector is broken:
-  resolve with a fresh `Restyler` to tell the two apart.
+- **The signal wiring is the renderer's, and it is now written.** `Restyler`
+  still takes marks from whatever calls it -- that seam did not move -- and
+  `render()` is what calls it, draining `Tree.take()` into `touchClasses()`,
+  `touchProps()` and `touchChildren()` once per frame. Before it existed, an app
+  that kept a `Restyler` across frames got one that re-resolved _nothing_ after
+  the first, silently: the state really did change, the selector really would
+  match, and the frame was never asked. `demos/element/03-focus.js` is what found
+  it -- Tab moved the focus ring and the `:focus` highlight stayed where it
+  started -- and it still writes the bridge out by hand, because it predates the
+  renderer and demonstrates the layer below it.
 
 ### Canvas
 
@@ -1850,6 +1848,128 @@ stylesheet rather than anything the runtime knows about.
   either having to become the other. The Kitty keyboard protocol is the same
   shape of answer, opt-in by query, and worth having the day something needs a
   key the legacy encoding cannot spell.
+
+### The renderer
+
+- **A component body runs once, and there is no re-render.** A component is a
+  function of props that builds elements; what is reactive about what it built
+  are the `createEffect()`s inside it, which write to the node they made. No
+  virtual tree, no diff, no reconciler -- a signal change runs the one effect
+  that reads it and touches the one node it wrote, and the frame that follows
+  restyles, lays out and paints whatever that disturbed. This is the Solid model
+  and it is why signals came first. The tax is that control flow has to be
+  explicit, which is the entry below.
+- **The owner tree is what unmounting means.** Something has to know what a
+  component made, because a long-running CLI that does not leaks a watcher per
+  mount and nothing above can see them to clean up. So every body runs under an
+  owner: `createEffect()` registers with it, `onCleanup()` adds to it, context is
+  looked up along it, and disposing it disposes its children first and then its
+  own cleanups in reverse -- the order things were built in, undone. Every
+  cleanup runs even when one throws, for the reason the signals layer already
+  records: what a teardown that stopped half way leaves behind is a subscription
+  nobody can reach to cancel. A caller that asked for the disposal gets the
+  throw; an unmount the renderer did on its own reports instead.
+- **`runWithOwner()` establishes a fresh ownership scope, at both levels, and
+  three things had to be put aside for that to be true.** The owner, obviously.
+  Then `runCleanups`, or an `onCleanup()` inside it goes to the _effect run_ that
+  is on the stack rather than to the owner being borrowed -- which made `For`
+  tear down every row at the end of every reconcile, rows that had not gone
+  anywhere included. Then the signals layer's own parentage, which is the entry
+  below. All three were found by `For` rather than reasoned out, and they are one
+  rule said three times: what runs here belongs to this owner.
+- **`unowned()` is the ownership twin of `untrack()`, and the renderer is why it
+  exists.** An effect created while another effect's body runs is a child of it
+  and dies when that body runs again -- which is what stops a component leaking
+  an effect per run, and is exactly wrong where something else already owns the
+  lifetime. `For`'s reconcile _is_ an effect body, so the implicit parentage
+  disposed the effects of every row it had built, and a row that merely moved
+  went dead: it kept the text it was last built with and stopped following its
+  own state, while looking perfectly alive. Nothing leaks by opting out, because
+  the caller opting out is the one that owns the branch and disposes it. See
+  `test/signals/effect.test.ts`.
+- **`onMount` fires after a frame, not at the end of the body.** The useful thing
+  to do there is read what the component came out as, and `element.box` has no
+  answer until something has laid it out -- so a callback that ran at the end of
+  the body could only ever ask questions with no answers. It makes the promise
+  the same for a component mounted by the first frame and one a `Show` revealed
+  forty frames later. Under a bare `createRoot()` nothing drains the queue and
+  the callback never fires, which is the honest answer rather than running it
+  early against a tree that has no boxes.
+- **Control flow is components, and they are the runtime primitive.** An `if` in
+  a body runs once and a `.map()` builds the list it saw, so a conditional and a
+  list have to be `Show` and `For` -- a component is the only thing that can own
+  a branch and dispose it. A template compiler emits calls to these rather than
+  growing a second way of saying it, so there is one implementation of what
+  mounting and unmounting a branch means. Both return a `box`, because a
+  component produces exactly one node and this layer has no fragment: that
+  wrapper is a flex item and it lays out, which is a real cost, so both take
+  `props` and the layout the branch would have had goes there. Getting it wrong
+  is visible immediately -- a `For` whose rows should stack writes
+  `props: { 'flex-direction': 'column' }` on the `For`, and putting it on the box
+  _around_ the `For` puts every row on one line.
+- **`Show` disposes its branch rather than hiding it, and rebuilds only when
+  presence changed.** A hidden branch is still a branch and its effects still
+  run, so a thousand rows behind a closed disclosure cost a thousand rows of
+  reactivity; hiding is `visibility` and a different question. Rebuilding on
+  every change to what `when` returned rather than on the change in _presence_
+  would tear the branch down and build it again on every tick of a counter,
+  losing whatever state it held -- so what the branch is handed is read untracked.
+- **`For` keys by the item, and an index is an accessor.** Identity rather than
+  position, because position keying rebuilds every row after the first change,
+  which in a terminal moves the focus ring out from under whoever was typing. A
+  row that moved is the same row, so telling it where it now sits has to be a
+  signal it reads rather than a rebuild -- the rebuild would throw away the thing
+  keying exists to keep. An item that appears twice is two rows, so the
+  bookkeeping is a queue per key: two equal primitives in a list are a list with
+  two entries in it, not a bug to refuse.
+- **Nothing dirty means no frame, and no frame means no timer.** The scheduler is
+  asked for a frame by a signal write or by a tree mutation, sets one timer, and
+  a frame that finds nothing to do sets no other -- so a CLI that prints one line
+  never starts a loop. Frames coalesce to `frameMs`, thirty a second, because
+  pacing matters more here than on the web: every frame is bytes down a pipe that
+  may be a network, and a spinner, a progress bar and a clock all quantize slower
+  than that anyway.
+- **A tree mutation asks for a frame, which is why `createTree()` takes a
+  callback.** Not every change comes from a signal: a key handler that calls
+  `setText()` directly is the ordinary case, and without this it is invisible
+  until something else happens to draw. The tree already recorded it; the
+  callback is only what turns recording into asking.
+- **A structural change forces layout, and the restyler cannot say so.** It
+  answers for what a _style_ change implies and for nothing else, while two other
+  things move boxes: a text that was edited or a `raw` that re-measured, which is
+  `marks.layout`, and a child added, removed or moved, which is `marks.children`.
+  Found by a `For` that reordered its rows correctly and drew them in the old
+  order -- the elements were where they should be and the frame had nothing
+  telling it to lay out again.
+- **A media query is asked about the screen, not about the canvas.** The
+  difference matters in exactly one case and it is the one that would otherwise
+  be a loop: an auto-height canvas is as tall as its content, so resolving
+  `@media (min-height: 10)` against it lets a style decide a height that decides
+  that style. "How much screen is there" has an answer nothing in the frame can
+  move. Read again on resize, along with the full re-match a resize already
+  forces.
+- **An auto-height canvas is measured, not laid out and read back.** That was the
+  first answer and it is wrong in the way that matters: a root with no declared
+  height fills whatever it is given, so `box.height` after a pass at the screen's
+  height _is_ the screen's height -- two rows of content reserved twenty-three
+  rows of terminal. `measureNode()` asks what a node would want if it could have
+  whatever it wanted, which is the question, and it replaced a two-pass arrange
+  that was both slower and wrong.
+- **A failure puts the terminal back before it says why, and stops.** A CLI that
+  dies on the alternate buffer with the cursor hidden has eaten the user's shell,
+  and a message printed into a half-drawn frame is unreadable anyway -- so the
+  order is teardown, `backend.stop()`, `Terminal.restore()`, and only then the
+  error handler. Stopping is the other half: a renderer that reported and carried
+  on would throw the same frame away thirty times a second, so the first failure
+  ends the loop and the report happens once.
+- **What is deliberately deferred, and why it is not an oversight.** Whether
+  `main()` grows a way for a command's `run()` to return a view is the parser's
+  surface rather than the renderer's, and it wants the component rewrite (SIG-76)
+  to say what a view is first. Async components are the harder one: a prompt is
+  inherently async and `select()` returns a promise, so "render a tree" and
+  "await an answer" have to be reconciled -- and doing it before anything has been
+  ported would be a guess with nothing to check it against. `runWithOwner()` is
+  the seam either will use, which is why it is public now.
 
 ### Prompts and keys
 

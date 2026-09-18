@@ -46,7 +46,7 @@
 import type { Painter } from '../canvas/index.js';
 import type { KeyHandler } from '../input/index.js';
 import type { Box, LayoutNode, Measurement } from '../layout/index.js';
-import type { PropValues, Style, StyleState } from '../style/index.js';
+import type { PropValues, Style, StyleState, Update } from '../style/index.js';
 import { Cascade, declare, Restyler } from '../style/index.js';
 import { stringWidth } from '../width/index.js';
 import { wrap } from '../wrap/index.js';
@@ -705,15 +705,18 @@ export class Element implements LayoutNode {
 
 class TreeImpl implements Tree {
 	marks: Marks = emptyMarks();
+	readonly #onMark: (() => void) | undefined;
 	readonly root: Element;
 
-	constructor(root: Element) {
+	constructor(root: Element, onMark?: () => void) {
+		this.#onMark = onMark;
 		this.root = root;
 		Element.attach(root, this);
 	}
 
 	mark(kind: keyof Marks, element: Element): void {
 		this.marks[kind].add(element);
+		this.#onMark?.();
 	}
 
 	take(): Marks {
@@ -771,8 +774,8 @@ export function raw(options: RawOptions, props: ElementProps = {}): Element {
  * @param root - The root element.
  * @returns The tree.
  */
-export function createTree(root: Element): Tree {
-	return new TreeImpl(root);
+export function createTree(root: Element, onMark?: () => void): Tree {
+	return new TreeImpl(root, onMark);
 }
 
 export { arrange, cellStyle, paint } from './paint.js';
@@ -797,10 +800,30 @@ export { arrange, cellStyle, paint } from './paint.js';
  */
 export function resolveStyles(root: Element, restyler?: Restyler): Restyler {
 	const it = restyler ?? new Restyler(new Cascade([]));
-	it.update(root);
+	settleStyles(root, it);
+	return it;
+}
+
+/**
+ * The same walk, handing back what the restyler worked out rather than the
+ * restyler.
+ *
+ * `resolveStyles()` is the spelling for a caller that resolves and draws; a
+ * frame loop needs the other half of the answer -- which elements moved and
+ * which merely need repainting -- and recovering that by diffing styles it has
+ * just been handed would be the restyler's job done twice, to a worse answer.
+ * One walk, two callers, so the two can never come to disagree about the order
+ * it happens in.
+ *
+ * @param root - The root element.
+ * @param restyler - The restyler holding the sheets.
+ * @returns What needs laying out and what needs painting.
+ */
+export function settleStyles(root: Element, restyler: Restyler): Update {
+	const update = restyler.update(root);
 
 	const walk = (element: Element): void => {
-		const style = it.styleOf(element);
+		const style = restyler.styleOf(element);
 		if (style) {
 			element.style = style;
 		}
@@ -810,5 +833,5 @@ export function resolveStyles(root: Element, restyler?: Restyler): Restyler {
 	};
 
 	walk(root);
-	return it;
+	return update;
 }

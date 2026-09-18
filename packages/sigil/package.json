@@ -61,6 +61,10 @@
       "types": "./dist/paths.d.mts",
       "default": "./dist/paths.mjs"
     },
+    "./renderer": {
+      "types": "./dist/renderer.d.mts",
+      "default": "./dist/renderer.mjs"
+    },
     "./signals": {
       "types": "./dist/signals.d.mts",
       "default": "./dist/signals.mjs"
