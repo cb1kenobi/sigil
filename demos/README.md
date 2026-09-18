@@ -84,11 +84,13 @@ about it. Edit a sheet in the file and re-run it — that is what it is for.
 
 ## The canvas
 
-|                                                    |                                            |
-| -------------------------------------------------- | ------------------------------------------ |
-| [`canvas/01-sparkline.js`](canvas/01-sparkline.js) | A chart at 2x4 the resolution the grid has |
-| [`canvas/02-image.js`](canvas/02-image.js)         | A picture at two pixels per cell           |
-| [`canvas/03-links.js`](canvas/03-links.js)         | Text that is also a URL                    |
+|                                                      |                                            |
+| ---------------------------------------------------- | ------------------------------------------ |
+| [`canvas/01-sparkline.js`](canvas/01-sparkline.js)   | A chart at 2x4 the resolution the grid has |
+| [`canvas/02-image.js`](canvas/02-image.js)           | A picture at two pixels per cell           |
+| [`canvas/03-links.js`](canvas/03-links.js)           | Text that is also a URL                    |
+| [`canvas/04-inline.js`](canvas/04-inline.js)         | A canvas at the bottom of a scrolling log  |
+| [`canvas/05-fullscreen.js`](canvas/05-fullscreen.js) | The alternate screen, given back           |
 
 The first two draw with ordinary characters — braille patterns and half blocks —
 so they need nothing from the terminal but the font. Each prints what the frame
@@ -97,6 +99,8 @@ cost in bytes, and the two answers are very different:
 ```sh
 node demos/canvas/01-sparkline.js   # a plot: cheap to change
 node demos/canvas/02-image.js       # a picture: every cell its own two colours
+node demos/canvas/04-inline.js      # the log keeps scrolling above the frame
+node demos/canvas/05-fullscreen.js  # Ctrl-C it: the terminal comes back anyway
 ```
 
 The third is worth running in a terminal that implements OSC 8 — Ctrl-click or

@@ -17,7 +17,15 @@
  * Imports `dist/` rather than `src/` deliberately: what ships is what should be
  * probed, and the bundler is one more thing between the source and the screen.
  */
-import { ATTR, createCanvas, palette, rgb } from '../dist/canvas.mjs';
+import {
+	ATTR,
+	createCanvas,
+	createFullscreenCanvas,
+	createInlineCanvas,
+	palette,
+	rgb,
+} from '../dist/canvas.mjs';
+import { terminal } from '../dist/terminal.mjs';
 
 const WIDTH = 40;
 
@@ -183,6 +191,80 @@ export const INCREMENTAL = {
 	},
 };
 
+/**
+ * The backends, which claim things about the screen rather than about a rect.
+ *
+ * `test/canvas/backend.test.ts` replays them against a screen model with
+ * scrollback and an alternate buffer, and that model has the same gap every
+ * model here has: it agrees with the implementation by construction. These are
+ * the three claims a terminal is allowed to disagree with.
+ */
+export const BACKENDS = [
+	{
+		title: 'inline canvas at the bottom of the screen',
+		expect:
+			'the log lines above stay put, and the two-row frame repaints in place three times without leaving copies behind',
+		async run(pause) {
+			const backend = createInlineCanvas({ height: 2 });
+			for (const n of [1, 2, 3]) {
+				backend.render((p) => {
+					p.text(0, 0, `frame ${n} of 3`);
+					p.text(0, 1, '='.repeat(n * 6));
+				});
+				await pause(400);
+			}
+			backend.write('a line written above the region');
+			await pause(600);
+			backend.done();
+		},
+	},
+
+	{
+		title: 'inline canvas written to while it is drawing',
+		expect: 'each written line lands above the frame, in order, with the frame still at the bottom',
+		async run(pause) {
+			const backend = createInlineCanvas({ height: 1 });
+			for (const n of [1, 2, 3]) {
+				backend.render((p) => p.text(0, 0, `working (${n})`));
+				backend.write(`line ${n}`);
+				await pause(400);
+			}
+			backend.stop();
+		},
+	},
+
+	{
+		title: 'alternate screen',
+		expect:
+			'the screen switches to a blank one, then comes back with this log exactly as it was -- scrollback included, and the cursor visible',
+		async run(pause) {
+			const backend = createFullscreenCanvas();
+			backend.render((p) => {
+				p.text(0, 0, 'the alternate screen');
+				p.text(0, 2, 'your log is not here, and comes back untouched');
+			});
+			backend.write('this was written while full screen');
+			await pause(1500);
+			backend.done();
+		},
+	},
+
+	{
+		title: 'line endings in raw mode',
+		expect:
+			'the two lines below are flush left. Stair-stepped means ONLCR is off and a bare \\n does not reach column zero',
+		async run(pause) {
+			terminal.setRawMode(true);
+			try {
+				process.stdout.write('first line\r\nsecond line\r\n');
+				await pause(800);
+			} finally {
+				terminal.setRawMode(false);
+			}
+		},
+	},
+];
+
 /** @returns {Promise<string>} The key pressed. */
 function key() {
 	return new Promise((resolve) => {
@@ -236,7 +318,28 @@ async function main() {
 			write(`\x1b[${height + 1}B\r\n\r\npress any key (q to quit)...`);
 			const k = await key();
 			if (k === 'q' || k === '\x03') {
-				break;
+				return;
+			}
+		}
+
+		const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+		for (const [i, p] of BACKENDS.entries()) {
+			write(CLEAR + HOME);
+			write(`[backend ${i + 1}/${BACKENDS.length}] ${p.title}\r\n`);
+			write(`expect: ${p.expect}\r\n\r\n`);
+			write('log line one\r\nlog line two\r\nlog line three\r\n');
+
+			// the backends hide the cursor themselves and put it back, so this one
+			// gets out of their way rather than holding it hidden across them
+			write(SHOW_CURSOR);
+			await p.run(pause);
+
+			write(`\r\npress any key (q to quit)...`);
+			const k = await key();
+			write(HIDE_CURSOR);
+			if (k === 'q' || k === '\x03') {
+				return;
 			}
 		}
 	} finally {

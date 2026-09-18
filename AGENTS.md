@@ -1505,6 +1505,72 @@ stylesheet rather than anything the runtime knows about.
   nothing asserted the cursor. Whether a terminal really defers, and what it
   really does with a three-column cluster, are the things neither can answer, and
   are `scripts/terminal-probe.mjs`'s.
+- **A backend is where the anchor lives, and an app picks it rather than a
+  component.** The canvas is a rect that does not know where it sits; the two
+  backends are what know. Inline is the last few rows with the log scrolling
+  above, which is what a prompt, a spinner and a progress bar all want; full
+  screen is the alternate buffer, for a dashboard or a viewer. A component that
+  unilaterally took the screen in the middle of a build log is the failure the
+  split exists to make impossible, which is why a backend is constructed by the
+  app and cannot be asked for from inside a spinner. They do not nest, and that
+  costs nothing to enforce: the live claim is already exclusive, so an inline
+  canvas inside a full-screen one is a second holder of a claim that has one.
+- **The inline backend reserves its rows with newlines before it paints
+  anything.** Downward movement is CUD, which stops at the bottom margin and
+  never scrolls -- so a canvas rendered with the cursor on the last row of the
+  screen would paint every one of its rows onto that line. `height - 1` newlines
+  scroll the log up to make the room, and the walk back up puts the cursor where
+  the diff expects to start. Everything after that is relative, because the
+  canvas's own row on the screen is not a number anything can learn: the log
+  above it moves.
+- **Anything that invalidates the screen throws the anchor away rather than
+  diffing against it.** A resize, a write above the region, an eviction: the
+  rows are given up and reserved again on the next present, which repaints in
+  full. After a resize the old frame's row count is not even a number any more --
+  it was written at the old width and the terminal rewrapped it wherever it
+  liked -- so a diff against it is a diff against a screen that no longer exists.
+  A canvas that _shrank_ leaves the rows it gave up blank behind it, which is a
+  cost paid where it is visible rather than by walking the log up to close a gap
+  nothing else can see.
+- **An inline canvas is the terminal's width unless it was given one.** A canvas
+  wider than the screen is one whose rows the terminal wraps, and a wrapped row
+  is an extra row the cursor arithmetic does not know about -- every erase and
+  every move after it is out by as many rows as wrapped. A width passed in is
+  kept and not followed, because a caller that named one is describing content
+  rather than a screen.
+- **What a backend writes ends its lines with CRLF.** A bare `\n` reaches column
+  zero only because the line discipline translates it, and ONLCR is off in raw
+  mode -- which is where a full-screen app and every prompt live. Untranslated,
+  the second line of anything written starts under the end of the first. Found by
+  the screen model rather than reasoned out: the model implements the strict
+  reading, which is the one a terminal in raw mode gives. The plain-text path a
+  pipe gets keeps a bare `\n`, because a carriage return in a log file is not a
+  line ending anybody asked for.
+- **Leaving the alternate screen is `Terminal.restore()`'s, not a backend's.** A
+  CLI that dies on the alternate buffer and never comes back has eaten the user's
+  terminal, and `restore()` is what already runs on a signal, on `exit`, and on
+  the way out of an uncaught throw -- so `enterAltScreen()` joins the cursor and
+  raw mode on that list rather than a backend writing the sequence and hoping to
+  get the chance to write the other one. It returns whether it was the call that
+  switched, exactly as `hideCursor()` does and for the same reason. `1049` rather
+  than `47`: it saves the cursor, switches, and clears in one sequence. The
+  screen goes back before the cursor is shown again, so a cursor hidden while the
+  alternate buffer was up is put back on the screen somebody is about to look at.
+- **A full-screen backend holds what is written to it and flushes it on the way
+  out.** There is no "above the region" on a screen with no scrollback, and the
+  buffer is thrown away wholesale when it is left -- so a line written there
+  would be read by nobody. Held rather than dropped, because a log line the app
+  thought it had written is worse than one that arrives late, and the main screen
+  is where its reader is. Unbounded on purpose: a cap that silently drops the
+  start of a log is its own trap.
+- **The backends are replayed against a screen, and it is not `FakeTerminal`.**
+  That model is canvas-relative -- every `apply()` starts from the canvas origin,
+  which is the only thing the diff's output claims to know about -- and a
+  backend's whole job is the part it assumes away. `test/canvas/screen.ts` has
+  rows that scroll off the top, a cursor that survives between frames, and an
+  alternate buffer to switch to, so what a test asserts is what the user would be
+  looking at. Two models rather than one shared one, for the reason the styler
+  and the wrapper keep separate SGR tables: each says what its own layer claims.
 - **No passthrough image protocols: Kitty, iTerm2 and Sixel are out.** Fidelity
   is a capability tier the way colour depth already is -- cells always, then
   sub-cell block and braille characters everywhere, and that is where it stops.
