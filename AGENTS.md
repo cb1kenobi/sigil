@@ -530,6 +530,38 @@ false` rethrows instead; a function replaces the handler.
   column layout from resolving heights against nothing.
 - **`min` wins over `max` where they conflict**, as in CSS, which is what stops a
   box collapsing below its content when a stylesheet says something impossible.
+- **A node's size is settled by whoever placed it, and `layoutNode()` never
+  clamps it again.** `makeItem()` resolves a child's `min` and `max` against the
+  containing block -- the parent's content box, which is what a percentage is
+  _of_ -- and the flexible resolution clamps to them; `layout()` does the same
+  for the root, whose containing block is the space it was given. Clamping a
+  second time on the way down read the same declarations with less to go on, in
+  two ways. A percentage resolved against the size just handed out, so a growing
+  item under `max-width: 50%` in a ten-wide row was clamped to five, and the five
+  was then read back as the base and clamped to three. And `min-height: auto`
+  resolved to no minimum at all, because that one lives in a measurement only
+  `makeItem()` takes -- so a `max` beat a minimum that is defined to beat it, and
+  a three-row text came back one row tall. Either way the box was smaller than
+  the hole its siblings' positions had already reserved, which is a gap nothing
+  declared and which containment cannot see: a shrunken box is still inside its
+  parent and still clear of its siblings. `checkInvariants()` checks the
+  observable half instead -- adjacent items on a packed line abut, so a box that
+  did not fill its hole moves its neighbour -- because the allocation itself is
+  not in the result, which leaves an only child and the last item on a line
+  uncovered.
+- **`measure()` has one argument doing two jobs, and the root's is left as it
+  was.** It reads the node's own `width` back off that argument -- which is how a
+  declared width reaches the measure pass at all -- and then wraps at whatever
+  that produced, so the number a percentage is _of_ and the number the box ends
+  up with cannot both be passed. Moving the root's clamp into `layout()` made it
+  tempting to measure at the clamped width, which is the one answer wrong twice
+  over: a root `width: 50%` under a `max-width` of eight, in forty columns,
+  resolved the `50%` against that eight and came back six rows tall inside a box
+  eight columns wide. So the base stays what it always was -- the width the
+  declaration resolved to, else the space the root was given -- and a root whose
+  `min` or `max` binds is still measured at a width it does not have. Fixing that
+  means `measure()` taking a used size as well, which is every caller, and is not
+  this rule's to do.
 
 ### Style
 
