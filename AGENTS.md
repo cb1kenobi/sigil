@@ -294,6 +294,25 @@ These look like bugs and are not. Each is intentional and covered by tests.
   `integer` and `boolean` are the two somebody actually types, and past the
   guard `transformValue()` does not know either name, so it handed back the raw
   string and a `type: 'integer'` option quietly produced `'8080'`.
+- **What ships carries no raw control character, because the minifier puts back
+  what the source was careful to avoid.** `src/ansi/codes.ts` builds `ESC` with
+  `String.fromCharCode(0x1b)` so that a raw control character never sits in
+  source, where it is invisible in an editor and in a diff -- and the minifier
+  constant-folds that straight back into a raw byte, which undoes the care
+  somewhere nobody was looking. A raw `ESC` in a shipped file is a sequence
+  waiting for something to print it, and Node prints the offending source line
+  on an uncaught error: a crash anywhere inside `style.mjs` wrote
+  `ESC ] 8 ; ; ${e}` to the user's terminal -- the hyperlink opener, with the
+  template literal unexpanded -- and every line after it, the stack trace
+  included, was inside a link nothing ever closed. Measured on a pty: three raw
+  `ESC` bytes and one OSC 8 executed, from a one-line script that only called
+  `rgb()` with a bad channel. A build step escapes every C0, `DEL` and C1
+  character to `\xNN`, which is the same string to JavaScript and inert to a
+  terminal, and `test/dist.test.ts` reads the bytes back -- a build that quietly
+  stops doing it looks exactly like one that does. `\t`, `\n` and `\r` are left
+  alone as the file's own formatting. This is the same rule the alternate screen
+  and the cursor already follow: a CLI that dies must not take the terminal with
+  it, and that has to hold for the crash as well as for the exit.
 - **The styler skips an extended color's own parameters.** In the semicolon
   form `38`, `48`, and `58` spread one color over the parameters after them, and
   `reopen()` read those as attributes: `38;2;255;0;0` carries a `0`, was taken
