@@ -7,6 +7,8 @@
       "inputs": ["src/**", "tsdown.config.ts", "tsconfig*.json", "package.json"],
       "outputs": ["dist/**"]
     },
+    "ncu": {},
+    "//#ncu:root": {},
     "type-check": {
       "dependsOn": ["^build"],
       "inputs": [

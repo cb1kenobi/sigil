@@ -22,14 +22,15 @@
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "lint": "oxlint",
-    "ncu": "ncu  -c 1d --",
+    "ncu": "turbo ncu ncu:root --",
+    "ncu:root": "ncu -c 1d",
     "test": "turbo run build --filter=@ttylabs/sigil --filter=@ttylabs/cli && vitest",
     "type-check": "turbo run type-check"
   },
   "devDependencies": {
     "@ttylabs/cli": "workspace:*",
     "@ttylabs/sigil": "workspace:*",
-    "@types/node": "26.5.1",
+    "@types/node": "26.6.1",
     "@vitest/coverage-v8": "5.0.1",
     "lefthook": "2.1.14",
     "oxfmt": "0.68.0",
