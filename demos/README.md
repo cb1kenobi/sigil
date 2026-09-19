@@ -73,12 +73,13 @@ NO_COLOR=1 node demos/components/06-ansi-and-wrap.js
 
 ## Style
 
-|                                              |                                            |
-| -------------------------------------------- | ------------------------------------------ |
-| [`style/01-cascade.js`](style/01-cascade.js) | Which declaration wins a property, and why |
+|                                              |                                                   |
+| -------------------------------------------- | ------------------------------------------------- |
+| [`style/01-cascade.js`](style/01-cascade.js) | Which declaration wins a property, and why        |
+| [`style/02-themes.js`](style/02-themes.js)   | Restyling the built-ins, which is what a theme is |
 
-There is no renderer yet, so this one prints its answers rather than drawing
-them. Each section is one contest between two declarations that both reach the
+`01-cascade.js` prints its answers rather than drawing them, because the contest
+is the point. Each section is one contest between two declarations that both reach the
 same property; the last section is what the parser refuses and what it says
 about it. Edit a sheet in the file and re-run it — that is what it is for.
 

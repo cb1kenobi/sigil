@@ -1,9 +1,12 @@
 /**
- * The two passes that put an element tree on screen: arrange, then paint.
+ * The three passes that put an element tree on screen: style, arrange, paint.
  *
- * Arrange runs the layout engine over the tree and writes each box back onto the
- * element that earned it. Paint walks the result in document order and draws
- * backgrounds, borders, text, and whatever a `raw` element draws for itself.
+ * Settling styles resolves the cascade over the tree and writes each element's
+ * resolved style back onto it. Arrange runs the layout engine and writes each box
+ * back onto the element that earned it. Paint walks the result in document order
+ * and draws backgrounds, borders, text, and whatever a `raw` element draws for
+ * itself. They live together because they are one sequence and because each is
+ * the precondition of the next.
  *
  * Paint order is `z-index` then document order, and a box whose `overflow` is not
  * `visible` clips what its descendants draw to its padding box.
@@ -17,9 +20,10 @@ import {
 	type LayoutResult,
 	layout,
 } from '../layout/index.js';
-import type { Style } from '../style/index.js';
+import type { Style, Update } from '../style/index.js';
+import { Cascade, Restyler } from '../style/index.js';
 import { stringWidth } from '../width/index.js';
-import { wrap } from '../wrap/index.js';
+import { truncate, wrap } from '../wrap/index.js';
 import type { Element } from './index.js';
 
 /**
@@ -106,6 +110,52 @@ export function arrange(root: Element, opts: LayoutOptions): LayoutResult {
 	return result;
 }
 
+/**
+ * How far an arranged tree actually reached, in both directions.
+ *
+ * `measureNode()` answers what a tree would ask for, and it is a guess in two
+ * ways. A row whose children flex is measured with each child offered the whole
+ * content box while placement hands each one a share, so a description that
+ * wraps to three lines in its share measures two lines tall in the room it was
+ * offered. And a box with a declared width reports that width however far its
+ * content overflows it, so a word wider than the column it is in is invisible to
+ * the measure and is cut off by whatever the measure sized. The layout itself is
+ * right -- `remeasureLine()` settles each item at the width flexing gave it, and
+ * an overflowing word keeps its own box -- so this asks the arranged tree rather
+ * than asking again for an estimate.
+ *
+ * Every descendant is walked rather than only the root's children, because a box
+ * that fits can hold one that does not: overflow is legitimate here, and the
+ * question is "how much room does the answer take" rather than "did anything
+ * escape". The root itself is skipped, since a root with no declared size fills
+ * whatever it was given and would report that back.
+ *
+ * @param result - What `arrange()` returned.
+ * @returns The last row and the last column any box reaches, as counts.
+ */
+export function arrangedExtent(result: LayoutResult): { height: number; width: number } {
+	let bottom = 0;
+	let right = 0;
+
+	const walk = (node: LayoutResult): void => {
+		bottom = Math.max(bottom, node.box.y + node.box.height);
+		right = Math.max(right, node.box.x + node.box.width);
+		for (const child of node.children) {
+			walk(child);
+		}
+	};
+
+	for (const child of result.children) {
+		walk(child);
+	}
+
+	// a tree with nothing in it is as big as it measured, which is the root's own
+	// box and the one case where reading it back is the answer
+	return result.children.length > 0
+		? { height: bottom, width: right }
+		: { height: result.box.height, width: result.box.width };
+}
+
 /** Draws a border around a box, if its style asks for one. */
 function paintBorder(painter: Painter, area: Box, style: Style, cell: CellStyle): void {
 	const chars = BORDERS[style.borderStyle];
@@ -145,13 +195,23 @@ function paintText(painter: Painter, element: Element, area: Box, cell: CellStyl
 			? content.split('\n')
 			: wrap(content, { width: area.width }).split('\n');
 
-	for (const [i, line] of lines.entries()) {
+	for (const [i, raw] of lines.entries()) {
 		if (i >= area.height) {
 			// the rows past the bottom of the box are not this pass's to invent a
-			// policy for: clipping is SIG-64's, and painting them would draw over
-			// whatever the layout put underneath
+			// policy for: clipping is the box's `overflow`, and painting them would
+			// draw over whatever the layout put underneath
 			break;
 		}
+
+		// a line wider than the box it was given is cut here rather than left to
+		// run off the edge, because `text-overflow` says how. It bites only where a
+		// line overflows, which for wrapped text never happens -- so in practice it
+		// is what `white-space: nowrap` costs, exactly as in CSS. Read off the text
+		// element's own style: the property does not inherit, so a container
+		// setting it does not silently truncate every descendant, and the box doing
+		// the clipping is this one
+		const line =
+			stringWidth(raw) > area.width ? truncate(raw, area.width, style.textOverflow) : raw;
 
 		const slack = Math.max(0, area.width - stringWidth(line));
 		const offset =
@@ -267,4 +327,60 @@ function ordered(element: Element): readonly Element[] {
 		return children;
 	}
 	return [...children].sort((a, b) => a.style.zIndex - b.style.zIndex);
+}
+
+/**
+ * Resolves a tree's styles and writes each one onto the element it belongs to.
+ *
+ * The wiring between the cascade and the tree, in one place, because it is the
+ * same three lines everywhere and getting them wrong is invisible: the walk has
+ * to be in document order, since a child's inherited values come from its
+ * parent's *resolved* style.
+ *
+ * With no cascade handed in it builds one over no stylesheets, which is not a
+ * second way of resolving a style but the degenerate case of the only one: props
+ * and inheritance, with nothing matched. That is what a tree with no stylesheet
+ * means, and it is why `box({ padding: '1' })` lays out padded without anybody
+ * having written a sheet.
+ *
+ * @param root - The root element.
+ * @param restyler - The restyler holding the sheets, if there are any.
+ * @returns The restyler, so a caller can keep it for the next frame.
+ */
+export function resolveStyles(root: Element, restyler?: Restyler): Restyler {
+	const it = restyler ?? new Restyler(new Cascade([]));
+	settleStyles(root, it);
+	return it;
+}
+
+/**
+ * The same walk, handing back what the restyler worked out rather than the
+ * restyler.
+ *
+ * `resolveStyles()` is the spelling for a caller that resolves and draws; a
+ * frame loop needs the other half of the answer -- which elements moved and
+ * which merely need repainting -- and recovering that by diffing styles it has
+ * just been handed would be the restyler's job done twice, to a worse answer.
+ * One walk, two callers, so the two can never come to disagree about the order
+ * it happens in.
+ *
+ * @param root - The root element.
+ * @param restyler - The restyler holding the sheets.
+ * @returns What needs laying out and what needs painting.
+ */
+export function settleStyles(root: Element, restyler: Restyler): Update {
+	const update = restyler.update(root);
+
+	const walk = (element: Element): void => {
+		const style = restyler.styleOf(element);
+		if (style) {
+			element.style = style;
+		}
+		for (const child of element.children) {
+			walk(child);
+		}
+	};
+
+	walk(root);
+	return update;
 }

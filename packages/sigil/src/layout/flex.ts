@@ -456,6 +456,17 @@ function measureUncached(node: LayoutNode, at: MeasureAt, cache: MeasureCache): 
 	let crossMax = 0;
 	let minMainTotal = 0;
 	let minCrossMax = 0;
+	/**
+	 * Whether the lines this container packs into are worth working out.
+	 *
+	 * A row only, because the main axis of a wrapping column is its height and
+	 * this function is never told one. Hoisted so that a container that does not
+	 * wrap -- which is almost all of them -- pays nothing for the basis and the
+	 * limit a packed line needs.
+	 */
+	const wrapping = style.flexWrap !== 'nowrap' && !axis.column && children.length > 1;
+	/** Each child's packed main size and its cross size, for a container that wraps. */
+	const sizes: { cross: number; main: number; order: number }[] = [];
 
 	for (const child of children) {
 		const childMargin = margins(child.style, childContaining);
@@ -511,11 +522,80 @@ function measureUncached(node: LayoutNode, at: MeasureAt, cache: MeasureCache): 
 		minMainTotal += minMain;
 		crossMax = Math.max(crossMax, crossSize, minCross);
 		minCrossMax = Math.max(minCrossMax, minCross);
+
+		if (wrapping) {
+			// a line is packed with `clamp(basis, min, max)` plus the margins, which
+			// is exactly what `makeItem()` hands `wrapIntoLines()`. Anything less
+			// puts an item on a line at a width it will never be placed at: a child
+			// with `flex-basis: 40` and three columns of content takes forty on the
+			// line it lands on, so packing it at three fits two where neither fits.
+			// Worked out inside the margins and then given them back, because a basis
+			// and a limit are border-box sizes while `mainSize` and `minMain` already
+			// carry them
+			const basisLength = child.style.flexBasis;
+			const basis =
+				basisLength.type === 'auto' || basisLength.type === 'none'
+					? undefined
+					: outerSize(child.style, resolve(basisLength, childContaining), childInset.main);
+			const maxMain = outerSize(
+				child.style,
+				resolve(child.style.maxWidth, childContaining),
+				childInset.main
+			);
+			// `declared ?? automatic`, which is what `makeItem()` reads -- and not the
+			// larger of the two, which is what the loop above needs for a container
+			// sizing itself. A `min-width: 0` on a word is a declaration that the
+			// automatic minimum does not get a say in, and taking the larger packed a
+			// long word at its own width where the placement shrinks it to the line
+			const declaredMin = outerSize(
+				child.style,
+				resolve(child.style.minWidth, childContaining),
+				childInset.main
+			);
+			const margin = extraH;
+			const packMin = declaredMin ?? measured.minWidth ?? 0;
+
+			sizes.push({
+				cross: Math.max(crossSize, minCross),
+				main: clamp(basis ?? mainSize - margin, packMin, maxMain) + margin,
+				// packed in the order it is *placed* in, which is what `order` moves:
+				// the same three children in two orders wrap into different lines
+				order: child.style.order,
+			});
+		}
 	}
 
 	const gaps = gapMain * Math.max(0, children.length - 1);
 	mainTotal += gaps;
 	minMainTotal += gaps;
+
+	// a container that wraps is not as long as its children laid end to end, and
+	// measuring it as though it were is the same defect `flex-wrap` was added to
+	// fix, one level up: the property is honoured when the line is packed and
+	// ignored when the box is sized, so every auto-sized wrapping box came out one
+	// line deep with its other lines drawn outside it. Measured at the room it was
+	// offered, which is what a text already does -- a wrapping row of words is a
+	// paragraph, and a paragraph's height is a question about a width
+	// A row only: the main axis of a wrapping column is its height, and this
+	// function is never told one -- so there is no room to pack against and a
+	// column is left measuring as it always did.
+	if (wrapping) {
+		// sorted stably, so children that share an `order` keep the sequence they
+		// were written in -- which is what the placement walk does
+		const ordered = [...sizes].sort((a, b) => a.order - b.order);
+		const packed = packLines(ordered, inner, gapMain, axis.column ? style.columnGap : style.rowGap);
+		mainTotal = packed.main;
+		crossMax = packed.cross;
+		// the smallest a wrapping container can be on its main axis is its widest
+		// single item rather than the sum of them, because everything else can be
+		// pushed onto a line of its own. The cross size that comes with that is the
+		// one already packed: measuring it again at the narrower width is the
+		// second answer this function is documented as not having, and it is the
+		// same limitation a text carries -- a box measured at one width and placed
+		// at another overflows, and CSS produces the same overflow
+		minMainTotal = Math.max(0, ...sizes.map((size) => size.main));
+		minCrossMax = packed.cross;
+	}
 
 	const width = axis.column ? crossMax + inset.cross : mainTotal + inset.main;
 	const height = axis.column ? mainTotal + inset.main : crossMax + inset.cross;
@@ -933,7 +1013,14 @@ function remeasureLine(line: Item[], axis: Axis, containing: number, cache: Meas
 	}
 
 	for (const item of line) {
-		if (item.node.measure && !crossIsDeclared(item, axis)) {
+		// a box whose children wrap has the same dependency a text does: its height
+		// is a question about its width, and the width is not known until flexing
+		// has settled. A paragraph -- a wrapping row of words -- came out one line
+		// tall for that reason, measured at the `flex-basis: 0` it starts from
+		// rather than at the remainder it was given. A childless box has a height
+		// that cannot move, which is why it is the one case skipped
+		const dependsOnWidth = item.node.measure !== undefined || (item.node.children?.length ?? 0) > 0;
+		if (dependsOnWidth && !crossIsDeclared(item, axis)) {
 			item.crossSize = clamp(
 				measure(
 					item.node,
@@ -1077,6 +1164,63 @@ function makeItem(
 }
 
 /** Breaks items into lines that fit, for `flex-wrap`. */
+/**
+ * How big a set of children comes out when packed into lines of a given length.
+ *
+ * The measuring twin of `wrapIntoLines()`, which packs real items once they have
+ * boxes. Kept separate rather than shared because the two are handed different
+ * things -- one has `Item`s with resolved bases and the other has the sizes this
+ * function has just measured -- while the rule they follow is the same one: an
+ * item goes on the current line when it and its gap still fit, and starts a new
+ * line when it does not, however long that makes the line.
+ *
+ * @param sizes - Each child's main and cross size, in placement order.
+ * @param room - The main-axis space a line has.
+ * @param gap - The gap between two items on one line.
+ * @param crossGap - The gap between one line and the next.
+ * @returns The longest line, and the lines' cross sizes added up.
+ */
+function packLines(
+	sizes: { cross: number; main: number }[],
+	room: number,
+	gap: number,
+	crossGap: number
+): { cross: number; main: number } {
+	let main = 0;
+	let cross = 0;
+	let line = 0;
+	let lineCross = 0;
+	// counted rather than read off `line`, because a zero-width first item leaves
+	// the line empty by that test and the item after it would be taken for the
+	// first -- and lose its gap. `wrapIntoLines()` counts for the same reason
+	let onLine = 0;
+
+	for (const size of sizes) {
+		const withGap = onLine === 0 ? size.main : line + gap + size.main;
+
+		// an item that does not fit starts a line -- unless the line is empty, in
+		// which case it is the line and overflows it, which is what `wrapIntoLines()`
+		// does and what CSS does
+		if (onLine > 0 && withGap > room) {
+			main = Math.max(main, line);
+			// the gap between one line and the next is reserved by the placement and
+			// has to be reserved here too, or a wrapping row with a `row-gap` came
+			// out a row short per line break and the block under it was drawn on
+			cross += lineCross + crossGap;
+			line = size.main;
+			lineCross = size.cross;
+			onLine = 1;
+			continue;
+		}
+
+		line = withGap;
+		lineCross = Math.max(lineCross, size.cross);
+		onLine++;
+	}
+
+	return { cross: cross + lineCross, main: Math.max(main, line) };
+}
+
 function wrapIntoLines(items: Item[], mainSpace: number, gap: number, axis: Axis): Item[][] {
 	const lines: Item[][] = [];
 	let current: Item[] = [];

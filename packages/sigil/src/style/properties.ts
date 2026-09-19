@@ -163,7 +163,21 @@ interface Definition<K extends PropertyName = PropertyName> {
  * A second, narrower spelling of the same idea is how two parts of one library
  * come to disagree about what `on` means.
  */
-const flag = (name: string) => (input: string) => parseBoolean(input, name);
+/**
+ * The properties `flag()` built, collected as the table is built.
+ *
+ * Derived rather than listed, for the reason `COLOR_PROPERTIES` is: a hand-
+ * written list is a second list to keep in agreement, and an eighth attribute
+ * that it missed would parse and cascade and then quietly skip degradation.
+ * `flag()` is used for the terminal's attributes and for nothing else, so what
+ * it was asked to build is the answer.
+ */
+const ATTRIBUTE_NAMES = new Set<string>();
+
+const flag = (name: string) => {
+	ATTRIBUTE_NAMES.add(name);
+	return (input: string) => parseBoolean(input, name);
+};
 
 /**
  * A property whose value is one of a fixed set of keywords.
@@ -346,7 +360,8 @@ export const PROPERTIES: { readonly [K in PropertyName]: Definition<K> } = {
 		true
 	),
 	// not inherited, as in CSS: it only means anything on the box doing the
-	// clipping
+	// clipping, which for a line of text is the text's own box. A container
+	// setting it would otherwise silently cut every descendant
 	textOverflow: fromKeywords(
 		['clip', 'ellipsis', 'ellipsis-start', 'ellipsis-middle'] as const,
 		'clip',
@@ -446,6 +461,17 @@ export const LAYOUT_PROPERTIES: ReadonlySet<PropertyName> = new Set([
  */
 export const COLOR_PROPERTIES: readonly PropertyName[] = PROPERTY_NAMES.filter(
 	(name) => PROPERTIES[name].parse === parseColor
+);
+
+/**
+ * The properties that hold one of the terminal's own attributes.
+ *
+ * `bold`, `dim`, `italic`, `underline`, `strikethrough`, `overline`, `inverse`
+ * -- the seven a cell can wear. Read off the table the way `COLOR_PROPERTIES`
+ * is, and for the same reason.
+ */
+export const ATTRIBUTE_PROPERTIES: readonly PropertyName[] = PROPERTY_NAMES.filter((name) =>
+	ATTRIBUTE_NAMES.has(name)
 );
 
 /**

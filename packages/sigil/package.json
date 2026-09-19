@@ -77,6 +77,10 @@
       "types": "./dist/terminal.d.mts",
       "default": "./dist/terminal.mjs"
     },
+    "./theme": {
+      "types": "./dist/theme.d.mts",
+      "default": "./dist/theme.mjs"
+    },
     "./updates": {
       "types": "./dist/updates.d.mts",
       "default": "./dist/updates.mjs"

@@ -1,5 +1,13 @@
-import { type Ansi, ansi as defaultAnsi } from '../ansi/index.js';
+import { ansi as defaultAnsi } from '../ansi/index.js';
+import {
+	box,
+	type Element,
+	renderToString,
+	text as textNode,
+	type TextRun,
+} from '../element/index.js';
 import type { OptionRegistry } from '../parser/option/option-registry.js';
+import { type StyledOptions, themedCascade } from '../theme/index.js';
 import {
 	type CommandExample,
 	type HelpRenderer,
@@ -10,12 +18,20 @@ import {
 	type ParseState,
 	type Schema,
 } from '../types.js';
-import { terminalWidth, wrap } from '../wrap/index.js';
-import { type Definition, definitions, type LayoutOptions } from './layout.js';
+import { terminalWidth } from '../wrap/index.js';
 import { type BuiltSection, byGroup, createSections, withoutTwins } from './sections.js';
+import { type Definition, hanging, heading, type ListOptions, section } from './template.js';
 import { basename } from 'node:path';
 
-export { type Definition, definitions, pad } from './layout.js';
+export {
+	type Definition,
+	definitions,
+	hanging,
+	heading,
+	labelLines,
+	type ListOptions,
+	section,
+} from './template.js';
 export { type BuiltSection, createSections } from './sections.js';
 
 /**
@@ -33,9 +49,7 @@ export interface HelpTarget {
 	schema?: Schema;
 }
 
-export interface HelpOptions {
-	/** The styler to write with. Defaults to the one bound to `process.stdout`. */
-	ansi?: Ansi;
+export interface HelpOptions extends StyledOptions {
 	/** The columns between a label and its description. Defaults to 2. */
 	gap?: number;
 	/** How far the lists are indented. Defaults to 2. */
@@ -79,15 +93,32 @@ export interface HelpOptions {
  * @returns The help screen, with no trailing newline.
  */
 export function renderHelp(target: HelpTarget, opts: HelpOptions = {}): string {
+	const width = opts.width ?? terminalWidth();
+
+	return renderToString(helpView(target, opts), {
+		cascade: themedCascade(opts),
+		colorLevel: opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level,
+		width,
+	});
+}
+
+/**
+ * The help screen as an element tree, for anything that wants to lay it out
+ * itself rather than take the string.
+ *
+ * @param target - The parse state, or anything carrying a context chain.
+ * @param opts - Where the columns are.
+ * @returns The tree.
+ */
+export function helpView(target: HelpTarget, opts: HelpOptions = {}): Element {
 	const contexts = target?.contexts;
 
 	if (!Array.isArray(contexts) || contexts.length === 0) {
 		throw new TypeError('Expected a context chain to render help for');
 	}
 
-	const ansi = opts.ansi ?? defaultAnsi;
 	const width = opts.width ?? terminalWidth();
-	const layout: LayoutOptions = {
+	const list: ListOptions = {
 		gap: opts.gap ?? 2,
 		indent: opts.indent ?? 2,
 		maxLabel: opts.maxLabel ?? 28,
@@ -140,110 +171,71 @@ export function renderHelp(target: HelpTarget, opts: HelpOptions = {}): string {
 	// command is already named on the usage line
 	const aliases = [...internal.aliases].filter((alias) => alias !== cmd.name);
 
-	const blocks: string[][] = [
-		usageLine(
-			{
-				args,
-				ansi,
-				commands: commands.length > 0,
-				defaulted: internal.commands.default !== undefined,
-				name: programName(target, opts),
-				// a contributed section counts: options can follow, whether or not this
-				// command's own registry is what ends up resolving them
-				// a contributed section counts, but only when it has options in it: one
-				// that contributes arguments alone is not a reason to promise options
-				options:
-					options.length > 0 ||
-					inherited.length > 0 ||
-					contributed.some((section_) => section_.options.length > 0),
-				path: contexts
-					.slice(0, -1)
-					.reverse()
-					.map((ctx) => ctx.name),
-			},
-			width
-		).split('\n'),
+	const blocks: Element[] = [
+		usageLine({
+			args,
+			commands: commands.length > 0,
+			defaulted: internal.commands.default !== undefined,
+			name: programName(target, opts),
+			// a contributed section counts, but only when it has options in it: one
+			// that contributes arguments alone is not a reason to promise options
+			options:
+				options.length > 0 ||
+				inherited.length > 0 ||
+				contributed.some((section_) => section_.options.length > 0),
+			path: contexts
+				.slice(0, -1)
+				.reverse()
+				.map((ctx) => ctx.name),
+			width,
+		}),
 	];
 
 	if (cmd.desc?.trim()) {
-		blocks.push(lines(cmd.desc, width));
+		// a `text`, so that a description written over two lines stays two lines
+		blocks.push(textNode(cmd.desc));
 	}
 
 	// the root context is the schema, and its aliases are nobody's business: what
 	// would be aliased is the program, and the program is not what it declares
 	if (aliases.length > 0 && contexts.length > 1) {
-		const title = aliases.length === 1 ? 'Alias:' : 'Aliases:';
-		blocks.push(
-			wrap(`${ansi.bold(title)} ${aliases.join(', ')}`, {
-				hangingIndent: title.length + 1,
-				width,
-			}).split('\n')
-		);
+		blocks.push(hanging(aliases.length === 1 ? 'Alias:' : 'Aliases:', [aliases.join(', ')], width));
 	}
 
 	if (commands.length > 0) {
-		blocks.push(section('Commands', commands.map(commandRow), layout, ansi));
+		blocks.push(section('Commands', commands.map(commandRow), list));
 	}
 
 	if (args.length > 0) {
-		blocks.push(
-			section(
-				'Arguments',
-				args.map((arg) => argRow(arg, ansi)),
-				layout,
-				ansi
-			)
-		);
+		blocks.push(section('Arguments', args.map(argRow), list));
 	}
 
 	if (ungrouped.length > 0) {
-		blocks.push(
-			section(
-				'Options',
-				ungrouped.map((opt) => optionRow(opt, ansi)),
-				layout,
-				ansi
-			)
-		);
+		blocks.push(section('Options', ungrouped.map(optionRow), list));
 	}
 
 	// the command's own groups, then the sections its hooks contributed: both are
 	// the command's, and both come before what it inherited
 	for (const group of groups) {
-		blocks.push(
-			section(
-				`${group.title} options`,
-				group.options.map((opt) => optionRow(opt, ansi)),
-				layout,
-				ansi
-			)
-		);
+		blocks.push(section(`${group.title} options`, group.options.map(optionRow), list));
 	}
 
 	for (const section_ of contributed) {
-		blocks.push(...contributedBlocks(section_, layout, ansi));
+		blocks.push(...contributedBlocks(section_, list));
 	}
 
 	if (inherited.length > 0) {
-		blocks.push(
-			section(
-				'Global options',
-				inherited.map((opt) => optionRow(opt, ansi)),
-				layout,
-				ansi
-			)
-		);
+		blocks.push(section('Global options', inherited.map(optionRow), list));
 	}
 
 	const examples = exampleList(cmd.examples);
 	if (examples.length > 0) {
-		blocks.push(exampleSection(examples, layout, ansi, width));
+		blocks.push(exampleSection(examples, list));
 	}
 
-	return blocks
-		.map((block) => block.join('\n'))
-		.filter((block) => block !== '')
-		.join('\n\n');
+	// one blank line between blocks, which is what `row-gap` is: the joining that
+	// used to be `.join('\n\n')` over strings
+	return box({ class: 'sigil-help', 'flex-direction': 'column', 'row-gap': 1 }, ...blocks);
 }
 
 /**
@@ -281,39 +273,23 @@ function optionsOf(registry: OptionRegistry): InternalOption[] {
  * empty one -- a platform with no options of its own -- does not leave a heading
  * with nothing under it.
  *
- * @param section - The section.
- * @param layout - Where the columns are.
- * @param ansi - The styler.
+ * @param section_ - The section.
+ * @param list - Where the columns are.
  * @returns The blocks.
  */
 function contributedBlocks(
 	section_: { args: InternalArgument[]; options: InternalOption[]; title: string },
-	layout: LayoutOptions,
-	ansi: Ansi
-): string[][] {
-	const blocks: string[][] = [];
+	list: ListOptions
+): Element[] {
+	const blocks: Element[] = [];
 	const { args, options } = section_;
 
 	if (args.length > 0) {
-		blocks.push(
-			section(
-				`${section_.title} arguments`,
-				args.map((arg) => argRow(arg, ansi)),
-				layout,
-				ansi
-			)
-		);
+		blocks.push(section(`${section_.title} arguments`, args.map(argRow), list));
 	}
 
 	if (options.length > 0) {
-		blocks.push(
-			section(
-				`${section_.title} options`,
-				options.map((opt) => optionRow(opt, ansi)),
-				layout,
-				ansi
-			)
-		);
+		blocks.push(section(`${section_.title} options`, options.map(optionRow), list));
 	}
 
 	return blocks;
@@ -337,8 +313,9 @@ function programName(target: HelpTarget, opts: HelpOptions): string {
 }
 
 interface UsageParts {
-	ansi: Ansi;
 	args: InternalArgument[];
+	/** The column to wrap at. */
+	width: number;
 	commands: boolean;
 	defaulted: boolean;
 	name: string;
@@ -354,10 +331,14 @@ interface UsageParts {
  * the subcommands is the default, because then leaving it out runs that one
  * instead of being an error.
  *
+ * A line long enough to wrap hangs under the label rather than under the left
+ * margin, so the continuation reads as part of the same line -- which is what a
+ * flex row of a label and a paragraph is, with no hanging-indent option anywhere.
+ *
  * @param parts - What the line is made of.
  * @returns The usage line.
  */
-function usageLine(parts: UsageParts, width: number): string {
+function usageLine(parts: UsageParts): Element {
 	const line = [parts.name, ...parts.path];
 
 	if (parts.options) {
@@ -372,14 +353,7 @@ function usageLine(parts: UsageParts, width: number): string {
 		line.push(argSpelling(arg));
 	}
 
-	const label = 'Usage:';
-
-	// a usage line long enough to wrap hangs under the label rather than under
-	// the left margin, so the continuation reads as part of the same line
-	return wrap(`${parts.ansi.bold(label)} ${line.join(' ')}`, {
-		hangingIndent: label.length + 1,
-		width,
-	});
+	return hanging('Usage:', [line.join(' ')], parts.width);
 }
 
 /**
@@ -405,19 +379,18 @@ function commandRow(cmd: InternalCommand): Definition {
 	// a name that is nothing but an alias -- `'@b'` -- is both the name and an
 	// alias of itself, and printing it twice says nothing twice
 	const names = new Set([cmd.name, ...cmd[Internal].aliases]);
-	return { desc: cmd.desc, label: [...names].join(', ') };
+	return { desc: cmd.desc ? [cmd.desc] : undefined, label: [...names].join(', ') };
 }
 
 /**
  * An argument's row.
  *
  * @param arg - The argument.
- * @param ansi - The styler.
  * @returns The row.
  */
-function argRow(arg: InternalArgument, ansi: Ansi): Definition {
+function argRow(arg: InternalArgument): Definition {
 	return {
-		desc: describe(arg.desc, arg.choices, arg.default, ansi),
+		desc: describe(arg.desc, arg.choices, arg.default),
 		label: argSpelling(arg),
 	};
 }
@@ -430,10 +403,9 @@ function argRow(arg: InternalArgument, ansi: Ansi): Definition {
  * destination with, because one of them is the other one's off switch.
  *
  * @param opt - The option.
- * @param ansi - The styler.
  * @returns The row.
  */
-function optionRow(opt: InternalOption, ansi: Ansi): Definition {
+function optionRow(opt: InternalOption): Definition {
 	const internal = opt[Internal];
 	let label = spellingsOf(opt).join(', ');
 
@@ -452,7 +424,7 @@ function optionRow(opt: InternalOption, ansi: Ansi): Definition {
 	// "(default: false)" on each of them is noise rather than information
 	const dflt = internal.impliedDefault ? undefined : opt.default;
 
-	return { desc: describe(opt.desc, opt.choices, dflt, ansi), label };
+	return { desc: describe(opt.desc, opt.choices, dflt), label };
 }
 
 /**
@@ -496,32 +468,36 @@ function spellingsOf(opt: InternalOption): string[] {
 /**
  * A description with whatever else is worth knowing after it.
  *
- * The parentheticals are dim, because they are there to be skipped over until
- * they are wanted.
+ * Runs rather than one string, because the parentheticals are dim -- they are
+ * there to be skipped over until they are wanted -- and a string carrying its
+ * own escape sequences has nowhere to put them on a cell grid. A paragraph wraps
+ * the runs as one block of prose, so the dim part still sits on the same line as
+ * the description when it fits.
  *
  * @param desc - The description, if there is one.
  * @param choices - The accepted values, if they are constrained.
  * @param dflt - The default, if there is one worth printing.
- * @param ansi - The styler.
- * @returns The description.
+ * @returns The runs.
  */
 function describe(
 	desc: string | undefined,
 	choices: readonly unknown[] | undefined,
-	dflt: unknown,
-	ansi: Ansi
-): string {
-	const parts = desc ? [desc] : [];
+	dflt: unknown
+): TextRun[] {
+	const parts: TextRun[] = desc ? [{ text: desc }] : [];
 
 	if (Array.isArray(choices) && choices.length > 0) {
-		parts.push(ansi.dim(`(choices: ${choices.map(format).join(', ')})`));
+		parts.push({
+			class: 'sigil-help-note',
+			text: `(choices: ${choices.map(format).join(', ')})`,
+		});
 	}
 
 	if (dflt !== undefined) {
-		parts.push(ansi.dim(`(default: ${format(dflt)})`));
+		parts.push({ class: 'sigil-help-note', text: `(default: ${format(dflt)})` });
 	}
 
-	return parts.join(' ');
+	return parts;
 }
 
 /**
@@ -575,58 +551,40 @@ function exampleList(examples: CommandExample | CommandExample[] | undefined): C
  * takes a line and the command is indented under it.
  *
  * @param examples - The examples.
- * @param layout - Where the columns are.
- * @param ansi - The styler.
- * @param width - The column to wrap at.
- * @returns The lines.
+ * @param list - Where the columns are.
+ * @returns The block.
  */
-function exampleSection(
-	examples: CommandExample[],
-	layout: LayoutOptions,
-	ansi: Ansi,
-	width: number
-): string[] {
-	const out = [ansi.bold('Examples:')];
-
-	for (const [index, example] of examples.entries()) {
-		if (index > 0) {
-			out.push('');
-		}
-		if (example.label) {
-			out.push(...lines(example.label, width, layout.indent));
-		}
-		out.push(...lines(example.text, width, layout.indent * (example.label ? 2 : 1)));
-	}
-
-	return out;
+function exampleSection(examples: CommandExample[], list: ListOptions): Element {
+	return box(
+		{ 'flex-direction': 'column' },
+		heading('Examples'),
+		// a blank line between two examples and none inside one, which is what a
+		// `row-gap` over a box per example says
+		box(
+			{ 'flex-direction': 'column', 'row-gap': 1 },
+			...examples.map((example) =>
+				box(
+					{ 'flex-direction': 'column' },
+					...(example.label ? [verbatim(example.label, list.indent)] : []),
+					// a `text` rather than a paragraph, because a command line is what
+					// somebody copies: a paragraph is words with one space between them,
+					// and the two spaces lining up a flag in an example are the author's
+					verbatim(example.text, list.indent * (example.label ? 2 : 1))
+				)
+			)
+		)
+	);
 }
 
 /**
- * A titled list.
+ * Text kept as it was written, wrapped at the width and indented.
  *
- * @param title - The heading.
- * @param items - The rows.
- * @param layout - Where the columns are.
- * @param ansi - The styler.
- * @returns The lines.
- */
-function section(title: string, items: Definition[], layout: LayoutOptions, ansi: Ansi): string[] {
-	// a heading is wrapped like anything else. A title long enough to need it is
-	// one somebody wrote, so it breaks at a space, unlike an option's label
-	const heading = wrap(ansi.bold(`${title}:`), { width: layout.width }).split('\n');
-	return [...heading, ...definitions(items, layout)];
-}
-
-/**
- * Text wrapped to the width, as lines.
- *
- * @param text - The text.
- * @param width - The column to wrap at.
+ * @param content - The text.
  * @param indent - How far to indent every line.
- * @returns The lines.
+ * @returns The block.
  */
-function lines(text: string, width: number, indent = 0): string[] {
-	return wrap(text, { indent, width }).split('\n');
+function verbatim(content: string, indent: number): Element {
+	return textNode(content, { 'padding-left': indent });
 }
 
 /**

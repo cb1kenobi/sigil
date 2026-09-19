@@ -57,6 +57,7 @@ const config: UserConfig = defineConfig({
 		signals: './src/signals/index.ts',
 		style: './src/style/index.ts',
 		terminal: './src/terminal/index.ts',
+		theme: './src/theme/index.ts',
 		updates: './src/updates/index.ts',
 		width: './src/width/index.ts',
 		wrap: './src/wrap/index.ts',

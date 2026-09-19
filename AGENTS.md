@@ -35,13 +35,14 @@ Paths below are inside `packages/sigil/` unless noted.
 | `src/ansi/`              | SGR styling, strip, color support detection          |
 | `src/width/`             | Display width: grapheme clusters, East Asian Width   |
 | `src/wrap/`              | Text wrapping, SGR state, terminal width             |
-| `src/help/`              | The generated help screen and its two-column layout  |
+| `src/help/`              | The generated help screen, as an element tree        |
 | `src/terminal/`          | Terminal wrapper, live region, sequences             |
 | `src/components/`        | Spinner, progress, table, prompts, key decoding      |
 | `src/signals/`           | The reactive graph: state, computed, watcher, effect |
 | `src/renderer/`          | Components, the owner tree, control flow, the frame  |
 | `src/canvas/`            | Cell buffer, style interning, paint diff, sub-cell   |
 | `src/style/`             | Properties, values, selectors, cascade, degradation  |
+| `src/theme/`             | The framework's own sheet, and what a theme is       |
 | `src/layout/`            | The flexbox subset, over whole cells                 |
 | `src/infer.ts`           | `initOption()` and `initArg()`, in the type system   |
 | `src/util/`              | Shared helpers (type coercion, camelCase, mkdir)     |
@@ -793,8 +794,45 @@ false` rethrows instead; a function replaces the handler.
   where the column is two. That overflow is the one every browser produces, and it
   is the better of the two answers available -- the height used to be measured at
   eighteen and the box drawn at nine, so two rows of text were lost with nothing
-  to show for it. Pinned by `should lay a percentage-limited text out at the width
-it is placed at`.
+  to show for it. What closes it for one level of nesting is the re-measure below:
+  once flexing has settled an item's main size, the subtree is measured again with
+  that size as a _definite_ containing block, the `50%` resolves to nine, and the
+  column comes out as tall as the four rows the text needs there. One round of the
+  iteration this entry said was needed, taken where the width stops being a guess.
+  Pinned by `should lay a percentage-limited text out at the width it is placed
+at`.
+- **A container that wraps is measured as the lines it wraps into.**
+  `flex-wrap` was honoured when a line was packed and ignored when the box was
+  sized, which is the same defect a property that parses and does nothing is:
+  every auto-sized wrapping box came out one line deep with its other lines drawn
+  outside it, and a paragraph -- a wrapping row of one-word items, which is how
+  inline styling is expressed here -- was the case that found it. `packLines()` is
+  the measuring twin of `wrapIntoLines()`, kept separate because the two are
+  handed different things while following one rule. A _row_ only: the main axis of
+  a wrapping column is its height and this function is never told one, so there is
+  no room to pack against. The smallest such a container can be on its main axis
+  is its widest single item rather than the sum of them, because everything else
+  can be pushed onto a line of its own.
+
+  Four things have to match the placement or the measure is a different answer to
+  the same question, and each was wrong once. The gap _between_ lines is reserved,
+  or a `row-gap` comes out a row short per break and the block under it is drawn
+  on. The packing is by `flex-basis` rather than by content, or a `flex-basis: 40`
+  child with three columns of content is packed at three and placed at forty. It
+  is in `order` order rather than source order, or the same three children wrap
+  into two lines and are placed into three. And the minimum it clamps with is the
+  placement's -- `declared ?? automatic`, not the larger of the two, which is what
+  the container's own sizing needs one line above: a `min-width: 0` on a word is a
+  declaration the automatic minimum does not get a say in, and taking the larger
+  packed a long word at its own width where the placement shrinks it to the line.
+
+- **The re-measure at the used width is every item's, not only a text's.** A box
+  whose children wrap has the same dependency a text does -- its height is a
+  question about its width, and the width is not known until flexing has settled
+  -- so `remeasureLine()` asks any item with children as well as any item that
+  measures. A childless box is the one case skipped, because its height cannot
+  move. Left to texts alone, a paragraph came out one line tall: measured at the
+  `flex-basis: 0` it starts from rather than at the remainder it was given.
 - **A `measure` node reports its declaration rather than its content.** The
   `node.measure` branch reports `declaredWidth ?? content` and
   `declaredHeight ?? content`, with `min(content, declaration)` for the automatic
@@ -1015,6 +1053,26 @@ it is placed at`.
   `uppercase` is what makes a line wider, which is the reason `LAYOUT_PROPERTIES`
   carries it at all -- so `displayText` is what both the measure and the paint
   read, and they cannot come to disagree about what the string is.
+- **A control character is decided here, because the grid only refuses one.** The
+  cell grid throws on one rather than dropping it, deliberately: a row is painted
+  one call at a time, and a newline that took no cell painted a whole paragraph
+  onto one line. That rule is the grid's and it is right; what it needs above it
+  is somebody to say what a control character _means_, and that is `displayText`,
+  for the same reason `text-transform` is applied there. A tab becomes a space,
+  since the grid models no tab stops and a tab that measured one width and
+  painted another takes a column off every cell to its right; a newline stays,
+  since it is what a line is split on; everything else goes, since there is
+  nothing for it to draw. Found as a `RangeError` out of `table()`, where
+  `padCell()` had been ordinary string work -- which is also why
+  `toDisplayText()` is exported: anything sizing a column has to measure what
+  will be _drawn_, and a table that measured the raw string was a column out per
+  tab.
+- **A `nowrap` text's minimum is its widest line, not its whole string.**
+  `stringWidth()` reads a newline as nothing, so a label broken over two lines
+  reported the two added together as the narrowest it could be -- and a row beside
+  a description placed it twice as wide as it draws, with everything after it
+  pushed along. The width was already the widest line; only the minimum
+  disagreed.
 - **`resolveStyles()` with no sheets is the degenerate case of the cascade, not a
   second way of resolving a style.** It builds a `Restyler` over no stylesheets,
   which is props and inheritance with nothing matched -- so `box({ padding: '1' })`
@@ -1035,6 +1093,115 @@ it is placed at`.
   its own.** Nothing in the layout engine writes them, and an implementation
   cannot hand out an array anything may splice.
 
+### Rendering a tree to a string
+
+- **A table in a log and a help screen on stdout are element trees, and
+  `renderToString()` is where they come back out.** The same layout engine, the
+  same painter, the same cell grid a canvas uses -- and then the grid is read
+  back as lines rather than diffed against the last frame. That is what let the
+  two-column help layout and the table's column arithmetic be deleted rather
+  than rewritten: what a string renderer needs that a canvas does not is a way to
+  finish a line, and that is the whole of this module.
+- **Every line ends in the state it began in.** One joined onto another, or
+  written into a log beside something else, must not carry its colour into what
+  follows. The link is closed separately from the colours, because SGR and OSC are
+  separate state -- the same reason the frame end does it.
+- **A blank that shows nothing is written in whatever is already open, and a
+  trailing run of them is dropped.** One list decides both, and it is the
+  attributes that draw on a space: a background, an underline, a strikethrough,
+  an overline, an inverse, and a hyperlink. `bold`, `dim` and `italic` are not on
+  it, because a space wears none of them. The first half is what stops a bold
+  heading's padding surviving as trailing whitespace nobody can see; the second
+  is what stops a paragraph -- which is a row of one-word elements, so the gap
+  between two words is an unpainted cell -- closing and reopening its style at
+  every space, which turned one dim parenthetical into a sequence per word.
+- **It is laid out at the width it was given and painted into a grid as big as
+  the layout came to.** `arrangedExtent()` walks the arranged tree, in both
+  directions, because `measureNode()` is a guess in two ways: a row whose children
+  flex is measured with each child offered the whole content box and placed with
+  each given a share, and a box with a declared width reports that width however
+  far its content overflows it. So a description that wrapped one line further
+  than it measured is painted rather than lost, and a flag name longer than the
+  terminal survives -- which is the rule help already had, and which a grid the
+  width it was laid out in would have turned into a silent truncation now that
+  `text-overflow` is honoured. The height is grown only where the caller named
+  none, since a caller that did is describing a box rather than asking how big one
+  is; the width is not the caller's to name and always follows the content.
+- **It costs what the stack costs, and that is measured rather than assumed.** A
+  sixty-entry help screen is 10.2ms against the old string builder's 0.42ms, and
+  a two-hundred-row table is 6.3ms against 0.08ms. Almost all of it is the
+  cascade: about 3.5 microseconds per element to match, build a fifty-property
+  style and degrade its colours, which is the same number the invalidation
+  entries already record for a full re-match and is the price of every element
+  being a real element. Both are one-shot -- a CLI prints its help once and a
+  build tool prints its table once -- so this is written down rather than
+  optimised, and the seam if it ever matters is the cascade rather than anything
+  here. What was _not_ worth leaving was the second style every element used to
+  build before the cascade had said anything: `Element` starts at one shared
+  frozen initial style now, which took the tree build for that table from 2.1ms
+  to 0.46ms.
+- **The media queries are the caller's, apart from the width and the colour
+  level.** Those two this call is the authority on; the other half of a query is
+  "how much screen is there", which a string being built has no answer to that the
+  caller does not already have. The cascade is handed back exactly as it was
+  found, because a `table()` inside a running app shares its sheets with the frame
+  loop and a media context left behind would be the next frame's answer to a
+  question about a screen this render was never about.
+- **A newline in a run is a break the author wrote, and a paragraph keeps it.**
+  Built as a column of wrapping rows when there is one and as a bare row when
+  there is not, since the common case is a single line and an extra flex item for
+  nothing is one the layout still has to place. Runs of spaces _are_ collapsed,
+  which is what CSS does with `white-space: normal` -- so anything verbatim, an
+  example's command line above all, is a `text` rather than a paragraph: two
+  spaces lining a flag up in an example are the author's, and a paragraph is
+  words with one space between them.
+- **A paragraph is a wrapping row of one-word elements, and that is how inline
+  styling is done.** There is no inline layout: a `text` wears one style, and
+  three texts in a row are three flex items, so a wrapped first item leaves the
+  other two beside its _box_ rather than after its last line. What there is
+  instead is flexbox, and a wrapping row of words is word wrapping -- the gap
+  between two items on a line is the space between two words, a line breaks where
+  the next word does not fit, and each word may be styled on its own. That is what
+  makes help's dim `(default: ...)` sit on the same line as the description it
+  follows, and it costs no new layout mode. A word wider than the line overflows
+  rather than being broken, which is what `wrap()` does with one too.
+
+### Themes
+
+- **A theme is a stylesheet origin, and the framework's own defaults are the
+  origin below it.** That settles the question SIG-77 left open. Every built-in
+  draws itself with classes and carries no colour in its props, `src/theme/`
+  holds the sheet that gives those classes their colours at origin `framework`,
+  and an app restyling one writes an ordinary rule with an ordinary selector --
+  no `!important`, no specificity contest -- because its own sheet is a later
+  origin. A theme sits between the two, so it may restyle every built-in without
+  touching what an app said about its own components, and an app may still beat
+  the theme. One axis of the cascade doing all three jobs rather than three
+  mechanisms to keep in agreement.
+- **No built-in carries a colour in its props.** A prop beats a sheet per
+  property, so a colour written into a template is one a theme cannot reach
+  without `!important` -- which is the trap `!important` exists to get out of
+  rather than a thing to walk into.
+- **The framework sheet sets no layout property a component did not already ask
+  for in props.** A theme that changed a prompt's padding would move the caret,
+  and the component is what knows where that goes. Colours and attributes only --
+  and that is a rule a _theme_ keeps or does not, because a theme is ordinary CSS
+  over an ordinary cascade and nothing enforces it. Where a built-in worked its
+  own geometry out, a layout property from a theme is a number the component never
+  heard about: `box-sizing` starts at `border-box`, so
+  `.sigil-table-cell { padding-left: 3 }` takes three columns _out of_ a width the
+  table measured and a narrow column comes out empty. That is what CSS does with a
+  border-box width; what the defaults can promise is only that they do not do it.
+- **`FRAMEWORK_CSS` is the vocabulary, and it is one string rather than a set of
+  files.** Read it as the list of names a theme may restyle. The state classes
+  are spelled `is-*` because they are states rather than kinds: `:focus` is the
+  cascade's own and is used where it applies, and these are the ones a terminal
+  has no pseudo-class for.
+- **Parsed once, and a cascade built per call.** A `Stylesheet` is frozen and a
+  `Cascade` only reads it, so parsing per spinner would be the same work per
+  component per process; the cascade differs per call because the sheets do, and
+  it holds a bucket index over them.
+
 ### Style
 
 - **The property table is the single source of truth.** Every property's initial
@@ -1042,6 +1209,13 @@ it is placed at`.
   everything downstream -- the cascade, the layout engine, invalidation,
   animation -- reads it rather than carrying a list of its own. A property is
   added in one place or it is added wrong.
+- **An element's style before the cascade has spoken is one shared frozen
+  object.** `LayoutNode` needs a style so that a tree can be laid out before
+  anything has resolved one, and building a fifty-property one per element meant
+  every element paid for two -- the one its constructor made and the one the
+  cascade replaced it with. Frozen for the reason the initial values are: a style
+  is the cascade's to write, and an element that mutated a shared one would be
+  rewriting what every unsettled element in the process looks like.
 - **Every `Length` is frozen, and so is every initial value.** `readonly` is a
   TypeScript fiction at runtime, and one shared `AUTO` was the initial value of
   ten properties -- so a single in-place mutation anywhere downstream, which is
@@ -1095,6 +1269,21 @@ it is placed at`.
 - **A named colour stays a palette index.** The basic sixteen are whatever the
   user's terminal theme says they are, so resolving `red` to a specific RGB
   overrides a choice they already made.
+- **`text-overflow` is read off the text's own box and bites only where a line
+  does not fit.** It parsed and did nothing for as long as there was nothing that
+  had to fit text into a column, which is the rule about a property the engine
+  ignores said one layer along -- and the table's `truncateCell()` was what it
+  was supposed to be. It applies to a line wider than the box it was given,
+  which for wrapped text never happens, so in practice it is what
+  `white-space: nowrap` costs: exactly as in CSS. Read off the text element
+  rather than inherited, so a container setting it does not silently cut every
+  descendant. The cut itself is `truncate()` in `@ttylabs/sigil/wrap`, which is
+  one implementation with four modes rather than a helper per caller.
+- **The attribute properties are derived from the table, like the colour ones.**
+  `flag()` is used for the terminal's seven attributes and for nothing else, so
+  what it was asked to build is the answer -- and a hand-written list is a second
+  list to keep in agreement, which is the entry `COLOR_PROPERTIES` already
+  carries.
 - **Every numeric parser refuses an empty value.** `Number('')` and `Number(' ')`
   are both `0`, so an empty declaration reads back as a real-looking zero -- the
   same trap the parser's `number` and `int` data types already carry an entry
@@ -1289,6 +1478,16 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   pretending to keep. The rule that follows is a rule for components rather than
   for the degrader -- do not encode meaning in colour alone -- and it is an
   accessibility argument as much as a compatibility one.
+- **Level 0 is plain text, attributes included.** Not only the colours: the seven
+  attributes go too, which is what the styler has always meant by it -- at level
+  0 `ansi.bold()` hands back the string it was given, so this is parity with the
+  library's own behaviour rather than a new rule. The two ways a process arrives
+  at level 0 are a pipe and `NO_COLOR`, and neither wants `ESC[1m` in the file it
+  is writing. It is also what makes a prompt asked for plain text plain: the
+  caret is `inverse`, and a caret drawn at level 0 would be the one sequence
+  nothing could switch off. Done in `degradeInto()` rather than at emission, so
+  the canvas and the string renderer cannot come to disagree about it -- the same
+  reason degradation happens at resolve time at all.
 - **A background degrades exactly like a foreground.** The argument for treating
   it differently is that a wrong background is more visible, and that argues for
   a _better_ match rather than a _different_ one; Oklab is already the better
@@ -2494,6 +2693,43 @@ stylesheet rather than anything the runtime knows about.
   is what the `!` name prefix is for. `help <command>` does load the module,
   since it is describing that one command.
 
+- **The screen is a template, and `layout.ts` is gone.** A row is a flex row, the
+  label column is a declared width, the description takes what is left and wraps
+  in it, and an indent is padding -- so the two-column widths, the `pad()`, the
+  wrapping calls and the indent arithmetic all went. What stayed is what help
+  _decides_: which rows there are, what a label reads as, when a label is too wide
+  to share a line with its description, and when there is not enough room for two
+  columns at all. Every entry above about what help says is unchanged, and the
+  rendered screen is byte for byte what it was.
+- **The description column is told its width rather than growing into it.** The
+  one piece of arithmetic help kept, and it is a measurement rather than a
+  preference: a row's intrinsic height is taken with every child offered the whole
+  content box while placement hands each one a share, so a description that wraps
+  to three lines in its share measures two lines tall in the room it was offered
+  and the block after it is drawn over the third. A declared width is measured at
+  the width it will be placed at, which is the whole of what this needs. One
+  subtraction, against the padding, the wrapping and the alignment it gave up.
+- **A hanging indent is a flex row.** `Usage:` and `Alias:` are a bold label and
+  a paragraph beside it, so every line of the paragraph starts at the paragraph's
+  left edge. There is no `hangingIndent` option anywhere here because a row is
+  one.
+- **A parenthetical is a run rather than a string carrying its own escapes.**
+  `(choices: ...)` and `(default: ...)` are dim, and a cell grid has nowhere to
+  put a sequence that arrived inside a string -- the painter strips them. They are
+  runs in a paragraph instead, which is what keeps them on the same line as the
+  description when they fit.
+- **A label too wide for its column keeps its own width.** It is stretched to the
+  box it sits in otherwise, and now that `text-overflow` is honoured that is a
+  truncation rather than an overhang -- which would quietly turn "a name wider
+  than the width is printed whole" into "a name wider than the width is cut". The
+  grid a string is painted into is as wide as what came out, so the name survives
+  and the terminal wraps it, which is the answer that entry already gave.
+- **The default help stylesheet is a framework origin.** That settles the other
+  question the ticket left open, and it is the same answer themes get: an app that
+  wants its command list in a different colour writes `.sigil-help-heading {
+color: magenta }` and beats the default with an ordinary rule, which is only true
+  because the default is an earlier origin rather than a rule in the same one.
+
 ### Sharing options between commands
 
 - **Nothing declares what a command inherits, because nothing has to.** Options
@@ -2681,16 +2917,21 @@ stylesheet rather than anything the runtime knows about.
 
 ## Known bugs
 
-- **An auto-width node is sized around a subtree measured without its own
-  percentages.** What is left of the entry above once `measure()` takes its two
-  widths separately: a node lays its content out at the width it is drawn at now,
-  but an ancestor that is still sizing itself measured that subtree with every
-  percentage read as `auto`, so the ancestor can come out too small for what it
-  then places. CSS produces the same overflow and browsers live with it; closing
-  it needs the containing block known before the subtree is measured, which is
-  iteration. The layout invariants allow it -- `checkInvariants()` takes
-  `overflow` -- and `should lay a percentage-limited text out at the width it is
-placed at` pins the shape of it.
+- **A row's intrinsic height does not account for flexing, so a block after one
+  can be drawn over.** `measureUncached()` measures every child at the whole
+  content box while placement hands each one a share, and the two part company
+  the moment a child's height is a question about its width: a description that
+  wraps to three lines in the column it is placed in measures two lines tall in
+  the room it was offered, so the container reserves one row too few and the next
+  block starts inside it. The placement itself is right -- `remeasureLine()`
+  settles each item at the width flexing gave it -- and `renderToString()` sizes
+  its grid from the arranged tree, so nothing is _lost_; what is wrong is the row
+  a neighbour was promised. The way round it is to declare the width, which is
+  what the help template does and why help lays out exactly. Closing it properly
+  means running the flex resolution during the measure, which is `resolveFlexible()`
+  reached from a function that has no content box to build items against. Pinned
+  by `should be as tall as the layout turned out to be` and by the declared-width
+  case beside it in `test/element/string.test.ts`.
 - A subcommand's option used before its subcommand is not protected from being
   consumed as an earlier option's value, because it is not declared yet on the
   pass that reads it. A default command's options are always in that position,

@@ -21,7 +21,7 @@
 
 import type { ColorLevel } from '../ansi/color-support.js';
 import { type Color, DEFAULT_COLOR, palette } from '../canvas/style.js';
-import { COLOR_PROPERTIES, type Style } from './properties.js';
+import { ATTRIBUTE_PROPERTIES, COLOR_PROPERTIES, type Style } from './properties.js';
 
 /** Where the 24-bit range starts, past the 256 palette. Mirrors `canvas/style.ts`. */
 const RGB_BASE = 0x100;
@@ -260,6 +260,22 @@ export function degradeInto(style: Style, level: ColorLevel): Style {
 	for (const property of COLOR_PROPERTIES) {
 		writable[property] = degradeColor(writable[property], level);
 	}
+
+	// level 0 is plain text, attributes included, which is what the styler has
+	// always meant by it: `ansi.bold()` at level 0 hands back the string it was
+	// given. The two ways a process arrives at level 0 are a pipe and `NO_COLOR`,
+	// and neither wants `ESC[1m` in the file it is writing -- so a bold heading
+	// and a cyan one go together rather than the library deciding that one of
+	// them was too important to turn off. It is also what makes a prompt asked
+	// for plain text plain: the caret is `inverse`, and a caret drawn at level 0
+	// would be the one sequence nothing could switch off
+	if (level === 0) {
+		const attrs = style as unknown as Record<string, boolean>;
+		for (const property of ATTRIBUTE_PROPERTIES) {
+			attrs[property] = false;
+		}
+	}
+
 	return style;
 }
 

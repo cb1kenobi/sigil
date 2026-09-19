@@ -1,4 +1,4 @@
-import { stringWidth } from '../width/index.js';
+import { graphemes, stringWidth } from '../width/index.js';
 import { createSgrState, isSgr, type SgrState } from './sgr-state.js';
 import { type Token, tokenize } from './tokens.js';
 
@@ -379,4 +379,117 @@ function wrapLine(
  */
 function prefix(indent: number | string): string {
 	return typeof indent === 'number' ? ' '.repeat(Math.max(indent, 0)) : indent;
+}
+
+/**
+ * Where the ellipsis goes when a line does not fit.
+ *
+ * The same four `text-overflow` accepts, because this is what honours it: one
+ * reader of the property and one implementation of what cutting a line means.
+ */
+export type TruncateMode = 'clip' | 'ellipsis' | 'ellipsis-start' | 'ellipsis-middle';
+
+/** The character a cut line is marked with. One column, and drawn everywhere. */
+export const ELLIPSIS = '…';
+
+/**
+ * Cuts text down to a width, in columns, marking where it was cut.
+ *
+ * By grapheme cluster rather than by character: slicing in the middle of a
+ * surrogate pair leaves half a code point, and slicing before a combining mark
+ * leaves the mark to attach itself to whatever follows. A cluster that would
+ * straddle the edge is dropped rather than half drawn, so the result is never
+ * *wider* than asked for -- it may be one column narrower, which is what a wide
+ * character costs.
+ *
+ * `clip` cuts and marks nothing, which is the CSS default and what a caller
+ * wants when the edge itself says there is more. The other three keep one column
+ * back for the ellipsis, so a width of one is the ellipsis alone.
+ *
+ * @param text - The text.
+ * @param width - The most columns it may take.
+ * @param mode - Where the mark goes. `ellipsis` by default.
+ * @returns The text, no wider than `width`.
+ */
+export function truncate(text: string, width: number, mode: TruncateMode = 'ellipsis'): string {
+	// `NaN` fails every comparison below, so it walked straight through and handed
+	// back the whole string with an ellipsis on the end -- wider than any width
+	// and marked as cut. A width that is not a number is not a width
+	if (!(width > 0)) {
+		return '';
+	}
+	if (stringWidth(text) <= width) {
+		return text;
+	}
+	if (mode === 'clip') {
+		return take(text, width).text;
+	}
+	if (width === 1) {
+		return ELLIPSIS;
+	}
+
+	if (mode === 'ellipsis-start') {
+		return ELLIPSIS + takeEnd(text, width - 1);
+	}
+
+	if (mode === 'ellipsis-middle') {
+		// the head keeps the odd column, because the beginning of a path or an
+		// identifier is what says which one it is
+		const tail = Math.floor((width - 1) / 2);
+		const head = width - 1 - tail;
+		return take(text, head).text + ELLIPSIS + takeEnd(text, tail);
+	}
+
+	return take(text, width - 1).text + ELLIPSIS;
+}
+
+/**
+ * The longest prefix of whole clusters that fits.
+ *
+ * @param text - The text.
+ * @param width - The columns available.
+ * @returns The prefix and how wide it came to.
+ */
+function take(text: string, width: number): { text: string; used: number } {
+	let out = '';
+	let used = 0;
+
+	for (const cluster of graphemes(text)) {
+		const w = stringWidth(cluster);
+		if (used + w > width) {
+			break;
+		}
+		out += cluster;
+		used += w;
+	}
+
+	return { text: out, used };
+}
+
+/**
+ * The longest suffix of whole clusters that fits.
+ *
+ * Built by walking forwards and dropping from the front, because `graphemes()`
+ * reads a string in one direction and a cluster cannot be found by stepping
+ * backwards through code units.
+ *
+ * @param text - The text.
+ * @param width - The columns available.
+ * @returns The suffix.
+ */
+function takeEnd(text: string, width: number): string {
+	const clusters = [...graphemes(text)];
+	let used = 0;
+	let at = clusters.length;
+
+	while (at > 0) {
+		const w = stringWidth(clusters[at - 1]);
+		if (used + w > width) {
+			break;
+		}
+		used += w;
+		at--;
+	}
+
+	return clusters.slice(at).join('');
 }
