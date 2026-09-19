@@ -581,6 +581,43 @@ const defaultEffects: Effects = createEffects();
  * @param fn - What to run. May return a cleanup.
  * @returns Disposes the effect, running any pending cleanup.
  */
+/**
+ * Runs `fn` without whatever it creates belonging to the effect that is running.
+ *
+ * The ownership twin of `untrack()`: that one stops a read being recorded, this
+ * one stops a *creation* being adopted. An effect created while another one's
+ * body runs is normally a child of it and dies when that body runs again, which
+ * is what stops a component leaking an effect per run -- and it is exactly wrong
+ * where something else already owns the lifetime.
+ *
+ * The renderer's keyed list is that case and is why this exists. `For` re-runs
+ * its reconcile whenever the list changes, and a row that merely *moved* keeps
+ * its element and everything attached to it; the implicit parentage disposed
+ * those rows' effects on every reconcile, so a row that had not gone anywhere
+ * went dead -- it kept its text from whenever it was last built and stopped
+ * following its own state. Nothing leaks by opting out, because the caller
+ * opting out is the one that owns the branch and disposes it.
+ *
+ * Which is the whole of the contract: **what is created in here is yours to
+ * dispose**, and there is nothing left that will do it for you. Inside a
+ * component, reach for the renderer's `runWithOwner()` instead -- it does this
+ * and hands the result to an owner, so the effect still dies with something. A
+ * bare `unowned()` around a `createEffect()` in a component body opts out of
+ * both, and the disposer it returns is the only way back.
+ *
+ * @param fn - What to run.
+ * @returns Whatever it returned.
+ */
+export function unowned<T>(fn: () => T): T {
+	const previous = currentOwner;
+	currentOwner = undefined;
+	try {
+		return fn();
+	} finally {
+		currentOwner = previous;
+	}
+}
+
 export function effect(fn: () => void | (() => void)): () => void {
 	return defaultEffects.effect(fn);
 }

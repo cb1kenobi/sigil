@@ -8,6 +8,7 @@ import {
 	setErrorHandler,
 	setScheduler,
 	State,
+	unowned,
 } from '../../src/signals/index.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -1205,5 +1206,62 @@ describe('createEffects', () => {
 		expect((seen[0] as Error).message).toBe('mine');
 
 		stop();
+	});
+});
+
+describe('unowned', () => {
+	it('should keep an effect a body created alive across that body re-running', () => {
+		// the ownership twin of `untrack()`, and the case it exists for: something
+		// else already owns the lifetime. `For`'s reconcile is an effect body, and
+		// the implicit parentage disposed the effects of rows that had merely moved
+		const scope = createEffects();
+		const outer = new State(0);
+		const inner = new State(0);
+		const runs: number[] = [];
+
+		scope.effect(() => {
+			outer.get();
+			unowned(() => {
+				scope.effect(() => {
+					runs.push(inner.get());
+				});
+			});
+		});
+
+		expect(runs).toEqual([0]);
+
+		// the parent re-runs, which would normally take the child with it
+		outer.set(1);
+		scope.flush();
+		expect(runs).toEqual([0, 0]);
+
+		inner.set(1);
+		scope.flush();
+		// both children heard it, because neither was disposed
+		expect(runs).toEqual([0, 0, 1, 1]);
+	});
+
+	it('should still adopt what a body creates without it', () => {
+		// the rule it opts out of, so that the opt-out is what the test is about
+		const scope = createEffects();
+		const outer = new State(0);
+		const inner = new State(0);
+		const runs: number[] = [];
+
+		scope.effect(() => {
+			outer.get();
+			scope.effect(() => {
+				runs.push(inner.get());
+			});
+		});
+
+		outer.set(1);
+		scope.flush();
+		expect(runs).toEqual([0, 0]);
+
+		inner.set(1);
+		scope.flush();
+		// the first child died with the body that made it, so only the second ran
+		expect(runs).toEqual([0, 0, 1]);
 	});
 });

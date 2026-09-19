@@ -46,7 +46,7 @@
 import type { Painter } from '../canvas/index.js';
 import type { KeyHandler } from '../input/index.js';
 import type { Box, LayoutNode, Measurement } from '../layout/index.js';
-import type { PropValues, Style, StyleState } from '../style/index.js';
+import type { PropValues, Style, StyleState, Update } from '../style/index.js';
 import { Cascade, declare, Restyler } from '../style/index.js';
 import { stringWidth } from '../width/index.js';
 import { wrap } from '../wrap/index.js';
@@ -93,6 +93,19 @@ export interface Marks {
 	paint: Set<Element>;
 	/** Elements whose style props were written, which skips selector matching. */
 	props: Set<Element>;
+	/**
+	 * Elements taken out of a parent, so that a restyler can forget them.
+	 *
+	 * The fifth question, and the one that is asked about an element that is no
+	 * longer here: everything else names something still in the tree. `Restyler`
+	 * keys its caches by element identity, so without this an unmounted subtree
+	 * stays reachable for the life of it -- which in a long-running TUI that
+	 * shows and hides a panel is a leak with nothing to point at. An element that
+	 * was moved rather than removed is in here too, because a move is a removal
+	 * and an insertion; the reader is expected to check whether it ended the frame
+	 * attached, which is what tells the two apart.
+	 */
+	removed: Set<Element>;
 }
 
 function emptyMarks(): Marks {
@@ -102,6 +115,7 @@ function emptyMarks(): Marks {
 		layout: new Set(),
 		paint: new Set(),
 		props: new Set(),
+		removed: new Set(),
 	};
 }
 
@@ -354,6 +368,10 @@ export class Element implements LayoutNode {
 			return this;
 		}
 
+		// recorded before the child is detached, because afterwards it has no tree
+		// to record against -- and it is recorded against *this* tree rather than
+		// the child's own mark, for the same reason
+		this.#tree?.mark('removed', child);
 		this.#children.splice(at, 1);
 		child.#parent = undefined;
 		child.#adopt(undefined);
@@ -705,15 +723,18 @@ export class Element implements LayoutNode {
 
 class TreeImpl implements Tree {
 	marks: Marks = emptyMarks();
+	readonly #onMark: (() => void) | undefined;
 	readonly root: Element;
 
-	constructor(root: Element) {
+	constructor(root: Element, onMark?: () => void) {
+		this.#onMark = onMark;
 		this.root = root;
 		Element.attach(root, this);
 	}
 
 	mark(kind: keyof Marks, element: Element): void {
 		this.marks[kind].add(element);
+		this.#onMark?.();
 	}
 
 	take(): Marks {
@@ -771,8 +792,8 @@ export function raw(options: RawOptions, props: ElementProps = {}): Element {
  * @param root - The root element.
  * @returns The tree.
  */
-export function createTree(root: Element): Tree {
-	return new TreeImpl(root);
+export function createTree(root: Element, onMark?: () => void): Tree {
+	return new TreeImpl(root, onMark);
 }
 
 export { arrange, cellStyle, paint } from './paint.js';
@@ -797,10 +818,30 @@ export { arrange, cellStyle, paint } from './paint.js';
  */
 export function resolveStyles(root: Element, restyler?: Restyler): Restyler {
 	const it = restyler ?? new Restyler(new Cascade([]));
-	it.update(root);
+	settleStyles(root, it);
+	return it;
+}
+
+/**
+ * The same walk, handing back what the restyler worked out rather than the
+ * restyler.
+ *
+ * `resolveStyles()` is the spelling for a caller that resolves and draws; a
+ * frame loop needs the other half of the answer -- which elements moved and
+ * which merely need repainting -- and recovering that by diffing styles it has
+ * just been handed would be the restyler's job done twice, to a worse answer.
+ * One walk, two callers, so the two can never come to disagree about the order
+ * it happens in.
+ *
+ * @param root - The root element.
+ * @param restyler - The restyler holding the sheets.
+ * @returns What needs laying out and what needs painting.
+ */
+export function settleStyles(root: Element, restyler: Restyler): Update {
+	const update = restyler.update(root);
 
 	const walk = (element: Element): void => {
-		const style = it.styleOf(element);
+		const style = restyler.styleOf(element);
 		if (style) {
 			element.style = style;
 		}
@@ -810,5 +851,5 @@ export function resolveStyles(root: Element, restyler?: Restyler): Restyler {
 	};
 
 	walk(root);
-	return it;
+	return update;
 }

@@ -57,6 +57,7 @@ export {
 	type Scheduler,
 	setErrorHandler,
 	setScheduler,
+	unowned,
 } from './effect.js';
 
 /**
