@@ -788,8 +788,13 @@ characters would not, and `maxWidth` truncates on grapheme clusters rather
 than slicing a surrogate pair in half. No borders — a table in a build log
 sits next to everything else that was printed, and rules around it are noise.
 
-`sigil/components` also exports `decodeKeys()` and the `padCell()`,
-`truncateCell()`, and `renderBar()` helpers the above are built from.
+`sigil/components` also exports `decodeKeys()` and `renderBar()`, and the state
+and the element tree behind each component -- `spinnerView()`, `progressView()`
+and `tableView()`, with `spinnerState()` and `progressState()` driving the two
+that animate -- so a component tree can use them directly rather than through
+the imperative facade. Cutting a line to a width is
+`truncate()` in [`sigil/wrap`](#sigilwrap); padding one is a declared width and
+`text-align` on a `text` element.
 
 ### `sigil/canvas`
 

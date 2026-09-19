@@ -5,7 +5,6 @@
  *   NO_COLOR=1 node demos/components/06-ansi-and-wrap.js
  */
 import { ansi } from '@ttylabs/sigil/ansi';
-import { padCell } from '@ttylabs/sigil/components';
 import { stringWidth } from '@ttylabs/sigil/width';
 import { terminalWidth, wrap } from '@ttylabs/sigil/wrap';
 
@@ -25,8 +24,11 @@ console.log(wrap(ansi.bgBlue.white(text), 40));
 
 console.log('\nwidth is measured in columns, not characters:');
 for (const sample of ['hello', '日本語', '🙂', '🇯🇵', 'á']) {
-	// `padCell()` rather than `String.padEnd()`, which counts UTF-16 code units
-	// and would leave this very list ragged -- which is the point being made
+	// padded with `stringWidth()` rather than `String.padEnd()`, which counts
+	// UTF-16 code units and would leave this very list ragged -- which is the
+	// point being made. A table declares the width and lets the box model do it;
+	// down here, where there is no box, it is a subtraction.
 	const columns = String(stringWidth(sample)).padStart(2);
-	console.log(`  ${padCell(sample, 10)}  ${columns} columns, ${sample.length} code units`);
+	const cell = sample + ' '.repeat(Math.max(0, 10 - stringWidth(sample)));
+	console.log(`  ${cell}  ${columns} columns, ${sample.length} code units`);
 }

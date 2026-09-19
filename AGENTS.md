@@ -2454,9 +2454,10 @@ stylesheet rather than anything the runtime knows about.
   no terminal can draw. An insertion is the one edit that does not move by whole
   clusters, because what was typed can join the cluster after the cursor -- a
   letter typed in front of a lone combining mark makes one cluster of the two --
-  so it snaps forward to the end of what it landed inside. `truncateCell()` in the table already read text this way;
-  the prompt was the one place that did not. See
-  `test/components/prompt.test.ts`.
+  so it snaps forward to the end of what it landed inside. The table's
+  `truncateCell()` already read text by cluster and the prompt was the one place
+  that did not, which is still the split now that `truncate()` has replaced it.
+  See `test/components/prompt.test.ts`.
 - **The caret is painted into the frame; the terminal's own cursor is not
   moved.** Left, Right, Home and End moved an index nothing drew, so nothing on
   screen changed until the next character was typed and landed somewhere
@@ -3128,6 +3129,21 @@ color: magenta }` and beats the default with an ordinary rule, which is only tru
 - Parser errors are thrown as plain `Error`s with user-facing messages; they
   are what the user sees, so write them accordingly.
 - Prefer a regression test named after the defect over a comment explaining it.
+- **A demo is part of the published surface, and it was the only part nothing
+  checked.** The demos import `@ttylabs/sigil` by name, so they resolve through
+  the package's `exports` map and read `dist/` -- which is the point of them, and
+  which also puts them outside the type-check: they are `.js` at the repository
+  root, nothing runs them, and a named import of an export that no longer exists
+  is not a lint error. It is a `SyntaxError` raised when somebody runs the file.
+  `06-ansi-and-wrap.js` went on importing `padCell()` for a whole pull request
+  after the component rewrite deleted it, with the suite green throughout and the
+  README still documenting the export beside it. `packages/cli/test/demos.test.ts`
+  reads every demo's static imports and asks the built package for each name,
+  which is static and costs a read rather than 28 spawned processes -- it is the
+  same shape of answer as `the root build filter` in `cli.test.ts`, and it lives
+  in that package for the same reason: `@ttylabs/cli` is the one whose tests
+  already require a build. What it does not cover is a demo that imports fine and
+  then throws, which is what running them is for and what is still done by hand.
 - **An assertion is a call, and `expect(x).to.be.ok` is not one.** Chai spells
   that one as a getter, so it reads to a linter as an expression nobody used --
   and the narrowing it does not do is what made it worse than noise: each of the
