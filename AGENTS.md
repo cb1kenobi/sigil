@@ -144,6 +144,11 @@ with one IR behind several syntaxes, and a `sigil` CLI that builds and packages
 apps. See the "sigil 2.0" project in Linear; each layer is its own ticket and
 each ticket carries the decisions behind it.
 
+The components and the help screen are ported onto it (SIG-76, SIG-77): the
+spinner, the progress bar, the table and the four prompts are element trees with
+the imperative API as a facade, and help is a template. `src/help/layout.ts`,
+`padCell()` and `truncateCell()` are what that deleted.
+
 The acceptance test is now `@ttylabs/cli` itself — a framework whose own
 toolchain is not written in it has not been tested by anyone who had to live
 with it. The Titanium port follows rather than leads, so that it finds product
@@ -2051,6 +2056,27 @@ stylesheet rather than anything the runtime knows about.
   turns the mode off for the reason it leaves the alternate screen: a CLI that
   dies with it on hands the user a shell that puts `ESC [ 200 ~` into every
   paste, which has to be reset by hand.
+- **A router puts back only the raw mode it turned on.** `setRawMode()` reports
+  whether it was the call that changed anything, which is the rule `hideCursor()`
+  and `enableBracketedPaste()` already follow -- a prompt inside a full-screen app
+  that is already raw must not take the app out of it when the prompt is
+  answered, because the app is still reading keys and what it gets back is a
+  cooked stream that echoes.
+- **One thing owns stdin, and a prompt will borrow it.** `PromptOptions.router`
+  is what makes the rule true in an app that prompts: an app that already has a
+  router -- a full-screen one, which needed one to have a focus ring at all --
+  hands it over, the prompt binds to it, and the prompt takes only its own
+  handlers back off. A prompt with no router builds one, which is correct only
+  because nothing else is reading at the time; that is the ordinary case and it
+  is not every case, and two prompts at once over two routers would both read
+  every key.
+- **The stream ending is the router's to report, for the reason keys are.** A
+  prompt waiting on a key has to be told when none will ever arrive, or it waits
+  forever -- and that is a question about stdin, which the router owns. A
+  listener of its own for that one event would be the private stdin handling the
+  router exists to replace, kept alive for a single case. `onEnd()` fires for the
+  stream ending and for it erroring, since what a caller does about either is the
+  same thing.
 - **Resize is the router's to carry and the renderer's to mean.** The event
   belongs with the other one a terminal produces, so an app subscribes in one
   place for the two halves of one frame. What it _means_ -- re-evaluate the width
@@ -2180,6 +2206,22 @@ stylesheet rather than anything the runtime knows about.
   that style. "How much screen is there" has an answer nothing in the frame can
   move. Read again on resize, along with the full re-match a resize already
   forces.
+- **An auto-width canvas is given a width, so that the backend stops following
+  the terminal.** It reads backwards and it is the point: an inline canvas built
+  without a width erases and resizes _itself_ on every resize, and an auto-width
+  one is already re-measured and resized by the frame -- so a spinner twelve
+  columns wide blinked off and back on every time the window changed by a column
+  it was not using. A canvas that is neither auto nor fixed is left to follow the
+  terminal, because nothing else would move it.
+- **An auto-height canvas is laid out again where it reached further than it
+  measured.** The same second pass `renderToString()` takes and for the same
+  reason: a row whose children flex is measured with each child offered the whole
+  content box and placed with each given a share, so a prompt's question that
+  wraps to two lines in the share it gets was one line in the room it was offered
+  -- and the canvas reserved one row with the second clipped off the bottom.
+  `arrangedExtent()` asks the arranged tree rather than asking for another
+  estimate. It can only grow the canvas, never shrink it, so a frame that
+  measured right pays one comparison.
 - **An auto-height canvas is measured, not laid out and read back.** That was the
   first answer and it is wrong in the way that matters: a root with no declared
   height fills whatever it is given, so `box.height` after a pass at the screen's
@@ -2300,6 +2342,98 @@ stylesheet rather than anything the runtime knows about.
   "await an answer" have to be reconciled -- and doing it before anything has been
   ported would be a guess with nothing to check it against. `runWithOwner()` is
   the seam either will use, which is why it is public now.
+
+### The built-in components
+
+- **They are element trees, and the imperative API is a facade over them.**
+  `createSpinner()`, `createProgress()`, `table()` and the four prompts still
+  return what they always returned, because not every CLI wants a component tree:
+  a build script showing one spinner should not mount a renderer by hand, and the
+  existing tests are the regression suite for the rewrite. What is behind them is
+  `mountLive()` -- a renderer over an inline canvas, the framework stylesheet, a
+  way to write a line above the frame, and two ways to finish. The state each one
+  is driven by and the tree each one builds are exported beside the facade, so a
+  component tree can use them directly.
+- **What the rewrite deleted.** The spinner's `setInterval` is an effect with a
+  cleanup, which is where a `steps()` keyframe animation goes when there is one.
+  Each prompt's raw-mode handling, `data` listener, decoder, held tail and escape
+  timer are the one input router's. The prompts' frame assembly and cursor
+  arithmetic are layout. `padCell()` is a declared width and `text-align`, and
+  `truncateCell()` is `text-overflow` -- both gone, with `truncate()` in
+  `@ttylabs/sigil/wrap` as the one implementation of cutting a line.
+- **Whether there is a terminal is settled at the mount and handed to the
+  component, because it changes what is drawn rather than only how.** A spinner
+  in a CI log has no frames to animate, so it draws none and starts no timer;
+  a progress bar has no bar, so it draws a percentage rounded to `step`. The
+  backend then writes the frame once per change rather than once per tick, which
+  is the live region's rule reached through the canvas instead of through a
+  second code path -- and the piped output is byte for byte what it was.
+- **A spinner mounts on `start()` and a progress bar mounts on construction**,
+  which is what each has always meant: a renderer paints its first frame as it is
+  built, so mounting eagerly would put a spinner on screen that nobody started.
+  `succeed()` on a spinner nobody started still mounts, because leaving its line
+  is what `region.done(final)` always did.
+- **A frame that ends up in a log is as wide as what it drew.** A canvas paints
+  every cell it owns, so one the width of the screen ends each row with blanks out
+  to the margin -- invisible on screen, and trailing whitespace in the scrollback
+  once the frame is left behind. `render({ width: 'auto' })` follows the content
+  instead, and `mountLive()` asks for it. The default stays the terminal's width,
+  because the two costs are not the same: a canvas taller than its content
+  reserves rows of screen nothing is using, which is always wrong inline, while
+  one as wide as the screen merely writes blanks, which is what an app drawing a
+  panel wants.
+- **A component's own clock says when the state changes and the frame loop says
+  when that reaches the screen.** A spinner tick is a signal write, so the frame
+  it asks for is paced with everything else rather than painted from inside a
+  timer. The visible consequence is up to one frame's latency on a tick, which at
+  eighty milliseconds against thirty frames a second is nothing; the invisible one
+  is that a test has to advance both clocks, which is why `frameMs` is an option.
+- **A table's column widths are worked out and the rest is the box model.** A
+  shared column width across rows is the one thing flexbox cannot do for itself:
+  each row would size its own cells and no two rows would agree. So the widths are
+  measured and declared, and the padding, the alignment and the truncation are
+  properties.
+- **A text prompt's field scrolls sideways rather than wrapping.** A canvas is a
+  fixed number of columns and a field that runs past the edge is clipped there,
+  where the live region wrote the string whole and let the terminal wrap it. A
+  wrapped field cannot work here for a reason worth writing down: there is no
+  inline layout, so the three pieces the caret splits the value into are three
+  flex items, and a wrapped first item leaves the other two beside its _box_
+  rather than after its last line. Scrolling is what readline does and it keeps
+  the caret on screen, which wrapping in a fixed grid would not.
+- **A spinner that settled or was stopped is mounted again when it is started.**
+  A disposed renderer paints nothing ever again, so keeping the handle made
+  `start()` after `succeed()` a call that set `spinning` to true and changed the
+  screen not at all. The signals live on, so the label survives; what is rebuilt
+  is the canvas and the tree.
+- **A progress bar says it finished whatever `step` divides into.** Stepping the
+  percentage down is what makes consecutive frames identical, and with `step: 30`
+  it also made the last line `90%` -- a log whose last word is 90% is one the
+  reader cannot tell from a build that stopped there.
+- **A prompt's head says how it divides its row.** The same piece of arithmetic
+  the help template kept, for the same reason: a row's intrinsic height is taken
+  with every child offered the whole content box and placed with each given a
+  share, so a question measured at the full width and placed in a share of it came
+  out one line tall -- and a choice list was drawn over the rest of the question.
+  The message is given a declared width, which is measured at the width it will be
+  placed at, and one column is kept back so that a question as long as the
+  terminal still leaves somewhere for the caret to be. How many rows that comes to
+  is worked out in the same place and through the same wrapper the text draws
+  with, so the width and the height cannot disagree about it -- and that is what
+  the list below subtracts, rather than assuming the question is one line.
+- **A choice list longer than the screen shows a window of itself.** A canvas is
+  a fixed number of rows and what does not fit is clipped, where the live region
+  wrote every line and let the terminal scroll -- which was broken in its own way,
+  since the repaint then walked the cursor up into the log. The window follows the
+  highlight and is recomputed from it, so there is no scroll state to keep in
+  agreement: the only thing that has to be true is that the active row is on
+  screen.
+- **A bracketed paste reaches a text prompt as text, with its line breaks
+  flattened.** Obeying one is what makes a paste submit half an address, which is
+  the whole reason a terminal brackets a paste. The other prompts register no
+  paste handler, so a pasted block is typed in as keys -- which is what a terminal
+  that cannot bracket one sends anyway, and what a `y` pasted into a confirm
+  should mean.
 
 ### Prompts and keys
 

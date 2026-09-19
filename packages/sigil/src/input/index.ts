@@ -153,6 +153,19 @@ export interface InputRouter {
 	 * @returns Removes the handler.
 	 */
 	onResize(handler: (size: { height: number; width: number }) => void): () => void;
+	/**
+	 * Adds a handler for the input going away.
+	 *
+	 * The stream ending, or erroring, means no key will ever arrive again -- and
+	 * something waiting on one has to be told, or it waits forever. That is a
+	 * question about stdin, and the router is what owns stdin: a prompt keeping a
+	 * listener of its own for it would be the private stdin handling this exists
+	 * to replace, kept alive for one event.
+	 *
+	 * @param handler - Called with the error, if it was one.
+	 * @returns Removes the handler.
+	 */
+	onEnd(handler: (error?: unknown) => void): () => void;
 	/** Gives stdin back and puts raw mode and the paste markers back. */
 	stop(): void;
 }
@@ -168,11 +181,13 @@ export interface InputOptions {
 	paste?: boolean;
 	/** The tree keys are dispatched through, and the focus ring is built from. */
 	root?: Element;
+	/** Where keys come from. Defaults to the terminal's own input. */
+	stdin?: InputStream;
 	terminal?: Terminal;
 }
 
 /** A readable stream, as narrow as this module needs it. */
-interface InputStream {
+export interface InputStream {
 	isTTY?: boolean;
 	off?: (event: string, fn: (...args: unknown[]) => void) => unknown;
 	on?: (event: string, fn: (...args: unknown[]) => void) => unknown;
@@ -236,7 +251,7 @@ function attached(element: Element, root: Element | undefined): boolean {
  */
 export function createInput(opts: InputOptions = {}): InputRouter {
 	const terminal = opts.terminal ?? defaultTerminal;
-	const stdin = terminal.stdin as InputStream | undefined;
+	const stdin = opts.stdin ?? (terminal.stdin as InputStream | undefined);
 
 	if (!terminal.isTTY || !stdin?.isTTY) {
 		throw new InputError(
@@ -508,6 +523,31 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 		consume(String(args[0]));
 	};
 
+	const enders = new Set<(error?: unknown) => void>();
+
+	/**
+	 * Tells everything waiting on a key that none is coming.
+	 *
+	 * Over a copy and a membership check, which is the rule every handler set
+	 * here follows: a handler added while this is running does not receive this
+	 * event, and one removed during it is not called. The first needs the copy and
+	 * the second needs the check, and either alone gives only its own half.
+	 *
+	 * @param error - What the stream failed with, if it did.
+	 */
+	const ended = (error?: unknown): void => {
+		// eslint-disable-next-line unicorn/no-useless-spread
+		for (const handler of [...enders]) {
+			if (!enders.has(handler)) {
+				continue;
+			}
+			handler(error);
+		}
+	};
+
+	const onStreamEnd = (): void => ended();
+	const onStreamError = (...args: unknown[]): void => ended(args[0]);
+
 	const resizers = new Set<(size: { height: number; width: number }) => void>();
 	const offResize = terminal.onResize((size) => {
 		// eslint-disable-next-line unicorn/no-useless-spread
@@ -524,8 +564,14 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 	// there is no other reader whose view of the bytes this could disturb
 	stdin.setEncoding?.('utf8');
 	stdin.on?.('data', onData);
+	stdin.on?.('end', onStreamEnd);
+	stdin.on?.('error', onStreamError);
 	stdin.resume?.();
-	terminal.setRawMode(true);
+	// only put back what this call changed, which is the rule `hideCursor()`
+	// already follows: a router built inside a full-screen app that is already in
+	// raw mode must not take the app out of it on the way out -- the app is still
+	// reading keys, and what it would get back is a cooked stream that echoes
+	const hadRaw = terminal.setRawMode(true);
 
 	const hadPaste = opts.paste === false ? false : terminal.enableBracketedPaste();
 
@@ -548,6 +594,11 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 			return () => void pasters.delete(handler);
 		},
 
+		onEnd(handler: (error?: unknown) => void): () => void {
+			enders.add(handler);
+			return () => void enders.delete(handler);
+		},
+
 		onResize(handler: (size: { height: number; width: number }) => void): () => void {
 			resizers.add(handler);
 			return () => void resizers.delete(handler);
@@ -561,6 +612,8 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 
 			const off = stdin.off ?? stdin.removeListener;
 			off?.call(stdin, 'data', onData);
+			off?.call(stdin, 'end', onStreamEnd);
+			off?.call(stdin, 'error', onStreamError);
 			offResize();
 			clearTimeout(timer);
 			timer = undefined;
@@ -570,7 +623,9 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 			// left as it was found: paused, undestroyed, and readable by whatever
 			// reads it next
 			stdin.pause?.();
-			terminal.setRawMode(false);
+			if (hadRaw) {
+				terminal.setRawMode(false);
+			}
 			if (hadPaste) {
 				terminal.disableBracketedPaste();
 			}

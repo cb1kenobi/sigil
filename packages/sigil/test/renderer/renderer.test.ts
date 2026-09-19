@@ -1423,6 +1423,7 @@ describe('giving the screen back', () => {
 			env: {},
 			isTTY: true,
 			proc: { on() {}, pid: 1, removeListener() {} } as never,
+			stderr: stream as never,
 			stdin: undefined,
 			stdout: stream as never,
 		});

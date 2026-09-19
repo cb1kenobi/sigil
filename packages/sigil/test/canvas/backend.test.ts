@@ -26,6 +26,10 @@ function harness(width = 20, height = 6): Harness {
 		isTTY: true,
 		// nothing here installs signal handlers on the real process
 		proc: { on() {}, pid: 1, removeListener() {} } as never,
+		// the screen stands in for both, so the guard a terminal puts on its
+		// streams lands here rather than on the process's own stderr -- a listener
+		// per terminal, and a suite builds a great many of them
+		stderr: stream as never,
 		stdin: undefined,
 		stdout: stream as never,
 	});

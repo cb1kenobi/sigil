@@ -1,3 +1,4 @@
+import { table } from '../src/components/index.js';
 import { box, renderToString, text } from '../src/element/index.js';
 import { parseStylesheet } from '../src/style/index.js';
 import { frameworkSheet, FRAMEWORK_CSS, parseTheme, themedCascade } from '../src/theme/index.js';
@@ -88,5 +89,16 @@ describe('themedCascade()', () => {
 		// `.sigil-symbol` is (0,1,0), so specificity would keep green -- the origin
 		// is what makes the theme win
 		expect(themed).to.equal(`${ESC}[35mx${ESC}[0m`);
+	});
+});
+
+describe('a built-in drawn through a theme', () => {
+	it('should take its colours from the sheet', () => {
+		const out = table([{ name: 'a' }], {
+			colorLevel: 1,
+			theme: '.sigil-table-head { color: red }',
+		});
+
+		expect(out.split('\n')[0]).to.equal(`${ESC}[1;31mname${ESC}[0m`);
 	});
 });

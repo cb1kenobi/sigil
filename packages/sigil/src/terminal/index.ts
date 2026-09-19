@@ -160,7 +160,16 @@ export interface Terminal {
 	/** Puts back everything this terminal changed. Idempotent. */
 	restore(): void;
 	/** Enters or leaves raw mode, if the input stream is a TTY. */
-	setRawMode(raw: boolean): void;
+	/**
+	 * Puts the terminal in or out of raw mode.
+	 *
+	 * @param raw - Whether keys should arrive unbuffered and unechoed.
+	 * @returns Whether this call is what changed it, mirroring `hideCursor()`.
+	 *   A prompt inside a full-screen app that is already raw must not turn raw
+	 *   mode off when it is answered: the app is still reading keys, and what it
+	 *   gets back is a cooked stream that echoes.
+	 */
+	setRawMode(raw: boolean): boolean;
 	/** Shows the cursor. */
 	showCursor(): void;
 	readonly stderr: OutputStream;
@@ -512,13 +521,14 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
 
 		restore,
 
-		setRawMode(raw: boolean): void {
+		setRawMode(raw: boolean): boolean {
 			if (raw === rawMode || !stdin?.isTTY || typeof stdin.setRawMode !== 'function') {
-				return;
+				return false;
 			}
 			rawMode = raw;
 			stdin.setRawMode(raw);
 			syncRestore();
+			return true;
 		},
 
 		showCursor(): void {

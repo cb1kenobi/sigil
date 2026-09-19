@@ -35,14 +35,14 @@ node demos/parser/06-lazy-commands.js --help  # commands listed by name alone
 
 ## Components
 
-|                                                                    |                                                |
-| ------------------------------------------------------------------ | ---------------------------------------------- |
-| [`components/01-spinner.js`](components/01-spinner.js)             | Work whose length is not known                 |
-| [`components/02-progress.js`](components/02-progress.js)           | Work whose length is                           |
-| [`components/03-table.js`](components/03-table.js)                 | Columns that line up, whatever is in them      |
-| [`components/04-prompts.js`](components/04-prompts.js)             | Text, password, select, multiselect, confirm   |
-| [`components/05-live-region.js`](components/05-live-region.js)     | The layer the spinner and the bar are drawn on |
-| [`components/06-ansi-and-wrap.js`](components/06-ansi-and-wrap.js) | Styling, wrapping, and display width           |
+|                                                                    |                                               |
+| ------------------------------------------------------------------ | --------------------------------------------- |
+| [`components/01-spinner.js`](components/01-spinner.js)             | Work whose length is not known                |
+| [`components/02-progress.js`](components/02-progress.js)           | Work whose length is                          |
+| [`components/03-table.js`](components/03-table.js)                 | Columns that line up, whatever is in them     |
+| [`components/04-prompts.js`](components/04-prompts.js)             | Text, password, select, multiselect, confirm  |
+| [`components/05-live-region.js`](components/05-live-region.js)     | A string frame repainted in place, on its own |
+| [`components/06-ansi-and-wrap.js`](components/06-ansi-and-wrap.js) | Styling, wrapping, and display width          |
 
 ### Try them without a terminal
 
