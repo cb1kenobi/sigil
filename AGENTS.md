@@ -1042,6 +1042,23 @@ at`.
   frame is settling lands in the next set rather than in the one being walked,
   which is the difference between a change arriving a frame late and a change
   being dropped.
+- **A text is wrapped once, and paint reads the lines rather than making them
+  again.** The cache used to hold the height a text came to and throw away the
+  lines it came to -- which is the one thing paint needs, so paint wrapped the
+  string a second time at the same width. Half of all the grapheme segmentation
+  a help screen did was one of the two passes tokenizing what the other had just
+  tokenized. `WrappedText` holds the lines, each line's width and the
+  measurement together, because they are one answer to one question, and
+  `wrapped()` is public for the same reason `displayText` is: paint lives in
+  another module and asking here is what makes the answer one answer.
+- **A `nowrap` text is cached under one key rather than one per width.** It is
+  one line per newline whatever room it was offered, so a key per width was many
+  entries holding the same answer -- and worse, layout and paint asking about
+  different widths each missed the other's, so a table, whose cells are all
+  `nowrap`, paid for the wrap twice over and got slower when the lines were
+  first cached. The longest word is worked out only where it can be used, since
+  a `nowrap` text cannot be squeezed to it and scanning for it was an answer
+  thrown away.
 - **A text's measurement is cached per width and keyed on the resolved style
   _object_.** The cascade hands back a new `Style` when anything about it changed
   and the same one when nothing did, so comparing the reference answers "does
@@ -1151,10 +1168,22 @@ at`.
   again at paint time, and `stringWidth()` over every word of that screen is
   0.027ms on its own -- the work is not the measuring, it is doing it twice.
 
-  Left unoptimised, because both are one-shot: a CLI prints its help once and a
-  build tool prints its table once. What this entry is for is the next person to
-  care, and the thing it got wrong the first time is the thing they would have
-  acted on -- the seam is the wrap that is thrown away, not the cascade.
+  That seam is now closed, and the numbers above are what it cost before:
+  a help screen is 8.5ms and a two-hundred-row table 4.7ms, which is a quarter
+  and a fifth off, with the rendered output byte for byte what it was. A text is
+  wrapped once and paint reads the lines rather than making them again, and the
+  property-name lookup the cascade makes per declaration per element is memoised.
+  Neither changes a decision -- what a text comes to at a width is still one
+  answer, and it is now one answer literally rather than two that agree.
+
+  What did _not_ work is worth as much as what did, because it is the obvious
+  thing to try next. `initialStyle()` builds a fifty-property object by writing
+  computed keys onto `{}`, which reads like the textbook way to produce a
+  dictionary-mode object -- so it was replaced with one template cloned per call.
+  That was **slower**, by 27%, and `Object.assign()` in place of the spread was
+  slower again, by 47%. Cloning a fifty-property object costs more than building
+  one, in this engine, today. It is measured here rather than reasoned about
+  because the reasoning was what got it wrong.
 
 - **The media queries are the caller's, apart from the width and the colour
   level.** Those two this call is the authority on; the other half of a query is

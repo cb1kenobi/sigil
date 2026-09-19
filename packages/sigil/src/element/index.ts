@@ -169,6 +169,43 @@ export interface ElementProps {
  * interfaces written for literals in tests, and this is the other thing that
  * implements them.
  */
+/**
+ * A text wrapped at one width: the lines, each line's display width, and the
+ * measurement they add up to.
+ *
+ * One object because the three are one answer. Paint and layout both ask what a
+ * text comes to at a width, and when each worked it out for itself they each
+ * tokenized the string into grapheme clusters to do it.
+ */
+export interface WrappedText {
+	/** The lines, already wrapped at the width this was asked for. */
+	readonly lines: readonly string[];
+	/** What the lines come to, which is what the layout engine reads. */
+	readonly measurement: Measurement;
+	/** Each line's display width, measured where the line was made. */
+	readonly widths: readonly number[];
+}
+
+/**
+ * The cache key a `nowrap` text is held under, which no real width can be.
+ *
+ * Such a text is one line per newline whatever width it is offered, so a key per
+ * width would be many entries holding one answer -- and layout and paint asking
+ * about different widths would each miss the other's.
+ */
+const NOWRAP = -1;
+
+/** The narrowest a wrapping text can be squeezed to: its longest word. */
+function longestWord(content: string): number {
+	let longest = 0;
+	for (const word of content.split(/\s+/)) {
+		if (word !== '') {
+			longest = Math.max(longest, stringWidth(word));
+		}
+	}
+	return longest;
+}
+
 export class Element implements LayoutNode {
 	readonly type: ElementType;
 
@@ -231,7 +268,7 @@ export class Element implements LayoutNode {
 	 * measurement still hold" exactly, with no list of layout-affecting
 	 * properties to keep in agreement with `LAYOUT_PROPERTIES`.
 	 */
-	#measured = new Map<number, Measurement>();
+	#measured = new Map<number, WrappedText>();
 	#measuredFor: { style: Style; text: string } | undefined;
 
 	constructor(type: ElementType, props: ElementProps = {}) {
@@ -655,15 +692,36 @@ export class Element implements LayoutNode {
 		}
 	}
 
-	/** Measures a text, honouring the resolved style, with the result cached. */
-	#measureText(availableWidth: number): Measurement {
+	/**
+	 * Wraps a text at a width, honouring the resolved style, and caches it.
+	 *
+	 * Both the measurement and the lines, because paint asks the same question
+	 * layout already asked and used to re-wrap the string to answer it: half of
+	 * the grapheme segmentation a help screen did was one of the two passes
+	 * tokenizing what the other had just tokenized. The measurement kept the
+	 * height the text came to and threw away the lines it came to, which is the
+	 * one thing paint needs.
+	 *
+	 * Each line's width is kept for the same reason. Paint asks whether a line
+	 * overflows its box and then how much slack is left, and both are answers
+	 * this already worked out while taking the widest.
+	 */
+	#wrap(availableWidth: number): WrappedText {
 		const current = this.#measuredFor;
 		if (!current || current.style !== this.style || current.text !== this.#text) {
 			this.#measured.clear();
 			this.#measuredFor = { style: this.style, text: this.#text };
 		}
 
-		const hit = this.#measured.get(availableWidth);
+		// a `nowrap` text is the same answer at every width -- it is one line per
+		// newline whatever room it was offered -- so it is cached under one key
+		// rather than once per width it is asked about. Without that, layout and
+		// paint asking about different widths each missed the other's entry, and a
+		// table, whose cells are all `nowrap`, paid for the wrap twice over
+		const nowrap = this.style.whiteSpace === 'nowrap';
+		const key = nowrap ? NOWRAP : Math.max(0, availableWidth);
+
+		const hit = this.#measured.get(key);
 		if (hit) {
 			return hit;
 		}
@@ -672,42 +730,53 @@ export class Element implements LayoutNode {
 		// string every time it is asked, and a hit is the common case
 		const content = this.displayText;
 
-		const longest = Math.max(
-			0,
-			...content
-				.split(/\s+/)
-				.filter(Boolean)
-				.map((word) => stringWidth(word))
-		);
+		// the same branch paint used to take for itself, taken once
+		const lines =
+			nowrap || availableWidth <= 0
+				? content.split('\n')
+				: wrap(content, { width: availableWidth }).split('\n');
+		const widths = lines.map((line) => stringWidth(line));
+		const widest = Math.max(0, ...widths);
 
-		let result: Measurement;
-		if (this.style.whiteSpace === 'nowrap' || availableWidth <= 0) {
-			const lines = content.split('\n');
-			const widest = Math.max(0, ...lines.map((line) => stringWidth(line)));
-			result = {
-				height: lines.length,
-				minHeight: lines.length,
-				// the widest *line* rather than the whole string: `stringWidth()` reads
-				// a newline as nothing, so a two-line label reported the two lines
-				// added together as the narrowest it could be -- and a row placed it
-				// twice as wide as it draws, with everything after it pushed along
-				minWidth: this.style.whiteSpace === 'nowrap' ? widest : longest,
-				width: widest,
-			};
-		} else {
-			const lines = wrap(content, { width: availableWidth }).split('\n');
-			result = {
+		const result: WrappedText = {
+			lines,
+			measurement: {
 				height: lines.length,
 				// as short as it can be at the width it was given: wrapping it
 				// narrower makes it taller, not shorter
 				minHeight: lines.length,
-				minWidth: longest,
-				width: Math.max(0, ...lines.map((line) => stringWidth(line))),
-			};
-		}
+				// the widest *line* rather than the whole string: `stringWidth()` reads
+				// a newline as nothing, so a two-line label reported the two lines
+				// added together as the narrowest it could be -- and a row placed it
+				// twice as wide as it draws, with everything after it pushed along.
+				// The longest word is what a wrapping text can be squeezed to, and it
+				// is worked out only there: a `nowrap` text cannot be squeezed at all,
+				// so scanning its words was work whose answer was thrown away
+				minWidth: nowrap ? widest : longestWord(content),
+				width: widest,
+			},
+			widths,
+		};
 
-		this.#measured.set(availableWidth, result);
+		this.#measured.set(key, result);
 		return result;
+	}
+
+	/**
+	 * What this text draws at a width, wrapped and cached.
+	 *
+	 * Public because paint lives in another module and asks the same question
+	 * the layout engine does -- and asking it here is what makes the answer one
+	 * answer. A non-text element has no lines and says so rather than throwing,
+	 * since the walk already knows which branch it is in.
+	 *
+	 * @param availableWidth - The content width the text is being drawn into.
+	 * @returns The lines, their widths, and the measurement they come to.
+	 */
+	wrapped(availableWidth: number): WrappedText {
+		return this.type === 'text'
+			? this.#wrap(availableWidth)
+			: { lines: [], measurement: { height: 0, width: 0 }, widths: [] };
 	}
 
 	/**
@@ -736,7 +805,7 @@ export class Element implements LayoutNode {
 	static text(value: string, props: ElementProps = {}): Element {
 		const element = new Element('text', props);
 		element.#text = value;
-		element.measure = (width) => element.#measureText(width);
+		element.measure = (width) => element.#wrap(width).measurement;
 		return element;
 	}
 }
