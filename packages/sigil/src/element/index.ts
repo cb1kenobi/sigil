@@ -46,8 +46,8 @@
 import type { Painter } from '../canvas/index.js';
 import type { KeyHandler } from '../input/index.js';
 import type { Box, LayoutNode, Measurement } from '../layout/index.js';
-import type { PropValues, Style, StyleState, Update } from '../style/index.js';
-import { Cascade, declare, Restyler } from '../style/index.js';
+import type { PropValues, Style, StyleState } from '../style/index.js';
+import { declare } from '../style/index.js';
 import { stringWidth } from '../width/index.js';
 import { wrap } from '../wrap/index.js';
 
@@ -236,7 +236,14 @@ export class Element implements LayoutNode {
 
 	constructor(type: ElementType, props: ElementProps = {}) {
 		this.type = type;
-		this.style = declare();
+		// one shared object rather than a fresh one per element: `declare()` builds
+		// fifty-odd properties, the cascade replaces this with its own answer on the
+		// first settle, and a tree of eight hundred elements was paying for two
+		// styles each before anything had looked at it. Frozen, because a style is
+		// the cascade's to write and an element that mutated a shared one would be
+		// rewriting what every unsettled element in the process looks like -- which
+		// is the reason the property table and its initial values are frozen too
+		this.style = INITIAL_STYLE;
 		this.#apply(props);
 	}
 
@@ -566,6 +573,11 @@ export class Element implements LayoutNode {
 	 * `LAYOUT_PROPERTIES` carries `textTransform` at all.
 	 */
 	get displayText(): string {
+		return sanitize(this.#transformed);
+	}
+
+	/** The text with `text-transform` applied, before the control characters go. */
+	get #transformed(): string {
 		switch (this.style.textTransform) {
 			case 'uppercase': {
 				return this.#text.toUpperCase();
@@ -645,7 +657,6 @@ export class Element implements LayoutNode {
 
 	/** Measures a text, honouring the resolved style, with the result cached. */
 	#measureText(availableWidth: number): Measurement {
-		const content = this.displayText;
 		const current = this.#measuredFor;
 		if (!current || current.style !== this.style || current.text !== this.#text) {
 			this.#measured.clear();
@@ -656,6 +667,10 @@ export class Element implements LayoutNode {
 		if (hit) {
 			return hit;
 		}
+
+		// read after the cache, not before: `displayText` transforms and scans the
+		// string every time it is asked, and a hit is the common case
+		const content = this.displayText;
 
 		const longest = Math.max(
 			0,
@@ -668,11 +683,16 @@ export class Element implements LayoutNode {
 		let result: Measurement;
 		if (this.style.whiteSpace === 'nowrap' || availableWidth <= 0) {
 			const lines = content.split('\n');
+			const widest = Math.max(0, ...lines.map((line) => stringWidth(line)));
 			result = {
 				height: lines.length,
 				minHeight: lines.length,
-				minWidth: this.style.whiteSpace === 'nowrap' ? stringWidth(content) : longest,
-				width: Math.max(0, ...lines.map((line) => stringWidth(line))),
+				// the widest *line* rather than the whole string: `stringWidth()` reads
+				// a newline as nothing, so a two-line label reported the two lines
+				// added together as the narrowest it could be -- and a row placed it
+				// twice as wide as it draws, with everything after it pushed along
+				minWidth: this.style.whiteSpace === 'nowrap' ? widest : longest,
+				width: widest,
 			};
 		} else {
 			const lines = wrap(content, { width: availableWidth }).split('\n');
@@ -782,6 +802,157 @@ export function raw(options: RawOptions, props: ElementProps = {}): Element {
 }
 
 /**
+ * What an element's style is until the cascade has resolved one.
+ *
+ * Shared and frozen: the initial style is the same fifty-odd values for every
+ * element, `LayoutNode` needs one so that a tree can be laid out before anything
+ * has resolved a style, and building one per element is the second style every
+ * element used to pay for.
+ */
+const INITIAL_STYLE: Style = Object.freeze(declare());
+
+/**
+ * Every control character but a newline, which is the one a line is split on.
+ *
+ * Written as escapes rather than as literal bytes, for the reason AGENTS.md
+ * records twice: a raw control character in source is invisible in an editor and
+ * in a diff, and the one file that held a literal NUL had no reviewable diff at
+ * all.
+ */
+// eslint-disable-next-line no-control-regex
+const CONTROL = /[\u0000-\u0009\u000B-\u001F\u007F-\u009F]/g;
+
+/**
+ * What a `text` element will draw for a string.
+ *
+ * Exported because anything sizing a column has to measure what will be *drawn*
+ * rather than what it was handed: the table works its column widths out with
+ * `stringWidth()`, and a tab measures nothing and draws a space, so the two
+ * disagreed by a column per tab.
+ *
+ * @param text - The string.
+ * @returns The string as it will be drawn.
+ */
+export function toDisplayText(text: string): string {
+	return sanitize(text);
+}
+
+/**
+ * What a text draws, with the characters a cell grid refuses taken out.
+ *
+ * The grid refuses a control character rather than dropping it, deliberately: a
+ * row is painted one call at a time, and a newline that took no cell painted a
+ * whole paragraph onto one line. That rule is the grid's and it is right; what it
+ * needs above it is somebody to decide what a control character *means*, and this
+ * is that somebody. A tab becomes a space, because the grid models no tab stops
+ * and a tab that measured one width and painted another would take a column off
+ * every cell to its right. Everything else goes, because there is nothing for it
+ * to draw -- and because a table cell carrying one used to throw a `RangeError`
+ * out of `table()`, where `padCell()` had been ordinary string work.
+ *
+ * Applied in `displayText`, which is what both the measure and the paint read, so
+ * the two cannot come to disagree about what the string is. That is the same
+ * reason `text-transform` is applied there.
+ *
+ * @param text - What the element was given.
+ * @returns What it draws.
+ */
+function sanitize(text: string): string {
+	// `lastIndex` is reset before the test because the pattern is global and
+	// `test()` on a global pattern carries its position between calls, so the
+	// second string asked about would be searched from wherever the first
+	// stopped. `replaceAll()` resets it itself
+	CONTROL.lastIndex = 0;
+	if (!CONTROL.test(text)) {
+		return text;
+	}
+	return text.replaceAll(CONTROL, (char) => (char === '\t' ? ' ' : ''));
+}
+
+/** A run of text inside a paragraph, and the class its words carry. */
+export interface TextRun {
+	/** What to put on each of this run's words. */
+	class?: string;
+	/** The text. */
+	text: string;
+}
+
+/**
+ * A paragraph: styled runs that wrap as one block of prose.
+ *
+ * There is no inline layout here -- a `text` wears one style, and three texts in
+ * a row are three flex items, so a wrapped first item leaves the other two beside
+ * its *box* rather than after its last line. What there is instead is flexbox,
+ * and a wrapping row of one-word items is word wrapping: the gap between two
+ * items on a line is the space between two words, a line breaks where the next
+ * word does not fit, and each word may be styled on its own. That is the whole
+ * of what a paragraph needs and it costs no new layout mode.
+ *
+ * A word too long for the line it is alone on is broken rather than left to run
+ * off the edge, which is what `wrap()` does with one -- and a paragraph that
+ * disagreed with the wrapper about that would be a help screen wider than the
+ * terminal it was asked to fit.
+ *
+ * @param runs - The runs, in order. A bare string is an unstyled one.
+ * @param props - What the paragraph itself carries.
+ * @returns The paragraph.
+ */
+export function paragraph(runs: readonly (TextRun | string)[], props: ElementProps = {}): Element {
+	// a newline in a run is a break the author wrote, and it survives: the words
+	// around it are wrapped and the break between them is not one the wrapper is
+	// free to move. Built as a column of wrapping rows only when there is one,
+	// since the common case is a single line and an extra box per paragraph for
+	// nothing is a flex item the layout has to place
+	const lines: TextRun[][] = [[]];
+	for (const run of runs) {
+		const { class: classes, text: content } = typeof run === 'string' ? { text: run } : run;
+		const pieces = content.split('\n');
+		for (const [index, piece] of pieces.entries()) {
+			if (index > 0) {
+				lines.push([]);
+			}
+			lines.at(-1)!.push({ class: classes, text: piece });
+		}
+	}
+
+	if (lines.length === 1) {
+		return wrappingRow(lines[0], props);
+	}
+
+	return box(
+		{ 'flex-direction': 'column', ...props },
+		...lines.map((line) => wrappingRow(line, {}))
+	);
+}
+
+/**
+ * One line's worth of a paragraph: the words, wrapped.
+ *
+ * @param runs - The runs on this line.
+ * @param props - What the row itself carries.
+ * @returns The row.
+ */
+function wrappingRow(runs: readonly TextRun[], props: ElementProps): Element {
+	const words: Element[] = [];
+
+	for (const run of runs) {
+		for (const word of run.text.split(/\s+/)) {
+			if (word !== '') {
+				// `min-width: 0` rather than the automatic minimum, which for a text is
+				// its longest word and for a one-word text is the whole of it. A word
+				// too long for the line it is alone on would otherwise keep its width
+				// and run off the edge, where `wrap()` breaks one -- and a paragraph
+				// that disagreed with the wrapper about that is a help screen whose
+				// alias list is four columns wider than the terminal
+				words.push(Element.text(word, { class: run.class, 'min-width': 0 }));
+			}
+		}
+	}
+
+	return box({ 'column-gap': 1, 'flex-direction': 'row', 'flex-wrap': 'wrap', ...props }, ...words);
+}
+
+/**
  * Puts a tree around a root, so that mutations are recorded.
  *
  * An element not in a tree records nothing, which is deliberate: a subtree being
@@ -796,60 +967,5 @@ export function createTree(root: Element, onMark?: () => void): Tree {
 	return new TreeImpl(root, onMark);
 }
 
-export { arrange, cellStyle, paint } from './paint.js';
-
-/**
- * Resolves a tree's styles and writes each one onto the element it belongs to.
- *
- * The wiring between the cascade and the tree, in one place, because it is the
- * same three lines everywhere and getting them wrong is invisible: the walk has
- * to be in document order, since a child's inherited values come from its
- * parent's *resolved* style.
- *
- * With no cascade handed in it builds one over no stylesheets, which is not a
- * second way of resolving a style but the degenerate case of the only one: props
- * and inheritance, with nothing matched. That is what a tree with no stylesheet
- * means, and it is why `box({ padding: '1' })` lays out padded without anybody
- * having written a sheet.
- *
- * @param root - The root element.
- * @param restyler - The restyler holding the sheets, if there are any.
- * @returns The restyler, so a caller can keep it for the next frame.
- */
-export function resolveStyles(root: Element, restyler?: Restyler): Restyler {
-	const it = restyler ?? new Restyler(new Cascade([]));
-	settleStyles(root, it);
-	return it;
-}
-
-/**
- * The same walk, handing back what the restyler worked out rather than the
- * restyler.
- *
- * `resolveStyles()` is the spelling for a caller that resolves and draws; a
- * frame loop needs the other half of the answer -- which elements moved and
- * which merely need repainting -- and recovering that by diffing styles it has
- * just been handed would be the restyler's job done twice, to a worse answer.
- * One walk, two callers, so the two can never come to disagree about the order
- * it happens in.
- *
- * @param root - The root element.
- * @param restyler - The restyler holding the sheets.
- * @returns What needs laying out and what needs painting.
- */
-export function settleStyles(root: Element, restyler: Restyler): Update {
-	const update = restyler.update(root);
-
-	const walk = (element: Element): void => {
-		const style = restyler.styleOf(element);
-		if (style) {
-			element.style = style;
-		}
-		for (const child of element.children) {
-			walk(child);
-		}
-	};
-
-	walk(root);
-	return update;
-}
+export { arrange, arrangedExtent, cellStyle, paint, resolveStyles, settleStyles } from './paint.js';
+export { renderToLines, renderToString, type RenderStringOptions } from './string.js';

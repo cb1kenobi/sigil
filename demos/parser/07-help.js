@@ -32,16 +32,14 @@ await main({
 					// a section is described but not parsed, which is the point: a
 					// command can document every platform's options while only the
 					// platform that was named actually parses
-					help: [
-						({ sections }) =>
-							sections.add({
-								title: 'iOS',
-								options: {
-									'--sdk [version]': 'iOS SDK version',
-									'--simulator [udid]': 'Simulator to run on',
-								},
-							}),
-					],
+					help: ({ sections }) =>
+						sections.add({
+							title: 'iOS',
+							options: {
+								'--sdk [version]': 'iOS SDK version',
+								'--simulator [udid]': 'Simulator to run on',
+							},
+						}),
 				},
 
 				run: () => console.log('built'),

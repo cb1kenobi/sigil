@@ -366,6 +366,123 @@ describe('wrapping', () => {
 		const [, second] = picture(tree, 7, 2).split('\n');
 		expect(second).toBe('aaaaaaa');
 	});
+
+	// the property was honoured when a line was packed and ignored when the box
+	// was measured, so an auto-height wrapping row came out one line deep with
+	// every line after the first drawn outside it
+	it('should be as tall as the lines it wraps into', () => {
+		const tree = box(
+			{ 'flex-direction': 'column' },
+			box(
+				{ 'flex-direction': 'row', 'flex-wrap': 'wrap' },
+				box({ width: '3', height: '1' }),
+				box({ width: '3', height: '1' }),
+				box({ width: '3', height: '1' })
+			),
+			box({ width: '7', height: '1' })
+		);
+
+		// `b` is the wrapping row and `f` the sibling under it: two rows of wrapped
+		// children, with `f` below them rather than on top of the second one
+		expect(picture(tree, 7, 3)).toBe('cccdddb\neeebbbb\nfffffff');
+	});
+
+	// the gap between one line and the next is reserved by the placement, so it
+	// has to be reserved by the measure: a wrapping row with a `row-gap` came out
+	// a row short per line break and the block under it was drawn on
+	it('should count the gap between its lines', () => {
+		const tree = box(
+			{ 'flex-direction': 'column' },
+			box(
+				{ 'flex-direction': 'row', 'flex-wrap': 'wrap', 'row-gap': '1' },
+				box({ width: '3', height: '1' }),
+				box({ width: '3', height: '1' }),
+				box({ width: '3', height: '1' })
+			),
+			box({ width: '7', height: '1' })
+		);
+
+		const result = layout(tree, { height: 10, width: 7 });
+		expect(result.children[0].box).toMatchObject({ height: 3 });
+		expect(result.children[1].box).toMatchObject({ y: 3 });
+	});
+
+	// a line is packed with the basis, which is what the placement packs with: a
+	// child with `flex-basis: 40` and three columns of content takes forty on the
+	// line it is placed on
+	it('should pack its lines with the basis rather than the content', () => {
+		const tree = box(
+			{ 'flex-direction': 'column' },
+			box(
+				{ 'column-gap': '1', 'flex-direction': 'row', 'flex-wrap': 'wrap' },
+				box({ 'flex-basis': '40', height: '1' }),
+				box({ 'flex-basis': '40', height: '1' })
+			),
+			box({ width: '5', height: '1' })
+		);
+
+		const result = layout(tree, { height: 10, width: 50 });
+		expect(result.children[0].box).toMatchObject({ height: 2 });
+		expect(result.children[1].box).toMatchObject({ y: 2 });
+	});
+
+	// and in the order it is placed in, which is what `order` moves: the same
+	// three children in two orders wrap into different lines
+	it('should pack its lines in placement order', () => {
+		const tree = box(
+			{ 'flex-direction': 'column' },
+			box(
+				{ 'column-gap': '1', 'flex-direction': 'row', 'flex-wrap': 'wrap' },
+				box({ width: '5', height: '1', order: '0' }),
+				box({ width: '5', height: '1', order: '2' }),
+				box({ width: '9', height: '1', order: '1' })
+			),
+			box({ width: '5', height: '1' })
+		);
+
+		const result = layout(tree, { height: 10, width: 12 });
+		expect(result.children[0].box).toMatchObject({ height: 3 });
+		expect(result.children[1].box).toMatchObject({ y: 3 });
+	});
+
+	// `declared ?? automatic`, which is what the placement reads, and not the
+	// larger of the two: a `min-width: 0` is a declaration the automatic minimum
+	// does not get a say in, and taking the larger packed a long word at its own
+	// width where the placement shrinks it to the line
+	it('should pack with the minimum the placement uses', () => {
+		const tree = box(
+			{ 'flex-direction': 'column' },
+			box(
+				{ 'flex-direction': 'row', 'flex-wrap': 'wrap' },
+				text('a'.repeat(30), { 'flex-basis': '10', 'min-width': '0', 'white-space': 'nowrap' }),
+				text('b'.repeat(30), { 'flex-basis': '10', 'min-width': '0', 'white-space': 'nowrap' })
+			),
+			box({ width: '5', height: '1' })
+		);
+
+		const result = layout(tree, { height: 10, width: 25 });
+		expect(result.children[0].box).toMatchObject({ height: 1 });
+		expect(result.children[1].box).toMatchObject({ y: 1 });
+	});
+
+	// the smallest a wrapping row can be is its widest single item, because
+	// everything else can be pushed onto a line of its own
+	it('should report its widest item as its minimum, not the sum', () => {
+		const tree = box(
+			{ 'flex-direction': 'row' },
+			box(
+				{ 'flex-direction': 'row', 'flex-wrap': 'wrap' },
+				box({ width: '4', height: '1' }),
+				box({ width: '4', height: '1' })
+			),
+			box({ 'flex-grow': '1', height: '1' })
+		);
+
+		// the wrapping box shrinks to four and takes two rows rather than holding
+		// the whole eight and pushing its sibling off the edge
+		const [first] = picture(tree, 6, 2).split('\n');
+		expect(first).toBe('ccccee');
+	});
 });
 
 describe('order', () => {
@@ -880,20 +997,18 @@ describe('measurement', () => {
 	});
 
 	it('should lay a percentage-limited text out at the width it is placed at', () => {
-		// the limit is honoured where the containing block is settled, and is `auto`
-		// where it is not, which is CSS's rule for a percentage of an indefinite
-		// size. So the column sizes itself around a child measured without the
-		// limit -- eighteen wide, two rows -- and then places that child at the nine
-		// its own `50%` comes to, four rows deep because that is what the text needs
-		// at nine.
+		// a percentage of a containing block that is not settled is `auto`, which is
+		// CSS's rule -- so the column first sizes itself around a child measured
+		// without the limit, eighteen wide and two rows. What closes the gap is the
+		// re-measure: once flexing has settled the column's own width, its subtree
+		// is measured again with that width as a definite containing block, the
+		// `50%` resolves to nine, and the column comes out as tall as the four rows
+		// the text needs there.
 		//
-		// The overflow is the intrinsic-sizing one every browser produces and it is
-		// the better of the two answers available: the height used to be measured at
-		// eighteen and the box drawn at nine, so the box was two rows around four
-		// rows of text and the last two were simply lost. Nothing is lost now, and
-		// what is wrong is a parent's size rather than a child's own geometry.
-		// Settling *that* needs the containing block to be known before the subtree
-		// is measured, which is iteration and is nobody's ticket yet
+		// This used to overflow -- a two-row box around a four-row text -- and the
+		// entry recording it said that closing it needed the containing block known
+		// before the subtree was measured, which is iteration. It is: one round of
+		// it, taken where the width stops being a guess.
 		const tree = box(
 			{ 'align-items': 'flex-start', 'flex-direction': 'row', width: '20' },
 			box(
@@ -903,9 +1018,9 @@ describe('measurement', () => {
 		);
 
 		const result = layout(tree, { height: 10, width: 20 });
-		expect(result.children[0].box).toMatchObject({ height: 2, width: 18 });
+		expect(result.children[0].box).toMatchObject({ height: 4, width: 18 });
 		expect(result.children[0].children[0].box).toMatchObject({ height: 4, width: 9 });
-		checkInvariants(result, { overflow: true });
+		checkInvariants(result);
 	});
 
 	it('should measure a declared size on a text as the size it will be placed at', () => {

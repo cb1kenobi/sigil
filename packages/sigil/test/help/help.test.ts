@@ -31,6 +31,24 @@ async function help(schema: Schema, argv: string[] = [], width = 72) {
 	return renderHelp(state!, { width });
 }
 
+/**
+ * The same, with a theme and any app sheets over the framework's own.
+ *
+ * @param schema - The schema.
+ * @param theme - Rules at the theme origin.
+ * @param sheets - Rules at the app origin.
+ * @returns The screen.
+ */
+async function themed(schema: Schema, theme: string, sheets?: string[]) {
+	let state;
+	try {
+		state = await parse({ argv: [], schema: { help: false, ...schema } });
+	} catch (err) {
+		state = stateFromError(err);
+	}
+	return renderHelp(state!, { sheets, theme, width: 72 });
+}
+
 /** The section under a heading, without the heading. */
 function sectionOf(text: string, title: string): string[] {
 	const lines = text.split('\n');
@@ -523,6 +541,23 @@ describe('layout', () => {
 		}
 	});
 
+	// a name is printed whole and runs past the edge, and a *description* is prose
+	// and breaks: one is a `nowrap` label that keeps its own width, the other is a
+	// paragraph, and `wrap()` has always broken a word that cannot fit
+	it('should print a name whole and break a word in prose', async () => {
+		const schema: Schema = {
+			name: 'mycli',
+			options: {
+				'--an-option-nobody-could-type': 'Supercalifragilisticexpialidocious behaviour',
+			},
+		};
+		const text = await help(schema, [], 20);
+
+		expect(text).to.contain('--an-option-nobody-could-type');
+		expect(text).to.not.contain('Supercalifragilisticexpialidocious');
+		expect(text).to.contain('Supercalifragili');
+	});
+
 	// a list of names breaks between them; a name and its hint does not
 	it('should break a label that does not fit after its commas', async () => {
 		const schema: Schema = {
@@ -556,6 +591,44 @@ describe('layout', () => {
 	});
 });
 
+describe('text kept as it was written', () => {
+	// a paragraph is words with one space between them, and the two spaces lining
+	// a flag up in an example are the author's
+	it('should keep the spacing in an example', async () => {
+		const schema: Schema = {
+			commands: { build: { examples: { label: 'Build twice', text: 'mycli build  --watch' } } },
+			name: 'mycli',
+		};
+
+		expect(await help(schema, ['build'])).to.contain('    mycli build  --watch');
+	});
+
+	// a description written over two lines stays two lines, which is what `wrap()`
+	// has always done with one
+	it('should keep a line break in a description', async () => {
+		const schema: Schema = {
+			commands: { build: { desc: 'One line.\nAnd another.' } },
+			name: 'mycli',
+		};
+
+		expect(await help(schema, ['build'])).to.contain('One line.\nAnd another.');
+	});
+
+	// and in an option's description, which is a paragraph rather than a text --
+	// a run's newline is a break the author wrote and is not the wrapper's to move
+	it('should keep a line break in an option description', async () => {
+		const schema: Schema = {
+			name: 'mycli',
+			options: { '--x': { default: 'y', desc: 'First.\nSecond.' } },
+		};
+
+		expect(sectionOf(await help(schema), 'Options')).to.deep.equal([
+			'  --x  First.',
+			'       Second. (default: y)',
+		]);
+	});
+});
+
 describe('styling', () => {
 	it('should bold the headings and dim the parentheticals', async () => {
 		ansi.level = 3;
@@ -564,9 +637,39 @@ describe('styling', () => {
 			options: { '--target [name]': { default: 'node', desc: 'What to build for' } },
 		};
 		const text = await help(schema, [], 72);
-		expect(text).toContain(`${ESC}[1mUsage:${ESC}[22m`);
-		expect(text).toContain(`${ESC}[1mOptions:${ESC}[22m`);
-		expect(text).toContain(`${ESC}[2m(default: node)${ESC}[22m`);
+
+		// a blank that shows nothing is written in whatever is already open, so the
+		// space after a bold heading is inside the bold rather than a sequence of
+		// its own -- identical on screen, and what stops a dim parenthetical from
+		// being closed and reopened at every space in it
+		expect(text).toContain(`${ESC}[1mUsage: ${ESC}[22m`);
+		// a line ends in the state it began in, so a heading that ends its line is
+		// closed by the reset every line carries rather than by its own code
+		expect(text).toContain(`${ESC}[1mOptions:${ESC}[0m`);
+		expect(text).toContain(`${ESC}[2m(default: node)${ESC}[0m`);
+	});
+
+	// a theme is a stylesheet origin, so restyling help is an ordinary rule with
+	// an ordinary selector: no `!important` and no specificity contest, which is
+	// only true because the defaults sit in the framework origin below it
+	it('should take a theme over the framework defaults', async () => {
+		ansi.level = 3;
+		const schema: Schema = { name: 'mycli', options: { '--x': 'An option' } };
+		const text = await themed(schema, '.sigil-help-heading { color: magenta }');
+
+		// the bold the framework declares is still there: a theme that names only a
+		// colour changes only the colour
+		expect(text).to.contain(`${ESC}[1;35mUsage: ${ESC}[22;39m`);
+	});
+
+	it('should let the app beat the theme', async () => {
+		ansi.level = 3;
+		const schema: Schema = { name: 'mycli', options: { '--x': 'An option' } };
+		const text = await themed(schema, '.sigil-help-heading { color: magenta }', [
+			'.sigil-help-heading { color: green }',
+		]);
+
+		expect(text).to.contain(`${ESC}[1;32mUsage: ${ESC}[22;39m`);
 	});
 
 	// the column a description starts in is measured, so the sequences in a
