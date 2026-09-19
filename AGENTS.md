@@ -617,6 +617,33 @@ false` rethrows instead; a function replaces the handler.
   rather than by a second mechanism: the region being evicted finishes, and hands
   the cursor back, before the region evicting it claims and hides again. See
   `test/terminal/live.test.ts`.
+- **A terminal takes its `EPIPE` guard off again, and puts it only on the stream
+  it wrote to.** The guard is a listener on somebody else's stream -- an `error`
+  event with no listener is an uncaught exception, which is how
+  `mycli --help | head -1` kills a CLI that did nothing wrong -- and it was the
+  one thing `createTerminal()` attached that nothing ever removed: `restore()`
+  detaches the `exit` and signal handlers, `onResize()` hands back an
+  unsubscribe, and `guarded` was a latch that never reset. It also went on both
+  streams at once however few were written, so a terminal that never touched
+  stderr still left a listener on it. Both halves surfaced as one warning, and
+  only from the suite: `live.test.ts` builds twenty-eight terminals over a fake
+  stdout, each of them guarded the real `process.stderr`, and under vitest that
+  is one `WritableWorkerStdio` shared by every test in the worker -- so the
+  eleventh is Node's ten-listener leak warning, on a stream those tests never
+  meant to touch. A CLI makes one terminal per process and never approaches ten,
+  which is why nothing shipped was wrong and the rule still is: put back what you
+  attached. `writeTo()` is where a guard is attached now, which makes the comment
+  the function already carried -- attached on the first write, since a stream
+  nothing writes to cannot produce one -- true of each stream rather than of the
+  pair, and it happens before the write rather than after, since an `EPIPE` that
+  very write provokes arrives as an event. `restore()` detaches them, after its
+  own writes, because each of those re-guards the stream it goes to.
+  `syncRestore()` deliberately does not: a terminal with nothing left to put back
+  is still a terminal being written to, and dropping the guard there would take
+  it off in the window where an `EPIPE` from the write that just happened is
+  still on its way. A write after a `restore()` guards again, so the teardown
+  costs nothing to a caller that carries on. See
+  `test/terminal/terminal.test.ts`.
 
 ### Layout
 

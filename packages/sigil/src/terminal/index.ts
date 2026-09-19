@@ -245,6 +245,11 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
 			return !closed;
 		}
 
+		// before the write rather than after it: an `EPIPE` this very write
+		// provokes arrives as an event, and one with no listener is the uncaught
+		// exception the guard exists to prevent
+		guard(stream);
+
 		try {
 			stream.write(chunk);
 			return true;
@@ -264,28 +269,34 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
 	 *
 	 * `EPIPE` usually arrives as an `error` event rather than a throw, and an
 	 * `error` event with no listener is an uncaught exception -- which is how
-	 * `mycli --help | head -1` kills a CLI that did nothing wrong. Attached on the
-	 * first write rather than up front, since a stream nothing writes to cannot
-	 * produce one.
+	 * `mycli --help | head -1` kills a CLI that did nothing wrong. Attached to the
+	 * stream being written and on the first write to it, since a stream nothing
+	 * writes to cannot produce one, and removed by `restore()` along with the
+	 * process handlers.
 	 */
+	const guards = new Map<OutputStream, (...args: unknown[]) => void>();
+
 	function guard(stream: OutputStream): void {
-		stream.on?.('error', (...args: unknown[]) => {
+		if (guards.has(stream)) {
+			return;
+		}
+
+		const onStreamError = (...args: unknown[]) => {
 			const err = args[0] as NodeJS.ErrnoException | undefined;
 			if (GONE.has(err?.code as string)) {
 				closed = true;
 			}
-		});
+		};
+
+		guards.set(stream, onStreamError);
+		stream.on?.('error', onStreamError);
 	}
 
-	let guarded = false;
-	function ensureGuarded(): void {
-		if (!guarded) {
-			guarded = true;
-			guard(stdout);
-			if (stderr !== stdout) {
-				guard(stderr);
-			}
+	function detachGuards(): void {
+		for (const [stream, onStreamError] of guards) {
+			stream.removeListener?.('error', onStreamError);
 		}
+		guards.clear();
 	}
 
 	function onExit(): void {
@@ -414,6 +425,13 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
 		}
 
 		detachRestore();
+
+		// after the writes above, since each of them re-guards the stream it goes
+		// to. Only `restore()` does this and never `syncRestore()`: a terminal with
+		// nothing left to put back is still a terminal being written to, and
+		// dropping the guard there would take it off in the window where an `EPIPE`
+		// from the write that just happened is still on its way
+		detachGuards();
 	}
 
 	return {
@@ -468,7 +486,6 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
 			}
 			bracketedPaste = true;
 			attachRestore();
-			ensureGuarded();
 			writeTo(stdout, ENABLE_PASTE);
 			return true;
 		},
@@ -479,7 +496,6 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
 			}
 			altScreen = true;
 			attachRestore();
-			ensureGuarded();
 			writeTo(stdout, ENTER_ALT_SCREEN);
 			return true;
 		},
@@ -494,7 +510,6 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
 			}
 			cursorHidden = true;
 			attachRestore();
-			ensureGuarded();
 			writeTo(stdout, HIDE_CURSOR);
 			return true;
 		},
@@ -548,12 +563,10 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
 		},
 
 		write(chunk: string): boolean {
-			ensureGuarded();
 			return writeTo(stdout, chunk);
 		},
 
 		writeErr(chunk: string): boolean {
-			ensureGuarded();
 			return writeTo(stderr, chunk);
 		},
 	};

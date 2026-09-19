@@ -51,16 +51,22 @@ function createStream(opts: { columns?: number; isTTY?: boolean } = {}) {
 
 function setup(opts: { columns?: number; isTTY?: boolean } = {}) {
 	const stdout = createStream(opts);
+	// a fake `stderr` as well as a fake `stdout`, or the terminal's EPIPE guard
+	// goes on the real `process.stderr` -- which under vitest is one stream shared
+	// by every test in the worker, so the file's twenty-eight terminals trip
+	// Node's ten-listener warning on a stream this test never meant to touch
+	const stderr = createStream(opts);
 	const proc = { on() {}, removeListener() {}, listenerCount: () => 0 };
 	const terminal = createTerminal({
 		env: {},
 		isTTY: opts.isTTY ?? true,
 		proc,
+		stderr: stderr as unknown as OutputStream,
 		stdin: undefined,
 		stdout: stdout as unknown as OutputStream,
 	});
 	const region = createLiveRegion({ terminal });
-	return { region, stdout, terminal };
+	return { region, stderr, stdout, terminal };
 }
 
 /** What a repaint of a region `rows` tall looks like. */

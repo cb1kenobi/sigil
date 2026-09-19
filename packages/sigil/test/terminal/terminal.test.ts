@@ -262,11 +262,82 @@ describe('createTerminal()', () => {
 		});
 
 		it('should not install an error guard on a stream nothing writes to', () => {
-			const { stdout, term } = setup();
+			const { stderr, stdout, term } = setup();
 
 			expect(stdout.listenerCount('error')).to.equal(0);
+			expect(stderr.listenerCount('error')).to.equal(0);
+
+			// the guard goes on the stream being written and on no other. Writing to
+			// stdout used to guard stderr as well, so a terminal that never touched
+			// stderr still left a listener on it -- which under vitest is one shared
+			// stream, and eleven terminals in a file is Node's leak warning
 			term.write('x');
 			expect(stdout.listenerCount('error')).to.equal(1);
+			expect(stderr.listenerCount('error')).to.equal(0);
+
+			term.writeErr('y');
+			expect(stderr.listenerCount('error')).to.equal(1);
+		});
+
+		it('should guard a stream once however many times it is written', () => {
+			const { stdout, term } = setup();
+
+			term.write('a');
+			term.write('b');
+			term.hideCursor();
+			expect(stdout.listenerCount('error')).to.equal(1);
+		});
+
+		// the one thing `createTerminal()` attached that nothing ever put back
+		it('should take its error guards off again when it restores', () => {
+			const { stderr, stdout, term } = setup();
+
+			term.write('x');
+			term.writeErr('y');
+			expect(stdout.listenerCount('error')).to.equal(1);
+			expect(stderr.listenerCount('error')).to.equal(1);
+
+			term.restore();
+
+			expect(stdout.listenerCount('error')).to.equal(0);
+			expect(stderr.listenerCount('error')).to.equal(0);
+		});
+
+		// `restore()` writes on its way out -- and a write is what attaches a guard,
+		// so detaching before those writes would leave one behind
+		it('should leave no guard behind when restoring writes', () => {
+			const { stdout, term } = setup();
+
+			term.hideCursor();
+			term.enterAltScreen();
+			term.restore();
+
+			expect(stdout.listenerCount('error')).to.equal(0);
+		});
+
+		// a terminal with nothing left to put back is still a terminal being
+		// written to: `syncRestore()` drops the process handlers and must not drop
+		// the guard with them
+		it('should keep the guard when there is nothing left to restore', () => {
+			const { stdout, term } = setup();
+
+			term.hideCursor();
+			term.showCursor();
+
+			expect(stdout.listenerCount('error')).to.equal(1);
+		});
+
+		it('should guard again after a restore if it is written to again', () => {
+			const { stdout, term } = setup();
+
+			term.write('x');
+			term.restore();
+			expect(stdout.listenerCount('error')).to.equal(0);
+
+			term.write('y');
+			expect(stdout.listenerCount('error')).to.equal(1);
+			stdout.emit('error', Object.assign(new Error('EPIPE'), { code: 'EPIPE' }));
+			expect(term.closed).to.equal(true);
 		});
 	});
 
