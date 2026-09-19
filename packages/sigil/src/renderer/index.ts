@@ -133,8 +133,14 @@ export interface Renderer {
 	/**
 	 * Unmounts everything, disposes every effect, and gives the screen back.
 	 *
-	 * The last frame stays where it was drawn, which inline means in the log.
-	 * Call `backend.stop()` afterwards to erase it instead.
+	 * The last frame stays where it was drawn, which inline means in the log,
+	 * with the cursor below it -- so ordinary output after this lands where it
+	 * looks like it will.
+	 *
+	 * To erase it instead, call `backend.stop()` *before* this: finishing the
+	 * region is what hands the rows back, and afterwards there is no anchor left
+	 * for an erase to be relative to, so a `stop()` on the other side of this
+	 * quietly does nothing.
 	 */
 	dispose(): void;
 	/** Settles and paints a frame now, whatever the pacing says. */
@@ -227,7 +233,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 		}, wait);
 	}
 
-	function teardown(): void {
+	function teardown(finish: boolean): void {
 		if (disposed) {
 			return;
 		}
@@ -248,6 +254,21 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 				onError(error);
 			}
 		}
+
+		// and the screen goes back, which is what `dispose()` has always claimed to
+		// do and did not. An inline backend holds its rows until it is told
+		// otherwise: the anchor stays, and with it the arithmetic that says where
+		// the frame's top is relative to the cursor. A `console.log()` after
+		// `dispose()` moved the real cursor and left that arithmetic describing
+		// somewhere else, so the erase the region does on its way out started two
+		// rows *inside* the frame and cleared downwards -- taking the log line with
+		// it and leaving the top of the frame behind. `done()` leaves the frame in
+		// the log and puts the cursor below it, which is the state the docs
+		// describe. Not on the failure path: there the caller wants it erased, and
+		// `fail()` calls `stop()` itself
+		if (finish) {
+			backend.done();
+		}
 	}
 
 	function fail(error: unknown): void {
@@ -259,7 +280,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 		// dies on the alternate buffer with the cursor hidden has eaten the user's
 		// shell, and a message printed into a half-drawn frame is unreadable
 		try {
-			teardown();
+			teardown(false);
 			backend.stop();
 			terminal.restore();
 		} finally {
@@ -416,7 +437,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 		// from an effect during the *first frame* has no such caller and is
 		// reported, which is why the two paths differ
 		failed = true;
-		teardown();
+		teardown(false);
 		backend.stop();
 		terminal.restore();
 		throw error;
@@ -441,7 +462,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 
 	return {
 		backend,
-		dispose: teardown,
+		dispose: () => teardown(true),
 		frame: runFrame,
 		invalidate: requestFrame,
 		get mounted() {

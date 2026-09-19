@@ -1972,6 +1972,21 @@ stylesheet rather than anything the runtime knows about.
   rows of terminal. `measureNode()` asks what a node would want if it could have
   whatever it wanted, which is the question, and it replaced a two-pass arrange
   that was both slower and wrong.
+- **`dispose()` finishes the region, which it had always claimed to do and did
+  not.** An inline backend holds its rows until it is told otherwise, and with
+  the anchor goes the arithmetic that says where the frame's top is relative to
+  the cursor -- so a `console.log()` after `dispose()` moved the real cursor and
+  left that arithmetic describing somewhere else. The erase the region does on
+  its way out then started two rows _inside_ the frame and cleared downwards,
+  taking the log line with it and leaving the top two rows of a box on screen,
+  which is how it was reported. `backend.done()` is exactly the documented
+  behaviour -- the frame stays in the log, the cursor goes below it -- so the
+  teardown calls it, and ordinary output afterwards lands where it looks like it
+  will. Not on the failure path: there the caller wants the frame gone, and
+  `fail()` calls `stop()` itself. The order is the consequence worth knowing:
+  erasing means `backend.stop()` _before_ `dispose()`, because afterwards there
+  is no anchor for an erase to be relative to and a `stop()` on the other side
+  quietly does nothing.
 - **A failure puts the terminal back before it says why, and stops.** A CLI that
   dies on the alternate buffer with the cursor hidden has eaten the user's shell,
   and a message printed into a half-drawn frame is unreadable anyway -- so the

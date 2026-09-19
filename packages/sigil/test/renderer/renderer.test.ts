@@ -18,7 +18,8 @@ import {
 import { createEffects } from '../../src/signals/index.js';
 import { State } from '../../src/signals/index.js';
 import { Cascade, parseStylesheet } from '../../src/style/index.js';
-import type { Terminal } from '../../src/terminal/index.js';
+import { createTerminal, type Terminal } from '../../src/terminal/index.js';
+import { Screen, screenStream } from '../canvas/screen.js';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 /**
@@ -1410,5 +1411,57 @@ describe('re-entrancy', () => {
 		count.set(1);
 		effects.flush();
 		expect(runs).toBe(0);
+	});
+});
+
+describe('giving the screen back', () => {
+	/** A real inline canvas over a modelled screen, which is where this lives. */
+	function screened(width = 20, height = 8) {
+		const screen = new Screen(width, height);
+		const stream = screenStream(screen);
+		const terminal = createTerminal({
+			env: {},
+			isTTY: true,
+			proc: { on() {}, pid: 1, removeListener() {} } as never,
+			stdin: undefined,
+			stdout: stream as never,
+		});
+		return { screen, terminal };
+	}
+
+	it('should leave the frame in the log with the cursor below it', () => {
+		// an inline backend holds its rows until it is told otherwise, and with the
+		// anchor goes the arithmetic that says where the frame's top is relative to
+		// the cursor. A `console.log()` after `dispose()` moved the real cursor and
+		// left that arithmetic describing somewhere else, so the erase the region
+		// does on its way out started two rows *inside* the frame and cleared
+		// downwards -- eating the log line and leaving the top of the frame behind
+		const { screen, terminal } = screened();
+		const view = render(
+			() => box({ 'flex-direction': 'column' }, text('one'), text('two'), text('three')),
+			{ effects, terminal }
+		);
+
+		view.dispose();
+		terminal.write('after\r\n');
+
+		expect(screen.written).toEqual(['one', 'two', 'three', 'after']);
+	});
+
+	it('should leave nothing behind when the backend is stopped first', () => {
+		// order matters and the doc says so: finishing the region is what hands the
+		// rows back, so an erase on the other side of `dispose()` has no anchor to
+		// be relative to and quietly does nothing
+		const { screen, terminal } = screened();
+		const view = render(() => box({ 'flex-direction': 'column' }, text('one'), text('two')), {
+			effects,
+			terminal,
+		});
+
+		view.backend.stop();
+		view.dispose();
+		terminal.write('after\r\n');
+
+		expect(screen.written).toEqual(['after']);
 	});
 });
