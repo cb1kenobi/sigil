@@ -282,7 +282,7 @@ function assertLink(link: string): void {
 		throw new TypeError(`Invalid style link ${String(link)}`);
 	}
 	// C0, DEL and C1: the ranges an OSC terminator can hide in
-	if (/[ --]/.test(link)) {
+	if (/[\u0000-\u001F\u007F-\u009F]/.test(link)) {
 		throw new TypeError('Invalid style link: control characters would end the sequence early');
 	}
 }

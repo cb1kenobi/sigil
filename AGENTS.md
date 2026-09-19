@@ -314,6 +314,23 @@ These look like bugs and are not. Each is intentional and covered by tests.
   alone as the file's own formatting. This is the same rule the alternate screen
   and the cursor already follow: a CLI that dies must not take the terminal with
   it, and that has to hold for the crash as well as for the exit.
+- **And the source carries none either, which is the half nobody was checking.**
+  The rule above is about what ships; it says a raw control character must never
+  sit in source, "where it is invisible in an editor and in a diff" -- and the
+  file that enforces it was breaking it. `tsdown.config.ts` wrote its escape
+  regex as a character class of _literal bytes_, a NUL among them, and git calls
+  a file binary the moment it finds one in the first 8000: so the one file whose
+  whole job is keeping raw control characters out of the build had no reviewable
+  diff on GitHub at all, showing `Bin 2786 -> 2858 bytes` instead. `canvas/style.ts`
+  had the same literal NUL in its link guard, at byte 9376, which the heuristic
+  misses -- the identical bug, waiting for the file above it to grow. Neither was
+  wrong to the regex engine, and that is the point: what a raw control character
+  costs is paid by whoever reads it. Both are written `\u0000` now, and
+  `test/sources.test.ts` is the other half of `test/dist.test.ts` -- one reads
+  what shipped, one reads what is committed. A handful of tests and demos really
+  are describing a terminal's own bytes and hold them literally; they are an
+  explicit list rather than an inferred rule, so that the next one is a decision
+  somebody makes.
 - **The styler skips an extended color's own parameters.** In the semicolon
   form `38`, `48`, and `58` spread one color over the parameters after them, and
   `reopen()` read those as attributes: `38;2;255;0;0` carries a `0`, was taken
