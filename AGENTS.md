@@ -3138,12 +3138,31 @@ color: magenta }` and beats the default with an ordinary rule, which is only tru
   `06-ansi-and-wrap.js` went on importing `padCell()` for a whole pull request
   after the component rewrite deleted it, with the suite green throughout and the
   README still documenting the export beside it. `packages/cli/test/demos.test.ts`
-  reads every demo's static imports and asks the built package for each name,
-  which is static and costs a read rather than 28 spawned processes -- it is the
-  same shape of answer as `the root build filter` in `cli.test.ts`, and it lives
-  in that package for the same reason: `@ttylabs/cli` is the one whose tests
-  already require a build. What it does not cover is a demo that imports fine and
-  then throws, which is what running them is for and what is still done by hand.
+  is both halves of the answer, and it lives in that package because
+  `@ttylabs/cli` is the one whose tests already require a build -- the same
+  reason `the root build filter` lives there. It reads every demo's static
+  imports and asks the built package for each name, which is a read rather than
+  a process and fails naming the export that went missing. Then it spawns each
+  one and asks for its exit code and its stderr, because a demo that imports
+  fine and then throws is invisible to the first half.
+- **The demos are run piped, and that is the interesting half rather than a
+  concession to CI.** `demos/README.md` documents what each one does without a
+  terminal -- a spinner writes one line per change, a bar one line every ten
+  percent, a prompt fails rather than waiting forever on a stdin that will never
+  produce a keystroke -- so running them this way checks the documented
+  behaviour, and it needs no pty, which is what lets it run on all nine of CI's
+  node-and-os combinations. A demo that does not exit `0` with nothing on stderr
+  is an explicit list of two rather than an inferred rule, for the reason the
+  raw-control-character exceptions already are: `04-prompts.js` is the non-TTY
+  rule and exits `1` with the line the README prints, and `09-errors.js` is the
+  demo about errors, whose narrative is stdout while what reaches stderr is what
+  `errorHandler()` rendered. A stack frame in either stream fails every one of
+  them whatever the exit code said, since that is a throw nobody caught -- and
+  that is the one check that also catches an unhandled rejection which still
+  exits `0`. The watchdog is the other thing worth having: a demo that hangs is
+  killed and reported by name, rather than a suite that never finishes. It costs
+  about six seconds of wall clock, which is `it.concurrent` over a sequential
+  eighteen -- run always, because a check that is skipped is a check that rots.
 - **An assertion is a call, and `expect(x).to.be.ok` is not one.** Chai spells
   that one as a getter, so it reads to a linter as an expression nobody used --
   and the narrowing it does not do is what made it worse than noise: each of the
