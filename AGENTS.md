@@ -1127,19 +1127,35 @@ at`.
   `text-overflow` is honoured. The height is grown only where the caller named
   none, since a caller that did is describing a box rather than asking how big one
   is; the width is not the caller's to name and always follows the content.
-- **It costs what the stack costs, and that is measured rather than assumed.** A
-  sixty-entry help screen is 10.2ms against the old string builder's 0.42ms, and
-  a two-hundred-row table is 6.3ms against 0.08ms. Almost all of it is the
-  cascade: about 3.5 microseconds per element to match, build a fifty-property
-  style and degrade its colours, which is the same number the invalidation
-  entries already record for a full re-match and is the price of every element
-  being a real element. Both are one-shot -- a CLI prints its help once and a
-  build tool prints its table once -- so this is written down rather than
-  optimised, and the seam if it ever matters is the cascade rather than anything
-  here. What was _not_ worth leaving was the second style every element used to
-  build before the cascade had said anything: `Element` starts at one shared
-  frozen initial style now, which took the tree build for that table from 2.1ms
-  to 0.46ms.
+- **It costs what the stack costs, and where that cost goes was profiled rather
+  than guessed at.** A sixty-entry help screen is 10.2ms against the old string
+  builder's 0.42ms, and a two-hundred-row table is 6.3ms against 0.08ms. End to
+  end, where a CLI also pays Node's own startup, asking
+  `demos/parser/02-options.js` for its help went from 34.7ms to 40.9ms. It is
+  linear in the number of _words_ rather than of rows, at about 13 microseconds
+  each, because a paragraph is a wrapping row of one-word elements -- so a
+  sixty-option screen with twelve-word descriptions is seven hundred elements,
+  and one with five hundred options is 168ms, which is the size at which
+  somebody would notice.
+
+  The first version of this entry said almost all of it was the cascade, at
+  about 3.5 microseconds per element. That was inferred from the invalidation
+  entries rather than measured, and a CPU profile says otherwise: the cascade --
+  `initialStyle`, `#resolve`, `camel` and `applyPropsInto` together -- is about
+  14%, while **grapheme segmentation is 24%**, text wrapping another 9%, and the
+  garbage collector 8%. Splitting `graphemes` by who called it is what names the
+  actual seam: half of it is `wrap()` reached from `#measureText`, and the other
+  half is paint, which walks the clusters again _and wraps the string a second
+  time_ because the measurement cached the height it came to and not the lines
+  it came to. So the same text is tokenized into clusters at measure time and
+  again at paint time, and `stringWidth()` over every word of that screen is
+  0.027ms on its own -- the work is not the measuring, it is doing it twice.
+
+  Left unoptimised, because both are one-shot: a CLI prints its help once and a
+  build tool prints its table once. What this entry is for is the next person to
+  care, and the thing it got wrong the first time is the thing they would have
+  acted on -- the seam is the wrap that is thrown away, not the cascade.
+
 - **The media queries are the caller's, apart from the width and the colour
   level.** Those two this call is the authority on; the other half of a query is
   "how much screen is there", which a string being built has no answer to that the
