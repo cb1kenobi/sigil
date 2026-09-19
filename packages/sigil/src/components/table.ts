@@ -1,6 +1,13 @@
-import { ansi as defaultAnsi, type Ansi } from '../ansi/index.js';
+import { ansi as defaultAnsi } from '../ansi/index.js';
+import {
+	box,
+	type Element,
+	renderToString,
+	text as textNode,
+	toDisplayText,
+} from '../element/index.js';
+import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { stringWidth } from '../width/index.js';
-import { graphemes } from '../width/index.js';
 
 export type Align = 'left' | 'right' | 'center';
 
@@ -15,9 +22,7 @@ export interface Column {
 	key?: string;
 }
 
-export interface TableOptions {
-	/** The styler to mark up headings with. Defaults to the process's. */
-	ansi?: Ansi;
+export interface TableOptions extends StyledOptions {
 	/** The columns. Inferred from the first row's keys when not given. */
 	columns?: (Column | string)[];
 	/** The columns between one column and the next. Defaults to 2. */
@@ -28,72 +33,169 @@ export interface TableOptions {
 	head?: boolean;
 }
 
+/** A row, however it was given. */
+export type TableRow = readonly unknown[] | Record<string, unknown>;
+
 /**
- * Pads a cell to a column width, measuring columns rather than characters.
+ * The columns a set of rows has, and the cells under them.
  *
- * `String.padEnd()` counts UTF-16 code units, so a CJK cell comes out half a
- * column short per character and an emoji one short -- which is the whole
- * reason the table does its own padding.
- *
- * @param text - The cell.
- * @param width - The column width.
- * @param align - How to line it up.
- * @returns The padded cell.
+ * @param rows - The rows.
+ * @param opts - The declared columns, if there are any.
+ * @returns The columns, their cells, and their headings.
  */
-export function padCell(text: string, width: number, align: Align = 'left'): string {
-	const short = width - stringWidth(text);
-	if (short <= 0) {
-		return text;
-	}
+function readRows(
+	rows: readonly TableRow[],
+	opts: TableOptions
+): { cells: string[][]; columns: Column[]; headers: string[] } {
+	// a column may be a name, a declaration, or nothing at all -- in which case
+	// the first row says what the columns are
+	const first = rows[0];
+	const columns: Column[] = (
+		opts.columns ??
+		(Array.isArray(first)
+			? first.map(() => ({}))
+			: Object.keys(first as Record<string, unknown>).map((key) => ({ header: key, key })))
+	).map((column) => (typeof column === 'string' ? { header: column, key: column } : column));
 
-	if (align === 'right') {
-		return ' '.repeat(short) + text;
-	}
+	const cells = rows.map((row) =>
+		columns.map((column, i) => {
+			const value = Array.isArray(row)
+				? row[i]
+				: (row as Record<string, unknown>)[column.key ?? String(i)];
+			return value === undefined || value === null ? '' : cellText(String(value));
+		})
+	);
 
-	if (align === 'center') {
-		const left = Math.floor(short / 2);
-		return ' '.repeat(left) + text + ' '.repeat(short - left);
-	}
-
-	return text + ' '.repeat(short);
+	return { cells, columns, headers: columns.map((column) => cellText(column.header ?? '')) };
 }
 
 /**
- * Cuts a cell down to a width, in columns, with an ellipsis where it was cut.
+ * A cell as it will be drawn, on one line.
  *
- * Cut by grapheme cluster rather than by character: slicing a string in the
- * middle of a surrogate pair leaves half a code point, and slicing before a
- * combining mark leaves the mark to attach itself to whatever follows.
+ * Two things, and both are about the widths adding up. `toDisplayText()` is what
+ * a `text` element will draw, and measuring anything else means a tab -- which
+ * measures nothing and draws a space -- costs the column a column. And a newline
+ * becomes a space, because a row of a table is a line: a cell two lines tall
+ * would push every row after it down by one and leave the column beside it
+ * looking at the wrong row.
  *
- * @param text - The cell.
- * @param width - The most columns it may take.
- * @returns The cell, no wider than `width`.
+ * @param value - The cell.
+ * @returns The cell, on one line, as it will be drawn.
  */
-export function truncateCell(text: string, width: number): string {
-	if (width <= 0) {
-		return '';
-	}
-	if (stringWidth(text) <= width) {
-		return text;
-	}
-	if (width === 1) {
-		return '…';
-	}
+function cellText(value: string): string {
+	return toDisplayText(value).replaceAll('\n', ' ');
+}
 
-	let out = '';
-	let used = 0;
+/**
+ * How wide each column comes out.
+ *
+ * The widest cell, the heading included, cut down to the column's `maxWidth`.
+ * Measured in display columns rather than characters, so a CJK cell and an emoji
+ * line up with everything else -- which is the same measurement the layout engine
+ * takes, asked here because a *shared* column width is the one thing flexbox
+ * cannot work out for itself: each row would size its own cells and no two rows
+ * would agree.
+ *
+ * @param headers - The headings.
+ * @param cells - The rows.
+ * @param columns - The declarations.
+ * @param head - Whether the heading row is shown.
+ * @returns One width per column.
+ */
+function columnWidths(
+	headers: string[],
+	cells: string[][],
+	columns: Column[],
+	head: boolean
+): number[] {
+	return columns.map((column, i) => {
+		const widest = Math.max(
+			head ? stringWidth(headers[i]) : 0,
+			...cells.map((row) => stringWidth(row[i]))
+		);
+		return column.maxWidth && column.maxWidth > 0 ? Math.min(widest, column.maxWidth) : widest;
+	});
+}
 
-	// one column is kept back for the ellipsis
-	for (const cluster of graphemes(text)) {
-		const w = stringWidth(cluster);
-		if (used + w > width - 1) {
-			break;
-		}
-		out += cluster;
-		used += w;
-	}
+/**
+ * One row of cells.
+ *
+ * Each cell is a `text` as wide as its column, which is what used to be
+ * `padCell()`: a box the width of the column with the text aligned inside it is
+ * the box model doing the padding, and the trailing blanks a left-aligned cell
+ * leaves are dropped when the grid is read back as lines. `text-overflow` is what
+ * used to be `truncateCell()`, and `white-space: nowrap` is what makes either
+ * reachable -- a cell that wrapped would be a row two lines tall.
+ *
+ * @param values - The cells.
+ * @param widths - The column widths.
+ * @param columns - The declarations, for the alignment.
+ * @param gap - The columns between one column and the next.
+ * @param classes - What to put on each cell, for the heading row.
+ * @returns The row.
+ */
+function rowOf(
+	values: string[],
+	widths: number[],
+	columns: Column[],
+	gap: number,
+	classes: string
+): Element {
+	return box(
+		{ class: 'sigil-table-row', 'column-gap': gap, 'flex-shrink': 0 },
+		...values.map((value, i) =>
+			textNode(value, {
+				class: classes,
+				// the declared width is kept whatever the row adds up to: a table is
+				// sized to its content and a narrow terminal is allowed to wrap it,
+				// which is what it has always done. Shrinking instead would put the
+				// columns of one row somewhere the next row's are not
+				'flex-shrink': 0,
+				'text-align': columns[i].align ?? 'left',
+				'text-overflow': 'ellipsis',
+				'white-space': 'nowrap',
+				width: widths[i],
+			})
+		)
+	);
+}
 
-	return `${out}…`;
+/**
+ * Builds the element tree for a table.
+ *
+ * @param rows - The rows, as objects or as arrays of cells.
+ * @param opts - The columns and the spacing.
+ * @returns The tree, and how wide it wants to be.
+ */
+export function tableView(
+	rows: readonly TableRow[],
+	opts: TableOptions = {}
+): { element: Element; width: number } {
+	const gap = opts.gap === undefined ? 2 : Math.max(0, Math.floor(opts.gap));
+	const indent = Math.max(0, Math.floor(opts.indent ?? 0));
+	const { cells, columns, headers } = readRows(rows, opts);
+	const head = opts.head ?? columns.some((column) => column.header !== undefined);
+	const widths = columnWidths(headers, cells, columns, head);
+
+	const body = rows.length
+		? cells.map((row) => rowOf(row, widths, columns, gap, 'sigil-table-cell'))
+		: [];
+	const children = head
+		? [rowOf(headers, widths, columns, gap, 'sigil-table-head'), ...body]
+		: body;
+
+	const natural =
+		indent +
+		widths.reduce((total, width) => total + width, 0) +
+		gap * Math.max(0, widths.length - 1);
+
+	return {
+		element: box(
+			{ class: 'sigil-table', 'flex-direction': 'column', 'padding-left': indent },
+			...children
+		),
+		width: Math.max(1, natural),
+	};
 }
 
 /**
@@ -103,82 +205,30 @@ export function truncateCell(text: string, width: number): string {
  * printed, and rules around it are noise. Columns are sized to their widest
  * cell, measured in display columns so that CJK text and emoji line up.
  *
+ * A facade over `tableView()`: the tree is laid out by the layout engine and
+ * painted onto a grid of its own, and what comes back is the grid read as lines.
+ * The column arithmetic that used to live here is the box model now -- the width
+ * of a cell is a declared width, its alignment is `text-align`, and a cell too
+ * wide for its column is cut by `text-overflow`.
+ *
  * @param rows - The rows, as objects or as arrays of cells.
  * @param opts - The columns and the spacing.
  * @returns The table, with no trailing newline.
  */
-export function table(
-	rows: readonly (readonly unknown[] | Record<string, unknown>)[],
-	opts: TableOptions = {}
-): string {
+export function table(rows: readonly TableRow[], opts: TableOptions = {}): string {
 	if (!rows.length) {
 		return '';
 	}
 
-	const ansi = opts.ansi ?? defaultAnsi;
-	const gap = opts.gap === undefined ? 2 : Math.max(0, Math.floor(opts.gap));
-	const indent = ' '.repeat(Math.max(0, Math.floor(opts.indent ?? 0)));
+	const { element, width } = tableView(rows, opts);
 
-	// a column may be a name, a declaration, or nothing at all -- in which case
-	// the first row says what the columns are
-	const first = rows[0];
-	const declared: Column[] = (
-		opts.columns ??
-		(Array.isArray(first)
-			? first.map(() => ({}))
-			: Object.keys(first as Record<string, unknown>).map((key) => ({ header: key, key })))
-	).map((column) => (typeof column === 'string' ? { header: column, key: column } : column));
-
-	const cells: string[][] = rows.map((row) =>
-		declared.map((column, i) => {
-			const value = Array.isArray(row)
-				? row[i]
-				: (row as Record<string, unknown>)[column.key ?? String(i)];
-			return value === undefined || value === null ? '' : String(value);
-		})
-	);
-
-	const showHead = opts.head ?? declared.some((column) => column.header !== undefined);
-	const headers = declared.map((column) => column.header ?? '');
-
-	// widest cell per column, the heading included, then cut to `maxWidth`
-	const widths = declared.map((column, i) => {
-		const widest = Math.max(
-			showHead ? stringWidth(headers[i]) : 0,
-			...cells.map((row) => stringWidth(row[i]))
-		);
-		return column.maxWidth && column.maxWidth > 0 ? Math.min(widest, column.maxWidth) : widest;
+	// as wide as it came out, which is what a table has always been: a cell longer
+	// than the terminal runs past the edge and the terminal wraps it, rather than
+	// every other column being squeezed for its benefit. A caller that wants a
+	// column bounded says so with that column's `maxWidth`
+	return renderToString(element, {
+		cascade: themedCascade(opts),
+		colorLevel: opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level,
+		width,
 	});
-
-	/**
-	 * Lays one row out.
-	 *
-	 * @param row - The cells.
-	 * @param style - Applied to each cell, for the heading row.
-	 * @returns The line, without trailing spaces.
-	 */
-	function line(row: string[], style?: (text: string) => string): string {
-		const parts = row.map((cell, i) => {
-			const cut = truncateCell(cell, widths[i]);
-			const align = declared[i].align ?? 'left';
-
-			// the last column is not padded, because trailing spaces are invisible
-			// and make a copied line longer than what it shows. Only trailing ones:
-			// a right or centre aligned cell is padded on the left, which is what
-			// puts it where it belongs, so skipping that would un-align the column
-			const trailing = i === row.length - 1 && align === 'left';
-			const padded = trailing ? cut : padCell(cut, widths[i], align);
-
-			return style ? style(padded) : padded;
-		});
-
-		return (indent + parts.join(' '.repeat(gap))).replace(/\s+$/, '');
-	}
-
-	const out = showHead ? [line(headers, (text) => ansi.bold(text))] : [];
-	for (const row of cells) {
-		out.push(line(row));
-	}
-
-	return out.join('\n');
 }

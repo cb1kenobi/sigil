@@ -36,6 +36,7 @@ import { type ColorLevel, supportsColor } from '../ansi/index.js';
 import { type CanvasBackend, createInlineCanvas } from '../canvas/index.js';
 import {
 	arrange,
+	arrangedExtent,
 	createTree,
 	type Element,
 	paint,
@@ -121,6 +122,21 @@ export interface RenderOptions {
 	 * Ignored when `backend` was passed: how big that is, is its owner's.
 	 */
 	height?: number;
+	/**
+	 * How many columns an inline canvas occupies. Defaults to the terminal's.
+	 *
+	 * `'auto'` follows the content instead, which is what a spinner or a prompt
+	 * wants: a canvas paints every cell it owns, so one the width of the screen
+	 * ends each row with blanks out to the margin -- invisible on screen, and
+	 * trailing whitespace in the scrollback once the frame is left behind.
+	 *
+	 * The default is the terminal's rather than auto, unlike the height, because
+	 * the two costs are not the same. A canvas taller than its content reserves
+	 * rows of screen that nothing is using, which is always wrong inline; one as
+	 * wide as the screen merely writes blanks, which is what an app drawing a
+	 * panel wants. Ignored when `backend` was passed.
+	 */
+	width?: number | 'auto';
 	/** Where a throw from a component, an effect or a frame goes. */
 	onError?: (error: unknown) => void;
 	/** The terminal. Defaults to the process's. */
@@ -174,7 +190,25 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 	const terminal = opts.terminal ?? defaultTerminal;
 	const ownBackend = opts.backend === undefined;
 	const backend =
-		opts.backend ?? createInlineCanvas({ height: Math.max(1, opts.height ?? 1), terminal });
+		opts.backend ??
+		createInlineCanvas({
+			height: Math.max(1, opts.height ?? 1),
+			terminal,
+			// a width of its own for an auto one, which reads backwards and is the
+			// point: a canvas built without one follows the terminal by erasing and
+			// resizing *itself* on every resize, and an auto-width canvas is already
+			// re-measured and resized by the frame -- so a spinner twelve columns
+			// wide blinked off and back on every time the window changed by a column
+			// it was not using. The starting number is the screen's and the first
+			// frame narrows it. A canvas that is neither is left to follow the
+			// terminal, because nothing else here would move it
+			width:
+				typeof opts.width === 'number'
+					? Math.max(1, opts.width)
+					: opts.width === 'auto'
+						? Math.max(1, terminal.width)
+						: undefined,
+		});
 	/**
 	 * An inline canvas of our own, with no height named, follows what it draws.
 	 *
@@ -183,6 +217,8 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 	 * it has been laid out.
 	 */
 	const autoHeight = ownBackend && opts.height === undefined;
+	/** The same for the width, which is opt-in for the reason `width` records. */
+	const autoWidth = ownBackend && opts.width === 'auto';
 	const frameMs = Math.max(0, opts.frameMs ?? FRAME_MS);
 	const scope: Effects = opts.effects ?? createEffects();
 	const cascade = opts.cascade ?? new Cascade([]);
@@ -289,7 +325,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 	}
 
 	function layoutInto(): void {
-		if (!autoHeight) {
+		if (!autoHeight && !autoWidth) {
 			arrange(root, { height: backend.height, width: backend.width });
 			return;
 		}
@@ -301,11 +337,40 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 		// of terminal. `measureNode()` is what a node would ask for if it could
 		// have whatever it wanted, which is the question being asked here
 		const room = Math.max(1, terminal.height);
-		const wanted = Math.min(room, Math.max(1, measureNode(root, backend.width).height));
-		if (wanted !== backend.height) {
-			backend.resize(backend.width, wanted);
+		// a canvas that follows its content is measured at the screen, since that is
+		// the most it may have; one whose width is settled is measured at that
+		const offered = autoWidth ? Math.max(1, terminal.width) : backend.width;
+		const measured = measureNode(root, offered);
+		const width = autoWidth ? Math.min(offered, Math.max(1, measured.width)) : backend.width;
+
+		// and the height is asked again at the width the canvas is about to be,
+		// because the two are not independent: content that fits in eighty columns
+		// and is measured there wraps differently at the forty it came out as, and
+		// the height of a wrap that never happens is the wrong number of rows to
+		// reserve. One measure where the width did not move, since then the answer
+		// above already is the answer
+		const content = width === offered ? measured : measureNode(root, width);
+		const height = autoHeight ? Math.min(room, Math.max(1, content.height)) : backend.height;
+
+		if (width !== backend.width || height !== backend.height) {
+			backend.resize(width, height);
 		}
-		arrange(root, { height: backend.height, width: backend.width });
+
+		const result = arrange(root, { height: backend.height, width: backend.width });
+
+		// and laid out again where it reached further than it measured, which is the
+		// same second pass `renderToString()` takes and for the same reason: a row
+		// whose children flex is measured with each child offered the whole content
+		// box and placed with each given a share, so a question that wraps to two
+		// lines in the share it gets was one line in the room it was offered -- and
+		// the canvas reserved one row, with the second line clipped off the bottom
+		if (autoHeight) {
+			const used = Math.min(room, Math.max(1, arrangedExtent(result).height));
+			if (used > backend.height) {
+				backend.resize(backend.width, used);
+				arrange(root, { height: backend.height, width: backend.width });
+			}
+		}
 	}
 
 	/**

@@ -1,11 +1,11 @@
-import { ansi as defaultAnsi, type Ansi } from '../ansi/index.js';
-import type { Terminal } from '../terminal/index.js';
-import { type LiveRegion, createLiveRegion } from '../terminal/live.js';
+import { box, type Element, text as textNode } from '../element/index.js';
+import { createEffect } from '../renderer/index.js';
+import { State } from '../signals/index.js';
+import { terminal as defaultTerminal } from '../terminal/index.js';
 import { stringWidth } from '../width/index.js';
+import { type Mounted, type MountOptions, mountLive } from './mount.js';
 
-export interface ProgressOptions {
-	/** The styler to mark up with. Defaults to the process's. */
-	ansi?: Ansi;
+export interface ProgressOptions extends MountOptions {
 	/** The character drawn for the part still to do. Defaults to a light block. */
 	empty?: string;
 	/** The character drawn for the part done. Defaults to a full block. */
@@ -14,12 +14,8 @@ export interface ProgressOptions {
 	text?: string;
 	/** How wide the bar itself is. Defaults to a third of the terminal, 10-40. */
 	barWidth?: number;
-	/** The region to draw in. One is made if not given. */
-	region?: LiveRegion;
 	/** How often a plain log line is written when there is no terminal, in percent. Defaults to 10. */
 	step?: number;
-	/** The terminal to draw through. Defaults to the process's. */
-	terminal?: Terminal;
 	/** How many units of work there are. Defaults to 100. */
 	total?: number;
 }
@@ -65,6 +61,90 @@ export function renderBar(ratio: number, width: number, filled: string, empty: s
 	return filled.repeat(done) + empty.repeat(cells - done);
 }
 
+/** What a progress bar's tree is driven by, and what the facade writes to. */
+export interface ProgressState {
+	/** How far along. */
+	readonly current: State<number>;
+	/** The label. */
+	readonly label: State<string>;
+	/** How much work there is. */
+	readonly total: State<number>;
+}
+
+/**
+ * Builds the state a progress bar's tree reads.
+ *
+ * @param label - The label.
+ * @param total - How much work there is.
+ * @returns The signals.
+ */
+export function progressState(label = '', total = 100): ProgressState {
+	return { current: new State(0), label: new State(label), total: new State(total) };
+}
+
+export interface ProgressViewOptions {
+	/** How wide the bar is, in columns. */
+	barWidth: () => number;
+	/** The character for the part left. */
+	empty: string;
+	/** The character for the part done. */
+	filled: string;
+	/**
+	 * Whether there is a terminal to draw a bar on.
+	 *
+	 * There is no bar in a log file. A bar redrawn a thousand times is a thousand
+	 * lines of nothing anybody will read, and the percentage is the whole of what
+	 * it was saying -- so the plain form is the label and a percentage rounded
+	 * down to `step`, which is what makes consecutive frames identical and lets
+	 * the backend write one line per change rather than one per tick.
+	 */
+	live: boolean;
+	/** How often the plain form changes, in percent. */
+	step: number;
+}
+
+/**
+ * The progress bar, as an element tree.
+ *
+ * @param state - What it reads.
+ * @param opts - How the bar is drawn.
+ * @returns The tree.
+ */
+export function progressView(state: ProgressState, opts: ProgressViewOptions): Element {
+	const label = textNode('', { class: 'sigil-progress-label', 'margin-right': 1 });
+	const bar = textNode('', { class: 'sigil-progress-bar', 'margin-right': 1 });
+	const percent = textNode('', { class: 'sigil-progress-percent' });
+
+	const ratio = (): number => {
+		const total = state.total.get();
+		return total > 0 ? state.current.get() / total : 0;
+	};
+
+	createEffect(() => {
+		const text = state.label.get();
+		label.setText(text);
+		// the margin is what separates it from the bar, so a label nobody set must
+		// not leave one: `display: none` takes its margin with it
+		label.setProps({ display: text === '' ? 'none' : 'flex' });
+	});
+
+	createEffect(() => {
+		bar.setText(opts.live ? renderBar(ratio(), opts.barWidth(), opts.filled, opts.empty) : '');
+		bar.setProps({ display: opts.live ? 'flex' : 'none' });
+	});
+
+	createEffect(() => {
+		const whole = Math.floor(Math.min(1, Math.max(0, ratio())) * 100);
+		// a bar that finished says so, whatever `step` divides into: stepping alone
+		// left `step: 30` ending its log at 90%, and a bar whose last word is 90%
+		// is one the reader cannot tell from a build that stopped there
+		const shown = opts.live || whole === 100 ? whole : Math.floor(whole / opts.step) * opts.step;
+		percent.setText(`${shown}%`);
+	});
+
+	return box({ class: 'sigil-progress' }, label, bar, percent);
+}
+
 /**
  * A progress bar, for work whose length is known.
  *
@@ -76,15 +156,14 @@ export function renderBar(ratio: number, width: number, filled: string, empty: s
  * @returns The bar, drawn at zero.
  */
 export function createProgress(opts: ProgressOptions = {}): Progress {
-	const ansi = opts.ansi ?? defaultAnsi;
-	const region = opts.region ?? createLiveRegion({ terminal: opts.terminal });
 	const filled = opts.filled ?? '█';
 	const empty = opts.empty ?? '░';
 	const step = opts.step && opts.step > 0 ? opts.step : 10;
-
-	let text = opts.text ?? '';
-	let total = opts.total && opts.total > 0 ? opts.total : 100;
-	let current = 0;
+	const state = progressState(opts.text ?? '', opts.total && opts.total > 0 ? opts.total : 100);
+	// resolved up front rather than off the backend, because `barWidth()` is read
+	// by an effect during the very first render -- which happens inside
+	// `mountLive()`, before there is a handle to ask
+	const terminal = opts.terminal ?? opts.backend?.terminal ?? defaultTerminal;
 
 	function barWidth(): number {
 		if (opts.barWidth && opts.barWidth > 0) {
@@ -92,88 +171,72 @@ export function createProgress(opts: ProgressOptions = {}): Progress {
 		}
 
 		// a third of the screen, so the label and the percentage have room, and
-		// bounded so it is neither a stub on a narrow terminal nor absurd on a wide.
-		// Asked of the region's own terminal rather than of `opts`, which may not
-		// have carried one
-		return Math.min(40, Math.max(10, Math.floor(region.terminal.width / 3)));
+		// bounded so it is neither a stub on a narrow terminal nor absurd on a wide
+		return Math.min(40, Math.max(10, Math.floor(terminal.width / 3)));
 	}
 
+	const mounted: Mounted = mountLive(
+		(live) => progressView(state, { barWidth, empty, filled, live, step }),
+		{ ...opts, terminal }
+	);
+
+	function clamp(next: number): number {
+		return Math.min(state.total.get(), Math.max(0, next));
+	}
+
+	/** Settles the graph and paints, which is what every setter here owes. */
 	function draw(): void {
-		const ratio = total > 0 ? current / total : 0;
-		const percent = `${Math.floor(Math.min(1, Math.max(0, ratio)) * 100)}%`;
-		const bar = renderBar(ratio, barWidth(), filled, empty);
-		const label = text ? `${text} ` : '';
-
-		region.render(
-			`${label}${ansi.cyan(bar)} ${percent}`,
-			// a line only every `step` percent: the plain form is what the live
-			// region writes when there is no terminal, and it dedupes on it
-			`${label}${percentStep(ratio)}%`
-		);
+		mounted.frame();
 	}
-
-	/**
-	 * The percentage rounded down to the nearest `step`, which is what makes the
-	 * plain form repeat rather than change on every tick.
-	 *
-	 * @param ratio - How far along.
-	 * @returns The stepped percentage.
-	 */
-	function percentStep(ratio: number): number {
-		const percent = Math.floor(Math.min(1, Math.max(0, ratio)) * 100);
-		return Math.floor(percent / step) * step;
-	}
-
-	draw();
 
 	return {
 		get current() {
-			return current;
+			return state.current.get();
 		},
 
 		set current(next: number) {
-			current = Math.min(total, Math.max(0, next));
+			state.current.set(clamp(next));
 			draw();
 		},
 
 		done(final?: string): void {
 			if (final !== undefined) {
-				text = final;
+				state.label.set(final);
 			}
-			current = total;
+			state.current.set(state.total.get());
 			draw();
-			region.done();
+			mounted.done();
 		},
 
 		stop(): void {
-			region.stop();
+			mounted.stop();
 		},
 
 		get text() {
-			return text;
+			return state.label.get();
 		},
 
 		set text(next: string) {
-			text = next;
+			state.label.set(next);
 			draw();
 		},
 
 		tick(delta = 1): void {
-			this.current = current + delta;
+			this.current = state.current.get() + delta;
 		},
 
 		get total() {
-			return total;
+			return state.total.get();
 		},
 
 		set total(next: number) {
-			total = next > 0 ? next : 1;
-			current = Math.min(current, total);
+			state.total.set(next > 0 ? next : 1);
+			state.current.set(clamp(state.current.get()));
 			draw();
 		},
 
 		write(line: string): void {
-			region.write(line);
+			mounted.write(line);
 		},
 	};
 }

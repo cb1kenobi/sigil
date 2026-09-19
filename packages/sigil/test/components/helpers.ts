@@ -6,6 +6,7 @@ import {
 	type Terminal,
 } from '../../src/terminal/index.js';
 import { createLiveRegion, type LiveRegion } from '../../src/terminal/live.js';
+import { Screen, screenStream } from '../canvas/screen.js';
 import { PassThrough } from 'node:stream';
 
 /**
@@ -163,6 +164,10 @@ export function setup(
 		env: {},
 		isTTY: opts.isTTY ?? true,
 		proc,
+		// the fake stream stands in for both, so that the guard a terminal puts on
+		// its streams lands here rather than on the process's own stderr -- a
+		// listener per terminal, and a suite builds a great many of them
+		stderr: stdout as unknown as OutputStream,
 		stdin: stdin as unknown as InputStream,
 		stdout: stdout as unknown as OutputStream,
 	});
@@ -191,4 +196,90 @@ export async function tick(times = 2): Promise<void> {
 	for (let i = 0; i < times; i++) {
 		await new Promise((resolve) => setImmediate(resolve));
 	}
+}
+
+export interface ScreenHarness {
+	ansi: Ansi;
+	/** The last row a frame was drawn on, trailing spaces trimmed. */
+	readonly frame: string;
+	/** Everything the main buffer has held, trailing blank lines dropped. */
+	readonly log: string[];
+	/** Everything written, sequences and all, for the few claims that are bytes. */
+	readonly output: string;
+	screen: Screen;
+	stdin: FakeInput;
+	terminal: Terminal;
+	/** The raw chunks, so a test can ask about only what a frame changed. */
+	written: string[];
+}
+
+/**
+ * A terminal over a screen model, which is what a component test reads.
+ *
+ * The string harness above records what was *written*, and that stopped being
+ * the question the moment components started drawing through a canvas: a frame
+ * is a diff against the frame before it, so the last write is a handful of
+ * changed cells rather than a picture of anything. Replaying the bytes against a
+ * screen asks the question a test means -- after these frames, what is the user
+ * looking at.
+ *
+ * @param opts - The size, and whether either end is a terminal.
+ * @returns The harness.
+ */
+export function screenSetup(
+	opts: { columns?: number; inputTTY?: boolean; isTTY?: boolean; rows?: number } = {}
+): ScreenHarness {
+	const screen = new Screen(opts.columns ?? 40, opts.rows ?? 8);
+	const stream = screenStream(screen);
+	const written: string[] = [];
+	const paint = stream.write.bind(stream);
+	stream.write = (chunk: string): boolean => {
+		written.push(chunk);
+		return paint(chunk);
+	};
+	const stdin = createInput({ isTTY: opts.inputTTY ?? opts.isTTY ?? true });
+	const proc = {
+		listenerCount: (): number => 0,
+		on: (): void => {},
+		removeListener: (): void => {},
+	};
+
+	const terminal = createTerminal({
+		env: {},
+		isTTY: opts.isTTY ?? true,
+		proc,
+		stderr: stream as unknown as OutputStream,
+		stdin: stdin as unknown as InputStream,
+		stdout: stream as unknown as OutputStream,
+	});
+
+	return {
+		ansi: createAnsi({ level: 0 }),
+
+		get frame(): string {
+			return trimmed(screen.log).at(-1) ?? '';
+		},
+
+		get log(): string[] {
+			return trimmed(screen.log);
+		},
+
+		get output(): string {
+			return written.join('');
+		},
+
+		screen,
+		stdin,
+		terminal,
+		written,
+	};
+}
+
+/** The log with the blank rows below the last written one dropped. */
+function trimmed(log: string[]): string[] {
+	const lines = [...log];
+	while (lines.length > 0 && lines.at(-1) === '') {
+		lines.pop();
+	}
+	return lines;
 }

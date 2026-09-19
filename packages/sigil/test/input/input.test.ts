@@ -12,8 +12,14 @@ import { describe, expect, it } from 'vitest';
  */
 
 interface Harness {
+	/** How many listeners the stream is carrying, by event. */
+	counts: () => Record<string, number>;
+	/** Sends an event the stream itself would, rather than a chunk. */
+	emit: (event: string, ...args: unknown[]) => void;
 	feed: (chunk: string) => void;
 	out: string[];
+	/** Whether the stream is in raw mode, so a test can ask who put it back. */
+	readonly raw: boolean;
 	terminal: Terminal;
 }
 
@@ -46,7 +52,9 @@ function harness(): Harness {
 		setEncoding() {
 			return this;
 		},
-		setRawMode() {
+		raw: false,
+		setRawMode(mode: boolean) {
+			this.raw = mode;
 			return this;
 		},
 	};
@@ -55,17 +63,33 @@ function harness(): Harness {
 		env: {},
 		isTTY: true,
 		proc: { on() {}, pid: 1, removeListener() {} } as never,
+		stderr: { isTTY: true, write: (chunk: string) => void out.push(chunk) } as never,
 		stdin: stdin as never,
 		stdout: { isTTY: true, write: (chunk: string) => void out.push(chunk) } as never,
 	});
 
 	return {
+		counts() {
+			return {
+				data: listeners.get('data')?.size ?? 0,
+				end: listeners.get('end')?.size ?? 0,
+				error: listeners.get('error')?.size ?? 0,
+			};
+		},
+		emit(event: string, ...args: unknown[]) {
+			for (const fn of listeners.get(event) ?? []) {
+				fn(...args);
+			}
+		},
 		feed(chunk: string) {
 			for (const fn of listeners.get('data') ?? []) {
 				fn(chunk);
 			}
 		},
 		out,
+		get raw() {
+			return stdin.raw;
+		},
 		terminal,
 	};
 }
@@ -92,6 +116,75 @@ describe('the router', () => {
 		});
 
 		expect(() => createInput({ terminal })).toThrow(InputError);
+	});
+
+	// the same rule `hideCursor()` follows: a router built inside a full-screen app
+	// that is already raw must not take the app out of it on the way out, or what
+	// the app gets back is a cooked stream that echoes
+	it('should put raw mode back only if it was what turned it on', () => {
+		const outer = harness();
+		outer.terminal.setRawMode(true);
+		expect(outer.raw).to.equal(true);
+
+		createInput({ terminal: outer.terminal }).stop();
+		expect(outer.raw, 'the app was taken out of raw mode').to.equal(true);
+
+		const own = harness();
+		const router = createInput({ terminal: own.terminal });
+		expect(own.raw).to.equal(true);
+
+		router.stop();
+		expect(own.raw).to.equal(false);
+	});
+
+	// something waiting on a key has to be told when none will ever arrive, or it
+	// waits forever -- and stdin is the router's
+	it('should report the stream ending', () => {
+		const { emit, terminal } = harness();
+		const input = createInput({ terminal });
+		const seen: unknown[] = [];
+
+		input.onEnd((error) => seen.push(error ?? 'ended'));
+		emit('end');
+
+		expect(seen).to.deep.equal(['ended']);
+		input.stop();
+	});
+
+	it('should report the stream erroring, with what it failed with', () => {
+		const { emit, terminal } = harness();
+		const input = createInput({ terminal });
+		const seen: unknown[] = [];
+		const boom = new Error('gone');
+
+		input.onEnd((error) => seen.push(error));
+		emit('error', boom);
+
+		expect(seen).to.deep.equal([boom]);
+		input.stop();
+	});
+
+	it('should stop reporting it once the handler is removed', () => {
+		const { emit, terminal } = harness();
+		const input = createInput({ terminal });
+		const seen: unknown[] = [];
+
+		input.onEnd(() => seen.push('ended'))();
+		emit('end');
+
+		expect(seen).to.deep.equal([]);
+		input.stop();
+	});
+
+	// and nothing is left listening, or the next reader gets our events too
+	it('should take its listeners back off', () => {
+		const { counts, terminal } = harness();
+		const input = createInput({ terminal });
+
+		expect(counts()).to.deep.equal({ data: 1, end: 1, error: 1 });
+
+		input.stop();
+		expect(counts()).to.deep.equal({ data: 0, end: 0, error: 0 });
 	});
 
 	it('should give a key to a binding before anything focused', () => {
