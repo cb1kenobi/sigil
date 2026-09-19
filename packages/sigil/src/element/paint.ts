@@ -23,7 +23,7 @@ import {
 import type { Style, Update } from '../style/index.js';
 import { Cascade, Restyler } from '../style/index.js';
 import { stringWidth } from '../width/index.js';
-import { truncate, wrap } from '../wrap/index.js';
+import { truncate } from '../wrap/index.js';
 import type { Element } from './index.js';
 
 /**
@@ -189,11 +189,10 @@ function paintBorder(painter: Painter, area: Box, style: Style, cell: CellStyle)
 /** Draws a text element's content inside the box the layout gave it. */
 function paintText(painter: Painter, element: Element, area: Box, cell: CellStyle): void {
 	const { style } = element;
-	const content = element.displayText;
-	const lines =
-		style.whiteSpace === 'nowrap' || area.width <= 0
-			? content.split('\n')
-			: wrap(content, { width: area.width }).split('\n');
+	// asked for rather than worked out again: the layout engine wrapped this very
+	// text at this very width on its way to a height, and re-wrapping it here was
+	// half of all the grapheme segmentation a help screen did
+	const { lines, widths } = element.wrapped(area.width);
 
 	for (const [i, raw] of lines.entries()) {
 		if (i >= area.height) {
@@ -210,10 +209,12 @@ function paintText(painter: Painter, element: Element, area: Box, cell: CellStyl
 		// element's own style: the property does not inherit, so a container
 		// setting it does not silently truncate every descendant, and the box doing
 		// the clipping is this one
-		const line =
-			stringWidth(raw) > area.width ? truncate(raw, area.width, style.textOverflow) : raw;
+		const width = widths[i] ?? stringWidth(raw);
+		const line = width > area.width ? truncate(raw, area.width, style.textOverflow) : raw;
 
-		const slack = Math.max(0, area.width - stringWidth(line));
+		// the width is already known where the line was not cut, and a cut line is
+		// a new string that has to be measured
+		const slack = Math.max(0, area.width - (line === raw ? width : stringWidth(line)));
 		const offset =
 			style.textAlign === 'right'
 				? slack
