@@ -25,7 +25,11 @@ const escapeControls = {
 	generateBundle(_options: unknown, bundle: Record<string, { code?: string; type: string }>) {
 		for (const chunk of Object.values(bundle)) {
 			if (chunk.type === 'chunk' && chunk.code) {
+				// matching control characters is the whole job, and the rule could not
+				// see that until they were written as escapes -- a character class of
+				// literal bytes reads to a linter as ordinary characters
 				chunk.code = chunk.code.replaceAll(
+					// eslint-disable-next-line no-control-regex
 					/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g,
 					(c) => `\\x${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`
 				);
