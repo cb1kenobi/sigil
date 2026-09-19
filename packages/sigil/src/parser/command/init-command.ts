@@ -12,13 +12,19 @@ import { lockDerived } from '../../util/lock-derived.js';
 import { initArgs } from '../argument/init-args.js';
 import { OptionRegistry } from '../option/option-registry.js';
 import { CommandRegistry } from './command-registry.js';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { type Dirent, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, parse, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const { log } = debug('sigil:init-command');
 
 const fileTypeRegExp = /^\.[cm]?js$/;
+
+/**
+ * The basename of the module that declares a directory's own command, as
+ * opposed to one of the commands inside it.
+ */
+const INDEX_NAME = 'index';
 const nameSplitRegExp = /[, ]+/;
 
 /**
@@ -82,6 +88,20 @@ export async function initCommand(
 
 	if (decl.run !== undefined && typeof decl.run !== 'function') {
 		throw new TypeError(`Invalid run function in "${decl.name}" command`);
+	}
+
+	// the module at `path` *is* the command -- `loadCommand()` builds the merge
+	// from its export and fills in only what the module left undefined -- so an
+	// inline `run` beside a `path` is a handler that runs whenever the module
+	// happens not to declare one, and a path that cannot be read is a hard error
+	// however good the inline handler was. Refused where the schema is built,
+	// the way two `default` siblings and a `...` hint on an option are, because
+	// there is no right answer to pick and picking one silently is what makes it
+	// a trapdoor
+	if (decl.path !== undefined && decl.run !== undefined) {
+		throw new Error(
+			`Cannot combine "path" with "run" in the "${decl.name}" command: the module at "path" is the command, so an inline run would never be reached`
+		);
 	}
 
 	if (decl.hidden !== undefined && typeof decl.hidden !== 'boolean') {
@@ -437,6 +457,16 @@ async function registerCommand({
 	}
 }
 
+/**
+ * Registers whatever a declared path points at.
+ *
+ * A path names one command when the declaration named it -- the key it was
+ * written under in a `commands` object -- and a directory *of* commands when it
+ * did not. That asymmetry is the whole of it: `commands: './commands'` means
+ * every entry inside becomes a sibling, which is the one place a single path
+ * produces more than one command, while `commands: { db: './db' }` means one
+ * command called `db` however many files are behind it.
+ */
 async function registerCommandPath({
 	baseDir,
 	commands,
@@ -450,42 +480,301 @@ async function registerCommandPath({
 }): Promise<void> {
 	const modulePath = resolveDeclaredPath(baseDir, file);
 
-	const cmd = await registerCommandPackage(modulePath);
-	if (cmd) {
-		commands.add(cmd);
+	if (name) {
+		commands.add(await commandAtPath(modulePath, name));
 		return;
 	}
 
-	if (!name) {
-		try {
-			const files = readdirSync(modulePath);
-			for (const filename of files) {
-				const { ext, name } = parse(filename);
-				if (fileTypeRegExp.test(ext)) {
-					const cmdFile = join(modulePath, filename);
-					commands.add(await initCommand({ name }, cmdFile));
-				}
-			}
-			return;
-		} catch {
-			// not a package, not a directory
-		}
+	// a package is one command even unnamed, because its module names itself.
+	// Asked before the walk, since a package *is* a directory and walking one
+	// would register its internals as commands
+	const pkg = await registerCommandPackage(modulePath);
+	if (pkg) {
+		commands.add(pkg);
+		return;
 	}
 
-	// `modulePath` is not a package or directory or `name` is set and we didn't
-	// want to treat it as a directory
+	const entries = readDirectory(modulePath);
+	if (entries) {
+		for (const cmd of await discover(modulePath, entries)) {
+			commands.add(cmd);
+		}
+		return;
+	}
 
 	const { ext, name: filename } = parse(modulePath);
 
-	if (!name) {
-		name = filename;
-	}
-
-	if (!ext || !name || !fileTypeRegExp.test(ext)) {
+	if (!ext || !filename || !fileTypeRegExp.test(ext)) {
 		throw new Error(`Unsupported command module "${modulePath}"`);
 	}
 
-	commands.add(await initCommand({ name }, modulePath));
+	commands.add(await initCommand({ name: filename }, modulePath));
+}
+
+/**
+ * Builds the one command a named path points at.
+ *
+ * @param modulePath - Where to look.
+ * @param name - What the declaration called it.
+ * @returns The command, initialized but not necessarily loaded.
+ */
+async function commandAtPath(modulePath: string, name: string): Promise<InternalCommand> {
+	// a package the declaration pointed at keeps the rule it has always had: its
+	// module is imported now and names itself, which is why the key it was
+	// written under does not win. Only a package a *walk* found is deferred and
+	// named by its directory, because there the file system has already named it
+	const pkg = await registerCommandPackage(modulePath);
+	if (pkg) {
+		return pkg;
+	}
+
+	const entries = readDirectory(modulePath);
+	if (entries) {
+		// a directory with nothing in it that could be a command is not a command
+		// either: it would register a name that matches, runs nothing, and lists
+		// nothing, which is a worse answer than saying the path is unusable
+		if (!entries.some((entry) => routeName(entry, modulePath) !== undefined)) {
+			throw new Error(`Unsupported command module "${modulePath}"`);
+		}
+		return directoryCommand(modulePath, name);
+	}
+
+	const { ext } = parse(modulePath);
+
+	if (!ext || !fileTypeRegExp.test(ext)) {
+		throw new Error(`Unsupported command module "${modulePath}"`);
+	}
+
+	return initCommand({ name }, modulePath);
+}
+
+/**
+ * A command whose subcommands are the directory it sits on.
+ *
+ * Nothing about the directory is read here. The walk is deferred to
+ * `loadCommand()`, which is what already defers a module's import, so the
+ * directory is read when the command is matched or when help describes it and
+ * not when the tree above it is built. That is what keeps a sixty-command tree
+ * to one `readdir` per level argv actually names rather than one per level
+ * there is -- and it is what bounds a cycle through a symlink, since nothing
+ * walks a level nobody asked for.
+ *
+ * @param dir - The directory.
+ * @param name - What the command is called.
+ * @returns The command, unwalked.
+ */
+async function directoryCommand(dir: string, name: string): Promise<InternalCommand> {
+	const cmd = await initCommand({ name });
+
+	// written after the fact for the reason `loadCommand()` writes `label` and
+	// `loaded` after the fact: these are what the parser knows about a
+	// placeholder, not something its declaration said
+	cmd[Internal].dir = dir;
+	cmd[Internal].baseDir = dir;
+
+	return cmd;
+}
+
+/**
+ * Builds a command for every route in one directory listing.
+ *
+ * @param dir - The directory the entries came from.
+ * @param entries - Its listing.
+ * @returns One command per entry that is a route.
+ */
+async function discover(dir: string, entries: Dirent[]): Promise<InternalCommand[]> {
+	const claimed = new Map<string, string>();
+	const cmds: InternalCommand[] = [];
+
+	// sorted, because `readdir` order is the file system's, and a registry whose
+	// order depends on that is the thing `CommandRegistry.add()` already sorts
+	// names to avoid reporting
+	for (const entry of [...entries].sort((a, b) => a.name.localeCompare(b.name))) {
+		const isDir = isDirectoryEntry(entry, dir);
+		const name = routeName(entry, dir, isDir);
+
+		// `index` is the directory's own command rather than one inside it. Where
+		// there is no directory command for it to be -- a bare
+		// `commands: './commands'`, whose own command is the schema -- it is
+		// nothing at all, which is why this is one rule rather than two
+		if (!name || name === INDEX_NAME) {
+			continue;
+		}
+
+		const entryPath = join(dir, entry.name);
+		const cmd = isDir
+			? await subdirectoryCommand(entryPath, name)
+			: await initCommand({ name }, entryPath);
+
+		// asked of the command rather than of the entry, because a package renames
+		// itself: a `pkg/` whose `package.json` says `foo` collides with a `foo.js`
+		// beside it, and the directory name would not have seen it
+		const previous = claimed.get(cmd.name);
+		if (previous !== undefined) {
+			// silently keeping one of them would keep whichever `readdir` handed
+			// over second, which is the file system's order deciding which command
+			// an app has
+			throw new Error(
+				`Two entries in "${dir}" both declare a "${cmd.name}" command: "${previous}" and "${entry.name}"`
+			);
+		}
+		claimed.set(cmd.name, entry.name);
+
+		cmds.push(cmd);
+	}
+
+	return cmds;
+}
+
+/**
+ * The command a subdirectory of a walked directory is.
+ *
+ * A package is not walked: its `exports` is what says which module is the
+ * command, so reading the directory would register its internals as commands.
+ * Everything else is a directory command, whose own level waits to be walked.
+ *
+ * @param dir - The subdirectory.
+ * @param fallbackName - What the directory is called, for a package that does
+ * not name itself and for anything that is not one.
+ * @returns The command, unloaded either way.
+ */
+async function subdirectoryCommand(dir: string, fallbackName: string): Promise<InternalCommand> {
+	const pkg = readPackage(dir);
+
+	if (pkg) {
+		// a package names and describes itself in its `package.json`, which is a
+		// file read rather than an import -- so the name is known in time to match
+		// on and the module still waits for a match. What it costs is that read per
+		// subdirectory of a level being walked, which is the price of letting a
+		// package keep its own name
+		return initCommand({ desc: pkg.description, name: pkg.name ?? fallbackName }, pkg.entryFile);
+	}
+
+	return directoryCommand(dir, fallbackName);
+}
+
+/**
+ * Walks a directory command's own level, once.
+ *
+ * Its entries become its subcommands and an `index` module beside them is the
+ * command itself. Reached from `loadCommand()`, which is the whole point: a
+ * level is read when something asks for it.
+ *
+ * @param cmd - The directory command.
+ */
+export async function loadCommandDir(cmd: InternalCommand): Promise<void> {
+	const internal = cmd[Internal];
+	const { dir } = internal;
+
+	if (!dir) {
+		return;
+	}
+
+	log(`Walking command directory: ${dir}`);
+
+	const entries = readDirectory(dir);
+	if (!entries) {
+		throw new Error(`Command directory not found: ${dir}`);
+	}
+
+	for (const sub of await discover(dir, entries)) {
+		internal.commands.add(sub);
+	}
+
+	// no package branch: a directory holding a `package.json` was resolved to its
+	// entry module where it was discovered, so nothing that reaches here is one
+	internal.path = indexEntry(dir, entries);
+}
+
+/**
+ * Reads a directory, or answers `undefined` for anything that is not one.
+ *
+ * @param dir - The path to read.
+ * @returns Its entries, or `undefined`.
+ */
+function readDirectory(dir: string): Dirent[] | undefined {
+	try {
+		return readdirSync(dir, { withFileTypes: true });
+	} catch {
+		// not a directory, or not there
+		return undefined;
+	}
+}
+
+/**
+ * Whether a directory entry is itself a directory.
+ *
+ * @param entry - The entry.
+ * @param dir - The directory it came from.
+ * @returns Whether to walk it.
+ */
+function isDirectoryEntry(entry: Dirent, dir: string): boolean {
+	if (entry.isDirectory()) {
+		return true;
+	}
+
+	// a `Dirent` reports a symlink as a symlink whatever it points at, and a
+	// symlinked directory of commands is still a directory of commands
+	if (entry.isSymbolicLink()) {
+		try {
+			return statSync(join(dir, entry.name)).isDirectory();
+		} catch {
+			// a broken link points at nothing
+			return false;
+		}
+	}
+
+	return false;
+}
+
+/**
+ * The command name a directory entry routes to.
+ *
+ * @param entry - The entry.
+ * @param dir - The directory it came from.
+ * @param isDir - Whether it is a directory, when the caller already asked.
+ * @returns The name, or `undefined` when the entry is not a route at all.
+ */
+function routeName(
+	entry: Dirent,
+	dir: string,
+	isDir = isDirectoryEntry(entry, dir)
+): string | undefined {
+	// a dot-prefixed entry is never a route: `.gitkeep`, `.DS_Store` and a `.git`
+	// directory all end up beside command modules, and none of them is a command
+	// anybody wrote
+	if (entry.name.startsWith('.')) {
+		return undefined;
+	}
+
+	if (isDir) {
+		return entry.name;
+	}
+
+	const { ext, name } = parse(entry.name);
+
+	return name && fileTypeRegExp.test(ext) ? name : undefined;
+}
+
+/**
+ * The `index` module in a directory listing, if there is one.
+ *
+ * @param dir - The directory.
+ * @param entries - Its listing.
+ * @returns The path to the index module, or `undefined`.
+ */
+function indexEntry(dir: string, entries: Dirent[]): string | undefined {
+	// a preference rather than whatever `readdir` handed over first, so a
+	// directory holding both an `index.js` and an `index.mjs` resolves the same
+	// way on every machine
+	for (const ext of ['.js', '.mjs', '.cjs']) {
+		const found = entries.find((entry) => entry.name === INDEX_NAME + ext);
+		if (found) {
+			return join(dir, found.name);
+		}
+	}
+
+	return undefined;
 }
 
 /**
@@ -543,7 +832,20 @@ function resolveEntries(exports: unknown, subpath = true): string[] {
 	return [...new Set(entries)];
 }
 
-async function registerCommandPackage(dir: string): Promise<InternalCommand | undefined> {
+/**
+ * Reads what a package says about itself, without importing it.
+ *
+ * Everything here is a file read and a `stat`: which module is the command,
+ * what it is called, and what it does. That is what lets a package a directory
+ * walk discovered cost no more than a plain directory -- it is described in
+ * help by its `package.json` and imported only when it is matched.
+ *
+ * @param dir - The directory that may be a package.
+ * @returns What it says, or `undefined` when it is not a package.
+ */
+function readPackage(
+	dir: string
+): { description?: string; entryFile: string; name?: string } | undefined {
 	const pkgFile = join(dir, 'package.json');
 
 	let json;
@@ -589,6 +891,30 @@ async function registerCommandPackage(dir: string): Promise<InternalCommand | un
 			`Command package does not have a valid ${type === 'module' ? 'export' : 'main'}: ${dir}`
 		);
 	}
+
+	return { description, entryFile, name };
+}
+
+/**
+ * Builds the command a package the declaration pointed at exports.
+ *
+ * Imported here rather than deferred, and that is the older rule kept rather
+ * than an oversight: a package pointed at by a path is named by its own module
+ * -- `commands: { foo: './pkg' }` registers whatever the package calls itself,
+ * not `foo` -- and there is no way to know that name without reading it. A
+ * package a walk *found* is the other case and is deferred, because the
+ * directory it sits in has already named it.
+ *
+ * @param dir - The directory that may be a package.
+ * @returns The command, or `undefined` when the directory is not a package.
+ */
+async function registerCommandPackage(dir: string): Promise<InternalCommand | undefined> {
+	const pkg = readPackage(dir);
+	if (!pkg) {
+		return;
+	}
+
+	const { description, entryFile, name } = pkg;
 
 	// the file URL rather than the path: an absolute path on Windows starts with
 	// a drive letter, which the ESM loader reads as a scheme it does not know

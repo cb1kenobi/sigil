@@ -570,6 +570,71 @@ false` rethrows instead; a function replaces the handler.
   first answer and it was wrong in the other direction: it gave the loaded
   command the placeholder's base, so the module's own `path` and anything a
   hook of the module's resolved were read against the wrong directory.
+- **A command declares a module to load or a handler to run, and not both.**
+  The module at `path` _is_ the command: `loadCommand()` builds the merge from
+  its export and fills in only what the module left `undefined`, so an inline
+  `run` beside a `path` is a handler that runs on exactly the modules that
+  happen not to declare one -- and a path that cannot be read is a hard error
+  however good the inline handler was. Neither half is a thing to pick between
+  at dispatch time, so it is refused where the schema is built, the way two
+  `default` siblings and a `...` hint on an option already are. The `Command`
+  interface carried a `file` property alongside `path` for the same stretch,
+  which nothing in either package ever read: `[key: string]: unknown` is on that
+  interface for custom data, so `{ file: './build.js' }` type-checked,
+  registered a command with no module and no handler, and then did nothing when
+  dispatched. It is gone.
+- **A path nobody named is a directory _of_ commands; a path somebody named is
+  one command.** `commands: './commands'` means every route inside becomes a
+  sibling, which is the one place a single path produces more than one command,
+  while `commands: { db: './db' }` means one command called `db` however many
+  files sit behind it. The asymmetry is what the key is for, and without it
+  there is no way to say either thing: a directory that always meant "one
+  command" could not express a command tree's root, and one that always meant
+  "these commands" could not express a subcommand with children.
+- **A route is a module file or a subdirectory, and `index` is the directory
+  itself.** Inside a directory, a `.js`, `.mjs` or `.cjs` file is a command
+  named after the file and a subdirectory is a command named after the
+  directory, as deep as the tree goes. An `index` module beside them is that
+  command -- its `desc`, its `options`, its `run` -- and is never a command
+  called `index`, which is one rule rather than two: where there is no directory
+  command for it to be, as in a bare `commands: './commands'` whose own command
+  is the schema, it is nothing at all. A directory with no `index` is a
+  namespace that matches, lists what is under it, and has no `run`. An entry
+  whose name starts with a `.` is skipped, because `.gitkeep`, `.DS_Store` and a
+  `.git` directory all end up beside command modules and none of them is a
+  command anybody wrote. Two routes claiming one name -- a `config.js` beside a
+  `config/` -- throw, since keeping one of them keeps whichever `readdir` handed
+  over second, which is the file system deciding what an app does; routes are
+  registered sorted for the same reason.
+- **A directory is walked one level at a time, when something asks.** The walk
+  is `loadCommand()`'s rather than the discovery's, which is the same deferral a
+  module's import already gets and the reason a tree is worth having: `mycli db
+migrate up` reads `commands/`, `commands/db/` and `commands/db/migrate/` and
+  nothing else, so sixty commands cost one `readdir` per level argv actually
+  names and one `import`. Walking eagerly would read the whole tree on every
+  invocation including `--help` and including a mistyped command -- paid by the
+  unbundled apps this exists for, since a built app has its tree baked in. It is
+  also what bounds a cycle through a symlink without a guard: nothing walks a
+  level nobody asked for, so argv is the bound. The cost is that a subdirectory
+  lists by name alone in its parent's help until it is read, which is the rule a
+  lazily loaded module already follows -- and is what `sigil build` extracting
+  descriptions statically is for.
+- **A package names itself, wherever it was found.** A `package.json` name beats
+  the directory the package sits in, so a walk that finds `commands/pkg/` whose
+  manifest says `routes-pkg` registers `routes-pkg` -- and `pkg` is then not a
+  command at all. That is the rule a package a declaration pointed at already
+  followed, where a key of `foo` over a path to a package registers whatever the
+  package calls itself rather than `foo`, pinned by
+  `test/parser/commands.test.ts`. One rule rather than one per way of arriving at
+  the same directory. What differs is only what has to be read to learn the name:
+  a package pointed at is imported, because its _module_ may rename it again,
+  while a package a walk found is named out of its `package.json` -- a file read
+  rather than an import, so the name is known in time to match on and the module
+  still waits for a match. Reading that manifest per subdirectory of a level
+  being walked is what the rule costs, and it is the only thing a level's walk
+  reads beyond its own `readdir`. A package is also never walked for routes: its
+  `exports` is what says which module is the command, so the files beside it are
+  internals rather than subcommands.
 - **A uid of `0` is a uid, and `mkdirOwnerSync()` owns what it made and nothing
   else.** Root is `0` and `0` is falsy, so asking `uid && gid` read a caller who
   asked for group `0` -- `wheel`, and the group of every ancestor under `/var`,
