@@ -46,7 +46,8 @@ the first pass finds `build`, the second pass resolves `--target` against it.
 ## Commands
 
 Commands are declared as an object keyed by name, or as a path to a file,
-directory, or npm package that exports one (see [Lazy loading](#lazy-loading)).
+directory tree, or npm package that exports one (see
+[Lazy loading](#lazy-loading)).
 
 The name string carries more than a name:
 
@@ -166,8 +167,9 @@ own does not enforce its parent's.
 Two sibling commands both marked `default` throw while the schema is built —
 `Only one default command is allowed: "build" and "test" are both default` —
 rather than one of them quietly winning, since which one won would come down to
-registration order, and for a directory of command modules that is whatever the
-file system returned first.
+registration order. Routes discovered in a directory are registered in sorted
+order so that at least does not come down to whatever the file system returned
+first.
 
 > [!NOTE]
 > `--help` short-circuits before the required-argument check, so `mycli --help`
@@ -194,17 +196,74 @@ honored.
 
 ### Lazy loading
 
-`commands` may be a path instead of an object. The parser resolves, in order:
+`commands` may be a path instead of an object. What a path means depends on
+whether the declaration named it — the key it was written under:
+
+```js
+commands: './commands'; // a directory *of* commands: siblings
+commands: {
+	db: './db';
+} // one command called `db`
+```
+
+A path nobody named resolves, in order:
 
 1. A **package** — a directory with a `package.json`, loaded via its `exports`
    or `main`, falling back to `index.js` / `index.mjs` / `index.cjs`. The
-   package's `name` and `description` fill in the command's `name` and `desc`.
-2. A **directory** — every `.js`, `.mjs`, and `.cjs` file inside becomes a
-   command named after the file.
-3. A **file** — one command, named after the file unless a name is given.
+   package's `name` and `description` fill in the command's `name` and `desc`,
+   and its module is read straight away, since nothing else can say what it is
+   called.
+2. A **directory** — every route inside becomes a sibling command.
+3. A **file** — one command, named after the file.
+
+A path the declaration named is the same list minus the second entry: a
+directory is one command rather than a list of them, and its own routes become
+that command's subcommands.
 
 The module must default-export a command object. Loading is deferred until the
 command is actually matched, so a large CLI only pays for the branch it takes.
+
+#### Routes
+
+Inside a directory, a **route** is either a `.js`, `.mjs`, or `.cjs` file, named
+after the file, or a subdirectory, named after the directory. Anything else is
+skipped, as is any entry whose name starts with a `.`.
+
+A subdirectory is a command whose subcommands are the routes inside it, as deep
+as the tree goes. An `index` module beside them is that command itself — its
+`desc`, its `options`, its `run` — and is never a command called `index`. A
+directory with no `index` is a namespace: it matches, it lists what is under it,
+and it has no `run`. A subdirectory holding a `package.json` is a package: its
+`exports` says which module is the command, its manifest names and describes it,
+and it is not walked for routes of its own. The name in the manifest wins over
+the directory, so a `commands/pkg/` calling itself `routes-pkg` is
+`mycli routes-pkg` and not `mycli pkg`.
+
+```
+commands/
+  build.js            →  mycli build
+  config/
+    index.js          →  mycli config            (desc, options, run)
+    set.js            →  mycli config set
+  db/
+    migrate/
+      up.js           →  mycli db migrate up     (db and migrate are namespaces)
+```
+
+Two routes claiming one name — a `config.js` beside a `config/` — throw while
+that level is read, rather than one of them quietly winning by whatever order
+the file system returned.
+
+#### One level at a time
+
+A directory is read when its command is matched or when help describes it, and
+not before. `mycli db migrate up` reads `commands/`, then `commands/db/`, then
+`commands/db/migrate/`, and nothing else — plus the `package.json` of any
+subdirectory that has one, which is what lets a package keep its own name
+without being imported — so a tree of sixty commands costs one
+`readdir` per level argv actually names, and one `import`. A subdirectory lists
+by name alone in its parent's help until it has been read, which is the rule a
+lazily loaded module already follows.
 
 A path is relative to the file that declared it, the same as an `import` in
 that file: a command module exporting `commands: { all: './all.js' }` is

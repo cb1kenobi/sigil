@@ -282,16 +282,36 @@ src/index.ts true
 
 ### Lazy loading
 
-A command can be a path to a module, a directory of them, or a package
-directory. The module is not read until the command is matched.
+A command can be a path to a module, a directory tree of them, or a package
+directory. Nothing is read until the command is matched.
 
 ```js
 commands: {
   deploy: './commands/deploy.js',   // one module
+  db: './commands/db',              // one command, subcommands inside it
 }
 
-commands: './commands'                // every module in a directory
+commands: './commands'              // a directory *of* commands
 ```
+
+A directory is a tree: a file is a command named after the file, a subdirectory
+is a command named after the directory with the routes inside it as its
+subcommands, and an `index` module is the directory's own command rather than
+one called `index`.
+
+```
+commands/
+  build.js            →  mycli build
+  config/
+    index.js          →  mycli config
+    set.js            →  mycli config set
+  db/
+    migrate/
+      up.js           →  mycli db migrate up
+```
+
+Each level is read when something asks for it, so `mycli db migrate up` reads
+three directories and imports one module however large the tree is.
 
 ```js
 // commands/deploy.js

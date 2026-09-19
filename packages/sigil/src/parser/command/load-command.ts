@@ -1,6 +1,6 @@
 import debug from '../../debug/index.js';
 import { Command, Internal, InternalCommand } from '../../types.js';
-import { initCommand } from './init-command.js';
+import { initCommand, loadCommandDir } from './init-command.js';
 import { existsSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
@@ -11,6 +11,14 @@ export async function loadCommand(cmd: InternalCommand): Promise<InternalCommand
 
 	if (internal.loaded) {
 		return cmd;
+	}
+
+	// a directory command reads its own level first: its entries become its
+	// subcommands and an `index` module beside them becomes the `path` the import
+	// below reads. Both halves of one `readdir`, which is why the walk is here
+	// rather than beside the discovery that made the placeholder
+	if (internal.dir) {
+		await loadCommandDir(cmd);
 	}
 
 	if (internal.path) {
@@ -58,7 +66,18 @@ export async function loadCommand(cmd: InternalCommand): Promise<InternalCommand
 		// different file, so reading them again here would read them against the
 		// wrong directory. `initCommand()` hands an initialized command straight
 		// back, which is what makes registering them again cost nothing
-		if (def.commands === undefined && internal.commands.size) {
+		if (internal.dir) {
+			// a directory's subcommands were discovered rather than declared, so an
+			// `index` module declaring some of its own adds to them rather than
+			// replacing them -- losing `db/migrate.js` because `db/index.js`
+			// mentioned one inline command is not something anybody means. What it
+			// declares still wins the name it names, since that is the specific
+			// statement and the walk is the general one
+			merged.commands =
+				def.commands && typeof def.commands === 'object' && !Array.isArray(def.commands)
+					? { ...Object.fromEntries(internal.commands), ...def.commands }
+					: (def.commands ?? Object.fromEntries(internal.commands));
+		} else if (def.commands === undefined && internal.commands.size) {
 			merged.commands = Object.fromEntries(internal.commands);
 		}
 
