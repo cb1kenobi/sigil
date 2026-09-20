@@ -592,8 +592,8 @@ false` rethrows instead; a function replaces the handler.
   command" could not express a command tree's root, and one that always meant
   "these commands" could not express a subcommand with children.
 - **A route is a module file or a subdirectory, and `index` is the directory
-  itself.** Inside a directory, a `.js`, `.mjs` or `.cjs` file is a command
-  named after the file and a subdirectory is a command named after the
+  itself.** Inside a directory, a module file -- `.js`, `.mjs`, `.cjs`, `.ts`,
+  `.mts` or `.cts` -- is a command named after the file and a subdirectory is a command named after the
   directory, as deep as the tree goes. An `index` module beside them is that
   command -- its `desc`, its `options`, its `run` -- and is never a command
   called `index`, which is one rule rather than two: where there is no directory
@@ -619,6 +619,29 @@ migrate up` reads `commands/`, `commands/db/` and `commands/db/migrate/` and
   lists by name alone in its parent's help until it is read, which is the rule a
   lazily loaded module already follows -- and is what `sigil build` extracting
   descriptions statically is for.
+- **A command module may be TypeScript, and nothing compiles it.** `.ts`, `.mts`
+  and `.cts` are routes beside `.js`, `.mjs` and `.cjs`, because every runtime
+  this package supports strips types on its own: `engines` says node >=22.19.0
+  and stripping has been on by default since 22.18, so there is no capability to
+  detect and no flag to document. A `.cts` is still CommonJS and a `.mts` still
+  an ES module, since stripping erases annotations and does not rewrite module
+  syntax -- and what it cannot erase, an `enum` or a namespace with a runtime
+  body, is Node's limit rather than this one. A **declaration file is not a
+  route**, which is the half that is invisible until it bites: `deploy.d.ts`
+  parses as a name of `deploy.d` and an extension of `.ts`, so left alone it is a
+  command called `deploy.d` -- and sitting beside the `deploy.ts` it describes it
+  is a second claim on `deploy`, which is the two-routes-one-name error raised
+  over a directory with nothing wrong with it. Compiled output is the ordinary
+  way to have both. A `.ts` and a `.js` that really do both claim one name still
+  throw rather than resolving by a preference order, for the reason the rule
+  above gives twice over: a stale build artifact quietly winning is how somebody
+  edits the file that is not being loaded. The same goes for two index modules.
+  Proved by `packages/cli/test/typescript.test.ts` rather than from inside the
+  suite, and that is not a stylistic choice -- vite transforms whatever a test
+  file imports, so a test here proves vite can read TypeScript and not that node
+  can, and it cannot read a `.cts` at all. A spawned node with no flags is the
+  only thing that answers the question, which is the same reason the demos are
+  spawned and the same reason a test that needs `dist/` lives in that package.
 - **A package names itself, wherever it was found.** A `package.json` name beats
   the directory the package sits in, so a walk that finds `commands/pkg/` whose
   manifest says `routes-pkg` registers `routes-pkg` -- and `pkg` is then not a

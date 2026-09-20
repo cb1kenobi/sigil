@@ -225,9 +225,22 @@ command is actually matched, so a large CLI only pays for the branch it takes.
 
 #### Routes
 
-Inside a directory, a **route** is either a `.js`, `.mjs`, or `.cjs` file, named
-after the file, or a subdirectory, named after the directory. Anything else is
-skipped, as is any entry whose name starts with a `.`.
+Inside a directory, a **route** is either a module file — `.js`, `.mjs`, `.cjs`,
+`.ts`, `.mts`, or `.cts` — named after the file, or a subdirectory, named after
+the directory. Anything else is skipped, as is any entry whose name starts with
+a `.`, and as is a declaration file: `deploy.d.ts` describes `deploy.ts` rather
+than being a command called `deploy.d`.
+
+TypeScript needs no compile step. Every runtime this supports strips types on
+its own — the package requires node >=22.19.0, where stripping is on by
+default — so a `commands/deploy.ts` is imported as it sits. What is stripped is
+only what is erasable, which is Node's rule rather than this one: a command
+module using `enum` or a namespace with a runtime body needs compiling like any
+other file would.
+
+A `.cts` is CommonJS and a `.mts` is an ES module, exactly as their JavaScript
+spellings are, because stripping types does not rewrite module syntax — so a
+`.cts` command exports with `module.exports`.
 
 A subdirectory is a command whose subcommands are the routes inside it, as deep
 as the tree goes. An `index` module beside them is that command itself — its

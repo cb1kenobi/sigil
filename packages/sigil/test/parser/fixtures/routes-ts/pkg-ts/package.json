@@ -1,0 +1,8 @@
+{
+  "name": "pkg-ts",
+  "description": "a TypeScript package",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": "./main.ts"
+}

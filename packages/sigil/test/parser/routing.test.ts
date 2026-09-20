@@ -151,6 +151,56 @@ describe('filesystem routing', () => {
 		});
 	});
 
+	describe('TypeScript', () => {
+		const ts = path.join(__dirname, 'fixtures/routes-ts');
+
+		it('should route a .ts file', async () => {
+			const result = await parse({ argv: ['deploy'], schema: { commands: ts } });
+			expect(result.cmd?.name).to.equal('deploy');
+			expect(result.cmd?.desc).to.equal('deploy the app');
+		});
+
+		it('should take a .mts index module', async () => {
+			const result = await parse({ argv: ['settings'], schema: { commands: ts } });
+			expect(result.cmd?.desc).to.equal('settings are on');
+		});
+
+		it('should register a .cts subcommand', async () => {
+			// registered here and *loaded* in `packages/cli/test/typescript.test.ts`,
+			// which spawns a real node: vite transforms anything this suite imports
+			// and cannot read a `.cts`, while node strips its types and loads it as
+			// the CommonJS the extension says it is
+			const result = await parse({ argv: ['settings'], schema: { commands: ts } });
+			const edit = result.cmd?.[Internal].commands.get('edit');
+			expect(edit?.name).to.equal('edit');
+			expect(edit?.[Internal].path).to.match(/edit\.cts$/);
+		});
+
+		it('should resolve a package whose exports names a .ts entry', async () => {
+			const result = await parse({ argv: ['pkg-ts'], schema: { commands: ts } });
+			expect(result.cmd?.desc).to.equal('the TypeScript package module');
+		});
+
+		it('should not route a declaration file', async () => {
+			// `deploy.d.ts` parses as a name of `deploy.d` and an extension of
+			// `.ts`, so left alone it is a command called `deploy.d` -- and beside
+			// the `deploy.ts` it describes it is a second claim on `deploy`, which
+			// would be the collision error on a directory that is perfectly ordinary
+			const result = await parse({ schema: { commands: ts } });
+			const names = [...result.contexts[0][Internal].commands.keys()];
+			expect(names).to.not.contain('deploy.d');
+			expect(names.sort()).to.deep.equal(['deploy', 'help', 'pkg-ts', 'settings']);
+		});
+
+		it('should refuse a .ts and a .js claiming one name', async () => {
+			// the same rule two routes of one name already follow. Picking one by a
+			// preference order is how somebody edits the file that is not loaded
+			await expect(
+				parse({ schema: { commands: path.join(__dirname, 'fixtures/routes-clash-ts') } })
+			).rejects.toThrow(/both declare a "build" command/);
+		});
+	});
+
 	describe('a named path', () => {
 		it('should make one command out of a directory', async () => {
 			const result = await parse({

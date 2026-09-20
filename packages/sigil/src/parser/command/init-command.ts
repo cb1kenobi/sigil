@@ -18,7 +18,13 @@ import { pathToFileURL } from 'node:url';
 
 const { log } = debug('sigil:init-command');
 
-const fileTypeRegExp = /^\.[cm]?js$/;
+const fileTypeRegExp = /^\.[cm]?[jt]s$/;
+
+/**
+ * A TypeScript extension, which is the half of `fileTypeRegExp` that needs a
+ * declaration file kept out of it.
+ */
+const tsTypeRegExp = /^\.[cm]?ts$/;
 
 /**
  * The basename of the module that declares a directory's own command, as
@@ -502,9 +508,9 @@ async function registerCommandPath({
 		return;
 	}
 
-	const { ext, name: filename } = parse(modulePath);
+	const filename = moduleName(modulePath);
 
-	if (!ext || !filename || !fileTypeRegExp.test(ext)) {
+	if (!filename) {
 		throw new Error(`Unsupported command module "${modulePath}"`);
 	}
 
@@ -539,9 +545,7 @@ async function commandAtPath(modulePath: string, name: string): Promise<Internal
 		return directoryCommand(modulePath, name);
 	}
 
-	const { ext } = parse(modulePath);
-
-	if (!ext || !fileTypeRegExp.test(ext)) {
+	if (!moduleName(modulePath)) {
 		throw new Error(`Unsupported command module "${modulePath}"`);
 	}
 
@@ -751,9 +755,32 @@ function routeName(
 		return entry.name;
 	}
 
-	const { ext, name } = parse(entry.name);
+	return moduleName(entry.name);
+}
 
-	return name && fileTypeRegExp.test(ext) ? name : undefined;
+/**
+ * The command a module filename names, or `undefined` when it names none.
+ *
+ * @param filename - The file's own name, or a path ending in it.
+ * @returns The name, without the extension.
+ */
+function moduleName(filename: string): string | undefined {
+	const { ext, name } = parse(filename);
+
+	if (!name || !ext || !fileTypeRegExp.test(ext)) {
+		return undefined;
+	}
+
+	// `build.d.ts` parses as a name of `build.d` and an extension of `.ts`, so
+	// left alone a declaration file is a command called `build.d` -- and beside
+	// the `build.js` it describes it is a second claim on `build`, which is the
+	// collision error on a directory that has nothing wrong with it. Compiled
+	// output is the ordinary way to end up with both
+	if (tsTypeRegExp.test(ext) && name.endsWith('.d')) {
+		return undefined;
+	}
+
+	return name;
 }
 
 /**
@@ -764,17 +791,18 @@ function routeName(
  * @returns The path to the index module, or `undefined`.
  */
 function indexEntry(dir: string, entries: Dirent[]): string | undefined {
-	// a preference rather than whatever `readdir` handed over first, so a
-	// directory holding both an `index.js` and an `index.mjs` resolves the same
-	// way on every machine
-	for (const ext of ['.js', '.mjs', '.cjs']) {
-		const found = entries.find((entry) => entry.name === INDEX_NAME + ext);
-		if (found) {
-			return join(dir, found.name);
-		}
+	const found = entries.filter((entry) => moduleName(entry.name) === INDEX_NAME);
+
+	// two of them is the ambiguity two routes of one name already is, said about
+	// the directory itself: an `index.ts` beside a stale `index.js` is a
+	// directory with two answers, and picking one by a preference order is how
+	// somebody edits the file that is not being loaded
+	if (found.length > 1) {
+		const names = found.map((entry) => `"${entry.name}"`).sort();
+		throw new Error(`Directory "${dir}" has more than one index module: ${names.join(', ')}`);
 	}
 
-	return undefined;
+	return found.length ? join(dir, found[0]!.name) : undefined;
 }
 
 /**
@@ -870,7 +898,9 @@ function readPackage(
 		entries.push(main);
 	}
 
-	const filePaths = entries.length ? entries : ['index.js', 'index.mjs', 'index.cjs'];
+	const filePaths = entries.length
+		? entries
+		: ['index.js', 'index.mjs', 'index.cjs', 'index.ts', 'index.mts', 'index.cts'];
 	let entryFile;
 
 	for (const filepath of filePaths) {
