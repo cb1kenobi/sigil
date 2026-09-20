@@ -142,7 +142,6 @@ export interface Command<
 	default?: boolean;
 	desc?: string;
 	examples?: CommandExample | CommandExample[];
-	file?: string;
 	help?: string | HelpRenderer;
 	hidden?: boolean;
 	hooks?: {
@@ -178,6 +177,14 @@ export interface InternalCommandBase extends InternalBase {
 	 */
 	baseDir?: string;
 	commands: CommandRegistry;
+	/**
+	 * The directory this command discovers its subcommands in, walked one level
+	 * by `loadCommand()`. Set only for a command that *is* a directory, which is
+	 * a different thing from `baseDir`: that one says what a declaration's
+	 * relative paths are resolved against and is set for every command that came
+	 * from a file.
+	 */
+	dir?: string;
 	label: string;
 	/**
 	 * Whether `loadCommand()` has finished with this command. Always set: it
