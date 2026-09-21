@@ -511,13 +511,19 @@ function alias(
  * Properties whose CSS name is not a simple kebab-case of the property, or that
  * are spelled differently here because the terminal version is a different idea.
  */
+/**
+ * Every alias name.
+ *
+ * Written out rather than read off the table with `keyof`, for the reason
+ * `ShorthandName` records: the declaration emitter widens the table, so a
+ * `keyof` of it is a union inside the package and `string` in the published
+ * types -- and a mapped type over `string` is an index signature, which is what
+ * let every misspelled JSX prop through. The table is checked against this
+ * union by its own `satisfies`, so the two cannot drift.
+ */
+export type AliasName = 'font-style' | 'font-weight' | 'text-decoration';
+
 const ALIASES = {
-	// null-prototype, for the reason AGENTS.md gives under Conventions: on a plain
-	// object `constructor` and `toString` read back truthy and answer a lookup
-	// nothing declared, so `isKnownProperty('constructor')` was true and
-	// `declare({ constructor: 'red' })` was a TypeError rather than an error
-	// anybody could act on
-	__proto__: null,
 	'font-weight': alias(['bold', 'dim'], (value: string) => {
 		const key = value.trim().toLowerCase();
 		if (key === 'normal') {
@@ -569,7 +575,16 @@ const ALIASES = {
 		}
 		return known;
 	}),
-} as unknown as Record<string, Alias>;
+} satisfies { readonly [K in AliasName]: Alias };
+
+// null-prototype, for the reason AGENTS.md gives under Conventions: on a plain
+// object `constructor` and `toString` read back truthy and answer a lookup
+// nothing declared, so `isKnownProperty('constructor')` was true and
+// `declare({ constructor: 'red' })` was a TypeError rather than an error
+// anybody could act on. Set here rather than as a `__proto__` key in the
+// literal, because that key costs the literal its keys -- which is what checks
+// `AliasName`
+Object.setPrototypeOf(ALIASES, null);
 
 /**
  * Whether a name is a property this table holds, in either spelling and in any

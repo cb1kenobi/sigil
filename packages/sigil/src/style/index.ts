@@ -34,6 +34,7 @@ import {
 import { isShorthand } from './shorthand.js';
 
 export {
+	type AliasName,
 	type AlignContent,
 	type AlignItems,
 	type AlignSelf,
@@ -105,7 +106,13 @@ export {
 	STATES,
 	UNIVERSAL_KEY,
 } from './selector.js';
-export { expandShorthand, isShorthand, SHORTHAND_NAMES, shorthandLonghands } from './shorthand.js';
+export {
+	expandShorthand,
+	isShorthand,
+	SHORTHAND_NAMES,
+	type ShorthandName,
+	shorthandLonghands,
+} from './shorthand.js';
 export {
 	type Layer,
 	type MediaCondition,
