@@ -2490,6 +2490,25 @@ stylesheet rather than anything the runtime knows about.
 
 ### Templates
 
+- **The toolchain is proved by a spawned `tsc` and a spawned node, not from
+  inside the suite.** Everything in `test/template/` reaches JSX by calling
+  `jsx()` and `jsxs()` directly, which is what the transform emits -- so it
+  proves the runtime and cannot prove `jsxImportSource` resolving
+  `@ttylabs/sigil/jsx-runtime`, the `exports` map answering for that subpath, or
+  node importing what `tsc` wrote. `packages/cli/test/template.test.ts` is the
+  other half, for the reason `typescript.test.ts` and the demos already live
+  there: vite transforms whatever a test file imports, and a spawned process is
+  the whole difference. Not theoretical -- `jsx-dev-runtime` did not exist for a
+  while and every test passed throughout, because the production transform never
+  asks for it and nothing compiled a `.tsx` for real.
+- **The three fixtures behind that test are one component written three ways**
+  -- by hand, through the tag, as JSX -- and asserting they agree is the
+  differential invariant taken across the package boundary. They began as an
+  ergonomics comparison for choosing the design, in a directory called
+  `prototype/` that nothing ran; the comparison did its job once, and what was
+  worth keeping was the check, so it became one. A `.tsx` fixture is excluded
+  from its package's own tsconfig and checked by the one the test drives, since
+  the package pass has no `jsx` settings and should not grow them for a fixture.
 - **Two frontends, one IR, one emitter.** JSX and the `ui` tag both build
   `IRNode`s and both hand them to `emit()`, so there is exactly one
   implementation of what a template _means_. Build-time and runtime parsing
