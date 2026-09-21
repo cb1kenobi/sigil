@@ -40,6 +40,7 @@ Paths below are inside `packages/sigil/` unless noted.
 | `src/components/`        | Spinner, progress, table, prompts, key decoding      |
 | `src/signals/`           | The reactive graph: state, computed, watcher, effect |
 | `src/renderer/`          | Components, the owner tree, control flow, the frame  |
+| `src/template/`          | The template IR, the `ui` tag, the JSX runtimes      |
 | `src/canvas/`            | Cell buffer, style interning, paint diff, sub-cell   |
 | `src/style/`             | Properties, values, selectors, cascade, degradation  |
 | `src/theme/`             | The framework's own sheet, and what a theme is       |
@@ -2486,6 +2487,143 @@ stylesheet rather than anything the runtime knows about.
   "await an answer" have to be reconciled -- and doing it before anything has been
   ported would be a guess with nothing to check it against. `runWithOwner()` is
   the seam either will use, which is why it is public now.
+
+### Templates
+
+- **The toolchain is proved by a spawned `tsc` and a spawned node, not from
+  inside the suite.** Everything in `test/template/` reaches JSX by calling
+  `jsx()` and `jsxs()` directly, which is what the transform emits -- so it
+  proves the runtime and cannot prove `jsxImportSource` resolving
+  `@ttylabs/sigil/jsx-runtime`, the `exports` map answering for that subpath, or
+  node importing what `tsc` wrote. `packages/cli/test/template.test.ts` is the
+  other half, for the reason `typescript.test.ts` and the demos already live
+  there: vite transforms whatever a test file imports, and a spawned process is
+  the whole difference. Not theoretical -- `jsx-dev-runtime` did not exist for a
+  while and every test passed throughout, because the production transform never
+  asks for it and nothing compiled a `.tsx` for real.
+- **The three fixtures behind that test are one component written three ways**
+  -- by hand, through the tag, as JSX -- and asserting they agree is the
+  differential invariant taken across the package boundary. They began as an
+  ergonomics comparison for choosing the design, in a directory called
+  `prototype/` that nothing ran; the comparison did its job once, and what was
+  worth keeping was the check, so it became one. A `.tsx` fixture is excluded
+  from its package's own tsconfig and checked by the one the test drives, since
+  the package pass has no `jsx` settings and should not grow them for a fixture.
+- **Two frontends, one IR, one emitter.** JSX and the `ui` tag both build
+  `IRNode`s and both hand them to `emit()`, so there is exactly one
+  implementation of what a template _means_. Build-time and runtime parsing
+  separately is the failure SIG-69 exists to prevent: a template that behaves
+  differently after `sigil build` than it did in development is close to
+  undebuggable. `test/template/tag.test.ts` asserts the two build the same tree
+  from the same template, and it has already caught a divergence introduced by
+  a fix to something else.
+- **JSX is the canonical syntax and the `ui` tag is the zero-build one, because
+  Node's type stripping does not handle JSX and will not.** Stripping is erasure
+  and JSX is a transform, so a `.tsx` command module cannot run under the rule
+  recorded above that a command module may be TypeScript with nothing compiling
+  it. What JSX buys in exchange is what a tagged template cannot have: prop type
+  checking, completion, go-to-definition and rename, in every editor, with no
+  extension installed.
+- **A function-valued prop or child is reactive; a value is static.** `{count}`
+  is reactive, `{count()}` is a snapshot, `{() => count() * 2}` is reactive. It
+  is the convention `renderer/control.ts` already follows, where `ShowProps.when`
+  is `() => T`. Solid reaches fine-grained JSX by compiling `{count() * 2}` into
+  a getter and pays for it by having JSX mean different things compiled and
+  uncompiled; here no compiler rewrites an expression, so a build step is a
+  **pure optimizer** -- it may hoist, fold, resolve class names and pre-measure,
+  and it may not change what anything evaluates to. The price is
+  `{() => count() * 2}`, which for CLI-sized templates is cheap, and `{count}`
+  for the bare accessor is shorter than Solid's `{count()}`.
+- **The interpolation is `${}` because it is the only one there is.** A template
+  literal splits on `${}` and nothing else, so `{expr}` arrives as literal text
+  and evaluating it would need `new Function` -- which the backends rule out.
+  Not a preference.
+- **A component is interpolated in the tag, never named.** `<${Counter} />`,
+  because a tag function has no scope to look a name up in: the alternatives are
+  a registry, which costs tree-shaking, or this. Host elements stay bare, since
+  `box`, `text` and `raw` are the only three and need no lookup.
+- **`jsx` and `jsxs` are not the same function, and aliasing them is a
+  divergence.** `props.children` is a _single child_ in `jsx` and a _list_ in
+  `jsxs`. Treating both as a list flattened `<Kind>{[a]}</Kind>` into one child
+  and handed the component `a` where the tag handed it `[a]` -- the same
+  template, two trees. An array reaching `jsx()` is one child that happens to be
+  an array.
+- **Whitespace follows JSX's rule rather than one of our own.** Each line is
+  trimmed of the indentation that exists only because the template spans lines,
+  blank lines go, and what is left joins with a single space. The first rule --
+  drop any run containing a newline -- was right between two elements and wrong
+  inside prose: `hello` and `world` on two lines came out `helloworld`, and JSX's
+  transform joins them with a space, so the two frontends were different
+  languages. A run with no newline in it is the author's, which is what keeps
+  the trailing space in `<text>Enter your email: </text>`.
+- **A component's whitespace-only text children are dropped; a host element's
+  are not.** A host's whitespace is content. A component's children are data it
+  interprets, and a stray space is never part of that -- one space before an
+  expression made `props.children` the array `[' ', fn]`, so
+  `<${Show}> ${(v) => ...}</>` failed with `props.children is not a function`
+  while the same template across two lines worked. This is the one place the
+  frontends diverge from JSX on purpose, and they diverge together.
+- **A boolean in text position is absent rather than the word it spells.**
+  `{cond && 'ready'}` is empty when `cond` is false, which is what JSX has
+  always done. `appendValue()` skipped a boolean and `stringify()` did not, so
+  one rule said twice disagreed: empty as a box's child and the word `false`
+  inside a `<text>`. `0` is still `"0"` -- a number is a value somebody meant to
+  show.
+- **An element in text position is refused, and the check is where the node
+  is.** There is no inline layout, so a `<box>` inside a `<text>` has nowhere to
+  go. Asked in `textContent()` rather than in `stringify()` for two reasons: JSX
+  evaluates a child before the call, so a nested host arrives already built and
+  wrapped as a _slot_ rather than as an element node -- left to a `kind` check
+  it was painted as `[object Object]` -- and the node is where the source
+  position still is.
+- **`<raw>` refuses children rather than discarding them.** It paints its own
+  cells, so a child has nowhere to go, and JSX had already built it and left its
+  effects on the owner before it was dropped. The rule a property the engine
+  ignores already follows: parsing something and doing nothing with it is worse
+  than not accepting it.
+- **The IR is not serializable, and that is the expression decision rather than
+  a second one.** An expression is opaque JavaScript, so `${() => count()}` is a
+  closure and no design makes it data. The payoff the ticket wanted -- shipping
+  the IR as data to skip shipping a parser -- is already delivered by the build
+  emitter producing JS source, which tree-shakes the parser out anyway.
+- **Control flow stays `Show` and `For` rather than becoming IR node kinds.**
+  SIG-69 originally asked for the opposite and `renderer/control.ts` had already
+  recorded the reason against it: those two are the one implementation of what
+  mounting and unmounting a branch means, and a second definition in the IR is a
+  second thing to keep in agreement. A build emitter that wants something
+  tighter recognizes the imported bindings by name.
+- **A source position is optional on an IR node, because the production JSX
+  transform passes none.** `jsxDEV` carries a file, line and column; `jsx`
+  carries nothing; the `ui` tag always knows its line. So an error points at the
+  template from the tag and from a dev build, and not from a release one --
+  which is the transform's asymmetry rather than ours, and is why `loc` is not
+  required.
+- **The host prop types are derived from the property table, not listed beside
+  it.** `Style` carries every longhand and its resolved type; the shorthands and
+  aliases are literal unions on their own tables. `Kebab<>` and `Camel<>` are
+  `kebab()` and `camelCase()` written in the type system, so both spellings are
+  offered in both directions -- `isKnownProperty('flexFlow')` is true at runtime,
+  and offering only the kebab key made `<box flexFlow="column" />` a type error
+  and a runtime success.
+- **The one list that is written out is the colour properties, and a test pins
+  it.** `Color` is `number`, and a conditional type cannot tell a colour from a
+  padding -- `T extends Color` matched every numeric property, so
+  `<box paddingTop={1} />` was a type error while `<box color={39} />` was legal,
+  which is both answers backwards. A colour is spelled and never counted:
+  `parseColor()` refuses `"39"`. `test/template/props.test.ts` asserts the list
+  against `COLOR_PROPERTIES`, and `test/template/jsx-types.tsx` -- checked by
+  `tsconfig.jsx.json` under `pnpm check` -- is what fails if the widening comes
+  back, because the runtime test cannot see it.
+- **A table that a mapped type reads must keep its keys through the declaration
+  emitter.** `keyof typeof SHORTHANDS` was a union inside the package and
+  `string` in the published `.d.mts`, because the emitter widens the table to
+  `Record<string, Shorthand>` -- so the mapped type became an index signature and
+  let every misspelled prop through, for consumers only. Two things caused the
+  widening and both are fixed: an `as unknown as Record<...>` cast on the
+  literal, and a `__proto__: null` key, which makes TypeScript type the literal
+  loosely. The tables close with `satisfies` against a written union and set the
+  null prototype with `Object.setPrototypeOf()` afterwards, which is the same
+  runtime defense with the keys intact.
 
 ### The built-in components
 

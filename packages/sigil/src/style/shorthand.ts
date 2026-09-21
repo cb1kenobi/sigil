@@ -94,12 +94,31 @@ function shorthand(longhands: readonly PropertyName[], expand: Expander): Shorth
 	return { expand, longhands };
 }
 
-const SHORTHANDS: Record<string, Shorthand> = {
-	// null-prototype, for the reason AGENTS.md gives under Conventions: on a plain
-	// object `__proto__` and `constructor` read back truthy, so `isShorthand`
-	// answered yes and the expander lookup then handed back something that is not
-	// a function
-	__proto__: null,
+/**
+ * Every shorthand name.
+ *
+ * Written out rather than read off the table with `keyof`, and that is not the
+ * duplication it looks like: the declaration emitter cannot write the table's
+ * literal type -- it widens to `Record<string, Shorthand>` -- so a `keyof` of
+ * it is `string` in the *published* types while being a union inside the
+ * package. The JSX prop types read this, so a mapped type over it would have
+ * silently become an index signature and let every misspelled prop through,
+ * which is the bug it was written to prevent, arriving through the build.
+ *
+ * The table is annotated with this union, so a shorthand added to one and not
+ * the other does not compile: a missing key is an error and an extra one is an
+ * error. One fact, checked, in two places that cannot drift apart.
+ */
+export type ShorthandName =
+	| 'border'
+	| 'flex'
+	| 'flex-flow'
+	| 'gap'
+	| 'inset'
+	| 'margin'
+	| 'padding';
+
+const SHORTHANDS = {
 	padding: shorthand(PADDING, (v) => edges(v, PADDING, 'padding')),
 	margin: shorthand(MARGIN, (v) => edges(v, MARGIN, 'margin')),
 	inset: shorthand(INSET, (v) => edges(v, INSET, 'inset')),
@@ -269,7 +288,7 @@ const SHORTHANDS: Record<string, Shorthand> = {
 			['flexWrap', wrap ?? 'nowrap'],
 		];
 	}),
-} as unknown as Record<string, Shorthand>;
+} satisfies { readonly [K in ShorthandName]: Shorthand };
 
 /** A plain `<number>`, for telling a flex factor from a basis. */
 const NUMBER = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i;
@@ -297,7 +316,7 @@ function shorthandFor(name: string): Shorthand | undefined {
 	const kebab = trimmed.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
 	for (const candidate of [trimmed.toLowerCase(), kebab.toLowerCase()]) {
 		if (Object.hasOwn(SHORTHANDS, candidate)) {
-			return SHORTHANDS[candidate];
+			return SHORTHANDS[candidate as ShorthandName];
 		}
 	}
 	return undefined;
@@ -308,8 +327,18 @@ export function isShorthand(name: string): boolean {
 	return shorthandFor(name) !== undefined;
 }
 
+// null-prototype, for the reason AGENTS.md gives under Conventions: on a plain
+// object `__proto__` and `constructor` read back truthy, so `isShorthand`
+// answered yes and the expander lookup then handed back something that is not a
+// function. Set here rather than written as a `__proto__` key in the literal,
+// because that key makes TypeScript type the literal as `Record<string,
+// Shorthand>` -- which is what the `as unknown as` cast this replaced was for,
+// and what made `keyof` useless. The literal's own keys are what checks
+// `ShorthandName`, so they have to survive
+Object.setPrototypeOf(SHORTHANDS, null);
+
 /** Every shorthand, for documentation and for tests that walk them. */
-export const SHORTHAND_NAMES: readonly string[] = Object.keys(SHORTHANDS);
+export const SHORTHAND_NAMES: readonly ShorthandName[] = Object.keys(SHORTHANDS) as ShorthandName[];
 
 /**
  * Expands a shorthand into the declarations it stands for, still as source text
