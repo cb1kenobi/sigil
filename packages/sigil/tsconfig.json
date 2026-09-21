@@ -4,5 +4,5 @@
     "outDir": "./dist"
   },
   "include": ["./benchmark", "./src", "./test", "./vitest.config.ts"],
-  "exclude": ["./test/parser/fixtures"]
+  "exclude": ["./test/parser/fixtures", "./test/template/jsx-types.tsx"]
 }

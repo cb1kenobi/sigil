@@ -53,6 +53,14 @@
       "types": "./dist/input.d.mts",
       "default": "./dist/input.mjs"
     },
+    "./jsx-dev-runtime": {
+      "types": "./dist/jsx-dev-runtime.d.mts",
+      "default": "./dist/jsx-dev-runtime.mjs"
+    },
+    "./jsx-runtime": {
+      "types": "./dist/jsx-runtime.d.mts",
+      "default": "./dist/jsx-runtime.mjs"
+    },
     "./layout": {
       "types": "./dist/layout.d.mts",
       "default": "./dist/layout.mjs"
@@ -72,6 +80,10 @@
     "./style": {
       "types": "./dist/style.d.mts",
       "default": "./dist/style.mjs"
+    },
+    "./template": {
+      "types": "./dist/template.d.mts",
+      "default": "./dist/template.mjs"
     },
     "./terminal": {
       "types": "./dist/terminal.d.mts",
@@ -103,7 +115,7 @@
     "test": "vitest",
     "test:bun": "bun --bun test --config=bunfig.toml",
     "test:deno": "deno run --allow-all --sloppy-imports ../../node_modules/vitest/vitest.mjs",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit && tsc -p tsconfig.jsx.json"
   },
   "devDependencies": {
     "@types/node": "26.6.1",

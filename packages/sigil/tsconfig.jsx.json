@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "isolatedDeclarations": false,
+    "jsx": "react-jsx",
+    "jsxImportSource": "@ttylabs/sigil",
+    "noEmit": true,
+    "paths": {
+      "@ttylabs/sigil/jsx-runtime": ["./src/template/runtime.ts"],
+      "@ttylabs/sigil/jsx-dev-runtime": ["./src/template/dev-runtime.ts"]
+    }
+  },
+  "include": ["./test/template/jsx-types.tsx"],
+  "exclude": []
+}
