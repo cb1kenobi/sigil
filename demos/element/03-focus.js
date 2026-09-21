@@ -1,7 +1,7 @@
 /**
  * One router owns stdin, and Tab moves the focus.
  *
- *   node demos/element/03-focus.js      <- needs a terminal; Tab, Shift-Tab, q
+ *   node demos/element/03-focus.js      <- needs a terminal; Tab, Shift-Tab, type, q
  *
  * Every prompt used to set raw mode, attach its own listener, decode, and put
  * everything back -- which works exactly as long as there is one prompt. Two at
@@ -16,6 +16,7 @@ import { createInlineCanvas } from '@ttylabs/sigil/canvas';
 import { arrange, box, createTree, paint, resolveStyles, text } from '@ttylabs/sigil/element';
 import { createInput, isAbort } from '@ttylabs/sigil/input';
 import { Cascade, parseStylesheet, Restyler } from '@ttylabs/sigil/style';
+import { graphemes } from '@ttylabs/sigil/width';
 
 if (!process.stdin.isTTY) {
 	console.log('This demo reads keys, so it needs a terminal. Run it without a pipe.');
@@ -40,8 +41,29 @@ const fields = ['name', 'email', 'role'].map((name) => {
 	// the key reaches the focused field first; the app binding below never sees
 	// what this stops
 	field.onKey = (event) => {
-		if (event.key.name.length === 1 && !event.key.ctrl) {
-			label.setText(`${name}: ${label.text.split(': ')[1] ?? ''}${event.key.name}`);
+		const key = event.key;
+		const typed = label.text.split(': ')[1] ?? '';
+
+		if (key.name === 'backspace') {
+			// by grapheme cluster rather than by code unit, which is the rule
+			// `src/components/prompt.ts` records: an emoji is two code units, so
+			// `slice(0, -1)` leaves a lone surrogate behind and every edit after it
+			// works on a string no terminal can draw
+			const clusters = graphemes(typed);
+			clusters.pop();
+			label.setText(`${name}: ${clusters.join('')}`);
+			event.stop();
+			return;
+		}
+
+		// a printable key is one that named itself: a character arrives with its
+		// name and its sequence the same string, while a named key's name is one
+		// the terminal never sent -- `up` for `ESC [ A`, `backspace` for a `DEL`.
+		// Space is named and is still a character. Asking whether the name is one
+		// character long is what this used to do, and it dropped space along with
+		// everything else it was meant to drop
+		if (!key.ctrl && !key.meta && (key.name === 'space' || key.name === key.sequence)) {
+			label.setText(`${name}: ${typed}${key.name === 'space' ? ' ' : key.sequence}`);
 			event.stop();
 		}
 	};
