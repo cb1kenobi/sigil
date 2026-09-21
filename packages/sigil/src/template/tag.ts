@@ -45,7 +45,14 @@
  */
 
 import type { Element } from '../element/index.js';
-import { type ComponentRef, emit, type IRNode, type IRProp, type SourceLocation } from './ir.js';
+import {
+	type ComponentRef,
+	emit,
+	Expr,
+	type IRNode,
+	type IRProp,
+	type SourceLocation,
+} from './ir.js';
 
 /** Names a tag or an attribute may use, kebab included, since style props are kebab. */
 const NAME_RE = /[A-Za-z_]/;
@@ -59,6 +66,30 @@ const NAME_BODY_RE = /[\w.:-]/;
  * @returns The one element the template describes.
  */
 export function ui(strings: TemplateStringsArray, ...values: unknown[]): Element {
+	return emit(parse(strings, values));
+}
+
+/**
+ * Reads a template into IR without building anything.
+ *
+ * The half of `ui` a compiler wants, and the reason it is separable: the build
+ * emitter has to read a template out of a file, where every `${...}` is text
+ * rather than a value, and it reads it *with this parser* -- an `Expr` per
+ * interpolation. A toolchain that parsed the syntax itself would be the second
+ * parser this design cannot afford, and the day the two disagreed about
+ * whitespace or about a closing tag would be the day a template meant
+ * different things before and after `sigil build`.
+ *
+ * Taken as two arrays rather than as a tag's arguments, because a compiler has
+ * no template literal to spread: what it has is the quasis it read and the
+ * expressions between them.
+ *
+ * @param strings - The literal's static parts.
+ * @param values - What sits between them: a value at runtime, an `Expr` at
+ *   build time.
+ * @returns The one node the template describes.
+ */
+export function parse(strings: readonly string[], values: readonly unknown[]): IRNode {
 	const parser = new Parser(strings, values);
 	const nodes = parser.parseNodes();
 	parser.expectEnd();
@@ -76,7 +107,7 @@ export function ui(strings: TemplateStringsArray, ...values: unknown[]): Element
 		);
 	}
 
-	return emit(roots[0]!);
+	return roots[0]!;
 }
 
 /**
@@ -87,12 +118,12 @@ export function ui(strings: TemplateStringsArray, ...values: unknown[]): Element
  * parser can ask about rather than a character it has to recognise.
  */
 class Parser {
-	readonly #strings: TemplateStringsArray;
+	readonly #strings: readonly string[];
 	readonly #values: readonly unknown[];
 	#si = 0;
 	#ci = 0;
 
-	constructor(strings: TemplateStringsArray, values: readonly unknown[]) {
+	constructor(strings: readonly string[], values: readonly unknown[]) {
 		this.#strings = strings;
 		this.#values = values;
 	}
@@ -303,15 +334,19 @@ class Parser {
 		const at = this.loc();
 		this.#expect('<');
 
-		let type: ComponentRef | string;
+		let type: ComponentRef | Expr | string;
 		if (this.#atSlot()) {
 			const value = this.#takeSlot();
-			if (typeof value !== 'function') {
+			// an `Expr` is what the build path interpolates, and it is admitted
+			// here rather than checked: a compiler reading a template out of a file
+			// cannot know that `${Counter}` names a function, and refusing it would
+			// leave the toolchain to parse the syntax itself
+			if (typeof value !== 'function' && !(value instanceof Expr)) {
 				throw new Error(
 					`An interpolated tag must be a component function, got ${typeof value}${this.#where()}`
 				);
 			}
-			type = value as ComponentRef;
+			type = value as ComponentRef | Expr;
 		} else {
 			const name = this.#readName();
 			if (name === '') {
@@ -453,7 +488,7 @@ class Parser {
 	 * @param type - What was opened, for the error message and the match.
 	 * @returns The children.
 	 */
-	#parseChildren(type: ComponentRef | string): IRNode[] {
+	#parseChildren(type: ComponentRef | Expr | string): IRNode[] {
 		const children = this.parseNodes();
 
 		if (this.#done()) {
@@ -465,8 +500,16 @@ class Parser {
 
 		if (this.#atSlot()) {
 			const closing = this.#takeSlot();
-			if (closing !== type) {
-				throw new Error(`<${label(type)}> is closed by <${label(closing as ComponentRef)}>`);
+			// two `Expr`s are compared by their source rather than by identity: a
+			// compiler makes a fresh one per interpolation, so `</${Counter}>` is
+			// never the same object as the `<${Counter}>` it closes, and comparing
+			// references refused a template that is closed exactly right
+			const matches =
+				type instanceof Expr && closing instanceof Expr
+					? closing.source === type.source
+					: closing === type;
+			if (!matches) {
+				throw new Error(`<${label(type)}> is closed by <${label(closing as ComponentRef | Expr)}>`);
 			}
 		} else {
 			const name = this.#readName();
@@ -531,9 +574,13 @@ function collapse(run: string): string {
 /**
  * What a tag is called, for an error message.
  *
- * @param type - A host name or a component.
+ * @param type - A host name, a component, or the expression one was
+ *   interpolated as.
  * @returns Something readable.
  */
-function label(type: ComponentRef | string): string {
+function label(type: ComponentRef | Expr | string): string {
+	if (type instanceof Expr) {
+		return type.source;
+	}
 	return typeof type === 'function' ? type.name || 'anonymous component' : type;
 }
