@@ -12,8 +12,12 @@
 import { renderToString } from '@ttylabs/sigil/element';
 import { createRoot } from '@ttylabs/sigil/renderer';
 import { flush, State } from '@ttylabs/sigil/signals';
+import { pathToFileURL } from 'node:url';
 
-const { Counter } = await import(process.argv[2]);
+// through a file URL, because a Windows path is not a specifier: `import()`
+// reads `D:\\a\\sigil\\...` as a URL whose scheme is `d`, and the backslashes
+// are not separators to it either
+const { Counter } = await import(pathToFileURL(process.argv[2]).href);
 
 const count = new State(1);
 const items = new State(['parser', 'canvas']);

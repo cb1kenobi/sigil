@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -34,6 +35,19 @@ const root = resolve(here, '../../..');
 const fixtures = resolve(here, 'fixtures/template');
 const renderer = resolve(fixtures, 'render.mjs');
 
+/**
+ * The compiler's own entry, spawned under this node rather than through
+ * `node_modules/.bin/tsc`.
+ *
+ * That shim is extensionless on unix and a `.CMD` on Windows, so spawning it by
+ * name is `ENOENT` there -- and `shell: true` is not the way out, because this
+ * workspace already carries an entry about what `cmd.exe` does to a quoted
+ * argument. `tsc.js` is a plain file every platform runs the same way. Resolved
+ * through `createRequire` rather than joined onto `node_modules`, since pnpm
+ * puts the real package under `.pnpm/` and only links the name.
+ */
+const tsc = resolve(dirname(createRequire(import.meta.url).resolve('typescript')), 'tsc.js');
+
 interface Ran {
 	code: number | null;
 	stderr: string;
@@ -43,7 +57,7 @@ interface Ran {
 /**
  * Runs a command and collects what it said.
  *
- * @param command - The executable.
+ * @param command - The executable, which is always this node.
  * @param args - Its arguments.
  * @returns The exit code and both streams.
  */
@@ -95,8 +109,7 @@ describe('a template across the package boundary', () => {
 	// states, and running one of them on its own would otherwise fail on a
 	// missing file rather than on what it was asking about
 	beforeAll(async () => {
-		const tsc = resolve(root, 'node_modules/.bin/tsc');
-		compiled = await run(tsc, ['-p', resolve(fixtures, 'tsconfig.json')]);
+		compiled = await run(process.execPath, [tsc, '-p', resolve(fixtures, 'tsconfig.json')]);
 	}, 60_000);
 
 	it('should compile a .tsx with tsc and nothing else', () => {
