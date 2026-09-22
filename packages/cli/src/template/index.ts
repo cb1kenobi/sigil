@@ -27,11 +27,11 @@
  * a caller splices the matching `sources` entry into.
  */
 
-export { analyze } from './analyze.js';
+export { analyze } from './analyze.ts';
 export {
 	compile,
 	type Compiled,
 	type CompiledImport,
 	type CompileOptions,
 	renderImports,
-} from './emit.js';
+} from './emit.ts';

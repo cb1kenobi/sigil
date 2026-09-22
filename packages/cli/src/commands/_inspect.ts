@@ -26,7 +26,7 @@ import {
 	type DiscoveredApp,
 	type ResolvedCommand,
 	type TypeCheckResult,
-} from '../build/index.js';
+} from '../build/index.ts';
 import { table } from '@ttylabs/sigil/components';
 import { existsSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
@@ -151,7 +151,7 @@ function walkCommandDir(dir: string, diagnostics: Diagnostic[]): readonly Resolv
 		diagnostics.push(...tree.diagnostics);
 		return tree.commands;
 	} catch (e: unknown) {
-		diagnostics.push({ file: dir, message: (<Error>e).message, severity: 'error' });
+		diagnostics.push({ file: dir, message: (e as Error).message, severity: 'error' });
 		return [];
 	}
 }

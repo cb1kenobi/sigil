@@ -29,7 +29,7 @@
  * faster when they land.
  */
 
-import { bundleApp, type BuiltChunk, type ResolvedTree } from '../build/index.js';
+import { bundleApp, type BuiltChunk, type ResolvedTree } from '../build/index.ts';
 import {
 	countCommands,
 	describeApp,
@@ -37,7 +37,7 @@ import {
 	inspect,
 	reportDiagnostics,
 	type Inspection,
-} from './_inspect.js';
+} from './_inspect.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
 import { table } from '@ttylabs/sigil/components';
 import { isAbsolute, relative, resolve } from 'node:path';

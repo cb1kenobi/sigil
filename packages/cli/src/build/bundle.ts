@@ -31,9 +31,9 @@
  * input and ignored by every repository already.
  */
 
-import type { DiscoveredApp } from './discover.js';
-import { generateBin } from './generate.js';
-import type { ResolvedTree } from './tree.js';
+import type { DiscoveredApp } from './discover.ts';
+import { generateBin } from './generate.ts';
+import type { ResolvedTree } from './tree.ts';
 import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 

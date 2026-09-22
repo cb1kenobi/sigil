@@ -38,18 +38,18 @@
  * read off the entry's source, because running it would run the app.
  */
 
-import type { Diagnostic } from './diagnostic.js';
-import { factsOf } from './extract.js';
+import type { Diagnostic } from './diagnostic.ts';
+import { factsOf } from './extract.ts';
 import {
 	literalBoolean,
 	literalString,
 	objectLiteral,
 	plainProperty,
 	propertyKey,
-} from './literals.js';
-import { parseModule, position, type ParsedModule } from './parse-module.js';
-import type { ResolvedCommand } from './tree.js';
-import { walk } from './walk.js';
+} from './literals.ts';
+import { parseModule, position, type ParsedModule } from './parse-module.ts';
+import type { ResolvedCommand } from './tree.ts';
+import { walk } from './walk.ts';
 import { readFileSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { Expression, ObjectExpression, Node } from 'oxc-parser';
@@ -164,7 +164,7 @@ export function readManifest(root: string): AppManifest {
 	try {
 		json = JSON.parse(raw) as Record<string, unknown>;
 	} catch (e: unknown) {
-		throw new Error(`Failed to parse ${path}: ${(<Error>e).message}`);
+		throw new Error(`Failed to parse ${path}: ${(e as Error).message}`);
 	}
 
 	const dependencies = new Set<string>();

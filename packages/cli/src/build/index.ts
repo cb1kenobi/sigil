@@ -25,8 +25,8 @@
  * a fixture directory and no bundler at all.
  */
 
-export { formatDiagnostic, isFatal, type Diagnostic, type Severity } from './diagnostic.js';
-export { bundleApp, type BuiltChunk, type BundleOptions, type BundleResult } from './bundle.js';
+export { formatDiagnostic, isFatal, type Diagnostic, type Severity } from './diagnostic.ts';
+export { bundleApp, type BuiltChunk, type BundleOptions, type BundleResult } from './bundle.ts';
 export {
 	discoverApp,
 	readAppCommands,
@@ -36,28 +36,28 @@ export {
 	type AppManifest,
 	type DiscoveredApp,
 	type DiscoverOptions,
-} from './discover.js';
-export { extractCommand, factsOf, type CommandFacts, type Extracted } from './extract.js';
+} from './discover.ts';
+export { extractCommand, factsOf, type CommandFacts, type Extracted } from './extract.ts';
 export {
 	generateBin,
 	generateCommands,
 	specifier,
 	type GenerateBinOptions,
 	type GenerateOptions,
-} from './generate.js';
+} from './generate.ts';
 export {
 	formatPosition,
 	parseModule,
 	position,
 	type ParsedModule,
 	type Position,
-} from './parse-module.js';
+} from './parse-module.ts';
 export {
 	findTemplates,
 	templatesIn,
 	type FoundTemplate,
 	type TemplatesOptions,
-} from './templates.js';
+} from './templates.ts';
 export {
 	resolveCommandTree,
 	walkTree,
@@ -65,5 +65,5 @@ export {
 	type CommandKind,
 	type ResolvedTree,
 	type ResolveOptions,
-} from './tree.js';
-export { typeCheck, type TypeCheckOptions, type TypeCheckResult } from './typecheck.js';
+} from './tree.ts';
+export { typeCheck, type TypeCheckOptions, type TypeCheckResult } from './typecheck.ts';

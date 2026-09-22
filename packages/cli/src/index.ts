@@ -46,7 +46,7 @@ export function schema(): Schema {
 				// schema carries so `--help` needs no module, and a `load` so the
 				// bundler and the parser stay off the startup path
 				desc: 'Build an app into a bundle that depends on nothing',
-				load: () => import('./commands/build.js'),
+				load: () => import('./commands/build.ts'),
 			},
 			check: {
 				// declared here rather than in the module, so `sigil --help` can
@@ -56,7 +56,7 @@ export function schema(): Schema {
 				// the module behind this one pulls in `oxc-parser`, a native binary
 				// that `sigil --version` has no use for
 				desc: 'Check an app without building it',
-				load: () => import('./commands/check.js'),
+				load: () => import('./commands/check.ts'),
 			},
 		},
 	};

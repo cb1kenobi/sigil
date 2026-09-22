@@ -49,7 +49,7 @@
  * module loads.
  */
 
-import type { ResolvedCommand, ResolvedTree } from './tree.js';
+import type { ResolvedCommand, ResolvedTree } from './tree.ts';
 import { relative, sep } from 'node:path';
 
 /** How to print a tree. */

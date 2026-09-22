@@ -42,8 +42,8 @@
  * They are UTF-16 code unit offsets, which is what `source.slice()` takes.
  */
 
-import { parseModule, position, type ParsedModule } from './parse-module.js';
-import { walk } from './walk.js';
+import { parseModule, position, type ParsedModule } from './parse-module.ts';
+import { walk } from './walk.ts';
 import type { Expression, TaggedTemplateExpression } from 'oxc-parser';
 
 /** Where the `ui` tag comes from, when nothing says otherwise. */

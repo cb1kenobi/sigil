@@ -125,6 +125,11 @@ reasons, and the second is the one that cost a morning:
   loud. `the root build filter` in `packages/cli/test/cli.test.ts` reads the
   workspace and fails if a package is added without joining the build.
 
+`pnpm --filter @ttylabs/cli dev <args>` runs the toolchain straight from its
+source -- `node src/sigil.ts` -- with no build in between, which is the loop to
+use when working on it. It needs `@ttylabs/sigil` built, like everything else in
+that package, and nothing else.
+
 `pnpm --filter @ttylabs/sigil test` scopes to one package, as does running the script
 from inside its directory. **`@ttylabs/cli` needs a build first** -- its source
 and its tests import `@ttylabs/sigil` through that package's `exports` map, which points
@@ -3131,6 +3136,24 @@ makes it testable with a fixture directory and no bundler at all.
   reads. `the toolchain's dependencies` in `packages/cli/test/cli.test.ts` writes
   them out rather than counting them, so taking a new one is an edit somebody
   makes on purpose.
+- **The toolchain runs from its own source, and that is a different thing from
+  building itself.** `node packages/cli/src/sigil.ts build ...` works with no
+  build step, which is the dev loop the acceptance test wants -- edit a pass,
+  run it against a fixture, see the bundle. What it does _not_ do is make
+  `@ttylabs/cli` self-buildable, and the two got conflated once: `sigil build`
+  can never produce a standalone bundle of it, because `oxc-parser` and
+  `rolldown` are **native `.node` binaries** and no bundler inlines those. The
+  published bin imports them externally and npm installs them, which is correct
+  and is why the toolchain is a devDependency rather than a bundled artifact. A
+  zero-dependency bundle is a promise about _apps_, and an app with a native
+  dependency is the one kind that cannot have one.
+- **Running from source costs the angle-bracket type assertion.** `<Error>e` is
+  ambiguous with JSX, so Node's stripper refuses it outright rather than
+  guessing -- `(e as Error)` is the spelling that survives. That is the same
+  rule already recorded for a command module, where an `enum` or a namespace
+  with a runtime body is Node's limit rather than this package's, met from the
+  inside for the first time.
+
 - **`sigil build` generates the executable rather than looking for one, which
   is the Next.js answer.** Next never hunts for your entry, because you do not
   write one: routes are a directory convention, config is found by filename, and
@@ -3182,8 +3205,11 @@ matters:`import(pathToFileURL(path).href)` survives into every bundle from
   points somewhere else once the bundle is written to another directory. Every
   bundler has this property. It is deliberately _not_ warned about, because the
   pattern is also how an app correctly locates something it ships alongside, and
-  a warning that fires on correct code teaches people to ignore warnings.
-  Making the toolchain fully self-hosting is SIG-78's.
+  a warning that fires on correct code teaches people to ignore warnings. It is
+  also not a thing to fix here: the toolchain is not a bundleable app at all,
+  for the native-binary reason above, and its own bin is built by tsdown into
+  `dist/`, where `../package.json` resolves exactly as that function's comment
+  says it does.
 - **`_inspect.ts` is one pass for two commands, and the `_` prefix is this
   repo's own rule read from the inside.** `check` is that pass and a report;
   `build` is that pass, the same report, and a bundle. Two implementations that
@@ -3989,7 +4015,16 @@ color: magenta }` and beats the default with an ordinary rule, which is only tru
 
 ## Conventions
 
-- ESM only. Imports use `.js` extensions even for `.ts` sources.
+- ESM only. Imports use `.js` extensions even for `.ts` sources -- **except
+  inside `packages/cli/src/`, which uses `.ts`**. That is not drift, it is what
+  makes `node src/sigil.ts build ...` work: Node's type stripping is erasure and
+  does not rewrite specifiers, so a `.js` import of a `.ts` file is a module not
+  found. The toolchain is the one package worth running straight from source --
+  it is a tool rather than a library, and the alternative is a tsdown build
+  between every edit and every try. `@ttylabs/sigil` keeps `.js`, because it is
+  only ever consumed through its `exports` map and a `.ts` specifier would buy
+  it nothing. `allowImportingTsExtensions` is set on `packages/cli` alone for
+  the same reason.
 - Internal state hangs off the exported `Internal` symbol, not enumerable
   properties, so schema objects stay clean for consumers. `parse()` stashes the
   state it died with on the error it throws the same way, under `ErrorState`,

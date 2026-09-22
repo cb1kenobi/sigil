@@ -57,9 +57,9 @@
  * never written.
  */
 
-import type { Diagnostic } from './diagnostic.js';
-import { literalBoolean, literalString, objectLiteral, propertyKey } from './literals.js';
-import { parseModule, position, type ParsedModule } from './parse-module.js';
+import type { Diagnostic } from './diagnostic.ts';
+import { literalBoolean, literalString, objectLiteral, propertyKey } from './literals.ts';
+import { parseModule, position, type ParsedModule } from './parse-module.ts';
 import type { ObjectExpression } from 'oxc-parser';
 
 /** What a command module says about itself, read statically. */

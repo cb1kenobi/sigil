@@ -40,7 +40,7 @@
  * not how anything starts on Windows.
  */
 
-import { type Diagnostic, type Severity } from './diagnostic.js';
+import { type Diagnostic, type Severity } from './diagnostic.ts';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';

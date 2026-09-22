@@ -36,7 +36,7 @@ import {
 	inspect,
 	printTree,
 	reportDiagnostics,
-} from './_inspect.js';
+} from './_inspect.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
 
 /**
