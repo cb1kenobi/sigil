@@ -29,7 +29,7 @@
  * faster when they land.
  */
 
-import { bundleApp, workDir, type BuiltChunk, type ResolvedTree } from '../build/index.js';
+import { bundleApp, type BuiltChunk, type ResolvedTree } from '../build/index.js';
 import {
 	countCommands,
 	describeApp,

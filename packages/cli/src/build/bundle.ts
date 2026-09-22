@@ -35,7 +35,7 @@ import type { DiscoveredApp } from './discover.js';
 import { generateBin } from './generate.js';
 import type { ResolvedTree } from './tree.js';
 import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join } from 'node:path';
 
 /** Where the generated entry is written, relative to the app. */
 const WORK_DIR = join('node_modules', '.sigil');
@@ -165,14 +165,4 @@ function writeEntry(app: DiscoveredApp, tree: ResolvedTree): string {
 	writeFileSync(file, generateBin({ from: dir, schemaModule: app.entry, tree }), 'utf-8');
 
 	return file;
-}
-
-/**
- * The generated entry's path, for a message about it.
- *
- * @param app - The app.
- * @returns The path, relative to the app.
- */
-export function workDir(app: DiscoveredApp): string {
-	return relative(app.root, join(app.root, WORK_DIR)) || WORK_DIR;
 }

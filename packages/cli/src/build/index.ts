@@ -26,13 +26,7 @@
  */
 
 export { formatDiagnostic, isFatal, type Diagnostic, type Severity } from './diagnostic.js';
-export {
-	bundleApp,
-	workDir,
-	type BuiltChunk,
-	type BundleOptions,
-	type BundleResult,
-} from './bundle.js';
+export { bundleApp, type BuiltChunk, type BundleOptions, type BundleResult } from './bundle.js';
 export {
 	discoverApp,
 	readAppCommands,
