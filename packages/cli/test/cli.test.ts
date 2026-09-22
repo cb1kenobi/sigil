@@ -224,6 +224,79 @@ describe('@ttylabs/cli', () => {
 		});
 	});
 
+	/**
+	 * Every dependency is pinned to an exact version, in every manifest in the
+	 * workspace.
+	 *
+	 * A caret means a fresh install and a six-month-old lockfile can resolve to
+	 * different trees, and for a native binary -- rolldown and oxc-parser both --
+	 * that is a different binary on somebody's machine with nothing in the diff
+	 * to point at. The lockfile pins the resolution; this pins what the manifest
+	 * *asks* for, which is what a range widens the moment anybody reinstalls
+	 * without one.
+	 *
+	 * Asserted rather than left to `.npmrc`, because `save-exact` is only seen by
+	 * whoever ran `pnpm add` -- a caret written by hand, or by a tool that does
+	 * not read it, arrives with nothing to stop it.
+	 */
+	describe('pinned dependencies', () => {
+		const manifests = [
+			'package.json',
+			'packages/sigil/package.json',
+			'packages/cli/package.json',
+			'website/package.json',
+		].map((path) => ({
+			json: JSON.parse(readFileSync(resolve(root, '../..', path), 'utf-8')) as Record<
+				string,
+				Record<string, string> | undefined
+			>,
+			path,
+		}));
+
+		it('should find every manifest it means to check', () => {
+			// a path that stopped resolving would pass this suite by checking
+			// nothing, which is the failure mode a list of paths has
+			expect(manifests).toHaveLength(4);
+			for (const { json, path } of manifests) {
+				expect(json.name, `${path} has no name`).toBeDefined();
+			}
+		});
+
+		it('should pin every dependency and devDependency exactly', () => {
+			const ranged: string[] = [];
+
+			for (const { json, path } of manifests) {
+				for (const field of ['dependencies', 'devDependencies'] as const) {
+					for (const [name, spec] of Object.entries(json[field] ?? {})) {
+						// a workspace link is not a version range; it resolves to the
+						// package in this repo whatever anybody publishes
+						if (spec.startsWith('workspace:')) {
+							continue;
+						}
+						if (!/^\d+\.\d+\.\d+(?:-[\w.]+)?$/.test(spec)) {
+							ranged.push(`${path}: ${field}.${name} = ${spec}`);
+						}
+					}
+				}
+			}
+
+			expect(ranged).toStrictEqual([]);
+		});
+
+		it('should leave a peer dependency as a range, because that is what one is', () => {
+			// a peer declares what the toolchain *accepts* from the app rather than
+			// what it installs, so pinning it would refuse an app on any other
+			// TypeScript -- which is the opposite of the point
+			expect(pkg.peerDependencies).toHaveProperty('typescript');
+			expect(pkg.peerDependencies.typescript).toMatch(/^>=/);
+		});
+
+		it('should tell pnpm to keep writing exact versions', () => {
+			const npmrc = readFileSync(resolve(root, '../../.npmrc'), 'utf-8');
+			expect(npmrc).toMatch(/^save-exact=true$/m);
+		});
+	});
+
 	describe('the root build filter', () => {
 		// `pnpm test` and `pnpm coverage` build the packages before vitest runs,
 		// because `the built bin` above reads `dist/`. The filter that picks those

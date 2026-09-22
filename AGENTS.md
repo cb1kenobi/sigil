@@ -4015,6 +4015,20 @@ color: magenta }` and beats the default with an ordinary rule, which is only tru
 
 ## Conventions
 
+- **Every dependency is pinned to an exact version, in every manifest.** A caret
+  means a fresh install and a six-month-old lockfile can resolve to different
+  trees -- and for a native binary, which `rolldown` and `oxc-parser` both are,
+  that is a different binary on somebody's machine with nothing in the diff to
+  point at. The lockfile pins the resolution; the manifest pins what is
+  _asked_ for, which is what a range widens again the moment anybody reinstalls
+  without one. `.npmrc` sets `save-exact=true` so `pnpm add` writes it, and
+  `pinned dependencies` in `packages/cli/test/cli.test.ts` asserts it across the
+  workspace -- because a setting only the person who ran `pnpm add` sees is a
+  setting that drifts, and both ranges this repo has ever had arrived exactly
+  that way. A `workspace:` link is not a range and is skipped; a **peer**
+  dependency is deliberately left one, since it declares what the toolchain
+  accepts from an app rather than what it installs, and pinning `typescript`
+  would refuse every app on a different one.
 - ESM only. Imports use `.js` extensions even for `.ts` sources -- **except
   inside `packages/cli/src/`, which uses `.ts`**. That is not drift, it is what
   makes `node src/sigil.ts build ...` work: Node's type stripping is erasure and
