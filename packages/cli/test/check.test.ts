@@ -58,6 +58,16 @@ describe('sigil check', () => {
 	});
 
 	describe('the wiring', () => {
+		it('should declare build beside it, both complete', () => {
+			// a command that exists and refuses is worse than one that does not
+			// exist yet; both of these are the whole of what they claim, and
+			// `build` runs `check`'s pass rather than replacing it
+			const commands = schema().commands as Record<string, { desc?: string; load?: unknown }>;
+
+			expect(Object.keys(commands).sort()).toStrictEqual(['build', 'check']);
+			expect(commands.build!.load).toBeTypeOf('function');
+		});
+
 		it('should be declared with a description the schema carries itself', () => {
 			// on the placeholder rather than in the module, so `sigil --help` can
 			// describe it without loading a native parser it has no use for. The

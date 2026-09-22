@@ -61,11 +61,10 @@ describe('@ttylabs/cli', () => {
 
 		it('should declare only commands that are the whole of what they claim', () => {
 			// a command that exists and refuses is worse than one that does not
-			// exist yet, because only the second is honest in --help. `check` is
-			// here because it is complete; `build` is not, because it cannot bundle
-			// yet and a `build` that produces no runnable app is exactly the shape
-			// this rule was written against
-			expect(Object.keys(schema().commands ?? {})).toEqual(['check']);
+			// exist yet, because only the second is honest in --help. Both of these
+			// are complete: `build` bundles, and it runs `check`'s pass rather than
+			// replacing it
+			expect(Object.keys(schema().commands ?? {}).sort()).toEqual(['build', 'check']);
 		});
 	});
 
@@ -217,7 +216,11 @@ describe('@ttylabs/cli', () => {
 			//
 			// Written out rather than counted, so that taking a new one is an edit
 			// somebody makes on purpose and can be asked about in review.
-			expect(Object.keys(pkg.dependencies).sort()).toEqual(['@ttylabs/sigil', 'oxc-parser']);
+			expect(Object.keys(pkg.dependencies).sort()).toEqual([
+				'@ttylabs/sigil',
+				'oxc-parser',
+				'rolldown',
+			]);
 		});
 	});
 

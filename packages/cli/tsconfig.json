@@ -4,5 +4,10 @@
     "outDir": "./dist"
   },
   "include": ["./src", "./test", "./vitest.config.ts"],
-  "exclude": ["./test/fixtures/template", "./test/fixtures/typecheck", "./test/fixtures/discover"]
+  "exclude": [
+    "./test/fixtures/template",
+    "./test/fixtures/typecheck",
+    "./test/fixtures/discover",
+    "./test/fixtures/buildable"
+  ]
 }

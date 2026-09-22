@@ -3131,16 +3131,79 @@ makes it testable with a fixture directory and no bundler at all.
   reads. `the toolchain's dependencies` in `packages/cli/test/cli.test.ts` writes
   them out rather than counting them, so taking a new one is an edit somebody
   makes on purpose.
-- **`sigil check` is wired and `sigil build` is not, and that is the no-stub
-  rule rather than an exception to it.** `packages/cli/src/index.ts` records
+- **`sigil build` generates the executable rather than looking for one, which
+  is the Next.js answer.** Next never hunts for your entry, because you do not
+  write one: routes are a directory convention, config is found by filename, and
+  the framework supplies the server -- `output: 'standalone'` literally
+  _generates_ `server.js`. The same applies here. A sigil bin is a shebang, an
+  import and a call to `main()`; nobody should have to write it, and a build
+  that goes looking can pick the wrong file. That is not hypothetical: this
+  package's own `bin` names `dist/sigil.mjs`, so a build that followed the
+  manifest would have parsed its own minified output.
+- **The generated entry composes rather than transforms.** It imports the app's
+  schema module and spreads it, then passes `commands` over the top -- so there
+  is no source rewriting anywhere, and everything the app said about its name,
+  options and hooks survives untouched. `commands` is the one property the build
+  knows better than the app does. A schema export may be a function, because a
+  schema that reads the environment has to be built rather than declared, and it
+  is called exactly where the app would have called it.
+- **The namespace is spread before it is read.** `app.default ?? app.schema` is
+  a _static_ reference to a named export the module need not have, and a bundler
+  resolves that at build time -- rolldown warns that it will always be
+  undefined. `{ ...app }` asks at run time, which is when the answer is known.
+- **An import the bundler cannot resolve is an error, not a warning.** Left
+  alone it becomes an _external_, so the bundle reaches for it at run time and
+  the zero-dependency promise is broken with nobody told. Found immediately: a
+  fixture app with no real `node_modules` built "successfully" while importing
+  `@ttylabs/sigil` at run time.
+- **A command per chunk, because the deferral is the point.** A literal
+  specifier inside a dynamic import is the one thing a bundler can see, follow
+  and split on, so `load: () => import('./commands/build.js')` becomes a chunk
+  and rolldown rewrites the specifier. Measured on the fixture app: a 3.2 kB
+  entry with the parser, the help renderer and every command body in chunks of
+  their own. Flattening to one file would undo the whole reason the tree is
+  lazy.
+- **`--bin` is refused beside a filesystem command directory.** An executable of
+  the app's own is bundled as it stands, so whatever `commands` it declares is
+  what it gets -- and a router bundled that way reads directories that are not
+  beside the executable. A run-time failure the build can see coming is a build
+  error.
+- **The zero-dependency claim is asserted by parsing the output, not by grepping
+  it.** The naive pattern matched `Error(\`...command name from "${e}"\`)`-- the
+word "from" inside a message followed by a quoted template -- and a test that
+reports a dependency an app does not have is worse than no test. The module
+record also tells a *computed* dynamic import from a literal one, which
+matters:`import(pathToFileURL(path).href)` survives into every bundle from
+  the runtime's own path loader, and it is code choosing a module rather than a
+  package the app must have installed.
+- **A bundled app cannot read files relative to `import.meta.url`, and that is
+  the app's problem rather than the build's.** Found by building this toolchain
+  with itself: `version()` reads `../package.json` off its own module URL, which
+  points somewhere else once the bundle is written to another directory. Every
+  bundler has this property. It is deliberately _not_ warned about, because the
+  pattern is also how an app correctly locates something it ships alongside, and
+  a warning that fires on correct code teaches people to ignore warnings.
+  Making the toolchain fully self-hosting is SIG-78's.
+- **`_inspect.ts` is one pass for two commands, and the `_` prefix is this
+  repo's own rule read from the inside.** `check` is that pass and a report;
+  `build` is that pass, the same report, and a bundle. Two implementations that
+  agree for now is how the fast one stops meaning anything. Nothing walks
+  `src/commands/` today, but it will once the CLI routes itself, and a helper
+  that quietly became a command called `_inspect` is the footgun the prefix was
+  invented for.
+
+- **`sigil check` and `sigil build` are both wired, and both are the whole of
+  what they claim.** `packages/cli/src/index.ts` records
   that a command which exists and refuses is worse than one that does not exist
   yet, because only the second is honest in `--help` -- so a `build` that cannot
   bundle would be exactly the thing that comment was written against. What the
-  passes above add up to is not a partial `build`: it is a **complete** `check`,
-  which is what `tsc --noEmit` and `astro check` are, and it stays that once
-  bundling exists. `build` will run it rather than replace it, so a failure in
-  one is a failure in the other and the two cannot come to disagree about what a
-  valid app is.
+  read passes add up to on their own is a **complete** `check`, which is what
+  `tsc --noEmit` and `astro check` are -- and it stayed that once bundling
+  landed rather than being absorbed: `build` runs the same pass through
+  `_inspect.ts`, so a failure in one is a failure in the other and the two
+  cannot come to disagree about what a valid app is. `build` refuses an app that
+  does not check out, because finding out at run time what a compiler knew at
+  build time is the thing a build is for.
 - **The CLI declares its own `check` the way `sigil build` generates an app's
   commands: a `desc` on the placeholder and a `load` beside it.** Dogfooding,
   and it pays immediately -- the module behind it imports `oxc-parser`, which is

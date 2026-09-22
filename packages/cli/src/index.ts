@@ -35,12 +35,19 @@ export function schema(): Schema {
 				type: 'bool',
 			},
 		},
-		// `build`, `add`, and `new` land in SIG-73 and SIG-75. Nothing is stubbed
-		// here: a command that exists and refuses is worse than one that does not
-		// exist yet, because only the second is honest in `--help`. `check` is not
-		// a stub -- it is the whole of what it claims to be, and `build` will run
-		// it rather than replace it.
+		// `add` and `new` land in SIG-75. Nothing is stubbed here: a command that
+		// exists and refuses is worse than one that does not exist yet, because
+		// only the second is honest in `--help`. `check` and `build` are both the
+		// whole of what they claim to be, and `build` runs `check`'s pass rather
+		// than replacing it.
 		commands: {
+			build: {
+				// the same shape this command generates for an app: a `desc` the
+				// schema carries so `--help` needs no module, and a `load` so the
+				// bundler and the parser stay off the startup path
+				desc: 'Build an app into a bundle that depends on nothing',
+				load: () => import('./commands/build.js'),
+			},
 			check: {
 				// declared here rather than in the module, so `sigil --help` can
 				// describe the command without loading it. That is the same shape

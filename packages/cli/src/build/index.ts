@@ -1,7 +1,7 @@
 /**
  * The build's front half: reading an app off disk.
  *
- * Six passes over a tree of source files. Four of them read source and never
+ * The passes over a tree of source files, and the bundle they feed. Four of them read source and never
  * run it; the fifth hands the app's own compiler its own config and asks.
  *
  * - `discoverApp()` finds the app's root and entry, and `readAppCommands()`
@@ -27,6 +27,13 @@
 
 export { formatDiagnostic, isFatal, type Diagnostic, type Severity } from './diagnostic.js';
 export {
+	bundleApp,
+	workDir,
+	type BuiltChunk,
+	type BundleOptions,
+	type BundleResult,
+} from './bundle.js';
+export {
 	discoverApp,
 	readAppCommands,
 	readManifest,
@@ -37,7 +44,13 @@ export {
 	type DiscoverOptions,
 } from './discover.js';
 export { extractCommand, factsOf, type CommandFacts, type Extracted } from './extract.js';
-export { generateCommands, specifier, type GenerateOptions } from './generate.js';
+export {
+	generateBin,
+	generateCommands,
+	specifier,
+	type GenerateBinOptions,
+	type GenerateOptions,
+} from './generate.js';
 export {
 	formatPosition,
 	parseModule,
