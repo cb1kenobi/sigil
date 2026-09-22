@@ -3082,6 +3082,43 @@ makes it testable with a fixture directory and no bundler at all.
   reads. `the toolchain's dependencies` in `packages/cli/test/cli.test.ts` writes
   them out rather than counting them, so taking a new one is an edit somebody
   makes on purpose.
+- **`sigil check` is wired and `sigil build` is not, and that is the no-stub
+  rule rather than an exception to it.** `packages/cli/src/index.ts` records
+  that a command which exists and refuses is worse than one that does not exist
+  yet, because only the second is honest in `--help` -- so a `build` that cannot
+  bundle would be exactly the thing that comment was written against. What the
+  passes above add up to is not a partial `build`: it is a **complete** `check`,
+  which is what `tsc --noEmit` and `astro check` are, and it stays that once
+  bundling exists. `build` will run it rather than replace it, so a failure in
+  one is a failure in the other and the two cannot come to disagree about what a
+  valid app is.
+- **The CLI declares its own `check` the way `sigil build` generates an app's
+  commands: a `desc` on the placeholder and a `load` beside it.** Dogfooding,
+  and it pays immediately -- the module behind it imports `oxc-parser`, which is
+  a native binary, so leaving it on the startup path would make
+  `sigil --version` load a parser it never uses. The `desc` sits on the
+  placeholder so `sigil --help` can describe the command without any of that,
+  which is the static `desc` lift solving its own author's problem.
+- **A tree that cannot exist is a diagnostic, not a stack.** Two routes claiming
+  one name, or a `commands/` that is really a package, throw out of
+  `resolveCommandTree()` -- which is right for a library and wrong for a
+  command, where it would take the process down with a trace. `check` catches
+  and reports, so every way an app can be wrong arrives through one channel.
+- **`--tree` goes to stdout and the diagnostics go to stderr.** The tree is data
+  somebody asked for and can be piped; the problems are not, and piping the tree
+  must not lose them. It is printed with the framework's own `table()`, which is
+  the acceptance test working as intended -- a framework whose toolchain is not
+  written in it has not been tested by anyone who had to live with it -- and it
+  gets the column arithmetic right for free.
+- **A command loaded from a module annotates its export `AnyCommand`.**
+  `--isolatedDeclarations` refuses to infer a default export, and `Command` is
+  the wrong annotation for the reason that type exists: a command whose `run`
+  takes a narrow `argv` is not assignable to one whose `run` takes the wide
+  default, because a function parameter is contravariant. Nothing is lost by
+  annotating, since `command()` has already typed the literal's own `run` and a
+  module-loaded command is one the schema above could not have inferred into
+  anyway.
+
 - **The end-to-end test writes the tree out, imports it, and parses against
   it.** Everything else in `test/build/` reads source or prints it; `a generated
 tree at run time` is the only place that asserts what the output _does_, which

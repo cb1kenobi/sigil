@@ -35,10 +35,23 @@ export function schema(): Schema {
 				type: 'bool',
 			},
 		},
-		// `build`, `add`, and `new` land in M2-73 and M2-75. Nothing is stubbed
+		// `build`, `add`, and `new` land in SIG-73 and SIG-75. Nothing is stubbed
 		// here: a command that exists and refuses is worse than one that does not
-		// exist yet, because only the second is honest in `--help`.
-		commands: {},
+		// exist yet, because only the second is honest in `--help`. `check` is not
+		// a stub -- it is the whole of what it claims to be, and `build` will run
+		// it rather than replace it.
+		commands: {
+			check: {
+				// declared here rather than in the module, so `sigil --help` can
+				// describe the command without loading it. That is the same shape
+				// `sigil build` generates for an app -- a `desc` lifted out of the
+				// module and a `load` beside it -- and it is worth more than it looks:
+				// the module behind this one pulls in `oxc-parser`, a native binary
+				// that `sigil --version` has no use for
+				desc: 'Check an app without building it',
+				load: () => import('./commands/check.js'),
+			},
+		},
 	};
 }
 

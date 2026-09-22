@@ -10,9 +10,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
 
 /**
- * Captures whatever is written to the real stdout, the way `sigil.test.ts`
- * captures stderr. `run()` writes through the framework, so there is no stream
- * to inject.
+ * Captures whatever is written to the real stdout. `run()` writes through the
+ * framework, so there is no stream to inject.
  */
 function captureStdout() {
 	const chunks: string[] = [];
@@ -60,10 +59,13 @@ describe('@ttylabs/cli', () => {
 			expect(schema().options).toHaveProperty('-v, --version');
 		});
 
-		it('should declare no commands until there are commands to declare', () => {
+		it('should declare only commands that are the whole of what they claim', () => {
 			// a command that exists and refuses is worse than one that does not
-			// exist yet, because only the second is honest in --help
-			expect(schema().commands).toEqual({});
+			// exist yet, because only the second is honest in --help. `check` is
+			// here because it is complete; `build` is not, because it cannot bundle
+			// yet and a `build` that produces no runnable app is exactly the shape
+			// this rule was written against
+			expect(Object.keys(schema().commands ?? {})).toEqual(['check']);
 		});
 	});
 
