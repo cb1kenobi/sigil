@@ -30,12 +30,15 @@
  */
 
 import {
+	discoverApp,
 	formatDiagnostic,
 	isFatal,
+	readAppCommands,
 	resolveCommandTree,
 	typeCheck,
 	walkTree,
 	type Diagnostic,
+	type DiscoveredApp,
 	type ResolvedCommand,
 } from '../build/index.js';
 import { command, type AnyCommand } from '@ttylabs/sigil';
@@ -57,8 +60,10 @@ const check: AnyCommand = command({
 	args: [{ desc: "The app's root, defaulting to the working directory", name: '[dir]' }],
 	options: {
 		'--commands [dir]': {
-			default: 'commands',
-			desc: "The app's command directory, relative to its root",
+			desc: "The app's command directory, when its entry does not say",
+		},
+		'--entry [file]': {
+			desc: "The module declaring the app's schema, when the conventions find the wrong one",
 		},
 		'--tree': {
 			desc: 'Print the command tree as it resolved',
@@ -67,51 +72,108 @@ const check: AnyCommand = command({
 	},
 
 	run({ argv }) {
-		const root = resolve(String(argv.dir ?? '.'));
-		const commandsDir = resolve(root, String(argv.commands));
+		const cwd = resolve(String(argv.dir ?? '.'));
 		const diagnostics: Diagnostic[] = [];
 
-		// the type check first, because it is the one that answers for the whole
-		// app rather than for the routes -- an app whose modules do not type-check
-		// is one whose tree is not worth reporting on in detail
-		const types = typeCheck({ cwd: root });
+		// the app before anything else: a directory that does not depend on the
+		// runtime is not one this can check, and saying so is more use than
+		// reporting that it has no `commands/` directory
+		const app = discoverApp(cwd, { entry: argv.entry as string | undefined });
+
+		// the type check answers for the whole app rather than for the routes, so
+		// it runs whatever the tree turns out to be
+		const types = typeCheck({ cwd: app.root });
 		diagnostics.push(...types.diagnostics);
 
-		let commands: readonly ResolvedCommand[] = [];
-
-		if (existsSync(commandsDir)) {
-			// a throw here is a tree that cannot exist at all -- two routes claiming
-			// one name, a directory that is really a package -- rather than a fault
-			// in one file, so it becomes a diagnostic rather than taking the process
-			// down with a stack
-			try {
-				const tree = resolveCommandTree(commandsDir);
-				commands = tree.commands;
-				diagnostics.push(...tree.diagnostics);
-			} catch (e: unknown) {
-				diagnostics.push({
-					file: commandsDir,
-					message: (<Error>e).message,
-					severity: 'error',
-				});
-			}
-		} else {
-			diagnostics.push({
-				file: commandsDir,
-				message: `no command directory here; pass --commands to name one, or check the app root`,
-				severity: 'error',
-			});
-		}
+		const commands = findCommands(app, argv.commands as string | undefined, diagnostics);
 
 		if (argv.tree) {
-			printTree(commands, root);
+			printTree(commands, app.root);
 		}
 
-		return report({ commands, diagnostics, root, types });
+		return report({ app, commands, diagnostics, types });
 	},
 });
 
 export default check;
+
+/**
+ * Where the app's commands are, and what is in them.
+ *
+ * Three ways in, and the order is the one that respects what the caller said:
+ * a `--commands` directory is an instruction, the entry's own `commands` is the
+ * app speaking for itself, and neither leaves nothing to check.
+ *
+ * @param app - The app.
+ * @param named - A directory the caller named, if any.
+ * @param diagnostics - Where to report.
+ * @returns The commands.
+ */
+function findCommands(
+	app: DiscoveredApp,
+	named: string | undefined,
+	diagnostics: Diagnostic[]
+): readonly ResolvedCommand[] {
+	if (named !== undefined) {
+		return walkCommandDir(resolve(app.root, named), diagnostics);
+	}
+
+	const declared = readAppCommands(app);
+	diagnostics.push(...declared.diagnostics);
+
+	if (!declared.commands) {
+		// only when the entry declared none at all: one it declared and this could
+		// not read has already been reported, and saying it again here would get
+		// the second telling wrong
+		if (!declared.found) {
+			diagnostics.push({
+				file: app.entry,
+				message:
+					'no "commands" found in this module; pass --entry to name the one declaring the schema, or --commands to name a command directory',
+				severity: 'error',
+			});
+		}
+		return [];
+	}
+
+	// a path is the filesystem router, which is a tree to walk; an object is the
+	// app having written its commands out, which is already the tree
+	return declared.commands.kind === 'directory'
+		? walkCommandDir(declared.commands.dir, diagnostics)
+		: declared.commands.commands;
+}
+
+/**
+ * Walks a command directory, turning what cannot be walked into a diagnostic.
+ *
+ * A tree that cannot exist at all -- two routes claiming one name, a directory
+ * that is really a package -- throws out of `resolveCommandTree()`, which is
+ * right for a library and wrong for a command, where it would take the process
+ * down with a trace.
+ *
+ * @param dir - The directory.
+ * @param diagnostics - Where to report.
+ * @returns Its commands, or none when it could not be read.
+ */
+function walkCommandDir(dir: string, diagnostics: Diagnostic[]): readonly ResolvedCommand[] {
+	if (!existsSync(dir)) {
+		diagnostics.push({
+			file: dir,
+			message: 'no command directory here; pass --commands to name one, or check the app root',
+			severity: 'error',
+		});
+		return [];
+	}
+
+	try {
+		const tree = resolveCommandTree(dir);
+		diagnostics.push(...tree.diagnostics);
+		return tree.commands;
+	} catch (e: unknown) {
+		diagnostics.push({ file: dir, message: (<Error>e).message, severity: 'error' });
+		return [];
+	}
+}
 
 /**
  * Writes the resolved tree, so that "why is my command not showing up" has an
@@ -146,25 +208,29 @@ function printTree(commands: readonly ResolvedCommand[], root: string): void {
 /**
  * Writes everything that was found, and says whether it was fatal.
  *
- * @param found - The tree, the diagnostics, the root, and the type check.
- * @returns Nothing; it throws when the app does not check out.
+ * The entry is named in the summary because choosing it is a heuristic --
+ * source conventions before the manifest -- and a guess nobody can see is the
+ * kind that costs an afternoon.
+ *
+ * @param found - The app, its commands, the diagnostics, and the type check.
  * @throws If anything fatal was found. `main()` renders the message and sets a
  *   non-zero exit code, which is what makes this usable in CI.
  */
 function report(found: {
+	app: DiscoveredApp;
 	commands: readonly ResolvedCommand[];
 	diagnostics: readonly Diagnostic[];
-	root: string;
 	types: { checked: boolean; skipped?: string };
 }): void {
-	const { commands, diagnostics, root, types } = found;
+	const { app, commands, diagnostics, types } = found;
+	const { root } = app;
 
 	// relative to the app, because an absolute path per line is mostly the same
 	// prefix repeated and the interesting part is at the end of it
+	const show = (file: string) => relative(root, file) || '.';
+
 	for (const diagnostic of diagnostics) {
-		process.stderr.write(
-			`${formatDiagnostic({ ...diagnostic, file: relative(root, diagnostic.file) || '.' })}\n`
-		);
+		process.stderr.write(`${formatDiagnostic({ ...diagnostic, file: show(diagnostic.file) })}\n`);
 	}
 
 	const errors = diagnostics.filter((d) => d.severity === 'error').length;
@@ -179,14 +245,15 @@ function report(found: {
 		// thrown rather than written, so the exit code and the rendering are
 		// `main()`'s the way they are for every other command
 		throw new Error(
-			`${errors} error${errors === 1 ? '' : 's'}${warnings ? ` and ${warnings} warning${warnings === 1 ? '' : 's'}` : ''} in ${root}`
+			`${errors} error${errors === 1 ? '' : 's'}${warnings ? ` and ${warnings} warning${warnings === 1 ? '' : 's'}` : ''} in ${app.manifest.name ?? root}`
 		);
 	}
 
 	const counted = `${total} command${total === 1 ? '' : 's'}`;
+	const named = `${app.manifest.name ?? root} (${show(app.entry)})`;
 	process.stderr.write(
 		warnings
-			? `\n${counted}, ${warnings} warning${warnings === 1 ? '' : 's'}\n`
-			: `\n${counted}, no problems found\n`
+			? `\n${named}: ${counted}, ${warnings} warning${warnings === 1 ? '' : 's'}\n`
+			: `\n${named}: ${counted}, no problems found\n`
 	);
 }

@@ -83,8 +83,55 @@ describe('sigil check', () => {
 			const { out } = await sigil('check', '--help');
 
 			expect(out).toContain('--commands');
+			expect(out).toContain('--entry');
 			expect(out).toContain('--tree');
 			expect(out).toContain('[dir]');
+		});
+	});
+
+	describe('discovery', () => {
+		it('should find the app and name the entry it chose', async () => {
+			// choosing the entry is a heuristic -- source conventions before the
+			// manifest -- and a guess nobody can see is the kind that costs an
+			// afternoon
+			const { err } = await sigil('check', join(fixtures, 'app'));
+
+			expect(err).toContain('fixture-app');
+			expect(err).toContain('index.ts');
+		});
+
+		it('should refuse a directory that does not depend on the runtime', async () => {
+			const { err } = await sigil('check', join(fixtures, 'discover', 'not-an-app'));
+
+			expect(err).toContain('does not depend on @ttylabs/sigil');
+			expect(process.exitCode).toBe(1);
+		});
+
+		it('should follow a schema that writes its commands out', async () => {
+			const { out } = await sigil('check', join(fixtures, 'discover', 'inline-app'), '--tree');
+
+			expect(out).toContain('build it');
+			expect(out).toContain('commands/build.ts');
+		});
+
+		it('should take an entry the caller names', async () => {
+			const { err } = await sigil(
+				'check',
+				join(fixtures, 'discover', 'built-app'),
+				'--entry',
+				'dist/cli.mjs'
+			);
+			expect(err).toContain('dist/cli.mjs');
+		});
+
+		it('should say so once when a schema names commands it cannot read', async () => {
+			// one problem said twice, with the second telling wrong, is worse than
+			// the problem
+			const { err } = await sigil('check', join(fixtures, 'ts-app'));
+
+			expect(err).toContain('"commands" is computed');
+			expect(err).not.toContain('no "commands" found');
+			expect(process.exitCode).toBe(1);
 		});
 	});
 
@@ -130,14 +177,15 @@ describe('sigil check', () => {
 			// two routes claiming one name is a tree that cannot be built at all,
 			// which is a diagnostic rather than something to take the process down
 			// with
-			const { err } = await sigil('check', join(fixtures, 'ts-app'), '--commands', '.');
+			const { err } = await sigil('check', join(fixtures, 'discover', 'bad-tree'));
 
+			expect(err).toContain('both declare a "dupe" command');
 			expect(process.exitCode).toBe(1);
 			expect(err).not.toContain('at Object.');
 		});
 
-		it('should say so when there is no command directory', async () => {
-			const { err } = await sigil('check', fixtures);
+		it('should say so when the directory its entry names is not there', async () => {
+			const { err } = await sigil('check', join(fixtures, 'discover', 'no-commands-dir'));
 
 			expect(err).toContain('no command directory here');
 			expect(err).toContain('--commands');

@@ -78,9 +78,9 @@ nine node-and-os combinations.
 `packages/cli/src/` is the bin, `--version`, the schema the filesystem router
 will replace, `src/utilities/` — the utility generator — `src/template/`, the
 analysis pass and the build emitter, and `src/build/`, which reads an app off
-disk: the command tree resolved ahead of time, the static `desc`/`hidden` lift,
-the `ui` templates found in a module, the schema literal all of that is printed
-as, and the type check. Its commands are not written yet, and neither is the bundling stage
+disk: the app discovered from its manifest and entry, the command tree resolved
+ahead of time, the static `desc`/`hidden` lift, the `ui` templates found in a
+module, the schema literal all of that is printed as, and the type check. Its commands are not written yet, and neither is the bundling stage
 that feeds `src/build/`'s output to rolldown.
 
 `src/i18n/` is an empty placeholder.
@@ -3016,6 +3016,55 @@ makes it testable with a fixture directory and no bundler at all.
   then ` `/` ` on top, because those two are line terminators to a
   JavaScript parser and JSON leaves them raw -- prose is somebody else's and may
   hold a quote, a backslash or a newline.
+- **The app is discovered, not assumed, and `@ttylabs/sigil` in the manifest is
+  what makes a directory one.** Asked before anything else, because every error
+  after it would be a worse version of the same message -- "no `commands/`
+  directory" is a poor way to say "this is not a sigil app". Any kind of
+  dependency counts, since which one an app declares is a packaging decision
+  and none of them makes it less of an app.
+- **Source before the manifest, because `bin` usually names built output.** The
+  obvious entry is `bin`, and following it means parsing a minified bundle whose
+  import specifiers are chunk names a bundler invented -- `packages/cli`'s own
+  `bin` points at `dist/sigil.mjs`, so the toolchain would have been unable to
+  read itself. `check` reads what the author edits and what the build will
+  compile, so it looks for `src/index.*` and the rest of the conventions first
+  and falls back to what the manifest names only when there is none. That is a
+  heuristic, so the entry it picked is **reported** in the summary rather than
+  assumed, and `--entry` overrides it: a guess nobody can see is the kind that
+  costs an afternoon.
+- **An app's `commands` is read off its entry, and it is one of two things.** A
+  path is the filesystem router, which `resolveCommandTree()` already walks; an
+  object is the schema having written its commands out, which is already the
+  tree. Both are read from source, because running the entry would run the app --
+  the same reason a command module is parsed rather than imported.
+- **The outermost object literal with a `commands` property is the schema.** A
+  command may hold `commands` of its own, so everything nested inside one is a
+  subcommand the walk reaches anyway. More than one _outermost_ schema in a
+  module is an ambiguity this cannot resolve, and choosing by source order would
+  be choosing by accident, so it says so and asks for `--commands`.
+- **A `load: () => import('./check.js')` is followed to the `check.ts` beside
+  it.** Not a guess: a TypeScript ES module imports its neighbour with a `.js`
+  specifier while the file on disk is `.ts`, which is the convention this repo
+  follows itself and is written down under Conventions. Without the swap every
+  command a schema declares through `load` would come back unresolved, which is
+  an `error` -- a command whose module is not there is an app that fails when
+  that command is run.
+- **What the placeholder declares wins, and silences the module's diagnostics.**
+  The runtime's merge read from the other side: a `desc` on the placeholder is
+  what help shows before the module loads, so a module that cannot be read
+  statically is not a problem anybody has. Found by dogfooding --
+  `src/commands/check.ts` ends `export default check`, a _reference_ rather than
+  a literal, because `--isolatedDeclarations` refuses to infer a default export
+  -- and the warning it produced claimed "help will list this command by name
+  alone", which was simply false. An `error` still comes through, because a
+  module with no default export at all is unusable however well it is described.
+- **A schema that names commands this cannot read is reported once.** The first
+  version said it twice -- a warning that `commands` was computed, then an error
+  that no `commands` was found -- and the second was wrong, since it had been
+  found and not read. `readAppCommands()` answers `found` separately from
+  `commands` so the caller can tell "there is none" from "there is one I cannot
+  read".
+
 - **`build` type-checks, and SIG-73 leaned the other way.** The ticket asked
   "does `build` type-check, or is that the app's own `tsc`? Delegating is
   simpler and faster", and the answer is that it checks: an app that builds and

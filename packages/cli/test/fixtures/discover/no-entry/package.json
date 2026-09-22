@@ -1,0 +1,6 @@
+{
+  "name": "no-entry",
+  "dependencies": {
+    "@ttylabs/sigil": "*"
+  }
+}

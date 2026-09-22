@@ -1,9 +1,12 @@
 /**
  * The build's front half: reading an app off disk.
  *
- * Five passes over a tree of source files. Four of them read source and never
+ * Six passes over a tree of source files. Four of them read source and never
  * run it; the fifth hands the app's own compiler its own config and asks.
  *
+ * - `discoverApp()` finds the app's root and entry, and `readAppCommands()`
+ *   reads where that entry says its commands are -- a directory the filesystem
+ *   router walks, or commands the schema wrote out.
  * - `resolveCommandTree()` walks `commands/` the way the runtime would, all at
  *   once, and hands back the tree as data.
  * - `extractCommand()` reads one command module for the `desc` and `hidden`
@@ -23,6 +26,16 @@
  */
 
 export { formatDiagnostic, isFatal, type Diagnostic, type Severity } from './diagnostic.js';
+export {
+	discoverApp,
+	readAppCommands,
+	readManifest,
+	resolveSpecifier,
+	type AppCommands,
+	type AppManifest,
+	type DiscoveredApp,
+	type DiscoverOptions,
+} from './discover.js';
 export { extractCommand, factsOf, type CommandFacts, type Extracted } from './extract.js';
 export { generateCommands, specifier, type GenerateOptions } from './generate.js';
 export {
@@ -42,6 +55,7 @@ export {
 	resolveCommandTree,
 	walkTree,
 	type ResolvedCommand,
+	type CommandKind,
 	type ResolvedTree,
 	type ResolveOptions,
 } from './tree.js';

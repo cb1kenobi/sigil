@@ -58,13 +58,9 @@
  */
 
 import type { Diagnostic } from './diagnostic.js';
+import { literalBoolean, literalString, objectLiteral, propertyKey } from './literals.js';
 import { parseModule, position, type ParsedModule } from './parse-module.js';
-import type {
-	Expression,
-	ExportDefaultDeclarationKind,
-	ObjectExpression,
-	ObjectProperty,
-} from 'oxc-parser';
+import type { ObjectExpression } from 'oxc-parser';
 
 /** What a command module says about itself, read statically. */
 export interface CommandFacts {
@@ -228,11 +224,11 @@ function defaultObject(
 		return undefined;
 	}
 
-	const declaration = unwrap(exported.declaration);
+	const declaration = objectLiteral(exported.declaration as never);
 
-	if (declaration.type !== 'ObjectExpression') {
+	if (!declaration) {
 		diagnostics.push({
-			...locate(parsed, declaration.start),
+			...locate(parsed, exported.declaration.start),
 			message:
 				'the default export is not an object literal, so it cannot be read at build time; help will list this command by name alone',
 			severity: 'warning',
@@ -241,154 +237,6 @@ function defaultObject(
 	}
 
 	return declaration;
-}
-
-/**
- * Looks through the wrappers that do not change what a value is.
- *
- * `command()` is the one that matters: it is documented as the identity
- * function and exists only so inference reaches a nested literal, so a
- * template wrapped in it says exactly what the bare literal says. `as` and
- * `satisfies` are type syntax and erase to nothing. Parentheses are nothing at
- * all.
- *
- * A call is unwrapped whatever it is called, rather than only when it is
- * spelled `command`: the name is the app's to choose -- it may be imported
- * under another one, or be a wrapper of the app's own -- and the thing being
- * read is a literal sitting inside it either way. What that costs is a
- * `withDefaults({ desc: 'a' })` whose own body overrides `desc`, which reads
- * back as `'a'`; that is a warning-free wrong answer, and it is the reason the
- * unwrap stops at a call with exactly one argument that is an object literal,
- * since a wrapper doing anything more interesting than passing it through
- * almost always takes something else too.
- *
- * @param node - The expression.
- * @returns The expression worth reading.
- */
-function unwrap(node: ExportDefaultDeclarationKind): ExportDefaultDeclarationKind {
-	let current = node;
-
-	for (;;) {
-		if (
-			current.type === 'TSAsExpression' ||
-			current.type === 'TSSatisfiesExpression' ||
-			current.type === 'ParenthesizedExpression' ||
-			current.type === 'TSNonNullExpression'
-		) {
-			current = current.expression;
-			continue;
-		}
-
-		if (current.type === 'CallExpression' && current.arguments.length === 1) {
-			const [argument] = current.arguments;
-			// a spread argument is not an object literal however it was written, and
-			// `unwrapShallow()` answers for an expression rather than for an element
-			if (argument && argument.type !== 'SpreadElement') {
-				const inner = unwrapShallow(argument);
-				if (inner.type === 'ObjectExpression') {
-					current = inner;
-					continue;
-				}
-			}
-		}
-
-		return current;
-	}
-}
-
-/**
- * The type-only wrappers off one node, without looking through a call.
- *
- * Its own function because `unwrap()` has to ask "would this argument be an
- * object literal" before deciding to step into the call, and asking with
- * `unwrap()` itself would recurse through the call it is still deciding about.
- *
- * @param node - The expression.
- * @returns The expression under the type syntax.
- */
-function unwrapShallow(node: Expression): Expression {
-	let current = node;
-	while (
-		current.type === 'TSAsExpression' ||
-		current.type === 'TSSatisfiesExpression' ||
-		current.type === 'ParenthesizedExpression' ||
-		current.type === 'TSNonNullExpression'
-	) {
-		current = current.expression;
-	}
-	return current;
-}
-
-/**
- * The name a property declares, or `undefined` when it does not declare one
- * statically.
- *
- * A computed key is `undefined` even when it happens to hold a string, because
- * `['desc']` and `[key]` are the same syntax and only one of them is readable
- * -- and a pass that reads the easy half of a construct it does not support is
- * worse than one that skips it, since the half it skipped is silent.
- *
- * @param property - The property.
- * @returns The key.
- */
-function propertyKey(property: ObjectProperty): string | undefined {
-	if (property.computed) {
-		return undefined;
-	}
-
-	const { key } = property;
-
-	if (key.type === 'Identifier') {
-		return key.name;
-	}
-
-	// `{ 'desc': 'x' }` is the same declaration written with quotes
-	if (key.type === 'Literal' && typeof key.value === 'string') {
-		return key.value;
-	}
-
-	return undefined;
-}
-
-/**
- * The string a node is, when it is one written down.
- *
- * A template literal with no substitutions counts: `` `build the app` `` is a
- * string somebody wrote, and refusing it would make the two spellings of one
- * thing disagree. One *with* substitutions does not, because its value is not
- * in the source.
- *
- * @param node - The expression.
- * @returns The string, or `undefined`.
- */
-function literalString(node: Expression): string | undefined {
-	const value = unwrapShallow(node);
-
-	if (value.type === 'Literal' && typeof value.value === 'string') {
-		return value.value;
-	}
-
-	if (value.type === 'TemplateLiteral' && value.expressions.length === 0) {
-		return value.quasis[0]?.value.cooked ?? undefined;
-	}
-
-	return undefined;
-}
-
-/**
- * The boolean a node is, when it is one written down.
- *
- * Only `true` and `false`. A `hidden: 1` is not a boolean, and the runtime
- * throws on a non-boolean `hidden` rather than coercing it -- so reading it as
- * truthy here would bake a value the app it came from refuses to start with.
- *
- * @param node - The expression.
- * @returns The boolean, or `undefined`.
- */
-function literalBoolean(node: Expression): boolean | undefined {
-	const value = unwrapShallow(node);
-
-	return value.type === 'Literal' && typeof value.value === 'boolean' ? value.value : undefined;
 }
 
 /**

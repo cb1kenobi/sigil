@@ -43,8 +43,8 @@
  */
 
 import { parseModule, position, type ParsedModule } from './parse-module.js';
-import type { Expression, Node, TaggedTemplateExpression } from 'oxc-parser';
-import { visitorKeys } from 'oxc-parser';
+import { walk } from './walk.js';
+import type { Expression, TaggedTemplateExpression } from 'oxc-parser';
 
 /** Where the `ui` tag comes from, when nothing says otherwise. */
 const TAG_MODULE = '@ttylabs/sigil/template';
@@ -228,52 +228,4 @@ function describe(
 		start: node.start,
 		tag,
 	};
-}
-
-/**
- * Walks a tree, letting the visitor stop a branch.
- *
- * Driven by oxc's own `visitorKeys` rather than by a hand-written list of node
- * types: the list would be a second copy of the grammar, and the day the parser
- * grows a node this file has not heard of is the day a template inside it stops
- * being found -- silently, since a template nobody found is simply not
- * compiled.
- *
- * @param node - Where to start.
- * @param visit - Called per node; returning `false` skips its children.
- */
-function walk(node: Node, visit: (node: Node) => boolean): void {
-	if (!visit(node)) {
-		return;
-	}
-
-	for (const key of visitorKeys[node.type] ?? []) {
-		const child = (node as unknown as Record<string, unknown>)[key];
-
-		if (Array.isArray(child)) {
-			for (const each of child) {
-				if (isNode(each)) {
-					walk(each, visit);
-				}
-			}
-			continue;
-		}
-
-		if (isNode(child)) {
-			walk(child, visit);
-		}
-	}
-}
-
-/**
- * Whether a value off a node's key is itself a node.
- *
- * A key may be `null` -- an omitted `returnType`, an elided array element -- and
- * a `type` is what every node has.
- *
- * @param value - The value.
- * @returns Whether to walk it.
- */
-function isNode(value: unknown): value is Node {
-	return !!value && typeof value === 'object' && typeof (value as Node).type === 'string';
 }

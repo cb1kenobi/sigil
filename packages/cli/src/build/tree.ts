@@ -35,6 +35,16 @@ import { parseModule } from './parse-module.js';
 import { readPackage, readRoutes, type Route, type RouteKind } from '@ttylabs/sigil/routes';
 import { readFileSync } from 'node:fs';
 
+/**
+ * What a command came from: one of the three route kinds, or a schema that
+ * wrote it out.
+ *
+ * `inline` is the build's rather than the runtime's, which is why it widens
+ * `RouteKind` here instead of joining it: a walk can only produce the three,
+ * and only an entry's own schema produces the fourth.
+ */
+export type CommandKind = RouteKind | 'inline';
+
 /** One command in a resolved tree. */
 export interface ResolvedCommand {
 	/** Its subcommands, resolved the same way, sorted as the routes were. */
@@ -43,8 +53,11 @@ export interface ResolvedCommand {
 	readonly desc?: string;
 	/** Whether it hides itself, lifted from its module. */
 	readonly hidden?: boolean;
-	/** Which of the three things the route behind it was. */
-	readonly kind: RouteKind;
+	/**
+	 * Which of the three things the route behind it was, or `inline` for one a
+	 * schema wrote out rather than a walk discovered.
+	 */
+	readonly kind: CommandKind;
 	/**
 	 * The module that *is* this command, if any.
 	 *

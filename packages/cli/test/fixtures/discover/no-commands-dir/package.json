@@ -1,0 +1,7 @@
+{
+  "name": "no-commands-dir",
+  "type": "module",
+  "dependencies": {
+    "@ttylabs/sigil": "*"
+  }
+}
