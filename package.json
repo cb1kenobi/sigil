@@ -30,7 +30,7 @@
   "devDependencies": {
     "@ttylabs/cli": "workspace:*",
     "@ttylabs/sigil": "workspace:*",
-    "@types/node": "26.6.1",
+    "@types/node": "26.6.2",
     "@vitest/coverage-v8": "5.0.1",
     "lefthook": "2.1.14",
     "oxfmt": "0.68.0",
