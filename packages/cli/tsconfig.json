@@ -2,6 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "allowImportingTsExtensions": true,
+    "noEmit": true,
     "outDir": "./dist"
   },
   "include": ["./src", "./test", "./vitest.config.ts"],
