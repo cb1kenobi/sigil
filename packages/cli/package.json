@@ -56,7 +56,7 @@
   },
   "dependencies": {
     "@ttylabs/sigil": "workspace:*",
-    "oxc-parser": "0.150.0",
+    "oxc-parser": "0.151.0",
     "rolldown": "1.2.9"
   },
   "devDependencies": {
