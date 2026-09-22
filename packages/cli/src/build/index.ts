@@ -1,7 +1,8 @@
 /**
  * The build's front half: reading an app off disk.
  *
- * Four passes over a tree of source files, none of which runs any of it.
+ * Five passes over a tree of source files. Four of them read source and never
+ * run it; the fifth hands the app's own compiler its own config and asks.
  *
  * - `resolveCommandTree()` walks `commands/` the way the runtime would, all at
  *   once, and hands back the tree as data.
@@ -11,21 +12,18 @@
  *   `@ttylabs/cli/template` has always been handed rather than found.
  * - `generateCommands()` prints a resolved tree as the schema literal a built
  *   app carries, with a lazy `import()` per command.
+ * - `typeCheck()` runs the app's own `tsc` over the app's own `tsconfig.json`,
+ *   because a build that says an app is fine and then fails the app's `tsc` has
+ *   been wrong about the one thing it was asked.
  *
  * What is deliberately not here yet is the bundler: everything above produces
- * source and data, and stage five is what feeds it to rolldown. That split is
- * the useful one -- these four are testable with a fixture directory and no
- * bundler at all.
+ * source, data, or a verdict, and the bundling stage is what feeds the result
+ * to rolldown. That split is the useful one -- every pass here is testable with
+ * a fixture directory and no bundler at all.
  */
 
-export {
-	extractCommand,
-	factsOf,
-	type CommandFacts,
-	type Diagnostic,
-	type Extracted,
-	type Severity,
-} from './extract.js';
+export { formatDiagnostic, isFatal, type Diagnostic, type Severity } from './diagnostic.js';
+export { extractCommand, factsOf, type CommandFacts, type Extracted } from './extract.js';
 export { generateCommands, specifier, type GenerateOptions } from './generate.js';
 export {
 	formatPosition,
@@ -47,3 +45,4 @@ export {
 	type ResolvedTree,
 	type ResolveOptions,
 } from './tree.js';
+export { typeCheck, type TypeCheckOptions, type TypeCheckResult } from './typecheck.js';

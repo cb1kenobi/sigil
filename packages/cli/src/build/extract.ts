@@ -57,6 +57,7 @@
  * never written.
  */
 
+import type { Diagnostic } from './diagnostic.js';
 import { parseModule, position, type ParsedModule } from './parse-module.js';
 import type {
 	Expression,
@@ -64,23 +65,6 @@ import type {
 	ObjectExpression,
 	ObjectProperty,
 } from 'oxc-parser';
-
-/** How much a diagnostic means. */
-export type Severity = 'error' | 'warning';
-
-/** Something the build found in a file and has to say out loud. */
-export interface Diagnostic {
-	/** One-based column, when the node carried a position. */
-	readonly column?: number;
-	/** The file it is about. */
-	readonly file: string;
-	/** One-based line, when the node carried a position. */
-	readonly line?: number;
-	/** What to tell the author, written as the thing to do about it. */
-	readonly message: string;
-	/** Whether the build can carry on. */
-	readonly severity: Severity;
-}
 
 /** What a command module says about itself, read statically. */
 export interface CommandFacts {

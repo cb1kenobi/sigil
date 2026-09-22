@@ -79,8 +79,8 @@ nine node-and-os combinations.
 will replace, `src/utilities/` — the utility generator — `src/template/`, the
 analysis pass and the build emitter, and `src/build/`, which reads an app off
 disk: the command tree resolved ahead of time, the static `desc`/`hidden` lift,
-the `ui` templates found in a module, and the schema literal all of that is
-printed as. Its commands are not written yet, and neither is the bundling stage
+the `ui` templates found in a module, the schema literal all of that is printed
+as, and the type check. Its commands are not written yet, and neither is the bundling stage
 that feeds `src/build/`'s output to rolldown.
 
 `src/i18n/` is an empty placeholder.
@@ -3016,6 +3016,60 @@ makes it testable with a fixture directory and no bundler at all.
   then ` `/` ` on top, because those two are line terminators to a
   JavaScript parser and JSON leaves them raw -- prose is somebody else's and may
   hold a quote, a backslash or a newline.
+- **`build` type-checks, and SIG-73 leaned the other way.** The ticket asked
+  "does `build` type-check, or is that the app's own `tsc`? Delegating is
+  simpler and faster", and the answer is that it checks: an app that builds and
+  then fails its own `tsc` has been told it is fine by the tool whose job is to
+  say so, and simpler-and-faster does not buy that back. A type error is
+  **fatal**, because "it type-checks" has to mean the build stops -- a warning
+  nobody reads is the same as not checking. It is a gate rather than a pass that
+  produces anything: nothing here emits, since Node strips types on its own and
+  the bundler handles the rest.
+- **It checks with the _app's_ compiler and the _app's_ config, both resolved
+  from the app.** `typescript` is an **optional peer dependency** rather than a
+  dependency, so the build never brings one of its own. A bundled TypeScript
+  would check the app with a compiler the app never chose, and a version skew in
+  a type checker is not a small disagreement -- it is new errors on code that
+  was fine, or silence on code that is not, with the editor and CI saying the
+  opposite. The `tsconfig.json` is looked for in the app's root and **nowhere
+  above it**, which is where this deliberately parts company with `tsc`: walking
+  up finds a monorepo's own config, whose `include` describes a different
+  program, so the build would report errors about files the app does not contain
+  and miss the ones it does.
+- **It runs the CLI rather than the programmatic API, and that is a version
+  decision rather than laziness.** TypeScript 7 is the native port: its root
+  export is a version string, `createProgram` is gone, and the replacement lives
+  under `typescript/unstable/` and says so in the specifier. TypeScript 5 and 6
+  have the old API and not the new one. Supporting an app on any of the three
+  through the API means two adapters, one written against a surface that has
+  announced it will move. `tsc --noEmit --pretty false` is the one interface all
+  three have, it has not changed in a decade, and it is the same command the
+  app's own `type-check` script runs -- so the build agrees with CI by
+  construction rather than by coincidence. Spawning is the **build's** to do and
+  the one-process rule is about the **output**: nothing `sigil build` emits may
+  spawn anything, and a compiler invoking a compiler is ordinary. It is invoked
+  as `node <bin/tsc>` rather than executed, because that file is a Node script
+  behind a shebang and a shebang is not how anything starts on Windows.
+- **Nothing to check is not a failure, and a check that did not happen is.** An
+  app with no `tsconfig.json` is a JavaScript app and is skipped with a reason;
+  an app with one but no resolvable `typescript` is skipped with a different
+  reason that says what to install. What is _not_ tolerated is a compiler that
+  exited non-zero without saying anything parseable -- a `composite` project
+  that cannot be told `--noEmit`, an option it does not know -- because
+  swallowing that reports a clean type-check for a check that never ran. The raw
+  output becomes the diagnostic instead.
+- **One diagnostic shape across every pass, in `diagnostic.ts`.** The static
+  lift, the type check and whatever bundling turns up are reported together, so
+  there is one reporter and one `isFatal()` rather than a second vocabulary --
+  which is how two halves of one build come to disagree about whether something
+  was fatal. The type checker's paths are made absolute on the way in, because
+  it is run with the app as its cwd and writes relative ones, and a report
+  holding both spellings is one nobody can sort.
+- **The type-check fixtures are excluded from the package's own tsconfig.**
+  `test/fixtures/typecheck/broken/` holds a deliberate type error, and a suite
+  that fails on its own fixture is a suite nobody can run. Same exclusion the JSX
+  template fixture already needs, for the same reason.
+
 - **rolldown is a devDependency of the app, and what the build produces still
   depends on nothing.** Three dependency questions that are easy to conflate and
   are not the same: `@ttylabs/sigil` has none and that stays a hard constraint;

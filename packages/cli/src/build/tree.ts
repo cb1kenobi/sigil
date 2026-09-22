@@ -29,7 +29,8 @@
  * built `mycli --help` walks a literal and imports nothing.
  */
 
-import { type Diagnostic, factsOf, type CommandFacts } from './extract.js';
+import type { Diagnostic } from './diagnostic.js';
+import { factsOf, type CommandFacts } from './extract.js';
 import { parseModule } from './parse-module.js';
 import { readPackage, readRoutes, type Route, type RouteKind } from '@ttylabs/sigil/routes';
 import { readFileSync } from 'node:fs';
