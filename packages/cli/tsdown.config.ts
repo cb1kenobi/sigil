@@ -5,6 +5,7 @@ const config: UserConfig = defineConfig({
 	// map or its `bin`; the "package wiring" tests in `test/cli.test.ts` assert
 	// they stay in sync, and "the built bin" tests assert the output is real.
 	entry: {
+		build: './src/build/index.ts',
 		index: './src/index.ts',
 		sigil: './src/sigil.ts',
 		template: './src/template/index.ts',

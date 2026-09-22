@@ -126,8 +126,20 @@ describe('@ttylabs/cli', () => {
 		});
 
 		it('should depend on the runtime rather than bundling it', () => {
-			expect(pkg.dependencies).toEqual({ '@ttylabs/sigil': 'workspace:*' });
+			expect(pkg.dependencies).toHaveProperty('@ttylabs/sigil', 'workspace:*');
 			expect(config.external).toContain('@ttylabs/sigil');
+		});
+
+		it('should declare every dependency it has taken, and no more', () => {
+			// the toolchain is a devDependency of an app rather than part of what
+			// the app ships, so it may depend on whatever it needs -- a bundler, a
+			// parser -- and what it *produces* still depends on nothing. That
+			// licence is exactly what must not leak back into `@ttylabs/sigil`,
+			// whose zero-dependency manifest is asserted by its own suite.
+			//
+			// Written out rather than counted, so that taking a new one is an edit
+			// somebody makes on purpose and can be asked about in review.
+			expect(Object.keys(pkg.dependencies).sort()).toEqual(['@ttylabs/sigil', 'oxc-parser']);
 		});
 	});
 

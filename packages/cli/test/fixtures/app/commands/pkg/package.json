@@ -1,0 +1,5 @@
+{
+  "name": "routes-pkg",
+  "description": "a package that names itself",
+  "exports": "./index.js"
+}

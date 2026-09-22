@@ -53,7 +53,7 @@
  *
  * **It does not resolve class names or pre-measure text.** Both need something
  * that does not exist at this seam: a resolved class name needs the app's
- * stylesheets, which `sigil build` (SIG-73) is what owns, and a measurement
+ * stylesheets, which `sigil build` is what owns, and a measurement
  * needs a width and a resolved style -- neither of which a build has. A text's
  * measurement is cached per width and keyed on the resolved style object, so
  * there is no width to pre-measure *at*. They belong to the build once it has

@@ -29,33 +29,34 @@ the runtime.
 
 Paths below are inside `packages/sigil/` unless noted.
 
-| Path                     | Contents                                             |
-| ------------------------ | ---------------------------------------------------- |
-| `src/parser/`            | The parser: commands, options, arguments, registries |
-| `src/ansi/`              | SGR styling, strip, color support detection          |
-| `src/width/`             | Display width: grapheme clusters, East Asian Width   |
-| `src/wrap/`              | Text wrapping, SGR state, terminal width             |
-| `src/help/`              | The generated help screen, as an element tree        |
-| `src/terminal/`          | Terminal wrapper, live region, sequences             |
-| `src/components/`        | Spinner, progress, table, prompts, key decoding      |
-| `src/signals/`           | The reactive graph: state, computed, watcher, effect |
-| `src/renderer/`          | Components, the owner tree, control flow, the frame  |
-| `src/template/`          | The template IR, the `ui` tag, the JSX runtimes      |
-| `src/canvas/`            | Cell buffer, style interning, paint diff, sub-cell   |
-| `src/style/`             | Properties, values, selectors, cascade, degradation  |
-| `src/theme/`             | The framework's own sheet, and what a theme is       |
-| `src/layout/`            | The flexbox subset, over whole cells                 |
-| `src/infer.ts`           | `initOption()` and `initArg()`, in the type system   |
-| `src/util/`              | Shared helpers (type coercion, camelCase, mkdir)     |
-| `src/debug/`             | `DEBUG`-driven logger; replaces snooplogg            |
-| `src/paths.ts`           | XDG base directories                                 |
-| `src/updates/`           | npm update check, run in a spawned worker            |
-| `src/error-handler.ts`   | Renders an error and sets the exit code              |
-| `src/error-hooks.ts`     | Fires `beforeError` hooks; carries state on an error |
-| `scripts/`               | Run by hand: generators, and the real-terminal probe |
-| `docs/parser.md`         | Parser reference: syntax, semantics, precedence      |
-| `test/parser/commander/` | Ported Commander test cases                          |
-| `test/parser/yargs/`     | Ported yargs-parser test cases                       |
+| Path                           | Contents                                             |
+| ------------------------------ | ---------------------------------------------------- |
+| `src/parser/`                  | The parser: commands, options, arguments, registries |
+| `src/parser/command/routes.ts` | The route rules, shared with `sigil build`           |
+| `src/ansi/`                    | SGR styling, strip, color support detection          |
+| `src/width/`                   | Display width: grapheme clusters, East Asian Width   |
+| `src/wrap/`                    | Text wrapping, SGR state, terminal width             |
+| `src/help/`                    | The generated help screen, as an element tree        |
+| `src/terminal/`                | Terminal wrapper, live region, sequences             |
+| `src/components/`              | Spinner, progress, table, prompts, key decoding      |
+| `src/signals/`                 | The reactive graph: state, computed, watcher, effect |
+| `src/renderer/`                | Components, the owner tree, control flow, the frame  |
+| `src/template/`                | The template IR, the `ui` tag, the JSX runtimes      |
+| `src/canvas/`                  | Cell buffer, style interning, paint diff, sub-cell   |
+| `src/style/`                   | Properties, values, selectors, cascade, degradation  |
+| `src/theme/`                   | The framework's own sheet, and what a theme is       |
+| `src/layout/`                  | The flexbox subset, over whole cells                 |
+| `src/infer.ts`                 | `initOption()` and `initArg()`, in the type system   |
+| `src/util/`                    | Shared helpers (type coercion, camelCase, mkdir)     |
+| `src/debug/`                   | `DEBUG`-driven logger; replaces snooplogg            |
+| `src/paths.ts`                 | XDG base directories                                 |
+| `src/updates/`                 | npm update check, run in a spawned worker            |
+| `src/error-handler.ts`         | Renders an error and sets the exit code              |
+| `src/error-hooks.ts`           | Fires `beforeError` hooks; carries state on an error |
+| `scripts/`                     | Run by hand: generators, and the real-terminal probe |
+| `docs/parser.md`               | Parser reference: syntax, semantics, precedence      |
+| `test/parser/commander/`       | Ported Commander test cases                          |
+| `test/parser/yargs/`           | Ported yargs-parser test cases                       |
 
 At the repository root: `demos/` (runnable examples that import `@ttylabs/sigil` by
 name, so they need `pnpm build` first), `website/` (the Next.js site), `turbo.json`,
@@ -75,8 +76,12 @@ to `./packages/*`: a test run has no use for the site, and CI runs the suite on
 nine node-and-os combinations.
 
 `packages/cli/src/` is the bin, `--version`, the schema the filesystem router
-will replace, `src/utilities/` — the utility generator — and `src/template/`,
-the analysis pass and the build emitter. Its commands are not written yet.
+will replace, `src/utilities/` — the utility generator — `src/template/`, the
+analysis pass and the build emitter, and `src/build/`, which reads an app off
+disk: the command tree resolved ahead of time, the static `desc`/`hidden` lift,
+the `ui` templates found in a module, and the schema literal all of that is
+printed as. Its commands are not written yet, and neither is the bundling stage
+that feeds `src/build/`'s output to rolldown.
 
 `src/i18n/` is an empty placeholder.
 
@@ -2809,6 +2814,228 @@ stylesheet rather than anything the runtime knows about.
   two hand-written sides can be quietly edited to agree, and one corpus cannot.
   The expression _source_ is what is shared, so the interpreter and the compiler
   are provably given the same expressions to evaluate.
+
+### The build: reading an app off disk
+
+Lives in `packages/cli/src/build/`. Four passes over a tree of source files,
+none of which runs any of it, and then rolldown. The bundler is stage five and
+is not written yet; everything below produces source and data, which is what
+makes it testable with a fixture directory and no bundler at all.
+
+- **The route rules live in `@ttylabs/sigil/routes`, because there are two
+  walks.** The runtime's reads one level when argv names it; the build's reads
+  every level ahead of time. They have to agree _exactly_ -- an app that routes
+  differently bundled and unbundled is the one divergence a user cannot debug,
+  since both halves are behaving as designed -- so neither of them decides
+  anything. `readRoutes()` answers "what is in this directory" and both callers
+  read the answer: the names, the six extensions, the declaration file that is
+  not a route, the `.` and `_` prefixes, the `index` that is the directory
+  itself, the package that renames itself out of its own manifest, and the
+  collision between two routes claiming one name. It was a refactor rather than
+  a new module -- `init-command.ts` had all of it as private functions -- and
+  the point of moving it is that a second copy is a copy that drifts. Same rule
+  `LAYOUT_PROPERTIES` and `COLOR_PROPERTIES` already follow, except that this
+  one drifts into an app that works until it is built.
+- **A `_` prefix is not a route, and that is a decision somebody makes rather
+  than a thing that was always true.** A `.` is not a route because nothing
+  starting with one ever was -- `.gitkeep`, `.DS_Store`, a `.git` directory.
+  A `_` is the one way to put a helper module, a shared component, a fixture, or
+  a `__tests__` directory inside a `commands/` tree without it becoming a
+  command, and without it `commands/_helpers.js` _is_ a command called
+  `_helpers`, which is a footgun the moment a routes tree is the normal way to
+  write an app. SIG-74 deliberately did not invent it, since nothing had decided
+  it; it belongs here because the build and the runtime walk have to agree on
+  it. It is the prefix and only the prefix, so `my_command.js` is `my_command`.
+  It takes an index module too -- a `_index.js` is a helper that happens to be
+  called index, not the directory's own command -- which is why `isPrivateRoute()`
+  is asked in `routeName()` _and_ in `indexEntry()`: one rule with two readers,
+  because `_` hiding a module from the listing and then loading it as the
+  directory itself is the one combination that makes no sense.
+- **...but it is a rule about a walk, not about a path somebody wrote.**
+  `commands: { helpers: './_helpers.js' }` is `mycli helpers`, because a
+  declaration naming a path is an explicit statement. That is the same asymmetry
+  already recorded for a path nobody named being a directory _of_ commands while
+  a named one is _one_ command. It is also why the check is not inside
+  `moduleName()`, which is asked about full paths from a declaration as well as
+  about entries from a listing and could not tell the two apart.
+- **A `commands/` directory that is itself a package is refused rather than
+  walked.** The runtime asks `readPackage()` _first_ for a path nobody named, so
+  such a directory is **one** command rather than a directory of them -- and a
+  `commands/package.json` carrying `{ "type": "module" }`, which is how a
+  package forces ESM on a directory, is one. Walked instead, the build emitted a
+  whole tree where the runtime emits a single command, which is precisely the
+  divergence the shared rules exist to prevent, and it took a test asserting both
+  halves against each other to see it. It cannot be resolved correctly either,
+  which is why this is a refusal and not a special case: the runtime names such a
+  package from the module it _imports_ -- `cmd.name ?? pkg.name` -- and the build
+  cannot read that without running it. The error says to declare it under a key,
+  which makes it one named command, or to drop the manifest. A side benefit: an
+  unnamed one is refused by the runtime too, with
+  `Expected command name to be a non-empty string`, and the build now says what
+  is actually wrong.
+
+- **`load` is `path` said as a function, and it exists because a bundled app has
+  no file to read.** Its command modules are chunks a bundler named, reached by
+  a dynamic `import()` the bundler rewrote, so `path` -- a file to `stat` and a
+  `file://` URL to build -- has nothing to point at. `sigil build` emits
+  `load: () => import('./commands/build.js')` where the unbundled tree had a
+  directory to walk, and the deferral that makes `mycli --help` fast survives
+  bundling instead of being flattened into the entry chunk. A literal specifier
+  inside a dynamic import is the one thing a bundler can see, follow and split
+  on, which is what makes this the shape rather than a registry or a manifest.
+  Otherwise it is `path` exactly: the module _is_ the command, its default export
+  is merged over what the declaration left `undefined`, and it is not called
+  until the command is matched. So `fetchModule()` is where the two part company
+  and the whole merge below it is shared -- a second copy of that merge is a
+  second set of answers about aliases, labels and `hidden`.
+- **It is refused beside `path` and beside `run`.** Three answers to "what is
+  this command" and no right one to pick between them, which is the rule
+  `path` and `run` already follow -- and picking silently is what makes it a
+  trapdoor. A `load` beside a `path` would fetch the module twice by two
+  mechanisms and merge whichever won.
+- **A loader gets no `baseDir`, because there is no file for a path to be
+  relative to.** A bundled module declaring a `path` is already asking for a
+  file that is not there, so it resolves from the working directory -- which is
+  the answer a schema written inline already gets, and is why every example
+  passes an absolute path.
+- **A loader that hands back the command rather than a module is taken.** `.default`
+  is read the way an imported module's is, so `() => import('./build.js')` is
+  the whole of the ordinary use; not reading past it would make a loader
+  silently a different contract from an import.
+- **The module is read, never imported, and that is the same deferral from the
+  other end.** A command module is allowed to do things at top level -- read a
+  config file, open a connection, exit -- so the build parses it. `oxc-parser`
+  is the parser rolldown already embeds, so the toolchain has one and not two,
+  and it reads every extension a route may have with no compile step of its own.
+  A node's `start` and `end` are **UTF-16 code unit offsets**, which `slice()`
+  takes directly; they are not UTF-8 byte offsets, which is the other plausible
+  convention and the one that would corrupt every sliced expression the moment a
+  module held a non-ASCII character -- silently, and only for that app. Pinned by
+  `should slice an expression by string index rather than by byte`, because a
+  parser that changed its mind about this would look exactly like one that had
+  not. A line and a column are counted only when a diagnostic is built, which is
+  the rule the stylesheet parser already follows: counting newlines per node
+  makes reading a module with nothing wrong with it quadratic in its own length.
+- **`desc` and `hidden` are lifted statically, and this is the part with no
+  runtime answer.** A lazily loaded command appears in help by name alone
+  because its `desc` is inside its module and reading it means importing it.
+  That was rare when a `path` was hand-written; filesystem routing makes it the
+  common case, so a root `--help` over a routes tree listed sixty commands by
+  name alone -- which is not help. The runtime cannot fix it, and that is not a
+  gap in it: not importing is the entire point of the deferral. So the build
+  reads each module and bakes the answer into what it emits. A built app answers
+  a question an unbundled one can only answer after a load, and that asymmetry
+  is the point rather than a divergence to avoid: unbundled is the one that is
+  wrong, and the `!` name prefix already exists precisely because `hidden` could
+  not be seen in time.
+- **`name` and `alias` are deliberately _not_ lifted.** They are the two it
+  would be tempting to bake next and doing so would be a bug: they decide
+  _routing_, and the runtime rule is that only the placeholder's name can match,
+  because a command has to be matched before the module that renames it can be
+  loaded. Baking a module's own `name` would make a command reachable bundled
+  under a spelling that does not resolve unbundled, which is exactly what the
+  shared route rules exist to prevent.
+- **A computed value is reported, never guessed, and the severity is the
+  interesting half.** `desc: greeting()` cannot be read from source, and both
+  obvious answers are wrong -- inventing something, or failing the build. It is a
+  **warning** with a file and a line: the command keeps the description it would
+  have had unbundled, which is none until it loads, and the author is told which
+  file and why. A module with no default export at all is an **error**, because
+  the runtime would refuse it too and the build is merely finding out first. An
+  `export { cmd as default }` is a warning rather than an error for the same
+  reason read backwards: the runtime takes it, so what is wrong is what this pass
+  can read rather than the module.
+- **A spread is the case that looks harmless.** `export default { ...base, hidden: true }`
+  may well carry a `desc` inside `base` and nothing here can see it, so an absent
+  `desc` beside a spread is _reported_ rather than taken as "there is none" --
+  which is the difference between a description the build missed and one nobody
+  wrote.
+- **It looks through the wrappers that change nothing and stops at the one that
+  might not.** `command()` is documented as the identity function and exists only
+  so inference reaches a nested literal; `as` and `satisfies` are type syntax that
+  erases; parentheses are nothing at all. A call is unwrapped whatever it is
+  _called_, because the name is the app's to choose -- imported under an alias, or
+  a wrapper of the app's own -- so matching on `command` would miss the ordinary
+  case. What that costs is a `withDefaults({ desc: 'a' }, ...)` whose own body
+  overrides `desc`, which is a warning-free wrong answer, and it is why the unwrap
+  stops at a call with exactly _one_ argument that is an object literal: a wrapper
+  doing anything more interesting than passing its argument through almost always
+  takes something else too.
+- **A computed key is unreadable even when it holds a string.** `['desc']` and
+  `[key]` are the same syntax and only one of them is readable, and a pass that
+  reads the easy half of a construct it does not support is worse than one that
+  skips both -- because the half it skipped is silent. A template literal with no
+  substitutions _is_ read, since `` `build the app` `` is a string somebody wrote
+  and refusing it would make the two spellings of one thing disagree. A
+  non-boolean `hidden` is refused rather than read as truthy, because the runtime
+  throws on one rather than coercing it: reading `hidden: 1` as `true` would bake
+  a value the app it came from refuses to start with.
+- **A package is described from its manifest rather than from its entry
+  module.** That is the description the runtime uses, so taking the same one is
+  what keeps the two walks agreeing. Reading its entry would mean reading
+  somebody's compiled output, where a `desc` is very likely computed, to answer a
+  question its `package.json` has already answered.
+- **A module that does not parse throws rather than warning.** Guessing past a
+  syntax error is how a build comes to report a missing description for a file
+  whose real problem is a missing brace.
+- **`findTemplates()` matches the tag as a _binding_, not as a spelling.** A
+  template is `ui` only because something imported `ui` from
+  `@ttylabs/sigil/template`, and the name at the call site is whatever the import
+  called it -- `import { ui as html }` is the same tag, and a local variable
+  called `ui` is not one. The binding is read off oxc's own module record, which
+  answers it without a scope walk; a type-only import is skipped because it
+  erases. This is the question `emit()` answers by holding the function itself,
+  and getting it wrong means rewriting a stranger's template literal into calls
+  it never asked for.
+- **Only the outermost template is claimed.** A `ui` written inside an
+  interpolation stays interpreted, which is already recorded: an expression is
+  not the compiler's to read, so it is printed back verbatim and the runtime tag
+  handles it there. Returning both would be worse than useless -- the outer
+  template's expression source is a span of the original module, so it still
+  holds the inner template's text, and splicing a compiled replacement for both
+  writes the inner one twice. So the walk claims a tagged template and does not
+  descend into it.
+- **The walk is driven by oxc's `visitorKeys` rather than by a list of node
+  types.** A hand-written list is a second copy of the grammar, and the day the
+  parser grows a node this file has not heard of is the day a template inside it
+  stops being found -- silently, since a template nobody found is simply not
+  compiled.
+- **The generated tree emits no `name`, because the key is the name.** A `name`
+  beside it would be a second answer to the same question. A namespace directory
+  emits no `load` at all, so nothing is ever imported for it, which keeps the
+  runtime's behaviour of matching, listing and having nothing to run. And a
+  `desc` the extractor could not read is simply absent, which leaves the command
+  exactly where an unbundled one is.
+- **A specifier is a specifier, not a path.** `relative()` answers with the
+  platform's separator, and a backslash in an import specifier is an escape
+  rather than a separator -- so a Windows build would emit
+  `import("./commands\build.js")` and fail at run time on the machine that
+  produced it. Every specifier is written with forward slashes and carries an
+  explicit `./`, since a bare `commands/build.js` is a _package_ specifier to
+  every resolver there is. A description is escaped with `JSON.stringify` and
+  then ` `/` ` on top, because those two are line terminators to a
+  JavaScript parser and JSON leaves them raw -- prose is somebody else's and may
+  hold a quote, a backslash or a newline.
+- **rolldown is a devDependency of the app, and what the build produces still
+  depends on nothing.** Three dependency questions that are easy to conflate and
+  are not the same: `@ttylabs/sigil` has none and that stays a hard constraint;
+  `@ttylabs/cli` is a devDependency of an app, like `tsc`, so it may take a
+  bundler and a parser; and the _output_ is the app plus sigil's runtime inlined,
+  which depends on nothing because sigil has nothing to bring and a bundler is a
+  compiler rather than a runtime -- nothing it emits imports it. rolldown rather
+  than rollup because tsdown already builds this repo with it, so there is one
+  bundler and not two, and because it embeds the same oxc the extraction pass
+  reads. `the toolchain's dependencies` in `packages/cli/test/cli.test.ts` writes
+  them out rather than counting them, so taking a new one is an edit somebody
+  makes on purpose.
+- **The end-to-end test writes the tree out, imports it, and parses against
+  it.** Everything else in `test/build/` reads source or prints it; `a generated
+tree at run time` is the only place that asserts what the output _does_, which
+  is the claim the whole thing rests on -- a generated tree routes the way the
+  directory it came from did, and help has every description without importing
+  anything. It asserts that last part by reading `loaded` back off every
+  registered command, because "the description is right" and "nothing was
+  imported to learn it" are two claims and only the second one is the feature.
 
 ### The built-in components
 

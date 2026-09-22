@@ -73,6 +73,10 @@
       "types": "./dist/renderer.d.mts",
       "default": "./dist/renderer.mjs"
     },
+    "./routes": {
+      "types": "./dist/routes.d.mts",
+      "default": "./dist/routes.mjs"
+    },
     "./signals": {
       "types": "./dist/signals.d.mts",
       "default": "./dist/signals.mjs"

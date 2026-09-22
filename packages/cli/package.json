@@ -28,6 +28,10 @@
       "types": "./dist/index.d.mts",
       "default": "./dist/index.mjs"
     },
+    "./build": {
+      "types": "./dist/build.d.mts",
+      "default": "./dist/build.mjs"
+    },
     "./template": {
       "types": "./dist/template.d.mts",
       "default": "./dist/template.mjs"
@@ -50,7 +54,8 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@ttylabs/sigil": "workspace:*"
+    "@ttylabs/sigil": "workspace:*",
+    "oxc-parser": "^0.150.0"
   },
   "devDependencies": {
     "@types/node": "26.6.2",

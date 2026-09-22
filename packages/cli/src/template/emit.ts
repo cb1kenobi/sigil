@@ -54,7 +54,9 @@
  * module it produces the expression that replaces each of them, the
  * module-scope statements they need, and the imports all of it needs; splicing
  * those into the module, and finding the templates in the first place, is
- * `sigil build`'s (SIG-73), which already owns reading an app off disk.
+ * `findTemplates()`'s in `@ttylabs/cli/build`, which already owns reading an app
+ * off disk -- and which hands back the span each template came from, so the
+ * caller knows where to write its `sources` entry.
  *
  * It compiles the `ui` tag rather than JSX, which is not a gap: a `.tsx` is
  * compiled by the app's own TypeScript toolchain into `jsx()` calls, and those
