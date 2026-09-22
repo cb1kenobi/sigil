@@ -67,11 +67,37 @@ function isParseState(value: unknown): value is ParseState {
 }
 
 /**
+ * Writes the help screen for a parse that never asked for one.
+ *
+ * The help module is imported here rather than at the top, the same way
+ * `main()` imports the parser and the renderer: a run that answers with a
+ * version string should not pay to load the renderer, the wrapper and the width
+ * tables to find that out.
+ *
+ * `resolveHelp()` takes a state with no help request and describes it as it
+ * stands, which is exactly the root screen -- so this is the same screen
+ * `--help` prints rather than a second one built another way.
+ *
+ * @param state - The parse state.
+ */
+async function printHelp(state: ParseState): Promise<void> {
+	const { resolveHelp } = await import('@ttylabs/sigil/help');
+	process.stdout.write(`${await resolveHelp(state)}\n`);
+}
+
+/**
  * Runs the toolchain.
  *
  * `--version` is answered from the returned state rather than from an
  * `afterParse` hook: that hook fires at the end of the argv walk, before
  * `processOptions()` writes anything, so `state.argv` is still empty inside it.
+ *
+ * A run that named no command gets the help screen. A CLI that is all
+ * subcommands has nothing to do without one, and printing nothing at all is the
+ * one answer that tells the reader neither what went wrong nor what is
+ * available. It exits zero and writes to stdout, the same as `--help`: being
+ * asked what the program does and answering is not a failure, and the two
+ * spellings of that question should not differ in where the answer goes.
  *
  * @param argv - Arguments, defaulting to the process's.
  * @returns Whatever `main()` resolves with.
@@ -82,8 +108,18 @@ export async function run(argv?: string[]): Promise<ParseState | unknown> {
 	// help already answered, and it outranks `--version` for the same reason it
 	// outranks everything else: being asked what the program does and answering
 	// something else is not an answer
-	if (isParseState(result) && !result.help && result.argv.version) {
+	if (!isParseState(result) || result.help) {
+		return result;
+	}
+
+	if (result.argv.version) {
 		process.stdout.write(`${version()}\n`);
+	} else if (!result.cmd) {
+		// `cmd` is set whenever one was dispatched, including one whose `run`
+		// returned nothing -- `main()` hands back the state in that case, so this
+		// is the difference between "nothing was named" and "something ran
+		// quietly"
+		await printHelp(result);
 	}
 
 	return result;

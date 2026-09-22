@@ -98,7 +98,83 @@ describe('@ttylabs/cli', () => {
 			} finally {
 				out.restore();
 			}
-			expect(out.text).toBe('');
+			expect(out.text).not.toContain(pkg.version);
+		});
+
+		it('should print help when no command was named', async () => {
+			// a CLI that is all subcommands has nothing to do without one, and
+			// printing nothing at all tells the reader neither what went wrong nor
+			// what is available
+			const out = captureStdout();
+			try {
+				await run([]);
+			} finally {
+				out.restore();
+			}
+
+			expect(out.text).toContain('Usage: sigil');
+			expect(out.text).toContain('check');
+		});
+
+		it('should print the same screen --help prints', async () => {
+			// the two spellings of one question, and a second screen built another
+			// way is a second thing to keep in agreement
+			const bare = captureStdout();
+			try {
+				await run([]);
+			} finally {
+				bare.restore();
+			}
+
+			const asked = captureStdout();
+			try {
+				await run(['--help']);
+			} finally {
+				asked.restore();
+			}
+
+			expect(bare.text).toBe(asked.text);
+		});
+
+		it('should leave the exit code alone when it prints help for no command', async () => {
+			// being asked what the program does and answering is not a failure
+			const out = captureStdout();
+			try {
+				await run([]);
+			} finally {
+				out.restore();
+			}
+			expect(process.exitCode).toBeFalsy();
+		});
+
+		it('should answer --version rather than printing help', async () => {
+			const out = captureStdout();
+			try {
+				await run(['--version']);
+			} finally {
+				out.restore();
+			}
+
+			expect(out.text.trim()).toBe(pkg.version);
+			expect(out.text).not.toContain('Usage:');
+		});
+
+		it('should not print help when a command ran quietly', async () => {
+			// `main()` hands back the state for a command whose `run` returned
+			// nothing, so "nothing was named" and "something ran quietly" are told
+			// apart by the command rather than by the return value
+			const out = captureStdout();
+			const err = vi
+				.spyOn(process.stderr, 'write')
+				.mockImplementation((() => true) as typeof process.stderr.write);
+			try {
+				await run(['check', resolve(root, 'test/fixtures/app')]);
+			} finally {
+				out.restore();
+				err.mockRestore();
+			}
+
+			expect(out.text).not.toContain('Usage: sigil');
 		});
 	});
 
