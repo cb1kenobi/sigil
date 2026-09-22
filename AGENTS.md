@@ -29,33 +29,34 @@ the runtime.
 
 Paths below are inside `packages/sigil/` unless noted.
 
-| Path                     | Contents                                             |
-| ------------------------ | ---------------------------------------------------- |
-| `src/parser/`            | The parser: commands, options, arguments, registries |
-| `src/ansi/`              | SGR styling, strip, color support detection          |
-| `src/width/`             | Display width: grapheme clusters, East Asian Width   |
-| `src/wrap/`              | Text wrapping, SGR state, terminal width             |
-| `src/help/`              | The generated help screen, as an element tree        |
-| `src/terminal/`          | Terminal wrapper, live region, sequences             |
-| `src/components/`        | Spinner, progress, table, prompts, key decoding      |
-| `src/signals/`           | The reactive graph: state, computed, watcher, effect |
-| `src/renderer/`          | Components, the owner tree, control flow, the frame  |
-| `src/template/`          | The template IR, the `ui` tag, the JSX runtimes      |
-| `src/canvas/`            | Cell buffer, style interning, paint diff, sub-cell   |
-| `src/style/`             | Properties, values, selectors, cascade, degradation  |
-| `src/theme/`             | The framework's own sheet, and what a theme is       |
-| `src/layout/`            | The flexbox subset, over whole cells                 |
-| `src/infer.ts`           | `initOption()` and `initArg()`, in the type system   |
-| `src/util/`              | Shared helpers (type coercion, camelCase, mkdir)     |
-| `src/debug/`             | `DEBUG`-driven logger; replaces snooplogg            |
-| `src/paths.ts`           | XDG base directories                                 |
-| `src/updates/`           | npm update check, run in a spawned worker            |
-| `src/error-handler.ts`   | Renders an error and sets the exit code              |
-| `src/error-hooks.ts`     | Fires `beforeError` hooks; carries state on an error |
-| `scripts/`               | Run by hand: generators, and the real-terminal probe |
-| `docs/parser.md`         | Parser reference: syntax, semantics, precedence      |
-| `test/parser/commander/` | Ported Commander test cases                          |
-| `test/parser/yargs/`     | Ported yargs-parser test cases                       |
+| Path                           | Contents                                             |
+| ------------------------------ | ---------------------------------------------------- |
+| `src/parser/`                  | The parser: commands, options, arguments, registries |
+| `src/parser/command/routes.ts` | The route rules, shared with `sigil build`           |
+| `src/ansi/`                    | SGR styling, strip, color support detection          |
+| `src/width/`                   | Display width: grapheme clusters, East Asian Width   |
+| `src/wrap/`                    | Text wrapping, SGR state, terminal width             |
+| `src/help/`                    | The generated help screen, as an element tree        |
+| `src/terminal/`                | Terminal wrapper, live region, sequences             |
+| `src/components/`              | Spinner, progress, table, prompts, key decoding      |
+| `src/signals/`                 | The reactive graph: state, computed, watcher, effect |
+| `src/renderer/`                | Components, the owner tree, control flow, the frame  |
+| `src/template/`                | The template IR, the `ui` tag, the JSX runtimes      |
+| `src/canvas/`                  | Cell buffer, style interning, paint diff, sub-cell   |
+| `src/style/`                   | Properties, values, selectors, cascade, degradation  |
+| `src/theme/`                   | The framework's own sheet, and what a theme is       |
+| `src/layout/`                  | The flexbox subset, over whole cells                 |
+| `src/infer.ts`                 | `initOption()` and `initArg()`, in the type system   |
+| `src/util/`                    | Shared helpers (type coercion, camelCase, mkdir)     |
+| `src/debug/`                   | `DEBUG`-driven logger; replaces snooplogg            |
+| `src/paths.ts`                 | XDG base directories                                 |
+| `src/updates/`                 | npm update check, run in a spawned worker            |
+| `src/error-handler.ts`         | Renders an error and sets the exit code              |
+| `src/error-hooks.ts`           | Fires `beforeError` hooks; carries state on an error |
+| `scripts/`                     | Run by hand: generators, and the real-terminal probe |
+| `docs/parser.md`               | Parser reference: syntax, semantics, precedence      |
+| `test/parser/commander/`       | Ported Commander test cases                          |
+| `test/parser/yargs/`           | Ported yargs-parser test cases                       |
 
 At the repository root: `demos/` (runnable examples that import `@ttylabs/sigil` by
 name, so they need `pnpm build` first), `website/` (the Next.js site), `turbo.json`,
@@ -75,8 +76,12 @@ to `./packages/*`: a test run has no use for the site, and CI runs the suite on
 nine node-and-os combinations.
 
 `packages/cli/src/` is the bin, `--version`, the schema the filesystem router
-will replace, `src/utilities/` — the utility generator — and `src/template/`,
-the analysis pass and the build emitter. Its commands are not written yet.
+will replace, `src/utilities/` — the utility generator — `src/template/`, the
+analysis pass and the build emitter, and `src/build/`, which reads an app off
+disk: the app discovered from its manifest and entry, the command tree resolved
+ahead of time, the static `desc`/`hidden` lift, the `ui` templates found in a
+module, the schema literal all of that is printed as, and the type check. Its commands are not written yet, and neither is the bundling stage
+that feeds `src/build/`'s output to rolldown.
 
 `src/i18n/` is an empty placeholder.
 
@@ -119,6 +124,11 @@ reasons, and the second is the one that cost a morning:
   nothing quietly, so spelling the packages out is what makes a wrong filter
   loud. `the root build filter` in `packages/cli/test/cli.test.ts` reads the
   workspace and fails if a package is added without joining the build.
+
+`pnpm --filter @ttylabs/cli dev <args>` runs the toolchain straight from its
+source -- `node src/sigil.ts` -- with no build in between, which is the loop to
+use when working on it. It needs `@ttylabs/sigil` built, like everything else in
+that package, and nothing else.
 
 `pnpm --filter @ttylabs/sigil test` scopes to one package, as does running the script
 from inside its directory. **`@ttylabs/cli` needs a build first** -- its source
@@ -2810,6 +2820,452 @@ stylesheet rather than anything the runtime knows about.
   The expression _source_ is what is shared, so the interpreter and the compiler
   are provably given the same expressions to evaluate.
 
+### The build: reading an app off disk
+
+Lives in `packages/cli/src/build/`. Four passes over a tree of source files,
+none of which runs any of it, and then rolldown. The bundler is stage five and
+is not written yet; everything below produces source and data, which is what
+makes it testable with a fixture directory and no bundler at all.
+
+- **The route rules live in `@ttylabs/sigil/routes`, because there are two
+  walks.** The runtime's reads one level when argv names it; the build's reads
+  every level ahead of time. They have to agree _exactly_ -- an app that routes
+  differently bundled and unbundled is the one divergence a user cannot debug,
+  since both halves are behaving as designed -- so neither of them decides
+  anything. `readRoutes()` answers "what is in this directory" and both callers
+  read the answer: the names, the six extensions, the declaration file that is
+  not a route, the `.` and `_` prefixes, the `index` that is the directory
+  itself, the package that renames itself out of its own manifest, and the
+  collision between two routes claiming one name. It was a refactor rather than
+  a new module -- `init-command.ts` had all of it as private functions -- and
+  the point of moving it is that a second copy is a copy that drifts. Same rule
+  `LAYOUT_PROPERTIES` and `COLOR_PROPERTIES` already follow, except that this
+  one drifts into an app that works until it is built.
+- **A `_` prefix is not a route, and that is a decision somebody makes rather
+  than a thing that was always true.** A `.` is not a route because nothing
+  starting with one ever was -- `.gitkeep`, `.DS_Store`, a `.git` directory.
+  A `_` is the one way to put a helper module, a shared component, a fixture, or
+  a `__tests__` directory inside a `commands/` tree without it becoming a
+  command, and without it `commands/_helpers.js` _is_ a command called
+  `_helpers`, which is a footgun the moment a routes tree is the normal way to
+  write an app. SIG-74 deliberately did not invent it, since nothing had decided
+  it; it belongs here because the build and the runtime walk have to agree on
+  it. It is the prefix and only the prefix, so `my_command.js` is `my_command`.
+  It takes an index module too -- a `_index.js` is a helper that happens to be
+  called index, not the directory's own command -- which is why `isPrivateRoute()`
+  is asked in `routeName()` _and_ in `indexEntry()`: one rule with two readers,
+  because `_` hiding a module from the listing and then loading it as the
+  directory itself is the one combination that makes no sense.
+- **...but it is a rule about a walk, not about a path somebody wrote.**
+  `commands: { helpers: './_helpers.js' }` is `mycli helpers`, because a
+  declaration naming a path is an explicit statement. That is the same asymmetry
+  already recorded for a path nobody named being a directory _of_ commands while
+  a named one is _one_ command. It is also why the check is not inside
+  `moduleName()`, which is asked about full paths from a declaration as well as
+  about entries from a listing and could not tell the two apart.
+- **A `commands/` directory that is itself a package is refused rather than
+  walked.** The runtime asks `readPackage()` _first_ for a path nobody named, so
+  such a directory is **one** command rather than a directory of them -- and a
+  `commands/package.json` carrying `{ "type": "module" }`, which is how a
+  package forces ESM on a directory, is one. Walked instead, the build emitted a
+  whole tree where the runtime emits a single command, which is precisely the
+  divergence the shared rules exist to prevent, and it took a test asserting both
+  halves against each other to see it. It cannot be resolved correctly either,
+  which is why this is a refusal and not a special case: the runtime names such a
+  package from the module it _imports_ -- `cmd.name ?? pkg.name` -- and the build
+  cannot read that without running it. The error says to declare it under a key,
+  which makes it one named command, or to drop the manifest. A side benefit: an
+  unnamed one is refused by the runtime too, with
+  `Expected command name to be a non-empty string`, and the build now says what
+  is actually wrong.
+
+- **`load` is `path` said as a function, and it exists because a bundled app has
+  no file to read.** Its command modules are chunks a bundler named, reached by
+  a dynamic `import()` the bundler rewrote, so `path` -- a file to `stat` and a
+  `file://` URL to build -- has nothing to point at. `sigil build` emits
+  `load: () => import('./commands/build.js')` where the unbundled tree had a
+  directory to walk, and the deferral that makes `mycli --help` fast survives
+  bundling instead of being flattened into the entry chunk. A literal specifier
+  inside a dynamic import is the one thing a bundler can see, follow and split
+  on, which is what makes this the shape rather than a registry or a manifest.
+  Otherwise it is `path` exactly: the module _is_ the command, its default export
+  is merged over what the declaration left `undefined`, and it is not called
+  until the command is matched. So `fetchModule()` is where the two part company
+  and the whole merge below it is shared -- a second copy of that merge is a
+  second set of answers about aliases, labels and `hidden`.
+- **It is refused beside `path` and beside `run`.** Three answers to "what is
+  this command" and no right one to pick between them, which is the rule
+  `path` and `run` already follow -- and picking silently is what makes it a
+  trapdoor. A `load` beside a `path` would fetch the module twice by two
+  mechanisms and merge whichever won.
+- **A loader gets no `baseDir`, because there is no file for a path to be
+  relative to.** A bundled module declaring a `path` is already asking for a
+  file that is not there, so it resolves from the working directory -- which is
+  the answer a schema written inline already gets, and is why every example
+  passes an absolute path.
+- **A loader that hands back the command rather than a module is taken.** `.default`
+  is read the way an imported module's is, so `() => import('./build.js')` is
+  the whole of the ordinary use; not reading past it would make a loader
+  silently a different contract from an import.
+- **The module is read, never imported, and that is the same deferral from the
+  other end.** A command module is allowed to do things at top level -- read a
+  config file, open a connection, exit -- so the build parses it. `oxc-parser`
+  is the parser rolldown already embeds, so the toolchain has one and not two,
+  and it reads every extension a route may have with no compile step of its own.
+  A node's `start` and `end` are **UTF-16 code unit offsets**, which `slice()`
+  takes directly; they are not UTF-8 byte offsets, which is the other plausible
+  convention and the one that would corrupt every sliced expression the moment a
+  module held a non-ASCII character -- silently, and only for that app. Pinned by
+  `should slice an expression by string index rather than by byte`, because a
+  parser that changed its mind about this would look exactly like one that had
+  not. A line and a column are counted only when a diagnostic is built, which is
+  the rule the stylesheet parser already follows: counting newlines per node
+  makes reading a module with nothing wrong with it quadratic in its own length.
+- **`desc` and `hidden` are lifted statically, and this is the part with no
+  runtime answer.** A lazily loaded command appears in help by name alone
+  because its `desc` is inside its module and reading it means importing it.
+  That was rare when a `path` was hand-written; filesystem routing makes it the
+  common case, so a root `--help` over a routes tree listed sixty commands by
+  name alone -- which is not help. The runtime cannot fix it, and that is not a
+  gap in it: not importing is the entire point of the deferral. So the build
+  reads each module and bakes the answer into what it emits. A built app answers
+  a question an unbundled one can only answer after a load, and that asymmetry
+  is the point rather than a divergence to avoid: unbundled is the one that is
+  wrong, and the `!` name prefix already exists precisely because `hidden` could
+  not be seen in time.
+- **`name` and `alias` are deliberately _not_ lifted.** They are the two it
+  would be tempting to bake next and doing so would be a bug: they decide
+  _routing_, and the runtime rule is that only the placeholder's name can match,
+  because a command has to be matched before the module that renames it can be
+  loaded. Baking a module's own `name` would make a command reachable bundled
+  under a spelling that does not resolve unbundled, which is exactly what the
+  shared route rules exist to prevent.
+- **A computed value is reported, never guessed, and the severity is the
+  interesting half.** `desc: greeting()` cannot be read from source, and both
+  obvious answers are wrong -- inventing something, or failing the build. It is a
+  **warning** with a file and a line: the command keeps the description it would
+  have had unbundled, which is none until it loads, and the author is told which
+  file and why. A module with no default export at all is an **error**, because
+  the runtime would refuse it too and the build is merely finding out first. An
+  `export { cmd as default }` is a warning rather than an error for the same
+  reason read backwards: the runtime takes it, so what is wrong is what this pass
+  can read rather than the module.
+- **A spread is the case that looks harmless.** `export default { ...base, hidden: true }`
+  may well carry a `desc` inside `base` and nothing here can see it, so an absent
+  `desc` beside a spread is _reported_ rather than taken as "there is none" --
+  which is the difference between a description the build missed and one nobody
+  wrote.
+- **It looks through the wrappers that change nothing and stops at the one that
+  might not.** `command()` is documented as the identity function and exists only
+  so inference reaches a nested literal; `as` and `satisfies` are type syntax that
+  erases; parentheses are nothing at all. A call is unwrapped whatever it is
+  _called_, because the name is the app's to choose -- imported under an alias, or
+  a wrapper of the app's own -- so matching on `command` would miss the ordinary
+  case. What that costs is a `withDefaults({ desc: 'a' }, ...)` whose own body
+  overrides `desc`, which is a warning-free wrong answer, and it is why the unwrap
+  stops at a call with exactly _one_ argument that is an object literal: a wrapper
+  doing anything more interesting than passing its argument through almost always
+  takes something else too.
+- **A computed key is unreadable even when it holds a string.** `['desc']` and
+  `[key]` are the same syntax and only one of them is readable, and a pass that
+  reads the easy half of a construct it does not support is worse than one that
+  skips both -- because the half it skipped is silent. A template literal with no
+  substitutions _is_ read, since `` `build the app` `` is a string somebody wrote
+  and refusing it would make the two spellings of one thing disagree. A
+  non-boolean `hidden` is refused rather than read as truthy, because the runtime
+  throws on one rather than coercing it: reading `hidden: 1` as `true` would bake
+  a value the app it came from refuses to start with.
+- **A package is described from its manifest rather than from its entry
+  module.** That is the description the runtime uses, so taking the same one is
+  what keeps the two walks agreeing. Reading its entry would mean reading
+  somebody's compiled output, where a `desc` is very likely computed, to answer a
+  question its `package.json` has already answered.
+- **A module that does not parse throws rather than warning.** Guessing past a
+  syntax error is how a build comes to report a missing description for a file
+  whose real problem is a missing brace.
+- **`findTemplates()` matches the tag as a _binding_, not as a spelling.** A
+  template is `ui` only because something imported `ui` from
+  `@ttylabs/sigil/template`, and the name at the call site is whatever the import
+  called it -- `import { ui as html }` is the same tag, and a local variable
+  called `ui` is not one. The binding is read off oxc's own module record, which
+  answers it without a scope walk; a type-only import is skipped because it
+  erases. This is the question `emit()` answers by holding the function itself,
+  and getting it wrong means rewriting a stranger's template literal into calls
+  it never asked for.
+- **Only the outermost template is claimed.** A `ui` written inside an
+  interpolation stays interpreted, which is already recorded: an expression is
+  not the compiler's to read, so it is printed back verbatim and the runtime tag
+  handles it there. Returning both would be worse than useless -- the outer
+  template's expression source is a span of the original module, so it still
+  holds the inner template's text, and splicing a compiled replacement for both
+  writes the inner one twice. So the walk claims a tagged template and does not
+  descend into it.
+- **The walk is driven by oxc's `visitorKeys` rather than by a list of node
+  types.** A hand-written list is a second copy of the grammar, and the day the
+  parser grows a node this file has not heard of is the day a template inside it
+  stops being found -- silently, since a template nobody found is simply not
+  compiled.
+- **The generated tree emits no `name`, because the key is the name.** A `name`
+  beside it would be a second answer to the same question. A namespace directory
+  emits no `load` at all, so nothing is ever imported for it, which keeps the
+  runtime's behaviour of matching, listing and having nothing to run. And a
+  `desc` the extractor could not read is simply absent, which leaves the command
+  exactly where an unbundled one is.
+- **A specifier is a specifier, not a path.** `relative()` answers with the
+  platform's separator, and a backslash in an import specifier is an escape
+  rather than a separator -- so a Windows build would emit
+  `import("./commands\build.js")` and fail at run time on the machine that
+  produced it. Every specifier is written with forward slashes and carries an
+  explicit `./`, since a bare `commands/build.js` is a _package_ specifier to
+  every resolver there is. A description is escaped with `JSON.stringify` and
+  then ` `/` ` on top, because those two are line terminators to a
+  JavaScript parser and JSON leaves them raw -- prose is somebody else's and may
+  hold a quote, a backslash or a newline.
+- **The app is discovered, not assumed, and `@ttylabs/sigil` in the manifest is
+  what makes a directory one.** Asked before anything else, because every error
+  after it would be a worse version of the same message -- "no `commands/`
+  directory" is a poor way to say "this is not a sigil app". Any kind of
+  dependency counts, since which one an app declares is a packaging decision
+  and none of them makes it less of an app.
+- **Source before the manifest, because `bin` usually names built output.** The
+  obvious entry is `bin`, and following it means parsing a minified bundle whose
+  import specifiers are chunk names a bundler invented -- `packages/cli`'s own
+  `bin` points at `dist/sigil.mjs`, so the toolchain would have been unable to
+  read itself. `check` reads what the author edits and what the build will
+  compile, so it looks for `src/index.*` and the rest of the conventions first
+  and falls back to what the manifest names only when there is none. That is a
+  heuristic, so the entry it picked is **reported** in the summary rather than
+  assumed, and `--entry` overrides it: a guess nobody can see is the kind that
+  costs an afternoon.
+- **An app's `commands` is read off its entry, and it is one of two things.** A
+  path is the filesystem router, which `resolveCommandTree()` already walks; an
+  object is the schema having written its commands out, which is already the
+  tree. Both are read from source, because running the entry would run the app --
+  the same reason a command module is parsed rather than imported.
+- **The outermost object literal with a `commands` property is the schema.** A
+  command may hold `commands` of its own, so everything nested inside one is a
+  subcommand the walk reaches anyway. More than one _outermost_ schema in a
+  module is an ambiguity this cannot resolve, and choosing by source order would
+  be choosing by accident, so it says so and asks for `--commands`.
+- **A `load: () => import('./check.js')` is followed to the `check.ts` beside
+  it.** Not a guess: a TypeScript ES module imports its neighbour with a `.js`
+  specifier while the file on disk is `.ts`, which is the convention this repo
+  follows itself and is written down under Conventions. Without the swap every
+  command a schema declares through `load` would come back unresolved, which is
+  an `error` -- a command whose module is not there is an app that fails when
+  that command is run.
+- **What the placeholder declares wins, and silences the module's diagnostics.**
+  The runtime's merge read from the other side: a `desc` on the placeholder is
+  what help shows before the module loads, so a module that cannot be read
+  statically is not a problem anybody has. Found by dogfooding --
+  `src/commands/check.ts` ends `export default check`, a _reference_ rather than
+  a literal, because `--isolatedDeclarations` refuses to infer a default export
+  -- and the warning it produced claimed "help will list this command by name
+  alone", which was simply false. An `error` still comes through, because a
+  module with no default export at all is unusable however well it is described.
+- **A schema that names commands this cannot read is reported once.** The first
+  version said it twice -- a warning that `commands` was computed, then an error
+  that no `commands` was found -- and the second was wrong, since it had been
+  found and not read. `readAppCommands()` answers `found` separately from
+  `commands` so the caller can tell "there is none" from "there is one I cannot
+  read".
+
+- **`build` type-checks, and SIG-73 leaned the other way.** The ticket asked
+  "does `build` type-check, or is that the app's own `tsc`? Delegating is
+  simpler and faster", and the answer is that it checks: an app that builds and
+  then fails its own `tsc` has been told it is fine by the tool whose job is to
+  say so, and simpler-and-faster does not buy that back. A type error is
+  **fatal**, because "it type-checks" has to mean the build stops -- a warning
+  nobody reads is the same as not checking. It is a gate rather than a pass that
+  produces anything: nothing here emits, since Node strips types on its own and
+  the bundler handles the rest.
+- **It checks with the _app's_ compiler and the _app's_ config, both resolved
+  from the app.** `typescript` is an **optional peer dependency** rather than a
+  dependency, so the build never brings one of its own. A bundled TypeScript
+  would check the app with a compiler the app never chose, and a version skew in
+  a type checker is not a small disagreement -- it is new errors on code that
+  was fine, or silence on code that is not, with the editor and CI saying the
+  opposite. The `tsconfig.json` is looked for in the app's root and **nowhere
+  above it**, which is where this deliberately parts company with `tsc`: walking
+  up finds a monorepo's own config, whose `include` describes a different
+  program, so the build would report errors about files the app does not contain
+  and miss the ones it does.
+- **It runs the CLI rather than the programmatic API, and that is a version
+  decision rather than laziness.** TypeScript 7 is the native port: its root
+  export is a version string, `createProgram` is gone, and the replacement lives
+  under `typescript/unstable/` and says so in the specifier. TypeScript 5 and 6
+  have the old API and not the new one. Supporting an app on any of the three
+  through the API means two adapters, one written against a surface that has
+  announced it will move. `tsc --noEmit --pretty false` is the one interface all
+  three have, it has not changed in a decade, and it is the same command the
+  app's own `type-check` script runs -- so the build agrees with CI by
+  construction rather than by coincidence. Spawning is the **build's** to do and
+  the one-process rule is about the **output**: nothing `sigil build` emits may
+  spawn anything, and a compiler invoking a compiler is ordinary. It is invoked
+  as `node <bin/tsc>` rather than executed, because that file is a Node script
+  behind a shebang and a shebang is not how anything starts on Windows.
+- **Nothing to check is not a failure, and a check that did not happen is.** An
+  app with no `tsconfig.json` is a JavaScript app and is skipped with a reason;
+  an app with one but no resolvable `typescript` is skipped with a different
+  reason that says what to install. What is _not_ tolerated is a compiler that
+  exited non-zero without saying anything parseable -- a `composite` project
+  that cannot be told `--noEmit`, an option it does not know -- because
+  swallowing that reports a clean type-check for a check that never ran. The raw
+  output becomes the diagnostic instead.
+- **One diagnostic shape across every pass, in `diagnostic.ts`.** The static
+  lift, the type check and whatever bundling turns up are reported together, so
+  there is one reporter and one `isFatal()` rather than a second vocabulary --
+  which is how two halves of one build come to disagree about whether something
+  was fatal. The type checker's paths are made absolute on the way in, because
+  it is run with the app as its cwd and writes relative ones, and a report
+  holding both spellings is one nobody can sort.
+- **The type-check fixtures are excluded from the package's own tsconfig.**
+  `test/fixtures/typecheck/broken/` holds a deliberate type error, and a suite
+  that fails on its own fixture is a suite nobody can run. Same exclusion the JSX
+  template fixture already needs, for the same reason.
+
+- **rolldown is a devDependency of the app, and what the build produces still
+  depends on nothing.** Three dependency questions that are easy to conflate and
+  are not the same: `@ttylabs/sigil` has none and that stays a hard constraint;
+  `@ttylabs/cli` is a devDependency of an app, like `tsc`, so it may take a
+  bundler and a parser; and the _output_ is the app plus sigil's runtime inlined,
+  which depends on nothing because sigil has nothing to bring and a bundler is a
+  compiler rather than a runtime -- nothing it emits imports it. rolldown rather
+  than rollup because tsdown already builds this repo with it, so there is one
+  bundler and not two, and because it embeds the same oxc the extraction pass
+  reads. `the toolchain's dependencies` in `packages/cli/test/cli.test.ts` writes
+  them out rather than counting them, so taking a new one is an edit somebody
+  makes on purpose.
+- **The toolchain runs from its own source, and that is a different thing from
+  building itself.** `node packages/cli/src/sigil.ts build ...` works with no
+  build step, which is the dev loop the acceptance test wants -- edit a pass,
+  run it against a fixture, see the bundle. What it does _not_ do is make
+  `@ttylabs/cli` self-buildable, and the two got conflated once: `sigil build`
+  can never produce a standalone bundle of it, because `oxc-parser` and
+  `rolldown` are **native `.node` binaries** and no bundler inlines those. The
+  published bin imports them externally and npm installs them, which is correct
+  and is why the toolchain is a devDependency rather than a bundled artifact. A
+  zero-dependency bundle is a promise about _apps_, and an app with a native
+  dependency is the one kind that cannot have one.
+- **Running from source costs the angle-bracket type assertion.** `<Error>e` is
+  ambiguous with JSX, so Node's stripper refuses it outright rather than
+  guessing -- `(e as Error)` is the spelling that survives. That is the same
+  rule already recorded for a command module, where an `enum` or a namespace
+  with a runtime body is Node's limit rather than this package's, met from the
+  inside for the first time.
+
+- **`sigil build` generates the executable rather than looking for one, which
+  is the Next.js answer.** Next never hunts for your entry, because you do not
+  write one: routes are a directory convention, config is found by filename, and
+  the framework supplies the server -- `output: 'standalone'` literally
+  _generates_ `server.js`. The same applies here. A sigil bin is a shebang, an
+  import and a call to `main()`; nobody should have to write it, and a build
+  that goes looking can pick the wrong file. That is not hypothetical: this
+  package's own `bin` names `dist/sigil.mjs`, so a build that followed the
+  manifest would have parsed its own minified output.
+- **The generated entry composes rather than transforms.** It imports the app's
+  schema module and spreads it, then passes `commands` over the top -- so there
+  is no source rewriting anywhere, and everything the app said about its name,
+  options and hooks survives untouched. `commands` is the one property the build
+  knows better than the app does. A schema export may be a function, because a
+  schema that reads the environment has to be built rather than declared, and it
+  is called exactly where the app would have called it.
+- **The namespace is spread before it is read.** `app.default ?? app.schema` is
+  a _static_ reference to a named export the module need not have, and a bundler
+  resolves that at build time -- rolldown warns that it will always be
+  undefined. `{ ...app }` asks at run time, which is when the answer is known.
+- **An import the bundler cannot resolve is an error, not a warning.** Left
+  alone it becomes an _external_, so the bundle reaches for it at run time and
+  the zero-dependency promise is broken with nobody told. Found immediately: a
+  fixture app with no real `node_modules` built "successfully" while importing
+  `@ttylabs/sigil` at run time.
+- **A command per chunk, because the deferral is the point.** A literal
+  specifier inside a dynamic import is the one thing a bundler can see, follow
+  and split on, so `load: () => import('./commands/build.js')` becomes a chunk
+  and rolldown rewrites the specifier. Measured on the fixture app: a 3.2 kB
+  entry with the parser, the help renderer and every command body in chunks of
+  their own. Flattening to one file would undo the whole reason the tree is
+  lazy.
+- **`--bin` is refused beside a filesystem command directory.** An executable of
+  the app's own is bundled as it stands, so whatever `commands` it declares is
+  what it gets -- and a router bundled that way reads directories that are not
+  beside the executable. A run-time failure the build can see coming is a build
+  error.
+- **The zero-dependency claim is asserted by parsing the output, not by grepping
+  it.** The naive pattern matched `Error(\`...command name from "${e}"\`)`-- the
+word "from" inside a message followed by a quoted template -- and a test that
+reports a dependency an app does not have is worse than no test. The module
+record also tells a *computed* dynamic import from a literal one, which
+matters:`import(pathToFileURL(path).href)` survives into every bundle from
+  the runtime's own path loader, and it is code choosing a module rather than a
+  package the app must have installed.
+- **A bundled app cannot read files relative to `import.meta.url`, and that is
+  the app's problem rather than the build's.** Found by building this toolchain
+  with itself: `version()` reads `../package.json` off its own module URL, which
+  points somewhere else once the bundle is written to another directory. Every
+  bundler has this property. It is deliberately _not_ warned about, because the
+  pattern is also how an app correctly locates something it ships alongside, and
+  a warning that fires on correct code teaches people to ignore warnings. It is
+  also not a thing to fix here: the toolchain is not a bundleable app at all,
+  for the native-binary reason above, and its own bin is built by tsdown into
+  `dist/`, where `../package.json` resolves exactly as that function's comment
+  says it does.
+- **`_inspect.ts` is one pass for two commands, and the `_` prefix is this
+  repo's own rule read from the inside.** `check` is that pass and a report;
+  `build` is that pass, the same report, and a bundle. Two implementations that
+  agree for now is how the fast one stops meaning anything. Nothing walks
+  `src/commands/` today, but it will once the CLI routes itself, and a helper
+  that quietly became a command called `_inspect` is the footgun the prefix was
+  invented for.
+
+- **`sigil check` and `sigil build` are both wired, and both are the whole of
+  what they claim.** `packages/cli/src/index.ts` records
+  that a command which exists and refuses is worse than one that does not exist
+  yet, because only the second is honest in `--help` -- so a `build` that cannot
+  bundle would be exactly the thing that comment was written against. What the
+  read passes add up to on their own is a **complete** `check`, which is what
+  `tsc --noEmit` and `astro check` are -- and it stayed that once bundling
+  landed rather than being absorbed: `build` runs the same pass through
+  `_inspect.ts`, so a failure in one is a failure in the other and the two
+  cannot come to disagree about what a valid app is. `build` refuses an app that
+  does not check out, because finding out at run time what a compiler knew at
+  build time is the thing a build is for.
+- **The CLI declares its own `check` the way `sigil build` generates an app's
+  commands: a `desc` on the placeholder and a `load` beside it.** Dogfooding,
+  and it pays immediately -- the module behind it imports `oxc-parser`, which is
+  a native binary, so leaving it on the startup path would make
+  `sigil --version` load a parser it never uses. The `desc` sits on the
+  placeholder so `sigil --help` can describe the command without any of that,
+  which is the static `desc` lift solving its own author's problem.
+- **A tree that cannot exist is a diagnostic, not a stack.** Two routes claiming
+  one name, or a `commands/` that is really a package, throw out of
+  `resolveCommandTree()` -- which is right for a library and wrong for a
+  command, where it would take the process down with a trace. `check` catches
+  and reports, so every way an app can be wrong arrives through one channel.
+- **`--tree` goes to stdout and the diagnostics go to stderr.** The tree is data
+  somebody asked for and can be piped; the problems are not, and piping the tree
+  must not lose them. It is printed with the framework's own `table()`, which is
+  the acceptance test working as intended -- a framework whose toolchain is not
+  written in it has not been tested by anyone who had to live with it -- and it
+  gets the column arithmetic right for free.
+- **A command loaded from a module annotates its export `AnyCommand`.**
+  `--isolatedDeclarations` refuses to infer a default export, and `Command` is
+  the wrong annotation for the reason that type exists: a command whose `run`
+  takes a narrow `argv` is not assignable to one whose `run` takes the wide
+  default, because a function parameter is contravariant. Nothing is lost by
+  annotating, since `command()` has already typed the literal's own `run` and a
+  module-loaded command is one the schema above could not have inferred into
+  anyway.
+
+- **The end-to-end test writes the tree out, imports it, and parses against
+  it.** Everything else in `test/build/` reads source or prints it; `a generated
+tree at run time` is the only place that asserts what the output _does_, which
+  is the claim the whole thing rests on -- a generated tree routes the way the
+  directory it came from did, and help has every description without importing
+  anything. It asserts that last part by reading `loaded` back off every
+  registered command, because "the description is right" and "nothing was
+  imported to learn it" are two claims and only the second one is the feature.
+
 ### The built-in components
 
 - **They are element trees, and the imperative API is a facade over them.**
@@ -3559,7 +4015,30 @@ color: magenta }` and beats the default with an ordinary rule, which is only tru
 
 ## Conventions
 
-- ESM only. Imports use `.js` extensions even for `.ts` sources.
+- **Every dependency is pinned to an exact version, in every manifest.** A caret
+  means a fresh install and a six-month-old lockfile can resolve to different
+  trees -- and for a native binary, which `rolldown` and `oxc-parser` both are,
+  that is a different binary on somebody's machine with nothing in the diff to
+  point at. The lockfile pins the resolution; the manifest pins what is
+  _asked_ for, which is what a range widens again the moment anybody reinstalls
+  without one. `.npmrc` sets `save-exact=true` so `pnpm add` writes it, and
+  `pinned dependencies` in `packages/cli/test/cli.test.ts` asserts it across the
+  workspace -- because a setting only the person who ran `pnpm add` sees is a
+  setting that drifts, and both ranges this repo has ever had arrived exactly
+  that way. A `workspace:` link is not a range and is skipped; a **peer**
+  dependency is deliberately left one, since it declares what the toolchain
+  accepts from an app rather than what it installs, and pinning `typescript`
+  would refuse every app on a different one.
+- ESM only. Imports use `.js` extensions even for `.ts` sources -- **except
+  inside `packages/cli/src/`, which uses `.ts`**. That is not drift, it is what
+  makes `node src/sigil.ts build ...` work: Node's type stripping is erasure and
+  does not rewrite specifiers, so a `.js` import of a `.ts` file is a module not
+  found. The toolchain is the one package worth running straight from source --
+  it is a tool rather than a library, and the alternative is a tsdown build
+  between every edit and every try. `@ttylabs/sigil` keeps `.js`, because it is
+  only ever consumed through its `exports` map and a `.ts` specifier would buy
+  it nothing. `allowImportingTsExtensions` is set on `packages/cli` alone for
+  the same reason.
 - Internal state hangs off the exported `Internal` symbol, not enumerable
   properties, so schema objects stay clean for consumers. `parse()` stashes the
   state it died with on the error it throws the same way, under `ErrorState`,

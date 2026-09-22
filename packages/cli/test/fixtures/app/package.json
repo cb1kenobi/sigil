@@ -1,0 +1,7 @@
+{
+  "name": "fixture-app",
+  "type": "module",
+  "dependencies": {
+    "@ttylabs/sigil": "*"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "name": "ts-app",
+  "type": "module",
+  "dependencies": {
+    "@ttylabs/sigil": "*"
+  }
+}

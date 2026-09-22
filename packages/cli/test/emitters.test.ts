@@ -28,11 +28,14 @@
  * `@ttylabs/sigil` through the same package instance, which is what makes
  * `instanceof Element` mean the same thing in both.
  *
- * One thing the corpus deliberately does *not* cover, because it is not this
- * ticket's: a `ui` template written *inside* an interpolation is printed back
- * verbatim and stays interpreted. An expression is not the compiler's to read
- * -- finding templates in a file is what `sigil build` (SIG-73) does, and it
- * will find those too.
+ * One thing the corpus deliberately does *not* cover: a `ui` template written
+ * *inside* an interpolation is printed back verbatim and stays interpreted. An
+ * expression is not the compiler's to read, and `findTemplates()` in
+ * `@ttylabs/cli/build` -- which is what finds templates in a file -- claims the
+ * outermost one and does not descend into it. That is deliberate rather than a
+ * gap: the outer template's expression source is a span of the original module,
+ * so it still holds the inner template's text, and compiling both would splice
+ * the inner one twice.
  */
 
 import { analyze, compile, renderImports } from '../src/template/index.js';

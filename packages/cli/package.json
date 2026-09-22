@@ -28,6 +28,10 @@
       "types": "./dist/index.d.mts",
       "default": "./dist/index.mjs"
     },
+    "./build": {
+      "types": "./dist/build.d.mts",
+      "default": "./dist/build.mjs"
+    },
     "./template": {
       "types": "./dist/template.d.mts",
       "default": "./dist/template.mjs"
@@ -44,13 +48,16 @@
   "scripts": {
     "build": "rimraf dist && tsdown -c tsdown.config.ts",
     "coverage": "vitest --coverage",
+    "dev": "node ./src/sigil.ts",
     "ncu": "ncu -c 1d",
     "prepublishOnly": "pnpm run build",
     "test": "vitest",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@ttylabs/sigil": "workspace:*"
+    "@ttylabs/sigil": "workspace:*",
+    "oxc-parser": "0.151.0",
+    "rolldown": "1.2.9"
   },
   "devDependencies": {
     "@types/node": "26.6.2",
@@ -59,6 +66,14 @@
     "tsdown": "0.23.0",
     "typescript": "7.0.2",
     "vitest": "5.0.1"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    }
   },
   "engines": {
     "node": ">=22.19.0"

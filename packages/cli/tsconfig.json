@@ -1,8 +1,15 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
     "outDir": "./dist"
   },
   "include": ["./src", "./test", "./vitest.config.ts"],
-  "exclude": ["./test/fixtures/template"]
+  "exclude": [
+    "./test/fixtures/template",
+    "./test/fixtures/typecheck",
+    "./test/fixtures/discover",
+    "./test/fixtures/buildable"
+  ]
 }

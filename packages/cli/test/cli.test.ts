@@ -10,9 +10,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
 
 /**
- * Captures whatever is written to the real stdout, the way `sigil.test.ts`
- * captures stderr. `run()` writes through the framework, so there is no stream
- * to inject.
+ * Captures whatever is written to the real stdout. `run()` writes through the
+ * framework, so there is no stream to inject.
  */
 function captureStdout() {
 	const chunks: string[] = [];
@@ -60,10 +59,12 @@ describe('@ttylabs/cli', () => {
 			expect(schema().options).toHaveProperty('-v, --version');
 		});
 
-		it('should declare no commands until there are commands to declare', () => {
+		it('should declare only commands that are the whole of what they claim', () => {
 			// a command that exists and refuses is worse than one that does not
-			// exist yet, because only the second is honest in --help
-			expect(schema().commands).toEqual({});
+			// exist yet, because only the second is honest in --help. Both of these
+			// are complete: `build` bundles, and it runs `check`'s pass rather than
+			// replacing it
+			expect(Object.keys(schema().commands ?? {}).sort()).toEqual(['build', 'check']);
 		});
 	});
 
@@ -96,7 +97,83 @@ describe('@ttylabs/cli', () => {
 			} finally {
 				out.restore();
 			}
-			expect(out.text).toBe('');
+			expect(out.text).not.toContain(pkg.version);
+		});
+
+		it('should print help when no command was named', async () => {
+			// a CLI that is all subcommands has nothing to do without one, and
+			// printing nothing at all tells the reader neither what went wrong nor
+			// what is available
+			const out = captureStdout();
+			try {
+				await run([]);
+			} finally {
+				out.restore();
+			}
+
+			expect(out.text).toContain('Usage: sigil');
+			expect(out.text).toContain('check');
+		});
+
+		it('should print the same screen --help prints', async () => {
+			// the two spellings of one question, and a second screen built another
+			// way is a second thing to keep in agreement
+			const bare = captureStdout();
+			try {
+				await run([]);
+			} finally {
+				bare.restore();
+			}
+
+			const asked = captureStdout();
+			try {
+				await run(['--help']);
+			} finally {
+				asked.restore();
+			}
+
+			expect(bare.text).toBe(asked.text);
+		});
+
+		it('should leave the exit code alone when it prints help for no command', async () => {
+			// being asked what the program does and answering is not a failure
+			const out = captureStdout();
+			try {
+				await run([]);
+			} finally {
+				out.restore();
+			}
+			expect(process.exitCode).toBeFalsy();
+		});
+
+		it('should answer --version rather than printing help', async () => {
+			const out = captureStdout();
+			try {
+				await run(['--version']);
+			} finally {
+				out.restore();
+			}
+
+			expect(out.text.trim()).toBe(pkg.version);
+			expect(out.text).not.toContain('Usage:');
+		});
+
+		it('should not print help when a command ran quietly', async () => {
+			// `main()` hands back the state for a command whose `run` returned
+			// nothing, so "nothing was named" and "something ran quietly" are told
+			// apart by the command rather than by the return value
+			const out = captureStdout();
+			const err = vi
+				.spyOn(process.stderr, 'write')
+				.mockImplementation((() => true) as typeof process.stderr.write);
+			try {
+				await run(['check', resolve(root, 'test/fixtures/app')]);
+			} finally {
+				out.restore();
+				err.mockRestore();
+			}
+
+			expect(out.text).not.toContain('Usage: sigil');
 		});
 	});
 
@@ -126,8 +203,97 @@ describe('@ttylabs/cli', () => {
 		});
 
 		it('should depend on the runtime rather than bundling it', () => {
-			expect(pkg.dependencies).toEqual({ '@ttylabs/sigil': 'workspace:*' });
+			expect(pkg.dependencies).toHaveProperty('@ttylabs/sigil', 'workspace:*');
 			expect(config.external).toContain('@ttylabs/sigil');
+		});
+
+		it('should declare every dependency it has taken, and no more', () => {
+			// the toolchain is a devDependency of an app rather than part of what
+			// the app ships, so it may depend on whatever it needs -- a bundler, a
+			// parser -- and what it *produces* still depends on nothing. That
+			// licence is exactly what must not leak back into `@ttylabs/sigil`,
+			// whose zero-dependency manifest is asserted by its own suite.
+			//
+			// Written out rather than counted, so that taking a new one is an edit
+			// somebody makes on purpose and can be asked about in review.
+			expect(Object.keys(pkg.dependencies).sort()).toEqual([
+				'@ttylabs/sigil',
+				'oxc-parser',
+				'rolldown',
+			]);
+		});
+	});
+
+	/**
+	 * Every dependency is pinned to an exact version, in every manifest in the
+	 * workspace.
+	 *
+	 * A caret means a fresh install and a six-month-old lockfile can resolve to
+	 * different trees, and for a native binary -- rolldown and oxc-parser both --
+	 * that is a different binary on somebody's machine with nothing in the diff
+	 * to point at. The lockfile pins the resolution; this pins what the manifest
+	 * *asks* for, which is what a range widens the moment anybody reinstalls
+	 * without one.
+	 *
+	 * Asserted rather than left to `.npmrc`, because `save-exact` is only seen by
+	 * whoever ran `pnpm add` -- a caret written by hand, or by a tool that does
+	 * not read it, arrives with nothing to stop it.
+	 */
+	describe('pinned dependencies', () => {
+		const manifests = [
+			'package.json',
+			'packages/sigil/package.json',
+			'packages/cli/package.json',
+			'website/package.json',
+		].map((path) => ({
+			json: JSON.parse(readFileSync(resolve(root, '../..', path), 'utf-8')) as Record<
+				string,
+				Record<string, string> | undefined
+			>,
+			path,
+		}));
+
+		it('should find every manifest it means to check', () => {
+			// a path that stopped resolving would pass this suite by checking
+			// nothing, which is the failure mode a list of paths has
+			expect(manifests).toHaveLength(4);
+			for (const { json, path } of manifests) {
+				expect(json.name, `${path} has no name`).toBeDefined();
+			}
+		});
+
+		it('should pin every dependency and devDependency exactly', () => {
+			const ranged: string[] = [];
+
+			for (const { json, path } of manifests) {
+				for (const field of ['dependencies', 'devDependencies'] as const) {
+					for (const [name, spec] of Object.entries(json[field] ?? {})) {
+						// a workspace link is not a version range; it resolves to the
+						// package in this repo whatever anybody publishes
+						if (spec.startsWith('workspace:')) {
+							continue;
+						}
+						if (!/^\d+\.\d+\.\d+(?:-[\w.]+)?$/.test(spec)) {
+							ranged.push(`${path}: ${field}.${name} = ${spec}`);
+						}
+					}
+				}
+			}
+
+			expect(ranged).toStrictEqual([]);
+		});
+
+		it('should leave a peer dependency as a range, because that is what one is', () => {
+			// a peer declares what the toolchain *accepts* from the app rather than
+			// what it installs, so pinning it would refuse an app on any other
+			// TypeScript -- which is the opposite of the point
+			expect(pkg.peerDependencies).toHaveProperty('typescript');
+			expect(pkg.peerDependencies.typescript).toMatch(/^>=/);
+		});
+
+		it('should tell pnpm to keep writing exact versions', () => {
+			const npmrc = readFileSync(resolve(root, '../../.npmrc'), 'utf-8');
+			expect(npmrc).toMatch(/^save-exact=true$/m);
 		});
 	});
 

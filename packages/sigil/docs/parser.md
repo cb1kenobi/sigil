@@ -228,8 +228,30 @@ command is actually matched, so a large CLI only pays for the branch it takes.
 Inside a directory, a **route** is either a module file — `.js`, `.mjs`, `.cjs`,
 `.ts`, `.mts`, or `.cts` — named after the file, or a subdirectory, named after
 the directory. Anything else is skipped, as is any entry whose name starts with
-a `.`, and as is a declaration file: `deploy.d.ts` describes `deploy.ts` rather
-than being a command called `deploy.d`.
+a `.` or a `_`, and as is a declaration file: `deploy.d.ts` describes
+`deploy.ts` rather than being a command called `deploy.d`.
+
+A `_` prefix is how something that would otherwise be a perfectly good route is
+kept out of the tree — a helper module, a shared component, a `__tests__`
+directory:
+
+```
+commands/
+  _helpers.js         →  nothing; a module the commands beside it import
+  _shared/            →  nothing; not walked at all
+  deploy.js           →  mycli deploy
+```
+
+It is the prefix and only the prefix, so `commands/my_command.js` is
+`mycli my_command`. It takes an index module too: a `_index.js` is a helper
+that happens to be called index, not the directory's own command, so a
+directory holding nothing else is a namespace with nothing to run.
+
+The prefix is a rule about the _walk_. A path a declaration names is an
+explicit statement and gets the command it asked for, so
+`commands: { helpers: './_helpers.js' }` is `mycli helpers` — the same
+asymmetry as a path nobody named being a directory _of_ commands while a named
+one is _one_ command.
 
 TypeScript needs no compile step. Every runtime this supports strips types on
 its own — the package requires node >=22.19.0, where stripping is on by

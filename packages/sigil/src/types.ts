@@ -144,6 +144,23 @@ export interface Command<
 	examples?: CommandExample | CommandExample[];
 	help?: string | HelpRenderer;
 	hidden?: boolean;
+	/**
+	 * The command's module, as a function that imports it.
+	 *
+	 * `path` said the same thing as a file to read, and a bundled app has no
+	 * file to read: its command modules are chunks a bundler named, reached by a
+	 * dynamic `import()` the bundler rewrote. So `sigil build` emits
+	 * `load: () => import('./commands/build.js')` where the unbundled tree had a
+	 * `path`, and the deferral survives bundling -- which is most of the
+	 * startup-time argument for having a tree at all.
+	 *
+	 * Otherwise it is `path` exactly: the module it resolves to *is* the command,
+	 * its default export is merged over what the declaration left `undefined`,
+	 * and it is not called until the command is matched or help describes it.
+	 * Which is why it cannot be combined with either of the other two answers to
+	 * "what is this command" -- see the refusal in `initCommand()`.
+	 */
+	load?: CommandLoader;
 	hooks?: {
 		beforeError?: BeforeErrorHook;
 		/**
@@ -193,9 +210,19 @@ export interface InternalCommandBase extends InternalBase {
 	 * `false` so the next match tries again.
 	 */
 	loaded: boolean;
+	/** The command's module as a function, for a tree a bundler generated. */
+	load?: CommandLoader;
 	options: OptionRegistry;
 	path?: string;
 }
+
+/**
+ * Fetches a command's module.
+ *
+ * Whatever it resolves with is read for a `default` the way an imported module
+ * is, so `() => import('./build.js')` is the whole of the ordinary use.
+ */
+export type CommandLoader = () => Promise<unknown>;
 
 export type CommandHook =
 	| (() => Promise<void> | void)

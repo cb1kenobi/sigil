@@ -1,0 +1,7 @@
+{
+  "name": "router-app",
+  "type": "module",
+  "dependencies": {
+    "@ttylabs/sigil": "*"
+  }
+}

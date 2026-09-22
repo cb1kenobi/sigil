@@ -12,25 +12,20 @@ import { lockDerived } from '../../util/lock-derived.js';
 import { initArgs } from '../argument/init-args.js';
 import { OptionRegistry } from '../option/option-registry.js';
 import { CommandRegistry } from './command-registry.js';
-import { type Dirent, readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join, parse, resolve } from 'node:path';
+import {
+	moduleName,
+	readDirectory,
+	readPackage,
+	readRoutes,
+	resolveRoutes,
+	type Route,
+	routeName,
+} from './routes.js';
+import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const { log } = debug('sigil:init-command');
 
-const fileTypeRegExp = /^\.[cm]?[jt]s$/;
-
-/**
- * A TypeScript extension, which is the half of `fileTypeRegExp` that needs a
- * declaration file kept out of it.
- */
-const tsTypeRegExp = /^\.[cm]?ts$/;
-
-/**
- * The basename of the module that declares a directory's own command, as
- * opposed to one of the commands inside it.
- */
-const INDEX_NAME = 'index';
 const nameSplitRegExp = /[, ]+/;
 
 /**
@@ -107,6 +102,28 @@ export async function initCommand(
 	if (decl.path !== undefined && decl.run !== undefined) {
 		throw new Error(
 			`Cannot combine "path" with "run" in the "${decl.name}" command: the module at "path" is the command, so an inline run would never be reached`
+		);
+	}
+
+	if (decl.load !== undefined && typeof decl.load !== 'function') {
+		throw new TypeError(`Invalid load function in "${decl.name}" command`);
+	}
+
+	// `load` is `path` said as a function rather than as a file, so it is the
+	// same statement and collides with the same things: three answers to "what
+	// is this command" and no right one to pick between them. Refused here for
+	// the reason the pair above is -- picking silently is what makes it a
+	// trapdoor -- and refused against `path` as well, since a command with both
+	// would fetch its module twice by two mechanisms and merge whichever won
+	if (decl.load !== undefined && decl.run !== undefined) {
+		throw new Error(
+			`Cannot combine "load" with "run" in the "${decl.name}" command: the module "load" imports is the command, so an inline run would never be reached`
+		);
+	}
+
+	if (decl.load !== undefined && decl.path !== undefined) {
+		throw new Error(
+			`Cannot combine "load" with "path" in the "${decl.name}" command: both name the module that is the command, so only one of them can be it`
 		);
 	}
 
@@ -244,6 +261,7 @@ export async function initCommand(
 			baseDir,
 			commands,
 			label: parsed.label,
+			load: decl.load,
 			// a placeholder has not pulled its module in yet; `loadCommand()`
 			// flips this only once the import and the module's own init have
 			// both succeeded
@@ -502,8 +520,8 @@ async function registerCommandPath({
 
 	const entries = readDirectory(modulePath);
 	if (entries) {
-		for (const cmd of await discover(modulePath, entries)) {
-			commands.add(cmd);
+		for (const route of resolveRoutes(modulePath, entries)) {
+			commands.add(await routeCommand(route));
 		}
 		return;
 	}
@@ -580,81 +598,25 @@ async function directoryCommand(dir: string, name: string): Promise<InternalComm
 }
 
 /**
- * Builds a command for every route in one directory listing.
+ * Builds the command one route is.
  *
- * @param dir - The directory the entries came from.
- * @param entries - Its listing.
- * @returns One command per entry that is a route.
- */
-async function discover(dir: string, entries: Dirent[]): Promise<InternalCommand[]> {
-	const claimed = new Map<string, string>();
-	const cmds: InternalCommand[] = [];
-
-	// sorted, because `readdir` order is the file system's, and a registry whose
-	// order depends on that is the thing `CommandRegistry.add()` already sorts
-	// names to avoid reporting
-	for (const entry of [...entries].sort((a, b) => a.name.localeCompare(b.name))) {
-		const isDir = isDirectoryEntry(entry, dir);
-		const name = routeName(entry, dir, isDir);
-
-		// `index` is the directory's own command rather than one inside it. Where
-		// there is no directory command for it to be -- a bare
-		// `commands: './commands'`, whose own command is the schema -- it is
-		// nothing at all, which is why this is one rule rather than two
-		if (!name || name === INDEX_NAME) {
-			continue;
-		}
-
-		const entryPath = join(dir, entry.name);
-		const cmd = isDir
-			? await subdirectoryCommand(entryPath, name)
-			: await initCommand({ name }, entryPath);
-
-		// asked of the command rather than of the entry, because a package renames
-		// itself: a `pkg/` whose `package.json` says `foo` collides with a `foo.js`
-		// beside it, and the directory name would not have seen it
-		const previous = claimed.get(cmd.name);
-		if (previous !== undefined) {
-			// silently keeping one of them would keep whichever `readdir` handed
-			// over second, which is the file system's order deciding which command
-			// an app has
-			throw new Error(
-				`Two entries in "${dir}" both declare a "${cmd.name}" command: "${previous}" and "${entry.name}"`
-			);
-		}
-		claimed.set(cmd.name, entry.name);
-
-		cmds.push(cmd);
-	}
-
-	return cmds;
-}
-
-/**
- * The command a subdirectory of a walked directory is.
+ * The route has already settled everything about the file system: which of the
+ * three kinds this is, what it is called, and what file is behind it. All that
+ * is left is what a *command* is, which is what this layer knows and
+ * `routes.ts` deliberately does not.
  *
- * A package is not walked: its `exports` is what says which module is the
- * command, so reading the directory would register its internals as commands.
- * Everything else is a directory command, whose own level waits to be walked.
- *
- * @param dir - The subdirectory.
- * @param fallbackName - What the directory is called, for a package that does
- * not name itself and for anything that is not one.
+ * @param route - The route.
  * @returns The command, unloaded either way.
  */
-async function subdirectoryCommand(dir: string, fallbackName: string): Promise<InternalCommand> {
-	const pkg = readPackage(dir);
-
-	if (pkg) {
-		// a package names and describes itself in its `package.json`, which is a
-		// file read rather than an import -- so the name is known in time to match
-		// on and the module still waits for a match. What it costs is that read per
-		// subdirectory of a level being walked, which is the price of letting a
-		// package keep its own name
-		return initCommand({ desc: pkg.description, name: pkg.name ?? fallbackName }, pkg.entryFile);
+async function routeCommand(route: Route): Promise<InternalCommand> {
+	if (route.kind === 'directory') {
+		return directoryCommand(route.path, route.name);
 	}
 
-	return directoryCommand(dir, fallbackName);
+	// a package arrives already named and described by its own manifest, and a
+	// module arrives with nothing but its path -- what each still waits for is
+	// the import, which is `loadCommand()`'s
+	return initCommand({ desc: route.desc, name: route.name }, route.path);
 }
 
 /**
@@ -676,253 +638,18 @@ export async function loadCommandDir(cmd: InternalCommand): Promise<void> {
 
 	log(`Walking command directory: ${dir}`);
 
-	const entries = readDirectory(dir);
-	if (!entries) {
+	const level = readRoutes(dir);
+	if (!level) {
 		throw new Error(`Command directory not found: ${dir}`);
 	}
 
-	for (const sub of await discover(dir, entries)) {
-		internal.commands.add(sub);
+	for (const route of level.routes) {
+		internal.commands.add(await routeCommand(route));
 	}
 
 	// no package branch: a directory holding a `package.json` was resolved to its
 	// entry module where it was discovered, so nothing that reaches here is one
-	internal.path = indexEntry(dir, entries);
-}
-
-/**
- * Reads a directory, or answers `undefined` for anything that is not one.
- *
- * @param dir - The path to read.
- * @returns Its entries, or `undefined`.
- */
-function readDirectory(dir: string): Dirent[] | undefined {
-	try {
-		return readdirSync(dir, { withFileTypes: true });
-	} catch {
-		// not a directory, or not there
-		return undefined;
-	}
-}
-
-/**
- * Whether a directory entry is itself a directory.
- *
- * @param entry - The entry.
- * @param dir - The directory it came from.
- * @returns Whether to walk it.
- */
-function isDirectoryEntry(entry: Dirent, dir: string): boolean {
-	if (entry.isDirectory()) {
-		return true;
-	}
-
-	// a `Dirent` reports a symlink as a symlink whatever it points at, and a
-	// symlinked directory of commands is still a directory of commands
-	if (entry.isSymbolicLink()) {
-		try {
-			return statSync(join(dir, entry.name)).isDirectory();
-		} catch {
-			// a broken link points at nothing
-			return false;
-		}
-	}
-
-	return false;
-}
-
-/**
- * The command name a directory entry routes to.
- *
- * @param entry - The entry.
- * @param dir - The directory it came from.
- * @param isDir - Whether it is a directory, when the caller already asked.
- * @returns The name, or `undefined` when the entry is not a route at all.
- */
-function routeName(
-	entry: Dirent,
-	dir: string,
-	isDir = isDirectoryEntry(entry, dir)
-): string | undefined {
-	// a dot-prefixed entry is never a route: `.gitkeep`, `.DS_Store` and a `.git`
-	// directory all end up beside command modules, and none of them is a command
-	// anybody wrote
-	if (entry.name.startsWith('.')) {
-		return undefined;
-	}
-
-	if (isDir) {
-		return entry.name;
-	}
-
-	return moduleName(entry.name);
-}
-
-/**
- * The command a module filename names, or `undefined` when it names none.
- *
- * @param filename - The file's own name, or a path ending in it.
- * @returns The name, without the extension.
- */
-function moduleName(filename: string): string | undefined {
-	const { ext, name } = parse(filename);
-
-	if (!name || !ext || !fileTypeRegExp.test(ext)) {
-		return undefined;
-	}
-
-	// `build.d.ts` parses as a name of `build.d` and an extension of `.ts`, so
-	// left alone a declaration file is a command called `build.d` -- and beside
-	// the `build.js` it describes it is a second claim on `build`, which is the
-	// collision error on a directory that has nothing wrong with it. Compiled
-	// output is the ordinary way to end up with both
-	if (tsTypeRegExp.test(ext) && name.endsWith('.d')) {
-		return undefined;
-	}
-
-	return name;
-}
-
-/**
- * The `index` module in a directory listing, if there is one.
- *
- * @param dir - The directory.
- * @param entries - Its listing.
- * @returns The path to the index module, or `undefined`.
- */
-function indexEntry(dir: string, entries: Dirent[]): string | undefined {
-	const found = entries.filter((entry) => moduleName(entry.name) === INDEX_NAME);
-
-	// two of them is the ambiguity two routes of one name already is, said about
-	// the directory itself: an `index.ts` beside a stale `index.js` is a
-	// directory with two answers, and picking one by a preference order is how
-	// somebody edits the file that is not being loaded
-	if (found.length > 1) {
-		const names = found.map((entry) => `"${entry.name}"`).sort();
-		throw new Error(`Directory "${dir}" has more than one index module: ${names.join(', ')}`);
-	}
-
-	return found.length ? join(dir, found[0]!.name) : undefined;
-}
-
-/**
- * Resolves a package's `exports` to the relative paths worth trying, best first.
- *
- * An `exports` map nests: `"."` holds a conditions object, a condition holds
- * another, and an array is a fallback list. Unwrapping exactly one level --
- * `exports['.'] || exports.default` -- left a plain object for the ordinary
- * `{ ".": { "import": "./index.js" } }`, which then reached `join()` as
- * `[object Object]` and reported the package as having no valid export.
- *
- * Every candidate is returned rather than the first one, because a fallback list
- * means "the first of these that works" and whether one works is a question about
- * the file system: the caller already walks the list looking for a file, so
- * picking here would pick a path that may not exist and call the package broken.
- *
- * Only what this loader can actually import is considered: `import` and `node`
- * before `default`, and `require` last, since a CommonJS entry still loads. The
- * conditions it cannot honor -- `browser`, `types`, a user condition -- are
- * skipped rather than guessed at.
- *
- * @param exports - The `exports` field, whatever shape it is in.
- * @param subpath - Whether a `"."` subpath is still to be taken.
- * @returns The relative paths, in the order they should be tried.
- */
-function resolveEntries(exports: unknown, subpath = true): string[] {
-	if (typeof exports === 'string') {
-		return [exports];
-	}
-
-	if (Array.isArray(exports)) {
-		return exports.flatMap((candidate) => resolveEntries(candidate, subpath));
-	}
-
-	if (!exports || typeof exports !== 'object') {
-		return [];
-	}
-
-	const map = exports as Record<string, unknown>;
-
-	// a map whose keys are subpaths is a different thing from one whose keys are
-	// conditions, and `"."` is only a subpath at the top
-	if (subpath && Object.hasOwn(map, '.')) {
-		return resolveEntries(map['.'], false);
-	}
-
-	const entries: string[] = [];
-	for (const condition of ['import', 'node', 'default', 'require']) {
-		if (Object.hasOwn(map, condition)) {
-			entries.push(...resolveEntries(map[condition], false));
-		}
-	}
-
-	// one file reached through two conditions is still one file to try
-	return [...new Set(entries)];
-}
-
-/**
- * Reads what a package says about itself, without importing it.
- *
- * Everything here is a file read and a `stat`: which module is the command,
- * what it is called, and what it does. That is what lets a package a directory
- * walk discovered cost no more than a plain directory -- it is described in
- * help by its `package.json` and imported only when it is matched.
- *
- * @param dir - The directory that may be a package.
- * @returns What it says, or `undefined` when it is not a package.
- */
-function readPackage(
-	dir: string
-): { description?: string; entryFile: string; name?: string } | undefined {
-	const pkgFile = join(dir, 'package.json');
-
-	let json;
-	try {
-		json = readFileSync(pkgFile, 'utf-8');
-	} catch {
-		// no package.json, not a package
-		return;
-	}
-
-	let pkgJson;
-	try {
-		pkgJson = JSON.parse(json);
-	} catch (err) {
-		throw new Error(`Failed to JSON parse ${pkgFile}: ${err instanceof Error ? err.message : err}`);
-	}
-
-	const { description, exports, main, name, type } = pkgJson;
-
-	const entries = resolveEntries(exports);
-	if (!entries.length && typeof main === 'string') {
-		entries.push(main);
-	}
-
-	const filePaths = entries.length
-		? entries
-		: ['index.js', 'index.mjs', 'index.cjs', 'index.ts', 'index.mts', 'index.cts'];
-	let entryFile;
-
-	for (const filepath of filePaths) {
-		try {
-			const file = join(dir, filepath);
-			const st = statSync(file);
-			if (st.isFile()) {
-				entryFile = file;
-				break;
-			}
-		} catch {
-			// not a file or does not exist
-		}
-	}
-
-	if (!entryFile) {
-		throw new Error(
-			`Command package does not have a valid ${type === 'module' ? 'export' : 'main'}: ${dir}`
-		);
-	}
-
-	return { description, entryFile, name };
+	internal.path = level.index;
 }
 
 /**

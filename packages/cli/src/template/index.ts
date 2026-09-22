@@ -11,7 +11,7 @@
  * import { parse, Expr } from '@ttylabs/sigil/template';
  * import { analyze, compile, renderImports } from '@ttylabs/cli/template';
  *
- * const found = templatesIn(module); // SIG-73's
+ * const found = findTemplates(file, source); // '@ttylabs/cli/build'
  * const irs = found.map(({ quasis, expressions }) =>
  *   analyze(parse(quasis, expressions.map((source) => new Expr(source))))
  * );
@@ -19,17 +19,19 @@
  * ```
  *
  * `quasis` and `expressions` are the two halves a tagged template already has,
- * so whatever reads the module -- `sigil build`, SIG-73 -- hands over what it
- * found and writes each of `sources` back where its template was, `hoisted` at
- * module scope, and `renderImports(imports)` at the top. A module at a time,
- * because all three of those are the module's rather than one template's.
+ * so whatever reads the module -- `findTemplates()` in `@ttylabs/cli/build` --
+ * hands over what it found and writes each of `sources` back where its template
+ * was, `hoisted` at module scope, and `renderImports(imports)` at the top. A
+ * module at a time, because all three of those are the module's rather than one
+ * template's. Each `FoundTemplate` carries the span it came from, which is what
+ * a caller splices the matching `sources` entry into.
  */
 
-export { analyze } from './analyze.js';
+export { analyze } from './analyze.ts';
 export {
 	compile,
 	type Compiled,
 	type CompiledImport,
 	type CompileOptions,
 	renderImports,
-} from './emit.js';
+} from './emit.ts';

@@ -1,0 +1,7 @@
+{
+  "name": "broken-app",
+  "type": "module",
+  "dependencies": {
+    "@ttylabs/sigil": "*"
+  }
+}

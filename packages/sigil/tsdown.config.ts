@@ -56,6 +56,7 @@ const config: UserConfig = defineConfig({
 		index: './src/index.ts',
 		paths: './src/paths.ts',
 		renderer: './src/renderer/index.ts',
+		routes: './src/parser/command/routes.ts',
 		signals: './src/signals/index.ts',
 		style: './src/style/index.ts',
 		template: './src/template/index.ts',

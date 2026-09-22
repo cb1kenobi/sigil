@@ -1,0 +1,6 @@
+{
+  "name": "not-an-app",
+  "dependencies": {
+    "react": "*"
+  }
+}
