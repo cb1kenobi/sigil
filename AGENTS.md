@@ -3337,6 +3337,52 @@ tree at run time` is the only place that asserts what the output _does_, which
   answer people trust instead of trying it. The diagnostic names the line, says
   which directory each side would resolve against, and gives the one line to add.
 
+### `sigil new`
+
+- **The scaffold's `tsconfig.json` is not boilerplate.** `lib: ["esnext"]` and
+  `types: ["node"]` are load-bearing: without them `lib.dom` is included, which
+  declares `setInterval(): number` and shadows node's `NodeJS.Timeout`, so an
+  ejected spinner fails to compile with `Property 'unref' does not exist on type
+'number'` -- on a component whose source already writes `timer.unref?.()`.
+  Nothing about the component is wrong and nothing about it can fix it. Found by
+  ejecting into a bare app and type-checking it.
+- **An entry exports a schema and something else runs it, so a scaffold writes
+  two files.** `sigil build` _parses_ the entry rather than importing it, because
+  importing would run the app -- so the entry can only be a module whose default
+  export is the schema. That leaves nothing to start it, which is what `dev.ts`
+  is. A single module doing both would need `import.meta.main`, which is node 24
+  where the floor here is 22.19. The dev runner is deliberately not `src/cli.ts`:
+  `cli` is one of the names discovery looks for, and a second entry candidate
+  beside the real one is an ambiguity waiting for somebody to delete the wrong
+  file.
+- **`--link` links both packages, because half of "use what is on this machine"
+  is not a thing anybody asked for.** Linking only `@ttylabs/sigil` left the
+  scaffolded app depending on an unpublished `@ttylabs/cli`, so the install died
+  on a 404 having got everything else right. The default is still the real
+  version range: the flag is a workaround for a temporary state of the world, and
+  a scaffold that quietly wrote a machine-local path would keep working right up
+  until somebody committed it.
+- **A scaffold never names a tool it does not install, and the check for that is
+  in the generator.** The linter versions were read off this repository and
+  `oxlint` is a devDependency of the _workspace root_ rather than of
+  `@ttylabs/cli`, so the lookup answered `undefined`, `JSON.stringify` dropped
+  the key, and the app got a `lint` script for a tool nothing installed --
+  silently, because a missing JSON value is indistinguishable from one nobody
+  wrote. The versions are written down in the scaffold now, as carets rather than
+  pins: these are tools whose releases this repository does not track, and
+  pinning one hands out whatever was current the day it was written. The app's
+  own lockfile is what pins them.
+- **It asks about what changes the files and works out the rest.** The name, the
+  language, and one command versus several have no defensible default for a
+  project that does not exist; a linter is a preference and a config file nobody
+  enjoys writing twice. The package manager is read off `npm_config_user_agent`,
+  because asking a question whose answer is already on the table is a question
+  not worth asking, and git is just done.
+- **A `sigil.json` is written rather than left to the convention.** A scaffold is
+  exactly where a project's conventions should be explicit, and it is what stops
+  `sigil add` having to guess -- and then print the guess, which is what it does
+  when there is no config.
+
 ### The registry: what `sigil add` copies
 
 - **`sigil add` is an eject, not an install, and that is the divergence from
