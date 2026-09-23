@@ -33,6 +33,7 @@
 
 import {
 	isProperty,
+	kebab,
 	PROPERTIES,
 	PROPERTY_NAMES,
 	type PropertyName,
@@ -392,20 +393,44 @@ export function generateUtilities(opts: UtilityOptions = {}): string {
 	return `${lines.join('\n')}\n`;
 }
 
+/**
+ * One declaration, checked against the property table and written in kebab.
+ *
+ * The table's keys are camelCase and a property name resolves in both
+ * spellings, which is what let the two printers here come apart: the spacing
+ * utilities are written `padding-top` and the flexbox ones `flexDirection`, so
+ * `@apply` emitted one spelling and `generateUtilities()` the other, and both
+ * parsed. That did not matter while the output was an intermediate; it does now
+ * that the base set is committed as `UTILITY_CSS` and read by whoever wants to
+ * know what a class does. A stylesheet spells a property the way a stylesheet
+ * does, wherever the table happened to write it.
+ *
+ * The check is shared for the same reason the printing is. `@apply` used to
+ * trust the table while `generateUtilities()` parsed every declaration on the
+ * way out, and the rule is the generator's rather than one caller's: a utility
+ * must not carry a value its own property would refuse, however it is reached.
+ *
+ * @param utility - The utility it belongs to, named in the error.
+ * @param property - The property, in either spelling.
+ * @param value - The value, as source text.
+ * @returns The declaration as `property: value`.
+ */
+function declaration(utility: Utility, property: string, value: string): string {
+	if (!isProperty(property)) {
+		throw new Error(
+			`Utility "${utility.name}" sets "${property}", which is not a property the table has`
+		);
+	}
+	// parsed and thrown away: this is the check that a utility cannot ship a
+	// value its own property would refuse
+	readDeclarations({ [property]: value });
+	return `${kebab(property)}: ${value}`;
+}
+
 /** One rule, with its declarations checked against the property table. */
 function rule(utility: Utility, variant: string, pseudo = ''): string {
 	const declarations = utility.declarations
-		.map(([property, value]) => {
-			if (!isProperty(property)) {
-				throw new Error(
-					`Utility "${utility.name}" sets "${property}", which is not a property the table has`
-				);
-			}
-			// parsed and thrown away: this is the check that a utility cannot ship a
-			// value its own property would refuse
-			readDeclarations({ [property]: value });
-			return `${property}: ${value}`;
-		})
+		.map(([property, value]) => declaration(utility, property, value))
 		.join('; ');
 
 	const name = variant ? `${variant}:${utility.name}` : utility.name;
@@ -430,7 +455,9 @@ export function expandApply(source: string, opts: UtilityOptions = {}): string {
 					`@apply names "${name}", which is not a utility. A variant cannot be applied -- it is a rule in another context, not a set of declarations`
 				);
 			}
-			out.push(...utility.declarations.map(([property, value]) => `${property}: ${value}`));
+			out.push(
+				...utility.declarations.map(([property, value]) => declaration(utility, property, value))
+			);
 		}
 		return out.join('; ');
 	};
