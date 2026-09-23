@@ -25,7 +25,13 @@
  * a fixture directory and no bundler at all.
  */
 
-export { formatDiagnostic, isFatal, type Diagnostic, type Severity } from './diagnostic.ts';
+export {
+	displayPath,
+	formatDiagnostic,
+	isFatal,
+	type Diagnostic,
+	type Severity,
+} from './diagnostic.ts';
 export { bundleApp, type BuiltChunk, type BundleOptions, type BundleResult } from './bundle.ts';
 export {
 	discoverApp,

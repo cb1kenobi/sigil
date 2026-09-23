@@ -38,7 +38,7 @@
  * read off the entry's source, because running it would run the app.
  */
 
-import type { Diagnostic } from './diagnostic.ts';
+import { type Diagnostic, displayPath } from './diagnostic.ts';
 import { factsOf } from './extract.ts';
 import {
 	literalBoolean,
@@ -254,7 +254,7 @@ function resolveEntry(root: string, entry: string): string {
 	const path = isAbsolute(entry) ? entry : resolve(root, entry);
 
 	if (!isFile(path)) {
-		throw new Error(`Entry module not found: ${path}`);
+		throw new Error(`Entry module not found: ${displayPath(path)}`);
 	}
 
 	return path;

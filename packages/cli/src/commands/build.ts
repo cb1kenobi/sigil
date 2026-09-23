@@ -29,7 +29,7 @@
  * faster when they land.
  */
 
-import { bundleApp, type BuiltChunk, type ResolvedTree } from '../build/index.ts';
+import { bundleApp, type BuiltChunk, displayPath, type ResolvedTree } from '../build/index.ts';
 import {
 	countCommands,
 	describeApp,
@@ -95,9 +95,9 @@ const build: AnyCommand = command({
 
 		const total = countCommands(found.commands);
 		process.stderr.write(
-			`\n${describeApp(found.app)}: ${total} command${total === 1 ? '' : 's'} into ${
+			`\n${describeApp(found.app)}: ${total} command${total === 1 ? '' : 's'} into ${displayPath(
 				relative(found.app.root, result.bin) || result.bin
-			}${counts.warnings ? `, ${counts.warnings} warning${counts.warnings === 1 ? '' : 's'}` : ''}\n`
+			)}${counts.warnings ? `, ${counts.warnings} warning${counts.warnings === 1 ? '' : 's'}` : ''}\n`
 		);
 	},
 });

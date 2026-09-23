@@ -16,6 +16,7 @@
 
 import {
 	discoverApp,
+	displayPath,
 	formatDiagnostic,
 	isFatal,
 	readAppCommands,
@@ -175,7 +176,7 @@ export function printTree(commands: readonly ResolvedCommand[], root: string): v
 		`${'  '.repeat(path.length - 1)}${cmd.name}${cmd.hidden ? ' (hidden)' : ''}`,
 		// a namespace has no module and nothing to run, which is a thing to say
 		// rather than a blank: it is the answer to half the questions this is for
-		cmd.module ? relative(root, cmd.module) : `(${cmd.kind}, nothing to run)`,
+		cmd.module ? displayPath(relative(root, cmd.module)) : `(${cmd.kind}, nothing to run)`,
 		cmd.desc ?? '',
 	]);
 
@@ -246,7 +247,7 @@ export function failure(found: Inspection, counts: { errors: number; warnings: n
  * @returns Its name and the entry that was read.
  */
 export function describeApp(app: DiscoveredApp): string {
-	return `${app.manifest.name ?? app.root} (${relative(app.root, app.entry) || app.entry})`;
+	return `${app.manifest.name ?? app.root} (${displayPath(relative(app.root, app.entry) || app.entry)})`;
 }
 
 /**

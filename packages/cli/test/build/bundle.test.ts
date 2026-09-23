@@ -71,9 +71,19 @@ function bundleSpecifiers(): string[] {
 
 /** Runs the built executable. */
 function run(...argv: string[]) {
+	// through `node` rather than by executing the file, because a shebang is not
+	// how anything starts on Windows: `spawnSync(bin, ...)` there comes back with
+	// a null status and no stdout at all, so every assertion below failed on a
+	// bundle that was perfectly fine. The rule is already written down for the
+	// way the build invokes `tsc`; this is the same rule, applied to the build's
+	// own output.
+	//
+	// What that gives up is proof the shebang line works, which is what the
+	// test below is for.
+	//
 	// `cwd` somewhere unrelated on purpose: a built app must not depend on where
 	// it is run from, and the fixture's own directory would hide it if it did
-	return spawnSync(bin, argv, { cwd: tmpdir(), encoding: 'utf-8' });
+	return spawnSync(process.execPath, [bin, ...argv], { cwd: tmpdir(), encoding: 'utf-8' });
 }
 
 /**
@@ -97,10 +107,20 @@ describe('bundling an app', () => {
 		chunks = result.chunks;
 	}, 60_000);
 
-	it('should write an executable with the bit set', () => {
-		// a shebang without the bit is a file nobody can run
-		expect(statSync(bin).mode & 0o111).toBeGreaterThan(0);
+	it('should write a shebang', () => {
+		// asserted everywhere, because the line is in the file whoever built it:
+		// a bundle built on Windows and published from there still has to run on
+		// a machine that reads shebangs
 		expect(readFileSync(bin, 'utf-8').startsWith('#!/usr/bin/env node')).toBe(true);
+	});
+
+	it.skipIf(process.platform === 'win32')('should set the executable bit', () => {
+		// a shebang without the bit is a file nobody can run -- on a platform
+		// that has one. Windows has no execute bit, so `mode & 0o111` is always
+		// 0 there and the assertion was failing on a correct build; what makes a
+		// bin runnable on Windows is the shim npm writes, which is npm's to do
+		// and not this build's.
+		expect(statSync(bin).mode & 0o111).toBeGreaterThan(0);
 	});
 
 	it('should depend on nothing but itself and node', () => {
