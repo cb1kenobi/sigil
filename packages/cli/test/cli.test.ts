@@ -61,10 +61,11 @@ describe('@ttylabs/cli', () => {
 
 		it('should declare only commands that are the whole of what they claim', () => {
 			// a command that exists and refuses is worse than one that does not
-			// exist yet, because only the second is honest in --help. Both of these
-			// are complete: `build` bundles, and it runs `check`'s pass rather than
-			// replacing it
-			expect(Object.keys(schema().commands ?? {}).sort()).toEqual(['build', 'check']);
+			// exist yet, because only the second is honest in --help. All three are
+			// complete: `add` copies, `check` reads, and `build` bundles and runs
+			// `check`'s pass rather than replacing it. `new` is not here because it
+			// is not written.
+			expect(Object.keys(schema().commands ?? {}).sort()).toEqual(['add', 'build', 'check']);
 		});
 	});
 

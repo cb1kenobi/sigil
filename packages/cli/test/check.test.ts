@@ -64,7 +64,7 @@ describe('sigil check', () => {
 			// `build` runs `check`'s pass rather than replacing it
 			const commands = schema().commands as Record<string, { desc?: string; load?: unknown }>;
 
-			expect(Object.keys(commands).sort()).toStrictEqual(['build', 'check']);
+			expect(Object.keys(commands).sort()).toStrictEqual(['add', 'build', 'check']);
 			expect(commands.build!.load).toBeTypeOf('function');
 		});
 

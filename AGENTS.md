@@ -3349,6 +3349,47 @@ tree at run time` is the only place that asserts what the output _does_, which
   this repo. It is in the manifest because a third-party registry will have
   them, and a shape that only describes the easy case is one somebody else
   discovers to be wrong.
+- **`add` resolves the registry from the app, never from the toolchain.** That
+  is the other half of shipping it in the runtime: `@ttylabs/cli` is a
+  devDependency on its own version line, so reading a registry out of its
+  dependencies would eject a component a release ahead of what the app imports.
+  Resolution goes through the package's `package.json` subpath, which every
+  package publishes and which answers wherever the files actually live --
+  resolving the package's _main_ would import it, which is a registry running
+  code in order to be read.
+- **The plan is worked out before anything is written, and the showing and the
+  doing read the same one.** `add` puts code from somebody else's package into a
+  source tree, so what it will write is printed first. Two walks that agree for
+  now is how the printed plan and the written files come to differ, so there is
+  one `planAdd()` and `apply()` only writes what it is handed.
+- **A file already there stops the run rather than being overwritten.** `--force`
+  is the way past it and the message says so, because the thing being overwritten
+  is by construction a file somebody edited -- that is what ejecting is for.
+- **`add` with nothing named lists, and the listing argues against itself.** "What
+  can I add" is the question somebody has at that moment, and an empty usage line
+  does not answer it. What the listing says is that most customization needs no
+  copy: a built-in is restyled with an ordinary rule against the classes it draws
+  with. The same note is printed at the moment of ejecting, naming the classes
+  that entry draws with -- a tool that leads with copying teaches people to fork
+  what they could have themed.
+- **One registry per call.** Two in one plan means two `registryDeps` namespaces,
+  and a dep that resolves in one and not the other is a failure nobody could
+  read. Refused with the instruction rather than resolved by guessing which
+  namespace a name belongs to.
+- **A missing entry the user typed is their typo; a missing `registryDep` is the
+  registry's bug.** They are reported differently and deliberately: the first
+  lists what the registry does have, and the second says the registry is wrong,
+  because the user never typed that name and telling them it is unavailable
+  would be blaming them for somebody else's manifest.
+- **`sigil add` copies TypeScript, whatever the app is written in, and that is a
+  deferral rather than an answer.** Emitting JavaScript means stripping types,
+  and neither `oxc-parser` nor `rolldown` -- the two the toolchain already has --
+  transforms. Taking a dependency for it is a decision worth making on purpose
+  rather than as a side effect of a file copy, and it is affordable to wait
+  because `engines` requires node >=22.19.0, where type stripping is on by
+  default: a `.ts` component runs in a JavaScript app with nothing compiling it,
+  which is the rule a command module already follows. What it costs is an app
+  whose own tooling is JavaScript-only, and that is the case to revisit it for.
 - **An entry is one file, not one export.** `prompt.ts` holds all five prompts,
   and splitting it into five entries means splitting the source -- a refactor of
   the runtime rather than a decision about a registry. `index.ts`, `mount.ts`
