@@ -682,8 +682,16 @@ function camel(name: string): string {
 	return name.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
 }
 
-/** `backgroundColor` -> `background-color`, for messages and for the reverse map. */
-export function kebab(name: PropertyName): string {
+/**
+ * `backgroundColor` -> `background-color`, for messages and for the reverse map.
+ *
+ * Takes any name rather than a `PropertyName`, because the two callers that
+ * matter cannot supply one: a message names whatever it was handed, and
+ * `isProperty()` is true of the aliases as well as the longhands, so it narrows
+ * to nothing. The body never needed one -- it lowercases capitals, so a name
+ * already written in kebab passes through as itself.
+ */
+export function kebab(name: string): string {
 	return name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
 }
 

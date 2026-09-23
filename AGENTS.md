@@ -76,7 +76,9 @@ to `./packages/*`: a test run has no use for the site, and CI runs the suite on
 nine node-and-os combinations.
 
 `packages/cli/src/` is the bin, `--version`, the schema the filesystem router
-will replace, `src/utilities/` — the utility generator — `src/template/`, the
+will replace, `src/utilities/` — the utility generator, whose committed output
+is `packages/sigil/src/style/utilities.ts` and whose `scripts/` writes it —
+`src/template/`, the
 analysis pass and the build emitter, and `src/build/`, which reads an app off
 disk: the app discovered from its manifest and entry, the command tree resolved
 ahead of time, the static `desc`/`hidden` lift, the `ui` templates found in a
@@ -1699,8 +1701,16 @@ normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
 
 ### The utility layer
 
-Lives in `packages/cli/src/utilities/`, because it is a generator and a
-stylesheet rather than anything the runtime knows about.
+The generator lives in `packages/cli/src/utilities/`; its output lives in
+`packages/sigil/src/style/utilities.ts`, generated and committed. That split is
+the `east-asian-width.ts` one and it is what the original wording -- "a
+generator and a stylesheet rather than anything the runtime knows about" --
+turns into once an app actually has to get the sheet from somewhere. Reading
+`PROPERTIES` and parsing every declaration on the way out is toolchain work; a
+few hundred rules of CSS is a string constant, and a string constant is not a
+dependency. Regenerate with `node scripts/generate-utilities.mjs` from inside
+`packages/cli`, then `pnpm fmt`; `the committed sheet` in
+`packages/cli/test/utilities.test.ts` fails if the two have come apart.
 
 - **A utility is a generated stylesheet rule, and nothing in the runtime knows
   the difference.** `p-2` is `.p-2 { padding: 2 }` -- the same class selector,
@@ -1745,6 +1755,35 @@ stylesheet rather than anything the runtime knows about.
   because there is nothing between one cell and two, there are sixteen colours,
   and the property set is fifty-odd entries -- so the base set is a few hundred
   rules and shipping it whole is much simpler than deciding what to leave out.
+- **The base set ships and the variants do not, which is a measurement rather
+  than a preference.** `md:` and its fifteen siblings multiply the base set by
+  the number of variants: 383 rules and 13 KB become 4,996 and 215 KB, which is
+  7.29ms to parse against the base set's 0.63ms. A CLI's whole startup is around
+  35ms, so that is a fifth of it spent on rules almost no app names one of.
+  `generateUtilities()` still emits them for a caller that asks; what is
+  committed is the base set. Shipping the lot is what SIG-81 (style shaking) has
+  to make affordable first.
+- **The sheet is opt-in, and `FRAMEWORK_CSS` is not.** Every app draws a
+  built-in eventually and that sheet is the vocabulary a theme restyles, so it
+  is parsed for everyone. This one is 383 rules an app may never name a single
+  one of, and a CLI that answers `--version` and exits should not pay to find
+  that out -- so an app says `utilitySheet()` once. It is an ordinary sheet at
+  the ordinary origin either way: the `@layer utilities` it is written in is
+  what puts a `p-2` above an app's own `.panel { padding: 4 }`, not anything
+  about how it arrived.
+- **A generated declaration is spelled the way a stylesheet spells it.** The
+  property table's keys are camelCase and a name resolves in both spellings,
+  which is exactly what let the two printers in one generator come apart:
+  `@apply` emitted `padding-top` while `generateUtilities()` emitted
+  `flexDirection`, both parsed, and nobody could see it while the output was an
+  intermediate nobody read. It is committed and documented now, so it goes
+  through one function that kebabs it -- and that function is the runtime's
+  `kebab()` rather than a local copy, which is the same rule `COLOR_PROPERTIES`
+  and `INHERITED` already follow. `kebab()` takes a `string` rather than a
+  `PropertyName` for a reason worth knowing: `isProperty()` is true of the
+  aliases as well as the longhands, so it narrows to nothing, and the body never
+  needed the narrowing -- it lowercases capitals, so a name already in kebab
+  passes through as itself.
 - **Arbitrary values are deliberately out.** `p-[13]` and `text-[#ff8800]` are
   what make the space unbounded again, and they are the reason a scanner has to
   exist at all. They are SIG-81's, along with the question of what a computed
@@ -3268,6 +3307,36 @@ tree at run time` is the only place that asserts what the output _does_, which
 
 ### The built-in components
 
+- **Importing `@ttylabs/sigil` loads no component, and that is now pinned rather
+  than merely true.** The root entry exports `main`, `command`, `options` and the
+  error handling; the parser and the help screen are reached through
+  `await import()`, and the components are only ever reached through
+  `@ttylabs/sigil/components`. So importing the package is 5 chunks and 4.1 KB
+  against the component set's 18 and 124 KB, and a CLI that prints one line pays
+  the first. It was true by _omission_, which is the kind of true that stops
+  being true the day somebody adds `export * from './components/index.js'` for
+  convenience and nothing says so -- measured at 130 KB when that was tried on
+  purpose. `what importing the package costs` in `test/dist.test.ts` walks the
+  static import graph of the built bundles, because that is the only place the
+  question has an answer: a dynamic import is spelled `import(` and a static one
+  is not, and the difference is the whole property. It asserts the symbols are
+  _present_ from the components entry as well as absent from the root, since a
+  test that only checks an absence passes forever the day the symbol is renamed.
+  Class names would not do for the check: `FRAMEWORK_CSS` carries `.sigil-spinner`
+  and every one of its siblings and is on the help path, so searching for the
+  vocabulary finds the theme and reports the whole component set as loaded when
+  none of it is.
+- **The components barrel is not split per component, because the components are
+  not what it costs.** Reaching for one is 124 KB, of which the component
+  implementations are 13.4 KB and the other 111 KB is the stack any single one
+  needs -- `style` alone is 41 KB, then layout, canvas, element, signals,
+  renderer, ansi, wrap, terminal, width. So a subpath per component saves an
+  unbundled app the other components' share plus `input`, which only the prompts
+  need: about 15 KB of 124, for five more entries in the exports map and five
+  more ways to spell an import. A bundled app already pays nothing for it --
+  rolldown shakes the barrel, measured at 84.8 KB for one component against
+  97.5 KB for four. The lever that would matter is the 41 KB of `style`, which is
+  SIG-81's.
 - **They are element trees, and the imperative API is a facade over them.**
   `createSpinner()`, `createProgress()`, `table()` and the four prompts still
   return what they always returned, because not every CLI wants a component tree:
