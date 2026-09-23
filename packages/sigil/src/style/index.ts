@@ -144,7 +144,41 @@ export {
 	percent,
 	StyleError,
 } from './value.js';
+export { UTILITY_CSS } from './utilities.js';
+import { parseStylesheet, type Stylesheet } from './stylesheet.js';
+import { UTILITY_CSS } from './utilities.js';
 import { StyleError } from './value.js';
+
+/** Parsed on the first ask and kept, the way `frameworkSheet()` keeps its own. */
+let utility: Stylesheet | undefined;
+
+/**
+ * The utility stylesheet, parsed once.
+ *
+ * ```js
+ * import { utilitySheet } from '@ttylabs/sigil/style';
+ *
+ * render(tree, { sheets: [utilitySheet()] });
+ * ```
+ *
+ * Opt-in rather than always on, which is the one decision here worth stating.
+ * `FRAMEWORK_CSS` is parsed for every app because every app draws a built-in
+ * eventually and the sheet is the vocabulary a theme restyles; this one is 383
+ * rules an app may never name a single one of, and a CLI that answers
+ * `--version` and exits should not pay 0.63ms to find that out. An app that
+ * wants utilities says so once.
+ *
+ * It is an ordinary sheet at the ordinary origin, so nothing about it is a
+ * special case: the `@layer utilities` it is written in is what puts a `p-2`
+ * above an app's own `.panel { padding: 4 }`, and an app beats either with
+ * `!important` exactly as it always could.
+ *
+ * @returns The utility sheet.
+ */
+export function utilitySheet(): Stylesheet {
+	utility ??= parseStylesheet(UTILITY_CSS);
+	return utility;
+}
 
 /** One declaration, as written: a property or shorthand, and its value. */
 export type Declarations = Record<string, string>;

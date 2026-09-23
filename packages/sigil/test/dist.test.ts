@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -75,5 +75,89 @@ describe('the shipped bundles', () => {
 
 		expect(ansi.length).toBeGreaterThan(0);
 		expect(imported).toMatch(/\\x1B/i);
+	});
+});
+
+/**
+ * Every module a static `import` of `entry` would load, and nothing else.
+ *
+ * Static rather than every specifier, because the difference is the whole
+ * point: `main()` reaches the parser and the help screen through `await
+ * import()`, so neither is on the graph that importing the package costs. A
+ * dynamic import is spelled `import(` and a static one is `import ... from"x"`
+ * or `import"x"`, so the parenthesis is what tells them apart.
+ *
+ * @param entry - A bundle in `dist/`, by name.
+ * @returns The bundles reachable from it without calling anything.
+ */
+function staticGraph(entry: string): Set<string> {
+	const seen = new Set<string>();
+	const queue = [entry];
+
+	while (queue.length > 0) {
+		const name = queue.shift() as string;
+		if (seen.has(name)) {
+			continue;
+		}
+		seen.add(name);
+
+		const source = readFileSync(join(dist, name), 'utf8');
+		for (const re of [/\bfrom\s*["'](\.\/[^"']+)["']/g, /\bimport\s*["'](\.\/[^"']+)["']/g]) {
+			for (const [, spec] of source.matchAll(re)) {
+				queue.push((spec as string).slice(2));
+			}
+		}
+	}
+
+	return seen;
+}
+
+describe('what importing the package costs', () => {
+	/**
+	 * Names only a component's implementation defines.
+	 *
+	 * Class names would not do: `FRAMEWORK_CSS` carries `.sigil-spinner` and
+	 * every one of its siblings, and that sheet is on the help path because help
+	 * is themed -- so a search for the *vocabulary* finds the theme and reports
+	 * the whole component set as loaded when none of it is.
+	 */
+	const IMPLEMENTATIONS = [
+		'createSpinner',
+		'createProgress',
+		'mountLive',
+		'PromptError',
+		'renderBar',
+		'tableView',
+	];
+
+	/** The bundles in a graph that define any of them. */
+	const carriers = (graph: Set<string>, symbol: string): string[] =>
+		[...graph].filter((name) => readFileSync(join(dist, name), 'utf8').includes(symbol));
+
+	it.each(IMPLEMENTATIONS)('should not load %s to import the package', (symbol) => {
+		// `src/index.ts` exports `main`, `command`, `options` and the error
+		// handling, and nothing else -- so a CLI that prints one line pays 4 KB
+		// rather than the 124 KB the component set comes to. It is true by
+		// omission, which is exactly the kind of thing that stops being true when
+		// somebody adds `export * from './components/index.js'` for convenience
+		// and nothing says so.
+		expect(carriers(staticGraph('index.mjs'), symbol)).toEqual([]);
+	});
+
+	it.each(IMPLEMENTATIONS)('should load %s to import the components', (symbol) => {
+		// the other half, and it is not decoration: a test that only asserts a
+		// symbol is absent passes forever the day the symbol is renamed, and
+		// would then be pinning nothing at all
+		expect(carriers(staticGraph('components.mjs'), symbol)).not.toEqual([]);
+	});
+
+	it('should keep the root entry small enough to be worth it', () => {
+		const graph = staticGraph('index.mjs');
+		const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
+
+		// a ceiling rather than a measurement -- it sits about 5x over the 4.1 KB
+		// this is today, so ordinary growth never touches it and pulling a
+		// rendering path onto the entry blows straight through it
+		expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(20 * 1024);
 	});
 });
