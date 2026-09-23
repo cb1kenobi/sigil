@@ -5,3 +5,22 @@ dist
 node_modules
 *.tsbuildinfo
 .turbo
+
+# A test fixture may legitimately be called `dist`. The rule above is
+# unanchored, so it matches at any depth, and `discover/built-app` is a fixture
+# whose whole point is a `bin` naming built output the way a real package does
+# -- `dist/cli.mjs` is the realistic spelling and is the thing under test.
+#
+# Left ignored the fixture is simply absent from a clone, so every test passes
+# for whoever generated it once and fails for everybody else. That is how CI
+# went red on `main`, and the failure says `Entry module not found`, which
+# points at the discovery code rather than at the missing file.
+#
+# The directory is re-included before its contents, because git does not
+# descend into an excluded directory to find a negation inside it.
+#
+# `node_modules` is deliberately NOT re-included: the only fixture files under
+# one are `.sigil/entry.mjs`, which is what `sigil build` writes, and generated
+# output does not belong in the repo.
+!packages/*/test/fixtures/**/dist/
+!packages/*/test/fixtures/**/dist/**
