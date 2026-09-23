@@ -3305,6 +3305,38 @@ tree at run time` is the only place that asserts what the output _does_, which
   registered command, because "the description is right" and "nothing was
   imported to learn it" are two claims and only the second one is the feature.
 
+### A schema's relative paths
+
+- **A relative `commands` path meant two different things, and `check` called it
+  fine.** The build resolves it against the _entry module's_ directory; the
+  runtime had nothing to resolve an inline schema against and fell back to the
+  process's working directory. So one `commands: './commands'` produced the tree
+  the build baked in _and_ an `Unsupported command module` the moment anybody ran
+  the app from source -- with `sigil check` reporting "no problems found" about
+  exactly that app. This is the divergence the shared route rules exist to
+  prevent, arriving through the one door they do not cover, and neither half of
+  the suite could see it: `buildable` uses a relative path and is only ever
+  _built_, `ts-app` is only ever _run_ and passes an absolute path. Each half was
+  tested; nothing crossed over. Found by scaffolding an app and running it, which
+  is what a scaffold is for.
+- **`Schema.baseDir` is what closes it, and it is the app's to set.** The plumbing
+  already existed -- `initCommand()` has taken a `baseDir` all along, for a
+  command declared inside a lazily loaded module -- so this exposes it rather
+  than inventing it. `import.meta.dirname` is what an app writes, and the point
+  of putting it on the _schema_ rather than resolving the path at the call site
+  is that `commands` stays a plain string literal, which is what `sigil build`
+  reads without running anything. Any other spelling breaks one side or the
+  other: an absolute path computed with `fileURLToPath` runs correctly and is
+  unreadable to the build, and a path the dev runner rewrites means the schema
+  says one thing to `dev` and another to `build`.
+- **The missing `baseDir` is a warning rather than an error, and `check` having
+  nothing to say was the worse half.** The _built_ app is genuinely fine and an
+  app that only ever ships bundled is not wrong, so failing the build over it
+  would refuse a working app. What could not stand is a checker answering "no
+  problems found" for an app that throws on startup -- it is the one tool whose
+  answer people trust instead of trying it. The diagnostic names the line, says
+  which directory each side would resolve against, and gives the one line to add.
+
 ### The registry: what `sigil add` copies
 
 - **`sigil add` is an eject, not an install, and that is the divergence from

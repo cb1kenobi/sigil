@@ -372,6 +372,28 @@ export function readAppCommands(app: DiscoveredApp): {
 
 	const asPath = literalString(declared.value);
 	if (asPath !== undefined) {
+		// A relative path here means two different things unless the schema says
+		// what it is relative to. This pass resolves it against the entry module;
+		// the runtime has no file to resolve an inline schema against, so it falls
+		// back to the process's working directory -- which for an installed CLI is
+		// wherever the user was standing. So the app builds and runs bundled, and
+		// throws `Unsupported command module` the moment anybody runs it from
+		// source, while this command reports no problems at all.
+		//
+		// A warning rather than an error because the *built* app is genuinely
+		// fine, and an app that only ever ships bundled is not wrong. What is
+		// wrong is this command having nothing to say about it.
+		if (!isAbsolute(asPath) && !plainProperty(schemas[0]!, 'baseDir')) {
+			diagnostics.push({
+				...at(parsed, declared.value.start),
+				message:
+					`"commands" is a relative path and the schema sets no "baseDir", so this resolves it ` +
+					`against ${displayPath(entryDir)} while the runtime resolves it against the working ` +
+					`directory. Add \`baseDir: import.meta.dirname\` to the schema.`,
+				severity: 'warning',
+			});
+		}
+
 		return {
 			commands: { dir: resolve(entryDir, asPath), kind: 'directory' },
 			diagnostics,

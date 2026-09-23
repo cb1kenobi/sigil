@@ -90,7 +90,12 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
 			cmd: undefined,
 			// the root context is built from a copy of the schema, never by writing
 			// a default name onto the caller's object
-			contexts: [await initCommand({ ...schema, name: schema.name ?? 'global' })],
+			contexts: [
+				// `baseDir` is the schema's own: an inline declaration has no file to
+				// be relative to, so this is the only way its relative paths can mean
+				// what the build already takes them to mean
+				await initCommand({ ...schema, name: schema.name ?? 'global' }, undefined, schema.baseDir),
+			],
 			env,
 			schema,
 			settings: opts.settings || {},
