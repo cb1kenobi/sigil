@@ -15,7 +15,8 @@
     "directory": "packages/sigil"
   },
   "files": [
-    "dist"
+    "dist",
+    "registry"
   ],
   "type": "module",
   "main": "./dist/index.mjs",
@@ -112,7 +113,7 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "build": "rimraf dist && tsdown -c tsdown.config.ts",
+    "build": "rimraf dist registry && tsdown -c tsdown.config.ts && node scripts/generate-registry.mjs",
     "coverage": "vitest --coverage",
     "ncu": "ncu -c 1d",
     "prepublishOnly": "pnpm run build",
