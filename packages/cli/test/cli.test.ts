@@ -297,6 +297,66 @@ describe('@ttylabs/cli', () => {
 		});
 	});
 
+	describe('the fixtures', () => {
+		const fixtures = resolve(root, 'test/fixtures');
+
+		/** Every file under `test/fixtures`, relative to the repository root. */
+		const files = (function walk(dir: string): string[] {
+			return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+				const path = join(dir, entry.name);
+				return entry.isDirectory() ? walk(path) : [path];
+			});
+		})(fixtures);
+
+		/**
+		 * The ones git refuses to track.
+		 *
+		 * `check-ignore` exits 1 when it matched nothing, which is the good case
+		 * here rather than a failure to run.
+		 */
+		const ignored = (() => {
+			const result = spawnSync('git', ['check-ignore', '--stdin'], {
+				cwd: resolve(root, '../..'),
+				encoding: 'utf-8',
+				input: files.join('\n'),
+			});
+			return result.stdout
+				.split('\n')
+				.filter(Boolean)
+				.map((path) => path.replaceAll('\\', '/'));
+		})();
+
+		it('should find the fixtures it means to check', () => {
+			// a walk that stopped finding anything would pass the test below by
+			// checking nothing, which is the failure mode a directory scan has
+			expect(files.length).toBeGreaterThan(20);
+		});
+
+		it('should track every fixture that is an input', () => {
+			// `dist` and `node_modules` in the root .gitignore are unanchored, so
+			// they match at any depth -- including a fixture whose whole point is
+			// to be called one of them. `discover/built-app/dist/cli.mjs` was
+			// caught by that: absent from a clone, present for whoever generated
+			// it once, so the suite was green locally and red in CI with an error
+			// that named the discovery code rather than the missing file.
+			//
+			// What may legitimately be ignored is output a test writes, and the
+			// two places that happens say so with a `.gitignore` of their own or
+			// sit under a `node_modules` this repo never commits into.
+			const unexpected = ignored.filter(
+				(path) => !path.includes('/out/') && !path.includes('/node_modules/')
+			);
+			expect(unexpected).toStrictEqual([]);
+		});
+
+		it('should track the built-app fixture in particular', () => {
+			// the one that actually broke, named so that a future change to the
+			// negation above fails on the case rather than on the rule
+			expect(existsSync(join(fixtures, 'discover/built-app/dist/cli.mjs'))).toBe(true);
+			expect(ignored.some((path) => path.includes('built-app/dist'))).toBe(false);
+		});
+	});
+
 	describe('the root build filter', () => {
 		// `pnpm test` and `pnpm coverage` build the packages before vitest runs,
 		// because `the built bin` above reads `dist/`. The filter that picks those

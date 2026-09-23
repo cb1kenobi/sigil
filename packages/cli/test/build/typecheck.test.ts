@@ -1,4 +1,4 @@
-import { formatDiagnostic, isFatal } from '../../src/build/diagnostic.js';
+import { displayPath, formatDiagnostic, isFatal } from '../../src/build/diagnostic.js';
 import { typeCheck } from '../../src/build/typecheck.js';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -133,6 +133,37 @@ describe('a diagnostic', () => {
 		).to.equal(
 			"/app/commands/ship.ts:2:7: error: TS2322: Type 'string' is not assignable to type 'number'."
 		);
+	});
+
+	it('should spell a Windows path the way the report does', () => {
+		// the regression this is here for: `relative()` answers with the
+		// platform's separator, so the same app was described as
+		// `commands\\build.ts` on Windows and `commands/build.ts` everywhere
+		// else -- and the tests, which only ever ran green on a POSIX machine
+		// before CI saw them, asserted the second. Fed a backslash path on
+		// purpose so this runs on every platform rather than only on the one
+		// that has the problem.
+		expect(
+			formatDiagnostic({
+				column: 24,
+				file: 'commands\\computed.js',
+				line: 2,
+				message: '"desc" is computed rather than a string literal',
+				severity: 'warning',
+			})
+		).to.equal(
+			'commands/computed.js:2:24: warning: "desc" is computed rather than a string literal'
+		);
+	});
+
+	it('should leave a path that is already posix alone', () => {
+		expect(displayPath('commands/db/migrate.js')).to.equal('commands/db/migrate.js');
+	});
+
+	it('should spell a drive-absolute path with forward slashes too', () => {
+		// `D:/app/commands/build.ts` is a path node, a terminal and an editor all
+		// still open, which is what makes one spelling affordable
+		expect(displayPath('D:\\app\\commands\\build.ts')).to.equal('D:/app/commands/build.ts');
 	});
 
 	it('should format one with no position', () => {
