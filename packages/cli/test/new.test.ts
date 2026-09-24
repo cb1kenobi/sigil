@@ -201,10 +201,30 @@ describe('the command, end to end', () => {
 		rmSync(bin, { force: true, recursive: true });
 		mkdirSync(bin, { recursive: true });
 		for (const name of names) {
-			writeFileSync(join(bin, name), '#!/bin/sh\nexit 0\n');
-			chmodSync(join(bin, name), 0o755);
+			// a `.cmd` on Windows, where an extensionless file is not a program
+			// and `which` is right to say so
+			const file = join(bin, `${name}${process.platform === 'win32' ? '.cmd' : ''}`);
+			writeFileSync(file, '#!/bin/sh\nexit 0\n');
+			chmodSync(file, 0o755);
 		}
 		return bin;
+	}
+
+	/**
+	 * The environment, with `PATH` replaced rather than joined by a second key.
+	 *
+	 * Windows env names are case-insensitive and `process.env` there holds
+	 * `Path`, so spreading it and adding `PATH` hands the child both -- and which
+	 * one wins is nothing to rely on.
+	 */
+	function envWithPath(path: string): NodeJS.ProcessEnv {
+		const env = { ...process.env };
+		for (const key of Object.keys(env)) {
+			if (key.toLowerCase() === 'path') {
+				delete env[key];
+			}
+		}
+		return { ...env, PATH: path };
 	}
 
 	/** Scaffolds with only `names` installed, and answers which manager it chose. */
@@ -212,7 +232,7 @@ describe('the command, end to end', () => {
 		const result = spawnSync(
 			process.execPath,
 			[cli, 'new', 'demo', '--yes', '--no-install', '--no-git'],
-			{ cwd: dir, encoding: 'utf-8', env: { ...process.env, PATH: withManagers(...names) } }
+			{ cwd: dir, encoding: 'utf-8', env: envWithPath(withManagers(...names)) }
 		);
 		return /^\s*(\S+) run dev/m.exec(result.stdout)?.[1];
 	}
@@ -243,7 +263,7 @@ describe('the command, end to end', () => {
 		const result = spawnSync(
 			process.execPath,
 			[cli, 'new', 'demo', '--pm', 'vlt', '--yes', '--no-install', '--no-git'],
-			{ cwd: dir, encoding: 'utf-8', env: { ...process.env, PATH: withManagers('pnpm', 'npm') } }
+			{ cwd: dir, encoding: 'utf-8', env: envWithPath(withManagers('pnpm', 'npm')) }
 		);
 		expect(result.stdout).toContain('vlt run dev');
 	});

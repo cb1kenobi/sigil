@@ -4532,6 +4532,25 @@ color: magenta }` and beats the default with an ordinary rule, which is only tru
   killed and reported by name, rather than a suite that never finishes. It costs
   about six seconds of wall clock, which is `it.concurrent` over a sequential
   eighteen -- run always, because a check that is skipped is a check that rots.
+- **A test's fixtures are platform-specific whenever its subject is, and the
+  suite cannot tell you that.** Three Windows failures on one branch had one
+  shape: a fixture written the way the author's machine spells things, asserted
+  against code that was behaving correctly. A `~` expanded through
+  `os.homedir()`, which reads `USERPROFILE` there and `HOME` here, so a test
+  setting only `HOME` scaffolded into the runner's real profile directory. A
+  path printed through `displayPath()` is forward-slashed everywhere, so an
+  expectation built with `join()` is backslashed on Windows and nowhere else.
+  And `which`'s own tests wrote extensionless executables joined with `:` --
+  neither of which is a program or a delimiter on the platform half of them
+  existed to cover. Each passed locally, on macOS and on Linux, and failed on
+  three jobs at once. The rule that follows is that a fixture for
+  platform-dependent behaviour is written with the same function the subject
+  uses -- `delimiter` rather than `':'`, `displayPath()` on both sides -- and
+  what genuinely cannot hold on a platform is `it.skipIf`'d rather than left to
+  fail there. The cheap check is to run the file with the _other_ platform's
+  answers forced, which is what `asWindows()` already exists for: the whole of
+  `which.test.ts` passes under win32 semantics on a Mac, and that is a minute
+  against a round trip through CI.
 - **An assertion is a call, and `expect(x).to.be.ok` is not one.** Chai spells
   that one as a getter, so it reads to a linter as an expression nobody used --
   and the narrowing it does not do is what made it worse than noise: each of the
