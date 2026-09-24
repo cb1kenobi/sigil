@@ -308,10 +308,14 @@ async function askLayout(argv: Record<string, unknown>, yes: boolean): Promise<L
 
 	return (await select({
 		choices: [
-			{ hint: 'a commands/ directory, one file each', label: 'Several commands', value: 'multi' },
-			{ hint: 'one thing, no subcommands', label: 'One command', value: 'single' },
+			{
+				hint: 'a commands/ directory, one file each',
+				label: 'Yes, several commands',
+				value: 'multi',
+			},
+			{ hint: 'the app itself is the command', label: 'No, a single command', value: 'single' },
 		],
-		message: 'How many commands?',
+		message: 'Will it have subcommands?',
 	})) as Layout;
 }
 
