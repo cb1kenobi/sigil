@@ -447,6 +447,33 @@ export interface ParseState<Argv = Record<string, unknown>> {
 
 export interface Schema {
 	args?: (string | Argument)[];
+	/**
+	 * The directory this schema's relative paths resolve against.
+	 *
+	 * A schema an app wrote inline has no file to be relative to, so without
+	 * this a relative `commands` resolves from the process's working directory
+	 * -- which for an installed CLI is wherever the user was standing and has
+	 * nothing to do with where the command modules live.
+	 *
+	 * `sigil build` resolves the same declaration against the *entry module's*
+	 * directory, so leaving this unset is how one `commands: './commands'` comes
+	 * to mean two different things: the tree the build bakes in, and the tree the
+	 * runtime cannot find. `import.meta.dirname` is what closes that, and it
+	 * keeps `commands` a string literal the build can still read statically:
+	 *
+	 * ```js
+	 * export default {
+	 *   name: 'mycli',
+	 *   baseDir: import.meta.dirname,
+	 *   commands: './commands',
+	 * };
+	 * ```
+	 *
+	 * A command *loaded from a module* never needs this -- it already resolves
+	 * against the file that declared it. This is for the one declaration that
+	 * has no file, which is the one the app hands to `main()`.
+	 */
+	baseDir?: string;
 	commands?: string | (string | AnyCommand)[] | Record<string, string | AnyCommand>;
 	/**
 	 * Whether to add `--help` and a `help` command. On unless set to `false`; an

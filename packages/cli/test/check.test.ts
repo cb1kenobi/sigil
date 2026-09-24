@@ -64,7 +64,7 @@ describe('sigil check', () => {
 			// `build` runs `check`'s pass rather than replacing it
 			const commands = schema().commands as Record<string, { desc?: string; load?: unknown }>;
 
-			expect(Object.keys(commands).sort()).toStrictEqual(['add', 'build', 'check']);
+			expect(Object.keys(commands).sort()).toStrictEqual(['add', 'build', 'check', 'new']);
 			expect(commands.build!.load).toBeTypeOf('function');
 		});
 
@@ -200,6 +200,34 @@ describe('sigil check', () => {
 			expect(err).toContain('no command directory here');
 			expect(err).toContain('--commands');
 			expect(process.exitCode).toBe(1);
+		});
+	});
+
+	describe('a schema whose paths mean two things', () => {
+		it('should warn when a relative commands path has no baseDir', async () => {
+			// the build resolves it against the entry module and the runtime
+			// resolves it against the working directory, so the app builds and then
+			// throws `Unsupported command module` the moment it is run from source.
+			// Before this, `check` said "no problems found" about exactly that.
+			const { err } = await sigil('check', join(fixtures, 'discover', 'no-basedir'));
+
+			expect(err).toContain('"baseDir"');
+			expect(err).toContain('import.meta.dirname');
+			expect(err).toContain('1 warning');
+		});
+
+		it('should stay quiet when the schema says what it is relative to', async () => {
+			// a warning that fires on correct code teaches people to ignore warnings
+			const { err } = await sigil('check', join(fixtures, 'buildable'));
+			expect(err).not.toContain('"baseDir"');
+		});
+
+		it('should not call it fatal', async () => {
+			// the *built* app is genuinely fine, and an app that only ever ships
+			// bundled is not wrong. What was wrong is this command having nothing
+			// to say about it
+			const { err } = await sigil('check', join(fixtures, 'discover', 'no-basedir'));
+			expect(err).not.toContain('error:');
 		});
 	});
 

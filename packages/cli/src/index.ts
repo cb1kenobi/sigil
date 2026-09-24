@@ -35,11 +35,10 @@ export function schema(): Schema {
 				type: 'bool',
 			},
 		},
-		// `new` lands in SIG-75. Nothing is stubbed here: a command that exists and
-		// refuses is worse than one that does not exist yet, because only the
-		// second is honest in `--help`. Every command below is the whole of what
-		// it claims to be, and `build` runs `check`'s pass rather than replacing
-		// it.
+		// Nothing is stubbed here: a command that exists and refuses is worse than
+		// one that does not exist yet, because only the second is honest in
+		// `--help`. Every command below is the whole of what it claims to be, and
+		// `build` runs `check`'s pass rather than replacing it.
 		commands: {
 			add: {
 				// the same shape the others take, and for the same reason: this
@@ -64,6 +63,12 @@ export function schema(): Schema {
 				// that `sigil --version` has no use for
 				desc: 'Check an app without building it',
 				load: () => import('./commands/check.ts'),
+			},
+			new: {
+				// the same shape as its siblings: this module reaches the prompts and
+				// the scaffold, and `sigil --version` has no use for either
+				desc: 'Create a new app',
+				load: () => import('./commands/new.ts'),
 			},
 		},
 	};

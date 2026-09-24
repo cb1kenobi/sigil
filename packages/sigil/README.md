@@ -1189,6 +1189,28 @@ expand('~/x'); // '/Users/you/x'
 `XDG_*_HOME` and `XDG_*_DIRS` are honored everywhere. Linux and Windows get
 their own tables; other platforms follow the Linux ones.
 
+### `sigil/which`
+
+Resolves an executable name against `PATH`, the way the `which` command does.
+
+```js
+import { which, whichAll, whichAllSync, whichSync } from '@ttylabs/sigil/which';
+
+await which('pnpm'); // '/opt/homebrew/bin/pnpm', or undefined
+whichSync('pnpm'); // the same, without the await
+await whichAll('node'); // every match, in PATH order
+await which('./build.sh'); // a path resolves directly rather than searching
+```
+
+`undefined` rather than a throw, because the ordinary use is "is this
+installed". On Windows the name is tried against each `PATHEXT` extension in
+order, a name that already carries one is tried as-is first, and the working
+directory is searched ahead of `PATH`. On POSIX a match has to be a file the
+process may actually execute, so a directory of the right name is not one.
+
+Pass `path`, `pathExt` or `cwd` to ask about somewhere other than the
+environment.
+
 ### `sigil/updates`
 
 Checks npm for a newer version in a spawned worker, so the check never blocks

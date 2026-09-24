@@ -1,0 +1,7 @@
+{
+  "name": "no-basedir",
+  "type": "module",
+  "dependencies": {
+    "@ttylabs/sigil": "*"
+  }
+}

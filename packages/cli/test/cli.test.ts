@@ -65,7 +65,7 @@ describe('@ttylabs/cli', () => {
 			// complete: `add` copies, `check` reads, and `build` bundles and runs
 			// `check`'s pass rather than replacing it. `new` is not here because it
 			// is not written.
-			expect(Object.keys(schema().commands ?? {}).sort()).toEqual(['add', 'build', 'check']);
+			expect(Object.keys(schema().commands ?? {}).sort()).toEqual(['add', 'build', 'check', 'new']);
 		});
 	});
 

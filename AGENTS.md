@@ -50,6 +50,7 @@ Paths below are inside `packages/sigil/` unless noted.
 | `src/util/`                    | Shared helpers (type coercion, camelCase, mkdir)     |
 | `src/debug/`                   | `DEBUG`-driven logger; replaces snooplogg            |
 | `src/paths.ts`                 | XDG base directories                                 |
+| `src/which.ts`                 | Resolving an executable against `PATH`               |
 | `src/updates/`                 | npm update check, run in a spawned worker            |
 | `src/error-handler.ts`         | Renders an error and sets the exit code              |
 | `src/error-hooks.ts`           | Fires `beforeError` hooks; carries state on an error |
@@ -74,6 +75,22 @@ not match, so inheriting the root's would cache a build it never saw and restore
 an empty directory on a hit. `pnpm test` and `pnpm coverage` filter their build
 to `./packages/*`: a test run has no use for the site, and CI runs the suite on
 nine node-and-os combinations.
+
+**Every directory a build writes is in `outputs`, and `registry/**` was the one
+that was not.** The same rule the website's override is written for, missed on
+the package that grew a second output directory: `@ttylabs/sigil`'s build is
+`rimraf dist registry && tsdown && node scripts/generate-registry.mjs`, and
+`outputs` named `dist/**` alone -- so a cache hit restored `dist/`, replayed the
+generator's own `Wrote 4 registry entries` line, and left **no `registry/` at
+all**. `pnpm build` then reported complete success having produced nothing for
+`sigil add` to copy, and `files` in that manifest is `["dist", "registry"]`, so
+a publish after a cached build ships a package whose registry is missing --
+`ships no registry, so it has nothing to add`, to everyone, from a build that
+said it wrote one. `test/registry.test.ts` catches a _stale_ entry and a publish
+runs no tests, which is why the cache is where this has to be right. `scripts/**`
+joined `inputs` for the other half of it: the generator decides what lands in
+`registry/`, so editing it has to invalidate the build, and `inputs` replaces
+turbo's default rather than adding to it.
 
 `packages/cli/src/` is the bin, `--version`, the schema the filesystem router
 will replace, `src/utilities/` — the utility generator, whose committed output
@@ -1837,6 +1854,16 @@ dependency. Regenerate with `node scripts/generate-utilities.mjs` from inside
   optimization could not be added: the seam is the set of elements `update()`
   re-resolves, and narrowing that set is the whole of what an invalidation set
   would do.
+- **The guard around that measurement reads the median, not the slowest pass.**
+  It took `Math.max` of twenty and compared it to 50ms, which makes a guard
+  against _quadratic_ behaviour maximally sensitive to the one thing that says
+  nothing about complexity: a single pass stalling because something else on
+  the machine wanted the CPU. A macOS CI runner reported 59ms for one iteration
+  against a local median of 1.0ms and a slowest of 1.7ms, and failed a build
+  over it. A re-match that had gone quadratic is slow on _every_ pass, so the
+  median catches it with the same fifty-fold headroom while an outlier no longer
+  decides the colour of the build. The threshold did not move, because the
+  threshold was never the problem.
 - **A class change restyles the subtree and the siblings, not the tree.** A
   combinator reaches downwards and sideways from an element, never up, so those
   are the only elements whose match can depend on it. Sideways is the half that
@@ -3305,6 +3332,136 @@ tree at run time` is the only place that asserts what the output _does_, which
   registered command, because "the description is right" and "nothing was
   imported to learn it" are two claims and only the second one is the feature.
 
+### A schema's relative paths
+
+- **A relative `commands` path meant two different things, and `check` called it
+  fine.** The build resolves it against the _entry module's_ directory; the
+  runtime had nothing to resolve an inline schema against and fell back to the
+  process's working directory. So one `commands: './commands'` produced the tree
+  the build baked in _and_ an `Unsupported command module` the moment anybody ran
+  the app from source -- with `sigil check` reporting "no problems found" about
+  exactly that app. This is the divergence the shared route rules exist to
+  prevent, arriving through the one door they do not cover, and neither half of
+  the suite could see it: `buildable` uses a relative path and is only ever
+  _built_, `ts-app` is only ever _run_ and passes an absolute path. Each half was
+  tested; nothing crossed over. Found by scaffolding an app and running it, which
+  is what a scaffold is for.
+- **`Schema.baseDir` is what closes it, and it is the app's to set.** The plumbing
+  already existed -- `initCommand()` has taken a `baseDir` all along, for a
+  command declared inside a lazily loaded module -- so this exposes it rather
+  than inventing it. `import.meta.dirname` is what an app writes, and the point
+  of putting it on the _schema_ rather than resolving the path at the call site
+  is that `commands` stays a plain string literal, which is what `sigil build`
+  reads without running anything. Any other spelling breaks one side or the
+  other: an absolute path computed with `fileURLToPath` runs correctly and is
+  unreadable to the build, and a path the dev runner rewrites means the schema
+  says one thing to `dev` and another to `build`.
+- **The missing `baseDir` is a warning rather than an error, and `check` having
+  nothing to say was the worse half.** The _built_ app is genuinely fine and an
+  app that only ever ships bundled is not wrong, so failing the build over it
+  would refuse a working app. What could not stand is a checker answering "no
+  problems found" for an app that throws on startup -- it is the one tool whose
+  answer people trust instead of trying it. The diagnostic names the line, says
+  which directory each side would resolve against, and gives the one line to add.
+
+### `sigil new`
+
+- **The scaffold's `tsconfig.json` is not boilerplate.** `lib: ["esnext"]` and
+  `types: ["node"]` are load-bearing: without them `lib.dom` is included, which
+  declares `setInterval(): number` and shadows node's `NodeJS.Timeout`, so an
+  ejected spinner fails to compile with `Property 'unref' does not exist on type
+'number'` -- on a component whose source already writes `timer.unref?.()`.
+  Nothing about the component is wrong and nothing about it can fix it. Found by
+  ejecting into a bare app and type-checking it.
+- **An entry exports a schema and something else runs it, so a scaffold writes
+  two files.** `sigil build` _parses_ the entry rather than importing it, because
+  importing would run the app -- so the entry can only be a module whose default
+  export is the schema. That leaves nothing to start it, which is what `dev.ts`
+  is. A single module doing both would need `import.meta.main`, which is node 24
+  where the floor here is 22.19. The dev runner is deliberately not `src/cli.ts`:
+  `cli` is one of the names discovery looks for, and a second entry candidate
+  beside the real one is an ambiguity waiting for somebody to delete the wrong
+  file.
+- **`--link` links both packages, because half of "use what is on this machine"
+  is not a thing anybody asked for.** Linking only `@ttylabs/sigil` left the
+  scaffolded app depending on an unpublished `@ttylabs/cli`, so the install died
+  on a 404 having got everything else right. The default is still the real
+  version range: the flag is a workaround for a temporary state of the world, and
+  a scaffold that quietly wrote a machine-local path would keep working right up
+  until somebody committed it.
+- **A scaffold never names a tool it does not install, and the check for that is
+  in the generator.** The linter versions were read off this repository and
+  `oxlint` is a devDependency of the _workspace root_ rather than of
+  `@ttylabs/cli`, so the lookup answered `undefined`, `JSON.stringify` dropped
+  the key, and the app got a `lint` script for a tool nothing installed --
+  silently, because a missing JSON value is indistinguishable from one nobody
+  wrote. The versions are written down in the scaffold now, as carets rather than
+  pins: these are tools whose releases this repository does not track, and
+  pinning one hands out whatever was current the day it was written. The app's
+  own lockfile is what pins them.
+- **Where it goes and what it is called are two questions, so they are two
+  inputs.** The argument is validated as an npm package name -- it is the app's
+  name and its `bin` as well as its directory -- so it can never hold a
+  separator, which made `sigil new ~/projects/my-cli` an error rather than a
+  location. It also left an `isAbsolute(name)` branch that could not be reached,
+  because the name check runs first and refuses every absolute path: a branch
+  that reads as support for a feature and cannot run is the same failure a
+  property the layout engine ignores is, one layer along. `--cwd` is the other
+  question and the branch is gone. The argument is `[project-name]` rather than
+  `[name]` for the same reason -- `name` reads as though a path would do.
+- **`--cwd` expands a `~` and does not have to exist.** A tilde only reaches a
+  process when the shell did not eat it, which is `--cwd "~/projects"` -- and
+  `resolve()` alone would make a directory _called_ `~`, which is the failure
+  `paths.ts` already carries an entry for, met from the one place a user hands
+  this tool a path to write into. So it goes through `expand()`, the runtime's
+  own, rather than a second spelling of it. It is not required to exist because
+  the scaffold makes each file's directory as it goes, so naming somewhere new
+  is `mkdir -p` rather than an error. The test points `HOME` at a temp directory
+  rather than writing to a real one.
+- **It asks about what changes the files and works out the rest.** The name, the
+  language, and one command versus several have no defensible default for a
+  project that does not exist; a linter is a preference and a config file nobody
+  enjoys writing twice. Git is just done.
+- **Which package manager is a question about the machine, and it used to be
+  answered by asking the wrong thing.** It read `npm_config_user_agent`, on the
+  argument that a question whose answer is already on the table is not worth
+  asking -- and the answer was on the table less often than that assumed. The
+  variable is set by the package manager that _invoked_ the process, so running
+  the toolchain directly, which is the dev loop and every global install, sets
+  nothing at all and the scaffold silently said `npm` to somebody who has not
+  used it in years. What _is_ knowable is which ones are installed, which is
+  what SIG-48's `which` is for: one installed is not a question, several is a
+  real preference that nothing here can infer, and none means a `PATH` this
+  cannot see rather than a machine with no package manager on it -- so it says
+  `npm`, which ships with node, rather than refusing to finish a scaffold that
+  is already written. pnpm is preselected because it is the one somebody went
+  and installed on purpose. `--pm` beats all of it, which is also what makes the
+  rule testable: the suite owns `PATH` and hands the command a directory of
+  fakes, because asking the machine would make the answer depend on what happens
+  to be installed on it -- different on every laptop and on each of CI's nine
+  combinations.
+- **`new` writes without confirming, and `add` does not, because they are not
+  the same risk.** `add` puts somebody else's code into a source tree somebody
+  already owns, and the file it would overwrite is by construction one they
+  edited -- so it prints a plan and stops. `new` writes into a directory it has
+  already refused to touch unless it is absent or empty, so there is nothing to
+  lose and nothing a listing could warn about: what it printed was a dozen paths
+  under a name the user had just typed, followed by a question with one sensible
+  answer. The asymmetry is the point rather than an inconsistency to iron out.
+- **Removing the listing took the destination with it, which is the half worth
+  knowing.** It was the only thing printing where the project went, and the
+  closing `cd <name>` had been wrong since `--cwd` existed -- it is the _name_,
+  not a path, so `--cwd apps` told the user to `cd demo` from a directory with no
+  `demo` in it. The summary names the directory in full and the `cd` is
+  `relative()` from the working directory, so it is `cd demo` in the ordinary
+  case and `cd apps/demo` under a `--cwd`. Both go through `displayPath`, which
+  is what makes them forward-slashed on Windows -- and is what a test asserting
+  a `join()`ed path would get wrong there and nowhere else.
+- **A `sigil.json` is written rather than left to the convention.** A scaffold is
+  exactly where a project's conventions should be explicit, and it is what stops
+  `sigil add` having to guess -- and then print the guess, which is what it does
+  when there is no config.
+
 ### The registry: what `sigil add` copies
 
 - **`sigil add` is an eject, not an install, and that is the divergence from
@@ -3532,6 +3689,22 @@ tree at run time` is the only place that asserts what the output _does_, which
   highlight and is recomputed from it, so there is no scroll state to keep in
   agreement: the only thing that has to be true is that the active row is on
   screen.
+- **A choice list reserves the cursor's column on every row, and a blank cannot
+  do it.** The inactive rows drew a `' '` where the active one drew `❯`, which
+  looks like the same one column and is not: `white-space: normal` collapses a run
+  of spaces, which is CSS and which this repo already records for a paragraph, so
+  a text of nothing but spaces measures **zero** -- and every unselected label sat
+  one column left of the selected one. Pinning it on the width of the space was
+  the first answer and only the second is structural: the cursor is on every row
+  and `visibility: hidden` takes it off the ones that are not active, because
+  hidden content still takes its space. So the column is the cursor's own width
+  rather than a guess at it, and a wider symbol cannot reopen the gap -- a
+  two-column cursor is reserved as two. The text prompt's caret escaped the same
+  defect by accident, since `sigil-caret` is `nowrap` and nowrap collapses
+  nothing. `should start every label in the same column` is the guard, and two
+  window assertions had the old spacing written into them: a test can pin a
+  misalignment as readily as an alignment, which is what made this a report rather
+  than a failure.
 - **A bracketed paste reaches a text prompt as text, with its line breaks
   flattened.** Obeying one is what makes a paste submit half an address, which is
   the whole reason a terminal brackets a paste. The other prompts register no
@@ -4109,6 +4282,85 @@ color: magenta }` and beats the default with an ordinary rule, which is only tru
   over. A real path where there is none is the one failure the caller cannot
   see. See `test/paths.test.ts`.
 
+### `which`
+
+- **Written here, and the shape waited for a caller.** SIG-48 sat in the backlog
+  on the rule that a feature nothing needs is a feature designed by guessing,
+  and the caller that turned up is `sigil new` asking which package managers are
+  installed before it offers a choice between them. Everything below is a
+  decision that caller forced rather than one taken in the abstract.
+- **A miss is `undefined`, not a throw.** The ordinary use is "is this
+  installed", whose usual answer is no -- and a question asked with a `try` is
+  one whose common path is an exception. A caller that wants an error writes
+  one, and it can say what the executable was _for_, which is a better message
+  than anything this could raise.
+- **Sync and async share `candidates()`, which is pure.** It is the whole of the
+  platform argument -- `PATHEXT`, the delimiter, the quoted entry, the working
+  directory -- and the two walks differ only in how they ask whether a file is
+  there. Two implementations of _where to look_ is how the two come to disagree
+  about `PATHEXT` on the platform neither author runs. It is a generator, so the
+  usual case does no work for the ninety entries after the hit, and it is
+  exported because the ordering is worth asserting directly rather than through
+  a filesystem.
+- **The async walk is sequential, and that is not an oversight.** _First_ means
+  first in `PATH`, so racing the candidates would buy microseconds across a few
+  dozen `stat`s and then have to sort the winners back into the order they were
+  already in.
+- **Being a file is half the executability test, and `access()` is the other
+  half.** A directory called `node` in a `PATH` entry answers `X_OK` happily,
+  because searching a directory is what the execute bit means there. And the
+  bits are read by the kernel rather than by hand: the question is whether
+  _this_ process may execute it, which is the effective uid and gid against
+  three sets of bits plus whatever ACLs the filesystem adds. Hand-rolling it
+  also gets root wrong in the direction that matters -- root may execute a file
+  only if some execute bit is set, and a check that sees uid 0 and says yes
+  reports every text file in `/etc` as a program.
+- **Windows has no execute bit, so the extension is the whole test.** Requiring
+  `X_OK` there would refuse every executable on the platform; the file existing,
+  with a name `PATHEXT` accounts for, is what "executable" means. Which is also
+  why an extensionless file is _not_ a match on Windows, though it is the only
+  kind that matches on POSIX.
+- **The empty extension goes first when the name already holds a dot.** `pnpm`
+  has to be tried as `pnpm.COM`, `pnpm.EXE`, `pnpm.CMD` and the rest in order,
+  while `pnpm.cmd` must not come out as `pnpm.cmd.EXE`. One rule covers both --
+  and it keeps the list reachable for `my.tool`, which holds a dot and still
+  wants `my.tool.EXE`. Special-casing "has an extension" instead means deciding
+  whether `.tool` is one, which is a question about `PATHEXT` that the list
+  already answers.
+- **The answer carries the candidate's spelling, not the file's.** `PATHEXT` is
+  conventionally upper case and almost nothing on disk is, so on Windows --
+  where the filesystem is case-insensitive -- `tool.exe` is found by the
+  candidate `tool.EXE` and that is the string handed back. Learning the real
+  name means a `readdir` per directory, which is a lot of syscalls to make a
+  path that already spawns look tidier. Pinned in both directions by a test that
+  _probes_ the filesystem rather than reading the platform, since macOS is
+  case-insensitive by default and case-sensitive if somebody formatted it that
+  way.
+- **An empty `PATH` entry is the working directory, and so is a relative one.**
+  POSIX says the first, a trailing separator is how anybody meets it, and the
+  second is the same statement one directory along -- so both go through
+  `resolve()` rather than the empty one being a special case beside a bug.
+- **Windows searches the working directory first and strips quotes off an
+  entry.** The first is what the shell does, and a caller asking what _would_
+  run has to get the same answer. The second is because `PATH` holds whatever
+  somebody pasted into it, and a `"C:\Program Files\nodejs"` with the quotes
+  left on resolves to a directory that is not there.
+- **A name with a separator in it is a path and is never searched for.**
+  `./pnpm` names one file, which either is executable or is not; resolving it
+  against every `PATH` entry until one hits would make a path mean a search
+  after all. The extensions still apply, because `./build` may be `./build.CMD`.
+  Windows adds the backslash and the drive-relative `C:pnpm`, which is a path
+  with no separator in it at all.
+- **`whichAll()` deduplicates.** A shell profile sourced twice is a `PATH` with
+  one directory in it twice, which is not two installations -- and a caller
+  counting the answers would be told that it was.
+- **The platform is read per call rather than bound at module load.** That is
+  what makes the `PATHEXT` half testable at all on the machine it is written on,
+  which is the same seam `paths.test.ts` already uses. It is not the exception
+  `paths.ts` records for absoluteness: that entry is about _one_ check reading
+  the platform differently from the line next to it, and here every reader takes
+  it from the same argument in `candidates()`.
+
 ### Updates
 
 - **A package name is percent-encoded into the registry URL and out of the cache
@@ -4290,6 +4542,25 @@ color: magenta }` and beats the default with an ordinary rule, which is only tru
   killed and reported by name, rather than a suite that never finishes. It costs
   about six seconds of wall clock, which is `it.concurrent` over a sequential
   eighteen -- run always, because a check that is skipped is a check that rots.
+- **A test's fixtures are platform-specific whenever its subject is, and the
+  suite cannot tell you that.** Three Windows failures on one branch had one
+  shape: a fixture written the way the author's machine spells things, asserted
+  against code that was behaving correctly. A `~` expanded through
+  `os.homedir()`, which reads `USERPROFILE` there and `HOME` here, so a test
+  setting only `HOME` scaffolded into the runner's real profile directory. A
+  path printed through `displayPath()` is forward-slashed everywhere, so an
+  expectation built with `join()` is backslashed on Windows and nowhere else.
+  And `which`'s own tests wrote extensionless executables joined with `:` --
+  neither of which is a program or a delimiter on the platform half of them
+  existed to cover. Each passed locally, on macOS and on Linux, and failed on
+  three jobs at once. The rule that follows is that a fixture for
+  platform-dependent behaviour is written with the same function the subject
+  uses -- `delimiter` rather than `':'`, `displayPath()` on both sides -- and
+  what genuinely cannot hold on a platform is `it.skipIf`'d rather than left to
+  fail there. The cheap check is to run the file with the _other_ platform's
+  answers forced, which is what `asWindows()` already exists for: the whole of
+  `which.test.ts` passes under win32 semantics on a Mac, and that is a minute
+  against a round trip through CI.
 - **An assertion is a call, and `expect(x).to.be.ok` is not one.** Chai spells
   that one as a getter, so it reads to a linter as an expression nobody used --
   and the narrowing it does not do is what made it worse than noise: each of the

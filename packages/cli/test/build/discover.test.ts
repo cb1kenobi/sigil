@@ -180,7 +180,7 @@ describe("reading where an app's commands are", () => {
 			const { commands } = readAppCommands(app);
 			const list = commands?.kind === 'inline' ? commands.commands : [];
 
-			expect(list.map((c) => c.name)).toStrictEqual(['add', 'build', 'check']);
+			expect(list.map((c) => c.name)).toStrictEqual(['add', 'build', 'check', 'new']);
 			expect(at(list, 'check').desc).toBe('Check an app without building it');
 			expect(at(list, 'build').desc).toBe('Build an app into a bundle that depends on nothing');
 			expect(at(list, 'check').module).toBe(

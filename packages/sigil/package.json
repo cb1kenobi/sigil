@@ -106,6 +106,10 @@
       "types": "./dist/width.d.mts",
       "default": "./dist/width.mjs"
     },
+    "./which": {
+      "types": "./dist/which.d.mts",
+      "default": "./dist/which.mjs"
+    },
     "./wrap": {
       "types": "./dist/wrap.d.mts",
       "default": "./dist/wrap.mjs"

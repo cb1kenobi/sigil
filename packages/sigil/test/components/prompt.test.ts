@@ -577,6 +577,27 @@ describe('select()', () => {
 		await answer;
 	});
 
+	// the cursor is reserved on every row rather than blanked on the inactive
+	// ones: a text of nothing but spaces measures zero, so standing one in for
+	// the cursor indented the rows that did not have it a column less than the
+	// row that did
+	it('should start every label in the same column', async () => {
+		const ui = screenSetup();
+		const answer = select({ ansi: ui.ansi, choices, message: 'Pick', terminal: ui.terminal });
+
+		await tick();
+
+		const columns = ui.log
+			.filter((line) => choices.some((choice) => line.includes(choice)))
+			.map((line) => line.length - line.trimStart().length + (line.startsWith('\u276f') ? 2 : 0));
+
+		expect(columns).to.have.length(choices.length);
+		expect(new Set(columns).size).to.equal(1);
+
+		await type(ui.stdin, ENTER);
+		await answer;
+	});
+
 	// a canvas is a fixed number of rows and what does not fit is clipped, so a
 	// list longer than the screen shows a window of itself -- and an arrow key
 	// that moved a cursor nobody could see is what that is for
@@ -589,19 +610,19 @@ describe('select()', () => {
 		expect(ui.log).to.deep.equal([
 			'? Pick',
 			'\u276f choice 0',
-			' choice 1',
-			' choice 2',
-			' choice 3',
-			' choice 4',
+			'  choice 1',
+			'  choice 2',
+			'  choice 3',
+			'  choice 4',
 		]);
 
 		await type(ui.stdin, ...Array.from({ length: 7 }, () => DOWN));
 		expect(ui.log).to.deep.equal([
 			'? Pick',
-			' choice 3',
-			' choice 4',
-			' choice 5',
-			' choice 6',
+			'  choice 3',
+			'  choice 4',
+			'  choice 5',
+			'  choice 6',
 			'\u276f choice 7',
 		]);
 
@@ -1044,7 +1065,7 @@ describe('a question that wraps', () => {
 		});
 
 		await tick();
-		expect(ui.log).to.deep.equal(['? aaaaaaaaaaaaaa', '  bbb', '\u276f one', ' two', ' three']);
+		expect(ui.log).to.deep.equal(['? aaaaaaaaaaaaaa', '  bbb', '\u276f one', '  two', '  three']);
 
 		await type(ui.stdin, ENTER);
 		expect(await answer).to.equal('one');

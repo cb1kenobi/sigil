@@ -511,18 +511,25 @@ describe('the size of the naive answer', () => {
 
 		restyler.update(as(root));
 
-		let slowest = 0;
+		const took: number[] = [];
 		for (let i = 0; i < 20; i++) {
 			restyler.touchSheets();
 			const started = performance.now();
 			const update = restyler.update(as(root));
-			slowest = Math.max(slowest, performance.now() - started);
+			took.push(performance.now() - started);
 			expect(update.restyled).toBe(count(root));
 		}
 
-		// generous by design: this is a regression guard against the full
-		// re-match becoming quadratic, not a benchmark
-		expect(slowest).toBeLessThan(50);
+		// the median rather than the slowest, which is a statement about what
+		// this is guarding. A re-match that had gone quadratic is slow on every
+		// pass, so the median catches it with the same 50x headroom the samples
+		// have -- while one pass out of twenty stalling says only that something
+		// else on the machine wanted the CPU. It took a macOS runner reporting
+		// 59ms for a single iteration, against a median of 1.0ms and a slowest
+		// of 1.7ms locally, to make that the difference between a red build and
+		// a green one.
+		const median = [...took].sort((a, b) => a - b)[Math.floor(took.length / 2)] as number;
+		expect(median).toBeLessThan(50);
 	});
 });
 
