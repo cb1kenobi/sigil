@@ -3403,14 +3403,28 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   published. `_inspect.ts` keeps its `_`, so it stays a chunk rather than
   becoming an entry, which is that rule read from inside the repo that invented
   it.
-- **Routing costs `--version` about 4ms and `--help` nothing, measured.** 25.5ms
-  to 29.5ms on the fast path, because the top level of `commands/` is read on
-  every invocation and `routes.js` joins the startup graph; `--help` is
-  unchanged at ~40ms, where the help renderer dwarfs a `readdir`. Worth knowing
-  before optimising the wrong end: the lift removes the _imports_ from the help
-  path, not the walk from the startup path. Deferring the walk until argv names
-  something the bake does not have would close it, and is a decision to take
-  against a profile rather than in advance.
+- **Routing cost `--version` about 4ms, so `--version` stopped building a
+  schema.** The walk is eager -- the top level of `commands/` is read while the
+  schema is built, before argv has been looked at -- so answering "what version
+  is this" read a directory and pulled the route reader onto the startup path to
+  do it: 25.5ms to 29.5ms. `run()` answers before `main()` is called at all now,
+  which is 24.3ms, _below_ where it was before routing, because it skips
+  building the schema rather than merely skipping the walk.
+- **That fast path is the whole of argv, not the flag appearing in it.** Every
+  other spelling is a question with a second half that the parser already
+  answers, and each answer is a decision written down somewhere: `--help
+--version` is help, because help outranks everything; `check --version` runs
+  `check`; `--version extra` is an error about `extra`. A scan that fired
+  wherever it saw the flag would have to reproduce all three to avoid changing
+  them, and a second parser that disagrees with the first is worth a great deal
+  more than four milliseconds. `should leave every other spelling to the parser`
+  pins the three.
+- **`--help` is unchanged at ~40ms, and that is the walk being the wrong thing
+  to optimise.** The help renderer dwarfs a `readdir`, and the lift removes the
+  _imports_ from the help path rather than the walk from the startup path.
+  Making the walk lazy -- deferred until something actually asks the registry
+  what is in it -- would close the general case rather than the one flag, and is
+  a decision to take against a profile rather than in advance.
 
 ### A schema's relative paths
 
