@@ -1,4 +1,6 @@
 import { run, schema } from '../src/index.js';
+import { ROUTE_INFO } from '../src/route-info.js';
+import { readRoutes } from '@ttylabs/sigil/routes';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -44,6 +46,12 @@ async function sigil(...argv: string[]) {
  * carries -- that a command which exists and refuses is worse than one that does
  * not exist yet -- is what these assert it keeps.
  */
+/** The commands the filesystem says exist, which is now the source of truth. */
+function routeNames(): string[] {
+	const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'commands');
+	return (readRoutes(dir)?.routes ?? []).map((route) => route.name).sort();
+}
+
 describe('sigil check', () => {
 	let exitCode: typeof process.exitCode;
 
@@ -58,28 +66,21 @@ describe('sigil check', () => {
 	});
 
 	describe('the wiring', () => {
-		it('should declare build beside it, both complete', () => {
+		it('should be routed beside build, both complete', () => {
 			// a command that exists and refuses is worse than one that does not
 			// exist yet; both of these are the whole of what they claim, and
-			// `build` runs `check`'s pass rather than replacing it
-			const commands = schema().commands as Record<string, { desc?: string; load?: unknown }>;
-
-			expect(Object.keys(commands).sort()).toStrictEqual(['add', 'build', 'check', 'new']);
-			expect(commands.build!.load).toBeTypeOf('function');
+			// `build` runs `check`'s pass rather than replacing it. They are files
+			// in a directory now rather than keys in a map, so that is what is read
+			expect(schema().commands).toBe('./commands');
+			expect(routeNames()).toStrictEqual(['add', 'build', 'check', 'new']);
 		});
 
-		it('should be declared with a description the schema carries itself', () => {
-			// on the placeholder rather than in the module, so `sigil --help` can
-			// describe it without loading a native parser it has no use for. The
-			// same shape `sigil build` generates for an app's own commands
-			// `commands` may be a path or a list as well as a map, so it is narrowed
-			// rather than indexed straight into
-			const commands = schema().commands as Record<string, { desc?: string; load?: unknown }>;
-			const check = commands.check;
-
-			expect(check).toBeTypeOf('object');
-			expect(check.desc).toBe('Check an app without building it');
-			expect(check.load).toBeTypeOf('function');
+		it('should be described by what the build lifted, not by its module', () => {
+			// the description lives in `check.ts` now, which is where a filesystem
+			// route keeps one -- and `ROUTE_INFO` is the build's static lift of it,
+			// so `sigil --help` still names the command without importing the
+			// native parser behind it
+			expect(ROUTE_INFO.check?.desc).toBe('Check an app without building it');
 		});
 
 		it('should describe itself in help without loading its module', async () => {

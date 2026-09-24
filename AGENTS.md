@@ -636,6 +636,25 @@ false` rethrows instead; a function replaces the handler.
   `config/` -- throw, since keeping one of them keeps whichever `readdir` handed
   over second, which is the file system deciding what an app does; routes are
   registered sorted for the same reason.
+- **A lifted description is a cache over the walk, never a manifest.**
+  `Route.desc` is `undefined` for everything but a package, because every other
+  kind keeps its description _inside the module_ -- so a routed tree lists names
+  and nothing else until each module has been imported, and not importing them
+  is the whole of what the deferral buys. `Schema.routeInfo` is where a build
+  puts what it lifted. It is read where a placeholder is built and nowhere else,
+  which is what keeps it a cache: the directory is still read, every route it
+  finds is still a command, and a route with no entry still works and simply
+  lists without a description. That is what stops a command dropped into an
+  installed app being _invisible_ rather than merely undescribed, and it is why
+  this cannot go stale in a way that loses a command -- only in a way that loses
+  a sentence. The filesystem wins wherever it has an answer, so a package's own
+  manifest beats a lifted entry: that read is free and cannot go stale, and the
+  lift exists to fill what the walk could not say rather than to second-guess
+  what it could. A nested directory's entries are carried _down_ the walk rather
+  than looked up, for the reason `baseDir` is: a level only knows where it sits
+  in the tree because the level above told it. And after the module loads, the
+  module's own `desc` wins -- which is what a hand-declared placeholder already
+  did, so the lifted case is not a second precedence rule to remember.
 - **A directory is walked one level at a time, when something asks.** The walk
   is `loadCommand()`'s rather than the discovery's, which is the same deferral a
   module's import already gets and the reason a tree is worth having: `mycli db
@@ -3006,6 +3025,18 @@ makes it testable with a fixture directory and no bundler at all.
   loaded. Baking a module's own `name` would make a command reachable bundled
   under a spelling that does not resolve unbundled, which is exactly what the
   shared route rules exist to prevent.
+- **`export default cmd` is followed to the `const` it names, because that is
+  the shape this repo's own rules force.** `--isolatedDeclarations` refuses to
+  infer a default export, so an app that has it on _cannot_ write the literal
+  inline -- and this toolchain is one of those apps: every command module in it
+  ends `export default add`. A lift that stopped at the reference reported "help
+  will list this command by name alone" about all four of its own commands,
+  which is the acceptance test earning its keep on the first run. `export { cmd
+as default }` resolves the same way, since it is the same statement spelled
+  differently. Only a module-scope `const`: a `let` can be reassigned between
+  the declaration and the export, so what the binding held when the file was
+  read is not what it holds when the module runs, and a lift that guessed there
+  would bake a description the app does not have.
 - **A computed value is reported, never guessed, and the severity is the
   interesting half.** `desc: greeting()` cannot be read from source, and both
   obvious answers are wrong -- inventing something, or failing the build. It is a
@@ -3331,6 +3362,55 @@ tree at run time` is the only place that asserts what the output _does_, which
   anything. It asserts that last part by reading `loaded` back off every
   registered command, because "the description is right" and "nothing was
   imported to learn it" are two claims and only the second one is the feature.
+
+### Writing the CLI in sigil
+
+- **The toolchain routes its own commands, and that is what the acceptance test
+  means.** `src/commands/` is the source of truth: adding a command is adding a
+  file, and `index.ts` no longer writes the tree out beside the directory that
+  _is_ the tree. What it declares instead is `commands: './commands'` with the
+  `baseDir` SIG-75 added, which is the same declaration `sigil new` scaffolds
+  and the same one `sigil build` reads -- so the toolchain is now an ordinary
+  app as far as its own passes are concerned. `should read this toolchain's own
+schema as a routed directory` in `test/build/discover.test.ts` is that said
+  from the other side.
+- **Which immediately cost it its own `--help`, and that is the finding rather
+  than a snag.** A filesystem route keeps its description inside the module, so
+  a routed `sigil --help` listed four bare names -- worse than what it replaced,
+  and shipped by a package whose users would never see a description again. The
+  static `desc` lift exists precisely because routing makes name-only help the
+  common case; the toolchain is built by tsdown rather than by itself, so
+  nothing was lifting anything. `scripts/generate-commands.mjs` is that lift run
+  as a build step, and it walks with `readRoutes()` -- the _runtime's_ reader --
+  so the thing that describes the walk cannot come to disagree with the walk.
+- **`src/route-info.ts` is committed, for the reason the utility sheet is.**
+  `node src/sigil.ts` has to work on a fresh clone with no build, and an import
+  of a generated file that is not there does not. Committed also means it can go
+  quietly stale, so `the committed route info` compares both the value and the
+  _printed source_ against what the lift produces now -- the second half because
+  what is committed is source, and a printer that stopped matching the formatter
+  would leave every regeneration dirtying the tree. It compares in memory rather
+  than by running the generator: a drift check that regenerates writes to the
+  working tree to find out whether it needed to, after which the answer is
+  always no.
+- **The published package ships `dist/commands/`, and nothing else would
+  work.** Bundled into hashed chunks there is no directory for the walk to read,
+  and the built bin fails with `Unsupported command module` -- from source it is
+  perfectly happy, which is the shape of bug that reaches users and no test.
+  Each command is a tsdown entry, and the entry list is _read off the directory_
+  rather than written out, because a hand-kept list beside the directory that is
+  the list would drift into a command that works from source and 404s once
+  published. `_inspect.ts` keeps its `_`, so it stays a chunk rather than
+  becoming an entry, which is that rule read from inside the repo that invented
+  it.
+- **Routing costs `--version` about 4ms and `--help` nothing, measured.** 25.5ms
+  to 29.5ms on the fast path, because the top level of `commands/` is read on
+  every invocation and `routes.js` joins the startup graph; `--help` is
+  unchanged at ~40ms, where the help renderer dwarfs a `readdir`. Worth knowing
+  before optimising the wrong end: the lift removes the _imports_ from the help
+  path, not the walk from the startup path. Deferring the walk until argv names
+  something the bake does not have would close it, and is a decision to take
+  against a profile rather than in advance.
 
 ### A schema's relative paths
 

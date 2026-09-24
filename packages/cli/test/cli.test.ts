@@ -1,5 +1,6 @@
 import { run, schema, version } from '../src/index.js';
 import config from '../tsdown.config.js';
+import { readRoutes } from '@ttylabs/sigil/routes';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -59,13 +60,34 @@ describe('@ttylabs/cli', () => {
 			expect(schema().options).toHaveProperty('-v, --version');
 		});
 
-		it('should declare only commands that are the whole of what they claim', () => {
+		it('should route its commands off its own filesystem', () => {
+			// the toolchain is the acceptance test, so it uses the router it ships
+			// rather than a map written out beside it. `baseDir` is what makes the
+			// path mean this directory instead of wherever the user was standing
+			expect(schema().commands).toBe('./commands');
+			expect(schema().baseDir).toBeTypeOf('string');
+		});
+
+		it('should route only commands that are the whole of what they claim', () => {
 			// a command that exists and refuses is worse than one that does not
-			// exist yet, because only the second is honest in --help. All three are
-			// complete: `add` copies, `check` reads, and `build` bundles and runs
-			// `check`'s pass rather than replacing it. `new` is not here because it
-			// is not written.
-			expect(Object.keys(schema().commands ?? {}).sort()).toEqual(['add', 'build', 'check', 'new']);
+			// exist yet, because only the second is honest in --help. All four are
+			// complete: `add` copies, `check` reads, `build` bundles and runs
+			// `check`'s pass rather than replacing it, and `new` scaffolds.
+			const dir = join(root, 'src', 'commands');
+			const names = (readRoutes(dir)?.routes ?? []).map((route) => route.name).sort();
+
+			expect(names).toEqual(['add', 'build', 'check', 'new']);
+		});
+
+		it('should keep the shared pass out of the command list', () => {
+			// `_inspect.ts` is one pass for two commands and is not a command; the
+			// `_` prefix is what says so, and this is that rule read from inside
+			// the repo that wrote it
+			const dir = join(root, 'src', 'commands');
+			const names = (readRoutes(dir)?.routes ?? []).map((route) => route.name);
+
+			expect(existsSync(join(dir, '_inspect.ts'))).toBe(true);
+			expect(names).not.toContain('_inspect');
 		});
 	});
 

@@ -141,6 +141,13 @@ export interface Command<
 	commands?: Record<string, AnyCommand>;
 	default?: boolean;
 	desc?: string;
+	/**
+	 * Descriptions a build lifted out of the modules this command's own
+	 * directory holds, so help can name them without importing them. Only
+	 * meaningful on a command whose subcommands come from a path. See
+	 * `RouteInfo`.
+	 */
+	routeInfo?: Record<string, RouteInfo>;
 	examples?: CommandExample | CommandExample[];
 	help?: string | HelpRenderer;
 	hidden?: boolean;
@@ -203,6 +210,13 @@ export interface InternalCommandBase extends InternalBase {
 	 */
 	dir?: string;
 	label: string;
+	/**
+	 * What a build lifted out of the modules in `dir`, consulted by the walk.
+	 * Carried rather than looked up, because a nested directory's own entries
+	 * live under its parent's and the walk is the only thing that knows where
+	 * in that tree it is.
+	 */
+	routeInfo?: Record<string, RouteInfo>;
 	/**
 	 * Whether `loadCommand()` has finished with this command. Always set: it
 	 * starts `false` and flips once there is nothing left to fetch — either the
@@ -480,6 +494,11 @@ export interface Schema {
 	 * app that declares either of them keeps its own either way.
 	 */
 	help?: boolean;
+	/**
+	 * Descriptions a build lifted out of the modules `commands` points at, so
+	 * that help can name them without importing anything. See `RouteInfo`.
+	 */
+	routeInfo?: Record<string, RouteInfo>;
 	hooks?: {
 		beforeParse?: SchemaHook;
 		afterParse?: SchemaHook;
@@ -491,6 +510,34 @@ export interface Schema {
 	};
 	name?: string;
 	options?: OptionDeclarations;
+}
+
+/**
+ * What a build lifted out of the command modules a directory holds.
+ *
+ * `Route.desc` says why this exists: a package describes itself in its
+ * `package.json`, which is a file read, while every other kind keeps its
+ * description *inside the module* -- so a filesystem tree lists by name alone
+ * until each module has been imported, and importing them is the one thing the
+ * deferral exists to avoid. `sigil build` reads those descriptions statically;
+ * this is where it puts them.
+ *
+ * It is a cache over the walk rather than a replacement for it. The directory
+ * is still read, every route it finds is still a command, and a route with no
+ * entry here behaves exactly as it did before -- which is what keeps a command
+ * dropped in after the build from being invisible.
+ *
+ * So the filesystem always wins where it has an answer: a package's own
+ * manifest beats this, because that read is free and cannot go stale. This
+ * fills only what the filesystem cannot say.
+ */
+export interface RouteInfo {
+	/** What the build lifted from a directory route's own children. */
+	readonly commands?: Record<string, RouteInfo>;
+	/** What the command does. */
+	readonly desc?: string;
+	/** Whether it is hidden, which the build lifts alongside the description. */
+	readonly hidden?: boolean;
 }
 
 /**

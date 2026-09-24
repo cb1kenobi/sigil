@@ -46,7 +46,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "rimraf dist && tsdown -c tsdown.config.ts",
+    "build": "node scripts/generate-commands.mjs && rimraf dist && tsdown -c tsdown.config.ts",
     "coverage": "vitest --coverage",
     "dev": "node ./src/sigil.ts",
     "ncu": "ncu -c 1d",

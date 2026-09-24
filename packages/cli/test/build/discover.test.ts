@@ -1,4 +1,5 @@
 import { discoverApp, readAppCommands, resolveSpecifier } from '../../src/build/discover.js';
+import { resolveCommandTree } from '../../src/build/tree.js';
 import type { ResolvedCommand } from '../../src/build/tree.js';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -175,10 +176,28 @@ describe("reading where an app's commands are", () => {
 			expect(missing?.message).toContain('"missing"');
 		});
 
-		it("should read this toolchain's own schema", () => {
+		it("should read this toolchain's own schema as a routed directory", () => {
+			// the toolchain routes its own commands off the filesystem, so the build
+			// reading it has to see a directory rather than a written-out list --
+			// which is the dogfooding working: what it finds here is what it would
+			// find in any app SIG-74 describes
 			const app = discoverApp(join(repo, 'packages', 'cli'));
 			const { commands } = readAppCommands(app);
-			const list = commands?.kind === 'inline' ? commands.commands : [];
+
+			expect(commands?.kind).toBe('directory');
+			expect(commands?.kind === 'directory' && commands.dir).toBe(
+				join(repo, 'packages', 'cli', 'src', 'commands')
+			);
+		});
+
+		it("should resolve this toolchain's own tree, descriptions and all", () => {
+			// the descriptions live in the modules now, so this is the static lift
+			// reading the code its own conventions produce -- which it could not do
+			// until it learned to follow `export default cmd` to the const it names
+			const app = discoverApp(join(repo, 'packages', 'cli'));
+			const { commands } = readAppCommands(app);
+			const dir = commands?.kind === 'directory' ? commands.dir : '';
+			const { commands: list } = resolveCommandTree(dir);
 
 			expect(list.map((c) => c.name)).toStrictEqual(['add', 'build', 'check', 'new']);
 			expect(at(list, 'check').desc).toBe('Check an app without building it');

@@ -1,3 +1,4 @@
+import { ROUTE_INFO } from './route-info.ts';
 import { main, type ParseState, type Schema } from '@ttylabs/sigil';
 import { readFileSync } from 'node:fs';
 
@@ -35,42 +36,15 @@ export function schema(): Schema {
 				type: 'bool',
 			},
 		},
-		// Nothing is stubbed here: a command that exists and refuses is worse than
-		// one that does not exist yet, because only the second is honest in
-		// `--help`. Every command below is the whole of what it claims to be, and
-		// `build` runs `check`'s pass rather than replacing it.
-		commands: {
-			add: {
-				// the same shape the others take, and for the same reason: this
-				// module reaches the registry and the prompts, and `sigil --version`
-				// has no use for either
-				desc: 'Copy a component into your app, so you own it',
-				load: () => import('./commands/add.ts'),
-			},
-			build: {
-				// the same shape this command generates for an app: a `desc` the
-				// schema carries so `--help` needs no module, and a `load` so the
-				// bundler and the parser stay off the startup path
-				desc: 'Build an app into a bundle that depends on nothing',
-				load: () => import('./commands/build.ts'),
-			},
-			check: {
-				// declared here rather than in the module, so `sigil --help` can
-				// describe the command without loading it. That is the same shape
-				// `sigil build` generates for an app -- a `desc` lifted out of the
-				// module and a `load` beside it -- and it is worth more than it looks:
-				// the module behind this one pulls in `oxc-parser`, a native binary
-				// that `sigil --version` has no use for
-				desc: 'Check an app without building it',
-				load: () => import('./commands/check.ts'),
-			},
-			new: {
-				// the same shape as its siblings: this module reaches the prompts and
-				// the scaffold, and `sigil --version` has no use for either
-				desc: 'Create a new app',
-				load: () => import('./commands/new.ts'),
-			},
-		},
+		// The commands are the files in `src/commands/`, which is what SIG-74 is
+		// for and what `sigil build` reads out of an app. `baseDir` is what makes
+		// './commands' mean *this* directory rather than the one the user was
+		// standing in, and `ROUTE_INFO` is the descriptions lifted out of those
+		// modules at build time so that `--help` can name them without importing
+		// four modules, a native parser and a scaffold to do it.
+		baseDir: import.meta.dirname,
+		commands: './commands',
+		routeInfo: ROUTE_INFO,
 	};
 }
 

@@ -48,6 +48,7 @@ const DEFAULT_OUT = 'dist';
 /** See `check.ts` for why this is annotated, and why `AnyCommand`. */
 const build: AnyCommand = command({
 	args: [{ desc: "The app's root, defaulting to the working directory", name: '[dir]' }],
+	desc: 'Build an app into a bundle that depends on nothing',
 	options: {
 		'--bin [file]': {
 			desc: 'An executable of your own, bundled instead of a generated one',
