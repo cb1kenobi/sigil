@@ -183,13 +183,23 @@ describe('the command, end to end', () => {
 	it('should expand a ~ the shell did not eat', () => {
 		// `--cwd "~/projects"` is quoted, so the tilde reaches the process -- and
 		// `resolve()` alone would make a directory *called* `~`, which is the
-		// failure paths.ts already records. HOME is pointed at the temp directory
-		// so this never writes to a real one.
+		// failure paths.ts already records.
+		//
+		// Home is pointed at the temp directory so this never writes to a real
+		// one, and it takes *both* variables: `expand()` goes through
+		// `os.homedir()`, which reads `HOME` on POSIX and `USERPROFILE` on
+		// Windows. Setting only the first passes everywhere it was written and
+		// scaffolds into the actual profile directory on the one platform it was
+		// not.
 		const home = join(dir, 'fake-home');
 		const result = spawnSync(
 			process.execPath,
 			[cli, 'new', 'demo', '--cwd', '~/projects', '--yes', '--no-install', '--no-git'],
-			{ cwd: dir, encoding: 'utf-8', env: { ...process.env, HOME: home } }
+			{
+				cwd: dir,
+				encoding: 'utf-8',
+				env: { ...process.env, HOME: home, USERPROFILE: home },
+			}
 		);
 
 		expect(result.status).toBe(0);
