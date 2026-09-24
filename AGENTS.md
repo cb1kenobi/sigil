@@ -3372,6 +3372,25 @@ tree at run time` is the only place that asserts what the output _does_, which
   pins: these are tools whose releases this repository does not track, and
   pinning one hands out whatever was current the day it was written. The app's
   own lockfile is what pins them.
+- **Where it goes and what it is called are two questions, so they are two
+  inputs.** The argument is validated as an npm package name -- it is the app's
+  name and its `bin` as well as its directory -- so it can never hold a
+  separator, which made `sigil new ~/projects/my-cli` an error rather than a
+  location. It also left an `isAbsolute(name)` branch that could not be reached,
+  because the name check runs first and refuses every absolute path: a branch
+  that reads as support for a feature and cannot run is the same failure a
+  property the layout engine ignores is, one layer along. `--cwd` is the other
+  question and the branch is gone. The argument is `[project-name]` rather than
+  `[name]` for the same reason -- `name` reads as though a path would do.
+- **`--cwd` expands a `~` and does not have to exist.** A tilde only reaches a
+  process when the shell did not eat it, which is `--cwd "~/projects"` -- and
+  `resolve()` alone would make a directory _called_ `~`, which is the failure
+  `paths.ts` already carries an entry for, met from the one place a user hands
+  this tool a path to write into. So it goes through `expand()`, the runtime's
+  own, rather than a second spelling of it. It is not required to exist because
+  the scaffold makes each file's directory as it goes, so naming somewhere new
+  is `mkdir -p` rather than an error. The test points `HOME` at a temp directory
+  rather than writing to a real one.
 - **It asks about what changes the files and works out the rest.** The name, the
   language, and one command versus several have no defensible default for a
   project that does not exist; a linter is a preference and a config file nobody

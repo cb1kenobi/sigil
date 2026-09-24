@@ -37,10 +37,11 @@ import {
 } from '../scaffold/index.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
 import { confirm, select, text } from '@ttylabs/sigil/components';
+import { expand } from '@ttylabs/sigil/paths';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** This toolchain's own manifest, for the versions it writes. */
@@ -111,8 +112,16 @@ function usable(dir: string): boolean {
 }
 
 const newApp: AnyCommand = command({
-	args: [{ desc: 'The directory to create, which is also the app name', name: '[name]' }],
+	args: [
+		{
+			desc: 'The directory to create, which is also the app name',
+			name: '[project-name]',
+		},
+	],
 	options: {
+		'--cwd [dir]': {
+			desc: 'Where to create it, defaulting to the working directory',
+		},
 		'--js': { desc: 'JavaScript rather than TypeScript', type: 'bool' },
 		'--lint [linter]': {
 			choices: ['oxlint', 'eslint', 'biome', 'none'],
@@ -131,13 +140,13 @@ const newApp: AnyCommand = command({
 	async run({ argv }) {
 		const yes = Boolean(argv.yes);
 
-		const name = await askName(argv.name as string | undefined, yes);
+		const name = await askName(argv.projectName as string | undefined, yes);
 		const problem = nameProblem(name);
 		if (problem) {
 			throw new Error(`${problem}: "${name}"`);
 		}
 
-		const dir = isAbsolute(name) ? name : resolve(process.cwd(), name);
+		const dir = join(parentDir(argv.cwd as string | undefined), name);
 		if (!usable(dir)) {
 			throw new Error(`${displayPath(dir)} already exists and is not empty`);
 		}
@@ -187,13 +196,40 @@ const newApp: AnyCommand = command({
 	},
 });
 
+/**
+ * The directory the project is created *in*.
+ *
+ * The name is validated as an npm package name, so it can never hold a
+ * separator -- which is what made `sigil new ~/projects/my-cli` an error rather
+ * than a location, and what left an `isAbsolute(name)` branch here that could
+ * not be reached. Saying where and saying what it is called are two questions,
+ * so they are two inputs.
+ *
+ * `expand()` rather than `resolve()` alone, because a `~` only reaches a
+ * process when the shell did not eat it -- `--cwd "~/projects"` is quoted, and
+ * `resolve()` would make a directory *called* `~`. That is the failure
+ * `paths.ts` already records, met from the one place a user hands this tool a
+ * path to write into.
+ *
+ * It is not required to exist: the scaffold makes each file's directory as it
+ * goes, so a `--cwd` naming somewhere new is `mkdir -p` rather than an error.
+ *
+ * @param cwd - What `--cwd` said, if anything.
+ * @returns The absolute directory to create the project inside.
+ */
+function parentDir(cwd: string | undefined): string {
+	return cwd === undefined ? process.cwd() : resolve(process.cwd(), expand(cwd));
+}
+
 /** Asks for the name, or takes the one that was given. */
 async function askName(given: string | undefined, yes: boolean): Promise<string> {
 	if (given !== undefined) {
 		return given;
 	}
 	if (yes) {
-		throw new Error('A name is required. Pass it as an argument, or drop --yes to be asked.');
+		throw new Error(
+			'A project name is required. Pass it as an argument, or drop --yes to be asked.'
+		);
 	}
 
 	return (await text({ message: 'What is it called?', placeholder: 'my-cli' })).trim();

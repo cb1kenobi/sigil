@@ -154,6 +154,57 @@ describe('the command, end to end', () => {
 		expect(existsSync(join(dir, 'demo', 'src', 'commands', 'hello.ts'))).toBe(true);
 	});
 
+	it('should name its argument for what it is', () => {
+		// it is the project's name *and* its directory, and calling it `name`
+		// read as though a path would do -- which it will not, because the name
+		// is validated as an npm package name
+		expect(run('new', '--help').stdout).toContain('[project-name]');
+	});
+
+	it('should create it somewhere else when told to', () => {
+		const result = run('new', 'demo', '--cwd', 'apps', '--yes', '--no-install', '--no-git');
+		expect(result.status).toBe(0);
+		expect(existsSync(join(dir, 'apps', 'demo', 'package.json'))).toBe(true);
+	});
+
+	it('should take an absolute --cwd', () => {
+		const target = join(dir, 'absolute');
+		run('new', 'demo', '--cwd', target, '--yes', '--no-install', '--no-git');
+		expect(existsSync(join(target, 'demo', 'package.json'))).toBe(true);
+	});
+
+	it('should make a --cwd that is not there yet', () => {
+		// the scaffold makes each file's directory as it goes, so naming somewhere
+		// new is `mkdir -p` rather than an error
+		run('new', 'demo', '--cwd', 'a/b/c', '--yes', '--no-install', '--no-git');
+		expect(existsSync(join(dir, 'a', 'b', 'c', 'demo', 'package.json'))).toBe(true);
+	});
+
+	it('should expand a ~ the shell did not eat', () => {
+		// `--cwd "~/projects"` is quoted, so the tilde reaches the process -- and
+		// `resolve()` alone would make a directory *called* `~`, which is the
+		// failure paths.ts already records. HOME is pointed at the temp directory
+		// so this never writes to a real one.
+		const home = join(dir, 'fake-home');
+		const result = spawnSync(
+			process.execPath,
+			[cli, 'new', 'demo', '--cwd', '~/projects', '--yes', '--no-install', '--no-git'],
+			{ cwd: dir, encoding: 'utf-8', env: { ...process.env, HOME: home } }
+		);
+
+		expect(result.status).toBe(0);
+		expect(existsSync(join(home, 'projects', 'demo', 'package.json'))).toBe(true);
+		expect(existsSync(join(dir, '~'))).toBe(false);
+	});
+
+	it('should still refuse a path as the name', () => {
+		// saying where and saying what it is called are two questions, and this is
+		// the half that stays a package name
+		const result = run('new', 'sub/dir/app', '--yes', '--no-install', '--no-git');
+		expect(result.status).not.toBe(0);
+		expect(result.stderr).toContain('lowercase letters');
+	});
+
 	it('should refuse a directory with something already in it', () => {
 		run('new', 'demo', '--yes', '--no-install', '--no-git');
 		const again = run('new', 'demo', '--yes', '--no-install', '--no-git');
