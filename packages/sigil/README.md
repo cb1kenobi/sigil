@@ -327,6 +327,37 @@ export default {
 A lazily loaded command appears in help by name alone until its module is read,
 because its description lives in that module. `help <command>` does load it.
 
+`routeInfo` is how a build gets those descriptions onto the help screen without
+importing anything: it maps route names onto what was lifted out of them, and
+`sigil build` writes it for you.
+
+```js
+commands: './commands',
+routeInfo: {
+  build: { desc: 'Build the app' },
+  db: { desc: 'Database tasks', commands: { migrate: { desc: 'Run migrations' } } },
+},
+```
+
+It is a **cache over the walk, not a list of what exists**. The directory is
+still read, so a command with no entry still works and simply lists without a
+description — which is what keeps a command dropped into an installed app from
+becoming invisible. Once a module is loaded, its own `desc` is what stands.
+
+`load` is `path` said as a function, for an app that has been bundled:
+
+```js
+commands: {
+  build: { desc: 'Build the app', load: () => import('./commands/build.js') },
+}
+```
+
+A bundled app has no file to `stat`, since its command modules are chunks the
+bundler named — so `sigil build` emits `load` where the source tree had a
+directory to walk, and the deferral survives bundling. Declare `path`, `load`
+or `run`, never two of them: they are three answers to "what is this command"
+and there is no right one to pick between.
+
 ### Command properties
 
 | Property                      | Purpose                                                                          |
@@ -339,7 +370,9 @@ because its description lives in that module. `help <command>` does load it.
 | `hidden`                      | keep it out of help                                                              |
 | `help`                        | a string that replaces the screen, or a renderer that receives the generated one |
 | `hooks`                       | `init`, `parse`, `help`, `beforeError`                                           |
-| `path`, `file`                | where to load the command from                                                   |
+| `path`                        | a module to load the command from, resolved from the file that declared it       |
+| `load`                        | that module as a function -- `() => import('./build.js')` -- for a bundled app   |
+| `routeInfo`                   | descriptions a build lifted out of the modules a `commands` path points at       |
 | `examples`                    | `{ label, text }` pairs for help                                                 |
 
 ---
