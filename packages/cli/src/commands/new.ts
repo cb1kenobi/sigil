@@ -281,7 +281,7 @@ async function askLinter(argv: Record<string, unknown>, yes: boolean): Promise<L
 			{ label: 'biome', value: 'biome' },
 			{ label: 'none', value: 'none' },
 		],
-		message: 'Linter?',
+		message: 'Which linter would you like to use?',
 	})) as Linter;
 }
 
