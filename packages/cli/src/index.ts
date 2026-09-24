@@ -49,6 +49,31 @@ export function schema(): Schema {
 }
 
 /**
+ * Whether argv is nothing but a request for the version.
+ *
+ * `sigil --version` has no use for the command tree, and since the toolchain
+ * started routing its own commands off the filesystem it was paying for one:
+ * building the schema reads `src/commands/` and pulls the route reader onto the
+ * startup path, which is about 4ms to answer a question that needs neither.
+ * Answered before the schema is built rather than after the parse, which is
+ * where `run()` used to ask.
+ *
+ * Deliberately narrow: the *whole* of argv, rather than the flag appearing
+ * anywhere in it. Every other spelling is a question with a second half, and
+ * the parser already answers those in ways a scan here would have to reproduce
+ * to avoid changing -- `--help --version` is help, because help outranks
+ * everything; `check --version` runs `check`; `--version extra` is an error
+ * about `extra`. Reproducing that is writing a second parser, and a second
+ * parser that disagrees with the first is worse than four milliseconds.
+ *
+ * @param argv - The arguments.
+ * @returns Whether to answer with the version and nothing else.
+ */
+function isVersionOnly(argv: readonly string[]): boolean {
+	return argv.length === 1 && (argv[0] === '-v' || argv[0] === '--version');
+}
+
+/**
  * Whether `main()` handed back a parse state rather than a command's return
  * value or the `undefined` it resolves with after handling an error.
  *
@@ -96,6 +121,13 @@ async function printHelp(state: ParseState): Promise<void> {
  * @returns Whatever `main()` resolves with.
  */
 export async function run(argv?: string[]): Promise<ParseState | unknown> {
+	const args = argv ?? process.argv.slice(2);
+
+	if (isVersionOnly(args)) {
+		process.stdout.write(`${version()}\n`);
+		return undefined;
+	}
+
 	const result = await main({ argv, schema: schema() });
 
 	// help already answered, and it outranks `--version` for the same reason it

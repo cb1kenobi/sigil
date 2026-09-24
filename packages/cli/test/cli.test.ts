@@ -91,6 +91,54 @@ describe('@ttylabs/cli', () => {
 		});
 	});
 
+	describe('--version', () => {
+		// it has no use for the command tree, and since the toolchain started
+		// routing its own commands it was paying to build one
+		it('should answer without reading the command directory', () => {
+			const result = spawnSync(process.execPath, [join(root, 'src', 'sigil.ts'), '--version'], {
+				cwd: root,
+				encoding: 'utf-8',
+				env: { ...process.env, DEBUG: 'sigil*' },
+			});
+
+			expect(result.stdout.trim()).toBe(version());
+			expect(result.stderr).not.toContain('Walking command directory');
+		});
+
+		it('should leave every other spelling to the parser', async () => {
+			// the fast path is the whole of argv rather than the flag appearing in
+			// it, because each of these is a question with a second half that the
+			// parser already answers -- and a scan here that reproduced them would
+			// be a second parser to keep in agreement
+			for (const argv of [
+				['--help', '--version'],
+				['--version', '--help'],
+				['help', '--version'],
+			]) {
+				const out = captureStdout();
+				try {
+					await run(argv);
+				} finally {
+					out.restore();
+				}
+				expect(out.text, argv.join(' ')).toContain('Usage: sigil');
+			}
+		});
+
+		it('should refuse an argument beside it rather than answering', () => {
+			// spawned, because this one is rendered by the framework's error
+			// handler on its way to stderr rather than written by `run()`
+			const result = spawnSync(
+				process.execPath,
+				[join(root, 'src', 'sigil.ts'), '--version', 'extra'],
+				{ cwd: root, encoding: 'utf-8' }
+			);
+
+			expect(result.stderr).toContain('extra');
+			expect(result.stdout).not.toContain(version());
+		});
+	});
+
 	describe('run()', () => {
 		it('should print the version for --version', async () => {
 			const out = captureStdout();
