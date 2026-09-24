@@ -244,7 +244,7 @@ async function askLanguage(argv: Record<string, unknown>, yes: boolean): Promise
 		return 'ts';
 	}
 
-	return (await confirm({ message: 'TypeScript?' })) ? 'ts' : 'js';
+	return (await confirm({ message: 'Would you like to use TypeScript?' })) ? 'ts' : 'js';
 }
 
 /** Asks whether there are subcommands, defaulting to yes. */
