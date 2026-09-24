@@ -244,12 +244,7 @@ async function askLanguage(argv: Record<string, unknown>, yes: boolean): Promise
 		return 'ts';
 	}
 
-	return (await confirm({
-		// worth saying, because it is the thing people expect to cost a build step
-		message: 'TypeScript? (node runs it with nothing compiled)',
-	}))
-		? 'ts'
-		: 'js';
+	return (await confirm({ message: 'TypeScript?' })) ? 'ts' : 'js';
 }
 
 /** Asks whether there are subcommands, defaulting to yes. */
