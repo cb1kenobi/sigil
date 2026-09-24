@@ -64,6 +64,7 @@ const config: UserConfig = defineConfig({
 		theme: './src/theme/index.ts',
 		updates: './src/updates/index.ts',
 		width: './src/width/index.ts',
+		which: './src/which.ts',
 		wrap: './src/wrap/index.ts',
 	},
 	format: ['es'],
