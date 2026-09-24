@@ -3413,6 +3413,23 @@ tree at run time` is the only place that asserts what the output _does_, which
   enjoys writing twice. The package manager is read off `npm_config_user_agent`,
   because asking a question whose answer is already on the table is a question
   not worth asking, and git is just done.
+- **`new` writes without confirming, and `add` does not, because they are not
+  the same risk.** `add` puts somebody else's code into a source tree somebody
+  already owns, and the file it would overwrite is by construction one they
+  edited -- so it prints a plan and stops. `new` writes into a directory it has
+  already refused to touch unless it is absent or empty, so there is nothing to
+  lose and nothing a listing could warn about: what it printed was a dozen paths
+  under a name the user had just typed, followed by a question with one sensible
+  answer. The asymmetry is the point rather than an inconsistency to iron out.
+- **Removing the listing took the destination with it, which is the half worth
+  knowing.** It was the only thing printing where the project went, and the
+  closing `cd <name>` had been wrong since `--cwd` existed -- it is the _name_,
+  not a path, so `--cwd apps` told the user to `cd demo` from a directory with no
+  `demo` in it. The summary names the directory in full and the `cd` is
+  `relative()` from the working directory, so it is `cd demo` in the ordinary
+  case and `cd apps/demo` under a `--cwd`. Both go through `displayPath`, which
+  is what makes them forward-slashed on Windows -- and is what a test asserting
+  a `join()`ed path would get wrong there and nowhere else.
 - **A `sigil.json` is written rather than left to the convention.** A scaffold is
   exactly where a project's conventions should be explicit, and it is what stops
   `sigil add` having to guess -- and then print the guess, which is what it does

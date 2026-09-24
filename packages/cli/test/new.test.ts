@@ -167,6 +167,17 @@ describe('the command, end to end', () => {
 		expect(existsSync(join(dir, 'apps', 'demo', 'package.json'))).toBe(true);
 	});
 
+	it('should say where it put it, and give a cd that works', () => {
+		// the file listing used to be the only thing naming the destination, and
+		// `cd <name>` was wrong the moment --cwd sent the project somewhere else
+		const result = run('new', 'demo', '--cwd', 'apps', '--yes', '--no-install', '--no-git');
+
+		// both paths are printed through `displayPath`, so they are forward-slashed
+		// on every platform -- `join` here would be backslashed on Windows
+		expect(result.stdout).toContain(join(dir, 'apps', 'demo').replaceAll('\\', '/'));
+		expect(result.stdout).toContain('cd apps/demo');
+	});
+
 	it('should take an absolute --cwd', () => {
 		const target = join(dir, 'absolute');
 		run('new', 'demo', '--cwd', target, '--yes', '--no-install', '--no-git');

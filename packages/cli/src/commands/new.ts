@@ -41,7 +41,7 @@ import { expand } from '@ttylabs/sigil/paths';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** This toolchain's own manifest, for the versions it writes. */
@@ -167,13 +167,6 @@ const newApp: AnyCommand = command({
 			versions: own.devDependencies,
 		});
 
-		describe(name, dir, files);
-
-		if (!yes && !(await confirm({ message: 'Create these files?' }))) {
-			process.stdout.write('Nothing written.\n');
-			return;
-		}
-
 		write(dir, files);
 
 		const pm = packageManager();
@@ -186,7 +179,7 @@ const newApp: AnyCommand = command({
 		}
 
 		process.stdout.write(
-			`\nCreated ${name}.\n\n  cd ${name}\n` +
+			`\nCreated ${name} in ${displayPath(dir)}.\n\n  cd ${displayPath(relative(process.cwd(), dir) || '.')}\n` +
 				(argv.install === false ? `  ${pm} install\n` : '') +
 				`  ${pm} run dev -- --help\n\n` +
 				(argv.link
@@ -283,14 +276,6 @@ async function askLinter(argv: Record<string, unknown>, yes: boolean): Promise<L
 		],
 		message: 'Which linter would you like to use?',
 	})) as Linter;
-}
-
-/** Prints the tree before anything is created. */
-function describe(name: string, dir: string, files: readonly ScaffoldFile[]): void {
-	process.stdout.write(`\nIn ${displayPath(dir)}:\n\n`);
-	for (const file of files) {
-		process.stdout.write(`  ${name}/${file.path}\n`);
-	}
 }
 
 /** Writes the files, making directories as it goes. */
