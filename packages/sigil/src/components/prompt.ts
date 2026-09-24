@@ -789,7 +789,13 @@ function choiceRows<T>(
 	ticked: boolean
 ): { list: Element; rows: ChoiceRow[] } {
 	const rows = choices.map((choice) => {
-		const pointer = textNode(' ', { 'margin-right': 1 });
+		// the cursor on every row, hidden where it is not the active one: a text of
+		// nothing but spaces measures zero, since `white-space: normal` collapses a
+		// run of them, so a blank standing in for the cursor indented an inactive
+		// row one column less than an active one. Hidden content still takes its
+		// space, and reserving it with the same glyph is what keeps the column the
+		// cursor's own width rather than a guess at it.
+		const pointer = textNode(SYMBOL.cursor, { 'margin-right': 1, visibility: 'hidden' });
 		const mark = textNode(SYMBOL.off, { class: 'sigil-choice-mark', 'margin-right': 1 });
 		const label = textNode(choice.label);
 		const hint = textNode(choice.hint ?? '', {
@@ -870,8 +876,10 @@ function paintChoices(
 
 	for (const [i, row] of rows.entries()) {
 		const here = i === active;
-		row.pointer.setText(here ? SYMBOL.cursor : ' ');
-		row.pointer.setProps({ class: here ? 'sigil-choice-pointer' : '' });
+		row.pointer.setProps({
+			class: here ? 'sigil-choice-pointer' : '',
+			visibility: here ? 'visible' : 'hidden',
+		});
 		row.row.setProps({
 			class: here ? 'sigil-choice is-active' : 'sigil-choice',
 			display: i >= start && i < start + visible ? 'flex' : 'none',

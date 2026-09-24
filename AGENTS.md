@@ -75,6 +75,22 @@ an empty directory on a hit. `pnpm test` and `pnpm coverage` filter their build
 to `./packages/*`: a test run has no use for the site, and CI runs the suite on
 nine node-and-os combinations.
 
+**Every directory a build writes is in `outputs`, and `registry/**` was the one
+that was not.** The same rule the website's override is written for, missed on
+the package that grew a second output directory: `@ttylabs/sigil`'s build is
+`rimraf dist registry && tsdown && node scripts/generate-registry.mjs`, and
+`outputs` named `dist/**` alone -- so a cache hit restored `dist/`, replayed the
+generator's own `Wrote 4 registry entries` line, and left **no `registry/` at
+all**. `pnpm build` then reported complete success having produced nothing for
+`sigil add` to copy, and `files` in that manifest is `["dist", "registry"]`, so
+a publish after a cached build ships a package whose registry is missing --
+`ships no registry, so it has nothing to add`, to everyone, from a build that
+said it wrote one. `test/registry.test.ts` catches a _stale_ entry and a publish
+runs no tests, which is why the cache is where this has to be right. `scripts/**`
+joined `inputs` for the other half of it: the generator decides what lands in
+`registry/`, so editing it has to invalidate the build, and `inputs` replaces
+turbo's default rather than adding to it.
+
 `packages/cli/src/` is the bin, `--version`, the schema the filesystem router
 will replace, `src/utilities/` — the utility generator, whose committed output
 is `packages/sigil/src/style/utilities.ts` and whose `scripts/` writes it —
@@ -3629,6 +3645,22 @@ tree at run time` is the only place that asserts what the output _does_, which
   highlight and is recomputed from it, so there is no scroll state to keep in
   agreement: the only thing that has to be true is that the active row is on
   screen.
+- **A choice list reserves the cursor's column on every row, and a blank cannot
+  do it.** The inactive rows drew a `' '` where the active one drew `❯`, which
+  looks like the same one column and is not: `white-space: normal` collapses a run
+  of spaces, which is CSS and which this repo already records for a paragraph, so
+  a text of nothing but spaces measures **zero** -- and every unselected label sat
+  one column left of the selected one. Pinning it on the width of the space was
+  the first answer and only the second is structural: the cursor is on every row
+  and `visibility: hidden` takes it off the ones that are not active, because
+  hidden content still takes its space. So the column is the cursor's own width
+  rather than a guess at it, and a wider symbol cannot reopen the gap -- a
+  two-column cursor is reserved as two. The text prompt's caret escaped the same
+  defect by accident, since `sigil-caret` is `nowrap` and nowrap collapses
+  nothing. `should start every label in the same column` is the guard, and two
+  window assertions had the old spacing written into them: a test can pin a
+  misalignment as readily as an alignment, which is what made this a report rather
+  than a failure.
 - **A bracketed paste reaches a text prompt as text, with its line breaks
   flattened.** Obeying one is what makes a paste submit half an address, which is
   the whole reason a terminal brackets a paste. The other prompts register no
