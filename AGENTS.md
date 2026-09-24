@@ -1854,6 +1854,16 @@ dependency. Regenerate with `node scripts/generate-utilities.mjs` from inside
   optimization could not be added: the seam is the set of elements `update()`
   re-resolves, and narrowing that set is the whole of what an invalidation set
   would do.
+- **The guard around that measurement reads the median, not the slowest pass.**
+  It took `Math.max` of twenty and compared it to 50ms, which makes a guard
+  against _quadratic_ behaviour maximally sensitive to the one thing that says
+  nothing about complexity: a single pass stalling because something else on
+  the machine wanted the CPU. A macOS CI runner reported 59ms for one iteration
+  against a local median of 1.0ms and a slowest of 1.7ms, and failed a build
+  over it. A re-match that had gone quadratic is slow on _every_ pass, so the
+  median catches it with the same fifty-fold headroom while an outlier no longer
+  decides the colour of the build. The threshold did not move, because the
+  threshold was never the problem.
 - **A class change restyles the subtree and the siblings, not the tree.** A
   combinator reaches downwards and sideways from an element, never up, so those
   are the only elements whose match can depend on it. Sideways is the half that
