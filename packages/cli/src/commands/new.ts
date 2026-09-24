@@ -38,6 +38,7 @@ import {
 import { command, type AnyCommand } from '@ttylabs/sigil';
 import { confirm, select, text } from '@ttylabs/sigil/components';
 import { expand } from '@ttylabs/sigil/paths';
+import { which } from '@ttylabs/sigil/which';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -86,15 +87,67 @@ function dependencyFor(link: boolean, version: string): { runtime: string; toolc
 	};
 }
 
-/** The package manager that invoked this, read rather than asked about. */
-function packageManager(): string {
-	const agent = process.env.npm_config_user_agent ?? '';
-	for (const name of ['pnpm', 'yarn', 'bun']) {
-		if (agent.startsWith(`${name}/`)) {
-			return name;
-		}
+/**
+ * The package managers a scaffolded app can be set up with, best first.
+ *
+ * Three rather than every one there is, because each entry is a row in a prompt
+ * somebody has to read. Adding one is this array.
+ */
+const MANAGERS = ['pnpm', 'vlt', 'npm'] as const;
+
+type Manager = (typeof MANAGERS)[number];
+
+/**
+ * Which package manager to use, asked only when there is something to ask.
+ *
+ * This used to read `npm_config_user_agent`, on the argument that a question
+ * whose answer is already on the table is not worth asking. The answer was on
+ * the table less often than that assumed: the variable is set by the package
+ * manager that *invoked* this process, so running the toolchain directly --
+ * `node src/sigil.ts new`, which is the dev loop, and any global install --
+ * sets nothing and the scaffold silently said `npm` to somebody who has not
+ * used it in years.
+ *
+ * What is actually knowable is which ones are installed, which is what `which`
+ * is for. One installed is not a question. Several is a real preference and
+ * nothing here can infer it, so it is asked, with pnpm preselected because it
+ * is the one somebody went and installed on purpose.
+ *
+ * @param argv - The parsed options.
+ * @param yes - Whether to take the default rather than asking.
+ * @returns The manager to use.
+ */
+async function askManager(argv: Record<string, unknown>, yes: boolean): Promise<Manager> {
+	if (typeof argv.pm === 'string') {
+		return argv.pm as Manager;
 	}
-	return 'npm';
+
+	const found = await Promise.all(
+		MANAGERS.map(async (name) => ((await which(name)) ? name : null))
+	);
+	const installed = found.filter((name): name is Manager => name !== null);
+
+	// npm ships with node, so nothing found means a PATH this cannot see rather
+	// than a machine with no package manager on it -- and naming the one that is
+	// always there beats refusing to finish a scaffold that is already written
+	if (installed.length === 0) {
+		return 'npm';
+	}
+	if (installed.length === 1) {
+		return installed[0] as Manager;
+	}
+
+	const preferred: Manager = installed.includes('pnpm') ? 'pnpm' : 'npm';
+
+	if (yes) {
+		return preferred;
+	}
+
+	return (await select({
+		choices: installed.map((name) => ({ label: name, value: name })),
+		initial: installed.indexOf(preferred),
+		message: 'Which package manager would you like to use?',
+	})) as Manager;
 }
 
 /** Whether a directory is absent or empty, which is the only place to scaffold. */
@@ -132,6 +185,10 @@ const newApp: AnyCommand = command({
 			type: 'bool',
 		},
 		'--no-git': { desc: 'Do not run git init' },
+		'--pm [manager]': {
+			choices: [...MANAGERS],
+			desc: 'Which package manager to set the app up with',
+		},
 		'--no-install': { desc: 'Do not install dependencies' },
 		'--single': { desc: 'One command rather than a commands directory', type: 'bool' },
 		'-y, --yes': { desc: 'Take the defaults for anything not passed', type: 'bool' },
@@ -154,6 +211,7 @@ const newApp: AnyCommand = command({
 		const language = await askLanguage(argv, yes);
 		const layout = await askLayout(argv, yes);
 		const linter = await askLinter(argv, yes);
+		const pm = await askManager(argv, yes);
 
 		const own = toolchainManifest();
 		const from = dependencyFor(Boolean(argv.link), own.version);
@@ -169,7 +227,6 @@ const newApp: AnyCommand = command({
 
 		write(dir, files);
 
-		const pm = packageManager();
 		if (argv.git !== false) {
 			run('git', ['init', '--quiet'], dir);
 		}

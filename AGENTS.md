@@ -50,6 +50,7 @@ Paths below are inside `packages/sigil/` unless noted.
 | `src/util/`                    | Shared helpers (type coercion, camelCase, mkdir)     |
 | `src/debug/`                   | `DEBUG`-driven logger; replaces snooplogg            |
 | `src/paths.ts`                 | XDG base directories                                 |
+| `src/which.ts`                 | Resolving an executable against `PATH`               |
 | `src/updates/`                 | npm update check, run in a spawned worker            |
 | `src/error-handler.ts`         | Renders an error and sets the exit code              |
 | `src/error-hooks.ts`           | Fires `beforeError` hooks; carries state on an error |
@@ -3410,9 +3411,25 @@ tree at run time` is the only place that asserts what the output _does_, which
 - **It asks about what changes the files and works out the rest.** The name, the
   language, and one command versus several have no defensible default for a
   project that does not exist; a linter is a preference and a config file nobody
-  enjoys writing twice. The package manager is read off `npm_config_user_agent`,
-  because asking a question whose answer is already on the table is a question
-  not worth asking, and git is just done.
+  enjoys writing twice. Git is just done.
+- **Which package manager is a question about the machine, and it used to be
+  answered by asking the wrong thing.** It read `npm_config_user_agent`, on the
+  argument that a question whose answer is already on the table is not worth
+  asking -- and the answer was on the table less often than that assumed. The
+  variable is set by the package manager that _invoked_ the process, so running
+  the toolchain directly, which is the dev loop and every global install, sets
+  nothing at all and the scaffold silently said `npm` to somebody who has not
+  used it in years. What _is_ knowable is which ones are installed, which is
+  what SIG-48's `which` is for: one installed is not a question, several is a
+  real preference that nothing here can infer, and none means a `PATH` this
+  cannot see rather than a machine with no package manager on it -- so it says
+  `npm`, which ships with node, rather than refusing to finish a scaffold that
+  is already written. pnpm is preselected because it is the one somebody went
+  and installed on purpose. `--pm` beats all of it, which is also what makes the
+  rule testable: the suite owns `PATH` and hands the command a directory of
+  fakes, because asking the machine would make the answer depend on what happens
+  to be installed on it -- different on every laptop and on each of CI's nine
+  combinations.
 - **`new` writes without confirming, and `add` does not, because they are not
   the same risk.** `add` puts somebody else's code into a source tree somebody
   already owns, and the file it would overwrite is by construction one they
@@ -4254,6 +4271,85 @@ color: magenta }` and beats the default with an ordinary rule, which is only tru
   working directory, and `expand()` had no falsy value to leave the `~` alone
   over. A real path where there is none is the one failure the caller cannot
   see. See `test/paths.test.ts`.
+
+### `which`
+
+- **Written here, and the shape waited for a caller.** SIG-48 sat in the backlog
+  on the rule that a feature nothing needs is a feature designed by guessing,
+  and the caller that turned up is `sigil new` asking which package managers are
+  installed before it offers a choice between them. Everything below is a
+  decision that caller forced rather than one taken in the abstract.
+- **A miss is `undefined`, not a throw.** The ordinary use is "is this
+  installed", whose usual answer is no -- and a question asked with a `try` is
+  one whose common path is an exception. A caller that wants an error writes
+  one, and it can say what the executable was _for_, which is a better message
+  than anything this could raise.
+- **Sync and async share `candidates()`, which is pure.** It is the whole of the
+  platform argument -- `PATHEXT`, the delimiter, the quoted entry, the working
+  directory -- and the two walks differ only in how they ask whether a file is
+  there. Two implementations of _where to look_ is how the two come to disagree
+  about `PATHEXT` on the platform neither author runs. It is a generator, so the
+  usual case does no work for the ninety entries after the hit, and it is
+  exported because the ordering is worth asserting directly rather than through
+  a filesystem.
+- **The async walk is sequential, and that is not an oversight.** _First_ means
+  first in `PATH`, so racing the candidates would buy microseconds across a few
+  dozen `stat`s and then have to sort the winners back into the order they were
+  already in.
+- **Being a file is half the executability test, and `access()` is the other
+  half.** A directory called `node` in a `PATH` entry answers `X_OK` happily,
+  because searching a directory is what the execute bit means there. And the
+  bits are read by the kernel rather than by hand: the question is whether
+  _this_ process may execute it, which is the effective uid and gid against
+  three sets of bits plus whatever ACLs the filesystem adds. Hand-rolling it
+  also gets root wrong in the direction that matters -- root may execute a file
+  only if some execute bit is set, and a check that sees uid 0 and says yes
+  reports every text file in `/etc` as a program.
+- **Windows has no execute bit, so the extension is the whole test.** Requiring
+  `X_OK` there would refuse every executable on the platform; the file existing,
+  with a name `PATHEXT` accounts for, is what "executable" means. Which is also
+  why an extensionless file is _not_ a match on Windows, though it is the only
+  kind that matches on POSIX.
+- **The empty extension goes first when the name already holds a dot.** `pnpm`
+  has to be tried as `pnpm.COM`, `pnpm.EXE`, `pnpm.CMD` and the rest in order,
+  while `pnpm.cmd` must not come out as `pnpm.cmd.EXE`. One rule covers both --
+  and it keeps the list reachable for `my.tool`, which holds a dot and still
+  wants `my.tool.EXE`. Special-casing "has an extension" instead means deciding
+  whether `.tool` is one, which is a question about `PATHEXT` that the list
+  already answers.
+- **The answer carries the candidate's spelling, not the file's.** `PATHEXT` is
+  conventionally upper case and almost nothing on disk is, so on Windows --
+  where the filesystem is case-insensitive -- `tool.exe` is found by the
+  candidate `tool.EXE` and that is the string handed back. Learning the real
+  name means a `readdir` per directory, which is a lot of syscalls to make a
+  path that already spawns look tidier. Pinned in both directions by a test that
+  _probes_ the filesystem rather than reading the platform, since macOS is
+  case-insensitive by default and case-sensitive if somebody formatted it that
+  way.
+- **An empty `PATH` entry is the working directory, and so is a relative one.**
+  POSIX says the first, a trailing separator is how anybody meets it, and the
+  second is the same statement one directory along -- so both go through
+  `resolve()` rather than the empty one being a special case beside a bug.
+- **Windows searches the working directory first and strips quotes off an
+  entry.** The first is what the shell does, and a caller asking what _would_
+  run has to get the same answer. The second is because `PATH` holds whatever
+  somebody pasted into it, and a `"C:\Program Files\nodejs"` with the quotes
+  left on resolves to a directory that is not there.
+- **A name with a separator in it is a path and is never searched for.**
+  `./pnpm` names one file, which either is executable or is not; resolving it
+  against every `PATH` entry until one hits would make a path mean a search
+  after all. The extensions still apply, because `./build` may be `./build.CMD`.
+  Windows adds the backslash and the drive-relative `C:pnpm`, which is a path
+  with no separator in it at all.
+- **`whichAll()` deduplicates.** A shell profile sourced twice is a `PATH` with
+  one directory in it twice, which is not two installations -- and a caller
+  counting the answers would be told that it was.
+- **The platform is read per call rather than bound at module load.** That is
+  what makes the `PATHEXT` half testable at all on the machine it is written on,
+  which is the same seam `paths.test.ts` already uses. It is not the exception
+  `paths.ts` records for absoluteness: that entry is about _one_ check reading
+  the platform differently from the line next to it, and here every reader takes
+  it from the same argument in `candidates()`.
 
 ### Updates
 

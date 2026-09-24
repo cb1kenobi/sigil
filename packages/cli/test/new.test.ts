@@ -1,6 +1,14 @@
 import { nameProblem, scaffold, type ScaffoldOptions } from '../src/scaffold/index.js';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -176,6 +184,74 @@ describe('the command, end to end', () => {
 		// on every platform -- `join` here would be backslashed on Windows
 		expect(result.stdout).toContain(join(dir, 'apps', 'demo').replaceAll('\\', '/'));
 		expect(result.stdout).toContain('cd apps/demo');
+	});
+
+	/**
+	 * A directory holding a fake executable per name, and nothing else.
+	 *
+	 * The whole question is which package managers are on `PATH`, so the test
+	 * has to own `PATH` -- asking the machine would make the answer depend on
+	 * what happens to be installed on it, which is different on every developer's
+	 * laptop and on each of CI's nine combinations.
+	 */
+	function withManagers(...names: string[]): string {
+		const bin = join(dir, 'bin');
+		// emptied first, or a second call in one case inherits the first's
+		// executables and is answering a question nobody asked
+		rmSync(bin, { force: true, recursive: true });
+		mkdirSync(bin, { recursive: true });
+		for (const name of names) {
+			writeFileSync(join(bin, name), '#!/bin/sh\nexit 0\n');
+			chmodSync(join(bin, name), 0o755);
+		}
+		return bin;
+	}
+
+	/** Scaffolds with only `names` installed, and answers which manager it chose. */
+	function managerFor(...names: string[]): string | undefined {
+		const result = spawnSync(
+			process.execPath,
+			[cli, 'new', 'demo', '--yes', '--no-install', '--no-git'],
+			{ cwd: dir, encoding: 'utf-8', env: { ...process.env, PATH: withManagers(...names) } }
+		);
+		return /^\s*(\S+) run dev/m.exec(result.stdout)?.[1];
+	}
+
+	it('should use the only package manager that is installed', () => {
+		expect(managerFor('npm')).toBe('npm');
+		rmSync(join(dir, 'demo'), { force: true, recursive: true });
+		expect(managerFor('vlt')).toBe('vlt');
+		rmSync(join(dir, 'demo'), { force: true, recursive: true });
+		expect(managerFor('pnpm')).toBe('pnpm');
+	});
+
+	it('should prefer pnpm when there is a choice', () => {
+		expect(managerFor('pnpm', 'vlt', 'npm')).toBe('pnpm');
+	});
+
+	it('should fall back to npm when pnpm is not one of them', () => {
+		expect(managerFor('vlt', 'npm')).toBe('npm');
+	});
+
+	it('should say npm when it can find none of them', () => {
+		// npm ships with node, so an empty answer is a PATH this cannot see
+		// rather than a machine with no package manager on it
+		expect(managerFor()).toBe('npm');
+	});
+
+	it('should take --pm over what is installed', () => {
+		const result = spawnSync(
+			process.execPath,
+			[cli, 'new', 'demo', '--pm', 'vlt', '--yes', '--no-install', '--no-git'],
+			{ cwd: dir, encoding: 'utf-8', env: { ...process.env, PATH: withManagers('pnpm', 'npm') } }
+		);
+		expect(result.stdout).toContain('vlt run dev');
+	});
+
+	it('should refuse a --pm it does not know', () => {
+		const result = run('new', 'demo', '--pm', 'yarn', '--yes', '--no-install', '--no-git');
+		expect(result.status).not.toBe(0);
+		expect(result.stderr).toContain('yarn');
 	});
 
 	it('should take an absolute --cwd', () => {
