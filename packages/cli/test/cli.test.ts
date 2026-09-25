@@ -1,3 +1,4 @@
+import { readSigilConfig } from '../src/config.js';
 import { run, schema, version } from '../src/index.js';
 import { readRoutes } from '@ttylabs/sigil/routes';
 import { spawnSync } from 'node:child_process';
@@ -282,7 +283,6 @@ describe('@ttylabs/cli', () => {
 			// which needs no build of its own -- that is what keeps a broken
 			// build able to build its own fix
 			expect(pkg.scripts.build).toContain('node src/sigil.ts build');
-			expect(pkg.scripts.build).toContain('rimraf dist');
 		});
 
 		it('should leave its native dependencies as imports', () => {
@@ -290,10 +290,20 @@ describe('@ttylabs/cli', () => {
 			// manifest has to declare them. `@ttylabs/sigil` is external for a
 			// different reason: it is a real dependency npm installs, and
 			// inlining it made the bundle four times the size
+			const config = readSigilConfig(root);
+
 			for (const dep of ['@ttylabs/sigil', 'oxc-parser', 'rolldown']) {
 				expect(pkg.dependencies, dep).toHaveProperty(dep);
-				expect(pkg.scripts.build, dep).toContain(`--external ${dep}`);
+				expect(config.build?.external, dep).toContain(dep);
 			}
+		});
+
+		it('should build with no options at all', () => {
+			// what `sigil.json` bought: the options are facts about the app, so
+			// they live beside it rather than in whoever happens to be typing the
+			// command. `sigil build` empties the output directory itself, so there
+			// is no `rimraf` either
+			expect(pkg.scripts.build).toBe('node src/sigil.ts build');
 		});
 
 		it('should declare every dependency it has taken, and no more', () => {

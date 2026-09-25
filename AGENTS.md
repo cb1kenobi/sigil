@@ -3445,6 +3445,32 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   escape runs over the **written files** rather than in `generateBundle`, which
   is where it started: minification is an output stage that runs after the
   hooks, so the escapes were folded straight back.
+- **The options live in `sigil.json`, because there was already a
+  `sigil.json`.** `sigil add` read it for where ejected components land and
+  `sigil new` writes it, so the question a build option raised was never "config
+  file or flags" but "this file or a second one" -- and two files answering for
+  one tool is worse than a long script line. `pnpm build` is now
+  `node src/sigil.ts build` with nothing after it. A flag beats the file and the
+  file beats the default: the file says what this app is always built with, a
+  flag says what this invocation wants.
+- **One reader, not two.** `readSigilConfig()` is the only thing that opens the
+  file, and `readConfig()` in the registry goes through it. One file with two
+  readers is two ideas of what it may contain, and the second one to grow a
+  field is the one that silently ignores the other's.
+- **A `next.config.ts` was the other candidate and is deferred with a reason.**
+  It has to be _executed_, and everything else this build does is reading: the
+  app's entry is parsed rather than imported precisely so an app that opens a
+  connection at module scope does not do it during a build. Running
+  app-adjacent code would be a new surface, and none of the four options needs
+  computing -- they are literals. The day one of them does is the day to
+  revisit it, which is the rule `which` waited on for a caller.
+- **`sigil build` empties its output directory, and refuses the one that would
+  hurt.** A build that leaves the last one behind publishes the union of every
+  build ever run there -- a renamed command's chunk stays, a removed one's
+  stays. Doing it here rather than in a `rimraf` beside the call is what makes
+  the command the whole of the build. It refuses an `--out` that _is_ the app
+  root or sits above it, which is the one way a mistyped path turns a build into
+  data loss, and `--no-clean` opts out.
 - **Sourcemaps are on by default and `--no-sourcemap` turns them off, because
   "costs nothing" was only true of run time.** They are several times the size
   of the minified code they describe -- 203 KB against 38 KB -- and a package
