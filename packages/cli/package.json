@@ -28,7 +28,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "rimraf dist && node src/sigil.ts build --out dist --no-sourcemap --name sigil --external @ttylabs/sigil --external oxc-parser --external rolldown",
+    "build": "rimraf dist && node src/sigil.ts build --no-sourcemap --external @ttylabs/sigil --external oxc-parser --external rolldown",
     "coverage": "vitest --coverage",
     "dev": "node ./src/sigil.ts",
     "ncu": "ncu -c 1d",

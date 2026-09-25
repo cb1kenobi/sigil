@@ -73,6 +73,15 @@ const EXTENSIONS = ['.ts', '.mts', '.cts', '.js', '.mjs', '.cjs'];
 export interface AppManifest {
 	/** Every dependency it declares, however it declares them. */
 	readonly dependencies: readonly string[];
+	/**
+	 * The one executable it publishes, when it publishes exactly one.
+	 *
+	 * What the built executable should be called, and a better answer than the
+	 * package name: `@ttylabs/cli` publishes `sigil`, and a build naming the
+	 * file after the package writes a `cli.mjs` the manifest does not point at.
+	 * More than one is not an answer, so it is left to `--name`.
+	 */
+	readonly bin?: string;
 	/** What it calls itself. */
 	readonly name?: string;
 	/** Where the manifest is. */
@@ -185,6 +194,7 @@ export function readManifest(root: string): AppManifest {
 	}
 
 	return {
+		bin: binName(json.bin),
 		dependencies: [...dependencies],
 		name: typeof json.name === 'string' ? json.name : undefined,
 		path,
@@ -671,4 +681,25 @@ function moduleFacts(
 function at(parsed: ParsedModule, offset: number): { column: number; file: string; line: number } {
 	const { column, line } = position(parsed.source, offset);
 	return { column, file: parsed.file, line };
+}
+
+/**
+ * The single executable a manifest's `bin` names.
+ *
+ * A string is the shorthand for "named after the package", which says nothing
+ * this does not already know. An object with one key is the useful case and the
+ * common one. More than one key is a package publishing several executables,
+ * which a single-bundle build has no answer for -- so it says nothing and lets
+ * `--name` be asked.
+ *
+ * @param bin - Whatever the manifest put there.
+ * @returns The name, or `undefined`.
+ */
+function binName(bin: unknown): string | undefined {
+	if (!bin || typeof bin !== 'object' || Array.isArray(bin)) {
+		return undefined;
+	}
+
+	const names = Object.keys(bin);
+	return names.length === 1 ? names[0] : undefined;
 }

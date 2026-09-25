@@ -171,7 +171,15 @@ function binName(found: Inspection, named: string | undefined): string {
 		return named;
 	}
 
-	const { name } = found.app.manifest;
+	// what the manifest's `bin` says, before what it calls itself: a scoped
+	// package's name is not its executable's -- `@ttylabs/cli` publishes `sigil`,
+	// and naming the file after the package writes one the manifest does not
+	// point at
+	const { bin, name } = found.app.manifest;
+	if (bin) {
+		return bin;
+	}
+
 	return name ? (name.split('/').pop() ?? name) : 'cli';
 }
 

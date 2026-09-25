@@ -268,6 +268,14 @@ describe('@ttylabs/cli', () => {
 			expect(pkg).not.toHaveProperty('types');
 		});
 
+		it('should not have to be told what its executable is called', () => {
+			// `bin` already says, and it is not the package name: `@ttylabs/cli`
+			// publishes `sigil`, so a build naming the file after the package
+			// writes one the manifest does not point at
+			expect(pkg.scripts.build).not.toContain('--name');
+			expect(Object.keys(pkg.bin)).toStrictEqual(['sigil']);
+		});
+
 		it('should build itself', () => {
 			// the acceptance test, as a line in a manifest: `pnpm build` is the
 			// toolchain building the toolchain. Stage 0 is `node src/sigil.ts`,
