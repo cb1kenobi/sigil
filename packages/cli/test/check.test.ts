@@ -1,6 +1,6 @@
 import { run, schema } from '../src/index.js';
-import { ROUTE_INFO } from '../src/route-info.js';
 import { readRoutes } from '@ttylabs/sigil/routes';
+import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -46,10 +46,11 @@ async function sigil(...argv: string[]) {
  * carries -- that a command which exists and refuses is worse than one that does
  * not exist yet -- is what these assert it keeps.
  */
-/** The commands the filesystem says exist, which is now the source of truth. */
+const commandsDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'commands');
+
+/** The commands the filesystem says exist, which is the source of truth. */
 function routeNames(): string[] {
-	const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'commands');
-	return (readRoutes(dir)?.routes ?? []).map((route) => route.name).sort();
+	return (readRoutes(commandsDir)?.routes ?? []).map((route) => route.name).sort();
 }
 
 describe('sigil check', () => {
@@ -75,19 +76,24 @@ describe('sigil check', () => {
 			expect(routeNames()).toStrictEqual(['add', 'build', 'check', 'new']);
 		});
 
-		it('should be described by what the build lifted, not by its module', () => {
-			// the description lives in `check.ts` now, which is where a filesystem
-			// route keeps one -- and `ROUTE_INFO` is the build's static lift of it,
-			// so `sigil --help` still names the command without importing the
-			// native parser behind it
-			expect(ROUTE_INFO.check?.desc).toBe('Check an app without building it');
+		it('should keep its description in its own module', () => {
+			// where a filesystem route keeps one. `sigil build` lifts it statically
+			// into the tree it bakes, so `sigil --help` still names the command
+			// without importing the native parser behind it
+			const source = readFileSync(join(commandsDir, 'check.ts'), 'utf-8');
+			expect(source).toContain("desc: 'Check an app without building it'");
 		});
 
-		it('should describe itself in help without loading its module', async () => {
+		it('should be listed in help without loading its module', async () => {
+			// by name alone from source, which is what an unbuilt filesystem tree
+			// has always done: the description is inside `check.ts` and reading it
+			// means importing the module, which is the one thing the deferral
+			// exists to avoid. `sigil build` lifts it statically and bakes it in,
+			// so the *built* toolchain names and describes it -- asserted in
+			// `commands.test.ts`, against the artifact that has the lift in it
 			const { out } = await sigil('--help');
 
 			expect(out).toContain('check');
-			expect(out).toContain('Check an app without building it');
 		});
 
 		it('should describe its own options once it is asked', async () => {

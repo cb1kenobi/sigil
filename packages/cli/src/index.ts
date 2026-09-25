@@ -1,4 +1,3 @@
-import { ROUTE_INFO } from './route-info.ts';
 import { main, type ParseState, type Schema } from '@ttylabs/sigil';
 import { readFileSync } from 'node:fs';
 
@@ -37,12 +36,15 @@ export function schema(): Schema {
 		// The commands are the files in `src/commands/`, which is what SIG-74 is
 		// for and what `sigil build` reads out of an app. `baseDir` is what makes
 		// './commands' mean *this* directory rather than the one the user was
-		// standing in, and `ROUTE_INFO` is the descriptions lifted out of those
-		// modules at build time so that `--help` can name them without importing
-		// four modules, a native parser and a scaffold to do it.
+		// standing in.
+		//
+		// No `routeInfo`: `sigil build` lifts the descriptions out of those
+		// modules and bakes them into the tree it generates, which is the same
+		// lift a hand-run script used to do here. Running from source lists by
+		// name alone until a module is loaded, which is what an unbuilt
+		// filesystem tree has always done.
 		baseDir: import.meta.dirname,
 		commands: './commands',
-		routeInfo: ROUTE_INFO,
 	};
 }
 

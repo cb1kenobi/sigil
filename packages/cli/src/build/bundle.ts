@@ -34,7 +34,7 @@
 import type { DiscoveredApp } from './discover.ts';
 import { generateBin } from './generate.ts';
 import type { ResolvedTree } from './tree.ts';
-import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** Where the generated entry is written, relative to the app. */
@@ -66,6 +66,16 @@ export interface BundleOptions {
 	readonly external?: readonly string[];
 	/** Where the bundle goes. */
 	readonly out: string;
+	/**
+	 * Whether to write sourcemaps. On by default.
+	 *
+	 * The first thing anybody debugging a built app wants, and nothing to
+	 * whoever never opens one -- at run time. What it is not free of is *size*:
+	 * they are several times the minified code they describe, and a package
+	 * publishing its `dist` publishes them. So an app that ships its bundle
+	 * rather than debugging it can say no.
+	 */
+	readonly sourcemap?: boolean;
 	/** The tree to bake into the generated entry. */
 	readonly tree: ResolvedTree;
 }
@@ -99,7 +109,7 @@ export interface BundleResult {
  * @returns What it wrote.
  */
 export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
-	const { app, bin, binName, external = [], out, tree } = options;
+	const { app, bin, binName, external = [], out, sourcemap = true, tree } = options;
 
 	// imported here rather than at the top, the way the runtime defers its own
 	// heavy modules: rolldown is a native binary, and `sigil check` has no use
@@ -115,7 +125,10 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 		// left as imports rather than inlined. Rolldown does not report these as
 		// unresolved, which is the point: an external is a deliberate answer to
 		// "this cannot be inlined" and an unresolved import is the absence of one
-		external: [...external],
+		external: external.flatMap((name) => [
+			name,
+			new RegExp(`^${name.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')}/`),
+		]),
 		input,
 		// an import a bundler cannot resolve is left as an import, so the bundle
 		// reaches for it at run time -- which is the zero-dependency promise
@@ -145,11 +158,15 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 		dir: out,
 		entryFileNames: `${binName}.mjs`,
 		format: 'esm',
-		// a sourcemap would be the first thing anybody debugging a built app
-		// wants, and it costs nothing to whoever does not open it
-		sourcemap: true,
+		minify: true,
+		// the first thing anybody debugging a built app wants, and nothing to
+		// whoever never opens one -- but several times the size of the code it
+		// describes, and a package publishing its `dist` publishes it too
+		sourcemap,
 	});
 	await bundle.close();
+
+	escapeControls(out, written.output);
 
 	const chunks = written.output
 		.map((chunk) => ({
@@ -191,4 +208,53 @@ function writeEntry(app: DiscoveredApp, tree: ResolvedTree): string {
 	);
 
 	return file;
+}
+
+/**
+ * Escapes every control character a terminal would act on, in what was written.
+ *
+ * The runtime builds `ESC` with `String.fromCharCode()` precisely so a raw
+ * control character never sits in source -- and the minifier constant-folds
+ * that straight back into a raw byte. A built app inlines the runtime, so
+ * without this every minified app ships the sequence: three raw control
+ * characters in one fixture's bundle, the first time minification was turned
+ * on, and three is all it takes -- one of them opens a hyperlink.
+ *
+ * It matters because Node prints the offending source line on an uncaught
+ * error, so a crash near one writes `ESC ] 8 ; ;` to the user's terminal and
+ * leaves everything after it inside a hyperlink nothing closes. A CLI that dies
+ * must not take the terminal with it.
+ *
+ * Done to the **files**, not in a `generateBundle` hook, which is where this
+ * started: minification is an output stage that runs after the hooks, so the
+ * escapes were folded straight back. What is written is the only thing the
+ * minifier is finished with. Escaping a
+ * raw byte inside a string to `\xNN` is the same string to JavaScript and inert
+ * to a terminal, so doing it last is safe as well as sufficient.
+ *
+ * `\t`, `\n` and `\r` are left alone as the file's own formatting. The same
+ * pass `packages/sigil`'s own build runs over its own output, said here because
+ * an app's bundle is the other place the runtime's source ends up.
+ *
+ * @param out - The output directory.
+ * @param output - What rolldown wrote.
+ */
+function escapeControls(out: string, output: readonly { fileName: string; type: string }[]): void {
+	for (const chunk of output) {
+		if (chunk.type !== 'chunk') {
+			continue;
+		}
+
+		const file = join(out, chunk.fileName);
+		const code = readFileSync(file, 'utf-8');
+		// eslint-disable-next-line no-control-regex
+		const escaped = code.replaceAll(
+			/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g,
+			(c) => `\\x${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`
+		);
+
+		if (escaped !== code) {
+			writeFileSync(file, escaped);
+		}
+	}
 }

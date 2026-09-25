@@ -66,6 +66,9 @@ const build: AnyCommand = command({
 		'--name [name]': {
 			desc: 'What the built executable is called. Defaults to the name in package.json',
 		},
+		'--no-sourcemap': {
+			desc: 'Skip the sourcemaps, which are several times the size of the code',
+		},
 		'--out [dir]': {
 			default: DEFAULT_OUT,
 			desc: 'Where the bundle goes, relative to the app',
@@ -94,6 +97,7 @@ const build: AnyCommand = command({
 			binName: binName(found, argv.name as string | undefined),
 			external: (argv.external as string[] | undefined) ?? [],
 			out,
+			sourcemap: argv.sourcemap !== false,
 			tree: { commands: found.commands, diagnostics: [] } satisfies ResolvedTree,
 		});
 

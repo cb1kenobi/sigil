@@ -1,8 +1,6 @@
-import { liftRouteInfo, printRouteInfo } from '../src/build/index.js';
-import { ROUTE_INFO } from '../src/route-info.js';
 import { readRoutes } from '@ttylabs/sigil/routes';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -10,94 +8,92 @@ import { describe, expect, it } from 'vitest';
 /**
  * The toolchain routing its own commands.
  *
- * `src/commands/` is the source of truth and `src/route-info.ts` is a cache
- * over it, so everything here is about the two not coming apart -- and about
- * the published package still having files for the walk to find, which is the
- * half that passes from source and fails once installed.
+ * `src/commands/` is the source of truth: adding a command is adding a file,
+ * and nothing anywhere writes the list out beside it. What that costs is the
+ * descriptions -- a filesystem route keeps its own inside its module -- and
+ * what pays for them is `sigil build`, which lifts them statically and bakes
+ * them into the tree it generates. So the claims worth pinning are that the
+ * routes are what the directory says, and that a built toolchain can name every
+ * one of them without importing a single command module to do it.
  */
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const commandsDir = join(root, 'src', 'commands');
+const dist = join(root, 'dist');
 
-/** The routes the framework's own reader finds, which is what the CLI will walk. */
+/** The routes the framework's own reader finds, which is what the CLI walks. */
 function routes(): string[] {
 	return (readRoutes(commandsDir)?.routes ?? []).map((route) => route.name).sort();
 }
 
-describe('the committed route info', () => {
-	it('should be what the lift produces today', () => {
-		// the same drift check the utility sheet carries, and for the same reason:
-		// this file is committed so `node src/sigil.ts` works on a fresh clone
-		// with no build, which is exactly what lets it go quietly stale.
-		//
-		// Compared in memory rather than by running the generator, because a test
-		// that regenerates writes to the working tree to find out whether it
-		// needed to -- and then the answer is always no.
-		const { problems, routeInfo } = liftRouteInfo(commandsDir);
-
-		expect(problems).toStrictEqual([]);
-		expect(routeInfo).toStrictEqual(ROUTE_INFO);
+describe('the command directory', () => {
+	it('should be the four commands and nothing else', () => {
+		expect(routes()).toStrictEqual(['add', 'build', 'check', 'new']);
 	});
 
-	it('should be spelled the way the committed file spells it', () => {
-		// the printed form as well as the value, since what is committed is
-		// source: a printer that stopped matching the formatter would leave every
-		// regeneration dirtying the tree
-		const { routeInfo } = liftRouteInfo(commandsDir);
-
-		expect(printRouteInfo(routeInfo)).toBe(
-			readFileSync(join(root, 'src', 'route-info.ts'), 'utf-8')
-		);
-	});
-
-	it('should describe every command the filesystem has', () => {
-		// a route with no entry still works and simply lists without a
-		// description, so this is not a correctness guard -- it is the guard
-		// against somebody adding a command and nobody noticing help got worse
-		expect(Object.keys(ROUTE_INFO).sort()).toStrictEqual(routes());
-	});
-
-	it('should say what each module says', () => {
-		// the lift is a snapshot of the module, and the two disagreeing is how
-		// `--help` comes to describe a command differently before and after it is
-		// loaded
-		for (const [name, info] of Object.entries(ROUTE_INFO)) {
-			const source = readFileSync(join(commandsDir, `${name}.ts`), 'utf-8');
-			expect(source, `${name} lost the desc the lift recorded`).toContain(`desc: '${info.desc}'`);
-		}
-	});
-
-	it('should not describe the shared pass, which is not a command', () => {
+	it('should keep the shared pass out of the routes', () => {
+		// `_inspect.ts` is one pass for two commands and is not a command; the
+		// `_` prefix is what says so, and this is that rule read from inside the
+		// repo that invented it
 		expect(existsSync(join(commandsDir, '_inspect.ts'))).toBe(true);
-		expect(ROUTE_INFO).not.toHaveProperty('_inspect');
+		expect(routes()).not.toContain('_inspect');
 	});
 });
 
-describe('the built package', () => {
-	const dist = join(root, 'dist');
-
-	it.runIf(existsSync(dist))('should ship a directory for the walk to read', () => {
-		// bundled into hashed chunks there is no `dist/commands/` at all, and the
-		// published bin fails with `Unsupported command module` -- which passes
-		// every test that runs from source
-		for (const name of routes()) {
-			expect(existsSync(join(dist, 'commands', `${name}.mjs`)), `dist/commands/${name}.mjs`).toBe(
-				true
-			);
-		}
-	});
-
-	it.runIf(existsSync(dist))('should name every command in help without importing one', () => {
-		// the whole point of the lift: the descriptions are on screen and the
-		// four command modules, a native parser and a scaffold are not loaded
+describe('the built toolchain', () => {
+	it.runIf(existsSync(dist))('should name every command in help', () => {
+		// the descriptions live in the command modules, and `sigil build` lifts
+		// them into the tree it bakes -- so this screen is drawn without loading
+		// four command modules, a native parser and a scaffold to do it
 		const result = spawnSync(process.execPath, [join(dist, 'sigil.mjs'), '--help'], {
 			encoding: 'utf-8',
 		});
 
 		expect(result.status).toBe(0);
-		for (const [name, info] of Object.entries(ROUTE_INFO)) {
-			expect(result.stdout).toContain(name);
-			expect(result.stdout).toContain(info.desc);
+		for (const name of routes()) {
+			expect(result.stdout, name).toContain(name);
+		}
+		expect(result.stdout).toContain('Copy a component into your app');
+		expect(result.stdout).toContain('Build an app into a bundle that depends on nothing');
+	});
+
+	it.runIf(existsSync(dist))('should not ship a command directory', () => {
+		// it used to, because a runtime walk needs files to find. The baked tree
+		// reaches its commands through `load`, so the chunks are the bundler's to
+		// name and there is nothing for a walk to read
+		expect(existsSync(join(dist, 'commands'))).toBe(false);
+	});
+
+	it.runIf(existsSync(dist))('should behave the way the source does', () => {
+		// the invariant the self-host rests on: `node src/sigil.ts` and
+		// `node dist/sigil.mjs` are the same program. `--version` and a bare
+		// invocation are where that was false, because both lived in a bin
+		// wrapper the build replaces and so were simply absent once built.
+		//
+		// The descriptions are the one thing that legitimately differs, and it
+		// is the lift rather than a divergence: from source they are inside
+		// modules nothing has imported, and the built tree has them baked. So
+		// this compares what each *does* -- the version, the exit code, the
+		// commands offered -- and the test above compares what the built one
+		// says.
+		const src = resolve(root, 'src', 'sigil.ts');
+		const bin = join(dist, 'sigil.mjs');
+		const run = (file: string, argv: string[]) =>
+			spawnSync(process.execPath, [file, ...argv], { cwd: root, encoding: 'utf-8' });
+
+		expect(run(bin, ['--version']).stdout).toBe(run(src, ['--version']).stdout);
+
+		for (const argv of [[], ['--help']]) {
+			const a = run(src, argv);
+			const b = run(bin, argv);
+			const names = (out: string) =>
+				out
+					.split('\n')
+					.map((line) => line.trim().split(/\s+/)[0])
+					.filter((name) => routes().includes(name ?? ''));
+
+			expect(b.status, argv.join(' ') || '(no arguments)').toBe(a.status);
+			expect(names(b.stdout), argv.join(' ') || '(no arguments)').toStrictEqual(names(a.stdout));
 		}
 	});
 });

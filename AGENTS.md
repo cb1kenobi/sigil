@@ -3403,16 +3403,53 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   nothing was lifting anything. `scripts/generate-commands.mjs` is that lift run
   as a build step, and it walks with `readRoutes()` -- the _runtime's_ reader --
   so the thing that describes the walk cannot come to disagree with the walk.
-- **`src/route-info.ts` is committed, for the reason the utility sheet is.**
-  `node src/sigil.ts` has to work on a fresh clone with no build, and an import
-  of a generated file that is not there does not. Committed also means it can go
-  quietly stale, so `the committed route info` compares both the value and the
-  _printed source_ against what the lift produces now -- the second half because
-  what is committed is source, and a printer that stopped matching the formatter
-  would leave every regeneration dirtying the tree. It compares in memory rather
-  than by running the generator: a drift check that regenerates writes to the
-  working tree to find out whether it needed to, after which the answer is
-  always no.
+- **`pnpm build` is the toolchain building the toolchain, and that deleted the
+  bridge.** A hand-run `scripts/generate-commands.mjs` used to do the lift and
+  write a committed `src/route-info.ts`, because tsdown knows nothing about
+  command trees. `sigil build` has always known: it walks the directory, lifts
+  `desc` and `hidden` out of each module, and bakes the tree into the entry it
+  generates. So the script, the committed file, its drift check and the schema's
+  `routeInfo` all went in the change that stopped needing them -- the shape to
+  reach for when a generator appears beside a build is whether the build should
+  have done it.
+- **Stage 0 is `node src/sigil.ts`, and it needs no build.** That is what keeps
+  a broken build able to build its own fix, and it is why the build script is
+  `node src/sigil.ts build` rather than `sigil build`: the bin it would run is
+  the thing being produced.
+- **From source the commands list by name alone, which is the lift's absence
+  rather than a defect.** A filesystem route keeps its description inside its
+  module, so an unbuilt tree has nothing to show until something imports one --
+  exactly what every unbuilt sigil app does. The built toolchain names and
+  describes all four. `should behave the way the source does` compares what each
+  one _does_ -- the version, the exit code, the commands offered -- rather than
+  the screens byte for byte, because the descriptions are the one thing that
+  legitimately differs.
+- **The toolchain publishes a bin and nothing else.** `./build`, `./template`
+  and `./utilities` are gone, along with every `.d.mts`: it is an app rather than
+  a library, `sigil build` emits an executable, and the three subpaths had
+  exactly zero real importers anywhere -- every reference in the repo was inside
+  a comment. Their declarations were 33 KB of an 85 KB `dist`, `build.d.mts`
+  alone 22 KB.
+- **`@ttylabs/sigil` is external in that build, and it is the reason the bundle
+  is smaller than what tsdown produced.** Inlining the runtime is right for an
+  _app_, whose promise is that it ships depending on nothing; the toolchain is a
+  devDependency that declares its dependencies and npm installs them. Inlined it
+  is 177 KB, external 38 KB, against tsdown's 52 KB of code and 33 KB of types.
+- **The build minifies, which needed the control-character escape brought with
+  it.** Both tsdown configs minify and `sigil build` did not, so every app it
+  built shipped unminified. Turning it on reintroduced the defect
+  `packages/sigil`'s own build carries a plugin against: the runtime writes
+  `ESC` as `String.fromCharCode()` so a raw control character never sits in
+  source, and a minifier folds it straight back. Three of them in one fixture's
+  bundle, and three is all it takes -- one opens a hyperlink nothing closes. The
+  escape runs over the **written files** rather than in `generateBundle`, which
+  is where it started: minification is an output stage that runs after the
+  hooks, so the escapes were folded straight back.
+- **Sourcemaps are on by default and `--no-sourcemap` turns them off, because
+  "costs nothing" was only true of run time.** They are several times the size
+  of the minified code they describe -- 203 KB against 38 KB -- and a package
+  that publishes its `dist` publishes them too. The toolchain's own build says
+  no; an app debugging its bundle says nothing and keeps them.
 - **The published package ships `dist/commands/`, and nothing else would
   work.** Bundled into hashed chunks there is no directory for the walk to read,
   and the built bin fails with `Unsupported command module` -- from source it is

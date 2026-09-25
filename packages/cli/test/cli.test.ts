@@ -1,5 +1,4 @@
 import { run, schema, version } from '../src/index.js';
-import config from '../tsdown.config.js';
 import { readRoutes } from '@ttylabs/sigil/routes';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -257,37 +256,36 @@ describe('@ttylabs/cli', () => {
 	});
 
 	describe('package wiring', () => {
-		it('should build an entry for every exported subpath', () => {
-			const entry = config.entry as Record<string, string>;
-			for (const [subpath, condition] of Object.entries<any>(pkg.exports)) {
-				if (subpath === './package.json') {
-					continue;
-				}
-				const name = subpath === '.' ? 'index' : subpath.slice(2);
-				expect(entry, `"${subpath}" has no build entry`).toHaveProperty(name);
-				expect(existsSync(resolve(root, entry[name]))).toBe(true);
-				expect(condition).toEqual({
-					types: `./dist/${name}.d.mts`,
-					default: `./dist/${name}.mjs`,
-				});
-			}
+		it('should publish a bin and nothing else', () => {
+			// it is an app rather than a library: `sigil build` emits an
+			// executable, so there is no entry to import and no declaration to
+			// import it with. Every subpath it used to publish -- `./build`,
+			// `./template`, `./utilities` -- had exactly zero real importers, in
+			// this repo or anywhere, and 33 KB of the old `dist` was their types
+			expect(pkg.bin).toStrictEqual({ sigil: './dist/sigil.mjs' });
+			expect(Object.keys(pkg.exports)).toStrictEqual(['./package.json']);
+			expect(pkg).not.toHaveProperty('main');
+			expect(pkg).not.toHaveProperty('types');
 		});
 
-		it('should build an entry for the bin', () => {
-			const entry = config.entry as Record<string, string>;
-			for (const target of Object.values<string>(pkg.bin)) {
-				const name = target.replace(/^\.\/dist\//, '').replace(/\.mjs$/, '');
-				expect(entry, `bin "${target}" has no build entry`).toHaveProperty(name);
-			}
+		it('should build itself', () => {
+			// the acceptance test, as a line in a manifest: `pnpm build` is the
+			// toolchain building the toolchain. Stage 0 is `node src/sigil.ts`,
+			// which needs no build of its own -- that is what keeps a broken
+			// build able to build its own fix
+			expect(pkg.scripts.build).toContain('node src/sigil.ts build');
+			expect(pkg.scripts.build).toContain('rimraf dist');
 		});
 
-		it('should depend on the runtime rather than bundling it', () => {
-			// `deps.neverBundle` rather than `external`, which tsdown deprecated;
-			// the claim is unchanged, which is why this asserts the behaviour a
-			// line below rather than only the spelling
-			expect(pkg.dependencies).toHaveProperty('@ttylabs/sigil', 'workspace:*');
-			expect(config.deps?.neverBundle).toContain('@ttylabs/sigil');
-			expect(config).not.toHaveProperty('external');
+		it('should leave its native dependencies as imports', () => {
+			// nothing inlines a `.node`, so these have to stay imports and the
+			// manifest has to declare them. `@ttylabs/sigil` is external for a
+			// different reason: it is a real dependency npm installs, and
+			// inlining it made the bundle four times the size
+			for (const dep of ['@ttylabs/sigil', 'oxc-parser', 'rolldown']) {
+				expect(pkg.dependencies, dep).toHaveProperty(dep);
+				expect(pkg.scripts.build, dep).toContain(`--external ${dep}`);
+			}
 		});
 
 		it('should declare every dependency it has taken, and no more', () => {
