@@ -34,7 +34,7 @@
 import type { DiscoveredApp } from './discover.ts';
 import { generateBin } from './generate.ts';
 import type { ResolvedTree } from './tree.ts';
-import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** Where the generated entry is written, relative to the app. */
@@ -48,8 +48,34 @@ export interface BundleOptions {
 	readonly binName: string;
 	/** An executable of the app's own, bundled instead of a generated one. */
 	readonly bin?: string;
+	/**
+	 * Packages to leave as imports rather than inline.
+	 *
+	 * The zero-dependency promise is about what *sigil* adds, and this is the
+	 * one thing that can break it, so it is explicit and it is reported. What
+	 * forces it is a **native binding**: a package like `oxc-parser` or
+	 * `rolldown` is JavaScript around a `.node` file, and no bundler inlines a
+	 * `.node`. Its JavaScript resolves perfectly well, gets inlined, and then
+	 * looks for a binary beside a file that is no longer there -- so the build
+	 * reports success and the executable dies the first time it is used.
+	 *
+	 * An app that names one is saying its bundle is not self-contained, which is
+	 * a true thing to say about an app with a native dependency and a lie about
+	 * any other.
+	 */
+	readonly external?: readonly string[];
 	/** Where the bundle goes. */
 	readonly out: string;
+	/**
+	 * Whether to write sourcemaps. On by default.
+	 *
+	 * The first thing anybody debugging a built app wants, and nothing to
+	 * whoever never opens one -- at run time. What it is not free of is *size*:
+	 * they are several times the minified code they describe, and a package
+	 * publishing its `dist` publishes them. So an app that ships its bundle
+	 * rather than debugging it can say no.
+	 */
+	readonly sourcemap?: boolean;
 	/** The tree to bake into the generated entry. */
 	readonly tree: ResolvedTree;
 }
@@ -70,6 +96,8 @@ export interface BundleResult {
 	readonly bin: string;
 	/** Everything written, the executable included, largest first. */
 	readonly chunks: readonly BuiltChunk[];
+	/** What was left as an import rather than inlined, in the order given. */
+	readonly external: readonly string[];
 	/** The generated entry, when the build wrote one. */
 	readonly generated?: string;
 }
@@ -81,7 +109,7 @@ export interface BundleResult {
  * @returns What it wrote.
  */
 export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
-	const { app, bin, binName, out, tree } = options;
+	const { app, bin, binName, external = [], out, sourcemap = true, tree } = options;
 
 	// imported here rather than at the top, the way the runtime defers its own
 	// heavy modules: rolldown is a native binary, and `sigil check` has no use
@@ -94,6 +122,13 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 	const unresolved: string[] = [];
 
 	const bundle = await rolldown({
+		// left as imports rather than inlined. Rolldown does not report these as
+		// unresolved, which is the point: an external is a deliberate answer to
+		// "this cannot be inlined" and an unresolved import is the absence of one
+		external: external.flatMap((name) => [
+			name,
+			new RegExp(`^${name.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')}/`),
+		]),
 		input,
 		// an import a bundler cannot resolve is left as an import, so the bundle
 		// reaches for it at run time -- which is the zero-dependency promise
@@ -123,11 +158,15 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 		dir: out,
 		entryFileNames: `${binName}.mjs`,
 		format: 'esm',
-		// a sourcemap would be the first thing anybody debugging a built app
-		// wants, and it costs nothing to whoever does not open it
-		sourcemap: true,
+		minify: true,
+		// the first thing anybody debugging a built app wants, and nothing to
+		// whoever never opens one -- but several times the size of the code it
+		// describes, and a package publishing its `dist` publishes it too
+		sourcemap,
 	});
 	await bundle.close();
+
+	escapeControls(out, written.output);
 
 	const chunks = written.output
 		.map((chunk) => ({
@@ -147,7 +186,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 	// could execute
 	chmodSync(executable, 0o755);
 
-	return { bin: executable, chunks, generated };
+	return { bin: executable, chunks, external: [...external], generated };
 }
 
 /**
@@ -162,7 +201,79 @@ function writeEntry(app: DiscoveredApp, tree: ResolvedTree): string {
 	mkdirSync(dir, { recursive: true });
 
 	const file = join(dir, 'entry.mjs');
-	writeFileSync(file, generateBin({ from: dir, schemaModule: app.entry, tree }), 'utf-8');
+	writeFileSync(
+		file,
+		generateBin({ from: dir, schemaModule: app.entry, tree, version: app.manifest.version }),
+		'utf-8'
+	);
 
 	return file;
+}
+
+/**
+ * Every control character, as a property rather than as a range.
+ *
+ * `\p{Cc}` is exactly C0, `DEL` and C1 -- the same set a class of
+ * `\u0000-\u0008\u000B...` spelled out, checked against all 1,112,064 code
+ * points -- and it names what is being matched instead of enumerating it. It
+ * also carries no control character, escaped or otherwise, so `no-control-regex`
+ * has nothing to say and there is no suppression to keep in place.
+ *
+ * Which is what this replaced: the class was covered by an
+ * `eslint-disable-next-line`, the formatter later wrapped the call and moved the
+ * regex to its own line, and the comment stayed above the line it had been
+ * written over. A suppression a formatter can detach from its target is one that
+ * stops working without anybody editing it.
+ */
+const CONTROL = /\p{Cc}/gu;
+
+/** The three a file is allowed to keep, because they are its own formatting. */
+const FORMATTING = new Set(['\t', '\n', '\r']);
+
+/**
+ * Escapes every control character a terminal would act on, in what was written.
+ *
+ * The runtime builds `ESC` with `String.fromCharCode()` precisely so a raw
+ * control character never sits in source -- and the minifier constant-folds
+ * that straight back into a raw byte. A built app inlines the runtime, so
+ * without this every minified app ships the sequence: three raw control
+ * characters in one fixture's bundle, the first time minification was turned
+ * on, and three is all it takes -- one of them opens a hyperlink.
+ *
+ * It matters because Node prints the offending source line on an uncaught
+ * error, so a crash near one writes `ESC ] 8 ; ;` to the user's terminal and
+ * leaves everything after it inside a hyperlink nothing closes. A CLI that dies
+ * must not take the terminal with it.
+ *
+ * Done to the **files**, not in a `generateBundle` hook, which is where this
+ * started: minification is an output stage that runs after the hooks, so the
+ * escapes were folded straight back. What is written is the only thing the
+ * minifier is finished with. Escaping a
+ * raw byte inside a string to `\xNN` is the same string to JavaScript and inert
+ * to a terminal, so doing it last is safe as well as sufficient.
+ *
+ * `\t`, `\n` and `\r` are left alone as the file's own formatting, which is
+ * `FORMATTING` above. The same pass `packages/sigil`'s own build runs over its
+ * own output, said here because an app's bundle is the other place the
+ * runtime's source ends up.
+ *
+ * @param out - The output directory.
+ * @param output - What rolldown wrote.
+ */
+function escapeControls(out: string, output: readonly { fileName: string; type: string }[]): void {
+	for (const chunk of output) {
+		if (chunk.type !== 'chunk') {
+			continue;
+		}
+
+		const file = join(out, chunk.fileName);
+		const code = readFileSync(file, 'utf-8');
+		const escaped = code.replaceAll(CONTROL, (c) =>
+			FORMATTING.has(c) ? c : `\\x${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`
+		);
+
+		if (escaped !== code) {
+			writeFileSync(file, escaped);
+		}
+	}
 }

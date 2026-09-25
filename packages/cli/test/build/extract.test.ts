@@ -166,21 +166,79 @@ describe('extracting a command module', () => {
 		});
 	});
 
-	describe('a default export it cannot read', () => {
-		it('should report a reference as a warning, since the runtime takes one', () => {
-			// `export { cmd as default }` is a default export the runtime is happy
-			// with, so this is about what the *build* can read rather than about the
-			// module being wrong
+	describe('a default export that is a reference', () => {
+		// not a style anybody chose: `--isolatedDeclarations` refuses to infer a
+		// default export, so an app that has it on cannot write the literal
+		// inline -- and this toolchain is one of those apps, so a lift that
+		// stopped at the reference reported "help will list this command by name
+		// alone" about every one of its own commands
+		it('should follow `export default cmd` to the const it names', () => {
+			const { diagnostics, facts } = extractCommand(
+				'a.js',
+				`const cmd = { desc: 'x' };\nexport default cmd;`
+			);
+			expect(facts).to.deep.equal({ desc: 'x' });
+			expect(diagnostics).to.have.lengthOf(0);
+		});
+
+		it('should follow `export { cmd as default }` the same way', () => {
 			const { diagnostics, facts } = extractCommand(
 				'a.js',
 				`const cmd = { desc: 'x' };\nexport { cmd as default };`
 			);
-			expect(facts).to.deep.equal({});
-			expect(diagnostics).to.have.lengthOf(1);
-			expect(diagnostics[0]!.severity).to.equal('warning');
-			expect(diagnostics[0]!.message).to.contain('reference');
+			expect(facts).to.deep.equal({ desc: 'x' });
+			expect(diagnostics).to.have.lengthOf(0);
 		});
 
+		it('should follow one through the wrappers that change nothing', () => {
+			// `command()` is the identity function, and it is what every command
+			// module in this repo is written with
+			const { facts } = extractCommand(
+				'a.js',
+				`const cmd = command({ desc: 'x' });\nexport default cmd;`
+			);
+			expect(facts).to.deep.equal({ desc: 'x' });
+		});
+
+		it('should follow one the const exports in place', () => {
+			const { facts } = extractCommand(
+				'a.js',
+				`export const cmd = { desc: 'x' };\nexport default cmd;`
+			);
+			expect(facts).to.deep.equal({ desc: 'x' });
+		});
+
+		it('should refuse a `let`, which can be reassigned before the module runs', () => {
+			// what the binding held when the file was read is not what it holds
+			// when the module runs, and a lift that guessed would bake a
+			// description the app does not have
+			const { diagnostics, facts } = extractCommand(
+				'a.js',
+				`let cmd = { desc: 'x' };\ncmd = { desc: 'y' };\nexport default cmd;`
+			);
+			expect(facts).to.deep.equal({});
+			expect(diagnostics[0]!.severity).to.equal('warning');
+		});
+
+		it('should warn when the reference does not resolve to a literal', () => {
+			const { diagnostics, facts } = extractCommand(
+				'a.js',
+				`const cmd = build();\nexport default cmd;`
+			);
+			expect(facts).to.deep.equal({});
+			expect(diagnostics[0]!.severity).to.equal('warning');
+		});
+
+		it('should warn when the reference names nothing in the module', () => {
+			const { diagnostics } = extractCommand(
+				'a.js',
+				`import cmd from './x.js';\nexport default cmd;`
+			);
+			expect(diagnostics[0]!.severity).to.equal('warning');
+		});
+	});
+
+	describe('a default export it cannot read', () => {
 		it('should report no default export at all as an error', () => {
 			// a module the runtime would refuse too; the build is finding out first
 			const { diagnostics } = extractCommand('a.js', `export const nope = 1;`);

@@ -29,79 +29,48 @@ export function version(): string {
 export function schema(): Schema {
 	return {
 		name: 'sigil',
-		options: {
-			'-v, --version': {
-				desc: "Print the toolchain's version",
-				type: 'bool',
-			},
-		},
-		// Nothing is stubbed here: a command that exists and refuses is worse than
-		// one that does not exist yet, because only the second is honest in
-		// `--help`. Every command below is the whole of what it claims to be, and
-		// `build` runs `check`'s pass rather than replacing it.
-		commands: {
-			add: {
-				// the same shape the others take, and for the same reason: this
-				// module reaches the registry and the prompts, and `sigil --version`
-				// has no use for either
-				desc: 'Copy a component into your app, so you own it',
-				load: () => import('./commands/add.ts'),
-			},
-			build: {
-				// the same shape this command generates for an app: a `desc` the
-				// schema carries so `--help` needs no module, and a `load` so the
-				// bundler and the parser stay off the startup path
-				desc: 'Build an app into a bundle that depends on nothing',
-				load: () => import('./commands/build.ts'),
-			},
-			check: {
-				// declared here rather than in the module, so `sigil --help` can
-				// describe the command without loading it. That is the same shape
-				// `sigil build` generates for an app -- a `desc` lifted out of the
-				// module and a `load` beside it -- and it is worth more than it looks:
-				// the module behind this one pulls in `oxc-parser`, a native binary
-				// that `sigil --version` has no use for
-				desc: 'Check an app without building it',
-				load: () => import('./commands/check.ts'),
-			},
-			new: {
-				// the same shape as its siblings: this module reaches the prompts and
-				// the scaffold, and `sigil --version` has no use for either
-				desc: 'Create a new app',
-				load: () => import('./commands/new.ts'),
-			},
-		},
+		// the function rather than the string: reading the manifest eagerly is a
+		// file read on every run, and `sigil build` replaces this with the literal
+		// it read at build time anyway
+		version,
+		// The commands are the files in `src/commands/`, which is what SIG-74 is
+		// for and what `sigil build` reads out of an app. `baseDir` is what makes
+		// './commands' mean *this* directory rather than the one the user was
+		// standing in.
+		//
+		// No `routeInfo`: `sigil build` lifts the descriptions out of those
+		// modules and bakes them into the tree it generates, which is the same
+		// lift a hand-run script used to do here. Running from source lists by
+		// name alone until a module is loaded, which is what an unbuilt
+		// filesystem tree has always done.
+		baseDir: import.meta.dirname,
+		commands: './commands',
 	};
 }
 
 /**
- * Whether `main()` handed back a parse state rather than a command's return
- * value or the `undefined` it resolves with after handling an error.
+ * Whether argv is nothing but a request for the version.
  *
- * @param value - Whatever `main()` resolved with.
- * @returns Whether it is a state worth reading.
+ * `sigil --version` has no use for the command tree, and since the toolchain
+ * started routing its own commands off the filesystem it was paying for one:
+ * building the schema reads `src/commands/` and pulls the route reader onto the
+ * startup path, which is about 4ms to answer a question that needs neither.
+ * Answered before the schema is built rather than after the parse, which is
+ * where `run()` used to ask.
+ *
+ * Deliberately narrow: the *whole* of argv, rather than the flag appearing
+ * anywhere in it. Every other spelling is a question with a second half, and
+ * the parser already answers those in ways a scan here would have to reproduce
+ * to avoid changing -- `--help --version` is help, because help outranks
+ * everything; `check --version` runs `check`; `--version extra` is an error
+ * about `extra`. Reproducing that is writing a second parser, and a second
+ * parser that disagrees with the first is worse than four milliseconds.
+ *
+ * @param argv - The arguments.
+ * @returns Whether to answer with the version and nothing else.
  */
-function isParseState(value: unknown): value is ParseState {
-	return !!value && typeof value === 'object' && 'argv' in value && '$' in value;
-}
-
-/**
- * Writes the help screen for a parse that never asked for one.
- *
- * The help module is imported here rather than at the top, the same way
- * `main()` imports the parser and the renderer: a run that answers with a
- * version string should not pay to load the renderer, the wrapper and the width
- * tables to find that out.
- *
- * `resolveHelp()` takes a state with no help request and describes it as it
- * stands, which is exactly the root screen -- so this is the same screen
- * `--help` prints rather than a second one built another way.
- *
- * @param state - The parse state.
- */
-async function printHelp(state: ParseState): Promise<void> {
-	const { resolveHelp } = await import('@ttylabs/sigil/help');
-	process.stdout.write(`${await resolveHelp(state)}\n`);
+function isVersionOnly(argv: readonly string[]): boolean {
+	return argv.length === 1 && (argv[0] === '-v' || argv[0] === '--version');
 }
 
 /**
@@ -122,24 +91,15 @@ async function printHelp(state: ParseState): Promise<void> {
  * @returns Whatever `main()` resolves with.
  */
 export async function run(argv?: string[]): Promise<ParseState | unknown> {
-	const result = await main({ argv, schema: schema() });
-
-	// help already answered, and it outranks `--version` for the same reason it
-	// outranks everything else: being asked what the program does and answering
-	// something else is not an answer
-	if (!isParseState(result) || result.help) {
-		return result;
-	}
-
-	if (result.argv.version) {
+	if (isVersionOnly(argv ?? process.argv.slice(2))) {
 		process.stdout.write(`${version()}\n`);
-	} else if (!result.cmd) {
-		// `cmd` is set whenever one was dispatched, including one whose `run`
-		// returned nothing -- `main()` hands back the state in that case, so this
-		// is the difference between "nothing was named" and "something ran
-		// quietly"
-		await printHelp(result);
+		return undefined;
 	}
 
-	return result;
+	// everything else is the schema's: `--version`, and the help screen a run
+	// that named no command gets, are both `main()`'s now rather than this
+	// wrapper's. That is what makes `node src/sigil.ts` and `node dist/sigil.mjs`
+	// the same program -- `sigil build` generates the executable and calls
+	// `main()` itself, so whatever a bin did around it was not in the bundle
+	return main({ argv, schema: schema() });
 }

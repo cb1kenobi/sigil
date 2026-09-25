@@ -118,6 +118,7 @@ const add: AnyCommand = command({
 			name: '[components...]',
 		},
 	],
+	desc: 'Copy a component into your app, so you own it',
 	options: {
 		'--dir [path]': {
 			desc: `Where they land, overriding ${CONFIG_FILE} and the convention`,

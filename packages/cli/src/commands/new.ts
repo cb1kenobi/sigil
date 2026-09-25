@@ -171,6 +171,7 @@ const newApp: AnyCommand = command({
 			name: '[project-name]',
 		},
 	],
+	desc: 'Create a new app',
 	options: {
 		'--cwd [dir]': {
 			desc: 'Where to create it, defaulting to the working directory',

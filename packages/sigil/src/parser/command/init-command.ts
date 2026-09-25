@@ -5,6 +5,7 @@ import {
 	InternalArgument,
 	InternalCommand,
 	InternalState,
+	RouteInfo,
 	Schema,
 } from '../../types.js';
 import { copyDeclaration } from '../../util/copy-declaration.js';
@@ -205,6 +206,7 @@ export async function initCommand(
 				baseDir,
 				commands,
 				file: decl.commands,
+				routeInfo: decl.routeInfo,
 			});
 		} else if (Array.isArray(decl.commands)) {
 			await Promise.all(
@@ -213,6 +215,7 @@ export async function initCommand(
 						baseDir,
 						cmdOrPath,
 						commands,
+						routeInfo: decl.routeInfo,
 					})
 				)
 			);
@@ -224,6 +227,7 @@ export async function initCommand(
 						cmdOrPath,
 						commands,
 						name,
+						routeInfo: decl.routeInfo,
 					})
 				)
 			);
@@ -448,11 +452,13 @@ async function registerCommand({
 	cmdOrPath,
 	commands,
 	name,
+	routeInfo,
 }: {
 	baseDir?: string;
 	cmdOrPath: string | Command;
 	commands: CommandRegistry;
 	name?: string;
+	routeInfo?: Record<string, RouteInfo>;
 }): Promise<void> {
 	if (cmdOrPath && typeof cmdOrPath === 'string') {
 		await registerCommandPath({
@@ -460,6 +466,7 @@ async function registerCommand({
 			commands,
 			file: cmdOrPath,
 			name,
+			routeInfo,
 		});
 	} else if (cmdOrPath && typeof cmdOrPath === 'object') {
 		// the key a command is declared under names it, but that name belongs on
@@ -496,16 +503,18 @@ async function registerCommandPath({
 	commands,
 	file,
 	name,
+	routeInfo,
 }: {
 	baseDir?: string;
 	commands: CommandRegistry;
 	file: string;
 	name?: string;
+	routeInfo?: Record<string, RouteInfo>;
 }): Promise<void> {
 	const modulePath = resolveDeclaredPath(baseDir, file);
 
 	if (name) {
-		commands.add(await commandAtPath(modulePath, name));
+		commands.add(await commandAtPath(modulePath, name, routeInfo?.[name]));
 		return;
 	}
 
@@ -521,7 +530,7 @@ async function registerCommandPath({
 	const entries = readDirectory(modulePath);
 	if (entries) {
 		for (const route of resolveRoutes(modulePath, entries)) {
-			commands.add(await routeCommand(route));
+			commands.add(await routeCommand(route, routeInfo?.[route.name]));
 		}
 		return;
 	}
@@ -542,7 +551,11 @@ async function registerCommandPath({
  * @param name - What the declaration called it.
  * @returns The command, initialized but not necessarily loaded.
  */
-async function commandAtPath(modulePath: string, name: string): Promise<InternalCommand> {
+async function commandAtPath(
+	modulePath: string,
+	name: string,
+	info: RouteInfo | undefined
+): Promise<InternalCommand> {
 	// a package the declaration pointed at keeps the rule it has always had: its
 	// module is imported now and names itself, which is why the key it was
 	// written under does not win. Only a package a *walk* found is deferred and
@@ -560,7 +573,7 @@ async function commandAtPath(modulePath: string, name: string): Promise<Internal
 		if (!entries.some((entry) => routeName(entry, modulePath) !== undefined)) {
 			throw new Error(`Unsupported command module "${modulePath}"`);
 		}
-		return directoryCommand(modulePath, name);
+		return directoryCommand(modulePath, name, info);
 	}
 
 	if (!moduleName(modulePath)) {
@@ -585,14 +598,21 @@ async function commandAtPath(modulePath: string, name: string): Promise<Internal
  * @param name - What the command is called.
  * @returns The command, unwalked.
  */
-async function directoryCommand(dir: string, name: string): Promise<InternalCommand> {
-	const cmd = await initCommand({ name });
+async function directoryCommand(
+	dir: string,
+	name: string,
+	info: RouteInfo | undefined
+): Promise<InternalCommand> {
+	const cmd = await initCommand({ desc: info?.desc, hidden: info?.hidden, name });
 
 	// written after the fact for the reason `loadCommand()` writes `label` and
 	// `loaded` after the fact: these are what the parser knows about a
 	// placeholder, not something its declaration said
 	cmd[Internal].dir = dir;
 	cmd[Internal].baseDir = dir;
+	// its children's, handed down: a level only knows where it sits in the tree
+	// because the level above told it
+	cmd[Internal].routeInfo = info?.commands;
 
 	return cmd;
 }
@@ -608,15 +628,24 @@ async function directoryCommand(dir: string, name: string): Promise<InternalComm
  * @param route - The route.
  * @returns The command, unloaded either way.
  */
-async function routeCommand(route: Route): Promise<InternalCommand> {
+async function routeCommand(route: Route, info: RouteInfo | undefined): Promise<InternalCommand> {
 	if (route.kind === 'directory') {
-		return directoryCommand(route.path, route.name);
+		return directoryCommand(route.path, route.name, info);
 	}
 
 	// a package arrives already named and described by its own manifest, and a
 	// module arrives with nothing but its path -- what each still waits for is
 	// the import, which is `loadCommand()`'s
-	return initCommand({ desc: route.desc, name: route.name }, route.path);
+	//
+	// `route.desc ?? info?.desc` rather than the other way around, which is the
+	// rule that keeps a lifted description honest: the filesystem wins wherever
+	// it has an answer, because a package's manifest is a read that costs
+	// nothing and cannot go stale, and what a build lifted only fills what the
+	// walk could not say. A module's description is exactly that gap.
+	return initCommand(
+		{ desc: route.desc ?? info?.desc, hidden: info?.hidden, name: route.name },
+		route.path
+	);
 }
 
 /**
@@ -644,7 +673,7 @@ export async function loadCommandDir(cmd: InternalCommand): Promise<void> {
 	}
 
 	for (const route of level.routes) {
-		internal.commands.add(await routeCommand(route));
+		internal.commands.add(await routeCommand(route, internal.routeInfo?.[route.name]));
 	}
 
 	// no package branch: a directory holding a `package.json` was resolved to its

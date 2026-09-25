@@ -51,6 +51,7 @@ import { command, type AnyCommand } from '@ttylabs/sigil';
  */
 const check: AnyCommand = command({
 	args: [{ desc: "The app's root, defaulting to the working directory", name: '[dir]' }],
+	desc: 'Check an app without building it',
 	options: {
 		'--commands [dir]': {
 			desc: "The app's command directory, when its entry does not say",

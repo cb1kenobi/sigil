@@ -21,17 +21,35 @@ import { defineConfig, type UserConfig } from 'tsdown';
  * terminal. Asserted by `test/dist.test.ts`, because a build that quietly stops
  * doing this looks exactly like one that does.
  */
+/**
+ * Every control character, as a property rather than as a range.
+ *
+ * `\p{Cc}` is exactly C0, `DEL` and C1 -- the same set the class
+ * `[\u0000-\u0008\u000B...]` spelled out, checked against all 1,112,064 code
+ * points -- and it names what is being matched instead of enumerating it. It
+ * carries no control character, escaped or otherwise, so `no-control-regex` has
+ * nothing to say and there is no suppression to keep in place.
+ *
+ * Which is the half worth knowing: the class was covered by an
+ * `eslint-disable-next-line`, and in the toolchain's copy of this pass the
+ * formatter later wrapped the call, moved the regex to its own line, and left
+ * the comment above the line it had been written over. A suppression a
+ * formatter can detach from its target is one that stops working without
+ * anybody editing it.
+ */
+const CONTROL = /\p{Cc}/gu;
+
+/** The three a file is allowed to keep, because they are its own formatting. */
+const FORMATTING = new Set(['\t', '\n', '\r']);
+
 const escapeControls = {
 	generateBundle(_options: unknown, bundle: Record<string, { code?: string; type: string }>) {
 		for (const chunk of Object.values(bundle)) {
 			if (chunk.type === 'chunk' && chunk.code) {
-				// matching control characters is the whole job, and the rule could not
-				// see that until they were written as escapes -- a character class of
-				// literal bytes reads to a linter as ordinary characters
-				chunk.code = chunk.code.replaceAll(
-					// eslint-disable-next-line no-control-regex
-					/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g,
-					(c) => `\\x${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`
+				chunk.code = chunk.code.replaceAll(CONTROL, (c) =>
+					FORMATTING.has(c)
+						? c
+						: `\\x${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`
 				);
 			}
 		}

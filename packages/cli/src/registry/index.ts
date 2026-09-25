@@ -30,9 +30,10 @@
  */
 
 import { displayPath } from '../build/index.ts';
+import { readSigilConfig } from '../config.ts';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 /** Whether a path is a file, answering `false` for anything unreadable. */
 function isFile(path: string): boolean {
@@ -101,8 +102,7 @@ export interface AddConfig {
 	readonly declared: boolean;
 }
 
-/** The name of the config file, which is the shadcn answer to the same question. */
-export const CONFIG_FILE = 'sigil.json';
+export { CONFIG_FILE } from '../config.ts';
 
 /**
  * The app the command is being run against.
@@ -152,21 +152,13 @@ export function findAppRoot(cwd: string): string {
  * @returns The configured or conventional directory, and which it was.
  */
 export function readConfig(root: string): AddConfig {
-	const path = join(root, CONFIG_FILE);
+	// through `readSigilConfig()` rather than reading the file again: one file
+	// with two readers is two ideas of what it may contain, and the second one
+	// to grow a field is the one that silently ignores the other's
+	const { components } = readSigilConfig(root);
 
-	if (isFile(path)) {
-		const json = JSON.parse(readFileSync(path, 'utf-8')) as { components?: unknown };
-
-		if (json.components !== undefined) {
-			if (typeof json.components !== 'string' || json.components.length === 0) {
-				throw new Error(`${CONFIG_FILE}: "components" must be a non-empty string`);
-			}
-			if (isAbsolute(json.components)) {
-				throw new Error(`${CONFIG_FILE}: "components" must be relative to the app`);
-			}
-
-			return { components: json.components, declared: true };
-		}
+	if (components !== undefined) {
+		return { components, declared: true };
 	}
 
 	return {

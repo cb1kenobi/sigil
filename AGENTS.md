@@ -367,6 +367,19 @@ These look like bugs and are not. Each is intentional and covered by tests.
   are describing a terminal's own bytes and hold them literally; they are an
   explicit list rather than an inferred rule, so that the next one is a decision
   somebody makes.
+- **The escape pass matches `\p{Cc}`, which is the same idea one step further.**
+  A class of `\u0000`-escapes still tripped `no-control-regex`, so it carried an
+  `eslint-disable-next-line` -- and in the toolchain's copy of the pass the
+  formatter later wrapped the call, moved the regex onto its own line, and left
+  the comment above the line it had been written over. The warning came back
+  with nobody having edited anything: a suppression a formatter can detach from
+  its target is one that stops working silently. `\p{Cc}` is exactly C0, `DEL`
+  and C1 -- verified against all 1,112,064 code points -- with `\t`, `\n` and
+  `\r` handed back by the replacer rather than carved out of a range. It names
+  the set instead of enumerating it, it carries no control character escaped or
+  otherwise, and there is no suppression left to keep in place. Both copies say
+  it the same way, since two spellings of one rule is how they come to
+  disagree.
 - **The styler skips an extended color's own parameters.** In the semicolon
   form `38`, `48`, and `58` spread one color over the parameters after them, and
   `reopen()` read those as attributes: `38;2;255;0;0` carries a `0`, was taken
@@ -636,6 +649,25 @@ false` rethrows instead; a function replaces the handler.
   `config/` -- throw, since keeping one of them keeps whichever `readdir` handed
   over second, which is the file system deciding what an app does; routes are
   registered sorted for the same reason.
+- **A lifted description is a cache over the walk, never a manifest.**
+  `Route.desc` is `undefined` for everything but a package, because every other
+  kind keeps its description _inside the module_ -- so a routed tree lists names
+  and nothing else until each module has been imported, and not importing them
+  is the whole of what the deferral buys. `Schema.routeInfo` is where a build
+  puts what it lifted. It is read where a placeholder is built and nowhere else,
+  which is what keeps it a cache: the directory is still read, every route it
+  finds is still a command, and a route with no entry still works and simply
+  lists without a description. That is what stops a command dropped into an
+  installed app being _invisible_ rather than merely undescribed, and it is why
+  this cannot go stale in a way that loses a command -- only in a way that loses
+  a sentence. The filesystem wins wherever it has an answer, so a package's own
+  manifest beats a lifted entry: that read is free and cannot go stale, and the
+  lift exists to fill what the walk could not say rather than to second-guess
+  what it could. A nested directory's entries are carried _down_ the walk rather
+  than looked up, for the reason `baseDir` is: a level only knows where it sits
+  in the tree because the level above told it. And after the module loads, the
+  module's own `desc` wins -- which is what a hand-declared placeholder already
+  did, so the lifted case is not a second precedence rule to remember.
 - **A directory is walked one level at a time, when something asks.** The walk
   is `loadCommand()`'s rather than the discovery's, which is the same deferral a
   module's import already gets and the reason a tree is worth having: `mycli db
@@ -3006,6 +3038,18 @@ makes it testable with a fixture directory and no bundler at all.
   loaded. Baking a module's own `name` would make a command reachable bundled
   under a spelling that does not resolve unbundled, which is exactly what the
   shared route rules exist to prevent.
+- **`export default cmd` is followed to the `const` it names, because that is
+  the shape this repo's own rules force.** `--isolatedDeclarations` refuses to
+  infer a default export, so an app that has it on _cannot_ write the literal
+  inline -- and this toolchain is one of those apps: every command module in it
+  ends `export default add`. A lift that stopped at the reference reported "help
+  will list this command by name alone" about all four of its own commands,
+  which is the acceptance test earning its keep on the first run. `export { cmd
+as default }` resolves the same way, since it is the same statement spelled
+  differently. Only a module-scope `const`: a `let` can be reassigned between
+  the declaration and the export, so what the binding held when the file was
+  read is not what it holds when the module runs, and a lift that guessed there
+  would bake a description the app does not have.
 - **A computed value is reported, never guessed, and the severity is the
   interesting half.** `desc: greeting()` cannot be read from source, and both
   obvious answers are wrong -- inventing something, or failing the build. It is a
@@ -3257,6 +3301,26 @@ makes it testable with a fixture directory and no bundler at all.
   what it gets -- and a router bundled that way reads directories that are not
   beside the executable. A run-time failure the build can see coming is a build
   error.
+- **A package carrying a native binding is left as an import, and the build says
+  so.** Nothing inlines a `.node`, and a package like `oxc-parser` or `rolldown`
+  is JavaScript around one: the JavaScript resolves perfectly well, gets
+  inlined, and then looks for a binary beside a file that is no longer there.
+  The build could not see it coming -- the _specifier_ resolved, so there was no
+  unresolved import to raise -- and the result was a build that reported success
+  and an executable that died the first time it was used. `--external` is the
+  answer, and it is deliberately explicit: an app that names one is saying its
+  bundle is not self-contained, which is a true thing to say about an app with a
+  native dependency and a lie about any other. It is **reported** for the same
+  reason, because "these must be installed where the app runs" is not something
+  to find out from a crash. An external is not an unresolved import and is not
+  counted as one: one is a deliberate answer to "this cannot be inlined" and the
+  other is the absence of an answer.
+- **The bootstrap runs, and it is what proved the mechanism.** A toolchain built
+  by `sigil build --external oxc-parser --external rolldown` checks an app,
+  builds an app, and the app it built runs. Before the externals existed it
+  built cleanly and then failed on `Cannot find native binding` the moment any
+  command that reads source was reached, which is stage 1 of the bootstrap
+  failing in the one place the stage-0 escape hatch exists for.
 - **The zero-dependency claim is asserted by parsing the output, not by grepping
   it.** The naive pattern matched `Error(\`...command name from "${e}"\`)`-- the
 word "from" inside a message followed by a quoted template -- and a test that
@@ -3331,6 +3395,132 @@ tree at run time` is the only place that asserts what the output _does_, which
   anything. It asserts that last part by reading `loaded` back off every
   registered command, because "the description is right" and "nothing was
   imported to learn it" are two claims and only the second one is the feature.
+
+### Writing the CLI in sigil
+
+- **The toolchain routes its own commands, and that is what the acceptance test
+  means.** `src/commands/` is the source of truth: adding a command is adding a
+  file, and `index.ts` no longer writes the tree out beside the directory that
+  _is_ the tree. What it declares instead is `commands: './commands'` with the
+  `baseDir` SIG-75 added, which is the same declaration `sigil new` scaffolds
+  and the same one `sigil build` reads -- so the toolchain is now an ordinary
+  app as far as its own passes are concerned. `should read this toolchain's own
+schema as a routed directory` in `test/build/discover.test.ts` is that said
+  from the other side.
+- **Which immediately cost it its own `--help`, and that is the finding rather
+  than a snag.** A filesystem route keeps its description inside the module, so
+  a routed `sigil --help` listed four bare names -- worse than what it replaced,
+  and shipped by a package whose users would never see a description again. The
+  static `desc` lift exists precisely because routing makes name-only help the
+  common case; the toolchain is built by tsdown rather than by itself, so
+  nothing was lifting anything. `scripts/generate-commands.mjs` is that lift run
+  as a build step, and it walks with `readRoutes()` -- the _runtime's_ reader --
+  so the thing that describes the walk cannot come to disagree with the walk.
+- **`pnpm build` is the toolchain building the toolchain, and that deleted the
+  bridge.** A hand-run `scripts/generate-commands.mjs` used to do the lift and
+  write a committed `src/route-info.ts`, because tsdown knows nothing about
+  command trees. `sigil build` has always known: it walks the directory, lifts
+  `desc` and `hidden` out of each module, and bakes the tree into the entry it
+  generates. So the script, the committed file, its drift check and the schema's
+  `routeInfo` all went in the change that stopped needing them -- the shape to
+  reach for when a generator appears beside a build is whether the build should
+  have done it.
+- **Stage 0 is `node src/sigil.ts`, and it needs no build.** That is what keeps
+  a broken build able to build its own fix, and it is why the build script is
+  `node src/sigil.ts build` rather than `sigil build`: the bin it would run is
+  the thing being produced.
+- **From source the commands list by name alone, which is the lift's absence
+  rather than a defect.** A filesystem route keeps its description inside its
+  module, so an unbuilt tree has nothing to show until something imports one --
+  exactly what every unbuilt sigil app does. The built toolchain names and
+  describes all four. `should behave the way the source does` compares what each
+  one _does_ -- the version, the exit code, the commands offered -- rather than
+  the screens byte for byte, because the descriptions are the one thing that
+  legitimately differs.
+- **The toolchain publishes a bin and nothing else.** `./build`, `./template`
+  and `./utilities` are gone, along with every `.d.mts`: it is an app rather than
+  a library, `sigil build` emits an executable, and the three subpaths had
+  exactly zero real importers anywhere -- every reference in the repo was inside
+  a comment. Their declarations were 33 KB of an 85 KB `dist`, `build.d.mts`
+  alone 22 KB.
+- **`@ttylabs/sigil` is external in that build, and it is the reason the bundle
+  is smaller than what tsdown produced.** Inlining the runtime is right for an
+  _app_, whose promise is that it ships depending on nothing; the toolchain is a
+  devDependency that declares its dependencies and npm installs them. Inlined it
+  is 177 KB, external 38 KB, against tsdown's 52 KB of code and 33 KB of types.
+- **The build minifies, which needed the control-character escape brought with
+  it.** Both tsdown configs minify and `sigil build` did not, so every app it
+  built shipped unminified. Turning it on reintroduced the defect
+  `packages/sigil`'s own build carries a plugin against: the runtime writes
+  `ESC` as `String.fromCharCode()` so a raw control character never sits in
+  source, and a minifier folds it straight back. Three of them in one fixture's
+  bundle, and three is all it takes -- one opens a hyperlink nothing closes. The
+  escape runs over the **written files** rather than in `generateBundle`, which
+  is where it started: minification is an output stage that runs after the
+  hooks, so the escapes were folded straight back.
+- **The options live in `sigil.json`, because there was already a
+  `sigil.json`.** `sigil add` read it for where ejected components land and
+  `sigil new` writes it, so the question a build option raised was never "config
+  file or flags" but "this file or a second one" -- and two files answering for
+  one tool is worse than a long script line. `pnpm build` is now
+  `node src/sigil.ts build` with nothing after it. A flag beats the file and the
+  file beats the default: the file says what this app is always built with, a
+  flag says what this invocation wants.
+- **One reader, not two.** `readSigilConfig()` is the only thing that opens the
+  file, and `readConfig()` in the registry goes through it. One file with two
+  readers is two ideas of what it may contain, and the second one to grow a
+  field is the one that silently ignores the other's.
+- **A `next.config.ts` was the other candidate and is deferred with a reason.**
+  It has to be _executed_, and everything else this build does is reading: the
+  app's entry is parsed rather than imported precisely so an app that opens a
+  connection at module scope does not do it during a build. Running
+  app-adjacent code would be a new surface, and none of the four options needs
+  computing -- they are literals. The day one of them does is the day to
+  revisit it, which is the rule `which` waited on for a caller.
+- **`sigil build` empties its output directory, and refuses the one that would
+  hurt.** A build that leaves the last one behind publishes the union of every
+  build ever run there -- a renamed command's chunk stays, a removed one's
+  stays. Doing it here rather than in a `rimraf` beside the call is what makes
+  the command the whole of the build. It refuses an `--out` that _is_ the app
+  root or sits above it, which is the one way a mistyped path turns a build into
+  data loss, and `--no-clean` opts out.
+- **Sourcemaps are on by default and `--no-sourcemap` turns them off, because
+  "costs nothing" was only true of run time.** They are several times the size
+  of the minified code they describe -- 203 KB against 38 KB -- and a package
+  that publishes its `dist` publishes them too. The toolchain's own build says
+  no; an app debugging its bundle says nothing and keeps them.
+- **The published package ships `dist/commands/`, and nothing else would
+  work.** Bundled into hashed chunks there is no directory for the walk to read,
+  and the built bin fails with `Unsupported command module` -- from source it is
+  perfectly happy, which is the shape of bug that reaches users and no test.
+  Each command is a tsdown entry, and the entry list is _read off the directory_
+  rather than written out, because a hand-kept list beside the directory that is
+  the list would drift into a command that works from source and 404s once
+  published. `_inspect.ts` keeps its `_`, so it stays a chunk rather than
+  becoming an entry, which is that rule read from inside the repo that invented
+  it.
+- **Routing cost `--version` about 4ms, so `--version` stopped building a
+  schema.** The walk is eager -- the top level of `commands/` is read while the
+  schema is built, before argv has been looked at -- so answering "what version
+  is this" read a directory and pulled the route reader onto the startup path to
+  do it: 25.5ms to 29.5ms. `run()` answers before `main()` is called at all now,
+  which is 24.3ms, _below_ where it was before routing, because it skips
+  building the schema rather than merely skipping the walk.
+- **That fast path is the whole of argv, not the flag appearing in it.** Every
+  other spelling is a question with a second half that the parser already
+  answers, and each answer is a decision written down somewhere: `--help
+--version` is help, because help outranks everything; `check --version` runs
+  `check`; `--version extra` is an error about `extra`. A scan that fired
+  wherever it saw the flag would have to reproduce all three to avoid changing
+  them, and a second parser that disagrees with the first is worth a great deal
+  more than four milliseconds. `should leave every other spelling to the parser`
+  pins the three.
+- **`--help` is unchanged at ~40ms, and that is the walk being the wrong thing
+  to optimise.** The help renderer dwarfs a `readdir`, and the lift removes the
+  _imports_ from the help path rather than the walk from the startup path.
+  Making the walk lazy -- deferred until something actually asks the registry
+  what is in it -- would close the general case rather than the one flag, and is
+  a decision to take against a profile rather than in advance.
 
 ### A schema's relative paths
 
@@ -4049,6 +4239,47 @@ tree at run time` is the only place that asserts what the output _does_, which
 
 ### Help
 
+- **`--version` is the framework's, for the reason `--help` is, and the reason
+  is sharper than convenience.** Every CLI has one and each used to write it:
+  declare the option, parse, read `argv.version` back and print. That works
+  until the app is built -- `sigil build` generates the executable and calls
+  `main()`, so whatever the app's own bin did _around_ `main()` is not in the
+  bundle. The toolchain's own `--version` printed **nothing at all** once it was
+  built with itself, and exited zero doing it, which is the worst shape a
+  divergence can take. `node src/sigil.ts --version` and
+  `node dist/sigil.mjs --version` have to be the same program, and the schema is
+  the one thing the build carries across whole -- so that is where the version
+  goes. `schema.help: false` has no twin: leaving `version` out is the opt-out,
+  because an app that names no version has nothing to answer with.
+- **A version may be a function, and that is what a bundle needs.** An app
+  reading its own `package.json` is the ordinary case, and doing it eagerly is a
+  file read on every run -- including the runs that never ask. In a bundle it is
+  worse than wasted: `../package.json` off `import.meta.url` points wherever the
+  bundle was written, so the read _throws_, and putting it in the schema turned
+  a silent `--version` into a crash on every invocation. A function is called
+  only when `--version` was used, and `sigil build` replaces it outright with
+  the literal it read from the manifest at build time. So the function is the
+  unbundled answer, the string is the built one, and neither is a file read at
+  startup. This is the entry about a bundled app not reading files relative to
+  `import.meta.url`, met from the inside and answered rather than warned about.
+- **Help outranks it, which is the rule help already had.** `mycli --help
+--version` prints help: being asked what a program does and answering with a
+  version string is not an answer. `detectHelp()` is asked first and
+  `detectVersion()` only when it found nothing, so the ordering is one line
+  rather than a precedence table.
+- **A run that named no command gets the help screen, and `main()` is what
+  prints it.** A CLI that is all subcommands has nothing to do without one, and
+  printing nothing tells the reader neither what went wrong nor what is
+  available. It was the toolchain's own bin that did this, which is the same
+  bug `--version` had: a built CLI printed nothing where the source printed
+  help. Three things have to be true, and each of them is a test that said so.
+  The app declared `commands`, because a schema that declares none is one being
+  used as a parser and a help screen is not what that caller asked for -- and
+  the `help` command added to every schema means the _registry_ is never empty,
+  so the declaration is what has to be asked about. `help` is not `false`, since
+  that means the app owns what help means. And nothing else answered: a command
+  with a `run`, a `default` command, `--help` and `--version` all leave before
+  it. `HelpRequest.via` grew `'empty'` to say which of the three reached it.
 - **`--help` and a `help` command are added to the root, and only where the app
   left room.** Options resolve across the whole context chain, so one `--help`
   on the root answers everywhere. Nothing is added over the top of a
