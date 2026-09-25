@@ -367,6 +367,19 @@ These look like bugs and are not. Each is intentional and covered by tests.
   are describing a terminal's own bytes and hold them literally; they are an
   explicit list rather than an inferred rule, so that the next one is a decision
   somebody makes.
+- **The escape pass matches `\p{Cc}`, which is the same idea one step further.**
+  A class of `\u0000`-escapes still tripped `no-control-regex`, so it carried an
+  `eslint-disable-next-line` -- and in the toolchain's copy of the pass the
+  formatter later wrapped the call, moved the regex onto its own line, and left
+  the comment above the line it had been written over. The warning came back
+  with nobody having edited anything: a suppression a formatter can detach from
+  its target is one that stops working silently. `\p{Cc}` is exactly C0, `DEL`
+  and C1 -- verified against all 1,112,064 code points -- with `\t`, `\n` and
+  `\r` handed back by the replacer rather than carved out of a range. It names
+  the set instead of enumerating it, it carries no control character escaped or
+  otherwise, and there is no suppression left to keep in place. Both copies say
+  it the same way, since two spellings of one rule is how they come to
+  disagree.
 - **The styler skips an extended color's own parameters.** In the semicolon
   form `38`, `48`, and `58` spread one color over the parameters after them, and
   `reopen()` read those as attributes: `38;2;255;0;0` carries a `0`, was taken
