@@ -30,3 +30,9 @@ node_modules
 # a committed copy would be a second spelling of those files with nothing
 # keeping the two in agreement.
 packages/sigil/registry
+
+# `test/bootstrap.test.ts` builds the toolchain twice inside the package, so
+# that what it emits resolves `@ttylabs/sigil`, `oxc-parser` and `rolldown` the
+# way a published copy would. It removes them itself; this is for the run that
+# died before it could.
+packages/*/.bootstrap-*

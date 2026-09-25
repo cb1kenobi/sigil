@@ -3425,6 +3425,28 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   `routeInfo` all went in the change that stopped needing them -- the shape to
   reach for when a generator appears beside a build is whether the build should
   have done it.
+- **Stage 2 is the check that the compiler is a fixed point, and it holds.**
+  Stage 1 is what stage 0 produces; stage 2 is what _stage 1_ produces, and the
+  two are byte-identical. Two runs of one binary agreeing proves only
+  determinism -- what two _different_ binaries agreeing proves is that the
+  output depends on the source rather than on something about the builder,
+  which is the claim "written in itself" actually rests on. It is a test rather
+  than a CI step because it costs 336ms, and a check that only runs somewhere
+  else is one nobody sees fail until later. Both stages are built _inside_ the
+  package, since what `sigil build` emits imports `@ttylabs/sigil`,
+  `oxc-parser` and `rolldown` rather than inlining them and node resolves those
+  by walking up from the file.
+- **It asserts a working fixed point, not only a matching one.** Two identical
+  broken binaries satisfy every byte comparison there is, so the stage 2 binary
+  is asked for `--help` and then asked to build an app that then runs. A
+  self-hosted compiler that cannot compile is a fixed point and nothing else.
+- **Testing that guard took two attempts, and the first one is the lesson.**
+  Sabotaging the build with a `Date.now()` in the generated entry's _comment_
+  changed nothing: the minifier strips comments, so the output was identical
+  and the check passed. The guard was not vacuous -- the sabotage was. Injecting
+  a value the minifier keeps failed it immediately, naming `sigil.mjs`. The file
+  _set_ still matched, because an entry's name is not hashed and only its
+  contents moved, which is why the names and the bytes are two assertions.
 - **Stage 0 is `node src/sigil.ts`, and it needs no build.** That is what keeps
   a broken build able to build its own fix, and it is why the build script is
   `node src/sigil.ts build` rather than `sigil build`: the bin it would run is
