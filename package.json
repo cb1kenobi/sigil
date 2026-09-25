@@ -33,7 +33,7 @@
     "@types/node": "26.6.2",
     "@vitest/coverage-v8": "5.0.1",
     "lefthook": "2.1.14",
-    "oxfmt": "0.69.0",
+    "oxfmt": "0.70.0",
     "oxlint": "1.85.0",
     "rimraf": "6.1.3",
     "tsdown": "0.23.0",
