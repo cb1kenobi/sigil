@@ -211,6 +211,26 @@ function writeEntry(app: DiscoveredApp, tree: ResolvedTree): string {
 }
 
 /**
+ * Every control character, as a property rather than as a range.
+ *
+ * `\p{Cc}` is exactly C0, `DEL` and C1 -- the same set a class of
+ * `\u0000-\u0008\u000B...` spelled out, checked against all 1,112,064 code
+ * points -- and it names what is being matched instead of enumerating it. It
+ * also carries no control character, escaped or otherwise, so `no-control-regex`
+ * has nothing to say and there is no suppression to keep in place.
+ *
+ * Which is what this replaced: the class was covered by an
+ * `eslint-disable-next-line`, the formatter later wrapped the call and moved the
+ * regex to its own line, and the comment stayed above the line it had been
+ * written over. A suppression a formatter can detach from its target is one that
+ * stops working without anybody editing it.
+ */
+const CONTROL = /\p{Cc}/gu;
+
+/** The three a file is allowed to keep, because they are its own formatting. */
+const FORMATTING = new Set(['\t', '\n', '\r']);
+
+/**
  * Escapes every control character a terminal would act on, in what was written.
  *
  * The runtime builds `ESC` with `String.fromCharCode()` precisely so a raw
@@ -232,9 +252,10 @@ function writeEntry(app: DiscoveredApp, tree: ResolvedTree): string {
  * raw byte inside a string to `\xNN` is the same string to JavaScript and inert
  * to a terminal, so doing it last is safe as well as sufficient.
  *
- * `\t`, `\n` and `\r` are left alone as the file's own formatting. The same
- * pass `packages/sigil`'s own build runs over its own output, said here because
- * an app's bundle is the other place the runtime's source ends up.
+ * `\t`, `\n` and `\r` are left alone as the file's own formatting, which is
+ * `FORMATTING` above. The same pass `packages/sigil`'s own build runs over its
+ * own output, said here because an app's bundle is the other place the
+ * runtime's source ends up.
  *
  * @param out - The output directory.
  * @param output - What rolldown wrote.
@@ -247,10 +268,8 @@ function escapeControls(out: string, output: readonly { fileName: string; type: 
 
 		const file = join(out, chunk.fileName);
 		const code = readFileSync(file, 'utf-8');
-		// eslint-disable-next-line no-control-regex
-		const escaped = code.replaceAll(
-			/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g,
-			(c) => `\\x${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`
+		const escaped = code.replaceAll(CONTROL, (c) =>
+			FORMATTING.has(c) ? c : `\\x${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`
 		);
 
 		if (escaped !== code) {

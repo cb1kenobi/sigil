@@ -120,17 +120,6 @@ const build: AnyCommand = command({
 
 		printSizes(result.chunks);
 
-		// said out loud, because it is the one thing that makes a built app not
-		// self-contained. A native binding leaves no choice -- nothing inlines a
-		// `.node` -- but "this bundle needs these installed beside it" is not
-		// something to find out from a crash
-		if (result.external.length > 0) {
-			process.stderr.write(
-				`\nImported rather than inlined: ${result.external.join(', ')}\n` +
-					`  These must be installed where the app runs. Everything else is in the bundle.\n`
-			);
-		}
-
 		const total = countCommands(found.commands);
 		process.stderr.write(
 			`\n${describeApp(found.app)}: ${total} command${total === 1 ? '' : 's'} into ${displayPath(
