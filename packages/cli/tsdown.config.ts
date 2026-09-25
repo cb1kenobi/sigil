@@ -51,7 +51,7 @@ const config: UserConfig = defineConfig({
 	// `@ttylabs/sigil` is a workspace dependency rather than something to inline:
 	// the zero-dependency promise is about what an app *ships*, and an app ships a
 	// bundle. The toolchain itself is a devDependency and may resolve normally.
-	external: ['@ttylabs/sigil'],
+	deps: { neverBundle: ['@ttylabs/sigil'] },
 });
 
 export default config;

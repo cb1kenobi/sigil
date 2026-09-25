@@ -274,8 +274,12 @@ describe('@ttylabs/cli', () => {
 		});
 
 		it('should depend on the runtime rather than bundling it', () => {
+			// `deps.neverBundle` rather than `external`, which tsdown deprecated;
+			// the claim is unchanged, which is why this asserts the behaviour a
+			// line below rather than only the spelling
 			expect(pkg.dependencies).toHaveProperty('@ttylabs/sigil', 'workspace:*');
-			expect(config.external).toContain('@ttylabs/sigil');
+			expect(config.deps?.neverBundle).toContain('@ttylabs/sigil');
+			expect(config).not.toHaveProperty('external');
 		});
 
 		it('should declare every dependency it has taken, and no more', () => {
