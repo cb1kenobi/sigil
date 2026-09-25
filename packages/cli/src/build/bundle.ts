@@ -162,7 +162,11 @@ function writeEntry(app: DiscoveredApp, tree: ResolvedTree): string {
 	mkdirSync(dir, { recursive: true });
 
 	const file = join(dir, 'entry.mjs');
-	writeFileSync(file, generateBin({ from: dir, schemaModule: app.entry, tree }), 'utf-8');
+	writeFileSync(
+		file,
+		generateBin({ from: dir, schemaModule: app.entry, tree, version: app.manifest.version }),
+		'utf-8'
+	);
 
 	return file;
 }

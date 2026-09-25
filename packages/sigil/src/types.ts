@@ -38,8 +38,13 @@ export interface HelpRenderContext {
 export interface HelpRequest {
 	/** The context chain to describe, innermost first. */
 	contexts: InternalCommand[];
-	/** Whether it was the `--help` flag or the `help` command. */
-	via: 'command' | 'option';
+	/**
+	 * How help was reached: the `--help` flag, the `help` command, or nothing
+	 * at all -- `empty` is a run that named no command on a CLI that has only
+	 * subcommands, where printing nothing tells the reader neither what went
+	 * wrong nor what is available.
+	 */
+	via: 'command' | 'empty' | 'option';
 }
 
 export const Internal: unique symbol = Symbol();
@@ -457,6 +462,12 @@ export interface ParseState<Argv = Record<string, unknown>> {
 	help?: HelpRequest;
 	schema: Schema;
 	settings: Settings;
+	/**
+	 * The version to print, set when argv asked for it rather than for work.
+	 * `main()` writes it and runs nothing. Help outranks it, so the two are
+	 * never both set.
+	 */
+	version?: string;
 }
 
 export interface Schema {
@@ -510,6 +521,24 @@ export interface Schema {
 	};
 	name?: string;
 	options?: OptionDeclarations;
+	/**
+	 * The app's version, which adds `-v, --version` and answers it.
+	 *
+	 * Declared here rather than handled around `main()` because the schema is
+	 * what `sigil build` carries across whole: an app that printed its version
+	 * from its own bin printed nothing once it had been built, since the build
+	 * generates the executable and calls `main()` itself. Left out, no flag is
+	 * added and nothing answers.
+	 *
+	 * A **function** is called only if `--version` is actually used, and that is
+	 * the spelling an app reading its own `package.json` wants: doing it eagerly
+	 * is a file read on every run, and in a bundle it is a file read that throws
+	 * -- `../package.json` off `import.meta.url` points wherever the bundle was
+	 * written. `sigil build` replaces this with the literal it read at build
+	 * time, so the function is the unbundled answer and the string is the built
+	 * one.
+	 */
+	version?: string | (() => string);
 }
 
 /**

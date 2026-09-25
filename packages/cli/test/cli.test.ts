@@ -56,8 +56,16 @@ describe('@ttylabs/cli', () => {
 			expect(Object.keys(pkg.bin)).toEqual(['sigil']);
 		});
 
-		it('should declare --version', () => {
-			expect(schema().options).toHaveProperty('-v, --version');
+		it('should name its version rather than declaring the flag', () => {
+			// the framework adds `-v, --version` and answers it, the way it adds
+			// `--help` -- which is what keeps the built CLI and the source one the
+			// same program, since `sigil build` calls `main()` itself and whatever
+			// a bin wrapped around it is not in the bundle
+			// it declares no root options at all now: `-v, --version` was the only
+			// one, and the framework owns both the flag and the answer
+			expect(schema().options).toBeUndefined();
+			expect(typeof schema().version).toBe('function');
+			expect((schema().version as () => string)()).toBe(pkg.version);
 		});
 
 		it('should route its commands off its own filesystem', () => {

@@ -30,12 +30,10 @@ export function version(): string {
 export function schema(): Schema {
 	return {
 		name: 'sigil',
-		options: {
-			'-v, --version': {
-				desc: "Print the toolchain's version",
-				type: 'bool',
-			},
-		},
+		// the function rather than the string: reading the manifest eagerly is a
+		// file read on every run, and `sigil build` replaces this with the literal
+		// it read at build time anyway
+		version,
 		// The commands are the files in `src/commands/`, which is what SIG-74 is
 		// for and what `sigil build` reads out of an app. `baseDir` is what makes
 		// './commands' mean *this* directory rather than the one the user was
@@ -74,36 +72,6 @@ function isVersionOnly(argv: readonly string[]): boolean {
 }
 
 /**
- * Whether `main()` handed back a parse state rather than a command's return
- * value or the `undefined` it resolves with after handling an error.
- *
- * @param value - Whatever `main()` resolved with.
- * @returns Whether it is a state worth reading.
- */
-function isParseState(value: unknown): value is ParseState {
-	return !!value && typeof value === 'object' && 'argv' in value && '$' in value;
-}
-
-/**
- * Writes the help screen for a parse that never asked for one.
- *
- * The help module is imported here rather than at the top, the same way
- * `main()` imports the parser and the renderer: a run that answers with a
- * version string should not pay to load the renderer, the wrapper and the width
- * tables to find that out.
- *
- * `resolveHelp()` takes a state with no help request and describes it as it
- * stands, which is exactly the root screen -- so this is the same screen
- * `--help` prints rather than a second one built another way.
- *
- * @param state - The parse state.
- */
-async function printHelp(state: ParseState): Promise<void> {
-	const { resolveHelp } = await import('@ttylabs/sigil/help');
-	process.stdout.write(`${await resolveHelp(state)}\n`);
-}
-
-/**
  * Runs the toolchain.
  *
  * `--version` is answered from the returned state rather than from an
@@ -121,31 +89,15 @@ async function printHelp(state: ParseState): Promise<void> {
  * @returns Whatever `main()` resolves with.
  */
 export async function run(argv?: string[]): Promise<ParseState | unknown> {
-	const args = argv ?? process.argv.slice(2);
-
-	if (isVersionOnly(args)) {
+	if (isVersionOnly(argv ?? process.argv.slice(2))) {
 		process.stdout.write(`${version()}\n`);
 		return undefined;
 	}
 
-	const result = await main({ argv, schema: schema() });
-
-	// help already answered, and it outranks `--version` for the same reason it
-	// outranks everything else: being asked what the program does and answering
-	// something else is not an answer
-	if (!isParseState(result) || result.help) {
-		return result;
-	}
-
-	if (result.argv.version) {
-		process.stdout.write(`${version()}\n`);
-	} else if (!result.cmd) {
-		// `cmd` is set whenever one was dispatched, including one whose `run`
-		// returned nothing -- `main()` hands back the state in that case, so this
-		// is the difference between "nothing was named" and "something ran
-		// quietly"
-		await printHelp(result);
-	}
-
-	return result;
+	// everything else is the schema's: `--version`, and the help screen a run
+	// that named no command gets, are both `main()`'s now rather than this
+	// wrapper's. That is what makes `node src/sigil.ts` and `node dist/sigil.mjs`
+	// the same program -- `sigil build` generates the executable and calls
+	// `main()` itself, so whatever a bin did around it was not in the bundle
+	return main({ argv, schema: schema() });
 }

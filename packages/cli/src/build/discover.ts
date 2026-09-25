@@ -77,6 +77,13 @@ export interface AppManifest {
 	readonly name?: string;
 	/** Where the manifest is. */
 	readonly path: string;
+	/**
+	 * What it calls its version, baked into the generated entry.
+	 *
+	 * A bundle has no `package.json` beside it, so an app that reads its own at
+	 * run time is reading a path that points wherever the bundle was written.
+	 */
+	readonly version?: string;
 }
 
 /** An app, found. */
@@ -181,6 +188,7 @@ export function readManifest(root: string): AppManifest {
 		dependencies: [...dependencies],
 		name: typeof json.name === 'string' ? json.name : undefined,
 		path,
+		version: typeof json.version === 'string' ? json.version : undefined,
 	};
 }
 

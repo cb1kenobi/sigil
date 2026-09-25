@@ -461,6 +461,31 @@ cmd.hooks.parse = async (data) => {
 where your app left room: declare `-h` as `--host` and you keep it, declare
 `--help` yourself and you own it entirely. `schema.help: false` adds nothing.
 
+A run that names no command gets the same screen, because a CLI that is all
+subcommands has nothing to do without one. An app with a root `run` or a
+`default` command has something to do and never sees it.
+
+`schema.version` does the same for `-v, --version`:
+
+```js
+await main({
+  schema: {
+    name: 'mycli',
+    version: () => JSON.parse(readFileSync(manifest, 'utf-8')).version,
+    commands: './commands',
+  },
+});
+```
+
+A **function** is called only if `--version` is used, which is what an app
+reading its own `package.json` wants — doing it eagerly is a file read on every
+run, and in a bundle it is one that throws, since `../package.json` off
+`import.meta.url` points wherever the bundle was written. `sigil build`
+replaces it with the literal it read at build time. A plain string works too.
+
+Leave `version` out and no flag is added. `--help` outranks it: being asked
+what a program does and answering with a version string is not an answer.
+
 Help is context-sensitive — it describes the command argv actually reached:
 
 ```

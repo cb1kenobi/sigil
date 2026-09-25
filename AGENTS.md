@@ -4143,6 +4143,47 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
 
 ### Help
 
+- **`--version` is the framework's, for the reason `--help` is, and the reason
+  is sharper than convenience.** Every CLI has one and each used to write it:
+  declare the option, parse, read `argv.version` back and print. That works
+  until the app is built -- `sigil build` generates the executable and calls
+  `main()`, so whatever the app's own bin did _around_ `main()` is not in the
+  bundle. The toolchain's own `--version` printed **nothing at all** once it was
+  built with itself, and exited zero doing it, which is the worst shape a
+  divergence can take. `node src/sigil.ts --version` and
+  `node dist/sigil.mjs --version` have to be the same program, and the schema is
+  the one thing the build carries across whole -- so that is where the version
+  goes. `schema.help: false` has no twin: leaving `version` out is the opt-out,
+  because an app that names no version has nothing to answer with.
+- **A version may be a function, and that is what a bundle needs.** An app
+  reading its own `package.json` is the ordinary case, and doing it eagerly is a
+  file read on every run -- including the runs that never ask. In a bundle it is
+  worse than wasted: `../package.json` off `import.meta.url` points wherever the
+  bundle was written, so the read _throws_, and putting it in the schema turned
+  a silent `--version` into a crash on every invocation. A function is called
+  only when `--version` was used, and `sigil build` replaces it outright with
+  the literal it read from the manifest at build time. So the function is the
+  unbundled answer, the string is the built one, and neither is a file read at
+  startup. This is the entry about a bundled app not reading files relative to
+  `import.meta.url`, met from the inside and answered rather than warned about.
+- **Help outranks it, which is the rule help already had.** `mycli --help
+--version` prints help: being asked what a program does and answering with a
+  version string is not an answer. `detectHelp()` is asked first and
+  `detectVersion()` only when it found nothing, so the ordering is one line
+  rather than a precedence table.
+- **A run that named no command gets the help screen, and `main()` is what
+  prints it.** A CLI that is all subcommands has nothing to do without one, and
+  printing nothing tells the reader neither what went wrong nor what is
+  available. It was the toolchain's own bin that did this, which is the same
+  bug `--version` had: a built CLI printed nothing where the source printed
+  help. Three things have to be true, and each of them is a test that said so.
+  The app declared `commands`, because a schema that declares none is one being
+  used as a parser and a help screen is not what that caller asked for -- and
+  the `help` command added to every schema means the _registry_ is never empty,
+  so the declaration is what has to be asked about. `help` is not `false`, since
+  that means the app owns what help means. And nothing else answered: a command
+  with a `run`, a `default` command, `--help` and `--version` all leave before
+  it. `HelpRequest.via` grew `'empty'` to say which of the three reached it.
 - **`--help` and a `help` command are added to the root, and only where the app
   left room.** Options resolve across the whole context chain, so one `--help`
   on the root answers everywhere. Nothing is added over the top of a

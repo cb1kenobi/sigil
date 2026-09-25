@@ -70,10 +70,43 @@ export async function main(opts: AppOptions = {}): Promise<ParseState | unknown>
 			return state;
 		}
 
+		// after help, which outranks it, and before the command runs: `--version`
+		// is a question about the program rather than work to do
+		if (state.version !== undefined) {
+			process.stdout.write(`${state.version}\n`);
+			return state;
+		}
+
 		const { cmd } = state;
 		if (cmd?.run) {
 			log(`Executing command "${cmd.name}"`);
 			return (await cmd.run(state)) ?? state;
+		}
+
+		// nothing ran and there was nothing to run: a CLI that is all subcommands
+		// has nothing to do without one, and printing nothing at all tells the
+		// reader neither what went wrong nor what is available. It goes to stdout
+		// and exits zero like `--help`, because being asked what the program does
+		// and answering is not a failure.
+		//
+		// In `main()` rather than in the app's own bin, which is where the
+		// toolchain used to do it: `sigil build` generates the executable and
+		// calls `main()`, so anything an app wrapped around it is not in the
+		// bundle -- and a built CLI printed nothing at all where the same source
+		// printed help.
+		//
+		// Three things have to be true, and each was a test saying so. The app
+		// declared `commands`, because a schema that declares none is one being
+		// used as a parser and a help screen is not what its caller asked for --
+		// the `help` command this adds to every schema means the *registry* is
+		// never empty, so the declaration is what has to be asked about. Help is
+		// not turned off, since `help: false` means this app answers for what
+		// help means. And nothing already answered: a command with a `run`, a
+		// `default` command, `--help` and `--version` all leave before here.
+		const declaredCommands = state.schema.commands !== undefined;
+
+		if (declaredCommands && state.schema.help !== false && state.version === undefined) {
+			await printHelp({ ...state, help: { contexts: state.contexts, via: 'empty' } });
 		}
 
 		return state;

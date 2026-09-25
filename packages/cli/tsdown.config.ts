@@ -24,9 +24,9 @@ function commandEntries(): Record<string, string> {
 
 	return Object.fromEntries(
 		readdirSync(dir)
-			.filter((file) => /\.ts$/.test(file) && !file.startsWith('_') && !file.startsWith('.'))
+			.filter((file) => file.endsWith('.ts') && !file.startsWith('_') && !file.startsWith('.'))
 			.map((file) => {
-				const name = file.replace(/\.ts$/, '');
+				const name = file.slice(0, -'.ts'.length);
 				return [`commands/${name}`, `./src/commands/${file}`];
 			})
 	);
