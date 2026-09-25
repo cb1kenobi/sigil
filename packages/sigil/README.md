@@ -327,6 +327,37 @@ export default {
 A lazily loaded command appears in help by name alone until its module is read,
 because its description lives in that module. `help <command>` does load it.
 
+`routeInfo` is how a build gets those descriptions onto the help screen without
+importing anything: it maps route names onto what was lifted out of them, and
+`sigil build` writes it for you.
+
+```js
+commands: './commands',
+routeInfo: {
+  build: { desc: 'Build the app' },
+  db: { desc: 'Database tasks', commands: { migrate: { desc: 'Run migrations' } } },
+},
+```
+
+It is a **cache over the walk, not a list of what exists**. The directory is
+still read, so a command with no entry still works and simply lists without a
+description — which is what keeps a command dropped into an installed app from
+becoming invisible. Once a module is loaded, its own `desc` is what stands.
+
+`load` is `path` said as a function, for an app that has been bundled:
+
+```js
+commands: {
+  build: { desc: 'Build the app', load: () => import('./commands/build.js') },
+}
+```
+
+A bundled app has no file to `stat`, since its command modules are chunks the
+bundler named — so `sigil build` emits `load` where the source tree had a
+directory to walk, and the deferral survives bundling. Declare `path`, `load`
+or `run`, never two of them: they are three answers to "what is this command"
+and there is no right one to pick between.
+
 ### Command properties
 
 | Property                      | Purpose                                                                          |
@@ -339,7 +370,9 @@ because its description lives in that module. `help <command>` does load it.
 | `hidden`                      | keep it out of help                                                              |
 | `help`                        | a string that replaces the screen, or a renderer that receives the generated one |
 | `hooks`                       | `init`, `parse`, `help`, `beforeError`                                           |
-| `path`, `file`                | where to load the command from                                                   |
+| `path`                        | a module to load the command from, resolved from the file that declared it       |
+| `load`                        | that module as a function -- `() => import('./build.js')` -- for a bundled app   |
+| `routeInfo`                   | descriptions a build lifted out of the modules a `commands` path points at       |
 | `examples`                    | `{ label, text }` pairs for help                                                 |
 
 ---
@@ -427,6 +460,31 @@ cmd.hooks.parse = async (data) => {
 `--help` and a `help` command are added to the root automatically, and only
 where your app left room: declare `-h` as `--host` and you keep it, declare
 `--help` yourself and you own it entirely. `schema.help: false` adds nothing.
+
+A run that names no command gets the same screen, because a CLI that is all
+subcommands has nothing to do without one. An app with a root `run` or a
+`default` command has something to do and never sees it.
+
+`schema.version` does the same for `-v, --version`:
+
+```js
+await main({
+  schema: {
+    name: 'mycli',
+    version: () => JSON.parse(readFileSync(manifest, 'utf-8')).version,
+    commands: './commands',
+  },
+});
+```
+
+A **function** is called only if `--version` is used, which is what an app
+reading its own `package.json` wants — doing it eagerly is a file read on every
+run, and in a bundle it is one that throws, since `../package.json` off
+`import.meta.url` points wherever the bundle was written. `sigil build`
+replaces it with the literal it read at build time. A plain string works too.
+
+Leave `version` out and no flag is added. `--help` outranks it: being asked
+what a program does and answering with a version string is not an answer.
 
 Help is context-sensitive — it describes the command argv actually reached:
 

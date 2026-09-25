@@ -206,13 +206,17 @@ function defaultObject(
 		// `export { cmd as default }` is a default export the runtime is perfectly
 		// happy with, so this is about what *this pass* can read rather than about
 		// the module being wrong -- which is why it is not the error below
-		const indirect = parsed.program.body.some(
-			(node) =>
-				node.type === 'ExportNamedDeclaration' &&
-				node.specifiers.some(
-					(spec) => spec.exported.type === 'Identifier' && spec.exported.name === 'default'
-				)
-		);
+		const indirect = parsed.program.body
+			.filter((node) => node.type === 'ExportNamedDeclaration')
+			.flatMap((node) => node.specifiers)
+			.find((spec) => spec.exported.type === 'Identifier' && spec.exported.name === 'default');
+
+		if (indirect && indirect.local.type === 'Identifier') {
+			const resolved = bindingObject(parsed, indirect.local.name);
+			if (resolved) {
+				return resolved;
+			}
+		}
 
 		diagnostics.push({
 			file: parsed.file,
@@ -226,17 +230,68 @@ function defaultObject(
 
 	const declaration = objectLiteral(exported.declaration as never);
 
-	if (!declaration) {
-		diagnostics.push({
-			...locate(parsed, exported.declaration.start),
-			message:
-				'the default export is not an object literal, so it cannot be read at build time; help will list this command by name alone',
-			severity: 'warning',
-		});
-		return undefined;
+	if (declaration) {
+		return declaration;
 	}
 
-	return declaration;
+	// `export default cmd`, where `cmd` is a `const` in this module. Worth
+	// following rather than warning about, because it is not a style somebody
+	// chose: `--isolatedDeclarations` refuses to infer a default export, so an
+	// app that has it on *cannot* write the literal inline, and this repo is one
+	// of those apps -- every command module in the toolchain ends this way. A
+	// lift that cannot read the code its own conventions produce is a lift that
+	// reports "help will list this command by name alone" about itself.
+	if (exported.declaration.type === 'Identifier') {
+		const resolved = bindingObject(parsed, exported.declaration.name);
+		if (resolved) {
+			return resolved;
+		}
+	}
+
+	diagnostics.push({
+		...locate(parsed, exported.declaration.start),
+		message:
+			'the default export is not an object literal, so it cannot be read at build time; help will list this command by name alone',
+		severity: 'warning',
+	});
+	return undefined;
+}
+
+/**
+ * The object literal a module-scope `const` holds, if it holds one.
+ *
+ * `const` only: a `let` or a `var` can be reassigned between the declaration
+ * and the export, so what the binding held when the file was read is not what
+ * it holds when the module runs -- and a lift that guessed would bake a
+ * description the app does not have. Module scope only, for the same reason a
+ * computed key is unreadable: a binding declared somewhere else is a question
+ * about scope that this pass does not answer.
+ *
+ * @param parsed - The module.
+ * @param name - The binding to resolve.
+ * @returns The object expression, or `undefined` when it is not one.
+ */
+function bindingObject(parsed: ParsedModule, name: string): ObjectExpression | undefined {
+	for (const node of parsed.program.body) {
+		const declaration =
+			node.type === 'VariableDeclaration'
+				? node
+				: node.type === 'ExportNamedDeclaration' && node.declaration?.type === 'VariableDeclaration'
+					? node.declaration
+					: undefined;
+
+		if (declaration?.kind !== 'const') {
+			continue;
+		}
+
+		for (const declarator of declaration.declarations) {
+			if (declarator.id.type === 'Identifier' && declarator.id.name === name && declarator.init) {
+				return objectLiteral(declarator.init as never);
+			}
+		}
+	}
+
+	return undefined;
 }
 
 /**

@@ -3,11 +3,11 @@ import { discoverApp, readAppCommands } from '../../src/build/discover.js';
 import { parseModule } from '../../src/build/parse-module.js';
 import { resolveCommandTree } from '../../src/build/tree.js';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { beforeAll, describe, it, expect } from 'vitest';
+import { afterAll, beforeAll, describe, it, expect } from 'vitest';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = resolve(__dirname, '../fixtures/buildable');
@@ -211,7 +211,45 @@ describe('bundling an app', () => {
 		expect(readFileSync(bin, 'utf-8')).not.toContain('hello ');
 	});
 
+	it('should inline everything by default', async () => {
+		// the zero-dependency promise: what a built app ships is the app plus the
+		// runtime, and nothing it has to find at run time
+		const source = readFileSync(bin, 'utf-8');
+		expect(source).not.toMatch(/from\s*["'][^."'][^"']*["']/);
+	});
+
 	it('should report a non-zero exit code from a command that failed', () => {
 		expect(run('nope').status).toBe(1);
+	});
+});
+
+describe('a package that cannot be inlined', () => {
+	// nothing inlines a `.node`, so a package that is JavaScript around one has
+	// to stay an import: its JS resolves perfectly well, gets inlined, and then
+	// looks for a binary beside a file that is no longer there -- a build that
+	// reports success and an executable that dies the first time it is used
+	let out: string;
+
+	beforeAll(() => {
+		out = mkdtempSync(join(tmpdir(), 'sigil-external-'));
+	});
+
+	afterAll(() => {
+		rmSync(out, { force: true, recursive: true });
+	});
+
+	it('should leave a named package as an import', async () => {
+		const found = discoverApp(app);
+		const tree = resolveCommandTree(join(app, 'src', 'commands'));
+
+		const result = await bundleApp({
+			app: found,
+			binName: 'buildable',
+			external: ['node:zlib'],
+			out,
+			tree,
+		});
+
+		expect(result.external).toStrictEqual(['node:zlib']);
 	});
 });

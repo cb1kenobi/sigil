@@ -30,6 +30,7 @@
  */
 
 import { bundleApp, type BuiltChunk, displayPath, type ResolvedTree } from '../build/index.ts';
+import { readSigilConfig } from '../config.ts';
 import {
 	countCommands,
 	describeApp,
@@ -40,7 +41,8 @@ import {
 } from './_inspect.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
 import { table } from '@ttylabs/sigil/components';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { existsSync, rmSync } from 'node:fs';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 /** Where a build goes when nobody says otherwise. */
 const DEFAULT_OUT = 'dist';
@@ -48,6 +50,7 @@ const DEFAULT_OUT = 'dist';
 /** See `check.ts` for why this is annotated, and why `AnyCommand`. */
 const build: AnyCommand = command({
 	args: [{ desc: "The app's root, defaulting to the working directory", name: '[dir]' }],
+	desc: 'Build an app into a bundle that depends on nothing',
 	options: {
 		'--bin [file]': {
 			desc: 'An executable of your own, bundled instead of a generated one',
@@ -58,8 +61,18 @@ const build: AnyCommand = command({
 		'--entry [file]': {
 			desc: "The module declaring the app's schema, when the conventions find the wrong one",
 		},
+		'--external [pkg]': {
+			desc: 'A package to import rather than inline, for one carrying a native binding',
+			multiple: true,
+		},
 		'--name [name]': {
 			desc: 'What the built executable is called. Defaults to the name in package.json',
+		},
+		'--no-clean': {
+			desc: 'Keep what is already in the output directory',
+		},
+		'--no-sourcemap': {
+			desc: 'Skip the sourcemaps, which are several times the size of the code',
 		},
 		'--out [dir]': {
 			default: DEFAULT_OUT,
@@ -82,12 +95,26 @@ const build: AnyCommand = command({
 		const bin = argv.bin === undefined ? undefined : resolve(found.app.root, String(argv.bin));
 		assertBuildable(found, bin);
 
-		const out = resolveOut(found.app.root, String(argv.out));
+		// a flag beats the file, which beats the default: `sigil.json` says what
+		// this app is always built with, and a flag says what this invocation
+		// wants. `--out` carries a `default:`, so what it holds when nobody
+		// passed it is that default rather than `undefined` -- which is why it is
+		// compared against rather than read for absence
+		const config = readSigilConfig(found.app.root).build ?? {};
+		const out = resolveOut(
+			found.app.root,
+			String(argv.out === DEFAULT_OUT ? (config.out ?? DEFAULT_OUT) : argv.out)
+		);
+
+		clean(out, found.app.root, argv.clean !== false);
+
 		const result = await bundleApp({
 			app: found.app,
 			bin,
-			binName: binName(found, argv.name as string | undefined),
+			binName: binName(found, (argv.name as string | undefined) ?? config.name),
+			external: (argv.external as string[] | undefined) ?? config.external ?? [],
 			out,
+			sourcemap: argv.sourcemap !== false && config.sourcemap !== false,
 			tree: { commands: found.commands, diagnostics: [] } satisfies ResolvedTree,
 		});
 
@@ -150,7 +177,15 @@ function binName(found: Inspection, named: string | undefined): string {
 		return named;
 	}
 
-	const { name } = found.app.manifest;
+	// what the manifest's `bin` says, before what it calls itself: a scoped
+	// package's name is not its executable's -- `@ttylabs/cli` publishes `sigil`,
+	// and naming the file after the package writes one the manifest does not
+	// point at
+	const { bin, name } = found.app.manifest;
+	if (bin) {
+		return bin;
+	}
+
 	return name ? (name.split('/').pop() ?? name) : 'cli';
 }
 
@@ -191,4 +226,40 @@ function printSizes(chunks: readonly BuiltChunk[]): void {
 			})}\n`
 		);
 	}
+}
+
+/**
+ * Empties the output directory before writing to it.
+ *
+ * A build that leaves the last one behind is a directory nobody can read: a
+ * renamed command's chunk stays, a removed one's stays, and what is published
+ * is the union of every build ever run there. Every bundler does this, and
+ * doing it here rather than in a `rimraf` beside the call is what makes
+ * `sigil build` the whole of the build.
+ *
+ * Refused for the app root itself or anything above it, which is the one way a
+ * mistyped `--out` turns a build into data loss. `--no-clean` opts out for a
+ * caller writing into a directory that holds something else.
+ *
+ * @param out - The output directory.
+ * @param root - The app root, which bounds what may be removed.
+ * @param wanted - Whether to clean at all.
+ * @throws If the directory is one that must not be emptied.
+ */
+function clean(out: string, root: string, wanted: boolean): void {
+	if (!wanted || !existsSync(out)) {
+		return;
+	}
+
+	const resolved = resolve(out);
+	const app = resolve(root);
+
+	if (resolved === app || app.startsWith(`${resolved}${sep}`)) {
+		throw new Error(
+			`Refusing to empty ${displayPath(resolved)}, which holds the app itself. ` +
+				`Name a directory inside it, or pass --no-clean.`
+		);
+	}
+
+	rmSync(resolved, { force: true, recursive: true });
 }

@@ -18,6 +18,7 @@ import { transformValue } from '../util/transform.js';
 import { initCommand } from './command/init-command.js';
 import { loadCommand } from './command/load-command.js';
 import { detectHelp, registerHelp } from './help.js';
+import { detectVersion, registerVersion } from './version.js';
 
 const { log } = debug('sigil:parser');
 
@@ -102,6 +103,7 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
 		};
 
 		const handles = await registerHelp(state.contexts[0], schema);
+		const versionHandles = await registerVersion(state.contexts[0], schema.version);
 
 		await initArgv(state);
 		await parseArgv(state);
@@ -109,6 +111,15 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
 		// before anything is validated: help wins over a missing required option,
 		// which is a parser-ordering concern and not a rendering one
 		state.help = await detectHelp(state, handles);
+
+		// after help and only when help was not asked for, because being asked
+		// what a program does and answering with a version string is not an answer
+		if (!state.help && detectVersion(state, versionHandles)) {
+			// resolved here rather than where the schema was read, because a
+			// function is the spelling that exists to *not* be called on a run
+			// that never asks
+			state.version = typeof schema.version === 'function' ? schema.version() : schema.version;
+		}
 
 		await processArgs(state);
 		await processOptions(state);

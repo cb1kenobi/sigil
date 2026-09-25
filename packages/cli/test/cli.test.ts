@@ -1,5 +1,6 @@
+import { readSigilConfig } from '../src/config.js';
 import { run, schema, version } from '../src/index.js';
-import config from '../tsdown.config.js';
+import { readRoutes } from '@ttylabs/sigil/routes';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -55,17 +56,94 @@ describe('@ttylabs/cli', () => {
 			expect(Object.keys(pkg.bin)).toEqual(['sigil']);
 		});
 
-		it('should declare --version', () => {
-			expect(schema().options).toHaveProperty('-v, --version');
+		it('should name its version rather than declaring the flag', () => {
+			// the framework adds `-v, --version` and answers it, the way it adds
+			// `--help` -- which is what keeps the built CLI and the source one the
+			// same program, since `sigil build` calls `main()` itself and whatever
+			// a bin wrapped around it is not in the bundle
+			// it declares no root options at all now: `-v, --version` was the only
+			// one, and the framework owns both the flag and the answer
+			expect(schema().options).toBeUndefined();
+			expect(typeof schema().version).toBe('function');
+			expect((schema().version as () => string)()).toBe(pkg.version);
 		});
 
-		it('should declare only commands that are the whole of what they claim', () => {
+		it('should route its commands off its own filesystem', () => {
+			// the toolchain is the acceptance test, so it uses the router it ships
+			// rather than a map written out beside it. `baseDir` is what makes the
+			// path mean this directory instead of wherever the user was standing
+			expect(schema().commands).toBe('./commands');
+			expect(schema().baseDir).toBeTypeOf('string');
+		});
+
+		it('should route only commands that are the whole of what they claim', () => {
 			// a command that exists and refuses is worse than one that does not
-			// exist yet, because only the second is honest in --help. All three are
-			// complete: `add` copies, `check` reads, and `build` bundles and runs
-			// `check`'s pass rather than replacing it. `new` is not here because it
-			// is not written.
-			expect(Object.keys(schema().commands ?? {}).sort()).toEqual(['add', 'build', 'check', 'new']);
+			// exist yet, because only the second is honest in --help. All four are
+			// complete: `add` copies, `check` reads, `build` bundles and runs
+			// `check`'s pass rather than replacing it, and `new` scaffolds.
+			const dir = join(root, 'src', 'commands');
+			const names = (readRoutes(dir)?.routes ?? []).map((route) => route.name).sort();
+
+			expect(names).toEqual(['add', 'build', 'check', 'new']);
+		});
+
+		it('should keep the shared pass out of the command list', () => {
+			// `_inspect.ts` is one pass for two commands and is not a command; the
+			// `_` prefix is what says so, and this is that rule read from inside
+			// the repo that wrote it
+			const dir = join(root, 'src', 'commands');
+			const names = (readRoutes(dir)?.routes ?? []).map((route) => route.name);
+
+			expect(existsSync(join(dir, '_inspect.ts'))).toBe(true);
+			expect(names).not.toContain('_inspect');
+		});
+	});
+
+	describe('--version', () => {
+		// it has no use for the command tree, and since the toolchain started
+		// routing its own commands it was paying to build one
+		it('should answer without reading the command directory', () => {
+			const result = spawnSync(process.execPath, [join(root, 'src', 'sigil.ts'), '--version'], {
+				cwd: root,
+				encoding: 'utf-8',
+				env: { ...process.env, DEBUG: 'sigil*' },
+			});
+
+			expect(result.stdout.trim()).toBe(version());
+			expect(result.stderr).not.toContain('Walking command directory');
+		});
+
+		it('should leave every other spelling to the parser', async () => {
+			// the fast path is the whole of argv rather than the flag appearing in
+			// it, because each of these is a question with a second half that the
+			// parser already answers -- and a scan here that reproduced them would
+			// be a second parser to keep in agreement
+			for (const argv of [
+				['--help', '--version'],
+				['--version', '--help'],
+				['help', '--version'],
+			]) {
+				const out = captureStdout();
+				try {
+					await run(argv);
+				} finally {
+					out.restore();
+				}
+				expect(out.text, argv.join(' ')).toContain('Usage: sigil');
+			}
+		});
+
+		it('should refuse an argument beside it rather than answering', () => {
+			// spawned, because this one is rendered by the framework's error
+			// handler on its way to stderr rather than written by `run()`
+			const result = spawnSync(
+				process.execPath,
+				[join(root, 'src', 'sigil.ts'), '--version', 'extra'],
+				{ cwd: root, encoding: 'utf-8' }
+			);
+
+			expect(result.stderr).toContain('extra');
+			expect(result.stdout).not.toContain(version());
 		});
 	});
 
@@ -179,33 +257,53 @@ describe('@ttylabs/cli', () => {
 	});
 
 	describe('package wiring', () => {
-		it('should build an entry for every exported subpath', () => {
-			const entry = config.entry as Record<string, string>;
-			for (const [subpath, condition] of Object.entries<any>(pkg.exports)) {
-				if (subpath === './package.json') {
-					continue;
-				}
-				const name = subpath === '.' ? 'index' : subpath.slice(2);
-				expect(entry, `"${subpath}" has no build entry`).toHaveProperty(name);
-				expect(existsSync(resolve(root, entry[name]))).toBe(true);
-				expect(condition).toEqual({
-					types: `./dist/${name}.d.mts`,
-					default: `./dist/${name}.mjs`,
-				});
+		it('should publish a bin and nothing else', () => {
+			// it is an app rather than a library: `sigil build` emits an
+			// executable, so there is no entry to import and no declaration to
+			// import it with. Every subpath it used to publish -- `./build`,
+			// `./template`, `./utilities` -- had exactly zero real importers, in
+			// this repo or anywhere, and 33 KB of the old `dist` was their types
+			expect(pkg.bin).toStrictEqual({ sigil: './dist/sigil.mjs' });
+			expect(Object.keys(pkg.exports)).toStrictEqual(['./package.json']);
+			expect(pkg).not.toHaveProperty('main');
+			expect(pkg).not.toHaveProperty('types');
+		});
+
+		it('should not have to be told what its executable is called', () => {
+			// `bin` already says, and it is not the package name: `@ttylabs/cli`
+			// publishes `sigil`, so a build naming the file after the package
+			// writes one the manifest does not point at
+			expect(pkg.scripts.build).not.toContain('--name');
+			expect(Object.keys(pkg.bin)).toStrictEqual(['sigil']);
+		});
+
+		it('should build itself', () => {
+			// the acceptance test, as a line in a manifest: `pnpm build` is the
+			// toolchain building the toolchain. Stage 0 is `node src/sigil.ts`,
+			// which needs no build of its own -- that is what keeps a broken
+			// build able to build its own fix
+			expect(pkg.scripts.build).toContain('node src/sigil.ts build');
+		});
+
+		it('should leave its native dependencies as imports', () => {
+			// nothing inlines a `.node`, so these have to stay imports and the
+			// manifest has to declare them. `@ttylabs/sigil` is external for a
+			// different reason: it is a real dependency npm installs, and
+			// inlining it made the bundle four times the size
+			const config = readSigilConfig(root);
+
+			for (const dep of ['@ttylabs/sigil', 'oxc-parser', 'rolldown']) {
+				expect(pkg.dependencies, dep).toHaveProperty(dep);
+				expect(config.build?.external, dep).toContain(dep);
 			}
 		});
 
-		it('should build an entry for the bin', () => {
-			const entry = config.entry as Record<string, string>;
-			for (const target of Object.values<string>(pkg.bin)) {
-				const name = target.replace(/^\.\/dist\//, '').replace(/\.mjs$/, '');
-				expect(entry, `bin "${target}" has no build entry`).toHaveProperty(name);
-			}
-		});
-
-		it('should depend on the runtime rather than bundling it', () => {
-			expect(pkg.dependencies).toHaveProperty('@ttylabs/sigil', 'workspace:*');
-			expect(config.external).toContain('@ttylabs/sigil');
+		it('should build with no options at all', () => {
+			// what `sigil.json` bought: the options are facts about the app, so
+			// they live beside it rather than in whoever happens to be typing the
+			// command. `sigil build` empties the output directory itself, so there
+			// is no `rimraf` either
+			expect(pkg.scripts.build).toBe('node src/sigil.ts build');
 		});
 
 		it('should declare every dependency it has taken, and no more', () => {

@@ -85,17 +85,20 @@ declaring both throws.
 
 ### Command properties
 
-| Property   | Type                     | Notes                                              |
-| ---------- | ------------------------ | -------------------------------------------------- |
-| `alias`    | `string \| string[]`     | Additional names                                   |
-| `args`     | `(string \| Argument)[]` | Positional arguments                               |
-| `commands` | `object \| string`       | Subcommands, or a path to load them from           |
-| `default`  | `boolean`                | Runs when argv named no command — see below        |
-| `desc`     | `string`                 | Description for help                               |
-| `hidden`   | `boolean`                | Omit from help; a `!` name prefix sets it too      |
-| `hooks`    | `{ init, parse }`        | Lifecycle callbacks                                |
-| `options`  | `object`                 | Options scoped to this command and its children    |
-| `run`      | `(state) => unknown`     | Handler invoked by `main()` when this command wins |
+| Property    | Type                     | Notes                                              |
+| ----------- | ------------------------ | -------------------------------------------------- |
+| `alias`     | `string \| string[]`     | Additional names                                   |
+| `args`      | `(string \| Argument)[]` | Positional arguments                               |
+| `commands`  | `object \| string`       | Subcommands, or a path to load them from           |
+| `default`   | `boolean`                | Runs when argv named no command — see below        |
+| `desc`      | `string`                 | Description for help                               |
+| `hidden`    | `boolean`                | Omit from help; a `!` name prefix sets it too      |
+| `hooks`     | `{ init, parse }`        | Lifecycle callbacks                                |
+| `load`      | `() => Promise<unknown>` | The module as a function, for a bundled app        |
+| `options`   | `object`                 | Options scoped to this command and its children    |
+| `path`      | `string`                 | A module to load the command from                  |
+| `routeInfo` | `object`                 | Descriptions a build lifted out of a command tree  |
+| `run`       | `(state) => unknown`     | Handler invoked by `main()` when this command wins |
 
 A command is hidden if its name carries a `!` prefix **or** it declares
 `hidden: true`. The two are additive: either one alone is enough, and an
