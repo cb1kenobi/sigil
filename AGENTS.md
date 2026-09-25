@@ -3288,6 +3288,26 @@ as default }` resolves the same way, since it is the same statement spelled
   what it gets -- and a router bundled that way reads directories that are not
   beside the executable. A run-time failure the build can see coming is a build
   error.
+- **A package carrying a native binding is left as an import, and the build says
+  so.** Nothing inlines a `.node`, and a package like `oxc-parser` or `rolldown`
+  is JavaScript around one: the JavaScript resolves perfectly well, gets
+  inlined, and then looks for a binary beside a file that is no longer there.
+  The build could not see it coming -- the _specifier_ resolved, so there was no
+  unresolved import to raise -- and the result was a build that reported success
+  and an executable that died the first time it was used. `--external` is the
+  answer, and it is deliberately explicit: an app that names one is saying its
+  bundle is not self-contained, which is a true thing to say about an app with a
+  native dependency and a lie about any other. It is **reported** for the same
+  reason, because "these must be installed where the app runs" is not something
+  to find out from a crash. An external is not an unresolved import and is not
+  counted as one: one is a deliberate answer to "this cannot be inlined" and the
+  other is the absence of an answer.
+- **The bootstrap runs, and it is what proved the mechanism.** A toolchain built
+  by `sigil build --external oxc-parser --external rolldown` checks an app,
+  builds an app, and the app it built runs. Before the externals existed it
+  built cleanly and then failed on `Cannot find native binding` the moment any
+  command that reads source was reached, which is stage 1 of the bootstrap
+  failing in the one place the stage-0 escape hatch exists for.
 - **The zero-dependency claim is asserted by parsing the output, not by grepping
   it.** The naive pattern matched `Error(\`...command name from "${e}"\`)`-- the
 word "from" inside a message followed by a quoted template -- and a test that

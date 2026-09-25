@@ -59,6 +59,10 @@ const build: AnyCommand = command({
 		'--entry [file]': {
 			desc: "The module declaring the app's schema, when the conventions find the wrong one",
 		},
+		'--external [pkg]': {
+			desc: 'A package to import rather than inline, for one carrying a native binding',
+			multiple: true,
+		},
 		'--name [name]': {
 			desc: 'What the built executable is called. Defaults to the name in package.json',
 		},
@@ -88,11 +92,23 @@ const build: AnyCommand = command({
 			app: found.app,
 			bin,
 			binName: binName(found, argv.name as string | undefined),
+			external: (argv.external as string[] | undefined) ?? [],
 			out,
 			tree: { commands: found.commands, diagnostics: [] } satisfies ResolvedTree,
 		});
 
 		printSizes(result.chunks);
+
+		// said out loud, because it is the one thing that makes a built app not
+		// self-contained. A native binding leaves no choice -- nothing inlines a
+		// `.node` -- but "this bundle needs these installed beside it" is not
+		// something to find out from a crash
+		if (result.external.length > 0) {
+			process.stderr.write(
+				`\nImported rather than inlined: ${result.external.join(', ')}\n` +
+					`  These must be installed where the app runs. Everything else is in the bundle.\n`
+			);
+		}
 
 		const total = countCommands(found.commands);
 		process.stderr.write(

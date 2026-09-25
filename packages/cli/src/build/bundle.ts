@@ -48,6 +48,22 @@ export interface BundleOptions {
 	readonly binName: string;
 	/** An executable of the app's own, bundled instead of a generated one. */
 	readonly bin?: string;
+	/**
+	 * Packages to leave as imports rather than inline.
+	 *
+	 * The zero-dependency promise is about what *sigil* adds, and this is the
+	 * one thing that can break it, so it is explicit and it is reported. What
+	 * forces it is a **native binding**: a package like `oxc-parser` or
+	 * `rolldown` is JavaScript around a `.node` file, and no bundler inlines a
+	 * `.node`. Its JavaScript resolves perfectly well, gets inlined, and then
+	 * looks for a binary beside a file that is no longer there -- so the build
+	 * reports success and the executable dies the first time it is used.
+	 *
+	 * An app that names one is saying its bundle is not self-contained, which is
+	 * a true thing to say about an app with a native dependency and a lie about
+	 * any other.
+	 */
+	readonly external?: readonly string[];
 	/** Where the bundle goes. */
 	readonly out: string;
 	/** The tree to bake into the generated entry. */
@@ -70,6 +86,8 @@ export interface BundleResult {
 	readonly bin: string;
 	/** Everything written, the executable included, largest first. */
 	readonly chunks: readonly BuiltChunk[];
+	/** What was left as an import rather than inlined, in the order given. */
+	readonly external: readonly string[];
 	/** The generated entry, when the build wrote one. */
 	readonly generated?: string;
 }
@@ -81,7 +99,7 @@ export interface BundleResult {
  * @returns What it wrote.
  */
 export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
-	const { app, bin, binName, out, tree } = options;
+	const { app, bin, binName, external = [], out, tree } = options;
 
 	// imported here rather than at the top, the way the runtime defers its own
 	// heavy modules: rolldown is a native binary, and `sigil check` has no use
@@ -94,6 +112,10 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 	const unresolved: string[] = [];
 
 	const bundle = await rolldown({
+		// left as imports rather than inlined. Rolldown does not report these as
+		// unresolved, which is the point: an external is a deliberate answer to
+		// "this cannot be inlined" and an unresolved import is the absence of one
+		external: [...external],
 		input,
 		// an import a bundler cannot resolve is left as an import, so the bundle
 		// reaches for it at run time -- which is the zero-dependency promise
@@ -147,7 +169,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 	// could execute
 	chmodSync(executable, 0o755);
 
-	return { bin: executable, chunks, generated };
+	return { bin: executable, chunks, external: [...external], generated };
 }
 
 /**
