@@ -3624,6 +3624,20 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   all outrank what the stream says, and it is the only way a test can ask about a
   terminal at all, since a vitest worker's stderr is a pipe with no `TERM` behind
   it.
+- **`FORCE_COLOR` into a pipe colours the tables and not the diagnostics, and
+  that is a consequence rather than an oversight.** The two knobs are
+  independent on purpose -- layout follows `isTTY`, colour follows the level --
+  so `FORCE_COLOR=3 sigil check --tree | cat` is a coloured table on stdout and
+  plain one-line diagnostics on stderr. Measured: two escapes on stdout, none on
+  stderr. It is what `main` did too, since the diagnostics carried no colour at
+  all there and the table has always read the process styler, so nothing
+  regressed -- and the obvious tidy-up is the one that must not be taken. Keying
+  the pretty form on the colour _level_ instead would make `FORCE_COLOR`
+  consistent and would make `NO_COLOR` on a real terminal unwrap every
+  diagnostic, which is reading one setting as though it were another. The other
+  way round -- rendering the one-line form through the cascade so it can be
+  coloured -- costs the byte-for-byte promise above for a colour nobody has ever
+  had here. So it stays, written down, rather than fixed into something worse.
 - **Prose wraps whatever the destination is, which is the other half of the rule
   above.** A diagnostic is a record -- something greps it, something jumps to it
   -- so off a terminal it stays on one line. A note is a paragraph somebody reads,
