@@ -27,12 +27,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 const cli = resolve(dirname(fileURLToPath(import.meta.url)), '../src/sigil.ts');
 
 const OPTIONS: ScaffoldOptions = {
-	dependency: '0.0.1',
 	language: 'ts',
 	layout: 'multi',
 	linter: 'oxlint',
 	name: 'demo',
-	toolchain: '0.0.1',
+	version: '0.0.1',
 	versions: { '@types/node': '26.6.2', typescript: '7.0.2' },
 };
 

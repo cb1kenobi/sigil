@@ -166,12 +166,11 @@ const newApp: AnyCommand = command({
 
 		const own = toolchainManifest();
 		const files = scaffold({
-			dependency: own.version,
 			language,
 			layout,
 			linter,
 			name,
-			toolchain: own.version,
+			version: own.version,
 			versions: own.devDependencies,
 		});
 
