@@ -147,11 +147,19 @@ const MIN_MESSAGE = 20;
 /**
  * Whitespace a message's author meant, which makes it output rather than prose.
  *
- * A newline or a run of two or more spaces. Either one is structure a paragraph
- * would destroy, and both arrive the same way: something captured text and put it
- * in a diagnostic.
+ * A newline, a run of two whitespace characters, or whitespace at the start.
+ * Those are what a paragraph destroys, because it splits on `/\s+/` and drops
+ * the empty pieces -- so `foo\t\tbar` was drawn `foo bar` and a leading tab
+ * vanished, which is the two-space disagreement on the other whitespace
+ * character.
+ *
+ * A *single* tab between two words deliberately does not match: a paragraph
+ * renders it as one space and so would the grid, since `toDisplayText()` draws a
+ * tab as a space either way. Matching it would make one ordinary tab stop a long
+ * message wrapping, which trades a real cost for no gain -- what is being caught
+ * is whitespace that carries information, not every tab.
  */
-const VERBATIM = /\n|  /;
+const VERBATIM = /\n|\s\s|^\s/;
 
 /** A stream a report can be written to, and asked about. */
 export interface ReportStream {
@@ -339,13 +347,22 @@ function diagnosticRow(diagnostic: Diagnostic, opts: { width: number }): Element
 			return paragraph([message], { 'flex-shrink': 0, ...props });
 		}
 
-		// its own width wherever it overhangs, which is the rule help's own labels
-		// follow and the trap that `nowrap` walks into without it: `text-overflow`
-		// bites on a line wider than the box it was given, so a declared column
-		// narrower than the content silently *cut* the dump -- a code line came out
-		// as `const x = "hello h` with the rest gone. Overflowing is the honest
-		// answer and costs nothing, because the grid grows to its content.
-		// Measured as it will be drawn, for the reason the prefix is
+		// The width is the whole mechanism, and it is worth saying which property is
+		// doing the work: a `text` at `white-space: normal` keeps the author's
+		// newlines and the spaces inside each line, and the only thing it does wrong
+		// is *reflow* a line too long for its box. Give the box the content's own
+		// width and there is no such line, so nothing reflows -- which is help's rule
+		// for a label too wide for its column, reached from the other side. A
+		// `white-space: nowrap` here would be a property that does nothing, since
+		// nothing can exceed its box; it was in the first version of this, and
+		// removing it changed no output at any width, which is how it was found.
+		//
+		// Getting the width wrong is the trap rather than the wrapping:
+		// `text-overflow` bites on a line wider than the box it was given, so a
+		// declared column narrower than the content silently *cut* the dump -- a code
+		// line came out as `const x = "hello h` with the rest gone. Overflowing costs
+		// nothing, because the grid grows to its content. Measured as it will be
+		// drawn, for the reason the prefix is
 		const natural = Math.max(
 			...toDisplayText(message)
 				.split('\n')
@@ -361,7 +378,6 @@ function diagnosticRow(diagnostic: Diagnostic, opts: { width: number }): Element
 
 		return textNode(message, {
 			'flex-shrink': 0,
-			'white-space': 'nowrap',
 			...props,
 			width: Math.max(props.width, natural + pad),
 		});
@@ -393,12 +409,44 @@ function diagnosticRow(diagnostic: Diagnostic, opts: { width: number }): Element
  * arrived inside a string, and the painter strips them. So the app is bold, the
  * entry it was read from is dim, and the verdict is coloured by what it says.
  *
+ * A wrapping row of `nowrap` words rather than `paragraph()`, and the difference
+ * is one property with one consequence. `paragraph()` gives each word
+ * `min-width: 0` **on purpose**, so that a word too long for the line is broken
+ * rather than left to run off the edge -- that is what `wrap()` does with one, and
+ * a paragraph disagreeing with the wrapper is a help screen wider than the
+ * terminal. It is the wrong answer for a summary, because every summary here ends
+ * in a path: at 80 columns a long one came out as
+ * `.../packages/cli/t` / `est/fixtures/app,`, broken mid-token. AGENTS.md already
+ * says a path is not prose and that wrapping one breaks the thing somebody copies
+ * -- that sentence was written for `sigil add`'s file list and covers this.
+ *
+ * So each word keeps its automatic minimum, which for a one-word text is the
+ * whole of it: the row wraps *between* words and never inside one, and a word
+ * longer than the terminal overflows the way the location prefix and help's own
+ * labels do. The grid grows to its content, so nothing is lost either way -- what
+ * changes is whether the path on screen is still one token.
+ *
  * @param runs - The runs, in order.
  * @param width - How wide to wrap at.
  * @returns The line.
  */
 export function summaryView(runs: readonly (TextRun | string)[], width: number): Element {
-	return paragraph(runs, { width });
+	const words: Element[] = [];
+
+	for (const run of runs) {
+		const { class: classes, text } =
+			typeof run === 'string' ? { class: undefined, text: run } : run;
+
+		// split on whitespace for the reason `paragraph()` does: a run is prose, and
+		// the gap between two words on a line is the row's own `column-gap`
+		for (const word of text.split(/\s+/)) {
+			if (word !== '') {
+				words.push(textNode(word, { class: classes, 'white-space': 'nowrap' }));
+			}
+		}
+	}
+
+	return box({ 'column-gap': 1, 'flex-direction': 'row', 'flex-wrap': 'wrap', width }, ...words);
 }
 
 /**

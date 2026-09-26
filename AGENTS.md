@@ -3583,31 +3583,44 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
 - **A message whose whitespace is structure is output somebody captured, not
   prose, and keeping it took three goes.** `typecheck.ts` puts a compiler's whole
   stdout in one when it exited without saying anything parseable, and the
-  whitespace is the only structure such a message has. The predicate is a newline
-  **or a run of two spaces**, because a paragraph splits on `/\s+/`: a message
-  reading `expected '  ' here` was drawn as `expected ' ' here`, so the terminal
-  disagreed with the pipe about what the message _said_. One rule -- whitespace
-  the author put there is structure -- rather than a newline special case.
+  whitespace is the only structure such a message has. The predicate is a newline,
+  **a run of two whitespace characters, or whitespace at the start**, because a
+  paragraph splits on `/\s+/` and drops the empty pieces: `expected '  ' here` was
+  drawn as `expected ' ' here` and `foo\t\tbar` as `foo bar`, so the terminal
+  disagreed with the pipe about what the message _said_. A **single** tab between
+  two words deliberately does not match, because a paragraph renders it as one
+  space and so would the grid -- `toDisplayText()` draws a tab as a space either
+  way -- and matching it would stop one ordinary tab's whole message wrapping for
+  no gain. One rule, whitespace that carries information, rather than a newline
+  special case.
+  **The width is the mechanism, and `white-space` is not.** A `text` at `normal`
+  keeps the author's newlines and the spaces inside each line; the only thing it
+  does wrong is _reflow_ a line too long for its box, so at 60 columns a code line
+  wrapped and the tilde caret under it no longer sat beneath what it pointed at.
+  Give the box the content's own width and there is no such line. That is help's
+  rule for a label too wide for its column, reached from the other side, measured
+  through `toDisplayText()` for the reason the prefix is. The stacked case adds the
+  padding on top, because `box-sizing` starts at `border-box` and a width of
+  exactly the content leaves every line two columns short -- the rule this file
+  already records for a themed table cell, met from the other side.
 
-  What it takes is `white-space: nowrap`, and `normal` is not enough: `normal`
-  honours the author's newlines and then **reflows each line**, so at 60 columns a
-  code line wrapped and the tilde caret under it no longer sat beneath what it
-  pointed at. The entry this replaced claimed such a message was "printed as it
-  stands" and it was not, and the test could not see it -- it asserted that a
-  short line appeared _somewhere_, which survives a reflow. It is a line count
-  now.
+  Getting there took a wrong turn worth recording. The fix was first written as
+  `white-space: nowrap`, which looks like the property that means "verbatim" and is
+  a **property that does nothing** here: nothing can exceed its box once the width
+  is right, and deleting it changed no output at any width. It also walks into a
+  trap on its own, without the width -- `text-overflow` bites on a line wider than
+  its box, so a declared column narrower than the content silently **cut** the dump
+  to `1 const x: number = "hello h`, which is worse than the reflow it replaced
+  because nothing says so. Both were found by sabotage rather than by reading:
+  removing the width fails two tests, removing the `nowrap` failed none.
 
-  `nowrap` on its own is worse, which is the trap worth knowing: `text-overflow`
-  bites on a line wider than the box it was given, so a declared message column
-  narrower than the content **cut** the dump -- `1 const x: number = "hello h`
-  with the rest gone and nothing to say so. So a verbatim message keeps its own
-  width wherever it overhangs, which is exactly help's rule for a label too wide
-  for its column, and it is measured through `toDisplayText()` for the reason the
-  prefix is. The stacked case needs the padding added on top of that, because
-  `box-sizing` starts at `border-box` and a width of exactly the content leaves
-  every line two columns short -- the border-box rule this file already records
-  for a themed table cell, met from the other side. Pinned by a test that walks
-  100, 60, 40, 20 and 10 columns and asserts every source line survives whole.
+  The entry this replaced claimed such a message was "printed as it stands" and it
+  was not, and the test could not see it -- it asserted a short line appeared
+  _somewhere_, which survives a reflow. It is a line count now, plus a walk over
+  100, 60, 40, 20 and 10 columns asserting every source line survives **with its
+  own leading whitespace**: the first version of that walk compared against
+  `line.trimStart()`, which excused exactly the loss it was named for at the three
+  narrow widths where the border-box cut lived.
 
 - **A terminal gets the laid-out form and a pipe gets one line per diagnostic,
   and the piped output is byte for byte what it was.** This is `tsc --pretty`'s
@@ -3672,6 +3685,20 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   way round -- rendering the one-line form through the cascade so it can be
   coloured -- costs the byte-for-byte promise above for a colour nobody has ever
   had here. So it stays, written down, rather than fixed into something worse.
+- **A summary is a wrapping row of `nowrap` words, because every summary here ends
+  in a path.** `paragraph()` gives each word `min-width: 0` **on purpose**, so that
+  a word too long for the line is broken rather than left to run off the edge --
+  that is what `wrap()` does, and a paragraph disagreeing with the wrapper is a
+  help screen wider than the terminal. It is the wrong answer for a summary: at 80
+  columns a long skip path came out as `.../packages/cli/t` then
+  `est/fixtures/app,`, broken mid-token, and `build`'s `into <bin>` does the same
+  once that path is long enough. This file already says a path is not prose and
+  that wrapping one breaks the thing somebody copies -- that sentence was written
+  for `sigil add`'s file list and it covers these two lines as well. So each word
+  keeps its automatic minimum, which for a one-word text is the whole of it: the
+  row wraps _between_ words and never inside one, and a word longer than the
+  terminal overflows the way the location prefix and help's own labels do. `main`
+  printed both as one line on a terminal, because nothing wrapped them at all.
 - **Prose wraps whatever the destination is, which is the other half of the rule
   above.** A diagnostic is a record -- something greps it, something jumps to it
   -- so off a terminal it stays on one line. A note is a paragraph somebody reads,

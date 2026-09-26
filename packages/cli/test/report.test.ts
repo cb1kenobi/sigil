@@ -216,7 +216,13 @@ describe('the toolchain report', () => {
 				const joined = out.join('\n');
 
 				for (const line of message.split('\n')) {
-					expect(joined, `at ${columns} columns`).toContain(line.trimStart());
+					// the line *with* its leading whitespace, which is the half
+					// `trimStart()` was quietly excusing: dropping the four spaces in
+					// front of `error TS1005` is exactly the loss this is named for, and
+					// it passed at 40, 20 and 10 -- the widths where the border-box cut
+					// lived. The rendered indent sits in front of the source line's own,
+					// so the whole line is still a substring
+					expect(joined, `at ${columns} columns`).toContain(line);
 				}
 			}
 		});
@@ -467,6 +473,28 @@ describe('the toolchain report', () => {
 	});
 
 	describe('a summary', () => {
+		it('should never break a word, because every summary here ends in a path', () => {
+			// `paragraph()` gives each word `min-width: 0` on purpose, so a word too
+			// long for the line is broken rather than left to overflow -- which is
+			// right for prose and wrong here: at 80 columns a long path came out as
+			// `.../packages/cli/t` then `est/fixtures/app,`, broken mid-token. A path
+			// is not prose, and wrapping one breaks the thing somebody copies
+			const path =
+				'/Users/someone/src/company/platform/services/billing-reconciliation/packages/cli/test/fixtures/app';
+
+			for (const columns of [80, 40]) {
+				const out = render(
+					(width) =>
+						summaryView([`Not type-checked: no tsconfig.json in ${path}, so there is none`], width),
+					{ env: {}, stream: { columns, isTTY: true } }
+				);
+
+				expect(strip(out), `at ${columns} columns`).toContain(path);
+				// and it wrapped somewhere, rather than simply being one long line
+				expect(out.split('\n').length).toBeGreaterThan(1);
+			}
+		});
+
 		it('should style its runs rather than carrying its own sequences', () => {
 			// a cell grid has nowhere to put a sequence that arrived inside a string
 			// -- the painter strips them -- which is why this is runs and not a
@@ -503,7 +531,19 @@ describe('the toolchain report', () => {
 			// a `padding-left` from a sheet is a number the arithmetic above never
 			// heard about, and `box-sizing: border-box` takes it out of a width the
 			// report measured
-			for (const property of ['padding', 'margin', 'width', 'height', 'flex', 'box-sizing']) {
+			for (const property of [
+				'padding',
+				'margin',
+				'width',
+				'height',
+				'flex',
+				'box-sizing',
+				'border',
+				'gap',
+				'align-',
+				'justify-',
+				'position',
+			]) {
 				expect(TOOLCHAIN_CSS).not.toContain(property);
 			}
 		});
