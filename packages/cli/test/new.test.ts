@@ -335,27 +335,23 @@ describe('the command, end to end', () => {
 		expect(result.stderr).toContain('lowercase');
 	});
 
-	it('should link both packages, not just the runtime', () => {
-		// linking only `@ttylabs/sigil` left the app depending on an unpublished
-		// `@ttylabs/cli`, so the install died on a 404 having got everything else
-		// right
-		run('new', 'demo', '--yes', '--no-install', '--no-git', '--link');
-		const manifest = JSON.parse(readFileSync(join(dir, 'demo', 'package.json'), 'utf-8')) as Record<
-			string,
-			Record<string, string>
-		>;
-
-		expect(manifest.dependencies?.['@ttylabs/sigil']).toMatch(/^file:/);
-		expect(manifest.devDependencies?.['@ttylabs/cli']).toMatch(/^file:/);
-	});
-
-	it('should ask for published versions when not linking', () => {
+	it('should depend on published versions', () => {
+		// there was a `--link` that pointed a scaffolded app at a checkout, for
+		// as long as these packages were unpublished. A local path in a
+		// dependency keeps working right up until somebody commits it, so the
+		// flag went with the publish rather than staying as an escape hatch
 		run('new', 'demo', '--yes', '--no-install', '--no-git');
 		const manifest = JSON.parse(readFileSync(join(dir, 'demo', 'package.json'), 'utf-8')) as Record<
 			string,
 			Record<string, string>
 		>;
 
-		expect(manifest.dependencies?.['@ttylabs/sigil']).not.toMatch(/^file:/);
+		for (const spec of [
+			manifest.dependencies?.['@ttylabs/sigil'],
+			manifest.devDependencies?.['@ttylabs/cli'],
+		]) {
+			expect(spec).toBeDefined();
+			expect(spec).not.toMatch(/^(file|link):/);
+		}
 	});
 });

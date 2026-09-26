@@ -3594,13 +3594,21 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   `cli` is one of the names discovery looks for, and a second entry candidate
   beside the real one is an ambiguity waiting for somebody to delete the wrong
   file.
-- **`--link` links both packages, because half of "use what is on this machine"
-  is not a thing anybody asked for.** Linking only `@ttylabs/sigil` left the
-  scaffolded app depending on an unpublished `@ttylabs/cli`, so the install died
-  on a 404 having got everything else right. The default is still the real
-  version range: the flag is a workaround for a temporary state of the world, and
-  a scaffold that quietly wrote a machine-local path would keep working right up
-  until somebody committed it.
+- **There was a `--link`, and publishing is what removed it.** It pointed a
+  scaffolded app at the checkout this toolchain was resolved from, because a
+  scaffold that wrote the real version range produced an app that could not
+  install while these packages were unpublished. It was always "one line to
+  delete on the day the package ships", and a local path in a dependency is the
+  kind of thing that keeps working right up until somebody commits it -- so it
+  went with the publish rather than staying on as an escape hatch. What it cost
+  on the way out is worth keeping: it was **broken**, and only a by-hand install
+  could have shown that, since `new.test.ts` deliberately does not install. A
+  checkout's packages declare `@ttylabs/sigil` as `workspace:*` between
+  themselves, so a manager that installs a local path by _resolving_ its
+  dependencies meets a protocol with no workspace to resolve it in, while one
+  that _symlinks_ never asks. pnpm's `link:` symlinks and its `file:` resolves;
+  npm has no `link:` at all. Exactly opposite -- which is the shape to expect
+  from any future "use what is on this machine" flag.
 - **A scaffold never names a tool it does not install, and the check for that is
   in the generator.** The linter versions were read off this repository and
   `oxlint` is a devDependency of the _workspace root_ rather than of
