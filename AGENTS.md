@@ -3588,6 +3588,25 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   anything verbatim. A single-line message is prose and wraps; a multi-line one
   is printed as it stands. One rule read off the message rather than a flag
   somebody has to remember to set.
+- **A terminal gets the laid-out form and a pipe gets one line per diagnostic,
+  and the piped output is byte for byte what it was.** This is `tsc --pretty`'s
+  split and it exists for the reason that flag does, which the first version of
+  this found out the hard way: wrapping every diagnostic broke `grep`. A message
+  that wrapped between "string" and "literal" is one
+  `grep "a string literal"` no longer matches -- measured, 1 to 0 on this repo's
+  own fixture -- and a diagnostic is the one output people really do pipe into
+  tooling. So whether there is a terminal decides _what is drawn_ rather than only
+  how, which is the rule the spinner and the progress bar already follow, down to
+  the promise that comes with it: `sigil check` into a pipe is byte for byte what
+  it was before any of this was rendered, on every fixture. The two forms cannot
+  drift in the part that matters, because the location is
+  `diagnosticLocation()`'s and both print it -- which is what that function was
+  extracted for, and what stopped `formatDiagnostic()` being dead code the moment
+  the renderer replaced it. What differs is the wrapping and the colour, which is
+  exactly what the destination was asked about. The question is `isTTY` and
+  deliberately **not** the colour level: `NO_COLOR` on a real terminal means "no
+  colour", not "no layout", and a report that unwrapped itself over it would be
+  reading one setting as though it were another.
 - **The report asks the stream it is going to, and that is not the process.**
   Diagnostics and summaries go to stderr while `--tree` and the chunk sizes go to
   stdout, so that a tree can be piped without losing the problems -- and those

@@ -27,7 +27,7 @@ import {
 	type ResolvedCommand,
 	type TypeCheckResult,
 } from '../build/index.ts';
-import { diagnosticsView, render, reportLevel, summaryView } from '../report.ts';
+import { reportLevel, writeDiagnostics, writeSummary } from '../report.ts';
 import { table } from '@ttylabs/sigil/components';
 import type { TextRun } from '@ttylabs/sigil/element';
 import { existsSync } from 'node:fs';
@@ -215,28 +215,20 @@ export function reportDiagnostics(found: Inspection): {
 	const { app, diagnostics, types } = found;
 	const stream = process.stderr;
 
-	if (diagnostics.length) {
-		// relative to the app, because an absolute path per line is mostly the same
-		// prefix repeated and the interesting part is at the end of it. The width is
-		// `render()`'s to supply rather than this function's to guess, which is what
-		// stops the declared message column and the laid-out grid disagreeing
-		stream.write(
-			`${render(
-				(width) =>
-					diagnosticsView(diagnostics, {
-						relativeTo: (file) => relative(app.root, file) || '.',
-						width,
-					}),
-				stream
-			)}\n`
-		);
-	}
+	// relative to the app, because an absolute path per line is mostly the same
+	// prefix repeated and the interesting part is at the end of it. Which form it
+	// takes is `report.ts`'s: a terminal is laid out for, a pipe gets the one-line
+	// form every compiler writes
+	writeDiagnostics(diagnostics, {
+		relativeTo: (file) => relative(app.root, file) || '.',
+		stream,
+	});
 
 	if (!types.checked && types.skipped) {
 		// a note rather than a diagnostic: nothing is wrong with an app that has no
 		// tsconfig, and it goes through the same writer the verdict does because it
 		// is the same shape of line
-		writeSummary([{ class: 'cli-note', text: `Not type-checked: ${types.skipped}` }]);
+		writeSummary([{ class: 'cli-note', text: `Not type-checked: ${types.skipped}` }], stream);
 	}
 
 	const errors = diagnostics.filter((d) => d.severity === 'error').length;
@@ -288,20 +280,6 @@ export function appRuns(app: DiscoveredApp): TextRun[] {
 			text: `(${displayPath(relative(app.root, app.entry) || app.entry)}):`,
 		},
 	];
-}
-
-/**
- * Writes a summary to stderr, laid out and coloured for it.
- *
- * Both commands end with one and they are the same shape, so they say it through
- * one function: a leading blank line, the app, and whatever that command has to
- * report about it.
- *
- * @param runs - What the line says.
- */
-export function writeSummary(runs: readonly (TextRun | string)[]): void {
-	const stream = process.stderr;
-	stream.write(`\n${render((width) => summaryView(runs, width), stream)}\n`);
 }
 
 /**

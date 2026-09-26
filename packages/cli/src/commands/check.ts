@@ -29,6 +29,7 @@
  * precisely the problem the static `desc` lift solves for an app.
  */
 
+import { writeSummary } from '../report.ts';
 import {
 	appRuns,
 	countCommands,
@@ -36,7 +37,6 @@ import {
 	inspect,
 	printTree,
 	reportDiagnostics,
-	writeSummary,
 } from './_inspect.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
 
@@ -85,19 +85,22 @@ const check: AnyCommand = command({
 
 		const total = countCommands(found.commands);
 
-		writeSummary([
-			...appRuns(found.app),
-			`${total} command${total === 1 ? '' : 's'},`,
-			// the verdict is the one run whose colour says something: a warning count
-			// is the same yellow a warning line carries, and a clean app is green,
-			// so the last word of a build log reads at a glance
-			counts.warnings
-				? {
-						class: 'cli-warning',
-						text: `${counts.warnings} warning${counts.warnings === 1 ? '' : 's'}`,
-					}
-				: { class: 'cli-ok', text: 'no problems found' },
-		]);
+		writeSummary(
+			[
+				...appRuns(found.app),
+				`${total} command${total === 1 ? '' : 's'},`,
+				// the verdict is the one run whose colour says something: a warning count
+				// is the same yellow a warning line carries, and a clean app is green,
+				// so the last word of a build log reads at a glance
+				counts.warnings
+					? {
+							class: 'cli-warning',
+							text: `${counts.warnings} warning${counts.warnings === 1 ? '' : 's'}`,
+						}
+					: { class: 'cli-ok', text: 'no problems found' },
+			],
+			process.stderr
+		);
 	},
 });
 

@@ -31,14 +31,13 @@
 
 import { bundleApp, type BuiltChunk, displayPath, type ResolvedTree } from '../build/index.ts';
 import { readSigilConfig } from '../config.ts';
-import { reportLevel } from '../report.ts';
+import { reportLevel, writeSummary } from '../report.ts';
 import {
 	appRuns,
 	countCommands,
 	failure,
 	inspect,
 	reportDiagnostics,
-	writeSummary,
 	type Inspection,
 } from './_inspect.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
@@ -124,19 +123,22 @@ const build: AnyCommand = command({
 
 		const total = countCommands(found.commands);
 
-		writeSummary([
-			...appRuns(found.app),
-			`${total} command${total === 1 ? '' : 's'} into`,
-			displayPath(relative(found.app.root, result.bin) || result.bin),
-			...(counts.warnings
-				? [
-						{
-							class: 'cli-warning',
-							text: `(${counts.warnings} warning${counts.warnings === 1 ? '' : 's'})`,
-						},
-					]
-				: []),
-		]);
+		writeSummary(
+			[
+				...appRuns(found.app),
+				`${total} command${total === 1 ? '' : 's'} into`,
+				displayPath(relative(found.app.root, result.bin) || result.bin),
+				...(counts.warnings
+					? [
+							{
+								class: 'cli-warning',
+								text: `(${counts.warnings} warning${counts.warnings === 1 ? '' : 's'})`,
+							},
+						]
+					: []),
+			],
+			process.stderr
+		);
 	},
 });
 

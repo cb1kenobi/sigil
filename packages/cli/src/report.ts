@@ -43,6 +43,21 @@
  * answer, and the answer is that this toolchain is not where a live region
  * earns its keep.
  *
+ * ## A terminal gets the laid-out form; a pipe gets one line per diagnostic
+ *
+ * This is `tsc --pretty`'s split and it exists for the reason that flag does. A
+ * wrapped diagnostic is easier for a person to read and **worse** for everything
+ * else: `grep "a string literal"` stops matching the moment the wrap falls
+ * between "string" and "literal", and that is the one output people really do
+ * pipe into tooling. So whether there is a terminal decides *what is drawn*
+ * rather than only how -- which is the rule the spinner and the progress bar
+ * already follow, down to the promise that comes with it: **the piped output is
+ * byte for byte what it was** before any of this was rendered.
+ *
+ * The two cannot drift apart in the part that matters, because the location is
+ * `diagnosticLocation()`'s and both forms print it. What differs is the wrapping
+ * and the colour, which is what the destination was asked about.
+ *
  * ## The report asks the stream it is going to
  *
  * Diagnostics and summaries go to stderr; `--tree` and the chunk sizes go to
@@ -57,7 +72,7 @@
  * default. The width is the same question and gets the same answer.
  */
 
-import { type Diagnostic, displayPath } from './build/index.ts';
+import { type Diagnostic, displayPath, formatDiagnostic } from './build/index.ts';
 import { type ColorLevel, supportsColor } from '@ttylabs/sigil/ansi';
 import {
 	box,
@@ -317,4 +332,70 @@ function diagnosticRow(
  */
 export function summaryView(runs: readonly (TextRun | string)[], width: number): Element {
 	return paragraph(runs, { width });
+}
+
+/**
+ * Whether a destination is a terminal to lay a report out for.
+ *
+ * The one question behind the two forms. Not the colour level, which answers
+ * something else: `NO_COLOR` on a real terminal means "no colour", not "no
+ * layout", and a report that unwrapped itself over it would be reading one
+ * setting as though it were another.
+ *
+ * @param to - The destination.
+ * @returns Whether it is a terminal.
+ */
+function isTerminal(to: Destination | ReportStream): boolean {
+	return destination(to).stream.isTTY === true;
+}
+
+/**
+ * Writes every diagnostic to a stream, in the form that stream wants.
+ *
+ * @param diagnostics - What the build found.
+ * @param opts - What to write paths relative to, and where to write.
+ */
+export function writeDiagnostics(
+	diagnostics: readonly Diagnostic[],
+	opts: { relativeTo?: (file: string) => string; stream: ReportStream & { write(s: string): void } }
+): void {
+	if (!diagnostics.length) {
+		// nothing at all rather than a blank line: `renderToString()` is never less
+		// than one row, so rendering an empty report writes one empty line
+		return;
+	}
+
+	const { relativeTo, stream } = opts;
+	const shown = relativeTo
+		? diagnostics.map((d) => ({ ...d, file: relativeTo(d.file) }))
+		: diagnostics;
+
+	if (!isTerminal(stream)) {
+		stream.write(`${shown.map((d) => formatDiagnostic(d)).join('\n')}\n`);
+		return;
+	}
+
+	stream.write(`${render((width) => diagnosticsView(shown, { width }), stream)}\n`);
+}
+
+/**
+ * Writes a summary to a stream, in the form that stream wants.
+ *
+ * The plain form is the runs joined by a space, which is what they read as with
+ * the styling taken off -- so a summary is the same words either way and only a
+ * pipe is spared the wrap.
+ *
+ * @param runs - What the line says.
+ * @param stream - Where to write it.
+ */
+export function writeSummary(
+	runs: readonly (TextRun | string)[],
+	stream: ReportStream & { write(s: string): void }
+): void {
+	const plain = (): string =>
+		runs.map((run) => (typeof run === 'string' ? run : run.text)).join(' ');
+
+	stream.write(
+		`\n${isTerminal(stream) ? render((width) => summaryView(runs, width), stream) : plain()}\n`
+	);
 }

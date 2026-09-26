@@ -1,5 +1,14 @@
 import type { Diagnostic } from '../src/build/diagnostic.js';
-import { diagnosticsView, render, reportLevel, summaryView, TOOLCHAIN_CSS } from '../src/report.js';
+import { formatDiagnostic } from '../src/build/diagnostic.js';
+import {
+	diagnosticsView,
+	render,
+	reportLevel,
+	summaryView,
+	TOOLCHAIN_CSS,
+	writeDiagnostics,
+	writeSummary,
+} from '../src/report.js';
 import { ESC, hasAnsi, strip } from '@ttylabs/sigil/ansi';
 import { stringWidth } from '@ttylabs/sigil/width';
 import { MAX_WIDTH } from '@ttylabs/sigil/wrap';
@@ -262,6 +271,81 @@ describe('the toolchain report', () => {
 
 		it('should be nothing at all when there is nothing to say', () => {
 			expect(render((width) => diagnosticsView([], { width }), PLAIN)).toBe('');
+		});
+	});
+
+	describe('a pipe', () => {
+		/** A stream that collects what it was written, and says what it is. */
+		function sink(isTTY: boolean) {
+			const chunks: string[] = [];
+			return {
+				columns: 80,
+				isTTY,
+				get text() {
+					return chunks.join('');
+				},
+				write(value: string) {
+					chunks.push(value);
+				},
+			};
+		}
+
+		it('should get one line per diagnostic rather than a laid-out block', () => {
+			// `tsc --pretty`'s split, and it exists for the reason that flag does: a
+			// wrapped diagnostic is easier for a person and worse for everything else.
+			// `grep "a string literal"` stops matching the moment the wrap falls
+			// between "string" and "literal", and a diagnostic is the one output
+			// people really do pipe into tooling
+			const long = diagnostic({
+				message: '"desc" is computed rather than a string literal, so it cannot be read',
+			});
+			const piped = sink(false);
+			writeDiagnostics([long], { stream: piped });
+
+			expect(piped.text).toBe(`${formatDiagnostic(long)}\n`);
+			expect(piped.text.split('\n').filter(Boolean)).toHaveLength(1);
+			expect(piped.text).toContain('a string literal');
+		});
+
+		it('should lay the same diagnostic out for a terminal', () => {
+			const long = diagnostic({
+				message: '"desc" is computed rather than a string literal, so it cannot be read',
+			});
+			const term = sink(true);
+			writeDiagnostics([long], { stream: term });
+
+			// more than one line, and the wrap is what a pipe was spared
+			expect(term.text.split('\n').filter(Boolean).length).toBeGreaterThan(1);
+		});
+
+		it('should write nothing at all when there is nothing to say', () => {
+			// not a blank line: `renderToString()` is never less than one row, so
+			// rendering an empty report would write one
+			for (const isTTY of [true, false]) {
+				const stream = sink(isTTY);
+				writeDiagnostics([], { stream });
+				expect(stream.text).toBe('');
+			}
+		});
+
+		it('should take paths relative to the app in both forms', () => {
+			for (const isTTY of [true, false]) {
+				const stream = sink(isTTY);
+				writeDiagnostics([diagnostic({ file: '/app/commands/build.ts' })], {
+					relativeTo: () => 'commands/build.ts',
+					stream,
+				});
+
+				expect(strip(stream.text)).toContain('commands/build.ts:12:24:');
+				expect(stream.text).not.toContain('/app/');
+			}
+		});
+
+		it('should write a summary as the runs read with the styling taken off', () => {
+			const piped = sink(false);
+			writeSummary([{ class: 'cli-app', text: 'myapp' }, '1 command,', 'no problems found'], piped);
+
+			expect(piped.text).toBe('\nmyapp 1 command, no problems found\n');
 		});
 	});
 

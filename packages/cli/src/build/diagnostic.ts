@@ -68,21 +68,39 @@ export function isFatal(diagnostics: readonly Diagnostic[]): boolean {
 }
 
 /**
+ * Where a diagnostic is, as `file`, `file:line`, or `file:line:column`.
+ *
+ * Its own function because two things print it: the one-line form below, which
+ * is what a pipe gets, and the laid-out form in `report.ts`, which is what a
+ * terminal gets. Those are two renderings of one diagnostic and they must agree
+ * about the location exactly -- it is what an editor jumps to and what a CI log
+ * is grepped for -- so there is one implementation of it rather than two that
+ * agree for now.
+ *
+ * `displayPath()` is applied here, which makes this the one place the
+ * forward-slash rule has to hold for every diagnostic however it is printed.
+ *
+ * @param diagnostic - The diagnostic.
+ * @returns The location, with no trailing colon.
+ */
+export function diagnosticLocation(diagnostic: Diagnostic): string {
+	const { column, file, line } = diagnostic;
+	const shown = displayPath(file);
+
+	return line === undefined ? shown : `${shown}:${line}${column === undefined ? '' : `:${column}`}`;
+}
+
+/**
  * A diagnostic as one line, the way every compiler writes one.
  *
  * `file:line:column: severity: message` is what an editor, a terminal and a CI
- * log all already know how to read, so there is nothing to invent.
+ * log all already know how to read, so there is nothing to invent. This is the
+ * form a **pipe** gets, and `report.ts` is what lays the same diagnostic out for
+ * a terminal -- the split is `tsc --pretty`'s, for the reason that flag exists.
  *
  * @param diagnostic - The diagnostic.
  * @returns The line, without a trailing newline.
  */
 export function formatDiagnostic(diagnostic: Diagnostic): string {
-	const { column, file, line, message, severity } = diagnostic;
-	// every diagnostic goes through here, so this is the one place the rule has
-	// to be applied for all of them
-	const shown = displayPath(file);
-	const at =
-		line === undefined ? shown : `${shown}:${line}${column === undefined ? '' : `:${column}`}`;
-
-	return `${at}: ${severity}: ${message}`;
+	return `${diagnosticLocation(diagnostic)}: ${diagnostic.severity}: ${diagnostic.message}`;
 }
