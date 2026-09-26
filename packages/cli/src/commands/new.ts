@@ -13,17 +13,6 @@
  * which one invoked it, so asking would be asking a question whose answer is
  * already on the table. Nor about git, which it just does.
  *
- * ## `--link`, and why the default is the real thing
- *
- * `@ttylabs/sigil` is not published yet, so a scaffold that writes the real
- * version range produces an app that cannot install. `--link` writes a `file:`
- * dependency pointing at the runtime *this toolchain itself resolved*, which is
- * what makes a scaffold from a checkout actually run.
- *
- * The default is still the real range, because the flag is a workaround for a
- * temporary state of the world and a scaffold that quietly wrote a machine-local
- * path would keep working right up until somebody committed it. It is one line
- * to delete on the day the package ships.
  */
 
 import { displayPath } from '../build/index.ts';
@@ -41,9 +30,7 @@ import { expand } from '@ttylabs/sigil/paths';
 import { which } from '@ttylabs/sigil/which';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 /** This toolchain's own manifest, for the versions it writes. */
 function toolchainManifest(): { devDependencies: Record<string, string>; version: string } {
@@ -51,39 +38,6 @@ function toolchainManifest(): { devDependencies: Record<string, string>; version
 	return JSON.parse(readFileSync(path, 'utf-8')) as {
 		devDependencies: Record<string, string>;
 		version: string;
-	};
-}
-
-/**
- * Where the runtime and the toolchain should come from.
- *
- * Linked, they are the ones *this* process resolved -- not a guess at a
- * relative path, which would be wrong the moment the new app is created
- * anywhere but beside the checkout.
- *
- * **Both**, which the first version got wrong by linking only the runtime: the
- * scaffolded app takes `@ttylabs/cli` as a devDependency too, and that is no
- * more published than the runtime is, so the install died on a 404 for the
- * toolchain having succeeded at everything else. `--link` means "use what is on
- * this machine", and half of that is not a thing anybody asked for.
- *
- * @param link - Whether `--link` was passed.
- * @param version - The version to ask for otherwise.
- * @returns The two specifiers.
- */
-function dependencyFor(link: boolean, version: string): { runtime: string; toolchain: string } {
-	if (!link) {
-		return { runtime: version, toolchain: version };
-	}
-
-	const require = createRequire(fileURLToPath(import.meta.url));
-	const runtime = dirname(require.resolve('@ttylabs/sigil/package.json'));
-	// this module's own package, which is the toolchain being run
-	const toolchain = fileURLToPath(new URL('../..', import.meta.url));
-
-	return {
-		runtime: `file:${displayPath(runtime)}`,
-		toolchain: `file:${displayPath(toolchain.replace(/\/$/, ''))}`,
 	};
 }
 
@@ -176,14 +130,10 @@ const newApp: AnyCommand = command({
 		'--cwd [dir]': {
 			desc: 'Where to create it, defaulting to the working directory',
 		},
-		'--js': { desc: 'JavaScript rather than TypeScript', type: 'bool' },
+		'--js': { desc: 'Generate JavaScript files instead of TypeScript', type: 'bool' },
 		'--lint [linter]': {
 			choices: ['oxlint', 'eslint', 'biome', 'none'],
 			desc: 'Which linter to set up',
-		},
-		'--link': {
-			desc: 'Depend on the @ttylabs/sigil this toolchain resolved, rather than a published version',
-			type: 'bool',
 		},
 		'--no-git': { desc: 'Do not run git init' },
 		'--pm [manager]': {
@@ -215,14 +165,12 @@ const newApp: AnyCommand = command({
 		const pm = await askManager(argv, yes);
 
 		const own = toolchainManifest();
-		const from = dependencyFor(Boolean(argv.link), own.version);
 		const files = scaffold({
-			dependency: from.runtime,
 			language,
 			layout,
 			linter,
 			name,
-			toolchain: from.toolchain,
+			version: own.version,
 			versions: own.devDependencies,
 		});
 
@@ -239,10 +187,7 @@ const newApp: AnyCommand = command({
 		process.stdout.write(
 			`\nCreated ${name} in ${displayPath(dir)}.\n\n  cd ${displayPath(relative(process.cwd(), dir) || '.')}\n` +
 				(argv.install === false ? `  ${pm} install\n` : '') +
-				`  ${pm} run dev -- --help\n\n` +
-				(argv.link
-					? `It depends on a linked @ttylabs/sigil and @ttylabs/cli, so it will not\ninstall anywhere else.\n`
-					: '')
+				`  ${pm} run dev -- --help\n`
 		);
 	},
 });

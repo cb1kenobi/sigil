@@ -42,8 +42,6 @@ export type Linter = 'biome' | 'eslint' | 'none' | 'oxlint';
 
 /** Everything `new` needs to decide before it writes anything. */
 export interface ScaffoldOptions {
-	/** Where `@ttylabs/sigil` comes from, which is a `file:` path when linked. */
-	readonly dependency: string;
 	/** The language. */
 	readonly language: Language;
 	/** The layout. */
@@ -52,8 +50,17 @@ export interface ScaffoldOptions {
 	readonly linter: Linter;
 	/** The app's name, which is also its bin. */
 	readonly name: string;
-	/** Where `@ttylabs/cli` comes from, which is a `file:` path when linked. */
-	readonly toolchain: string;
+	/**
+	 * The version to ask for of `@ttylabs/sigil` and `@ttylabs/cli`.
+	 *
+	 * One field rather than two, because the two cannot differ: the toolchain
+	 * depends on the runtime at its own version and the release workflow
+	 * refuses a tag that does not match every package, so a scaffold asking for
+	 * different ones would be asking for a pair that was never published
+	 * together. They were two while `--link` existed, when each could be a
+	 * local path.
+	 */
+	readonly version: string;
 	/** The versions of the shared devDependencies, read off the toolchain. */
 	readonly versions: Readonly<Record<string, string>>;
 }
@@ -138,7 +145,7 @@ function ext(language: Language): string {
 
 /** The app's manifest. */
 function manifest(opts: ScaffoldOptions): string {
-	const { dependency, language, linter, name, toolchain, versions } = opts;
+	const { language, linter, name, version, versions } = opts;
 
 	const scripts: Record<string, string> = {
 		build: 'sigil build',
@@ -146,7 +153,7 @@ function manifest(opts: ScaffoldOptions): string {
 		dev: `node dev.${ext(language)}`,
 	};
 
-	const devDependencies: Record<string, string> = { '@ttylabs/cli': toolchain };
+	const devDependencies: Record<string, string> = { '@ttylabs/cli': version };
 
 	if (language === 'ts') {
 		devDependencies['@types/node'] = versions['@types/node'] as string;
@@ -179,7 +186,7 @@ function manifest(opts: ScaffoldOptions): string {
 	return `${JSON.stringify(
 		{
 			bin: { [name]: `./dist/${name}.mjs` },
-			dependencies: { '@ttylabs/sigil': dependency },
+			dependencies: { '@ttylabs/sigil': version },
 			description: '',
 			devDependencies: sorted(devDependencies),
 			engines: { node: '>=22.19.0' },
