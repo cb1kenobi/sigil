@@ -83,6 +83,7 @@ import {
 	type TextRun,
 	toDisplayText,
 } from '@ttylabs/sigil/element';
+import { parseStylesheet, type Stylesheet } from '@ttylabs/sigil/style';
 import { themedCascade } from '@ttylabs/sigil/theme';
 import { stringWidth } from '@ttylabs/sigil/width';
 import { terminalWidth } from '@ttylabs/sigil/wrap';
@@ -110,6 +111,28 @@ export const TOOLCHAIN_CSS = `
 .cli-note { dim: true }
 .cli-ok { color: green }
 `;
+
+/**
+ * The toolchain's sheet, parsed once.
+ *
+ * Once for the reason `frameworkSheet()` is: a `Stylesheet` is frozen and a
+ * `Cascade` only reads it, so parsing it per report would be the same work twice
+ * a run with nothing about it that can differ between two callers. It is also
+ * where a typo in the sheet surfaces -- an unknown property is an error rather
+ * than a skipped declaration -- so the first report of a run is what raises it,
+ * which is why the tests render.
+ */
+let sheet: Stylesheet | undefined;
+
+/**
+ * The stylesheet a report is drawn with.
+ *
+ * @returns The sheet, at origin `app`.
+ */
+function toolchainSheet(): Stylesheet {
+	sheet ??= parseStylesheet(TOOLCHAIN_CSS);
+	return sheet;
+}
 
 /**
  * The narrowest a message column may be before a diagnostic gives up on two
@@ -175,7 +198,7 @@ export function render(build: (width: number) => Element, to: Destination | Repo
 	const width = Math.max(1, Math.floor(terminalWidth({ env: dest.env, stream: dest.stream })));
 
 	return renderToString(build(width), {
-		cascade: themedCascade({ sheets: [TOOLCHAIN_CSS] }),
+		cascade: themedCascade({ sheets: [toolchainSheet()] }),
 		colorLevel: reportLevel(dest),
 		width,
 	});
