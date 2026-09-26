@@ -30,12 +30,13 @@
  */
 
 import {
+	appRuns,
 	countCommands,
-	describeApp,
 	failure,
 	inspect,
 	printTree,
 	reportDiagnostics,
+	writeSummary,
 } from './_inspect.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
 
@@ -83,12 +84,20 @@ const check: AnyCommand = command({
 		}
 
 		const total = countCommands(found.commands);
-		const counted = `${total} command${total === 1 ? '' : 's'}`;
-		const warned = counts.warnings
-			? `${counts.warnings} warning${counts.warnings === 1 ? '' : 's'}`
-			: 'no problems found';
 
-		process.stderr.write(`\n${describeApp(found.app)}: ${counted}, ${warned}\n`);
+		writeSummary([
+			...appRuns(found.app),
+			`${total} command${total === 1 ? '' : 's'},`,
+			// the verdict is the one run whose colour says something: a warning count
+			// is the same yellow a warning line carries, and a clean app is green,
+			// so the last word of a build log reads at a glance
+			counts.warnings
+				? {
+						class: 'cli-warning',
+						text: `${counts.warnings} warning${counts.warnings === 1 ? '' : 's'}`,
+					}
+				: { class: 'cli-ok', text: 'no problems found' },
+		]);
 	},
 });
 

@@ -92,8 +92,8 @@ joined `inputs` for the other half of it: the generator decides what lands in
 `registry/`, so editing it has to invalidate the build, and `inputs` replaces
 turbo's default rather than adding to it.
 
-`packages/cli/src/` is the bin, `--version`, the schema the filesystem router
-will replace, `src/utilities/` — the utility generator, whose committed output
+`packages/cli/src/` is the bin, `--version`, the schema, `src/report.ts` --
+what the toolchain says, as element trees rendered with `renderToString()` -- `src/utilities/` — the utility generator, whose committed output
 is `packages/sigil/src/style/utilities.ts` and whose `scripts/` writes it —
 `src/template/`, the
 analysis pass and the build emitter, and `src/build/`, which reads an app off
@@ -3543,6 +3543,134 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   Making the walk lazy -- deferred until something actually asks the registry
   what is in it -- would close the general case rather than the one flag, and is
   a decision to take against a profile rather than in advance.
+- **The toolchain renders its own reports, and `report.ts` is where they live.**
+  It routed its own commands and was built by itself and then assembled its
+  output with `process.stderr.write()` and a template literal, which is the half
+  of "renders its own output with components" that was still outstanding: a
+  framework whose own toolchain builds text by hand has not been tested by
+  anyone who had to live with its renderer. So a diagnostic is a flex row, a
+  summary is a paragraph of styled runs, and both go through
+  `renderToString()`. `table()` was already doing this for `--tree` and the
+  chunk sizes; this is the rest of what the toolchain says. `describeApp()` went
+  with it -- it was the string form of what `appRuns()` now returns, and once
+  both summaries were runs its only remaining reference was a comment claiming
+  `failure()` used it, which `failure()` never did. That one stays a string on
+  purpose: it returns an `Error`, whose message is text `errorHandler()`
+  renders, and an element tree has nowhere to go inside one.
+- **A diagnostic wraps in the column it started in, which is what a string
+  could not do.** `file:line:column: severity: message` is unchanged -- it is
+  what an editor, a terminal and a CI log all already know how to read -- and
+  what the drawing adds is the two things text cannot: the severity is coloured,
+  and a message too long for the line hangs under itself instead of returning to
+  the margin, where it reads as a second diagnostic. That is help's own pattern,
+  a flex row whose message column is a **declared** width, and the width is
+  declared for the reason help declares it: a row's intrinsic height is taken
+  with every child offered the whole content box while placement hands each one a
+  share, so a message that wraps to three lines in its share measures two in the
+  room it was offered and the row after it is painted over the third. It is the
+  known bug with the known way round it, and the way round it is the
+  subtraction. Below `MIN_MESSAGE` the location takes the line and the message is
+  indented under it, at the same threshold and for the same reason help's list
+  gives up on two columns.
+- **The prefix is measured as it will be drawn, on one line.** Both halves are
+  rules `table()` already carries for a cell, met here through a file name. A tab
+  measures nothing and draws a space, so measuring the raw string leaves the
+  message column a column out per tab -- and a path really can hold one, which is
+  why `oneLine()` goes through `toDisplayText()` rather than through
+  `stringWidth()` alone. And a newline becomes a space, because a location is one
+  line by construction: a prefix two lines tall would leave the message indented
+  against a line it does not belong to.
+- **A message carrying a newline is output somebody captured, not prose, so it
+  is a `text`.** `typecheck.ts` puts a compiler's whole stdout in one when it
+  exited without saying anything parseable, and the indentation is the only
+  structure such a message has -- a paragraph collapses runs of spaces, which is
+  what `white-space: normal` does and what this repo already records for
+  anything verbatim. A single-line message is prose and wraps; a multi-line one
+  is printed as it stands. One rule read off the message rather than a flag
+  somebody has to remember to set.
+- **The report asks the stream it is going to, and that is not the process.**
+  Diagnostics and summaries go to stderr while `--tree` and the chunk sizes go to
+  stdout, so that a tree can be piped without losing the problems -- and those
+  are two destinations. `supportsColor()` defaults to `process.stdout` whoever is
+  asking, so `sigil check 2>log.txt` from a terminal is a stdout that takes
+  colour and a stderr that does not, and a report reaching for the process's own
+  styler would fill that file with sequences while being perfectly right about
+  the wrong stream. Nothing was wrong before this, because the diagnostics
+  carried no colour to put anywhere; colouring them is what makes the rule
+  load-bearing, which is why the tables were given an explicit
+  `reportLevel(process.stdout)` too. They were right by luck, and right by luck
+  is what stops being right when something moves. The width is the same question
+  and gets the same answer. `env` is threaded beside the stream because the
+  stream is only half of it -- `FORCE_COLOR`, `NO_COLOR`, `TERM` and `COLUMNS`
+  all outrank what the stream says, and it is the only way a test can ask about a
+  terminal at all, since a vitest worker's stderr is a pipe with no `TERM` behind
+  it.
+- **The toolchain's classes are its own, at origin `app`.** `cli-*` rather than
+  `sigil-*`: the toolchain is an app, it draws nothing a theme is expected to
+  restyle, and it has no business in the vocabulary `FRAMEWORK_CSS` documents.
+  The sheet is parsed at origin `app`, which is the later origin, so it beats the
+  framework's defaults with an ordinary rule and no `!important` -- and that an
+  app sheet can do that is the thing worth proving here rather than asserting.
+  It sets colours and attributes only, which is the rule the framework sheet
+  keeps for itself and which `test/report.test.ts` pins: geometry stays in props
+  where the code that worked it out can see it, and `box-sizing: border-box`
+  means a `padding-left` from a sheet is taken _out of_ a width the report
+  measured.
+- **The report's tests assert SGR parameters rather than bytes, and strip with
+  the library's own `strip()`.** A transition combines what it closes with what it
+  opens, so green after bold is `ESC[22;32m` and never `ESC[32m` -- a test
+  pinning the latter pins one implementation of the transition rather than the
+  claim that something was drawn green, which is the rule the canvas diff's own
+  tests already follow. The pattern that reads the parameters back is built from
+  the exported `ESC` rather than written as an escape in a character class, which
+  is this repo's rule twice over: no raw control character in source, and no
+  `no-control-regex` suppression for a formatter to detach from the line it was
+  written over. They are asserted against `report.ts` directly rather than
+  through `run()`, because a vitest worker's stderr has no `columns` and no
+  `isTTY` -- so every render through the CLI comes out at the fallback width with
+  no colour, which is the one case that cannot fail. `ReportStream` is an
+  interface for exactly that reason.
+
+#### There is no live display in the toolchain, and that is measured
+
+SIG-78 asked whether "a scrolling log with progress underneath" works on the
+inline canvas, which is the case the canvas ticket was parked over. The
+toolchain turns out **not to be that case**, and the discipline is the one the
+build measurement already set: a live progress display for a 180ms build would
+be theatre, so measure before writing any of it. Every candidate was measured,
+and all three say no.
+
+- **`sigil build` is too fast.** 286ms for five hundred commands, and the read
+  passes plus the type check are 140ms on this package. There is nothing to
+  animate.
+- **The type check is too fast, which is TypeScript 7's doing.** It is the one
+  step that spawns a compiler, and the native port answers in 97ms here and
+  364ms on a fresh scaffold -- most of the second number being process startup.
+  This was the best remaining candidate on the theory that a compiler takes
+  seconds, and the theory was two major versions out of date.
+- **`sigil new`'s install is the instructive refusal.** It was the chosen
+  candidate -- the only command where a user waits, and a package manager's
+  output is exactly the scrolling log the ticket describes. It fails in both
+  directions at once. **Piped**, the manager detects no TTY and says _nothing at
+  all_ until it has finished: npm's four lines of output all arrived at 3907ms of
+  a 3928ms run, and pnpm's first chunk at 27ms is followed by silence until
+  671ms. There is no log to scroll and no progress to report, so a bar there
+  would be reporting a number it invented. **Given a TTY** it is worse: pnpm
+  drives the cursor itself, writing `ESC[1A` and an erase-display to repaint its
+  own progress -- measured off a pty, 21 carriage returns and 82 escapes for a
+  fourteen-package install. That is precisely the "write above the region" that
+  makes an inline canvas throw its anchor away, and the anchor is the whole of
+  how a canvas knows where its top is. The manager already owns a live region;
+  a canvas underneath it would be painting into rows something else is moving.
+
+So `stdio: 'inherit'` is the right answer for an install -- the manager's own
+progress, unmediated -- and the toolchain renders text. That is a **finding**
+rather than a gap: the question the ticket asked has an answer, and the answer
+is that this toolchain is not where a live region earns its keep. What would be
+is a command that owns its terminal for seconds and knows its own progress, and
+none of these three is that. The measurement scripts are worth re-running before
+anybody revisits it, because two of the three numbers are facts about other
+people's software and will move.
 
 ### A schema's relative paths
 

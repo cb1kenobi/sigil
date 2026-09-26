@@ -31,12 +31,14 @@
 
 import { bundleApp, type BuiltChunk, displayPath, type ResolvedTree } from '../build/index.ts';
 import { readSigilConfig } from '../config.ts';
+import { reportLevel } from '../report.ts';
 import {
+	appRuns,
 	countCommands,
-	describeApp,
 	failure,
 	inspect,
 	reportDiagnostics,
+	writeSummary,
 	type Inspection,
 } from './_inspect.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
@@ -121,11 +123,20 @@ const build: AnyCommand = command({
 		printSizes(result.chunks);
 
 		const total = countCommands(found.commands);
-		process.stderr.write(
-			`\n${describeApp(found.app)}: ${total} command${total === 1 ? '' : 's'} into ${displayPath(
-				relative(found.app.root, result.bin) || result.bin
-			)}${counts.warnings ? `, ${counts.warnings} warning${counts.warnings === 1 ? '' : 's'}` : ''}\n`
-		);
+
+		writeSummary([
+			...appRuns(found.app),
+			`${total} command${total === 1 ? '' : 's'} into`,
+			displayPath(relative(found.app.root, result.bin) || result.bin),
+			...(counts.warnings
+				? [
+						{
+							class: 'cli-warning',
+							text: `(${counts.warnings} warning${counts.warnings === 1 ? '' : 's'})`,
+						},
+					]
+				: []),
+		]);
 	},
 });
 
@@ -222,6 +233,9 @@ function printSizes(chunks: readonly BuiltChunk[]): void {
 	if (rows.length) {
 		process.stdout.write(
 			`${table(rows, {
+				// stdout's level rather than the process styler's, for the reason
+				// `printTree()` records: the default reads stdout whoever is asking
+				colorLevel: reportLevel(process.stdout),
 				columns: ['File', { align: 'right', header: 'Size' }, 'Loads'],
 			})}\n`
 		);

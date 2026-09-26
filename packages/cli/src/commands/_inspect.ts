@@ -17,7 +17,6 @@
 import {
 	discoverApp,
 	displayPath,
-	formatDiagnostic,
 	isFatal,
 	readAppCommands,
 	resolveCommandTree,
@@ -28,7 +27,10 @@ import {
 	type ResolvedCommand,
 	type TypeCheckResult,
 } from '../build/index.ts';
+import { diagnosticsView, render, reportLevel, summaryView } from '../report.ts';
 import { table } from '@ttylabs/sigil/components';
+import type { TextRun } from '@ttylabs/sigil/element';
+import { terminalWidth } from '@ttylabs/sigil/wrap';
 import { existsSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 
@@ -181,12 +183,27 @@ export function printTree(commands: readonly ResolvedCommand[], root: string): v
 	]);
 
 	if (rows.length) {
-		process.stdout.write(`${table(rows, { columns: ['Command', 'Module', 'Description'] })}\n`);
+		// told stdout's colour level rather than defaulting to the process styler's.
+		// They happen to be the same stream here, which is exactly why it is worth
+		// saying: `supportsColor()` defaults to `process.stdout` whoever is asking,
+		// so a default that is right here is right by luck and wrong the moment
+		// something like this goes to stderr
+		process.stdout.write(
+			`${table(rows, {
+				colorLevel: reportLevel(process.stdout),
+				columns: ['Command', 'Module', 'Description'],
+			})}\n`
+		);
 	}
 }
 
 /**
  * Writes every diagnostic, and says whether any of them was fatal.
+ *
+ * Rendered rather than assembled: the severity is coloured and a long message
+ * wraps in the column it started in, which is `report.ts`'s. To stderr, which
+ * is also the stream it is laid out and coloured for -- the tree and the sizes
+ * go to stdout, and the two are not the same destination.
  *
  * @param found - What reading the app turned up.
  * @returns How many of each, and whether to stop.
@@ -197,17 +214,25 @@ export function reportDiagnostics(found: Inspection): {
 	warnings: number;
 } {
 	const { app, diagnostics, types } = found;
+	const stream = process.stderr;
 
-	// relative to the app, because an absolute path per line is mostly the same
-	// prefix repeated and the interesting part is at the end of it
-	for (const diagnostic of diagnostics) {
-		process.stderr.write(
-			`${formatDiagnostic({ ...diagnostic, file: relative(app.root, diagnostic.file) || '.' })}\n`
-		);
+	if (diagnostics.length) {
+		// relative to the app, because an absolute path per line is mostly the same
+		// prefix repeated and the interesting part is at the end of it
+		const width = terminalWidth({ stream });
+		const view = diagnosticsView(diagnostics, {
+			relativeTo: (file) => relative(app.root, file) || '.',
+			width,
+		});
+
+		stream.write(`${render(view, stream)}\n`);
 	}
 
 	if (!types.checked && types.skipped) {
-		process.stderr.write(`\nNot type-checked: ${types.skipped}\n`);
+		// a note rather than a diagnostic: nothing is wrong with an app that has no
+		// tsconfig, and it goes through the same writer the verdict does because it
+		// is the same shape of line
+		writeSummary([{ class: 'cli-note', text: `Not type-checked: ${types.skipped}` }]);
 	}
 
 	const errors = diagnostics.filter((d) => d.severity === 'error').length;
@@ -237,17 +262,42 @@ export function failure(found: Inspection, counts: { errors: number; warnings: n
 }
 
 /**
- * How an app is named in a summary line.
+ * The app and the entry it was read from, as runs a summary leads with.
  *
- * The entry is in it because choosing one is a heuristic -- source conventions
- * before the manifest -- and a guess nobody can see is the kind that costs an
- * afternoon.
+ * Runs rather than the string this used to be, so that the name is bold and the
+ * entry is dim without either carrying a sequence of its own. The entry is in it
+ * because choosing one is a heuristic -- source conventions before the manifest
+ * -- and a guess nobody can see is the kind that costs an afternoon.
+ *
+ * `failure()` still builds a plain string, and that is not an inconsistency to
+ * iron out: what it returns is an `Error`, whose message is text
+ * `errorHandler()` renders, and an element tree has nowhere to go inside one.
  *
  * @param app - The app.
- * @returns Its name and the entry that was read.
+ * @returns Its name and its entry, styled.
  */
-export function describeApp(app: DiscoveredApp): string {
-	return `${app.manifest.name ?? app.root} (${displayPath(relative(app.root, app.entry) || app.entry)})`;
+export function appRuns(app: DiscoveredApp): TextRun[] {
+	return [
+		{ class: 'cli-app', text: app.manifest.name ?? app.root },
+		{
+			class: 'cli-entry',
+			text: `(${displayPath(relative(app.root, app.entry) || app.entry)}):`,
+		},
+	];
+}
+
+/**
+ * Writes a summary to stderr, laid out and coloured for it.
+ *
+ * Both commands end with one and they are the same shape, so they say it through
+ * one function: a leading blank line, the app, and whatever that command has to
+ * report about it.
+ *
+ * @param runs - What the line says.
+ */
+export function writeSummary(runs: readonly (TextRun | string)[]): void {
+	const stream = process.stderr;
+	stream.write(`\n${render(summaryView(runs, terminalWidth({ stream })), stream)}\n`);
 }
 
 /**
