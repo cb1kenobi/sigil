@@ -119,19 +119,6 @@ describe('the toolchain report', () => {
 			);
 		});
 
-		it('should take paths relative to the app when asked', () => {
-			const out = render(
-				(width) =>
-					diagnosticsView([diagnostic({ file: '/app/commands/build.ts' })], {
-						relativeTo: () => 'commands/build.ts',
-						width,
-					}),
-				PLAIN
-			);
-
-			expect(out).toContain('commands/build.ts:12:24:');
-		});
-
 		it('should wrap a long message in the column it started in, not back at the margin', () => {
 			// the hanging indent, which is the whole reason this is a flex row with a
 			// declared width rather than a string. A message that wrapped to column
@@ -141,7 +128,9 @@ describe('the toolchain report', () => {
 				env: {},
 				stream: { columns: 60, isTTY: false },
 			});
-			const indent = 'commands/build.ts:12:24: warning: '.length;
+			// display width rather than `.length`, which agree only because this
+			// fixture's path is ASCII -- what is being measured is columns
+			const indent = stringWidth('commands/build.ts:12:24: warning: ');
 
 			expect(out.length).toBeGreaterThan(1);
 			for (const line of out.slice(1)) {
@@ -174,16 +163,72 @@ describe('the toolchain report', () => {
 			expect(out[0]).toBe('commands/build.ts:12:24: warning:');
 			expect(out[1]?.startsWith('  ')).toBe(true);
 			expect(out.join(' ')).toContain('several words');
+			// and the indented message fits, which a padding-outside-the-width bug
+			// would break while still starting the line with two spaces
+			for (const line of out.slice(1)) {
+				expect(stringWidth(line)).toBeLessThanOrEqual(40);
+			}
 		});
 
-		it('should keep a multi-line message verbatim rather than collapsing it', () => {
+		it('should keep a multi-line message verbatim rather than reflowing it', () => {
 			// `typecheck.ts` puts a compiler's whole output in one when it exited
-			// without saying anything parseable, and the indentation is the only
-			// structure such a message has -- a paragraph would collapse it
-			const message = 'the checker said:\n    error TS1005\n    error TS1109';
-			const out = lines([diagnostic({ message, severity: 'error' })], WIDE);
+			// without saying anything parseable, and the whitespace is the only
+			// structure such a message has. Asserted as a *line count* rather than as
+			// "the short line is in there somewhere": `white-space: normal` honours the
+			// author's newlines and then reflows each one, so a caret line stopped
+			// sitting under what it pointed at while an assertion about a short line
+			// stayed perfectly green.
+			//
+			// The width is chosen so that the two-column path is the one taken -- the
+			// 34-column prefix leaves 26, which is over `MIN_MESSAGE` -- while the
+			// longest message line is 44, so `normal` really would have wrapped it.
+			// Narrower than that and the stacked fallback adds a line of its own,
+			// which would make the count say something else
+			const message =
+				'the checker said:\n    error TS1005: something\n1 const x: number = "hello hello hello hello"\n  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~';
+			const out = lines([diagnostic({ message, severity: 'error' })], {
+				env: {},
+				stream: { columns: 60, isTTY: false },
+			});
 
-			expect(out.some((line) => line.includes('    error TS1005'))).toBe(true);
+			// one rendered line per source line, and no more
+			expect(out).toHaveLength(message.split('\n').length);
+			expect(out.some((line) => line.includes('    error TS1005: something'))).toBe(true);
+			expect(out.some((line) => line.endsWith('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~'))).toBe(true);
+		});
+
+		it('should lose no part of a verbatim message at any width', () => {
+			// `nowrap` alone is a trap: `text-overflow` bites on a line wider than the
+			// box it was given, so a declared column narrower than the content *cut*
+			// the dump -- `const x = "hello h` with the rest gone, which is worse than
+			// the reflow it replaced because nothing says so. The fix is help's own
+			// rule, that a text too wide for its column keeps its own width, plus the
+			// border-box correction the stacked case needs: the padding sits inside
+			// the width, so `natural` alone left every line two columns short
+			const message =
+				'the checker said:\n    error TS1005: something\n1 const x: number = "hello hello hello hello"\n  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~';
+
+			for (const columns of [100, 60, 40, 20, 10]) {
+				const out = lines([diagnostic({ message, severity: 'error' })], {
+					env: {},
+					stream: { columns, isTTY: false },
+				});
+				const joined = out.join('\n');
+
+				for (const line of message.split('\n')) {
+					expect(joined, `at ${columns} columns`).toContain(line.trimStart());
+				}
+			}
+		});
+
+		it('should keep a run of spaces in a single-line message', () => {
+			// a paragraph splits on `/\s+/`, so `expected '  ' here` was drawn as
+			// `expected ' ' here` and the terminal disagreed with the pipe about what
+			// the message said. Whitespace the author put there is structure, which is
+			// one rule rather than a newline special case
+			const out = lines([diagnostic({ message: "expected '  ' here" })], WIDE);
+
+			expect(out[0]).toContain("expected '  ' here");
 		});
 
 		it('should colour the severity on a terminal and nowhere else', () => {
@@ -388,6 +433,14 @@ describe('the toolchain report', () => {
 			// what makes this load-bearing
 			stdout.isTTY = true;
 
+			// the environment carries a colour-capable TERM, so a stream this *did*
+			// read as a terminal answers above 0 -- without that, `process.stdout`
+			// answers 0 as well and the assertion holds even for an implementation
+			// that ignores its argument entirely
+			const env = { TERM: 'xterm-256color' };
+
+			expect(reportLevel({ env, stream: { isTTY: true } })).toBeGreaterThan(0);
+			expect(reportLevel({ env, stream: { isTTY: false } })).toBe(0);
 			expect(reportLevel({ env: {}, stream: { isTTY: false } })).toBe(0);
 			expect(
 				hasAnsi(

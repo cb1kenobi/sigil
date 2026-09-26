@@ -127,12 +127,20 @@ const build: AnyCommand = command({
 			[
 				...appRuns(found.app),
 				`${total} command${total === 1 ? '' : 's'} into`,
-				displayPath(relative(found.app.root, result.bin) || result.bin),
+				// the comma rides on this run rather than being one of its own,
+				// because a run is a *word*: a lone comma would be drawn with a space
+				// in front of it. And it is a comma rather than a parenthetical
+				// because the runs are joined by a space off a terminal, and `, N
+				// warnings` is what `main` wrote -- the byte-for-byte promise covers
+				// `build` as well as `check`
+				`${displayPath(relative(found.app.root, result.bin) || result.bin)}${
+					counts.warnings ? ',' : ''
+				}`,
 				...(counts.warnings
 					? [
 							{
 								class: 'cli-warning',
-								text: `(${counts.warnings} warning${counts.warnings === 1 ? '' : 's'})`,
+								text: `${counts.warnings} warning${counts.warnings === 1 ? '' : 's'}`,
 							},
 						]
 					: []),

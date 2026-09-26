@@ -72,7 +72,7 @@
  * default. The width is the same question and gets the same answer.
  */
 
-import { type Diagnostic, displayPath, formatDiagnostic } from './build/index.ts';
+import { type Diagnostic, diagnosticLocation, formatDiagnostic } from './build/index.ts';
 import { type ColorLevel, supportsColor } from '@ttylabs/sigil/ansi';
 import {
 	box,
@@ -143,6 +143,15 @@ function toolchainSheet(): Stylesheet {
  * case.
  */
 const MIN_MESSAGE = 20;
+
+/**
+ * Whitespace a message's author meant, which makes it output rather than prose.
+ *
+ * A newline or a run of two or more spaces. Either one is structure a paragraph
+ * would destroy, and both arrive the same way: something captured text and put it
+ * in a diagnostic.
+ */
+const VERBATIM = /\n|  /;
 
 /** A stream a report can be written to, and asked about. */
 export interface ReportStream {
@@ -260,7 +269,7 @@ function oneLine(value: string): string {
  */
 export function diagnosticsView(
 	diagnostics: readonly Diagnostic[],
-	opts: { relativeTo?: (file: string) => string; width: number }
+	opts: { width: number }
 ): Element {
 	return box(
 		{ 'flex-direction': 'column' },
@@ -288,18 +297,16 @@ export function diagnosticsView(
  * @param opts - What to write paths relative to, and how wide.
  * @returns The row.
  */
-function diagnosticRow(
-	diagnostic: Diagnostic,
-	opts: { relativeTo?: (file: string) => string; width: number }
-): Element {
-	const { column, file, line, message, severity } = diagnostic;
-	const shown = displayPath(opts.relativeTo ? opts.relativeTo(file) : file);
-	const at =
-		line === undefined ? shown : `${shown}:${line}${column === undefined ? '' : `:${column}`}`;
+function diagnosticRow(diagnostic: Diagnostic, opts: { width: number }): Element {
+	const { message, severity } = diagnostic;
 
 	// the location and the severity are one unwrappable prefix, because breaking
-	// inside `file:12:3` gives a location nothing can jump to
-	const location = oneLine(`${at}: `);
+	// inside `file:12:3` gives a location nothing can jump to. It comes from
+	// `diagnosticLocation()` rather than being rebuilt here, which is what makes
+	// the claim that both forms print the same location true rather than merely
+	// intended -- the first version of this rebuilt it, and a tab in the path was
+	// then a different location on a terminal than in a pipe
+	const location = oneLine(`${diagnosticLocation(diagnostic)}: `);
 	const label = oneLine(`${severity}: `);
 	const prefix: Element[] = [
 		textNode(location, { class: 'cli-location', 'white-space': 'nowrap' }),
@@ -313,15 +320,52 @@ function diagnosticRow(
 	// would put the message beside the wrong one
 	const room = opts.width - stringWidth(location) - stringWidth(label);
 
-	// a message carrying a newline is output somebody captured rather than prose
-	// -- `typecheck.ts` puts a compiler's whole stdout in one when it exited
-	// without saying anything parseable -- so it is a `text` and keeps its own
-	// spacing. A paragraph would collapse the runs of spaces that are the only
-	// structure such a message has
-	const body = (props: Record<string, number>): Element =>
-		message.includes('\n')
-			? textNode(message, { 'flex-shrink': 0, ...props })
-			: paragraph([message], { 'flex-shrink': 0, ...props });
+	// a message whose whitespace is structure is output somebody captured rather
+	// than prose -- `typecheck.ts` puts a compiler's whole stdout in one when it
+	// exited without saying anything parseable -- so it keeps its own spacing.
+	// `nowrap` is what that takes and `normal` is not enough: `normal` honours the
+	// author's newlines and then *reflows* each line, so a code line wrapped and
+	// the caret under it no longer sat beneath what it pointed at -- which is the
+	// opposite of printing it as it stands. Overflowing instead is the rule the
+	// location prefix already follows, and the grid grows to its content, so
+	// nothing is lost.
+	//
+	// A run of two spaces counts as well as a newline, because a paragraph splits
+	// on `/\s+/`: `expected '  ' here` came out as `expected ' ' here`, so the
+	// terminal disagreed with the pipe about what the message said. One rule --
+	// whitespace the author put there is structure -- rather than two.
+	const body = (props: { 'padding-left'?: number; width: number }): Element => {
+		if (!VERBATIM.test(message)) {
+			return paragraph([message], { 'flex-shrink': 0, ...props });
+		}
+
+		// its own width wherever it overhangs, which is the rule help's own labels
+		// follow and the trap that `nowrap` walks into without it: `text-overflow`
+		// bites on a line wider than the box it was given, so a declared column
+		// narrower than the content silently *cut* the dump -- a code line came out
+		// as `const x = "hello h` with the rest gone. Overflowing is the honest
+		// answer and costs nothing, because the grid grows to its content.
+		// Measured as it will be drawn, for the reason the prefix is
+		const natural = Math.max(
+			...toDisplayText(message)
+				.split('\n')
+				.map((line) => stringWidth(line))
+		);
+
+		// the padding is *inside* the width, because `box-sizing` starts at
+		// `border-box` -- so a width of exactly `natural` leaves the content two
+		// columns short in the stacked case and cuts the end off each line. That is
+		// the border-box rule this repo already records for a themed table cell, met
+		// from the other side
+		const pad = props['padding-left'] ?? 0;
+
+		return textNode(message, {
+			'flex-shrink': 0,
+			'white-space': 'nowrap',
+			...props,
+			width: Math.max(props.width, natural + pad),
+		});
+	};
 
 	// not enough room left to read as prose: the location takes the line and the
 	// message is indented under it, which is what help's list does at the same
@@ -389,6 +433,8 @@ export function writeDiagnostics(
 	}
 
 	const { relativeTo, stream } = opts;
+	// applied here and nowhere else, so both forms are handed the same diagnostic
+	// and `diagnosticLocation()` is the only thing that formats a location
 	const shown = relativeTo
 		? diagnostics.map((d) => ({ ...d, file: relativeTo(d.file) }))
 		: diagnostics;

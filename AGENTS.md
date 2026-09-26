@@ -3580,14 +3580,35 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   `stringWidth()` alone. And a newline becomes a space, because a location is one
   line by construction: a prefix two lines tall would leave the message indented
   against a line it does not belong to.
-- **A message carrying a newline is output somebody captured, not prose, so it
-  is a `text`.** `typecheck.ts` puts a compiler's whole stdout in one when it
-  exited without saying anything parseable, and the indentation is the only
-  structure such a message has -- a paragraph collapses runs of spaces, which is
-  what `white-space: normal` does and what this repo already records for
-  anything verbatim. A single-line message is prose and wraps; a multi-line one
-  is printed as it stands. One rule read off the message rather than a flag
-  somebody has to remember to set.
+- **A message whose whitespace is structure is output somebody captured, not
+  prose, and keeping it took three goes.** `typecheck.ts` puts a compiler's whole
+  stdout in one when it exited without saying anything parseable, and the
+  whitespace is the only structure such a message has. The predicate is a newline
+  **or a run of two spaces**, because a paragraph splits on `/\s+/`: a message
+  reading `expected '  ' here` was drawn as `expected ' ' here`, so the terminal
+  disagreed with the pipe about what the message _said_. One rule -- whitespace
+  the author put there is structure -- rather than a newline special case.
+
+  What it takes is `white-space: nowrap`, and `normal` is not enough: `normal`
+  honours the author's newlines and then **reflows each line**, so at 60 columns a
+  code line wrapped and the tilde caret under it no longer sat beneath what it
+  pointed at. The entry this replaced claimed such a message was "printed as it
+  stands" and it was not, and the test could not see it -- it asserted that a
+  short line appeared _somewhere_, which survives a reflow. It is a line count
+  now.
+
+  `nowrap` on its own is worse, which is the trap worth knowing: `text-overflow`
+  bites on a line wider than the box it was given, so a declared message column
+  narrower than the content **cut** the dump -- `1 const x: number = "hello h`
+  with the rest gone and nothing to say so. So a verbatim message keeps its own
+  width wherever it overhangs, which is exactly help's rule for a label too wide
+  for its column, and it is measured through `toDisplayText()` for the reason the
+  prefix is. The stacked case needs the padding added on top of that, because
+  `box-sizing` starts at `border-box` and a width of exactly the content leaves
+  every line two columns short -- the border-box rule this file already records
+  for a themed table cell, met from the other side. Pinned by a test that walks
+  100, 60, 40, 20 and 10 columns and asserts every source line survives whole.
+
 - **A terminal gets the laid-out form and a pipe gets one line per diagnostic,
   and the piped output is byte for byte what it was.** This is `tsc --pretty`'s
   split and it exists for the reason that flag does, which the first version of
@@ -3597,12 +3618,25 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   own fixture -- and a diagnostic is the one output people really do pipe into
   tooling. So whether there is a terminal decides _what is drawn_ rather than only
   how, which is the rule the spinner and the progress bar already follow, down to
-  the promise that comes with it: `sigil check` into a pipe is byte for byte what
-  it was before any of this was rendered, on every fixture. The two forms cannot
+  the promise that comes with it: into a pipe, `sigil check`, `sigil check --tree`
+  and `sigil build` are byte for byte what they were before any of this was
+  rendered, on every fixture and with the warning count included -- exit codes
+  too. `build`'s summary is `, N warnings` rather than the parenthetical the first
+  version wrote, because the runs are joined by a space off a terminal and the
+  comma is what `main` printed; the comma rides on the run before it, since a run
+  is a _word_ and a lone comma would be drawn with a space in front of it. The
+  first version of this promise had only ever been checked against `check`, which
+  is how the `build` difference survived being written down as verified. The two forms cannot
   drift in the part that matters, because the location is
   `diagnosticLocation()`'s and both print it -- which is what that function was
   extracted for, and what stopped `formatDiagnostic()` being dead code the moment
-  the renderer replaced it. What differs is the wrapping and the colour, which is
+  the renderer replaced it. Extracting it was not enough on its own and this
+  sentence was false for three commits: the terminal path went on rebuilding
+  `file:line:column` by hand, so a tab in a path really was a different location
+  in a pipe than on a terminal, and editing the shared function would have changed
+  only one of them. `relativeTo` is applied in `writeDiagnostics()` and nowhere
+  else for the same reason -- both forms are handed the same diagnostic, so there
+  is one thing that formats a location and one thing that rewrites a path. What differs is the wrapping and the colour, which is
   exactly what the destination was asked about. The question is `isTTY` and
   deliberately **not** the colour level: `NO_COLOR` on a real terminal means "no
   colour", not "no layout", and a report that unwrapped itself over it would be
