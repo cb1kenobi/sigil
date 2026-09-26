@@ -40,6 +40,7 @@ import {
 	readConfig,
 	type Registry,
 } from '../registry/index.ts';
+import { writeNote } from '../report.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
 import { confirm, table } from '@ttylabs/sigil/components';
 import { copyFileSync, mkdirSync } from 'node:fs';
@@ -60,10 +61,18 @@ function list(registry: Registry): void {
 
 	process.stdout.write(
 		`\n${registry.pkg} ${registry.manifest.version}\n\n${table(rows)}\n\n` +
-			`Add one with \`sigil add <component>\`.\n\n` +
-			`Most customization does not need one. A built-in is restyled with an\n` +
-			`ordinary rule against the classes it draws with, which keeps it up to\n` +
-			`date; ejecting is for when the structure or the behaviour has to change.\n`
+			`Add one with \`sigil add <component>\`.\n\n`
+	);
+
+	// wrapped to the terminal rather than broken by hand at about seventy columns,
+	// which is what this was and which is ragged at forty and narrow at two hundred
+	writeNote(
+		[
+			'Most customization does not need one. A built-in is restyled with an',
+			'ordinary rule against the classes it draws with, which keeps it up to',
+			'date; ejecting is for when the structure or the behaviour has to change.',
+		],
+		process.stdout
 	);
 }
 
@@ -95,9 +104,13 @@ function describe(plan: Plan, registry: Registry, target: string): void {
 		.sort();
 
 	if (classes.length > 0) {
-		process.stdout.write(
-			`\nThese draw with ${classes.map((c) => `.${c}`).join(', ')} --\n` +
-				`restyling those needs no copy, and keeps the component up to date.\n`
+		process.stdout.write('\n');
+		writeNote(
+			[
+				`These draw with ${classes.map((c) => `.${c}`).join(', ')} --`,
+				'restyling those needs no copy, and keeps the component up to date.',
+			],
+			process.stdout
 		);
 	}
 }
@@ -195,10 +208,14 @@ const add: AnyCommand = command({
 
 		apply(plan);
 
-		process.stdout.write(
-			`\nCopied ${plan.files.length} file${plan.files.length === 1 ? '' : 's'}. ` +
-				`They are yours now -- edit them freely, and note that they no longer\n` +
-				`follow ${registry.pkg} when it changes.\n`
+		process.stdout.write('\n');
+		writeNote(
+			[
+				`Copied ${plan.files.length} file${plan.files.length === 1 ? '' : 's'}.`,
+				'They are yours now -- edit them freely, and note that they no longer',
+				`follow ${registry.pkg} when it changes.`,
+			],
+			process.stdout
 		);
 	},
 });

@@ -92,8 +92,8 @@ joined `inputs` for the other half of it: the generator decides what lands in
 `registry/`, so editing it has to invalidate the build, and `inputs` replaces
 turbo's default rather than adding to it.
 
-`packages/cli/src/` is the bin, `--version`, the schema the filesystem router
-will replace, `src/utilities/` — the utility generator, whose committed output
+`packages/cli/src/` is the bin, `--version`, the schema, `src/report.ts` --
+what the toolchain says, as element trees rendered with `renderToString()` -- `src/utilities/` — the utility generator, whose committed output
 is `packages/sigil/src/style/utilities.ts` and whose `scripts/` writes it —
 `src/template/`, the
 analysis pass and the build emitter, and `src/build/`, which reads an app off
@@ -3543,6 +3543,267 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   Making the walk lazy -- deferred until something actually asks the registry
   what is in it -- would close the general case rather than the one flag, and is
   a decision to take against a profile rather than in advance.
+- **The toolchain renders its own reports, and `report.ts` is where they live.**
+  It routed its own commands and was built by itself and then assembled its
+  output with `process.stderr.write()` and a template literal, which is the half
+  of "renders its own output with components" that was still outstanding: a
+  framework whose own toolchain builds text by hand has not been tested by
+  anyone who had to live with its renderer. So a diagnostic is a flex row, a
+  summary is a paragraph of styled runs, and both go through
+  `renderToString()`. `table()` was already doing this for `--tree` and the
+  chunk sizes; this is the rest of what the toolchain says. `describeApp()` went
+  with it -- it was the string form of what `appRuns()` now returns, and once
+  both summaries were runs its only remaining reference was a comment claiming
+  `failure()` used it, which `failure()` never did. That one stays a string on
+  purpose: it returns an `Error`, whose message is text `errorHandler()`
+  renders, and an element tree has nowhere to go inside one.
+- **A diagnostic wraps in the column it started in, which is what a string
+  could not do.** `file:line:column: severity: message` is unchanged -- it is
+  what an editor, a terminal and a CI log all already know how to read -- and
+  what the drawing adds is the two things text cannot: the severity is coloured,
+  and a message too long for the line hangs under itself instead of returning to
+  the margin, where it reads as a second diagnostic. That is help's own pattern,
+  a flex row whose message column is a **declared** width, and the width is
+  declared for the reason help declares it: a row's intrinsic height is taken
+  with every child offered the whole content box while placement hands each one a
+  share, so a message that wraps to three lines in its share measures two in the
+  room it was offered and the row after it is painted over the third. It is the
+  known bug with the known way round it, and the way round it is the
+  subtraction. Below `MIN_MESSAGE` the location takes the line and the message is
+  indented under it, at the same threshold and for the same reason help's list
+  gives up on two columns.
+- **The prefix is measured as it will be drawn, on one line.** Both halves are
+  rules `table()` already carries for a cell, met here through a file name. A tab
+  measures nothing and draws a space, so measuring the raw string leaves the
+  message column a column out per tab -- and a path really can hold one, which is
+  why `oneLine()` goes through `toDisplayText()` rather than through
+  `stringWidth()` alone. And a newline becomes a space, because a location is one
+  line by construction: a prefix two lines tall would leave the message indented
+  against a line it does not belong to.
+- **A message whose whitespace is structure is output somebody captured, not
+  prose, and keeping it took three goes.** `typecheck.ts` puts a compiler's whole
+  stdout in one when it exited without saying anything parseable, and the
+  whitespace is the only structure such a message has. The predicate is a newline,
+  **a run of two whitespace characters, or whitespace at the start**, because a
+  paragraph splits on `/\s+/` and drops the empty pieces: `expected '  ' here` was
+  drawn as `expected ' ' here` and `foo\t\tbar` as `foo bar`, so the terminal
+  disagreed with the pipe about what the message _said_. A **single** tab between
+  two words deliberately does not match, because a paragraph renders it as one
+  space and so would the grid -- `toDisplayText()` draws a tab as a space either
+  way -- and matching it would stop one ordinary tab's whole message wrapping for
+  no gain. One rule, whitespace that carries information, rather than a newline
+  special case.
+  **The width is the mechanism, and `white-space` is not.** A `text` at `normal`
+  keeps the author's newlines and the spaces inside each line; the only thing it
+  does wrong is _reflow_ a line too long for its box, so at 60 columns a code line
+  wrapped and the tilde caret under it no longer sat beneath what it pointed at.
+  Give the box the content's own width and there is no such line. That is help's
+  rule for a label too wide for its column, reached from the other side, measured
+  through `toDisplayText()` for the reason the prefix is. The stacked case adds the
+  padding on top, because `box-sizing` starts at `border-box` and a width of
+  exactly the content leaves every line two columns short -- the rule this file
+  already records for a themed table cell, met from the other side.
+
+  Getting there took a wrong turn worth recording. The fix was first written as
+  `white-space: nowrap`, which looks like the property that means "verbatim" and is
+  a **property that does nothing** here: nothing can exceed its box once the width
+  is right, and deleting it changed no output at any width. It also walks into a
+  trap on its own, without the width -- `text-overflow` bites on a line wider than
+  its box, so a declared column narrower than the content silently **cut** the dump
+  to `1 const x: number = "hello h`, which is worse than the reflow it replaced
+  because nothing says so. Both were found by sabotage rather than by reading:
+  removing the width fails two tests, removing the `nowrap` failed none.
+
+  The entry this replaced claimed such a message was "printed as it stands" and it
+  was not, and the test could not see it -- it asserted a short line appeared
+  _somewhere_, which survives a reflow. It is a line count now, plus a walk over
+  100, 60, 40, 20 and 10 columns asserting every source line survives **with its
+  own leading whitespace**: the first version of that walk compared against
+  `line.trimStart()`, which excused exactly the loss it was named for at the three
+  narrow widths where the border-box cut lived.
+
+- **A terminal gets the laid-out form and a pipe gets one line per diagnostic,
+  and the piped output is byte for byte what it was.** This is `tsc --pretty`'s
+  split and it exists for the reason that flag does, which the first version of
+  this found out the hard way: wrapping every diagnostic broke `grep`. A message
+  that wrapped between "string" and "literal" is one
+  `grep "a string literal"` no longer matches -- measured, 1 to 0 on this repo's
+  own fixture -- and a diagnostic is the one output people really do pipe into
+  tooling. So whether there is a terminal decides _what is drawn_ rather than only
+  how, which is the rule the spinner and the progress bar already follow, down to
+  the promise that comes with it: into a pipe, `sigil check`, `sigil check --tree`
+  and `sigil build` are byte for byte what they were before any of this was
+  rendered, on every fixture and with the warning count included -- exit codes
+  too. `build`'s summary is `, N warnings` rather than the parenthetical the first
+  version wrote, because the runs are joined by a space off a terminal and the
+  comma is what `main` printed; the comma rides on the run before it, since a run
+  is a _word_ and a lone comma would be drawn with a space in front of it. The
+  first version of this promise had only ever been checked against `check`, which
+  is how the `build` difference survived being written down as verified. The two forms cannot
+  drift in the part that matters, because the location is
+  `diagnosticLocation()`'s and both print it -- which is what that function was
+  extracted for, and what stopped `formatDiagnostic()` being dead code the moment
+  the renderer replaced it. Extracting it was not enough on its own and this
+  sentence was false for three commits: the terminal path went on rebuilding
+  `file:line:column` by hand, so a tab in a path really was a different location
+  in a pipe than on a terminal, and editing the shared function would have changed
+  only one of them. `relativeTo` is applied in `writeDiagnostics()` and nowhere
+  else for the same reason -- both forms are handed the same diagnostic, so there
+  is one thing that formats a location and one thing that rewrites a path. What differs is the wrapping and the colour, which is
+  exactly what the destination was asked about. The question is `isTTY` and
+  deliberately **not** the colour level: `NO_COLOR` on a real terminal means "no
+  colour", not "no layout", and a report that unwrapped itself over it would be
+  reading one setting as though it were another.
+- **The report asks the stream it is going to, and that is not the process.**
+  Diagnostics and summaries go to stderr while `--tree` and the chunk sizes go to
+  stdout, so that a tree can be piped without losing the problems -- and those
+  are two destinations. `supportsColor()` defaults to `process.stdout` whoever is
+  asking, so `sigil check 2>log.txt` from a terminal is a stdout that takes
+  colour and a stderr that does not, and a report reaching for the process's own
+  styler would fill that file with sequences while being perfectly right about
+  the wrong stream. Nothing was wrong before this, because the diagnostics
+  carried no colour to put anywhere; colouring them is what makes the rule
+  load-bearing, which is why the tables were given an explicit
+  `reportLevel(process.stdout)` too. They were right by luck, and right by luck
+  is what stops being right when something moves. The width is the same question
+  and gets the same answer. `env` is threaded beside the stream because the
+  stream is only half of it -- `FORCE_COLOR`, `NO_COLOR`, `TERM` and `COLUMNS`
+  all outrank what the stream says, and it is the only way a test can ask about a
+  terminal at all, since a vitest worker's stderr is a pipe with no `TERM` behind
+  it.
+- **`FORCE_COLOR` into a pipe colours the tables and not the diagnostics, and
+  that is a consequence rather than an oversight.** The two knobs are
+  independent on purpose -- layout follows `isTTY`, colour follows the level --
+  so `FORCE_COLOR=3 sigil check --tree | cat` is a coloured table on stdout and
+  plain one-line diagnostics on stderr. Measured: two escapes on stdout, none on
+  stderr. It is what `main` did too, since the diagnostics carried no colour at
+  all there and the table has always read the process styler, so nothing
+  regressed -- and the obvious tidy-up is the one that must not be taken. Keying
+  the pretty form on the colour _level_ instead would make `FORCE_COLOR`
+  consistent and would make `NO_COLOR` on a real terminal unwrap every
+  diagnostic, which is reading one setting as though it were another. The other
+  way round -- rendering the one-line form through the cascade so it can be
+  coloured -- costs the byte-for-byte promise above for a colour nobody has ever
+  had here. So it stays, written down, rather than fixed into something worse.
+- **A summary is a wrapping row of `nowrap` words, because every summary here ends
+  in a path.** `paragraph()` gives each word `min-width: 0` **on purpose**, so that
+  a word too long for the line is broken rather than left to run off the edge --
+  that is what `wrap()` does, and a paragraph disagreeing with the wrapper is a
+  help screen wider than the terminal. It is the wrong answer for a summary: at 80
+  columns a long skip path came out as `.../packages/cli/t` then
+  `est/fixtures/app,`, broken mid-token, and `build`'s `into <bin>` does the same
+  once that path is long enough. This file already says a path is not prose and
+  that wrapping one breaks the thing somebody copies -- that sentence was written
+  for `sigil add`'s file list and it covers these two lines as well. So each word
+  keeps its automatic minimum, which for a one-word text is the whole of it: the
+  row wraps _between_ words and never inside one, and a word longer than the
+  terminal overflows the way the location prefix and help's own labels do. `main`
+  printed both as one line on a terminal, because nothing wrapped them at all.
+- **Prose wraps whatever the destination is, which is the other half of the rule
+  above.** A diagnostic is a record -- something greps it, something jumps to it
+  -- so off a terminal it stays on one line. A note is a paragraph somebody reads,
+  and `sigil add | less` is still somebody reading it, so the answer there is the
+  fallback width rather than one endless line. `writeNote()` is what `sigil add`'s
+  three blocks of prose go through now; they were broken at about seventy columns
+  once, by hand, which is ragged at forty and needlessly narrow at two hundred,
+  and that is what a paragraph was always for. The file list beside them is left
+  alone: a path is not prose, and wrapping one would break the thing somebody
+  copies out of it.
+- **The toolchain's classes are its own, at origin `app`.** `cli-*` rather than
+  `sigil-*`: the toolchain is an app, it draws nothing a theme is expected to
+  restyle, and it has no business in the vocabulary `FRAMEWORK_CSS` documents.
+  The sheet is parsed at origin `app`, which is the later origin, so it beats the
+  framework's defaults with an ordinary rule and no `!important` -- and that an
+  app sheet can do that is the thing worth proving here rather than asserting.
+  It sets colours and attributes only, which is the rule the framework sheet
+  keeps for itself and which `test/report.test.ts` pins: geometry stays in props
+  where the code that worked it out can see it, and `box-sizing: border-box`
+  means a `padding-left` from a sheet is taken _out of_ a width the report
+  measured.
+- **`render()` takes a builder rather than a tree, because the width is one
+  number two things have to agree about.** A diagnostic's message column is a
+  _declared_ width, so the caller subtracts from the width it believes the report
+  is laid out in while `renderToString()` lays it out in the width `render()`
+  works out -- two computations of one number, which is the shape this file
+  records over and over as how the two come to disagree. And they can:
+  `terminalWidth()` caps at `MAX_WIDTH`, so a caller taking `stream.columns` for
+  its width declared a message column for a 200-column terminal inside a grid
+  laid out for 100, and since the grid grows to its content what came out was a
+  **200-column line** -- nothing truncated, the terminal wrapping it raggedly,
+  and nothing to say so. Not reachable from either command, which both asked
+  `terminalWidth()`; reachable from the tests, which asked `stream.columns`, and
+  from any caller who did the obvious thing. Passing the width _to_ the builder
+  makes it unrepresentable rather than a rule to remember, and the type error at
+  every call site is what that buys. The width is normalized the way
+  `renderToString()` normalizes it, or the builder is handed a number one
+  rounding away from the one it is laid out in.
+- **A location wider than the terminal keeps its own width, and that is the one
+  place a report is deliberately too wide.** The prefix is `nowrap` with no
+  declared width, so at a narrow terminal it overflows and the terminal wraps it:
+  `a/b/c.ts:1:2: warning:` is 22 columns in a 20-column terminal. That is help's
+  own rule for a label -- the grid a string is painted into is as wide as what
+  came out, so a name longer than the terminal survives -- and the alternative is
+  worse than untidy: `text-overflow` is honoured now, so a bounded prefix would
+  be _cut_, and a truncated `file:line:column` is a location nothing can jump to.
+  It looks like the width arithmetic failing and is the opposite, which is why it
+  is pinned by a test of its own rather than left for somebody to "fix". Wide
+  characters really are handled: a CJK path, an emoji message and a combining
+  mark all fit, because every measurement goes through `stringWidth()`.
+- **The report's tests assert SGR parameters rather than bytes, and strip with
+  the library's own `strip()`.** A transition combines what it closes with what it
+  opens, so green after bold is `ESC[22;32m` and never `ESC[32m` -- a test
+  pinning the latter pins one implementation of the transition rather than the
+  claim that something was drawn green, which is the rule the canvas diff's own
+  tests already follow. The pattern that reads the parameters back is built from
+  the exported `ESC` rather than written as an escape in a character class, which
+  is this repo's rule twice over: no raw control character in source, and no
+  `no-control-regex` suppression for a formatter to detach from the line it was
+  written over. They are asserted against `report.ts` directly rather than
+  through `run()`, because a vitest worker's stderr has no `columns` and no
+  `isTTY` -- so every render through the CLI comes out at the fallback width with
+  no colour, which is the one case that cannot fail. `ReportStream` is an
+  interface for exactly that reason.
+
+#### There is no live display in the toolchain, and that is measured
+
+SIG-78 asked whether "a scrolling log with progress underneath" works on the
+inline canvas, which is the case the canvas ticket was parked over. The
+toolchain turns out **not to be that case**, and the discipline is the one the
+build measurement already set: a live progress display for a 180ms build would
+be theatre, so measure before writing any of it. Every candidate was measured,
+and all three say no.
+
+- **`sigil build` is too fast.** 286ms for five hundred commands, and the read
+  passes plus the type check are 140ms on this package. There is nothing to
+  animate.
+- **The type check is too fast, which is TypeScript 7's doing.** It is the one
+  step that spawns a compiler, and the native port answers in 97ms here and
+  364ms on a fresh scaffold -- most of the second number being process startup.
+  This was the best remaining candidate on the theory that a compiler takes
+  seconds, and the theory was two major versions out of date.
+- **`sigil new`'s install is the instructive refusal.** It was the chosen
+  candidate -- the only command where a user waits, and a package manager's
+  output is exactly the scrolling log the ticket describes. It fails in both
+  directions at once. **Piped**, the manager detects no TTY and says _nothing at
+  all_ until it has finished: npm's four lines of output all arrived at 3907ms of
+  a 3928ms run, and pnpm's first chunk at 27ms is followed by silence until
+  671ms. There is no log to scroll and no progress to report, so a bar there
+  would be reporting a number it invented. **Given a TTY** it is worse: pnpm
+  drives the cursor itself, writing `ESC[1A` and an erase-display to repaint its
+  own progress -- measured off a pty, 21 carriage returns and 82 escapes for a
+  fourteen-package install. That is precisely the "write above the region" that
+  makes an inline canvas throw its anchor away, and the anchor is the whole of
+  how a canvas knows where its top is. The manager already owns a live region;
+  a canvas underneath it would be painting into rows something else is moving.
+
+So `stdio: 'inherit'` is the right answer for an install -- the manager's own
+progress, unmediated -- and the toolchain renders text. That is a **finding**
+rather than a gap: the question the ticket asked has an answer, and the answer
+is that this toolchain is not where a live region earns its keep. What would be
+is a command that owns its terminal for seconds and knows its own progress, and
+none of these three is that. The measurement scripts are worth re-running before
+anybody revisits it, because two of the three numbers are facts about other
+people's software and will move.
 
 ### A schema's relative paths
 
