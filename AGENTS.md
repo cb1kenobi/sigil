@@ -3616,6 +3616,35 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   where the code that worked it out can see it, and `box-sizing: border-box`
   means a `padding-left` from a sheet is taken _out of_ a width the report
   measured.
+- **`render()` takes a builder rather than a tree, because the width is one
+  number two things have to agree about.** A diagnostic's message column is a
+  _declared_ width, so the caller subtracts from the width it believes the report
+  is laid out in while `renderToString()` lays it out in the width `render()`
+  works out -- two computations of one number, which is the shape this file
+  records over and over as how the two come to disagree. And they can:
+  `terminalWidth()` caps at `MAX_WIDTH`, so a caller taking `stream.columns` for
+  its width declared a message column for a 200-column terminal inside a grid
+  laid out for 100, and since the grid grows to its content what came out was a
+  **200-column line** -- nothing truncated, the terminal wrapping it raggedly,
+  and nothing to say so. Not reachable from either command, which both asked
+  `terminalWidth()`; reachable from the tests, which asked `stream.columns`, and
+  from any caller who did the obvious thing. Passing the width _to_ the builder
+  makes it unrepresentable rather than a rule to remember, and the type error at
+  every call site is what that buys. The width is normalized the way
+  `renderToString()` normalizes it, or the builder is handed a number one
+  rounding away from the one it is laid out in.
+- **A location wider than the terminal keeps its own width, and that is the one
+  place a report is deliberately too wide.** The prefix is `nowrap` with no
+  declared width, so at a narrow terminal it overflows and the terminal wraps it:
+  `a/b/c.ts:1:2: warning:` is 22 columns in a 20-column terminal. That is help's
+  own rule for a label -- the grid a string is painted into is as wide as what
+  came out, so a name longer than the terminal survives -- and the alternative is
+  worse than untidy: `text-overflow` is honoured now, so a bounded prefix would
+  be _cut_, and a truncated `file:line:column` is a location nothing can jump to.
+  It looks like the width arithmetic failing and is the opposite, which is why it
+  is pinned by a test of its own rather than left for somebody to "fix". Wide
+  characters really are handled: a CJK path, an emoji message and a combining
+  mark all fit, because every measurement goes through `stringWidth()`.
 - **The report's tests assert SGR parameters rather than bytes, and strip with
   the library's own `strip()`.** A transition combines what it closes with what it
   opens, so green after bold is `ESC[22;32m` and never `ESC[32m` -- a test

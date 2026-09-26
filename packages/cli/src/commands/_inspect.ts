@@ -30,7 +30,6 @@ import {
 import { diagnosticsView, render, reportLevel, summaryView } from '../report.ts';
 import { table } from '@ttylabs/sigil/components';
 import type { TextRun } from '@ttylabs/sigil/element';
-import { terminalWidth } from '@ttylabs/sigil/wrap';
 import { existsSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 
@@ -218,14 +217,19 @@ export function reportDiagnostics(found: Inspection): {
 
 	if (diagnostics.length) {
 		// relative to the app, because an absolute path per line is mostly the same
-		// prefix repeated and the interesting part is at the end of it
-		const width = terminalWidth({ stream });
-		const view = diagnosticsView(diagnostics, {
-			relativeTo: (file) => relative(app.root, file) || '.',
-			width,
-		});
-
-		stream.write(`${render(view, stream)}\n`);
+		// prefix repeated and the interesting part is at the end of it. The width is
+		// `render()`'s to supply rather than this function's to guess, which is what
+		// stops the declared message column and the laid-out grid disagreeing
+		stream.write(
+			`${render(
+				(width) =>
+					diagnosticsView(diagnostics, {
+						relativeTo: (file) => relative(app.root, file) || '.',
+						width,
+					}),
+				stream
+			)}\n`
+		);
 	}
 
 	if (!types.checked && types.skipped) {
@@ -297,7 +301,7 @@ export function appRuns(app: DiscoveredApp): TextRun[] {
  */
 export function writeSummary(runs: readonly (TextRun | string)[]): void {
 	const stream = process.stderr;
-	stream.write(`\n${render(summaryView(runs, terminalWidth({ stream })), stream)}\n`);
+	stream.write(`\n${render((width) => summaryView(runs, width), stream)}\n`);
 }
 
 /**

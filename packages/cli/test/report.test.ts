@@ -2,6 +2,7 @@ import type { Diagnostic } from '../src/build/diagnostic.js';
 import { diagnosticsView, render, reportLevel, summaryView, TOOLCHAIN_CSS } from '../src/report.js';
 import { ESC, hasAnsi, strip } from '@ttylabs/sigil/ansi';
 import { stringWidth } from '@ttylabs/sigil/width';
+import { MAX_WIDTH } from '@ttylabs/sigil/wrap';
 import { afterEach, describe, expect, it } from 'vitest';
 
 /**
@@ -73,13 +74,19 @@ function lines(
 	items: readonly Diagnostic[],
 	to: { env?: Record<string, string | undefined>; stream: { columns: number; isTTY: boolean } }
 ): string[] {
-	const view = diagnosticsView(items, { width: to.stream.columns });
+	// the width comes from `render()` rather than from `to.stream.columns`, which
+	// is the thing the builder signature exists to enforce: `terminalWidth()` caps
+	// at `MAX_WIDTH`, so a test that declared its own width would be asserting
+	// about a layout the renderer never performed
+	//
 	// stripped rather than rendered at level 0, so that the *layout* of a coloured
 	// render is what is being read: a sequence takes no column, and a test that
-	// rendered plain to measure alignment would not be measuring the coloured one
+	// rendered plain to measure alignment would not be measuring the coloured one.
 	// `strip()` rather than a pattern of this file's own: what a sequence is has
 	// one implementation, and it is the library's
-	return render(view, to).split('\n').map(strip);
+	return render((width) => diagnosticsView(items, { width }), to)
+		.split('\n')
+		.map(strip);
 }
 
 describe('the toolchain report', () => {
@@ -103,12 +110,16 @@ describe('the toolchain report', () => {
 		});
 
 		it('should take paths relative to the app when asked', () => {
-			const view = diagnosticsView([diagnostic({ file: '/app/commands/build.ts' })], {
-				relativeTo: () => 'commands/build.ts',
-				width: 100,
-			});
+			const out = render(
+				(width) =>
+					diagnosticsView([diagnostic({ file: '/app/commands/build.ts' })], {
+						relativeTo: () => 'commands/build.ts',
+						width,
+					}),
+				PLAIN
+			);
 
-			expect(render(view, PLAIN)).toContain('commands/build.ts:12:24:');
+			expect(out).toContain('commands/build.ts:12:24:');
 		});
 
 		it('should wrap a long message in the column it started in, not back at the margin', () => {
@@ -166,16 +177,18 @@ describe('the toolchain report', () => {
 		});
 
 		it('should colour the severity on a terminal and nowhere else', () => {
-			const warned = render(diagnosticsView([diagnostic()], { width: 100 }), WIDE);
+			const warned = render((width) => diagnosticsView([diagnostic()], { width }), WIDE);
 			const failed = render(
-				diagnosticsView([diagnostic({ severity: 'error' })], { width: 100 }),
+				(width) => diagnosticsView([diagnostic({ severity: 'error' })], { width }),
 				WIDE
 			);
 
 			// yellow and red, from the toolchain's own sheet
 			expect(sgr(warned)).toContain(33);
 			expect(sgr(failed)).toContain(31);
-			expect(hasAnsi(render(diagnosticsView([diagnostic()], { width: 100 }), PLAIN))).toBe(false);
+			expect(hasAnsi(render((width) => diagnosticsView([diagnostic()], { width }), PLAIN))).toBe(
+				false
+			);
 		});
 
 		it('should write one row per diagnostic, in the order they were found', () => {
@@ -208,8 +221,47 @@ describe('the toolchain report', () => {
 			expect(out[0]).toContain('a b.ts');
 		});
 
+		it('should keep a location wider than the terminal whole rather than cutting it', () => {
+			// it overflows, and that is the rule help's labels already follow: the grid
+			// a string is painted into is as wide as what came out, so a name longer
+			// than the terminal survives and the terminal wraps it. Truncating instead
+			// would give a location nothing can jump to, which is the whole reason the
+			// prefix is `nowrap` -- so this is the one place a report is deliberately
+			// wider than the width it was asked for
+			const location = 'a/deeply/nested/path/to/commands/build.ts:120:34:';
+			const out = lines(
+				[diagnostic({ column: 34, file: 'a/deeply/nested/path/to/commands/build.ts', line: 120 })],
+				{
+					env: {},
+					stream: { columns: 24, isTTY: false },
+				}
+			);
+
+			expect(out[0]).toBe(`${location} warning:`);
+			expect(stringWidth(out[0] ?? '')).toBeGreaterThan(24);
+		});
+
+		it('should stay inside the width it was laid out in, cap included', () => {
+			// `terminalWidth()` caps at `MAX_WIDTH`, so a wide terminal is laid out
+			// narrower than it is -- and the declared message column has to come from
+			// the width the render actually used. Handing `render()` a finished tree
+			// let a caller declare one for 200 inside a grid laid out for 100, and
+			// since the grid grows to its content what came out was a 200-column line
+			// with nothing truncated and nothing to say so. The builder signature
+			// makes that unrepresentable; this pins the property it was breaking
+			const out = lines([diagnostic({ message: 'word '.repeat(80).trim() })], {
+				env: {},
+				stream: { columns: 200, isTTY: false },
+			});
+
+			expect(out.length).toBeGreaterThan(1);
+			for (const line of out) {
+				expect(stringWidth(line)).toBeLessThanOrEqual(MAX_WIDTH);
+			}
+		});
+
 		it('should be nothing at all when there is nothing to say', () => {
-			expect(render(diagnosticsView([], { width: 100 }), PLAIN)).toBe('');
+			expect(render((width) => diagnosticsView([], { width }), PLAIN)).toBe('');
 		});
 	});
 
@@ -232,7 +284,7 @@ describe('the toolchain report', () => {
 			expect(reportLevel({ env: {}, stream: { isTTY: false } })).toBe(0);
 			expect(
 				hasAnsi(
-					render(diagnosticsView([diagnostic()], { width: 80 }), {
+					render((width) => diagnosticsView([diagnostic()], { width }), {
 						env: {},
 						stream: { isTTY: false },
 					})
@@ -242,7 +294,8 @@ describe('the toolchain report', () => {
 
 		it('should take its width from the stream as well', () => {
 			const narrow = render(
-				summaryView(['a summary long enough to have to wrap somewhere along its length'], 20),
+				(width) =>
+					summaryView(['a summary long enough to have to wrap somewhere along its length'], width),
 				{ env: {}, stream: { columns: 20, isTTY: false } }
 			);
 
@@ -259,13 +312,14 @@ describe('the toolchain report', () => {
 			// -- the painter strips them -- which is why this is runs and not a
 			// template literal
 			const out = render(
-				summaryView(
-					[
-						{ class: 'cli-app', text: 'myapp' },
-						{ class: 'cli-ok', text: 'no problems found' },
-					],
-					100
-				),
+				(width) =>
+					summaryView(
+						[
+							{ class: 'cli-app', text: 'myapp' },
+							{ class: 'cli-ok', text: 'no problems found' },
+						],
+						width
+					),
 				WIDE
 			);
 

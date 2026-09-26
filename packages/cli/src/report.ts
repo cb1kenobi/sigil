@@ -134,17 +134,35 @@ export interface Destination {
  * Both halves of "what does this look like" are asked of that destination rather
  * than of the process: see the note above about `sigil check 2>log.txt`.
  *
- * @param element - The tree.
+ * It takes a **builder** rather than a tree, because the width is the one thing
+ * a report's caller and its renderer both have to know and must never disagree
+ * about. A diagnostic's message column is a *declared* width -- it has to be,
+ * for the reason `diagnosticRow()` records -- so the caller subtracts from the
+ * width it thinks the report is being laid out in, while `renderToString()` lays
+ * it out in the width this function works out. Handing the tree in meant those
+ * were two computations of one number: `terminalWidth()` caps at `MAX_WIDTH`, so
+ * a caller that took `stream.columns` for the width instead declared a message
+ * column for a 200-column terminal inside a grid laid out for 100 -- and the
+ * grid grows to its content, so what came out was a 200-column line that the
+ * terminal then wrapped raggedly, with nothing truncated and nothing to say so.
+ * Passing the width *to* the builder is what makes that unrepresentable rather
+ * than a rule to remember.
+ *
+ * @param build - What to draw, given the width it will be drawn in.
  * @param to - Where it is going.
  * @returns The lines, with no trailing newline.
  */
-export function render(element: Element, to: Destination | ReportStream): string {
+export function render(build: (width: number) => Element, to: Destination | ReportStream): string {
 	const dest = destination(to);
+	// normalized the way `renderToString()` normalizes it, so that the number the
+	// builder is given is the number it is laid out in rather than one rounding
+	// away from it
+	const width = Math.max(1, Math.floor(terminalWidth({ env: dest.env, stream: dest.stream })));
 
-	return renderToString(element, {
+	return renderToString(build(width), {
 		cascade: themedCascade({ sheets: [TOOLCHAIN_CSS] }),
 		colorLevel: reportLevel(dest),
-		width: terminalWidth({ env: dest.env, stream: dest.stream }),
+		width,
 	});
 }
 
