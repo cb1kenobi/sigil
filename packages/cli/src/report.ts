@@ -422,3 +422,26 @@ export function writeSummary(
 		`\n${isTerminal(stream) ? render((width) => summaryView(runs, width), stream) : plain()}\n`
 	);
 }
+
+/**
+ * Writes a block of prose, wrapped to the destination.
+ *
+ * Prose, unlike a diagnostic or a summary, is wrapped **whatever** the
+ * destination is, and the difference is what the text is *for*. A diagnostic is
+ * a record: something greps it, something jumps to it, and a wrap through the
+ * middle of a message breaks both -- so off a terminal it stays on one line. A
+ * note is a paragraph somebody reads, and `sigil add | less` is still somebody
+ * reading it, so the answer there is the fallback width rather than one endless
+ * line. This is what the hand-wrapped strings it replaced were reaching for and
+ * could not have: they were broken at about seventy columns once, by hand, which
+ * is ragged at forty and needlessly narrow at two hundred.
+ *
+ * @param runs - The prose, as runs.
+ * @param stream - Where to write it.
+ */
+export function writeNote(
+	runs: readonly (TextRun | string)[],
+	stream: ReportStream & { write(s: string): void }
+): void {
+	stream.write(`${render((width) => summaryView(runs, width), stream)}\n`);
+}

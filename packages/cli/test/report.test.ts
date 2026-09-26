@@ -7,6 +7,7 @@ import {
 	summaryView,
 	TOOLCHAIN_CSS,
 	writeDiagnostics,
+	writeNote,
 	writeSummary,
 } from '../src/report.js';
 import { ESC, hasAnsi, strip } from '@ttylabs/sigil/ansi';
@@ -338,6 +339,28 @@ describe('the toolchain report', () => {
 
 				expect(strip(stream.text)).toContain('commands/build.ts:12:24:');
 				expect(stream.text).not.toContain('/app/');
+			}
+		});
+
+		it('should still wrap a note, because prose is read rather than grepped', () => {
+			// the one thing that wraps off a terminal, and the difference is what the
+			// text is for: a diagnostic is a record something jumps to or greps, while
+			// a note is a paragraph, and `sigil add | less` is still somebody reading
+			// it. The hand-wrapped strings this replaced were broken at about seventy
+			// columns once, by hand, which is ragged at forty and narrow at two hundred
+			const piped = sink(false);
+			writeNote(
+				[
+					'Most customization does not need one. A built-in is restyled with an',
+					'ordinary rule against the classes it draws with, which keeps it up to',
+					'date; ejecting is for when the structure or the behaviour has to change.',
+				],
+				piped
+			);
+
+			expect(piped.text.split('\n').filter(Boolean).length).toBeGreaterThan(1);
+			for (const line of piped.text.split('\n')) {
+				expect(stringWidth(line)).toBeLessThanOrEqual(MAX_WIDTH);
 			}
 		});
 

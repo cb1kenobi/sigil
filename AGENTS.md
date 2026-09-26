@@ -3624,6 +3624,16 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   all outrank what the stream says, and it is the only way a test can ask about a
   terminal at all, since a vitest worker's stderr is a pipe with no `TERM` behind
   it.
+- **Prose wraps whatever the destination is, which is the other half of the rule
+  above.** A diagnostic is a record -- something greps it, something jumps to it
+  -- so off a terminal it stays on one line. A note is a paragraph somebody reads,
+  and `sigil add | less` is still somebody reading it, so the answer there is the
+  fallback width rather than one endless line. `writeNote()` is what `sigil add`'s
+  three blocks of prose go through now; they were broken at about seventy columns
+  once, by hand, which is ragged at forty and needlessly narrow at two hundred,
+  and that is what a paragraph was always for. The file list beside them is left
+  alone: a path is not prose, and wrapping one would break the thing somebody
+  copies out of it.
 - **The toolchain's classes are its own, at origin `app`.** `cli-*` rather than
   `sigil-*`: the toolchain is an app, it draws nothing a theme is expected to
   restyle, and it has no business in the vocabulary `FRAMEWORK_CSS` documents.
