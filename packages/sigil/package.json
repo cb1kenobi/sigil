@@ -116,6 +116,9 @@
     },
     "./package.json": "./package.json"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "rimraf dist registry && tsdown -c tsdown.config.ts && node scripts/generate-registry.mjs",
     "coverage": "vitest --coverage",

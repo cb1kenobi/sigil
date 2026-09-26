@@ -3,10 +3,26 @@ on:
   release:
     types: [published]
 
+# `pnpm -r publish` is what makes this a monorepo workflow rather than
+# snooplogg's: `npm publish` does not understand the `workspace:` protocol and
+# would publish a manifest declaring `@ttylabs/sigil: workspace:*`, which
+# nobody can install. pnpm rewrites it to the version being published, walks
+# the packages in dependency order so the runtime lands before the toolchain
+# that depends on it, skips `website` because it is private, and skips a
+# version already on the registry -- so re-running a release is a no-op rather
+# than an error.
+
 jobs:
   publish:
     runs-on: ubuntu-latest
     name: Publish
+
+    permissions:
+      contents: read
+      # npm provenance: attests that these files were built by this workflow
+      # from this commit, which is the one claim a consumer cannot make for
+      # themselves
+      id-token: write
 
     steps:
       - name: Checkout repository
@@ -21,11 +37,47 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v6
 
+      # the lockfile rather than whatever resolves today: a publish is the one
+      # run that must install exactly what was tested
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
-      - name: Lint
-        run: pnpm lint
+      # the release tag says one version and each manifest says its own, and
+      # nothing else compares them -- so a release tagged v0.2.0 would happily
+      # publish 0.0.1 and leave the notes describing a version that does not
+      # exist. That is the hazard a single-package repo does not have, where
+      # the version you can see in the release is the version that ships.
+      #
+      # Both packages move together: the toolchain depends on the runtime at
+      # the same version, and lockstep is what a two-package repo can afford.
+      # Versioning them independently means tagging `@ttylabs/sigil@0.1.0`
+      # instead, and this check is where that decision would be written.
+      - name: Check the tag matches the packages
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          want="${tag#v}"
+          fail=0
+          for pkg in packages/*/package.json; do
+            private=$(node -p "require('./$pkg').private === true")
+            [ "$private" = "true" ] && continue
+            name=$(node -p "require('./$pkg').name")
+            have=$(node -p "require('./$pkg').version")
+            if [ "$have" != "$want" ]; then
+              echo "::error::$name is $have but the release is tagged $tag"
+              fail=1
+            else
+              echo "$name $have matches $tag"
+            fi
+          done
+          exit $fail
+
+      - name: Check
+        run: pnpm check
+
+      # publishing is irreversible, so the suite runs here too rather than
+      # trusting that the commit was green when it was merged
+      - name: Test
+        run: pnpm test
 
       - name: Build
         run: pnpm build
@@ -33,4 +85,8 @@ jobs:
       - name: Publish to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: pnpm -r publish --no-git-checks --tag ${{ github.event.release.prerelease && 'next' || 'latest' }}
+        run: >
+          pnpm -r publish
+          --no-git-checks
+          --provenance
+          --tag ${{ github.event.release.prerelease && 'next' || 'latest' }}
