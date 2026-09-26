@@ -42,6 +42,40 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # npm answers an unauthorized publish with `404 Not Found` rather than a
+      # 401, deliberately, so that the registry does not confirm whether a
+      # package exists -- and reaching that at the end of the run, after the
+      # tarball has been built and its provenance signed, is the least
+      # actionable place to learn it. This says who the token is before any of
+      # that.
+      #
+      # It is not a proof that the publish will work, and cannot be: a
+      # **read-only** token answers `whoami` perfectly happily, and the only
+      # thing that truly tests write access is a write. What it does catch is
+      # a missing, malformed or expired token, and a token belonging to an
+      # account nobody expected -- which is most of the ways this goes wrong.
+      # The first failure it was written for was none of those: the org
+      # existed and the account owned it, and the token was the wrong kind,
+      # because a granular token can only name packages that already exist and
+      # a first publish has none to name.
+      - name: Check the token can publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          scope=$(node -p "require('./packages/sigil/package.json').name.split('/')[0]")
+          if ! who=$(npm whoami 2>&1); then
+            echo "::error::NPM_TOKEN is not a valid npm token ($who)"
+            exit 1
+          fi
+          echo "authenticated as $who"
+          if npm access list packages "$scope" >/dev/null 2>&1; then
+            echo "$who can see packages in $scope"
+          else
+            echo "::warning::$who cannot list packages in $scope. If the publish"
+            echo "::warning::fails with 404, that is why: the org must exist and"
+            echo "::warning::this account must have publish rights to it."
+          fi
+
       # the release tag says one version and each manifest says its own, and
       # nothing else compares them -- so a release tagged v0.2.0 would happily
       # publish 0.0.1 and leave the notes describing a version that does not
