@@ -31,9 +31,10 @@
 
 import { bundleApp, type BuiltChunk, displayPath, type ResolvedTree } from '../build/index.ts';
 import { readSigilConfig } from '../config.ts';
+import { reportLevel, writeSummary } from '../report.ts';
 import {
+	appRuns,
 	countCommands,
-	describeApp,
 	failure,
 	inspect,
 	reportDiagnostics,
@@ -121,10 +122,30 @@ const build: AnyCommand = command({
 		printSizes(result.chunks);
 
 		const total = countCommands(found.commands);
-		process.stderr.write(
-			`\n${describeApp(found.app)}: ${total} command${total === 1 ? '' : 's'} into ${displayPath(
-				relative(found.app.root, result.bin) || result.bin
-			)}${counts.warnings ? `, ${counts.warnings} warning${counts.warnings === 1 ? '' : 's'}` : ''}\n`
+
+		writeSummary(
+			[
+				...appRuns(found.app),
+				`${total} command${total === 1 ? '' : 's'} into`,
+				// the comma rides on this run rather than being one of its own,
+				// because a run is a *word*: a lone comma would be drawn with a space
+				// in front of it. And it is a comma rather than a parenthetical
+				// because the runs are joined by a space off a terminal, and `, N
+				// warnings` is what `main` wrote -- the byte-for-byte promise covers
+				// `build` as well as `check`
+				`${displayPath(relative(found.app.root, result.bin) || result.bin)}${
+					counts.warnings ? ',' : ''
+				}`,
+				...(counts.warnings
+					? [
+							{
+								class: 'cli-warning',
+								text: `${counts.warnings} warning${counts.warnings === 1 ? '' : 's'}`,
+							},
+						]
+					: []),
+			],
+			process.stderr
 		);
 	},
 });
@@ -222,6 +243,9 @@ function printSizes(chunks: readonly BuiltChunk[]): void {
 	if (rows.length) {
 		process.stdout.write(
 			`${table(rows, {
+				// stdout's level rather than the process styler's, for the reason
+				// `printTree()` records: the default reads stdout whoever is asking
+				colorLevel: reportLevel(process.stdout),
 				columns: ['File', { align: 'right', header: 'Size' }, 'Loads'],
 			})}\n`
 		);

@@ -27,6 +27,7 @@
 
 export {
 	displayPath,
+	diagnosticLocation,
 	formatDiagnostic,
 	isFatal,
 	type Diagnostic,
