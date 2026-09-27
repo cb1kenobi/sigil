@@ -1,5 +1,6 @@
 import { run } from '../src/index.js';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -55,6 +56,46 @@ describe('sigil build', () => {
 		expect(stdout).toContain('lazy');
 		expect(err).toContain('4 commands');
 		expect(process.exitCode).toBeFalsy();
+	}, 60_000);
+
+	it('should compile an app’s templates, and ship no parser for them', async () => {
+		// the payoff, asserted rather than assumed: a compiled template ships no
+		// parser, so the tag, the parser and the IR walk shake out of the bundle.
+		// The marker is a *string literal* the parser throws, because the output is
+		// minified and every identifier in it has been mangled
+		const { err } = await sigil('build', join(fixtures, 'templated'), '--out', out);
+
+		expect(err).toContain('1 template');
+
+		const bundled = readdirSync(out, { recursive: true, withFileTypes: true })
+			.filter((entry) => entry.isFile() && entry.name.endsWith('.mjs'))
+			.map((entry) => readFileSync(join(entry.parentPath, entry.name), 'utf-8'))
+			.join('');
+
+		expect(bundled).not.toContain('A template produces exactly one element');
+		expect(bundled).not.toContain('ui`');
+	}, 60_000);
+
+	it('should build a templated app that renders what the interpreted tag does', async () => {
+		// two runs of one app: the built one, whose template was compiled, and the
+		// source one, whose `ui` tag parses at run time. `emitters.test.ts` proves
+		// the two agree from the IR down; this proves the splice did not break it
+		// once a real bundler had written the result to disk
+		await sigil('build', join(fixtures, 'templated'), '--out', out);
+
+		const built = spawnSync(process.execPath, [join(out, 'templated.mjs'), 'greet', 'Ada'], {
+			encoding: 'utf-8',
+		});
+		const source = spawnSync(
+			process.execPath,
+			[join(fixtures, 'templated', 'dev.ts'), 'greet', 'Ada'],
+			{ encoding: 'utf-8' }
+		);
+
+		expect(built.status, built.stderr).toBe(0);
+		expect(source.status, source.stderr).toBe(0);
+		expect(built.stdout).toContain('Hello, Ada!');
+		expect(built.stdout).toBe(source.stdout);
 	}, 60_000);
 
 	it('should take a name for the executable', async () => {

@@ -96,7 +96,8 @@ turbo's default rather than adding to it.
 what the toolchain says, as element trees rendered with `renderToString()` -- `src/utilities/` — the utility generator, whose committed output
 is `packages/sigil/src/style/utilities.ts` and whose `scripts/` writes it —
 `src/template/`, the
-analysis pass and the build emitter, and `src/build/`, which reads an app off
+analysis pass and the build emitter -- spliced back into an app's modules by
+`src/build/compile-templates.ts` -- and `src/build/`, which reads an app off
 disk: the app discovered from its manifest and entry, the command tree resolved
 ahead of time, the static `desc`/`hidden` lift, the `ui` templates found in a
 module, the schema literal all of that is printed as, and the type check. Its commands are not written yet, and neither is the bundling stage
@@ -3395,6 +3396,102 @@ tree at run time` is the only place that asserts what the output _does_, which
   anything. It asserts that last part by reading `loaded` back off every
   registered command, because "the description is right" and "nothing was
   imported to learn it" are two claims and only the second one is the feature.
+
+#### Compiling an app's templates
+
+`compile-templates.ts` is the splice SIG-73 left out and the last join in a
+pipeline whose every other piece was already written and tested: `findTemplates()`
+finds each `ui` template and its span, `parse()` reads it into IR with an `Expr`
+per interpolation, `analyze()` folds the constants out, `compile()` prints the
+JavaScript, and this writes each expression back over its template, the hoisted
+block and the imports at the top. A rolldown `transform` runs it on the way in.
+
+- **The payoff is the bundle, and it is _not_ startup -- which the ticket had
+  backwards.** SIG-115 promised "a faster first frame and a smaller bundle".
+  Measured on a one-template fixture, the bundle goes from 122.9 kB to 116.7 kB
+  and the parser's own error string disappears from it, so the tag, the parser and
+  the IR walk really do shake out. Startup is **identical**: 39.4ms median either
+  way. A template parse is **1.6µs**, so five hundred of them come to 0.8ms
+  against node's own 39ms -- parsing templates was never the cost, and a claim
+  that it was would have gone on being repeated. What that reframes is the
+  _stylesheet_ half of the ticket, which is a different shape: a sheet is parsed
+  at startup rather than per render, and 383 rules are 0.63ms with the full
+  utility set at 7.29ms. That one may be a real startup win; this one is not.
+- **A `transform` rather than a pass over the app's files, and the filter is
+  native.** rolldown is what knows which modules are actually reached, so a
+  template in a file nothing imports costs nothing. The hook carries a `filter`
+  with a `code` pattern and an `id` pattern, which rolldown applies in Rust: a
+  module that cannot hold a template never crosses into JavaScript. That is worth
+  16ms against 2ms. Parsing every module to find out cost **16ms of a 101ms
+  build**; a substring test in the handler brought it to about 7; the native
+  filter brings the cost of having the plugin at all to **2ms**, measured
+  interleaved rather than sequentially because the noise is a few ms wide.
+  Verified rather than assumed: the handler is reached **zero** times for the
+  `buildable` fixture and **exactly once** for `templated`. There is deliberately
+  no second check inside the handler -- a guard that reads as load-bearing and is
+  not is the `nowrap` mistake in `report.ts`, one file along.
+- **The source map is not optional, and that is measured.** A rolldown transform
+  that returns code without a map does two things and only the first is loud: it
+  warns `SOURCEMAP_BROKEN`, and it **drops the module from the map altogether** --
+  a two-source map became one and the transformed file was simply not in it.
+  Sourcemaps are on by default here, so a code-only transform would quietly cost
+  every template-bearing module its map in exchange for a smaller bundle.
+  `{ mappings: "" }` is half an answer: it keeps the module listed and maps
+  nothing inside it. So the rewrite goes through `magic-string`, which tracks the
+  edits and produces a real map. This is also the sourcemap the emitter's own
+  entry defers to `sigil build` -- "_where in a module_ that template sat is what
+  `sigil build` knows, so the map belongs there" -- and it is why the `loc` values
+  the emitter prints stay **template-relative**: those are what make a compiled
+  template's error name the same line the interpreted one does, and the module
+  position is the map's job rather than theirs.
+- **`magic-string` is a new dependency and `RolldownMagicString` was the
+  alternative.** rolldown exports a native MagicString of its own, which would
+  have been zero new dependencies -- and it is marked `@experimental`, which is
+  not a thing to put on the critical path of every app's build when the
+  alternative is the 10 kB library rollup and vite both use for exactly this, and
+  which rolldown already brings into the lockfile. `the toolchain's dependencies`
+  in `packages/cli/test/cli.test.ts` writes the list out so that taking one is an
+  edit somebody makes on purpose; this is that edit.
+- **The prefix contract is the caller's, and `choosePrefix()` is the whole of
+  it.** `compile()` puts a prefix on every name it generates and cannot check that
+  the prefix is free, because it is handed IR rather than a file. It matters both
+  ways: outward, a local at the splice site shadows a generated name; inward, an
+  interpolated expression is printed back into the scope those locals are declared
+  in, so a template whose expression reads `$uie0` would read the generated one.
+  The scan is a plain `includes()` over the **whole** module -- comments and
+  strings included, which costs a longer name in a module that merely mentions the
+  prefix in prose and keeps the search from having to know where it is looking.
+  The test for it was **vacuous at first** and is worth knowing why: it declared
+  `$ui` and `$ui0` and passed with the scan disabled, because a prefix of `$ui`
+  generates `$uie0` and `$uis0` and collides with neither. A collision needs names
+  the emitter would actually produce, which is the prefix plus `e0`, `s0`, or an
+  imported helper.
+- **The imports go after a shebang, not before it.** `#!` is only a shebang on the
+  first line, so an `import` in front of it leaves a module whose first line is a
+  syntax error to node and which the kernel will not exec either. `'use strict'`
+  needs no such care: a module is strict anyway, so an import before it merely
+  makes it an ordinary string expression.
+- **Nothing is rewritten until every template in the module has parsed.** A
+  half-spliced module is a worse thing to hand a bundler than an error, so the IR
+  for all of them is built first and a failure throws a `TemplateCompileError`
+  naming the file, the line and the column. What is decidable from the IR fails
+  the build rather than the frame, which is the rule the utility generator already
+  follows by parsing every declaration it generates on the way out.
+- **The count is reported, because "no parser shipped" and "no templates" look
+  identical from outside.** `sigil build` says `1 command and 1 template into
+...`, and omits the clause entirely at zero rather than saying "0 templates" --
+  the toolchain's own build is the case that reads, since it has none. A build
+  that silently compiled none when the author wrote twelve is the failure worth
+  being able to see.
+- **The stylesheet half of SIG-115 is deliberately not here.** The ticket calls it
+  "less settled" and leaves three questions open -- what "as data" is, whether
+  class-name mangling is in scope at all when `FRAMEWORK_CSS` is documented as the
+  vocabulary a theme may restyle, and how it interacts with SIG-81 -- and answers
+  its own third question: shaking and compiling read the same sheet and should
+  probably be one pass. Doing it here would be settling those by accident. The
+  measurement above is also the argument for taking it _with_ SIG-81 rather than
+  alone, since a sheet is the one of the two whose parse really is on the startup
+  path.
 
 ### Writing the CLI in sigil
 
