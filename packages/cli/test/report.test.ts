@@ -270,16 +270,40 @@ describe('the toolchain report', () => {
 			// a tab measures nothing and draws a space, so a path holding one leaves
 			// the message column a column out -- which is the defect `table()`
 			// already carries an entry for, met here through a file name
-			const out = lines([diagnostic({ file: 'a\tb.ts', message: 'x'.repeat(200) })], {
-				env: {},
-				stream: { columns: 60, isTTY: false },
-			});
+			// real words rather than one 200-character run: a single word longer than
+			// the line now overflows by design, which is the rule below, so a
+			// pathological one would fail this for the wrong reason
+			const out = lines(
+				[
+					diagnostic({
+						file: 'a\tb.ts',
+						message: 'several ordinary words that have to wrap somewhere',
+					}),
+				],
+				{ env: {}, stream: { columns: 60, isTTY: false } }
+			);
 
 			// every wrapped line fits, which is what being a column out breaks
+			expect(out.length).toBeGreaterThan(1);
 			for (const line of out) {
 				expect(stringWidth(line)).toBeLessThanOrEqual(60);
 			}
 			expect(out[0]).toContain('a b.ts');
+		});
+
+		it('should never break a path inside a message either', () => {
+			// the half of this that was left undone: summaries were fixed to stop
+			// breaking words and a *message* embeds a path just as readily -- the
+			// `baseDir` warning names the directory each side resolves against, and at
+			// 80 columns it came out as `.../test/fixture` then `s/typecheck/broken`,
+			// broken mid-token in the one sentence whose job is to say which directory
+			const path = '/Users/someone/projects/sigil/packages/cli/test/fixtures/typecheck/broken';
+			const out = lines(
+				[diagnostic({ message: `this resolves it against ${path} while the runtime does not` })],
+				{ env: {}, stream: { columns: 80, isTTY: false } }
+			);
+
+			expect(out.join('\n')).toContain(path);
 		});
 
 		it('should keep a location wider than the terminal whole rather than cutting it', () => {

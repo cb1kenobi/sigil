@@ -77,7 +77,6 @@ import { type ColorLevel, supportsColor } from '@ttylabs/sigil/ansi';
 import {
 	box,
 	type Element,
-	paragraph,
 	renderToString,
 	text as textNode,
 	type TextRun,
@@ -344,7 +343,9 @@ function diagnosticRow(diagnostic: Diagnostic, opts: { width: number }): Element
 	// whitespace the author put there is structure -- rather than two.
 	const body = (props: { 'padding-left'?: number; width: number }): Element => {
 		if (!VERBATIM.test(message)) {
-			return paragraph([message], { 'flex-shrink': 0, ...props });
+			// never breaks a word, because a message embeds a path as readily as a
+			// summary does -- see `wordsView()`
+			return wordsView([message], { 'flex-shrink': 0, ...props });
 		}
 
 		// The width is the whole mechanism, and it is worth saying which property is
@@ -431,13 +432,49 @@ function diagnosticRow(diagnostic: Diagnostic, opts: { width: number }): Element
  * @returns The line.
  */
 export function summaryView(runs: readonly (TextRun | string)[], width: number): Element {
+	return wordsView(runs, { width });
+}
+
+/**
+ * Prose that wraps between its words and never inside one.
+ *
+ * Every prose path in a report goes through this rather than through
+ * `paragraph()`, and the difference is one property with one consequence.
+ * `paragraph()` gives each word `min-width: 0` **on purpose**, so a word too long
+ * for the line is broken rather than left to run off the edge -- that is what
+ * `wrap()` does, and a paragraph disagreeing with the wrapper is a help screen
+ * wider than the terminal.
+ *
+ * It is the wrong answer for everything here, because a report's words are mostly
+ * paths. A summary ends in one; a *message* embeds one -- the `baseDir` warning
+ * names the directory each side would resolve against, and at 80 columns that came
+ * out as `.../test/fixture` then `s/typecheck/broken`, broken mid-token in the one
+ * sentence whose whole job is to tell somebody which directory. This file already
+ * says a path is not prose and that wrapping one breaks the thing somebody copies.
+ * Fixing it for the summary and not for the message was half a fix, and the half
+ * that was left is the one a user reads first.
+ *
+ * So each word keeps its automatic minimum, which for a one-word text is the whole
+ * of it: the row wraps between words, never inside one, and a word longer than the
+ * terminal overflows the way the location prefix and help's own labels do. The grid
+ * grows to its content, so nothing is lost either way -- what changes is whether
+ * the path on screen is still one token.
+ *
+ * @param runs - The runs, in order.
+ * @param props - The width, and any indent.
+ * @returns The row.
+ */
+function wordsView(
+	runs: readonly (TextRun | string)[],
+	props: { 'flex-shrink'?: number; 'padding-left'?: number; width: number }
+): Element {
 	const words: Element[] = [];
 
 	for (const run of runs) {
 		const { class: classes, text } =
 			typeof run === 'string' ? { class: undefined, text: run } : run;
 
-		// split on whitespace for the reason `paragraph()` does: a run is prose, and
+		// split on whitespace for the reason `paragraph()` did: a run is prose, and
 		// the gap between two words on a line is the row's own `column-gap`
 		for (const word of text.split(/\s+/)) {
 			if (word !== '') {
@@ -446,7 +483,7 @@ export function summaryView(runs: readonly (TextRun | string)[], width: number):
 		}
 	}
 
-	return box({ 'column-gap': 1, 'flex-direction': 'row', 'flex-wrap': 'wrap', width }, ...words);
+	return box({ 'column-gap': 1, 'flex-direction': 'row', 'flex-wrap': 'wrap', ...props }, ...words);
 }
 
 /**

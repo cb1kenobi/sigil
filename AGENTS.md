@@ -3685,8 +3685,8 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   way round -- rendering the one-line form through the cascade so it can be
   coloured -- costs the byte-for-byte promise above for a colour nobody has ever
   had here. So it stays, written down, rather than fixed into something worse.
-- **A summary is a wrapping row of `nowrap` words, because every summary here ends
-  in a path.** `paragraph()` gives each word `min-width: 0` **on purpose**, so that
+- **Every prose path in a report is a wrapping row of `nowrap` words, because a
+  report's words are mostly paths.** `paragraph()` gives each word `min-width: 0` **on purpose**, so that
   a word too long for the line is broken rather than left to run off the edge --
   that is what `wrap()` does, and a paragraph disagreeing with the wrapper is a
   help screen wider than the terminal. It is the wrong answer for a summary: at 80
@@ -3699,6 +3699,21 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   row wraps _between_ words and never inside one, and a word longer than the
   terminal overflows the way the location prefix and help's own labels do. `main`
   printed both as one line on a terminal, because nothing wrapped them at all.
+
+  Fixing it for the summary alone was half a fix, and the half left behind was the
+  one a user reads first: a **message** embeds a path as readily as a summary
+  does. `index.ts:1:35: warning: "commands" is a relative path ...` names the
+  directory each side would resolve against, and at 80 columns that path came out
+  as `.../test/fixture` then `s/typecheck/broken` -- broken mid-token in the one
+  sentence whose whole job is to say which directory. Found by running the repo's
+  own `typecheck/broken` fixture while writing down how to test the change by
+  hand, which is the argument for doing that at all: the suite renders at the
+  fallback width with no terminal, so it had nothing to say about it. So there is
+  one `wordsView()` and `paragraph()` is no longer used here at all. The cost is
+  that a single word longer than the line overflows instead of being broken, which
+  is the right trade when the words are paths and is why a test that had used
+  `'x'.repeat(200)` to measure the prefix now uses real ones.
+
 - **Prose wraps whatever the destination is, which is the other half of the rule
   above.** A diagnostic is a record -- something greps it, something jumps to it
   -- so off a terminal it stays on one line. A note is a paragraph somebody reads,
