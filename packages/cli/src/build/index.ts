@@ -12,17 +12,21 @@
  * - `extractCommand()` reads one command module for the `desc` and `hidden`
  *   that the runtime cannot know without importing it.
  * - `findTemplates()` finds the `ui` templates in a module, which is the half
- *   `@ttylabs/cli/template` has always been handed rather than found.
+ *   `src/template/` has always been handed rather than found.
  * - `generateCommands()` prints a resolved tree as the schema literal a built
  *   app carries, with a lazy `import()` per command.
  * - `typeCheck()` runs the app's own `tsc` over the app's own `tsconfig.json`,
  *   because a build that says an app is fine and then fails the app's `tsc` has
  *   been wrong about the one thing it was asked.
+ * - `bundleApp()` feeds all of that to rolldown and writes the executable.
  *
- * What is deliberately not here yet is the bundler: everything above produces
- * source, data, or a verdict, and the bundling stage is what feeds the result
- * to rolldown. That split is the useful one -- every pass here is testable with
- * a fixture directory and no bundler at all.
+ * The split between the read passes and that last one is the useful one, and it
+ * is why this doc comment said for a while that the bundler was "deliberately
+ * not here yet": everything above `bundleApp()` produces source, data or a
+ * verdict, so every one of those passes is testable with a fixture directory and
+ * no bundler at all. The bundler arrived and the sentence stayed, which is the
+ * same defect `route-info.ts` was deleted for one file along -- a comment naming
+ * what is not there, in a repository where nothing in a build reads a comment.
  */
 
 export {

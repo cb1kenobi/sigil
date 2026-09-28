@@ -3663,24 +3663,31 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   what stands between it and the next cleanup.
 - **Except the lift-and-print module outlived everything around it, and dead
   code carrying instructions is worse than dead code.**
-  `packages/cli/src/build/route-info.ts` was 224 lines reachable only through a
-  barrel re-export -- `liftRouteInfo()` and `printRouteInfo()` were named
-  nowhere else in `src`, `test`, `scripts`, `demos` or `website` -- and what it
-  printed was a header telling the reader to run
-  `node scripts/generate-commands.mjs` and pointing at a drift check called
-  `the committed route info`. Neither existed. `packages/cli/scripts/` holds
-  `generate-utilities.mjs` and nothing else, and while `test/commands.test.ts`
-  does exist it has never held a test by that name. An uncalled function is a
-  thing somebody deletes; an uncalled function that tells you to run a script
-  that is not there is a thing somebody goes looking for the script for. It was
-  not merely uncalled but **superseded**: `tree.ts` walks with the same
-  `readRoutes()`, reads the same `desc` and `hidden` through the same
-  `factsOf()`, prefers a package's own manifest the same way, and reports
-  through `diagnostic.ts` rather than a flat `problems: string[]` -- so it is
-  the same pass with the repo's one diagnostic shape and a `load` per command at
-  the end of it. rolldown had been shaking it out of every bundle, so nothing
-  shipped was wrong and nothing measurable was reclaimed; what it cost was
-  entirely paid by whoever read it.
+  `packages/cli/src/build/route-info.ts` -- the _generator_, which is a
+  different file from the committed `src/route-info.ts` it generated, and the
+  one-directory difference between the two names is most of why this survived a
+  change that deleted the other -- was 224 lines reachable only through a barrel
+  re-export, with `liftRouteInfo()` and `printRouteInfo()` named nowhere else in
+  `src`, `test`, `scripts`, `demos` or `website`. What it printed was a header
+  telling the reader to run `node scripts/generate-commands.mjs` and pointing at
+  a drift check called `the committed route info`. **Both of those were real and
+  both had been deleted**, which is a sharper thing than a header that was
+  always wrong: `describe('the committed route info')` lived in
+  `test/commands.test.ts` and called these two functions, and the commit that
+  made `pnpm build` self-hosting took the suite, the script and the committed
+  file and left the printer still describing all three. So the lesson is not
+  "somebody wrote a fictional instruction", it is that a **correct** comment
+  becomes a false one when what it names is deleted around it, and nothing in a
+  build catches a string. An uncalled function is a thing somebody deletes; an
+  uncalled function telling you to run a script that is no longer there is a
+  thing somebody goes looking for the script for. It was also not merely
+  uncalled but **superseded**: `tree.ts` walks with the same `readRoutes()`,
+  reads the same `desc` and `hidden` through the same `factsOf()`, prefers a
+  package's own manifest the same way, and reports through `diagnostic.ts`
+  rather than a flat `problems: string[]` -- so it is the same pass with the
+  repo's one diagnostic shape and a `load` per command at the end of it.
+  rolldown had been shaking it out, so nothing shipped was wrong and nothing
+  measurable is reclaimed; what it cost was paid entirely by whoever read it.
 - **What replaced `routeInfo` is not `routeInfo`, and that is why three
   sentences about it were wrong.** `sigil build` emits a `commands` literal
   whose entries carry `desc`, `hidden` and a `load` -- `generateBin()` writes
