@@ -3956,34 +3956,48 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   colour level rather than on `isTTY` fails exactly two -- the `FORCE_COLOR` test
   and the `NO_COLOR` one, which are the two halves of that rule and nothing else.
 
-  **A third vacuity is the build rather than the test, and it is the sharpest of
-  them.** These spawn `dist/sigil.mjs`, so an edit to `src/` that has not been
-  rebuilt is asserted against the previous binary: `isTerminal()` changed to
-  return `false` with no rebuild passes every one of them, and the same edit
-  rebuilt fails seven. A missing `dist/` was already loud; a _stale_ one was silent, which is
-  worse, and it is silent in exactly the loop somebody works in -- `pnpm test`
-  builds first, a bare `pnpm vitest run` on one file does not. So the binary's
-  `mtime` is compared against the newest thing under `src/`. By `mtime` rather than
-  by a hash because a turbo cache hit restores `dist/` with the restore time on it
-  -- measured, with `dist/` present and absent, and with the directories carrying
-  the restore time too -- so the comparison holds on a cached build as well as on a
-  fresh one.
+  **A third vacuity is the build rather than the test, and nothing checks it,
+  which is a decision that cost two attempts.** These spawn `dist/sigil.mjs`, so an
+  edit to `src/` that has not been rebuilt is asserted against the previous binary:
+  `isTerminal()` changed to return `false` with no rebuild passes every one of
+  them, and the same edit rebuilt fails. A missing `dist/` is loud -- `existsSync`
+  says so and names the build -- while a _stale_ one is silent, which is worse, and
+  silent in exactly the loop somebody works in, since `pnpm test` builds first and a
+  bare `pnpm vitest run` on one file does not.
 
-  **Every output against every input, and the first version compared the one file
-  in `dist/` that says least.** It stat'ed `dist/sigil.mjs`, which is a 1.2 kB
-  loader: the code these tests are about is in `dist/chunks/report-*.mjs`, so a
-  corrupted chunk with a touched entry passed the guard while failing most of the
-  tests under it. The floor is the _oldest_ thing `sigil build` wrote, and the
-  directories count at both ends -- on the source side because a deleted file is
-  otherwise invisible, since the newest file left is no newer than it was, and on
-  the output side because touching a file does not move the listing it is in. It is
-  deliberately conservative in one direction: reverting a real edit bumps the
-  source's `mtime`, so it asks for a rebuild the bytes did not need. A spurious
-  `pnpm build` is 0.7 seconds and a silent pass is an afternoon. And it does not
-  reach another package's build -- `@ttylabs/sigil` is external in this bundle, so a
-  change to _its_ source arrives through _its_ `dist/`, and one test policing two
-  packages' builds is the wrong place for it when `pnpm test` builds the workspace
-  in dependency order.
+  Two proxies for it were written and both fired on correct code. **mtimes** --
+  every output against every input, directories counted so a deleted source file is
+  not invisible -- fail in a way `pnpm build` cannot clear: a source file's
+  timestamp moves without its content changing on a branch switch, a
+  `git stash pop`, a revert or a `cp` restore, turbo's hash is then unchanged, so
+  the rebuild the message asks for is a cache hit that does not touch `dist/` at
+  all, the mtimes never move, and the failure is unsatisfiable. Measured on a
+  pristine tree. **Turbo's own hash** is content-based and authoritative, and
+  `turbo run build --dry-run=json` is the way to ask it -- and it is worse here for
+  a reason only measurement finds: that hash moves for _any_ modified file in the
+  workspace rather than only the task's declared `inputs`. Appending a comment to
+  `test/output-forms.test.ts` flips both `@ttylabs/cli#build` and
+  `@ttylabs/sigil#build` from HIT to MISS with `src/` untouched, so the guard would
+  fail for whoever is editing the test -- the one situation it runs in most. It also
+  says MISS after `node src/sigil.ts build`, which is the package's own build
+  command and the one to reach for while working on the toolchain, because turbo
+  only records what turbo ran. Combining them does not rescue either: the mtime
+  screen fires on the bumped timestamp and turbo, with the test file dirty, agrees.
+
+  So there is no proxy here that is both satisfiable and quiet on correct code, and
+  a check that fires on correct code teaches people to ignore checks -- which this
+  file would have been teaching about itself. What actually guarantees a fresh
+  `dist/` is the `test` script building first, and the rule this file already
+  records: `@ttylabs/cli` needs a build before its tests mean anything, which is
+  true of `commands.test.ts` and the demos as well and is answered there the same
+  way. The residual hazard is written into the test rather than guarded, and every
+  sabotage recorded above was run with a rebuild in between for exactly that
+  reason. Worth knowing what the abandoned version got right on its way out, since
+  it is the shape anybody trying again will reach for: the floor has to be the
+  _oldest_ thing the build wrote, because `dist/sigil.mjs` is a 1.2 kB loader and
+  the code these tests are about is in `dist/chunks/report-*.mjs` -- so comparing
+  the entry alone let a corrupted chunk with a touched entry pass while failing most
+  of the tests under it.
 
 - **The terminal is a spawned child that answers `isTTY`, not a pty.** Node has
   no pty and this repo has no pty dependency; taking one to read a boolean back is
@@ -4005,10 +4019,11 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   says nothing about terminal modes -- `report.ts` writes plain lines and sets
   none. `scripts/terminal-probe.mjs` is where a claim only a real terminal can
   falsify belongs, and none of these is one. The fake is itself sabotage-checked,
-  for the reason the tests are: a preload that does nothing fails nine, so it is
-  load-bearing rather than decoration -- and the ninth is the `NO_COLOR` test,
-  which passed until it grew a "did this really lay out" guard of its own, since
-  with no terminal at all both sides of its comparison are the piped form.
+  for the reason the tests are: a preload that does nothing fails every test that
+  is about the laid-out form, so it is load-bearing rather than decoration. The
+  `NO_COLOR` test is among them only because it grew a "did this really lay out"
+  guard of its own -- with no terminal at all, both sides of its comparison are the
+  piped form and it passed while saying nothing.
 - **A width a report is laid out in is not a length to assert, because the
   checkout's own path is in it.** The does-not-break-a-path test first asserted
   that the line holding the `baseDir` warning's absolute path was _wider than the
@@ -4034,7 +4049,8 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   plain-text path already records that a carriage return in a log file is not a line
   ending anybody asked for. A strip would have let a switch to CRLF stay green --
   measured, all of them passed with `report.ts` writing `\r\n` -- where asserting
-  its absence fails twelve. The same shape as a property the engine ignores:
+  its absence catches it in the line counts as well as in the three tests named for
+  it. The same shape as a property the engine ignores:
   tolerating something quietly is worse than saying what is meant.
 - **The differential's own path handling was the Conventions entry about Windows
   fixtures, committed verbatim.** It took the absolute output directory back out of

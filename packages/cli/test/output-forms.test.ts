@@ -1,6 +1,6 @@
 import { ESC, hasAnsi, strip } from '@ttylabs/sigil/ansi';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -351,76 +351,45 @@ afterAll(() => {
 	}
 });
 
-/**
- * The newest and the oldest `mtimeMs` in a tree, with the directories counted.
- *
- * Directories, and they earn it at both ends. On the source side a *deleted* file
- * is otherwise invisible -- the newest file left is no newer than it was, while
- * the directory that held it has moved. On the output side they are the floor that
- * a `touch` of one file cannot lift, since touching a file does not move the
- * directory listing it is in. Measured: a turbo cache hit restores the
- * directories with the restore time on them too, so nothing about this trips on a
- * cached build.
- *
- * @param dir - Where to look.
- * @returns The extremes beneath it, directories included.
- */
-function mtimes(dir: string): { newest: number; oldest: number } {
-	let newest = statSync(dir).mtimeMs;
-	let oldest = newest;
-
-	for (const entry of readdirSync(dir, { withFileTypes: true })) {
-		const path = join(dir, entry.name);
-		const { newest: hi, oldest: lo } = entry.isDirectory()
-			? mtimes(path)
-			: { newest: statSync(path).mtimeMs, oldest: statSync(path).mtimeMs };
-		newest = Math.max(newest, hi);
-		oldest = Math.min(oldest, lo);
-	}
-
-	return { newest, oldest };
-}
-
 describe('the built binary', () => {
-	it('should be there and built from what src/ currently holds', () => {
+	it('should be there, because everything below spawns it', () => {
 		// loud rather than skipped: `it.runIf` on a missing `dist/` turns every
 		// assertion in this file into a pass, which is the failure a whole entry in
 		// AGENTS.md is written about -- a glob that matches nothing exits zero.
+		//
+		// A *stale* `dist/` is the other half and is deliberately not checked here,
+		// which is a decision rather than an oversight: two proxies for it were
+		// written, measured, and both fired on correct code.
+		//
+		// mtimes -- every output against every input -- fail in a way `pnpm build`
+		// cannot clear. A source file's timestamp moves without its content changing
+		// on a branch switch, a `git stash pop`, a revert or a `cp` restore; turbo's
+		// hash is then unchanged, so the rebuild the message asks for is a cache hit
+		// that does not touch `dist/` at all, the mtimes never move, and the failure
+		// is unsatisfiable. Measured on a pristine tree.
+		//
+		// Turbo's own hash is content-based and authoritative, and asking it
+		// (`turbo run build --dry-run=json`) is worse here for a reason only
+		// measurement finds: the hash is sensitive to *any* modified file in the
+		// workspace and not only to the task's declared `inputs`. Appending a comment
+		// to this very file flips `@ttylabs/cli#build` and `@ttylabs/sigil#build` from
+		// HIT to MISS with `src/` untouched -- so the guard would fail for whoever is
+		// editing the test, which is the one situation it runs in most. It also says
+		// MISS after `node src/sigil.ts build`, the package's own build command and
+		// the one to reach for while working on the toolchain, because turbo only
+		// records what turbo ran. Combining the two does not help: the mtime screen
+		// fires on the bumped timestamp and turbo, with this file dirty, agrees.
+		//
+		// So there is no proxy available that is both satisfiable and quiet on correct
+		// code, and a check that fires on correct code teaches people to ignore
+		// checks -- which this file would be teaching about itself. What actually
+		// guarantees a fresh `dist/` is the `test` script building first, and the rule
+		// AGENTS.md already records: `@ttylabs/cli` needs a build before its tests
+		// mean anything. The residual hazard is a bare `pnpm vitest run` on this file
+		// after editing `src/` without rebuilding, which reads the previous binary and
+		// passes; every sabotage recorded for this file was run with a rebuild in
+		// between for exactly that reason.
 		expect(existsSync(bin), `${bin} is missing; run \`pnpm build\``).toBe(true);
-
-		// and the *stale* case is the one that is silent, which is worse. Measured:
-		// edit `report.ts` so that a terminal gets the piped form, skip the rebuild,
-		// and all thirty of these pass -- because they spawn `dist/` and nothing
-		// compared the two. `pnpm test` builds first so the ordinary path is fine; a
-		// bare `pnpm vitest run` on this file after an edit is not, and that is the
-		// loop somebody actually works in.
-		//
-		// Every output against every input, rather than the entry against the newest
-		// source. The entry is a 1.2 kB loader and the code these tests are about is
-		// in `dist/chunks/report-*.mjs`, so `statSync(bin)` answered for the one file
-		// in `dist/` that says least: touch it and a corrupted chunk passes the
-		// guard while failing twenty-one of the tests under it. The oldest thing
-		// `sigil build` wrote is the honest floor.
-		//
-		// mtimes rather than a hash, because a turbo cache hit restores the whole of
-		// `dist/` with the restore time on it -- measured, chunks included -- so the
-		// comparison holds on a cached build as well as on a fresh one. It is
-		// deliberately conservative in one direction: reverting a real edit bumps the
-		// source's mtime, so it asks for a rebuild that the bytes did not need. A
-		// spurious `pnpm build` is 0.7s and a silent pass is an afternoon.
-		//
-		// What it does not reach is another package's build. `@ttylabs/sigil` is
-		// external in this bundle, so a change to *its* source reaches these tests
-		// through *its* `dist/`, and one test policing two packages' builds is the
-		// wrong place for it -- `pnpm test` builds the workspace in dependency order,
-		// which is where that belongs.
-		const src = mtimes(join(pkg, 'src'));
-		const built = mtimes(join(pkg, 'dist'));
-
-		expect(
-			built.oldest,
-			`packages/cli/dist is older than packages/cli/src; run \`pnpm build\``
-		).toBeGreaterThanOrEqual(src.newest);
 	});
 });
 
