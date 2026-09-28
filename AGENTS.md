@@ -3865,7 +3865,9 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   comma is what `main` printed; the comma rides on the run before it, since a run
   is a _word_ and a lone comma would be drawn with a space in front of it. The
   first version of this promise had only ever been checked against `check`, which
-  is how the `build` difference survived being written down as verified. The two forms cannot
+  is how the `build` difference survived being written down as verified -- and it
+  was checked by hand either way, which is the gap the two entries below close.
+  The two forms cannot
   drift in the part that matters, because the location is
   `diagnosticLocation()`'s and both print it -- which is what that function was
   extracted for, and what stopped `formatDiagnostic()` being dead code the moment
@@ -3880,6 +3882,85 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   deliberately **not** the colour level: `NO_COLOR` on a real terminal means "no
   colour", not "no layout", and a report that unwrapped itself over it would be
   reading one setting as though it were another.
+- **Both forms are spawned and asserted, and what is pinned is the claim rather
+  than the bytes.** Nothing in the suite ran either of them. `report.test.ts`
+  reaches `report.ts` directly and has to, since a vitest worker's stderr has no
+  `columns` and no `isTTY`, so every render through `run()` comes out at the
+  fallback width with no colour -- the one case that cannot fail -- while
+  `check.test.ts` and `build-command.test.ts` spy on `process.stderr.write` and
+  assert on substrings, which survives any amount of wrapping. The byte
+  comparison the entry above records was a `diff` against a `main` worktree run
+  by hand, which is not a check anybody runs twice, and the `build` regression is
+  what that cost. `test/output-forms.test.ts` spawns `dist/sigil.mjs` for both
+  forms, which is the precedent `demos.test.ts` set and for its reason: a test
+  that renders through vite is not a test of what a user's terminal gets.
+
+  **A snapshot was the obvious answer and is the wrong one.** Its baseline is not
+  "what this was before any of it was rendered", it is whatever was current the
+  last time somebody regenerated it -- and regenerating is what a failing
+  snapshot teaches you to do. The regression this exists for is the proof: a
+  snapshot would have flagged ` (2 warnings)` and a regenerate would have blessed
+  it, because nothing in a snapshot says which of the two answers is right. So
+  each claim is asserted as itself, which is the rule the canvas diff's own tests
+  already follow. **One line per record**, counted twice over -- the diagnostics
+  by their shape, and then every non-empty line there is, because a wrap in the
+  note or in the summary adds a line that is not a diagnostic and only the total
+  sees it. **The grep case derived rather than written down**: every place the
+  laid-out form broke a line is read back off it, the phrase spanning the break is
+  assembled, and the pipe has to contain it while the terminal must not -- the
+  1-to-0 measurement automated, and it cannot go quietly stale against a reworded
+  message the way a constant would. **The two forms differentially**, since
+  `report.ts` claims they differ only in the wrapping and the colour: take the
+  colour off, collapse the whitespace, and they are one report. And **the grammar
+  of the one line a rewording moves**, because the differential is exactly blind
+  to the regression that happened -- both forms are built from the same runs, so
+  ` (2 warnings)` changed both and they went on agreeing perfectly. That is the
+  argument for having the grammar as well as the differential rather than a
+  preference: `/ into \S+, 1 warning$/` is the only one of the thirty assertions
+  that fails when the historical defect is put back. What a byte comparison would
+  catch and these do not is both forms being reworded together, which is a change
+  somebody makes on purpose; what they catch is every way the split fails by
+  accident, and each of them names what it is for when it fails.
+
+  **Two of them were vacuous when first written, and the sabotage is what said
+  so.** The `awk -F:` test filtered stderr to the lines matching
+  `file:line:column:` and then read their fields, so a form that stopped being
+  that shape at all left the filter empty and every assertion under it passed --
+  the glob that matches nothing, one directory along. It asserts the count first
+  now. And the does-not-break-a-path test passed with the laid-out form removed
+  entirely, because an unwrapped diagnostic does not break a path either; it
+  asserts that the render wrapped before it asserts what the wrapping did to the
+  path. Sabotage is the only thing that finds either, and the numbers are worth
+  keeping: making the piped diagnostics wrap fails eight, giving a pipe the
+  laid-out form and colour fails fourteen, giving a terminal the piped form fails
+  six, dropping the location's column fails three -- through the differential,
+  which is what it is for -- breaking a long word the way `paragraph()` does fails
+  four, and keying the layout on the colour level rather than on `isTTY`, which is
+  the tidy-up the `FORCE_COLOR` entry below says must not be taken, fails exactly
+  one.
+
+- **The terminal is a spawned child that answers `isTTY`, not a pty.** Node has
+  no pty and this repo has no pty dependency; taking one to read a boolean back is
+  the kind of decision `the toolchain's dependencies` exists to make deliberate.
+  What `report.ts` reads about a destination is `stream.isTTY` and
+  `stream.columns` and nothing else -- `ReportStream` is those two fields -- so
+  the child is the real binary with real pipes, preloaded with a module that
+  defines `isTTY` on its own streams, and `COLUMNS` says the width, which is what
+  `terminalWidth()` documents it for. `defineProperty` rather than an assignment,
+  because a piped `process.stdout` is not a `tty.WriteStream` and what it does
+  with a write to a property it never declared is not a thing to depend on; a
+  `data:` URL rather than a file, so the source of the fake sits beside the test
+  that explains it. Everything `supportsColor()` reads is cleared out of the
+  child's environment first, because `CI` and `GITHUB_ACTIONS` are set on nine of
+  the places this runs and either decides the level for a destination claiming to
+  be a TTY -- a test that left them alone would assert a different colour on a
+  laptop than in CI. What the fake does not prove is that node reports `isTTY`
+  correctly for a real pty, which is node's claim rather than this repo's, and it
+  says nothing about terminal modes -- `report.ts` writes plain lines and sets
+  none. `scripts/terminal-probe.mjs` is where a claim only a real terminal can
+  falsify belongs, and none of these is one. The fake is itself sabotage-checked,
+  for the reason the tests are: a preload that does nothing fails seven of the
+  thirty, so it is load-bearing rather than decoration.
 - **The report asks the stream it is going to, and that is not the process.**
   Diagnostics and summaries go to stderr while `--tree` and the chunk sizes go to
   stdout, so that a tree can be piped without losing the problems -- and those
@@ -3902,7 +3983,9 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   independent on purpose -- layout follows `isTTY`, colour follows the level --
   so `FORCE_COLOR=3 sigil check --tree | cat` is a coloured table on stdout and
   plain one-line diagnostics on stderr. Measured: two escapes on stdout, none on
-  stderr. It is what `main` did too, since the diagnostics carried no colour at
+  stderr -- and pinned now by `should colour the tree and not the diagnostics
+under FORCE_COLOR`, because an entry saying "do not fix this" is worth less than
+  a test that fails when somebody does. It is what `main` did too, since the diagnostics carried no colour at
   all there and the table has always read the process styler, so nothing
   regressed -- and the obvious tidy-up is the one that must not be taken. Keying
   the pretty form on the colour _level_ instead would make `FORCE_COLOR`
@@ -4003,7 +4086,10 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   through `run()`, because a vitest worker's stderr has no `columns` and no
   `isTTY` -- so every render through the CLI comes out at the fallback width with
   no colour, which is the one case that cannot fail. `ReportStream` is an
-  interface for exactly that reason.
+  interface for exactly that reason. Which is also why it cannot be the whole
+  answer, and `output-forms.test.ts` is the other half: what a user's terminal
+  gets is what the _binary_ writes, and reaching that means a spawned child rather
+  than an interface satisfied in-process.
 
 #### There is no live display in the toolchain, and that is measured
 
