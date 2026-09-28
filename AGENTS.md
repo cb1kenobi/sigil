@@ -4224,16 +4224,22 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   the rebuild the message asks for is a cache hit that does not touch `dist/` at
   all, the mtimes never move, and the failure is unsatisfiable. Measured on a
   pristine tree. **Turbo's own hash** is content-based and authoritative, and
-  `turbo run build --dry-run=json` is the way to ask it -- and it is worse here for
-  a reason only measurement finds: that hash moves for _any_ modified file in the
-  workspace rather than only the task's declared `inputs`. Appending a comment to
-  `test/output-forms.test.ts` flips both `@ttylabs/cli#build` and
-  `@ttylabs/sigil#build` from HIT to MISS with `src/` untouched, so the guard would
-  fail for whoever is editing the test -- the one situation it runs in most. It also
-  says MISS after `node src/sigil.ts build`, which is the package's own build
-  command and the one to reach for while working on the toolchain, because turbo
-  only records what turbo ran. Combining them does not rescue either: the mtime
-  screen fires on the bumped timestamp and turbo, with the test file dirty, agrees.
+  `turbo run build --dry-run=json` is the way to ask it -- and it is still worse
+  here, though for one reason now rather than two. The reason that is **gone** was
+  the better of the two and is worth keeping written down, because it was a defect
+  and not a property: that hash used to move for _any_ modified file in the
+  workspace rather than only the task's declared `inputs`, so appending a comment to
+  `test/output-forms.test.ts` flipped both `@ttylabs/cli#build` and
+  `@ttylabs/sigil#build` from HIT to MISS with `src/` untouched -- the guard would
+  have failed for whoever was editing the test, the one situation it runs in most.
+  That was the root manifest's `workspace:` dependencies putting every file of both
+  packages in turbo's global hash, it is fixed, and the entry under "## Layout"
+  records it; a test edit is a cache hit now. The reason that **remains** is enough
+  on its own: turbo says MISS after `node src/sigil.ts build`, which is the
+  package's own build command and the one to reach for while working on the
+  toolchain, because turbo only records what turbo ran -- re-measured, and it
+  reports `MISS` over a `dist/` that is freshly and correctly built. Combining the
+  two does not rescue either, since that is the same build both of them misread.
 
   So there is no proxy here that is both satisfiable and quiet on correct code, and
   a check that fires on correct code teaches people to ignore checks -- which this
