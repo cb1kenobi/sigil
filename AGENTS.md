@@ -3916,8 +3916,8 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   to the regression that happened -- both forms are built from the same runs, so
   ` (2 warnings)` changed both and they went on agreeing perfectly. That is the
   argument for having the grammar as well as the differential rather than a
-  preference: `/ into \S+, 1 warning$/` is the only one of the thirty assertions
-  that fails when the historical defect is put back. What a byte comparison would
+  preference: `/ into \S+, 1 warning$/` is the only assertion in the file that
+  fails when the historical defect is put back. What a byte comparison would
   catch and these do not is both forms being reworded together, which is a change
   somebody makes on purpose; what they catch is every way the split fails by
   accident, and each of them names what it is for when it fails.
@@ -3930,31 +3930,60 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   now. And the does-not-break-a-path test passed with the laid-out form removed
   entirely, because an unwrapped diagnostic does not break a path either; it
   asserts that the render wrapped before it asserts what the wrapping did to the
-  path. Sabotage is the only thing that finds either, and the numbers are worth
-  keeping: making the piped diagnostics wrap fails eight, giving a pipe the
-  laid-out form and colour fails **seventeen**, giving a terminal the piped form
-  fails six, dropping the location's column fails three -- two of them through the
-  differential, which is what it is for, and the third because the hanging-indent
-  test cannot find a `file:line:column:` to measure from -- breaking a long word
-  the way `paragraph()` does fails four, and keying the layout on the colour level
-  rather than on `isTTY`, which is the tidy-up the `FORCE_COLOR` entry below says
-  must not be taken, fails exactly one. Seventeen was fourteen when it was first
-  written down, and the three it was missing are the `awk -F:` tests -- measured
-  before the count assertion was added to them and then not measured again, which
-  is the same defect as a stale snapshot arriving in an entry about why not to keep
-  one.
+  path. Sabotage is the only thing that finds either.
+
+  **What a sabotage catches is worth recording and how many tests it catches is
+  not, which took two goes to learn.** The count was written down three times and
+  was wrong twice, both times for the same reason and neither time because the code
+  moved: a sabotage measured before a test was hardened, and then not measured
+  again. Giving a pipe the laid-out form and colour was fourteen before the
+  `awk -F:` tests grew their count assertion and is eighteen now; giving a terminal
+  the piped form was six before the build-path test grew its `wrapped()` guard and
+  is seven. A number in this file that only a re-run can confirm is the stale
+  snapshot this entry was written against, arriving one level up -- so what is
+  recorded is the shape. Making the piped diagnostics wrap is caught by the
+  line counts. Colouring a pipe is caught by those and by the `awk -F:` shape,
+  since a coloured location does not start with a file name. Giving a terminal the
+  piped form is caught by the hanging indent, the two colour tests, the stacked
+  case and both path tests. Dropping the location's column is caught by the
+  differential -- and by the hanging-indent test, which cannot find a
+  `file:line:column:` to measure from at all, so that one is not the differential
+  doing its job however much it looks like it. Breaking a long word the way
+  `paragraph()` does is caught by both path tests and both differentials. Writing
+  CRLF is caught by the line counts and by the three tests that say a pipe gets a
+  bare newline. Two are worth a number because the number _is_ the claim: the
+  historical parenthetical fails exactly one assertion, and keying the layout on the
+  colour level rather than on `isTTY` fails exactly two -- the `FORCE_COLOR` test
+  and the `NO_COLOR` one, which are the two halves of that rule and nothing else.
 
   **A third vacuity is the build rather than the test, and it is the sharpest of
   them.** These spawn `dist/sigil.mjs`, so an edit to `src/` that has not been
   rebuilt is asserted against the previous binary: `isTerminal()` changed to
-  return `false` with no rebuild passes all thirty, and the same edit rebuilt fails
-  six. A missing `dist/` was already loud; a _stale_ one was silent, which is
+  return `false` with no rebuild passes every one of them, and the same edit
+  rebuilt fails seven. A missing `dist/` was already loud; a _stale_ one was silent, which is
   worse, and it is silent in exactly the loop somebody works in -- `pnpm test`
   builds first, a bare `pnpm vitest run` on one file does not. So the binary's
   `mtime` is compared against the newest thing under `src/`. By `mtime` rather than
   by a hash because a turbo cache hit restores `dist/` with the restore time on it
-  -- measured -- so the comparison holds on a cached build as well as a fresh one,
-  and a `git checkout` of `src/` really does mean the build is behind.
+  -- measured, with `dist/` present and absent, and with the directories carrying
+  the restore time too -- so the comparison holds on a cached build as well as on a
+  fresh one.
+
+  **Every output against every input, and the first version compared the one file
+  in `dist/` that says least.** It stat'ed `dist/sigil.mjs`, which is a 1.2 kB
+  loader: the code these tests are about is in `dist/chunks/report-*.mjs`, so a
+  corrupted chunk with a touched entry passed the guard while failing most of the
+  tests under it. The floor is the _oldest_ thing `sigil build` wrote, and the
+  directories count at both ends -- on the source side because a deleted file is
+  otherwise invisible, since the newest file left is no newer than it was, and on
+  the output side because touching a file does not move the listing it is in. It is
+  deliberately conservative in one direction: reverting a real edit bumps the
+  source's `mtime`, so it asks for a rebuild the bytes did not need. A spurious
+  `pnpm build` is 0.7 seconds and a silent pass is an afternoon. And it does not
+  reach another package's build -- `@ttylabs/sigil` is external in this bundle, so a
+  change to _its_ source arrives through _its_ `dist/`, and one test policing two
+  packages' builds is the wrong place for it when `pnpm test` builds the workspace
+  in dependency order.
 
 - **The terminal is a spawned child that answers `isTTY`, not a pty.** Node has
   no pty and this repo has no pty dependency; taking one to read a boolean back is
@@ -3976,8 +4005,10 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   says nothing about terminal modes -- `report.ts` writes plain lines and sets
   none. `scripts/terminal-probe.mjs` is where a claim only a real terminal can
   falsify belongs, and none of these is one. The fake is itself sabotage-checked,
-  for the reason the tests are: a preload that does nothing fails seven of the
-  thirty, so it is load-bearing rather than decoration.
+  for the reason the tests are: a preload that does nothing fails nine, so it is
+  load-bearing rather than decoration -- and the ninth is the `NO_COLOR` test,
+  which passed until it grew a "did this really lay out" guard of its own, since
+  with no terminal at all both sides of its comparison are the piped form.
 - **A width a report is laid out in is not a length to assert, because the
   checkout's own path is in it.** The does-not-break-a-path test first asserted
   that the line holding the `baseDir` warning's absolute path was _wider than the
@@ -3991,7 +4022,28 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   either, so "whole, on exactly one line" is the whole of it. The one place a width
   _is_ asserted is `build`'s output path, where the temp directory is named long on
   purpose -- which is the difference between a number that holds by construction
-  and one that holds by luck.
+  and one that holds by luck. Except that it did not hold there either, and the
+  second measurement is the one that says so: the summary reports that path
+  _relative to the app_, so a `TMPDIR` inside the fixture brings it to 72 columns
+  and the long name buys nothing. Both width assertions are gone, and what is left
+  is the claim in both places -- whole, on one line.
+- **A pipe gets a bare newline, and that is asserted rather than tolerated.** The
+  first version of this file stripped a trailing `\r` on the way in, on the theory
+  that a line ending is not what these tests are about. It is: a `\r` on the last
+  field is exactly what `awk -F:` hands back to whoever is reading it, and the
+  plain-text path already records that a carriage return in a log file is not a line
+  ending anybody asked for. A strip would have let a switch to CRLF stay green --
+  measured, all of them passed with `report.ts` writing `\r\n` -- where asserting
+  its absence fails twelve. The same shape as a property the engine ignores:
+  tolerating something quietly is worse than saying what is meant.
+- **`NO_COLOR` on a terminal is laid out and not coloured, which is the half of the
+  rule that had no test.** The `FORCE_COLOR` entry below says that keying the
+  laid-out form on the colour level instead would make `NO_COLOR` unwrap every
+  diagnostic, and the test for the tidy-up being wrong only ever came at it from the
+  `FORCE_COLOR` side. So a terminal run with `NO_COLOR` set has to be
+  `strip()` of the ordinary laid-out run, exactly -- same wrapping, no sequences.
+  With that, the two halves of "layout follows `isTTY`, colour follows the level"
+  each have an assertion, and the tidy-up fails two rather than one.
 - **The report asks the stream it is going to, and that is not the process.**
   Diagnostics and summaries go to stderr while `--tree` and the chunk sizes go to
   stdout, so that a tree can be piped without losing the problems -- and those

@@ -105,6 +105,16 @@ const WIDTH = 80;
 const NARROW = 40;
 
 /**
+ * What a build's output directory is called.
+ *
+ * Long on purpose, so that the path the summary reports is a word worth asking
+ * about -- and named here rather than inline because the differential has to take
+ * it back out: two builds write to two directories, so their summaries differ by
+ * exactly that and by nothing else.
+ */
+const OUT_PREFIX = 'sigil-output-forms-a-deliberately-long-directory-';
+
+/**
  * Everything `supportsColor()` reads, cleared so that a run says what it means.
  *
  * A CI runner sets `CI` and `GITHUB_ACTIONS`, a terminal sets `TERM` and often
@@ -227,29 +237,16 @@ const DIAGNOSTIC = /^(\S+?):(\d+):(\d+): (error|warning): (.+)$/;
  */
 const STARTS = /^\S.*?: (?:error|warning):/;
 
-/**
- * A stream's text as lines.
- *
- * The trailing `\r` goes because a fixture for platform-dependent behaviour is
- * written with the same function the subject uses, and nothing here is asserting
- * about a line ending: `report.ts` writes `\n` and a backend's CRLF rule is the
- * canvas's rather than a report's, so a `\r` arriving from anything else on the
- * stream would be measured as a column that is not drawn.
- */
-function rows(text: string): string[] {
-	return text.split('\n').map((line) => line.replace(/\r$/, ''));
-}
-
 /** The lines with something on them. */
 function nonEmpty(text: string): string[] {
-	return rows(text).filter((line) => line !== '');
+	return text.split('\n').filter((line) => line !== '');
 }
 
 /** A rendered report with the sequences taken off, since a sequence takes no column. */
 function plain(text: string): string[] {
 	// `strip()` rather than a pattern of this file's own: what a sequence is has
 	// one implementation and it is the library's
-	return rows(strip(text));
+	return strip(text).split('\n');
 }
 
 /** Every word a run wrote, with the wrapping and the colour taken out. */
@@ -337,10 +334,15 @@ let out: string;
 let out2: string;
 let out3: string;
 
+/** One output directory, named long for the reason above. */
+function outDir(): string {
+	return mkdtempSync(join(tmpdir(), OUT_PREFIX));
+}
+
 beforeAll(() => {
-	[out, out2, out3] = [1, 2, 3].map(() =>
-		mkdtempSync(join(tmpdir(), 'sigil-output-forms-a-deliberately-long-directory-'))
-	) as [string, string, string];
+	out = outDir();
+	out2 = outDir();
+	out3 = outDir();
 });
 
 afterAll(() => {
@@ -350,19 +352,33 @@ afterAll(() => {
 });
 
 /**
- * When the newest thing under `src/` was written.
+ * The newest and the oldest `mtimeMs` in a tree, with the directories counted.
+ *
+ * Directories, and they earn it at both ends. On the source side a *deleted* file
+ * is otherwise invisible -- the newest file left is no newer than it was, while
+ * the directory that held it has moved. On the output side they are the floor that
+ * a `touch` of one file cannot lift, since touching a file does not move the
+ * directory listing it is in. Measured: a turbo cache hit restores the
+ * directories with the restore time on them too, so nothing about this trips on a
+ * cached build.
  *
  * @param dir - Where to look.
- * @returns The newest `mtimeMs` beneath it.
+ * @returns The extremes beneath it, directories included.
  */
-function newest(dir: string): number {
-	let latest = 0;
+function mtimes(dir: string): { newest: number; oldest: number } {
+	let newest = statSync(dir).mtimeMs;
+	let oldest = newest;
+
 	for (const entry of readdirSync(dir, { withFileTypes: true })) {
 		const path = join(dir, entry.name);
-		latest = Math.max(latest, entry.isDirectory() ? newest(path) : statSync(path).mtimeMs);
+		const { newest: hi, oldest: lo } = entry.isDirectory()
+			? mtimes(path)
+			: { newest: statSync(path).mtimeMs, oldest: statSync(path).mtimeMs };
+		newest = Math.max(newest, hi);
+		oldest = Math.min(oldest, lo);
 	}
 
-	return latest;
+	return { newest, oldest };
 }
 
 describe('the built binary', () => {
@@ -379,14 +395,32 @@ describe('the built binary', () => {
 		// bare `pnpm vitest run` on this file after an edit is not, and that is the
 		// loop somebody actually works in.
 		//
-		// mtimes rather than a hash, because a turbo cache hit restores `dist/` with
-		// the restore time on it -- measured -- so the comparison holds on a cached
-		// build as well as on a fresh one, and a `git checkout` of `src/` really does
-		// mean the build is behind
+		// Every output against every input, rather than the entry against the newest
+		// source. The entry is a 1.2 kB loader and the code these tests are about is
+		// in `dist/chunks/report-*.mjs`, so `statSync(bin)` answered for the one file
+		// in `dist/` that says least: touch it and a corrupted chunk passes the
+		// guard while failing twenty-one of the tests under it. The oldest thing
+		// `sigil build` wrote is the honest floor.
+		//
+		// mtimes rather than a hash, because a turbo cache hit restores the whole of
+		// `dist/` with the restore time on it -- measured, chunks included -- so the
+		// comparison holds on a cached build as well as on a fresh one. It is
+		// deliberately conservative in one direction: reverting a real edit bumps the
+		// source's mtime, so it asks for a rebuild that the bytes did not need. A
+		// spurious `pnpm build` is 0.7s and a silent pass is an afternoon.
+		//
+		// What it does not reach is another package's build. `@ttylabs/sigil` is
+		// external in this bundle, so a change to *its* source reaches these tests
+		// through *its* `dist/`, and one test policing two packages' builds is the
+		// wrong place for it -- `pnpm test` builds the workspace in dependency order,
+		// which is where that belongs.
+		const src = mtimes(join(pkg, 'src'));
+		const built = mtimes(join(pkg, 'dist'));
+
 		expect(
-			statSync(bin).mtimeMs,
-			`${bin} is older than packages/cli/src; run \`pnpm build\``
-		).toBeGreaterThanOrEqual(newest(join(pkg, 'src')));
+			built.oldest,
+			`packages/cli/dist is older than packages/cli/src; run \`pnpm build\``
+		).toBeGreaterThanOrEqual(src.newest);
 	});
 });
 
@@ -479,6 +513,20 @@ describe('a pipe', () => {
 			expect(hasAnsi(stdout), stdout).toBe(false);
 		});
 
+		it(`should end its lines with a bare newline for ${name}`, () => {
+			// asserted rather than tolerated. The first version of this file stripped a
+			// trailing `\r` on the way in, on the theory that a line ending is not what
+			// these tests are about -- which would have let a switch to CRLF pass in
+			// silence, and a `\r` on the last field is exactly what `awk -F:` hands back
+			// to whoever is reading it. A pipe gets `\n`, which is the rule the
+			// plain-text path already keeps: a carriage return in a log file is not a
+			// line ending anybody asked for
+			const { err, out: stdout } = ran.get(fixture.dir)!;
+
+			expect(err, 'a carriage return reached stderr').not.toContain('\r');
+			expect(stdout, 'a carriage return reached stdout').not.toContain('\r');
+		});
+
 		it(`should exit ${fixture.code} for ${name}`, () => {
 			expect(ran.get(fixture.dir)!.code).toBe(fixture.code);
 		});
@@ -504,14 +552,16 @@ describe('a terminal', () => {
 	let stacked: Ran;
 	let brokenLaidOut: Ran;
 	let brokenPiped: Ran;
+	let colourless: Ran;
 
 	beforeAll(async () => {
-		[laidOut, piped, stacked, brokenLaidOut, brokenPiped] = await Promise.all([
+		[laidOut, piped, stacked, brokenLaidOut, brokenPiped, colourless] = await Promise.all([
 			sigil(['check', app], { tty: ['stderr', 'stdout'] }),
 			sigil(['check', app]),
 			sigil(['check', app], { columns: NARROW, tty: ['stderr', 'stdout'] }),
 			sigil(['check', broken], { tty: ['stderr', 'stdout'] }),
 			sigil(['check', broken]),
+			sigil(['check', app], { env: { NO_COLOR: '1' }, tty: ['stderr', 'stdout'] }),
 		]);
 	}, 60_000);
 
@@ -609,6 +659,21 @@ describe('a terminal', () => {
 		expect(words(stacked.err)).toBe(words(piped.err));
 	});
 
+	it('should still lay a report out under NO_COLOR', () => {
+		// the other half of the `FORCE_COLOR` case, and the direction AGENTS.md is
+		// most emphatic about: `NO_COLOR` on a real terminal means "no colour", not
+		// "no layout", and a report that unwrapped itself over it would be reading one
+		// setting as though it were another. So the wrapping is the terminal's and the
+		// colour is gone -- which is exactly what keying the layout on the colour
+		// level instead would break, and that tidy-up is the one the sheet says must
+		// not be taken
+		// laid out, asserted rather than assumed: with no terminal at all both sides
+		// are the piped form and the comparison below holds while saying nothing
+		expect(wrapped(colourless.err).length, colourless.err).toBeGreaterThan(0);
+		expect(hasAnsi(colourless.err), colourless.err).toBe(false);
+		expect(strip(laidOut.err)).toBe(colourless.err);
+	});
+
 	it('should exit the way the pipe does', () => {
 		expect(laidOut.code).toBe(piped.code);
 		expect(brokenLaidOut.code).toBe(brokenPiped.code);
@@ -704,10 +769,14 @@ describe('sigil build', () => {
 
 	it('should say the same words as the terminal', () => {
 		// the two builds wrote to two directories, so the paths differ by exactly
-		// that -- compared with each summary's own output path taken out
-		const shorn = (text: string, dir: string): string => words(text).replaceAll(dir, '<out>');
+		// that and by nothing else -- taken out by the directory's *name*, because
+		// the summary reports it relative to the app and the absolute string is
+		// therefore not in the text at all when `TMPDIR` happens to sit under the
+		// fixture
+		const shorn = (text: string): string =>
+			words(text).replaceAll(new RegExp(`${OUT_PREFIX}[^/\\s]*`, 'g'), '<out>');
 
-		expect(shorn(piped.err, out)).toBe(shorn(laidOut.err, out2));
+		expect(shorn(piped.err)).toBe(shorn(laidOut.err));
 	});
 
 	it('should never break the path it wrote to', () => {
@@ -726,11 +795,13 @@ describe('sigil build', () => {
 		// an unwrapped summary does not break a path either, so without this the
 		// assertion would hold of the piped form wearing the laid-out form's name
 		expect(wrapped(laidOut.err).length, laidOut.err).toBeGreaterThan(0);
+		// and the same claim, for the same reason: a path that was broken is a word
+		// ending in something else, so there is nothing to find. Asserting that the
+		// word is wider than the terminal looked safe here -- the directory is named
+		// long on purpose -- and is the same environment dependence one line along,
+		// because the summary reports the path *relative to the app*: with `TMPDIR`
+		// inside the fixture it comes to 72 columns and a correct build fails
 		expect(path, laidOut.err).toBeDefined();
-		// longer than the terminal by construction rather than by luck: the output
-		// directory is named long on purpose, which is why this one *can* assert the
-		// width where the diagnostic's cannot
-		expect(path!.length, path).toBeGreaterThan(WIDTH);
 	});
 
 	it('should refuse an app that does not check out, in the piped form', () => {
