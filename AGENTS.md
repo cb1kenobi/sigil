@@ -3404,6 +3404,12 @@ as default }` resolves the same way, since it is the same statement spelled
   `preserve` and the classic runtime, and it silently costs `react-jsxdev` its
   dev runtime, which is a configuration this framework publishes a runtime for
   and whose positions are the only way a JSX frontend carries one.
+  What `preserve` costs is worth knowing rather than fixing: the bundle keeps the
+  JSX and dies with `Unexpected token '<'`, which is what it did before this and
+  is what the app asked for -- `preserve` means another tool transforms this, and
+  `tsc` obeys it identically. Refusing it needs the tsconfig reader the entry
+  above declines, and an app that said it is an app whose editor is telling it the
+  same thing.
 - **What it costs is a tsconfig that named a different automatic import source,
   and the escape hatch is the most explicit spelling rather than the least.** A
   per-file `@jsxImportSource` pragma beats this option -- measured -- so an app

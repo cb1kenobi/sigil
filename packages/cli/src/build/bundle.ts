@@ -294,7 +294,9 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 		// still preserves. Adding `runtime: 'automatic'` was tried and rejected:
 		// it does fix `preserve` and classic, and it silently costs
 		// `react-jsxdev` its dev runtime, which is a configuration this framework
-		// publishes a runtime for.
+		// publishes a runtime for. What `preserve` costs is a bundle that keeps the
+		// JSX and dies with `Unexpected token <`, which is what it did before this
+		// and what the app asked for -- `tsc` obeys it identically.
 		//
 		// What it costs is an app that names a different automatic import source
 		// in its tsconfig, which this overrides. Deliberate: the JSX in a sigil
