@@ -117,15 +117,21 @@ that accounts for the thing which makes no sense on its face -- an edit under
 
 It was pinned rather than inferred, by a detail no other reading predicts: that
 map is keyed by **package-relative** path, so the seven paths the two packages
-share collide and one shadows the other. Editing `packages/cli/README.md` moved
-**nothing at all**, and neither did `src/index.ts`, `vitest.config.ts`,
-`tsconfig.json` or `tsconfig.build.json` -- precisely the files
-`packages/sigil/` also has -- while every file unique to `packages/cli` moved it
-and every file in `packages/sigil` did. Writing the same relative path into both
-packages reproduces it on demand: the `packages/cli` copy moves the hash while
-it is unique and stops the moment its `packages/sigil` twin exists. That is a
-turbo bug in its own right and is left alone; what it is doing here is proving
-which mechanism was running.
+share -- `README.md`, `package.json`, `src/index.ts`, `src/template/index.ts`,
+`tsconfig.json`, `tsconfig.build.json` and `vitest.config.ts` -- collide, and one
+shadows the other. Editing the `packages/cli` copy of any of the seven left
+`hashOfInternalDependencies` exactly where it was, while every file unique to
+`packages/cli` moved it and every file in `packages/sigil` did. What that came to
+on screen is worth stating precisely, because the global hash is not the only
+thing a file can be in: two of the seven moved **no task hash at all** --
+`README.md` and `vitest.config.ts`, which no build reads -- and the other five
+moved `@ttylabs/cli#build` alone, through that task's own `inputs`, which is
+exactly what `inputs` is for. The collision is a fact about the global hash and
+says nothing about a task's own file list. Writing the same relative path into
+both packages reproduces it on demand: the `packages/cli` copy moves the internal
+hash while it is unique and stops the moment its `packages/sigil` twin exists.
+That is a turbo bug in its own right and is left alone; what it is doing here is
+proving which mechanism was running.
 
 There is no knob to narrow it -- `globalDependencies` only adds, and nothing in
 turbo 2.11.4's schema subtracts -- so the fix is to leave the root with no
@@ -143,12 +149,13 @@ directory rather than from the repository root. `demos/package.json` has to say
 What that buys is time and nothing else: a rebuild produces the same bytes, so
 nothing was ever _wrong_, which is also why nobody noticed. It is worth being
 exact about how much, because the obvious guess is too high. `pnpm test` builds
-the two packages first, and that is **0.85s** forced against **0.05s** cached --
-so a test run after touching a test file was paying under a second, once. A bare
-`pnpm build` is where it reads as a real wait: the global hash is shared by every
-task, so a `packages/cli/test/` edit also moved `website#build`, and the Next
-build behind it is **2.4s** of work over a site the edit could not have touched.
-Both are `FULL TURBO` in about 12ms now.
+the two packages first, and that is **0.85s to 1.25s** forced against a few tens
+of milliseconds cached -- the spread is the machine and whatever else is running
+on it, so a test run after touching a test file was paying about a second, once.
+A bare `pnpm build` is where it reads as a real wait: the global hash is shared by
+every task, so a `packages/cli/test/` edit also moved `website#build`, and the
+Next build behind it is **2.4s** of work over a site the edit could not have
+touched. Both are `FULL TURBO` now.
 
 `hashOfInternalDependencies` is empty, and a test edit, a README edit, a `demos/`
 edit and a brand-new untracked file under `packages/sigil/test/` each move no
@@ -166,6 +173,36 @@ tried and each moved nothing. `type-check` got sharper for free, since it hashes
 `test/**` on purpose: a `packages/sigil/test/` edit now moves
 `@ttylabs/sigil#type-check` and leaves `@ttylabs/cli#type-check` alone, where both
 used to move.
+
+**Taking the blanket hash away exposed a file nothing had ever declared, and
+`sigil.json` was it.** The toolchain's build is `node src/sigil.ts build`, which
+reads `sigil.json` for `external` and `sourcemap` -- and that file was in no
+`inputs` list, so on `main` it reached the hash only as one more file of a root
+internal dependency. It was covered by accident, which is the worst way for
+anything to be covered: removing the accident is what made it visible, and a fix
+that had stopped at "the hash is narrower now" would have shipped the hole.
+Measured from both sides. On `main`, editing it moved
+`hashOfInternalDependencies` from `a422655ba2e5a3a7` to `f2825ae6905d3e4c` and
+`@ttylabs/cli#build` with it. With the root dependencies gone and before
+`sigil.json` joined `inputs`, flipping `"sourcemap"` left `@ttylabs/cli#build` on
+`8a99ba55d8f24c66`, a forced build at that very hash wrote ten `.map` files where
+there had been none, and a restore afterwards handed those sourcemaps back over a
+config that says not to produce them -- one cache key naming two different
+bundles, with `pnpm build` reporting success over both. `external` is the same
+hole and the more consequential half of it, since it decides whether
+`oxc-parser` is inlined into a bundle that then cannot load it. This is the
+`registry/**` incident in its other form: there a cache hit restored less than
+the build wrote, here it restores something the build would not have written.
+
+So `sigil.json` is in `inputs`, beside `tsdown.config.ts`, which is the precedent
+in both directions -- a package without the file contributes nothing, and a
+package whose build reads one has to say so. The audit that turned up nothing else
+is worth recording, because "the one somebody found is fixed" is a weaker claim:
+the only files either build command names are `package.json`, `tsconfig.json`,
+`sigil.json`, `tsdown.config.ts` and `scripts/generate-registry.mjs`, while
+`entry.mjs` and `noop.js` are paths those passes synthesize rather than read.
+`should hash every file a build command reads` writes that list out, for the
+reason the toolchain's dependencies are written out rather than counted.
 
 One cosmetic surprise comes with workspace membership: `turbo run build
 --dry-run` now lists an `@ttylabs/demos#build` whose command is `<NONEXISTENT>`,
