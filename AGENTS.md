@@ -156,11 +156,22 @@ task's hash at all. What still invalidates was re-measured rather than assumed:
 `src/**` and `scripts/**` per package, `tsconfig.base.json` through
 `globalDependencies` -- which still moves every task, the website's included --
 and a cache hit still restores `registry/` in full, checked by deleting both
-output directories and building from cache. One cosmetic surprise comes with
-workspace membership: `turbo run build --dry-run` now lists an
-`@ttylabs/demos#build` whose command is `<NONEXISTENT>`, because `demos` has no
-`build` script. Turbo skips it, `pnpm build` is three tasks as before, and it is
-what `website` would look like without one.
+output directories and building from cache. The other global input is
+`.gitattributes`, which turbo reads whether or not anybody declares it, and
+rightly: it decides how git normalizes a file, so it decides what every file
+hashes to. Editing it moves all three builds, and it is the only file outside
+`globalDependencies` that does -- `vitest.config.ts`, the linter and formatter
+configs, `AGENTS.md`, the READMEs, `lefthook.yml` and the workflows were each
+tried and each moved nothing. `type-check` got sharper for free, since it hashes
+`test/**` on purpose: a `packages/sigil/test/` edit now moves
+`@ttylabs/sigil#type-check` and leaves `@ttylabs/cli#type-check` alone, where both
+used to move.
+
+One cosmetic surprise comes with workspace membership: `turbo run build
+--dry-run` now lists an `@ttylabs/demos#build` whose command is `<NONEXISTENT>`,
+because `demos` has no `build` script. Turbo skips it, `pnpm build` is three tasks
+as before, and it is not even new -- `website#type-check` has always been exactly
+that, for exactly the same reason.
 
 `the build hash` in `packages/cli/test/cli.test.ts` is the guard, and it reads
 turbo's own dry-run rather than `turbo.json`: the manifest is the cause and the

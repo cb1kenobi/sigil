@@ -581,12 +581,22 @@ describe('@ttylabs/cli', () => {
 			return found;
 		}
 
-		it('should report the tasks this suite means to check', () => {
+		it('should report the tasks and the field this suite means to check', () => {
 			// a taskId that stopped resolving would pass the rest of this block by
 			// checking nothing, which is the failure mode a list of names has
 			for (const taskId of published) {
 				expect(Object.keys(task(taskId).inputs).length).toBeGreaterThan(10);
 			}
+
+			// and the field below is asked about by name, so a turbo that renamed or
+			// dropped it would read as `undefined`, compare equal to the empty string,
+			// and pass forever. Presence is the half that cannot be inferred from the
+			// value: turbo 2.11.4 reports the key with `""` in it rather than omitting
+			// it when the root package has no internal dependency
+			expect(
+				Object.hasOwn(dry.globalCacheInputs, 'hashOfInternalDependencies'),
+				'turbo no longer reports hashOfInternalDependencies; the assertion below is vacuous'
+			).toBe(true);
 		});
 
 		it('should fold no package contents into the global hash', () => {
