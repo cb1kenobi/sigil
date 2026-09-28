@@ -178,6 +178,25 @@ describe('bundling an app', () => {
 		expect(help).toContain('A fixture app that builds');
 	});
 
+	it("should carry a subcommand's description as deep as the tree goes", () => {
+		// the root screen is the easy half: a nested `desc` is what the walk's
+		// recursion is for, and a lift that only reached the top level would look
+		// exactly like one that worked when read from `--help` alone
+		expect(run('db', '--help').stdout).toContain('run migrations');
+	});
+
+	it('should bake the descriptions into the entry rather than read them from the modules', () => {
+		// the claim `--help` rests on, from both sides: the entry carrying the
+		// description is what says the lift happened, and the entry *not* carrying
+		// the command body is what says the deferral survived it. A build that had
+		// flattened the modules in to read their descriptions would satisfy the
+		// first assertion and fail the second
+		const entry = readFileSync(bin, 'utf-8');
+
+		expect(entry).toContain('run migrations');
+		expect(entry).not.toContain('migrated');
+	});
+
 	it('should carry the root options the app declared', () => {
 		// the generated entry composes the app's schema with the baked tree, so
 		// everything the app said other than `commands` survives

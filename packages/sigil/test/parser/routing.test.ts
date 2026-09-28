@@ -217,6 +217,130 @@ describe('filesystem routing', () => {
 		});
 	});
 
+	/**
+	 * `Schema.routeInfo` is how a build that keeps the walk gets the descriptions
+	 * onto the help screen: a routed tree lists by name alone until each module
+	 * has been imported, and not importing them is the whole of what the
+	 * deferral buys.
+	 *
+	 * It is a **cache over the walk, never a manifest** -- the directory is
+	 * still read, every route it finds is still a command, and a route with no
+	 * entry works and simply lists without a description. So it cannot go stale
+	 * in a way that loses a command, only in a way that loses a sentence.
+	 *
+	 * Pinned here because nothing in this repository writes one any more.
+	 * `sigil build` bakes the tree into the entry it generates -- a `commands`
+	 * literal with a `desc` and a `load` per command, which replaces the walk
+	 * rather than caching it -- so the toolchain's own lift-and-print pass was
+	 * deleted, and this is the half of it that is still live. A public API with
+	 * no producer left in the tree is one the next cleanup deletes.
+	 */
+	describe('a lifted description', () => {
+		it('should describe a route without loading its module', async () => {
+			const result = await parse({
+				argv: [],
+				schema: { commands: routes, routeInfo: { build: { desc: 'lifted' } } },
+			});
+			const build = result.contexts[0][Internal].commands.get('build');
+
+			expect(build?.desc).to.equal('lifted');
+			expect(build?.[Internal].loaded).to.equal(false);
+		});
+
+		it("should carry a directory's entries down the walk", async () => {
+			// carried down rather than looked up, for the reason `baseDir` is: a
+			// level only knows where it sits in the tree because the level above
+			// told it. `migrate` is two levels in, and its own children are a third
+			const result = await parse({
+				argv: ['db', 'migrate'],
+				schema: {
+					commands: routes,
+					routeInfo: {
+						db: {
+							desc: 'database tasks',
+							commands: { migrate: { commands: { up: { desc: 'lifted up' } } } },
+						},
+					},
+				},
+			});
+			const up = result.cmd?.[Internal].commands.get('up');
+
+			expect(result.contexts.at(-2)?.desc).to.equal('database tasks');
+			expect(up?.desc).to.equal('lifted up');
+			expect(up?.[Internal].loaded).to.equal(false);
+		});
+
+		it('should hide a route the build read as hidden', async () => {
+			const result = await parse({
+				argv: [],
+				schema: { commands: routes, routeInfo: { build: { hidden: true } } },
+			});
+
+			expect(result.contexts[0][Internal].commands.get('build')?.hidden).to.equal(true);
+		});
+
+		it('should leave a route with no entry listing by name alone', async () => {
+			// the half that keeps it a cache: a command dropped into an installed
+			// app after the build is undescribed rather than invisible.
+			//
+			// Both halves in one test on purpose, because either alone is a test no
+			// sabotage can fail: `config` being undescribed passes just as well
+			// when `routeInfo` is ignored outright, and `build` being described
+			// passes when an entry is applied to every route. It is the pair that
+			// says the map is read per route
+			const result = await parse({
+				argv: [],
+				schema: { commands: routes, routeInfo: { build: { desc: 'lifted' } } },
+			});
+			const registry = result.contexts[0][Internal].commands;
+
+			expect(registry.get('build')?.desc).to.equal('lifted');
+			expect(registry.get('config')?.desc).to.equal(undefined);
+			expect(registry.get('config')?.[Internal].loaded).to.equal(false);
+		});
+
+		it('should lose to a package manifest, which cannot go stale', async () => {
+			// the filesystem wins wherever it has an answer: reading a
+			// `package.json` is free, so what a build lifted fills only what the
+			// walk could not say rather than second-guessing what it could
+			const result = await parse({
+				argv: [],
+				schema: { commands: routes, routeInfo: { 'routes-pkg': { desc: 'lifted' } } },
+			});
+
+			expect(result.contexts[0][Internal].commands.get('routes-pkg')?.desc).to.equal(
+				'a package found by the walk'
+			);
+		});
+
+		it("should lose to the module's own desc once it loads", async () => {
+			// which is what a hand-declared placeholder already did, so the lifted
+			// case is not a second precedence rule to remember
+			const result = await parse({
+				argv: ['build'],
+				schema: { commands: routes, routeInfo: { build: { desc: 'lifted' } } },
+			});
+
+			expect(result.cmd?.[Internal].loaded).to.equal(true);
+			expect(result.cmd?.desc).to.equal('build the app');
+		});
+
+		it('should reach a directory a named path points at', async () => {
+			// the other way a path arrives: `commands: { db: './db' }` is one
+			// command however many files sit behind it, and the entry it is looked
+			// up under is the key rather than a route name
+			const result = await parse({
+				argv: [],
+				schema: {
+					commands: { db: path.join(routes, 'db') },
+					routeInfo: { db: { desc: 'lifted tasks' } },
+				},
+			});
+
+			expect(result.contexts[0][Internal].commands.get('db')?.desc).to.equal('lifted tasks');
+		});
+	});
+
 	describe('TypeScript', () => {
 		const ts = path.join(__dirname, 'fixtures/routes-ts');
 

@@ -327,9 +327,11 @@ export default {
 A lazily loaded command appears in help by name alone until its module is read,
 because its description lives in that module. `help <command>` does load it.
 
-`routeInfo` is how a build gets those descriptions onto the help screen without
-importing anything: it maps route names onto what was lifted out of them, and
-`sigil build` writes it for you.
+`routeInfo` is how a build that keeps the walk gets those descriptions onto the
+help screen without importing anything: it maps route names onto what was lifted
+out of them. `sigil build` does not write one — it bakes the whole tree into the
+executable it generates, as a `commands` literal with a `desc` and a `load` per
+command, which is the `load` shape further down.
 
 ```js
 commands: './commands',

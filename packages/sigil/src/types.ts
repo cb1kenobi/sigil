@@ -548,8 +548,10 @@ export interface Schema {
  * `package.json`, which is a file read, while every other kind keeps its
  * description *inside the module* -- so a filesystem tree lists by name alone
  * until each module has been imported, and importing them is the one thing the
- * deferral exists to avoid. `sigil build` reads those descriptions statically;
- * this is where it puts them.
+ * deferral exists to avoid. This is where a build that *keeps* the walk puts
+ * what it read statically -- `sigil build` bakes the tree into the executable
+ * it generates instead, so the descriptions reach it as what each placeholder
+ * declares and it fills no `routeInfo` at all.
  *
  * It is a cache over the walk rather than a replacement for it. The directory
  * is still read, every route it finds is still a command, and a route with no
