@@ -268,6 +268,7 @@ describe('an app whose output is JSX', () => {
 	 */
 	let jsxOut: string;
 	let jsxBin: string;
+	let jsxTemplates: number;
 
 	beforeAll(async () => {
 		jsxOut = mkdtempSync(join(tmpdir(), 'sigil-jsx-'));
@@ -278,6 +279,7 @@ describe('an app whose output is JSX', () => {
 
 		const result = await bundleApp({ app: found, binName: 'jsx', out: jsxOut, tree });
 		jsxBin = result.bin;
+		jsxTemplates = result.templates;
 	}, 60_000);
 
 	afterAll(() => {
@@ -309,6 +311,22 @@ describe('an app whose output is JSX', () => {
 		expect(result.status).toBe(0);
 		expect(result.stdout).toContain('Hello, sigil!');
 		expect(result.stdout).toContain('from a compiled JSX element');
+	});
+
+	it('should compile a template and the JSX beside it in one module', () => {
+		// two passes over one file, which is the shape AGENTS.md describes when it
+		// says the two syntaxes live side by side in one app. The plugin's
+		// `transform` runs before rolldown's own, so it is handed the module with
+		// its JSX intact; nothing checked that the two compose except a module that
+		// has both
+		expect(jsxTemplates).toBe(1);
+
+		const result = spawnSync(process.execPath, [jsxBin, 'greet', 'sigil'], {
+			cwd: tmpdir(),
+			encoding: 'utf-8',
+		});
+
+		expect(result.stdout).toContain('Hello again, sigil!');
 	});
 });
 

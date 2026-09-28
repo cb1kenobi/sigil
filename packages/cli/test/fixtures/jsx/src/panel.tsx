@@ -1,4 +1,5 @@
 import type { Element } from '@ttylabs/sigil/element';
+import { ui } from '@ttylabs/sigil/template';
 
 /**
  * A panel written as JSX, which is the canonical syntax.
@@ -21,4 +22,19 @@ export function Panel({ who }: { who: string }): Element {
 			<text>from a compiled JSX element</text>
 		</box>
 	);
+}
+
+/**
+ * The same thing as a `ui` template, in the same module.
+ *
+ * Two passes over one file: `compileTemplates()` rewrites this template through
+ * `magic-string` and rolldown's own transform then compiles the JSX above it. The
+ * two are independent by construction -- the plugin's `transform` runs before
+ * rolldown's, so it is handed the module with its JSX intact and oxc parses a
+ * `.tsx` as JSX -- and "independent by construction" is the kind of claim worth a
+ * test rather than a sentence. AGENTS.md says the two syntaxes live side by side
+ * in one app; this is that, in one file.
+ */
+export function tagged(who: string): Element {
+	return ui`<text class="tagged">Hello again, ${who}!</text>`;
 }
