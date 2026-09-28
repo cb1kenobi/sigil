@@ -33,6 +33,57 @@ function moduleWith(body: string, extra = ''): string {
 	return `import { ui } from '@ttylabs/sigil/template';\n${extra}export const view = () => ${body};\n`;
 }
 
+const VLQ = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+/**
+ * Which original line a generated line maps back to, by reading the mappings.
+ *
+ * Decoded here rather than with a library, because the question is one line long
+ * and the packages that answer it are not dependencies this repo has. A source
+ * map's `mappings` is `;`-separated generated lines, `,`-separated segments, each
+ * segment base64-VLQ fields where the third is the original line **as a delta
+ * carried across the whole string** -- which is why this walks from the start
+ * rather than jumping to the line asked about.
+ *
+ * @param mappings - The `mappings` field.
+ * @param generated - A one-based generated line.
+ * @returns The one-based original line, or `undefined` where nothing is mapped.
+ */
+function originalLineOf(mappings: string, generated: number): number | undefined {
+	let line = 0;
+	let found: number | undefined;
+
+	mappings.split(';').forEach((group, index) => {
+		if (!group) {
+			return;
+		}
+		for (const segment of group.split(',')) {
+			let shift = 0;
+			let value = 0;
+			const fields: number[] = [];
+			for (const char of segment) {
+				const digit = VLQ.indexOf(char);
+				value += (digit & 31) << shift;
+				if (digit & 32) {
+					shift += 5;
+					continue;
+				}
+				fields.push(value & 1 ? -(value >> 1) : value >> 1);
+				shift = 0;
+				value = 0;
+			}
+			if (fields.length >= 4) {
+				line += fields[2]!;
+			}
+			if (index + 1 === generated && found === undefined) {
+				found = line + 1;
+			}
+		}
+	});
+
+	return found;
+}
+
 /** Imports a compiled module and renders what its `view` builds. */
 async function renderCompiled(source: string, file = 'view.ts'): Promise<string> {
 	const compiled = compileTemplates(`/app/${file}`, source);
@@ -175,6 +226,38 @@ export const untouched = () => 'still here';
 			expect(compiled?.map.sources).toEqual(['/app/view.ts']);
 			expect(compiled?.map.mappings.length).toBeGreaterThan(0);
 			expect(compiled?.map.sourcesContent?.[0]).toContain('ui`');
+		});
+
+		it('should map a line after the splice back to where it was written', () => {
+			// present is not the same as *correct*, and the assertion above only says
+			// present. The head the splice prepends shifts every line after it, so a
+			// map that merely existed would send a stack trace somewhere near but
+			// wrong -- which is worse than none, because it reads as authoritative
+			const source = [
+				"import { ui } from '@ttylabs/sigil/template';", // 1
+				'', // 2
+				'export function makeView(name) {', // 3
+				'  return ui`<text>${name}</text>`;', // 4
+				'}', // 5
+				'', // 6
+				'export function afterwards() {', // 7
+				"  throw new Error('here');", // 8
+				'}', // 9
+			].join('\n');
+
+			const compiled = compileTemplates('/app/view.ts', source);
+			const lines = compiled!.code.split('\n');
+			const generated = lines.findIndex((line) => line.includes("Error('here')")) + 1;
+
+			// the head really did move it, or this proves nothing
+			expect(generated).toBeGreaterThan(8);
+			expect(originalLineOf(compiled!.map.mappings, generated)).toBe(8);
+			expect(
+				originalLineOf(
+					compiled!.map.mappings,
+					lines.findIndex((line) => line.includes('export function afterwards')) + 1
+				)
+			).toBe(7);
 		});
 	});
 
