@@ -432,7 +432,20 @@ export function undo(out: string, output: readonly { fileName: string }[]): void
 			continue;
 		}
 
-		rmSync(file, { force: true });
+		try {
+			rmSync(file, { force: true });
+		} catch {
+			// what must survive this function is the error the build was about to
+			// report, and a removal that throws replaces it with something about the
+			// file system. `force` covers a file that is not there and not a
+			// `fileName` that names a **directory**, which is `ERR_FS_EISDIR` --
+			// rolldown 1.2.11 reports no such name, so this is the same kind of guard
+			// as the containment check above: unreachable through the bundler, and
+			// cheap where the alternative is a message about the file system in place
+			// of the real one. Whatever could not be removed is skipped and the rest
+			// of the list still is
+			continue;
+		}
 
 		for (let dir = dirname(file); dir !== root && dir.startsWith(inside);) {
 			try {

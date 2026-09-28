@@ -456,6 +456,19 @@ describe('unwinding a refused build', () => {
 		expect(readdirSync(join(out, 'chunks'))).toStrictEqual(['index.html']);
 	});
 
+	it('should carry on past something it cannot remove', () => {
+		// the unwind runs on a failure path, so what has to survive it is the error
+		// the build was about to report. `force` covers a file that is not there
+		// and not a name that turns out to be a directory, which is
+		// `ERR_FS_EISDIR` -- unreachable through rolldown, and the cost of not
+		// guarding it is a message about the file system in place of the real one
+		mkdirSync(join(out, 'oops'));
+		writeFileSync(join(out, 'app.mjs'), 'x');
+
+		expect(() => undo(out, [{ fileName: 'oops' }, { fileName: 'app.mjs' }])).not.toThrow();
+		expect(existsSync(join(out, 'app.mjs'))).toBe(false);
+	});
+
 	it('should refuse a path that climbs out of the output directory', () => {
 		const precious = join(base, 'precious.txt');
 		writeFileSync(precious, 'keep me');

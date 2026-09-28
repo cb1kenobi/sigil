@@ -3370,7 +3370,14 @@ as default }` resolves the same way, since it is the same statement spelled
   so every template would be compiled twice and `templates` would come back
   doubled. So it is one write, asked afterwards, and what was written is
   **unwound**: exactly the files rolldown reported, the sourcemaps among them,
-  plus any directory of theirs that is now empty. A refused build that leaves a
+  plus any directory of theirs that is now empty -- and the unwind never throws
+  over the error it is unwinding for, since `force` covers a file that is not
+  there and not a name that turns out to be a directory, which is
+  `ERR_FS_EISDIR`. Two guards of the same kind sit in that function, each closing
+  something rolldown 1.2.11 cannot produce -- a path that climbs out of `--out`,
+  and a removal that fails -- because the one operation there is a delete on a
+  failure path, which is not where to rely on somebody else's validation or to
+  swap a real diagnostic for one about the file system. A refused build that leaves a
   bundle which would die on first use has answered the question and then handed
   the thing over anyway. The output directory itself is never removed, because
   `--no-clean` means it may hold somebody else's files.
