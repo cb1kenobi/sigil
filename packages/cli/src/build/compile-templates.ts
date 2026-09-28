@@ -229,11 +229,22 @@ export function compileTemplates(
  *
  * So the culprit is found by compiling each template on its own until one throws
  * the same way. That is only ever the error path, so the happy path pays
- * nothing, and it is sound in the direction that matters: a template that fails
- * alone fails in the module too, since nothing `compile()` does across templates
- * can *rescue* one. If none of them fails alone -- a failure that is genuinely
- * about the combination, which nothing today produces -- the module's own first
- * template is the fallback, and the message is still the one `compile()` gave.
+ * nothing -- at worst one compile per template, and only once the build is
+ * already failing -- and it is sound in the direction that matters: a template
+ * that fails alone fails in the module too, since nothing `compile()` does
+ * across templates can *rescue* one.
+ *
+ * Matching on the message is what makes it the *right* template rather than
+ * merely a failing one, and it is reliable because no message `compile()` throws
+ * mentions a generated name, an index, or anything else that depends on how many
+ * templates it was handed -- each is about one node and its template-relative
+ * `loc`, which is the same either way. That is an assumption about a set of
+ * throw sites rather than a guarantee, so the fallbacks are ordered to degrade
+ * gracefully if one ever stops holding: a template that threw *something* beats
+ * one that threw nothing, and the module's first template is the last resort --
+ * which is also the honest answer for a failure genuinely about the combination,
+ * such as the prefix check, that no single template can reproduce. The message
+ * reported is always the one `compile()` gave.
  *
  * @param file - The module.
  * @param found - Its templates, in source order.
@@ -249,15 +260,28 @@ function blame(
 	prefix: string,
 	error: Error
 ): TemplateCompileError {
-	const culprit =
-		found.find((_template, at) => {
-			try {
-				compile([nodes[at]!], { prefix });
-				return false;
-			} catch (e: unknown) {
-				return (e as Error).message === error.message;
+	// what each template does on its own, once. Asked as two questions over one
+	// pass because the answers rank: a template throwing the *same* message is the
+	// one `compile()` was complaining about, while a template merely throwing
+	// something is a worse answer that still beats naming a template with nothing
+	// wrong with it
+	let exact: FoundTemplate | undefined;
+	let failing: FoundTemplate | undefined;
+
+	for (const [at, template] of found.entries()) {
+		try {
+			compile([nodes[at]!], { prefix });
+			continue;
+		} catch (e: unknown) {
+			failing ??= template;
+			if ((e as Error).message === error.message) {
+				exact = template;
+				break;
 			}
-		}) ?? found[0]!;
+		}
+	}
+
+	const culprit = exact ?? failing ?? found[0]!;
 
 	return new TemplateCompileError(file, culprit.line, culprit.column, error.message);
 }
