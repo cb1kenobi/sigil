@@ -192,10 +192,18 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 			// Setting `transform.jsx.importSource` makes rolldown say that it beat
 			// `compilerOptions.jsxImportSource`, and it says so without comparing
 			// the two -- measured: an app whose tsconfig names `@ttylabs/sigil`,
-			// which is what `sigil new` scaffolds and the only thing a sigil app
-			// can name, gets the warning for being right. A warning that fires on
-			// correct code teaches people to ignore warnings, which is the rule
-			// already written down for reading a file off `import.meta.url`.
+			// which is what `sigil new` scaffolds, gets the warning for being
+			// right. A warning that fires on correct code teaches people to ignore
+			// warnings, which is the rule already written down for reading a file
+			// off `import.meta.url`.
+			//
+			// It is every scaffolded TypeScript app rather than the few with a
+			// `.tsx`: loading the tsconfig is what reports the conflict and a
+			// `.ts` module loads it whether or not it holds JSX, measured, while a
+			// `.js` module does not. And it is reported even where the tsconfig
+			// did not win -- a per-file `@jsxImportSource` beats both and the
+			// warning still names the tsconfig -- so some of what it says is not
+			// true either.
 			//
 			// Scoped to the field rather than switched off with
 			// `checks: { configurationFieldConflict: false }`, so a conflict about
@@ -301,11 +309,13 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 		// What it costs is an app that names a different automatic import source
 		// in its tsconfig, which this overrides. Deliberate: the JSX in a sigil
 		// app has to produce sigil `Element`s for anything in the framework to
-		// render it, a JavaScript app has no tsconfig to write the setting in at
-		// all, and the one statement nothing here overrides is the per-file
-		// `@jsxImportSource` pragma -- measured, it beats this option. So the
+		// render it, and the one statement nothing here overrides is the per-file
+		// `@jsxImportSource` pragma -- measured, it beats this option -- so the
 		// escape hatch is the most explicit spelling there is rather than the
-		// least.
+		// least. A tsconfig could not have been the whole answer in any case:
+		// measured, `compilerOptions.jsxImportSource` does not reach a `.jsx` at
+		// all, so a `.jsx` has never been configurable that way with a tsconfig
+		// or without one.
 		transform: { jsx: { importSource: RUNTIME } },
 	});
 
@@ -381,26 +391,50 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
  * removing a directory this function does not own is how a mistyped path becomes
  * data loss. The assets are in that list too, which is where the sourcemaps are.
  *
+ * Every path is checked to be **inside `out` before it is unlinked**, and that
+ * guard was missing for a commit: `join()` normalises, so a reported name of
+ * `../precious.txt` resolved to a file beside the output directory and was
+ * deleted, while the separator check written next to it only ever protected the
+ * directory climb. Not reachable through rolldown 1.2.11, which refuses such a
+ * name before anything is written -- `entryFileNames` outside the directory is
+ * `INVALID_OPTION` and a chunk name that climbs out is
+ * `FILE_NAME_OUTSIDE_OUTPUT_DIRECTORY` -- and closed anyway, because the one
+ * operation here is a delete and a delete is not the place to rely on somebody
+ * else's validation. `escapeControls()` builds the same paths and only writes to
+ * them, which is why it is left as it is.
+ *
+ * Checked rather than resolved through `realpath`: if `out/chunks` is a symlink
+ * then rolldown wrote through it, so what is being removed is still exactly what
+ * this build put there, and resolving would refuse to clean up after a directory
+ * layout somebody chose on purpose.
+ *
  * A directory each of those files sat in goes with it, up to but never including
  * `out`, and only while it is empty -- `chunks/` is one this build made and an
  * empty directory left behind reads as a build that half happened. Emptiness is
  * what bounds it to directories nobody else is using, so a `--no-clean` output
  * holding somebody's own `chunks/index.html` keeps its directory.
  *
+ * Exported for the reason `MODULE_RE` is: rolldown will not produce a name that
+ * reaches the guard, so the only way to assert the guard is to call this.
+ *
  * @param out - The output directory.
  * @param output - What rolldown wrote.
  */
-function undo(out: string, output: readonly { fileName: string }[]): void {
+export function undo(out: string, output: readonly { fileName: string }[]): void {
 	const root = resolve(out);
 	// with the separator, so that an `--out` of `dist` cannot have `dist-old`
 	// read as being inside it
 	const inside = root.endsWith(sep) ? root : root + sep;
 
 	for (const chunk of output) {
-		const file = join(out, chunk.fileName);
+		const file = resolve(join(out, chunk.fileName));
+		if (!file.startsWith(inside)) {
+			continue;
+		}
+
 		rmSync(file, { force: true });
 
-		for (let dir = dirname(resolve(file)); dir !== root && dir.startsWith(inside);) {
+		for (let dir = dirname(file); dir !== root && dir.startsWith(inside);) {
 			try {
 				rmdirSync(dir);
 			} catch {

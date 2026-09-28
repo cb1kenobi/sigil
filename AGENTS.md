@@ -3416,10 +3416,15 @@ as default }` resolves the same way, since it is the same statement spelled
   with a genuine reason says so on the file that has the reason. Overriding the
   tsconfig is deliberate rather than reluctant: the JSX in a sigil app has to
   produce sigil `Element`s for anything in the framework to render it, so an app
-  that names something else and still type-checks is one whose `.tsx` was never
-  sigil's; and a JavaScript app has no tsconfig to write the setting in at all,
-  which is the case a defaulting rule could not have covered. It is the second
-  property the build knows better than the app, after `commands`.
+  that names something else is telling its editor its JSX is not sigil's, which
+  is a thing to say on the file that says it rather than once for the app. And
+  the case a tsconfig-conditional rule could not have covered is bigger than "an
+  app with no tsconfig": measured, `compilerOptions.jsxImportSource` **does not
+  reach a `.jsx` at all** -- a `.jsx` beside a tsconfig naming `from-tsconfig`
+  still compiled against `react`, while the `.tsx` beside it did not -- so a
+  `.jsx` has never been configurable that way in any app, with a tsconfig or
+  without. It is the second property the build knows better than the app, after
+  `commands`.
 - **The conflict warning rolldown emits for that is dropped, and only that
   one.** Setting the option makes rolldown say `compilerOptions.jsxImportSource`
   was overridden -- **without comparing the two values**, measured, so an app
@@ -3430,8 +3435,16 @@ as default }` resolves the same way, since it is the same statement spelled
   rather than switched off with `checks: { configurationFieldConflict: false }`,
   so a conflict about any other option this build sets still reaches whoever is
   building; matching the message is what that costs and it fails safe, since a
-  rewording brings the warning back. It fires once per build and only when a
-  module actually loads such a tsconfig, so an app with no `.tsx` never saw it.
+  rewording brings the warning back. It fires once per build, and **a `.ts`
+  module is enough** -- measured, since loading the tsconfig is what reports the
+  conflict and a TypeScript module loads it whether or not it holds any JSX, so
+  every app `sigil new` scaffolds would print it on every build. A `.js` module
+  does not, which is the same line the entry below draws. The suppression is
+  therefore load-bearing rather than tidy: "an app with no `.tsx` never saw it"
+  was the first version of this sentence and it was wrong. Rolldown reports the
+  conflict even where the tsconfig did **not** win: a per-file
+  `@jsxImportSource` beats both, and the warning still says the option beat the
+  tsconfig -- so in that case what is suppressed is a statement that is not true.
 - **The fixture has no `tsconfig.json`, and that is the whole of what it pins.**
   `test/fixtures/jsx/` is the only shape the defect had; an app with a config
   naming the import source cannot reproduce it. `test/fixtures/jsx-dev/` is the

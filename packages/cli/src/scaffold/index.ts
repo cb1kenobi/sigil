@@ -32,9 +32,11 @@
  *
  * `jsx` and `jsxImportSource` are the same kind of line. JSX is the canonical
  * syntax for a template here, and an app that writes its first `.tsx` without
- * them gets TS17004 from its editor and a bundle compiled against a `react` it
- * does not depend on -- so they are written the day the app is created rather
- * than the day somebody goes looking for why `<box>` is an error.
+ * them gets TS17004 from its editor and from `sigil build`'s own type check --
+ * so they are written the day the app is created rather than the day somebody
+ * goes looking for why `<box>` is an error. The *bundle* is fine either way,
+ * because the build hands rolldown the same import source; what these buy is the
+ * editor and `tsc` agreeing with it rather than the build being right alone.
  */
 
 /** What the app is written in. */

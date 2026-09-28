@@ -1,13 +1,23 @@
-import { bundleApp } from '../../src/build/bundle.js';
+import { bundleApp, undo } from '../../src/build/bundle.js';
 import { discoverApp, readAppCommands } from '../../src/build/discover.js';
 import { parseModule } from '../../src/build/parse-module.js';
 import { resolveCommandTree } from '../../src/build/tree.js';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import {
+	cpSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	readdirSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, describe, it, expect } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, it, expect } from 'vitest';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = resolve(__dirname, '../fixtures/buildable');
@@ -390,5 +400,79 @@ describe('an import nothing can resolve', () => {
 		// run is what the refusal is about, so handing it over anyway would answer
 		// the question and then give the wrong answer
 		expect(readdirSync(out_)).toStrictEqual([]);
+	});
+});
+
+describe('unwinding a refused build', () => {
+	/**
+	 * `undo()` is asserted directly, because rolldown will not produce the name
+	 * that reaches the guard.
+	 *
+	 * A reported `fileName` is joined onto the output directory and `join()`
+	 * normalises, so `../precious.txt` resolves to a file *beside* the output
+	 * directory -- and for one commit that file was deleted, because the
+	 * separator check written next to the unlink only protected the directory
+	 * climb. rolldown 1.2.11 refuses such a name before writing anything
+	 * (`INVALID_OPTION` for an entry, `FILE_NAME_OUTSIDE_OUTPUT_DIRECTORY` for a
+	 * chunk), so there is no build that demonstrates it and the only way to
+	 * assert the guard is to call the function.
+	 */
+	let base: string;
+	let out: string;
+
+	beforeEach(() => {
+		base = mkdtempSync(join(tmpdir(), 'sigil-undo-'));
+		out = join(base, 'dist');
+		mkdirSync(join(out, 'chunks'), { recursive: true });
+	});
+
+	afterEach(() => {
+		rmSync(base, { force: true, recursive: true });
+	});
+
+	it('should remove what the build wrote, directory included', () => {
+		writeFileSync(join(out, 'app.mjs'), 'x');
+		writeFileSync(join(out, 'chunks', 'a.mjs'), 'x');
+		writeFileSync(join(out, 'chunks', 'a.mjs.map'), 'x');
+
+		undo(out, [
+			{ fileName: 'app.mjs' },
+			{ fileName: 'chunks/a.mjs' },
+			{ fileName: 'chunks/a.mjs.map' },
+		]);
+
+		// the sourcemaps are assets in the same list, which is why they go too
+		expect(readdirSync(out)).toStrictEqual([]);
+	});
+
+	it('should keep a directory something else is using', () => {
+		// an `--out` the build was told not to clean may hold somebody else's
+		// files, so emptiness is what bounds the climb
+		writeFileSync(join(out, 'chunks', 'a.mjs'), 'x');
+		writeFileSync(join(out, 'chunks', 'index.html'), 'mine');
+
+		undo(out, [{ fileName: 'chunks/a.mjs' }]);
+
+		expect(readdirSync(join(out, 'chunks'))).toStrictEqual(['index.html']);
+	});
+
+	it('should refuse a path that climbs out of the output directory', () => {
+		const precious = join(base, 'precious.txt');
+		writeFileSync(precious, 'keep me');
+
+		undo(out, [{ fileName: '../precious.txt' }, { fileName: 'chunks/../../precious.txt' }]);
+
+		expect(existsSync(precious)).toBe(true);
+	});
+
+	it('should not read dist-old as being inside dist', () => {
+		// the separator, without which a prefix test says yes to a sibling
+		const sibling = join(base, 'dist-old');
+		mkdirSync(sibling);
+		writeFileSync(join(sibling, 'a.mjs'), 'keep me');
+
+		undo(out, [{ fileName: '../dist-old/a.mjs' }]);
+
+		expect(existsSync(join(sibling, 'a.mjs'))).toBe(true);
 	});
 });
