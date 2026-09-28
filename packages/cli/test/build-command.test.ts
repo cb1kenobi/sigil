@@ -8,15 +8,33 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const fixtures = resolve(dirname(fileURLToPath(import.meta.url)), 'fixtures');
 
-/** Runs the CLI with both streams captured. */
+/**
+ * Runs the CLI with both streams captured.
+ *
+ * `console.warn` is captured into `err` beside `process.stderr.write`, and it is
+ * not decoration: rolldown logs through `console.warn`, and vitest replaces
+ * `globalThis.console` with a reporter of its own -- so a spy on
+ * `process.stderr.write` never sees a bundler warning and any assertion about
+ * one passes whatever the build did. Found by sabotage: removing the code that
+ * suppresses a warning left the assertion green and printed the warning to the
+ * terminal.
+ */
 async function sigil(...argv: string[]) {
 	const chunks: Record<'err' | 'out', string[]> = { err: [], out: [] };
-	const spies = (['stdout', 'stderr'] as const).map((stream) =>
+	const spies: { mockRestore: () => void }[] = (['stdout', 'stderr'] as const).map((stream) =>
 		vi.spyOn(process[stream], 'write').mockImplementation(((chunk: string | Uint8Array) => {
 			chunks[stream === 'stdout' ? 'out' : 'err'].push(chunk.toString());
 			return true;
 		}) as typeof process.stdout.write)
 	);
+
+	for (const level of ['error', 'warn'] as const) {
+		spies.push(
+			vi.spyOn(console, level).mockImplementation((...args: unknown[]) => {
+				chunks.err.push(args.map(String).join(' '));
+			})
+		);
+	}
 
 	try {
 		await run(argv);
@@ -103,6 +121,41 @@ describe('sigil build', () => {
 			.join('');
 
 		expect(bundled).not.toContain('A template produces exactly one element');
+	}, 60_000);
+
+	it('should leave the rest of the JSX transform to the app, and say nothing about it', async () => {
+		// two claims about one option, and both are decisions rather than
+		// behaviours. The build sets `transform.jsx.importSource` and nothing else,
+		// so this fixture's `jsx: "react-jsxdev"` still reaches
+		// `@ttylabs/sigil/jsx-dev-runtime` -- adding `runtime: 'automatic'` beside
+		// the import source was tried and rejected precisely because it takes that
+		// away. The marker is the module's own file name, which the development
+		// transform passes to `jsxDEV` as a string and which therefore survives
+		// minification, where every identifier does not.
+		//
+		// And rolldown says `compilerOptions.jsxImportSource` was overridden
+		// whether or not the two agree -- this fixture names `@ttylabs/sigil`, the
+		// only thing a sigil app can name -- so the warning is noise on a correct
+		// build and is dropped. A warning that fires on correct code teaches people
+		// to ignore warnings.
+		const { err } = await sigil('build', join(fixtures, 'jsx-dev'), '--out', out);
+
+		expect(err).not.toContain('CONFIGURATION_FIELD_CONFLICT');
+		expect(process.exitCode).toBeFalsy();
+
+		const bundled = readdirSync(out, { recursive: true, withFileTypes: true })
+			.filter((entry) => entry.isFile() && entry.name.endsWith('.mjs'))
+			.map((entry) => readFileSync(join(entry.parentPath, entry.name), 'utf-8'))
+			.join('');
+
+		expect(bundled).toContain('panel.tsx');
+
+		const built = spawnSync(process.execPath, [join(out, 'jsx-dev.mjs'), 'greet'], {
+			encoding: 'utf-8',
+		});
+
+		expect(built.status, built.stderr).toBe(0);
+		expect(built.stdout).toContain('Hello, world!');
 	}, 60_000);
 
 	it('should build a templated app that renders what the interpreted tag does', async () => {

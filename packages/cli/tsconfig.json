@@ -10,6 +10,8 @@
     "./test/fixtures/template",
     "./test/fixtures/typecheck",
     "./test/fixtures/discover",
+    "./test/fixtures/jsx",
+    "./test/fixtures/jsx-dev",
     "./test/fixtures/buildable",
     "./test/fixtures/templated",
     "./test/fixtures/templated-tsx"

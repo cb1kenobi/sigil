@@ -54,8 +54,15 @@ import { readFileSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { Expression, ObjectExpression, Node } from 'oxc-parser';
 
-/** What makes a directory an app this can check. */
-const RUNTIME = '@ttylabs/sigil';
+/**
+ * What makes a directory an app this can check.
+ *
+ * Exported because it is also whose JSX runtime an app's JSX compiles against:
+ * the package whose presence in a manifest makes a directory a sigil app is the
+ * package that publishes `./jsx-runtime`, and two spellings of one package name
+ * is how the two come to disagree.
+ */
+export const RUNTIME = '@ttylabs/sigil';
 
 /**
  * Where a source entry is looked for, in order.

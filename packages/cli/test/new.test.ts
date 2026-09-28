@@ -103,6 +103,18 @@ describe('the scaffold', () => {
 		expect(options.types).toStrictEqual(['node']);
 	});
 
+	it('should configure JSX, which is the canonical syntax', () => {
+		// the same kind of line as `lib` and `types`, and it was missing: without
+		// `jsx` a `.tsx` is TS17004 in the editor, and with `jsx` but no
+		// `jsxImportSource` it is TS2875, naming `react/jsx-runtime` -- a package a
+		// sigil app does not depend on. `sigil build` hands the bundler the same
+		// import source, so what this buys is `tsc` agreeing with the build rather
+		// than the build being right on its own
+		const options = json('tsconfig.json').compilerOptions as unknown as Record<string, string>;
+		expect(options.jsx).toBe('react-jsx');
+		expect(options.jsxImportSource).toBe('@ttylabs/sigil');
+	});
+
 	it('should write no tsconfig for a JavaScript app', () => {
 		expect(files({ language: 'js' }).has('tsconfig.json')).toBe(false);
 		expect(files({ language: 'js' }).has('src/index.js')).toBe(true);

@@ -3,7 +3,7 @@ import { discoverApp, readAppCommands } from '../../src/build/discover.js';
 import { parseModule } from '../../src/build/parse-module.js';
 import { resolveCommandTree } from '../../src/build/tree.js';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,7 +24,7 @@ let chunks: readonly { entry: boolean; name: string; size: number }[];
  * "from" inside a message, followed by a quoted template -- and a test that
  * reports a dependency an app does not have is worse than no test.
  */
-function bundleSpecifiers(): string[] {
+function bundleSpecifiers(dir_ = out): string[] {
 	const found: string[] = [];
 
 	const walk = (dir: string) => {
@@ -65,7 +65,7 @@ function bundleSpecifiers(): string[] {
 		}
 	};
 
-	walk(out);
+	walk(dir_);
 	return found.map((specifier) => specifier.replace(/^["'`]|["'`]$/g, ''));
 }
 
@@ -251,5 +251,126 @@ describe('a package that cannot be inlined', () => {
 		});
 
 		expect(result.external).toStrictEqual(['node:zlib']);
+	});
+});
+
+describe('an app whose output is JSX', () => {
+	/**
+	 * JSX is the canonical syntax, and rolldown's default import source is
+	 * `react`.
+	 *
+	 * The fixture has no `tsconfig.json` on purpose: rolldown reads one when it
+	 * is there, so an app naming `jsxImportSource` always built correctly and the
+	 * defect was only ever the default. Left to it, this app built, reported
+	 * success, and died the first time the command was run with `Cannot find
+	 * package 'react'` -- the shape `--external` is written for, one option
+	 * along.
+	 */
+	let jsxOut: string;
+	let jsxBin: string;
+
+	beforeAll(async () => {
+		jsxOut = mkdtempSync(join(tmpdir(), 'sigil-jsx-'));
+
+		const jsxApp = resolve(__dirname, '../fixtures/jsx');
+		const found = discoverApp(jsxApp);
+		const tree = resolveCommandTree(join(jsxApp, 'src', 'commands'));
+
+		const result = await bundleApp({ app: found, binName: 'jsx', out: jsxOut, tree });
+		jsxBin = result.bin;
+	}, 60_000);
+
+	afterAll(() => {
+		rmSync(jsxOut, { force: true, recursive: true });
+	});
+
+	it('should compile JSX against the runtime rather than react', () => {
+		// the defect, named. `react/jsx-runtime` resolves in plenty of
+		// repositories and would then be *inlined*, so asserting the absence of
+		// the specifier is the check that holds wherever it runs
+		const bare = bundleSpecifiers(jsxOut).filter(
+			(specifier) => !specifier.startsWith('.') && !specifier.startsWith('node:')
+		);
+
+		expect(bare).toStrictEqual([]);
+		// and said the other way, because an empty list is a check that passes
+		// for the wrong reason the day the walk stops finding files
+		expect(bundleSpecifiers(jsxOut).length).toBeGreaterThan(0);
+	});
+
+	it('should run the JSX it compiled', () => {
+		// the claim only a spawned binary can make: the transform picked a runtime
+		// that is in the bundle, and what it built renders
+		const result = spawnSync(process.execPath, [jsxBin, 'greet', 'sigil'], {
+			cwd: tmpdir(),
+			encoding: 'utf-8',
+		});
+
+		expect(result.status).toBe(0);
+		expect(result.stdout).toContain('Hello, sigil!');
+		expect(result.stdout).toContain('from a compiled JSX element');
+	});
+});
+
+describe('an import nothing can resolve', () => {
+	/**
+	 * The gate that had never fired.
+	 *
+	 * `rolldown()` builds nothing -- rolldown's own documentation says the module
+	 * graph is not built until a method on the bundle is called -- so the check
+	 * that used to sit between it and `write()` asked an empty array every time.
+	 * A *relative* specifier is a hard error from rolldown itself, which is why
+	 * this went unnoticed; a *bare* one is downgraded to "treating it as an
+	 * external dependency", which is exactly the shape the gate exists for: the
+	 * bundle reaches for a package at run time and the build says it succeeded.
+	 *
+	 * The case is the one AGENTS.md already records as what found the gate in the
+	 * first place -- "a fixture app with no real `node_modules` built
+	 * 'successfully' while importing `@ttylabs/sigil` at run time" -- reproduced
+	 * by copying an app somewhere with no workspace above it. Nothing is planted:
+	 * the unresolvable import is the runtime itself, which is what makes the
+	 * failure the real one rather than a contrived one.
+	 */
+	let out_: string;
+	let app_: string;
+
+	beforeAll(() => {
+		out_ = mkdtempSync(join(tmpdir(), 'sigil-unresolved-out-'));
+		app_ = mkdtempSync(join(tmpdir(), 'sigil-unresolved-app-'));
+		cpSync(app, app_, { recursive: true });
+	});
+
+	afterAll(() => {
+		rmSync(out_, { force: true, recursive: true });
+		rmSync(app_, { force: true, recursive: true });
+	});
+
+	it('should refuse the build and leave nothing behind', async () => {
+		const found = discoverApp(app_);
+		const tree = resolveCommandTree(join(app_, 'src', 'commands'));
+
+		const failure = await bundleApp({
+			app: found,
+			binName: 'buildable',
+			out: out_,
+			tree,
+		}).then(
+			// spelled out rather than `rejects.toThrow`, so that a build which
+			// *succeeded* fails the assertion with a sentence instead of with chai
+			// complaining about `undefined`
+			() => '(the build succeeded)',
+			(error: unknown) => (error as Error).message
+		);
+
+		// named rather than matched loosely, so the test cannot pass because
+		// something else went wrong on the way
+		expect(failure).toContain('could not be resolved');
+		expect(failure).toContain('@ttylabs/sigil');
+
+		// the other half, and the reason the check cannot simply be moved after
+		// the write and left there: a bundle that would die the first time it was
+		// run is what the refusal is about, so handing it over anyway would answer
+		// the question and then give the wrong answer
+		expect(readdirSync(out_)).toStrictEqual([]);
 	});
 });

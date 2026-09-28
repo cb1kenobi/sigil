@@ -32,12 +32,12 @@
  */
 
 import { compileTemplates } from './compile-templates.ts';
-import type { DiscoveredApp } from './discover.ts';
+import { RUNTIME, type DiscoveredApp } from './discover.ts';
 import { generateBin } from './generate.ts';
 import { TAG_MODULE } from './templates.ts';
 import type { ResolvedTree } from './tree.ts';
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { chmodSync, mkdirSync, readFileSync, rmSync, rmdirSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve, sep } from 'node:path';
 import type { Plugin } from 'rolldown';
 
 /** Where the generated entry is written, relative to the app. */
@@ -181,10 +181,31 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 		// rather than warned about, because a build that cannot find the runtime
 		// has not built anything worth running
 		onLog(level, log, handler) {
+			const message = String(log.message ?? '');
+
 			if (log.code === 'UNRESOLVED_IMPORT') {
-				unresolved.push(String(log.message ?? ''));
+				unresolved.push(message);
 				return;
 			}
+
+			// the one warning this build asks for and does not want reported.
+			// Setting `transform.jsx.importSource` makes rolldown say that it beat
+			// `compilerOptions.jsxImportSource`, and it says so without comparing
+			// the two -- measured: an app whose tsconfig names `@ttylabs/sigil`,
+			// which is what `sigil new` scaffolds and the only thing a sigil app
+			// can name, gets the warning for being right. A warning that fires on
+			// correct code teaches people to ignore warnings, which is the rule
+			// already written down for reading a file off `import.meta.url`.
+			//
+			// Scoped to the field rather than switched off with
+			// `checks: { configurationFieldConflict: false }`, so a conflict about
+			// any of the other options this build sets still reaches whoever is
+			// building. Matching the message is what that costs, and it fails in
+			// the safe direction: reworded, the warning comes back.
+			if (log.code === 'CONFIGURATION_FIELD_CONFLICT' && message.includes('jsxImportSource')) {
+				return;
+			}
+
 			handler(level, log);
 		},
 		platform: 'node',
@@ -247,14 +268,44 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 			} satisfies Plugin,
 		],
 		resolve: { conditionNames: ['node', 'import', 'default'] },
+		// JSX compiles against the runtime the app depends on, because rolldown's
+		// own default is `react` and a framework that publishes `./jsx-runtime` has
+		// no business shipping apps that import somebody else's. Left to the
+		// default, a `.tsx` holding one JSX element built cleanly, reported
+		// success, and died the first time the command was run with `Cannot find
+		// package 'react'` -- a build that reported success and an executable that
+		// dies the first time it is used, which is the shape `--external` is
+		// written for one option along.
+		//
+		// rolldown *does* read the app's `tsconfig.json`, and that was the first
+		// thing measured rather than assumed: `tsconfig` defaults to `true` and it
+		// is resolved by walking up from each module, so an app whose config names
+		// `jsxImportSource` already built correctly and the defect was only ever
+		// the default. Which is why this is one option and not a `tsconfig`
+		// reader: parsing one means JSONC and an `extends` chain, and a second
+		// reader of the app's config is a second thing to disagree with the app's
+		// own `tsc`.
+		//
+		// `importSource` alone, and the narrowness is the decision. Measured
+		// against rolldown 1.2.11: this option beats a `jsxImportSource` from the
+		// tsconfig, and everything else about the transform stays the app's --
+		// `jsx: "react-jsxdev"` still reaches `@ttylabs/sigil/jsx-dev-runtime`,
+		// `jsx: "react"` still emits `React.createElement`, and `jsx: "preserve"`
+		// still preserves. Adding `runtime: 'automatic'` was tried and rejected:
+		// it does fix `preserve` and classic, and it silently costs
+		// `react-jsxdev` its dev runtime, which is a configuration this framework
+		// publishes a runtime for.
+		//
+		// What it costs is an app that names a different automatic import source
+		// in its tsconfig, which this overrides. Deliberate: the JSX in a sigil
+		// app has to produce sigil `Element`s for anything in the framework to
+		// render it, a JavaScript app has no tsconfig to write the setting in at
+		// all, and the one statement nothing here overrides is the per-file
+		// `@jsxImportSource` pragma -- measured, it beats this option. So the
+		// escape hatch is the most explicit spelling there is rather than the
+		// least.
+		transform: { jsx: { importSource: RUNTIME } },
 	});
-
-	if (unresolved.length) {
-		await bundle.close();
-		throw new Error(
-			`Cannot build: ${unresolved.length} import${unresolved.length === 1 ? '' : 's'} could not be resolved, and an unresolved import is one the built app would reach for at run time.\n${unresolved.map((message) => `  ${message}`).join('\n')}`
-		);
-	}
 
 	const written = await bundle.write({
 		chunkFileNames: 'chunks/[name]-[hash].mjs',
@@ -268,6 +319,29 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 		sourcemap,
 	});
 	await bundle.close();
+
+	// asked after the write, which reads backwards and is the only place the
+	// answer exists. `rolldown()` builds nothing: rolldown's own documentation
+	// says the module graph is not built until a method on the bundle is called,
+	// so asking here before the write -- which is where this check used to sit --
+	// asked an empty array and the gate had never once fired. Measured: an app
+	// importing `totally-not-a-package` built and reported success, and so did
+	// one whose JSX reached for `react`. It was untested, which is how a check
+	// comes to be dead.
+	//
+	// It cannot be moved into a plugin hook either, and each candidate was tried:
+	// `buildEnd` and `generateBundle` both run *before* the warning is reported,
+	// so both see nothing. `generate()` first and `write()` after is the other
+	// shape and is worse -- measured, the transform hook runs again for the
+	// second call, which would double `templates` and compile every template
+	// twice. So one write, and what it wrote is unwound: exactly the files
+	// rolldown reported, which is where the `.map`s are too.
+	if (unresolved.length) {
+		undo(out, written.output);
+		throw new Error(
+			`Cannot build: ${unresolved.length} import${unresolved.length === 1 ? '' : 's'} could not be resolved, and an unresolved import is one the built app would reach for at run time.\n${unresolved.map((message) => `  ${message}`).join('\n')}`
+		);
+	}
 
 	escapeControls(out, written.output);
 
@@ -290,6 +364,51 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 	chmodSync(executable, 0o755);
 
 	return { bin: executable, chunks, external: [...external], generated, templates };
+}
+
+/**
+ * Removes what a build wrote, because a refused build must leave nothing.
+ *
+ * The gate above can only be asked after the write, so by the time the answer
+ * exists the bundle is on disk -- and a bundle that would die the first time it
+ * was run is precisely what the refusal is about, so leaving it there would
+ * answer the question and then hand over the thing anyway.
+ *
+ * Exactly the files rolldown reported, rather than the output directory: an
+ * `--out` the build was told not to clean may hold somebody else's files, and
+ * removing a directory this function does not own is how a mistyped path becomes
+ * data loss. The assets are in that list too, which is where the sourcemaps are.
+ *
+ * A directory each of those files sat in goes with it, up to but never including
+ * `out`, and only while it is empty -- `chunks/` is one this build made and an
+ * empty directory left behind reads as a build that half happened. Emptiness is
+ * what bounds it to directories nobody else is using, so a `--no-clean` output
+ * holding somebody's own `chunks/index.html` keeps its directory.
+ *
+ * @param out - The output directory.
+ * @param output - What rolldown wrote.
+ */
+function undo(out: string, output: readonly { fileName: string }[]): void {
+	const root = resolve(out);
+	// with the separator, so that an `--out` of `dist` cannot have `dist-old`
+	// read as being inside it
+	const inside = root.endsWith(sep) ? root : root + sep;
+
+	for (const chunk of output) {
+		const file = join(out, chunk.fileName);
+		rmSync(file, { force: true });
+
+		for (let dir = dirname(resolve(file)); dir !== root && dir.startsWith(inside);) {
+			try {
+				rmdirSync(dir);
+			} catch {
+				// not empty, or already gone: either way there is nothing above it
+				// left to remove
+				break;
+			}
+			dir = dirname(dir);
+		}
+	}
 }
 
 /**

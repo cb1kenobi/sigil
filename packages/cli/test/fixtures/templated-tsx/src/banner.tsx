@@ -15,10 +15,10 @@ import { ui } from '@ttylabs/sigil/template';
  * omission: node cannot load a `.tsx` at all -- `Unknown file extension` -- so
  * an app with one is a built app by construction.
  *
- * It holds no JSX *element*, deliberately. `sigil build` does not configure
- * rolldown's JSX transform, so one would be compiled against the default
- * `react` runtime and the built app would fail to import it; that is its own
- * gap, orthogonal to this one, and a fixture is not the place to pin it.
+ * It holds no JSX *element*, deliberately, and that is scope rather than a
+ * limitation: `test/fixtures/jsx/` is the fixture for what the JSX transform
+ * compiles against, and one fixture pinning two unrelated things is one that
+ * cannot say which of them broke.
  */
 export function banner(): Element {
 	return ui`<text class="banner">a template from a .tsx</text>`;
