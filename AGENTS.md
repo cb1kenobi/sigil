@@ -197,12 +197,24 @@ the build wrote, here it restores something the build would not have written.
 So `sigil.json` is in `inputs`, beside `tsdown.config.ts`, which is the precedent
 in both directions -- a package without the file contributes nothing, and a
 package whose build reads one has to say so. The audit that turned up nothing else
-is worth recording, because "the one somebody found is fixed" is a weaker claim:
-the only files either build command names are `package.json`, `tsconfig.json`,
-`sigil.json`, `tsdown.config.ts` and `scripts/generate-registry.mjs`, while
-`entry.mjs` and `noop.js` are paths those passes synthesize rather than read.
-`should hash every file a build command reads` writes that list out, for the
-reason the toolchain's dependencies are written out rather than counted.
+is worth recording, because "the one somebody found is fixed" is a weaker claim,
+and it was done twice by different means. Reading the passes gives `package.json`,
+`tsconfig.json`, `sigil.json`, `tsdown.config.ts` and
+`scripts/generate-registry.mjs`, with `entry.mjs` and `noop.js` being paths those
+passes synthesize rather than read. Running each build under a tracer over
+`fs.readFileSync` and its siblings agrees exactly: outside `src/` and the output
+directories, the toolchain's build touches `package.json`, `sigil.json` and
+`tsconfig.json` and **nothing at the repository root at all**, and
+`@ttylabs/sigil`'s touches `package.json`, `tsdown.config.ts` and
+`scripts/generate-registry.mjs`. Where that method stops is the part worth knowing
+rather than glossing: `tsc` is TypeScript 7, a native binary, and rolldown is
+native too, so neither one's reads go through node's `fs` and neither was traced.
+What `tsc` reads is the `extends` chain, and that was followed by hand instead --
+every tsconfig in both packages extends `./tsconfig.json`, both of those extend
+`../../tsconfig.base.json`, and that one extends nothing and is in
+`globalDependencies`, which is why editing it still moves every task.
+`should hash every file a build command reads` writes the list out, for the reason
+the toolchain's dependencies are written out rather than counted.
 
 One cosmetic surprise comes with workspace membership: `turbo run build
 --dry-run` now lists an `@ttylabs/demos#build` whose command is `<NONEXISTENT>`,
