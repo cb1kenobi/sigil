@@ -655,7 +655,10 @@ false` rethrows instead; a function replaces the handler.
   kind keeps its description _inside the module_ -- so a routed tree lists names
   and nothing else until each module has been imported, and not importing them
   is the whole of what the deferral buys. `Schema.routeInfo` is where a build
-  puts what it lifted. It is read where a placeholder is built and nowhere else,
+  that keeps the walk puts what it lifted -- `sigil build` bakes the tree
+  instead, so nothing in this repository fills one, and what stays live is the
+  contract such a build fills. It is read where a placeholder is built and
+  nowhere else,
   which is what keeps it a cache: the directory is still read, every route it
   finds is still a command, and a route with no entry still works and simply
   lists without a description. That is what stops a command dropped into an
@@ -3639,18 +3642,61 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   and shipped by a package whose users would never see a description again. The
   static `desc` lift exists precisely because routing makes name-only help the
   common case; the toolchain is built by tsdown rather than by itself, so
-  nothing was lifting anything. `scripts/generate-commands.mjs` is that lift run
-  as a build step, and it walks with `readRoutes()` -- the _runtime's_ reader --
-  so the thing that describes the walk cannot come to disagree with the walk.
+  nothing was lifting anything. `scripts/generate-commands.mjs` **was** that
+  lift run as a build step, and it walked with `readRoutes()` -- the _runtime's_
+  reader -- so the thing that described the walk could not come to disagree with
+  the walk. Past tense throughout: the script is gone, and so is the module
+  behind it. The three bullets below are where it went, what was left behind
+  when it went, and what that left saying the wrong thing.
 - **`pnpm build` is the toolchain building the toolchain, and that deleted the
   bridge.** A hand-run `scripts/generate-commands.mjs` used to do the lift and
   write a committed `src/route-info.ts`, because tsdown knows nothing about
   command trees. `sigil build` has always known: it walks the directory, lifts
   `desc` and `hidden` out of each module, and bakes the tree into the entry it
-  generates. So the script, the committed file, its drift check and the schema's
-  `routeInfo` all went in the change that stopped needing them -- the shape to
-  reach for when a generator appears beside a build is whether the build should
-  have done it.
+  generates. So the script, the committed file and its drift check all went in
+  the change that stopped needing them, and the toolchain stopped filling the
+  schema's `routeInfo` -- the shape to reach for when a generator appears beside
+  a build is whether the build should have done it. `routeInfo` itself did
+  **not** go, and an earlier wording of this bullet said it had, which is the
+  one sentence here capable of causing damage: it is live runtime API, read in
+  `init-command.ts` wherever a placeholder is built, and the bullet below is
+  what stands between it and the next cleanup.
+- **Except the lift-and-print module outlived everything around it, and dead
+  code carrying instructions is worse than dead code.**
+  `packages/cli/src/build/route-info.ts` was 224 lines reachable only through a
+  barrel re-export -- `liftRouteInfo()` and `printRouteInfo()` were named
+  nowhere else in `src`, `test`, `scripts`, `demos` or `website` -- and what it
+  printed was a header telling the reader to run
+  `node scripts/generate-commands.mjs` and pointing at a drift check called
+  `the committed route info`. Neither existed. `packages/cli/scripts/` holds
+  `generate-utilities.mjs` and nothing else, and while `test/commands.test.ts`
+  does exist it has never held a test by that name. An uncalled function is a
+  thing somebody deletes; an uncalled function that tells you to run a script
+  that is not there is a thing somebody goes looking for the script for. It was
+  not merely uncalled but **superseded**: `tree.ts` walks with the same
+  `readRoutes()`, reads the same `desc` and `hidden` through the same
+  `factsOf()`, prefers a package's own manifest the same way, and reports
+  through `diagnostic.ts` rather than a flat `problems: string[]` -- so it is
+  the same pass with the repo's one diagnostic shape and a `load` per command at
+  the end of it. rolldown had been shaking it out of every bundle, so nothing
+  shipped was wrong and nothing measurable was reclaimed; what it cost was
+  entirely paid by whoever read it.
+- **What replaced `routeInfo` is not `routeInfo`, and that is why three
+  sentences about it were wrong.** `sigil build` emits a `commands` literal
+  whose entries carry `desc`, `hidden` and a `load` -- `generateBin()` writes
+  `commands` and `version` and nothing else -- so the descriptions arrive as
+  what the **placeholder declares**, which the runtime already honoured, rather
+  than as a cache beside a walk there no longer is. `Schema.routeInfo` is for a
+  build that keeps the walk, which this one does not -- and the README saying
+  `sigil build` writes it for you, `RouteInfo`'s own doc comment, and the entry
+  above under the route rules had all been saying otherwise. Each was false
+  before the module was deleted rather than made false by deleting it, which is
+  the only reason to correct them here: the deletion is what removes the last
+  thing in the tree those sentences could have been pointing at. Pinned now by
+  `a lifted description` in `test/parser/routing.test.ts`, which is the coverage
+  that was missing -- `routeInfo` is read throughout `init-command.ts` and was
+  tested nowhere at all, and a public API with no producer left in the tree is
+  one the next cleanup takes for dead.
 - **Stage 2 is the check that the compiler is a fixed point, and it holds.**
   Stage 1 is what stage 0 produces; stage 2 is what _stage 1_ produces, and the
   two are byte-identical. Two runs of one binary agreeing proves only

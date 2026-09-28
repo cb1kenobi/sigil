@@ -79,5 +79,4 @@ export {
 	type ResolvedTree,
 	type ResolveOptions,
 } from './tree.ts';
-export { liftRouteInfo, printRouteInfo, type LiftedRoutes } from './route-info.ts';
 export { typeCheck, type TypeCheckOptions, type TypeCheckResult } from './typecheck.ts';
