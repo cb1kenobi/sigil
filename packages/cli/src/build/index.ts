@@ -33,7 +33,13 @@ export {
 	type Diagnostic,
 	type Severity,
 } from './diagnostic.ts';
-export { bundleApp, type BuiltChunk, type BundleOptions, type BundleResult } from './bundle.ts';
+export {
+	bundleApp,
+	MODULE_RE,
+	type BuiltChunk,
+	type BundleOptions,
+	type BundleResult,
+} from './bundle.ts';
 export {
 	discoverApp,
 	readAppCommands,

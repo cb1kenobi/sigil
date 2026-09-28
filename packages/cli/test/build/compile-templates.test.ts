@@ -1,3 +1,4 @@
+import { MODULE_RE } from '../../src/build/bundle.js';
 import {
 	choosePrefix,
 	compileTemplates,
@@ -31,6 +32,57 @@ afterAll(() => {
 /** A module using the tag, with `body` as the template. */
 function moduleWith(body: string, extra = ''): string {
 	return `import { ui } from '@ttylabs/sigil/template';\n${extra}export const view = () => ${body};\n`;
+}
+
+const VLQ = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+/**
+ * Which original line a generated line maps back to, by reading the mappings.
+ *
+ * Decoded here rather than with a library, because the question is one line long
+ * and the packages that answer it are not dependencies this repo has. A source
+ * map's `mappings` is `;`-separated generated lines, `,`-separated segments, each
+ * segment base64-VLQ fields where the third is the original line **as a delta
+ * carried across the whole string** -- which is why this walks from the start
+ * rather than jumping to the line asked about.
+ *
+ * @param mappings - The `mappings` field.
+ * @param generated - A one-based generated line.
+ * @returns The one-based original line, or `undefined` where nothing is mapped.
+ */
+function originalLineOf(mappings: string, generated: number): number | undefined {
+	let line = 0;
+	let found: number | undefined;
+
+	mappings.split(';').forEach((group, index) => {
+		if (!group) {
+			return;
+		}
+		for (const segment of group.split(',')) {
+			let shift = 0;
+			let value = 0;
+			const fields: number[] = [];
+			for (const char of segment) {
+				const digit = VLQ.indexOf(char);
+				value += (digit & 31) << shift;
+				if (digit & 32) {
+					shift += 5;
+					continue;
+				}
+				fields.push(value & 1 ? -(value >> 1) : value >> 1);
+				shift = 0;
+				value = 0;
+			}
+			if (fields.length >= 4) {
+				line += fields[2]!;
+			}
+			if (index + 1 === generated && found === undefined) {
+				found = line + 1;
+			}
+		}
+	});
+
+	return found;
 }
 
 /** Imports a compiled module and renders what its `view` builds. */
@@ -137,6 +189,11 @@ export const two = () => ui\`<text>second</text>\`;
 
 			expect(compiled?.count).toBe(2);
 			expect(compiled?.code).not.toContain('ui`');
+			// each template's own content, because a count of 2 and an absent tag are
+			// both satisfied by splicing the *first* template's output over both
+			// spans -- which is the off-by-one `sources[at]` exists to avoid
+			expect(compiled?.code).toContain('"first"');
+			expect(compiled?.code).toContain('"second"');
 		});
 
 		it('should keep a shebang on the first line', () => {
@@ -161,6 +218,11 @@ export const untouched = () => 'still here';
 
 			expect(compiled?.code).toContain("const greeting = 'hello';");
 			expect(compiled?.code).toContain("export const untouched = () => 'still here';");
+			// the template really was replaced: the interpreted tag renders `hello`
+			// too, so the render below passes just as happily on a module nothing
+			// rewrote
+			expect(compiled?.code).not.toContain('ui`');
+			expect(compiled?.code).toContain('@ttylabs/sigil/element');
 			expect(await renderCompiled(source)).toBe('hello');
 		});
 	});
@@ -175,6 +237,38 @@ export const untouched = () => 'still here';
 			expect(compiled?.map.sources).toEqual(['/app/view.ts']);
 			expect(compiled?.map.mappings.length).toBeGreaterThan(0);
 			expect(compiled?.map.sourcesContent?.[0]).toContain('ui`');
+		});
+
+		it('should map a line after the splice back to where it was written', () => {
+			// present is not the same as *correct*, and the assertion above only says
+			// present. The head the splice prepends shifts every line after it, so a
+			// map that merely existed would send a stack trace somewhere near but
+			// wrong -- which is worse than none, because it reads as authoritative
+			const source = [
+				"import { ui } from '@ttylabs/sigil/template';", // 1
+				'', // 2
+				'export function makeView(name) {', // 3
+				'  return ui`<text>${name}</text>`;', // 4
+				'}', // 5
+				'', // 6
+				'export function afterwards() {', // 7
+				"  throw new Error('here');", // 8
+				'}', // 9
+			].join('\n');
+
+			const compiled = compileTemplates('/app/view.ts', source);
+			const lines = compiled!.code.split('\n');
+			const generated = lines.findIndex((line) => line.includes("Error('here')")) + 1;
+
+			// the head really did move it, or this proves nothing
+			expect(generated).toBeGreaterThan(8);
+			expect(originalLineOf(compiled!.map.mappings, generated)).toBe(8);
+			expect(
+				originalLineOf(
+					compiled!.map.mappings,
+					lines.findIndex((line) => line.includes('export function afterwards')) + 1
+				)
+			).toBe(7);
 		});
 	});
 
@@ -209,6 +303,99 @@ export const broken = () => ui\`<text><box /></text>\`;
 `;
 
 			expect(() => compileTemplates('/app/mixed.ts', source)).toThrow(TemplateCompileError);
+			// and it names the *broken* template rather than merely throwing: the
+			// good one is line 2
+			expect(() => compileTemplates('/app/mixed.ts', source)).toThrow('/app/mixed.ts:3:');
+		});
+
+		it('should name the template a whole-module compile failure was about', () => {
+			// `compile()` is handed every template at once and what it throws names
+			// none of them, so the first template's position was the answer for one
+			// commit -- a location pointing at code the author would read, find
+			// correct, and be stuck on. `<raw>` with a literal measure is the case
+			// that gets past `parse()` and fails in `compile()`
+			const source = `import { ui } from '@ttylabs/sigil/template';
+export const fine = () => ui\`<text>ok</text>\`;
+export const broken = () => ui\`<raw measure="nope" paint="nope" />\`;
+`;
+
+			let thrown: unknown;
+			try {
+				compileTemplates('/app/raw.ts', source);
+			} catch (e: unknown) {
+				thrown = e;
+			}
+
+			expect(thrown).toBeInstanceOf(TemplateCompileError);
+			expect((thrown as TemplateCompileError).line).toBe(3);
+			expect((thrown as TemplateCompileError).message).toContain('measure');
+		});
+	});
+
+	describe('which modules are asked at all', () => {
+		it('should admit every extension the compiler can actually read', () => {
+			// the invariant, rather than a list: the plugin's `id` filter and what
+			// `compileTemplates()` can parse are two things that have to agree, and
+			// the gap between them is a template nobody compiles and nobody is told
+			// about. `.tsx` and `.jsx` were exactly that gap
+			const source = `import { ui } from '@ttylabs/sigil/template';
+export const view = () => ui\`<text>x</text>\`;
+`;
+
+			for (const ext of ['ts', 'mts', 'cts', 'js', 'mjs', 'cjs', 'tsx', 'jsx']) {
+				expect(compileTemplates(`/app/view.${ext}`, source)?.count, ext).toBe(1);
+				expect(MODULE_RE.test(`/app/view.${ext}`), ext).toBe(true);
+			}
+		});
+
+		it('should not admit an extension that does not exist', () => {
+			// the eight real extensions are not a product of their parts: there is no
+			// `.mtsx` or `.cjsx`, and oxc does not read either as JSX, so a single
+			// `x?` admitted four spellings whose JSX is a syntax error
+			for (const ext of ['mtsx', 'ctsx', 'mjsx', 'cjsx']) {
+				expect(MODULE_RE.test(`/app/view.${ext}`), ext).toBe(false);
+			}
+		});
+
+		it('should not admit what the compiler does not read', () => {
+			// JSON, a native binding and whatever virtual module a plugin invented
+			// are not JavaScript this can parse, and asking anyway would turn a build
+			// into a parse error about a file nobody wrote
+			for (const id of [
+				'/app/data.json',
+				'/app/binding.node',
+				'/app/style.css',
+				'/app/view.ts?commonjs-proxy',
+			]) {
+				expect(MODULE_RE.test(id), id).toBe(false);
+			}
+		});
+
+		it('should compile a template in a .tsx, which oxc parses as JSX', () => {
+			// the extension is what decides the language, so a `.tsx` holding both
+			// JSX and a `ui` template parses and compiles -- and leaving `.tsx` out
+			// of the build's `id` filter was a silent miss, not a safe one
+			const source = `import { ui } from '@ttylabs/sigil/template';
+const Btn = () => <box>hi</box>;
+export const view = () => ui\`<text>tsx</text>\`;
+`;
+			const compiled = compileTemplates('/app/view.tsx', source);
+
+			expect(compiled?.count).toBe(1);
+			expect(compiled?.code).toContain('"tsx"');
+			expect(compiled?.code).toContain('<box>hi</box>');
+		});
+
+		it('should refuse the same source as a .ts, where JSX is not the language', () => {
+			// which is exactly why the gate is the extension: oxc reads the language
+			// off the filename, and a `.ts` full of JSX is a parse error rather than
+			// a module to rewrite
+			const source = `import { ui } from '@ttylabs/sigil/template';
+const Btn = () => <box>hi</box>;
+export const view = () => ui\`<text>tsx</text>\`;
+`;
+
+			expect(() => compileTemplates('/app/view.ts', source)).toThrow('Failed to parse');
 		});
 	});
 });

@@ -11,6 +11,7 @@
     "./test/fixtures/typecheck",
     "./test/fixtures/discover",
     "./test/fixtures/buildable",
-    "./test/fixtures/templated"
+    "./test/fixtures/templated",
+    "./test/fixtures/templated-tsx"
   ]
 }

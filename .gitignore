@@ -36,3 +36,9 @@ packages/sigil/registry
 # way a published copy would. It removes them itself; this is for the run that
 # died before it could.
 packages/*/.bootstrap-*
+
+# `test/build/compile-templates.test.ts` writes compiled modules inside the
+# package for the same reason -- what it writes imports `@ttylabs/sigil`, and
+# node resolves that by walking up from the file. Same deal: it cleans up after
+# itself, and this is for the run that did not get to.
+packages/*/.splice-*

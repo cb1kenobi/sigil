@@ -2830,11 +2830,12 @@ dependency. Regenerate with `node scripts/generate-utilities.mjs` from inside
   frontend that can produce IR with `Expr` in it, SIG-71's YAML and JSON
   included, compiles through the same emitter. Finding the templates in a
   module, and knowing where to write each expression and the module-scope
-  statements back, is SIG-73's, which already owns reading an app off disk. The
-  consequence
+  statements back, is `compile-templates.ts`'s -- written now, and described
+  under "Compiling an app's templates" below; it was SIG-73's to own because
+  reading an app off disk was already there. The consequence
   worth knowing is that a `ui` template written _inside_ an interpolation is
   printed back verbatim and stays interpreted: an expression is not the
-  compiler's to read, and the pipeline will find those the same way it found the
+  compiler's to read, and the pipeline finds those the same way it found the
   outer one.
 - **Resolving class names and pre-measuring are deferred with reasons rather
   than omitted.** SIG-69 named both as this pass's work. A resolved class name
@@ -3103,6 +3104,67 @@ as default }` resolves the same way, since it is the same statement spelled
   erases. This is the question `emit()` answers by holding the function itself,
   and getting it wrong means rewriting a stranger's template literal into calls
   it never asked for.
+- **Which _shapes_ of that binding count is the other half, and a miss is
+  silent.** Getting it wrong in this direction rewrites nothing and says nothing:
+  the template is left interpreted, the build's count omits it, and the parser
+  stays in the bundle. So a **namespace member** counts -- `import * as t`
+  followed by ``t.ui`...` `` is statically the same import, answered off the same
+  module record with no scope walk -- and **parentheses come off**, because
+  ``(ui)`...` `` is the same call and oxc preserves the parentheses as a node, so
+  a matcher reading the tag straight off declined a template with nothing wrong
+  with it. A **computed** property does not count even holding a literal:
+  `t['ui']` and `t[key]` are the same syntax and only one is readable, and
+  reading the easy half of a construct this does not support is worse than
+  skipping both -- the rule the static `desc` lift already records for a computed
+  key. Neither addition loses a negative: a local `ui` nothing imported, a
+  namespace of some other module, a wrong property, and a type-only namespace
+  import are all still declined.
+- **A name the module binds again is given up on, because there is no scope tree
+  to ask.** The bindings come off oxc's module record, which says what was
+  imported and nothing about where that name is still the import -- so a
+  parameter, a variable or a catch binding of the same name is, to this walk,
+  the same name. That was a live defect rather than a documented limit: the entry
+  above promises that "a local variable called `ui` is not one", and
+  ``function f(ui) { return ui`...` }`` in a module that also imports the tag was
+  compiled anyway. Adding the namespace shape made it sharper rather than
+  introducing it, because the shadowed name is then the _namespace_ local -- `t`,
+  which collides far more often than `ui` does -- and the failure is not even
+  quiet: a shadowed ``t.ui`<div class="${x}">` `` is an HTML template this then
+  tries to compile, so a build that worked now fails on a file with nothing wrong
+  with it. So every name the module binds anywhere else is removed from the
+  candidates, module-wide, since per use site is exactly the scope question there
+  is no answer to. It over-approximates on purpose: the names are collected off
+  the _keys_ a binding hangs off -- `id`, `param`, `params` -- rather than off a
+  list of node types, for the reason `walk()` is driven by `visitorKeys`, and
+  reading one key too many costs a template that stays interpreted while reading
+  one too few costs a rewrite of somebody else's code. That asymmetry is the
+  whole of the decision, and it is the same one the entry below makes for a
+  barrel: loud and wrong is worse than quiet and right.
+- **A tag re-exported through another module is unreachable here, and that is a
+  boundary rather than a bug.** `export { ui } from '@ttylabs/sigil/template'` in
+  a barrel, imported from the barrel, is the same function at run time and cannot
+  be recognised from one parse -- the specifier naming the tag's module is not in
+  the file, so the native `code` filter never even calls the handler. Answering
+  it means resolving a specifier and reading what is behind it, which is the
+  bundler's job; doing it in a parse would be a second module resolver. Such a
+  template stays interpreted, which is correct output at the cost of the bundle's
+  parser. Worth knowing that the _re-export_ could be warned about cheaply --
+  oxc's `staticExports` on the barrel names the specifier, and that file does
+  contain it -- while the **use site** cannot be, which is the half that would
+  actually help.
+- **...and it is not the only one, which is why there is a list rather than a
+  sentence.** Calling the barrel "the one remaining miss" was wrong within a day
+  of being written. Also uncompiled, each silently, each the same function at run
+  time: `const { ui } = t`; `(t).ui`, where the parentheses are around the object
+  rather than the tag, so the unwrap does not reach them; `const ui = t.ui`;
+  `(ui as any)` and `(ui satisfies ...)`; `(0, ui)`; `ui!` and `t.ui!`, where the
+  `!` erases; a dynamic `await import()`; and a specifier written with an escape
+  -- `'@ttylabs/sigil/\u0074emplate'`, which oxc decodes, so `findTemplates()`
+  finds the template while the substring fast path and the rolldown `code` filter
+  both search the raw source and do not. What they share is that answering them
+  needs something one parse of one module has not got: another file, or a value
+  flow. Enumerated rather than summarised, because the summary is what went
+  stale, and because the count cannot see any of them.
 - **Only the outermost template is claimed.** A `ui` written inside an
   interpolation stays interpreted, which is already recorded: an expression is
   not the compiler's to read, so it is printed back verbatim and the runtime tag
@@ -3444,6 +3506,21 @@ block and the imports at the top. A rolldown `transform` runs it on the way in.
   the emitter prints stay **template-relative**: those are what make a compiled
   template's error name the same line the interpreted one does, and the module
   position is the map's job rather than theirs.
+
+  What the map resolves to is a span rather than a line, and that is the honest
+  limit of it: the replacement for a template is one `overwrite()` over the whole
+  tagged expression, so every generated line _inside_ it maps back to the
+  template's opening `ui`, not to the line of the template each piece came from.
+  A stack frame therefore lands on the right template in the right file, on the
+  line the template starts. Everything **around** the splice is exact to the
+  character -- that is what `hires: true` buys, verified by decoding the VLQ
+  rather than by checking the map is non-empty -- and the prepended imports and
+  hoisted block are deliberately unmapped, which is the right answer for code
+  that was never in the file. Spreading the interior would mean emitting per-node
+  positions from `compile()` and splicing chunk by chunk, which is a real
+  redesign for a line number inside generated code somebody is about to read
+  beside the template anyway.
+
 - **`magic-string` is a new dependency and `RolldownMagicString` was the
   alternative.** rolldown exports a native MagicString of its own, which would
   have been zero new dependencies -- and it is marked `@experimental`, which is
@@ -3482,7 +3559,59 @@ block and the imports at the top. A rolldown `transform` runs it on the way in.
 ...`, and omits the clause entirely at zero rather than saying "0 templates" --
   the toolchain's own build is the case that reads, since it has none. A build
   that silently compiled none when the author wrote twelve is the failure worth
-  being able to see.
+  being able to see. What it cannot see is a template nothing _claimed_: a shape
+  the matcher does not reach leaves the count short with no diagnostic, so the
+  count is a signal about templates found rather than a proof that none was
+  missed. Which is the whole reason the shapes below are worth being exhaustive
+  about.
+- **Every shape the matcher misses is silent, so the shapes are the feature.** A
+  template that is not claimed produces no error at all -- it is bundled
+  interpreted, the count omits it, and the parser stays in the bundle -- so a
+  miss costs exactly what the pass exists to buy and says nothing. Three of them
+  were shipped in the first version and each was found by review rather than by a
+  test. The **extension** was one: `MODULE_RE` gated the `transform` on
+  `/\.[cm]?[jt]s$/`, so a `ui` template in a `.tsx` or a `.jsx` was never asked
+  about, though `compileTemplates()` compiles one perfectly well -- oxc reads the
+  language off the filename, which is why the extension is the right gate and
+  why leaving the `x` out was a silent miss rather than a safe one. JSX being the
+  canonical syntax is what makes a `.tsx` a _likely_ place for the tag rather
+  than an exotic one: the two live side by side in one app. Spelled as two
+  alternatives rather than one `x?`, because the eight real extensions are not a
+  product of their parts -- there is no `.mtsx` or `.cjsx`, and oxc reads neither
+  as JSX, so the lazy spelling admitted four ids whose JSX is a syntax error. The
+  other two misses are `findTemplates()`'s and are recorded there -- a namespace
+  member and a parenthesized tag -- along with the shadowing defect that
+  supporting the first of those made sharper, and with the list of shapes that
+  stay unreachable because one parse of one module cannot answer them: a barrel
+  re-export, a destructuring, `(t).ui`, an escaped specifier, and the rest.
+- **A whole-module `compile()` failure is attributed by re-compiling each
+  template alone.** `compile()` takes a module's templates at once, so what it
+  throws names none of them, and the first template's position was the answer for
+  one commit: a module whose _second_ template held a bad `<raw>` reported the
+  first one's line, which is a location pointing at code the author would read,
+  find correct, and be stuck on. A diagnostic that names the wrong line is worse
+  than one that names no line, because it is believed. So the culprit is found by
+  compiling each on its own until one throws the same message -- the error path
+  only, so the happy path pays nothing, and sound in the direction that matters
+  since nothing `compile()` does across templates can _rescue_ one that fails
+  alone. The parse and analyze failures never had this problem: those are per
+  template already.
+
+  Under the match are two ordered fallbacks -- a template that threw _something_,
+  then the module's first -- and they exist because the match rests on a property
+  of a set of throw sites rather than a guarantee: no message `compile()` throws
+  mentions a generated name or an index, so it is the same compiled alone or in a
+  batch. Checked against every throw site, the prefix check included, which
+  throws one identical message however many templates it was handed and so lands
+  on the first template through the _match_. An earlier note claimed that one as
+  the fallback's reason and was simply wrong about it. With today's emitter all
+  three rules pick the same template -- `compile()` throws on the first failure it
+  meets, so there is never an earlier failing template for the match to disagree
+  with -- which means no test over the real emitter can tell them apart, and two
+  attempts at writing one were green with the branch they named deleted.
+  `test/build/blame.test.ts` mocks `compile()` to separate them, because
+  machinery nothing exercises is machinery that stops working silently.
+
 - **The stylesheet half of SIG-115 is deliberately not here.** The ticket calls it
   "less settled" and leaves three questions open -- what "as data" is, whether
   class-name mangling is in scope at all when `FRAMEWORK_CSS` is documented as the

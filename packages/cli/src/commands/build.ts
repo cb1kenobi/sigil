@@ -21,12 +21,16 @@
  * dynamic imports, which is what makes the chunks work and what makes a shared
  * component tree possible at all.
  *
- * ## What it does not do yet
+ * ## Templates are compiled; stylesheets are not
  *
- * Templates and stylesheets are compiled at run time still. Both are pure
- * optimizations -- the `ui` tag works, a stylesheet parses at startup -- so an
- * app builds and runs correctly without them, and they make the first frame
- * faster when they land.
+ * A `ui` template is compiled into the module it was written in, by a rolldown
+ * `transform` -- so the tag, the parser and the IR walk shake out of the bundle,
+ * and the summary says how many were compiled. What that buys is the *bundle*
+ * and not the first frame: a template parse is 1.6us, so the startup cost it was
+ * supposed to remove was never there. Stylesheets still parse at startup, which
+ * is the half where a real startup win may be, and it waits for SIG-81 --
+ * shaking and compiling read the same sheet and should be one pass. Both are
+ * pure optimizations either way: an app builds and runs correctly without them.
  */
 
 import { bundleApp, type BuiltChunk, displayPath, type ResolvedTree } from '../build/index.ts';
