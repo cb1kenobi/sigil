@@ -3918,7 +3918,9 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   comma is what `main` printed; the comma rides on the run before it, since a run
   is a _word_ and a lone comma would be drawn with a space in front of it. The
   first version of this promise had only ever been checked against `check`, which
-  is how the `build` difference survived being written down as verified. The two forms cannot
+  is how the `build` difference survived being written down as verified -- and it
+  was checked by hand either way, which is the gap the two entries below close.
+  The two forms cannot
   drift in the part that matters, because the location is
   `diagnosticLocation()`'s and both print it -- which is what that function was
   extracted for, and what stopped `formatDiagnostic()` being dead code the moment
@@ -3933,6 +3935,201 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   deliberately **not** the colour level: `NO_COLOR` on a real terminal means "no
   colour", not "no layout", and a report that unwrapped itself over it would be
   reading one setting as though it were another.
+- **Both forms are spawned and asserted, and what is pinned is the claim rather
+  than the bytes.** Nothing in the suite ran either of them. `report.test.ts`
+  reaches `report.ts` directly and has to, since a vitest worker's stderr has no
+  `columns` and no `isTTY`, so every render through `run()` comes out at the
+  fallback width with no colour -- the one case that cannot fail -- while
+  `check.test.ts` and `build-command.test.ts` spy on `process.stderr.write` and
+  assert on substrings, which survives any amount of wrapping. The byte
+  comparison the entry above records was a `diff` against a `main` worktree run
+  by hand, which is not a check anybody runs twice, and the `build` regression is
+  what that cost. `test/output-forms.test.ts` spawns `dist/sigil.mjs` for both
+  forms, which is the precedent `demos.test.ts` set and for its reason: a test
+  that renders through vite is not a test of what a user's terminal gets.
+
+  **A snapshot was the obvious answer and is the wrong one.** Its baseline is not
+  "what this was before any of it was rendered", it is whatever was current the
+  last time somebody regenerated it -- and regenerating is what a failing
+  snapshot teaches you to do. The regression this exists for is the proof: a
+  snapshot would have flagged ` (2 warnings)` and a regenerate would have blessed
+  it, because nothing in a snapshot says which of the two answers is right. So
+  each claim is asserted as itself, which is the rule the canvas diff's own tests
+  already follow. **One line per record**, counted twice over -- the diagnostics
+  by their shape, and then every non-empty line there is, because a wrap in the
+  note or in the summary adds a line that is not a diagnostic and only the total
+  sees it. **The grep case derived rather than written down**: every place the
+  laid-out form broke a line is read back off it, the phrase spanning the break is
+  assembled, and the pipe has to contain it while the terminal must not -- the
+  1-to-0 measurement automated, and it cannot go quietly stale against a reworded
+  message the way a constant would. **The two forms differentially**, since
+  `report.ts` claims they differ only in the wrapping and the colour: take the
+  colour off, collapse the whitespace, and they are one report. And **the grammar
+  of the one line a rewording moves**, because the differential is exactly blind
+  to the regression that happened -- both forms are built from the same runs, so
+  ` (2 warnings)` changed both and they went on agreeing perfectly. That is the
+  argument for having the grammar as well as the differential rather than a
+  preference: `/ into \S+, 1 warning$/` is the only assertion in the file that
+  fails when the historical defect is put back. What a byte comparison would
+  catch and these do not is both forms being reworded together, which is a change
+  somebody makes on purpose; what they catch is every way the split fails by
+  accident, and each of them names what it is for when it fails.
+
+  **Two of them were vacuous when first written, and the sabotage is what said
+  so.** The `awk -F:` test filtered stderr to the lines matching
+  `file:line:column:` and then read their fields, so a form that stopped being
+  that shape at all left the filter empty and every assertion under it passed --
+  the glob that matches nothing, one directory along. It asserts the count first
+  now. And the does-not-break-a-path test passed with the laid-out form removed
+  entirely, because an unwrapped diagnostic does not break a path either; it
+  asserts that the render wrapped before it asserts what the wrapping did to the
+  path. Sabotage is the only thing that finds either.
+
+  **What a sabotage catches is worth recording and how many tests it catches is
+  not, which took two goes to learn.** The count was written down three times and
+  was wrong twice, both times for the same reason and neither time because the code
+  moved: a sabotage measured before a test was hardened, and then not measured
+  again. Giving a pipe the laid-out form and colour was fourteen before the
+  `awk -F:` tests grew their count assertion and is eighteen now; giving a terminal
+  the piped form was six before the build-path test grew its `wrapped()` guard and
+  is seven. A number in this file that only a re-run can confirm is the stale
+  snapshot this entry was written against, arriving one level up -- so what is
+  recorded is the shape. Making the piped diagnostics wrap is caught by the
+  line counts. Colouring a pipe is caught by those and by the `awk -F:` shape,
+  since a coloured location does not start with a file name. Giving a terminal the
+  piped form is caught by the hanging indent, the two colour tests, the stacked
+  case and both path tests. Dropping the location's column is caught by the
+  differential -- and by the hanging-indent test, which cannot find a
+  `file:line:column:` to measure from at all, so that one is not the differential
+  doing its job however much it looks like it. Breaking a long word the way
+  `paragraph()` does is caught by both path tests and both differentials. Writing
+  CRLF is caught by the line counts and by the three tests that say a pipe gets a
+  bare newline. Two are worth a number because the number _is_ the claim: the
+  historical parenthetical fails exactly one assertion, and keying the layout on the
+  colour level rather than on `isTTY` fails exactly two -- the `FORCE_COLOR` test
+  and the `NO_COLOR` one, which are the two halves of that rule and nothing else.
+
+  **A third vacuity is the build rather than the test, and nothing checks it,
+  which is a decision that cost two attempts.** These spawn `dist/sigil.mjs`, so an
+  edit to `src/` that has not been rebuilt is asserted against the previous binary:
+  `isTerminal()` changed to return `false` with no rebuild passes every one of
+  them, and the same edit rebuilt fails. A missing `dist/` is loud -- `existsSync`
+  says so and names the build -- while a _stale_ one is silent, which is worse, and
+  silent in exactly the loop somebody works in, since `pnpm test` builds first and a
+  bare `pnpm vitest run` on one file does not.
+
+  Two proxies for it were written and both fired on correct code. **mtimes** --
+  every output against every input, directories counted so a deleted source file is
+  not invisible -- fail in a way `pnpm build` cannot clear: a source file's
+  timestamp moves without its content changing on a branch switch, a
+  `git stash pop`, a revert or a `cp` restore, turbo's hash is then unchanged, so
+  the rebuild the message asks for is a cache hit that does not touch `dist/` at
+  all, the mtimes never move, and the failure is unsatisfiable. Measured on a
+  pristine tree. **Turbo's own hash** is content-based and authoritative, and
+  `turbo run build --dry-run=json` is the way to ask it -- and it is worse here for
+  a reason only measurement finds: that hash moves for _any_ modified file in the
+  workspace rather than only the task's declared `inputs`. Appending a comment to
+  `test/output-forms.test.ts` flips both `@ttylabs/cli#build` and
+  `@ttylabs/sigil#build` from HIT to MISS with `src/` untouched, so the guard would
+  fail for whoever is editing the test -- the one situation it runs in most. It also
+  says MISS after `node src/sigil.ts build`, which is the package's own build
+  command and the one to reach for while working on the toolchain, because turbo
+  only records what turbo ran. Combining them does not rescue either: the mtime
+  screen fires on the bumped timestamp and turbo, with the test file dirty, agrees.
+
+  So there is no proxy here that is both satisfiable and quiet on correct code, and
+  a check that fires on correct code teaches people to ignore checks -- which this
+  file would have been teaching about itself. What actually guarantees a fresh
+  `dist/` is the `test` script building first, and the rule this file already
+  records: `@ttylabs/cli` needs a build before its tests mean anything, which is
+  true of `commands.test.ts` and the demos as well and is answered there the same
+  way. The residual hazard is written into the test rather than guarded, and every
+  sabotage recorded above was run with a rebuild in between for exactly that
+  reason. Worth knowing what the abandoned version got right on its way out, since
+  it is the shape anybody trying again will reach for: the floor has to be the
+  _oldest_ thing the build wrote, because `dist/sigil.mjs` is a 1.2 kB loader and
+  the code these tests are about is in `dist/chunks/report-*.mjs` -- so comparing
+  the entry alone let a corrupted chunk with a touched entry pass while failing most
+  of the tests under it.
+
+- **The terminal is a spawned child that answers `isTTY`, not a pty.** Node has
+  no pty and this repo has no pty dependency; taking one to read a boolean back is
+  the kind of decision `the toolchain's dependencies` exists to make deliberate.
+  What `report.ts` reads about a destination is `stream.isTTY` and
+  `stream.columns` and nothing else -- `ReportStream` is those two fields -- so
+  the child is the real binary with real pipes, preloaded with a module that
+  defines `isTTY` on its own streams, and `COLUMNS` says the width, which is what
+  `terminalWidth()` documents it for. `defineProperty` rather than an assignment,
+  because a piped `process.stdout` is not a `tty.WriteStream` and what it does
+  with a write to a property it never declared is not a thing to depend on; a
+  `data:` URL rather than a file, so the source of the fake sits beside the test
+  that explains it. Everything `supportsColor()` reads is cleared out of the
+  child's environment first, because `CI` and `GITHUB_ACTIONS` are set on nine of
+  the places this runs and either decides the level for a destination claiming to
+  be a TTY -- a test that left them alone would assert a different colour on a
+  laptop than in CI. What the fake does not prove is that node reports `isTTY`
+  correctly for a real pty, which is node's claim rather than this repo's, and it
+  says nothing about terminal modes -- `report.ts` writes plain lines and sets
+  none. `scripts/terminal-probe.mjs` is where a claim only a real terminal can
+  falsify belongs, and none of these is one. The fake is itself sabotage-checked,
+  for the reason the tests are: a preload that does nothing fails every test that
+  is about the laid-out form, so it is load-bearing rather than decoration. The
+  `NO_COLOR` test is among them only because it grew a "did this really lay out"
+  guard of its own -- with no terminal at all, both sides of its comparison are the
+  piped form and it passed while saying nothing.
+- **A width a report is laid out in is not a length to assert, because the
+  checkout's own path is in it.** The does-not-break-a-path test first asserted
+  that the line holding the `baseDir` warning's absolute path was _wider than the
+  terminal_, which is the overflow those two entries describe and is also a
+  statement about where the repository happens to be: the line is the 24-column
+  hanging indent plus the path, so a fixture path of 56 characters or fewer -- a
+  checkout at `/code/sigil` -- fails it on a build with nothing wrong. Measured
+  against copies of the fixture at 55, 56 and 57 characters rather than reasoned
+  about. The claim it was reaching for needs no width at all: a path that was
+  broken appears whole on no line, and one `text-overflow` cut appears on none
+  either, so "whole, on exactly one line" is the whole of it. The one place a width
+  _is_ asserted is `build`'s output path, where the temp directory is named long on
+  purpose -- which is the difference between a number that holds by construction
+  and one that holds by luck. Except that it did not hold there either, and the
+  second measurement is the one that says so: the summary reports that path
+  _relative to the app_, so a `TMPDIR` inside the fixture brings it to 72 columns
+  and the long name buys nothing. Both width assertions are gone, and what is left
+  is the claim in both places -- whole, on one line.
+- **A pipe gets a bare newline, and that is asserted rather than tolerated.** The
+  first version of this file stripped a trailing `\r` on the way in, on the theory
+  that a line ending is not what these tests are about. It is: a `\r` on the last
+  field is exactly what `awk -F:` hands back to whoever is reading it, and the
+  plain-text path already records that a carriage return in a log file is not a line
+  ending anybody asked for. A strip would have let a switch to CRLF stay green --
+  measured, all of them passed with `report.ts` writing `\r\n` -- where asserting
+  its absence catches it in the line counts as well as in the three tests named for
+  it. The same shape as a property the engine ignores:
+  tolerating something quietly is worse than saying what is meant.
+- **The differential's own path handling was the Conventions entry about Windows
+  fixtures, committed verbatim.** It took the absolute output directory back out of
+  both summaries -- `words(text).replaceAll(dir, '<out>')` -- and `dir` is what
+  `mkdtempSync()` returned, which on Windows is backslashed, while the summary
+  reports that path through `displayPath()`, which forward-slashes it. Across
+  drives it is worse: the runner's checkout is on `D:` and its temp directory on
+  `C:`, so `relative()` hands back an absolute path and the two spellings never
+  meet at all. The replacement matched nothing, the two `mkdtemp` suffixes
+  survived, and the two builds' summaries differed by exactly them -- one test, on
+  all three Windows jobs, on both of the first two commits, and on no other
+  platform. That is the entry already written down twice over: a fixture for
+  platform-dependent behaviour is written with the same function the subject uses,
+  and an expectation built with `join()` is backslashed on Windows and nowhere
+  else. Keyed on the directory's _name_ now, which is a token neither spelling can
+  disagree about. Worth knowing that a review round found the same line by a
+  different route -- a `TMPDIR` under the fixture -- which is two ways of saying
+  that a test must not spell a path a second time.
+- **`NO_COLOR` on a terminal is laid out and not coloured, which is the half of the
+  rule that had no test.** The `FORCE_COLOR` entry below says that keying the
+  laid-out form on the colour level instead would make `NO_COLOR` unwrap every
+  diagnostic, and the test for the tidy-up being wrong only ever came at it from the
+  `FORCE_COLOR` side. So a terminal run with `NO_COLOR` set has to be
+  `strip()` of the ordinary laid-out run, exactly -- same wrapping, no sequences.
+  With that, the two halves of "layout follows `isTTY`, colour follows the level"
+  each have an assertion, and the tidy-up fails two rather than one.
 - **The report asks the stream it is going to, and that is not the process.**
   Diagnostics and summaries go to stderr while `--tree` and the chunk sizes go to
   stdout, so that a tree can be piped without losing the problems -- and those
@@ -3955,7 +4152,9 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   independent on purpose -- layout follows `isTTY`, colour follows the level --
   so `FORCE_COLOR=3 sigil check --tree | cat` is a coloured table on stdout and
   plain one-line diagnostics on stderr. Measured: two escapes on stdout, none on
-  stderr. It is what `main` did too, since the diagnostics carried no colour at
+  stderr -- and pinned now by `should colour the tree and not the diagnostics
+under FORCE_COLOR`, because an entry saying "do not fix this" is worth less than
+  a test that fails when somebody does. It is what `main` did too, since the diagnostics carried no colour at
   all there and the table has always read the process styler, so nothing
   regressed -- and the obvious tidy-up is the one that must not be taken. Keying
   the pretty form on the colour _level_ instead would make `FORCE_COLOR`
@@ -4056,7 +4255,10 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   through `run()`, because a vitest worker's stderr has no `columns` and no
   `isTTY` -- so every render through the CLI comes out at the fallback width with
   no colour, which is the one case that cannot fail. `ReportStream` is an
-  interface for exactly that reason.
+  interface for exactly that reason. Which is also why it cannot be the whole
+  answer, and `output-forms.test.ts` is the other half: what a user's terminal
+  gets is what the _binary_ writes, and reaching that means a spawned child rather
+  than an interface satisfied in-process.
 
 #### There is no live display in the toolchain, and that is measured
 
