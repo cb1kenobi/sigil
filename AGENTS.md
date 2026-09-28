@@ -4036,6 +4036,23 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   measured, all of them passed with `report.ts` writing `\r\n` -- where asserting
   its absence fails twelve. The same shape as a property the engine ignores:
   tolerating something quietly is worse than saying what is meant.
+- **The differential's own path handling was the Conventions entry about Windows
+  fixtures, committed verbatim.** It took the absolute output directory back out of
+  both summaries -- `words(text).replaceAll(dir, '<out>')` -- and `dir` is what
+  `mkdtempSync()` returned, which on Windows is backslashed, while the summary
+  reports that path through `displayPath()`, which forward-slashes it. Across
+  drives it is worse: the runner's checkout is on `D:` and its temp directory on
+  `C:`, so `relative()` hands back an absolute path and the two spellings never
+  meet at all. The replacement matched nothing, the two `mkdtemp` suffixes
+  survived, and the two builds' summaries differed by exactly them -- one test, on
+  all three Windows jobs, on both of the first two commits, and on no other
+  platform. That is the entry already written down twice over: a fixture for
+  platform-dependent behaviour is written with the same function the subject uses,
+  and an expectation built with `join()` is backslashed on Windows and nowhere
+  else. Keyed on the directory's _name_ now, which is a token neither spelling can
+  disagree about. Worth knowing that a review round found the same line by a
+  different route -- a `TMPDIR` under the fixture -- which is two ways of saying
+  that a test must not spell a path a second time.
 - **`NO_COLOR` on a terminal is laid out and not coloured, which is the half of the
   rule that had no test.** The `FORCE_COLOR` entry below says that keying the
   laid-out form on the colour level instead would make `NO_COLOR` unwrap every
