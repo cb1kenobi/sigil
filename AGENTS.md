@@ -3384,6 +3384,49 @@ as default }` resolves the same way, since it is the same statement spelled
   bundle which would die on first use has answered the question and then handed
   the thing over anyway. The output directory itself is never removed, because
   `--no-clean` means it may hold somebody else's files.
+- **The bundle is closed in a `finally` over everything it is used for, and the
+  narrow bracket is what let this go missing.** `close()` releases a **native**
+  handle, so what it does not release is not something the garbage collector
+  will get to, and rolldown's own documentation says to call it even when the
+  build failed -- and it was written directly after `bundle.write()`, which is
+  the one path where none of that is true. Measured before anything was changed:
+  an `--out` that is an existing file makes `write()` reject with
+  `Could not create directory for output chunks: <out>`, and `close()` was never
+  reached. The same happens for an `--out` inside a read-only directory, which is
+  the spelling `sigil build` can actually be made to fail on -- an `--out` that
+  is a file does not survive the clean step, which removes it and makes a
+  directory in its place. A `try`/`finally` around the write alone would have
+  closed that one path and left the next one open, and _that_ is the finding
+  rather than the leak: the gate, `undo()` and `escapeControls()` all grew
+  underneath a call that had been written as the statement after the write, so
+  the bracket has to be the one that cannot be defeated by whatever is added next.
+  It runs from the `rolldown()` call to the `return`; a `rolldown()` that rejects
+  has produced no bundle for anything to close, and `writeEntry()` is before it.
+- **`close()` never decides what the build answered, on either path.** A
+  `finally` that rethrows swaps the real diagnostic for one about releasing a
+  handle, which is the rule `undo()` already follows one function along -- and it
+  is swallowed on the success path too, rather than raised there, because the
+  asymmetry would have to be stated as "releasing the bundle is fatal only when
+  everything else worked". What that reading produces is a refused build sitting
+  beside a bundle that is complete, escaped and executable: the shape `undo()`
+  exists to prevent, with nothing left to unwind. Unlike the two guards in
+  `undo()` this one is **reachable** -- measured against rolldown 1.2.11, a
+  plugin whose `closeBundle` hook throws throws out of `close()`, and this
+  build's one plugin has only a `transform` today. Closing twice is a no-op, also
+  measured, which is why replacing the eager call rather than joining it costs
+  nothing and is still worth doing: two closes would be two answers.
+- **Whether `close()` was called is asked by mocking `rolldown`, because the
+  bundle is `bundleApp()`'s own.** Nothing outside that function can see it, and
+  the alternative is a seam whose only reader would be the test. So
+  `test/build/bundle-close.test.ts` wraps the real `rolldown()` the way
+  `blame.test.ts` wraps `compile()`: the real bundler runs, the real app is
+  bundled, the real files are written, and the wrapper adds a record of the
+  `close()` calls and a way to make one fail. `close` is redefined **on the
+  instance** rather than reached through a `Proxy`, because rolldown's bundle
+  reads private fields off `this` and a proxy receiver fails `write()` with
+  `Receiver must be an instance of class` -- measured. It is a file of its own
+  because `vi.mock` is hoisted and module-wide, so every test in the file it sat
+  in would run through the wrapper.
 - **JSX compiles against `@ttylabs/sigil`, because rolldown's default is
   `react`.** A `.tsx` holding one JSX element built, reported success, and died
   the first time the command was run: `Cannot find package 'react' imported from

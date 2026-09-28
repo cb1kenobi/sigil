@@ -319,63 +319,96 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 		transform: { jsx: { importSource: RUNTIME } },
 	});
 
-	const written = await bundle.write({
-		chunkFileNames: 'chunks/[name]-[hash].mjs',
-		dir: out,
-		entryFileNames: `${binName}.mjs`,
-		format: 'esm',
-		minify: true,
-		// the first thing anybody debugging a built app wants, and nothing to
-		// whoever never opens one -- but several times the size of the code it
-		// describes, and a package publishing its `dist` publishes it too
-		sourcemap,
-	});
-	await bundle.close();
+	// everything the bundle is used for is bracketed, rather than the write
+	// alone, because a bundle left open is a native handle nothing will collect
+	// and every statement below can throw: the write itself, the unresolved
+	// gate's `undo()`, `escapeControls()` reading a file back, the `chmod`.
+	// rolldown's own documentation says to call `close()` even when the build
+	// failed, and the `finally` is the only spelling that cannot be defeated by
+	// the next thing somebody adds under it -- which is how this came to be
+	// missing in the first place, since `close()` was written directly after the
+	// write and the gate, the unwind and the escape pass all grew underneath it.
+	try {
+		const written = await bundle.write({
+			chunkFileNames: 'chunks/[name]-[hash].mjs',
+			dir: out,
+			entryFileNames: `${binName}.mjs`,
+			format: 'esm',
+			minify: true,
+			// the first thing anybody debugging a built app wants, and nothing to
+			// whoever never opens one -- but several times the size of the code it
+			// describes, and a package publishing its `dist` publishes it too
+			sourcemap,
+		});
 
-	// asked after the write, which reads backwards and is the only place the
-	// answer exists. `rolldown()` builds nothing: rolldown's own documentation
-	// says the module graph is not built until a method on the bundle is called,
-	// so asking here before the write -- which is where this check used to sit --
-	// asked an empty array and the gate had never once fired. Measured: an app
-	// importing `totally-not-a-package` built and reported success, and so did
-	// one whose JSX reached for `react`. It was untested, which is how a check
-	// comes to be dead.
-	//
-	// It cannot be moved into a plugin hook either, and each candidate was tried:
-	// `buildEnd` and `generateBundle` both run *before* the warning is reported,
-	// so both see nothing. `generate()` first and `write()` after is the other
-	// shape and is worse -- measured, the transform hook runs again for the
-	// second call, which would double `templates` and compile every template
-	// twice. So one write, and what it wrote is unwound: exactly the files
-	// rolldown reported, which is where the `.map`s are too.
-	if (unresolved.length) {
-		undo(out, written.output);
-		throw new Error(
-			`Cannot build: ${unresolved.length} import${unresolved.length === 1 ? '' : 's'} could not be resolved, and an unresolved import is one the built app would reach for at run time.\n${unresolved.map((message) => `  ${message}`).join('\n')}`
-		);
+		// asked after the write, which reads backwards and is the only place the
+		// answer exists. `rolldown()` builds nothing: rolldown's own documentation
+		// says the module graph is not built until a method on the bundle is called,
+		// so asking here before the write -- which is where this check used to sit --
+		// asked an empty array and the gate had never once fired. Measured: an app
+		// importing `totally-not-a-package` built and reported success, and so did
+		// one whose JSX reached for `react`. It was untested, which is how a check
+		// comes to be dead.
+		//
+		// It cannot be moved into a plugin hook either, and each candidate was tried:
+		// `buildEnd` and `generateBundle` both run *before* the warning is reported,
+		// so both see nothing. `generate()` first and `write()` after is the other
+		// shape and is worse -- measured, the transform hook runs again for the
+		// second call, which would double `templates` and compile every template
+		// twice. So one write, and what it wrote is unwound: exactly the files
+		// rolldown reported, which is where the `.map`s are too.
+		if (unresolved.length) {
+			undo(out, written.output);
+			throw new Error(
+				`Cannot build: ${unresolved.length} import${unresolved.length === 1 ? '' : 's'} could not be resolved, and an unresolved import is one the built app would reach for at run time.\n${unresolved.map((message) => `  ${message}`).join('\n')}`
+			);
+		}
+
+		escapeControls(out, written.output);
+
+		const chunks = written.output
+			.map((chunk) => ({
+				entry: chunk.type === 'chunk' && chunk.isEntry,
+				name: chunk.fileName,
+				size: Buffer.byteLength(
+					chunk.type === 'chunk' ? chunk.code : (chunk.source as string | Uint8Array)
+				),
+			}))
+			.sort((one, other) => other.size - one.size);
+
+		const executable = join(out, `${binName}.mjs`);
+
+		// the bit, because a shebang without it is a file nobody can run. `0o755`
+		// rather than a mask off the umask: what a bin needs is the same everywhere
+		// and an umask that happened to be 077 would produce one only its owner
+		// could execute
+		chmodSync(executable, 0o755);
+
+		return { bin: executable, chunks, external: [...external], generated, templates };
+	} finally {
+		try {
+			await bundle.close();
+		} catch {
+			// `close()` never decides what the build answered, which is the same
+			// rule `undo()` follows and for the same reason: a `finally` that
+			// rethrows replaces the real diagnostic with one about releasing a
+			// handle, and there is no error worse to report than the one that was
+			// already on its way. It is swallowed on the success path too rather
+			// than raised there, because the asymmetry would have to be stated as
+			// "releasing the bundle is fatal only when everything else worked",
+			// which reads backwards -- and what it would produce is a refused
+			// build sitting beside a bundle that is complete, escaped and
+			// executable, which is the shape `undo()` exists to prevent with
+			// nothing left to unwind.
+			//
+			// Reachable, unlike the guards in `undo()`: measured against rolldown
+			// 1.2.11, a plugin whose `closeBundle` hook throws throws out of
+			// `close()`. This build's one plugin has only a `transform`, so it
+			// cannot happen here today -- and a plugin is exactly the kind of
+			// thing that gets added. Double-closing is safe either way, also
+			// measured, so there is no path where this runs twice and complains.
+		}
 	}
-
-	escapeControls(out, written.output);
-
-	const chunks = written.output
-		.map((chunk) => ({
-			entry: chunk.type === 'chunk' && chunk.isEntry,
-			name: chunk.fileName,
-			size: Buffer.byteLength(
-				chunk.type === 'chunk' ? chunk.code : (chunk.source as string | Uint8Array)
-			),
-		}))
-		.sort((one, other) => other.size - one.size);
-
-	const executable = join(out, `${binName}.mjs`);
-
-	// the bit, because a shebang without it is a file nobody can run. `0o755`
-	// rather than a mask off the umask: what a bin needs is the same everywhere
-	// and an umask that happened to be 077 would produce one only its owner
-	// could execute
-	chmodSync(executable, 0o755);
-
-	return { bin: executable, chunks, external: [...external], generated, templates };
 }
 
 /**

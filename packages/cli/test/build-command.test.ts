@@ -1,6 +1,14 @@
 import { run } from '../src/index.js';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -228,4 +236,41 @@ describe('sigil build', () => {
 		expect(err).toContain('does not depend on @ttylabs/sigil');
 		expect(process.exitCode).toBe(1);
 	});
+
+	it.skipIf(process.platform === 'win32')(
+		'should report an --out it cannot write as being about that',
+		async () => {
+			// the one way to make `bundle.write()` itself reject, which is what
+			// `bundle-close.test.ts` needs and is worth pinning from the command as
+			// well: what the user is told has to name the directory rather than
+			// whatever went wrong on the way out of it. An `--out` that is an
+			// existing *file* does not reach here -- the clean step removes it and
+			// makes a directory in its place, measured -- so the read-only parent is
+			// the case.
+			//
+			// Skipped on Windows, where a mode of `0o500` on a directory does not
+			// stop anything being created inside it, which is the same reason the
+			// executable-bit assertion is skipped in `bundle.test.ts`
+			const readonly = join(out, 'readonly');
+			mkdirSync(readonly);
+			chmodSync(readonly, 0o500);
+
+			try {
+				const { err } = await sigil(
+					'build',
+					join(fixtures, 'buildable'),
+					'--out',
+					join(readonly, 'dist')
+				);
+
+				expect(err).toContain('Could not create directory');
+				expect(err).toContain(join(readonly, 'dist'));
+				expect(process.exitCode).toBe(1);
+			} finally {
+				// or `afterEach`'s own `rmSync` cannot get inside it either
+				chmodSync(readonly, 0o700);
+			}
+		},
+		60_000
+	);
 });
