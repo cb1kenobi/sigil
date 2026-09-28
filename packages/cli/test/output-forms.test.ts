@@ -1,6 +1,6 @@
 import { ESC, hasAnsi, strip } from '@ttylabs/sigil/ansi';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -227,16 +227,29 @@ const DIAGNOSTIC = /^(\S+?):(\d+):(\d+): (error|warning): (.+)$/;
  */
 const STARTS = /^\S.*?: (?:error|warning):/;
 
+/**
+ * A stream's text as lines.
+ *
+ * The trailing `\r` goes because a fixture for platform-dependent behaviour is
+ * written with the same function the subject uses, and nothing here is asserting
+ * about a line ending: `report.ts` writes `\n` and a backend's CRLF rule is the
+ * canvas's rather than a report's, so a `\r` arriving from anything else on the
+ * stream would be measured as a column that is not drawn.
+ */
+function rows(text: string): string[] {
+	return text.split('\n').map((line) => line.replace(/\r$/, ''));
+}
+
 /** The lines with something on them. */
 function nonEmpty(text: string): string[] {
-	return text.split('\n').filter((line) => line !== '');
+	return rows(text).filter((line) => line !== '');
 }
 
 /** A rendered report with the sequences taken off, since a sequence takes no column. */
 function plain(text: string): string[] {
 	// `strip()` rather than a pattern of this file's own: what a sequence is has
 	// one implementation and it is the library's
-	return strip(text).split('\n');
+	return rows(strip(text));
 }
 
 /** Every word a run wrote, with the wrapping and the colour taken out. */
@@ -308,30 +321,72 @@ function wrapped(laidOut: string): string[] {
 	return phrases;
 }
 
-/** Where a build writes, long enough that the path it reports cannot fit on a line. */
+/**
+ * Where the builds write. One each, and long on purpose.
+ *
+ * Long because the path a build reports is relative to the app, so a short
+ * `tmpdir()` would leave the summary fitting on one line and the
+ * does-not-break-a-path assertion with nothing to prove. One each because the
+ * three builds are a single `Promise.all` and `sigil build` empties its output
+ * directory: nesting the refused build's under another's is safe only because
+ * `build` throws on a fatal diagnostic before it cleans, and a test that rests on
+ * the order of two statements in another module is one that breaks when somebody
+ * reorders them for a good reason.
+ */
 let out: string;
 let out2: string;
+let out3: string;
 
 beforeAll(() => {
-	// long on purpose: the path a build reports is relative to the app, so a short
-	// `tmpdir()` would leave the summary fitting on one line and the
-	// does-not-break-a-path assertion with nothing to prove
-	out = mkdtempSync(join(tmpdir(), 'sigil-output-forms-a-deliberately-long-directory-'));
-	out2 = mkdtempSync(join(tmpdir(), 'sigil-output-forms-a-deliberately-long-directory-'));
+	[out, out2, out3] = [1, 2, 3].map(() =>
+		mkdtempSync(join(tmpdir(), 'sigil-output-forms-a-deliberately-long-directory-'))
+	) as [string, string, string];
 });
 
 afterAll(() => {
-	for (const dir of [out, out2]) {
+	for (const dir of [out, out2, out3]) {
 		rmSync(dir, { force: true, recursive: true });
 	}
 });
 
+/**
+ * When the newest thing under `src/` was written.
+ *
+ * @param dir - Where to look.
+ * @returns The newest `mtimeMs` beneath it.
+ */
+function newest(dir: string): number {
+	let latest = 0;
+	for (const entry of readdirSync(dir, { withFileTypes: true })) {
+		const path = join(dir, entry.name);
+		latest = Math.max(latest, entry.isDirectory() ? newest(path) : statSync(path).mtimeMs);
+	}
+
+	return latest;
+}
+
 describe('the built binary', () => {
-	it('should be there, because everything below spawns it', () => {
+	it('should be there and built from what src/ currently holds', () => {
 		// loud rather than skipped: `it.runIf` on a missing `dist/` turns every
 		// assertion in this file into a pass, which is the failure a whole entry in
-		// AGENTS.md is written about -- a glob that matches nothing exits zero
+		// AGENTS.md is written about -- a glob that matches nothing exits zero.
 		expect(existsSync(bin), `${bin} is missing; run \`pnpm build\``).toBe(true);
+
+		// and the *stale* case is the one that is silent, which is worse. Measured:
+		// edit `report.ts` so that a terminal gets the piped form, skip the rebuild,
+		// and all thirty of these pass -- because they spawn `dist/` and nothing
+		// compared the two. `pnpm test` builds first so the ordinary path is fine; a
+		// bare `pnpm vitest run` on this file after an edit is not, and that is the
+		// loop somebody actually works in.
+		//
+		// mtimes rather than a hash, because a turbo cache hit restores `dist/` with
+		// the restore time on it -- measured -- so the comparison holds on a cached
+		// build as well as on a fresh one, and a `git checkout` of `src/` really does
+		// mean the build is behind
+		expect(
+			statSync(bin).mtimeMs,
+			`${bin} is older than packages/cli/src; run \`pnpm build\``
+		).toBeGreaterThanOrEqual(newest(join(pkg, 'src')));
 	});
 });
 
@@ -509,13 +564,21 @@ describe('a terminal', () => {
 		expect(opened, brokenLaidOut.err).toContain(33);
 	});
 
-	it('should never break a path across lines, whatever that costs in width', () => {
+	it('should never break a path across lines', () => {
 		// the case that has broken twice. The `baseDir` warning names the directory
 		// each side would resolve against, and a path broken mid-token is the one
 		// sentence whose whole job is to say which directory. It overflows the line
 		// instead, which is the rule the location prefix and help's own labels
-		// already follow -- so the line it is on is *wider than the terminal*, and
-		// that is the assertion rather than a defect
+		// already follow -- and it is the overflow that makes "whole, on one line"
+		// the entire claim: a path that was broken appears on no line at all, and one
+		// that `text-overflow` cut appears on none either.
+		//
+		// The first version of this also asserted that the line was wider than the
+		// terminal, which is true here and is a claim about the *checkout's* own path
+		// length rather than about the report: the line is the 24-column hanging
+		// indent plus the path, so a repository at `/code/sigil` fails it on a build
+		// with nothing wrong. Measured, not guessed -- 56 characters of fixture path
+		// is where it turns over
 		const path = join(fixtures, 'typecheck', 'broken').replaceAll('\\', '/');
 		const holding = plain(brokenLaidOut.err).filter((line) => line.includes(path));
 
@@ -523,7 +586,6 @@ describe('a terminal', () => {
 		// wearing the laid-out form's name
 		expect(wrapped(brokenLaidOut.err).length, brokenLaidOut.err).toBeGreaterThan(0);
 		expect(holding, brokenLaidOut.err).toHaveLength(1);
-		expect(holding[0]!.length, holding[0]).toBeGreaterThan(WIDTH);
 	});
 
 	it('should stack the message under the location when two columns will not fit', () => {
@@ -617,7 +679,7 @@ describe('sigil build', () => {
 		[piped, laidOut, refused] = await Promise.all([
 			sigil(['build', app, '--out', out]),
 			sigil(['build', app, '--out', out2], { tty: ['stderr', 'stdout'] }),
-			sigil(['build', broken, '--out', join(out, 'refused')]),
+			sigil(['build', broken, '--out', out3]),
 		]);
 	}, 60_000);
 
@@ -660,7 +722,14 @@ describe('sigil build', () => {
 			.flatMap((line) => line.trim().split(/\s+/))
 			.find((word) => /fixture-app\.mjs,?$/.test(word));
 
+		// the same guard the diagnostic's path test carries, and for the same reason:
+		// an unwrapped summary does not break a path either, so without this the
+		// assertion would hold of the piped form wearing the laid-out form's name
+		expect(wrapped(laidOut.err).length, laidOut.err).toBeGreaterThan(0);
 		expect(path, laidOut.err).toBeDefined();
+		// longer than the terminal by construction rather than by luck: the output
+		// directory is named long on purpose, which is why this one *can* assert the
+		// width where the diagnostic's cannot
 		expect(path!.length, path).toBeGreaterThan(WIDTH);
 	});
 

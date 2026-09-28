@@ -3932,12 +3932,29 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   asserts that the render wrapped before it asserts what the wrapping did to the
   path. Sabotage is the only thing that finds either, and the numbers are worth
   keeping: making the piped diagnostics wrap fails eight, giving a pipe the
-  laid-out form and colour fails fourteen, giving a terminal the piped form fails
-  six, dropping the location's column fails three -- through the differential,
-  which is what it is for -- breaking a long word the way `paragraph()` does fails
-  four, and keying the layout on the colour level rather than on `isTTY`, which is
-  the tidy-up the `FORCE_COLOR` entry below says must not be taken, fails exactly
+  laid-out form and colour fails **seventeen**, giving a terminal the piped form
+  fails six, dropping the location's column fails three -- two of them through the
+  differential, which is what it is for, and the third because the hanging-indent
+  test cannot find a `file:line:column:` to measure from -- breaking a long word
+  the way `paragraph()` does fails four, and keying the layout on the colour level
+  rather than on `isTTY`, which is the tidy-up the `FORCE_COLOR` entry below says
+  must not be taken, fails exactly one. Seventeen was fourteen when it was first
+  written down, and the three it was missing are the `awk -F:` tests -- measured
+  before the count assertion was added to them and then not measured again, which
+  is the same defect as a stale snapshot arriving in an entry about why not to keep
   one.
+
+  **A third vacuity is the build rather than the test, and it is the sharpest of
+  them.** These spawn `dist/sigil.mjs`, so an edit to `src/` that has not been
+  rebuilt is asserted against the previous binary: `isTerminal()` changed to
+  return `false` with no rebuild passes all thirty, and the same edit rebuilt fails
+  six. A missing `dist/` was already loud; a _stale_ one was silent, which is
+  worse, and it is silent in exactly the loop somebody works in -- `pnpm test`
+  builds first, a bare `pnpm vitest run` on one file does not. So the binary's
+  `mtime` is compared against the newest thing under `src/`. By `mtime` rather than
+  by a hash because a turbo cache hit restores `dist/` with the restore time on it
+  -- measured -- so the comparison holds on a cached build as well as a fresh one,
+  and a `git checkout` of `src/` really does mean the build is behind.
 
 - **The terminal is a spawned child that answers `isTTY`, not a pty.** Node has
   no pty and this repo has no pty dependency; taking one to read a boolean back is
@@ -3961,6 +3978,20 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   falsify belongs, and none of these is one. The fake is itself sabotage-checked,
   for the reason the tests are: a preload that does nothing fails seven of the
   thirty, so it is load-bearing rather than decoration.
+- **A width a report is laid out in is not a length to assert, because the
+  checkout's own path is in it.** The does-not-break-a-path test first asserted
+  that the line holding the `baseDir` warning's absolute path was _wider than the
+  terminal_, which is the overflow those two entries describe and is also a
+  statement about where the repository happens to be: the line is the 24-column
+  hanging indent plus the path, so a fixture path of 56 characters or fewer -- a
+  checkout at `/code/sigil` -- fails it on a build with nothing wrong. Measured
+  against copies of the fixture at 55, 56 and 57 characters rather than reasoned
+  about. The claim it was reaching for needs no width at all: a path that was
+  broken appears whole on no line, and one `text-overflow` cut appears on none
+  either, so "whole, on exactly one line" is the whole of it. The one place a width
+  _is_ asserted is `build`'s output path, where the temp directory is named long on
+  purpose -- which is the difference between a number that holds by construction
+  and one that holds by luck.
 - **The report asks the stream it is going to, and that is not the process.**
   Diagnostics and summaries go to stderr while `--tree` and the chunk sizes go to
   stdout, so that a tree can be piped without losing the problems -- and those
