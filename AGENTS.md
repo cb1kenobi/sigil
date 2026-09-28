@@ -3384,24 +3384,36 @@ as default }` resolves the same way, since it is the same statement spelled
   bundle which would die on first use has answered the question and then handed
   the thing over anyway. The output directory itself is never removed, because
   `--no-clean` means it may hold somebody else's files.
-- **The bundle is closed in a `finally` over everything it is used for, and the
-  narrow bracket is what let this go missing.** `close()` releases a **native**
-  handle, so what it does not release is not something the garbage collector
-  will get to, and rolldown's own documentation says to call it even when the
-  build failed -- and it was written directly after `bundle.write()`, which is
-  the one path where none of that is true. Measured before anything was changed:
-  an `--out` that is an existing file makes `write()` reject with
+- **The bundle is closed in a `finally`, and there is exactly one leak rather
+  than the three the ticket named.** `close()` releases a **native** handle, so
+  what it does not release is not something the garbage collector will get to,
+  and rolldown's own documentation says to call it even when the build failed --
+  and it was written as the statement immediately after `bundle.write()`, which
+  is the one path where none of that is true. Measured before anything was
+  changed: an `--out` that is an existing file makes `write()` reject with
   `Could not create directory for output chunks: <out>`, and `close()` was never
-  reached. The same happens for an `--out` inside a read-only directory, which is
-  the spelling `sigil build` can actually be made to fail on -- an `--out` that
-  is a file does not survive the clean step, which removes it and makes a
-  directory in its place. A `try`/`finally` around the write alone would have
-  closed that one path and left the next one open, and _that_ is the finding
-  rather than the leak: the gate, `undo()` and `escapeControls()` all grew
-  underneath a call that had been written as the statement after the write, so
-  the bracket has to be the one that cannot be defeated by whatever is added next.
-  It runs from the `rolldown()` call to the `return`; a `rolldown()` that rejects
-  has produced no bundle for anything to close, and `writeEntry()` is before it.
+  reached. An `--out` inside a read-only directory does the same. What the ticket
+  also said, and what the first version of this entry repeated, is that the
+  unresolved gate, `undo()` and `escapeControls()` could leak it too -- and that
+  is **false**: `git show main:packages/cli/src/build/bundle.ts` puts `close()`
+  above all four of them, so every one of them already ran with the bundle
+  closed. Found by review round 1, and worth keeping because it is the argument
+  that was inherited rather than checked.
+- **So the wide bracket is about where the correctness lives, not about a second
+  leak.** A `finally` around the write alone would have closed the same one
+  path. The eager call was right only because nothing between the write and it
+  threw, which is a property of the fifty lines under it rather than of the call
+  -- everything added since happened to be added _after_ the close, and one
+  statement added before it would have brought the leak back with nothing to
+  notice. A `finally` over the whole use of the bundle is right by its shape, and
+  it closes exactly once on one path, so "was it closed" has one answer to check
+  rather than one per exit. The bracket begins where the bundle **exists**, which
+  is after `await rolldown()` returns rather than at the call, because a
+  `rolldown()` that rejects hands back no reference for anything here to close;
+  measured against rolldown 1.2.11, an `options` hook that throws rejects before
+  a bundle is constructed and a missing input resolves to one, so there is no
+  reachable path where a bundle exists and this function cannot see it.
+  `writeEntry()` is before all of it.
 - **`close()` never decides what the build answered, on either path.** A
   `finally` that rethrows swaps the real diagnostic for one about releasing a
   handle, which is the rule `undo()` already follows one function along -- and it
@@ -3426,7 +3438,21 @@ as default }` resolves the same way, since it is the same statement spelled
   reads private fields off `this` and a proxy receiver fails `write()` with
   `Receiver must be an instance of class` -- measured. It is a file of its own
   because `vi.mock` is hoisted and module-wide, so every test in the file it sat
-  in would run through the wrapper.
+  in would run through the wrapper. Whether the next `close()` fails is set by
+  the same call that clears the record rather than reset in a `beforeEach`,
+  because a reset no assertion can see is a guard that reads as load-bearing and
+  is not -- review round 1 deleted one and started from `true`, and all four
+  tests stayed green, since the two that do not ask about it cannot tell a
+  `close()` that threw from one that did not.
+- **The command-level pin uses `--no-clean`, because that is what makes an
+  existing file reach the write.** `clean()` is a single
+  `rmSync(out, { force: true, recursive: true })`, so without the flag an `--out`
+  that is a file is simply **deleted** and `write()` makes a directory where it
+  was: exit 0, measured. The directory is `write()`'s rather than the clean
+  step's, which is the half the first version of this got wrong. A read-only
+  parent provokes the same rejection and would have to be skipped on Windows,
+  where a mode of `0o500` stops nothing being created inside it, so the file plus
+  `--no-clean` is the spelling that runs on all nine of CI's combinations.
 - **JSX compiles against `@ttylabs/sigil`, because rolldown's default is
   `react`.** A `.tsx` holding one JSX element built, reported success, and died
   the first time the command was run: `Cannot find package 'react' imported from

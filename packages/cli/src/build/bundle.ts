@@ -319,15 +319,24 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 		transform: { jsx: { importSource: RUNTIME } },
 	});
 
-	// everything the bundle is used for is bracketed, rather than the write
-	// alone, because a bundle left open is a native handle nothing will collect
-	// and every statement below can throw: the write itself, the unresolved
-	// gate's `undo()`, `escapeControls()` reading a file back, the `chmod`.
-	// rolldown's own documentation says to call `close()` even when the build
-	// failed, and the `finally` is the only spelling that cannot be defeated by
-	// the next thing somebody adds under it -- which is how this came to be
-	// missing in the first place, since `close()` was written directly after the
-	// write and the gate, the unwind and the escape pass all grew underneath it.
+	// there is one leak and it is a `write()` that rejects: `close()` used to be
+	// the statement immediately after the write, so the unresolved gate,
+	// `undo()`, `escapeControls()` and the `chmod` below all ran with the bundle
+	// already closed. A `finally` around the write alone would have closed the
+	// same leak -- what the wide one buys is where the correctness lives. The
+	// eager call was right only because nothing between the write and it threw,
+	// which is a property of the fifty lines under it rather than of the call;
+	// everything added since happened to be added *after* the close, and one
+	// statement added before it would have brought the leak back with nothing to
+	// notice. A `finally` over the whole use of the bundle is right by its shape,
+	// and it closes exactly once on one path, so "was it closed" has one answer.
+	//
+	// It begins where the bundle exists, which is after `await rolldown()`
+	// returns rather than at the call: a `rolldown()` that rejects hands back no
+	// reference for anything here to close. Measured against rolldown 1.2.11 --
+	// an `options` hook that throws rejects before a bundle is constructed, and a
+	// missing input resolves to one -- so there is no reachable path where a
+	// bundle exists and this function cannot see it.
 	try {
 		const written = await bundle.write({
 			chunkFileNames: 'chunks/[name]-[hash].mjs',

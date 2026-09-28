@@ -27,12 +27,22 @@ import { mkdtempSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-/** One entry per `close()` the build made, in order. */
+/** One entry per `close()` the build made, in order. Reset by `build()`. */
 const closes: string[] = [];
 
-/** Set to make the next bundle's `close()` reject, as a plugin hook would. */
+/**
+ * Whether the next `close()` rejects the way a `closeBundle` hook would.
+ *
+ * Written by `build()` rather than reset in a `beforeEach`, because a reset that
+ * no assertion can see is a guard that reads as load-bearing and is not -- the
+ * mistake `report.ts` records for a `nowrap` that did nothing. Found by review:
+ * deleting a `beforeEach` reset and starting from `true` left all four tests
+ * green, since the two that do not ask about it cannot tell a `close()` that
+ * threw from one that did not. One call sets both this and `closes`, so there is
+ * no state between tests to be right or wrong about.
+ */
 let failClose = false;
 
 vi.mock('rolldown', async (importOriginal) => {
@@ -70,8 +80,17 @@ const { resolveCommandTree } = await import('../../src/build/tree.js');
 
 const fixture = resolve(dirname(fileURLToPath(import.meta.url)), '../fixtures/buildable');
 
-/** Bundles the fixture into `out`, reporting the message rather than throwing. */
-async function build(out: string): Promise<string> {
+/**
+ * Bundles the fixture into `out`, reporting the message rather than throwing.
+ *
+ * @param out - Where the bundle goes.
+ * @param closeFails - Whether the bundle's `close()` should reject.
+ * @returns The rejection's message, or `(the build succeeded)`.
+ */
+async function build(out: string, closeFails = false): Promise<string> {
+	closes.length = 0;
+	failClose = closeFails;
+
 	const app = discoverApp(fixture);
 	const tree = resolveCommandTree(join(fixture, 'src', 'commands'));
 
@@ -92,21 +111,19 @@ function outIsAFile(): string {
 }
 
 describe('closing the bundle', () => {
-	beforeEach(() => {
-		closes.length = 0;
-		failClose = false;
-	});
-
 	it('should close the bundle when the write threw', async () => {
-		// the defect. `close()` was written directly after the write, so the one
-		// path that needs it most -- the one where rolldown has a graph built and
-		// a native handle open and no output to show for it -- was the path that
-		// skipped it
-		const failure = await build(outIsAFile());
+		// the defect: the one path that needs `close()` most -- where rolldown has
+		// a graph built and a native handle open and no output to show for it --
+		// was the path that skipped it, because the call was the statement after
+		// the write
+		const out = outIsAFile();
+		const failure = await build(out);
 
-		// named, so the test cannot pass because something else went wrong on the
-		// way to the write
+		// named, and naming the directory as well, so the test cannot pass because
+		// something else went wrong on the way to the write -- and so that a
+		// harness faking rolldown's message would have to fake the path too
 		expect(failure).toContain('Could not create directory');
+		expect(failure).toContain(out);
 		expect(closes).toStrictEqual(['close']);
 	}, 60_000);
 
@@ -127,9 +144,7 @@ describe('closing the bundle', () => {
 		// one about releasing a handle. `closeBundle exploded` is what a plugin
 		// hook that throws produces -- measured against rolldown 1.2.11, that
 		// really does come out of `close()`
-		failClose = true;
-
-		const failure = await build(outIsAFile());
+		const failure = await build(outIsAFile(), true);
 
 		expect(failure).toContain('Could not create directory');
 		expect(failure).not.toContain('closeBundle exploded');
@@ -140,10 +155,8 @@ describe('closing the bundle', () => {
 		// asymmetry would have to be stated as "releasing the bundle is fatal only
 		// when everything else worked", and what it produces is a refused build
 		// beside a bundle that is complete, escaped and executable
-		failClose = true;
-
 		const out = mkdtempSync(join(tmpdir(), 'sigil-close-late-'));
-		const failure = await build(out);
+		const failure = await build(out, true);
 
 		expect(failure).toBe('(the build succeeded)');
 		expect(existsSync(join(out, 'buildable.mjs'))).toBe(true);

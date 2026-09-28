@@ -1,13 +1,13 @@
 import { run } from '../src/index.js';
 import { spawnSync } from 'node:child_process';
 import {
-	chmodSync,
 	existsSync,
-	mkdirSync,
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
 	rmSync,
+	statSync,
+	writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -237,40 +237,28 @@ describe('sigil build', () => {
 		expect(process.exitCode).toBe(1);
 	});
 
-	it.skipIf(process.platform === 'win32')(
-		'should report an --out it cannot write as being about that',
-		async () => {
-			// the one way to make `bundle.write()` itself reject, which is what
-			// `bundle-close.test.ts` needs and is worth pinning from the command as
-			// well: what the user is told has to name the directory rather than
-			// whatever went wrong on the way out of it. An `--out` that is an
-			// existing *file* does not reach here -- the clean step removes it and
-			// makes a directory in its place, measured -- so the read-only parent is
-			// the case.
-			//
-			// Skipped on Windows, where a mode of `0o500` on a directory does not
-			// stop anything being created inside it, which is the same reason the
-			// executable-bit assertion is skipped in `bundle.test.ts`
-			const readonly = join(out, 'readonly');
-			mkdirSync(readonly);
-			chmodSync(readonly, 0o500);
+	it('should report an --out it cannot write as being about that', async () => {
+		// a `bundle.write()` that rejects, which is what `bundle-close.test.ts`
+		// needs and is worth pinning from the command as well: what the user is
+		// told has to name the directory rather than whatever went wrong on the
+		// way out of it.
+		//
+		// `--no-clean` is what makes an existing *file* reach the write, and it is
+		// the whole reason this spelling is the one used. `clean()` is a single
+		// `rmSync`, so without the flag the file is simply deleted and `write()`
+		// makes a directory where it was -- measured, exit 0. A read-only parent
+		// directory is the other way to provoke the same rejection and would have
+		// to be skipped on Windows, where a mode of `0o500` stops nothing being
+		// created inside it; this one runs everywhere.
+		const file = join(out, 'afile');
+		writeFileSync(file, 'x');
 
-			try {
-				const { err } = await sigil(
-					'build',
-					join(fixtures, 'buildable'),
-					'--out',
-					join(readonly, 'dist')
-				);
+		const { err } = await sigil('build', join(fixtures, 'buildable'), '--out', file, '--no-clean');
 
-				expect(err).toContain('Could not create directory');
-				expect(err).toContain(join(readonly, 'dist'));
-				expect(process.exitCode).toBe(1);
-			} finally {
-				// or `afterEach`'s own `rmSync` cannot get inside it either
-				chmodSync(readonly, 0o700);
-			}
-		},
-		60_000
-	);
+		expect(err).toContain('Could not create directory');
+		expect(err).toContain(file);
+		expect(process.exitCode).toBe(1);
+		// still a file, so nothing was written over it
+		expect(statSync(file).isFile()).toBe(true);
+	}, 60_000);
 });
