@@ -60,9 +60,10 @@ Paths below are inside `packages/sigil/` unless noted.
 | `test/parser/yargs/`           | Ported yargs-parser test cases                       |
 
 At the repository root: `demos/` (runnable examples that import `@ttylabs/sigil` by
-name, so they need `pnpm build` first), `website/` (the Next.js site), `turbo.json`,
-`tsconfig.base.json`, and the shared oxlint and oxfmt configs. Each package extends
-the base tsconfig and sets its own `outDir`.
+name, so they need `pnpm build` first, and a workspace member so that the name
+resolves), `website/` (the Next.js site), `turbo.json`, `tsconfig.base.json`, and
+the shared oxlint and oxfmt configs. Each package extends the base tsconfig and
+sets its own `outDir`.
 
 **`packages/` holds the published packages and nothing else.** `packages/*` is
 the glob the workspace, turbo, vitest's `projects`, and the coverage `include`
@@ -70,7 +71,8 @@ all read, so anything put there joins all four silently -- and the two entries
 that belong there are the ones the table above describes. The website is a
 private Next.js app at the top level, a workspace member so it shares the
 lockfile, with its own `website/turbo.json` overriding the root `build` task's
-`dist/**` for `.next/**`. Turbo captures nothing from an output glob that does
+`dist/**` for `.next/**`. `demos/` is the second such member, for the reason the
+entry below gives -- neither is under `packages/`, and neither is published. Turbo captures nothing from an output glob that does
 not match, so inheriting the root's would cache a build it never saw and restore
 an empty directory on a hit. `pnpm test` and `pnpm coverage` filter their build
 to `./packages/*`: a test run has no use for the site, and CI runs the suite on
@@ -90,7 +92,82 @@ said it wrote one. `test/registry.test.ts` catches a _stale_ entry and a publish
 runs no tests, which is why the cache is where this has to be right. `scripts/**`
 joined `inputs` for the other half of it: the generator decides what lands in
 `registry/`, so editing it has to invalidate the build, and `inputs` replaces
-turbo's default rather than adding to it.
+turbo's default rather than adding to it. That last clause is true, and it was
+read as saying more than it says -- `inputs` is the task's own file list and not
+the whole of its hash, which is the entry below.
+
+**`inputs` is half of a task hash, and a `workspace:` dependency in the root
+manifest put every file of both packages in the other half.** The `build` task's
+`inputs` names `src/**`, `scripts/**` and the configs and no `test/**`, and it is
+exactly as exhaustive as the entry above says: `turbo run build --dry-run=json`
+reports the resolved file list per task, and there is no test file in either
+package's. Appending one comment to `packages/cli/test/output-forms.test.ts`
+moved `@ttylabs/cli#build` from `d84050776124f917` to `eeda063f05221219` and
+`@ttylabs/sigil#build` from `563b903ceb08765b` to `22fc8949b4f82ea3` anyway, and
+reverting it moved both back exactly -- so the test file's content really was in
+both. A task hash is that file list _plus_ a **global** hash, and `inputs`
+narrows nothing about the second: turbo folds every file of every workspace
+package the **root** manifest depends on into
+`globalCacheInputs.hashOfInternalDependencies`, and the root declared
+`@ttylabs/sigil` and `@ttylabs/cli` as `workspace:*`. That is the only reading
+that accounts for the thing which makes no sense on its face -- an edit under
+`packages/cli/test/` moving `@ttylabs/sigil#build`, which depends on nothing in
+`@ttylabs/cli` -- because a global hash is shared by every task, so
+`website#build` moved with them.
+
+It was pinned rather than inferred, by a detail no other reading predicts: that
+map is keyed by **package-relative** path, so the seven paths the two packages
+share collide and one shadows the other. Editing `packages/cli/README.md` moved
+**nothing at all**, and neither did `src/index.ts`, `vitest.config.ts`,
+`tsconfig.json` or `tsconfig.build.json` -- precisely the files
+`packages/sigil/` also has -- while every file unique to `packages/cli` moved it
+and every file in `packages/sigil` did. Writing the same relative path into both
+packages reproduces it on demand: the `packages/cli` copy moves the hash while
+it is unique and stops the moment its `packages/sigil` twin exists. That is a
+turbo bug in its own right and is left alone; what it is doing here is proving
+which mechanism was running.
+
+There is no knob to narrow it -- `globalDependencies` only adds, and nothing in
+turbo 2.11.4's schema subtracts -- so the fix is to leave the root with no
+internal dependency at all. The only root-level consumer was `demos/`, which
+imports `@ttylabs/sigil` by name on purpose; `@ttylabs/cli` at the root was read
+by nothing but the `--filter` names in two scripts, which are turbo filters
+rather than module resolution. So `demos/` is a workspace member with its own
+manifest declaring the dependency where the consumer is, which is the shape
+`website` already had and is the more honest statement besides: pnpm links
+`demos/node_modules/@ttylabs/sigil` and node resolves it from the demo's own
+directory rather than from the repository root. `demos/package.json` has to say
+`"type": "module"`, because the demos were ESM by way of the root manifest and a
+`package.json` between them and it would make every one of them CommonJS.
+
+What that buys is time and nothing else: a rebuild produces the same bytes, so
+nothing was ever _wrong_, which is also why nobody noticed. It is worth being
+exact about how much, because the obvious guess is too high. `pnpm test` builds
+the two packages first, and that is **0.85s** forced against **0.05s** cached --
+so a test run after touching a test file was paying under a second, once. A bare
+`pnpm build` is where it reads as a real wait: the global hash is shared by every
+task, so a `packages/cli/test/` edit also moved `website#build`, and the Next
+build behind it is **2.4s** of work over a site the edit could not have touched.
+Both are `FULL TURBO` in about 12ms now.
+
+`hashOfInternalDependencies` is empty, and a test edit, a README edit, a `demos/`
+edit and a brand-new untracked file under `packages/sigil/test/` each move no
+task's hash at all. What still invalidates was re-measured rather than assumed:
+`src/**` and `scripts/**` per package, `tsconfig.base.json` through
+`globalDependencies` -- which still moves every task, the website's included --
+and a cache hit still restores `registry/` in full, checked by deleting both
+output directories and building from cache. One cosmetic surprise comes with
+workspace membership: `turbo run build --dry-run` now lists an
+`@ttylabs/demos#build` whose command is `<NONEXISTENT>`, because `demos` has no
+`build` script. Turbo skips it, `pnpm build` is three tasks as before, and it is
+what `website` would look like without one.
+
+`the build hash` in `packages/cli/test/cli.test.ts` is the guard, and it reads
+turbo's own dry-run rather than `turbo.json`: the manifest is the cause and the
+hash is the effect, turbo already has two ways to put a file in the global hash,
+and a check that only read `package.json` would go on passing through a third.
+It asserts the root manifest separately anyway, so that the failure says what to
+do rather than only that a number moved.
 
 `packages/cli/src/` is the bin, `--version`, the schema, `src/report.ts` --
 what the toolchain says, as element trees rendered with `renderToString()` -- `src/utilities/` — the utility generator, whose committed output

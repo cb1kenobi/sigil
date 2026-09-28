@@ -347,6 +347,7 @@ describe('@ttylabs/cli', () => {
 	describe('pinned dependencies', () => {
 		const manifests = [
 			'package.json',
+			'demos/package.json',
 			'packages/sigil/package.json',
 			'packages/cli/package.json',
 			'website/package.json',
@@ -361,7 +362,7 @@ describe('@ttylabs/cli', () => {
 		it('should find every manifest it means to check', () => {
 			// a path that stopped resolving would pass this suite by checking
 			// nothing, which is the failure mode a list of paths has
-			expect(manifests).toHaveLength(4);
+			expect(manifests).toHaveLength(5);
 			for (const { json, path } of manifests) {
 				expect(json.name, `${path} has no name`).toBeDefined();
 			}
@@ -514,6 +515,136 @@ describe('@ttylabs/cli', () => {
 			for (const script of filtered) {
 				expect(rootPkg.scripts[script]).toMatch(/^turbo run build .*&& vitest/);
 			}
+		});
+	});
+
+	/**
+	 * What `turbo run build` actually hashes, read off turbo rather than inferred
+	 * from `turbo.json`.
+	 *
+	 * `inputs` on the `build` task names `src/**`, `scripts/**` and the configs
+	 * and no `test/**`, and it is exhaustive -- `inputs` replaces turbo's default
+	 * rather than adding to it, which the dry-run's resolved file list confirms.
+	 * The build hash moved on a test edit anyway, because the task's own file list
+	 * is only half of a task hash: turbo adds a *global* hash to every task, and
+	 * `inputs` narrows nothing about that. A `workspace:` dependency in the
+	 * **root** manifest makes that package a root internal dependency, and turbo
+	 * folds every file of it -- tests, README, docs, untracked scratch files --
+	 * into `globalCacheInputs.hashOfInternalDependencies`. The root declared both
+	 * published packages, so appending one comment to
+	 * `packages/cli/test/output-forms.test.ts` moved `@ttylabs/cli#build`,
+	 * `@ttylabs/sigil#build` *and* `website#build` together, on turbo 2.11.4 --
+	 * which is why a `packages/cli/test/` edit rebuilt a package that does not
+	 * depend on `@ttylabs/cli` at all. `demos/` declares the dependency now, so
+	 * the root declares none and the global hash carries no package contents.
+	 *
+	 * Turbo's own report is what is asserted rather than the manifest alone,
+	 * because the manifest is the cause and this is the effect: turbo already has
+	 * two ways to put a file in the global hash -- `globalDependencies` and this
+	 * one -- and a check that only reads `package.json` would go on passing
+	 * through a third.
+	 */
+	describe('the build hash', () => {
+		const published = ['@ttylabs/sigil#build', '@ttylabs/cli#build'];
+
+		interface DryRun {
+			globalCacheInputs: { hashOfInternalDependencies?: string };
+			tasks: { inputs: Record<string, string>; taskId: string }[];
+		}
+
+		/**
+		 * Asked once. The binary is run as `node <turbo/bin/turbo>` rather than
+		 * through `node_modules/.bin`, because that file is a plain Node script
+		 * behind a shebang and a shebang is not how anything starts on Windows --
+		 * the same rule the type check already follows for `bin/tsc`.
+		 */
+		const dry = ((): DryRun => {
+			const repo = resolve(root, '../..');
+			const result = spawnSync(
+				process.execPath,
+				[resolve(repo, 'node_modules/turbo/bin/turbo'), 'run', 'build', '--dry-run=json'],
+				{ cwd: repo, encoding: 'utf-8' }
+			);
+			if (result.status !== 0) {
+				throw new Error(`turbo --dry-run failed: ${result.stderr || result.stdout}`);
+			}
+			return JSON.parse(result.stdout) as DryRun;
+		})();
+
+		function task(taskId: string) {
+			const found = dry.tasks.find((entry) => entry.taskId === taskId);
+			if (!found) {
+				throw new Error(
+					`turbo reported no ${taskId}; it reported ${dry.tasks.map((t) => t.taskId).join(', ')}`
+				);
+			}
+			return found;
+		}
+
+		it('should report the tasks this suite means to check', () => {
+			// a taskId that stopped resolving would pass the rest of this block by
+			// checking nothing, which is the failure mode a list of names has
+			for (const taskId of published) {
+				expect(Object.keys(task(taskId).inputs).length).toBeGreaterThan(10);
+			}
+		});
+
+		it('should fold no package contents into the global hash', () => {
+			// turbo 2.11.4 writes `""` when the root package has no internal
+			// dependency; an absent field would say the same thing
+			expect(dry.globalCacheInputs.hashOfInternalDependencies ?? '').toBe('');
+		});
+
+		it('should keep the root manifest free of workspace dependencies', () => {
+			// the cause, named separately so that the failure says what to do rather
+			// than only that a hash moved. A consumer at the repository root --
+			// `demos/`, which imports `@ttylabs/sigil` by name -- declares it in its
+			// own manifest as a workspace member instead
+			const manifest = JSON.parse(readFileSync(resolve(root, '../../package.json'), 'utf-8')) as {
+				dependencies?: Record<string, string>;
+				devDependencies?: Record<string, string>;
+			};
+			const linked = [
+				...Object.entries(manifest.dependencies ?? {}),
+				...Object.entries(manifest.devDependencies ?? {}),
+			]
+				.filter(([, spec]) => spec.startsWith('workspace:'))
+				.map(([name]) => name);
+
+			expect(linked).toStrictEqual([]);
+		});
+
+		it('should hash no test file into either published build', () => {
+			for (const taskId of published) {
+				const tests = Object.keys(task(taskId).inputs).filter((path) =>
+					path.replaceAll('\\', '/').startsWith('test/')
+				);
+				expect(tests, `${taskId} hashes test files`).toStrictEqual([]);
+			}
+		});
+
+		it('should still hash what decides the contents of an output directory', () => {
+			// the other half of the recorded `registry/**` incident: `@ttylabs/sigil`'s
+			// build ends in `node scripts/generate-registry.mjs`, so the generator
+			// deciding what lands in `registry/` has to be in the hash -- and
+			// `registry/` has to be in `outputs`, or a cache hit restores `dist/`,
+			// replays the generator's own success line, and leaves no `registry/` for
+			// `sigil add` to copy. Read off the *resolved* definition rather than
+			// `turbo.json`, so that a package overriding the task -- as the website
+			// does -- is checked as it will run
+			const sigil = dry.tasks.find(
+				(entry) => entry.taskId === '@ttylabs/sigil#build'
+			) as unknown as {
+				resolvedTaskDefinition: { inputs: string[]; outputs: string[] };
+			};
+			expect(sigil.resolvedTaskDefinition.inputs).toContain('scripts/**');
+			expect(sigil.resolvedTaskDefinition.outputs).toContain('registry/**');
+			expect(sigil.resolvedTaskDefinition.outputs).toContain('dist/**');
+
+			const generator = Object.keys(task('@ttylabs/sigil#build').inputs).map((path) =>
+				path.replaceAll('\\', '/')
+			);
+			expect(generator).toContain('scripts/generate-registry.mjs');
 		});
 	});
 

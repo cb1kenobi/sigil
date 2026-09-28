@@ -369,16 +369,22 @@ describe('the built binary', () => {
 		// is unsatisfiable. Measured on a pristine tree.
 		//
 		// Turbo's own hash is content-based and authoritative, and asking it
-		// (`turbo run build --dry-run=json`) is worse here for a reason only
-		// measurement finds: the hash is sensitive to *any* modified file in the
-		// workspace and not only to the task's declared `inputs`. Appending a comment
-		// to this very file flips `@ttylabs/cli#build` and `@ttylabs/sigil#build` from
-		// HIT to MISS with `src/` untouched -- so the guard would fail for whoever is
-		// editing the test, which is the one situation it runs in most. It also says
-		// MISS after `node src/sigil.ts build`, the package's own build command and
-		// the one to reach for while working on the toolchain, because turbo only
-		// records what turbo ran. Combining the two does not help: the mtime screen
-		// fires on the bumped timestamp and turbo, with this file dirty, agrees.
+		// (`turbo run build --dry-run=json`) is still worse here, though for one
+		// reason now rather than two. The reason that is gone: the hash used to be
+		// sensitive to *any* modified file in the workspace and not only to the
+		// task's declared `inputs`, so appending a comment to this very file flipped
+		// both builds from HIT to MISS with `src/` untouched -- the guard would have
+		// failed for whoever was editing the test, which is the one situation it runs
+		// in most. That was the root manifest's `workspace:` dependencies putting
+		// every file of both packages in turbo's global hash, it is fixed, and
+		// AGENTS.md records it; a test edit is a cache hit now.
+		//
+		// The reason that remains is enough on its own: turbo says MISS after
+		// `node src/sigil.ts build`, the package's own build command and the one to
+		// reach for while working on the toolchain, because turbo only records what
+		// turbo ran -- so the guard would fire on a `dist/` that is freshly and
+		// correctly built. Combining it with the mtime screen does not help, since
+		// that is the same build both of them misread.
 		//
 		// So there is no proxy available that is both satisfiable and quiet on correct
 		// code, and a check that fires on correct code teaches people to ignore
