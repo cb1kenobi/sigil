@@ -31,11 +31,14 @@
  * input and ignored by every repository already.
  */
 
+import { compileTemplates } from './compile-templates.ts';
 import type { DiscoveredApp } from './discover.ts';
 import { generateBin } from './generate.ts';
+import { TAG_MODULE } from './templates.ts';
 import type { ResolvedTree } from './tree.ts';
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Plugin } from 'rolldown';
 
 /** Where the generated entry is written, relative to the app. */
 const WORK_DIR = join('node_modules', '.sigil');
@@ -100,6 +103,15 @@ export interface BundleResult {
 	readonly external: readonly string[];
 	/** The generated entry, when the build wrote one. */
 	readonly generated?: string;
+	/**
+	 * How many `ui` templates were compiled.
+	 *
+	 * Reported because it is the difference between "this app ships no template
+	 * parser" and "this app has no templates", and those look identical from the
+	 * outside. A build that silently compiled none when the author wrote twelve is
+	 * the failure mode worth being able to see.
+	 */
+	readonly templates: number;
 }
 
 /**
@@ -108,6 +120,16 @@ export interface BundleResult {
  * @param options - The app, the tree, and where the output goes.
  * @returns What it wrote.
  */
+/**
+ * The extensions `parseModule()` can read, which is what decides whether a
+ * module is worth asking about templates.
+ *
+ * Everything else rolldown hands a `transform` -- JSON, a `.node` binding, a
+ * virtual module some plugin invented -- is not JavaScript this can parse, and
+ * asking anyway would turn a build into a parse error about a file nobody wrote.
+ */
+const MODULE_RE = /\.[cm]?[jt]s$/;
+
 export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 	const { app, bin, binName, external = [], out, sourcemap = true, tree } = options;
 
@@ -120,6 +142,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 	const input = bin ?? generated!;
 
 	const unresolved: string[] = [];
+	let templates = 0;
 
 	const bundle = await rolldown({
 		// left as imports rather than inlined. Rolldown does not report these as
@@ -143,6 +166,62 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 			handler(level, log);
 		},
 		platform: 'node',
+		plugins: [
+			{
+				name: 'sigil:templates',
+				/**
+				 * Compiles a module's `ui` templates on the way in, so the parser,
+				 * the tag and the IR walk shake out of the bundle.
+				 *
+				 * A `transform` rather than a pass over the app's files beforehand,
+				 * because rolldown is what knows which modules are actually reached:
+				 * a template in a file nothing imports costs nothing here, and a
+				 * template inside a dependency is compiled the same way the app's own
+				 * are. The map is returned because a transform without one is
+				 * `SOURCEMAP_BROKEN` *and* silently drops the module from the map --
+				 * measured, not assumed.
+				 */
+				transform: {
+					/**
+					 * Narrowed before the handler is reached rather than inside it.
+					 *
+					 * rolldown applies these natively, so a module that cannot hold a
+					 * template never crosses into JavaScript at all -- and most modules
+					 * in a bundle are the runtime's own. Asking inside the handler cost
+					 * 9ms of a 101ms build on the `buildable` fixture, which has no
+					 * templates: not the parsing, which a substring test already
+					 * skipped, but the per-module call itself.
+					 *
+					 * `code` is the substring that has to be there for a template to
+					 * exist, since the tag is only the tag because something imported
+					 * it. `id` is the extensions `parseModule()` can read, so JSON, a
+					 * `.node` binding and whatever virtual module a plugin invented are
+					 * all out. The `id` pattern is matched against forward slashes
+					 * whatever the platform, which rolldown documents and which is why
+					 * it needs no Windows spelling.
+					 */
+					filter: {
+						code: new RegExp(TAG_MODULE.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+						id: MODULE_RE,
+					},
+
+					handler(code: string, id: string) {
+						// no extension or substring test here: the filter above is what
+						// does the narrowing, natively, and verified -- the `buildable`
+						// fixture reaches this handler zero times and `templated` reaches
+						// it exactly once, for the one module holding a template. A second
+						// check would be a guard that reads as load-bearing and is not
+						const compiled = compileTemplates(id, code);
+						if (!compiled) {
+							return null;
+						}
+
+						templates += compiled.count;
+						return { code: compiled.code, map: compiled.map };
+					},
+				},
+			} satisfies Plugin,
+		],
 		resolve: { conditionNames: ['node', 'import', 'default'] },
 	});
 
@@ -186,7 +265,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 	// could execute
 	chmodSync(executable, 0o755);
 
-	return { bin: executable, chunks, external: [...external], generated };
+	return { bin: executable, chunks, external: [...external], generated, templates };
 }
 
 /**

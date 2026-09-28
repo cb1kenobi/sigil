@@ -47,10 +47,10 @@ import { walk } from './walk.ts';
 import type { Expression, TaggedTemplateExpression } from 'oxc-parser';
 
 /** Where the `ui` tag comes from, when nothing says otherwise. */
-const TAG_MODULE = '@ttylabs/sigil/template';
+export const TAG_MODULE = '@ttylabs/sigil/template';
 
 /** What the tag is exported as, when nothing says otherwise. */
-const TAG_EXPORT = 'ui';
+export const TAG_EXPORT = 'ui';
 
 /** One template found in a module. */
 export interface FoundTemplate {

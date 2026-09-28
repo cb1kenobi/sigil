@@ -1,0 +1,12 @@
+{
+  "name": "templated",
+  "version": "0.0.0",
+  "private": true,
+  "bin": {
+    "templated": "./dist/templated.mjs"
+  },
+  "type": "module",
+  "dependencies": {
+    "@ttylabs/sigil": "workspace:*"
+  }
+}

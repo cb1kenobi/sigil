@@ -126,7 +126,11 @@ const build: AnyCommand = command({
 		writeSummary(
 			[
 				...appRuns(found.app),
-				`${total} command${total === 1 ? '' : 's'} into`,
+				`${total} command${total === 1 ? '' : 's'}${
+					result.templates
+						? ` and ${result.templates} template${result.templates === 1 ? '' : 's'}`
+						: ''
+				} into`,
 				// the comma rides on this run rather than being one of its own,
 				// because a run is a *word*: a lone comma would be drawn with a space
 				// in front of it. And it is a comma rather than a parenthetical

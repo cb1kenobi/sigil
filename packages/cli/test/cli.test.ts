@@ -317,6 +317,12 @@ describe('@ttylabs/cli', () => {
 			// somebody makes on purpose and can be asked about in review.
 			expect(Object.keys(pkg.dependencies).sort()).toEqual([
 				'@ttylabs/sigil',
+				// the splice that compiles an app's templates rewrites source, and a
+				// rolldown `transform` that returns code without a map is
+				// `SOURCEMAP_BROKEN` *and* drops the module from the map -- measured.
+				// So the rewrite is tracked rather than done with string surgery, by
+				// the tool rollup and vite use for it, which rolldown already brings
+				'magic-string',
 				'oxc-parser',
 				'rolldown',
 			]);
