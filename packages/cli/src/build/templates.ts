@@ -21,6 +21,15 @@
  * A type-only import is skipped for the same reason from the other side: it
  * erases, so nothing it named is callable at run time.
  *
+ * Which shapes count is the other half of that, and each one it *misses* is
+ * silent -- no diagnostic, a template left interpreted, and a parser left in
+ * the bundle. So a namespace member counts, because `import * as t` followed by
+ * ``t.ui`...` `` is statically the same import; parentheses come off, because
+ * ``(ui)`...` `` is the same call; and a computed property does not, which is
+ * the rule the static `desc` lift already records. A tag re-exported through
+ * another module is the one shape that cannot be answered here at all: it means
+ * reading a file this parse has not got.
+ *
  * ## Only the outermost, and that is a recorded decision
  *
  * A `ui` template written *inside* an interpolation stays interpreted. An
@@ -84,8 +93,23 @@ export interface FoundTemplate {
 	readonly quasis: readonly string[];
 	/** Where the tagged template starts in the module. */
 	readonly start: number;
-	/** The local name the tag was reached by, which is what the import called it. */
+	/**
+	 * The expression the tag was reached by, as the module wrote it.
+	 *
+	 * A local name for a named import, alias included -- `html` for
+	 * `import { ui as html }` -- and `t.ui` for a namespace import's member.
+	 */
 	readonly tag: string;
+}
+
+/** Every way one module can reach the tag. */
+interface TagBindings {
+	/** Locals a named import bound it to, alias included. */
+	readonly direct: ReadonlySet<string>;
+	/** The export name being looked for, which a namespace member has to match. */
+	readonly name: string;
+	/** Locals a namespace import bound the whole module to. */
+	readonly namespaces: ReadonlySet<string>;
 }
 
 /** Which tag to look for. */
@@ -132,7 +156,7 @@ export function templatesIn(
 
 	// nothing imported the tag, so nothing in this module is a template -- and
 	// the walk is worth skipping rather than running to find that out
-	if (!tags.size) {
+	if (!tags.direct.size && !tags.namespaces.size) {
 		return [];
 	}
 
@@ -143,12 +167,12 @@ export function templatesIn(
 			return true;
 		}
 
-		const { tag } = node;
-		if (tag.type !== 'Identifier' || !tags.has(tag.name)) {
+		const reached = tagName(unwrap(node.tag), tags);
+		if (reached === undefined) {
 			return true;
 		}
 
-		found.push(describe(parsed, node, tag.name));
+		found.push(describe(parsed, node, reached));
 
 		// claimed: an inner template is inside an expression this one carries
 		// verbatim, so descending would find one that is going to be printed back
@@ -163,18 +187,20 @@ export function templatesIn(
 }
 
 /**
- * Every local name the tag was imported under.
+ * Every way this module can reach the tag.
  *
- * A set rather than one name, because a module may import it twice -- under its
- * own name and under an alias -- and both are the tag.
+ * Sets rather than single names, because a module may import it more than once
+ * -- under its own name, under an alias, and as a namespace -- and each of them
+ * is the tag.
  *
  * @param parsed - The module.
  * @param from - The module specifier to look for.
  * @param name - The export name to look for.
- * @returns The local names.
+ * @returns The direct locals and the namespace locals.
  */
-function tagBindings(parsed: ParsedModule, from: string, name: string): Set<string> {
-	const locals = new Set<string>();
+function tagBindings(parsed: ParsedModule, from: string, name: string): TagBindings {
+	const direct = new Set<string>();
+	const namespaces = new Set<string>();
 
 	for (const imported of parsed.module.staticImports) {
 		if (imported.moduleRequest.value !== from) {
@@ -187,13 +213,80 @@ function tagBindings(parsed: ParsedModule, from: string, name: string): Set<stri
 				continue;
 			}
 
-			if (entry.importName.kind === 'Name' && entry.importName.name === name) {
-				locals.add(entry.localName.value);
+			if (entry.importName.kind === 'NamespaceObject') {
+				namespaces.add(entry.localName.value);
+			} else if (entry.importName.kind === 'Name' && entry.importName.name === name) {
+				direct.add(entry.localName.value);
 			}
 		}
 	}
 
-	return locals;
+	return { direct, name, namespaces };
+}
+
+/**
+ * The name a tagged template's tag was reached by, if it is the tag at all.
+ *
+ * Two shapes, because a module has two static ways to name one import and the
+ * answer has to be the same for both: a bare local from a named import, and a
+ * property of a namespace object. `import * as t` followed by ``t.ui`...` `` is
+ * the same function as ``ui`...` `` -- there is no scope walk in either
+ * answer, which is what keeps this a question about the module record.
+ *
+ * A *computed* property is deliberately not read, even holding a literal:
+ * `t['ui']` and `t[key]` are the same syntax and only one of them is readable,
+ * and reading the easy half of a construct this does not support is worse than
+ * skipping both, because the half it skipped is silent. That is the rule the
+ * static `desc` lift already follows for a computed key.
+ *
+ * What neither shape reaches is a tag that arrived through another module --
+ * `export { ui } from '@ttylabs/sigil/template'` re-exported and then imported
+ * from the barrel. That is a question about a file this one has not read, and
+ * answering it means resolving a specifier, which is the bundler's job rather
+ * than a parse's. Such a template stays interpreted, which is correct but
+ * costs the bundle its parser; see the note in `compile-templates.ts`.
+ *
+ * @param tag - The tag expression, parentheses already off.
+ * @param tags - What this module imported.
+ * @returns The name it was reached by, or `undefined` if it is not the tag.
+ */
+function tagName(tag: Expression, tags: TagBindings): string | undefined {
+	if (tag.type === 'Identifier') {
+		return tags.direct.has(tag.name) ? tag.name : undefined;
+	}
+
+	if (
+		tag.type === 'MemberExpression' &&
+		!tag.computed &&
+		tag.object.type === 'Identifier' &&
+		tags.namespaces.has(tag.object.name) &&
+		tag.property.type === 'Identifier' &&
+		tag.property.name === tags.name
+	) {
+		return `${tag.object.name}.${tag.property.name}`;
+	}
+
+	return undefined;
+}
+
+/**
+ * An expression with its parentheses taken off.
+ *
+ * ``(ui)`...` `` is the same call as ``ui`...` ``, and oxc preserves the
+ * parentheses as a node -- so a matcher that reads the tag straight off sees a
+ * `ParenthesizedExpression` and silently declines to compile a template with
+ * nothing wrong with it. Recursive, because `((ui))` is also that call.
+ *
+ * @param node - The expression.
+ * @returns The innermost expression the parentheses wrap.
+ */
+function unwrap(node: Expression): Expression {
+	let inner = node;
+	while (inner.type === 'ParenthesizedExpression') {
+		inner = inner.expression;
+	}
+
+	return inner;
 }
 
 /**

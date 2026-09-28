@@ -1,3 +1,4 @@
+import { MODULE_RE } from '../../src/build/bundle.js';
 import {
 	choosePrefix,
 	compileTemplates,
@@ -188,6 +189,11 @@ export const two = () => ui\`<text>second</text>\`;
 
 			expect(compiled?.count).toBe(2);
 			expect(compiled?.code).not.toContain('ui`');
+			// each template's own content, because a count of 2 and an absent tag are
+			// both satisfied by splicing the *first* template's output over both
+			// spans -- which is the off-by-one `sources[at]` exists to avoid
+			expect(compiled?.code).toContain('"first"');
+			expect(compiled?.code).toContain('"second"');
 		});
 
 		it('should keep a shebang on the first line', () => {
@@ -212,6 +218,11 @@ export const untouched = () => 'still here';
 
 			expect(compiled?.code).toContain("const greeting = 'hello';");
 			expect(compiled?.code).toContain("export const untouched = () => 'still here';");
+			// the template really was replaced: the interpreted tag renders `hello`
+			// too, so the render below passes just as happily on a module nothing
+			// rewrote
+			expect(compiled?.code).not.toContain('ui`');
+			expect(compiled?.code).toContain('@ttylabs/sigil/element');
 			expect(await renderCompiled(source)).toBe('hello');
 		});
 	});
@@ -292,6 +303,102 @@ export const broken = () => ui\`<text><box /></text>\`;
 `;
 
 			expect(() => compileTemplates('/app/mixed.ts', source)).toThrow(TemplateCompileError);
+			// and it names the *broken* template rather than merely throwing: the
+			// good one is line 2
+			expect(() => compileTemplates('/app/mixed.ts', source)).toThrow('/app/mixed.ts:3:');
+		});
+
+		it('should name the template a whole-module compile failure was about', () => {
+			// `compile()` is handed every template at once and what it throws names
+			// none of them, so the first template's position was the answer for one
+			// commit -- a location pointing at code the author would read, find
+			// correct, and be stuck on. `<raw>` with a literal measure is the case
+			// that gets past `parse()` and fails in `compile()`
+			const source = `import { ui } from '@ttylabs/sigil/template';
+export const fine = () => ui\`<text>ok</text>\`;
+export const broken = () => ui\`<raw measure="nope" paint="nope" />\`;
+`;
+
+			let thrown: unknown;
+			try {
+				compileTemplates('/app/raw.ts', source);
+			} catch (e: unknown) {
+				thrown = e;
+			}
+
+			expect(thrown).toBeInstanceOf(TemplateCompileError);
+			expect((thrown as TemplateCompileError).line).toBe(3);
+			expect((thrown as TemplateCompileError).message).toContain('measure');
+		});
+
+		it('should still name the first template when the failure is not any one of them', () => {
+			// the fallback: nothing today produces a failure that is about the
+			// combination rather than about one template, and naming the first beats
+			// naming none
+			const source = `import { ui } from '@ttylabs/sigil/template';
+export const one = () => ui\`<text>a</text>\`;
+export const two = () => ui\`<text>b</text>\`;
+`;
+
+			expect(compileTemplates('/app/ok.ts', source)?.count).toBe(2);
+		});
+	});
+
+	describe('which modules are asked at all', () => {
+		it('should admit every extension the compiler can actually read', () => {
+			// the invariant, rather than a list: the plugin's `id` filter and what
+			// `compileTemplates()` can parse are two things that have to agree, and
+			// the gap between them is a template nobody compiles and nobody is told
+			// about. `.tsx` and `.jsx` were exactly that gap
+			const source = `import { ui } from '@ttylabs/sigil/template';
+export const view = () => ui\`<text>x</text>\`;
+`;
+
+			for (const ext of ['ts', 'mts', 'cts', 'js', 'mjs', 'cjs', 'tsx', 'jsx']) {
+				expect(compileTemplates(`/app/view.${ext}`, source)?.count, ext).toBe(1);
+				expect(MODULE_RE.test(`/app/view.${ext}`), ext).toBe(true);
+			}
+		});
+
+		it('should not admit what the compiler does not read', () => {
+			// JSON, a native binding and whatever virtual module a plugin invented
+			// are not JavaScript this can parse, and asking anyway would turn a build
+			// into a parse error about a file nobody wrote
+			for (const id of [
+				'/app/data.json',
+				'/app/binding.node',
+				'/app/style.css',
+				'/app/view.ts?commonjs-proxy',
+			]) {
+				expect(MODULE_RE.test(id), id).toBe(false);
+			}
+		});
+
+		it('should compile a template in a .tsx, which oxc parses as JSX', () => {
+			// the extension is what decides the language, so a `.tsx` holding both
+			// JSX and a `ui` template parses and compiles -- and leaving `.tsx` out
+			// of the build's `id` filter was a silent miss, not a safe one
+			const source = `import { ui } from '@ttylabs/sigil/template';
+const Btn = () => <box>hi</box>;
+export const view = () => ui\`<text>tsx</text>\`;
+`;
+			const compiled = compileTemplates('/app/view.tsx', source);
+
+			expect(compiled?.count).toBe(1);
+			expect(compiled?.code).toContain('"tsx"');
+			expect(compiled?.code).toContain('<box>hi</box>');
+		});
+
+		it('should refuse the same source as a .ts, where JSX is not the language', () => {
+			// which is exactly why the gate is the extension: oxc reads the language
+			// off the filename, and a `.ts` full of JSX is a parse error rather than
+			// a module to rewrite
+			const source = `import { ui } from '@ttylabs/sigil/template';
+const Btn = () => <box>hi</box>;
+export const view = () => ui\`<text>tsx</text>\`;
+`;
+
+			expect(() => compileTemplates('/app/view.ts', source)).toThrow('Failed to parse');
 		});
 	});
 });

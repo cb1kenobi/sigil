@@ -127,8 +127,24 @@ export interface BundleResult {
  * Everything else rolldown hands a `transform` -- JSON, a `.node` binding, a
  * virtual module some plugin invented -- is not JavaScript this can parse, and
  * asking anyway would turn a build into a parse error about a file nobody wrote.
+ *
+ * The `x` is not decoration. oxc reads the language off the *filename*, so a
+ * `.tsx` parses with JSX enabled and a `.ts` does not -- which is why the
+ * extension is the right thing to gate on and why leaving `.tsx` out was a
+ * silent miss rather than a safe one: a `ui` template in a `.tsx` compiles
+ * perfectly well through `compileTemplates()`, and the plugin simply never
+ * asked. Left out, such a module was bundled with its template interpreted, the
+ * count omitted the template, and the parser stayed in the bundle with nothing
+ * saying so. JSX being the canonical syntax is exactly what makes a `.tsx` a
+ * likely place to find the tag: the two live side by side in one app.
+ *
+ * Exported for the reason `candidates()` in `which.ts` is: what it admits is
+ * worth asserting directly rather than through a bundler, and the invariant that
+ * matters is a relation between two things -- every extension
+ * `compileTemplates()` can read has to be one this admits, or the gap is a
+ * template nobody compiles and nobody is told about.
  */
-const MODULE_RE = /\.[cm]?[jt]s$/;
+export const MODULE_RE: RegExp = /\.[cm]?[jt]sx?$/;
 
 export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 	const { app, bin, binName, external = [], out, sourcemap = true, tree } = options;
@@ -187,10 +203,12 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 					 *
 					 * rolldown applies these natively, so a module that cannot hold a
 					 * template never crosses into JavaScript at all -- and most modules
-					 * in a bundle are the runtime's own. Asking inside the handler cost
-					 * 9ms of a 101ms build on the `buildable` fixture, which has no
-					 * templates: not the parsing, which a substring test already
-					 * skipped, but the per-module call itself.
+					 * in a bundle are the runtime's own. Asking inside the handler
+					 * instead costs the per-module call itself rather than the parsing,
+					 * which a substring test already skipped; AGENTS.md carries the
+					 * measurement, and it is stated there rather than here as well
+					 * because two spellings of one number is how the two come to
+					 * disagree -- which they had, by 2ms of a noise band a few ms wide.
 					 *
 					 * `code` is the substring that has to be there for a template to
 					 * exist, since the tag is only the tag because something imported

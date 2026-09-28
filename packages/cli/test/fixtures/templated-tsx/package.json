@@ -1,0 +1,12 @@
+{
+  "name": "templated-tsx",
+  "version": "0.0.0",
+  "private": true,
+  "bin": {
+    "templated-tsx": "./dist/templated-tsx.mjs"
+  },
+  "type": "module",
+  "dependencies": {
+    "@ttylabs/sigil": "workspace:*"
+  }
+}

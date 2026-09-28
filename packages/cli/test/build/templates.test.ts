@@ -82,6 +82,52 @@ const b = html\`<text>b</text>\`;`;
 			expect(findTemplates('a.ts', source).map((t) => t.tag)).to.deep.equal(['ui', 'html']);
 		});
 
+		it('should find a template through a namespace import', () => {
+			// `import * as t` then `t.ui` is statically the same import, so a miss
+			// here leaves the template interpreted and the parser in the bundle with
+			// nothing saying so
+			const source = `import * as t from '@ttylabs/sigil/template';
+const v = t.ui\`<text>ns</text>\`;`;
+			const [template] = findTemplates('a.ts', source);
+
+			expect(template?.tag).to.equal('t.ui');
+			expect(template?.quasis).to.deep.equal(['<text>ns</text>']);
+		});
+
+		it('should find a template through a parenthesized tag', () => {
+			// oxc preserves the parentheses as a node, so reading the tag straight
+			// off declines a template with nothing wrong with it
+			const source = `import { ui } from '@ttylabs/sigil/template';
+const v = ((ui))\`<text>paren</text>\`;`;
+			const [template] = findTemplates('a.ts', source);
+
+			expect(template?.tag).to.equal('ui');
+			expect(template?.quasis).to.deep.equal(['<text>paren</text>']);
+		});
+
+		it('should ignore a namespace of some other module', () => {
+			const source = `import * as t from './other.ts';
+import { ui } from '@ttylabs/sigil/template';
+const v = t.ui\`<text>theirs</text>\`;`;
+			// the direct `ui` is imported and unused; the member is not this tag
+			expect(findTemplates('a.ts', source)).to.deep.equal([]);
+		});
+
+		it('should ignore a computed member even when it holds the name', () => {
+			// `t['ui']` and `t[key]` are the same syntax and only one is readable;
+			// reading the easy half of a construct this does not support is worse
+			// than skipping both, because the half it skipped is silent
+			const source = `import * as t from '@ttylabs/sigil/template';
+const v = t['ui']\`<text>computed</text>\`;`;
+			expect(findTemplates('a.ts', source)).to.deep.equal([]);
+		});
+
+		it('should ignore a type-only namespace import, which erases', () => {
+			const source = `import type * as t from '@ttylabs/sigil/template';
+const v = t.ui\`<text>x</text>\`;`;
+			expect(findTemplates('a.ts', source)).to.deep.equal([]);
+		});
+
 		it('should take a different tag when asked for one', () => {
 			const source = `import { tpl } from 'my-lib';
 const t = tpl\`<text>x</text>\`;`;

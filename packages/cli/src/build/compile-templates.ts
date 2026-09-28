@@ -66,7 +66,7 @@
 import { analyze } from '../template/analyze.ts';
 import { compile, renderImports } from '../template/emit.ts';
 import { parseModule } from './parse-module.ts';
-import { TAG_MODULE, templatesIn, type TemplatesOptions } from './templates.ts';
+import { TAG_MODULE, templatesIn, type FoundTemplate, type TemplatesOptions } from './templates.ts';
 import { Expr, parse, type IRNode } from '@ttylabs/sigil/template';
 import MagicString from 'magic-string';
 
@@ -180,11 +180,7 @@ export function compileTemplates(
 	try {
 		compiled = compile(nodes, { prefix });
 	} catch (e: unknown) {
-		// `compile()` is handed every template at once, so what it throws is about
-		// one of them and it does not say which. The first is the best available
-		// answer and beats naming none
-		const first = found[0]!;
-		throw new TemplateCompileError(file, first.line, first.column, (e as Error).message);
+		throw blame(file, found, nodes, prefix, e as Error);
 	}
 
 	const edited = new MagicString(source);
@@ -218,4 +214,50 @@ export function compileTemplates(
 		count: found.length,
 		map: edited.generateMap({ hires: true, includeContent: true, source: file }),
 	};
+}
+
+/**
+ * Which template a whole-module `compile()` failure was about.
+ *
+ * `compile()` is handed every template in the module at once -- one prefix, one
+ * hoisted block deduplicated across all of them -- so what it throws names no
+ * template, and the first is a position with nothing wrong with it: a module
+ * whose *second* template holds a bad `<raw>` reported the first one's line, so
+ * the error pointed at code the author would read, find correct, and be stuck
+ * on. A diagnostic that names the wrong line is worse than one that names no
+ * line, because it is believed.
+ *
+ * So the culprit is found by compiling each template on its own until one throws
+ * the same way. That is only ever the error path, so the happy path pays
+ * nothing, and it is sound in the direction that matters: a template that fails
+ * alone fails in the module too, since nothing `compile()` does across templates
+ * can *rescue* one. If none of them fails alone -- a failure that is genuinely
+ * about the combination, which nothing today produces -- the module's own first
+ * template is the fallback, and the message is still the one `compile()` gave.
+ *
+ * @param file - The module.
+ * @param found - Its templates, in source order.
+ * @param nodes - Their analyzed IR, in the same order.
+ * @param prefix - The prefix the failed call used.
+ * @param error - What `compile()` threw.
+ * @returns The error to throw, pointed at the template that caused it.
+ */
+function blame(
+	file: string,
+	found: readonly FoundTemplate[],
+	nodes: readonly IRNode[],
+	prefix: string,
+	error: Error
+): TemplateCompileError {
+	const culprit =
+		found.find((_template, at) => {
+			try {
+				compile([nodes[at]!], { prefix });
+				return false;
+			} catch (e: unknown) {
+				return (e as Error).message === error.message;
+			}
+		}) ?? found[0]!;
+
+	return new TemplateCompileError(file, culprit.line, culprit.column, error.message);
 }
