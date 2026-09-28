@@ -1,0 +1,12 @@
+{
+  "name": "jsx",
+  "version": "0.0.0",
+  "private": true,
+  "bin": {
+    "jsx": "./dist/jsx.mjs"
+  },
+  "type": "module",
+  "dependencies": {
+    "@ttylabs/sigil": "workspace:*"
+  }
+}

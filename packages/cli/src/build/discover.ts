@@ -54,8 +54,18 @@ import { readFileSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { Expression, ObjectExpression, Node } from 'oxc-parser';
 
-/** What makes a directory an app this can check. */
-const RUNTIME = '@ttylabs/sigil';
+/**
+ * What makes a directory an app this can check.
+ *
+ * Exported because two other places name the same package and each had its own
+ * spelling of it: `generate.ts` imports `main` from it in the entry it writes,
+ * and the bundle tells rolldown to compile JSX against its `./jsx-runtime`. The
+ * package whose presence in a manifest makes a directory a sigil app is the
+ * package the built app imports and the package whose JSX runtime it uses, so it
+ * is one constant -- the rule `COLOR_PROPERTIES` and `INHERITED` already follow,
+ * met over a string.
+ */
+export const RUNTIME = '@ttylabs/sigil';
 
 /**
  * Where a source entry is looked for, in order.

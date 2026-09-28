@@ -49,6 +49,7 @@
  * module loads.
  */
 
+import { RUNTIME } from './discover.ts';
 import type { ResolvedCommand, ResolvedTree } from './tree.ts';
 import { relative, sep } from 'node:path';
 
@@ -228,7 +229,7 @@ function quote(value: string): string {
  * @returns The module's source, newline-terminated.
  */
 export function generateBin(options: GenerateBinOptions): string {
-	const { from, runtime = '@ttylabs/sigil', schemaModule, tree, version } = options;
+	const { from, runtime = RUNTIME, schemaModule, tree, version } = options;
 
 	// baked, because a bundle has no `package.json` beside it: an app reading
 	// its own version off `import.meta.url` is reading a path that points

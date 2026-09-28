@@ -29,6 +29,14 @@
  * source already writes `timer.unref?.()`. Nothing about the component is wrong
  * and nothing about it can fix it. Found by ejecting into a bare app and
  * type-checking it, which is the only way it surfaces before a user hits it.
+ *
+ * `jsx` and `jsxImportSource` are the same kind of line. JSX is the canonical
+ * syntax for a template here, and an app that writes its first `.tsx` without
+ * them gets TS17004 from its editor and from `sigil build`'s own type check --
+ * so they are written the day the app is created rather than the day somebody
+ * goes looking for why `<box>` is an error. The *bundle* is fine either way,
+ * because the build hands rolldown the same import source; what these buy is the
+ * editor and `tsc` agreeing with it rather than the build being right alone.
  */
 
 /** What the app is written in. */
@@ -206,12 +214,24 @@ function sorted(record: Record<string, string>): Record<string, string> {
 	return Object.fromEntries(Object.entries(record).sort(([a], [b]) => a.localeCompare(b)));
 }
 
-/** The TypeScript config, whose `lib` and `types` are load-bearing. */
+/** The TypeScript config, whose `lib`, `types` and `jsx` are load-bearing. */
 function tsconfig(): string {
 	return `${JSON.stringify(
 		{
 			compilerOptions: {
 				allowImportingTsExtensions: true,
+				// JSX is the canonical syntax, so a `.tsx` has to type-check the day it
+				// is written rather than after somebody finds these two lines. Without
+				// `jsx` it is TS17004 -- "Cannot use JSX unless the '--jsx' flag is
+				// provided" -- and with `jsx` but no `jsxImportSource` it is TS2875,
+				// "This JSX tag requires the module path 'react/jsx-runtime' to exist",
+				// which is a package a sigil app does not have. So it is the pair or
+				// neither. Both verified against the app's own tsc.
+				// `sigil build` supplies the same import source to the bundler, so what
+				// this buys is the editor and `tsc` agreeing with the build rather than
+				// the build working alone
+				jsx: 'react-jsx',
+				jsxImportSource: '@ttylabs/sigil',
 				// `esnext` and `node` rather than the defaults, and not as taste:
 				// lib.dom declares setInterval(): number, which shadows node's
 				// NodeJS.Timeout and makes an ejected spinner fail to compile

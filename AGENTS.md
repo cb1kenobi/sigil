@@ -3355,6 +3355,116 @@ as default }` resolves the same way, since it is the same statement spelled
   the zero-dependency promise is broken with nobody told. Found immediately: a
   fixture app with no real `node_modules` built "successfully" while importing
   `@ttylabs/sigil` at run time.
+- **...which is asked after the write, because that is the only place the answer
+  exists, and for a while it was asked where there was no answer at all.**
+  `rolldown()` builds nothing -- its own documentation says the module graph is
+  not built until a method on the bundle is called -- so a check sitting between
+  it and `bundle.write()`, which is where this one sat, read an empty array every
+  single time. The entry above was true when it was written and had quietly
+  stopped being: measured, an app importing `totally-not-a-package` built and
+  reported success, and so did one whose JSX reached for `react`. What hid it is
+  that a **relative** specifier is a hard error out of rolldown itself, so the
+  obvious repro still failed the build; only a **bare** one is downgraded to
+  "treating it as an external dependency", which is exactly the shape the gate
+  exists for. It was untested, which is how a check comes to be dead.
+  Neither plugin hook can host it -- `buildEnd` and `generateBundle` both run
+  _before_ the warning is reported, measured -- and `generate()` first with
+  `write()` after is worse: the `transform` hook runs again for the second call,
+  so every template would be compiled twice and `templates` would come back
+  doubled. So it is one write, asked afterwards, and what was written is
+  **unwound**: exactly the files rolldown reported, the sourcemaps among them,
+  plus any directory of theirs that is now empty -- and the unwind never throws
+  over the error it is unwinding for, since `force` covers a file that is not
+  there and not a name that turns out to be a directory, which is
+  `ERR_FS_EISDIR`. Two guards of the same kind sit in that function, each closing
+  something rolldown 1.2.11 cannot produce -- a path that climbs out of `--out`,
+  and a removal that fails -- because the one operation there is a delete on a
+  failure path, which is not where to rely on somebody else's validation or to
+  swap a real diagnostic for one about the file system. A refused build that leaves a
+  bundle which would die on first use has answered the question and then handed
+  the thing over anyway. The output directory itself is never removed, because
+  `--no-clean` means it may hold somebody else's files.
+- **JSX compiles against `@ttylabs/sigil`, because rolldown's default is
+  `react`.** A `.tsx` holding one JSX element built, reported success, and died
+  the first time the command was run: `Cannot find package 'react' imported from
+<out>/chunks/show-….mjs`. That is the shape `--external` is written for one
+  entry along -- a build that reported success and an executable that dies the
+  first time it is used -- and it hit the syntax this file calls _canonical_. It
+  was not the template work that caused it: with `MODULE_RE` at its old
+  `/\.[cm]?[jt]s$/` and at its current value the output is identical down to the
+  content-hashed chunk name, because rolldown transforms a `.tsx` whether or not
+  the template plugin's handler is ever called.
+- **rolldown reads the app's `tsconfig.json` itself, and that was measured before
+  anything was written.** `tsconfig` defaults to `true` and is resolved by
+  walking up from each _module_ rather than from the working directory -- proved
+  by building an app from a different cwd and watching its own config win. So an
+  app naming `jsxImportSource` always built correctly and the defect was only
+  ever rolldown's default; byte for byte, such an app's bundle is what it was
+  before this changed. Which is also the argument against the other candidate:
+  a `sigil.json` key, or a `tsconfig` reader of the build's own, would be a
+  second place to say a thing the app's editor and its own `tsc` already obey,
+  and reading one means JSONC and an `extends` chain rather than a lookup.
+- **`importSource` and nothing else, which is the whole of the decision.**
+  Measured against rolldown 1.2.11: `transform.jsx.importSource` beats a
+  `jsxImportSource` from the tsconfig, and everything else about the transform
+  stays the app's -- `jsx: "react-jsxdev"` still reaches
+  `@ttylabs/sigil/jsx-dev-runtime`, `jsx: "react"` still emits
+  `React.createElement`, and `jsx: "preserve"` still preserves. Adding
+  `runtime: 'automatic'` beside it was tried and **rejected**: it does fix
+  `preserve` and the classic runtime, and it silently costs `react-jsxdev` its
+  dev runtime, which is a configuration this framework publishes a runtime for
+  and whose positions are the only way a JSX frontend carries one.
+  What `preserve` costs is worth knowing rather than fixing: the bundle keeps the
+  JSX and dies with `Unexpected token '<'`, which is what it did before this and
+  is what the app asked for -- `preserve` means another tool transforms this, and
+  `tsc` obeys it identically. Refusing it needs the tsconfig reader the entry
+  above declines, and an app that said it is an app whose editor is telling it the
+  same thing.
+- **What it costs is a tsconfig that named a different automatic import source,
+  and the escape hatch is the most explicit spelling rather than the least.** A
+  per-file `@jsxImportSource` pragma beats this option -- measured -- so an app
+  with a genuine reason says so on the file that has the reason. Overriding the
+  tsconfig is deliberate rather than reluctant: the JSX in a sigil app has to
+  produce sigil `Element`s for anything in the framework to render it, so an app
+  that names something else is telling its editor its JSX is not sigil's, which
+  is a thing to say on the file that says it rather than once for the app. And
+  the case a tsconfig-conditional rule could not have covered is bigger than "an
+  app with no tsconfig": measured, `compilerOptions.jsxImportSource` **does not
+  reach a `.jsx` at all** -- a `.jsx` beside a tsconfig naming `from-tsconfig`
+  still compiled against `react`, while the `.tsx` beside it did not -- so a
+  `.jsx` has never been configurable that way in any app, with a tsconfig or
+  without. It is the second property the build knows better than the app, after
+  `commands`.
+- **The conflict warning rolldown emits for that is dropped, and only that
+  one.** Setting the option makes rolldown say `compilerOptions.jsxImportSource`
+  was overridden -- **without comparing the two values**, measured, so an app
+  naming `@ttylabs/sigil`, which is what `sigil new` scaffolds and the only thing
+  a sigil app can name, is warned at for being right. A warning that fires on
+  correct code teaches people to ignore warnings, which is the rule already
+  written down for reading a file off `import.meta.url`. Scoped to the field
+  rather than switched off with `checks: { configurationFieldConflict: false }`,
+  so a conflict about any other option this build sets still reaches whoever is
+  building; matching the message is what that costs and it fails safe, since a
+  rewording brings the warning back. It fires once per build, and **a `.ts`
+  module is enough** -- measured, since loading the tsconfig is what reports the
+  conflict and a TypeScript module loads it whether or not it holds any JSX, so
+  every app `sigil new` scaffolds would print it on every build. A `.js` module
+  does not, which is the same line the entry below draws. The suppression is
+  therefore load-bearing rather than tidy: "an app with no `.tsx` never saw it"
+  was the first version of this sentence and it was wrong. Rolldown reports the
+  conflict even where the tsconfig did **not** win: a per-file
+  `@jsxImportSource` beats both, and the warning still says the option beat the
+  tsconfig -- so in that case what is suppressed is a statement that is not true.
+- **The fixture has no `tsconfig.json`, and that is the whole of what it pins.**
+  `test/fixtures/jsx/` is the only shape the defect had; an app with a config
+  naming the import source cannot reproduce it. `test/fixtures/jsx-dev/` is the
+  other half and says `react-jsxdev`, so the narrowness above is a test rather
+  than a sentence: the development transform passes the module's own file name to
+  `jsxDEV`, which is a **string** and therefore survives minification where every
+  identifier does not, so `panel.tsx` appearing in the bundle is what fails the
+  day somebody adds `runtime: 'automatic'`. Neither has a source-run twin, for
+  the reason `templated-tsx` records: node cannot load a `.tsx` at all, so an app
+  with one is a built app by construction.
 - **A command per chunk, because the deferral is the point.** A literal
   specifier inside a dynamic import is the one thing a bundler can see, follow
   and split on, so `load: () => import('./commands/build.js')` becomes a chunk
@@ -4342,6 +4452,19 @@ people's software and will move.
 'number'` -- on a component whose source already writes `timer.unref?.()`.
   Nothing about the component is wrong and nothing about it can fix it. Found by
   ejecting into a bare app and type-checking it.
+- **`jsx` and `jsxImportSource` are the same kind of line, and they were
+  missing.** JSX is the canonical syntax for a template here, and an app that
+  wrote its first `.tsx` got TS17004 -- "Cannot use JSX unless the `--jsx` flag is
+  provided" -- from its editor and from `sigil build`'s own type check. Adding
+  `jsx` alone moves it to TS2875 -- "This JSX tag requires the module path
+  `react/jsx-runtime` to exist" -- naming a package a sigil app does not depend
+  on, so it is the pair or neither. Both were run against a scaffolded app rather
+  than recalled. What they buy on top of the
+  build already supplying the same import source to the bundler is _agreement_:
+  the editor, the app's `tsc` and the build all say `@ttylabs/sigil`, rather than
+  the build being right on its own. A JavaScript app still gets no tsconfig at
+  all, which is why the build supplies the import source rather than defaulting
+  to what one says.
 - **An entry exports a schema and something else runs it, so a scaffold writes
   two files.** `sigil build` _parses_ the entry rather than importing it, because
   importing would run the app -- so the entry can only be a module whose default
