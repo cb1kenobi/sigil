@@ -412,10 +412,17 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 			//
 			// Reachable, unlike the guards in `undo()`: measured against rolldown
 			// 1.2.11, a plugin whose `closeBundle` hook throws throws out of
-			// `close()`. This build's one plugin has only a `transform`, so it
-			// cannot happen here today -- and a plugin is exactly the kind of
-			// thing that gets added. Double-closing is safe either way, also
-			// measured, so there is no path where this runs twice and complains.
+			// `close()`, as a `PLUGIN_ERROR`. This build's one plugin has only a
+			// `transform`, so it cannot happen here today -- and a plugin is
+			// exactly the kind of thing that gets added.
+			//
+			// Which is also why the eager call was *replaced* rather than joined to
+			// this one. A second `close()` is **not** a no-op: measured, it resolves
+			// and leaves `closed` true, and it runs every `closeBundle` hook again
+			// -- a counting hook reached 3 after three closes, and a throwing one
+			// threw from each. So two closes would run a plugin's teardown twice
+			// for one build, which is a thing to get wrong rather than a tidiness
+			// argument.
 		}
 	}
 }

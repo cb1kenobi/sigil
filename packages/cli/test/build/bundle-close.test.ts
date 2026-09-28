@@ -29,7 +29,15 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 
-/** One entry per `close()` the build made, in order. Reset by `build()`. */
+/**
+ * One entry per `close()` the build made, in order, saying how each one ended.
+ *
+ * The *outcome* rather than the call, because a test about a `close()` that
+ * throws has to be able to see that one did. Asserting only the absence of the
+ * thrown message locks the `catch` and not its premise: review round 2 deleted
+ * the line that arms the failure and all four tests stayed green, which is the
+ * same shape as the `beforeEach` round 1 removed. Reset by `build()`.
+ */
 const closes: string[] = [];
 
 /**
@@ -61,11 +69,12 @@ vi.mock('rolldown', async (importOriginal) => {
 			Object.defineProperty(bundle, 'close', {
 				configurable: true,
 				value: async () => {
-					closes.push('close');
 					await close();
 					if (failClose) {
+						closes.push('close:threw');
 						throw new Error('closeBundle exploded');
 					}
+					closes.push('close');
 				},
 			});
 
@@ -148,6 +157,9 @@ describe('closing the bundle', () => {
 
 		expect(failure).toContain('Could not create directory');
 		expect(failure).not.toContain('closeBundle exploded');
+		// the premise, so that arming the failure is load-bearing rather than
+		// decoration: without this the test passes on a `close()` that never threw
+		expect(closes).toStrictEqual(['close:threw']);
 	}, 60_000);
 
 	it('should not fail a build that worked because the bundle would not close', async () => {
@@ -160,5 +172,6 @@ describe('closing the bundle', () => {
 
 		expect(failure).toBe('(the build succeeded)');
 		expect(existsSync(join(out, 'buildable.mjs'))).toBe(true);
+		expect(closes).toStrictEqual(['close:threw']);
 	}, 60_000);
 });

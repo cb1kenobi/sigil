@@ -3423,10 +3423,17 @@ as default }` resolves the same way, since it is the same statement spelled
   beside a bundle that is complete, escaped and executable: the shape `undo()`
   exists to prevent, with nothing left to unwind. Unlike the two guards in
   `undo()` this one is **reachable** -- measured against rolldown 1.2.11, a
-  plugin whose `closeBundle` hook throws throws out of `close()`, and this
-  build's one plugin has only a `transform` today. Closing twice is a no-op, also
-  measured, which is why replacing the eager call rather than joining it costs
-  nothing and is still worth doing: two closes would be two answers.
+  plugin whose `closeBundle` hook throws throws out of `close()` as a
+  `PLUGIN_ERROR`, and this build's one plugin has only a `transform` today.
+- **A second `close()` is not a no-op, which is why the eager call was replaced
+  rather than joined to the `finally`.** The first version of this said closing
+  twice was harmless, from a probe that only asked whether it threw; review round
+  2 asked the rest. Measured: a second `close()` resolves and leaves `closed`
+  true, and it runs every `closeBundle` hook **again** -- a counting hook reached
+  3 after three closes, and a throwing one threw from each. So a joined pair
+  would run a plugin's teardown twice for one build, which makes one close a
+  correctness argument rather than the tidiness one ("two closes would be two
+  answers") it was first written as.
 - **Whether `close()` was called is asked by mocking `rolldown`, because the
   bundle is `bundleApp()`'s own.** Nothing outside that function can see it, and
   the alternative is a seam whose only reader would be the test. So
@@ -3442,8 +3449,15 @@ as default }` resolves the same way, since it is the same statement spelled
   the same call that clears the record rather than reset in a `beforeEach`,
   because a reset no assertion can see is a guard that reads as load-bearing and
   is not -- review round 1 deleted one and started from `true`, and all four
-  tests stayed green, since the two that do not ask about it cannot tell a
-  `close()` that threw from one that did not.
+  tests stayed green.
+- **What the record holds is each `close()`'s _outcome_, because a test about a
+  `close()` that throws has to be able to see that one did.** Asserting only the
+  absence of the thrown message locks the `catch` and not its premise: review
+  round 2 deleted the line that arms the failure and all four tests stayed green
+  again, which is the same defect one level in. So the mock records
+  `close:threw` or `close`, and the two swallow tests assert which -- the second
+  time this file was told that a line you can delete while the suite stays green
+  is the shape to look for.
 - **The command-level pin uses `--no-clean`, because that is what makes an
   existing file reach the write.** `clean()` is a single
   `rmSync(out, { force: true, recursive: true })`, so without the flag an `--out`
