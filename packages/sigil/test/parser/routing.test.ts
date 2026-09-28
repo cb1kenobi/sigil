@@ -281,15 +281,22 @@ describe('filesystem routing', () => {
 
 		it('should leave a route with no entry listing by name alone', async () => {
 			// the half that keeps it a cache: a command dropped into an installed
-			// app after the build is undescribed rather than invisible
+			// app after the build is undescribed rather than invisible.
+			//
+			// Both halves in one test on purpose, because either alone is a test no
+			// sabotage can fail: `config` being undescribed passes just as well
+			// when `routeInfo` is ignored outright, and `build` being described
+			// passes when an entry is applied to every route. It is the pair that
+			// says the map is read per route
 			const result = await parse({
 				argv: [],
 				schema: { commands: routes, routeInfo: { build: { desc: 'lifted' } } },
 			});
-			const config = result.contexts[0][Internal].commands.get('config');
+			const registry = result.contexts[0][Internal].commands;
 
-			expect(config?.desc).to.equal(undefined);
-			expect(config?.[Internal].loaded).to.equal(false);
+			expect(registry.get('build')?.desc).to.equal('lifted');
+			expect(registry.get('config')?.desc).to.equal(undefined);
+			expect(registry.get('config')?.[Internal].loaded).to.equal(false);
 		});
 
 		it('should lose to a package manifest, which cannot go stale', async () => {
