@@ -330,44 +330,6 @@ export const broken = () => ui\`<raw measure="nope" paint="nope" />\`;
 			expect((thrown as TemplateCompileError).line).toBe(3);
 			expect((thrown as TemplateCompileError).message).toContain('measure');
 		});
-
-		it('should prefer a template that fails over one that does not, when no message matches', () => {
-			// the middle fallback. Matching on the message is what makes it the right
-			// template rather than merely a failing one, and that relies on no
-			// `compile()` message depending on how many templates it was handed --
-			// true of every throw site today. If one ever stops holding, the answer
-			// has to degrade onto a template that genuinely fails rather than onto
-			// the first one: two broken templates after a good one, and the good one
-			// must not be blamed
-			const source = `import { ui } from '@ttylabs/sigil/template';
-export const fine = () => ui\`<text>ok</text>\`;
-export const bad = () => ui\`<raw measure="nope" paint="nope" />\`;
-`;
-
-			let thrown: unknown;
-			try {
-				compileTemplates('/app/two-bad.ts', source);
-			} catch (e: unknown) {
-				thrown = e;
-			}
-
-			// line 3 either way -- the exact match finds it, and so would the
-			// fallback; what neither may answer is line 2
-			expect((thrown as TemplateCompileError).line).not.toBe(2);
-			expect((thrown as TemplateCompileError).line).toBe(3);
-		});
-
-		it('should still name the first template when the failure is not any one of them', () => {
-			// the fallback: nothing today produces a failure that is about the
-			// combination rather than about one template, and naming the first beats
-			// naming none
-			const source = `import { ui } from '@ttylabs/sigil/template';
-export const one = () => ui\`<text>a</text>\`;
-export const two = () => ui\`<text>b</text>\`;
-`;
-
-			expect(compileTemplates('/app/ok.ts', source)?.count).toBe(2);
-		});
 	});
 
 	describe('which modules are asked at all', () => {
@@ -383,6 +345,15 @@ export const view = () => ui\`<text>x</text>\`;
 			for (const ext of ['ts', 'mts', 'cts', 'js', 'mjs', 'cjs', 'tsx', 'jsx']) {
 				expect(compileTemplates(`/app/view.${ext}`, source)?.count, ext).toBe(1);
 				expect(MODULE_RE.test(`/app/view.${ext}`), ext).toBe(true);
+			}
+		});
+
+		it('should not admit an extension that does not exist', () => {
+			// the eight real extensions are not a product of their parts: there is no
+			// `.mtsx` or `.cjsx`, and oxc does not read either as JSX, so a single
+			// `x?` admitted four spellings whose JSX is a syntax error
+			for (const ext of ['mtsx', 'ctsx', 'mjsx', 'cjsx']) {
+				expect(MODULE_RE.test(`/app/view.${ext}`), ext).toBe(false);
 			}
 		});
 

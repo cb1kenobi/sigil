@@ -138,13 +138,19 @@ export interface BundleResult {
  * saying so. JSX being the canonical syntax is exactly what makes a `.tsx` a
  * likely place to find the tag: the two live side by side in one app.
  *
+ * Spelled as two alternatives rather than as one `x?`, because the eight real
+ * extensions are not a product: there is no `.mtsx` or `.cjsx`, and oxc does not
+ * read either as JSX -- so `[cm]?[jt]sx?` admitted four spellings that then parse
+ * a JSX element as a syntax error. Harmless, since rolldown's own parser refuses
+ * them identically, and still four ids crossing into JavaScript for nothing.
+ *
  * Exported for the reason `candidates()` in `which.ts` is: what it admits is
  * worth asserting directly rather than through a bundler, and the invariant that
  * matters is a relation between two things -- every extension
  * `compileTemplates()` can read has to be one this admits, or the gap is a
  * template nobody compiles and nobody is told about.
  */
-export const MODULE_RE: RegExp = /\.[cm]?[jt]sx?$/;
+export const MODULE_RE: RegExp = /\.(?:[cm]?[jt]s|[jt]sx)$/;
 
 export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 	const { app, bin, binName, external = [], out, sourcemap = true, tree } = options;

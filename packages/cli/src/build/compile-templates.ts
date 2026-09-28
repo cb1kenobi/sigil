@@ -238,13 +238,22 @@ export function compileTemplates(
  * merely a failing one, and it is reliable because no message `compile()` throws
  * mentions a generated name, an index, or anything else that depends on how many
  * templates it was handed -- each is about one node and its template-relative
- * `loc`, which is the same either way. That is an assumption about a set of
- * throw sites rather than a guarantee, so the fallbacks are ordered to degrade
- * gracefully if one ever stops holding: a template that threw *something* beats
- * one that threw nothing, and the module's first template is the last resort --
- * which is also the honest answer for a failure genuinely about the combination,
- * such as the prefix check, that no single template can reproduce. The message
- * reported is always the one `compile()` gave.
+ * `loc`, which is the same either way. Checked against every throw site in
+ * `emit.ts`, the prefix check included: that one throws an identical message for
+ * one template and for twenty, so it reproduces alone and lands on the first
+ * template through the match rather than through the fallback.
+ *
+ * Which means that with today's emitter the matching template and the first
+ * template to fail alone are **always the same one** -- `compile()` throws on the
+ * first failure it meets, so there is never an earlier failing template for the
+ * match to disagree with. The two rules are indistinguishable from the outside,
+ * and the ordering exists for the day one of those properties stops holding: a
+ * template that threw *something* beats one that threw nothing, and the module's
+ * first template is the last resort. Machinery nothing exercises is machinery
+ * that stops working silently, so `test/build/blame.test.ts` mocks `compile()` to
+ * separate all three -- which is the only way to ask, and is why two earlier
+ * attempts at those tests were green with the fallback they named deleted. The
+ * message reported is always the one `compile()` gave.
  *
  * @param file - The module.
  * @param found - Its templates, in source order.

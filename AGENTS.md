@@ -3119,14 +3119,52 @@ as default }` resolves the same way, since it is the same statement spelled
   key. Neither addition loses a negative: a local `ui` nothing imported, a
   namespace of some other module, a wrong property, and a type-only namespace
   import are all still declined.
+- **A name the module binds again is given up on, because there is no scope tree
+  to ask.** The bindings come off oxc's module record, which says what was
+  imported and nothing about where that name is still the import -- so a
+  parameter, a variable or a catch binding of the same name is, to this walk,
+  the same name. That was a live defect rather than a documented limit: the entry
+  above promises that "a local variable called `ui` is not one", and
+  ``function f(ui) { return ui`...` }`` in a module that also imports the tag was
+  compiled anyway. Adding the namespace shape made it sharper rather than
+  introducing it, because the shadowed name is then the _namespace_ local -- `t`,
+  which collides far more often than `ui` does -- and the failure is not even
+  quiet: a shadowed ``t.ui`<div class="${x}">` `` is an HTML template this then
+  tries to compile, so a build that worked now fails on a file with nothing wrong
+  with it. So every name the module binds anywhere else is removed from the
+  candidates, module-wide, since per use site is exactly the scope question there
+  is no answer to. It over-approximates on purpose: the names are collected off
+  the _keys_ a binding hangs off -- `id`, `param`, `params` -- rather than off a
+  list of node types, for the reason `walk()` is driven by `visitorKeys`, and
+  reading one key too many costs a template that stays interpreted while reading
+  one too few costs a rewrite of somebody else's code. That asymmetry is the
+  whole of the decision, and it is the same one the entry below makes for a
+  barrel: loud and wrong is worse than quiet and right.
 - **A tag re-exported through another module is unreachable here, and that is a
   boundary rather than a bug.** `export { ui } from '@ttylabs/sigil/template'` in
   a barrel, imported from the barrel, is the same function at run time and cannot
   be recognised from one parse -- the specifier naming the tag's module is not in
-  the file, so nothing even asks. Answering it means resolving a specifier and
-  reading what is behind it, which is the bundler's job; doing it in a parse
-  would be a second module resolver. Such a template stays interpreted, which is
-  correct output at the cost of the bundle's parser.
+  the file, so the native `code` filter never even calls the handler. Answering
+  it means resolving a specifier and reading what is behind it, which is the
+  bundler's job; doing it in a parse would be a second module resolver. Such a
+  template stays interpreted, which is correct output at the cost of the bundle's
+  parser. Worth knowing that the _re-export_ could be warned about cheaply --
+  oxc's `staticExports` on the barrel names the specifier, and that file does
+  contain it -- while the **use site** cannot be, which is the half that would
+  actually help.
+- **...and it is not the only one, which is why there is a list rather than a
+  sentence.** Calling the barrel "the one remaining miss" was wrong within a day
+  of being written. Also uncompiled, each silently, each the same function at run
+  time: `const { ui } = t`; `(t).ui`, where the parentheses are around the object
+  rather than the tag, so the unwrap does not reach them; `const ui = t.ui`;
+  `(ui as any)` and `(ui satisfies ...)`; `(0, ui)`; `ui!` and `t.ui!`, where the
+  `!` erases; a dynamic `await import()`; and a specifier written with an escape
+  -- `'@ttylabs/sigil/\u0074emplate'`, which oxc decodes, so `findTemplates()`
+  finds the template while the substring fast path and the rolldown `code` filter
+  both search the raw source and do not. What they share is that answering them
+  needs something one parse of one module has not got: another file, or a value
+  flow. Enumerated rather than summarised, because the summary is what went
+  stale, and because the count cannot see any of them.
 - **Only the outermost template is claimed.** A `ui` written inside an
   interpolation stays interpreted, which is already recorded: an expression is
   not the compiler's to read, so it is printed back verbatim and the runtime tag
@@ -3537,11 +3575,15 @@ block and the imports at the top. A rolldown `transform` runs it on the way in.
   language off the filename, which is why the extension is the right gate and
   why leaving the `x` out was a silent miss rather than a safe one. JSX being the
   canonical syntax is what makes a `.tsx` a _likely_ place for the tag rather
-  than an exotic one: the two live side by side in one app. The other two are
-  `findTemplates()`'s and are recorded there -- a namespace member and a
-  parenthesized tag. What remains unreachable is a tag re-exported through
-  another module, because answering that means reading a file this parse has not
-  got.
+  than an exotic one: the two live side by side in one app. Spelled as two
+  alternatives rather than one `x?`, because the eight real extensions are not a
+  product of their parts -- there is no `.mtsx` or `.cjsx`, and oxc reads neither
+  as JSX, so the lazy spelling admitted four ids whose JSX is a syntax error. The
+  other two misses are `findTemplates()`'s and are recorded there -- a namespace
+  member and a parenthesized tag -- along with the shadowing defect that
+  supporting the first of those made sharper, and with the list of shapes that
+  stay unreachable because one parse of one module cannot answer them: a barrel
+  re-export, a destructuring, `(t).ui`, an escaped specifier, and the rest.
 - **A whole-module `compile()` failure is attributed by re-compiling each
   template alone.** `compile()` takes a module's templates at once, so what it
   throws names none of them, and the first template's position was the answer for
@@ -3552,9 +3594,24 @@ block and the imports at the top. A rolldown `transform` runs it on the way in.
   compiling each on its own until one throws the same message -- the error path
   only, so the happy path pays nothing, and sound in the direction that matters
   since nothing `compile()` does across templates can _rescue_ one that fails
-  alone. A failure genuinely about the combination, which nothing today produces,
-  falls back to the first. The parse and analyze failures never had this problem:
-  those are per template already.
+  alone. The parse and analyze failures never had this problem: those are per
+  template already.
+
+  Under the match are two ordered fallbacks -- a template that threw _something_,
+  then the module's first -- and they exist because the match rests on a property
+  of a set of throw sites rather than a guarantee: no message `compile()` throws
+  mentions a generated name or an index, so it is the same compiled alone or in a
+  batch. Checked against every throw site, the prefix check included, which
+  throws one identical message however many templates it was handed and so lands
+  on the first template through the _match_. An earlier note claimed that one as
+  the fallback's reason and was simply wrong about it. With today's emitter all
+  three rules pick the same template -- `compile()` throws on the first failure it
+  meets, so there is never an earlier failing template for the match to disagree
+  with -- which means no test over the real emitter can tell them apart, and two
+  attempts at writing one were green with the branch they named deleted.
+  `test/build/blame.test.ts` mocks `compile()` to separate them, because
+  machinery nothing exercises is machinery that stops working silently.
+
 - **The stylesheet half of SIG-115 is deliberately not here.** The ticket calls it
   "less settled" and leaves three questions open -- what "as data" is, whether
   class-name mangling is in scope at all when `FRAMEWORK_CSS` is documented as the

@@ -103,6 +103,9 @@ const v = ((ui))\`<text>paren</text>\`;`;
 
 			expect(template?.tag).to.equal('ui');
 			expect(template?.quasis).to.deep.equal(['<text>paren</text>']);
+			// the span has to cover the parentheses as well, or the splice leaves
+			// `((` behind and the module it produces is a syntax error
+			expect(source.slice(template!.start, template!.end)).to.equal('((ui))`<text>paren</text>`');
 		});
 
 		it('should ignore a namespace of some other module', () => {
@@ -126,6 +129,43 @@ const v = t['ui']\`<text>computed</text>\`;`;
 			const source = `import type * as t from '@ttylabs/sigil/template';
 const v = t.ui\`<text>x</text>\`;`;
 			expect(findTemplates('a.ts', source)).to.deep.equal([]);
+		});
+
+		it('should decline a tag whose name the module binds again', () => {
+			// there is no scope tree here -- the bindings come off oxc's module
+			// record, which says what was imported and nothing about where that name
+			// is still the import. So a shadowed name is given up on: claiming
+			// something that was never the tag rewrites a stranger's template
+			// literal, while declining leaves it interpreted, which is correct output
+			const source = `import { ui } from '@ttylabs/sigil/template';
+export function render(ui) { return ui\`<text>not ours</text>\`; }
+export const real = () => ui\`<text>ours</text>\`;`;
+
+			// both, and not just the shadowed one: module-wide, because per use site
+			// is exactly the question there is no answer to
+			expect(findTemplates('a.ts', source)).to.deep.equal([]);
+		});
+
+		it('should decline a namespace whose local the module binds again', () => {
+			// the sharper half: the shadowed name is the *namespace* local, and `t`
+			// collides far more often than `ui`. A shadowed `t.ui` is somebody else's
+			// template tag, so compiling it turns a working build into a failure on a
+			// file with nothing wrong with it
+			const source = `import * as t from '@ttylabs/sigil/template';
+export function render(t) { return t.ui\`<div class="\${x}">\${y}</div>\`; }`;
+
+			expect(findTemplates('a.ts', source)).to.deep.equal([]);
+		});
+
+		it('should still compile where the name is bound only by the import', () => {
+			// the over-approximation has to stop somewhere useful: other parameters,
+			// other destructuring and a catch binding are not this name
+			const source = `import { ui } from '@ttylabs/sigil/template';
+const { a, b: [c] } = obj;
+try { x(); } catch (e) { void e; }
+export function greet(who, { opts }, ...rest) { return ui\`<text>\${who}</text>\`; }`;
+
+			expect(findTemplates('a.ts', source)).to.have.lengthOf(1);
 		});
 
 		it('should take a different tag when asked for one', () => {

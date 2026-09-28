@@ -160,6 +160,14 @@ export function templatesIn(
 		return [];
 	}
 
+	// a name the module binds again is a name this cannot answer for, so it is
+	// given up rather than guessed at
+	const usable = unshadowed(tags, reboundNames(parsed));
+
+	if (!usable.direct.size && !usable.namespaces.size) {
+		return [];
+	}
+
 	const found: FoundTemplate[] = [];
 
 	walk(parsed.program, (node) => {
@@ -167,7 +175,7 @@ export function templatesIn(
 			return true;
 		}
 
-		const reached = tagName(unwrap(node.tag), tags);
+		const reached = tagName(unwrap(node.tag), usable);
 		if (reached === undefined) {
 			return true;
 		}
@@ -225,6 +233,126 @@ function tagBindings(parsed: ParsedModule, from: string, name: string): TagBindi
 }
 
 /**
+ * The tag bindings with every re-bound name taken out.
+ *
+ * A binding is only the import's for as long as nothing else in the module
+ * binds that name, and this walk has no scope tree to ask -- so a name the
+ * module binds again is given up on entirely rather than guessed at. The
+ * direction of that giving-up is the whole point: claiming something that was
+ * never the tag rewrites a stranger's template literal into calls it never
+ * asked for, while declining one leaves it interpreted, which is correct output
+ * at the cost of a parser in the bundle. Loud and wrong against quiet and
+ * right, and the answer is the one this file already gives for a barrel.
+ *
+ * Module-wide rather than per use site, because per use site is exactly the
+ * scope question there is no answer to here.
+ *
+ * @param tags - What the module imported.
+ * @param rebound - Every name it binds somewhere else.
+ * @returns The bindings safe to match on.
+ */
+function unshadowed(tags: TagBindings, rebound: ReadonlySet<string>): TagBindings {
+	const keep = (names: ReadonlySet<string>): Set<string> =>
+		new Set([...names].filter((name) => !rebound.has(name)));
+
+	return { direct: keep(tags.direct), name: tags.name, namespaces: keep(tags.namespaces) };
+}
+
+/**
+ * Every name the module binds somewhere other than by importing it.
+ *
+ * Keyed on the *keys* a binding hangs off -- `id`, `param`, `params` -- rather
+ * than on a list of node types, for the reason `walk()` is driven by
+ * `visitorKeys`: a list of node types is a second copy of the grammar, and the
+ * day the parser grows one this file has not heard of is the day a binding stops
+ * being seen. Those key names are far more stable than the set of nodes that use
+ * them, and reading one key too many is harmless here because every name this
+ * collects is a name the matcher then declines -- over-collecting costs a
+ * template that stays interpreted, and under-collecting costs a rewrite of
+ * somebody else's code.
+ *
+ * Import declarations are skipped whole, since their bindings are the very
+ * thing being asked about.
+ *
+ * @param parsed - The module.
+ * @returns The names it re-binds.
+ */
+function reboundNames(parsed: ParsedModule): Set<string> {
+	const names = new Set<string>();
+
+	walk(parsed.program, (node) => {
+		// an import's own binding is not a shadow of itself
+		if (node.type === 'ImportDeclaration') {
+			return false;
+		}
+
+		const record = node as unknown as Record<string, unknown>;
+		for (const key of ['id', 'param', 'params']) {
+			const value = record[key];
+
+			if (Array.isArray(value)) {
+				for (const each of value) {
+					patternNames(each, names);
+				}
+			} else {
+				patternNames(value, names);
+			}
+		}
+
+		return true;
+	});
+
+	return names;
+}
+
+/**
+ * The names a binding pattern binds, added to a set.
+ *
+ * Destructuring, defaults and rest elements all bind, so all of them are read
+ * -- and anything unrecognised is simply not a name, which is safe because an
+ * unread pattern can only cost a template that stays interpreted.
+ *
+ * @param value - A pattern, or whatever was on the key.
+ * @param into - Where to collect the names.
+ */
+function patternNames(value: unknown, into: Set<string>): void {
+	if (!value || typeof value !== 'object') {
+		return;
+	}
+
+	const node = value as Record<string, unknown> & { type?: string };
+
+	switch (node.type) {
+		case 'ArrayPattern':
+			for (const element of (node.elements as unknown[]) ?? []) {
+				patternNames(element, into);
+			}
+			patternNames(node.rest, into);
+			return;
+		case 'AssignmentPattern':
+			patternNames(node.left, into);
+			return;
+		case 'Identifier':
+			into.add(String(node.name));
+			return;
+		case 'ObjectPattern':
+			for (const property of (node.properties as Record<string, unknown>[]) ?? []) {
+				patternNames(property.value, into);
+			}
+			patternNames(node.rest, into);
+			return;
+		case 'RestElement':
+			patternNames(node.argument, into);
+			return;
+		case 'TSParameterProperty':
+			patternNames(node.parameter, into);
+			return;
+		default:
+			return;
+	}
+}
+
+/**
  * The name a tagged template's tag was reached by, if it is the tag at all.
  *
  * Two shapes, because a module has two static ways to name one import and the
@@ -239,12 +367,16 @@ function tagBindings(parsed: ParsedModule, from: string, name: string): TagBindi
  * skipping both, because the half it skipped is silent. That is the rule the
  * static `desc` lift already follows for a computed key.
  *
- * What neither shape reaches is a tag that arrived through another module --
- * `export { ui } from '@ttylabs/sigil/template'` re-exported and then imported
- * from the barrel. That is a question about a file this one has not read, and
- * answering it means resolving a specifier, which is the bundler's job rather
- * than a parse's. Such a template stays interpreted, which is correct but
- * costs the bundle its parser; see the note in `compile-templates.ts`.
+ * Plenty of shapes reach neither, and they are not one exotic case but a class:
+ * a tag re-exported through a barrel and imported from there, a `const { ui } =
+ * t` destructuring, `(t).ui` where the parentheses are around the object rather
+ * than the tag, `const ui = t.ui`, `(ui as any)`, `(0, ui)`, `ui!`, and a
+ * specifier written with an escape. Each is the same function at run time and
+ * none of them is compiled. What they have in common is that answering them
+ * needs something a single parse of a single module does not have -- another
+ * file, or a value flow -- and each costs the bundle its parser, silently. The
+ * list is in AGENTS.md under "Every shape the matcher misses is silent", because
+ * it is the kind of list that goes stale the moment it is written down twice.
  *
  * @param tag - The tag expression, parentheses already off.
  * @param tags - What this module imported.
