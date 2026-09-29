@@ -459,11 +459,21 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
  * Overriding the mode means `transform.jsx.runtime`, which was measured and
  * rejected once already and re-measured here: adding `runtime: 'automatic'` does
  * fix `preserve`, and it silently costs `jsx: "react-jsxdev"` its **dev**
- * runtime -- the `jsx-dev-runtime` chunk disappears from the bundle and
- * `_jsxFileName` with it, which is a configuration this framework publishes a
- * runtime for. Detecting costs no tsconfig reader, contradicts nothing the app's
- * own `tsc` says, and answers for whatever else ever produces the same end
- * state.
+ * runtime, which is a configuration this framework publishes a runtime for.
+ * Which marker says so depends on whether the output is minified, and the
+ * distinction is worth keeping because only one of the two is what `sigil build`
+ * writes. Unminified, the `jsx-dev-runtime` region goes and `_jsxFileName` with
+ * it; **minified**, which is the default here, both are already gone and what
+ * the option removes is the `panel.tsx` string and the `fileName` property --
+ * exactly the marker `test/fixtures/jsx-dev/` was built to pin, since a string
+ * survives minification where an identifier does not. The option also makes
+ * rolldown report a **second** `CONFIGURATION_FIELD_CONFLICT`, about
+ * `compilerOptions.jsx`, which the suppression above does not match because it
+ * is scoped to `jsxImportSource` -- so that path would have printed a warning on
+ * every build of exactly the app it was meant to fix.
+ *
+ * Detecting costs no tsconfig reader, contradicts nothing the app's own `tsc`
+ * says, and answers for whatever else ever produces the same end state.
  *
  * ## The discriminator, and why it is not a search
  *
@@ -500,7 +510,10 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
  * bytes it finally writes came apart once, and a check about whether **node** can
  * parse the bundle has to ask the bytes node will read. The cost is measured and
  * small: 2.7ms to read and parse a 9-chunk, 111 kB bundle and 4.8ms for 44
- * chunks of 182 kB, against a build of 140ms and up.
+ * chunks of 182 kB. End to end, a `sigil build` of the fixture goes from 118ms
+ * to 121ms with it, medians of nine interleaved -- 3ms either way, and a review
+ * on another machine measured the same 3ms against a 73ms build, so the delta is
+ * the number worth writing down rather than the absolutes.
  *
  * Exported for the reason `undo()` and `MODULE_RE` are: what it admits is worth
  * asserting directly rather than only through a bundler, and the
@@ -521,11 +534,11 @@ export function rawJsxIn(
 		// fails both parses and would fall into the conservative branch below
 		// anyway, measured, so removing this changes no answer for anything
 		// rolldown emits; what it changes is that the maps are read, and they are
-		// the largest files in the output -- 399 kB against the chunks' 111 kB on
-		// the fixture, 3.14ms against 2.33ms. An asset that is JSX, which an app
-		// shipping a template as one would be, is the case where it changes an
-		// answer too, and that answer is that an asset nobody imports is not a
-		// module that has to parse
+		// the largest files in the output -- 288 kB of maps against 111 kB of
+		// chunks on the fixture, which takes the pass from 2.33ms to 3.14ms. An
+		// asset that is JSX, which an app shipping a template as one would be, is
+		// the case where it changes an answer too, and that answer is that an
+		// asset nobody imports is not a module that has to parse
 		if (chunk.type !== 'chunk') {
 			continue;
 		}

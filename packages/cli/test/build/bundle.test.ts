@@ -349,7 +349,13 @@ describe('an app whose output is JSX', () => {
 		// JSX reported this bundle as holding some while the check was being
 		// written -- the runtime's error strings carry `<box>`, `<text>` and
 		// `<raw>`, and `panel.tsx`'s doc comment carries `jsxDEV` -- which is why
-		// the answer is a parse rather than a search
+		// the answer is a parse rather than a search.
+		//
+		// The assertion is a second line of defence rather than the only one, and
+		// it is worth knowing which: `beforeAll` already built this app *through*
+		// `bundleApp()`, so a gate that false-positived here would fail the hook
+		// and skip this test rather than fail on the `expect`. The suite still goes
+		// red either way; the line that reports it is the hook's
 		const files = readdirSync(jsxOut, { recursive: true, withFileTypes: true })
 			.filter((entry) => entry.isFile() && entry.name.endsWith('.mjs'))
 			.map((entry) => ({

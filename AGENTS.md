@@ -3498,10 +3498,20 @@ as default }` resolves the same way, since it is the same statement spelled
   dev runtime, which is a configuration this framework publishes a runtime for
   and whose positions are the only way a JSX frontend carries one. Re-measured
   against rolldown 1.2.11 when `preserve` was closed, because that was the
-  candidate for closing it: the `jsx-dev-runtime` chunk and the `_jsxFileName`
-  string both disappear from the bundle the moment `runtime: 'automatic'` is
-  added, so the rejection holds and the tempting one-line fix is still the wrong
-  one.
+  candidate for closing it, and the rejection holds -- with a distinction the
+  first re-measurement missed. **Which** marker disappears depends on whether the
+  output is minified, and only one of the two is what `sigil build` writes:
+  unminified, `runtime: 'automatic'` takes the `jsx-dev-runtime` region and
+  `_jsxFileName` with it, while **minified**, which is the default, both are
+  already gone and what the option removes is the `panel.tsx` string and the
+  `fileName` property. That is exactly the marker the `jsx-dev` fixture was built
+  to pin -- a string survives minification where an identifier does not -- so the
+  test was right and the sentence describing it was measured on the wrong build.
+  A third cost turned up with it: the option makes rolldown report a **second**
+  `CONFIGURATION_FIELD_CONFLICT`, about `compilerOptions.jsx`, which the
+  suppression above does not match because it is scoped to `jsxImportSource`, so
+  that path would have printed a warning on every build of exactly the app it was
+  meant to fix.
 - **`jsx: "preserve"` is refused, and it is refused by _detecting_ it rather
   than by configuring it away.** It is the third door onto "the build reported
   success and the executable dies the first time it is used": rolldown obeys the
@@ -3520,7 +3530,15 @@ as default }` resolves the same way, since it is the same statement spelled
   value that leaves raw JSX behind -- `react-native`, which `tsc` also treats as
   preserving, is compiled by rolldown -- and `compilerOptions.jsx` does not reach
   a `.jsx` at all, exactly as `jsxImportSource` does not. So configuring would
-  have needed to enumerate a set the detection never has to know.
+  have needed to enumerate a set the detection never has to know -- and review
+  round 1 widened the sweep without finding another member of it: an `extends`
+  chain whose base says `preserve` and a `@jsxRuntime`, `@jsx` or
+  `@jsxImportSource` pragma over a `preserve` tsconfig all leave raw JSX, and the
+  gate catches each. Two near misses are worth knowing because they look like
+  routes and are not. `"jsx": "Preserve"` with a capital P **compiles**, so
+  rolldown does not read the value the case-insensitive way `tsc` does. And a
+  `.js` holding JSX never reaches the gate at all: rolldown refuses it with
+  `[PARSE_ERROR] Unexpected JSX expression` whatever the tsconfig says.
 - **The gate parses; it does not search, and that is measured rather than
   cautious.** A regex over minified output is what the ticket warned about, and
   it fired **twice** while this was being written: the runtime's own error
@@ -3532,6 +3550,17 @@ as default }` resolves the same way, since it is the same statement spelled
   the language off the filename, which is what makes one source two questions.
   Zero false positives over 114 chunks: every fixture's bundle, `packages/cli/dist`
   and `packages/sigil/dist`, none of which returns an oxc entry of any severity.
+  And hunted for rather than only swept for, twice and independently -- 31
+  candidate spellings here and a longer corpus in review round 1, cross-checked
+  against `node --check`. Nothing node accepts is refused as `.mjs` and accepted
+  as `.jsx`: `a < b > c`, a regex holding `<`, a generic-looking call, a shebang,
+  top-level `await`, `import.meta`, `with`/`assert` import attributes,
+  `import defer`, decorators, `using`, a class static block, `#x in o`, `with`,
+  legacy octal, an HTML comment, duplicate parameters and a string containing
+  `<text>` all parse as both. The syntax that could have been the false positive
+  is TypeScript's -- `<const T,>` arrows and `<string>y` assertions -- and it
+  fails **both** parses, which is the conservative branch below; rolldown emits
+  none of it anyway.
 - **A chunk that parses as neither is deliberately left alone.** Refusing it
   would be the false positive the ticket said is worse than the status quo:
   `oxc-parser` and the oxc inside rolldown are separately versioned, so a grammar
@@ -3540,8 +3569,9 @@ as default }` resolves the same way, since it is the same statement spelled
   is not this failure and has nobody claiming it. It also settles the sourcemaps
   for free -- a `.map` fails both parses -- which is why the skip for an asset is
   a **cost** guard rather than a correctness one: the maps are the largest files
-  in the output, 399 kB against the chunks' 111 kB on the fixture, and reading
-  them takes the pass from 2.33ms to 3.14ms. Establishing that the skip's only
+  in the output -- 288 kB of maps against 111 kB of chunks on the fixture, which
+  is 399 kB together and was written down as the maps alone until review round 1
+  weighed them -- and reading them takes the pass from 2.33ms to 3.14ms. Establishing that the skip's only
   observable effect is "the file is not opened" took two wrong tests -- one using
   a sourcemap, which the conservative branch excludes anyway, and one using an
   asset named `.jsx`, which parses as JSX on the first call.
