@@ -289,6 +289,25 @@ describe('sigil build', () => {
 		}
 	}, 60_000);
 
+	it('should say so when it dropped every rule', async () => {
+		// a count of zero is the one value the summary cannot speak for itself:
+		// an app that asked for the utility sheet and named none of it is either
+		// carrying a call it no longer uses or naming its classes somewhere the
+		// scan cannot see, and the second is the unsound case arriving as a
+		// layout that is subtly wrong with nothing to point at
+		const { err } = await sigil('build', join(fixtures, 'opaque'), '--out', out);
+
+		expect(err).toContain('0 of 383 utility rules');
+		expect(err).toContain('No utility class is named anywhere in this app');
+		expect(err).toContain('build.safelist');
+	}, 60_000);
+
+	it('should say nothing of the sort when it kept something', async () => {
+		const { err } = await sigil('build', join(fixtures, 'styled'), '--out', out);
+
+		expect(err).not.toContain('No utility class is named');
+	}, 60_000);
+
 	it('should keep every rule under --no-shake, and say so', async () => {
 		// the opposite of the above and the reason the count is in the summary at
 		// all: "this app names twelve utilities" and "the analysis found nothing"

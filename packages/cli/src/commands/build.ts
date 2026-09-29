@@ -46,9 +46,10 @@ import {
 	displayPath,
 	type InlinedPackage,
 	type ResolvedTree,
+	type ShakenStyles,
 } from '../build/index.ts';
 import { readSigilConfig } from '../config.ts';
-import { reportLevel, writeSummary } from '../report.ts';
+import { reportLevel, writeNote, writeSummary } from '../report.ts';
 import {
 	appRuns,
 	countCommands,
@@ -143,6 +144,7 @@ const build: AnyCommand = command({
 
 		printSizes(result.chunks);
 		printInlined(result.inlined);
+		warnEmptyShake(result.styles);
 
 		const total = countCommands(found.commands);
 
@@ -320,6 +322,40 @@ function printInlined(inlined: readonly InlinedPackage[]): void {
 				columns: ['Inlined', { align: 'right', header: 'Code' }],
 			}
 		)}\n`
+	);
+}
+
+/**
+ * Says so when shaking kept nothing at all.
+ *
+ * The count in the summary is what makes shaking visible, and a count of zero
+ * is the one value it cannot speak for itself: an app that asked for the
+ * utility sheet and named none of it is either carrying a call it no longer
+ * uses, or naming its classes in a way the scan cannot see -- and the second is
+ * exactly the unsound case, arriving as a layout that is subtly wrong with
+ * nothing to point at. Both are worth a sentence, and they have the same two
+ * answers.
+ *
+ * A note rather than a diagnostic, and no file or line, because there is
+ * nothing to point at: the finding is an absence spread over the whole app, and
+ * a diagnostic that named the `utilitySheet()` call would be pointing at the
+ * one line that is certainly right.
+ *
+ * @param styles - What shaking came to, or nothing when it did not shake.
+ */
+function warnEmptyShake(styles: ShakenStyles | undefined): void {
+	if (!styles || styles.kept > 0) {
+		return;
+	}
+
+	writeNote(
+		[
+			{ class: 'cli-warning', text: 'No utility class is named anywhere in this app,' },
+			`so all ${styles.total} rules were dropped from the sheet it asked for.`,
+			'If its classes are built out of values that are never literals in the source,',
+			'name them in "build.safelist" in sigil.json, or pass --no-shake.',
+		],
+		process.stderr
 	);
 }
 

@@ -4299,6 +4299,20 @@ other is refused with numbers.
   called `utilitySheet()` -- `383 of 383` about an app with no utility sheet in
   its bundle would describe a sheet that is not there.
 
+- **Zero is the one count the summary cannot speak for itself, so it gets a
+  sentence.** An app that asked for the utility sheet and named none of it is
+  either carrying a call it no longer uses or naming its classes somewhere the
+  scan cannot see, and the second is the unsound case arriving as a layout that
+  is subtly wrong with nothing to point at. Both have the same two answers --
+  the safelist, or `--no-shake` -- so both get told. It is a note rather than a
+  diagnostic and carries no file or line, because the finding is an absence
+  spread over the whole app and a diagnostic naming the `utilitySheet()` call
+  would be pointing at the one line that is certainly right. That is also the
+  closest thing there is to the dev-mode parity SIG-81 asks for: the unbuilt
+  path uses the whole sheet, so the divergence is always one-directional --
+  works unbuilt, missing once built -- and what the build can do about it is
+  say what it dropped rather than guess which drop was wrong.
+
   The two deleted guards are worth recording because both read as load-bearing.
   A `claimed` set stopped a `+` chain's literals being read a second time as
   closed; sabotaging it failed no test, and it cannot, because a closed reading

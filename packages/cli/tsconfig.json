@@ -16,6 +16,7 @@
     "./test/fixtures/buildable",
     "./test/fixtures/templated",
     "./test/fixtures/templated-tsx",
+    "./test/fixtures/opaque",
     "./test/fixtures/styled",
     "./test/fixtures/two-trees"
   ]
