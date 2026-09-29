@@ -4317,13 +4317,30 @@ other is refused with numbers.
   generates is ignored rather than refused, because a safelist is written by hand
   against a vocabulary that moves between releases.
 
-- **The rewrite is one constant per module rather than one parse per call.**
-  `utilitySheet()` memoizes, so a rewrite that parsed per call site would be
-  slower than what it replaced. It is not the same _object_ across modules the
-  way the memo is, which nothing can observe: a `Stylesheet` is frozen and a
-  `Cascade` only reads it. The prefix contract is `compileTemplates()`'s, with
-  `$css` in place of `$ui` -- two passes may run over one module and two passes
-  choosing one prefix is two sets of names that collide.
+- **The rewrite is what `utilitySheet()` already is: a hoisted function over a
+  `var`, memoized.** `utilitySheet()` memoizes, so a rewrite that parsed per
+  call site would be slower than what it replaced -- and it is reached whenever
+  it is called, which a `const` is not. A `const` was the first shape and is
+  wrong in two ways: it parses the sheet at module evaluation whether or not the
+  call is ever reached, and it sits in a temporal dead zone, so a module reached
+  through an import cycle before its own body has run throws a `ReferenceError`
+  where `utilitySheet()` answered. `var` and a function declaration hoist, so
+  neither can. What it is not is the same _object_ across modules the way the
+  memo is, which nothing can observe: a `Stylesheet` is frozen and a `Cascade`
+  only reads it.
+
+  The head it prepends is an `import`, and that can only ever reach a module
+  that already has one: the matcher reads oxc's record of the module's **static
+  imports**, which a CommonJS file cannot have -- a `.cjs` calling
+  `require('@ttylabs/sigil/style')` passes the filter, finds no binding and is
+  declined. A `'use strict'` that stops being the first statement is no loss
+  either, since a module is strict anyway. The prefix contract is
+  `compileTemplates()`'s, with `$css` in place of `$ui` -- two passes may run
+  over one module and two passes choosing one prefix is two sets of names that
+  collide. `test/fixtures/styled/src/commands/tpl.ts` is a module both of them
+  rewrite, and what it pins is that the two survive each other: what it renders,
+  and its entry in the source map with its **original** text in
+  `sourcesContent`.
 
 - **An import is a binding, not a spelling, and there is now one implementation
   of that.** `bindings.ts` holds it, because `findTemplates()` asking whether a

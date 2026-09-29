@@ -231,6 +231,45 @@ describe('sigil build', () => {
 		}
 	}, 120_000);
 
+	it('should let both transforms rewrite one module and keep its source map', async () => {
+		// `tpl.ts` holds a `ui` template *and* asks for the utility sheet, so both
+		// plugins rewrite it. Two things have to survive that: what it renders,
+		// and its entry in the source map -- a transform that returns code
+		// without one is `SOURCEMAP_BROKEN` and silently drops the module, so a
+		// pair of them is where that would show
+		await sigil('build', join(fixtures, 'styled'), '--out', out);
+
+		const built = spawnSync(process.execPath, [join(out, 'styled.mjs'), 'tpl', 'Ada'], {
+			encoding: 'utf-8',
+		});
+		const source = spawnSync(process.execPath, [join(fixtures, 'styled', 'dev.ts'), 'tpl', 'Ada'], {
+			encoding: 'utf-8',
+		});
+
+		expect(built.status, built.stderr).toBe(0);
+		expect(built.stdout).toContain('Ada');
+		expect(built.stdout).toBe(source.stdout);
+
+		const maps = readdirSync(join(out, 'chunks'))
+			.filter((name) => name.endsWith('.map'))
+			.map(
+				(name) =>
+					JSON.parse(readFileSync(join(out, 'chunks', name), 'utf-8')) as {
+						mappings: string;
+						sources: string[];
+						sourcesContent: (string | null)[];
+					}
+			);
+		const map = maps.find((one) => one.sources.some((from) => from?.endsWith('tpl.ts')));
+
+		expect(map, 'the doubly-transformed module is in no source map').toBeDefined();
+		expect(map?.mappings.length).toBeGreaterThan(0);
+		// the *original* source rather than either transform's output, which is
+		// what makes a stack frame land on the line the author wrote
+		const at = map!.sources.findIndex((from) => from?.endsWith('tpl.ts'));
+		expect(map?.sourcesContent[at]).toContain('const tpl: AnyCommand');
+	}, 60_000);
+
 	it('should keep what sigil.json safelists', async () => {
 		// the escape hatch, end to end: the scan is evidence rather than proof, so
 		// a class assembled out of values that never appear as literals leaves

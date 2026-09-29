@@ -329,7 +329,9 @@ describe('the shaken sheet', () => {
 	});
 
 	it('should be a line-for-line subset of the committed sheet', () => {
-		const sheet = shakeUtilities(only('p-2', 'flex-col', 'text-red'));
+		// `w-1/2` among them, because its name needs escaping in the selector and
+		// a subset that escaped it differently would not be a subset
+		const sheet = shakeUtilities(only('p-2', 'flex-col', 'text-red', 'w-1/2'));
 		const committed = new Set(UTILITY_CSS.split('\n'));
 
 		for (const line of sheet.css.split('\n')) {
@@ -544,6 +546,12 @@ describe('generating a subset', () => {
 
 		expect(css).toBe(reversed);
 		expect(css.indexOf('.flex-col')).toBeLessThan(css.indexOf('.p-2'));
+	});
+
+	it('should emit one rule for a name asked for twice', () => {
+		const css = generateUtilities({ only: ['p-2', 'p-2'], variants: false });
+
+		expect(parseStylesheet(css).rules).toHaveLength(1);
 	});
 
 	it('should ignore a name nothing generates', () => {

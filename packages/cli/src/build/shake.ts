@@ -94,13 +94,7 @@ export const SHEET_EXPORT = 'utilitySheet';
  */
 const TOKEN_RE = /[\w\-/:]+/g;
 
-/**
- * What an app's source says about the classes it can name.
- *
- * Four buckets rather than one set, because where a literal sat decides what it
- * is evidence *of*: a closed literal is the class, and an open one is a piece
- * of one.
- */
+/** What an app's source says about the classes it can name. */
 export interface ClassEvidence {
 	/**
 	 * Whether the app could name this class.
@@ -120,7 +114,13 @@ interface Chunk {
 	readonly text: string;
 }
 
-/** The evidence, collected. */
+/**
+ * The evidence, collected.
+ *
+ * Four buckets rather than one set, because where a literal sat decides what
+ * it is evidence *of*: a closed literal is the class, and an open one is a
+ * piece of one, matching by prefix, by suffix, or anywhere.
+ */
 class Evidence implements ClassEvidence {
 	readonly #exact = new Set<string>();
 	readonly #infix = new Set<string>();
@@ -384,6 +384,17 @@ function readFile(path: string, into: Evidence): void {
  * `ui` template's `class="p-2"` visible at all -- the class sits inside the
  * template's text rather than in a string of its own.
  *
+ * A template with no interpolations has one quasi, so `at > 0` and
+ * `at < quasis.length - 1` are both false for it and it is read closed without
+ * anybody asking how many expressions there were. A guard that did ask was
+ * written first and deleted, because it could not change an answer.
+ *
+ * A quasi is read **cooked**, and reading the raw text beside it was written
+ * and deleted for the same reason. `String.raw` is the one tag whose value is
+ * the raw text, and cooked and raw differ only where a backslash is -- so the
+ * string such a template produces contains one, and no class name does. There
+ * is no class a `String.raw` template can name that reading cooked misses.
+ *
  * @param program - The tree.
  * @param into - Where the evidence goes.
  */
@@ -427,12 +438,12 @@ function collectLiterals(program: Node, into: Evidence): void {
 		}
 
 		if (node.type === 'TemplateLiteral') {
-			const { expressions, quasis } = node;
+			const { quasis } = node;
 
 			for (const [at, quasi] of quasis.entries()) {
 				into.read({
 					openLeft: at > 0,
-					openRight: at < quasis.length - 1 && expressions.length > 0,
+					openRight: at < quasis.length - 1,
 					text: quasi.value.cooked ?? quasi.value.raw,
 				});
 			}
@@ -671,7 +682,14 @@ export function shakeStyles(
 		`var ${memo};\n` +
 		`function ${read}() { return ${memo} ??= ${prefix}p(${JSON.stringify(sheet.css)}); }\n`;
 
-	// after a shebang rather than before it, for the reason `compileTemplates()`
+	// the head is an `import`, and prepending one can only ever reach a module
+	// that already has one: the matcher reads oxc's record of the module's
+	// **static imports**, which a CommonJS file cannot have -- a `.cjs` calling
+	// `require('@ttylabs/sigil/style')` passes the filter, finds no binding, and
+	// is declined before anything is written. A `'use strict'` that stops being
+	// the first statement is no loss either, since a module is strict anyway.
+	//
+	// After a shebang rather than before it, for the reason `compileTemplates()`
 	// records: `#!` is only a shebang on the first line
 	const shebang = source.startsWith('#!') ? source.indexOf('\n') + 1 : 0;
 
