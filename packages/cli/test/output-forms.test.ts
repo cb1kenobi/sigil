@@ -716,6 +716,14 @@ describe('sigil build', () => {
 	let refused: Ran;
 
 	beforeAll(async () => {
+		// two of these build the *same* fixture at once, to different `--out`
+		// directories, which was a race until the generated entry got a directory
+		// per output: both builds wrote one `entry.mjs` and the one that wrote last
+		// won for both. It passed here anyway, because two builds of one app with
+		// one tree generate identical entries -- so what this file did was leave a
+		// torn read as the only way to see it, which is the shape of the one
+		// unexplained failure that went with it. Kept concurrent on purpose now:
+		// it is the cheapest standing exercise of the fix that exists
 		[piped, laidOut, refused] = await Promise.all([
 			sigil(['build', app, '--out', out]),
 			sigil(['build', app, '--out', out2], { tty: ['stderr', 'stdout'] }),

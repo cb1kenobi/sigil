@@ -4324,6 +4324,51 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   app-adjacent code would be a new surface, and none of the four options needs
   computing -- they are literals. The day one of them does is the day to
   revisit it, which is the rule `which` waited on for a caller.
+- **A build generates its entry into a directory named after its output, and
+  removes it again.** `writeEntry()` used to write `node_modules/.sigil/entry.mjs`
+  -- one path per _app_ -- so every concurrent build of one app wrote the same
+  file. Two builds of one app at once is ordinary: two terminals, or a script
+  producing two `--out` directories. What it produced was not a flaky failure but
+  a **silently wrong bundle**, and it is worth stating how silent: two builds
+  differing only in `--commands` baked the same tree into both outputs, four runs
+  out of four, whichever wrote last winning for both, exit 0 and nothing said.
+  This repo's own suite had it -- `output-forms.test.ts` builds the `app` fixture
+  twice in one `Promise.all` -- where it passed only because two builds of one
+  tree generate identical entries, leaving a torn read as the only way to see it.
+  That is the likeliest explanation of an unexplained twelve-failure run that
+  never reproduced.
+
+  It cannot move somewhere neutral, which is why this is a subdirectory: the entry
+  does `import { main } from '@ttylabs/sigil'`, which resolves by walking up from
+  the file, and it reaches the app's own modules relatively. Those specifiers cost
+  nothing to move, because `generate.ts` computes them with `relative(from, ...)`
+  rather than assuming a depth.
+
+  The name is a hash of the resolved output rather than random, and that is the
+  half worth knowing. `mkdtempSync()` was the first version: it is unique per
+  invocation, so it closes one case this does not -- two builds of one app to one
+  `--out` -- and it costs reproducibility, because the directory name reaches the
+  sourcemap as a `sources` entry, so two identical builds would differ in bytes.
+  That would have gone unnoticed here, since the toolchain builds with
+  `--no-sourcemap` and the bootstrap's byte-identical fixed point never sees it,
+  which is luck rather than design. The case the hash gives up is two builds
+  already fighting over every file they write, where the entry is the least of
+  what they would clobber. So: deterministic, and the builds that can actually
+  corrupt each other are the ones writing different bundles.
+
+  Removed on the way out, in the same `finally` that closes the bundle, and
+  unconditionally -- a refused build has no more use for a generated entry than a
+  finished one, and one directory per failure is how `node_modules/.sigil` fills
+  up. What that costs is measured rather than assumed: the bundle's sourcemap
+  _names_ the entry, so `sources` points at a path that is gone -- and
+  `sourcesContent` carries its 914 bytes, verified to be the generated entry, so
+  every consumer that honours embedded content still shows it. Only one that
+  insists on reading from disk loses it, which for generated code is the less
+  useful behaviour anyway. `BundleResult.generated` went with it: it handed back
+  that path, nothing in either package read it, and after this it would be a
+  published path guaranteed not to exist -- the same call `Command.file` got, for
+  the same two reasons.
+
 - **`sigil build` empties its output directory, and refuses the one that would
   hurt.** A build that leaves the last one behind publishes the union of every
   build ever run there -- a renamed command's chunk stays, a removed one's
@@ -6152,3 +6197,14 @@ color: magenta }` and beats the default with an ordinary rule, which is only tru
   skipped them and was caught only by the getter. `expect(result.cmd?.name)` is
   what the rest of the suite already writes, says the same thing in one line,
   and fails on the value it was asked about.
+
+<!-- BEGIN:turborepo-agent-rules -->
+
+# This is NOT the Turborepo you know
+
+Turborepo configuration, task behavior, and CLI commands can vary between installed versions and may differ from your training data. Resolve the `turbo` package from this file's directory or relevant workspace; in monorepos, it may not be visible from the repository root. For example, run `node -p "require.resolve('turbo/package.json')"` from a workspace that depends on `turbo`.
+
+Read `docs/README.md` inside that installed package first, then read the relevant pages from its `docs/` directory before changing Turborepo configuration or commands. Heed deprecation notices. These bundled docs match the installed package version and are available without network access.
+
+This block is written and re-added by `turbo` before repository-scoped commands when an AI agent is detected. In the Turborepo source repository, its template is defined in `crates/turborepo-cli/src/cli/agent_guidance.rs`. Removing the managed block while updates are enabled means a later qualifying invocation will add it again. Set `"agentGuidance": false` in the root `turbo.json` or `turbo.jsonc` to opt out; this does not remove an existing block. Keep the block committed with your work to avoid an uncommitted change on the next agent invocation.
+<!-- END:turborepo-agent-rules -->

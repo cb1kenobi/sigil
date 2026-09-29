@@ -103,6 +103,121 @@ function run(...argv: string[]) {
  * against a bundle that was actually written and actually run. Everything above
  * this reads source or prints it; this spawns the result.
  */
+describe('two builds of one app at once', () => {
+	const shared = resolve(__dirname, '../fixtures/two-trees');
+	const workDir = join(shared, 'node_modules', '.sigil');
+
+	let outA: string;
+	let outB: string;
+
+	beforeAll(async () => {
+		outA = mkdtempSync(join(tmpdir(), 'sigil-two-a-'));
+		outB = mkdtempSync(join(tmpdir(), 'sigil-two-b-'));
+
+		// cleared first, so that what is asserted afterwards is what *these* builds
+		// left rather than what the directory happened to hold. A stale entry from
+		// an older layout, or from a build somebody interrupted, is otherwise enough
+		// to fail a test about cleanup -- which would make it a test about the
+		// checkout
+		rmSync(workDir, { force: true, recursive: true });
+
+		const found = discoverApp(shared);
+
+		// the same app, two different trees, both builds in flight at once. In one
+		// process rather than two, which is enough and is the cheaper test: the
+		// entry is written *synchronously* and read later, during `bundle.write()`,
+		// so interleaving two awaited builds puts a write between the other's write
+		// and its read -- which is exactly the window two processes hit
+		await Promise.all([
+			bundleApp({
+				app: found,
+				binName: 'two-trees',
+				out: outA,
+				tree: resolveCommandTree(join(shared, 'treeA')),
+			}),
+			bundleApp({
+				app: found,
+				binName: 'two-trees',
+				out: outB,
+				tree: resolveCommandTree(join(shared, 'treeB')),
+			}),
+		]);
+	}, 60_000);
+
+	afterAll(() => {
+		rmSync(outA, { force: true, recursive: true });
+		rmSync(outB, { force: true, recursive: true });
+	});
+
+	it('should bake each build’s own command tree, not the other’s', () => {
+		// the defect this is named for was not a flaky failure but a **silently
+		// wrong bundle**: the generated entry went to one path per *app*, so the
+		// build that wrote last won for both. Measured before the fix, four runs out
+		// of four, with the winner flipping by scheduling -- and exit 0 either way,
+		// which is why nothing caught it
+		const a = readFileSync(join(outA, 'two-trees.mjs'), 'utf-8');
+		const b = readFileSync(join(outB, 'two-trees.mjs'), 'utf-8');
+
+		expect(a).toContain('onlyA');
+		expect(a).not.toContain('onlyB');
+		expect(b).toContain('onlyB');
+		expect(b).not.toContain('onlyA');
+	});
+
+	it('should leave nothing behind in the work directory', () => {
+		// the entry is this build's alone, so it is removed again -- the alternative
+		// is `node_modules/.sigil` accumulating one directory per output anybody
+		// ever built to
+		expect(existsSync(workDir)).toBe(true);
+		expect(readdirSync(workDir)).toStrictEqual([]);
+	});
+
+	describe('where each build generates', () => {
+		/**
+		 * The generated entry's path, read back out of a build's sourcemap.
+		 *
+		 * The only place it is observable after the fact, because the directory is
+		 * removed on the way out -- and it is a real consumer's view of it rather
+		 * than a peek at an internal, since `sources` is what a debugger reads.
+		 */
+		async function entryPath(dir: string, tree = join(shared, 'treeA')) {
+			await bundleApp({
+				app: discoverApp(shared),
+				binName: 'two-trees',
+				out: dir,
+				sourcemap: true,
+				tree: resolveCommandTree(tree),
+			});
+
+			const map = JSON.parse(readFileSync(join(dir, 'two-trees.mjs.map'), 'utf-8')) as {
+				sources: string[];
+			};
+
+			return map.sources.find((source) => source.includes('.sigil'))!;
+		}
+
+		let mapped: string;
+
+		beforeAll(async () => {
+			mapped = await entryPath(outA);
+		}, 60_000);
+
+		it('should name a directory per output, so two outputs cannot share one', async () => {
+			// what makes the tree test above true rather than lucky
+			expect(await entryPath(outB)).not.toStrictEqual(mapped);
+		}, 60_000);
+
+		it('should name the same directory for the same output, so a build is reproducible', async () => {
+			// a random name closes the defect too -- `mkdtempSync` was the first
+			// version -- and costs this: the name reaches the sourcemap, so two
+			// identical builds would differ in bytes. This repo asserts its own build
+			// is a byte-identical fixed point, and it survived a random name only
+			// because the toolchain builds with `--no-sourcemap`
+			expect(await entryPath(outA)).toStrictEqual(mapped);
+		}, 60_000);
+	});
+});
+
 describe('bundling an app', () => {
 	beforeAll(async () => {
 		out = mkdtempSync(join(tmpdir(), 'sigil-build-'));
