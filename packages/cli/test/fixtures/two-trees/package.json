@@ -1,0 +1,12 @@
+{
+  "name": "two-trees",
+  "version": "0.0.0",
+  "private": true,
+  "bin": {
+    "two-trees": "./dist/two-trees.mjs"
+  },
+  "type": "module",
+  "dependencies": {
+    "@ttylabs/sigil": "workspace:*"
+  }
+}

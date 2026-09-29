@@ -38,12 +38,45 @@ import { parses, parseTree } from './parse-module.ts';
 import { TAG_MODULE } from './templates.ts';
 import type { ResolvedTree } from './tree.ts';
 import { walk } from './walk.ts';
+import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, rmSync, rmdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import type { Plugin } from 'rolldown';
 
-/** Where the generated entry is written, relative to the app. */
+/**
+ * Where a build's generated entry goes, relative to the app.
+ *
+ * The *parent* of a per-build directory rather than the directory itself, which
+ * is the fix for a defect worth stating: this used to be the whole path, so
+ * every build of one app wrote the same `entry.mjs`. Two builds of one app at
+ * once is ordinary -- two terminals, or a script producing two `--out`
+ * directories -- and the result was not a flaky failure but a **silently wrong
+ * bundle**: measured, two concurrent builds differing only in `--commands`
+ * baked the same tree into both outputs, four runs out of four, with whichever
+ * wrote last winning for both. Exit 0, nothing said.
+ *
+ * It has to be inside the app, which is why this is a subdirectory rather than
+ * somewhere neutral. The entry does `import { main } from '@ttylabs/sigil'`,
+ * which resolves by walking up from the file, and it reaches the app's own
+ * modules relatively -- `generate.ts` computes those with `relative(from, ...)`,
+ * so the depth is derived rather than assumed and a deeper directory costs
+ * nothing there.
+ */
 const WORK_DIR = join('node_modules', '.sigil');
+
+/**
+ * A generated entry and the directory made for it.
+ *
+ * Both, because the directory is this build's alone and has to be removed again
+ * -- carrying only the file would leave the caller taking `dirname()` of it and
+ * trusting that to be a directory nothing else is in.
+ */
+interface GeneratedEntry {
+	/** The per-build directory, which the caller removes. */
+	readonly dir: string;
+	/** The entry module inside it. */
+	readonly file: string;
+}
 
 /** How to bundle. */
 export interface BundleOptions {
@@ -103,8 +136,11 @@ export interface BundleResult {
 	readonly chunks: readonly BuiltChunk[];
 	/** What was left as an import rather than inlined, in the order given. */
 	readonly external: readonly string[];
-	/** The generated entry, when the build wrote one. */
-	readonly generated?: string;
+	// there is no `generated` here any more. It handed back the path of the
+	// generated entry, nothing in either package ever read it, and the per-build
+	// directory is removed before this result is returned -- so keeping it would
+	// mean publishing a path that is guaranteed not to exist. That is the same
+	// call `Command.file` got, for the same two reasons: unread, and wrong.
 	/**
 	 * How many `ui` templates were compiled.
 	 *
@@ -162,8 +198,8 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 	// for it
 	const { rolldown } = await import('rolldown');
 
-	const generated = bin ? undefined : writeEntry(app, tree);
-	const input = bin ?? generated!;
+	const generated = bin ? undefined : entryLocation(app, out);
+	const input = bin ?? generated!.file;
 
 	const unresolved: string[] = [];
 	let templates = 0;
@@ -347,7 +383,15 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 	// an `options` hook that throws rejects before a bundle is constructed, and a
 	// missing input resolves to one -- so there is no reachable path where a
 	// bundle exists and this function cannot see it.
+	//
+	// The generated entry is *written* here rather than before, so the directory
+	// and the bundle are owned by the same block. Only the path has to exist
+	// earlier, because it is `rolldown()`'s `input`; see `writeEntry()`.
 	try {
+		if (generated) {
+			writeEntry(generated, app, tree);
+		}
+
 		const written = await bundle.write({
 			chunkFileNames: 'chunks/[name]-[hash].mjs',
 			dir: out,
@@ -414,8 +458,23 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 		// could execute
 		chmodSync(executable, 0o755);
 
-		return { bin: executable, chunks, external: [...external], generated, templates };
+		return { bin: executable, chunks, external: [...external], templates };
 	} finally {
+		// this build's own directory, so removing it cannot disturb a build running
+		// beside it -- which is the whole point of it being unique. Unconditional
+		// rather than success-only: a refused build has no more use for a generated
+		// entry than a finished one, and leaving one behind per failure is how
+		// `node_modules/.sigil` fills up with the outputs of builds nobody kept
+		if (generated) {
+			try {
+				rmSync(generated.dir, { force: true, recursive: true });
+			} catch {
+				// for the reason `close()` below is swallowed: a `finally` that throws
+				// replaces the real diagnostic with one about a directory, and what is
+				// left behind is a few kB inside `node_modules`
+			}
+		}
+
 		try {
 			await bundle.close();
 		} catch {
@@ -736,18 +795,94 @@ export function undo(out: string, output: readonly { fileName: string }[]): void
  * @param tree - The tree to bake in.
  * @returns Where it was written.
  */
-function writeEntry(app: DiscoveredApp, tree: ResolvedTree): string {
-	const dir = join(app.root, WORK_DIR);
-	mkdirSync(dir, { recursive: true });
+function entryLocation(app: DiscoveredApp, out: string): GeneratedEntry {
+	// named from the **output** rather than randomly, and that is a trade taken on
+	// purpose. `mkdtempSync` was the first version and is unique per invocation,
+	// which closes this defect and one more -- two builds of one app to one `--out`
+	// -- at the cost of a directory name that differs every run. That name reaches
+	// the sourcemap, where it is a `sources` entry, so a random one makes two
+	// identical builds produce different bytes: this repo asserts its own build is
+	// a byte-identical fixed point, and an app verifying a published artifact wants
+	// the same property. It survived only because the toolchain builds with
+	// `--no-sourcemap`, which is luck rather than design.
+	//
+	// A hash of the resolved output is deterministic and separates any two outputs
+	// that do not collide, which real ones do not -- see `hash()` for why that is a
+	// claim about accident rather than about possibility, and for the measurement
+	// that made the first width wrong. What it does not separate is two builds of
+	// one app to one `--out`, which are already fighting over every file they
+	// write -- the entry is the least of what they would clobber -- so buying that
+	// case with reproducibility would be paying for the wrong thing. That case is
+	// also where the cleanup below is unreliable: two processes removing one
+	// directory means one of the two `rmSync` calls can throw, and a swallowed
+	// throw leaves it behind. Observed once in four runs, a few kB inside
+	// `node_modules`, in a case whose bundle was already whichever process wrote
+	// last.
+	const dir = join(app.root, WORK_DIR, hash(resolve(out)));
 
-	const file = join(dir, 'entry.mjs');
+	return { dir, file: join(dir, 'entry.mjs') };
+}
+
+/**
+ * Writes the generated entry into the directory named for it.
+ *
+ * Separate from naming it, and called *inside* the `try` that removes the
+ * directory again, which is the whole reason for the split. Naming has to happen
+ * first, because the path is `rolldown()`'s `input` -- but the **file** does not:
+ * measured against rolldown 1.2.11, `rolldown()` resolves with an input that does
+ * not exist yet and `write()` bundles it happily if it has appeared by then, so
+ * long as the path is absolute, which this one is. A relative input fails either
+ * way, which is what made the first measurement of this look like the opposite.
+ *
+ * So there is no window where a directory exists and nothing is bound to remove
+ * it. That window was real before this split: `writeEntry()` ran before the
+ * `try`, so any throw in between -- while the options object was still being
+ * built, say -- leaked a directory. Unreachable through `sigil build`'s own
+ * options, and closed rather than written down, because the fix turned out to be
+ * moving two lines.
+ *
+ * @param at - Where the entry goes.
+ * @param app - The app.
+ * @param tree - The tree to bake in.
+ */
+function writeEntry(at: GeneratedEntry, app: DiscoveredApp, tree: ResolvedTree): void {
+	mkdirSync(at.dir, { recursive: true });
+
 	writeFileSync(
-		file,
-		generateBin({ from: dir, schemaModule: app.entry, tree, version: app.manifest.version }),
+		at.file,
+		generateBin({ from: at.dir, schemaModule: app.entry, tree, version: app.manifest.version }),
 		'utf-8'
 	);
+}
 
-	return file;
+/**
+ * A short, stable name for a path.
+ *
+ * Sixteen hex characters of SHA-256. It has to be the same for the same output
+ * and different for a different one, and a truncated digest is both -- but only
+ * up to a collision, and the width is the whole of what decides how near that
+ * is. Twelve was the first answer and is **not** enough to say what the entry
+ * above wants to say: 48 bits puts a birthday search at 2^24, and a search of
+ * twenty million paths found `/tmp/sigil-c-10001357` and `/tmp/sigil-c-11986969`
+ * sharing `94e17cf76917` in about ten seconds -- then built `two-trees` into both
+ * and got `onlyB` in each, which is this defect back with two outputs that share
+ * no file at all. Sixteen puts the same search at 2^32.
+ *
+ * What that buys is a guarantee about *accident*, and the claim is worth stating
+ * no wider than that: a pair of real output directories will not collide, and a
+ * pair constructed on purpose still can at any width short of the whole digest.
+ * The whole digest is not the answer because this is a directory name somebody
+ * reads in a stack trace, and the failure it would be closing is somebody
+ * deliberately corrupting their own build.
+ *
+ * `node:crypto` rather than a hand-rolled hash for the reason this package takes
+ * dependencies at all: it is already there.
+ *
+ * @param value - The path to name.
+ * @returns Sixteen hex characters.
+ */
+function hash(value: string): string {
+	return createHash('sha256').update(value).digest('hex').slice(0, 16);
 }
 
 /**

@@ -4324,6 +4324,103 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   app-adjacent code would be a new surface, and none of the four options needs
   computing -- they are literals. The day one of them does is the day to
   revisit it, which is the rule `which` waited on for a caller.
+- **A build generates its entry into a directory named after its output, and
+  removes it again.** `writeEntry()` used to write `node_modules/.sigil/entry.mjs`
+  -- one path per _app_ -- so every concurrent build of one app wrote the same
+  file. Two builds of one app at once is ordinary: two terminals, or a script
+  producing two `--out` directories. What it produced was not a flaky failure but
+  a **silently wrong bundle**, and it is worth stating how silent: two builds
+  differing only in `--commands` baked the same tree into both outputs, four runs
+  out of four, whichever wrote last winning for both, exit 0 and nothing said.
+  This repo's own suite had it -- `output-forms.test.ts` builds the `app` fixture
+  twice in one `Promise.all` -- where it passed only because two builds of one
+  tree generate identical entries, leaving a torn read as the only way to see it.
+  That is the likeliest explanation of an unexplained twelve-failure run that
+  never reproduced.
+
+  It cannot move somewhere neutral, which is why this is a subdirectory: the entry
+  does `import { main } from '@ttylabs/sigil'`, which resolves by walking up from
+  the file, and it reaches the app's own modules relatively. Those specifiers cost
+  nothing to move, because `generate.ts` computes them with `relative(from, ...)`
+  rather than assuming a depth.
+
+  The name is a hash of the resolved output rather than random, and that is the
+  half worth knowing. `mkdtempSync()` was the first version: it is unique per
+  invocation, so it closes one case this does not -- two builds of one app to one
+  `--out` -- and it costs reproducibility, because the directory name reaches the
+  sourcemap as a `sources` entry, so two identical builds would differ in bytes.
+  That would have gone unnoticed here, since the toolchain builds with
+  `--no-sourcemap` and the bootstrap's byte-identical fixed point never sees it,
+  which is luck rather than design. The case the hash gives up is two builds
+  already fighting over every file they write, where the entry is the least of
+  what they would clobber. So: deterministic, and separated for every pair of
+  outputs that does not collide -- which is a weaker sentence than it wants to be,
+  and the paragraph below is where the width that makes it true, and the part of it
+  that stays false at any width, are written down.
+
+  Removed on the way out, in the same `finally` that closes the bundle, and
+  unconditionally -- a refused build has no more use for a generated entry than a
+  finished one, and one directory per failure is how `node_modules/.sigil` fills
+  up. What that costs is measured rather than assumed: the bundle's sourcemap
+  _names_ the entry, so `sources` points at a path that is gone -- and
+  `sourcesContent` carries its 914 bytes, verified to be the generated entry, so
+  every consumer that honours embedded content still shows it. Only one that
+  insists on reading from disk loses it, which for generated code is the less
+  useful behaviour anyway. `BundleResult.generated` went with it: it handed back
+  that path, nothing in either package read it, and after this it would be a
+  published path guaranteed not to exist -- the same call `Command.file` got, for
+  the same two reasons.
+
+  **The width is a claim about accident and is worth stating no wider.** Twelve
+  characters shipped first, and the review found the hole: 48 bits puts a birthday
+  search at 2^24, so twenty million paths turned up `/tmp/sigil-c-10001357` and
+  `/tmp/sigil-c-11986969` sharing `94e17cf76917` in about ten seconds -- and
+  building two trees into those two outputs put the same one in both bundles, which
+  is this defect back with two outputs that share no file at all. Sixteen puts that
+  search at 2^32, which is what makes "two real output directories cannot collide"
+  true; a pair built on purpose still can, at any width short of the whole digest,
+  and the whole digest is refused because this is a name somebody reads in a stack
+  trace and the failure it would close is somebody deliberately corrupting their own
+  build. The width is pinned by a test rather than left to the comment.
+
+  **Two edges are known and declined, both measured.** Two builds to _one_ `--out`
+  is the case the hash gives up, and it is also where the cleanup is unreliable:
+  two processes removing one directory means an `rmSync` can throw, and a swallowed
+  throw leaves it behind -- a few kB inside `node_modules`, in a case whose bundle
+  was already whichever process wrote last. Seen once in four runs by one review
+  and **not** in about seventy barrier-synchronised attempts by the next, including
+  removals raced against an open file handle, so the rate is unknown and may be
+  platform's rather than ours. The `catch` is the right shape whether or not it
+  fires; what is not claimed is how often. A `.sigil` the user has replaced with a symlink
+  pointing outside the app is removed through the link, which is the same class
+  `undo()` documents and declines to close -- and such a build fails anyway, because
+  the entry's relative specifiers no longer reach the app.
+
+  **Naming the directory and writing the file are two steps, because only the name
+  has to come first.** The path is `rolldown()`'s `input`, so it is chosen before
+  the call -- but the file is not: measured against rolldown 1.2.11, `rolldown()`
+  resolves an input that does not exist yet and `write()` bundles it happily if it
+  has appeared by then, provided the path is **absolute**, which this one is. A
+  relative input fails either way, which is what made the first measurement of this
+  look like the opposite and is worth knowing before anybody re-measures it. So the
+  write happens inside the same `try` that removes the directory, and there is no
+  window where one exists with nothing bound to clean it up. That window was real:
+  a throw between the two -- while the options object was still being built, say --
+  leaked a directory. It was going to be written down as unreachable through
+  `sigil build`'s own options, which it is, until the fix turned out to be moving
+  two lines.
+
+  **A rolldown virtual module is the design that has none of this, and it was
+  tried.** An id shaped like the path it would have had -- `resolveId`/`load`
+  returning `generateBin()`'s output, never writing a file -- builds, keeps the
+  shebang, and puts the same source in `sourcesContent`; a NUL-prefixed id does
+  not, because the relative specifiers need an id that looks like a path inside the
+  app. It drops the shared file, the collision and the cleanup together. What it
+  gives up is that during `bundle.write()` the entry is a real file somebody can
+  read, which is worth something while this is the layer being debugged, and it
+  reaches further than a bug fix should: it is the shape to take if this area is
+  opened again.
+
 - **`sigil build` empties its output directory, and refuses the one that would
   hurt.** A build that leaves the last one behind publishes the union of every
   build ever run there -- a renamed command's chunk stays, a removed one's
@@ -6152,3 +6249,14 @@ color: magenta }` and beats the default with an ordinary rule, which is only tru
   skipped them and was caught only by the getter. `expect(result.cmd?.name)` is
   what the rest of the suite already writes, says the same thing in one line,
   and fails on the value it was asked about.
+
+<!-- BEGIN:turborepo-agent-rules -->
+
+# This is NOT the Turborepo you know
+
+Turborepo configuration, task behavior, and CLI commands can vary between installed versions and may differ from your training data. Resolve the `turbo` package from this file's directory or relevant workspace; in monorepos, it may not be visible from the repository root. For example, run `node -p "require.resolve('turbo/package.json')"` from a workspace that depends on `turbo`.
+
+Read `docs/README.md` inside that installed package first, then read the relevant pages from its `docs/` directory before changing Turborepo configuration or commands. Heed deprecation notices. These bundled docs match the installed package version and are available without network access.
+
+This block is written and re-added by `turbo` before repository-scoped commands when an AI agent is detected. In the Turborepo source repository, its template is defined in `crates/turborepo-cli/src/cli/agent_guidance.rs`. Removing the managed block while updates are enabled means a later qualifying invocation will add it again. Set `"agentGuidance": false` in the root `turbo.json` or `turbo.jsonc` to opt out; this does not remove an existing block. Keep the block committed with your work to avoid an uncommitted change on the next agent invocation.
+<!-- END:turborepo-agent-rules -->

@@ -15,6 +15,7 @@
     "./test/fixtures/jsx-dev",
     "./test/fixtures/buildable",
     "./test/fixtures/templated",
-    "./test/fixtures/templated-tsx"
+    "./test/fixtures/templated-tsx",
+    "./test/fixtures/two-trees"
   ]
 }
