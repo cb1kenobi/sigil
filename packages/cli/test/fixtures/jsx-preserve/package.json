@@ -1,0 +1,12 @@
+{
+  "name": "jsx-preserve",
+  "version": "0.0.0",
+  "private": true,
+  "bin": {
+    "jsx-preserve": "./dist/jsx-preserve.mjs"
+  },
+  "type": "module",
+  "dependencies": {
+    "@ttylabs/sigil": "workspace:*"
+  }
+}

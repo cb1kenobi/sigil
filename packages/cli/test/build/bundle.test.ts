@@ -1,4 +1,4 @@
-import { bundleApp, undo } from '../../src/build/bundle.js';
+import { bundleApp, rawJsxIn, undo } from '../../src/build/bundle.js';
 import { discoverApp, readAppCommands } from '../../src/build/discover.js';
 import { parseModule } from '../../src/build/parse-module.js';
 import { resolveCommandTree } from '../../src/build/tree.js';
@@ -15,7 +15,7 @@ import {
 	writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, it, expect } from 'vitest';
 
@@ -342,6 +342,27 @@ describe('an app whose output is JSX', () => {
 		expect(result.stdout).toContain('from a compiled JSX element');
 	});
 
+	it('should not read compiled JSX as JSX that survived', () => {
+		// the false positive that would matter, asked against a bundle a real build
+		// really wrote rather than against a string: this app's whole output is JSX
+		// and every chunk of it has to come back clean. Two substring probes for
+		// JSX reported this bundle as holding some while the check was being
+		// written -- the runtime's error strings carry `<box>`, `<text>` and
+		// `<raw>`, and `panel.tsx`'s doc comment carries `jsxDEV` -- which is why
+		// the answer is a parse rather than a search
+		const files = readdirSync(jsxOut, { recursive: true, withFileTypes: true })
+			.filter((entry) => entry.isFile() && entry.name.endsWith('.mjs'))
+			.map((entry) => ({
+				fileName: relative(jsxOut, join(entry.parentPath, entry.name)),
+				type: 'chunk',
+			}));
+
+		// said the other way too, because an empty list is a check that passes for
+		// the wrong reason the day the walk stops finding files
+		expect(files.length).toBeGreaterThan(0);
+		expect(rawJsxIn(jsxOut, files)).toBeUndefined();
+	});
+
 	it('should compile a template and the JSX beside it in one module', () => {
 		// two passes over one file, which is the shape AGENTS.md describes when it
 		// says the two syntaxes live side by side in one app. The plugin's
@@ -506,5 +527,136 @@ describe('unwinding a refused build', () => {
 		undo(out, [{ fileName: '../dist-old/a.mjs' }]);
 
 		expect(existsSync(join(sibling, 'a.mjs'))).toBe(true);
+	});
+});
+
+describe('a bundle that still holds JSX', () => {
+	/**
+	 * `"jsx": "preserve"` asks for no transform at all, and rolldown obeys.
+	 *
+	 * The same failure shape as a bundle that reaches for `react`: the build
+	 * reports success and the executable dies the first time it is used, here with
+	 * `Unexpected token '<'`. It is a refusal rather than a thing the build
+	 * honours, because `preserve` means "another tool compiles this" and a bundle
+	 * is the end of the pipeline -- there is no other tool, so the only executable
+	 * the setting can produce is one that will not parse.
+	 *
+	 * The fixture differs from `jsx-dev/` by one tsconfig field, and it
+	 * type-checks: `preserve` still checks the JSX against the `JSX` namespace
+	 * `jsxImportSource` names, so this is an app the build has to refuse on its own
+	 * rather than one the type-check has already refused.
+	 */
+	let out_: string;
+
+	beforeAll(() => {
+		out_ = mkdtempSync(join(tmpdir(), 'sigil-preserve-'));
+	});
+
+	afterAll(() => {
+		rmSync(out_, { force: true, recursive: true });
+	});
+
+	it('should refuse the build, name the setting, and leave nothing behind', async () => {
+		const preserveApp = resolve(__dirname, '../fixtures/jsx-preserve');
+		const found = discoverApp(preserveApp);
+		const tree = resolveCommandTree(join(preserveApp, 'src', 'commands'));
+
+		const failure = await bundleApp({
+			app: found,
+			binName: 'jsx-preserve',
+			out: out_,
+			tree,
+		}).then(
+			// spelled out rather than `rejects.toThrow`, so a build that *succeeded*
+			// fails the assertion with a sentence instead of with chai complaining
+			// about `undefined` -- the shape the unresolved-import test uses
+			() => '(the build succeeded)',
+			(error: unknown) => (error as Error).message
+		);
+
+		expect(failure).toContain('still holds JSX');
+		// the setting is the fix, so the message has to name it: a message about a
+		// syntax error in generated code sends the author looking at the generated
+		// code, which is not where the problem is
+		expect(failure).toContain('"jsx"');
+		expect(failure).toContain('tsconfig.json');
+		// and which chunk, because an app with one `.tsx` among fifty modules has
+		// to be able to find it
+		expect(failure).toMatch(/chunks\/.*\.mjs/);
+
+		// the same reason the unresolved gate unwinds: a bundle that would die the
+		// first time it was run is what the refusal is about
+		expect(readdirSync(out_)).toStrictEqual([]);
+	}, 60_000);
+});
+
+describe('recognising JSX in what was written', () => {
+	/**
+	 * `rawJsxIn()` is asserted directly, because two of the three answers it gives
+	 * cannot be reached through a bundler.
+	 *
+	 * Only `"jsx": "preserve"` on a `.tsx` produces the positive case -- measured,
+	 * `react-native` is compiled by rolldown despite `tsc` preserving it, and
+	 * `compilerOptions.jsx` does not reach a `.jsx` at all. Nothing rolldown emits
+	 * fails to parse for any *other* reason, which is the case this deliberately
+	 * leaves alone, so a call is the only way to ask about it.
+	 */
+	let dir: string;
+
+	beforeEach(() => {
+		dir = mkdtempSync(join(tmpdir(), 'sigil-rawjsx-'));
+	});
+
+	afterEach(() => {
+		rmSync(dir, { force: true, recursive: true });
+	});
+
+	/** Writes a chunk and returns what `rolldown` would have reported for it. */
+	function chunk(name: string, code: string) {
+		mkdirSync(dirname(join(dir, name)), { recursive: true });
+		writeFileSync(join(dir, name), code);
+		return { fileName: name, type: 'chunk' };
+	}
+
+	it('should say nothing about a bundle that parses', () => {
+		expect(
+			rawJsxIn(dir, [
+				chunk('app.mjs', 'const a = 1;\nexport { a };\n'),
+				// the shapes the substring probes got wrong while this was written:
+				// a `<` in an operator, and the runtime's own error strings
+				chunk('chunks/a.mjs', 'export const t = (a, b) => a < b ? `<text>` : "<box>";\n'),
+			])
+		).toBeUndefined();
+	});
+
+	it('should name the chunk that is JSX rather than JavaScript', () => {
+		expect(
+			rawJsxIn(dir, [
+				chunk('app.mjs', 'export const ok = 1;\n'),
+				chunk(
+					'chunks/p.mjs',
+					'function P({who}){return<text class="h">Hi, {who}!</text>}export{P};\n'
+				),
+			])
+		).toBe('chunks/p.mjs');
+	});
+
+	it('should leave a chunk that parses as neither alone', () => {
+		// not this failure, and refusing it would risk failing a build that works:
+		// `oxc-parser` and the oxc inside rolldown are separately versioned, so a
+		// grammar this one is behind on would read as a broken bundle
+		expect(rawJsxIn(dir, [chunk('app.mjs', 'const = = ;\n')])).toBeUndefined();
+	});
+
+	it('should not read an asset at all', () => {
+		// an asset is not a module, which is the line `escapeControls()` draws, and
+		// "is not read" is the only observable difference the skip makes -- which
+		// took two wrong tests to establish. A *sourcemap* fails both parses and
+		// falls into the conservative branch anyway, measured, so a test using one
+		// is green with the skip deleted. An asset named `.jsx` parses as JSX on
+		// the first call, so a test using one is green too. What the skip decides
+		// is whether the file is opened, so a name with no file behind it is what
+		// asks: without it this is an `ENOENT` rather than an answer
+		expect(rawJsxIn(dir, [{ fileName: 'nothing-here.map', type: 'asset' }])).toBeUndefined();
 	});
 });
