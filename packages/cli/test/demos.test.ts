@@ -26,6 +26,17 @@ function scripts(dir: string): string[] {
 	const found: string[] = [];
 	for (const entry of readdirSync(dir, { withFileTypes: true })) {
 		const path = join(dir, entry.name);
+		// `demos/` is a workspace member -- that is how it gets to import
+		// `@ttylabs/sigil` by name without the *root* manifest declaring the
+		// dependency, which is what used to put every file of both packages in
+		// turbo's global hash. So pnpm writes a `node_modules` here, and a demo is
+		// something somebody wrote rather than something a package manager linked.
+		// Nothing under it is a `.js` today -- `@ttylabs/sigil` arrives as a
+		// symlink, which `isDirectory()` is false for -- so this is a guard against
+		// a layout change rather than a fix, and a cheap one
+		if (entry.name === 'node_modules') {
+			continue;
+		}
 		if (entry.isDirectory()) {
 			found.push(...scripts(path));
 		} else if (entry.name.endsWith('.js')) {

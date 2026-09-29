@@ -8,8 +8,10 @@ on:
 # would publish a manifest declaring `@ttylabs/sigil: workspace:*`, which
 # nobody can install. pnpm rewrites it to the version being published, walks
 # the packages in dependency order so the runtime lands before the toolchain
-# that depends on it, skips `website` because it is private, and skips a
-# version already on the registry -- so re-running a release is a no-op rather
+# that depends on it, skips the two private members -- `website` and `demos`,
+# the second of which is a workspace member so that the examples resolve
+# `@ttylabs/sigil` by name without the root manifest declaring it -- and skips a
+# version already on the registry, so re-running a release is a no-op rather
 # than an error.
 
 jobs:

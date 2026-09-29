@@ -60,9 +60,10 @@ Paths below are inside `packages/sigil/` unless noted.
 | `test/parser/yargs/`           | Ported yargs-parser test cases                       |
 
 At the repository root: `demos/` (runnable examples that import `@ttylabs/sigil` by
-name, so they need `pnpm build` first), `website/` (the Next.js site), `turbo.json`,
-`tsconfig.base.json`, and the shared oxlint and oxfmt configs. Each package extends
-the base tsconfig and sets its own `outDir`.
+name, so they need `pnpm build` first, and a workspace member so that the name
+resolves), `website/` (the Next.js site), `turbo.json`, `tsconfig.base.json`, and
+the shared oxlint and oxfmt configs. Each package extends the base tsconfig and
+sets its own `outDir`.
 
 **`packages/` holds the published packages and nothing else.** `packages/*` is
 the glob the workspace, turbo, vitest's `projects`, and the coverage `include`
@@ -70,7 +71,8 @@ all read, so anything put there joins all four silently -- and the two entries
 that belong there are the ones the table above describes. The website is a
 private Next.js app at the top level, a workspace member so it shares the
 lockfile, with its own `website/turbo.json` overriding the root `build` task's
-`dist/**` for `.next/**`. Turbo captures nothing from an output glob that does
+`dist/**` for `.next/**`. `demos/` is the second such member, for the reason the
+entry below gives -- neither is under `packages/`, and neither is published. Turbo captures nothing from an output glob that does
 not match, so inheriting the root's would cache a build it never saw and restore
 an empty directory on a hit. `pnpm test` and `pnpm coverage` filter their build
 to `./packages/*`: a test run has no use for the site, and CI runs the suite on
@@ -90,7 +92,201 @@ said it wrote one. `test/registry.test.ts` catches a _stale_ entry and a publish
 runs no tests, which is why the cache is where this has to be right. `scripts/**`
 joined `inputs` for the other half of it: the generator decides what lands in
 `registry/`, so editing it has to invalidate the build, and `inputs` replaces
-turbo's default rather than adding to it.
+turbo's default rather than adding to it. That last clause is true, and it was
+read as saying more than it says -- `inputs` is the task's own file list and not
+the whole of its hash, which is the entry below.
+
+**`inputs` is half of a task hash, and a `workspace:` dependency in the root
+manifest put every file of both packages in the other half.** The `build` task's
+`inputs` names `src/**`, `scripts/**` and the configs and no `test/**`, and it is
+exactly as exhaustive as the entry above says: `turbo run build --dry-run=json`
+reports the resolved file list per task, and there is no test file in either
+package's. Appending one comment to `packages/cli/test/output-forms.test.ts`
+moved `@ttylabs/cli#build` from `d84050776124f917` to `eeda063f05221219` and
+`@ttylabs/sigil#build` from `563b903ceb08765b` to `22fc8949b4f82ea3` anyway, and
+reverting it moved both back exactly -- so the test file's content really was in
+both. A task hash is that file list _plus_ a **global** hash, and `inputs`
+narrows nothing about the second: turbo folds every file of every workspace
+package the **root** manifest depends on into
+`globalCacheInputs.hashOfInternalDependencies`, and the root declared
+`@ttylabs/sigil` and `@ttylabs/cli` as `workspace:*`. That is the only reading
+that accounts for the thing which makes no sense on its face -- an edit under
+`packages/cli/test/` moving `@ttylabs/sigil#build`, which depends on nothing in
+`@ttylabs/cli` -- because a global hash is shared by every task, so
+`website#build` moved with them.
+
+It was pinned rather than inferred, by a detail no other reading predicts: that
+map is keyed by **package-relative** path, so the seven paths the two packages
+share -- `README.md`, `package.json`, `src/index.ts`, `src/template/index.ts`,
+`tsconfig.json`, `tsconfig.build.json` and `vitest.config.ts` -- collide, and one
+shadows the other. Editing the `packages/cli` copy of any of the seven left
+`hashOfInternalDependencies` exactly where it was, while every file unique to
+`packages/cli` moved it and every file in `packages/sigil` did. What that came to
+on screen is worth stating precisely, because the global hash is not the only
+thing a file can be in, and getting it wrong took two review rounds. `README.md`
+is the one of the seven that moves **no task hash at all**. `vitest.config.ts`
+moves `@ttylabs/cli#type-check` and nothing else, because that task hashes it on
+purpose. The other five move `@ttylabs/cli#build` _and_ `@ttylabs/cli#type-check`,
+through those tasks' own `inputs`, and neither `@ttylabs/sigil`'s nor the
+website's. That is what `inputs` is for. The collision is a fact about the global hash and
+says nothing about a task's own file list. Writing the same relative path into
+both packages reproduces it on demand: the `packages/cli` copy moves the internal
+hash while it is unique and stops the moment its `packages/sigil` twin exists.
+That is a turbo bug in its own right and is left alone; what it is doing here is
+proving which mechanism was running.
+
+There is no knob to narrow it -- `globalDependencies` only adds, and nothing in
+turbo 2.11.4's schema subtracts -- so the fix is to leave the root with no
+internal dependency at all. The only root-level consumer was `demos/`, which
+imports `@ttylabs/sigil` by name on purpose; `@ttylabs/cli` at the root was read
+by nothing but the `--filter` names in two scripts, which are turbo filters
+rather than module resolution. So `demos/` is a workspace member with its own
+manifest declaring the dependency where the consumer is, which is the shape
+`website` already had and is the more honest statement besides: pnpm links
+`demos/node_modules/@ttylabs/sigil` and node resolves it from the demo's own
+directory rather than from the repository root. `demos/package.json` has to say
+`"type": "module"`, because the demos were ESM by way of the root manifest and a
+`package.json` between them and it would make every one of them CommonJS.
+
+What that buys is time and nothing else: a rebuild produces the same bytes, so
+nothing was ever _wrong_, which is also why nobody noticed. It is worth being
+exact about how much, because the obvious guess is too high. `pnpm test` builds
+the two packages first, and that is **0.85s to 1.25s** forced against a few tens
+of milliseconds cached -- the spread is the machine and whatever else is running
+on it, so a test run after touching a test file was paying about a second, once.
+A bare `pnpm build` is where it reads as a real wait: the global hash is shared by
+every task, so a `packages/cli/test/` edit also moved `website#build`, and the
+Next build behind it is **2.4s** of work over a site the edit could not have
+touched.
+
+The answer is not the same for both packages, and the difference is the whole of
+the entry two below: a `packages/sigil/test/` edit is now `FULL TURBO`, while a
+`packages/cli/test/` edit rebuilds `@ttylabs/cli` alone, because that build really
+does read its tests. The website is a hit either way, which is most of the wall
+clock.
+
+`hashOfInternalDependencies` is empty, and a README edit, a `demos/` edit, a
+`packages/sigil/test/` edit and a brand-new untracked file under
+`packages/sigil/test/` each move no task's hash at all. What still invalidates was re-measured rather than assumed:
+`src/**` and `scripts/**` per package, `tsconfig.base.json` through
+`globalDependencies` -- which still moves every task, the website's included --
+and a cache hit still restores `registry/` in full, checked by deleting both
+output directories and building from cache. The other global input is
+`.gitattributes`, which turbo reads whether or not anybody declares it, and
+rightly: it decides how git normalizes a file, so it decides what every file
+hashes to. Editing it moves all three builds, and it is the only file outside
+`globalDependencies` that does -- `vitest.config.ts`, the linter and formatter
+configs, `AGENTS.md`, the READMEs, `lefthook.yml` and the workflows were each
+tried and each moved nothing. `type-check` got sharper for free, since it hashes
+`test/**` on purpose: a `packages/sigil/test/` edit now moves
+`@ttylabs/sigil#type-check` and leaves `@ttylabs/cli#type-check` alone, where both
+used to move.
+
+**Taking the blanket hash away exposed a file nothing had ever declared, and
+`sigil.json` was it.** The toolchain's build is `node src/sigil.ts build`, which
+reads `sigil.json` for `external` and `sourcemap` -- and that file was in no
+`inputs` list, so on `main` it reached the hash only as one more file of a root
+internal dependency. It was covered by accident, which is the worst way for
+anything to be covered: removing the accident is what made it visible, and a fix
+that had stopped at "the hash is narrower now" would have shipped the hole.
+Measured from both sides. On `main`, editing it moved
+`hashOfInternalDependencies` from `a422655ba2e5a3a7` to `f2825ae6905d3e4c` and
+`@ttylabs/cli#build` with it. With the root dependencies gone and before
+`sigil.json` joined `inputs`, flipping `"sourcemap"` left `@ttylabs/cli#build` on
+`8a99ba55d8f24c66`, a forced build at that very hash wrote ten `.map` files where
+there had been none, and a restore afterwards handed those sourcemaps back over a
+config that says not to produce them -- one cache key naming two different
+bundles, with `pnpm build` reporting success over both. `external` is the same
+hole and the more consequential half of it, since it decides whether
+`oxc-parser` is inlined into a bundle that then cannot load it. This is the
+`registry/**` incident in its other form: there a cache hit restored less than
+the build wrote, here it restores something the build would not have written.
+
+So `sigil.json` is in `inputs`, beside `tsdown.config.ts`, which is the precedent
+in both directions -- a package without the file contributes nothing, and a
+package whose build reads one has to say so. The audit that turned up nothing else
+is worth recording, because "the one somebody found is fixed" is a weaker claim,
+and it was done twice by different means. Reading the passes gives `package.json`,
+`tsconfig.json`, `sigil.json`, `tsdown.config.ts` and
+`scripts/generate-registry.mjs`, with `entry.mjs` and `noop.js` being paths those
+passes synthesize rather than read. Running each build under a tracer over
+`fs.readFileSync` and its siblings agrees exactly: outside `src/` and the output
+directories, the toolchain's build touches `package.json`, `sigil.json` and
+`tsconfig.json` and **nothing at the repository root at all**, and
+`@ttylabs/sigil`'s touches `package.json`, `tsdown.config.ts` and
+`scripts/generate-registry.mjs`. Where that method stops is the part worth knowing
+rather than glossing, and the first version of this entry glossed it: `tsc` is
+TypeScript 7, a native binary, and rolldown is native too, so neither one's reads
+go through node's `fs` and neither was traced. A tsconfig names what `tsc` reads
+in two halves and this said only one of them. The `extends` chain was followed by
+hand -- every tsconfig in both packages extends `./tsconfig.json`, both of those
+extend `../../tsconfig.base.json`, and that one extends nothing and is in
+`globalDependencies`, which is why editing it still moves every task. The half
+that was missing is `include`, which is what decides the _files_ compiled, and it
+is the entry below.
+`should hash every file a build command reads` writes the list out, for the reason
+the toolchain's dependencies are written out rather than counted.
+
+**`test/**` really is an input to `@ttylabs/cli#build`, because its build gate is
+the app's own `tsc` -- so the honest answer to the ticket is different for each
+package.** `sigil build` type-checks with the app's `tsconfig.json`, deliberately
+and for a reason recorded above: it is the same command the app's own `type-check`
+script runs, so a build agrees with CI by construction rather than by coincidence.
+`packages/cli/tsconfig.json` has an `include` of `./src`, `./test` and
+`./vitest.config.ts`. So a type error in a **test** fails this package's real
+build -- and while `test/**` was out of the hash, `node src/sigil.ts build` exited
+**1** while `turbo run build` answered `Tasks: 3 successful` and `FULL TURBO` and
+exited **0**. A build reported successful that cannot succeed, which is the same
+lie as a cache hit restoring the wrong bytes even though the bytes here are right:
+the bundle is made from `src/` and the gate runs before it, so what a hit restores
+is a correct `dist/` for the current `src/`. What is lost is the gate.
+
+Nothing can make that untrue while the gate is the app's own `tsc`, and narrowing
+the toolchain's type check to `tsconfig.build.json` was the obvious alternative and
+is refused: that is a change to what `sigil build` promises **every** app, taken
+inside a caching ticket, and it would break the agreement with CI that the promise
+exists for. So `packages/cli/turbo.json` says what is true instead -- `test/**`
+and `vitest.config.ts` in that package's `build.inputs` -- rather than leaving the
+hash to pretend otherwise. It is scoped to the package rather than added to the
+root because `@ttylabs/sigil`'s build reads no test: `tsdown` compiles
+`tsconfig.build.json`, whose `include` is `./src`, and the generator reads
+`src/components/`, which the tracer confirms. Putting `test/**` at the root would
+over-invalidate the more expensive of the two builds to describe something only
+the cheaper one does.
+
+The ticket asked for a test edit to be a cache hit and that is now true of
+`@ttylabs/sigil`, of the website, and not of `@ttylabs/cli` -- which is the
+ticket's own escape clause honoured rather than dodged, since its definition of
+done was a file **no build reads**. What it costs is `@ttylabs/cli` rebuilding on
+a test edit, about half a second, with `@ttylabs/sigil` and the website hit; what
+it buys back is `turbo run build` failing when the build fails. Two things guard
+it. `should hash the tests into @ttylabs/cli's build, because its build reads
+them` is the inverse of its sibling assertion, so the two cannot both be satisfied
+by one careless edit. And `inputs` **replaces** rather than extends -- the rule
+this whole section is about -- so that override has to repeat the root's list, and
+a root entry added later would go missing from the one package that overrode it;
+`should let no package override drop a root build input` is the check for exactly
+that drift, and adding an entry to the root without repeating it there fails it.
+What is _not_ repeated is `outputs`: a package config merges per key, so
+`dist/**` and `registry/**` are inherited by both overrides, which is asserted for
+both published tasks rather than for `@ttylabs/sigil` alone.
+
+One cosmetic surprise comes with workspace membership: `turbo run build
+--dry-run` now lists an `@ttylabs/demos#build` whose command is `<NONEXISTENT>`,
+because `demos` has no `build` script. Turbo skips it, `pnpm build` is three tasks
+as before, and it is not even new -- `website#type-check` has always been exactly
+that, for exactly the same reason.
+
+`the build hash` in `packages/cli/test/cli.test.ts` is the guard, and it reads
+turbo's own dry-run rather than `turbo.json`: the manifest is the cause and the
+hash is the effect, turbo already has two ways to put a file in the global hash,
+and a check that only read `package.json` would go on passing through a third. It
+asserts the root manifest separately anyway, so that the failure says what to do
+rather than only that a number moved. Two of its eight assertions exist only to
+stop the other six going quiet -- the tasks have to resolve, the `reads` table has
+to name both published packages, and `hashOfInternalDependencies` has to still be
+a key turbo reports, because it is asked about by name and a renamed field would
+read as `undefined`, compare equal to the empty string, and pass forever.
 
 `packages/cli/src/` is the bin, `--version`, the schema, `src/report.ts` --
 what the toolchain says, as element trees rendered with `renderToString()` -- `src/utilities/` — the utility generator, whose committed output
@@ -4376,16 +4572,22 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   the rebuild the message asks for is a cache hit that does not touch `dist/` at
   all, the mtimes never move, and the failure is unsatisfiable. Measured on a
   pristine tree. **Turbo's own hash** is content-based and authoritative, and
-  `turbo run build --dry-run=json` is the way to ask it -- and it is worse here for
-  a reason only measurement finds: that hash moves for _any_ modified file in the
-  workspace rather than only the task's declared `inputs`. Appending a comment to
-  `test/output-forms.test.ts` flips both `@ttylabs/cli#build` and
-  `@ttylabs/sigil#build` from HIT to MISS with `src/` untouched, so the guard would
-  fail for whoever is editing the test -- the one situation it runs in most. It also
-  says MISS after `node src/sigil.ts build`, which is the package's own build
-  command and the one to reach for while working on the toolchain, because turbo
-  only records what turbo ran. Combining them does not rescue either: the mtime
-  screen fires on the bumped timestamp and turbo, with the test file dirty, agrees.
+  `turbo run build --dry-run=json` is the way to ask it -- and it is still worse
+  here, though for one reason now rather than two. The reason that is **gone** was
+  the better of the two and is worth keeping written down, because it was a defect
+  and not a property: that hash used to move for _any_ modified file in the
+  workspace rather than only the task's declared `inputs`, so appending a comment to
+  `test/output-forms.test.ts` flipped both `@ttylabs/cli#build` and
+  `@ttylabs/sigil#build` from HIT to MISS with `src/` untouched -- the guard would
+  have failed for whoever was editing the test, the one situation it runs in most.
+  That was the root manifest's `workspace:` dependencies putting every file of both
+  packages in turbo's global hash, it is fixed, and the entry under "## Layout"
+  records it; a test edit is a cache hit now. The reason that **remains** is enough
+  on its own: turbo says MISS after `node src/sigil.ts build`, which is the
+  package's own build command and the one to reach for while working on the
+  toolchain, because turbo only records what turbo ran -- re-measured, and it
+  reports `MISS` over a `dist/` that is freshly and correctly built. Combining the
+  two does not rescue either, since that is the same build both of them misread.
 
   So there is no proxy here that is both satisfiable and quiet on correct code, and
   a check that fires on correct code teaches people to ignore checks -- which this
