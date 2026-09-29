@@ -1,4 +1,4 @@
-import { bundleApp, undo } from '../../src/build/bundle.js';
+import { bundleApp, rawJsxIn, undo } from '../../src/build/bundle.js';
 import { discoverApp, readAppCommands } from '../../src/build/discover.js';
 import { parseModule } from '../../src/build/parse-module.js';
 import { resolveCommandTree } from '../../src/build/tree.js';
@@ -15,7 +15,7 @@ import {
 	writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, it, expect } from 'vitest';
 
@@ -342,6 +342,33 @@ describe('an app whose output is JSX', () => {
 		expect(result.stdout).toContain('from a compiled JSX element');
 	});
 
+	it('should not read compiled JSX as JSX that survived', () => {
+		// the false positive that would matter, asked against a bundle a real build
+		// really wrote rather than against a string: this app's whole output is JSX
+		// and every chunk of it has to come back clean. Two substring probes for
+		// JSX reported this bundle as holding some while the check was being
+		// written -- the runtime's error strings carry `<box>`, `<text>` and
+		// `<raw>`, and `panel.tsx`'s doc comment carries `jsxDEV` -- which is why
+		// the answer is a parse rather than a search.
+		//
+		// The assertion is a second line of defence rather than the only one, and
+		// it is worth knowing which: `beforeAll` already built this app *through*
+		// `bundleApp()`, so a gate that false-positived here would fail the hook
+		// and skip this test rather than fail on the `expect`. The suite still goes
+		// red either way; the line that reports it is the hook's
+		const files = readdirSync(jsxOut, { recursive: true, withFileTypes: true })
+			.filter((entry) => entry.isFile() && entry.name.endsWith('.mjs'))
+			.map((entry) => ({
+				fileName: relative(jsxOut, join(entry.parentPath, entry.name)),
+				type: 'chunk',
+			}));
+
+		// said the other way too, because an empty list is a check that passes for
+		// the wrong reason the day the walk stops finding files
+		expect(files.length).toBeGreaterThan(0);
+		expect(rawJsxIn(jsxOut, files)).toBeUndefined();
+	});
+
 	it('should compile a template and the JSX beside it in one module', () => {
 		// two passes over one file, which is the shape AGENTS.md describes when it
 		// says the two syntaxes live side by side in one app. The plugin's
@@ -506,5 +533,207 @@ describe('unwinding a refused build', () => {
 		undo(out, [{ fileName: '../dist-old/a.mjs' }]);
 
 		expect(existsSync(join(sibling, 'a.mjs'))).toBe(true);
+	});
+});
+
+describe('a bundle that still holds JSX', () => {
+	/**
+	 * `"jsx": "preserve"` asks for no transform at all, and rolldown obeys.
+	 *
+	 * The same failure shape as a bundle that reaches for `react`: the build
+	 * reports success and the executable dies the first time it is used, here with
+	 * `Unexpected token '<'`. It is a refusal rather than a thing the build
+	 * honours, because `preserve` means "another tool compiles this" and a bundle
+	 * is the end of the pipeline -- there is no other tool, so the only executable
+	 * the setting can produce is one that will not parse.
+	 *
+	 * The fixture differs from `jsx-dev/` by one tsconfig field, and it
+	 * type-checks: `preserve` still checks the JSX against the `JSX` namespace
+	 * `jsxImportSource` names, so this is an app the build has to refuse on its own
+	 * rather than one the type-check has already refused.
+	 */
+	let out_: string;
+
+	beforeAll(() => {
+		out_ = mkdtempSync(join(tmpdir(), 'sigil-preserve-'));
+	});
+
+	afterAll(() => {
+		rmSync(out_, { force: true, recursive: true });
+	});
+
+	it('should refuse the build, name the setting, and leave nothing behind', async () => {
+		const preserveApp = resolve(__dirname, '../fixtures/jsx-preserve');
+		const found = discoverApp(preserveApp);
+		const tree = resolveCommandTree(join(preserveApp, 'src', 'commands'));
+
+		const failure = await bundleApp({
+			app: found,
+			binName: 'jsx-preserve',
+			out: out_,
+			tree,
+		}).then(
+			// spelled out rather than `rejects.toThrow`, so a build that *succeeded*
+			// fails the assertion with a sentence instead of with chai complaining
+			// about `undefined` -- the shape the unresolved-import test uses
+			() => '(the build succeeded)',
+			(error: unknown) => (error as Error).message
+		);
+
+		expect(failure).toContain('still holds JSX');
+		// the setting is the fix, so the message has to name it: a message about a
+		// syntax error in generated code sends the author looking at the generated
+		// code, which is not where the problem is
+		expect(failure).toContain('"jsx"');
+		expect(failure).toContain('tsconfig.json');
+		// and which chunk, because an app with one `.tsx` among fifty modules has
+		// to be able to find it
+		expect(failure).toMatch(/chunks\/.*\.mjs/);
+
+		// the same reason the unresolved gate unwinds: a bundle that would die the
+		// first time it was run is what the refusal is about
+		expect(readdirSync(out_)).toStrictEqual([]);
+	}, 60_000);
+});
+
+describe('recognising JSX in what was written', () => {
+	/**
+	 * `rawJsxIn()` is asserted directly, because two of the three answers it gives
+	 * cannot be reached through a bundler.
+	 *
+	 * Only `"jsx": "preserve"` on a `.tsx` produces the positive case -- measured,
+	 * `react-native` is compiled by rolldown despite `tsc` preserving it, and
+	 * `compilerOptions.jsx` does not reach a `.jsx` at all. Nothing rolldown emits
+	 * fails to parse for any *other* reason, which is the case this deliberately
+	 * leaves alone, so a call is the only way to ask about it.
+	 */
+	let dir: string;
+
+	beforeEach(() => {
+		dir = mkdtempSync(join(tmpdir(), 'sigil-rawjsx-'));
+	});
+
+	afterEach(() => {
+		rmSync(dir, { force: true, recursive: true });
+	});
+
+	/** Writes a chunk and returns what `rolldown` would have reported for it. */
+	function chunk(name: string, code: string) {
+		mkdirSync(dirname(join(dir, name)), { recursive: true });
+		writeFileSync(join(dir, name), code);
+		return { fileName: name, type: 'chunk' };
+	}
+
+	it('should say nothing about a bundle that parses', () => {
+		expect(
+			rawJsxIn(dir, [
+				chunk('app.mjs', 'const a = 1;\nexport { a };\n'),
+				// the shapes the substring probes got wrong while this was written:
+				// a `<` in an operator, and the runtime's own error strings
+				chunk('chunks/a.mjs', 'export const t = (a, b) => a < b ? `<text>` : "<box>";\n'),
+			])
+		).toBeUndefined();
+	});
+
+	it('should name the chunk that is JSX rather than JavaScript', () => {
+		expect(
+			rawJsxIn(dir, [
+				chunk('app.mjs', 'export const ok = 1;\n'),
+				chunk(
+					'chunks/p.mjs',
+					'function P({who}){return<text class="h">Hi, {who}!</text>}export{P};\n'
+				),
+			])
+		).toBe('chunks/p.mjs');
+	});
+
+	it('should find a fragment, and one nested anywhere', () => {
+		// the walk is `visitorKeys`-driven rather than a list of node types, so a
+		// JSX element somewhere the shape of this file never anticipated is still
+		// found. A fragment is the other node kind, and `<></>` is what a component
+		// returning several children compiles from
+		expect(rawJsxIn(dir, [chunk('a.mjs', 'export const e = <></>;\n')])).toBe('a.mjs');
+		expect(
+			rawJsxIn(dir, [
+				chunk('b.mjs', 'export const f = () => ({ k: [0, () => (c ? <text>x</text> : null)] });\n'),
+			])
+		).toBe('b.mjs');
+	});
+
+	it('should leave a chunk that parses as neither alone', () => {
+		// not this failure, and refusing it would risk failing a build that works:
+		// `oxc-parser` and the oxc inside rolldown are separately versioned, so a
+		// grammar this one is behind on would read as a broken bundle
+		expect(rawJsxIn(dir, [chunk('app.mjs', 'const = = ;\n')])).toBeUndefined();
+	});
+
+	it('should not read a module-only syntax error as JSX', () => {
+		// the false positive the first version of this had, and the reason the
+		// answer is a JSX *node* rather than a parse differential. The extension
+		// moves two axes, not one: a `.mjs` is always a module while a `.jsx` with
+		// no `import` or `export` is inferred a **script**, and a script is allowed
+		// things a module is not -- so every module-only error read as "JSX must be
+		// why". Found by review with the Annex B HTML comment; the other four are
+		// what hunting the class turned up, and the class was never enumerated,
+		// which is the whole argument against inferring.
+		//
+		// Each of these is a chunk node genuinely cannot load, so the conservative
+		// answer is not that it is fine -- only that JSX is not why, and a message
+		// naming `jsx` would send the author somewhere there is nothing to find
+		for (const [label, code] of [
+			['an HTML comment', '<!-- c\nconsole.log(1);\n'],
+			['an HTML close comment', 'x = 1;\n-->\n'],
+			['await as a variable', 'var await = 1;\nconsole.log(await);\n'],
+			['await as a class name', 'class await {}\nnew await();\n'],
+			['await as a label', 'await: for (;;) break await;\n'],
+		] as const) {
+			expect(rawJsxIn(dir, [chunk('app.mjs', code)]), label).toBeUndefined();
+		}
+	});
+
+	it('should still find JSX in a chunk a module is not allowed to be', () => {
+		// the other half of the entry above, and the one that defends the decision
+		// *not* to pin `sourceType: 'module'` on the JSX parse. Pinning it is the
+		// obvious tidy-up once the source type is known to be the confounder, and it
+		// is a false-negative machine: measured over 180 combinations of a name, a
+		// body and a JSX element it loses the JSX in 50 -- every chunk that holds
+		// real JSX *and* something a module may not do, where the pinned parse fails
+		// before the walk can see anything.
+		//
+		// Both clauses are still right about these: node cannot load them, and JSX
+		// is genuinely why they will not parse as JavaScript
+		for (const [label, prefix] of [
+			['await as a variable', 'var await = 1;\n'],
+			['await as a label', 'await: for (;;) break await;\n'],
+			['an HTML comment', '<!-- c\n'],
+		] as const) {
+			expect(
+				rawJsxIn(dir, [chunk('app.mjs', `${prefix}const p = <text class="h">hi</text>;\n`)]),
+				label
+			).toBe('app.mjs');
+		}
+	});
+
+	it('should not read an asset, and not report one that is JSX', () => {
+		// an asset is not a module, which is the line `escapeControls()` draws, and
+		// finding a test for that took three goes. A *sourcemap* fails both parses
+		// and falls into the conservative branch anyway, measured, so a test using
+		// one is green with the skip deleted. An asset named `.jsx` parses as JSX on
+		// the first call, so a test using one is green too. What is left is the two
+		// things the skip really decides, and both are asserted because each covers
+		// what the other does not:
+		//
+		// an asset with no file behind it is never **opened** -- without the skip
+		// this is an `ENOENT` rather than an answer...
+		expect(rawJsxIn(dir, [{ fileName: 'nothing-here.map', type: 'asset' }])).toBeUndefined();
+
+		// ...and an asset that really is JSX under a name that is not is never
+		// **reported**, which is the half a `try`/`catch` around the read could
+		// otherwise fake. `notes.map` is what an app shipping a template as an asset
+		// looks like: the `.map` parse fails and the `.map.jsx` parse succeeds, so
+		// the discriminator would name it
+		writeFileSync(join(dir, 'notes.map'), 'const a = <text>x</text>;\n');
+
+		expect(rawJsxIn(dir, [{ fileName: 'notes.map', type: 'asset' }])).toBeUndefined();
 	});
 });

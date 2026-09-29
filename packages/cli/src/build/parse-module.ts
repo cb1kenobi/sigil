@@ -36,7 +36,13 @@
  * quadratic in its own length.
  */
 
-import { type Comment, type EcmaScriptModule, parseSync, type Program } from 'oxc-parser';
+import {
+	type Comment,
+	type EcmaScriptModule,
+	type ParserOptions,
+	parseSync,
+	type Program,
+} from 'oxc-parser';
 
 /** A module, read. */
 export interface ParsedModule {
@@ -95,6 +101,68 @@ export function parseModule(file: string, source: string): ParsedModule {
 		program: result.program,
 		source,
 	};
+}
+
+/**
+ * Whether oxc said anything at all about a parse.
+ *
+ * One definition of "does not parse", shared by the three readers below, because
+ * `parseModule()` reports any entry oxc hands back whatever its severity and a
+ * second reader that counted only the ones marked `Error` would be a second
+ * answer to one question. Measured over every bundle this repo produces -- 114
+ * chunks across the fixtures, `packages/cli/dist` and `packages/sigil/dist` --
+ * oxc returns no entry of any severity for code that is fine, so the two
+ * readings agree today and this is about keeping them agreeing.
+ *
+ * @param result - What oxc handed back.
+ * @returns Whether it failed.
+ */
+function failed(result: { readonly errors: readonly unknown[] }): boolean {
+	return result.errors.length > 0;
+}
+
+/**
+ * Whether a source parses at all, which is the question `parseModule()` throws
+ * about said as a boolean.
+ *
+ * Deliberately does **not** touch `result.program`. The AST is deserialized
+ * lazily, and reaching for it is the expensive half: measured, asking only about
+ * the errors over the 9 chunks of a built fixture is 2.0ms and touching
+ * `.program` as well is 9.9ms -- five times, for a question that does not need
+ * a tree. `parseTree()` is the one that pays it, and it is only ever reached on a
+ * path that is already failing.
+ *
+ * @param file - Where it came from. Its extension is what decides the language,
+ *   and for a chunk of an `esm` bundle the `.mjs` it is named is also what says
+ *   the source is a module -- which is the whole of what this clause asks.
+ * @param source - The source.
+ * @returns Whether it parsed.
+ */
+export function parses(file: string, source: string): boolean {
+	return !failed(parseSync(file, source));
+}
+
+/**
+ * The tree, or nothing if the source did not parse.
+ *
+ * The companion to `parses()` for a caller that has to look at what is *in* a
+ * source rather than only whether it reads -- which is a different question and
+ * is what stops a parse differential being used as a proxy for one. It costs the
+ * AST deserialization, so see `parses()` for why the two are separate functions.
+ *
+ * @param file - Where it came from.
+ * @param source - The source.
+ * @param options - Passed through.
+ * @returns The program, or `undefined`.
+ */
+export function parseTree(
+	file: string,
+	source: string,
+	options?: ParserOptions
+): Program | undefined {
+	const result = parseSync(file, source, options);
+
+	return failed(result) ? undefined : result.program;
 }
 
 /**

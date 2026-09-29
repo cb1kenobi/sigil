@@ -3692,13 +3692,170 @@ as default }` resolves the same way, since it is the same statement spelled
   `runtime: 'automatic'` beside it was tried and **rejected**: it does fix
   `preserve` and the classic runtime, and it silently costs `react-jsxdev` its
   dev runtime, which is a configuration this framework publishes a runtime for
-  and whose positions are the only way a JSX frontend carries one.
-  What `preserve` costs is worth knowing rather than fixing: the bundle keeps the
-  JSX and dies with `Unexpected token '<'`, which is what it did before this and
-  is what the app asked for -- `preserve` means another tool transforms this, and
-  `tsc` obeys it identically. Refusing it needs the tsconfig reader the entry
-  above declines, and an app that said it is an app whose editor is telling it the
-  same thing.
+  and whose positions are the only way a JSX frontend carries one. Re-measured
+  against rolldown 1.2.11 when `preserve` was closed, because that was the
+  candidate for closing it, and the rejection holds -- with a distinction the
+  first re-measurement missed. **Which** marker disappears depends on whether the
+  output is minified, and only one of the two is what `sigil build` writes:
+  unminified, `runtime: 'automatic'` takes the `jsx-dev-runtime` region and
+  `_jsxFileName` with it, while **minified**, which is the default, both are
+  already gone and what the option removes is the `panel.tsx` string and the
+  `fileName` property. That is exactly the marker the `jsx-dev` fixture was built
+  to pin -- a string survives minification where an identifier does not -- so the
+  test was right and the sentence describing it was measured on the wrong build.
+  A third cost turned up with it: the option makes rolldown report a **second**
+  `CONFIGURATION_FIELD_CONFLICT`, about `compilerOptions.jsx`, which the
+  suppression above does not match because it is scoped to `jsxImportSource`, so
+  that path would have printed a warning on every build of exactly the app it was
+  meant to fix. Both halves are already pinned, which is the part worth knowing:
+  `should leave the rest of the JSX transform to the app` asserts that the bundle
+  contains `panel.tsx` **and** that no `CONFIGURATION_FIELD_CONFLICT` reached
+  stderr, so adding the option fails that one test twice.
+- **`jsx: "preserve"` is refused, and it is refused by _detecting_ it rather
+  than by configuring it away.** It is the third door onto "the build reported
+  success and the executable dies the first time it is used": rolldown obeys the
+  setting, the bundle keeps its JSX, and running it dies with
+  `Unexpected token '<'`. The first version of this file said that was worth
+  knowing rather than fixing, on two arguments, and the first of them is weaker
+  than it looks. `tsc` leaving JSX in place is _useful_ -- a bundler or Babel
+  picks it up next -- while a bundle is the end of the pipeline, so there is no
+  next tool and the only executable the setting can produce is one that will not
+  parse. A setting with no reachable good outcome is not a preference the build
+  has to honour. The second argument -- that refusing needs a tsconfig reader of
+  the build's own -- is answered by not reading the tsconfig: what the gate asks
+  is a question about **what was written**, which needs no config at all and
+  answers for every other route to the same end state. Measured, that set is
+  smaller than it sounds: `preserve` on a `.tsx` is the **only** tsconfig `jsx`
+  value that leaves raw JSX behind -- `react-native`, which `tsc` also treats as
+  preserving, is compiled by rolldown -- and `compilerOptions.jsx` does not reach
+  a `.jsx` at all, exactly as `jsxImportSource` does not. So configuring would
+  have needed to enumerate a set the detection never has to know -- and review
+  round 1 widened the sweep without finding another member of it: an `extends`
+  chain whose base says `preserve` and a `@jsxRuntime`, `@jsx` or
+  `@jsxImportSource` pragma over a `preserve` tsconfig all leave raw JSX, and the
+  gate catches each. Two near misses are worth knowing because they look like
+  routes and are not. `"jsx": "Preserve"` with a capital P **compiles**, so
+  rolldown does not read the value the case-insensitive way `tsc` does. And a
+  `.js` holding JSX never reaches the gate at all: rolldown refuses it with
+  `[PARSE_ERROR] Unexpected JSX expression` whatever the tsconfig says.
+- **The gate parses; it does not search, and that is measured rather than
+  cautious.** A regex over minified output is what the ticket warned about, and
+  it fired **twice** while this was being written: the runtime's own error
+  strings carry `<box>`, `<text>` and `<raw>`, so a probe for `<text` reported
+  JSX in bundles that had none, and `panel.tsx`'s doc comment carries the word
+  `jsxDEV`, so a probe for that reported the dev transform in a bundle that had
+  preserved. What is asked instead is that the chunk's tree holds a `JSXElement`
+  or a `JSXFragment`, found by parsing with `lang: 'jsx'` and walking with the
+  repo's own `visitorKeys`-driven `walk()`.
+- **It asks the tree because a parse differential got it wrong, and the
+  differential's failure is the entry worth keeping.** The first version asked
+  whether the chunk fails under its own name and _parses_ when the same source is
+  offered as `.jsx`, on the reading that the extension moves one axis. It moves
+  **two**: oxc reads the _source type_ off the filename as well, so a `.mjs` is
+  always a module while a `.jsx` with no `import` or `export` in it is inferred a
+  **script** -- and a script may do things a module may not. Every module-only
+  error therefore read as "JSX must be why". Reported by the coordinator with an
+  Annex B HTML comment, which the build refused with a message naming `jsx` about
+  a file holding no JSX at all; hunting the class turned up four more shapes -- a
+  `-->` line, and `await` used as a variable, a class name or a label -- and
+  nobody had enumerated the set, which is the argument. A JSX **node** is the
+  thing the gate is entitled to say, so it says that instead of inferring it.
+- **Pinning the source type was the other candidate and it is a false-negative
+  machine.** It is the obvious tidy-up once the source type is known to be the
+  confounder, and `should still find JSX in a chunk a module is not allowed to be`
+  exists to stop somebody taking it: measured over 180 combinations of a name, a
+  body and a JSX element, pinning `sourceType: 'module'` on the JSX parse loses
+  the JSX in **50** of them -- every chunk that holds real JSX _and_ something a
+  module may not do, where the pinned parse fails before the walk can see
+  anything. The only job of that parse is to hand the walk a tree, so the
+  permissive reading is the right one. The same measurement says pinning the
+  _first_ parse changes no answer in any of the 180, so neither is pinned and
+  there is one mechanism rather than two masking each other -- which is what the
+  first attempt at this fix had, with each of the two sabotages passing because
+  the other guard covered it.
+- **The first parse is a cost filter, not half the answer.** It cannot change
+  what the gate reports, and that is a proof rather than a measurement: JSX is a
+  syntax error in JavaScript, so a chunk that parses under its own name cannot
+  hold a JSX node and the walk would find nothing. What it buys is that the
+  **AST is never deserialized on a build that is fine** -- measured, asking only
+  about the errors over 9 chunks is 2.0ms and touching `.program` as well is
+  9.9ms, which is why `parses()` and `parseTree()` are two functions. Deleting it
+  changes no answer and fails no test, which is what a filter should do and is
+  said here so the next reader does not take the silence for a gap.
+- **What makes the gate safe is structural, not the corpus.** A chunk is oxc's
+  own parse-and-print output of the app's modules, so anything rolldown could
+  emit, rolldown has already parsed -- which is why a chunk that parses as
+  neither JavaScript nor JSX can be left alone without that being a hole. The
+  corpus is corroboration and is worth keeping as such: zero false positives over
+  114 chunks (every fixture's bundle, `packages/cli/dist`, `packages/sigil/dist`),
+  and 37 hand-built spellings run against the shipped gate -- the coordinator's
+  nine, and `a < b > c`, a regex holding `<`, a comparison that looks like a
+  generic call, a shebang, top-level `await`, `import.meta`,
+  `with { type: "json" }`, `import defer`, `using`, a class static block,
+  `#x in o`, `with`, a decorator, an empty chunk, a BOM, CRLF, an emoji string, a
+  `<const T,>` arrow, a `<string>y` assertion, an IIFE, a lone sourcemap comment,
+  and the five module-only shapes above. Two of those spellings had been recorded
+  wrongly before, which is the other reason the structural argument leads now: an
+  HTML comment was filed under "parses as both" and does not parse as either.
+- **A chunk that parses as neither JavaScript nor JSX is deliberately left
+  alone.** Refusing it would be the false positive the ticket said is worse than
+  the status quo:
+  `oxc-parser` and the oxc inside rolldown are separately versioned, so a grammar
+  this one is behind on would read as a broken bundle and fail a build that works.
+  What that gives up is the bundle nothing can parse for some other reason, which
+  is not this failure and has nobody claiming it. It also settles the sourcemaps
+  for free -- a `.map` fails both parses -- which is why the skip for an asset is
+  a **cost** guard rather than a correctness one: the maps are the largest files
+  in the output -- 288 kB of maps against 111 kB of chunks on the fixture, which
+  is 399 kB together and was written down as the maps alone until review round 1
+  weighed them -- and reading them takes the pass from 2.33ms to 3.14ms. Finding a test for it took three goes, and the
+  two rejected ones say where the line is. A sourcemap proves nothing, because the
+  conservative branch excludes it anyway. An asset named `.jsx` proves nothing,
+  because its own extension makes the first parse succeed. What is left is two
+  things the skip really does decide: an asset with no file behind it is not
+  **opened**, and an asset that is JSX under a name that is not -- `notes.map`
+  holding `const a = <text>x</text>;`, which is what an app shipping a template as
+  an asset looks like -- is not **reported**. The second is the one a
+  `try`/`catch` around the read could not fake, which is why both are asserted,
+  and it is why this is a cost guard for what rolldown emits rather than for
+  everything.
+- **What it does not catch is `jsx: "react"`, and that is the boundary rather
+  than a gap.** That emits `React.createElement` and parses perfectly: a bundle
+  that will not _run_ rather than one that will not _parse_. It is what this file
+  already records as the app's own choice, and an app that really does depend on
+  React can make it work with `--external react`. The gate proves one thing --
+  node cannot load this -- and refuses exactly that.
+- **It reads the files rather than `written.output[].code`, which is byte
+  identical.** Measured: `write()` hands back exactly what is on disk, sourcemap
+  comment included, so reading would have cost nothing. The file is read anyway
+  because the whole reason `escapeControls()` exists is that rolldown's
+  in-memory view of a chunk and the bytes it finally writes came apart once, and
+  a question about whether **node** can parse the bundle has to ask the bytes
+  node will read. The cost is 2.7ms for a 9-chunk 111 kB bundle and 4.8ms for 44
+  chunks of 182 kB; end to end a `sigil build` of the fixture goes from 118ms to
+  121ms, interleaved.
+- **The message names `jsx`, because that is the fix.** A message about a syntax
+  error in generated code sends the author to the generated code, which is not
+  where the problem is. It names the offending chunk too, since an app with one
+  `.tsx` among fifty modules has to be able to find it, and it says why
+  `preserve` cannot work here rather than only that it did not. The build is
+  refused through the same shape as the unresolved-import gate, `undo()`
+  included: a bundle that would die the first time it was run is precisely what
+  the refusal is about, so leaving it there would answer the question and hand
+  the thing over anyway.
+- **`parses()` lives beside `parseModule()` rather than beside its caller.**
+  There is one definition of "does not parse", and `parseModule()` already
+  encodes it as _any_ entry oxc hands back whatever its severity; a second reader
+  counting only the ones marked `Error` would be a second answer to one question.
+  The two agree today -- measured over those 114 chunks, oxc returns no entry of
+  any severity for code that is fine -- and this is about keeping them agreeing.
+- **The fixture differs from `jsx-dev/` by one tsconfig field, and it
+  type-checks.** `preserve` still checks the JSX against the `JSX` namespace
+  `jsxImportSource` names, so `test/fixtures/jsx-preserve/` is an app the build
+  has to refuse on its own rather than one the type-check has already refused --
+  which is the whole of what makes it worth a fixture. `rawJsxIn()` is exported
+  for the reason `undo()` and `MODULE_RE` are: two of its three answers cannot be
+  reached through a bundler at all.
 - **What it costs is a tsconfig that named a different automatic import source,
   and the escape hatch is the most explicit spelling rather than the least.** A
   per-file `@jsxImportSource` pragma beats this option -- measured -- so an app

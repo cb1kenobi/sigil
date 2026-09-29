@@ -237,6 +237,25 @@ describe('sigil build', () => {
 		expect(process.exitCode).toBe(1);
 	});
 
+	it('should refuse an app whose tsconfig preserves its JSX', async () => {
+		// the build reported success and the executable died with
+		// `Unexpected token '<'`, which is the shape the unresolved gate and
+		// `--external` are both written for. From the command because that is where
+		// the author reads the message, and the message has to name the tsconfig
+		// setting: it is the fix, and one about a syntax error in generated code
+		// sends them looking at the generated code
+		const { err } = await sigil('build', join(fixtures, 'jsx-preserve'), '--out', out);
+
+		expect(err).toContain('still holds JSX');
+		expect(err).toContain('"jsx"');
+		expect(err).toContain('tsconfig.json');
+		expect(process.exitCode).toBe(1);
+		// and nothing shipped, because the refusal is about not handing over a
+		// bundle that would die on first use
+		expect(existsSync(join(out, 'jsx-preserve.mjs'))).toBe(false);
+		expect(readdirSync(out)).toStrictEqual([]);
+	}, 60_000);
+
 	it('should report an --out it cannot write as being about that', async () => {
 		// a `bundle.write()` that rejects, which is what `bundle-close.test.ts`
 		// needs and is worth pinning from the command as well: what the user is

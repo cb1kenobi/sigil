@@ -34,8 +34,10 @@
 import { compileTemplates } from './compile-templates.ts';
 import { RUNTIME, type DiscoveredApp } from './discover.ts';
 import { generateBin } from './generate.ts';
+import { parses, parseTree } from './parse-module.ts';
 import { TAG_MODULE } from './templates.ts';
 import type { ResolvedTree } from './tree.ts';
+import { walk } from './walk.ts';
 import { chmodSync, mkdirSync, readFileSync, rmSync, rmdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import type { Plugin } from 'rolldown';
@@ -302,9 +304,17 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 		// still preserves. Adding `runtime: 'automatic'` was tried and rejected:
 		// it does fix `preserve` and classic, and it silently costs
 		// `react-jsxdev` its dev runtime, which is a configuration this framework
-		// publishes a runtime for. What `preserve` costs is a bundle that keeps the
-		// JSX and dies with `Unexpected token <`, which is what it did before this
-		// and what the app asked for -- `tsc` obeys it identically.
+		// publishes a runtime for -- re-measured when `preserve` was closed, since
+		// this was the candidate for closing it, and the rejection holds. What the
+		// option takes away in **this** build is the `panel.tsx` string and the
+		// `fileName` property, not the `jsx-dev-runtime` chunk: minification is on,
+		// so that chunk is inlined and gone either way, and the string is the marker
+		// `test/fixtures/jsx-dev/` pins for exactly that reason. See `rawJsxIn()`
+		// below for the whole table. What `preserve` leaves behind is a
+		// bundle that keeps the JSX and dies with `Unexpected token '<'`, which is
+		// **refused** rather than honoured -- by `rawJsxIn()` below, which asks
+		// what was written rather than what the tsconfig said, so this stays one
+		// option with no config reader of its own.
 		//
 		// What it costs is an app that names a different automatic import source
 		// in its tsconfig, which this overrides. Deliberate: the JSX in a sigil
@@ -373,6 +383,17 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 			);
 		}
 
+		// the second thing a bundle can be wrong about in a way that only shows up
+		// the first time somebody runs it, and the reason it is asked here rather
+		// than configured away is one entry along in AGENTS.md
+		const preserved = rawJsxIn(out, written.output);
+		if (preserved) {
+			undo(out, written.output);
+			throw new Error(
+				`Cannot build: ${preserved} still holds JSX, so the built app would die with "Unexpected token '<'" the first time it was loaded.\n  Set "jsx" in the app's tsconfig.json to "react-jsx" or "react-jsxdev". "preserve" leaves JSX for a later tool to compile, and a bundle is the end of the pipeline -- there is no later tool.`
+			);
+		}
+
 		escapeControls(out, written.output);
 
 		const chunks = written.output
@@ -425,6 +446,205 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 			// argument.
 		}
 	}
+}
+
+/**
+ * The first written chunk that is JSX rather than JavaScript, if there is one.
+ *
+ * ## What this is for
+ *
+ * An app whose `tsconfig.json` says `"jsx": "preserve"` asks for no transform at
+ * all, and rolldown obeys -- so the bundle keeps its JSX, the build reports
+ * success, and running it dies with `Unexpected token '<'`. That is the shape
+ * `--external` and the unresolved-import gate are both written for, arriving
+ * through a third door.
+ *
+ * ## Why detecting rather than configuring
+ *
+ * Overriding the mode means `transform.jsx.runtime`, which was measured and
+ * rejected once already and re-measured here: adding `runtime: 'automatic'` does
+ * fix `preserve`, and it silently costs `jsx: "react-jsxdev"` its **dev**
+ * runtime, which is a configuration this framework publishes a runtime for.
+ * Which marker says so depends on whether the output is minified, and the
+ * distinction is worth keeping because only one of the two is what `sigil build`
+ * writes. Unminified, the `jsx-dev-runtime` region goes and `_jsxFileName` with
+ * it; **minified**, which is the default here, both are already gone and what
+ * the option removes is the `panel.tsx` string and the `fileName` property --
+ * exactly the marker `test/fixtures/jsx-dev/` was built to pin, since a string
+ * survives minification where an identifier does not. The option also makes
+ * rolldown report a **second** `CONFIGURATION_FIELD_CONFLICT`, about
+ * `compilerOptions.jsx`, which the suppression above does not match because it
+ * is scoped to `jsxImportSource` -- so that path would have printed a warning on
+ * every build of exactly the app it was meant to fix.
+ *
+ * Detecting costs no tsconfig reader, contradicts nothing the app's own `tsc`
+ * says, and answers for whatever else ever produces the same end state.
+ *
+ * ## Two questions, each meaningful on its own
+ *
+ * Asked by **parsing**, not by looking for `<`. A regex over minified output is
+ * the trap this ticket warned about and it fired twice while this was being
+ * written: the runtime's own error strings carry `<box>`, `<text>` and `<raw>`,
+ * and `panel.tsx`'s doc comment carries the word `jsxDEV`, so two different
+ * substring probes reported JSX in bundles that had none.
+ *
+ * What decides the refusal is one thing: **is there a JSX element in the chunk**,
+ * asked by parsing the source with `lang: 'jsx'` and walking the tree for a
+ * `JSXElement` or a `JSXFragment`. Nothing is inferred from a verdict.
+ *
+ * The parse that comes first -- does the chunk parse as it stands -- is a **cost**
+ * filter and is worth reading as one, because it looks like half the answer and is
+ * not. It cannot change what this reports, and the reason is a proof rather than a
+ * measurement: JSX is a syntax error in JavaScript, so a chunk that parses under
+ * its own name cannot contain a JSX node, and the walk would find nothing. What it
+ * buys is that the **AST is never deserialized on a build that is fine**, which is
+ * the expensive half -- measured, asking only about the errors over 9 chunks is
+ * 2.0ms and touching `.program` as well is 9.9ms. Deleting it changes no answer
+ * and no test, which is exactly what a filter should do.
+ *
+ * The first version of this inferred the second clause from a **parse
+ * differential** -- fails under its own name, parses when offered as `.jsx` --
+ * and that was wrong, because the extension moves two axes rather than one: oxc
+ * reads the *source type* off it too. A `.mjs` is always a module while a `.jsx`
+ * with no `import` or `export` in it is inferred a **script**, and a script is
+ * allowed things a module is not. So every module-only error read as "JSX must be
+ * why". Found by review, with an Annex B HTML comment; hunting the class it
+ * belongs to turned up four more shapes -- a `-->` line, and `await` used as a
+ * variable, a class name or a label -- and nobody had enumerated the set, which is
+ * the actual argument against inferring rather than asking.
+ *
+ * Pinning the source type on both parses was the other candidate fix, and it is
+ * the one to know about because it looks strictly safer and is not: see `AS_JSX`,
+ * where it costs 50 of 180 measured combinations their JSX.
+ *
+ * A chunk that parses as neither is deliberately **left alone**: that is not this
+ * failure, and refusing it would risk failing a build that works, since
+ * `oxc-parser` and the oxc inside rolldown are separately versioned and a
+ * grammar this one is behind on would read as a broken bundle. The structural
+ * reason that is safe is stronger than any corpus: a chunk is oxc's own
+ * parse-and-print output, so anything rolldown could emit, rolldown has already
+ * parsed.
+ *
+ * Measured: `preserve` on a `.tsx` is the **only** tsconfig `jsx` value that
+ * leaves raw JSX behind -- `react-native`, which `tsc` also treats as
+ * preserving, is compiled by rolldown -- and `compilerOptions.jsx` does not
+ * reach a `.jsx` at all, exactly as `jsxImportSource` does not. What it does not
+ * catch is `jsx: "react"`, which emits `React.createElement` and parses
+ * perfectly: that is a bundle that will not *run* rather than one that will not
+ * *parse*, it is what AGENTS.md already records as the app's own choice, and an
+ * app that really does depend on React can make it work.
+ *
+ * ## Read from disk, not from `written.output`
+ *
+ * `chunk.code` is byte-identical to the file today -- measured -- and reading it
+ * would cost nothing. The file is read anyway, because the whole reason
+ * `escapeControls()` exists is that rolldown's in-memory view of a chunk and the
+ * bytes it finally writes came apart once, and a check about whether **node** can
+ * parse the bundle has to ask the bytes node will read. The cost is measured and
+ * small: 2.7ms to read and parse a 9-chunk, 111 kB bundle and 4.8ms for 44
+ * chunks of 182 kB. End to end, a `sigil build` of the fixture goes from 118ms
+ * to 121ms with it, medians of nine interleaved -- 3ms either way, and a review
+ * on another machine measured the same 3ms against a 73ms build, so the delta is
+ * the number worth writing down rather than the absolutes.
+ *
+ * Exported for the reason `undo()` and `MODULE_RE` are: what it admits is worth
+ * asserting directly rather than only through a bundler, and the
+ * parses-as-neither case cannot be reached through one at all.
+ *
+ * @param out - The output directory.
+ * @param output - What rolldown wrote.
+ * @returns The first offending chunk's name, or `undefined`.
+ */
+export function rawJsxIn(
+	out: string,
+	output: readonly { fileName: string; type: string }[]
+): string | undefined {
+	for (const chunk of output) {
+		// an asset is not a module, which is the same line `escapeControls()`
+		// draws -- and here it is a **cost** guard rather than a correctness one,
+		// which is worth saying because it looks like the latter. A sourcemap
+		// fails both parses and would fall into the conservative branch below
+		// anyway, measured, so removing this changes no answer for anything
+		// rolldown emits; what it changes is that the maps are read, and they are
+		// the largest files in the output -- 288 kB of maps against 111 kB of
+		// chunks on the fixture, which takes the pass from 2.33ms to 3.14ms. An
+		// asset that is JSX, which an app shipping a template as one would be, is
+		// the case where it changes an answer too, and that answer is that an
+		// asset nobody imports is not a module that has to parse
+		if (chunk.type !== 'chunk') {
+			continue;
+		}
+
+		const file = join(out, chunk.fileName);
+		const code = readFileSync(file, 'utf-8');
+
+		// the cost filter, not half the answer: a chunk that parses cannot hold a
+		// JSX node, so this only keeps the AST off the success path
+		if (parses(file, code)) {
+			continue;
+		}
+		// the whole of the answer, asked of the tree rather than of a verdict
+		if (hasJsx(file, code)) {
+			return chunk.fileName;
+		}
+	}
+
+	return undefined;
+}
+
+/**
+ * JSX admitted, and **nothing else pinned** -- the source type above all.
+ *
+ * Pinning `sourceType: 'module'` here is the obvious tidy-up and it is a
+ * false-negative machine: measured over 180 combinations of a name, a body and a
+ * JSX element, it loses the JSX in **50** of them. Every one is a chunk that
+ * holds real JSX *and* something a module may not do -- `await` as an identifier,
+ * a label or a class name, an Annex B HTML comment -- where the pinned parse
+ * fails before the walk can see anything. The only job of this parse is to hand
+ * the walk a tree, so the permissive reading is the right one; what the source
+ * type does or does not allow is the *first* clause's business, and it is asked
+ * there.
+ *
+ * The same measurement says pinning the first parse changes no answer in any of
+ * the 180, because a JSX node is the whole of what this reports and a source
+ * type cannot conjure one. So neither parse pins it, and there is one mechanism
+ * rather than two that mask each other.
+ */
+const AS_JSX = { lang: 'jsx' } as const;
+
+/**
+ * Whether a source holds a JSX element.
+ *
+ * Parsed with JSX admitted and walked for the node, rather than inferred from the
+ * parse succeeding: "it parses as JSX" is true of every ordinary JavaScript file
+ * there is, so it proves nothing on its own, and the differential that made it
+ * look like proof is the defect recorded above.
+ *
+ * `walk()` is the repo's own, driven by oxc's `visitorKeys`, so there is no
+ * second copy of the grammar here and a JSX element nested somewhere this file
+ * has never heard of is still found. It stops at the first one, since the
+ * question is whether there is any.
+ *
+ * @param file - Where it came from, for the language default the options override.
+ * @param source - The source.
+ * @returns Whether a `JSXElement` or `JSXFragment` is in it.
+ */
+function hasJsx(file: string, source: string): boolean {
+	const program = parseTree(file, source, AS_JSX);
+	if (!program) {
+		return false;
+	}
+
+	let found = false;
+	walk(program, (node) => {
+		if (node.type === 'JSXElement' || node.type === 'JSXFragment') {
+			found = true;
+		}
+
+		return !found;
+	});
+
+	return found;
 }
 
 /**
