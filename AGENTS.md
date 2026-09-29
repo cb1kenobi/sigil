@@ -4264,17 +4264,41 @@ unshaken sheet does` asserts three ways.
   on the right and every `text-*` utility survives them; a literal with nothing
   beside it is closed and matches by equality, so `'Hello, '` keeps nothing.
   Which end is open is not a property of the characters, and a scanner over raw
-  source cannot know it. Three details each cost a test to pin. A token is open
-  only when it **touches** the open end, so `'Hello, '` before an interpolation
-  makes `Hello` closed -- without that, every string in an app would be a prefix
-  of something. A `+` chain is **flattened** first, because `x + 'b-' + y` parses
-  as `(x + 'b-') + y` and off the nested shape that literal looks closed on its
-  right, which is suffix evidence where the truth is both sides; a chain whose
-  literals sit at its _ends_ reads the same either way, which is why the obvious
-  repro passes with the flattening deleted. And a **tagged** template's quasis
-  are read like any other, which is the only reason a `ui` template's
-  `class="p-2"` is visible at all -- the class sits inside the template's text
+  source cannot know it.
+
+  **A string an app builds is a sequence of parts, and the unit is a _run_ of
+  the known ones rather than a part.** That is the model, and reading part by
+  part is what a review round found five shapes wrong with -- every one of them
+  a **dropped** rule. `` `text-` + colour `` and `` colour + `-red` `` put a
+  _template_ where a string literal was expected, so the concatenation saw no
+  known operand at all and the template was later read on its own as closed;
+  `` c += `-red` `` is that again; and `` `${'text-'}${colour}` `` put the
+  literal inside an interpolation, where nothing was looking -- the walk found
+  it and read it closed with no idea an unknown sat beside it. A run is open on
+  an end where an unknown part sits beside it and closed at the ends of the
+  expression, and a template literal and a `+` chain are then one rule rather
+  than two. It is also _tighter_ where it differs, correctly: `'a' + 'b' + c` is
+  the prefix `ab`, where per operand it was a prefix `a` and a both-ends-open
+  `b` -- both safe, one of them the string.
+
+  Three details each cost a test. A token is open only when it **touches** the
+  open end, so `'Hello, '` before an interpolation makes `Hello` closed --
+  without that, every string in an app would be a prefix of something. A `+`
+  chain is **flattened** first, because `x + 'b-' + y` parses as `(x + 'b-') + y`
+  and a chain whose literals sit at its _ends_ reads the same either way, which
+  is why the obvious repro passes with the flattening deleted. And a **tagged**
+  template is not a concatenation: its value is whatever the tag returns, so its
+  quasis are read as chunks and its interpolations are never folded in --
+  folding `` ui`p-${x}` `` would turn the prefix `p-` into whatever `x` happened
+  to be. Reading those quasis at all is the only reason a `ui` template's
+  `class="p-2"` is visible, since the class sits inside the template's text
   rather than in a string of its own.
+
+  What counts as **known** is a string and nothing else -- a string literal, or
+  a template with no interpolations. Not a number, though `'p-' + 2` really is
+  `p-2` and folding it would be tighter still: tighter is where a mistake
+  _drops_ a rule, so an unknown part simply ends the run and opens its
+  neighbours, which is the safe answer for every operand there is.
 
 - **The scan is lazy, and what it costs is measured rather than optimized.** It
   is asked for on the first module that turns out to hold a `utilitySheet()`
@@ -4309,6 +4333,31 @@ unshaken sheet does` asserts three ways.
   summary is for, and it is why the summary says nothing at all when no module
   called `utilitySheet()` -- `383 of 383` about an app with no utility sheet in
   its bundle would describe a sheet that is not there.
+
+- **The count describes the sheet the build produced, which is narrower than
+  "what is in the bundle".** Two things part them and neither is detectable from
+  here. A second call in a shape the matcher cannot claim --
+  `const { utilitySheet } = style` -- is left alone with the whole 383-rule sheet
+  behind it, so both ship while the count names one; that is the silent miss the
+  matcher documents everywhere else, seen from the report's side. And a
+  rewritten call that tree-shaking then drops takes its sheet with it, so the
+  count names one that is not there at all. Asking the written bundle whether a
+  dropped rule survived would catch the first and is refused: it is a substring
+  search an app writing its own CSS can fool, which is a false alarm about a
+  correct build, and this file already records what a warning that fires on
+  correct code teaches people to do.
+
+- **A flag beats the file, and for a _flag_ that is only true in one
+  direction.** A declared flag always has a value -- `false`, or `true` when
+  negated, never `undefined` -- so an explicit `--shake` is indistinguishable
+  from the default and cannot beat a `"shake": false` in `sigil.json`, while
+  `--no-shake` over a `"shake": true` works. That is the direction that matters,
+  because off is the only thing either flag is offered for, and it is the same
+  imprecision `--out` already carries a comment about: what a defaulted option
+  holds when nobody passed it is that default rather than `undefined`. Telling
+  the two apart means re-reading argv for a spelling, which is a second parser
+  disagreeing with the first over a case nobody has. `--sourcemap` is the same
+  and always was.
 
 - **Zero is the one count the summary cannot speak for itself, so it gets a
   sentence.** An app that asked for the utility sheet and named none of it is

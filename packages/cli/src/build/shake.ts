@@ -372,56 +372,71 @@ function readFile(path: string, into: Evidence): void {
 }
 
 /**
- * Every string literal and template quasi in a tree, with its open ends.
+ * Every constant piece of a string in a tree, with its open ends.
  *
- * The two shapes that produce an open end are a template literal with
- * interpolations and a `+` chain with a non-literal in it, and both are read
- * here rather than inferred from the text: `'text-'` in `'text-' + colour` is
- * open on the right and the same string on its own is not, and nothing about
- * the characters says which.
+ * A string an app builds is a **sequence of parts**, some known and some not,
+ * and the two grammars that build one -- a template literal and a `+` chain --
+ * are the same sequence written differently. So both are read the same way: a
+ * run of consecutive *known* parts is one chunk, open on an end where an
+ * unknown part sits beside it and closed at the ends of the expression itself.
  *
- * A tagged template's quasis are read like any other, which is what makes a
- * `ui` template's `class="p-2"` visible at all -- the class sits inside the
- * template's text rather than in a string of its own.
+ * That model is what a per-node reading gets wrong, and a review round found
+ * five shapes of it, each of which **dropped** a rule the app can match.
+ * `` `text-` + colour `` and `` colour + `-red` `` put a *template* where a
+ * string literal was expected, so the concatenation saw no known operand and
+ * the template was later read on its own as closed. `` c += `-red` `` is the
+ * same one again. And `` `${'text-'}${colour}` `` put the literal inside an
+ * interpolation, where nothing was looking at all -- the walk found it and read
+ * it closed, with no idea it sat next to an unknown.
  *
- * A template with no interpolations has one quasi, so `at > 0` and
- * `at < quasis.length - 1` are both false for it and it is read closed without
- * anybody asking how many expressions there were. A guard that did ask was
- * written first and deleted, because it could not change an answer.
+ * Reading runs rather than parts is also *tighter* where it differs, and
+ * correctly so: `'a' + 'b' + c` is `ab` followed by something unknown, so the
+ * chunk is the prefix `ab` where a per-operand reading gave a prefix `a` and a
+ * both-ends-open `b`. Both are safe; only one of them is the string.
+ *
+ * ## Known is a string and nothing else
+ *
+ * `literalText()` answers for a string literal and for a template with no
+ * interpolations, and for nothing else -- not a number, though `'p-' + 2` is
+ * `p-2` and folding it would be tighter still. Tighter is where a mistake
+ * *drops* a rule, so the conversions are left alone: an unknown part simply
+ * ends the run and opens its neighbours, which is the safe answer for every
+ * operand there is.
+ *
+ * ## A tagged template is not a concatenation
+ *
+ * Its value is whatever the tag returns, so folding an interpolation into the
+ * run would be asserting something about a function this has never seen. Its
+ * quasis are read as before -- each one a chunk, open where an interpolation
+ * sits beside it -- which is both the conservative reading and the one that
+ * makes a `ui` template's `class="p-2"` visible. Reading `` ui`p-${x}` `` as a
+ * run would turn the prefix `p-` into whatever `x` happens to be.
+ *
+ * A template with no interpolations has one quasi and no unknown parts, so it
+ * is one closed chunk whether it is tagged or not.
  *
  * A quasi is read **cooked**, and reading the raw text beside it was written
- * and deleted for the same reason. `String.raw` is the one tag whose value is
- * the raw text, and cooked and raw differ only where a backslash is -- so the
- * string such a template produces contains one, and no class name does. There
- * is no class a `String.raw` template can name that reading cooked misses.
+ * and deleted. `String.raw` is the one tag whose value is the raw text, and
+ * cooked and raw differ only where a backslash is -- so the string such a
+ * template produces contains one, and no class name does.
  *
  * @param program - The tree.
  * @param into - Where the evidence goes.
  */
 function collectLiterals(program: Node, into: Evidence): void {
-	/** Reads a list of things joined by `+`, in order, left to right. */
-	const joined = (operands: readonly (Node | undefined)[]): void => {
-		// the walk then descends and reads each of these literals *again*, as
-		// closed, which changes no answer and is why there is no bookkeeping here
-		// to stop it: a closed reading matches by equality and the open one it
-		// duplicates matches a superset of that, so the weaker reading is
-		// redundant rather than wrong. A `claimed` set that suppressed it was
-		// written first and deleted, because sabotaging it failed no test
-		for (const [at, operand] of operands.entries()) {
-			const value = operand && bare(operand);
-			if (value && isStringLiteral(value)) {
-				into.read({
-					openLeft: at > 0,
-					openRight: at < operands.length - 1,
-					text: String(value.value),
-				});
-			}
-		}
-	};
+	// the quasi of a tagged template, so that the `TemplateLiteral` branch can
+	// tell one from an ordinary template. Filled on the way past the tag, which
+	// the walk reaches first
+	const tagged = new Set<Node>();
 
 	walk(program, (node) => {
+		if (node.type === 'TaggedTemplateExpression') {
+			tagged.add(node.quasi as Node);
+			return true;
+		}
+
 		if (node.type === 'BinaryExpression' && node.operator === '+') {
-			joined(flatten(node));
+			readRuns(flatten(node).map(literalText), into);
 			return true;
 		}
 
@@ -429,33 +444,118 @@ function collectLiterals(program: Node, into: Evidence): void {
 		// left, so the literal is open on that side. What this does *not* reach
 		// is the other half of it -- `let c = 'text-'; c += colour`, where the
 		// literal is in a declaration and only a dataflow could say it was ever
-		// appended to. That is the documented unsound case rather than a fifth
-		// shape to add: the analysis reads where a literal *sits*, and this
-		// literal sits somewhere that says nothing
+		// appended to. That is the documented unsound case rather than a shape to
+		// add: this reads where a literal *sits*, and that one sits somewhere
+		// that says nothing
 		if (node.type === 'AssignmentExpression' && node.operator === '+=') {
-			joined([undefined, node.right as Node]);
+			readRuns([undefined, literalText(node.right as Node)], into);
 			return true;
 		}
 
 		if (node.type === 'TemplateLiteral') {
-			const { quasis } = node;
-
-			for (const [at, quasi] of quasis.entries()) {
-				into.read({
-					openLeft: at > 0,
-					openRight: at < quasis.length - 1,
-					text: quasi.value.cooked ?? quasi.value.raw,
-				});
-			}
+			readRuns(templateParts(node, tagged.has(node)), into);
 			return true;
 		}
 
+		// everything else a literal can be: an argument, a property value, a
+		// `case`, a JSX attribute. It stands alone, so it is closed. A literal
+		// that a branch above already read as part of a run is read again here,
+		// which changes no answer -- a closed reading matches by equality and the
+		// open one it duplicates matches a superset of it
 		if (isStringLiteral(node)) {
 			into.read({ openLeft: false, openRight: false, text: String(node.value) });
 		}
 
 		return true;
 	});
+}
+
+/**
+ * A template's parts, in order: quasi, expression, quasi, and so on.
+ *
+ * @param node - The template.
+ * @param isTagged - Whether a tag decides what it comes to.
+ * @returns One entry per part, `undefined` where the text is not known.
+ */
+function templateParts(node: Node, isTagged: boolean): (string | undefined)[] {
+	const template = node as unknown as {
+		expressions: Node[];
+		quasis: { value: { cooked?: string | null; raw: string } }[];
+	};
+	const parts: (string | undefined)[] = [];
+
+	for (const [at, quasi] of template.quasis.entries()) {
+		parts.push(quasi.value.cooked ?? quasi.value.raw);
+
+		const expression = template.expressions[at];
+		if (expression) {
+			parts.push(isTagged ? undefined : literalText(expression));
+		}
+	}
+
+	return parts;
+}
+
+/**
+ * Reads a sequence of parts, joining the runs of known ones.
+ *
+ * @param parts - The parts, `undefined` where the text is not known.
+ * @param into - Where the evidence goes.
+ */
+function readRuns(parts: readonly (string | undefined)[], into: Evidence): void {
+	let run: string[] = [];
+	// the first run starts at the start of the expression, where there is
+	// nothing to be open towards
+	let openLeft = false;
+
+	const flush = (openRight: boolean): void => {
+		if (run.length) {
+			into.read({ openLeft, openRight, text: run.join('') });
+		}
+		run = [];
+	};
+
+	for (const part of parts) {
+		if (part === undefined) {
+			flush(true);
+			openLeft = true;
+			continue;
+		}
+		run.push(part);
+	}
+
+	flush(false);
+}
+
+/**
+ * The string a node is, when it is one.
+ *
+ * @param node - The expression, wrappers and all.
+ * @returns Its text, or `undefined` when it is not a constant string.
+ */
+function literalText(node: Node | undefined): string | undefined {
+	if (!node) {
+		return undefined;
+	}
+
+	const inner = bare(node);
+
+	if (isStringLiteral(inner)) {
+		return String(inner.value);
+	}
+
+	// a template with no interpolations is a string written the other way, and
+	// missing that is what made `` `text-` + colour `` drop every `text-*` rule
+	const template = inner as unknown as {
+		expressions?: Node[];
+		quasis?: { value: { cooked?: string | null; raw: string } }[];
+	};
+	if (inner.type === 'TemplateLiteral' && template.expressions?.length === 0) {
+		const only = template.quasis?.[0];
+		return only ? (only.value.cooked ?? only.value.raw) : '';
+	}
+
+	return undefined;
 }
 
 /** Whether a node is a string literal, which oxc spells as a `Literal`. */

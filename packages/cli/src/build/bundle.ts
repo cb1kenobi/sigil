@@ -194,6 +194,20 @@ export interface BundleResult {
 	 * Reported for the reason `templates` is: "this app names twelve utilities"
 	 * and "the analysis found nothing and dropped 383 rules the app needed" look
 	 * identical from outside, and only one of them is what anybody wanted.
+	 *
+	 * It describes **the sheet this build produced for the calls it rewrote**,
+	 * which is a narrower claim than "this is what is in the bundle" and is worth
+	 * reading as the narrower one. Two things can part them, and neither is
+	 * detectable from here. A second call in a shape the matcher cannot claim --
+	 * `const { utilitySheet } = style` -- is left alone with the whole 383-rule
+	 * sheet behind it, so both sheets ship while the count names one; that is the
+	 * same silent miss the matcher documents everywhere else, seen from the
+	 * report's side. And a rewritten call that tree-shaking then drops takes its
+	 * sheet with it, so the count names one that is not there at all. Detecting
+	 * either means asking the written bundle whether a dropped rule survived in
+	 * it, which is a substring search that an app writing its own CSS can fool --
+	 * a false alarm about a correct build, which is the one thing this repository
+	 * will not print.
 	 */
 	readonly styles?: ShakenStyles;
 	/**

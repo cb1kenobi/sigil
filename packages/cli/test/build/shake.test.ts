@@ -124,6 +124,55 @@ describe('the class evidence', () => {
 		expect(evidenceOf(`let c = ''; c += '-red';`).mayName('text-red')).toBe(true);
 	});
 
+	it('should read a piece however the concatenation was spelled', () => {
+		// a string an app builds is a sequence of parts, and the two grammars that
+		// build one are the same sequence written differently. Each of these
+		// evaluates to `text-red` when `colour` is `red`, and each was read
+		// **closed** before a review round: a template where a string literal was
+		// expected, or a literal hidden inside an interpolation where nothing was
+		// looking. Every one of them dropped the rule
+		for (const source of [
+			'const c = `text-` + colour;',
+			'const c = colour + `-red`;',
+			'let c = ""; c += `-red`;',
+			'const c = `${`text-`}${colour}`;',
+			"const c = `${'text-'}${colour}`;",
+		]) {
+			expect(evidenceOf(source).mayName('text-red'), source).toBe(true);
+		}
+	});
+
+	it('should join a run of known parts rather than reading each alone', () => {
+		// `'te' + 'xt-' + colour` is `text-` followed by something unknown, so the
+		// chunk is the prefix `text-`. Read per operand it was a prefix `te` and a
+		// both-ends-open `xt-`, which keeps every rule containing `xt-` and is
+		// merely safe rather than true
+		const evidence = evidenceOf("const c = 'te' + 'xt-' + colour;");
+
+		expect(evidence.mayName('text-red')).toBe(true);
+		expect(evidence.mayName('context-red')).toBe(false);
+	});
+
+	it('should not fold an interpolation into a tagged template', () => {
+		// a tagged template's value is whatever the tag returns, so folding the
+		// interpolation in would assert something about a function this has never
+		// seen -- and it would turn the prefix the quasi gives into whatever the
+		// expression happened to be.
+		//
+		// The interpolation has to be a **literal** for this to ask anything: with
+		// an identifier in it there is nothing to fold either way, and the first
+		// version of this test used one and passed with the guard deleted
+		const evidence = evidenceOf(
+			'import { ui } from "@ttylabs/sigil/template";\n' +
+				'export const v = ui`<text class="text-${\'red\'}">x</text>`;'
+		);
+
+		expect(evidence.mayName('text-red')).toBe(true);
+		// folded, the run would be the whole `<text class="text-red">x</text>`
+		// closed, and every other `text-*` rule would go
+		expect(evidence.mayName('text-green')).toBe(true);
+	});
+
 	it('should only open a token that touches the open end', () => {
 		// the chunk is open on the right and the token is not, because the comma
 		// and the space sit between them. Without this every string in an app
@@ -452,6 +501,12 @@ describe('rewriting utilitySheet()', () => {
 			`import * as style from '@ttylabs/sigil/style';\nexport const s = style.parseStylesheet('');\n`,
 			// a computed member, which is the shape the `desc` lift also declines
 			`import * as style from '@ttylabs/sigil/style';\nexport const s = style['utilitySheet']();\n`,
+			// destructured off the namespace, which is the shape that leaves the
+			// whole 383-rule sheet in the bundle while the summary names the
+			// shaken one -- the report's own boundary, and it is declined here
+			// rather than claimed for the reason every miss is: loud and wrong is
+			// worse than quiet and right
+			`import * as style from '@ttylabs/sigil/style';\nconst { utilitySheet } = style;\nexport const s = utilitySheet();\n`,
 			// type-only, so it erases
 			`import type { utilitySheet } from '@ttylabs/sigil/style';\nexport const s = utilitySheet;\n`,
 		]) {

@@ -199,10 +199,16 @@ describe('sigil build', () => {
 	}, 60_000);
 
 	it('should render what the unshaken sheet does', async () => {
-		// the claim the whole analysis rests on, end to end and in both
-		// directions: the shaken build, the unshaken one, and the app run from
-		// source with the whole 383-rule sheet all paint the same bytes. A test
-		// that only compared the two builds would pass if the shake were a no-op
+		// the claim the whole analysis rests on: the shaken build, the unshaken
+		// one, and the app run from source with the whole 383-rule sheet all
+		// paint the same bytes.
+		//
+		// What this does *not* do is prove the shake happened. A no-op shake
+		// paints the full sheet, which is what all three paint, so all three
+		// still agree -- sabotaging `shakeUtilities()` to keep everything leaves
+		// this green. `should shake the utility sheet down to what the app can
+		// name` is the one that fails there, and the two are a pair: one says
+		// something was dropped and the other says nothing was lost by it
 		const plain = mkdtempSync(join(tmpdir(), 'sigil-build-plain-'));
 
 		try {

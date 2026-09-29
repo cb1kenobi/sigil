@@ -121,7 +121,17 @@ const build: AnyCommand = command({
 		// this app is always built with, and a flag says what this invocation
 		// wants. `--out` carries a `default:`, so what it holds when nobody
 		// passed it is that default rather than `undefined` -- which is why it is
-		// compared against rather than read for absence
+		// compared against rather than read for absence.
+		//
+		// The same imprecision is sharper for a **flag**, and it is worth saying
+		// rather than leaving to be found: a declared flag always has a value --
+		// `false`, or `true` when negated, never `undefined` -- so an explicit
+		// `--shake` is indistinguishable from the default and cannot beat a
+		// `"shake": false` in the file. `--no-shake` over a `"shake": true` works,
+		// which is the direction that matters, because off is the only thing
+		// either flag is offered for. Telling the two apart means re-reading argv
+		// for a spelling, which is a second parser disagreeing with the first over
+		// a case nobody has. `--sourcemap` is the same and always was.
 		const config = readSigilConfig(found.app.root).build ?? {};
 		const out = resolveOut(
 			found.app.root,

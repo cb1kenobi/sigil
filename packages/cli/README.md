@@ -52,7 +52,7 @@ otherwise the executable is named after the one it publishes.
 
 `shake` decides whether the utility stylesheet is cut down to the classes your
 source can actually name. It is on by default, it only affects an app that
-calls `utilitySheet()`, and the build says what it came to — `23 of 383 utility
+calls `utilitySheet()`, and the build says what it came to — `25 of 383 utility
 rules`. The analysis reads every string literal and template quasi in your own
 source, so `class="p-2"` and ``class={`text-${colour}`}`` are both seen: the
 first names one class, the second keeps every `text-*` rule. What it cannot see
