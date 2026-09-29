@@ -4313,13 +4313,25 @@ other is refused with numbers.
   works unbuilt, missing once built -- and what the build can do about it is
   say what it dropped rather than guess which drop was wrong.
 
-  The two deleted guards are worth recording because both read as load-bearing.
+  Four guards have been deleted here for failing a sabotage, and they are
+  recorded because every one of them read as load-bearing.
   A `claimed` set stopped a `+` chain's literals being read a second time as
   closed; sabotaging it failed no test, and it cannot, because a closed reading
   matches by equality while the open reading it duplicates matches a superset --
-  redundant rather than wrong. And a `resolve()` on the lookup side of the
-  exclusion was dead, because the walk starts at a resolved root and `join()`
-  normalizes. The `resolve()` on the _set_ side is real and is pinned.
+  redundant rather than wrong. A `resolve()` on the lookup side of the exclusion
+  was dead, because the walk starts at a resolved root and `join()` normalizes;
+  the one on the _set_ side is real and is pinned. A template with no
+  interpolations was asked how many expressions it had, which its single quasi
+  already answers. And a `sites` counter in `bundle.ts` decided whether to report
+  at all, which the shaker's own result already decides: the sheet is asked for
+  only after a call has been found, so a shaker that has a result rewrote at
+  least one site.
+
+  The one guard that survived a sabotage without failing a test and was **kept**
+  is `reachable()` in `shakeStyles()`, and it is kept because it is a fast path
+  rather than a claim: without it the walk runs and finds nothing, which is the
+  same answer, and the case it skips is the common one for this filter -- a
+  module importing `Cascade` or `declare` from the same place. It says so.
 
 - **The shaken sheet is regenerated, not printed.** `generateUtilities({ only })`
   filters the set the generator produced and prints it the way it always did, so

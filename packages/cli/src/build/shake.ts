@@ -638,6 +638,11 @@ export function shakeStyles(
 	const parsed = parseModule(file, source);
 	const bindings = importBindings(parsed, STYLE_MODULE, SHEET_EXPORT);
 
+	// a fast path rather than a correctness one, and worth having because it is
+	// the common case for this filter: a module that imports `Cascade` or
+	// `declare` from the same place reaches here and imports no `utilitySheet`.
+	// Without it the walk runs and finds nothing, which is the same answer --
+	// `templatesIn()` states its own the same way
 	if (!reachable(bindings)) {
 		return undefined;
 	}

@@ -236,7 +236,6 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 
 	const unresolved: string[] = [];
 	let templates = 0;
-	let sites = 0;
 
 	// worked out on the first module that turns out to call `utilitySheet()`,
 	// and never for an app that does not: the scan walks the app's source tree
@@ -403,7 +402,11 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 							return null;
 						}
 
-						sites += shaken.sites;
+						// `shaken.sites` is not added up here, and the counter that did
+						// was deleted: the sheet is asked for only once a call has been
+						// found, so a shaker that has a result is one that rewrote at
+						// least one site. Sabotage said so -- dropping the `&& sites`
+						// from the report failed no test, because it could not
 						return { code: shaken.code, map: shaken.map };
 					},
 				},
@@ -559,7 +562,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 			chunks,
 			external: [...external],
 			inlined: inlinedPackages(app.root, input, written.output),
-			styles: styleReport(shaker, sites),
+			styles: styleReport(shaker),
 			templates,
 		};
 	} finally {
@@ -794,13 +797,18 @@ function packageOf(from: string, cache: Map<string, string | undefined>): string
  * saying `383 utility rules kept` about it would describe a sheet that is not
  * there.
  *
+ * A shaker that *has* a result is one that rewrote at least one call, because
+ * the sheet is asked for only after a call has been found -- so there is
+ * nothing else to ask. A `sites` counter beside this said the same thing twice
+ * and was deleted, for the reason sabotage deletes anything here: dropping it
+ * failed no test, and it could not.
+ *
  * @param shaker - The shaker, or `undefined` when shaking is off.
- * @param sites - How many calls were rewritten.
  * @returns The report, or `undefined`.
  */
-function styleReport(shaker: Shaker | undefined, sites: number): ShakenStyles | undefined {
+function styleReport(shaker: Shaker | undefined): ShakenStyles | undefined {
 	const sheet: ShakenSheet | undefined = shaker?.result();
-	return sheet && sites ? { kept: sheet.kept, total: sheet.total } : undefined;
+	return sheet ? { kept: sheet.kept, total: sheet.total } : undefined;
 }
 
 /**
