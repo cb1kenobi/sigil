@@ -3511,7 +3511,10 @@ as default }` resolves the same way, since it is the same statement spelled
   `CONFIGURATION_FIELD_CONFLICT`, about `compilerOptions.jsx`, which the
   suppression above does not match because it is scoped to `jsxImportSource`, so
   that path would have printed a warning on every build of exactly the app it was
-  meant to fix.
+  meant to fix. Both halves are already pinned, which is the part worth knowing:
+  `should leave the rest of the JSX transform to the app` asserts that the bundle
+  contains `panel.tsx` **and** that no `CONFIGURATION_FIELD_CONFLICT` reached
+  stderr, so adding the option fails that one test twice.
 - **`jsx: "preserve"` is refused, and it is refused by _detecting_ it rather
   than by configuring it away.** It is the third door onto "the build reported
   success and the executable dies the first time it is used": rolldown obeys the
@@ -3553,14 +3556,21 @@ as default }` resolves the same way, since it is the same statement spelled
   And hunted for rather than only swept for, twice and independently -- 31
   candidate spellings here and a longer corpus in review round 1, cross-checked
   against `node --check`. Nothing node accepts is refused as `.mjs` and accepted
-  as `.jsx`: `a < b > c`, a regex holding `<`, a generic-looking call, a shebang,
-  top-level `await`, `import.meta`, `with`/`assert` import attributes,
-  `import defer`, decorators, `using`, a class static block, `#x in o`, `with`,
-  legacy octal, an HTML comment, duplicate parameters and a string containing
-  `<text>` all parse as both. The syntax that could have been the false positive
-  is TypeScript's -- `<const T,>` arrows and `<string>y` assertions -- and it
-  fails **both** parses, which is the conservative branch below; rolldown emits
-  none of it anyway.
+  as `.jsx`. Two groups, and the distinction is worth keeping. Accepted by node
+  and by both parses: `a < b > c`, a regex holding `<`, a comparison that looks
+  like a generic call, a shebang, top-level `await`, `import.meta`,
+  `with { type: "json" }`, `import defer`, `using`, a class static block,
+  `#x in o`, an empty chunk, a BOM, CRLF, an emoji string, a 50,000-statement
+  chunk and a string containing `<text>`. Accepted by both parses and refused by
+  `node --check`: `with`, legacy octal, duplicate parameters, `import ... assert`
+  and a decorator -- not flagged either, since the gate only fires when the
+  `.mjs` parse fails. The syntax that could have been the false positive is
+  TypeScript's -- `<const T,>` arrows and `<string>y` assertions -- and it fails
+  **both** parses, which is the conservative branch below; so does an HTML
+  comment, which the first version of this sentence wrongly filed under "parses
+  as both". rolldown emits none of it anyway, and review round 2 added the reason
+  that matters: a chunk is the output of oxc parsing and printing the app's own
+  modules, so anything rolldown could emit, rolldown has already parsed.
 - **A chunk that parses as neither is deliberately left alone.** Refusing it
   would be the false positive the ticket said is worse than the status quo:
   `oxc-parser` and the oxc inside rolldown are separately versioned, so a grammar
@@ -3571,10 +3581,17 @@ as default }` resolves the same way, since it is the same statement spelled
   a **cost** guard rather than a correctness one: the maps are the largest files
   in the output -- 288 kB of maps against 111 kB of chunks on the fixture, which
   is 399 kB together and was written down as the maps alone until review round 1
-  weighed them -- and reading them takes the pass from 2.33ms to 3.14ms. Establishing that the skip's only
-  observable effect is "the file is not opened" took two wrong tests -- one using
-  a sourcemap, which the conservative branch excludes anyway, and one using an
-  asset named `.jsx`, which parses as JSX on the first call.
+  weighed them -- and reading them takes the pass from 2.33ms to 3.14ms. Finding a test for it took three goes, and the
+  two rejected ones say where the line is. A sourcemap proves nothing, because the
+  conservative branch excludes it anyway. An asset named `.jsx` proves nothing,
+  because its own extension makes the first parse succeed. What is left is two
+  things the skip really does decide: an asset with no file behind it is not
+  **opened**, and an asset that is JSX under a name that is not -- `notes.map`
+  holding `const a = <text>x</text>;`, which is what an app shipping a template as
+  an asset looks like -- is not **reported**. The second is the one a
+  `try`/`catch` around the read could not fake, which is why both are asserted,
+  and it is why this is a cost guard for what rolldown emits rather than for
+  everything.
 - **What it does not catch is `jsx: "react"`, and that is the boundary rather
   than a gap.** That emits `React.createElement` and parses perfectly: a bundle
   that will not _run_ rather than one that will not _parse_. It is what this file

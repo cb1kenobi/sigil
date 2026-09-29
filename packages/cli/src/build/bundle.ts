@@ -304,8 +304,12 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 		// it does fix `preserve` and classic, and it silently costs
 		// `react-jsxdev` its dev runtime, which is a configuration this framework
 		// publishes a runtime for -- re-measured when `preserve` was closed, since
-		// this was the candidate for closing it, and the dev runtime's chunk still
-		// disappears the moment it is added. What `preserve` leaves behind is a
+		// this was the candidate for closing it, and the rejection holds. What the
+		// option takes away in **this** build is the `panel.tsx` string and the
+		// `fileName` property, not the `jsx-dev-runtime` chunk: minification is on,
+		// so that chunk is inlined and gone either way, and the string is the marker
+		// `test/fixtures/jsx-dev/` pins for exactly that reason. See `rawJsxIn()`
+		// below for the whole table. What `preserve` leaves behind is a
 		// bundle that keeps the JSX and dies with `Unexpected token '<'`, which is
 		// **refused** rather than honoured -- by `rawJsxIn()` below, which asks
 		// what was written rather than what the tsconfig said, so this stays one

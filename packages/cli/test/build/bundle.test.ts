@@ -654,15 +654,26 @@ describe('recognising JSX in what was written', () => {
 		expect(rawJsxIn(dir, [chunk('app.mjs', 'const = = ;\n')])).toBeUndefined();
 	});
 
-	it('should not read an asset at all', () => {
+	it('should not read an asset, and not report one that is JSX', () => {
 		// an asset is not a module, which is the line `escapeControls()` draws, and
-		// "is not read" is the only observable difference the skip makes -- which
-		// took two wrong tests to establish. A *sourcemap* fails both parses and
-		// falls into the conservative branch anyway, measured, so a test using one
-		// is green with the skip deleted. An asset named `.jsx` parses as JSX on
-		// the first call, so a test using one is green too. What the skip decides
-		// is whether the file is opened, so a name with no file behind it is what
-		// asks: without it this is an `ENOENT` rather than an answer
+		// finding a test for that took three goes. A *sourcemap* fails both parses
+		// and falls into the conservative branch anyway, measured, so a test using
+		// one is green with the skip deleted. An asset named `.jsx` parses as JSX on
+		// the first call, so a test using one is green too. What is left is the two
+		// things the skip really decides, and both are asserted because each covers
+		// what the other does not:
+		//
+		// an asset with no file behind it is never **opened** -- without the skip
+		// this is an `ENOENT` rather than an answer...
 		expect(rawJsxIn(dir, [{ fileName: 'nothing-here.map', type: 'asset' }])).toBeUndefined();
+
+		// ...and an asset that really is JSX under a name that is not is never
+		// **reported**, which is the half a `try`/`catch` around the read could
+		// otherwise fake. `notes.map` is what an app shipping a template as an asset
+		// looks like: the `.map` parse fails and the `.map.jsx` parse succeeds, so
+		// the discriminator would name it
+		writeFileSync(join(dir, 'notes.map'), 'const a = <text>x</text>;\n');
+
+		expect(rawJsxIn(dir, [{ fileName: 'notes.map', type: 'asset' }])).toBeUndefined();
 	});
 });
