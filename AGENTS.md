@@ -3548,31 +3548,62 @@ as default }` resolves the same way, since it is the same statement spelled
   strings carry `<box>`, `<text>` and `<raw>`, so a probe for `<text` reported
   JSX in bundles that had none, and `panel.tsx`'s doc comment carries the word
   `jsxDEV`, so a probe for that reported the dev transform in a bundle that had
-  preserved. What is asked instead is that a chunk does not parse under its own
-  name and **does** parse when the same source is offered as `.jsx` -- oxc reads
-  the language off the filename, which is what makes one source two questions.
-  Zero false positives over 114 chunks: every fixture's bundle, `packages/cli/dist`
-  and `packages/sigil/dist`, none of which returns an oxc entry of any severity.
-  And hunted for rather than only swept for, twice and independently -- 31
-  candidate spellings here and a longer corpus in review round 1, cross-checked
-  against `node --check`. Nothing node accepts is refused as `.mjs` and accepted
-  as `.jsx`. Two groups, and the distinction is worth keeping. Accepted by node
-  and by both parses: `a < b > c`, a regex holding `<`, a comparison that looks
-  like a generic call, a shebang, top-level `await`, `import.meta`,
+  preserved. What is asked instead is that the chunk's tree holds a `JSXElement`
+  or a `JSXFragment`, found by parsing with `lang: 'jsx'` and walking with the
+  repo's own `visitorKeys`-driven `walk()`.
+- **It asks the tree because a parse differential got it wrong, and the
+  differential's failure is the entry worth keeping.** The first version asked
+  whether the chunk fails under its own name and _parses_ when the same source is
+  offered as `.jsx`, on the reading that the extension moves one axis. It moves
+  **two**: oxc reads the _source type_ off the filename as well, so a `.mjs` is
+  always a module while a `.jsx` with no `import` or `export` in it is inferred a
+  **script** -- and a script may do things a module may not. Every module-only
+  error therefore read as "JSX must be why". Reported by the coordinator with an
+  Annex B HTML comment, which the build refused with a message naming `jsx` about
+  a file holding no JSX at all; hunting the class turned up four more shapes -- a
+  `-->` line, and `await` used as a variable, a class name or a label -- and
+  nobody had enumerated the set, which is the argument. A JSX **node** is the
+  thing the gate is entitled to say, so it says that instead of inferring it.
+- **Pinning the source type was the other candidate and it is a false-negative
+  machine.** It is the obvious tidy-up once the source type is known to be the
+  confounder, and `should still find JSX in a chunk a module is not allowed to be`
+  exists to stop somebody taking it: measured over 180 combinations of a name, a
+  body and a JSX element, pinning `sourceType: 'module'` on the JSX parse loses
+  the JSX in **50** of them -- every chunk that holds real JSX _and_ something a
+  module may not do, where the pinned parse fails before the walk can see
+  anything. The only job of that parse is to hand the walk a tree, so the
+  permissive reading is the right one. The same measurement says pinning the
+  _first_ parse changes no answer in any of the 180, so neither is pinned and
+  there is one mechanism rather than two masking each other -- which is what the
+  first attempt at this fix had, with each of the two sabotages passing because
+  the other guard covered it.
+- **The first parse is a cost filter, not half the answer.** It cannot change
+  what the gate reports, and that is a proof rather than a measurement: JSX is a
+  syntax error in JavaScript, so a chunk that parses under its own name cannot
+  hold a JSX node and the walk would find nothing. What it buys is that the
+  **AST is never deserialized on a build that is fine** -- measured, asking only
+  about the errors over 9 chunks is 2.0ms and touching `.program` as well is
+  9.9ms, which is why `parses()` and `parseTree()` are two functions. Deleting it
+  changes no answer and fails no test, which is what a filter should do and is
+  said here so the next reader does not take the silence for a gap.
+- **What makes the gate safe is structural, not the corpus.** A chunk is oxc's
+  own parse-and-print output of the app's modules, so anything rolldown could
+  emit, rolldown has already parsed -- which is why a chunk that parses as
+  neither JavaScript nor JSX can be left alone without that being a hole. The
+  corpus is corroboration and is worth keeping as such: zero false positives over
+  114 chunks (every fixture's bundle, `packages/cli/dist`, `packages/sigil/dist`),
+  and 37 hand-built spellings run against the shipped gate -- the coordinator's
+  nine, and `a < b > c`, a regex holding `<`, a comparison that looks like a
+  generic call, a shebang, top-level `await`, `import.meta`,
   `with { type: "json" }`, `import defer`, `using`, a class static block,
-  `#x in o`, an empty chunk, a BOM, CRLF, an emoji string, a 50,000-statement
-  chunk and a string containing `<text>`. Accepted by both parses and refused by
-  `node --check`: `with`, legacy octal, duplicate parameters, `import ... assert`
-  and a decorator -- not flagged either, since the gate only fires when the
-  `.mjs` parse fails. The syntax that could have been the false positive is
-  TypeScript's -- `<const T,>` arrows and `<string>y` assertions -- and it fails
-  **both** parses, which is the conservative branch below; so does an HTML
-  comment, which the first version of this sentence wrongly filed under "parses
-  as both". rolldown emits none of it anyway, and review round 2 added the reason
-  that matters: a chunk is the output of oxc parsing and printing the app's own
-  modules, so anything rolldown could emit, rolldown has already parsed.
-- **A chunk that parses as neither is deliberately left alone.** Refusing it
-  would be the false positive the ticket said is worse than the status quo:
+  `#x in o`, `with`, a decorator, an empty chunk, a BOM, CRLF, an emoji string, a
+  `<const T,>` arrow, a `<string>y` assertion, an IIFE, a lone sourcemap comment,
+  and the five module-only shapes above. Two of those spellings had been recorded
+  wrongly before, which is the other reason the structural argument leads now: an
+  HTML comment was filed under "parses as both" and does not parse as either.
+- **A chunk that parses as neither JavaScript nor JSX is deliberately left
+  alone.** Refusing it would be the false positive the ticket said is worse than
+  the status quo:
   `oxc-parser` and the oxc inside rolldown are separately versioned, so a grammar
   this one is behind on would read as a broken bundle and fail a build that works.
   What that gives up is the bundle nothing can parse for some other reason, which

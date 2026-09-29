@@ -647,11 +647,71 @@ describe('recognising JSX in what was written', () => {
 		).toBe('chunks/p.mjs');
 	});
 
+	it('should find a fragment, and one nested anywhere', () => {
+		// the walk is `visitorKeys`-driven rather than a list of node types, so a
+		// JSX element somewhere the shape of this file never anticipated is still
+		// found. A fragment is the other node kind, and `<></>` is what a component
+		// returning several children compiles from
+		expect(rawJsxIn(dir, [chunk('a.mjs', 'export const e = <></>;\n')])).toBe('a.mjs');
+		expect(
+			rawJsxIn(dir, [
+				chunk('b.mjs', 'export const f = () => ({ k: [0, () => (c ? <text>x</text> : null)] });\n'),
+			])
+		).toBe('b.mjs');
+	});
+
 	it('should leave a chunk that parses as neither alone', () => {
 		// not this failure, and refusing it would risk failing a build that works:
 		// `oxc-parser` and the oxc inside rolldown are separately versioned, so a
 		// grammar this one is behind on would read as a broken bundle
 		expect(rawJsxIn(dir, [chunk('app.mjs', 'const = = ;\n')])).toBeUndefined();
+	});
+
+	it('should not read a module-only syntax error as JSX', () => {
+		// the false positive the first version of this had, and the reason the
+		// answer is a JSX *node* rather than a parse differential. The extension
+		// moves two axes, not one: a `.mjs` is always a module while a `.jsx` with
+		// no `import` or `export` is inferred a **script**, and a script is allowed
+		// things a module is not -- so every module-only error read as "JSX must be
+		// why". Found by review with the Annex B HTML comment; the other four are
+		// what hunting the class turned up, and the class was never enumerated,
+		// which is the whole argument against inferring.
+		//
+		// Each of these is a chunk node genuinely cannot load, so the conservative
+		// answer is not that it is fine -- only that JSX is not why, and a message
+		// naming `jsx` would send the author somewhere there is nothing to find
+		for (const [label, code] of [
+			['an HTML comment', '<!-- c\nconsole.log(1);\n'],
+			['an HTML close comment', 'x = 1;\n-->\n'],
+			['await as a variable', 'var await = 1;\nconsole.log(await);\n'],
+			['await as a class name', 'class await {}\nnew await();\n'],
+			['await as a label', 'await: for (;;) break await;\n'],
+		] as const) {
+			expect(rawJsxIn(dir, [chunk('app.mjs', code)]), label).toBeUndefined();
+		}
+	});
+
+	it('should still find JSX in a chunk a module is not allowed to be', () => {
+		// the other half of the entry above, and the one that defends the decision
+		// *not* to pin `sourceType: 'module'` on the JSX parse. Pinning it is the
+		// obvious tidy-up once the source type is known to be the confounder, and it
+		// is a false-negative machine: measured over 180 combinations of a name, a
+		// body and a JSX element it loses the JSX in 50 -- every chunk that holds
+		// real JSX *and* something a module may not do, where the pinned parse fails
+		// before the walk can see anything.
+		//
+		// Both clauses are still right about these: node cannot load them, and JSX
+		// is genuinely why they will not parse as JavaScript
+		for (const [label, prefix] of [
+			['await as a variable', 'var await = 1;\n'],
+			['await as a label', 'await: for (;;) break await;\n'],
+			['an HTML comment', '<!-- c\n'],
+		] as const) {
+			expect(
+				rawJsxIn(dir, [chunk('app.mjs', `${prefix}const p = <text class="h">hi</text>;\n`)]),
+				label
+			).toBe('app.mjs');
+		}
 	});
 
 	it('should not read an asset, and not report one that is JSX', () => {

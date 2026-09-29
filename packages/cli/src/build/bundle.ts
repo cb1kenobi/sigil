@@ -34,9 +34,10 @@
 import { compileTemplates } from './compile-templates.ts';
 import { RUNTIME, type DiscoveredApp } from './discover.ts';
 import { generateBin } from './generate.ts';
-import { parses } from './parse-module.ts';
+import { parses, parseTree } from './parse-module.ts';
 import { TAG_MODULE } from './templates.ts';
 import type { ResolvedTree } from './tree.ts';
+import { walk } from './walk.ts';
 import { chmodSync, mkdirSync, readFileSync, rmSync, rmdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import type { Plugin } from 'rolldown';
@@ -479,7 +480,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
  * Detecting costs no tsconfig reader, contradicts nothing the app's own `tsc`
  * says, and answers for whatever else ever produces the same end state.
  *
- * ## The discriminator, and why it is not a search
+ * ## Two questions, each meaningful on its own
  *
  * Asked by **parsing**, not by looking for `<`. A regex over minified output is
  * the trap this ticket warned about and it fired twice while this was being
@@ -487,15 +488,42 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
  * and `panel.tsx`'s doc comment carries the word `jsxDEV`, so two different
  * substring probes reported JSX in bundles that had none.
  *
- * So: a chunk that does not parse under its own name, and **does** parse when
- * the same source is offered as `.jsx`, is a chunk holding JSX -- oxc reads the
- * language off the filename, which is what makes one source two questions. A
- * chunk that parses as neither is deliberately **left alone**: that is not this
+ * What decides the refusal is one thing: **is there a JSX element in the chunk**,
+ * asked by parsing the source with `lang: 'jsx'` and walking the tree for a
+ * `JSXElement` or a `JSXFragment`. Nothing is inferred from a verdict.
+ *
+ * The parse that comes first -- does the chunk parse as it stands -- is a **cost**
+ * filter and is worth reading as one, because it looks like half the answer and is
+ * not. It cannot change what this reports, and the reason is a proof rather than a
+ * measurement: JSX is a syntax error in JavaScript, so a chunk that parses under
+ * its own name cannot contain a JSX node, and the walk would find nothing. What it
+ * buys is that the **AST is never deserialized on a build that is fine**, which is
+ * the expensive half -- measured, asking only about the errors over 9 chunks is
+ * 2.0ms and touching `.program` as well is 9.9ms. Deleting it changes no answer
+ * and no test, which is exactly what a filter should do.
+ *
+ * The first version of this inferred the second clause from a **parse
+ * differential** -- fails under its own name, parses when offered as `.jsx` --
+ * and that was wrong, because the extension moves two axes rather than one: oxc
+ * reads the *source type* off it too. A `.mjs` is always a module while a `.jsx`
+ * with no `import` or `export` in it is inferred a **script**, and a script is
+ * allowed things a module is not. So every module-only error read as "JSX must be
+ * why". Found by review, with an Annex B HTML comment; hunting the class it
+ * belongs to turned up four more shapes -- a `-->` line, and `await` used as a
+ * variable, a class name or a label -- and nobody had enumerated the set, which is
+ * the actual argument against inferring rather than asking.
+ *
+ * Pinning the source type on both parses was the other candidate fix, and it is
+ * the one to know about because it looks strictly safer and is not: see `AS_JSX`,
+ * where it costs 50 of 180 measured combinations their JSX.
+ *
+ * A chunk that parses as neither is deliberately **left alone**: that is not this
  * failure, and refusing it would risk failing a build that works, since
  * `oxc-parser` and the oxc inside rolldown are separately versioned and a
- * grammar this one is behind on would read as a broken bundle. A false positive
- * here is worse than the status quo, which is what bounds it to the one thing it
- * can prove.
+ * grammar this one is behind on would read as a broken bundle. The structural
+ * reason that is safe is stronger than any corpus: a chunk is oxc's own
+ * parse-and-print output, so anything rolldown could emit, rolldown has already
+ * parsed.
  *
  * Measured: `preserve` on a `.tsx` is the **only** tsconfig `jsx` value that
  * leaves raw JSX behind -- `react-native`, which `tsc` also treats as
@@ -550,21 +578,73 @@ export function rawJsxIn(
 		const file = join(out, chunk.fileName);
 		const code = readFileSync(file, 'utf-8');
 
+		// the cost filter, not half the answer: a chunk that parses cannot hold a
+		// JSX node, so this only keeps the AST off the success path
 		if (parses(file, code)) {
 			continue;
 		}
-		// the extension is the only thing that differs, because the extension is
-		// the only thing oxc reads the language from. Written as an append rather
-		// than a substitution so that a chunk name this does not recognise still
-		// asks the question rather than silently asking it about `.mjs` twice
-		if (!parses(`${file}.jsx`, code)) {
-			continue;
+		// the whole of the answer, asked of the tree rather than of a verdict
+		if (hasJsx(file, code)) {
+			return chunk.fileName;
 		}
-
-		return chunk.fileName;
 	}
 
 	return undefined;
+}
+
+/**
+ * JSX admitted, and **nothing else pinned** -- the source type above all.
+ *
+ * Pinning `sourceType: 'module'` here is the obvious tidy-up and it is a
+ * false-negative machine: measured over 180 combinations of a name, a body and a
+ * JSX element, it loses the JSX in **50** of them. Every one is a chunk that
+ * holds real JSX *and* something a module may not do -- `await` as an identifier,
+ * a label or a class name, an Annex B HTML comment -- where the pinned parse
+ * fails before the walk can see anything. The only job of this parse is to hand
+ * the walk a tree, so the permissive reading is the right one; what the source
+ * type does or does not allow is the *first* clause's business, and it is asked
+ * there.
+ *
+ * The same measurement says pinning the first parse changes no answer in any of
+ * the 180, because a JSX node is the whole of what this reports and a source
+ * type cannot conjure one. So neither parse pins it, and there is one mechanism
+ * rather than two that mask each other.
+ */
+const AS_JSX = { lang: 'jsx' } as const;
+
+/**
+ * Whether a source holds a JSX element.
+ *
+ * Parsed with JSX admitted and walked for the node, rather than inferred from the
+ * parse succeeding: "it parses as JSX" is true of every ordinary JavaScript file
+ * there is, so it proves nothing on its own, and the differential that made it
+ * look like proof is the defect recorded above.
+ *
+ * `walk()` is the repo's own, driven by oxc's `visitorKeys`, so there is no
+ * second copy of the grammar here and a JSX element nested somewhere this file
+ * has never heard of is still found. It stops at the first one, since the
+ * question is whether there is any.
+ *
+ * @param file - Where it came from, for the language default the options override.
+ * @param source - The source.
+ * @returns Whether a `JSXElement` or `JSXFragment` is in it.
+ */
+function hasJsx(file: string, source: string): boolean {
+	const program = parseTree(file, source, AS_JSX);
+	if (!program) {
+		return false;
+	}
+
+	let found = false;
+	walk(program, (node) => {
+		if (node.type === 'JSXElement' || node.type === 'JSXFragment') {
+			found = true;
+		}
+
+		return !found;
+	});
+
+	return found;
 }
 
 /**
