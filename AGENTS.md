@@ -4369,6 +4369,44 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   published path guaranteed not to exist -- the same call `Command.file` got, for
   the same two reasons.
 
+  **The width is a claim about accident and is worth stating no wider.** Twelve
+  characters shipped first, and the review found the hole: 48 bits puts a birthday
+  search at 2^24, so twenty million paths turned up `/tmp/sigil-c-10001357` and
+  `/tmp/sigil-c-11986969` sharing `94e17cf76917` in about ten seconds -- and
+  building two trees into those two outputs put the same one in both bundles, which
+  is this defect back with two outputs that share no file at all. Sixteen puts that
+  search at 2^32, which is what makes "two real output directories cannot collide"
+  true; a pair built on purpose still can, at any width short of the whole digest,
+  and the whole digest is refused because this is a name somebody reads in a stack
+  trace and the failure it would close is somebody deliberately corrupting their own
+  build. The width is pinned by a test rather than left to the comment.
+
+  **Two edges are known and declined, both measured.** Two builds to _one_ `--out`
+  is the case the hash gives up, and it is also where the cleanup is unreliable:
+  two processes removing one directory means an `rmSync` can throw, and a swallowed
+  throw leaves it behind -- seen once in four runs, a few kB inside `node_modules`,
+  in a case whose bundle was already whichever process wrote last. And
+  `writeEntry()` runs _before_ the `try` that removes the directory, because
+  `rolldown()` needs the path as its `input`, so a rejection from `rolldown()`
+  itself would leak one. Not reachable through this build's options and the review
+  could not provoke it; the fix if it ever is would be to compute the path there
+  and write the file inside the `try`, since rolldown resolves `input` at write time
+  rather than at construction. A `.sigil` the user has replaced with a symlink
+  pointing outside the app is removed through the link, which is the same class
+  `undo()` documents and declines to close -- and such a build fails anyway, because
+  the entry's relative specifiers no longer reach the app.
+
+  **A rolldown virtual module is the design that has none of this, and it was
+  tried.** An id shaped like the path it would have had -- `resolveId`/`load`
+  returning `generateBin()`'s output, never writing a file -- builds, keeps the
+  shebang, and puts the same source in `sourcesContent`; a NUL-prefixed id does
+  not, because the relative specifiers need an id that looks like a path inside the
+  app. It drops the shared file, the collision and the cleanup together. What it
+  gives up is that during `bundle.write()` the entry is a real file somebody can
+  read, which is worth something while this is the layer being debugged, and it
+  reaches further than a bug fix should: it is the shape to take if this area is
+  opened again.
+
 - **`sigil build` empties its output directory, and refuses the one that would
   hurt.** A build that leaves the last one behind publishes the union of every
   build ever run there -- a renamed command's chunk stays, a removed one's

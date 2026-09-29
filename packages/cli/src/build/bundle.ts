@@ -798,12 +798,18 @@ function writeEntry(app: DiscoveredApp, tree: ResolvedTree, out: string): Genera
 	// the same property. It survived only because the toolchain builds with
 	// `--no-sourcemap`, which is luck rather than design.
 	//
-	// A hash of the resolved output is deterministic and still separates the builds
-	// that can actually corrupt each other, since those are the ones writing
-	// different bundles. What it does not separate is two builds of one app to one
-	// `--out`, which are already fighting over every file they write -- the entry
-	// is the least of what they would clobber -- so buying that case with
-	// reproducibility would be paying for the wrong thing.
+	// A hash of the resolved output is deterministic and separates any two outputs
+	// that do not collide, which real ones do not -- see `hash()` for why that is a
+	// claim about accident rather than about possibility, and for the measurement
+	// that made the first width wrong. What it does not separate is two builds of
+	// one app to one `--out`, which are already fighting over every file they
+	// write -- the entry is the least of what they would clobber -- so buying that
+	// case with reproducibility would be paying for the wrong thing. That case is
+	// also where the cleanup below is unreliable: two processes removing one
+	// directory means one of the two `rmSync` calls can throw, and a swallowed
+	// throw leaves it behind. Observed once in four runs, a few kB inside
+	// `node_modules`, in a case whose bundle was already whichever process wrote
+	// last.
 	const dir = join(app.root, WORK_DIR, hash(resolve(out)));
 	mkdirSync(dir, { recursive: true });
 
@@ -820,17 +826,31 @@ function writeEntry(app: DiscoveredApp, tree: ResolvedTree, out: string): Genera
 /**
  * A short, stable name for a path.
  *
- * Twelve hex characters of SHA-256, which is a directory name rather than a
- * security claim -- what it has to be is the same for the same output and
- * different for a different one, and a truncated digest is both. `node:crypto`
- * rather than a hand-rolled hash for the reason this package takes dependencies
- * at all: it is already there.
+ * Sixteen hex characters of SHA-256. It has to be the same for the same output
+ * and different for a different one, and a truncated digest is both -- but only
+ * up to a collision, and the width is the whole of what decides how near that
+ * is. Twelve was the first answer and is **not** enough to say what the entry
+ * above wants to say: 48 bits puts a birthday search at 2^24, and a search of
+ * twenty million paths found `/tmp/sigil-c-10001357` and `/tmp/sigil-c-11986969`
+ * sharing `94e17cf76917` in about ten seconds -- then built `two-trees` into both
+ * and got `onlyB` in each, which is this defect back with two outputs that share
+ * no file at all. Sixteen puts the same search at 2^32.
+ *
+ * What that buys is a guarantee about *accident*, and the claim is worth stating
+ * no wider than that: a pair of real output directories will not collide, and a
+ * pair constructed on purpose still can at any width short of the whole digest.
+ * The whole digest is not the answer because this is a directory name somebody
+ * reads in a stack trace, and the failure it would be closing is somebody
+ * deliberately corrupting their own build.
+ *
+ * `node:crypto` rather than a hand-rolled hash for the reason this package takes
+ * dependencies at all: it is already there.
  *
  * @param value - The path to name.
- * @returns Twelve hex characters.
+ * @returns Sixteen hex characters.
  */
 function hash(value: string): string {
-	return createHash('sha256').update(value).digest('hex').slice(0, 12);
+	return createHash('sha256').update(value).digest('hex').slice(0, 16);
 }
 
 /**

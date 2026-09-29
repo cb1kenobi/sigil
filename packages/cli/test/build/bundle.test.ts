@@ -207,6 +207,26 @@ describe('two builds of one app at once', () => {
 			expect(await entryPath(outB)).not.toStrictEqual(mapped);
 		}, 60_000);
 
+		it('should put the generated entry in the map at all', () => {
+			// the two assertions below compare what `entryPath()` found, and it finds
+			// it with `.find()`: if no source matched, the reproducibility one would
+			// be comparing `undefined` to `undefined` and pass. The pair catches that
+			// between them -- the per-output test is a `not` -- but a test that holds
+			// only because of its neighbour is one somebody deletes
+			expect(mapped).toBeDefined();
+			expect(mapped).toContain('entry.mjs');
+		});
+
+		it('should name it widely enough that two real outputs cannot collide', () => {
+			// the width is the claim, not decoration. Twelve hex characters shipped
+			// first and is 48 bits: a search of twenty million paths found
+			// `/tmp/sigil-c-10001357` and `/tmp/sigil-c-11986969` sharing
+			// `94e17cf76917` in about ten seconds, and building two trees into those
+			// two outputs put the same one in both bundles -- this defect back, with
+			// two outputs sharing no file. Sixteen puts that search at 2^32
+			expect(mapped).toMatch(/[/\\]\.sigil[/\\][0-9a-f]{16}[/\\]entry\.mjs$/);
+		});
+
 		it('should name the same directory for the same output, so a build is reproducible', async () => {
 			// a random name closes the defect too -- `mkdtempSync` was the first
 			// version -- and costs this: the name reaches the sourcemap, so two
