@@ -4,7 +4,14 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "inputs": ["src/**", "scripts/**", "tsdown.config.ts", "tsconfig*.json", "package.json"],
+      "inputs": [
+        "src/**",
+        "scripts/**",
+        "sigil.json",
+        "tsdown.config.ts",
+        "tsconfig*.json",
+        "package.json"
+      ],
       "outputs": ["dist/**", "registry/**"]
     },
     "ncu": {},

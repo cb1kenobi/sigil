@@ -1,0 +1,10 @@
+{
+  "name": "@ttylabs/demos",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Runnable examples, a workspace member so that they import @ttylabs/sigil by name",
+  "type": "module",
+  "dependencies": {
+    "@ttylabs/sigil": "workspace:*"
+  }
+}

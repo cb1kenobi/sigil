@@ -347,6 +347,7 @@ describe('@ttylabs/cli', () => {
 	describe('pinned dependencies', () => {
 		const manifests = [
 			'package.json',
+			'demos/package.json',
 			'packages/sigil/package.json',
 			'packages/cli/package.json',
 			'website/package.json',
@@ -361,7 +362,7 @@ describe('@ttylabs/cli', () => {
 		it('should find every manifest it means to check', () => {
 			// a path that stopped resolving would pass this suite by checking
 			// nothing, which is the failure mode a list of paths has
-			expect(manifests).toHaveLength(4);
+			expect(manifests).toHaveLength(5);
 			for (const { json, path } of manifests) {
 				expect(json.name, `${path} has no name`).toBeDefined();
 			}
@@ -514,6 +515,247 @@ describe('@ttylabs/cli', () => {
 			for (const script of filtered) {
 				expect(rootPkg.scripts[script]).toMatch(/^turbo run build .*&& vitest/);
 			}
+		});
+	});
+
+	/**
+	 * What `turbo run build` actually hashes, read off turbo rather than inferred
+	 * from `turbo.json`.
+	 *
+	 * `inputs` on the root `build` task names `src/**`, `scripts/**` and the
+	 * configs and no `test/**`, and it is exhaustive -- `inputs` replaces turbo's
+	 * default rather than adding to it, which the dry-run's resolved file list
+	 * confirms. The build hash moved on a test edit anyway, because the task's own
+	 * file list is only half of a task hash: turbo adds a *global* hash to every
+	 * task, and `inputs` narrows nothing about that. A `workspace:` dependency in
+	 * the **root** manifest makes that package a root internal dependency, and
+	 * turbo folds every file of it -- tests, README, docs, untracked scratch files
+	 * -- into `globalCacheInputs.hashOfInternalDependencies`. The root declared both
+	 * published packages, so appending one comment to
+	 * `packages/cli/test/output-forms.test.ts` moved `@ttylabs/cli#build`,
+	 * `@ttylabs/sigil#build` *and* `website#build` together, on turbo 2.11.4 --
+	 * which is why a `packages/cli/test/` edit rebuilt a package that does not
+	 * depend on `@ttylabs/cli` at all. `demos/` declares the dependency now, so
+	 * the root declares none and the global hash carries no package contents.
+	 *
+	 * Turbo's own report is what is asserted rather than the manifest alone,
+	 * because the manifest is the cause and this is the effect: turbo already has
+	 * two ways to put a file in the global hash -- `globalDependencies` and this
+	 * one -- and a check that only reads `package.json` would go on passing
+	 * through a third.
+	 */
+	describe('the build hash', () => {
+		const published = ['@ttylabs/sigil#build', '@ttylabs/cli#build'];
+
+		/**
+		 * What each package's build command reads that is not under `src/**`,
+		 * written out rather than derived from the command.
+		 *
+		 * This is the half the global hash was hiding. `@ttylabs/cli`'s build is
+		 * `node src/sigil.ts build`, which reads `sigil.json` for `external` and
+		 * `sourcemap` -- and that file was in no input list, so it rode into the
+		 * hash only as one more file of a root internal dependency. Take that away
+		 * and one cache key names two different bundles: flipping `sourcemap` left
+		 * `@ttylabs/cli#build` where it was, a forced build at that hash wrote ten
+		 * `.map` files where there had been none, and restoring from the cache
+		 * afterwards handed back sourcemaps for a config that says no.
+		 *
+		 * So a file a build reads and the hash does not name is a stale `dist/`
+		 * nobody can see, which is the `registry/**` incident in its other form --
+		 * and the list is spelled out for the reason the toolchain's dependencies
+		 * are: adding one is then an edit somebody makes on purpose.
+		 */
+		const reads: Record<string, string[]> = {
+			'@ttylabs/cli#build': ['package.json', 'sigil.json', 'tsconfig.json', 'vitest.config.ts'],
+			'@ttylabs/sigil#build': [
+				'package.json',
+				'scripts/generate-registry.mjs',
+				'tsconfig.build.json',
+				'tsconfig.json',
+				'tsdown.config.ts',
+			],
+		};
+
+		interface DryRun {
+			globalCacheInputs: { hashOfInternalDependencies?: string };
+			tasks: {
+				inputs: Record<string, string>;
+				resolvedTaskDefinition: { inputs: string[]; outputs: string[] };
+				taskId: string;
+			}[];
+		}
+
+		let answer: DryRun | Error | undefined;
+
+		/**
+		 * Asked once and memoised, failure included, rather than at collection
+		 * time: turbo failing to run is then a handful of failed tests with the
+		 * reason in each instead of a whole file that would not load, and it is one
+		 * spawn either way. Every test below but the manifest one goes through here,
+		 * so a broken turbo fails five of them.
+		 *
+		 * The binary is run as `node <turbo/bin/turbo>` rather than through
+		 * `node_modules/.bin`, because that file is a plain Node script behind a
+		 * shebang and a shebang is not how anything starts on Windows -- the same
+		 * rule the type check already follows for `bin/tsc`. Its stdout is the JSON
+		 * and nothing else; turbo's first-run telemetry notice goes to stderr.
+		 */
+		function dryRun(): DryRun {
+			if (!answer) {
+				const repo = resolve(root, '../..');
+				const result = spawnSync(
+					process.execPath,
+					[resolve(repo, 'node_modules/turbo/bin/turbo'), 'run', 'build', '--dry-run=json'],
+					{ cwd: repo, encoding: 'utf-8' }
+				);
+				answer =
+					result.status === 0
+						? (JSON.parse(result.stdout) as DryRun)
+						: new Error(`turbo --dry-run failed: ${result.stderr || result.stdout}`);
+			}
+			if (answer instanceof Error) {
+				throw answer;
+			}
+			return answer;
+		}
+
+		function task(taskId: string) {
+			const dry = dryRun();
+			const found = dry.tasks.find((entry) => entry.taskId === taskId);
+			if (!found) {
+				throw new Error(
+					`turbo reported no ${taskId}; it reported ${dry.tasks.map((t) => t.taskId).join(', ')}`
+				);
+			}
+			return found;
+		}
+
+		/** The files a task hashes, forward-slashed. */
+		function hashed(taskId: string): string[] {
+			return Object.keys(task(taskId).inputs).map((path) => path.replaceAll('\\', '/'));
+		}
+
+		it('should report the tasks and the field this suite means to check', () => {
+			// a taskId that stopped resolving would pass the rest of this block by
+			// checking nothing, which is the failure mode a list of names has
+			for (const taskId of published) {
+				expect(hashed(taskId).length).toBeGreaterThan(10);
+			}
+
+			// and the `reads` table is the only oracle the assertion below has, so a
+			// package quietly dropping out of it passes by checking nothing too
+			expect(Object.keys(reads).sort()).toStrictEqual([...published].sort());
+
+			// the field below is asked about by name, so a turbo that renamed or
+			// dropped it would read as `undefined`, compare equal to the empty string,
+			// and pass forever. Presence is the half that cannot be inferred from the
+			// value: turbo 2.11.4 reports the key with `""` in it rather than omitting
+			// it when the root package has no internal dependency
+			expect(
+				Object.hasOwn(dryRun().globalCacheInputs, 'hashOfInternalDependencies'),
+				'turbo no longer reports hashOfInternalDependencies; the assertion below is vacuous'
+			).toBe(true);
+		});
+
+		it('should fold no package contents into the global hash', () => {
+			// turbo 2.11.4 writes `""` when the root package has no internal
+			// dependency; an absent field would say the same thing
+			expect(dryRun().globalCacheInputs.hashOfInternalDependencies ?? '').toBe('');
+		});
+
+		it('should keep the root manifest free of workspace dependencies', () => {
+			// the cause, named separately so that the failure says what to do rather
+			// than only that a hash moved. A consumer at the repository root --
+			// `demos/`, which imports `@ttylabs/sigil` by name -- declares it in its
+			// own manifest as a workspace member instead
+			const manifest = JSON.parse(readFileSync(resolve(root, '../../package.json'), 'utf-8')) as {
+				dependencies?: Record<string, string>;
+				devDependencies?: Record<string, string>;
+			};
+			const linked = [
+				...Object.entries(manifest.dependencies ?? {}),
+				...Object.entries(manifest.devDependencies ?? {}),
+			]
+				.filter(([, spec]) => spec.startsWith('workspace:'))
+				.map(([name]) => name);
+
+			expect(linked).toStrictEqual([]);
+		});
+
+		it("should hash no test file into @ttylabs/sigil's build", () => {
+			// its build is `tsdown -c tsdown.config.ts` over `tsconfig.build.json`,
+			// whose `include` is `./src`, and then a generator that reads
+			// `src/components/`. Nothing in it opens a test file, which a tracer over
+			// `fs.readFileSync` confirms, so a test edit there is a cache hit
+			const tests = hashed('@ttylabs/sigil#build').filter((path) => path.startsWith('test/'));
+			expect(tests).toStrictEqual([]);
+		});
+
+		it("should hash the tests into @ttylabs/cli's build, because its build reads them", () => {
+			// and this one is the opposite, which took a second review round to see.
+			// `@ttylabs/cli`'s build is `node src/sigil.ts build` -- the toolchain
+			// building itself -- and `sigil build` type-checks the app with the app's
+			// own `tsconfig.json`, deliberately, so that a build agrees with what CI
+			// runs. That config's `include` is `./src`, `./test` and
+			// `./vitest.config.ts`. So a type error in a *test* fails this package's
+			// real build, and while `test/**` was out of the hash turbo answered
+			// `FULL TURBO` and exited 0 over a `node src/sigil.ts build` that exited
+			// 1 -- a build reported successful that cannot succeed.
+			//
+			// Nothing can make that untrue while the gate is the app's own `tsc`, so
+			// `packages/cli/turbo.json` says so rather than the hash pretending
+			// otherwise. It costs `@ttylabs/cli` a rebuild per test edit and leaves
+			// `@ttylabs/sigil` and the website hits, which is exactly what each one
+			// reads.
+			const inputs = hashed('@ttylabs/cli#build');
+			expect(inputs.filter((path) => path.startsWith('test/')).length).toBeGreaterThan(20);
+			expect(inputs).toContain('vitest.config.ts');
+		});
+
+		it('should hash every file a build command reads', () => {
+			for (const [taskId, files] of Object.entries(reads)) {
+				const inputs = hashed(taskId);
+				for (const file of files) {
+					expect(inputs, `${taskId} does not hash ${file}, which its build reads`).toContain(file);
+				}
+			}
+		});
+
+		it('should let no package override drop a root build input', () => {
+			// `inputs` replaces rather than extends -- the rule this whole block is
+			// about -- so `packages/cli/turbo.json` has to repeat the root's list to
+			// add `test/**` to it, and a root entry added later would be silently
+			// missing from the package that overrode it. That is the one drift this
+			// arrangement can produce, so it is the one thing asserted about it
+			const rootConfig = JSON.parse(readFileSync(resolve(root, '../../turbo.json'), 'utf-8')) as {
+				tasks: { build: { inputs: string[] } };
+			};
+
+			expect(rootConfig.tasks.build.inputs.length).toBeGreaterThan(3);
+
+			for (const taskId of published) {
+				const resolved = task(taskId).resolvedTaskDefinition.inputs;
+				for (const pattern of rootConfig.tasks.build.inputs) {
+					expect(resolved, `${taskId} drops the root input ${pattern}`).toContain(pattern);
+				}
+			}
+		});
+
+		it('should still capture every directory a build writes', () => {
+			// the recorded `registry/**` incident: `@ttylabs/sigil`'s build ends in
+			// `node scripts/generate-registry.mjs`, so `registry/` has to be in
+			// `outputs` or a cache hit restores `dist/`, replays the generator's own
+			// success line, and leaves no `registry/` for `sigil add` to copy. Read
+			// off the *resolved* definition rather than `turbo.json`, so that a
+			// package overriding the task -- as the website and `packages/cli` both do
+			// -- is checked as it will run, and `outputs` is inherited per key rather
+			// than repeated in either override
+			for (const taskId of published) {
+				const outputs = task(taskId).resolvedTaskDefinition.outputs;
+				expect(outputs, `${taskId} captures no dist/`).toContain('dist/**');
+				expect(outputs, `${taskId} captures no registry/`).toContain('registry/**');
+			}
+			expect(task('@ttylabs/sigil#build').resolvedTaskDefinition.inputs).toContain('scripts/**');
 		});
 	});
 
