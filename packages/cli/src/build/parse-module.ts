@@ -199,3 +199,43 @@ export function position(source: string, offset: number): Position {
 export function formatPosition(at: Position): string {
 	return `${at.line}:${at.column}`;
 }
+
+/**
+ * The extensions `parseModule()` can read, which is what decides whether a
+ * module is worth asking anything about.
+ *
+ * Two passes read it and it is one rule: the bundler's `transform` filter, and
+ * the walk that scans an app's own source for the classes it can name. A third
+ * spelling of "which files hold source" is a third answer.
+ *
+ * Everything else rolldown hands a `transform` -- JSON, a `.node` binding, a
+ * virtual module some plugin invented -- is not JavaScript this can parse, and
+ * asking anyway would turn a build into a parse error about a file nobody wrote.
+ *
+ * The `x` is not decoration. oxc reads the language off the *filename*, so a
+ * `.tsx` parses with JSX enabled and a `.ts` does not -- which is why the
+ * extension is the right thing to gate on and why leaving `.tsx` out was a
+ * silent miss rather than a safe one: a `ui` template in a `.tsx` compiles
+ * perfectly well through `compileTemplates()`, and the plugin simply never
+ * asked. Left out, such a module was bundled with its template interpreted, the
+ * count omitted the template, and the parser stayed in the bundle with nothing
+ * saying so. JSX being the canonical syntax is exactly what makes a `.tsx` a
+ * likely place to find the tag: the two live side by side in one app.
+ *
+ * Spelled as two alternatives rather than as one `x?`, because the eight real
+ * extensions are not a product: there is no `.mtsx` or `.cjsx`, and oxc does not
+ * read either as JSX -- so `[cm]?[jt]sx?` admitted four spellings that then parse
+ * a JSX element as a syntax error. Harmless, since rolldown's own parser refuses
+ * them identically, and still four ids crossing into JavaScript for nothing.
+ *
+ * Exported for the reason `candidates()` in `which.ts` is: what it admits is
+ * worth asserting directly rather than through a bundler, and the invariant that
+ * matters is a relation between two things -- every extension
+ * `compileTemplates()` can read has to be one this admits, or the gap is a
+ * template nobody compiles and nobody is told about.
+ *
+ * It lives here rather than beside the bundler because it is a fact about what
+ * `parseModule()` reads, and because the scan in `shake.ts` needs it without
+ * needing rolldown.
+ */
+export const MODULE_RE: RegExp = /\.(?:[cm]?[jt]s|[jt]sx)$/;

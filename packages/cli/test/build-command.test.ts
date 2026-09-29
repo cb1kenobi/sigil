@@ -55,6 +55,14 @@ async function sigil(...argv: string[]) {
 	return { err: chunks.err.join(''), out: chunks.out.join('') };
 }
 
+/** Every `.mjs` the build wrote, joined -- the bundle's code and not its maps. */
+function bundledCode(dir: string): string {
+	return readdirSync(dir, { recursive: true, withFileTypes: true })
+		.filter((entry) => entry.isFile() && entry.name.endsWith('.mjs'))
+		.map((entry) => readFileSync(join(entry.parentPath, entry.name), 'utf-8'))
+		.join('');
+}
+
 /**
  * `sigil build` as a command, which is the half `bundle.test.ts` does not
  * cover: what it refuses, and what it says about what it made.
@@ -93,10 +101,7 @@ describe('sigil build', () => {
 
 		expect(err).toContain('1 template');
 
-		const bundled = readdirSync(out, { recursive: true, withFileTypes: true })
-			.filter((entry) => entry.isFile() && entry.name.endsWith('.mjs'))
-			.map((entry) => readFileSync(join(entry.parentPath, entry.name), 'utf-8'))
-			.join('');
+		const bundled = bundledCode(out);
 
 		expect(bundled).not.toContain('A template produces exactly one element');
 		expect(bundled).not.toContain('ui`');
@@ -123,10 +128,7 @@ describe('sigil build', () => {
 		expect(built.status, built.stderr).toBe(0);
 		expect(built.stdout).toContain('a template from a .tsx');
 
-		const bundled = readdirSync(out, { recursive: true, withFileTypes: true })
-			.filter((entry) => entry.isFile() && entry.name.endsWith('.mjs'))
-			.map((entry) => readFileSync(join(entry.parentPath, entry.name), 'utf-8'))
-			.join('');
+		const bundled = bundledCode(out);
 
 		expect(bundled).not.toContain('A template produces exactly one element');
 	}, 60_000);
@@ -151,10 +153,7 @@ describe('sigil build', () => {
 		expect(err).not.toContain('CONFIGURATION_FIELD_CONFLICT');
 		expect(process.exitCode).toBeFalsy();
 
-		const bundled = readdirSync(out, { recursive: true, withFileTypes: true })
-			.filter((entry) => entry.isFile() && entry.name.endsWith('.mjs'))
-			.map((entry) => readFileSync(join(entry.parentPath, entry.name), 'utf-8'))
-			.join('');
+		const bundled = bundledCode(out);
 
 		expect(bundled).toContain('panel.tsx');
 
@@ -186,6 +185,98 @@ describe('sigil build', () => {
 		expect(source.status, source.stderr).toBe(0);
 		expect(built.stdout).toContain('Hello, Ada!');
 		expect(built.stdout).toBe(source.stdout);
+	}, 60_000);
+
+	it('should shake the utility sheet down to what the app can name', async () => {
+		// the payoff, asserted the way the template one is: the sheet an app names
+		// a dozen rules of leaves the bundle rather than being replaced in it, so
+		// the marker is a rule the fixture cannot possibly name
+		const { err } = await sigil('build', join(fixtures, 'styled'), '--out', out);
+
+		expect(err).toMatch(/\d+ of 383 utility rules/);
+		expect(err).not.toContain('383 of 383');
+		expect(bundledCode(out)).not.toContain('justify-around');
+	}, 60_000);
+
+	it('should render what the unshaken sheet does', async () => {
+		// the claim the whole analysis rests on, end to end and in both
+		// directions: the shaken build, the unshaken one, and the app run from
+		// source with the whole 383-rule sheet all paint the same bytes. A test
+		// that only compared the two builds would pass if the shake were a no-op
+		const plain = mkdtempSync(join(tmpdir(), 'sigil-build-plain-'));
+
+		try {
+			await sigil('build', join(fixtures, 'styled'), '--out', out);
+			await sigil('build', join(fixtures, 'styled'), '--out', plain, '--no-shake');
+
+			const shaken = spawnSync(process.execPath, [join(out, 'styled.mjs'), 'panel'], {
+				encoding: 'utf-8',
+			});
+			const whole = spawnSync(process.execPath, [join(plain, 'styled.mjs'), 'panel'], {
+				encoding: 'utf-8',
+			});
+			const source = spawnSync(process.execPath, [join(fixtures, 'styled', 'dev.ts'), 'panel'], {
+				encoding: 'utf-8',
+			});
+
+			expect(shaken.status, shaken.stderr).toBe(0);
+			// the fixture draws a border, a padded column, a bold red and a cyan,
+			// so a sheet that failed to apply at all would be a blank comparison
+			// that three identical empties would satisfy
+			expect(shaken.stdout).toContain('┌');
+			expect(shaken.stdout).toBe(whole.stdout);
+			expect(shaken.stdout).toBe(source.stdout);
+		} finally {
+			rmSync(plain, { force: true, recursive: true });
+		}
+	}, 120_000);
+
+	it('should keep what sigil.json safelists', async () => {
+		// the escape hatch, end to end: the scan is evidence rather than proof, so
+		// a class assembled out of values that never appear as literals leaves
+		// nothing behind -- and this is the only way to say it anyway. Written
+		// into the fixture rather than given a fixture of its own, because what is
+		// being asserted is that the config reaches the shake at all
+		const config = join(fixtures, 'styled', 'sigil.json');
+		writeFileSync(config, JSON.stringify({ build: { safelist: ['justify-around'] } }));
+
+		try {
+			const { err } = await sigil('build', join(fixtures, 'styled'), '--out', out);
+
+			expect(err).toMatch(/\d+ of 383 utility rules/);
+			expect(bundledCode(out)).toContain('justify-around');
+		} finally {
+			rmSync(config, { force: true });
+		}
+	}, 60_000);
+
+	it('should keep every rule under --no-shake, and say so', async () => {
+		// the opposite of the above and the reason the count is in the summary at
+		// all: "this app names twelve utilities" and "the analysis found nothing"
+		// look identical from outside unless the build says which
+		const { err } = await sigil('build', join(fixtures, 'styled'), '--out', out, '--no-shake');
+
+		expect(err).not.toMatch(/utility rules/);
+		expect(bundledCode(out)).toContain('justify-around');
+	}, 60_000);
+
+	it('should say nothing about utilities for an app that names no sheet', async () => {
+		// `undefined` rather than `383 of 383`, because an app that never called
+		// `utilitySheet()` has no utility sheet in its bundle and a line about one
+		// would describe something that is not there
+		const { err } = await sigil('build', join(fixtures, 'buildable'), '--out', out);
+
+		expect(err).not.toContain('utility rules');
+	}, 60_000);
+
+	it('should say what it inlined, which is what the app’s own imports cost', async () => {
+		// the zero-dependency promise is about what *sigil* adds; everything an
+		// app imports is in the executable, and a build that says nothing about it
+		// has told the author nothing they could act on
+		const { out: stdout } = await sigil('build', join(fixtures, 'buildable'), '--out', out);
+
+		expect(stdout).toContain('Inlined');
+		expect(stdout).toMatch(/@ttylabs\/sigil\s+\d+\.\d+ kB/);
 	}, 60_000);
 
 	it('should take a name for the executable', async () => {

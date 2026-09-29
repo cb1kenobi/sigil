@@ -34,13 +34,14 @@
 import { compileTemplates } from './compile-templates.ts';
 import { RUNTIME, type DiscoveredApp } from './discover.ts';
 import { generateBin } from './generate.ts';
-import { parses, parseTree } from './parse-module.ts';
+import { MODULE_RE, parses, parseTree } from './parse-module.ts';
+import { createShaker, STYLE_MODULE, shakeStyles, type ShakenSheet, type Shaker } from './shake.ts';
 import { TAG_MODULE } from './templates.ts';
 import type { ResolvedTree } from './tree.ts';
 import { walk } from './walk.ts';
 import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, rmSync, rmdirSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import type { Plugin } from 'rolldown';
 
 /**
@@ -105,6 +106,21 @@ export interface BundleOptions {
 	/** Where the bundle goes. */
 	readonly out: string;
 	/**
+	 * Utility classes the shake keeps whatever the app's source says.
+	 *
+	 * Ignored when `shake` is off, for the reason a flag that only matters
+	 * beside another flag is confusing rather than clever: there is nothing for
+	 * a safelist to be an exception to once nothing is being dropped.
+	 */
+	readonly safelist?: readonly string[];
+	/**
+	 * Whether to shake the utility sheet. On by default.
+	 *
+	 * See `shake.ts` for what that means and for why it is only the utility
+	 * sheet.
+	 */
+	readonly shake?: boolean;
+	/**
 	 * Whether to write sourcemaps. On by default.
 	 *
 	 * The first thing anybody debugging a built app wants, and nothing to
@@ -128,6 +144,24 @@ export interface BuiltChunk {
 	readonly size: number;
 }
 
+/** One package the bundle inlined, and what it came to. */
+export interface InlinedPackage {
+	/** How many bytes of the rendered output came from it. */
+	readonly bytes: number;
+	/** What the package calls itself. */
+	readonly name: string;
+}
+
+/** What shaking the utility sheet came to. */
+export interface ShakenStyles {
+	/** How many utilities survived. */
+	readonly kept: number;
+	/** How many `utilitySheet()` calls were rewritten. */
+	readonly sites: number;
+	/** How many utilities there were. */
+	readonly total: number;
+}
+
 /** What the build produced. */
 export interface BundleResult {
 	/** The executable, as an absolute path. */
@@ -136,11 +170,34 @@ export interface BundleResult {
 	readonly chunks: readonly BuiltChunk[];
 	/** What was left as an import rather than inlined, in the order given. */
 	readonly external: readonly string[];
+	/**
+	 * Every package whose code went into the bundle, largest first.
+	 *
+	 * The zero-dependency promise is about what *sigil* adds, and this is the
+	 * other half of saying it honestly: an app that imports something is
+	 * bundling it, and a build that silently inlines two megabytes of somebody
+	 * else's library has told the author nothing. `@ttylabs/sigil` is in the
+	 * list like any other, because what the runtime costs is exactly as worth
+	 * knowing as what a dependency costs.
+	 *
+	 * The bytes are before minification; see `inlinedPackages()` for why that
+	 * is the only per-package figure there is.
+	 */
+	readonly inlined: readonly InlinedPackage[];
 	// there is no `generated` here any more. It handed back the path of the
 	// generated entry, nothing in either package ever read it, and the per-build
 	// directory is removed before this result is returned -- so keeping it would
 	// mean publishing a path that is guaranteed not to exist. That is the same
 	// call `Command.file` got, for the same two reasons: unread, and wrong.
+	/**
+	 * What shaking the utility sheet came to, or `undefined` when nothing in the
+	 * app called `utilitySheet()` -- which is most apps, since it is opt-in.
+	 *
+	 * Reported for the reason `templates` is: "this app names twelve utilities"
+	 * and "the analysis found nothing and dropped 383 rules the app needed" look
+	 * identical from outside, and only one of them is what anybody wanted.
+	 */
+	readonly styles?: ShakenStyles;
 	/**
 	 * How many `ui` templates were compiled.
 	 *
@@ -158,40 +215,18 @@ export interface BundleResult {
  * @param options - The app, the tree, and where the output goes.
  * @returns What it wrote.
  */
-/**
- * The extensions `parseModule()` can read, which is what decides whether a
- * module is worth asking about templates.
- *
- * Everything else rolldown hands a `transform` -- JSON, a `.node` binding, a
- * virtual module some plugin invented -- is not JavaScript this can parse, and
- * asking anyway would turn a build into a parse error about a file nobody wrote.
- *
- * The `x` is not decoration. oxc reads the language off the *filename*, so a
- * `.tsx` parses with JSX enabled and a `.ts` does not -- which is why the
- * extension is the right thing to gate on and why leaving `.tsx` out was a
- * silent miss rather than a safe one: a `ui` template in a `.tsx` compiles
- * perfectly well through `compileTemplates()`, and the plugin simply never
- * asked. Left out, such a module was bundled with its template interpreted, the
- * count omitted the template, and the parser stayed in the bundle with nothing
- * saying so. JSX being the canonical syntax is exactly what makes a `.tsx` a
- * likely place to find the tag: the two live side by side in one app.
- *
- * Spelled as two alternatives rather than as one `x?`, because the eight real
- * extensions are not a product: there is no `.mtsx` or `.cjsx`, and oxc does not
- * read either as JSX -- so `[cm]?[jt]sx?` admitted four spellings that then parse
- * a JSX element as a syntax error. Harmless, since rolldown's own parser refuses
- * them identically, and still four ids crossing into JavaScript for nothing.
- *
- * Exported for the reason `candidates()` in `which.ts` is: what it admits is
- * worth asserting directly rather than through a bundler, and the invariant that
- * matters is a relation between two things -- every extension
- * `compileTemplates()` can read has to be one this admits, or the gap is a
- * template nobody compiles and nobody is told about.
- */
-export const MODULE_RE: RegExp = /\.(?:[cm]?[jt]s|[jt]sx)$/;
-
 export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
-	const { app, bin, binName, external = [], out, sourcemap = true, tree } = options;
+	const {
+		app,
+		bin,
+		binName,
+		external = [],
+		out,
+		safelist,
+		shake = true,
+		sourcemap = true,
+		tree,
+	} = options;
 
 	// imported here rather than at the top, the way the runtime defers its own
 	// heavy modules: rolldown is a native binary, and `sigil check` has no use
@@ -203,6 +238,15 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 
 	const unresolved: string[] = [];
 	let templates = 0;
+	let sites = 0;
+
+	// worked out on the first module that turns out to call `utilitySheet()`,
+	// and never for an app that does not: the scan walks the app's source tree
+	// and the sheet regenerates 383 rules, neither of which an app that has not
+	// opted into utilities should pay for
+	const shaker: Shaker | undefined = shake
+		? createShaker(app.root, { exclude: [out], safelist })
+		: undefined;
 
 	const bundle = await rolldown({
 		// left as imports rather than inlined. Rolldown does not report these as
@@ -309,6 +353,48 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 
 						templates += compiled.count;
 						return { code: compiled.code, map: compiled.map };
+					},
+				},
+			} satisfies Plugin,
+			{
+				name: 'sigil:styles',
+				/**
+				 * Rewrites a module's `utilitySheet()` calls to the shaken sheet, so
+				 * the 383 rules an app names a dozen of leave the bundle rather than
+				 * being replaced in it.
+				 *
+				 * A `transform` for the reason the template pass is one, and a
+				 * *second* plugin rather than a branch inside that one: the two ask
+				 * different questions about different imports, rolldown composes their
+				 * source maps for us, and each stays testable on its own. What it
+				 * costs is a module holding both a template and a sheet call being
+				 * parsed twice, which is one module in an app.
+				 */
+				transform: {
+					/**
+					 * `code` is the substring that has to be there for a call to exist,
+					 * since `utilitySheet` is only itself because something imported it.
+					 * `id` is the same extension set the template pass uses. Both are
+					 * applied natively, so a module that cannot hold a call never
+					 * crosses into JavaScript.
+					 */
+					filter: {
+						code: new RegExp(STYLE_MODULE.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+						id: MODULE_RE,
+					},
+
+					handler(code: string, id: string) {
+						if (!shaker) {
+							return null;
+						}
+
+						const shaken = shakeStyles(id, code, shaker.sheet());
+						if (!shaken) {
+							return null;
+						}
+
+						sites += shaken.sites;
+						return { code: shaken.code, map: shaken.map };
 					},
 				},
 			} satisfies Plugin,
@@ -458,7 +544,14 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 		// could execute
 		chmodSync(executable, 0o755);
 
-		return { bin: executable, chunks, external: [...external], templates };
+		return {
+			bin: executable,
+			chunks,
+			external: [...external],
+			inlined: inlinedPackages(app.root, written.output),
+			styles: styleReport(shaker, sites),
+			templates,
+		};
 	} finally {
 		// this build's own directory, so removing it cannot disturb a build running
 		// beside it -- which is the whole point of it being unique. Unconditional
@@ -505,6 +598,148 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 			// argument.
 		}
 	}
+}
+
+/**
+ * Which packages the bundle inlined, and how many bytes each contributed.
+ *
+ * The question SIG-73 left open and SIG-115 carried: an app that imports
+ * something is bundling it, and the build has the module graph, so saying
+ * nothing about it is a choice rather than a limitation. It is reported rather
+ * than warned about, because inlining a dependency is what a bundle *is* --
+ * what is worth knowing is the size, and the author is the one who can decide
+ * whether it is too much.
+ *
+ * A module belongs to a dependency when it sits **outside the app root**,
+ * rather than when its path contains `node_modules`. Those are the same thing
+ * for an installed package and are not for a linked one: a workspace resolves
+ * `@ttylabs/sigil` to a real directory with no `node_modules` anywhere in the
+ * path, so the substring test reports a bundle that inlined the whole runtime
+ * as having inlined nothing -- which is exactly the case every app in this
+ * repository is, and exactly the case a test would have been written against.
+ * The owning package is then read from the nearest `package.json` above the
+ * module, which is how node itself decides, and cached per directory because a
+ * bundle is hundreds of modules over a handful of packages.
+ *
+ * The bytes are `renderedLength`, which is what the module came to **after
+ * tree shaking and before minification** -- measured, not assumed: the sum is
+ * identical with `minify` on and off, and matches the unminified chunk size to
+ * within a rounding of the chunk boundaries. So these do not add up to the
+ * chunk sizes printed beside them, and they are not meant to: minification is
+ * an output stage that runs after the modules are rendered, so there is no
+ * per-module figure on the other side of it and apportioning one would be
+ * inventing precision. What the number is good for is the question anybody
+ * asks here -- is something enormous in this bundle, and what -- which needs
+ * the magnitudes to be right rather than the total.
+ *
+ * @param root - The app root, which everything under is the app's own.
+ * @param output - What rolldown wrote.
+ * @returns One entry per package, largest first.
+ */
+function inlinedPackages(
+	root: string,
+	output: readonly { modules?: Record<string, { renderedLength?: number }>; type: string }[]
+): InlinedPackage[] {
+	const bytes = new Map<string, number>();
+	const owners = new Map<string, string | undefined>();
+	const app = resolve(root);
+
+	for (const chunk of output) {
+		if (chunk.type !== 'chunk') {
+			continue;
+		}
+
+		for (const [id, rendered] of Object.entries(chunk.modules ?? {})) {
+			// a virtual module has no path to own it, and anything inside the app
+			// is the app's own code rather than a dependency's
+			if (!isAbsolute(id) || id === app || id.startsWith(`${app}${sep}`)) {
+				continue;
+			}
+
+			const name = packageOf(dirname(id), owners);
+			if (name !== undefined) {
+				bytes.set(name, (bytes.get(name) ?? 0) + (rendered.renderedLength ?? 0));
+			}
+		}
+	}
+
+	return [...bytes]
+		.map(([name, size]) => ({ bytes: size, name }))
+		.sort((one, other) => other.bytes - one.bytes || one.name.localeCompare(other.name));
+}
+
+/**
+ * What the nearest `package.json` above a directory calls itself.
+ *
+ * Cached per directory, and the cache holds the misses too -- a module outside
+ * any package at all is a real answer, and re-walking to the filesystem root
+ * for each of its siblings is the same walk over and over.
+ *
+ * @param from - The directory to start at.
+ * @param cache - Directory to package name, filled as it goes.
+ * @returns The package name, or `undefined` when nothing above names one.
+ */
+function packageOf(from: string, cache: Map<string, string | undefined>): string | undefined {
+	const seen: string[] = [];
+	let at = from;
+
+	for (;;) {
+		if (cache.has(at)) {
+			const found = cache.get(at);
+			for (const dir of seen) {
+				cache.set(dir, found);
+			}
+			return found;
+		}
+
+		seen.push(at);
+
+		let name: string | undefined;
+		try {
+			const manifest: unknown = JSON.parse(readFileSync(join(at, 'package.json'), 'utf-8'));
+			const declared = (manifest as { name?: unknown }).name;
+			// a manifest with no name is a real thing -- a private folder marking
+			// its module type -- and it does not name a package, so the walk goes
+			// on rather than stopping at it
+			name = typeof declared === 'string' && declared ? declared : undefined;
+		} catch {
+			name = undefined;
+		}
+
+		if (name !== undefined) {
+			for (const dir of seen) {
+				cache.set(dir, name);
+			}
+			return name;
+		}
+
+		const up = dirname(at);
+		if (up === at) {
+			for (const dir of seen) {
+				cache.set(dir, undefined);
+			}
+			return undefined;
+		}
+		at = up;
+	}
+}
+
+/**
+ * What the build says about shaking, or nothing when it did not shake.
+ *
+ * `undefined` when no module called `utilitySheet()`, which is a different
+ * statement from "everything was kept" and has to read as one: an app that
+ * never opted into utilities has no utility sheet in its bundle, and a line
+ * saying `383 utility rules kept` about it would describe a sheet that is not
+ * there.
+ *
+ * @param shaker - The shaker, or `undefined` when shaking is off.
+ * @param sites - How many calls were rewritten.
+ * @returns The report, or `undefined`.
+ */
+function styleReport(shaker: Shaker | undefined, sites: number): ShakenStyles | undefined {
+	const sheet: ShakenSheet | undefined = shaker?.result();
+	return sheet && sites ? { kept: sheet.kept, sites, total: sheet.total } : undefined;
 }
 
 /**

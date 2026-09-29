@@ -18,17 +18,12 @@
  * that was never the tag would rewrite a stranger's template literal into calls
  * it never asked for.
  *
- * A type-only import is skipped for the same reason from the other side: it
- * erases, so nothing it named is callable at run time.
- *
- * Which shapes count is the other half of that, and each one it *misses* is
- * silent -- no diagnostic, a template left interpreted, and a parser left in
- * the bundle. So a namespace member counts, because `import * as t` followed by
- * ``t.ui`...` `` is statically the same import; parentheses come off, because
- * ``(ui)`...` `` is the same call; and a computed property does not, which is
- * the rule the static `desc` lift already records. A tag re-exported through
- * another module is the one shape that cannot be answered here at all: it means
- * reading a file this parse has not got.
+ * That question is `bindings.ts`'s rather than this file's, because the pass
+ * that shakes a stylesheet asks exactly the same one about `utilitySheet` --
+ * the alias, the namespace member, the parentheses, the type-only import and
+ * the name the module binds again are all decided in one place, so the two
+ * cannot come to disagree. Every shape it *misses* is silent here: no
+ * diagnostic, a template left interpreted, and a parser left in the bundle.
  *
  * ## Only the outermost, and that is a recorded decision
  *
@@ -51,6 +46,7 @@
  * They are UTF-16 code unit offsets, which is what `source.slice()` takes.
  */
 
+import { bindingName, importBindings, reachable } from './bindings.ts';
 import { parseModule, position, type ParsedModule } from './parse-module.ts';
 import { walk } from './walk.ts';
 import type { Expression, TaggedTemplateExpression } from 'oxc-parser';
@@ -102,16 +98,6 @@ export interface FoundTemplate {
 	readonly tag: string;
 }
 
-/** Every way one module can reach the tag. */
-interface TagBindings {
-	/** Locals a named import bound it to, alias included. */
-	readonly direct: ReadonlySet<string>;
-	/** The export name being looked for, which a namespace member has to match. */
-	readonly name: string;
-	/** Locals a namespace import bound the whole module to. */
-	readonly namespaces: ReadonlySet<string>;
-}
-
 /** Which tag to look for. */
 export interface TemplatesOptions {
 	/** The module it is imported from. Defaults to `@ttylabs/sigil/template`. */
@@ -152,19 +138,12 @@ export function templatesIn(
 	parsed: ParsedModule,
 	options: TemplatesOptions = {}
 ): readonly FoundTemplate[] {
-	const tags = tagBindings(parsed, options.from ?? TAG_MODULE, options.name ?? TAG_EXPORT);
+	// an import is a binding rather than a spelling, and the shapes that counts
+	// -- an alias, a namespace member, a name the module binds again -- are
+	// `bindings.ts`'s, shared with the pass that shakes a stylesheet
+	const tags = importBindings(parsed, options.from ?? TAG_MODULE, options.name ?? TAG_EXPORT);
 
-	// nothing imported the tag, so nothing in this module is a template -- and
-	// the walk is worth skipping rather than running to find that out
-	if (!tags.direct.size && !tags.namespaces.size) {
-		return [];
-	}
-
-	// a name the module binds again is a name this cannot answer for, so it is
-	// given up rather than guessed at
-	const usable = unshadowed(tags, reboundNames(parsed));
-
-	if (!usable.direct.size && !usable.namespaces.size) {
+	if (!reachable(tags)) {
 		return [];
 	}
 
@@ -175,7 +154,7 @@ export function templatesIn(
 			return true;
 		}
 
-		const reached = tagName(unwrap(node.tag), usable);
+		const reached = bindingName(node.tag, tags);
 		if (reached === undefined) {
 			return true;
 		}
@@ -192,233 +171,6 @@ export function templatesIn(
 	// caller writes each of `sources` back where its template was -- an order
 	// that does not match the file is an off-by-one nobody can see
 	return found.sort((one, other) => one.start - other.start);
-}
-
-/**
- * Every way this module can reach the tag.
- *
- * Sets rather than single names, because a module may import it more than once
- * -- under its own name, under an alias, and as a namespace -- and each of them
- * is the tag.
- *
- * @param parsed - The module.
- * @param from - The module specifier to look for.
- * @param name - The export name to look for.
- * @returns The direct locals and the namespace locals.
- */
-function tagBindings(parsed: ParsedModule, from: string, name: string): TagBindings {
-	const direct = new Set<string>();
-	const namespaces = new Set<string>();
-
-	for (const imported of parsed.module.staticImports) {
-		if (imported.moduleRequest.value !== from) {
-			continue;
-		}
-
-		for (const entry of imported.entries) {
-			// a type-only import erases, so nothing it named is callable
-			if (entry.isType) {
-				continue;
-			}
-
-			if (entry.importName.kind === 'NamespaceObject') {
-				namespaces.add(entry.localName.value);
-			} else if (entry.importName.kind === 'Name' && entry.importName.name === name) {
-				direct.add(entry.localName.value);
-			}
-		}
-	}
-
-	return { direct, name, namespaces };
-}
-
-/**
- * The tag bindings with every re-bound name taken out.
- *
- * A binding is only the import's for as long as nothing else in the module
- * binds that name, and this walk has no scope tree to ask -- so a name the
- * module binds again is given up on entirely rather than guessed at. The
- * direction of that giving-up is the whole point: claiming something that was
- * never the tag rewrites a stranger's template literal into calls it never
- * asked for, while declining one leaves it interpreted, which is correct output
- * at the cost of a parser in the bundle. Loud and wrong against quiet and
- * right, and the answer is the one this file already gives for a barrel.
- *
- * Module-wide rather than per use site, because per use site is exactly the
- * scope question there is no answer to here.
- *
- * @param tags - What the module imported.
- * @param rebound - Every name it binds somewhere else.
- * @returns The bindings safe to match on.
- */
-function unshadowed(tags: TagBindings, rebound: ReadonlySet<string>): TagBindings {
-	const keep = (names: ReadonlySet<string>): Set<string> =>
-		new Set([...names].filter((name) => !rebound.has(name)));
-
-	return { direct: keep(tags.direct), name: tags.name, namespaces: keep(tags.namespaces) };
-}
-
-/**
- * Every name the module binds somewhere other than by importing it.
- *
- * Keyed on the *keys* a binding hangs off -- `id`, `param`, `params` -- rather
- * than on a list of node types, for the reason `walk()` is driven by
- * `visitorKeys`: a list of node types is a second copy of the grammar, and the
- * day the parser grows one this file has not heard of is the day a binding stops
- * being seen. Those key names are far more stable than the set of nodes that use
- * them, and reading one key too many is harmless here because every name this
- * collects is a name the matcher then declines -- over-collecting costs a
- * template that stays interpreted, and under-collecting costs a rewrite of
- * somebody else's code.
- *
- * Import declarations are skipped whole, since their bindings are the very
- * thing being asked about.
- *
- * @param parsed - The module.
- * @returns The names it re-binds.
- */
-function reboundNames(parsed: ParsedModule): Set<string> {
-	const names = new Set<string>();
-
-	walk(parsed.program, (node) => {
-		// an import's own binding is not a shadow of itself
-		if (node.type === 'ImportDeclaration') {
-			return false;
-		}
-
-		const record = node as unknown as Record<string, unknown>;
-		for (const key of ['id', 'param', 'params']) {
-			const value = record[key];
-
-			if (Array.isArray(value)) {
-				for (const each of value) {
-					patternNames(each, names);
-				}
-			} else {
-				patternNames(value, names);
-			}
-		}
-
-		return true;
-	});
-
-	return names;
-}
-
-/**
- * The names a binding pattern binds, added to a set.
- *
- * Destructuring, defaults and rest elements all bind, so all of them are read
- * -- and anything unrecognised is simply not a name, which is safe because an
- * unread pattern can only cost a template that stays interpreted.
- *
- * @param value - A pattern, or whatever was on the key.
- * @param into - Where to collect the names.
- */
-function patternNames(value: unknown, into: Set<string>): void {
-	if (!value || typeof value !== 'object') {
-		return;
-	}
-
-	const node = value as Record<string, unknown> & { type?: string };
-
-	switch (node.type) {
-		case 'ArrayPattern':
-			for (const element of (node.elements as unknown[]) ?? []) {
-				patternNames(element, into);
-			}
-			patternNames(node.rest, into);
-			return;
-		case 'AssignmentPattern':
-			patternNames(node.left, into);
-			return;
-		case 'Identifier':
-			into.add(String(node.name));
-			return;
-		case 'ObjectPattern':
-			for (const property of (node.properties as Record<string, unknown>[]) ?? []) {
-				patternNames(property.value, into);
-			}
-			patternNames(node.rest, into);
-			return;
-		case 'RestElement':
-			patternNames(node.argument, into);
-			return;
-		case 'TSParameterProperty':
-			patternNames(node.parameter, into);
-			return;
-		default:
-			return;
-	}
-}
-
-/**
- * The name a tagged template's tag was reached by, if it is the tag at all.
- *
- * Two shapes, because a module has two static ways to name one import and the
- * answer has to be the same for both: a bare local from a named import, and a
- * property of a namespace object. `import * as t` followed by ``t.ui`...` `` is
- * the same function as ``ui`...` `` -- there is no scope walk in either
- * answer, which is what keeps this a question about the module record.
- *
- * A *computed* property is deliberately not read, even holding a literal:
- * `t['ui']` and `t[key]` are the same syntax and only one of them is readable,
- * and reading the easy half of a construct this does not support is worse than
- * skipping both, because the half it skipped is silent. That is the rule the
- * static `desc` lift already follows for a computed key.
- *
- * Plenty of shapes reach neither, and they are not one exotic case but a class:
- * a tag re-exported through a barrel and imported from there, a `const { ui } =
- * t` destructuring, `(t).ui` where the parentheses are around the object rather
- * than the tag, `const ui = t.ui`, `(ui as any)`, `(0, ui)`, `ui!`, and a
- * specifier written with an escape. Each is the same function at run time and
- * none of them is compiled. What they have in common is that answering them
- * needs something a single parse of a single module does not have -- another
- * file, or a value flow -- and each costs the bundle its parser, silently. The
- * list is in AGENTS.md under "Every shape the matcher misses is silent", because
- * it is the kind of list that goes stale the moment it is written down twice.
- *
- * @param tag - The tag expression, parentheses already off.
- * @param tags - What this module imported.
- * @returns The name it was reached by, or `undefined` if it is not the tag.
- */
-function tagName(tag: Expression, tags: TagBindings): string | undefined {
-	if (tag.type === 'Identifier') {
-		return tags.direct.has(tag.name) ? tag.name : undefined;
-	}
-
-	if (
-		tag.type === 'MemberExpression' &&
-		!tag.computed &&
-		tag.object.type === 'Identifier' &&
-		tags.namespaces.has(tag.object.name) &&
-		tag.property.type === 'Identifier' &&
-		tag.property.name === tags.name
-	) {
-		return `${tag.object.name}.${tag.property.name}`;
-	}
-
-	return undefined;
-}
-
-/**
- * An expression with its parentheses taken off.
- *
- * ``(ui)`...` `` is the same call as ``ui`...` ``, and oxc preserves the
- * parentheses as a node -- so a matcher that reads the tag straight off sees a
- * `ParenthesizedExpression` and silently declines to compile a template with
- * nothing wrong with it. Recursive, because `((ui))` is also that call.
- *
- * @param node - The expression.
- * @returns The innermost expression the parentheses wrap.
- */
-function unwrap(node: Expression): Expression {
-	let inner = node;
-	while (inner.type === 'ParenthesizedExpression') {
-		inner = inner.expression;
-	}
-
-	return inner;
 }
 
 /**

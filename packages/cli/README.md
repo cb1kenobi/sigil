@@ -34,6 +34,8 @@ command-line flag beats the file:
     "external": ["some-native-package"],
     "name": "mycli",
     "out": "dist",
+    "safelist": ["text-red"],
+    "shake": true,
     "sourcemap": true
   }
 }
@@ -47,6 +49,16 @@ so when it finishes.
 
 `name` is only needed when your `package.json` publishes more than one `bin`;
 otherwise the executable is named after the one it publishes.
+
+`shake` decides whether the utility stylesheet is cut down to the classes your
+source can actually name. It is on by default, it only affects an app that
+calls `utilitySheet()`, and the build says what it came to — `23 of 383 utility
+rules`. The analysis reads every string literal and template quasi in your own
+source, so `class="p-2"` and ``class={`text-${colour}`}`` are both seen: the
+first names one class, the second keeps every `text-*` rule. What it cannot see
+is a class assembled out of values that are never literals in your source — one
+read from a config file, or joined out of an array that came from elsewhere —
+and `safelist` is how to keep those. `--no-shake` turns it off for one build.
 
 ## Building this package
 
@@ -66,3 +78,10 @@ and it is the loop to use while working on the toolchain.
 `sigil build` reads an app rather than running it — the entry is parsed, never
 imported, so an app that opens a connection at module scope does not do it
 during a build.
+
+It also says what went **into** the bundle. The zero-dependency promise is
+about what sigil adds; everything your app imports is inlined, so the build
+lists each package and what its code came to. Those bytes are measured before
+minification, which is the only per-package figure a bundler has, so they do
+not add up to the chunk sizes above them — they are there to answer "is
+something enormous in here, and what".

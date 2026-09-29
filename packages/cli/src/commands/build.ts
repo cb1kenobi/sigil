@@ -21,19 +21,32 @@
  * dynamic imports, which is what makes the chunks work and what makes a shared
  * component tree possible at all.
  *
- * ## Templates are compiled; stylesheets are not
+ * ## Templates are compiled and the utility sheet is shaken
  *
  * A `ui` template is compiled into the module it was written in, by a rolldown
  * `transform` -- so the tag, the parser and the IR walk shake out of the bundle,
  * and the summary says how many were compiled. What that buys is the *bundle*
  * and not the first frame: a template parse is 1.6us, so the startup cost it was
- * supposed to remove was never there. Stylesheets still parse at startup, which
- * is the half where a real startup win may be, and it waits for SIG-81 --
- * shaking and compiling read the same sheet and should be one pass. Both are
- * pure optimizations either way: an app builds and runs correctly without them.
+ * supposed to remove was never there.
+ *
+ * The stylesheet half is the same shape and the same answer. A second transform
+ * rewrites `utilitySheet()` to hold only the rules the app's own source could
+ * name, so 383 rules become the dozen an app uses and `UTILITY_CSS` leaves the
+ * bundle entirely. What it is *not* is the sheet emitted as data, which SIG-115
+ * asked for and which was measured and refused: 13.3 kB of CSS is 103 kB of JS
+ * literal against a 9.1 kB parser, so it trades 90 kB for half a millisecond.
+ * See `shake.ts`.
+ *
+ * Both are pure optimizations: an app builds and runs correctly without either.
  */
 
-import { bundleApp, type BuiltChunk, displayPath, type ResolvedTree } from '../build/index.ts';
+import {
+	bundleApp,
+	type BuiltChunk,
+	displayPath,
+	type InlinedPackage,
+	type ResolvedTree,
+} from '../build/index.ts';
 import { readSigilConfig } from '../config.ts';
 import { reportLevel, writeSummary } from '../report.ts';
 import {
@@ -75,6 +88,9 @@ const build: AnyCommand = command({
 		},
 		'--no-clean': {
 			desc: 'Keep what is already in the output directory',
+		},
+		'--no-shake': {
+			desc: 'Keep every utility rule, rather than only the ones the source can name',
 		},
 		'--no-sourcemap': {
 			desc: 'Skip the sourcemaps, which are several times the size of the code',
@@ -119,11 +135,14 @@ const build: AnyCommand = command({
 			binName: binName(found, (argv.name as string | undefined) ?? config.name),
 			external: (argv.external as string[] | undefined) ?? config.external ?? [],
 			out,
+			safelist: config.safelist,
+			shake: argv.shake !== false && config.shake !== false,
 			sourcemap: argv.sourcemap !== false && config.sourcemap !== false,
 			tree: { commands: found.commands, diagnostics: [] } satisfies ResolvedTree,
 		});
 
 		printSizes(result.chunks);
+		printInlined(result.inlined);
 
 		const total = countCommands(found.commands);
 
@@ -142,8 +161,19 @@ const build: AnyCommand = command({
 				// warnings` is what `main` wrote -- the byte-for-byte promise covers
 				// `build` as well as `check`
 				`${displayPath(relative(found.app.root, result.bin) || result.bin)}${
-					counts.warnings ? ',' : ''
+					result.styles || counts.warnings ? ',' : ''
 				}`,
+				// only when a sheet was actually shaken, which is only when the app
+				// called `utilitySheet()`: saying nothing is the right answer for an
+				// app with no utility sheet in its bundle, and `383 of 383` would be
+				// a sentence about a sheet that is not there
+				...(result.styles
+					? [
+							`${result.styles.kept} of ${result.styles.total} utility rules${
+								counts.warnings ? ',' : ''
+							}`,
+						]
+					: []),
 				...(counts.warnings
 					? [
 							{
@@ -258,6 +288,39 @@ function printSizes(chunks: readonly BuiltChunk[]): void {
 			})}\n`
 		);
 	}
+}
+
+/**
+ * Writes what the bundle inlined, which is what the app's own imports cost.
+ *
+ * The zero-dependency promise is about what *sigil* adds; everything an app
+ * imports is in the executable, and a build that silently inlines a
+ * two-megabyte library has told the author nothing they could act on. This is
+ * the plain statement SIG-73 asked for and SIG-115 carried.
+ *
+ * Beside the chunk table rather than folded into it, because the two answer
+ * different questions: one is what loads when, and this is what is in it. The
+ * column is called `Code` rather than `Size` for the same reason -- these are
+ * pre-minification bytes and the chunk sizes are not, so they deliberately do
+ * not add up to each other, and `inlinedPackages()` records why there is no
+ * per-package number on the other side of the minifier.
+ *
+ * @param inlined - The packages, largest first.
+ */
+function printInlined(inlined: readonly InlinedPackage[]): void {
+	if (!inlined.length) {
+		return;
+	}
+
+	process.stdout.write(
+		`${table(
+			inlined.map((pkg) => [pkg.name, `${(pkg.bytes / 1024).toFixed(1)} kB`]),
+			{
+				colorLevel: reportLevel(process.stdout),
+				columns: ['Inlined', { align: 'right', header: 'Code' }],
+			}
+		)}\n`
+	);
 }
 
 /**

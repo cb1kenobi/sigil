@@ -2010,8 +2010,13 @@ dependency. Regenerate with `node scripts/generate-utilities.mjs` from inside
   7.29ms to parse against the base set's 0.63ms. A CLI's whole startup is around
   35ms, so that is a fifth of it spent on rules almost no app names one of.
   `generateUtilities()` still emits them for a caller that asks; what is
-  committed is the base set. Shipping the lot is what SIG-81 (style shaking) has
-  to make affordable first.
+  committed is the base set. Style shaking has since landed and does **not**
+  change this: `shakeUtilities()` filters the _base_ set by name and then prints
+  it with `variants: false`, because what a build shakes has to be a subset of
+  the sheet `utilitySheet()` already returns -- a shake that quietly added 4,613
+  rules would not be a shake. Shipping the variants means the evidence naming
+  `md:flex-row` rather than `flex-row`, which is a separate decision about the
+  vocabulary and not one to take inside a size optimization.
 - **The sheet is opt-in, and `FRAMEWORK_CSS` is not.** Every app draws a
   built-in eventually and that sheet is the vocabulary a theme restyles, so it
   is parsed for everyone. This one is 383 rules an app may never name a single
@@ -4161,15 +4166,202 @@ block and the imports at the top. A rolldown `transform` runs it on the way in.
   `test/build/blame.test.ts` mocks `compile()` to separate them, because
   machinery nothing exercises is machinery that stops working silently.
 
-- **The stylesheet half of SIG-115 is deliberately not here.** The ticket calls it
-  "less settled" and leaves three questions open -- what "as data" is, whether
-  class-name mangling is in scope at all when `FRAMEWORK_CSS` is documented as the
-  vocabulary a theme may restyle, and how it interacts with SIG-81 -- and answers
-  its own third question: shaking and compiling read the same sheet and should
-  probably be one pass. Doing it here would be settling those by accident. The
-  measurement above is also the argument for taking it _with_ SIG-81 rather than
-  alone, since a sheet is the one of the two whose parse really is on the startup
-  path.
+#### Shaking an app's stylesheets
+
+`shake.ts` is the stylesheet half of SIG-115 taken together with SIG-81, which
+is what both tickets asked for -- shaking and compiling read the same sheet and
+should be one pass. The pass does one of the two things they asked for, and the
+other is refused with numbers.
+
+- **"Emit the sheet as data" was measured and is a loss.** SIG-115's wording was
+  _parse, resolve, mangle scoped class names, and emit them as data rather than
+  as source to be parsed at startup_, on the theory that a compiled sheet ships
+  no CSS parser. Measured, minified, on this repository's own sheets: the
+  utility sheet is 383 rules, **13,343 B** of CSS and **103,246 B** as a JS
+  literal, and the framework sheet is 19 rules, **1,390 B** and **5,430 B**. The
+  parser that would shake out -- the `Parser` class, the selector cursor and the
+  media query reader, measured as the difference between a bundle importing
+  `parseStylesheet` and one importing only `Cascade`, `matches` and `keysFor` --
+  is **9,067 B**. So emitting the utility sheet as data trades **90 kB for
+  0.59 ms**, and emitting the framework sheet's 19 rules would save 5.0 kB and
+  0.023 ms only if _no other sheet_ were ever parsed, which is not reachable: an
+  app that writes one line of CSS puts the parser back.
+
+  No encoding rescues it, and that is the general statement rather than a fact
+  about this printer: **a parsed rule is more information than the CSS that
+  produced it.** A `Selector` carries its source, its bucket key, its
+  specificity and its steps, all of which the string it was parsed from already
+  implies -- so any faithful data form is bigger, and a compact one is a second
+  grammar with a decoder, which is the "two spellings of one thing" this file
+  records over and over. A parser for a grammar this small is 9 kB, and that is
+  the whole of what data could ever buy back.
+
+  What the measurement _does_ say is that shaking is the thing that pays, and it
+  pays on both axes at once: fewer rules is fewer bytes **and** less to parse.
+  Which is the same finding the template half arrived at from the other side --
+  the startup cost stage 2 was supposed to remove was never there, and here the
+  bundle cost stage 3 was supposed to remove goes the wrong way.
+
+- **Only the utility sheet is shaken, and that is SIG-81's own argument taken at
+  its word.** Hand-written CSS cannot be shaken soundly -- "can this app ever
+  produce `class="error"`?" is a question about arbitrary JavaScript -- and a
+  hand-written sheet has no bytes in it to win back. The generated vocabulary is
+  the opposite on both counts: the build knows the whole grammar that produced
+  it, and it is 383 rules an app names a dozen of.
+
+  It is also the only sheet with a **seam**, which is the half that decided it.
+  `utilitySheet()` is opt-in, so it is a call in the app's _own source_, and a
+  transform can rewrite it -- which is what makes `UTILITY_CSS` unreferenced, so
+  the 13.3 kB leaves the bundle rather than being replaced in it. The framework
+  sheet has none: nothing in an app calls `frameworkSheet()`, because every
+  built-in reaches it through `themedCascade()` from inside the runtime. Every
+  candidate for reaching it was rejected -- a `load` interception cannot find it,
+  since tsdown chunks `theme/index.ts` in with other code and an app reads the
+  published `dist`; a `renderChunk` string replacement is a regex over minified
+  output; and a runtime override leaves _both_ copies in the bundle, since the
+  original constant is still statically referenced. At 19 rules and 0.023 ms
+  that is not a loss worth inventing a seam for.
+
+- **Measured on a fixture that draws with utilities**: 383 rules shaken to 23,
+  the bundle **126,875 B to 114,374 B**, and startup **37.7 ms to 35.5 ms** --
+  median of 25 spawns, run in both orders. The startup win is larger than the
+  0.55 ms of parse it removes, because 12.5 kB less source is also less for node
+  to read and compile. The rendered output is byte for byte what the unshaken
+  build produces and what the app produces run from source, which is what
+  `should render what the unshaken sheet does` asserts three ways.
+
+- **The analysis is evidence, not proof, and the direction it falls is the whole
+  design.** A class reaches the cascade as a string, so the question is which
+  strings the app's source can produce: every string literal and every template
+  quasi in the app's own files is tokenized, and a utility survives if some token
+  could be it. That is Tailwind's scanner. Like Tailwind's it is unsound in
+  exactly one direction -- a class assembled entirely out of values that never
+  appear as literals leaves nothing behind and its rule is dropped -- and
+  `build.safelist` is the escape hatch that admits it, with `build.shake: false`
+  and `--no-shake` for an app that would otherwise need a long one. SIG-81 listed
+  three possible answers and leaned towards refusing a computed `class`
+  outright; refusing is not available here, because nothing in this pass knows
+  _which_ expressions are class values -- a `box({ class: x })`, a JSX attribute
+  the app's own `tsc` has not compiled yet, and a `ui` template's `class=${x}`
+  are three different shapes and only one of them is this build's to read. So
+  the answer is the conservative one with a declared safelist, which is what
+  every tool that took the other two ended up with.
+
+- **What makes it better than a regex is that the open ends are read off the
+  tree.** A literal sitting next to an interpolation is _open_ on that side, so
+  `` `text-${colour}` `` and `'text-' + colour` both leave the token `text-` open
+  on the right and every `text-*` utility survives them; a literal with nothing
+  beside it is closed and matches by equality, so `'Hello, '` keeps nothing.
+  Which end is open is not a property of the characters, and a scanner over raw
+  source cannot know it. Three details each cost a test to pin. A token is open
+  only when it **touches** the open end, so `'Hello, '` before an interpolation
+  makes `Hello` closed -- without that, every string in an app would be a prefix
+  of something. A `+` chain is **flattened** first, because `x + 'b-' + y` parses
+  as `(x + 'b-') + y` and off the nested shape that literal looks closed on its
+  right, which is suffix evidence where the truth is both sides; a chain whose
+  literals sit at its _ends_ reads the same either way, which is why the obvious
+  repro passes with the flattening deleted. And a **tagged** template's quasis
+  are read like any other, which is the only reason a `ui` template's
+  `class="p-2"` is visible at all -- the class sits inside the template's text
+  rather than in a string of its own.
+
+- **Everything uncertain resolves towards keeping, and two guards that did not
+  were deleted.** Keeping a rule nothing can match costs 35 bytes; dropping one
+  something can match costs a layout subtly wrong in a terminal with nothing to
+  point at. So a file that does not parse falls back to a **raw token scan of its
+  own text**, which reads identifiers and comments as though they were class
+  names -- strictly more conservative than the parse, where skipping the file
+  would lose evidence and failing the build would refuse an app over a file
+  rolldown never reads. Files nothing imports are scanned too. A `utilitySheet`
+  the matcher cannot claim is left alone with the whole sheet behind it, and that
+  is correct output rather than a miss: the shaken sheet is a _subset_, so the
+  two disagree only about rules the evidence says nothing can match.
+
+  What the walk must not read is a **previous build's output**, which holds the
+  whole sheet as a string and is therefore evidence for every rule there is. The
+  output directory is excluded, and `clean()` empties it first in any case. A
+  _second_, stale output directory elsewhere in the app is the case that gets
+  through, and its failure is the safe one: everything is kept and the summary
+  says `383 of 383` rather than saying nothing. That is what the count in the
+  summary is for, and it is why the summary says nothing at all when no module
+  called `utilitySheet()` -- `383 of 383` about an app with no utility sheet in
+  its bundle would describe a sheet that is not there.
+
+  The two deleted guards are worth recording because both read as load-bearing.
+  A `claimed` set stopped a `+` chain's literals being read a second time as
+  closed; sabotaging it failed no test, and it cannot, because a closed reading
+  matches by equality while the open reading it duplicates matches a superset --
+  redundant rather than wrong. And a `resolve()` on the lookup side of the
+  exclusion was dead, because the walk starts at a resolved root and `join()`
+  normalizes. The `resolve()` on the _set_ side is real and is pinned.
+
+- **The shaken sheet is regenerated, not printed.** `generateUtilities({ only })`
+  filters the set the generator produced and prints it the way it always did, so
+  a surviving rule's text is byte for byte the text it has in `UTILITY_CSS` and a
+  shaken sheet is a **subset** rather than a second sheet that happens to agree
+  -- asserted line for line. The alternative was a printer over a parsed
+  `Stylesheet`, which is a second spelling of the grammar and the thing this file
+  records as how two halves of one library come to disagree. A name nothing
+  generates is ignored rather than refused, because a safelist is written by hand
+  against a vocabulary that moves between releases.
+
+- **The rewrite is one constant per module rather than one parse per call.**
+  `utilitySheet()` memoizes, so a rewrite that parsed per call site would be
+  slower than what it replaced. It is not the same _object_ across modules the
+  way the memo is, which nothing can observe: a `Stylesheet` is frozen and a
+  `Cascade` only reads it. The prefix contract is `compileTemplates()`'s, with
+  `$css` in place of `$ui` -- two passes may run over one module and two passes
+  choosing one prefix is two sets of names that collide.
+
+- **An import is a binding, not a spelling, and there is now one implementation
+  of that.** `bindings.ts` holds it, because `findTemplates()` asking whether a
+  tag is the `ui` from `@ttylabs/sigil/template` and this pass asking whether a
+  call is the `utilitySheet` from `@ttylabs/sigil/style` are the same question --
+  the alias, the namespace member, the parentheses, the type-only import and the
+  name the module binds again all decided once. Same rule `readRoutes()` already
+  records for the two route walks. The list of shapes that stay unreachable is
+  the same list, and it is under "Every shape the matcher misses is silent".
+
+- **What the build says about a dependency the app declares** is the other item
+  SIG-73 left and SIG-115 carried, and it is the same honesty argument: the
+  zero-dependency promise is about what _sigil_ adds, an app that imports
+  something is bundling it, and a build that silently inlines two megabytes of
+  somebody else's library has told the author nothing. So every package whose
+  code went into the bundle is reported with its size, `@ttylabs/sigil` included
+  -- what the runtime costs is exactly as worth knowing as what a dependency
+  costs. It found something on the first run: `magic-string` is **46.3 kB** of
+  the toolchain's own bundle.
+
+  A module belongs to a dependency when it sits **outside the app root**, not
+  when its path contains `node_modules`. Those are the same thing for an
+  installed package and are not for a linked one -- a workspace resolves
+  `@ttylabs/sigil` to a real directory with no `node_modules` in the path, so the
+  substring test reports a bundle that inlined the whole runtime as having
+  inlined nothing, which is every app in this repository. The owning package is
+  read from the nearest `package.json` above the module, which is how node itself
+  decides, cached per directory and caching the misses too.
+
+  The bytes are `renderedLength`, which is **after tree shaking and before
+  minification** -- measured, not assumed: the sum is identical with `minify` on
+  and off. So they do not add up to the chunk sizes printed beside them and are
+  not meant to, minification being an output stage that runs after the modules
+  are rendered; apportioning a per-module share of it would be inventing
+  precision. The column is called `Code` rather than `Size` for that reason. What
+  the number is good for is the question anybody asks here -- is something
+  enormous in this bundle, and what -- which needs the magnitudes right rather
+  than the total.
+
+- **Whether route files co-locate their templates and stylesheets is still
+  open, and now for a reason rather than for want of the compile steps.** SIG-74
+  could not answer it without them; they exist, and the answer they suggest is
+  that there is nothing to co-locate. A template lives in the module that renders
+  it, which is already co-located as far as anything can be, and a stylesheet is
+  not a file type this build reads at all -- an app's CSS is a string in its own
+  source, and the only sheets the build knows about are the two the runtime
+  generates. A `panel.css` beside `panel.ts` would mean inventing a file type, a
+  resolution rule and an origin for it, which is a feature rather than a
+  co-location convention. Revisit it when an app has a sheet big enough to want
+  its own file.
 
 ### Writing the CLI in sigil
 
