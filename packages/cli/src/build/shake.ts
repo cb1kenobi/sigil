@@ -67,11 +67,11 @@
  */
 
 import { generateUtilities, utilities } from '../utilities/index.ts';
-import { bindingName, importBindings, reachable } from './bindings.ts';
+import { bindingName, importBindings, reachable, unwrap } from './bindings.ts';
 import { MODULE_RE, parseModule } from './parse-module.ts';
 import { walk } from './walk.ts';
 import MagicString from 'magic-string';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { CallExpression, Node } from 'oxc-parser';
 
@@ -102,8 +102,6 @@ const TOKEN_RE = /[\w\-/:]+/g;
  * of one.
  */
 export interface ClassEvidence {
-	/** How many files were read, for the report and for the tests. */
-	readonly files: number;
 	/**
 	 * Whether the app could name this class.
 	 *
@@ -124,7 +122,6 @@ interface Chunk {
 
 /** The evidence, collected. */
 class Evidence implements ClassEvidence {
-	files = 0;
 	readonly #exact = new Set<string>();
 	readonly #infix = new Set<string>();
 	readonly #prefix = new Set<string>();
@@ -201,15 +198,33 @@ export interface ScanOptions {
 /**
  * Reads an app's source for the classes it could name.
  *
- * The app's own tree rather than the module graph rolldown builds, and that is
- * a deliberate over-approximation in both directions: it reads files nothing
- * imports, which can only keep a rule that was going to be kept anyway, and it
- * does not read the app's dependencies, which is the one place it can be short.
- * A package that renders sigil elements with sigil utility classes is exotic,
- * and `build.safelist` is what it would use. The alternative -- collecting
- * during rolldown's own `transform` -- cannot work: the rewrite happens in a
- * module's transform and the evidence is not complete until every module has
- * been through one.
+ * The app's own tree rather than the module graph rolldown builds. That is an
+ * over-approximation in one direction and the analysis's one real boundary in
+ * the other. It reads files nothing imports, which can only keep a rule that
+ * was going to be kept anyway; and it does not read anything **outside the app
+ * root**, which is where it can be short -- a published package that renders
+ * sigil elements with sigil utility classes, and, less exotically, a sibling
+ * workspace package in a monorepo. Both are `build.safelist`'s, and both are
+ * the same statement the unsound case above makes: this is evidence, and what
+ * leaves none needs saying by hand.
+ *
+ * Rolldown's own graph is the sound answer and is not available: the rewrite
+ * happens in a module's `transform`, and the evidence is not complete until
+ * every module has been through one. Deferring the splice to `renderChunk`
+ * would close that and costs a sentinel string in the chunk, a count that has
+ * to be reconciled, and a substitution over minifier-adjacent output -- which
+ * is a lot of machinery to buy a case a safelist already answers.
+ *
+ * What it costs is measured and left alone: **0.4 ms** for a three-module app
+ * and **100 ms** for a 238-module, 2.17 MB tree, of which the parse is 76 ms,
+ * the walk 9 ms and reading the files 2.5 ms. The parse is the cost and the
+ * obvious way to avoid it -- skip a file whose raw text holds no token any
+ * utility could match -- is *not* sound, because a literal's cooked value is
+ * not its source text and `'\u0070-2'` is `p-2` to the parse and nothing to a
+ * substring search. That is a silent drop rather than a silent miss, which is
+ * the one direction this analysis does not trade in. The laziness above is the
+ * optimization that is free: an app that never calls `utilitySheet()` pays
+ * none of it.
  *
  * What it must not read is a *previous build's output*, which holds the whole
  * utility sheet as a string and would therefore be evidence for every rule
@@ -236,7 +251,19 @@ export function scanClassEvidence(root: string, options: ScanOptions = {}): Clas
 		evidence.safelist(name);
 	}
 
+	// every directory the walk enters, by its real path, so a symlink pointing
+	// back up the tree is followed once rather than forever. Real paths rather
+	// than the paths walked to, because two links to one directory are one
+	// directory and a loop is exactly two of those
+	const entered = new Set<string>();
+
 	const visit = (dir: string): void => {
+		const real = realOrSelf(dir);
+		if (entered.has(real)) {
+			return;
+		}
+		entered.add(real);
+
 		let entries;
 		try {
 			entries = readdirSync(dir, { withFileTypes: true });
@@ -250,7 +277,15 @@ export function scanClassEvidence(root: string, options: ScanOptions = {}): Clas
 		for (const entry of entries) {
 			const path = join(dir, entry.name);
 
-			if (entry.isDirectory()) {
+			// a `Dirent` answers `false` to both `isDirectory()` and `isFile()` for
+			// a **symlink**, because `readdir` does not follow one -- so a walk that
+			// asks only those two skips a linked source file entirely while rolldown
+			// follows the link and compiles it. That is evidence missed and
+			// therefore a rule dropped, which is the one direction this analysis
+			// does not trade in. The `stat` is paid only for a link
+			const kind = entry.isSymbolicLink() ? linkKind(path) : entry.isDirectory() ? 'dir' : 'file';
+
+			if (kind === 'dir') {
 				// a dot directory is `.git`, `.turbo`, a cache -- never source
 				// `path` needs no resolving of its own: the walk starts at a resolved
 				// root and `join()` normalizes, so it is already the spelling the set
@@ -262,7 +297,7 @@ export function scanClassEvidence(root: string, options: ScanOptions = {}): Clas
 				continue;
 			}
 
-			if (entry.isFile() && MODULE_RE.test(entry.name)) {
+			if (kind === 'file' && MODULE_RE.test(entry.name)) {
 				readFile(path, evidence);
 			}
 		}
@@ -270,6 +305,41 @@ export function scanClassEvidence(root: string, options: ScanOptions = {}): Clas
 
 	visit(resolve(root));
 	return evidence;
+}
+
+/**
+ * What a symlink points at, or nothing when it points nowhere.
+ *
+ * @param path - The link.
+ * @returns `dir`, `file`, or `undefined` for a dangling link or anything else.
+ */
+function linkKind(path: string): 'dir' | 'file' | undefined {
+	try {
+		const stats = statSync(path);
+		return stats.isDirectory() ? 'dir' : stats.isFile() ? 'file' : undefined;
+	} catch {
+		// a dangling link is not a file, and it is not a build error either: it is
+		// something in the tree that nothing can read
+		return undefined;
+	}
+}
+
+/**
+ * A directory's real path, or the path itself when that cannot be answered.
+ *
+ * The falling-back half matters: a path that cannot be resolved is still a path
+ * worth walking, and what is lost is only the loop check -- which the `readdir`
+ * failure below then handles anyway.
+ *
+ * @param dir - The directory.
+ * @returns Its real path.
+ */
+function realOrSelf(dir: string): string {
+	try {
+		return realpathSync(dir);
+	} catch {
+		return dir;
+	}
 }
 
 /**
@@ -293,8 +363,6 @@ function readFile(path: string, into: Evidence): void {
 	} catch {
 		return;
 	}
-
-	into.files++;
 
 	try {
 		collectLiterals(parseModule(path, source).program, into);
@@ -320,25 +388,41 @@ function readFile(path: string, into: Evidence): void {
  * @param into - Where the evidence goes.
  */
 function collectLiterals(program: Node, into: Evidence): void {
+	/** Reads a list of things joined by `+`, in order, left to right. */
+	const joined = (operands: readonly (Node | undefined)[]): void => {
+		// the walk then descends and reads each of these literals *again*, as
+		// closed, which changes no answer and is why there is no bookkeeping here
+		// to stop it: a closed reading matches by equality and the open one it
+		// duplicates matches a superset of that, so the weaker reading is
+		// redundant rather than wrong. A `claimed` set that suppressed it was
+		// written first and deleted, because sabotaging it failed no test
+		for (const [at, operand] of operands.entries()) {
+			const value = operand && bare(operand);
+			if (value && isStringLiteral(value)) {
+				into.read({
+					openLeft: at > 0,
+					openRight: at < operands.length - 1,
+					text: String(value.value),
+				});
+			}
+		}
+	};
+
 	walk(program, (node) => {
 		if (node.type === 'BinaryExpression' && node.operator === '+') {
-			const operands = flatten(node);
+			joined(flatten(node));
+			return true;
+		}
 
-			// the walk then descends and reads each of these literals *again*, as
-			// closed, which changes no answer and is why there is no bookkeeping
-			// here to stop it: a closed reading matches by equality and the open
-			// one it duplicates matches a superset of that, so the weaker reading
-			// is redundant rather than wrong. A `claimed` set that suppressed it
-			// was written first and deleted, because sabotaging it failed no test
-			for (const [at, operand] of operands.entries()) {
-				if (isStringLiteral(operand)) {
-					into.read({
-						openLeft: at > 0,
-						openRight: at < operands.length - 1,
-						text: String(operand.value),
-					});
-				}
-			}
+		// `c += 'text-'` is the same concatenation with the accumulator on the
+		// left, so the literal is open on that side. What this does *not* reach
+		// is the other half of it -- `let c = 'text-'; c += colour`, where the
+		// literal is in a declaration and only a dataflow could say it was ever
+		// appended to. That is the documented unsound case rather than a fifth
+		// shape to add: the analysis reads where a literal *sits*, and this
+		// literal sits somewhere that says nothing
+		if (node.type === 'AssignmentExpression' && node.operator === '+=') {
+			joined([undefined, node.right as Node]);
 			return true;
 		}
 
@@ -381,14 +465,53 @@ function isStringLiteral(node: Node): node is Node & { value: string } {
  */
 function flatten(node: Node): Node[] {
 	const expression = node as { left: Node; operator: string; right: Node };
+	const left = bare(expression.left);
 
-	const left =
-		expression.left.type === 'BinaryExpression' &&
-		(expression.left as unknown as { operator: string }).operator === '+'
-			? flatten(expression.left)
-			: [expression.left];
+	return [
+		...(left.type === 'BinaryExpression' &&
+		(left as unknown as { operator: string }).operator === '+'
+			? flatten(left)
+			: [expression.left]),
+		expression.right,
+	];
+}
 
-	return [...left, expression.right];
+/**
+ * An expression with the wrappers that change nothing taken off.
+ *
+ * Parentheses, `as`, `satisfies` and `!` all erase or do nothing at run time,
+ * so `('text-' as string) + colour` is the same concatenation as
+ * `'text-' + colour` -- and read straight off the node the operand is not a
+ * literal, the openness is never applied, and the walk later reads the string
+ * as a closed token. That is a **dropped** rule rather than a kept one, which
+ * is the direction this analysis does not trade in. The same unwrapping is
+ * what lets `flatten()` see through `(x + 'b-') + y`.
+ *
+ * `unwrap()` is `bindings.ts`'s and handles the parentheses; the three type
+ * wrappers are handled here rather than there because the static `desc` lift
+ * already records them as the wrappers that change nothing, and adding them to
+ * a matcher whose job is to identify an *import* would widen a different
+ * question.
+ *
+ * @param node - The expression.
+ * @returns The expression inside the wrappers.
+ */
+function bare(node: Node): Node {
+	let inner = unwrap(node as Parameters<typeof unwrap>[0]) as Node;
+
+	for (;;) {
+		if (
+			inner.type === 'TSAsExpression' ||
+			inner.type === 'TSSatisfiesExpression' ||
+			inner.type === 'TSNonNullExpression'
+		) {
+			inner = unwrap(
+				(inner as unknown as { expression: Parameters<typeof unwrap>[0] }).expression
+			) as Node;
+			continue;
+		}
+		return inner;
+	}
 }
 
 /** What the utility sheet came to once the evidence had been applied. */
@@ -482,13 +605,16 @@ export function choosePrefix(source: string, base: string): string {
  *
  * @param file - The module's path; its extension decides TypeScript.
  * @param source - The module's source.
- * @param sheet - The shaken sheet to splice in.
+ * @param shaken - The shaken sheet, asked for only once a call has been found:
+ *   importing from `@ttylabs/sigil/style` is ordinary and calling
+ *   `utilitySheet()` is not, so most modules that reach here have nothing to
+ *   rewrite and must not pay for the scan.
  * @returns The rewritten module, or `undefined` when it calls nothing.
  */
 export function shakeStyles(
 	file: string,
 	source: string,
-	sheet: ShakenSheet
+	shaken: () => ShakenSheet
 ): ShakenModule | undefined {
 	// a module that does not mention the module the export comes from cannot be
 	// calling it. This is the function's own fast path rather than the build's,
@@ -522,17 +648,28 @@ export function shakeStyles(
 		return undefined;
 	}
 
+	const sheet = shaken();
 	const prefix = choosePrefix(source, '$css');
-	const local = `${prefix}s`;
+	const read = `${prefix}s`;
+	const memo = `${prefix}v`;
 	const edited = new MagicString(source);
 
 	for (const call of calls) {
-		edited.overwrite(call.start, call.end, local);
+		edited.overwrite(call.start, call.end, `${read}()`);
 	}
 
+	// a hoisted function over a `var`, which is what `utilitySheet()` itself is:
+	// memoized, so a second call site costs nothing, and lazy, so a module that
+	// imports the sheet down a branch it never takes does not parse it. A
+	// `const` was the first shape and is wrong in both directions -- it parses
+	// at module evaluation whether or not the call is reached, and it sits in a
+	// temporal dead zone, so a module reached through an import cycle before its
+	// own body has run would throw a `ReferenceError` where `utilitySheet()`
+	// answered. `var` and a function declaration hoist, so neither can
 	const head =
 		`import { parseStylesheet as ${prefix}p } from ${JSON.stringify(STYLE_MODULE)};\n` +
-		`const ${local} = /* @__PURE__ */ ${prefix}p(${JSON.stringify(sheet.css)});\n`;
+		`var ${memo};\n` +
+		`function ${read}() { return ${memo} ??= ${prefix}p(${JSON.stringify(sheet.css)}); }\n`;
 
 	// after a shebang rather than before it, for the reason `compileTemplates()`
 	// records: `#!` is only a shebang on the first line

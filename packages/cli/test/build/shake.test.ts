@@ -1,5 +1,6 @@
 import {
 	createShaker,
+	isAppsOwn,
 	scanClassEvidence,
 	shakeStyles,
 	shakeUtilities,
@@ -7,9 +8,9 @@ import {
 } from '../../src/build/index.js';
 import { generateUtilities, utilities } from '../../src/utilities/index.js';
 import { parseStylesheet, UTILITY_CSS } from '@ttylabs/sigil/style';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const made: string[] = [];
@@ -93,6 +94,35 @@ describe('the class evidence', () => {
 		expect(evidence.mayName('ab-c')).toBe(true);
 	});
 
+	it('should see through the wrappers that change nothing', () => {
+		// parentheses, `as`, `satisfies` and `!` all erase or do nothing at run
+		// time, so each of these is the same concatenation -- and read straight
+		// off the node the operand is not a literal, the openness is never
+		// applied, and the walk later reads the string as a *closed* token. That
+		// is a dropped rule rather than a kept one
+		for (const source of [
+			`const c = ('text-') + colour;`,
+			`const c = ('text-' as string) + colour;`,
+			`const c = ('text-' satisfies string) + colour;`,
+			`const c = 'text-'! + colour;`,
+			// one level in: `(x + 'b-') + y` has to flatten through the
+			// parentheses or the middle literal is only open on its left
+			`const c = (x + 'text-') + colour;`,
+		]) {
+			expect(evidenceOf(source).mayName('text-red'), source).toBe(true);
+		}
+	});
+
+	it('should read a suffix through a wrapper too', () => {
+		expect(evidenceOf(`const c = colour + ('-red');`).mayName('text-red')).toBe(true);
+	});
+
+	it('should read a literal appended with +=', () => {
+		// the same concatenation with the accumulator on the left, so the literal
+		// is open on that side
+		expect(evidenceOf(`let c = ''; c += '-red';`).mayName('text-red')).toBe(true);
+	});
+
 	it('should only open a token that touches the open end', () => {
 		// the chunk is open on the right and the token is not, because the comma
 		// and the space sit between them. Without this every string in an app
@@ -119,6 +149,17 @@ describe('the class evidence', () => {
 		const evidence = evidenceOf('export const v = <box class="flex-col" />;\n', 'src/view.tsx');
 
 		expect(evidence.mayName('flex-col')).toBe(true);
+	});
+
+	it('should read the characters a class name is actually made of', () => {
+		// ten base utilities are named `w-1/2` and its siblings, so a slash is
+		// part of a name rather than a boundary; a colon is how a variant is
+		// spelled, and leaving it out of the token would stop working silently
+		// the day the variants ship rather than when somebody changed something
+		const evidence = evidenceOf('const c = `<box class="w-1/2 md:flex-row" />`;');
+
+		expect(evidence.mayName('w-1/2')).toBe(true);
+		expect(evidence.mayName('md:flex-row')).toBe(true);
 	});
 
 	it('should leave no evidence for a class no literal contains', () => {
@@ -171,6 +212,81 @@ describe('the class evidence', () => {
 		expect(evidence.mayName('from-dist')).toBe(false);
 	});
 
+	it('should follow a symlinked source file', () => {
+		// `readdir` does not follow a link, so a `Dirent` answers `false` to both
+		// `isDirectory()` and `isFile()` for one -- and rolldown follows it and
+		// compiles the module, so a walk that skips it drops a rule the bundle
+		// really can match.
+		//
+		// The target is in a **second** tree on purpose: pointed at a file inside
+		// the scanned one, the walk finds the real file anyway and the test
+		// passes with the link handling deleted. It did, which is how this was
+		// caught
+		const target = tree({ 'real.ts': `const c = 'from-a-link';` });
+		const root = tree({ 'src/app.ts': `const c = 'from-source';` });
+		symlinkSync(join(target, 'real.ts'), join(root, 'src', 'linked.ts'));
+
+		const evidence = scanClassEvidence(root);
+		expect(evidence.mayName('from-source')).toBe(true);
+		expect(evidence.mayName('from-a-link')).toBe(true);
+	});
+
+	it('should follow a symlinked directory', () => {
+		const target = tree({ 'deep/real.ts': `const c = 'from-a-linked-dir';` });
+		const root = tree({ 'src/app.ts': `const c = 'from-source';` });
+		symlinkSync(join(target, 'deep'), join(root, 'src', 'linked'));
+
+		expect(scanClassEvidence(root).mayName('from-a-linked-dir')).toBe(true);
+	});
+
+	it('should walk a symlink loop once rather than once per level', () => {
+		// what the loop guard is for is **cost**, not termination: the walk is
+		// recursive and a link pointing back up the tree is infinite, but the
+		// operating system stops it anyway -- a path through more than
+		// MAXSYMLINKS links fails `readdir` with ELOOP, which this treats as an
+		// unreadable directory. So the recursion ends after about thirty levels
+		// with the whole tree walked about thirty times over, measured at 3.0ms
+		// against 43.8ms on twenty files.
+		//
+		// Asserted as a **ratio** against the same tree without the link rather
+		// than as a duration, for the reason the invalidation benchmark records:
+		// an absolute threshold on a CI runner is a guard against the one thing
+		// that says nothing, a single pass stalling. Correct is about 1.1x and
+		// broken is about 15x, so four leaves headroom either way
+		const files: Record<string, string> = {};
+		for (let n = 0; n < 20; n++) {
+			files[`src/m${n}.ts`] = `export const c${n} = 'p-${n} text-red flex-col';\n`.repeat(40);
+		}
+
+		const plain = tree(files);
+		const looped = tree(files);
+		symlinkSync(looped, join(looped, 'src', 'loop'));
+
+		/** The fastest of a few runs, which is the least noisy thing to compare. */
+		const fastest = (root: string): number => {
+			let best = Infinity;
+			for (let run = 0; run < 3; run++) {
+				const at = process.hrtime.bigint();
+				scanClassEvidence(root);
+				best = Math.min(best, Number(process.hrtime.bigint() - at));
+			}
+			return best;
+		};
+
+		// warmed, so the first scan's module loading is not in either number
+		fastest(plain);
+
+		expect(scanClassEvidence(looped).mayName('flex-col')).toBe(true);
+		expect(fastest(looped) / fastest(plain)).toBeLessThan(4);
+	});
+
+	it('should step over a dangling link rather than failing', () => {
+		const root = tree({ 'src/app.ts': `const c = 'from-source';` });
+		symlinkSync(join(root, 'gone.ts'), join(root, 'src', 'dangling.ts'));
+
+		expect(scanClassEvidence(root).mayName('from-source')).toBe(true);
+	});
+
 	it('should read only the extensions the module parser can', () => {
 		const root = tree({
 			'src/a.ts': `const c = 'in-ts';`,
@@ -201,7 +317,6 @@ describe('the class evidence', () => {
 describe('the shaken sheet', () => {
 	/** An evidence that says yes to exactly these names. */
 	const only = (...names: string[]): ClassEvidence => ({
-		files: 0,
 		mayName: (name) => names.includes(name),
 	});
 
@@ -230,7 +345,7 @@ describe('the shaken sheet', () => {
 	});
 
 	it('should be the whole sheet when everything is named', () => {
-		const sheet = shakeUtilities({ files: 0, mayName: () => true });
+		const sheet = shakeUtilities({ mayName: () => true });
 
 		expect(sheet.css).toBe(UTILITY_CSS);
 		expect(sheet.kept).toBe(sheet.total);
@@ -248,7 +363,8 @@ const sheet = { css: '@layer utilities {\n\t.p-2 { padding: 2 }\n}\n', kept: 1, 
  * the negatives are asserted rather than assumed.
  */
 describe('rewriting utilitySheet()', () => {
-	const shake = (source: string, file = '/app/src/view.ts') => shakeStyles(file, source, sheet);
+	const shake = (source: string, file = '/app/src/view.ts') =>
+		shakeStyles(file, source, () => sheet);
 
 	it('should replace the call with a module-scope constant', () => {
 		const out = shake(
@@ -258,8 +374,44 @@ describe('rewriting utilitySheet()', () => {
 		expect(out?.sites).toBe(1);
 		expect(out?.code).not.toMatch(/=\s*utilitySheet\(\)/);
 		expect(out?.code).toContain('parseStylesheet as $cssp');
-		expect(out?.code).toContain('const $csss =');
+		expect(out?.code).toContain('function $csss()');
 		expect(out?.code).toContain(JSON.stringify(sheet.css));
+	});
+
+	it('should hoist the replacement rather than leaving it in a temporal dead zone', () => {
+		// `utilitySheet()` answers whenever it is called, including from a module
+		// reached through an import cycle before its own body has run. A `const`
+		// would throw a `ReferenceError` there; a `var` and a function
+		// declaration hoist, so neither can
+		const out = shake(
+			`import { utilitySheet } from '@ttylabs/sigil/style';\nexport const s = utilitySheet();\n`
+		);
+
+		expect(out?.code).toMatch(/^import \{ parseStylesheet as \$cssp \}/);
+		expect(out?.code).toContain('var $cssv;');
+		expect(out?.code).not.toMatch(/\bconst \$css/);
+	});
+
+	it('should not ask for the sheet until it has found a call', () => {
+		// importing from `@ttylabs/sigil/style` is ordinary and calling
+		// `utilitySheet()` is not, so most modules that reach here have nothing
+		// to rewrite -- and the scan behind the sheet walks the app's whole
+		// source tree
+		let asked = 0;
+		const ask = () => {
+			asked++;
+			return sheet;
+		};
+
+		shakeStyles('/app/src/a.ts', `import { parseStylesheet } from '@ttylabs/sigil/style';\n`, ask);
+		expect(asked).toBe(0);
+
+		shakeStyles(
+			'/app/src/b.ts',
+			`import { utilitySheet } from '@ttylabs/sigil/style';\nexport const s = utilitySheet();\n`,
+			ask
+		);
+		expect(asked).toBe(1);
 	});
 
 	it('should parse the sheet once however many call sites there are', () => {
@@ -271,6 +423,10 @@ describe('rewriting utilitySheet()', () => {
 		expect(out?.sites).toBe(2);
 		expect(out?.code.match(/\$cssp\(/g)).toHaveLength(1);
 		expect(out?.code.match(/\$csss/g)).toHaveLength(3);
+		// memoized rather than parsed per call, which is what `utilitySheet()`
+		// itself does -- a rewrite that parsed twice would be slower than what it
+		// replaced
+		expect(out?.code).toContain('??=');
 	});
 
 	it('should follow an alias and a namespace member', () => {
@@ -346,8 +502,8 @@ describe('rewriting utilitySheet()', () => {
 		// `$css` and `$css0` both occur, so neither may be used: a generated name
 		// that shadows one the author wrote is the outward half of the prefix
 		// contract, and it is the half that turns a working build into a crash
-		expect(out?.code).toContain('const $css1s =');
-		expect(out?.code).toMatch(/=\s*\$css1s;/);
+		expect(out?.code).toContain('function $css1s()');
+		expect(out?.code).toMatch(/=\s*\$css1s\(\);/);
 	});
 
 	it('should produce a map that carries the module', () => {
@@ -408,5 +564,54 @@ describe('generating a subset', () => {
 
 	it('should be unchanged when nothing was asked for', () => {
 		expect(generateUtilities({ variants: false })).toBe(UTILITY_CSS);
+	});
+});
+
+/**
+ * Which modules the bundle counted as somebody else's.
+ *
+ * A path predicate, so it is asserted as one rather than through a bundler and
+ * a real install -- which is also the only way to reach the case that matters,
+ * since every fixture in this repository resolves its dependencies through a
+ * workspace link and therefore has no `node_modules` of its own.
+ */
+describe('telling the app apart from what it depends on', () => {
+	const app = resolve('/app');
+
+	it('should count the app’s own modules as its own', () => {
+		for (const file of ['/app/src/index.ts', '/app/index.ts', '/app']) {
+			expect(isAppsOwn(resolve(file), app), file).toBe(true);
+		}
+	});
+
+	it('should count an installed dependency as a dependency, inside the root though it is', () => {
+		// the half that was missing: `<app>/node_modules/left-pad` is inside the
+		// app root, so "outside the root" alone reported a normally installed app
+		// as having inlined nothing at all
+		for (const file of [
+			'/app/node_modules/left-pad/index.js',
+			'/app/node_modules/@scope/pkg/index.js',
+			'/app/src/node_modules/nested/index.js',
+		]) {
+			expect(isAppsOwn(resolve(file), app), file).toBe(false);
+		}
+	});
+
+	it('should count a linked dependency as a dependency, outside the root though it is', () => {
+		// the other half: a workspace resolves to a real directory with no
+		// `node_modules` in the path at all
+		expect(isAppsOwn(resolve('/other/packages/sigil/dist/index.mjs'), app)).toBe(false);
+	});
+
+	it('should not read a node_modules above the app as the app’s', () => {
+		// an app may perfectly well live inside one -- a package being built where
+		// it was installed -- and every module of it would otherwise be filed
+		// under its own name
+		const installed = resolve('/host/node_modules/myapp');
+
+		expect(isAppsOwn(resolve('/host/node_modules/myapp/src/x.ts'), installed)).toBe(true);
+		expect(isAppsOwn(resolve('/host/node_modules/myapp/node_modules/dep/x.js'), installed)).toBe(
+			false
+		);
 	});
 });

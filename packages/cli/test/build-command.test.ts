@@ -277,6 +277,12 @@ describe('sigil build', () => {
 
 		expect(stdout).toContain('Inlined');
 		expect(stdout).toMatch(/@ttylabs\/sigil\s+\d+\.\d+ kB/);
+		// the app's own modules are not a dependency, and this is the assertion
+		// that fails on Windows and nowhere else if the comparison stops
+		// normalizing: rolldown hands back forward slashes there while
+		// `resolve()` produces backslashes, so a raw `startsWith()` matches
+		// nothing and every module of the app is filed under the app's own name
+		expect(stdout).not.toContain('buildable ');
 	}, 60_000);
 
 	it('should take a name for the executable', async () => {

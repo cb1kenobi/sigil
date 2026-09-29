@@ -4223,7 +4223,7 @@ other is refused with numbers.
   that is not a loss worth inventing a seam for.
 
 - **Measured on a fixture that draws with utilities**: 383 rules shaken to 23,
-  the bundle **126,875 B to 114,374 B**, and startup **37.7 ms to 35.5 ms** --
+  the bundle **126,875 B to 114,382 B**, and startup **37.5 ms to 35.1 ms** --
   median of 25 spawns, run in both orders. The startup win is larger than the
   0.55 ms of parse it removes, because 12.5 kB less source is also less for node
   to read and compile. The rendered output is byte for byte what the unshaken
@@ -4264,6 +4264,18 @@ other is refused with numbers.
   are read like any other, which is the only reason a `ui` template's
   `class="p-2"` is visible at all -- the class sits inside the template's text
   rather than in a string of its own.
+
+- **The scan is lazy, and what it costs is measured rather than optimized.** It
+  is asked for on the first module that turns out to hold a `utilitySheet()`
+  call and never for an app that does not, which is most of them: **0.4 ms**
+  for a three-module app, **100 ms** for a 238-module 2.17 MB tree -- 76 ms
+  parse, 9 ms walk, 2.5 ms reading the files. The parse is the cost and the
+  obvious way to skip it is not available: a file whose raw text holds no token
+  any utility could match still might, because a literal's cooked value is not
+  its source text and `'\u0070-2'` is `p-2` to the parse and nothing to a
+  substring search. Skipping there would be a silent **drop**, which is the one
+  direction this analysis does not trade in -- unlike the escaped specifier the
+  filters already miss, which is a silent _keep_.
 
 - **Everything uncertain resolves towards keeping, and two guards that did not
   were deleted.** Keeping a rule nothing can match costs 35 bytes; dropping one
@@ -4332,14 +4344,18 @@ other is refused with numbers.
   costs. It found something on the first run: `magic-string` is **46.3 kB** of
   the toolchain's own bundle.
 
-  A module belongs to a dependency when it sits **outside the app root**, not
-  when its path contains `node_modules`. Those are the same thing for an
-  installed package and are not for a linked one -- a workspace resolves
-  `@ttylabs/sigil` to a real directory with no `node_modules` in the path, so the
-  substring test reports a bundle that inlined the whole runtime as having
-  inlined nothing, which is every app in this repository. The owning package is
-  read from the nearest `package.json` above the module, which is how node itself
-  decides, cached per directory and caching the misses too.
+  A module is the app's **own** when it is inside the app root _and_ under no
+  `node_modules`, and a dependency's otherwise. Both halves are load-bearing and
+  each alone is wrong in the case the other covers, which is what a review round
+  found: an _installed_ dependency lives at `<app>/node_modules/left-pad`, inside
+  the root, so "outside the root" alone reports a normally installed app as
+  having inlined nothing; a _linked_ one resolves to a real directory with no
+  `node_modules` in its path, so "contains `node_modules`" alone reports a bundle
+  that inlined the whole runtime as having inlined nothing -- which is every app
+  in this repository and exactly what a test written here would have been blind
+  to. The owning package is read from the nearest `package.json` above the
+  module, which is how node itself decides, cached per directory and caching the
+  misses too.
 
   The bytes are `renderedLength`, which is **after tree shaking and before
   minification** -- measured, not assumed: the sum is identical with `minify` on

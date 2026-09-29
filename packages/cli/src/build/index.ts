@@ -46,6 +46,7 @@ export {
 	type BundleOptions,
 	type BundleResult,
 	type InlinedPackage,
+	isAppsOwn,
 	type ShakenStyles,
 } from './bundle.ts';
 export { bindingName, importBindings, reachable, unwrap, type ImportBindings } from './bindings.ts';

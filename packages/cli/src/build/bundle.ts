@@ -156,8 +156,6 @@ export interface InlinedPackage {
 export interface ShakenStyles {
 	/** How many utilities survived. */
 	readonly kept: number;
-	/** How many `utilitySheet()` calls were rewritten. */
-	readonly sites: number;
 	/** How many utilities there were. */
 	readonly total: number;
 }
@@ -377,6 +375,18 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 					 * `id` is the same extension set the template pass uses. Both are
 					 * applied natively, so a module that cannot hold a call never
 					 * crosses into JavaScript.
+					 *
+					 * The **module** rather than the export name, though
+					 * `utilitySheet` is distinctive enough to filter on and would be
+					 * tighter: every shape that can call it mentions it, so that
+					 * filter would be sound -- except for the one it is not, a name
+					 * written with a unicode escape, which oxc decodes and a substring
+					 * search does not. That is a new silent miss bought for a
+					 * measurement that says there is nothing to buy: the `styled`
+					 * fixture reaches this handler **once**, and the toolchain's own
+					 * build has four modules mentioning the specifier at all. Same
+					 * filter as the template pass, for the same reason, with the same
+					 * boundary.
 					 */
 					filter: {
 						code: new RegExp(STYLE_MODULE.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')),
@@ -388,7 +398,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 							return null;
 						}
 
-						const shaken = shakeStyles(id, code, shaker.sheet());
+						const shaken = shakeStyles(id, code, () => shaker.sheet());
 						if (!shaken) {
 							return null;
 						}
@@ -548,7 +558,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 			bin: executable,
 			chunks,
 			external: [...external],
-			inlined: inlinedPackages(app.root, written.output),
+			inlined: inlinedPackages(app.root, input, written.output),
 			styles: styleReport(shaker, sites),
 			templates,
 		};
@@ -610,16 +620,11 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
  * what is worth knowing is the size, and the author is the one who can decide
  * whether it is too much.
  *
- * A module belongs to a dependency when it sits **outside the app root**,
- * rather than when its path contains `node_modules`. Those are the same thing
- * for an installed package and are not for a linked one: a workspace resolves
- * `@ttylabs/sigil` to a real directory with no `node_modules` anywhere in the
- * path, so the substring test reports a bundle that inlined the whole runtime
- * as having inlined nothing -- which is exactly the case every app in this
- * repository is, and exactly the case a test would have been written against.
- * The owning package is then read from the nearest `package.json` above the
- * module, which is how node itself decides, and cached per directory because a
- * bundle is hundreds of modules over a handful of packages.
+ * Which modules are a dependency's is `isAppsOwn()` read backwards, and it is
+ * the part that took a review round. The owning package is then read from the
+ * nearest `package.json` above the module, which is how node itself decides,
+ * and cached per directory because a bundle is hundreds of modules over a
+ * handful of packages.
  *
  * The bytes are `renderedLength`, which is what the module came to **after
  * tree shaking and before minification** -- measured, not assumed: the sum is
@@ -633,16 +638,19 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
  * the magnitudes to be right rather than the total.
  *
  * @param root - The app root, which everything under is the app's own.
+ * @param entry - The module rolldown was pointed at, which is not a package.
  * @param output - What rolldown wrote.
  * @returns One entry per package, largest first.
  */
 function inlinedPackages(
 	root: string,
+	entry: string,
 	output: readonly { modules?: Record<string, { renderedLength?: number }>; type: string }[]
 ): InlinedPackage[] {
 	const bytes = new Map<string, number>();
 	const owners = new Map<string, string | undefined>();
 	const app = resolve(root);
+	const input = resolve(entry);
 
 	for (const chunk of output) {
 		if (chunk.type !== 'chunk') {
@@ -650,13 +658,32 @@ function inlinedPackages(
 		}
 
 		for (const [id, rendered] of Object.entries(chunk.modules ?? {})) {
-			// a virtual module has no path to own it, and anything inside the app
-			// is the app's own code rather than a dependency's
-			if (!isAbsolute(id) || id === app || id.startsWith(`${app}${sep}`)) {
+			// a virtual module has no path to own it
+			if (!isAbsolute(id)) {
 				continue;
 			}
 
-			const name = packageOf(dirname(id), owners);
+			// resolved before it is compared, because a module id is not
+			// necessarily spelled the way `resolve()` spells one: rolldown hands
+			// back forward slashes on Windows, where `resolve()` produces
+			// backslashes -- so a raw `startsWith()` there matches nothing and
+			// every one of the app's own modules is reported as a package, which
+			// the app's own `package.json` then happily names. The comparison has
+			// to be between two spellings made the same way, which is the rule
+			// `scanClassEvidence()` keeps for its exclusions
+			const file = resolve(id);
+
+			// the entry is the build's own, and the generated one is the reason
+			// this is asked at all: it is written inside `node_modules/.sigil`, so
+			// `isAppsOwn()` correctly says it is not the app's -- and walking up
+			// from it for an owner then finds the app's own manifest and reports
+			// the app as a package it depends on. A `--bin` needs no such
+			// exception, since it sits in the app tree like any other module
+			if (file === input || isAppsOwn(file, app)) {
+				continue;
+			}
+
+			const name = packageOf(dirname(file), owners);
 			if (name !== undefined) {
 				bytes.set(name, (bytes.get(name) ?? 0) + (rendered.renderedLength ?? 0));
 			}
@@ -666,6 +693,40 @@ function inlinedPackages(
 	return [...bytes]
 		.map(([name, size]) => ({ bytes: size, name }))
 		.sort((one, other) => other.bytes - one.bytes || one.name.localeCompare(other.name));
+}
+
+/**
+ * Whether a module is the app's own code rather than something it depends on.
+ *
+ * Inside the app root **and** under no `node_modules`. Both halves are
+ * load-bearing and each one alone is wrong in exactly the case the other
+ * covers, which is what a review round found. An *installed* dependency lives
+ * at `<app>/node_modules/left-pad`, which is inside the root -- so "outside the
+ * root" alone reports a normally installed app as having inlined nothing at
+ * all. A *linked* one resolves to a real directory with no `node_modules`
+ * anywhere in its path -- so "contains `node_modules`" alone reports a bundle
+ * that inlined the whole runtime as having inlined nothing, which is every app
+ * in this repository and exactly what a test written here would have been blind
+ * to.
+ *
+ * The `node_modules` segment is looked for **below the root** rather than in
+ * the whole path, because an app may perfectly well live inside one -- a
+ * package being built where it was installed -- and every module of it would
+ * otherwise be filed under its own name.
+ *
+ * Exported for the reason `undo()` and `MODULE_RE` are: it is a claim about
+ * paths, so it is worth asserting directly rather than through a bundler and a
+ * real `node_modules` tree.
+ *
+ * @param file - The module, resolved.
+ * @param app - The app root, resolved.
+ * @returns Whether it is the app's own.
+ */
+export function isAppsOwn(file: string, app: string): boolean {
+	if (file !== app && !file.startsWith(`${app}${sep}`)) {
+		return false;
+	}
+	return !file.slice(app.length).split(sep).includes('node_modules');
 }
 
 /**
@@ -739,7 +800,7 @@ function packageOf(from: string, cache: Map<string, string | undefined>): string
  */
 function styleReport(shaker: Shaker | undefined, sites: number): ShakenStyles | undefined {
 	const sheet: ShakenSheet | undefined = shaker?.result();
-	return sheet && sites ? { kept: sheet.kept, sites, total: sheet.total } : undefined;
+	return sheet && sites ? { kept: sheet.kept, total: sheet.total } : undefined;
 }
 
 /**
