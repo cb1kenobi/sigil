@@ -198,7 +198,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 	// for it
 	const { rolldown } = await import('rolldown');
 
-	const generated = bin ? undefined : writeEntry(app, tree, out);
+	const generated = bin ? undefined : entryLocation(app, out);
 	const input = bin ?? generated!.file;
 
 	const unresolved: string[] = [];
@@ -383,7 +383,15 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 	// an `options` hook that throws rejects before a bundle is constructed, and a
 	// missing input resolves to one -- so there is no reachable path where a
 	// bundle exists and this function cannot see it.
+	//
+	// The generated entry is *written* here rather than before, so the directory
+	// and the bundle are owned by the same block. Only the path has to exist
+	// earlier, because it is `rolldown()`'s `input`; see `writeEntry()`.
 	try {
+		if (generated) {
+			writeEntry(generated, app, tree);
+		}
+
 		const written = await bundle.write({
 			chunkFileNames: 'chunks/[name]-[hash].mjs',
 			dir: out,
@@ -787,7 +795,7 @@ export function undo(out: string, output: readonly { fileName: string }[]): void
  * @param tree - The tree to bake in.
  * @returns Where it was written.
  */
-function writeEntry(app: DiscoveredApp, tree: ResolvedTree, out: string): GeneratedEntry {
+function entryLocation(app: DiscoveredApp, out: string): GeneratedEntry {
 	// named from the **output** rather than randomly, and that is a trade taken on
 	// purpose. `mkdtempSync` was the first version and is unique per invocation,
 	// which closes this defect and one more -- two builds of one app to one `--out`
@@ -811,16 +819,40 @@ function writeEntry(app: DiscoveredApp, tree: ResolvedTree, out: string): Genera
 	// `node_modules`, in a case whose bundle was already whichever process wrote
 	// last.
 	const dir = join(app.root, WORK_DIR, hash(resolve(out)));
-	mkdirSync(dir, { recursive: true });
 
-	const file = join(dir, 'entry.mjs');
+	return { dir, file: join(dir, 'entry.mjs') };
+}
+
+/**
+ * Writes the generated entry into the directory named for it.
+ *
+ * Separate from naming it, and called *inside* the `try` that removes the
+ * directory again, which is the whole reason for the split. Naming has to happen
+ * first, because the path is `rolldown()`'s `input` -- but the **file** does not:
+ * measured against rolldown 1.2.11, `rolldown()` resolves with an input that does
+ * not exist yet and `write()` bundles it happily if it has appeared by then, so
+ * long as the path is absolute, which this one is. A relative input fails either
+ * way, which is what made the first measurement of this look like the opposite.
+ *
+ * So there is no window where a directory exists and nothing is bound to remove
+ * it. That window was real before this split: `writeEntry()` ran before the
+ * `try`, so any throw in between -- while the options object was still being
+ * built, say -- leaked a directory. Unreachable through `sigil build`'s own
+ * options, and closed rather than written down, because the fix turned out to be
+ * moving two lines.
+ *
+ * @param at - Where the entry goes.
+ * @param app - The app.
+ * @param tree - The tree to bake in.
+ */
+function writeEntry(at: GeneratedEntry, app: DiscoveredApp, tree: ResolvedTree): void {
+	mkdirSync(at.dir, { recursive: true });
+
 	writeFileSync(
-		file,
-		generateBin({ from: dir, schemaModule: app.entry, tree, version: app.manifest.version }),
+		at.file,
+		generateBin({ from: at.dir, schemaModule: app.entry, tree, version: app.manifest.version }),
 		'utf-8'
 	);
-
-	return { dir, file };
 }
 
 /**

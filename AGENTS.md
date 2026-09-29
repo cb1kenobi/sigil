@@ -4353,8 +4353,10 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   `--no-sourcemap` and the bootstrap's byte-identical fixed point never sees it,
   which is luck rather than design. The case the hash gives up is two builds
   already fighting over every file they write, where the entry is the least of
-  what they would clobber. So: deterministic, and the builds that can actually
-  corrupt each other are the ones writing different bundles.
+  what they would clobber. So: deterministic, and separated for every pair of
+  outputs that does not collide -- which is a weaker sentence than it wants to be,
+  and the paragraph below is where the width that makes it true, and the part of it
+  that stays false at any width, are written down.
 
   Removed on the way out, in the same `finally` that closes the bundle, and
   unconditionally -- a refused build has no more use for a generated entry than a
@@ -4384,17 +4386,29 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   **Two edges are known and declined, both measured.** Two builds to _one_ `--out`
   is the case the hash gives up, and it is also where the cleanup is unreliable:
   two processes removing one directory means an `rmSync` can throw, and a swallowed
-  throw leaves it behind -- seen once in four runs, a few kB inside `node_modules`,
-  in a case whose bundle was already whichever process wrote last. And
-  `writeEntry()` runs _before_ the `try` that removes the directory, because
-  `rolldown()` needs the path as its `input`, so a rejection from `rolldown()`
-  itself would leak one. Not reachable through this build's options and the review
-  could not provoke it; the fix if it ever is would be to compute the path there
-  and write the file inside the `try`, since rolldown resolves `input` at write time
-  rather than at construction. A `.sigil` the user has replaced with a symlink
+  throw leaves it behind -- a few kB inside `node_modules`, in a case whose bundle
+  was already whichever process wrote last. Seen once in four runs by one review
+  and **not** in about seventy barrier-synchronised attempts by the next, including
+  removals raced against an open file handle, so the rate is unknown and may be
+  platform's rather than ours. The `catch` is the right shape whether or not it
+  fires; what is not claimed is how often. A `.sigil` the user has replaced with a symlink
   pointing outside the app is removed through the link, which is the same class
   `undo()` documents and declines to close -- and such a build fails anyway, because
   the entry's relative specifiers no longer reach the app.
+
+  **Naming the directory and writing the file are two steps, because only the name
+  has to come first.** The path is `rolldown()`'s `input`, so it is chosen before
+  the call -- but the file is not: measured against rolldown 1.2.11, `rolldown()`
+  resolves an input that does not exist yet and `write()` bundles it happily if it
+  has appeared by then, provided the path is **absolute**, which this one is. A
+  relative input fails either way, which is what made the first measurement of this
+  look like the opposite and is worth knowing before anybody re-measures it. So the
+  write happens inside the same `try` that removes the directory, and there is no
+  window where one exists with nothing bound to clean it up. That window was real:
+  a throw between the two -- while the options object was still being built, say --
+  leaked a directory. It was going to be written down as unreachable through
+  `sigil build`'s own options, which it is, until the fix turned out to be moving
+  two lines.
 
   **A rolldown virtual module is the design that has none of this, and it was
   tried.** An id shaped like the path it would have had -- `resolveId`/`load`

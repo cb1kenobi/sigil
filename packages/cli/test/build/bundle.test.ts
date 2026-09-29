@@ -107,6 +107,16 @@ describe('two builds of one app at once', () => {
 	const shared = resolve(__dirname, '../fixtures/two-trees');
 	const workDir = join(shared, 'node_modules', '.sigil');
 
+	/**
+	 * What a build left in the work directory.
+	 *
+	 * Absent and empty are the same answer -- the claim is that no *directory* is
+	 * left behind, and whether the parent happens to exist is incidental: a build
+	 * that threw before naming anything never creates it, and one that finished
+	 * leaves it empty.
+	 */
+	const leftBehind = () => (existsSync(workDir) ? readdirSync(workDir) : []);
+
 	let outA: string;
 	let outB: string;
 
@@ -164,12 +174,40 @@ describe('two builds of one app at once', () => {
 		expect(b).not.toContain('onlyA');
 	});
 
+	it('should leave nothing behind when a throw lands between naming and writing', async () => {
+		// the window this closed: the entry used to be *written* before the `try`
+		// that removes its directory, so any throw in between leaked one. Provoked
+		// the way review round 2 found it -- an `external` that is not an array
+		// throws out of `flatMap` while the options object is still being built,
+		// which is after the name is chosen and before `write()`. `sigil build`
+		// cannot reach it (`--external` is `multiple: true`, so argv always gives an
+		// array) and `bundleApp` is not published, so this asserts the invariant
+		// rather than a user-facing path: no way out of this function leaves a
+		// directory
+		rmSync(workDir, { force: true, recursive: true });
+
+		const bad = mkdtempSync(join(tmpdir(), 'sigil-two-bad-'));
+
+		await expect(
+			bundleApp({
+				app: discoverApp(shared),
+				binName: 'two-trees',
+				external: 'not-an-array' as unknown as string[],
+				out: bad,
+				tree: resolveCommandTree(join(shared, 'treeA')),
+			})
+		).rejects.toThrow();
+
+		expect(leftBehind()).toStrictEqual([]);
+
+		rmSync(bad, { force: true, recursive: true });
+	}, 60_000);
+
 	it('should leave nothing behind in the work directory', () => {
 		// the entry is this build's alone, so it is removed again -- the alternative
 		// is `node_modules/.sigil` accumulating one directory per output anybody
 		// ever built to
-		expect(existsSync(workDir)).toBe(true);
-		expect(readdirSync(workDir)).toStrictEqual([]);
+		expect(leftBehind()).toStrictEqual([]);
 	});
 
 	describe('where each build generates', () => {
