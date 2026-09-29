@@ -601,12 +601,12 @@ export function choosePrefix(source: string, base: string): string {
 /**
  * Rewrites a module's `utilitySheet()` calls to the shaken sheet.
  *
- * The replacement is one module-scope constant rather than one parse per call
- * site, because `utilitySheet()` memoizes and a rewrite that parsed per call
- * would be slower than what it replaced. It is not the same *object* across
- * modules the way the memo is -- two modules that both call it get two sheets
- * -- which nothing can observe: a `Stylesheet` is frozen and a `Cascade` only
- * reads it.
+ * The replacement is a memoized function per module rather than one parse per
+ * call site, because `utilitySheet()` memoizes and a rewrite that parsed per
+ * call would be slower than what it replaced. It is not the same *object*
+ * across modules the way the memo is -- two modules that both call it get two
+ * sheets -- which nothing can observe: a `Stylesheet` is frozen and a `Cascade`
+ * only reads it.
  *
  * A `utilitySheet` reached in any other way -- passed as a value, destructured
  * off a namespace, re-exported through a barrel -- is left alone, and the app

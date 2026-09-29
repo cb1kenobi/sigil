@@ -58,7 +58,9 @@ source, so `class="p-2"` and ``class={`text-${colour}`}`` are both seen: the
 first names one class, the second keeps every `text-*` rule. What it cannot see
 is a class assembled out of values that are never literals in your source — one
 read from a config file, or joined out of an array that came from elsewhere —
-and `safelist` is how to keep those. `--no-shake` turns it off for one build.
+and `safelist` is how to keep those — if it dropped _everything_, the build
+says so rather than leaving you to notice. `--no-shake` turns it off for one
+build.
 
 ## Building this package
 
