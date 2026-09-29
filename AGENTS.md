@@ -4225,17 +4225,20 @@ other is refused with numbers.
 - **Measured on `test/fixtures/styled/`, which draws with utilities**: 383 rules
   shaken to 25, and the bundle **133,692 B to 122,234 B**. Startup goes with it,
   and by more than the parse alone, because 11.5 kB less source is also less for
-  node to read and compile: **38.2 ms against 40.3 ms** at the fastest, 41.8
-  against 44.3 at p25, and 44.3 against 47.4 at the median.
+  node to read and compile: **34.9 ms against 37.0 ms** at the fastest, 35.8
+  against 37.9 at p25, and 36.4 against 38.4 at the median.
 
   Timed as **60 interleaved pairs** -- one spawn of each per iteration -- rather
-  than as two batches, and that is the method rather than a concession to a busy
-  box. Two batches minutes apart disagreed with each other and, run in the other
-  order, with themselves: one of them put the shaken build 2 ms _slower_.
-  Alternating makes whatever the machine is doing happen to both, which is the
-  same reason the invalidation benchmark reads a median rather than a slowest
-  pass. The absolute numbers here are a loaded machine's; the 2-3 ms is the
-  claim, and it holds at all three points of the distribution.
+  than as two batches, and that is the method rather than a tidy-up. Two batches
+  minutes apart disagreed with each other and, run in the other order, with
+  themselves: one of them put the shaken build 2 ms _slower_, because something
+  else was compiling at the time. Alternating makes whatever the machine is
+  doing happen to both, which is the same reason the invalidation benchmark
+  reads a median rather than a slowest pass. Run again on a quiet machine the
+  interleaved answer moved by 0.1 ms and the numbers above are that run; the
+  loaded one said 38.2 against 40.3, which is the same 2 ms carried on larger
+  absolutes. The delta is the claim, and it holds at all three points of the
+  distribution.
 
   The rendered output is byte for byte what the unshaken build produces and what
   the app produces run from source, which is what `should render what the
