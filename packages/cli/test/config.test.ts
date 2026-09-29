@@ -36,7 +36,21 @@ describe('reading it', () => {
 	it('should read the build section', () => {
 		expect(
 			withConfig({ build: { external: ['rolldown'], out: 'build', sourcemap: false } }).build
-		).toStrictEqual({ external: ['rolldown'], name: undefined, out: 'build', sourcemap: false });
+		).toStrictEqual({
+			external: ['rolldown'],
+			name: undefined,
+			out: 'build',
+			safelist: undefined,
+			shake: undefined,
+			sourcemap: false,
+		});
+	});
+
+	it('should read the shaking fields', () => {
+		expect(withConfig({ build: { safelist: ['p-2'], shake: false } }).build).toMatchObject({
+			safelist: ['p-2'],
+			shake: false,
+		});
 	});
 
 	it('should read components beside it', () => {
@@ -53,6 +67,15 @@ describe('refusing what it cannot mean', () => {
 
 	it('should refuse an empty name in that list', () => {
 		expect(() => withConfig({ build: { external: ['ok', ''] } })).toThrow(/array of package/);
+	});
+
+	it('should refuse a string where a list of classes was meant', () => {
+		// the same reader as `external`, and it names the field it was asked
+		// about rather than saying "a list": a message that names the wrong field
+		// sends the reader to the wrong line
+		expect(() => withConfig({ build: { safelist: 'p-2' } })).toThrow(
+			/"build\.safelist" must be an array of class names/
+		);
 	});
 
 	it('should refuse a string where a boolean was meant', () => {

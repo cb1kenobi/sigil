@@ -1,0 +1,12 @@
+{
+  "name": "opaque",
+  "version": "0.0.0",
+  "private": true,
+  "bin": {
+    "opaque": "./dist/opaque.mjs"
+  },
+  "type": "module",
+  "dependencies": {
+    "@ttylabs/sigil": "workspace:*"
+  }
+}

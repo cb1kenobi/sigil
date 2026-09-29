@@ -13,6 +13,9 @@
  *   that the runtime cannot know without importing it.
  * - `findTemplates()` finds the `ui` templates in a module, which is the half
  *   `src/template/` has always been handed rather than found.
+ * - `scanClassEvidence()` reads an app's own source for the classes it could
+ *   name, and `shakeStyles()` rewrites a `utilitySheet()` call to hold only the
+ *   rules that evidence allows.
  * - `generateCommands()` prints a resolved tree as the schema literal a built
  *   app carries, with a lazy `import()` per command.
  * - `typeCheck()` runs the app's own `tsc` over the app's own `tsconfig.json`,
@@ -39,11 +42,14 @@ export {
 } from './diagnostic.ts';
 export {
 	bundleApp,
-	MODULE_RE,
 	type BuiltChunk,
 	type BundleOptions,
 	type BundleResult,
+	type InlinedPackage,
+	isAppsOwn,
+	type ShakenStyles,
 } from './bundle.ts';
+export { bindingName, importBindings, reachable, unwrap, type ImportBindings } from './bindings.ts';
 export {
 	discoverApp,
 	readAppCommands,
@@ -64,11 +70,26 @@ export {
 } from './generate.ts';
 export {
 	formatPosition,
+	MODULE_RE,
 	parseModule,
 	position,
 	type ParsedModule,
 	type Position,
 } from './parse-module.ts';
+export {
+	choosePrefix as chooseStylePrefix,
+	createShaker,
+	scanClassEvidence,
+	shakeStyles,
+	shakeUtilities,
+	SHEET_EXPORT,
+	STYLE_MODULE,
+	type ClassEvidence,
+	type ScanOptions,
+	type Shaker,
+	type ShakenModule,
+	type ShakenSheet,
+} from './shake.ts';
 export {
 	findTemplates,
 	templatesIn,

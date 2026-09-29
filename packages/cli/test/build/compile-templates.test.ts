@@ -1,9 +1,9 @@
-import { MODULE_RE } from '../../src/build/bundle.js';
 import {
 	choosePrefix,
 	compileTemplates,
 	TemplateCompileError,
 } from '../../src/build/compile-templates.js';
+import { MODULE_RE } from '../../src/build/index.js';
 import { renderToString } from '@ttylabs/sigil/element';
 import { ui } from '@ttylabs/sigil/template';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';

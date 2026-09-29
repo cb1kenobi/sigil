@@ -1,0 +1,12 @@
+{
+  "name": "styled",
+  "version": "0.0.0",
+  "private": true,
+  "bin": {
+    "styled": "./dist/styled.mjs"
+  },
+  "type": "module",
+  "dependencies": {
+    "@ttylabs/sigil": "workspace:*"
+  }
+}

@@ -43,6 +43,25 @@ export interface BuildConfig {
 	readonly name?: string;
 	/** Where the bundle goes, relative to the app. */
 	readonly out?: string;
+	/**
+	 * Utility classes to keep whatever the app's source says.
+	 *
+	 * The escape hatch style shaking needs and cannot do without: the scan is
+	 * evidence rather than proof, so a class assembled out of values that never
+	 * appear as literals in the source -- read from a config file, joined out of
+	 * an array that came from somewhere else -- leaves nothing behind and its
+	 * rule is dropped. This is how to say it anyway.
+	 */
+	readonly safelist?: readonly string[];
+	/**
+	 * Whether to shake the utility sheet. On by default.
+	 *
+	 * On by default because the sheet is opt-in already -- an app only pays for
+	 * it by calling `utilitySheet()` -- and because a build that quietly kept
+	 * everything is an optimization nobody notices is gone. Off is the blunt
+	 * answer for an app that would otherwise need a long safelist.
+	 */
+	readonly shake?: boolean;
 	/** Whether to write sourcemaps. */
 	readonly sourcemap?: boolean;
 }
@@ -120,17 +139,35 @@ function readBuild(value: unknown): BuildConfig | undefined {
 		external: readExternal(build.external),
 		name: readString(build.name, 'build.name'),
 		out: readString(build.out, 'build.out'),
+		safelist: readNames(build.safelist, 'build.safelist', 'class names'),
+		shake: readBoolean(build.shake, 'build.shake'),
 		sourcemap: readBoolean(build.sourcemap, 'build.sourcemap'),
 	};
 }
 
 /** A list of package names, which is the one field that is easy to write as a string. */
 function readExternal(value: unknown): readonly string[] | undefined {
+	return readNames(value, 'build.external', 'package names');
+}
+
+/**
+ * A list of non-empty strings.
+ *
+ * Both lists this file reads are that, and a single string where an array was
+ * meant is the mistake worth catching rather than passing on -- `"external":
+ * "rolldown"` reaching rolldown as a string means something else entirely.
+ *
+ * @param value - What the file held.
+ * @param field - The field, for the message.
+ * @param what - What the names are, for the message.
+ * @returns The list, or `undefined` when the field was absent.
+ */
+function readNames(value: unknown, field: string, what: string): readonly string[] | undefined {
 	if (value === undefined) {
 		return undefined;
 	}
 	if (!Array.isArray(value) || value.some((name) => typeof name !== 'string' || !name)) {
-		throw new Error(`${CONFIG_FILE}: "build.external" must be an array of package names`);
+		throw new Error(`${CONFIG_FILE}: "${field}" must be an array of ${what}`);
 	}
 	return value as string[];
 }

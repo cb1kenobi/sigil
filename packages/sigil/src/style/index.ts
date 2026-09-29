@@ -173,6 +173,13 @@ let utility: Stylesheet | undefined;
  * above an app's own `.panel { padding: 4 }`, and an app beats either with
  * `!important` exactly as it always could.
  *
+ * Being a call in an app's own source is also what makes it the one sheet
+ * `sigil build` can shake: the toolchain rewrites this call to hold only the
+ * rules the app's source could name, which is why `UTILITY_CSS` leaves a built
+ * bundle entirely rather than being replaced in it. Nothing here knows about
+ * that -- what the rewrite produces is an ordinary `parseStylesheet()` of a
+ * shorter sheet.
+ *
  * @returns The utility sheet.
  */
 export function utilitySheet(): Stylesheet {

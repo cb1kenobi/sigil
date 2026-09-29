@@ -58,6 +58,21 @@ export interface UtilityOptions {
 	 * for, and they are SIG-81's.
 	 */
 	readonly spacing?: number;
+	/**
+	 * Which utilities to generate, by name. Every one of them, when omitted.
+	 *
+	 * What style shaking passes: the names an app's own source could produce.
+	 * A filter over the generated set rather than a second generator, so the
+	 * text of a rule that survives is byte for byte the text it has in the
+	 * committed sheet -- which is what makes a shaken sheet a *subset* rather
+	 * than a second sheet that happens to agree.
+	 *
+	 * A name nothing generates is ignored rather than refused, because a
+	 * safelist is written by hand against a vocabulary that moves between
+	 * releases, and failing a build over a class somebody stopped using is a
+	 * worse answer than generating nothing for it.
+	 */
+	readonly only?: readonly string[];
 	/** How far `w-N` and `h-N` go, in cells. */
 	readonly sizing?: number;
 	/** Whether to generate the variants as well as the base set. */
@@ -369,14 +384,14 @@ function escapeClass(name: string): string {
  * @returns The stylesheet source, in the utilities layer.
  */
 export function generateUtilities(opts: UtilityOptions = {}): string {
-	const base = utilities(opts);
+	const base = only(utilities(opts), opts.only);
 	const lines: string[] = ['@layer utilities {'];
 
 	for (const utility of base) {
 		lines.push(`\t${rule(utility, '')}`);
 	}
 
-	if (opts.variants ?? DEFAULTS.variants) {
+	if (base.length && (opts.variants ?? DEFAULTS.variants)) {
 		for (const variant of VARIANTS) {
 			const body = base.map((utility) => rule(utility, variant.name, variant.pseudo));
 			if (variant.media) {
@@ -391,6 +406,26 @@ export function generateUtilities(opts: UtilityOptions = {}): string {
 
 	lines.push('}');
 	return `${lines.join('\n')}\n`;
+}
+
+/**
+ * The utilities a caller asked for, in generated order.
+ *
+ * Filtered rather than looked up, so the order and the text are the generator's
+ * either way -- a sheet built by walking the caller's list would put the rules
+ * in whatever order the caller wrote and stop being a subset of the committed
+ * one.
+ *
+ * @param all - Everything the scales produced.
+ * @param wanted - The names to keep, or `undefined` for all of them.
+ * @returns The utilities to print.
+ */
+function only(all: readonly Utility[], wanted: readonly string[] | undefined): readonly Utility[] {
+	if (wanted === undefined) {
+		return all;
+	}
+	const keep = new Set(wanted);
+	return all.filter((utility) => keep.has(utility.name));
 }
 
 /**
