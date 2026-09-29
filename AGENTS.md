@@ -4222,13 +4222,24 @@ other is refused with numbers.
   original constant is still statically referenced. At 19 rules and 0.023 ms
   that is not a loss worth inventing a seam for.
 
-- **Measured on a fixture that draws with utilities**: 383 rules shaken to 23,
-  the bundle **126,875 B to 114,382 B**, and startup **37.5 ms to 35.1 ms** --
-  median of 25 spawns, run in both orders. The startup win is larger than the
-  0.55 ms of parse it removes, because 12.5 kB less source is also less for node
-  to read and compile. The rendered output is byte for byte what the unshaken
-  build produces and what the app produces run from source, which is what
-  `should render what the unshaken sheet does` asserts three ways.
+- **Measured on `test/fixtures/styled/`, which draws with utilities**: 383 rules
+  shaken to 25, and the bundle **133,692 B to 122,234 B**. Startup goes with it,
+  and by more than the parse alone, because 11.5 kB less source is also less for
+  node to read and compile: **38.2 ms against 40.3 ms** at the fastest, 41.8
+  against 44.3 at p25, and 44.3 against 47.4 at the median.
+
+  Timed as **60 interleaved pairs** -- one spawn of each per iteration -- rather
+  than as two batches, and that is the method rather than a concession to a busy
+  box. Two batches minutes apart disagreed with each other and, run in the other
+  order, with themselves: one of them put the shaken build 2 ms _slower_.
+  Alternating makes whatever the machine is doing happen to both, which is the
+  same reason the invalidation benchmark reads a median rather than a slowest
+  pass. The absolute numbers here are a loaded machine's; the 2-3 ms is the
+  claim, and it holds at all three points of the distribution.
+
+  The rendered output is byte for byte what the unshaken build produces and what
+  the app produces run from source, which is what `should render what the
+unshaken sheet does` asserts three ways.
 
 - **The analysis is evidence, not proof, and the direction it falls is the whole
   design.** A class reaches the cascade as a string, so the question is which
