@@ -28,8 +28,6 @@
     "type-check": "turbo run type-check"
   },
   "devDependencies": {
-    "@ttylabs/cli": "workspace:*",
-    "@ttylabs/sigil": "workspace:*",
     "@types/node": "26.6.3",
     "@vitest/coverage-v8": "5.0.1",
     "lefthook": "2.1.14",
