@@ -11,6 +11,7 @@ import { parseStylesheet, UTILITY_CSS } from '@ttylabs/sigil/style';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { parseSync } from 'oxc-parser';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const made: string[] = [];
@@ -506,6 +507,39 @@ describe('rewriting utilitySheet()', () => {
 		// contract, and it is the half that turns a working build into a crash
 		expect(out?.code).toContain('function $css1s()');
 		expect(out?.code).toMatch(/=\s*\$css1s\(\);/);
+	});
+
+	it('should produce something that parses wherever the call sat', () => {
+		// the replacement is an expression and the head is three statements, so the
+		// shapes that could go wrong are the ones where either has somewhere awkward
+		// to land. Asserted by *parsing* the result rather than by reading it, which
+		// is the rule `rawJsxIn()` already keeps one file along: a substring check
+		// over generated code answers a question about the substring
+		const shapes: Record<string, string> = {
+			'a class static block':
+				'export class A { static s = utilitySheet(); static { A.t = utilitySheet(); } }',
+			'a default parameter': 'export function f(s = utilitySheet()) { return s; }',
+			'a directive prologue': "'use strict';\nexport const s = utilitySheet();",
+			'a template literal': 'export const s = `${utilitySheet().rules.length}`;',
+			'an export default': 'export default utilitySheet();',
+			'an optional call': 'export const s = utilitySheet?.();',
+			'top-level await beside it': 'await 0;\nexport const s = utilitySheet();',
+		};
+
+		for (const [what, body] of Object.entries(shapes)) {
+			const out = shake(`import { utilitySheet } from '@ttylabs/sigil/style';\n${body}\n`);
+
+			expect(out?.sites, what).toBeGreaterThan(0);
+			expect(parseSync('/app/src/view.ts', out!.code).errors, what).toHaveLength(0);
+		}
+	});
+
+	it('should follow an optional namespace member too', () => {
+		const out = shake(
+			`import * as style from '@ttylabs/sigil/style';\nexport const s = style?.utilitySheet();\n`
+		);
+
+		expect(out?.sites).toBe(1);
 	});
 
 	it('should produce a map that carries the module', () => {
