@@ -630,17 +630,28 @@ async function mouse() {
 			let held = 0;
 			let loose = 0;
 			let down = false;
+			// printed as it arrives rather than counted in silence. The first version
+			// only counted, so a step whose whole subject is "reports stream while you
+			// drag and stop when you let go" showed nothing at all until you pressed q --
+			// which reads as a step that does not work, and was reported as one
 			await live(buttons, (event) => {
-				if (event.kind === 'mousedown') down = true;
-				if (event.kind === 'mouseup') down = false;
-				if (event.kind === 'mousemove') {
-					if (down) {
-						held++;
-					} else {
-						loose++;
-					}
+				if (event.kind === 'mousedown') {
+					down = true;
+					return 'press -- moves should stream from here';
 				}
-				return undefined;
+				if (event.kind === 'mouseup') {
+					down = false;
+					return 'release -- moves should stop now';
+				}
+				if (event.kind !== 'mousemove') {
+					return undefined;
+				}
+				if (down) {
+					held++;
+					return `move (${event.x}, ${event.y})  held`;
+				}
+				loose++;
+				return `move (${event.x}, ${event.y})  NOTHING HELD`;
 			});
 			write(`    ${held} moves with a button held, ${loose} with nothing held.\r\n`);
 			write(
@@ -709,14 +720,21 @@ async function mouse() {
 		{
 			const spot = { x: 12, y: 2 };
 			const backend = createInlineCanvas({ height: 5, terminal, width: 40 });
-			backend.render((p) => {
-				p.text(0, 0, '+--------------------------------------+');
-				p.text(0, 1, '|                                      |');
-				p.text(0, 2, '|                                      |');
-				p.text(0, 3, '|                                      |');
-				p.text(0, 4, '+--------------------------------------+');
-				p.text(spot.x, spot.y, '*');
-			});
+
+			/** Repaints the box in place, which moves nothing and re-anchors nothing. */
+			const paint = (note) => {
+				backend.render((p) => {
+					p.text(0, 0, '+--------------------------------------+');
+					p.text(0, 1, '|                                      |');
+					p.text(0, 2, '|                                      |');
+					p.text(0, 3, '|                                      |');
+					p.text(0, 4, '+--------------------------------------+');
+					p.text(spot.x, spot.y, '*');
+					p.text(2, 3, note.padEnd(36).slice(0, 36));
+				});
+			};
+
+			paint('click the * above');
 
 			// the router now translates against the canvas rather than the screen, and
 			// is asked to learn where it sits. Asked here rather than left to the first
@@ -733,7 +751,18 @@ async function mouse() {
 				}
 				found.got = { x: event.x, y: event.y };
 				found.hit = event.x === spot.x && event.y === spot.y;
-				return `press at (${event.x}, ${event.y})`;
+				// painted *into* the canvas, and nothing is written around it -- which is
+				// the rule this whole step is about, and which the first version broke.
+				// An inline canvas holds rows at a position it learnt once; a `write()` to
+				// stdout underneath it scrolls the screen, so the box walks up and the
+				// canvas goes on believing the row it started at. What that came to was
+				// reported exactly: the target stopped taking clicks and the last few
+				// printed lines took them instead, because that is where the canvas still
+				// thought it was. `backend.write()` is the way to put a line above a live
+				// region, and it re-anchors -- so a step that wants feedback without
+				// re-learning its origin has to draw the feedback in the frame
+				paint(`pressed (${event.x}, ${event.y})${found.hit ? '  -- that is the *' : ''}`);
+				return undefined;
 			});
 
 			// read before the canvas is finished with, not after: `done()` gives the
@@ -768,16 +797,24 @@ async function mouse() {
 
 		// --------------------------------------------------- what it takes away
 		heading(
-			'what tracking takes away',
-			'selecting text with the pointer does not work while it is on; shift-drag may'
+			'what tracking takes away, and which key gets it back',
+			'selection is gone while tracking is on, and some modifier overrides it'
 		);
-		write('    try to select some text above, then try again holding shift. q to move on.\r\n\r\n');
+		write(
+			'    try to select some text above by dragging. Then again holding shift, and\r\n' +
+				'    again holding alt/option. One of them should give you a selection.\r\n' +
+				'    q to move on.\r\n\r\n'
+		);
 		await live(buttons, () => undefined);
 		write(
 			'\r\n    A terminal reporting the mouse stops doing its own selection, so an app\r\n' +
 				"    that turns tracking on has, from the user's point of view, broken copy and\r\n" +
-				'    paste. Shift-drag overrides it in most terminals and not all -- which one\r\n' +
-				'    this is, is the thing only this step can tell you.\r\n'
+				'    paste.\r\n\r\n' +
+				"    Which modifier gets it back is the terminal's own and is nothing an app can\r\n" +
+				'    influence or detect: shift in xterm and most of what followed it, and\r\n' +
+				'    **alt/option in iTerm2, where shift does nothing at all**. Whichever worked\r\n' +
+				'    just now is the answer for this one, and it is the thing to put in your own\r\n' +
+				'    docs -- because the first person to hit it will assume the app broke.\r\n'
 		);
 		if (aborted) return;
 
@@ -800,10 +837,14 @@ async function mouse() {
 				let moves = 0;
 				const at = Date.now();
 				await live(router, (event) => {
-					if (event.kind === 'mousemove') {
-						moves++;
+					if (event.kind !== 'mousemove') {
+						return undefined;
 					}
-					return undefined;
+					moves++;
+					// one line per cell the pointer crosses, which is unreadable on purpose:
+					// that is what the wire is carrying, and a step that summarised it would
+					// be describing the cost rather than showing it
+					return `move (${event.x}, ${event.y})`;
 				});
 				const secs = Math.max(1, Math.round((Date.now() - at) / 1000));
 				write(`    ${moves} motion reports in about ${secs}s, with nothing held.\r\n`);

@@ -3269,6 +3269,47 @@ two events` is the guard, and its sibling asserts the click is still stoppable
   discovers the origin is unknown, and a step whose first click does nothing is a
   step nobody trusts the rest of.
 
+- **A write that does not go through the backend moves an inline canvas and not
+  its origin, and with the mouse on that is silently wrong coordinates.** The
+  anchor is a row the canvas learnt once; a `console.log()` or a bare
+  `process.stdout.write()` underneath it scrolls the screen, so the frame walks up
+  while the canvas goes on believing where it started -- and every report then
+  translates to a cell a few rows below the one you clicked. `backend.write()` is
+  the way to put a line above a live region precisely because it erases, writes and
+  reserves the rows again, which throws the anchor away and makes the next report
+  re-learn it.
+
+  This is the already-recorded `console.log()`-after-`dispose()` hazard with a
+  sharper edge: there the _erase_ was wrong and you could see it, here the
+  arithmetic is wrong and everything looks fine. Reported from iTerm2 against the
+  probe's own origin step, in the exact words the mechanism predicts -- the target
+  stopped taking clicks and the last few printed lines took them instead, because
+  that is where the canvas still thought it was. The step paints its feedback into
+  the frame now, which is what a live region is for.
+
+- **iTerm2 overrides mouse reporting with alt/option, not shift.** Which key gets
+  selection back is the terminal's own and is nothing an app can influence or
+  detect, so the probe asks rather than asserting: shift in xterm and most of what
+  followed it, and **alt/option in iTerm2, where shift does nothing at all**. Worth
+  having written down because the first person to hit it assumes the app broke, and
+  because the "shift-drag overrides it in most terminals and not all" this file
+  already said turns out to have iTerm2 on the wrong side of it.
+- **A probe step that counts in silence reads as a step that does not work.** Both
+  motion steps summarised at the end and printed nothing while they ran, and both
+  were reported as doing nothing -- which is the correct reading of a screen with
+  nothing on it. They print each report as it arrives now, which for `1003` is
+  unreadably fast on purpose: that is what the wire is carrying, and a step that
+  summarised it would be describing the cost rather than showing it.
+- **iTerm2 warns about mouse reporting whatever this does, and that is unresolved
+  rather than fixed.** It offers to turn reporting off when you click during a run
+  -- "left on when an ssh session ended unexpectedly or an app misbehaved" -- and it
+  still does with the mode churn down from fourteen changes to four. So the churn
+  was a real bug and was not this. The leading guess is the **main screen**: an app
+  that legitimately wants the mouse is almost always on the alternate buffer, and
+  reporting left on after a crash is by definition not -- which would make an inline
+  mouse canvas the shape iTerm2 is looking for. Written as a guess because it is
+  one; the discriminator is whether `06-panes.js`, which is full screen, is quiet
+  where `04-mouse.js` and `05-drag.js` are not.
 - **The end-to-end test is the half nothing else can say.**
   `test/input/mouse-router.test.ts` hands the router a canvas that already knows
   where it sits, which is the only way to test the routing rules on their own;
