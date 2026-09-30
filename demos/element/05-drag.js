@@ -43,18 +43,33 @@ if (!process.stdin.isTTY || !process.stdout.isTTY) {
 }
 
 if (process.stdin.isTTY && process.stdout.isTTY) {
-	/** How many cells the track is, which is also its resolution. */
-	const TRACK = 30;
+	/**
+	 * How many cells the track is, which is also its resolution.
+	 *
+	 * The three widths in the sheet below add up to **exactly** the app's content
+	 * box -- 44 wide, less a cell of border and a cell of padding on each side, is
+	 * 40, and `9 + 26 + 5` is 40. That is not tidiness: `flex-shrink` defaults to 1,
+	 * so an over-constrained row is squeezed rather than overflowing, and what it
+	 * squeezes moves when the *content* moves. The first version asked for 45 in 40,
+	 * and since a `nowrap` track cannot shrink below its own width the other two
+	 * absorbed all five columns -- so the value's minimum growing by one at `100%`,
+	 * where it had been three characters and became four, took a column out of the
+	 * label and shifted the whole bar one cell left at exactly 100% and nowhere else.
+	 */
+	const TRACK = 26;
 
 	const sheet = parseStylesheet(`
 		.app { flex-direction: column; width: 44; border: round; border-color: gray; padding: 1 }
 		.slider { height: 1 }
 		.label { color: gray; width: 9 }
 		.track { color: cyan; white-space: nowrap; width: ${TRACK} }
+		/* five rather than four, so the widest value it ever holds still has a column
+		   of slack: a right-aligned number whose box is exactly its own width is one
+		   layout rounding away from moving what is beside it */
 		/* the track is what you press, so it is what says so when the pointer is over
 		   it -- one rule, and the hit test is what makes it true */
 		.slider:hover .track { color: magenta }
-		.value { color: gray; width: 6; text-align: right }
+		.value { color: gray; width: 5; text-align: right }
 		.readout { color: gray; margin-top: 1 }
 		.outside { color: yellow }
 		.hint { color: gray }

@@ -1083,6 +1083,19 @@ migrate up` reads `commands/`, `commands/db/` and `commands/db/migrate/` and
   Reporting its declared height as its minimum froze it at that height and
   pushed it out of a container too short to hold it -- which is the one thing
   shrinking exists to prevent.
+- **An over-constrained row of declared widths is squeezed rather than
+  overflowing, and what it squeezes moves when the _content_ does.** That is CSS
+  -- `flex-shrink` defaults to 1 -- and it is the trap anyone laying a fixed row
+  out walks into, because it looks right until one cell's text gets longer. Found
+  by `05-drag.js`, reported as a rendering bug: its slider row asked for `9 + 30 +
+6` in a 40-column content box, the `nowrap` track could not shrink below its own
+  width, so the label and the value absorbed all five columns -- and when the
+  value's _automatic minimum_ grew from three characters to four, at exactly
+  `100%` and nowhere else, the extra column came out of the label and shifted the
+  whole bar one cell left. Nothing in the engine was wrong and nothing overflowed,
+  which is why it reads as a drawing fault rather than as arithmetic. The fix is to
+  make the declared widths add up, and the diagnostic is to lay the row out at
+  several values and watch whether any box moves.
 - **`justify-content` and `align-content` share one divider, and it goes through
   `distribute()`.** A single `Math.floor()` per gap cannot hold a remainder:
   `space-evenly` over seven cells and four slots gave three gaps of one and a
