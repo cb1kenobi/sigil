@@ -3163,6 +3163,16 @@ drawing stack in to import the key router` is the ceiling, at about 3x, with the
   a terminal is the keyboard stopping working because the pointer brushed a
   border, and a click that landed on nothing focusable said nothing about focus.
   Moving focus is what the ring is for.
+- **A stopped `mouseup` does not cancel the derived `click`, and finding that out
+  took a demo.** Stopping an event stops it _bubbling_; it does not cancel a
+  different event, which is the DOM's rule. The first version gated the click on the
+  mouseup, and `05-drag.js` walked straight into it: a slider stops the mouseup
+  because it owns the drag, and then silently lost the clicks it also wanted -- with
+  nothing to point at, since the two spellings look identical from outside. A
+  component that wants neither stops both, which is discoverable in a way the other
+  way round is not. `should follow a release that something stopped, because they are
+two events` is the guard, and its sibling asserts the click is still stoppable
+  itself.
 - **A click lands on the nearest box containing both ends.** A press on the text
   inside a button and a release on the button's padding is a click on the button,
   which is the DOM's rule and what everybody expects. A release off the canvas
@@ -3211,6 +3221,24 @@ drawing stack in to import the key router` is the ceiling, at about 3x, with the
   may be typing into a field. `04-mouse.js` cannot afford that guard: click-to-focus
   means a click leaves something focused, so the guard made `q` stop working the
   moment you clicked anything -- which it did, until it was run.
+- **Three demos, and each one is for a claim the others cannot make.**
+  `04-mouse.js` is hover, click-to-focus and the wheel over an inline canvas.
+  `05-drag.js` is the capture, which is invisible until something is dragged past
+  the edge of the region -- and it is the demo that found the `mouseup`/`click`
+  conflation above. `06-panes.js` is the full-screen backend, where translating a
+  report is free, spent on the three things the hit test claims: a scrolled box is
+  where it is drawn, a clipped one is not hittable where it is clipped, and a
+  `z-index` overlay is hit before what it covers. None of them can be driven by the
+  demos test, which spawns with stdin ignored, so each takes the no-terminal branch
+  there and was exercised by hand through a faked TTY that answers the cursor
+  request -- without that answer the canvas never learns its row and every report is
+  dropped, which is the demo behaving correctly and looks exactly like a broken one.
+- **An overlay whose only opacity is a background is transparent at colour level
+  zero**, which is degradation working and reads as a broken demo. `06-panes.js`
+  fills its overlay with three lines of text as well, so the stacking order is
+  legible on a terminal with `NO_COLOR` set. Worth knowing before drawing anything
+  that has to cover what is behind it: the fill is a `background-color`, and level 0
+  drops colour.
 
 ### Asking the terminal what it is
 

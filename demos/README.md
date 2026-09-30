@@ -194,6 +194,8 @@ the package.
 | [`element/02-overlay.js`](element/02-overlay.js) | An overlay, a stacking order, and a scrolling pane |
 | [`element/03-focus.js`](element/03-focus.js)     | One router owns stdin, and Tab moves the focus     |
 | [`element/04-mouse.js`](element/04-mouse.js)     | `:hover` from a hit test, a click, and the wheel   |
+| [`element/05-drag.js`](element/05-drag.js)       | A drag, and the capture that makes one work        |
+| [`element/06-panes.js`](element/06-panes.js)     | Full screen: a clip, a scroll and a stacking order |
 
 The whole stack in one file, and the point of it is what it prints at the end: a
 mutation says exactly what it implies and nothing else.
@@ -202,7 +204,7 @@ mutation says exactly what it implies and nothing else.
 node demos/element/01-tree.js
 ```
 
-The last two need a terminal on both sides, because they read what you press. In
+The last four need a terminal on both sides, because they read what you press. In
 `04-mouse.js` the highlight is zero lines of component code for the same reason
 the focus ring's is: the hit test sets a state and the stylesheet matches it with
 `:hover`.
@@ -210,9 +212,37 @@ the focus ring's is: the hit test sets a state and the stylesheet matches it wit
 ```sh
 node demos/element/03-focus.js   # Tab, Shift-Tab, type, q
 node demos/element/04-mouse.js   # move, click, scroll a tile, q
+node demos/element/05-drag.js    # press the bar and drag past the edge, q
+node demos/element/06-panes.js   # hover, scroll a pane, click a row, q
 ```
 
-Two things about the mouse are worth knowing before you run it.
+Each of the three mouse demos is for a claim the others cannot make.
+
+**`04-mouse.js`** is the ordinary case: hover, click-to-focus and the wheel over an
+inline canvas.
+
+**`05-drag.js`** is the **capture**, which is invisible until you drag past the edge
+of the region. A report arriving outside the canvas is dropped — a click on the log
+above it is not the app's — and on its own that strands anything tracking a press:
+the release lands outside, is dropped, and the thumb sticks to the pointer forever.
+So while a button is held, the motion and the release go to whatever the press
+landed on, wherever the pointer got to. Drag the bar off the left or right edge and
+watch the readout keep counting past the canvas: that is the same thing `clientX`
+does during a drag on a web page. There is deliberately no `drag` event — press,
+move and release are three events a component already has, and what a drag _means_
+differs per component.
+
+**`06-panes.js`** is the other backend. It takes the whole screen, where translating
+a report is free — the alternate buffer starts at the top-left, so there is no
+cursor query to pay and nothing to re-learn on a resize — and spends that on the
+three things the hit test claims. Scrolling moves the _boxes_ rather than the
+drawing, so hovering a row of a scrolled pane needs no correction. The rows scrolled
+out of a pane still have boxes, and those boxes are outside what the pane clips to,
+so the pointer goes straight through them. And the overlay is written before both
+panes and lifted with `z-index`, so it is painted last and hit first: hover it where
+it covers a pane and the pane underneath does not light up.
+
+Two things about the mouse are worth knowing before you run any of them.
 
 **It takes away text selection.** A terminal reporting the mouse stops doing its
 own, so while this demo is running, selecting and copying with the pointer does
@@ -226,7 +256,8 @@ demo opts in with `motion: true`. Without it `:hover` matches nothing — which 
 what it did before there was a mouse at all, so no stylesheet changes meaning by
 turning tracking on.
 
-Worth watching: resize the window while it is running. That throws the canvas's
-anchor away, so the backend no longer knows which screen row it is on, and the
-first report afterwards is the one that pays for asking — the status line does not
-move for that one click.
+Worth watching in the two inline demos: resize the window while one is running.
+That throws the canvas's anchor away, so the backend no longer knows which screen
+row it is on, and the first report afterwards is the one that pays for asking — the
+status line does not move for that one click. `06-panes.js` has nothing to re-learn,
+because a full-screen canvas is always at the origin.

@@ -965,9 +965,15 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 					pressed.delete(button);
 				}
 
-				if (bubble('mouseup', ours ? from : under, detail)) {
-					return;
-				}
+				// and the click is *not* gated on it, which is the DOM's rule and took a
+				// demo to notice. Stopping an event stops it bubbling; it does not cancel a
+				// different event. A slider that stops the `mouseup` because it owns the
+				// drag is the ordinary case, and gating the click on it made that slider
+				// silently lose the clicks it also wanted -- with nothing to point at,
+				// since both spellings look identical from outside. A component that wants
+				// neither stops both, which is discoverable in a way the other way round
+				// is not
+				bubble('mouseup', ours ? from : under, detail);
 
 				// a click is a press and a release on the same thing, and "the same
 				// thing" is the nearest box containing both: a press on the text inside a

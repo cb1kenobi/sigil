@@ -408,22 +408,56 @@ describe('a click', () => {
 		expect(seen.filter((it) => it.endsWith(':click'))).toEqual([]);
 	});
 
-	it('should not follow a release something stopped', () => {
+	it('should follow a release that something stopped, because they are two events', () => {
+		// stopping an event stops it *bubbling*; it does not cancel a different one,
+		// which is the DOM's rule. Gating the click on the `mouseup` was the first
+		// answer and a demo found it: a slider stops the mouseup because it owns the
+		// drag, and then silently lost the clicks it also wanted -- with nothing to
+		// point at, since both spellings look identical from outside
 		const { feed, terminal } = harness();
-		const { left, root } = tree();
+		const { left, outer, root } = tree();
 		const seen: string[] = [];
 		left.onMouse = (event) => {
-			seen.push(event.kind);
+			seen.push(`left:${event.kind}`);
 			if (event.kind === 'mouseup') {
 				event.stop();
 			}
 		};
+		outer.onMouse = (event) => void seen.push(`outer:${event.kind}`);
 		createInput({ mouse: { surface: surface() }, root, terminal });
 
 		feed(press(1, 1));
 		feed(release(1, 1));
 
-		expect(seen).toEqual(['mousedown', 'mouseup']);
+		expect(seen).toEqual([
+			'left:mousedown',
+			'outer:mousedown',
+			// the mouseup stopped where it was told to and went no further up
+			'left:mouseup',
+			// and the click is its own event, which bubbles as one
+			'left:click',
+			'outer:click',
+		]);
+	});
+
+	it('should still be stoppable itself', () => {
+		// the other half: what a stopped `click` stops is the click
+		const { feed, terminal } = harness();
+		const { left, outer, root } = tree();
+		const seen: string[] = [];
+		left.onMouse = (event) => {
+			seen.push(`left:${event.kind}`);
+			if (event.kind === 'click') {
+				event.stop();
+			}
+		};
+		outer.onMouse = (event) => void seen.push(`outer:${event.kind}`);
+		createInput({ mouse: { surface: surface() }, root, terminal });
+
+		feed(press(1, 1));
+		feed(release(1, 1));
+
+		expect(seen.filter((it) => it.endsWith(':click'))).toEqual(['left:click']);
 	});
 
 	it('should drop a release of a press this app never saw', () => {
