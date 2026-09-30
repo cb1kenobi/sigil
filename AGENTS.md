@@ -3222,6 +3222,28 @@ two events` is the guard, and its sibling asserts the click is still stoppable
   and that is where the throw went. The model now models the request as nothing,
   which is what it is -- it changes no cell, and the answer arrives on the input
   stream.
+- **`terminal-probe.mjs --mouse` is where the claims only a terminal can settle
+  went, and there are more of them here than anywhere else in the stack.** Every
+  one is about what a terminal _sends_ rather than about what this reads: whether
+  yours answers in SGR at all, whether `1003` is implemented here, whether a click
+  past column 223 survives, whether DECRQM will say the modes took, and whether the
+  inline origin arithmetic comes out right on a screen nothing simulated. Eight
+  steps, each with its own `the claim:` line, and the last of them is the one no
+  test can reach: a real inline canvas learns its row from a real cursor report,
+  and clicking the target it drew has to report the cell it is drawn in.
+
+  Two things it can say that are worth knowing before reading it. The X10 fallback
+  is worse than "breaks past 223" here, because stdin is decoded as UTF-8 and a
+  byte past 127 is not a character at all -- so it breaks at column 95. And the
+  `1002`-against-`1003` step is an A/B rather than a description: it counts the
+  motion reports each mode produces, which is what `:hover`'s wire cost looks like
+  as a number on the terminal you are actually using.
+
+  Driving it found a bug in itself, which is the argument for driving it: it read
+  `backend.origin` _after_ `backend.done()`, and giving the rows back is exactly
+  what makes the origin unknown again -- so it printed `<unknown>` beside a press
+  that had translated perfectly, two lines contradicting each other.
+
 - **The end-to-end test is the half nothing else can say.**
   `test/input/mouse-router.test.ts` hands the router a canvas that already knows
   where it sits, which is the only way to test the routing rules on their own;
@@ -3613,8 +3635,8 @@ a probe`. What the longer hold costs is worth stating precisely: a key typed
   have passed either way, because it asserts an exit code and an empty stderr
   rather than that anything was printed. `03-focus.js` has the same shape and its
   output is small enough not to have been bitten yet.
-- **`terminal-probe.mjs` grew a `--detect` mode, and it is the only thing that
-  could.** SIG-108 asked and the answer is yes. Everything else in that file paints
+- **`terminal-probe.mjs` grew a `--detect` mode, and then a `--mouse` one, and
+  they are the only things that could.** SIG-108 asked and the answer is yes. Everything else in that file paints
   a frame and asks a human to read it; this prints what the terminal answered, byte
   for byte, with the round trip timed. The claims it exists for are the ones no test
   can make: whether a given terminal sends XTVersion at all, whether it sends it
