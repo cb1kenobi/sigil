@@ -3294,12 +3294,27 @@ two events` is the guard, and its sibling asserts the click is still stoppable
   having written down because the first person to hit it assumes the app broke, and
   because the "shift-drag overrides it in most terminals and not all" this file
   already said turns out to have iTerm2 on the wrong side of it.
-- **A probe step that counts in silence reads as a step that does not work.** Both
-  motion steps summarised at the end and printed nothing while they ran, and both
-  were reported as doing nothing -- which is the correct reading of a screen with
-  nothing on it. They print each report as it arrives now, which for `1003` is
-  unreadably fast on purpose: that is what the wire is carrying, and a step that
-  summarised it would be describing the cost rather than showing it.
+- **Every report that arrives prints something, and that is enforced in `live()`
+  rather than left to each step.** It was reported three separate times before it
+  was taken as a rule, which is the part worth recording: both motion steps
+  summarised at the end and printed nothing while they ran, and the wheel step
+  printed only the _first_ turn of each direction, so it went quiet after up and
+  down however much anybody scrolled. All three were reported as doing nothing,
+  which is the correct reading of a screen with nothing on it -- and all three were
+  working perfectly.
+
+  Fixing them one at a time was the wrong shape, because the next step to go quiet
+  would have been the next report. So what a step's own `render` declines to
+  describe now gets a fallback line, and silence means what it should: that no
+  report arrived at all, which is itself a finding. The `1003` step is unreadably
+  fast on purpose -- that is what the wire is carrying, and a step that summarised
+  it would be describing the cost rather than showing it.
+
+  One step opts out, and it is the one that must: the inline-origin step holds an
+  anchored canvas, and a write underneath it scrolls the frame out from under the
+  origin it learnt. It draws its feedback into the frame instead, which is the
+  entry above, seen from the other side.
+
 - **iTerm2 warns about mouse reporting whatever this does, and that is unresolved
   rather than fixed.** It offers to turn reporting off when you click during a run
   -- "left on when an ssh session ended unexpectedly or an app misbehaved" -- and it

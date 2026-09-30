@@ -494,9 +494,20 @@ async function mouse() {
 	 * described on `surface` above: a step is a subscription and a wait, and neither
 	 * needs the tracking mode touched.
 	 *
+	 * **Every report that arrives prints something**, which is the property three
+	 * separate reports from a real terminal were about: a step that only printed what
+	 * it was looking for went silent while working perfectly, and a silent screen is
+	 * indistinguishable from a step that does nothing. So what a step's own `render`
+	 * declines to describe gets a fallback line rather than nothing, and silence now
+	 * means what it should -- that no report arrived at all, which is a finding.
+	 *
+	 * `silent` is the one opt-out and it exists for one step: the inline-origin one
+	 * holds an anchored canvas, and a write underneath that scrolls the frame out
+	 * from under the origin it learnt. That step draws its feedback into the frame.
+	 *
 	 * @param {import('../dist/input.mjs').InputRouter} router
 	 * @param {(event: object) => string | undefined} render - What to print per event.
-	 * @param {{ raw?: boolean }} opts
+	 * @param {{ raw?: boolean, silent?: boolean }} opts
 	 */
 	const live = async (router, render, opts = {}) => {
 		const lines = [];
@@ -506,6 +517,8 @@ async function mouse() {
 			const line = render(event);
 			if (line !== undefined) {
 				lines.push(`      ${line}`);
+			} else if (opts.silent !== true) {
+				lines.push(`      (${event.kind} -- arrived, but is not what this step is about)`);
 			}
 		});
 
@@ -671,12 +684,20 @@ async function mouse() {
 		write('    scroll, and scroll sideways if you can. q to move on.\r\n\r\n');
 		{
 			const seen = new Set();
+			// every turn, not the first of each direction. Printing only what was new
+			// meant the step went silent after up and down and stayed silent however
+			// much you scrolled, which is a working step that reads as a broken one --
+			// the third time that shape was reported, and now a rule rather than a slip
 			await live(buttons, (event) => {
-				if (event.kind !== 'wheel' || seen.has(event.wheel)) {
+				if (event.kind !== 'wheel') {
 					return undefined;
 				}
+				const novel = !seen.has(event.wheel);
 				seen.add(event.wheel);
-				return `first ${event.wheel} at (${event.x}, ${event.y})`;
+				return (
+					`wheel ${String(event.wheel).padEnd(5)} at (${event.x}, ${event.y})` +
+					(novel ? '  <- first of this direction' : '')
+				);
 			});
 			write(`    directions this terminal sent: ${[...seen].join(', ') || '<none>'}\r\n`);
 		}
@@ -745,25 +766,29 @@ async function mouse() {
 			const located = await backend.locate(() => queryCursor(buttons));
 
 			const found = { got: undefined, hit: false };
-			await live(buttons, (event) => {
-				if (event.kind !== 'mousedown') {
+			await live(
+				buttons,
+				(event) => {
+					if (event.kind !== 'mousedown') {
+						return undefined;
+					}
+					found.got = { x: event.x, y: event.y };
+					found.hit = event.x === spot.x && event.y === spot.y;
+					// painted *into* the canvas, and nothing is written around it -- which is
+					// the rule this whole step is about, and which the first version broke.
+					// An inline canvas holds rows at a position it learnt once; a `write()` to
+					// stdout underneath it scrolls the screen, so the box walks up and the
+					// canvas goes on believing the row it started at. What that came to was
+					// reported exactly: the target stopped taking clicks and the last few
+					// printed lines took them instead, because that is where the canvas still
+					// thought it was. `backend.write()` is the way to put a line above a live
+					// region, and it re-anchors -- so a step that wants feedback without
+					// re-learning its origin has to draw the feedback in the frame
+					paint(`pressed (${event.x}, ${event.y})${found.hit ? '  -- that is the *' : ''}`);
 					return undefined;
-				}
-				found.got = { x: event.x, y: event.y };
-				found.hit = event.x === spot.x && event.y === spot.y;
-				// painted *into* the canvas, and nothing is written around it -- which is
-				// the rule this whole step is about, and which the first version broke.
-				// An inline canvas holds rows at a position it learnt once; a `write()` to
-				// stdout underneath it scrolls the screen, so the box walks up and the
-				// canvas goes on believing the row it started at. What that came to was
-				// reported exactly: the target stopped taking clicks and the last few
-				// printed lines took them instead, because that is where the canvas still
-				// thought it was. `backend.write()` is the way to put a line above a live
-				// region, and it re-anchors -- so a step that wants feedback without
-				// re-learning its origin has to draw the feedback in the frame
-				paint(`pressed (${event.x}, ${event.y})${found.hit ? '  -- that is the *' : ''}`);
-				return undefined;
-			});
+				},
+				{ silent: true }
+			);
 
 			// read before the canvas is finished with, not after: `done()` gives the
 			// rows back, and giving the rows back is exactly what makes the origin
@@ -805,7 +830,28 @@ async function mouse() {
 				'    again holding alt/option. One of them should give you a selection.\r\n' +
 				'    q to move on.\r\n\r\n'
 		);
-		await live(buttons, () => undefined);
+		{
+			// the reports *are* the answer here: a drag that reaches the app is a drag
+			// the terminal did not keep for itself, and the modifier that gets selection
+			// back is the one that makes these stop. A step that printed nothing left
+			// the reader to infer both halves from an empty screen
+			let quiet = 0;
+			await live(buttons, (event) => {
+				if (event.kind !== 'mousemove' && event.kind !== 'mousedown') {
+					return undefined;
+				}
+				quiet++;
+				return `${event.kind.padEnd(10)} at (${event.x}, ${event.y})  -- the app got this, not the terminal`;
+			});
+			write(
+				quiet === 0
+					? '\r\n    Nothing arrived at all, which means the terminal kept every drag for\r\n' +
+							'    itself -- so tracking is not actually on here.\r\n'
+					: '\r\n    Every line above is a drag the terminal handed to the app instead of\r\n' +
+							'    selecting with it. The modifier that gets selection back is the one that\r\n' +
+							'    makes those stop.\r\n'
+			);
+		}
 		write(
 			'\r\n    A terminal reporting the mouse stops doing its own selection, so an app\r\n' +
 				"    that turns tracking on has, from the user's point of view, broken copy and\r\n" +
