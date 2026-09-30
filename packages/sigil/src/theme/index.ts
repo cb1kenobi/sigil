@@ -24,7 +24,14 @@
  */
 
 import type { Ansi, ColorLevel } from '../ansi/index.js';
-import { Cascade, parseStylesheet, type Stylesheet } from '../style/index.js';
+import {
+	Cascade,
+	type ColorScheme,
+	DEFAULT_MEDIA,
+	parseStylesheet,
+	schemeFromEnv,
+	type Stylesheet,
+} from '../style/index.js';
 
 /**
  * The classes every built-in is drawn with, and nothing else.
@@ -95,6 +102,42 @@ export const FRAMEWORK_CSS = `
 /* help */
 .sigil-help-heading { font-weight: bold }
 .sigil-help-note { dim: true }
+
+/*
+ * And the light half, which is smaller than it looks and is the honest size.
+ *
+ * Nearly nothing above needs one: every colour in this sheet is a palette index,
+ * and the basic sixteen are whatever the user's terminal theme says they are -- so
+ * a colour like cyan is one they already chose to be legible against their own
+ * background. That rule is why this sheet has so little to fix, and it is also
+ * exactly why an *app* or a *theme* needs the feature: a #666 somebody wants for
+ * de-emphasis is legible on one background and invisible on the other, and nothing
+ * about the sixteen helps there.
+ *
+ * What does not follow the theme is the dim attribute, which is the one declaration
+ * here whose legibility depends on which way the background goes. SGR 2 is rendered
+ * by blending the foreground *towards the background*, so on a dark terminal dim
+ * grey sits on black and on a light one it sits on white -- and grey on white is
+ * the unreadable parenthetical this feature was asked for. The light half carries
+ * the de-emphasis on a palette index instead, so it is still the user's own colour
+ * and it is still legible: gray is index 8, which a light theme renders dark
+ * because it has to render *text* in it.
+ *
+ * Conservative on purpose: the states, the symbols and the bars are left alone,
+ * because a palette colour is already the right answer for them and changing one
+ * here would be inventing a problem to solve.
+ *
+ * No backtick and no dollar-brace anywhere in this string, because it is a template
+ * literal: a backtick in a comment ends the sheet, which is a syntax error twenty
+ * lines further down than the character that caused it.
+ */
+@media (prefers-color-scheme: light) {
+	.sigil-prompt-hint { dim: false; color: gray }
+	.sigil-prompt-answer { dim: false; color: gray }
+	.sigil-prompt-placeholder { dim: false; color: gray }
+	.sigil-choice-hint { dim: false; color: gray }
+	.sigil-help-note { dim: false; color: gray }
+}
 `;
 
 /**
@@ -154,6 +197,16 @@ export interface ThemeOptions {
  */
 export interface StyledOptions extends ThemeOptions {
 	/**
+	 * Whether the output is read against a light background or a dark one.
+	 *
+	 * Defaults to what the environment knew -- `SIGIL_COLOR_SCHEME`, then
+	 * `COLORFGBG` -- and to dark when it knew nothing. A built-in drawn through
+	 * `mountLive()` has this refined by an OSC 11 reply where the app called
+	 * `Renderer.detect()`; a built-in printed as a string does not, because a string
+	 * being built has no screen to ask about.
+	 */
+	colorScheme?: ColorScheme;
+	/**
 	 * The styler whose colour level to draw at. Defaults to the process's.
 	 *
 	 * Only the level is read. Colour is a stylesheet's now, so what is left of an
@@ -174,7 +227,7 @@ export interface StyledOptions extends ThemeOptions {
  * @param opts - The theme and any app sheets.
  * @returns The cascade: framework defaults, then the theme, then the app's.
  */
-export function themedCascade(opts: ThemeOptions = {}): Cascade {
+export function themedCascade(opts: StyledOptions = {}): Cascade {
 	const sheets: Stylesheet[] = [frameworkSheet()];
 
 	if (opts.theme !== undefined) {
@@ -185,5 +238,14 @@ export function themedCascade(opts: ThemeOptions = {}): Cascade {
 		sheets.push(typeof sheet === 'string' ? parseStylesheet(sheet) : sheet);
 	}
 
-	return new Cascade(sheets);
+	// the media context is set here rather than left at `DEFAULT_MEDIA`, because
+	// this is the one place every built-in's cascade comes from and the scheme is
+	// free to learn: an environment read, no round trip, available before anything
+	// mounts. Without it `table()` and the help screen would resolve the sheet above
+	// at the frozen default and a light terminal would get the dark half, which is
+	// the bug this feature is for arriving through the door nobody watched
+	return new Cascade(sheets, {
+		...DEFAULT_MEDIA,
+		colorScheme: opts.colorScheme ?? schemeFromEnv() ?? DEFAULT_MEDIA.colorScheme,
+	});
 }

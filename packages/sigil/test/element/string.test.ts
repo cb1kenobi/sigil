@@ -167,11 +167,16 @@ describe('renderToString()', () => {
 	// next frame's answer to a question about a screen this render was not about
 	it('should put the cascade back the way it found it', () => {
 		const cascade = sheets('text { color: red }');
-		cascade.media = { colorLevel: 3, height: 24, width: 80 };
+		cascade.media = { colorLevel: 3, colorScheme: 'dark', height: 24, width: 80 };
 
 		renderToString(text('x'), { cascade, colorLevel: 0, width: 5 });
 
-		expect(cascade.media).to.deep.equal({ colorLevel: 3, height: 24, width: 80 });
+		expect(cascade.media).to.deep.equal({
+			colorLevel: 3,
+			colorScheme: 'dark',
+			height: 24,
+			width: 80,
+		});
 	});
 
 	// level 0 is plain text, attributes included, which is what the styler has

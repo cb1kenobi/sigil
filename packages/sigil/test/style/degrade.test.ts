@@ -238,13 +238,13 @@ describe('degrading through the cascade', () => {
 
 	it('should degrade what the sheets resolved to', () => {
 		const cascade = new Cascade([sheet]);
-		cascade.media = { colorLevel: 1, height: 24, width: 80 };
+		cascade.media = { colorLevel: 1, colorScheme: 'dark', height: 24, width: 80 };
 		expect(cascade.resolve(node).color).toBe(9);
 	});
 
 	it('should degrade what a prop set', () => {
 		const cascade = new Cascade([sheet]);
-		cascade.media = { colorLevel: 1, height: 24, width: 80 };
+		cascade.media = { colorLevel: 1, colorScheme: 'dark', height: 24, width: 80 };
 		expect(cascade.resolve(node, { props: { color: '#00ff00' } }).color).toBe(10);
 	});
 
@@ -253,7 +253,7 @@ describe('degrading through the cascade', () => {
 		// whole thing, and a level argument defaulting to truecolor made it
 		// disagree on exactly the terminals degradation exists for
 		const cascade = new Cascade([sheet]);
-		cascade.media = { colorLevel: 1, height: 24, width: 80 };
+		cascade.media = { colorLevel: 1, colorScheme: 'dark', height: 24, width: 80 };
 
 		const result = cascade.resolveSheets(node);
 		expect(result.colorLevel).toBe(1);
@@ -265,7 +265,7 @@ describe('degrading through the cascade', () => {
 
 	it('should degrade a colour that was inherited rather than declared here', () => {
 		const cascade = new Cascade();
-		cascade.media = { colorLevel: 1, height: 24, width: 80 };
+		cascade.media = { colorLevel: 1, colorScheme: 'dark', height: 24, width: 80 };
 		const parent = declare({ color: '#ff0000' });
 		expect(cascade.resolve({ type: 'text' }, { parent }).color).toBe(9);
 	});
@@ -278,10 +278,10 @@ describe('degrading through the cascade', () => {
 		);
 		const cascade = new Cascade([authored]);
 
-		cascade.media = { colorLevel: 3, height: 24, width: 80 };
+		cascade.media = { colorLevel: 3, colorScheme: 'dark', height: 24, width: 80 };
 		expect(cascade.resolve(node).color).toEqual(rgb(255, 95, 95));
 
-		cascade.media = { colorLevel: 1, height: 24, width: 80 };
+		cascade.media = { colorLevel: 1, colorScheme: 'dark', height: 24, width: 80 };
 		// the authored answer, not the quantized one, and already emittable so
 		// degradation leaves it alone
 		expect(cascade.resolve(node).color).toBe(5);
@@ -293,7 +293,7 @@ describe('degrading through the cascade', () => {
 
 	it('should drop colour when the terminal has none', () => {
 		const cascade = new Cascade([sheet]);
-		cascade.media = { colorLevel: 0, height: 24, width: 80 };
+		cascade.media = { colorLevel: 0, colorScheme: 'dark', height: 24, width: 80 };
 		const style = cascade.resolve(node);
 		expect(style.color).toBe(DEFAULT_COLOR);
 		expect(style.backgroundColor).toBe(DEFAULT_COLOR);

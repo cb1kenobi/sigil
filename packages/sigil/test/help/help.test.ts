@@ -1,4 +1,4 @@
-import { ansi } from '../../src/ansi/index.js';
+import { ansi, strip } from '../../src/ansi/index.js';
 import { stateFromError } from '../../src/error-hooks.js';
 import { renderHelp } from '../../src/help/index.js';
 import { parse } from '../../src/parser/parse.js';
@@ -736,5 +736,36 @@ describe('bad input', () => {
 			'Expected a context chain to render help for'
 		);
 		expect(() => renderHelp(undefined as never)).toThrow(/Expected a context chain/);
+	});
+});
+
+describe('help against a light background', () => {
+	// the ticket's own example: "a dim grey parenthetical in the help screen is
+	// unreadable on a light terminal". `renderHelp()` goes through `themedCascade()`,
+	// so the scheme reaches the sheet the note is styled by -- which is what makes
+	// this work for an app that did nothing but upgrade
+	it('should draw the note without dim on a light terminal', async () => {
+		const schema: Schema = {
+			name: 'mycli',
+			options: { '--port <n>': { default: 8080, desc: 'the port', type: 'int' } },
+		};
+		const state = await parse({ argv: [], schema: { help: false, ...schema } });
+		const dark = renderHelp(state, { colorLevel: 3, colorScheme: 'dark', width: 60 });
+		const light = renderHelp(state, { colorLevel: 3, colorScheme: 'light', width: 60 });
+
+		// asserted as SGR *parameters* rather than as a substring, which is this
+		// repository's rule for a reason this test met: `'2m'` also matches the `[22m`
+		// that closes bold, so the loose version fails on a screen with nothing wrong
+		const params = (out: string) =>
+			new Set(
+				[...out.matchAll(new RegExp(`${ESC}\\[([\\d;]*)m`, 'g'))].flatMap((m) => m[1].split(';'))
+			);
+
+		// 2 is faint, which is what `dim` emits; 90 is the foreground of palette 8
+		expect(params(dark).has('2'), 'dark lost its dim').toBe(true);
+		expect(params(light).has('2'), 'light still emits faint').toBe(false);
+		expect(params(light).has('90'), 'light has no de-emphasis at all').toBe(true);
+		// and the words are the same either way: only how they are drawn moved
+		expect(strip(light)).to.equal(strip(dark));
 	});
 });

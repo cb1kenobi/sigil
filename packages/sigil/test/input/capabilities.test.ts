@@ -8,6 +8,7 @@ import {
 	isCapabilityResponse,
 	type KeyEvent,
 	parseCapabilityResponse,
+	parseReportedColor,
 	queryCursor,
 	queryMode,
 	readCapabilities,
@@ -863,5 +864,146 @@ describe('what round two found', () => {
 
 		h.feed('\u0003hello');
 		expect(seen).toEqual(['c']);
+	});
+});
+
+describe('the background the terminal reports', () => {
+	/**
+	 * The components come back **sixteen bits per channel** in the common reply
+	 * form, and they are *scaled* rather than truncated. Truncating reads
+	 * `rgb:1c1c/1c1c/1c1c` as 0x1c only by luck: a terminal answering `rgb:1/2/3`,
+	 * which is legal and means full scale over one hex digit, would come out almost
+	 * black.
+	 */
+	const COLORS: readonly [string, number, number, number][] = [
+		['rgb:ffff/ffff/ffff', 255, 255, 255],
+		['rgb:0000/0000/0000', 0, 0, 0],
+		['rgb:1c1c/1c1c/1c1c', 28, 28, 28],
+		['rgb:fdfd/f6f6/e3e3', 253, 246, 227],
+		// one digit per channel, where `f` is full scale rather than 15/255
+		['rgb:f/f/f', 255, 255, 255],
+		['rgb:0/8/f', 0, 136, 255],
+		// two digits, which is also full scale at `ff`
+		['rgb:ff/80/00', 255, 128, 0],
+		['rgba:ffff/0000/0000/ffff', 255, 0, 0],
+		['#ff8800', 255, 136, 0],
+	];
+
+	it.each(COLORS)('should read %s', (text, r, g, b) => {
+		expect(parseReportedColor(text)).toEqual({ b, g, r });
+	});
+
+	// a terminal may legally answer with an X11 colour name, and resolving one needs
+	// a database this does not have -- so it is no answer rather than a guess
+	it('should read nothing out of a shape it does not know', () => {
+		expect(parseReportedColor('white')).toBeUndefined();
+		expect(parseReportedColor('')).toBeUndefined();
+		expect(parseReportedColor('rgb:1/2')).toBeUndefined();
+		expect(parseReportedColor('rgb:ggggg/0/0')).toBeUndefined();
+	});
+
+	it('should turn an OSC 11 reply into a scheme', () => {
+		const dark = readCapabilities([reply(`${ESC}]11;rgb:1c1c/1c1c/1c1c${BEL}`)]);
+		expect(dark.background).toEqual({ b: 28, g: 28, r: 28 });
+		expect(dark.colorScheme).to.equal('dark');
+
+		const light = readCapabilities([reply(`${ESC}]11;rgb:fdfd/f6f6/e3e3${ST}`)]);
+		expect(light.colorScheme).to.equal('light');
+	});
+
+	// the first, because a terminal answers a question once and anything after it is
+	// somebody else's answer to the same one -- tmux again
+	it('should take the first background and ignore a second', () => {
+		const caps = readCapabilities([
+			reply(`${ESC}]11;rgb:0000/0000/0000${BEL}`),
+			reply(`${ESC}]11;rgb:ffff/ffff/ffff${BEL}`),
+		]);
+		expect(caps.colorScheme).to.equal('dark');
+	});
+
+	it('should say nothing about a scheme when nothing answered', () => {
+		expect(readCapabilities([reply(`${CSI}?1;2c`)]).colorScheme).toBeUndefined();
+	});
+
+	// an OSC 10 reply is the foreground and answers a different question
+	it('should not read a foreground reply as a background', () => {
+		expect(
+			readCapabilities([reply(`${ESC}]10;rgb:ffff/ffff/ffff${BEL}`)]).colorScheme
+		).toBeUndefined();
+	});
+
+	it('should ask for the background only when asked to', async () => {
+		const h = harness();
+		const router = createInput({ paste: false, terminal: h.terminal });
+
+		const without = detectCapabilities(router, { timeout: 50 });
+		expect(h.out.join('')).not.to.contain(`${ESC}]11;?`);
+		h.feed(`${CSI}?1;2c`);
+		await without;
+
+		h.out.length = 0;
+		const withIt = detectCapabilities(router, { background: true, timeout: 50 });
+		expect(h.out.join('')).to.contain(`${ESC}]11;?`);
+		h.feed(`${ESC}]11;rgb:ffff/ffff/ffff${BEL}${CSI}?1;2c`);
+		expect((await withIt).colorScheme).to.equal('light');
+		router.stop();
+	});
+});
+
+describe('what round one of SIG-109 found', () => {
+	// the first one that can be *read*, which is not the first: a terminal may
+	// legally answer `white`, and giving up there throws away a second reply that
+	// does say something
+	it('should fall through a reply it cannot read to one it can', () => {
+		const caps = readCapabilities([
+			reply(`${ESC}]11;white${BEL}`),
+			reply(`${ESC}]11;rgb:ffff/ffff/ffff${BEL}`),
+		]);
+		expect(caps.colorScheme).to.equal('light');
+	});
+
+	// and a readable one still closes the question
+	it('should not let a later reply replace one it already read', () => {
+		const caps = readCapabilities([
+			reply(`${ESC}]11;rgb:0000/0000/0000${BEL}`),
+			reply(`${ESC}]11;white${BEL}`),
+			reply(`${ESC}]11;rgb:ffff/ffff/ffff${BEL}`),
+		]);
+		expect(caps.colorScheme).to.equal('dark');
+	});
+
+	/**
+	 * X11 defines the `#` form at four widths, and each digit group is a fraction of
+	 * its *own* full scale -- so `#fff` is white rather than `#0f0f0f`. The same rule
+	 * `rgb:` follows, through the same function.
+	 */
+	const HASHES: readonly [string, number][] = [
+		['#fff', 255],
+		['#ffffff', 255],
+		['#fffffffff', 255],
+		['#ffffffffffff', 255],
+		['#000', 0],
+		['#888', 136],
+		['#888888', 136],
+	];
+
+	it.each(HASHES)('should read %s as a grey of %i', (text, v) => {
+		expect(parseReportedColor(text)).toEqual({ b: v, g: v, r: v });
+	});
+
+	it('should refuse a hash of a width X11 does not define', () => {
+		// the widths are 3, 6, 9 and 12 digits -- one to four per channel -- so
+		// anything that is not a multiple of three is not one of them
+		expect(parseReportedColor('#ffff')).toBeUndefined();
+		expect(parseReportedColor('#ff')).toBeUndefined();
+		expect(parseReportedColor('#ffffffff')).toBeUndefined();
+		expect(parseReportedColor('#fffffffffffffff')).toBeUndefined();
+	});
+
+	// one digit per channel is a fraction of 15, so `rgb:8/8/8` and `rgb:08/08/08`
+	// are different colours -- which is the X11 rule and is surprising enough to pin
+	it('should read a digit width as its own full scale', () => {
+		expect(parseReportedColor('rgb:8/8/8')).toEqual({ b: 136, g: 136, r: 136 });
+		expect(parseReportedColor('rgb:08/08/08')).toEqual({ b: 8, g: 8, r: 8 });
 	});
 });

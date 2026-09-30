@@ -20,7 +20,7 @@ const sheet = parseStylesheet(generateUtilities());
 /** Resolves a class string against the generated sheet. */
 function resolve(classes: string[], width = 100, colorLevel = 3) {
 	const cascade = new Cascade([sheet]);
-	cascade.media = { colorLevel, height: 24, width };
+	cascade.media = { colorLevel, colorScheme: 'dark', height: 24, width };
 	return cascade.resolve({ classes, type: 'box' });
 }
 
@@ -207,9 +207,26 @@ describe('variants', () => {
 		expect(VARIANT_NAMES).toContain('focus');
 		expect(VARIANT_NAMES).toContain('md');
 		expect(VARIANT_NAMES).toContain('c16');
-		// not until mouse tracking exists, and a terminal has no dark mode
+		// a terminal has a background, the cascade reads it as `prefers-color-scheme`,
+		// and these two are that query said the way people already know how to say it.
+		// The line that used to be here said a terminal has no dark mode, and it was
+		// true until it was not
+		expect(VARIANT_NAMES).toContain('dark');
+		expect(VARIANT_NAMES).toContain('light');
+		// still not until mouse tracking exists
 		expect(VARIANT_NAMES).not.toContain('hover');
-		expect(VARIANT_NAMES).not.toContain('dark');
+	});
+
+	it('should put a scheme variant in the query the cascade reads', () => {
+		const sheet = parseStylesheet(generateUtilities({ variants: true }));
+		const cascade = new Cascade([sheet]);
+		const classes = ['text-red', 'light:text-blue'];
+
+		cascade.media = { ...cascade.media, colorScheme: 'dark' };
+		expect(cascade.resolve({ classes, type: 'box' }).color).toBe(1);
+
+		cascade.media = { ...cascade.media, colorScheme: 'light' };
+		expect(cascade.resolve({ classes, type: 'box' }).color).toBe(4);
 	});
 
 	it('should be skippable', () => {

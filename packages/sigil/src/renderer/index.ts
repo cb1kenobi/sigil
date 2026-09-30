@@ -56,7 +56,13 @@ import {
 import type { InputRouter } from '../input/index.js';
 import { measureNode } from '../layout/index.js';
 import { createEffects, type Effects } from '../signals/index.js';
-import { Cascade, Restyler } from '../style/index.js';
+import {
+	Cascade,
+	type ColorScheme,
+	forcedScheme,
+	Restyler,
+	schemeFromTerminalEnv,
+} from '../style/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { createRoot, disposeOwner, drainMounts, getOwner, type Owner } from './owner.js';
 
@@ -111,6 +117,18 @@ export interface RenderOptions {
 	 * automatic ladder from disagreeing about what `2` means.
 	 */
 	colorLevel?: ColorLevel;
+	/**
+	 * Whether the destination has a light background or a dark one.
+	 *
+	 * The top of four sources, and the order is "more specific knowledge about the
+	 * same question": this, then `SIGIL_COLOR_SCHEME`, then a reply to an OSC 11
+	 * query where `detect()` was called, then `COLORFGBG`, then dark. Unlike
+	 * `colorLevel` a value named here is **not** overruled by a reply, because
+	 * nothing fills this in on a caller's behalf -- an app that names one may be
+	 * painting its own background, so it is stating a fact about its output rather
+	 * than guessing at the terminal.
+	 */
+	colorScheme?: ColorScheme;
 	/**
 	 * The effect scope. Defaults to one of this renderer's own.
 	 *
@@ -290,11 +308,42 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 	 * and `refineColorLevel()` protects it by refusing to raise off that floor
 	 * rather than by anything here.
 	 */
-	let refined: { colorLevel?: ColorLevel } = {};
+	let refined: { colorLevel?: ColorLevel; colorScheme?: ColorScheme } = {};
+
+	/**
+	 * The scheme, from the most specific source that has an answer.
+	 *
+	 * A function rather than an expression inside `readMedia()` because `detect()`
+	 * has to ask it twice -- before and after recording a reply -- to know whether
+	 * the reply changed anything. Two copies of a five-term chain is two chains to
+	 * keep in agreement.
+	 */
+	function scheme(): ColorScheme {
+		return (
+			opts.colorScheme ?? forcedScheme() ?? refined.colorScheme ?? schemeFromTerminalEnv() ?? 'dark'
+		);
+	}
 
 	const readMedia = (): void => {
 		cascade.media = {
 			colorLevel: refined.colorLevel ?? opts.colorLevel ?? supportsColor(),
+			// and the scheme reads the other way round from the level, which is not an
+			// inconsistency: `opts.colorLevel` is what `mountLive()` fills with the
+			// environment's own guess, so a reply has to be able to beat it, while
+			// nothing fills `opts.colorScheme` except an app that means it.
+			//
+			// Four sources, and the order is "more specific knowledge about the same
+			// question" all the way down. An app that names one may be painting its own
+			// background, so it is stating a fact about its output rather than guessing
+			// at the terminal. `SIGIL_COLOR_SCHEME` is the user correcting the
+			// detection, so it beats the detection and not the app. A reply is the
+			// terminal itself. And `COLORFGBG` is what some terminal put in the
+			// environment once, which under tmux may not even be this one.
+			//
+			// Reading the two variables through one `schemeFromEnv()` put the reply
+			// *above* the user's override for a commit, because the override was inside
+			// the call that sat under `refined`
+			colorScheme: scheme(),
 			height: Math.max(1, terminal.height),
 			width: Math.max(1, terminal.width),
 		};
@@ -618,8 +667,38 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 		// `refineColorLevel()` only ever saw the old one. `>` because raise-only is
 		// the rule, and `!==` would let a reply lower a level a resize had raised
 		const level = cascade.media.colorLevel;
+		let moved = false;
 		if (found.colorLevel !== undefined && level > 0 && found.colorLevel > level) {
 			refined = { ...refined, colorLevel: found.colorLevel };
+			moved = true;
+		}
+
+		// the scheme is the thing this was really built for, and it has no floor to
+		// protect: there is no "no scheme" the way there is a level of zero, and what
+		// the terminal says about its own background is better evidence than a
+		// possibly-stale `COLORFGBG` by definition.
+		//
+		// **Recorded whatever it says, including when it agrees with what is already on
+		// screen**, and that was the bug: a reply was only stored where it *differed*,
+		// so a terminal answering light while `COLORFGBG` already said light left
+		// nothing behind -- and the next resize, after that variable had gone or
+		// changed, fell through to `COLORFGBG` and then to dark over a terminal that
+		// had told us the answer.
+		//
+		// Whether it is a *change* is then a question about the whole chain rather than
+		// about the reply, which is why `scheme()` is asked twice. A caller who named
+		// one, or a user who forced one, sits above the refinement -- so a reply that
+		// disagrees with either of them is recorded and asks for no frame, where
+		// comparing the reply to the media context would have spent one on every probe.
+		if (found.colorScheme !== undefined) {
+			const before = scheme();
+			refined = { ...refined, colorScheme: found.colorScheme };
+			if (scheme() !== before) {
+				moved = true;
+			}
+		}
+
+		if (moved) {
 			publishMedia();
 		}
 

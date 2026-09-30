@@ -285,10 +285,10 @@ describe('media queries', () => {
 	]);
 
 	it('should apply a rule only when its query holds', () => {
-		cascade.media = { colorLevel: 3, height: 24, width: 120 };
+		cascade.media = { colorLevel: 3, colorScheme: 'dark', height: 24, width: 120 };
 		expect(cascade.resolve(button).paddingTop).toBe(4);
 
-		cascade.media = { colorLevel: 3, height: 24, width: 40 };
+		cascade.media = { colorLevel: 3, colorScheme: 'dark', height: 24, width: 40 };
 		expect(cascade.resolve(button).paddingTop).toBe(1);
 	});
 
