@@ -183,12 +183,12 @@ function row(item: Definition, opts: RowOptions): Element {
  * with the wrapper is a help screen wider than the terminal, which is the rule
  * `paragraph()`'s own `min-width: 0` exists to keep.
  *
- * And it is faster, by more than the fix costs. A declared width makes the
- * post-flex re-measure the same answer as the first one, so the paragraph's words
- * are measured once; a share is a different width, so they are measured twice.
- * Interleaved over six rounds on a sixty-entry screen, the share is **+15% median
- * and +25% at its fastest** against the declaration -- where the engine fix itself
- * is within noise on this tree (+2.1% median, -2.2% at its fastest).
+ * And it is faster. A declared width makes the post-flex re-measure the same answer
+ * as the first one, so the paragraph's words are measured once; a share is a
+ * different width, so they are measured twice. Interleaved over six rounds on a
+ * sixty-entry screen, the share is 11.46ms against 12.81ms median -- **+11.8%**, and
+ * +16.7% at its fastest -- which is roughly what the engine fix itself costs, spent
+ * again for nothing visible.
  *
  * The two one-column branches declare a width for a third reason that never had
  * anything to do with the defect: their parent is a *column* with

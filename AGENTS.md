@@ -1215,16 +1215,25 @@ measuring past it` is the guard, and it fails if the `Math.max` comes back.
   pinned by a test, and each of those tests was written after a sabotage found the
   assertion missing.
 
-- **What it costs was measured, interleaved, and it is not where anybody would
-  guess.** Six alternating rounds of a sixty-entry help screen and a two-hundred-row
-  table, forty iterations each. The help screen is **+2.1% median and -2.2% at its
-  fastest**, which is noise: its descriptions declare a width, so the post-flex
-  re-measure asks the question the first measure already answered and the cache
-  hits. The table is **+12.7% median, +11.5% at its fastest** -- six hundred `nowrap`
-  cells whose rows now build items and run the flex resolution twice over, once to
-  be measured and once to be placed. Interleaved rather than batched, for the reason
-  the style-shaking measurement records: two batches minutes apart disagreed with
-  each other by more than the effect.
+- **What it costs is about a tenth of a render, and getting that number took three
+  measurements because the first two were taken on a busy machine.** Six alternating
+  rounds, forty iterations each, of a sixty-entry help screen and a two-hundred-row
+  table: the help screen goes from **10.45ms to 11.46ms** median and 8.06 to 9.11 at
+  its fastest, and the table from **5.03ms to 5.49ms** and 4.50 to 4.88 -- **+9.7%**
+  and **+9.1%** on the median. Both rows now build items and run the flex resolution
+  twice over, once to be measured and once to be placed, and the table pays it six
+  hundred `nowrap` cells at a time.
+
+  Interleaved rather than batched, for the reason the style-shaking measurement
+  records -- and interleaving was not enough. An earlier run of the same interleaved
+  script, with a fuzzer and a review agent running beside it, reported **+2.1%** for
+  the help screen and **+12.7%** for the table: the help cost understated by a factor
+  of five and the table's overstated, from one run, with alternation already in place.
+  What said so is the absolute numbers, which were four times the ones this file
+  already records for the same two workloads -- so the check is not "did I alternate"
+  but "does the baseline agree with the baseline", and the version to trust is the one
+  where a sixty-entry help screen is about 10ms rather than about 45ms.
+
 - **The cache can hold `2^depth` widths per node in principle, and tens in
   practice.** A row measures each child at the content width and again at the share
   flexing gave it, and a child row repeats that for both -- so a leaf under `d` rows
@@ -6299,11 +6308,12 @@ people's software and will move.
   wrapper is a help screen wider than the terminal, which is what `min-width: 0` on
   the words is there to prevent.
 
-  And it is **slower than the fix it would be spending**. A declared width makes the
-  post-flex re-measure the same question the first measure answered, so the words are
-  measured once; a share is a different width, so they are measured twice.
-  Interleaved over six rounds of a sixty-entry screen the share is **+15% median and
-  +25% at its fastest**, where the engine fix itself is within noise on this tree.
+  And it is **slower**. A declared width makes the post-flex re-measure the same
+  question the first measure answered, so the words are measured once; a share is a
+  different width, so they are measured twice. Interleaved over six rounds of a
+  sixty-entry screen the share is **11.46ms to 12.81ms** median, **+11.8%**, and +16.7%
+  at its fastest -- roughly what the engine fix itself costs, spent again for nothing
+  visible.
 
   The two one-column branches declare a width for a third reason that never had
   anything to do with the defect: their parent is a _column_ with
