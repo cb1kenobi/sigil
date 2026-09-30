@@ -1652,3 +1652,279 @@ describe('a reply that came back to a different screen', () => {
 		view.dispose();
 	});
 });
+
+describe('learning the background', () => {
+	const SHEET = `
+		box { color: gray }
+		@media (prefers-color-scheme: light) { box { color: blue } }
+	`;
+
+	/** Gray for dark, blue for light: the colour that says which half applied. */
+	const COLOR = { dark: 8, light: 4 } as const;
+
+	function answering(replies: readonly string[]) {
+		return {
+			query() {
+				return Promise.resolve(
+					replies.map((it) => parseCapabilityResponse(it)).filter((it) => it !== undefined)
+				);
+			},
+		} as never;
+	}
+
+	/**
+	 * Mounts and reports which scheme it came up at.
+	 *
+	 * Read back rather than assumed, and then answered with the *opposite*: a
+	 * developer whose `COLORFGBG` says light would otherwise be testing a transition
+	 * that never happened, which is this repository's own rule about a fixture that
+	 * depends on the machine it runs on.
+	 */
+	function mount(colorScheme?: 'dark' | 'light') {
+		const h = harness(20, 4);
+		const cascade = new Cascade([parseStylesheet(SHEET)]);
+		let root: Element | undefined;
+		const view = render(
+			() => {
+				root = box({}, text('x'));
+				return root;
+			},
+			{
+				backend: h.backend,
+				cascade,
+				colorLevel: 2,
+				...(colorScheme ? { colorScheme } : {}),
+				effects,
+				frameMs: 0,
+				terminal: h.terminal,
+			}
+		);
+		return {
+			at: cascade.media.colorScheme,
+			h,
+			root: () => root,
+			view,
+			/** A background whose luminance is on the other side of the midpoint. */
+			opposite: cascade.media.colorScheme === 'dark' ? 'rgb:fdfd/f6f6/e3e3' : 'rgb:1c1c/1c1c/1c1c',
+			other: cascade.media.colorScheme === 'dark' ? ('light' as const) : ('dark' as const),
+		};
+	}
+
+	// the half the ticket was written for: env first as the synchronous answer, OSC 11
+	// refining it a frame or two later as a media-context change. Sabotage-proofed by
+	// asserting that the frame the reply asked for arrives on its own
+	it('should restyle when the terminal turns out to be the other way', async () => {
+		const m = mount();
+		expect(m.root()?.style.color).toBe(COLOR[m.at]);
+		const painted = m.h.painted;
+
+		const caps = await m.view.detect(answering([`\u001b]11;${m.opposite}\u0007`, `\u001b[?62;c`]), {
+			background: true,
+		});
+		expect(caps.colorScheme).to.equal(m.other);
+
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		expect(m.root()?.style.color, 'the reply was read and then dropped').toBe(COLOR[m.other]);
+		expect(m.h.painted, 'nothing repainted').toBeGreaterThan(painted);
+		m.view.dispose();
+	});
+
+	// unlike the colour level, a named scheme is not overruled by a reply: nothing
+	// fills it in on a caller's behalf, so naming one is a statement about what the
+	// output is drawn against rather than a guess at the terminal
+	it('should let a caller who named a scheme keep it, and not repaint over it', async () => {
+		const m = mount('dark');
+		const painted = m.h.painted;
+		await m.view.detect(answering([`\u001b]11;rgb:ffff/ffff/ffff\u0007`, `\u001b[?62;c`]), {
+			background: true,
+		});
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		expect(m.root()?.style.color).toBe(COLOR.dark);
+		// and no frame was asked for at all: a caller who named one is not asking, so a
+		// reply that disagrees is not a change -- publishing anyway is a full re-match
+		// and a repaint that change nothing, on every probe, for such an app
+		expect(m.h.painted, 'the reply asked for a frame that could change nothing').to.equal(painted);
+		m.view.dispose();
+	});
+
+	// `readMedia()` rebuilds the context from scratch, so a scheme the terminal told
+	// us about has to survive a resize or it lasts until the window moves a column
+	it('should keep a learned scheme across a resize', async () => {
+		const m = mount();
+		await m.view.detect(answering([`\u001b]11;${m.opposite}\u0007`, `\u001b[?62;c`]), {
+			background: true,
+		});
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		expect(m.root()?.style.color).toBe(COLOR[m.other]);
+
+		m.h.resize(40, 24);
+		m.view.frame();
+		expect(m.root()?.style.color, 'a resize undid what the terminal said').toBe(COLOR[m.other]);
+		m.view.dispose();
+	});
+
+	it('should change nothing when the terminal is silent', async () => {
+		const m = mount();
+		const caps = await m.view.detect(answering([]), { background: true });
+		expect(caps.colorScheme).toBeUndefined();
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		expect(m.root()?.style.color).toBe(COLOR[m.at]);
+		m.view.dispose();
+	});
+});
+
+describe('where the scheme comes from', () => {
+	/**
+	 * Four sources, and the order is the whole of the decision.
+	 *
+	 * `render()`'s option, then `SIGIL_COLOR_SCHEME`, then an OSC 11 reply, then
+	 * `COLORFGBG`, then dark. Reading the two variables through one function put the
+	 * reply *above* the user's override for a commit, because the override was inside
+	 * the call that sat under the refinement -- which is why the two halves are
+	 * separate functions and why this test exists.
+	 */
+	const SHEET = `
+		box { color: gray }
+		@media (prefers-color-scheme: light) { box { color: blue } }
+	`;
+	const COLOR = { dark: 8, light: 4 } as const;
+
+	function answering(background: string) {
+		return {
+			query() {
+				return Promise.resolve(
+					[`\u001b]11;${background}\u0007`, `\u001b[?62;c`]
+						.map((it) => parseCapabilityResponse(it))
+						.filter((it) => it !== undefined)
+				);
+			},
+		} as never;
+	}
+
+	async function schemeOf(
+		env: Record<string, string | undefined>,
+		opts: { background?: string; colorScheme?: 'dark' | 'light' } = {}
+	) {
+		const before = { ...process.env };
+		for (const key of ['COLORFGBG', 'SIGIL_COLOR_SCHEME']) {
+			delete process.env[key];
+		}
+		Object.assign(process.env, env);
+		try {
+			const h = harness(20, 4);
+			let root: Element | undefined;
+			const view = render(
+				() => {
+					root = box({}, text('x'));
+					return root;
+				},
+				{
+					backend: h.backend,
+					cascade: new Cascade([parseStylesheet(SHEET)]),
+					colorLevel: 2,
+					...(opts.colorScheme ? { colorScheme: opts.colorScheme } : {}),
+					effects,
+					frameMs: 0,
+					terminal: h.terminal,
+				}
+			);
+			if (opts.background) {
+				await view.detect(answering(opts.background), { background: true });
+				await new Promise((resolve) => setTimeout(resolve, 5));
+			}
+			const found = root?.style.color === COLOR.light ? 'light' : 'dark';
+			view.dispose();
+			return found;
+		} finally {
+			for (const key of ['COLORFGBG', 'SIGIL_COLOR_SCHEME']) {
+				delete process.env[key];
+			}
+			Object.assign(process.env, before);
+		}
+	}
+
+	const WHITE = 'rgb:ffff/ffff/ffff';
+	const BLACK = 'rgb:0000/0000/0000';
+
+	it('should fall back to dark when nothing said', async () => {
+		expect(await schemeOf({})).to.equal('dark');
+	});
+
+	it('should read COLORFGBG when that is all there is', async () => {
+		expect(await schemeOf({ COLORFGBG: '0;15' })).to.equal('light');
+	});
+
+	it('should let a reply beat COLORFGBG', async () => {
+		expect(await schemeOf({ COLORFGBG: '0;15' }, { background: BLACK })).to.equal('dark');
+	});
+
+	// the bug round one found: the reply was above the override rather than below it
+	it('should not let a reply beat the user', async () => {
+		expect(
+			await schemeOf({ COLORFGBG: '0;15', SIGIL_COLOR_SCHEME: 'light' }, { background: BLACK })
+		).to.equal('light');
+	});
+
+	it('should let the user beat COLORFGBG', async () => {
+		expect(await schemeOf({ COLORFGBG: '15;0', SIGIL_COLOR_SCHEME: 'light' })).to.equal('light');
+	});
+
+	// an app that names one may be painting its own background, so it is stating a
+	// fact about its output rather than guessing at the terminal
+	it('should let the app beat the user and the reply', async () => {
+		expect(
+			await schemeOf({ SIGIL_COLOR_SCHEME: 'light' }, { background: WHITE, colorScheme: 'dark' })
+		).to.equal('dark');
+	});
+
+	/**
+	 * A reply that *agrees* with what is on screen is still the terminal's answer.
+	 *
+	 * Found by review. A reply was recorded only where it differed, so a terminal
+	 * answering light while `COLORFGBG` already said light left nothing behind -- and
+	 * the next resize, after that variable had gone, fell through to dark over a
+	 * terminal that had told us. Which is the shape of the whole ticket: the reply is
+	 * the truthful source and the variable is the stale one.
+	 */
+	it('should record a reply that agrees, so a lower source cannot replace it', async () => {
+		const before = { ...process.env };
+		delete process.env.SIGIL_COLOR_SCHEME;
+		process.env.COLORFGBG = '0;15';
+		try {
+			const h = harness(20, 4);
+			let root: Element | undefined;
+			const view = render(
+				() => {
+					root = box({}, text('x'));
+					return root;
+				},
+				{
+					backend: h.backend,
+					cascade: new Cascade([parseStylesheet(SHEET)]),
+					colorLevel: 2,
+					effects,
+					frameMs: 0,
+					terminal: h.terminal,
+				}
+			);
+			expect(root?.style.color).toBe(COLOR.light);
+
+			// the terminal agrees with the variable, so nothing on screen moves
+			const painted = h.painted;
+			await view.detect(answering(WHITE), { background: true });
+			await new Promise((resolve) => setTimeout(resolve, 5));
+			expect(h.painted, 'a reply that changed nothing asked for a frame').to.equal(painted);
+
+			// and then the variable goes, which is what tmux reattaching looks like
+			delete process.env.COLORFGBG;
+			h.resize(40, 24);
+			view.frame();
+			expect(root?.style.color, 'the terminal was overruled by its own absence').toBe(COLOR.light);
+			view.dispose();
+		} finally {
+			delete process.env.COLORFGBG;
+			delete process.env.SIGIL_COLOR_SCHEME;
+			Object.assign(process.env, before);
+		}
+	});
+});

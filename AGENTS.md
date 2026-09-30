@@ -1771,6 +1771,244 @@ at`.
   component per process; the cascade differs per call because the sheets do, and
   it holds a bucket index over them.
 
+### Light and dark
+
+Every default colour sigil shipped was a bet on dark, and there was nothing an
+author or a theme could write to make one conditional.
+`@media (prefers-color-scheme: light)` is what closes that, and the whole feature
+is: get the value, put it on the media context, and let the cascade do what it
+already does. `src/style/scheme.ts` is the synchronous half, the truthful half is
+an OSC 11 reply through the query mechanism, and the framework sheet is where it
+is proved.
+
+- **Nothing new was invented, which is the point.** The feature is one media
+  feature, one field on `MediaContext`, and one `if` in `holds()`. No new
+  resolution path, no new precedence rule, nothing added to the matching engine --
+  the same argument the utility layer is built on, and the reason this was a small
+  ticket sitting behind a large one.
+- **`MediaContext.colorScheme` is required, not optional.** Every other field on
+  that interface is, and an optional one would mean `holds()` carrying a default
+  that then disagrees with `DEFAULT_MEDIA`'s. What it costs is a type error at
+  every literal in the suite, which is the change being visible rather than a
+  problem: a context that does not say is a context that has not decided.
+- **`DEFAULT_MEDIA.colorScheme` is `dark`, and that is a default rather than a
+  guess at the terminal.** Dark because it is what every default colour in this
+  library has always been a bet on, so making the constant anything else would
+  change the meaning of every sheet already written against it. It is not where
+  detection lives: a frozen constant that read the environment at import is the
+  trap `getColorLevel()` avoids by detecting on first read, so the environment
+  reaches a live cascade through `themedCascade()` and through the renderer
+  instead.
+- **A keyword feature refuses a range and refuses the bare form.** There is no
+  order on `light` and `dark` for `min-`/`max-` to mean, and a feature that always
+  has one of its values makes the bare `(prefers-color-scheme)` always true -- a
+  rule inside one reads as conditional while being unconditional, which is worse
+  than an error. Both are refused where they are written, which is the rule an
+  unknown property in a stylesheet already follows. `MediaCondition.keyword` is a
+  field of its own rather than a widened `value`, so nothing downstream has to ask
+  which of the two a `number | string` is.
+- **The keyword is read in any case and the feature name already was.** The rule
+  every keyword in this grammar follows: a property name and `inherit` are
+  case-insensitive while a class is not, because one is a CSS keyword and the other
+  is a name somebody chose.
+- **`COLORFGBG`'s background is the last field, not the second.** The variable has
+  two shapes in the wild -- `15;0` and `15;default;0` -- so reading field two gets
+  `default` from rxvt and nothing from anybody. A field that is not a palette index
+  is _no answer_ rather than a guess, which is the rule an empty environment
+  variable already follows in the parser.
+- **The palette-index table is a table, because the boundary is not where the
+  arithmetic would put it.** `0`-`6` and `8` are dark, `7` and `9`-`15` are light:
+  `7` is white and light, `8` is called bright black and is a dark grey, so
+  anything written as `bg < 8` is wrong about both of them.
+- **It is the floor and never the answer, because it is notoriously wrong under
+  tmux.** A multiplexer passes through whatever was in its own environment when the
+  _server_ started, which is whichever terminal happened to launch it rather than
+  the one attached now -- and the variable is frequently stale or absent besides.
+  Being wrong until the reply lands is the price of having a synchronous answer at
+  all, which is the same trade the colour level already makes.
+- **`SIGIL_COLOR_SCHEME` is the user's override, and it settles the ticket's open
+  question in four places rather than two.** Yes, there is an explicit override, and
+  it is the user's as well as the app's -- `NO_COLOR`'s direction. The order is
+  `RenderOptions.colorScheme`, then `SIGIL_COLOR_SCHEME`, then an OSC 11 reply, then
+  `COLORFGBG`, then dark, and each step down is less specific knowledge about the
+  same question. An app is on top because it may be _painting its own background_,
+  so a named scheme is a fact about its output rather than a guess at the terminal.
+  The user is next because what they are correcting is the detection. The reply is
+  the terminal itself. `COLORFGBG` is what some terminal put in the environment
+  once, which under tmux may not even be this one. A value that is neither `light`
+  nor `dark` falls through rather than deciding, because a variable somebody
+  exported wrong should not be a decision. Namespaced on purpose: there is no
+  cross-tool convention for forcing a scheme the way `NO_COLOR` is one for colour,
+  so an unnamespaced name would be claiming a standard that does not exist.
+- **The two variables are read by two functions, because one function put the reply
+  above the override.** `schemeFromEnv()` reads both and is the right call for
+  `themedCascade()` and `renderToString()`, neither of which has a reply to order
+  against. A renderer does, and reading both through that one call left
+  `SIGIL_COLOR_SCHEME` _inside_ the term that sat under the refinement -- so a
+  terminal reporting a black background overrode a user who had said `light`, which
+  is the override failing at the one job it has. `forcedScheme()` and
+  `schemeFromTerminalEnv()` are the halves, and `readMedia()` puts the reply between
+  them. Found by review, and pinned by six tests that walk the chain a source at a
+  time.
+- **The first background reply that can be _read_ wins, which is not the first.** A
+  terminal may legally answer `white`, and giving up there would throw away a second
+  reply that does say something -- so an unreadable reply does not close the
+  question while a readable one does. It falls out of the guard rather than needing
+  anything after it: the branch is only entered while nothing has been read, so
+  there is never a value for an unreadable reply to overwrite. A `?? background` was
+  written and taken out again, because a line that can be deleted with the suite
+  still green reads as load-bearing and is not. What was actually wrong was the
+  comment, which said the first reply wins.
+- **The `#` form is four widths, not one.** X11 defines `#RGB`, `#RRGGBB`,
+  `#RRRGGGBBB` and `#RRRRGGGGBBBB`, and each digit group is a fraction of its _own_
+  full scale exactly as in `rgb:` -- so `#fff` is white rather than `#0f0f0f`, and it
+  goes through the same `scale()`. Written as one group of 3, 6, 9 or 12 digits split
+  in three afterwards, because four alternations of three capture groups is one rule
+  said four times. A width that is not a multiple of three is refused.
+- **`rgb:8/8/8` and `rgb:08/08/08` are different colours, and that is the spec.**
+  136 and 8. One hex digit is a fraction of fifteen, not an eight-bit channel, which
+  is surprising enough to pin with a test of its own -- and it is the same property
+  that makes the scaling right rather than a quirk of it.
+- **A reply is recorded whatever it says, including when it agrees with what is
+  already on screen, and that was the bug.** A reply was stored only where it
+  _differed_, so a terminal answering light while `COLORFGBG` already said light left
+  nothing behind -- and the next resize, once that variable had gone or changed, fell
+  through to `COLORFGBG` and then to dark over a terminal that had told us the
+  answer. Which is the shape of the whole ticket: the reply is the truthful source
+  and the variable is the stale one, so the truthful one has to be the one that is
+  kept. `should record a reply that agrees, so a lower source cannot replace it` is
+  the guard, and what it does after the reply is delete `COLORFGBG` and resize --
+  which is what a tmux client reattaching looks like.
+- **Whether a reply is a _change_ is a question about the whole chain, which is why
+  `scheme()` is asked twice.** Comparing the reply to `cascade.media.colorScheme`
+  gets it wrong in both directions: it misses the agreeing case above, and it spends
+  a full re-match and a repaint on every probe for an app or a user who sits above
+  the refinement and whose answer therefore cannot move. Asking the chain before and
+  after recording is one mechanism where two guards used to be, and it deleted the
+  `opts.colorScheme === undefined` conjunct that had been standing in for half of it.
+- **The renderer owns the live media context, so a scheme set on a cascade alone is
+  lost.** `render(App, { cascade: themedCascade({ colorScheme: 'light' }) })` with no
+  `RenderOptions.colorScheme` has that light context overwritten by the first
+  `readMedia()`. That is the renderer's rule rather than an oversight -- one thing
+  decides what the media queries are asked about, and a cascade handed in is a set of
+  sheets rather than a set of answers -- and `mountLive()` is the path that gets it
+  right, by passing the scheme to both.
+- **A tmux passthrough wrapper is not unwrapped, and that is unverified rather than
+  decided.** A review round claimed tmux answers OSC 11 wrapped in
+  `DCS tmux; … ST` with the inner escapes doubled, which would mean the reply is
+  read as an unrecognised control string and thrown away. That does not match what
+  `allow-passthrough` is for -- it is about what an application sends _out_ through
+  tmux, not about what comes back -- and it was not verified, so nothing was written
+  against it. It is exactly the question `terminal-probe.mjs --detect` exists to
+  settle: run it inside tmux and read what came back, byte for byte, off the reply
+  list it prints. Implementing an unwrapper on an unchecked claim would be inventing
+  a parser for a shape nobody has seen.
+- **Luminance is BT.601 and deliberately not the Oklab the degrader uses.** The
+  two are asking different questions: the degrader needs perceptual _distance_
+  between two colours it is choosing between, which is where Oklab is measurably
+  better, and this needs one scalar against a midpoint, where a second colour-space
+  conversion buys nothing and costs a reader another thing to hold. The midpoint is
+  half of full scale rather than a number fitted to a handful of terminal themes --
+  a fitted threshold is wrong about the next theme -- and the test pins the
+  _property_, that the boundary sits at half, so a change to how brightness is
+  computed fails for the right reason.
+- **The components are sixteen bits per channel and are scaled, not truncated.**
+  `rgb:RRRR/GGGG/BBBB` is what xterm specifies and what nearly everything writes,
+  and truncating to the first two digits happens to be right for `1c1c` only by
+  luck: a terminal answering `rgb:1/2/3` is answering in _one_ digit, where `f` is
+  full scale, and truncation reads that as almost black. Each component is a
+  fraction of the full scale its own digit count implies, which is the one reading
+  right for all four widths, and it is rounded rather than floored because the
+  midpoint sits between two values.
+- **An X11 colour name is no answer rather than a guess.** A terminal may legally
+  answer `white`, and resolving one needs a database this does not have -- so
+  `parseReportedColor()` returns nothing and the environment's answer stands, which
+  is the same shape as a terminal that said nothing.
+- **The first background reply wins.** A terminal answers a question once, so
+  anything after it is somebody else's answer to the same one -- tmux again, for the
+  same reason the version reply has an entry about it. The _colour level_ refines
+  off any version reply because refinement only raises there and the permissive
+  reading is safe; a scheme has no such asymmetry, so the nearest answer is the one
+  taken.
+- **`DetectOptions` takes a `colorLevel` and deliberately takes no
+  `colorScheme`.** The level one is the _floor a reply may raise_, which is a thing
+  a caller can sensibly name; a reply does not raise a scheme, it replaces one, so
+  there is no floor to pass. A caller who wants to state the scheme states it to
+  `render()`, and passing it here is an excess property TypeScript refuses rather
+  than an option that is quietly ignored.
+- **A reply beats the environment and a caller beats both, which is the opposite
+  way round from the colour level.** That looks inconsistent and is not.
+  `opts.colorLevel` is what `mountLive()` fills with `ansi.level` -- the
+  environment's own guess wearing the caller's clothes -- so a reply has to be able
+  to beat it or no built-in could ever be refined. Nothing fills `opts.colorScheme`
+  in on a caller's behalf, so naming one is a _statement_ about what the output is
+  drawn against rather than a guess at the terminal, and a reply does not overrule
+  it. And the scheme needs no floor of the kind a level of zero is: there is no "no
+  scheme", and what the terminal says about its own background is better evidence
+  than a possibly-stale variable by definition.
+- **`themedCascade()` sets the media context rather than leaving it frozen.** That
+  is the one place every built-in's cascade comes from, and the scheme is free to
+  learn there: an environment read, no round trip, available before anything
+  mounts. Without it `table()` and the help screen would resolve the framework
+  sheet at `DEFAULT_MEDIA` and a light terminal would get the dark half -- the bug
+  this feature is for, arriving through the door nobody was watching.
+- **`renderToString()` takes a scheme and never goes and asks for one.** A string
+  being built has no screen, and the media queries are the caller's apart from the
+  width and the colour depth this call is the authority on. When nobody says, the
+  cascade's own answer stands -- which for `themedCascade()` is what the environment
+  knew and for a bare `Cascade` is the frozen dark -- and the context is put back
+  exactly as it was found, which is the rule that path already keeps.
+- **The framework sheet's light half is five declarations, and its size is the
+  finding.** Every colour in that sheet is a palette index, and the basic sixteen
+  are whatever the user's terminal theme says they are -- so there is nothing in
+  them to fix conditionally, which is the rule working rather than a gap, and it is
+  also exactly why an _app_ or a _theme_ needs this: a `#666` somebody wants for
+  de-emphasis is legible on one background and invisible on the other, and nothing
+  about the sixteen helps there. What does not follow the theme is **`dim`**. SGR 2
+  is rendered by blending the foreground _towards the background_, so on a dark
+  terminal dim grey sits on black and on a light one it sits on white, and the
+  second is the unreadable parenthetical the ticket names. The light half carries
+  the de-emphasis on `gray` instead -- palette index 8, which a light theme renders
+  dark because it has to render _text_ in it -- so it is still the user's own colour
+  and it is still legible. Conservative deliberately: the states, the symbols and
+  the bars are left alone, because a palette colour is already right for them and
+  changing one would be inventing a problem.
+- **`FRAMEWORK_CSS` is a template literal, so it holds no backtick and no
+  `${`.** Written down because the failure is not local: a backtick in a comment
+  inside that string ends the sheet, and what `tsc` then reports is a syntax error
+  twenty lines further down than the character that caused it. Cost one round.
+- **`dark:` and `light:` are utilities now, and the line that said otherwise moved
+  with them.** AGENTS.md said "not `dark:` -- a terminal has no such mode", and it
+  was true until it was not: a terminal has a background, the cascade reads it as
+  `prefers-color-scheme`, and the variant is that query said the way people already
+  know how to say it. The comment in the generator and the table under it had to
+  change together, because a comment saying a feature does not exist, over a table
+  that could have generated it, is the shape of stale nothing in a build catches --
+  and `should have the ones a terminal can have and not the ones it cannot` had the
+  old sentence written into it as an assertion, which is what made this a
+  three-place edit rather than a one-place one. Nothing committed changed: the
+  committed sheet is the base set, printed with `variants: false`, for the reason
+  already recorded -- the variants are 4,996 rules and 7.29ms against the base
+  set's 383 and 0.63ms. `hover:` still waits for mouse tracking.
+- **The startup measurement was taken again on a quiet machine, and it is the one
+  worth quoting.** The figures under "Asking the terminal what it is" were
+  interleaved but taken while something else was compiling, so the absolutes were
+  inflated by three or four times and only the delta meant anything. Re-run with the
+  machine idle, over the same fifty interleaved pairs, and comparing the binary from
+  before either ticket against the binary with both: `--version` is min 24.5ms / p25
+  25.9 / median 26.3 before and 24.6 / 25.6 / 26.3 after, and `--help` is 39.3 / 40.5
+  / 41.4 before and 39.8 / 40.7 / 41.6 after. Identical, and worth recording for a
+  second reason -- those absolutes land on the 24.3ms and ~40ms this file wrote down
+  for `--version` and `--help` a long time ago, which is the first time either
+  number has been independently reproduced.
+- **`terminal-probe.mjs --detect` prints the background and the scheme, because
+  that is the claim only a terminal can settle.** A test can assert what
+  `rgb:fdfd/f6f6/e3e3` is read as; nothing in a test can say whether _your_
+  terminal answers OSC 11, what it answers, or whether the scheme that comes out
+  matches what you are looking at. The probe says so in as many words, including
+  that a `COLORFGBG` disagreeing with the reply is the variable being stale rather
+  than the reply being wrong.
+
 ### Style
 
 - **The property table is the single source of truth.** Every property's initial
@@ -2184,11 +2422,14 @@ dependency. Regenerate with `node scripts/generate-utilities.mjs` from inside
   what make the space unbounded again, and they are the reason a scanner has to
   exist at all. They are SIG-81's, along with the question of what a computed
   `class` expression does, which should be answered once rather than twice.
-- **Two variants are better here than on the web, and two are missing.**
-  `md:flex-row` is the responsive problem a TUI actually has and nothing solves
-  well today; `c16:text-red` is SIG-61's "give the author control" in a shape
-  people already know. Not `hover:` until mouse tracking exists, and not `dark:`
-  -- a terminal has no such mode.
+- **Two variants are better here than on the web, and one that was missing is
+  not any more.** `md:flex-row` is the responsive problem a TUI actually has and
+  nothing solves well today; `c16:text-red` is SIG-61's "give the author control"
+  in a shape people already know. `dark:` and `light:` are there now, and the
+  sentence they replace said a terminal has no such mode -- it did not until
+  `prefers-color-scheme` shipped, and the reason that line and the generator's
+  table had to move together is under "Light and dark". Not `hover:` until mouse
+  tracking exists.
 - **`@apply` is one statement, and an `@apply` in a comment is not one.** The
   name list stops at `;`, `{` or `}`: a regex of `[^;}]+` also matched a brace,
   so `@apply foo { bar: 1; }` swallowed the block after it and a missing

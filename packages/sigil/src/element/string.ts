@@ -33,7 +33,7 @@ import {
 	transition,
 } from '../canvas/index.js';
 import { measureNode } from '../layout/index.js';
-import { Cascade, Restyler } from '../style/index.js';
+import { Cascade, type ColorScheme, Restyler } from '../style/index.js';
 import type { Element } from './index.js';
 import { arrange, arrangedExtent, paint, settleStyles } from './paint.js';
 
@@ -61,6 +61,16 @@ export interface RenderStringOptions {
 	 * built has no answer to that which the caller does not already have.
 	 */
 	cascade?: Cascade;
+	/**
+	 * Whether the output is read against a light background or a dark one.
+	 *
+	 * A value the caller may pass, never one this path goes and asks for: a string
+	 * being built has no screen, and the media queries are the caller's apart from
+	 * the width and the colour depth this call is the authority on. When nobody
+	 * says, the cascade's own answer stands -- which for `themedCascade()` is what
+	 * the environment knew and for a bare `Cascade` is `DEFAULT_MEDIA`'s dark.
+	 */
+	colorScheme?: ColorScheme;
 	/**
 	 * How much colour to resolve for. Defaults to truecolor.
 	 *
@@ -98,7 +108,12 @@ export function renderToLines(root: Element, opts: RenderStringOptions): string[
 	// context left behind would be the next frame's answer to a question about a
 	// screen this render was never about
 	const previousMedia = cascade.media;
-	cascade.media = { ...previousMedia, colorLevel, width };
+	cascade.media = {
+		...previousMedia,
+		colorLevel,
+		...(opts.colorScheme === undefined ? {} : { colorScheme: opts.colorScheme }),
+		width,
+	};
 
 	let height: number;
 	let grid: number;

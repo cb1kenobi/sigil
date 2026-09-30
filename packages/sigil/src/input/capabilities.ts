@@ -46,6 +46,10 @@
 
 import { ESC } from '../ansi/codes.js';
 import type { ColorLevel } from '../ansi/color-support.js';
+// `style/scheme.js` rather than `style/index.js`, for the reason the renderer
+// reaches for this file rather than for the router: that module is a table and two
+// arithmetic functions with no imports of its own, and the style barrel is 42 kB
+import { type ColorScheme, schemeForBackground } from '../style/scheme.js';
 import type { InputRouter } from './index.js';
 
 /** What a reply turned out to be. */
@@ -386,6 +390,16 @@ export interface Capabilities {
 	readonly device?: readonly number[];
 	/** The terminal's own name, lowercased, from XTVersion. */
 	readonly name?: string;
+	/** The terminal's background, from an OSC 11 reply, on 0-255 per channel. */
+	readonly background?: ReportedColor;
+	/**
+	 * The scheme that background implies.
+	 *
+	 * Absent where nothing answered, which is the case the environment is still the
+	 * answer for. Present here it is the *truthful* one: `COLORFGBG` is frequently
+	 * stale and notoriously wrong under tmux, and this is the terminal itself.
+	 */
+	readonly colorScheme?: ColorScheme;
 	/** The text area in pixels, from `CSI 14 t`. */
 	readonly pixels?: { readonly height: number; readonly width: number };
 	/** Every reply, in the order it arrived, for anything that wants to look again. */
@@ -394,6 +408,89 @@ export interface Capabilities {
 	readonly responded: boolean;
 	/** The version string XTVersion carried, unparsed. */
 	readonly version?: string;
+}
+
+/**
+ * The shapes an OSC 10 or 11 reply carries a colour in.
+ *
+ * `rgb:RRRR/GGGG/BBBB` is what xterm specifies and what nearly everything writes,
+ * and the components are **sixteen bits per channel**: `ffff`, not `ff`. They are
+ * *scaled* rather than truncated, because truncating reads `rgb:1c1c/...` as 0x1c
+ * only by luck -- a terminal that answers `rgb:1/2/3`, which is legal and means
+ * full scale over one hex digit, would come out as almost black. Each component is
+ * read as a fraction of the full scale its own digit count implies, which is the
+ * one reading that is right for all four widths.
+ *
+ * `#RRGGBB` is the other form some terminals answer with, and `rgba:` carries an
+ * alpha this has no use for and ignores.
+ */
+const COLOR_RE = /^rgba?:([\da-f]{1,4})\/([\da-f]{1,4})\/([\da-f]{1,4})(?:\/[\da-f]{1,4})?$/i;
+
+/**
+ * The `#` form, which X11 defines at four widths rather than one.
+ *
+ * `#RGB`, `#RRGGBB`, `#RRRGGGBBB` and `#RRRRGGGGBBBB`, each digit group a fraction
+ * of its own full scale exactly as in `rgb:` -- so `#fff` is white and not
+ * `#0f0f0f`. Written as one group of 3, 6, 9 or 12 and split in three afterwards,
+ * because four alternations of three capture groups is the same rule said four
+ * times.
+ */
+const HASH_RE = /^#((?:[\da-f]{3}){1,4})$/i;
+
+/** A colour a terminal reported, on 0-255 per channel. */
+export interface ReportedColor {
+	readonly b: number;
+	readonly g: number;
+	readonly r: number;
+}
+
+/**
+ * Reads the colour out of an OSC 10 or 11 reply's payload.
+ *
+ * @param text - What followed the `10;` or `11;`.
+ * @returns The colour on 0-255 per channel, or `undefined` for a shape this does
+ *   not read. Two of those are legal and deliberate: an X11 colour *name* like
+ *   `white`, which would need that database to resolve, and the `rgbi:` intensity
+ *   form, which is floating point per channel and which nothing observed in the
+ *   wild answers with. Either way the environment's answer stands, which is the
+ *   same outcome as a terminal that said nothing.
+ */
+export function parseReportedColor(text: string): ReportedColor | undefined {
+	const trimmed = text.trim();
+
+	const rgb = COLOR_RE.exec(trimmed);
+	if (rgb) {
+		return Object.freeze({
+			b: scale(rgb[3]),
+			g: scale(rgb[2]),
+			r: scale(rgb[1]),
+		});
+	}
+
+	const hash = HASH_RE.exec(trimmed);
+	if (hash) {
+		const each = hash[1].length / 3;
+		return Object.freeze({
+			b: scale(hash[1].slice(each * 2)),
+			g: scale(hash[1].slice(each, each * 2)),
+			r: scale(hash[1].slice(0, each)),
+		});
+	}
+
+	return undefined;
+}
+
+/**
+ * One component, as a fraction of the full scale its digit count implies.
+ *
+ * `ffff` over four digits and `ff` over two are both full scale, so the divisor is
+ * `16**digits - 1` rather than a fixed `0xffff`. Rounded rather than floored,
+ * because the midpoint the scheme is decided against sits between two values and a
+ * floor moves every component down half a step.
+ */
+function scale(digits: string): number {
+	const full = 16 ** digits.length - 1;
+	return Math.round((Number.parseInt(digits, 16) / full) * 255);
 }
 
 /** Which capabilities to ask for. */
@@ -545,6 +642,7 @@ export function readCapabilities(
 	replies: readonly CapabilityReply[],
 	inferred?: ColorLevel
 ): Capabilities {
+	let background: ReportedColor | undefined;
 	let cell: { height: number; width: number } | undefined;
 	let device: readonly number[] | undefined;
 	let name: string | undefined;
@@ -576,6 +674,20 @@ export function readCapabilities(
 				name = found;
 				version = match?.[2] === '' ? undefined : match?.[2];
 			}
+		} else if (it.kind === 'osc' && it.params[0] === 11 && background === undefined) {
+			// the first one that can be *read*, which is not the same as the first, and
+			// the difference matters: a terminal may legally answer `white`, and giving
+			// up there would throw away a second reply that does say something. A reply
+			// this cannot read is no answer, so it does not close the question -- while a
+			// reply it can read does, because a terminal answers a question once and
+			// anything after it is somebody else's answer to the same one.
+			//
+			// Which falls out of the guard above rather than needing a `?? background`
+			// after it: the branch is only entered while nothing has been read, so there
+			// is never a value here for an unreadable reply to overwrite. One was written
+			// and taken out again -- a line that can be deleted with the suite still green
+			// reads as load-bearing and is not
+			background = parseReportedColor(it.text);
 		} else if (it.kind === 'size') {
 			// the reply's first parameter says which question it answers: 6 is a cell
 			// and 4 is the text area. The *request* numbers are 16 and 14, which is
@@ -595,8 +707,12 @@ export function readCapabilities(
 	}
 
 	return Object.freeze({
+		...(background ? { background } : {}),
 		...(cell ? { cell: Object.freeze(cell) } : {}),
 		...(colorLevel === undefined ? {} : { colorLevel }),
+		...(background
+			? { colorScheme: schemeForBackground(background.r, background.g, background.b) }
+			: {}),
 		...(device ? { device } : {}),
 		...(name === undefined ? {} : { name }),
 		...(pixels ? { pixels: Object.freeze(pixels) } : {}),

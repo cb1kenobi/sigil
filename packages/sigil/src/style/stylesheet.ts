@@ -20,6 +20,7 @@
  */
 
 import { type Setting, readSettings } from './declaration.js';
+import type { ColorScheme } from './scheme.js';
 import { type Selector, parseSelectorList } from './selector.js';
 import { StyleError } from './value.js';
 
@@ -65,11 +66,29 @@ export const ORIGINS: readonly Origin[] = ['framework', 'theme', 'app'];
  * spelling of a scale the library already has is how two parts of one library
  * come to disagree about what `2` means.
  */
-export type MediaFeature = 'color-level' | 'height' | 'width';
+export type MediaFeature = 'color-level' | 'height' | 'prefers-color-scheme' | 'width';
 
-/** One feature test. `boolean` is the bare `(color-level)` form: not zero. */
+/**
+ * The features whose values are keywords rather than numbers.
+ *
+ * One so far. A range on a keyword means nothing and a bare form would be a query
+ * that is always true, so both are refused where they are written rather than
+ * quietly accepted -- which is the rule an unknown property in a stylesheet
+ * already follows.
+ */
+const KEYWORD_FEATURES: readonly MediaFeature[] = ['prefers-color-scheme'];
+
+/**
+ * One feature test.
+ *
+ * `boolean` is the bare `(color-level)` form: not zero. `keyword` is what a
+ * keyword feature carries instead of `value`, and it is a separate field rather
+ * than a widened `value` so that nothing downstream has to ask which of the two a
+ * `number | string` is.
+ */
 export interface MediaCondition {
 	readonly feature: MediaFeature;
+	readonly keyword?: string;
 	readonly kind: 'boolean' | 'exact' | 'max' | 'min';
 	readonly value: number;
 }
@@ -84,6 +103,8 @@ export type MediaQueryList = readonly MediaQuery[];
 export interface MediaContext {
 	/** How much colour the destination can render, on `ColorLevel`'s 0-3 scale. */
 	readonly colorLevel: number;
+	/** Whether the destination has a light background or a dark one. */
+	readonly colorScheme: ColorScheme;
 	readonly height: number;
 	readonly width: number;
 }
@@ -97,6 +118,14 @@ export interface MediaContext {
  */
 export const DEFAULT_MEDIA: MediaContext = Object.freeze({
 	colorLevel: 3,
+	// dark, because that is what every default colour in this library has always
+	// been a bet on: making the constant anything else would change the meaning of
+	// every sheet already written against it. It is a *default* rather than a guess
+	// at the terminal -- `schemeFromEnv()` is the synchronous answer and an OSC 11
+	// reply is the truthful one, and both of them reach a live cascade through the
+	// renderer rather than through a frozen constant, for the reason
+	// `getColorLevel()` detects on first read rather than at import
+	colorScheme: 'dark',
 	height: 24,
 	width: 80,
 });
@@ -154,6 +183,12 @@ export function matchesMedia(media: readonly MediaQueryList[], context: MediaCon
 }
 
 function holds(condition: MediaCondition, context: MediaContext): boolean {
+	// a keyword feature has no order, so there is nothing for `min`/`max` to mean
+	// and the parser refuses both: equality is the whole of the test
+	if (condition.keyword !== undefined) {
+		return context.colorScheme === condition.keyword;
+	}
+
 	const actual =
 		condition.feature === 'width'
 			? context.width
@@ -173,7 +208,12 @@ function holds(condition: MediaCondition, context: MediaContext): boolean {
 	}
 }
 
-const FEATURES: readonly MediaFeature[] = ['color-level', 'height', 'width'];
+const FEATURES: readonly MediaFeature[] = [
+	'color-level',
+	'height',
+	'prefers-color-scheme',
+	'width',
+];
 
 /**
  * Reads a stylesheet.
@@ -586,7 +626,34 @@ function parseCondition(source: string, whole: string): MediaCondition {
 		if (prefix) {
 			throw new StyleError(`Media feature "${prefix}${feature}" in "${whole}" needs a value`);
 		}
+		if ((KEYWORD_FEATURES as readonly string[]).includes(feature)) {
+			// the bare form of a numeric feature means "not zero", which is a real
+			// question. A keyword feature always has one of its values, so the bare
+			// form would be a query that is always true -- and a rule inside one reads
+			// as conditional while being unconditional, which is worse than an error
+			throw new StyleError(
+				`Media feature "${feature}" in "${whole}" needs a value: it is always set, so asking whether it is would say nothing`
+			);
+		}
 		return Object.freeze({ feature: feature as MediaFeature, kind: 'boolean', value: 0 });
+	}
+
+	if ((KEYWORD_FEATURES as readonly string[]).includes(feature)) {
+		if (prefix) {
+			throw new StyleError(
+				`Media feature "${prefix}${feature}" in "${whole}" takes no range: "${feature}" has values rather than an order`
+			);
+		}
+		const keyword = raw.trim().toLowerCase();
+		if (keyword !== 'light' && keyword !== 'dark') {
+			throw new StyleError(
+				`Invalid value "${raw.trim()}" for media feature "${feature}": expected light or dark`
+			);
+		}
+		// read in any case, which is the rule every keyword in this grammar follows:
+		// a property name and `inherit` are already case-insensitive, and a class is
+		// not, because one is a CSS keyword and the other a name somebody chose
+		return Object.freeze({ feature: feature as MediaFeature, keyword, kind: 'exact', value: 0 });
 	}
 
 	const value = Number(raw.trim());

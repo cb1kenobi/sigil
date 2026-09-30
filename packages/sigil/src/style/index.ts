@@ -74,6 +74,15 @@ export {
 } from './cascade.js';
 export { degradeColor, degradeInto, degradeStyle, oklab, paletteRgb } from './degrade.js';
 export {
+	type ColorScheme,
+	forcedScheme,
+	luminance,
+	SCHEME_MIDPOINT,
+	schemeForBackground,
+	schemeFromEnv,
+	schemeFromTerminalEnv,
+} from './scheme.js';
+export {
 	type Dirty,
 	DIRTY_ORDER,
 	type StyleTarget,

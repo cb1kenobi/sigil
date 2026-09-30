@@ -287,6 +287,7 @@ async function detect() {
 	const { createInput, detectCapabilities, queryCursor, queryMode } =
 		await import('../dist/input.mjs');
 	const { supportsColor } = await import('../dist/ansi.mjs');
+	const { schemeFromEnv } = await import('../dist/style.mjs');
 
 	const show = (s) => JSON.stringify(s).replaceAll('\\u001b', 'ESC ').replaceAll('\\u0007', ' BEL');
 
@@ -294,6 +295,9 @@ async function detect() {
 	try {
 		const inferred = supportsColor();
 		write(`inferred from the environment: colour level ${inferred}\r\n`);
+		write(`  colour scheme: ${schemeFromEnv() ?? '<nothing said>'}`);
+		write(` COLORFGBG=${process.env.COLORFGBG ?? '<unset>'}`);
+		write(` SIGIL_COLOR_SCHEME=${process.env.SIGIL_COLOR_SCHEME ?? '<unset>'}\r\n`);
 		write(`  TERM=${process.env.TERM ?? '<unset>'}`);
 		write(` COLORTERM=${process.env.COLORTERM ?? '<unset>'}`);
 		write(` TERM_PROGRAM=${process.env.TERM_PROGRAM ?? '<unset>'}\r\n\r\n`);
@@ -315,6 +319,10 @@ async function detect() {
 			`  text area: ${caps.pixels ? `${caps.pixels.width}x${caps.pixels.height}px` : '<nothing>'}\r\n`
 		);
 		write(`  colour level refined to: ${caps.colorLevel ?? `<unchanged, ${inferred}>`}\r\n`);
+		write(
+			`  background: ${caps.background ? `rgb(${caps.background.r}, ${caps.background.g}, ${caps.background.b})` : '<nothing>'}\r\n`
+		);
+		write(`  colour scheme: ${caps.colorScheme ?? '<nothing>'}\r\n`);
 		write(`  replies, in the order they arrived:\r\n`);
 		for (const reply of caps.replies) {
 			write(`    ${reply.kind.padEnd(8)} ${show(reply.sequence)}\r\n`);
@@ -333,6 +341,13 @@ async function detect() {
 		for (const mode of [2004, 1006, 1049, 9999]) {
 			write(`  mode ${mode}: ${(await queryMode(router, mode)) ?? '<nothing>'}\r\n`);
 		}
+		write(
+			`\r\nthe claim only a terminal can settle: the scheme above matches what you see.\r\n` +
+				`  a light terminal reporting "dark", or either reporting "<nothing>", is the\r\n` +
+				`  OSC 11 half not working here -- and if COLORFGBG disagrees with it, that is\r\n` +
+				`  the variable being stale, which is why it is the floor and not the answer.\r\n\r\n`
+		);
+
 		write(
 			`  expect 9999 to be "unrecognised" rather than "<nothing>": that is DECRQM\r\n` +
 				`  telling a mode that is off from one it has never heard of, which is the whole\r\n` +

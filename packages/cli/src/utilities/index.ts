@@ -333,8 +333,15 @@ const ATTRIBUTE_NAMES: Readonly<Record<string, string>> = {
  * being quantized by the degradation ladder, which is SIG-61's "give the author
  * control" in a shape people already know.
  *
- * Not `hover:` until mouse tracking exists, and not `dark:` -- a terminal has no
- * such mode.
+ * `dark:` and `light:` are here now, and the sentence they replace said a terminal
+ * has no such mode. It did not until SIG-109: a terminal has a background, the
+ * cascade reads it as `prefers-color-scheme`, and the variant is that query said
+ * the way people already know how to say it. Which is why the line and the table
+ * had to move together -- a comment saying the feature does not exist, over a table
+ * that could have generated it, is the shape of stale that nothing in a build
+ * catches.
+ *
+ * Still not `hover:` until mouse tracking exists.
  */
 interface Variant {
 	readonly name: string;
@@ -352,6 +359,8 @@ const VARIANTS: readonly Variant[] = [
 	{ media: '(color-level: 0)', name: 'c0' },
 	{ media: '(color-level: 1)', name: 'c16' },
 	{ media: '(color-level: 2)', name: 'c256' },
+	{ media: '(prefers-color-scheme: dark)', name: 'dark' },
+	{ media: '(prefers-color-scheme: light)', name: 'light' },
 	{ name: 'focus', pseudo: ':focus' },
 	{ name: 'disabled', pseudo: ':disabled' },
 	{ name: 'checked', pseudo: ':checked' },

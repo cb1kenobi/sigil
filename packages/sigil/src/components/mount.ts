@@ -73,6 +73,12 @@ export function mountLive(build: (live: boolean) => Element, opts: MountOptions 
 		backend: opts.backend,
 		cascade: themedCascade(opts),
 		colorLevel: opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level,
+		// passed on as well as into the cascade, because `readMedia()` rebuilds the
+		// whole media context and would otherwise drop it: `themedCascade()` sets the
+		// scheme and the renderer then overwrites it on the first frame. Found by
+		// reading the two together rather than by a failing test, which is why one
+		// exists now
+		colorScheme: opts.colorScheme,
 		frameMs: opts.frameMs,
 		onError: opts.onError,
 		terminal,

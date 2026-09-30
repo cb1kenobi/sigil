@@ -1,6 +1,8 @@
+import { mountLive } from '../../src/components/mount.js';
 import { createProgress, renderBar } from '../../src/components/progress.js';
 import { createSpinner, DOTS, LINE } from '../../src/components/spinner.js';
 import { table } from '../../src/components/table.js';
+import { box, text } from '../../src/element/index.js';
 import { stringWidth } from '../../src/width/index.js';
 import { screenSetup, setup } from './helpers.js';
 import { describe, expect, it, vi } from 'vitest';
@@ -455,5 +457,26 @@ describe('table()', () => {
 
 	it('should return nothing for no rows', () => {
 		expect(table([])).to.equal('');
+	});
+});
+
+describe('a built-in and the background it is drawn against', () => {
+	// `themedCascade()` sets the scheme and `render()` rebuilds the whole media
+	// context on its first frame, so a scheme handed to `mountLive()` has to be passed
+	// on as well as into the cascade -- otherwise the renderer silently drops it.
+	// Found by reading the two together rather than by a failing test
+	it('should keep a scheme a caller handed to mountLive', () => {
+		for (const scheme of ['dark', 'light'] as const) {
+			const h = setup();
+			const label = text('x', { class: 'sigil-prompt-hint' });
+			const mounted = mountLive(() => box({}, label), {
+				colorLevel: 2,
+				colorScheme: scheme,
+				terminal: h.terminal,
+			});
+			mounted.frame();
+			expect(label.style.dim, scheme).toBe(scheme === 'dark');
+			mounted.stop();
+		}
 	});
 });
