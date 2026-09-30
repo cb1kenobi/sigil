@@ -3244,6 +3244,31 @@ two events` is the guard, and its sibling asserts the click is still stoppable
   what makes the origin unknown again -- so it printed `<unknown>` beside a press
   that had translated perfectly, two lines contradicting each other.
 
+- **A router chooses its surface and its tracking mode when it is built, and one
+  router per step is a mode that flickers.** The first version of `--mouse` built
+  seven, and what that came to on the wire was **fourteen mode changes in under two
+  seconds**, twice inside the same millisecond -- measured by capturing every
+  `ESC [ ? 100n h/l` the probe wrote. iTerm2 spots it and offers to turn mouse
+  reporting off, which is it reading the stream correctly rather than a false
+  alarm: a mode that goes on and off seven times is indistinguishable from an app
+  that has lost track of whether it turned one on. Reported from a real terminal,
+  which is the only place it could have been.
+
+  The fix separates the two halves. The **surface** does not need a new router, so
+  it delegates to a `target` the probe swaps -- which is what lets the
+  inline-origin step share the router every other step uses. The **tracking mode**
+  genuinely does change once, so the `1003` step moved to the end. Four mode
+  changes now: on, the one switch, off. An app has no such problem, because an app
+  has one router; a probe that demonstrates every mode is the one caller that has
+  to think about it.
+
+  The step that swaps the surface asks `backend.locate()` itself rather than
+  letting the router find out lazily. That is the documented contract rather than
+  reaching past it -- `locate(probe)` takes the probe because the router owns stdin
+  -- and it is what keeps the step honest: the lazy path costs the report that
+  discovers the origin is unknown, and a step whose first click does nothing is a
+  step nobody trusts the rest of.
+
 - **The end-to-end test is the half nothing else can say.**
   `test/input/mouse-router.test.ts` hands the router a canvas that already knows
   where it sits, which is the only way to test the routing rules on their own;

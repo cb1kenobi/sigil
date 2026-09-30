@@ -383,7 +383,7 @@ async function detect() {
  * pointer crosses the window.
  */
 async function mouse() {
-	const { createInput, parseMouseReport, queryMode } = await import('../dist/input.mjs');
+	const { createInput, queryCursor, queryMode } = await import('../dist/input.mjs');
 	const { createInlineCanvas } = await import('../dist/canvas.mjs');
 
 	const show = (str) => JSON.stringify(str).replaceAll('\\u001b', 'ESC ');
@@ -410,7 +410,8 @@ async function mouse() {
 	 *
 	 * Truthful rather than a stand-in: these steps treat the screen as the canvas,
 	 * so a report's coordinates really are this canvas's, less the one-based offset.
-	 * The step that is about *translation* uses a real inline canvas instead.
+	 * The step that is about *translation* points `target` at a real inline canvas
+	 * instead.
 	 */
 	const screen = {
 		get height() {
@@ -422,6 +423,35 @@ async function mouse() {
 			return terminal.width;
 		},
 		toCanvas: (column, row) => ({ x: column - 1, y: row - 1 }),
+	};
+
+	/**
+	 * What the router translates against, swapped rather than rebuilt.
+	 *
+	 * A router chooses its surface and its tracking mode when it is built, so the
+	 * first version of this made one per step -- and what that came to on the wire
+	 * was **fourteen mode changes in under two seconds**, twice inside the same
+	 * millisecond. iTerm2 spots that and offers to turn mouse reporting off, which
+	 * is it reading the stream correctly: a mode that flickers is indistinguishable
+	 * from an app that has lost track of it.
+	 *
+	 * The surface is the half that does not need a new router, so it delegates and
+	 * one router covers every button-event step. Only the tracking mode is left, and
+	 * that really does change once.
+	 */
+	let target = screen;
+	const surface = {
+		get height() {
+			return target.height;
+		},
+		locate: (probe) => target.locate(probe),
+		get origin() {
+			return target.origin;
+		},
+		toCanvas: (column, row) => target.toCanvas(column, row),
+		get width() {
+			return target.width;
+		},
 	};
 
 	/**
@@ -458,57 +488,60 @@ async function mouse() {
 	let aborted = false;
 
 	/**
-	 * Runs one live step with tracking on, dumping what arrives until `q`.
+	 * Runs one live step, dumping what arrives until `q`.
 	 *
-	 * A router per step rather than one for all of them, because the tracking mode
-	 * is chosen when the router is built -- which is also what lets the `1002` and
-	 * `1003` steps be an A/B rather than a description.
+	 * Takes the router rather than building one, which is the whole of the fix
+	 * described on `surface` above: a step is a subscription and a wait, and neither
+	 * needs the tracking mode touched.
 	 *
-	 * @param {{ motion?: boolean, raw?: boolean, surface?: object }} opts
+	 * @param {import('../dist/input.mjs').InputRouter} router
 	 * @param {(event: object) => string | undefined} render - What to print per event.
+	 * @param {{ raw?: boolean }} opts
 	 */
-	const live = async (opts, render) => {
+	const live = async (router, render, opts = {}) => {
 		const lines = [];
 		const untap =
-			opts.raw === false ? () => {} : tap((chunk) => lines.push(`      raw  ${show(chunk)}`));
-		const router = createInput({
-			mouse: { motion: opts.motion === true, surface: opts.surface ?? screen },
-			paste: false,
+			opts.raw === true ? tap((chunk) => lines.push(`      raw  ${show(chunk)}`)) : () => {};
+		const off = router.onMouse((event) => {
+			const line = render(event);
+			if (line !== undefined) {
+				lines.push(`      ${line}`);
+			}
 		});
 
-		try {
-			router.onMouse((event) => {
-				const line = render(event);
-				if (line !== undefined) {
-					lines.push(`      ${line}`);
-				}
-			});
-
-			// drained on a timer rather than written from the handler: a motion report
-			// per cell of travel is a lot of writes, and a probe that cannot keep up is
-			// a probe measuring itself
-			const timer = setInterval(() => {
-				while (lines.length > 0) {
-					write(`${lines.shift()}\r\n`);
-				}
-			}, 50);
-
-			const key = await untilKey(router, ['q']);
-			clearInterval(timer);
+		// drained on a timer rather than written from the handler: a motion report
+		// per cell of travel is a lot of writes, and a probe that cannot keep up is
+		// a probe measuring itself
+		const timer = setInterval(() => {
 			while (lines.length > 0) {
 				write(`${lines.shift()}\r\n`);
 			}
+		}, 50);
+
+		try {
+			const key = await untilKey(router, ['q']);
 			if (key === 'abort') {
 				aborted = true;
 			}
 		} finally {
+			clearInterval(timer);
+			while (lines.length > 0) {
+				write(`${lines.shift()}\r\n`);
+			}
 			untap();
-			router.stop();
+			off();
 		}
 	};
 
 	write(CLEAR + HOME + SHOW_CURSOR);
 	write('mouse tracking, against this terminal. q moves on, Ctrl-C stops.\r\n');
+
+	/**
+	 * The button-event router, which every step but one shares.
+	 *
+	 * @type {import('../dist/input.mjs').InputRouter | undefined}
+	 */
+	let buttons;
 
 	try {
 		// ---------------------------------------------------------------- the window
@@ -524,39 +557,37 @@ async function mouse() {
 						'    window and run again if you want that one.\r\n'
 		);
 
+		// tracking goes on once, here, and stays on until the 1003 step swaps it
+		buttons = createInput({ mouse: { surface }, paste: false });
+
 		// ----------------------------------------------------------------- the modes
 		heading(
 			'the modes, and whether DECRQM says they took',
 			'1002 and 1006 read "set" while tracking is on; 1003 reads "reset"'
 		);
 		{
-			const router = createInput({ mouse: { surface: screen }, paste: false });
-			try {
-				let answered = 0;
-				for (const mode of [1002, 1003, 1006]) {
-					const state = await queryMode(router, mode);
-					if (state !== undefined) {
-						answered++;
-					}
-					write(`    mode ${mode}: ${state ?? '<nothing>'}\r\n`);
+			let answered = 0;
+			for (const mode of [1002, 1003, 1006]) {
+				const state = await queryMode(buttons, mode);
+				if (state !== undefined) {
+					answered++;
 				}
-				write(
-					answered === 0
-						? '\r\n    No DECRQM here at all, which is not a failure: it is the same answer\r\n' +
-								'    --detect gets for 9999, and the modes may still be working. The steps\r\n' +
-								'    below are what actually settle that.\r\n'
-						: answered === 3
-							? '\r\n    Three answers, so this terminal can be asked what it is doing -- which is\r\n' +
-								'    the distinction DECRQM exists for: a mode that is off, and one it has\r\n' +
-								'    never heard of, are different answers.\r\n'
-							: `\r\n    ${answered} of three answered. A mix is worth knowing and is not a failure\r\n` +
-								'    either: an unanswered query is silence, which reads the same as a mode\r\n' +
-								'    this terminal does not implement DECRQM for. The steps below are what\r\n' +
-								'    actually settle whether tracking works.\r\n'
-				);
-			} finally {
-				router.stop();
+				write(`    mode ${mode}: ${state ?? '<nothing>'}\r\n`);
 			}
+			write(
+				answered === 0
+					? '\r\n    No DECRQM here at all, which is not a failure: it is the same answer\r\n' +
+							'    --detect gets for 9999, and the modes may still be working. The steps\r\n' +
+							'    below are what actually settle that.\r\n'
+					: answered === 3
+						? '\r\n    Three answers, so this terminal can be asked what it is doing -- which is\r\n' +
+							'    the distinction DECRQM exists for: a mode that is off, and one it has\r\n' +
+							'    never heard of, are different answers.\r\n'
+						: `\r\n    ${answered} of three answered. A mix is worth knowing and is not a failure\r\n` +
+							'    either: an unanswered query is silence, which reads the same as a mode\r\n' +
+							'    this terminal does not implement DECRQM for. The steps below are what\r\n' +
+							'    actually settle whether tracking works.\r\n'
+			);
 		}
 		if (aborted) return;
 
@@ -566,16 +597,20 @@ async function mouse() {
 			'every raw line holds "ESC [ <" -- one holding "ESC [ M" is the legacy encoding'
 		);
 		write('    click, drag and scroll anywhere. q when you have seen enough.\r\n\r\n');
-		await live({}, (event) => {
-			const mods = [event.ctrl && 'ctrl', event.meta && 'alt', event.shift && 'shift']
-				.filter(Boolean)
-				.join('+');
-			return (
-				`read ${event.kind.padEnd(10)} at (${event.x}, ${event.y})` +
-				`  button=${event.button ?? '-'}  wheel=${event.wheel ?? '-'}` +
-				(mods ? `  ${mods}` : '')
-			);
-		});
+		await live(
+			buttons,
+			(event) => {
+				const mods = [event.ctrl && 'ctrl', event.meta && 'alt', event.shift && 'shift']
+					.filter(Boolean)
+					.join('+');
+				return (
+					`read ${event.kind.padEnd(10)} at (${event.x}, ${event.y})` +
+					`  button=${event.button ?? '-'}  wheel=${event.wheel ?? '-'}` +
+					(mods ? `  ${mods}` : '')
+				);
+			},
+			{ raw: true }
+		);
 		write(
 			'\r\n    If those raw lines started "ESC [ M" instead, mode 1006 did not take and\r\n' +
 				'    this library reads nothing else -- deliberately, because that encoding puts\r\n' +
@@ -595,14 +630,15 @@ async function mouse() {
 			let held = 0;
 			let loose = 0;
 			let down = false;
-			await live({ raw: false }, (event) => {
+			await live(buttons, (event) => {
 				if (event.kind === 'mousedown') down = true;
 				if (event.kind === 'mouseup') down = false;
-				if (event.kind !== 'mousemove') return undefined;
-				if (down) {
-					held++;
-				} else {
-					loose++;
+				if (event.kind === 'mousemove') {
+					if (down) {
+						held++;
+					} else {
+						loose++;
+					}
 				}
 				return undefined;
 			});
@@ -616,29 +652,6 @@ async function mouse() {
 		}
 		if (aborted) return;
 
-		// ---------------------------------------------------------------- 1003 motion
-		heading(
-			'motion under 1003, which is what :hover costs',
-			'a report per cell the pointer crosses, held or not -- this is the wire cost'
-		);
-		write('    move the pointer around without pressing anything. q to move on.\r\n\r\n');
-		{
-			let moves = 0;
-			const at = Date.now();
-			await live({ motion: true, raw: false }, (event) => {
-				if (event.kind === 'mousemove') moves++;
-				return undefined;
-			});
-			const secs = Math.max(1, Math.round((Date.now() - at) / 1000));
-			write(`    ${moves} motion reports in about ${secs}s, with nothing held.\r\n`);
-			write(
-				moves === 0
-					? '    None at all means 1003 is not implemented here, and :hover cannot work.\r\n'
-					: '    That rate, forever, over whatever link this is, is why 1003 is opt-in.\r\n'
-			);
-		}
-		if (aborted) return;
-
 		// ----------------------------------------------------------------- the wheel
 		heading(
 			'the wheel, and whether this one tilts',
@@ -647,9 +660,10 @@ async function mouse() {
 		write('    scroll, and scroll sideways if you can. q to move on.\r\n\r\n');
 		{
 			const seen = new Set();
-			await live({ raw: false }, (event) => {
-				if (event.kind !== 'wheel') return undefined;
-				if (seen.has(event.wheel)) return undefined;
+			await live(buttons, (event) => {
+				if (event.kind !== 'wheel' || seen.has(event.wheel)) {
+					return undefined;
+				}
 				seen.add(event.wheel);
 				return `first ${event.wheel} at (${event.x}, ${event.y})`;
 			});
@@ -665,8 +679,10 @@ async function mouse() {
 			);
 			write('    click in the rightmost part of the window. q to move on.\r\n\r\n');
 			let furthest = 0;
-			await live({ raw: false }, (event) => {
-				if (event.kind !== 'mousedown') return undefined;
+			await live(buttons, (event) => {
+				if (event.kind !== 'mousedown') {
+					return undefined;
+				}
 				furthest = Math.max(furthest, event.x + 1);
 				return `column ${event.x + 1}`;
 			});
@@ -691,7 +707,7 @@ async function mouse() {
 				'    a screen nothing simulated. Click the * below. q to move on.\r\n\r\n'
 		);
 		{
-			const target = { x: 12, y: 2 };
+			const spot = { x: 12, y: 2 };
 			const backend = createInlineCanvas({ height: 5, terminal, width: 40 });
 			backend.render((p) => {
 				p.text(0, 0, '+--------------------------------------+');
@@ -699,52 +715,53 @@ async function mouse() {
 				p.text(0, 2, '|                                      |');
 				p.text(0, 3, '|                                      |');
 				p.text(0, 4, '+--------------------------------------+');
-				p.text(target.x, target.y, '*');
+				p.text(spot.x, spot.y, '*');
 			});
 
-			const router = createInput({ mouse: { surface: backend }, paste: false });
-			try {
-				// the router asks once when it starts, so give the reply a moment to land
-				await new Promise((resolve) => setTimeout(resolve, 300));
-				const found = { hit: false, got: undefined };
-				router.onMouse((event) => {
-					if (event.kind !== 'mousedown') return;
-					found.got = { x: event.x, y: event.y };
-					found.hit = event.x === target.x && event.y === target.y;
-				});
-				const key = await untilKey(router, ['q']);
-				if (key === 'abort') aborted = true;
+			// the router now translates against the canvas rather than the screen, and
+			// is asked to learn where it sits. Asked here rather than left to the first
+			// report that cannot be placed, which is what the router does on its own:
+			// that costs one click, and a step whose first click does nothing is a step
+			// nobody trusts the rest of
+			target = backend;
+			const located = await backend.locate(() => queryCursor(buttons));
 
-				// read before the canvas is finished with, not after: `done()` gives the
-				// rows back, and giving the rows back is exactly what makes the origin
-				// unknown again. Reading it afterwards reported "<unknown>" beside a
-				// press that had translated perfectly, which is two lines contradicting
-				// each other -- and is the first thing driving this probe turned up
-				const learnt = backend.origin;
-				backend.done();
-
-				write(`\r\n    origin the canvas learnt: ${JSON.stringify(learnt) ?? '<unknown>'}\r\n`);
-				write(`    the * is drawn at: ${JSON.stringify(target)}\r\n`);
-				write(
-					`    your last press translated to: ${JSON.stringify(found.got) ?? '<no press>'}\r\n`
-				);
-				write(
-					found.hit
-						? '    Which matches, so the cursor report and the arithmetic over it are right\r\n' +
-								'    on this terminal.\r\n'
-						: '    If you clicked the * and that does not match, the origin is wrong here --\r\n' +
-								'    which is either the cursor report or what this made of it, and is the one\r\n' +
-								'    thing in the mouse path no test can check.\r\n'
-				);
-				if (learnt === undefined) {
-					write(
-						'    An unknown origin means no cursor report came back at all, which is the\r\n' +
-							'    same terminal the --detect mode reports "<nothing>" for.\r\n'
-					);
+			const found = { got: undefined, hit: false };
+			await live(buttons, (event) => {
+				if (event.kind !== 'mousedown') {
+					return undefined;
 				}
-			} finally {
-				router.stop();
-				backend.stop();
+				found.got = { x: event.x, y: event.y };
+				found.hit = event.x === spot.x && event.y === spot.y;
+				return `press at (${event.x}, ${event.y})`;
+			});
+
+			// read before the canvas is finished with, not after: `done()` gives the
+			// rows back, and giving the rows back is exactly what makes the origin
+			// unknown again. Reading it afterwards reported "<unknown>" beside a press
+			// that had translated perfectly, which is two lines contradicting each
+			// other -- and is the first thing driving this probe turned up
+			const learnt = backend.origin;
+			target = screen;
+			backend.done();
+
+			write(`\r\n    origin the canvas learnt: ${JSON.stringify(learnt) ?? '<unknown>'}\r\n`);
+			write(`    the * is drawn at: ${JSON.stringify(spot)}\r\n`);
+			write(`    your last press translated to: ${JSON.stringify(found.got) ?? '<no press>'}\r\n`);
+			write(
+				found.hit
+					? '    Which matches, so the cursor report and the arithmetic over it are right\r\n' +
+							'    on this terminal.\r\n'
+					: '    If you clicked the * and that does not match, the origin is wrong here --\r\n' +
+							'    which is either the cursor report or what this made of it, and is the one\r\n' +
+							'    thing in the mouse path no test can check.\r\n'
+			);
+			if (!located) {
+				write(
+					'    No cursor report came back at all, which is the same terminal --detect\r\n' +
+						'    reports "<nothing>" for. Without one an inline canvas cannot place a\r\n' +
+						'    report, and every click above was dropped rather than misread.\r\n'
+				);
 			}
 		}
 		if (aborted) return;
@@ -754,17 +771,55 @@ async function mouse() {
 			'what tracking takes away',
 			'selecting text with the pointer does not work while it is on; shift-drag may'
 		);
-		write('    try to select some text above, then try again holding shift. q to finish.\r\n\r\n');
-		await live({ raw: false }, () => undefined);
+		write('    try to select some text above, then try again holding shift. q to move on.\r\n\r\n');
+		await live(buttons, () => undefined);
 		write(
 			'\r\n    A terminal reporting the mouse stops doing its own selection, so an app\r\n' +
 				"    that turns tracking on has, from the user's point of view, broken copy and\r\n" +
 				'    paste. Shift-drag overrides it in most terminals and not all -- which one\r\n' +
 				'    this is, is the thing only this step can tell you.\r\n'
 		);
+		if (aborted) return;
+
+		// ---------------------------------------------------------------- 1003 motion
+		//
+		// last, and that is the mode churn again rather than a change of subject: this
+		// is the one step that needs a different tracking mode, so putting it at the
+		// end means the mode changes exactly once in the whole run
+		buttons.stop();
+		buttons = undefined;
+
+		heading(
+			'motion under 1003, which is what :hover costs',
+			'a report per cell the pointer crosses, held or not -- this is the wire cost'
+		);
+		write('    move the pointer around without pressing anything. q to finish.\r\n\r\n');
+		{
+			const router = createInput({ mouse: { motion: true, surface }, paste: false });
+			try {
+				let moves = 0;
+				const at = Date.now();
+				await live(router, (event) => {
+					if (event.kind === 'mousemove') {
+						moves++;
+					}
+					return undefined;
+				});
+				const secs = Math.max(1, Math.round((Date.now() - at) / 1000));
+				write(`    ${moves} motion reports in about ${secs}s, with nothing held.\r\n`);
+				write(
+					moves === 0
+						? '    None at all means 1003 is not implemented here, and :hover cannot work.\r\n'
+						: '    That rate, forever, over whatever link this is, is why 1003 is opt-in.\r\n'
+				);
+			} finally {
+				router.stop();
+			}
+		}
 	} finally {
-		// whatever happened, the terminal stops reporting: every router above puts its
-		// own mode back, and this is the backstop for a throw between two of them
+		// whatever happened, the terminal stops reporting: each router puts its own
+		// mode back, and this is the backstop for a throw between the two of them
+		buttons?.stop();
 		terminal.restore();
 		write(SHOW_CURSOR + '\r\n');
 	}
