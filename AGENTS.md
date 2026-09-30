@@ -5227,6 +5227,58 @@ unshaken sheet does` asserts three ways.
   same answer, and the case it skips is the common one for this filter -- a
   module importing `Cascade` or `declare` from the same place. It says so.
 
+- **The walk's loop guard is asserted as a count, because it always was one.** The
+  `entered` set of real paths is what stops a symlink pointing back up the tree
+  being followed forever, and what it is for is **cost** rather than termination:
+  the operating system ends an infinite walk anyway, since a path through more
+  than MAXSYMLINKS links fails `readdir` with ELOOP and the walk treats that as an
+  unreadable directory -- so without the set the recursion stops after about
+  thirty levels having read every directory and every file about thirty times
+  over. `should walk a symlink loop once rather than once per level` asserted that
+  by **timing** the same tree with and without the link and requiring the ratio
+  under four, and the test's own name is the reason that was the wrong shape: read
+  once rather than once per level is a number, not a duration.
+
+  It flaked, and the numbers say why the obvious hardening was already in place
+  and still not enough. Correct behaviour gives ratios of 0.69, 0.93, 0.98, 1.04
+  and 1.27 over five full-suite runs -- the loop genuinely costs nothing -- while
+  each side's own absolute moves by a factor of 1.8 between runs, 3.2ms to 5.7ms
+  on twenty files. One run reported **5.41** and failed a build over a walk with
+  nothing wrong with it. The test took the **fastest** of three runs per side,
+  which is the right statistic and only helps where contention is intermittent
+  _within_ the sampling window: the two sides were timed in separate windows, so a
+  sustained stall over one inflates all three of its samples and the minimum with
+  them. That is the batched-against-interleaved failure this file already records
+  for the style-shaking measurement, met in a suite that runs eighteen workers at
+  once. Interleaving would have narrowed it and left a timing test behind.
+
+  `shake-walk.test.ts` counts instead, and `node:fs` is mocked there the way
+  `bundle-close.test.ts` mocks `rolldown` and for its reason: the walk is inside
+  `scanClassEvidence()`, nothing outside can see what it read, and the alternative
+  is a counter on production code whose only reader would be that file. The real
+  `readdirSync` and `readFileSync` run and the wrapper only records, filtered to
+  the tree so that the rest of the process's reads are none of the count's
+  business. What is asserted is exact: two directories and twenty files, no path
+  twice, and the same paths whether or not the loop is there -- a loop costs one
+  `realpath` and changes no count at all. Removing the `entered` check fails three
+  of the four, and the fourth is the tree with no loop in it, which is right.
+  A file of its own, because `vi.mock` is hoisted and module-wide.
+
+  It also cost a Windows round trip, which Conventions now records as a fourth
+  instance of its own rule: one assertion matched a path with a regex ending in a
+  forward slash, so it found nothing against the `src\one` that `join()` builds
+  there. The counts and the differential were unaffected, because those compare
+  paths against other paths built the same way rather than spelling one.
+
+  Two things about the fourth test are worth knowing, because the first version of
+  it asserted the wrong one. The walk records the path it **walked** rather than
+  the real path it resolved to -- `join()` builds each path from the link it came
+  through -- so a tree reaching a directory through two links reads it once and the
+  target's own spelling appears nowhere in what was read; an assertion on
+  `startsWith(target)` therefore found nothing and looked like a missing read. And
+  which of two links to one directory wins is `readdir` order, so what is asserted
+  is that exactly one of them was entered rather than which.
+
 - **The shaken sheet is regenerated, not printed.** `generateUtilities({ only })`
   filters the set the generator produced and prints it the way it always did, so
   a surviving rule's text is byte for byte the text it has in `UTILITY_CSS` and a
@@ -7414,6 +7466,21 @@ color: magenta }` and beats the default with an ordinary rule, which is only tru
   answers forced, which is what `asWindows()` already exists for: the whole of
   `which.test.ts` passes under win32 semantics on a Mac, and that is a minute
   against a round trip through CI.
+
+  A fourth instance arrived in SIG-127, and it is worth adding because it is a
+  shape the three above do not cover and because it was written **immediately
+  after** reading this entry. `shake-walk.test.ts` asserted that one of two links
+  had been entered with a regex of `/(?:one|two)$`, which matches nothing against
+  the `src\one` that `join()` builds on Windows -- so all three Windows jobs failed
+  over a walk that had done exactly the right thing, and the other three platforms
+  were green. `asWindows()` could not have caught it: that forces what the
+  _subject_ reads about its platform, and what was wrong here was the **test's own
+  spelling of a path**. So the rule has a sharper form, which is the one to
+  remember: a test never writes a separator at all. `basename(path)` is the fix,
+  `sep` where a separator really is the subject, and a path compared against
+  another path built the same way -- `startsWith(root)` and `slice(root.length)`
+  were fine in that same file for exactly that reason.
+
 - **An assertion is a call, and `expect(x).to.be.ok` is not one.** Chai spells
   that one as a getter, so it reads to a linter as an expression nobody used --
   and the narrowing it does not do is what made it worse than noise: each of the
