@@ -1672,3 +1672,202 @@ describe('a row is as tall as the widths flexing hands out', () => {
 		expect(placed.children[1].box.y).toBe(1);
 	});
 });
+
+describe('a nowrap row is as wide as the basis its children flex from', () => {
+	// SIG-126. The height half of this is the block above; the width was left on the
+	// other arithmetic. The per-child loop sums each child's measured *content*
+	// width, while the placement starts each item from its `flex-basis` -- so a
+	// `flex-basis` wider than the content is a width the measure never saw
+	const row = (declarations: Parameters<typeof box>[0], ...children: ReturnType<typeof box>[]) =>
+		box({ 'flex-direction': 'row', 'flex-wrap': 'nowrap' }, box(declarations, ...children));
+
+	it('should read a flex-basis the placement will read', () => {
+		// zero, because an empty box measures nothing and the basis was never asked
+		// about. The placement gives that child forty
+		expect(measureNode(row({ 'flex-basis': '40' }), 100).width).toBe(40);
+		// and the same with content in it, which is the shape that says the loop is
+		// reading the content rather than merely missing an empty child: it said two
+		expect(
+			measureNode(row({ 'flex-basis': '40' }, text('hi', { 'white-space': 'nowrap' })), 100).width
+		).toBe(40);
+	});
+
+	it('should not let the child vanish, which is what the shrinkable case did', () => {
+		// the report AGENTS.md had wrong. `flex-shrink` defaults to 1, so the row
+		// measured zero, `resolveFlexible()` shrank the child to fit the zero it had
+		// been given, and the content was simply not on screen -- no overflow for
+		// `checkInvariants()` to catch and nothing to point at
+		const tree = box(
+			{ 'align-items': 'flex-start', 'flex-direction': 'column' },
+			row({ 'flex-basis': '40', height: '1' })
+		);
+		const placed = layout(tree, { height: 3, width: 100 });
+
+		expect(placed.children[0].box.width).toBe(40);
+		expect(placed.children[0].children[0].box.width).toBe(40);
+	});
+
+	it('should not draw a frozen child outside its own parent', () => {
+		// and the report it had right, which needs `flex-shrink: 0`: the row measured
+		// zero and the child could not give anything up, so forty columns were drawn
+		// outside a parent zero wide
+		const tree = box(
+			{ 'align-items': 'flex-start', 'flex-direction': 'column' },
+			row({ 'flex-basis': '40', 'flex-shrink': '0', height: '1' })
+		);
+
+		expect(layout(tree, { height: 3, width: 100 }).children[0].box.width).toBe(40);
+		checkInvariants(layout(tree, { height: 3, width: 100 }));
+	});
+
+	it('should floor a frozen child in the minimum as well as in the width', () => {
+		// the half a narrower fix drops. An item that cannot shrink is frozen at its
+		// hypothetical size, so the row cannot be made narrower than it -- and a
+		// minimum that summed only each item's clamped floor would report zero here,
+		// which squeezes the row back to nothing and draws the child outside it again.
+		// Asserted through a parent too narrow to hold it, which is the only place a
+		// minimum is read
+		const inner = () => row({ 'flex-basis': '40', 'flex-shrink': '0', height: '1' });
+
+		expect(measureNode(inner(), 100)).toMatchObject({ minWidth: 40, width: 40 });
+
+		const squeezed = layout(
+			box({ 'flex-direction': 'row', 'flex-wrap': 'nowrap', width: '10' }, inner()),
+			{ height: 3, width: 10 }
+		);
+		expect(squeezed.children[0].box.width).toBe(40);
+		expect(squeezed.children[0].children[0].box.width).toBe(40);
+	});
+
+	it('should let a declared minimum of zero mean zero', () => {
+		// the second divergence, and the same rule the wrapping branch already keeps:
+		// the minimum is the placement's `declared ?? automatic`, not the larger of the
+		// two. `min-width: 0` on a long word is a declaration the automatic minimum
+		// does not get a say in
+		const inner = () => row({ 'min-width': '0' }, text('supercalifragilistic'));
+
+		expect(measureNode(inner(), 100)).toMatchObject({ minWidth: 0, width: 20 });
+
+		// what the lie cost: the row reported a minimum of twenty, so a ten-wide
+		// parent placed it twenty wide rather than at the ten its child had said it
+		// could take
+		const tree = box({ 'flex-direction': 'row', 'flex-wrap': 'nowrap', width: '10' }, inner());
+		const placed = layout(tree, { height: 6, width: 10 });
+		expect(placed.children[0].box.width).toBe(10);
+		checkInvariants(layout(tree, { height: 6, width: 10 }), { overflow: true });
+	});
+
+	it('should floor a growable item under its own basis', () => {
+		// the other half of `maxContentMain()`, and it survived a sabotage before this
+		// test existed: an item that can grow takes the larger of its content and its
+		// basis, and reading the content alone makes a `flex-grow: 1; flex-basis: 40`
+		// box vanish exactly the way the default `flex-grow: 0` one did. Two branches,
+		// two ways to reach one bug
+		const tree = () => row({ 'flex-basis': '40', 'flex-grow': '1', height: '1' });
+
+		expect(measureNode(tree(), 100).width).toBe(40);
+
+		const placed = layout(
+			box({ 'align-items': 'flex-start', 'flex-direction': 'column' }, tree()),
+			{ height: 3, width: 100 }
+		);
+		expect(placed.children[0].children[0].box.width).toBe(40);
+	});
+
+	it('should not offer a content size to an item that cannot grow', () => {
+		// which is what makes the two branches two branches, and it survived a sabotage
+		// too: an item with no `flex-grow` ends at its hypothetical size whatever room
+		// there is, so its contribution is that and never its content. Handing it the
+		// larger of the two would measure this row at the twenty its text wants and
+		// place the child at the five its basis says -- a fifteen-column hole in a row
+		// that shrank to fit. A `min-width: 0` is what lets the basis win, since the
+		// automatic minimum is otherwise the word's own width
+		const tree = () =>
+			row(
+				{ 'flex-basis': '5', 'min-width': '0' },
+				text('supercalifragilistic', { 'white-space': 'nowrap' })
+			);
+
+		expect(measureNode(tree(), 100).width).toBe(5);
+
+		const placed = layout(
+			box({ 'align-items': 'flex-start', 'flex-direction': 'column' }, tree()),
+			{ height: 3, width: 100 }
+		);
+		expect(placed.children[0].box.width).toBe(5);
+		expect(placed.children[0].children[0].box.width).toBe(5);
+	});
+
+	it('should clamp a growable item to a max-width its minimum does not beat', () => {
+		// and the clamp, which also survived a sabotage. `max-width` is unreachable as a
+		// divergence while the automatic minimum is the content's own width, because
+		// `min` beats `max` -- so it takes a `min-width: 0` to let the max bind, and
+		// then the contribution really is the ten the item is placed at rather than the
+		// twenty its content wants. Which is why the test above this one is about the
+		// case where they agree and this one is about the case where they do not
+		const tree = () =>
+			row(
+				{ 'flex-grow': '1', 'max-width': '10', 'min-width': '0' },
+				text('supercalifragilistic', { 'white-space': 'nowrap' })
+			);
+
+		expect(measureNode(tree(), 100).width).toBe(10);
+
+		const placed = layout(
+			box({ 'align-items': 'flex-start', 'flex-direction': 'column' }, tree()),
+			{ height: 3, width: 100 }
+		);
+		expect(placed.children[0].box.width).toBe(10);
+		// `overflow` allowed, because the text really does escape: a nowrap twenty-column
+		// string in the ten columns `max-width` clamps its box to is what
+		// `text-overflow` is for, and the box being ten is the assertion above
+		checkInvariants(
+			layout(box({ 'align-items': 'flex-start', 'flex-direction': 'column' }, tree()), {
+				height: 3,
+				width: 100,
+			}),
+			{ overflow: true }
+		);
+	});
+
+	it('should leave a max-width to the placement, which already agrees', () => {
+		// the third candidate, which is *not* a divergence and is asserted so that
+		// nobody adds it to the fix. `measureUncached()` lays a child's content out at
+		// the width its own limits clamp it to, so the measured width is already
+		// inside the max; and where the content cannot shrink that far -- a long word
+		// -- `min` beats `max`, which is CSS. Both spellings measure what they place
+		expect(measureNode(row({ 'max-width': '10' }, text('aa bb cc dd ee ff gg')), 100).width).toBe(
+			8
+		);
+		expect(
+			measureNode(
+				row({ 'max-width': '10' }, text('supercalifragilistic', { 'white-space': 'nowrap' })),
+				100
+			).width
+		).toBe(20);
+	});
+
+	it('should count the gaps it counted before', () => {
+		// the sum moved, so the thing added to it has to be asserted with it: two
+		// basis-10 children with a gap of three is twenty-three, not twenty
+		const tree = box(
+			{ 'column-gap': '3', 'flex-direction': 'row', 'flex-wrap': 'nowrap' },
+			box({ 'flex-basis': '10' }),
+			box({ 'flex-basis': '10' })
+		);
+
+		expect(measureNode(tree, 100).width).toBe(23);
+	});
+
+	it('should count a margin the way the line does', () => {
+		// `hypotheticalMain()` gives the margins back outside the clamp, which is what
+		// the loop's own `+ extraH` did -- so this is the one part of the arithmetic
+		// that must not change. A basis of ten with two columns each side is fourteen
+		const tree = box(
+			{ 'flex-direction': 'row', 'flex-wrap': 'nowrap' },
+			box({ 'flex-basis': '10', margin: '0 2' })
+		);
+
+		expect(measureNode(tree, 100).width).toBe(14);
+	});
+});

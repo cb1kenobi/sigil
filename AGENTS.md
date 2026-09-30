@@ -1175,14 +1175,85 @@ migrate up` reads `commands/`, `commands/db/` and `commands/db/migrate/` and
   measure -- which buys nothing here for the reason just given and costs a second
   definition of when a measure has settled.
 - **What the measure changes is the cross size and nothing else.** A row's
-  `mainTotal` is still what its children ask for: the per-child loop's own sum for a
-  nowrap row, and for a wrapping one the longest line, read from
-  `hypotheticalMain()` _before_ anything flexes -- because max-content is a question
-  about room the items have not been given, and `resolveFlexible()` is about to hand
-  out exactly that. Flexing changes heights, so it changes the height a row reports
-  and leaves the width alone, which is also why this could not regress a width
-  anywhere. `longest` is computed only where it is read, since a single line's main
-  total is the loop's sum and flexing does not move it.
+  `mainTotal` is still what its children ask for, read _before_ anything flexes --
+  because max-content is a question about room the items have not been given, and
+  `resolveFlexible()` is about to hand out exactly that. Flexing changes heights, so
+  it changes the height a row reports and leaves the width alone, which is also why
+  SIG-125 could not regress a width anywhere. What that sum _is_ is the entry below:
+  the height was put on the placement's own arithmetic there and the width followed
+  in SIG-126, which is the ticket that pass filed rather than took.
+- **A nowrap row asks for the sum of its items' max-content contributions, and a
+  wrapping one for its longest line.** Two formulas because they answer two
+  questions, and the nowrap half was the one still on the per-child loop's sum of
+  measured _content_ widths -- which misses a `flex-basis` exactly, since
+  `measureUncached()` already reports a declared `width`. So a `flex-basis: 40` box
+  measured **zero**, and what that cost is worth stating precisely because the first
+  write-up of it was wrong in a way that matters: `flex-shrink` defaults to 1, so the
+  common case is not an overflow but the box being **shrunk to the zero its row was
+  given** -- content simply not on screen, with no escape for `checkInvariants()` to
+  catch and nothing to point at. It takes a `flex-shrink: 0` to get the containment
+  violation the old "Known bugs" entry described, and a `min-width` of its own to come
+  out right.
+- **`maxContentMain()` is not `hypotheticalMain()`, and reaching for the second cost
+  a review round.** The obvious fix is to sum the number the wrapping branch already
+  sums, and it is wrong: the hypothetical main size is the basis flexing starts
+  _from_, which is the right number for deciding who shares a line and the wrong one
+  for how wide a row wants to be. A `flex-basis: 0; flex-grow: 1` description has a
+  hypothetical size of zero, so summing those reports a row's **min-content** width --
+  measured, a label-and-description row came out eleven columns instead of twenty-two,
+  its description was then placed in five, and it wrapped to seven rows inside a box
+  drawn for three. That is SIG-125's own defect, reintroduced by the fix to its
+  sibling, and `should not draw through a border it is inside` is what caught it.
+  So the contribution is the item's basis when it cannot grow -- it ends there
+  whatever room there is -- and its content's max-content size floored under the basis
+  when it can, clamped to the item's own limits either way. The wrapping branch keeps
+  `hypotheticalMain()`, because a line has to be measured by the number that packed
+  it.
+- **A nowrap row's _minimum_ counts `flex-shrink`, and that is what keeps the width
+  fix from being half a fix.** `minimumMain()` is `resolveFlexible()`'s floor said as
+  a function: an item that cannot shrink is frozen at its hypothetical size, and
+  everything else is shrunk towards its own clamped minimum. Summing only the second
+  would report a minimum of zero for a `flex-shrink: 0` child, which squeezes the row
+  back to nothing and draws that child outside it -- the defect above, arriving through
+  the minimum after being fixed in the size. It also replaces the loop's
+  `Math.max(automatic, declared)` with the placement's `declared ?? automatic`, which
+  is the rule the wrapping branch already kept and the second half of SIG-126: a
+  `min-width: 0` on a long word is a declaration the automatic minimum does not get a
+  say in, and the row used to report the word's own width, so a parent narrower than
+  that placed it at a width its child had said it need not keep.
+- **`max-width` is _not_ part of that, and it is asserted so that nobody adds it.**
+  It is the obvious third divergence and it is unreachable on the main axis:
+  `measureUncached()` lays a child's content out at `clamp(declared ?? available, min,
+max)`, so a box child's measured width is already a sum taken inside its own limit --
+  and where the content cannot shrink that far, a long word, `clamp()` applies max
+  before min so `min` wins, which is CSS. `max-width: 10` around `aa bb cc dd ee ff gg`
+  measures 8 and is placed at 8; around a nowrap `supercalifragilistic` it measures 20
+  and is placed at 20.
+- **Three of `maxContentMain()`'s branches were unpinned when it was first written,
+  and a sabotage pass is what said so.** The tests for the reported defect all reach
+  the `flexGrow <= 0` path, so every decision on the other one passed with the branch
+  removed: dropping the basis floor, dropping the limit clamp, and taking the growable
+  branch unconditionally each failed nothing. All three are reachable and each is a
+  real wrong layout -- a `flex-grow: 1; flex-basis: 40` box vanishes exactly the way
+  the default one did; a growable item under a `max-width: 10` its `min-width: 0` lets
+  bind is measured at the twenty its content wants and placed at ten; and offering a
+  content size to an item that _cannot_ grow measures a row at twenty and places its
+  child at the five its basis says, which is a fifteen-column hole in a row that shrank
+  to fit. Each has a test named after what it is for now, and the pattern is the one
+  this file keeps rediscovering: the tests written from a bug report cover the path the
+  report came in on.
+- **What it costs is nothing measurable, and what says so is the fuzzer.** Six
+  interleaved rounds of forty iterations, over the same two workloads the entries above
+  use: the help screen is **10.38ms against 10.46ms** median and the table **4.61ms
+  against 4.69ms**, which is +0.8% and +1.7% with the fastest passes at +0.4% and
+  -0.2% -- noise, as it has to be, since one per-item expression replaced another.
+  140,000 layouts -- 200 seeds, 100 trees, seven sizes -- run over the same corpus with
+  `main`'s engine and with this one: **zero** invariant failures either way, and the
+  strict count, which includes the legitimate overflow this file records 41,038 of
+  42,000 layouts producing, went from **135,485 to 135,426**. So the change removes 59
+  real overflows and creates none, which is the same shape SIG-125's differential had
+  and the only number that could carry the argument -- the invariants were already
+  clean on `main`.
 - **The flexed cross size _replaces_ what the per-child loop found rather than
   being a floor over it.** `Math.max` of the two was the first spelling and it is
   the wrong one, because the loop answers a different question: it reads each
@@ -1344,8 +1415,10 @@ at`.
   nothing left to keep in agreement. All four rules above still hold and are now
   held in one place, which is the strictly better version of holding them twice.
   The one number the two spellings shared is `hypotheticalMain()` -- a basis
-  clamped to its own limits plus its margins -- which is read by three callers now
-  and so is written once.
+  clamped to its own limits plus its margins -- which is read by five callers now
+  and so is written once: `wrapIntoLines()`, a wrapping row's size and its minimum,
+  and both of SIG-126's contributions, since an item that can neither grow nor
+  shrink ends up exactly there.
 
 - **The re-measure at the used width is every item's, not only a text's.** A box
   whose children wrap has the same dependency a text does -- its height is a
@@ -7219,20 +7292,6 @@ color: magenta }` and beats the default with an ordinary rule, which is only tru
 
 ## Known bugs
 
-- **A nowrap row's intrinsic width is its children's _content_ widths, not their
-  flex bases.** `measureUncached()`'s per-child loop sums `measured.width`, while the
-  placement starts each item from `item.basis` -- so a nowrap row whose child declares
-  a `flex-basis` wider than its content reports less than the placement hands that
-  child, and a `flex-basis: 40` box with nothing in it reports a width of **zero**
-  while its child is placed forty columns wide. Put such a row in an
-  `align-items: flex-start` column and the child is drawn outside its own parent.
-  A wrapping row does not have it: `hypotheticalMain()` is the basis clamped to its
-  own limits, and the wrapping branch replaces `mainTotal` with the longest line
-  measured that way. Older than SIG-125 -- `packLines()` replaced `mainTotal` only
-  when wrapping too -- and found while reviewing it. Left alone because `mainTotal` is
-  a **width**: changing it moves every intrinsic width in the engine, which is a
-  ticket of its own rather than a line inside a height fix. What the two answers are
-  and why they differ is recorded where the loop sums them.
 - A subcommand's option used before its subcommand is not protected from being
   consumed as an earlier option's value, because it is not declared yet on the
   pass that reads it. A default command's options are always in that position,
