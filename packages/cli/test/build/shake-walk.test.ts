@@ -38,7 +38,7 @@
 
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /** Every path handed to `readdirSync`, in order, since the last `reads()`. */
@@ -187,7 +187,14 @@ describe('the class-evidence walk', () => {
 		// *walked* rather than on the target's real path, because `join()` builds
 		// each path from the link it came through -- which is why the target's own
 		// spelling appears nowhere in what was read. Which of the two wins is
-		// `readdir` order and none of this test's business
-		expect(dirs.filter((path) => /\/(?:one|two)$/.test(path))).toHaveLength(1);
+		// `readdir` order and none of this test's business.
+		//
+		// Through `basename()` rather than a pattern ending in a separator, which is
+		// this repository's own Windows rule and was broken here on the first try: a
+		// regex of `/(?:one|two)$` matched nothing against the `src\one` that `join()`
+		// builds there, so the assertion failed on all three Windows jobs over a walk
+		// that had done exactly the right thing. A test must not spell a separator the
+		// subject did not hand it
+		expect(dirs.filter((path) => ['one', 'two'].includes(basename(path)))).toHaveLength(1);
 	});
 });

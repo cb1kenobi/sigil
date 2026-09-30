@@ -5264,6 +5264,12 @@ unshaken sheet does` asserts three ways.
   of the four, and the fourth is the tree with no loop in it, which is right.
   A file of its own, because `vi.mock` is hoisted and module-wide.
 
+  It also cost a Windows round trip, which Conventions now records as a fourth
+  instance of its own rule: one assertion matched a path with a regex ending in a
+  forward slash, so it found nothing against the `src\one` that `join()` builds
+  there. The counts and the differential were unaffected, because those compare
+  paths against other paths built the same way rather than spelling one.
+
   Two things about the fourth test are worth knowing, because the first version of
   it asserted the wrong one. The walk records the path it **walked** rather than
   the real path it resolved to -- `join()` builds each path from the link it came
@@ -7460,6 +7466,21 @@ color: magenta }` and beats the default with an ordinary rule, which is only tru
   answers forced, which is what `asWindows()` already exists for: the whole of
   `which.test.ts` passes under win32 semantics on a Mac, and that is a minute
   against a round trip through CI.
+
+  A fourth instance arrived in SIG-127, and it is worth adding because it is a
+  shape the three above do not cover and because it was written **immediately
+  after** reading this entry. `shake-walk.test.ts` asserted that one of two links
+  had been entered with a regex of `/(?:one|two)$`, which matches nothing against
+  the `src\one` that `join()` builds on Windows -- so all three Windows jobs failed
+  over a walk that had done exactly the right thing, and the other three platforms
+  were green. `asWindows()` could not have caught it: that forces what the
+  _subject_ reads about its platform, and what was wrong here was the **test's own
+  spelling of a path**. So the rule has a sharper form, which is the one to
+  remember: a test never writes a separator at all. `basename(path)` is the fix,
+  `sep` where a separator really is the subject, and a path compared against
+  another path built the same way -- `startsWith(root)` and `slice(root.length)`
+  were fine in that same file for exactly that reason.
+
 - **An assertion is a call, and `expect(x).to.be.ok` is not one.** Chai spells
   that one as a getter, so it reads to a linter as an expression nobody used --
   and the narrowing it does not do is what made it worse than noise: each of the
