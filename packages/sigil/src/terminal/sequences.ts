@@ -110,3 +110,41 @@ export const PASTE_START: string = `${ESC}[200~`;
 
 /** What a bracketed paste ends with. */
 export const PASTE_END: string = `${ESC}[201~`;
+
+/**
+ * Asks the terminal to report the mouse in the SGR encoding.
+ *
+ * `1006` is not optional and is never written on its own: the legacy encoding
+ * puts a coordinate in one byte of `32 + n`, so it runs out at column 223, and
+ * what that looks like is an app ignoring clicks down the right-hand side of a
+ * wide window. Enabled *before* a tracking mode and disabled *after* one, so
+ * there is never a window in which the mouse is being reported in an encoding
+ * nothing here reads.
+ */
+export const ENABLE_MOUSE_SGR: string = `${ESC}[?1006h`;
+
+/** Stops the SGR encoding. Whatever asked for it owes the terminal this one. */
+export const DISABLE_MOUSE_SGR: string = `${ESC}[?1006l`;
+
+/**
+ * Button-event tracking: presses, releases, and motion while a button is held.
+ *
+ * The default, because the alternative reports every cell the pointer crosses
+ * forever over what may be an ssh link. What it costs is `:hover`, which needs to
+ * know where the pointer is when nobody is pressing anything.
+ */
+export const ENABLE_MOUSE_BUTTONS: string = `${ESC}[?1002h`;
+
+/** Stops button-event tracking. */
+export const DISABLE_MOUSE_BUTTONS: string = `${ESC}[?1002l`;
+
+/**
+ * Any-event tracking: every cell the pointer crosses, held or not.
+ *
+ * What `:hover` actually needs, and opt-in for the reason it is not the default:
+ * this is a report per cell of pointer travel, for as long as the app runs.
+ */
+export const ENABLE_MOUSE_MOTION: string = `${ESC}[?1003h`;
+
+/** Stops any-event tracking. */
+export const DISABLE_MOUSE_MOTION: string = `${ESC}[?1003l`;

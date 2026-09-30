@@ -272,7 +272,9 @@ describe('matching', () => {
 	it('should match a state pseudo-class against what the element reports', () => {
 		expect(hits(':focus')).toEqual(['box.root/box.panel']);
 		expect(hits(':disabled')).toEqual(['box.root/box.panel/button']);
-		// nothing reports :hover yet, which is an answer rather than a missing one
+		// nothing in *this* tree reports `:hover`, which is the same answer it always
+		// gave -- the difference since the mouse landed is that something now can,
+		// which is the input router setting the state from its hit test
 		expect(hits(':hover')).toEqual([]);
 	});
 

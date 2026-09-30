@@ -44,7 +44,7 @@
  */
 
 import type { Painter } from '../canvas/index.js';
-import type { KeyHandler } from '../input/index.js';
+import type { KeyHandler, MouseHandler } from '../input/index.js';
 import type { Box, LayoutNode, Measurement } from '../layout/index.js';
 import type { PropValues, Style, StyleState } from '../style/index.js';
 import { declare } from '../style/index.js';
@@ -233,6 +233,22 @@ export class Element implements LayoutNode {
 
 	/** The area inside padding and border, which is where children were placed. */
 	content: Box | undefined;
+
+	/**
+	 * The rectangle this element's own drawing lands inside, if anything clips it.
+	 *
+	 * Every ancestor's `overflow` intersected, which is what an element may reach
+	 * rather than what it clips *for* -- a box that clips does not clip its own
+	 * border, because the border is the edge and a box that erased the frame it
+	 * was drawing would be drawing nothing. `undefined` where no ancestor clips,
+	 * which is the common case and is why this costs no allocation.
+	 *
+	 * Written by `arrange()` rather than worked out during paint, because the hit
+	 * test needs the same rectangle: a box clipped by an ancestor is not hittable
+	 * where it is clipped, and two walks computing one intersection is two answers
+	 * to one question.
+	 */
+	clip: Box | undefined;
 
 	/**
 	 * How far this element's content is scrolled, which the layout engine reads.
@@ -596,6 +612,15 @@ export class Element implements LayoutNode {
 	 * from the focused element upwards until something stops the event.
 	 */
 	onKey: KeyHandler | undefined;
+
+	/**
+	 * What this element does with a mouse event that reaches it.
+	 *
+	 * One function rather than a list, for the reason `onKey` is one. Read by the
+	 * input router, which hit-tests the report's position and walks from the
+	 * element it landed on upwards until something stops the event.
+	 */
+	onMouse: MouseHandler | undefined;
 
 	/** A `raw` element's painter, for the paint walk. */
 	get rawPaint(): RawPaint | undefined {
@@ -1036,5 +1061,6 @@ export function createTree(root: Element, onMark?: () => void): Tree {
 	return new TreeImpl(root, onMark);
 }
 
+export { ancestry, contains, hitTest, paintOrder } from './hit.js';
 export { arrange, arrangedExtent, cellStyle, paint, resolveStyles, settleStyles } from './paint.js';
 export { renderToLines, renderToString, type RenderStringOptions } from './string.js';

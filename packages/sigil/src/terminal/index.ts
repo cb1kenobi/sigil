@@ -1,6 +1,12 @@
 import { DEFAULT_WIDTH, terminalWidth } from '../wrap/index.js';
 import {
+	DISABLE_MOUSE_BUTTONS,
+	DISABLE_MOUSE_MOTION,
+	DISABLE_MOUSE_SGR,
 	DISABLE_PASTE,
+	ENABLE_MOUSE_BUTTONS,
+	ENABLE_MOUSE_MOTION,
+	ENABLE_MOUSE_SGR,
 	ENABLE_PASTE,
 	ENTER_ALT_SCREEN,
 	HIDE_CURSOR,
@@ -15,7 +21,13 @@ export {
 	cursorDown,
 	cursorRight,
 	cursorUp,
+	DISABLE_MOUSE_BUTTONS,
+	DISABLE_MOUSE_MOTION,
+	DISABLE_MOUSE_SGR,
 	DISABLE_PASTE,
+	ENABLE_MOUSE_BUTTONS,
+	ENABLE_MOUSE_MOTION,
+	ENABLE_MOUSE_SGR,
 	ENABLE_PASTE,
 	ENTER_ALT_SCREEN,
 	ERASE_DOWN,
@@ -151,6 +163,29 @@ export interface Terminal {
 	/** Stops the markers, if this terminal is what asked for them. */
 	disableBracketedPaste(): void;
 	/**
+	 * Asks the terminal to report the mouse, and registers to stop asking however
+	 * the process ends.
+	 *
+	 * On the restore list, and it is the entry with the loudest failure: a shell
+	 * left in a tracking mode prints `ESC [ < 35 ; 40 ; 12 M` into whatever the
+	 * user types next every time they move the pointer over the window, which has
+	 * to be reset by hand. That is worse than the paste markers and much worse
+	 * than a hidden cursor.
+	 *
+	 * Always SGR, and the tracking mode is written after it -- so there is never a
+	 * moment in which the mouse is being reported in an encoding nothing reads.
+	 *
+	 * @param opts - `motion` asks for every cell the pointer crosses rather than
+	 *   only motion while a button is held. Off by default, because on it is a
+	 *   report per cell of pointer travel for as long as the app runs.
+	 * @returns Whether this call is what turned it on, mirroring `hideCursor()`.
+	 *   `false` when tracking was already on -- including when it was on in the
+	 *   *other* mode, because the caller that turned it on owns which one it is.
+	 */
+	enableMouse(opts?: { motion?: boolean }): boolean;
+	/** Stops mouse reporting, if this terminal is what asked for it. */
+	disableMouse(): void;
+	/**
 	 * Subscribes to resizes.
 	 *
 	 * @param fn - Called with the new size.
@@ -216,6 +251,8 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
 	let bracketedPaste = false;
 	let cursorHidden = false;
 	let rawMode = false;
+	/** Which tracking mode is on, so that the right one is turned back off. */
+	let mouse: 'buttons' | 'motion' | undefined;
 	let claim: InternalClaim | undefined;
 
 	// what has been attached to the process and to the streams, so that each is
@@ -352,7 +389,7 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
 	 * holding the process's signal handling.
 	 */
 	function syncRestore(): void {
-		if (altScreen || bracketedPaste || cursorHidden || rawMode || claim?.active) {
+		if (altScreen || bracketedPaste || cursorHidden || mouse || rawMode || claim?.active) {
 			attachRestore();
 		} else {
 			detachRestore();
@@ -397,6 +434,26 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
 		}
 	}
 
+	/**
+	 * Turns the tracking mode off and then the encoding, which is the reverse of
+	 * the order they went on in: the mouse stops being reported before the thing
+	 * that says how to read a report does.
+	 *
+	 * @returns Whether there was anything to turn off.
+	 */
+	function stopMouse(): boolean {
+		if (!mouse) {
+			return false;
+		}
+		const was = mouse;
+		mouse = undefined;
+		writeTo(
+			stdout,
+			(was === 'motion' ? DISABLE_MOUSE_MOTION : DISABLE_MOUSE_BUTTONS) + DISABLE_MOUSE_SGR
+		);
+		return true;
+	}
+
 	function restore(): void {
 		if (claim?.active) {
 			claim.evict();
@@ -406,6 +463,11 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
 			rawMode = false;
 			stdin?.setRawMode?.(false);
 		}
+
+		// before the paste markers and for the same reason, only more so: a shell
+		// left in a tracking mode puts a report into the user's next command line
+		// every time the pointer crosses the window
+		stopMouse();
 
 		if (bracketedPaste) {
 			bracketedPaste = false;
@@ -480,6 +542,12 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
 			}
 		},
 
+		disableMouse(): void {
+			if (stopMouse()) {
+				syncRestore();
+			}
+		},
+
 		enableBracketedPaste(): boolean {
 			if (bracketedPaste || !isTTY) {
 				return false;
@@ -487,6 +555,19 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
 			bracketedPaste = true;
 			attachRestore();
 			writeTo(stdout, ENABLE_PASTE);
+			return true;
+		},
+
+		enableMouse(mouseOpts: { motion?: boolean } = {}): boolean {
+			if (mouse || !isTTY) {
+				return false;
+			}
+			mouse = mouseOpts.motion === true ? 'motion' : 'buttons';
+			attachRestore();
+			writeTo(
+				stdout,
+				ENABLE_MOUSE_SGR + (mouse === 'motion' ? ENABLE_MOUSE_MOTION : ENABLE_MOUSE_BUTTONS)
+			);
 			return true;
 		},
 

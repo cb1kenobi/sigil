@@ -265,3 +265,158 @@ describe('the full-screen backend', () => {
 		expect(screen.cursorHidden).toBe(false);
 	});
 });
+
+/**
+ * Where a canvas sits, which is the one thing a mouse report needs and a canvas
+ * deliberately does not know.
+ *
+ * Read back off the screen model rather than asserted as arithmetic: the claim is
+ * that a report naming the cell a glyph is on translates to the coordinate that
+ * glyph was painted at, and only a model with a cursor in it can say that.
+ */
+describe('translating a screen coordinate', () => {
+	/** A cursor position report, one-based, as a terminal would answer it. */
+	const probe = (screen: Screen) => () =>
+		Promise.resolve({ column: screen.column + 1, row: screen.row + 1 });
+
+	it('should be free for a full-screen canvas', async () => {
+		// the alternate buffer starts at the top-left of the screen, so there is
+		// nothing to ask and no round trip to pay
+		const { screen, terminal } = harness(20, 6);
+		const backend = createFullscreenCanvas({ terminal });
+		backend.render(lines('a', 'b'));
+
+		expect(backend.origin).toEqual({ x: 0, y: 0 });
+		expect(await backend.locate(probe(screen))).toBe(true);
+		expect(backend.toCanvas(1, 1)).toEqual({ x: 0, y: 0 });
+		expect(backend.toCanvas(5, 3)).toEqual({ x: 4, y: 2 });
+	});
+
+	it('should not answer for an inline canvas until it has asked', async () => {
+		const { screen, terminal } = harness(20, 6);
+		terminal.write('log\r\n');
+		const backend = createInlineCanvas({ height: 2, terminal });
+
+		// nothing on screen to be relative to: the rows are not reserved yet, so the
+		// cursor is wherever the log left it and says nothing about a canvas. And the
+		// probe is never *called*, which is the observable half -- a round trip whose
+		// answer cannot be used is one not worth writing
+		let asked = 0;
+		const counted = () => {
+			asked++;
+			return probe(screen)();
+		};
+
+		expect(await backend.locate(counted)).toBe(false);
+		expect(asked).toBe(0);
+		expect(backend.origin).toBeUndefined();
+		expect(backend.toCanvas(1, 1)).toBeUndefined();
+	});
+
+	it('should find the row the inline canvas was actually painted on', async () => {
+		const { screen, terminal } = harness(20, 6);
+		terminal.write('one\r\ntwo\r\n');
+		const backend = createInlineCanvas({ height: 2, terminal });
+		backend.render(lines('top', 'bottom'));
+
+		expect(screen.written).toEqual(['one', 'two', 'top', 'bottom']);
+		expect(await backend.locate(probe(screen))).toBe(true);
+		// two rows of log above it, so the canvas's first row is screen row three
+		expect(backend.origin).toEqual({ x: 0, y: 2 });
+		expect(backend.toCanvas(1, 3)).toEqual({ x: 0, y: 0 });
+		expect(backend.toCanvas(1, 4)).toEqual({ x: 0, y: 1 });
+	});
+
+	it('should translate a point outside the canvas rather than refusing it', () => {
+		// whether a point is on the canvas is the router's question, because that is
+		// where the capture rule lives: a drag that wandered off the region still
+		// reports to whatever the press landed on, and it needs the coordinate to do it
+		const { terminal } = harness(20, 6);
+		const backend = createFullscreenCanvas({ terminal });
+		expect(backend.toCanvas(1, 1)).toEqual({ x: 0, y: 0 });
+		expect(backend.toCanvas(40, 30)).toEqual({ x: 39, y: 29 });
+	});
+
+	it('should forget where it is when the rows are given up', async () => {
+		const { screen, terminal } = harness(20, 8);
+		terminal.write('log\r\n');
+		const backend = createInlineCanvas({ height: 2, terminal });
+		backend.render(lines('a', 'b'));
+		await backend.locate(probe(screen));
+		expect(backend.origin).toEqual({ x: 0, y: 1 });
+
+		// a line written above the region is one of the three things that throws the
+		// anchor away, and the canvas is a row further down afterwards
+		backend.write('another log line');
+		expect(backend.origin).toBeUndefined();
+
+		await backend.locate(probe(screen));
+		expect(backend.origin).toEqual({ x: 0, y: 2 });
+	});
+
+	it('should forget where it is on a resize', async () => {
+		const { screen, terminal } = harness(20, 8);
+		const backend = createInlineCanvas({ height: 2, terminal });
+		backend.render(lines('a', 'b'));
+		await backend.locate(probe(screen));
+		expect(backend.origin).toEqual({ x: 0, y: 0 });
+
+		backend.resize(20, 3);
+		expect(backend.origin).toBeUndefined();
+	});
+
+	it('should refuse a reply that describes an anchor which has since gone', async () => {
+		// a cursor report comes back a round trip later, so the position it names is
+		// where the cursor was when the query went out. A frame in between moves the
+		// cursor and not the origin, which is why the row is captured -- but a
+		// *re-anchor* in between moves the origin too, and then the answer is about a
+		// canvas that is somewhere else
+		const { screen, terminal } = harness(20, 8);
+		const backend = createInlineCanvas({ height: 2, terminal });
+		backend.render(lines('a', 'b'));
+
+		const pending = backend.locate(() => {
+			// the terminal answers, and the region is given up before the reply lands
+			backend.write('a log line');
+			return Promise.resolve({ column: screen.column + 1, row: screen.row + 1 });
+		});
+
+		expect(await pending).toBe(false);
+		expect(backend.origin).toBeUndefined();
+	});
+
+	it('should keep a reply that a repaint moved the cursor under', async () => {
+		// the other half of the same rule: a frame between the question and the answer
+		// is not a re-anchor, so the captured row is what makes the answer still good.
+		// The repaint has to *move* the cursor for this to assert anything, which is
+		// what the third row does -- the diff leaves the cursor on the last row it
+		// touched, so a frame that only changes the first row leaves it two rows higher
+		const { screen, terminal } = harness(20, 8);
+		terminal.write('log\r\n');
+		const backend = createInlineCanvas({ height: 3, terminal });
+		backend.render(lines('a', 'b', 'c'));
+		expect(screen.row).toBe(3);
+
+		const found = await backend.locate(() => {
+			// the terminal answers where the cursor is now, and the frame that lands
+			// before the reply does moves it
+			const answer = { column: screen.column + 1, row: screen.row + 1 };
+			backend.render(lines('x', 'b', 'c'));
+			expect(screen.row).toBe(1);
+			return Promise.resolve(answer);
+		});
+
+		expect(found).toBe(true);
+		// one row of log above it, whatever the cursor did in between
+		expect(backend.origin).toEqual({ x: 0, y: 1 });
+	});
+
+	it('should answer nothing from a terminal that did not', async () => {
+		const { terminal } = harness(20, 6);
+		const backend = createInlineCanvas({ height: 1, terminal });
+		backend.render(lines('a'));
+
+		expect(await backend.locate(() => Promise.resolve(undefined))).toBe(false);
+		expect(backend.origin).toBeUndefined();
+	});
+});

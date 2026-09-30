@@ -3013,15 +3013,204 @@ dependency. Regenerate with `node scripts/generate-utilities.mjs` from inside
   that fails when either is removed. Bindings, paste handlers, resize handlers,
   and `Terminal.onResize()` all say it the same way. See
   `test/input/input.test.ts`.
-- **Mouse tracking is a follow-up, not a no.** It would give `:hover`,
-  click-to-focus and a scroll wheel, and it costs a capability check and a mode
-  that must go back on exit. That capability check now exists: `queryMode()` in the
-  section below says whether a mode the app asked for actually took, rather than
-  leaving it an assumption. The event model does not preclude it, which is why
-  the type is `KeyEvent` rather than `Event`: a mouse event can join it without
-  either having to become the other. The Kitty keyboard protocol is the same
-  shape of answer, opt-in by query, and worth having the day something needs a
-  key the legacy encoding cannot spell.
+- **The mouse is the router's too, and the Kitty keyboard protocol is what is
+  left of that list.** Two decisions were taken in advance so that the mouse could
+  be added without either layer moving -- the event type is `KeyEvent` rather than
+  `Event` so a mouse event could join it, and `:hover` parsed and matched nothing on
+  the explicit ground that the selector engine must not assume it never will -- and
+  both held. The Kitty protocol is the same shape of answer, opt-in by query, and
+  worth having the day something needs a key the legacy encoding cannot spell.
+
+### The mouse
+
+Enable `1002` plus `1006`, translate the report into the canvas, hit-test the
+arranged tree, and dispatch target-then-ancestors. `src/input/mouse.ts` is the
+report, `src/element/hit.ts` is the hit test, `Terminal.enableMouse()` is the
+mode, and the routing is the router's.
+
+- **Only SGR (`1006`) is read.** The legacy X10 encoding writes a coordinate as one
+  byte of `32 + n`, so it runs out at column 223 -- an ordinary width on a wide
+  monitor, and a failure that looks like the app ignoring clicks down the
+  right-hand side. There is no reason to accept an encoding that cannot describe
+  the screen it is reporting about, so a terminal too old for SGR reports nothing
+  rather than reporting the left two thirds of itself.
+- **The decoder already framed a report as one read, and that was not luck.**
+  `isParameter()` reads the private-use `<` because it was widened to, for exactly
+  this: ended at the `<`, `ESC [ < 0 ; 1 ; 1 M` left `0;1;1M` to be typed into
+  somebody's answer a character at a time. Nothing in the decoder had to change.
+- **A report is dropped whether or not anybody asked for tracking**, which is the
+  rule a reply nobody is waiting for already follows: it is not a key. A terminal
+  some other program left in a tracking mode, or one still reporting after this
+  router turned the mode off, would otherwise put `<35;40;12M` in an answer.
+- **`1003` is opt-in and `:hover` costs it or nothing.** `1002` reports presses,
+  releases and motion while a button is held; `1003` reports **every cell the
+  pointer crosses**, for as long as the app runs, over what may be an ssh link. So
+  `:hover`, `mouseenter` and `mouseleave` are tracked only under `motion: true`.
+  Writing them from a press instead would be worse than not writing them: with no
+  motion to clear it, a hover set by a click sticks to whatever was clicked until
+  something else is. With it off, `:hover` matches nothing -- exactly what it did
+  before there was a mouse, so no sheet changes meaning by turning tracking on.
+  The alternative was turning `1003` on by itself wherever some rule uses `:hover`,
+  and it is refused: a sheet is one of two consumers, since a `mousemove` handler
+  wants motion just as much and no scan can see one, and sheets are swapped at
+  runtime, so the wire cost would come and go underneath the app.
+- **Translation is the backend's, because a canvas does not know where it sits.**
+  Every coordinate a canvas deals in is relative to its own top-left and a report
+  is absolute. Full screen is free: the alternate buffer starts at the origin.
+  Inline knows how many rows it reserved and not which screen rows those are --
+  the log above it moves -- so it asks, with a cursor position report, and
+  `origin` is `undefined` until it has. What it costs is one report per re-anchor,
+  which is the invalidation list the anchor already had: a resize, a line written
+  above the region, an eviction. The router asks once at the start so the common
+  case never loses a click, and lazily after that; one probe is outstanding at a
+  time, or a pointer dragged across a canvas that has forgotten itself would write
+  a cursor query per cell.
+- **A reply is checked against the anchor it was asked about.** A cursor report
+  comes back a round trip later, so the position it names is where the cursor was
+  when the query went out -- which is why `locate()` captures the row rather than
+  reading it after the await, since frames in between move the cursor. A
+  _re-anchor_ in between moves the origin too, and then the answer describes a
+  canvas that is somewhere else, so `unanchor()` bumps a generation and a reply
+  that does not match it is thrown away. Both halves are sabotage-checked.
+- **`origin`, `toCanvas()` and `locate()` are required on `CanvasBackend`, not
+  optional.** Optional members mean a router that branches on their absence, and a
+  backend that silently cannot translate is a mouse that silently does not work.
+  There are two backends and both answer; an app with a custom one gets a compile
+  error naming what to add, which is the loud failure. It costs such an app nothing
+  to satisfy the router on its own either, since `MouseSurface` is structural.
+- **The asking is the router's and the arithmetic is the backend's**, because one
+  thing owns stdin: a reply arrives interleaved with what the user is typing. So
+  `locate()` takes the probe rather than making the query, and `MouseSurface` is a
+  structural interface naming the four things the router wants from a canvas rather
+  than an import of `CanvasBackend` -- the shape `InputStream` and `OutputStream`
+  already take there.
+- **The clip is carried on the arranged tree rather than computed during paint.**
+  A box clipped by an ancestor's `overflow` is not hittable where it is clipped,
+  and the hit test needs the _same_ rectangle paint drew inside -- two walks
+  intersecting one chain is two answers to one question. So `arrange()` writes
+  `element.clip`, and paint draws each element inside it. That reads as though it
+  needed `Painter.clip()` to replace rather than intersect, and it does not:
+  nothing in the paint walk leaves a clip in effect between elements, so the
+  ambient clip is always empty when it asks, and intersecting with nothing is what
+  an already-intersected rectangle wants. `undefined` where no ancestor clips,
+  which is the common case, so it costs no allocation.
+- **`paintOrder()` and `contains()` live in `hit.ts`, though `paint.ts` is paint
+  order's primary reader, and the reason is a bundle.** The mouse gave the router a
+  reason to reach into the element tree, and reaching it through `element/paint.js`
+  for two lines of arithmetic put the layout engine, the cascade and the canvas
+  behind `@ttylabs/sigil/input`: measured at **29.4 kB of static import graph before
+  and 92.9 kB after**, paid by an app that wanted a key router and no rendering at
+  all. `hit.ts` imports nothing but a type, so it is 33.0 kB and the 3.6 kB is the
+  mouse itself. The import therefore points from paint to hit rather than the other
+  way round, which reads backwards and is the lighter module winning. One
+  implementation either way, which is the part that matters. `should not drag the
+drawing stack in to import the key router` is the ceiling, at about 3x, with the
+  markers chosen for what survives minification -- an exported name and a string
+  literal, never a name that is only ever called.
+- **The hit test is reverse paint order, and `paintOrder()` is exported for it.**
+  Topmost first is that list backwards, and a second implementation of "which
+  child is on top" is a hit test that disagrees with the screen. Children are
+  asked before the element's own box and _not_ gated on the point being inside it,
+  because a child with `overflow: visible` is drawn outside its parent and is
+  hittable there. `visibility: hidden` skips the element and not the subtree, the
+  way paint does, because it inherits. A box with no background is hittable, which
+  is CSS -- transparent is not absent -- and there is no `pointer-events` to say
+  otherwise, deliberately: nothing needs one, and a property that parses and does
+  nothing is worse than one that does not exist.
+- **A press captures the pointer, and that is what makes "dropped rather than
+  clamped" affordable.** A report outside the canvas rect really is dropped -- a
+  click on the log above the region is not the app's -- and on its own that
+  strands every component that tracks a press: the release arrives outside, is
+  dropped, and a drag waits for a `mouseup` forever. So while a button is held,
+  the motion and the release go to whatever the press landed on wherever the
+  pointer got to, which is the web's implicit capture and is what makes a
+  draggable scrollbar possible. The consequence is that `x` and `y` may be outside
+  the canvas on a captured event, exactly as `clientX` is during a drag.
+- **A press is never a captured event**, which is not pedantry: it is what
+  _creates_ the capture, so reading one sent a second press for a button already
+  held to whatever the first one landed on rather than to what is under the
+  pointer now. Found by a test, and it is the only bug this ticket's own tests
+  turned up in it.
+- **A drag is not an event, and the wheel needed no motion.** Press, move and
+  release are three events a component already gets, and what a drag _means_ -- a
+  threshold, an axis lock, a grabbed handle -- differs per component. The wheel
+  turns over whatever is under the pointer, and the ticket's worry that this
+  needed `1002` motion to know was unfounded: a report _is_ a position, so a turn
+  carries its own coordinates and is hit-tested with no tracking at all.
+- **`mouseenter` and `mouseleave` are dispatched along the difference between two
+  chains, not bubbled.** It is the one place the dispatch differs by kind, and it
+  has to: moving from a child to its sibling leaves the child and enters the
+  sibling and does not leave their parent, which the pointer never left -- a
+  bubbling leave would say it did, which is precisely why the DOM has two
+  spellings of this event. Leave fires innermost first and enter outermost first,
+  which is the DOM's order.
+- **`:hover` is set on the whole chain, and it is derived rather than stored
+  twice.** In CSS the pointer is inside every box that contains it, so a
+  `.row:hover` rule has to match the row when the pointer is over the text inside
+  it. One source -- the hit test -- with the state derived from it, which is
+  exactly how focus works. The states are written before any handler is told, so a
+  handler reading `element.states` sees the answer rather than the question.
+- **There is no bindings-first step.** That ordering exists for keys so a focused
+  input cannot swallow Ctrl-C, and there is no mouse analogue of being unable to
+  quit -- so `onMouse()` runs **after** the tree, which is the useful position
+  anyway: everything the tree did not claim, _including_ the reports that landed on
+  no element at all, which nothing in the tree can see. Stopping a `mousedown`
+  there suppresses click-to-focus, which is the mouse's default action the way Tab
+  is a key's. `current` is `undefined` for those handlers, because the event is
+  past the tree.
+- **Click-to-focus leaves the focus alone where nothing under the pointer is
+  focusable.** A browser blurs there; this does not, because what that comes to in
+  a terminal is the keyboard stopping working because the pointer brushed a
+  border, and a click that landed on nothing focusable said nothing about focus.
+  Moving focus is what the ring is for.
+- **A click lands on the nearest box containing both ends.** A press on the text
+  inside a button and a release on the button's padding is a click on the button,
+  which is the DOM's rule and what everybody expects. A release off the canvas
+  needs no guard of its own: there is nothing under it to have anything in common
+  with, and an `inside` conjunct written here was deleted again because the suite
+  stayed green without it.
+- **The hover states are cleared when the router stops, and the focus is not.**
+  Nothing will ever clear them otherwise -- the reports have stopped -- so a
+  highlight would outlive the tracking that produced it, which is a wrong cell on
+  screen forever. Silently, because dispatching into a component while the router
+  is being torn down is a worse rule. The asymmetry with focus is the point: focus
+  is the app's and survives a prompt borrowing the stream, while hover is the
+  pointer's and the pointer has gone.
+- **The tracking mode is the loudest entry on the restore list.** A shell left in
+  one puts `ESC [ < 35 ; 40 ; 12 M` into whatever the user types next every time
+  they move the pointer over the window, which has to be reset by hand -- worse
+  than the paste markers and much worse than a hidden cursor. `1006` goes on
+  before the tracking mode and off after it, so there is never a moment in which
+  the mouse is being reported in an encoding nothing reads, and the mode that was
+  turned on is the mode that is turned off.
+- **What turning it on takes away is text selection**, and that is stated in the
+  demo and in the module docs rather than left to be discovered. A terminal
+  reporting the mouse stops doing its own selection, so an app that enables
+  tracking has, from the user's point of view, broken copy and paste; shift-drag
+  overrides it in most terminals and not all. That is the argument for the
+  selection ticket being a follow-on rather than an independent nice-to-have.
+- **A write that failed is swallowed along with a terminal that said nothing**, and
+  the two are not the same thing. `InputRouter.query()` rejects over a failed write
+  on the ground that a broken stream is not a quiet terminal; `relocate()` runs
+  inside the stream's `data` listener, where there is nobody to tell and a frame
+  must not come down over a mouse move -- so a stream fault costs the mouse and
+  nothing else, silently. Written down because it cost a debugging round: the
+  screen model in the test suite threw over the `CSI 6 n` it had not been taught,
+  and that is where the throw went. The model now models the request as nothing,
+  which is what it is -- it changes no cell, and the answer arrives on the input
+  stream.
+- **The end-to-end test is the half nothing else can say.**
+  `test/input/mouse-router.test.ts` hands the router a canvas that already knows
+  where it sits, which is the only way to test the routing rules on their own;
+  `test/renderer/mouse.test.ts` puts a real renderer over a real inline backend
+  over the screen model, answers a real cursor report from the model's own cursor,
+  and asserts that a report naming a screen cell reaches the element painted
+  there. Neither replaces the other.
+- **The demo's own `q` key is the interaction worth showing.** `03-focus.js` quits
+  on `q` only when nothing is focused, because there it is a character somebody
+  may be typing into a field. `04-mouse.js` cannot afford that guard: click-to-focus
+  means a click leaves something focused, so the guard made `q` stop working the
+  moment you clicked anything -- which it did, until it was run.
 
 ### Asking the terminal what it is
 

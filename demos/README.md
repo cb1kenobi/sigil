@@ -104,6 +104,11 @@ node demos/canvas/04-inline.js      # the log keeps scrolling above the frame
 node demos/canvas/05-fullscreen.js  # Ctrl-C it: the terminal comes back anyway
 ```
 
+`03-links.js` is worth running in a terminal that implements OSC 8 — Ctrl-click or
+Cmd-click the underlined text. In one that does not, you get the same words with
+no link and nothing broken, which is why setting the underline and the colour
+matters: they are what says "this is a link" when the link itself is invisible.
+
 ## The terminal
 
 |                                                              |                                                          |
@@ -187,6 +192,8 @@ the package.
 | ------------------------------------------------ | -------------------------------------------------- |
 | [`element/01-tree.js`](element/01-tree.js)       | A tree, a stylesheet, a layout, and cells          |
 | [`element/02-overlay.js`](element/02-overlay.js) | An overlay, a stacking order, and a scrolling pane |
+| [`element/03-focus.js`](element/03-focus.js)     | One router owns stdin, and Tab moves the focus     |
+| [`element/04-mouse.js`](element/04-mouse.js)     | `:hover` from a hit test, a click, and the wheel   |
 
 The whole stack in one file, and the point of it is what it prints at the end: a
 mutation says exactly what it implies and nothing else.
@@ -195,7 +202,31 @@ mutation says exactly what it implies and nothing else.
 node demos/element/01-tree.js
 ```
 
-The third is worth running in a terminal that implements OSC 8 — Ctrl-click or
-Cmd-click the underlined text. In one that does not, you get the same words with
-no link and nothing broken, which is why setting the underline and the colour
-matters: they are what says "this is a link" when the link itself is invisible.
+The last two need a terminal on both sides, because they read what you press. In
+`04-mouse.js` the highlight is zero lines of component code for the same reason
+the focus ring's is: the hit test sets a state and the stylesheet matches it with
+`:hover`.
+
+```sh
+node demos/element/03-focus.js   # Tab, Shift-Tab, type, q
+node demos/element/04-mouse.js   # move, click, scroll a tile, q
+```
+
+Two things about the mouse are worth knowing before you run it.
+
+**It takes away text selection.** A terminal reporting the mouse stops doing its
+own, so while this demo is running, selecting and copying with the pointer does
+not work. Shift-drag overrides it in most terminals and not all. That is the
+price of the feature rather than a bug in the demo, and it is why an app has to
+ask for tracking rather than getting it by default.
+
+**`:hover` costs a report per cell of pointer travel.** It needs xterm's `1003`,
+which reports every cell the pointer crosses for as long as the app runs, so the
+demo opts in with `motion: true`. Without it `:hover` matches nothing — which is
+what it did before there was a mouse at all, so no stylesheet changes meaning by
+turning tracking on.
+
+Worth watching: resize the window while it is running. That throws the canvas's
+anchor away, so the backend no longer knows which screen row it is on, and the
+first report afterwards is the one that pays for asking — the status line does not
+move for that one click.
