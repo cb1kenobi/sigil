@@ -463,13 +463,21 @@ function windowOf(value: string, cursor: number, width: number): Window {
 /**
  * How the head divides the row it is on.
  *
- * Said out loud rather than left to flexing, which is the same piece of
- * arithmetic the help template kept and for the same reason: a row's intrinsic
- * height is taken with every child offered the whole content box and placed with
- * each given a share, so a question measured at the full width and placed in a
- * share of it came out one line tall -- and the choice list under it was drawn
- * over the rest of the question. A declared width is measured at the width it
- * will be placed at, which is the whole of what this needs.
+ * Said out loud rather than left to flexing, and the reason has moved. It used to
+ * be the one the help template gave: a row's intrinsic height was taken with every
+ * child offered the whole content box while placement hands each one a share, so a
+ * question measured at the full width and placed in a share of it came out one line
+ * tall and the choice list under it was drawn over the rest of the question.
+ * SIG-125 closed that in the engine, so no app has to write this subtraction to get
+ * a correct layout any more.
+ *
+ * This survives it for two reasons that were always here. `lines` is the first and
+ * it is not about the message at all: the choice list subtracts it to work out how
+ * many rows its window has, which is imperative arithmetic no layout answers. And
+ * the message is a `min(content, room)` **cap** rather than a share -- what follows
+ * it has to start where it ends, so a message that grew into the line would push
+ * the caret to the far edge. So the number is computed either way, and the
+ * declaration is what keeps the width and the row count one answer.
  *
  * One column is kept back for whatever follows the message, so that a question
  * as long as the terminal still leaves somewhere for the caret to be.

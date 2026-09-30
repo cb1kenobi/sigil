@@ -294,11 +294,27 @@ export function diagnosticsView(
  * in the column it started in rather than back at the margin -- which is the
  * hanging indent help gets from a flex row with a declared width.
  *
- * Declared, not grown into. A row's intrinsic height is taken with every child
- * offered the whole content box while placement hands each one a share, so a
- * message that wraps to three lines in its share measures two in the room it was
- * offered and the row after it is painted over the third. That is a known bug
- * with a known way round it, and the way round it is this subtraction.
+ * Declared, not grown into -- and *not* for the reason this used to give. A row's
+ * intrinsic height was taken with every child offered the whole content box while
+ * placement hands each one a share, so a message that wrapped to three lines in
+ * its share measured two in the room it was offered and the row after it was
+ * painted over the third. SIG-125 closed that in the engine, so no app has to write
+ * this subtraction to get a correct layout any more.
+ *
+ * This one stays, because the declaration is doing a second job that the fix does
+ * not touch: the message is built out of `nowrap` words, on purpose, so the row's
+ * automatic minimum is its **widest word** -- and a report's words are mostly
+ * paths. Asked for as a share it grows to that minimum, so one long path widens
+ * the whole column and every other line rewraps with it. Measured, at 60 columns
+ * with a 37-column path in the message: the column went from 29 to 37 and every
+ * line moved. Help's own description column was tried the same way and hit the same
+ * wall -- a word wider than the column grew the row past the terminal -- which is
+ * what says this is a property of a row of unbreakable words rather than of either
+ * consumer. A `min-width: 0` on the container gets the old output back exactly, and
+ * it is a worse trade than the subtraction -- three properties for one, and the
+ * property `wordsView()` exists to *not* set on its words, meaning something else
+ * on their container. `room` is needed for the threshold below in any case, so
+ * nothing is saved by spending it differently.
  *
  * @param diagnostic - The diagnostic.
  * @param opts - What to write paths relative to, and how wide.

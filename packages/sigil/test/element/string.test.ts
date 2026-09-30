@@ -97,12 +97,13 @@ describe('renderToString()', () => {
 		);
 	});
 
-	// a row's intrinsic height is taken with every child offered the whole content
-	// box while placement hands each one a share, so a block that wraps further
-	// than it measured reaches past the rows reserved for it. The grid is sized by
-	// what the layout came to rather than by what it asked for, so nothing is
-	// lost -- the row it takes from its neighbour is the known bug this does not
-	// close, and a declared width is the way round it
+	// a label-and-description row: the description is placed in the column flexing
+	// gives it, and the row has to be as tall as that comes to. This test used to
+	// expect four lines with no blank among them, which is the defect rather than
+	// the grid growing -- the row reserved two rows, its description took three,
+	// and the `row-gap` between the row and `after` was silently eaten by the
+	// overflow. So it went green on exactly the behaviour it was named for
+	// catching. See SIG-125
 	it('should be as tall as the layout turned out to be', () => {
 		const tree = box(
 			{ 'flex-direction': 'column', 'row-gap': 1 },
@@ -118,31 +119,48 @@ describe('renderToString()', () => {
 			'label one two three',
 			'      four five six',
 			'      seven',
+			'',
 			'after',
 		]);
 	});
 
-	// the same tree with the column said out loud, which is what help does: a
-	// declared width is measured at the width it will be placed at, so the block
-	// after it gets the row it was promised
-	it('should reserve the right rows for a description told its width', () => {
-		const tree = box(
-			{ 'flex-direction': 'column', 'row-gap': 1 },
+	// the same tree with the column said out loud, which is what the help template,
+	// `report.ts` and the prompt head each still do -- for reasons that turned out to
+	// have nothing to do with this defect, and are written down where each of them is.
+	// The two spellings are asserted against each other rather than separately,
+	// because a declared width was the *way round* the defect: the automatic answer
+	// agreeing with it line for line is what says the way round is no longer needed
+	it('should reserve the same rows whether or not the column was declared', () => {
+		const row = (description: ReturnType<typeof paragraph>) =>
 			box(
-				{ 'column-gap': 1, 'flex-direction': 'row' },
-				text('label', { 'flex-shrink': 0, 'white-space': 'nowrap' }),
-				paragraph(['one two three four five six seven'], { 'flex-shrink': 0, width: 13 })
-			),
-			text('after')
-		);
+				{ 'flex-direction': 'column', 'row-gap': 1 },
+				box(
+					{ 'column-gap': 1, 'flex-direction': 'row' },
+					text('label', { 'flex-shrink': 0, 'white-space': 'nowrap' }),
+					description
+				),
+				text('after')
+			);
+		const words = ['one two three four five six seven'];
 
-		expect(renderToLines(tree, { colorLevel: 0, width: 20 })).to.deep.equal([
+		const declared = renderToLines(row(paragraph(words, { 'flex-shrink': 0, width: 13 })), {
+			colorLevel: 0,
+			width: 20,
+		});
+
+		expect(declared).to.deep.equal([
 			'label one two three',
 			'      four five six',
 			'      seven',
 			'',
 			'after',
 		]);
+		expect(
+			renderToLines(row(paragraph(words, { 'flex-basis': 0, 'flex-grow': 1 })), {
+				colorLevel: 0,
+				width: 20,
+			})
+		).to.deep.equal(declared);
 	});
 
 	// the sheets are the caller's, and a media context left behind would be the

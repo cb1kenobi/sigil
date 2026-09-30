@@ -158,15 +158,42 @@ function row(item: Definition, opts: RowOptions): Element {
 /**
  * A description, which wraps in the column the label left it.
  *
- * Told that width rather than growing into it, and the difference is a
- * measurement rather than a preference: a row's intrinsic height is taken with
- * every child offered the whole content box, while placement hands each one a
- * share -- so a description that wraps to three lines in its share measures two
- * lines tall in the room it was offered, and the block after it is drawn over
- * the third. A declared width is measured at the width it will be placed at,
- * which is the whole of what this needs. Help knows where its columns are: that
- * is the one piece of arithmetic it kept, and it is one subtraction rather than
- * the padding, the wrapping and the alignment it gave up.
+ * Told that width rather than growing into it. That used to be the way round a
+ * defect -- a row's intrinsic height was taken with every child offered the whole
+ * content box while placement hands each one a share, so a description that
+ * wrapped to three lines in its share measured two lines tall in the room it was
+ * offered and the block after it was drawn over the third. SIG-125 closed that in
+ * the engine, so the declaration is no longer load-bearing for the *height*: a
+ * plain `flex-basis: 0; flex-grow: 1` lays out correctly now, which is the whole
+ * point of the fix.
+ *
+ * It stays anyway. Dropping it was tried and reverted, and both reasons are
+ * measurements rather than preferences -- over ten widths and three contexts the two
+ * spellings produced byte-identical screens, which is exactly why they are worth
+ * writing down.
+ *
+ * It is not equivalent. `paragraph()` gives each word `min-width: 0`, so a
+ * paragraph's own minimum looks like nothing -- but a wrapping row's minimum is
+ * `hypotheticalMain()` of its items, which clamps each word's *measured* width
+ * rather than its declared minimum. So a description whose longest word is wider
+ * than the column grows the row past the terminal instead of having that word
+ * broken: measured, `supercalifragilisticexpialidocious` beside a ten-column label
+ * in forty columns came out as a **46-column** row with the word whole, where the
+ * declared width breaks it at 28 and the screen stays 40. A paragraph disagreeing
+ * with the wrapper is a help screen wider than the terminal, which is the rule
+ * `paragraph()`'s own `min-width: 0` exists to keep.
+ *
+ * And it is faster, by more than the fix costs. A declared width makes the
+ * post-flex re-measure the same answer as the first one, so the paragraph's words
+ * are measured once; a share is a different width, so they are measured twice.
+ * Interleaved over six rounds on a sixty-entry screen, the share is **+15% median
+ * and +25% at its fastest** against the declaration -- where the engine fix itself
+ * is within noise on this tree (+2.1% median, -2.2% at its fastest).
+ *
+ * The two one-column branches declare a width for a third reason that never had
+ * anything to do with the defect: their parent is a *column* with
+ * `align-items: flex-start`, so the description's width is a cross size that never
+ * flexed and there is no share to ask for.
  *
  * @param runs - What it says.
  * @param props - The width, and any indent.
