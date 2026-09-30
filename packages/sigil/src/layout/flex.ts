@@ -574,6 +574,12 @@ function measureUncached(node: LayoutNode, at: MeasureAt, cache: MeasureCache): 
 			? Math.max(measured.minWidth ?? 0, declaredMinW) + extraH
 			: Math.max(measured.minHeight ?? measured.height, declaredMinH) + extraV;
 
+		// the main pair is a column's. A row replaces both below, out of the same
+		// items the placement will flex, for the reason the cross pair is replaced:
+		// this reads each child at the room it was *offered* rather than at what it
+		// asked for, and on the main axis that misses a `flex-basis` entirely. They
+		// are still computed here because one loop for both axes is cheaper than a
+		// branch inside it
 		mainTotal += Math.max(mainSize, minMain);
 		minMainTotal += minMain;
 		crossMax = Math.max(crossMax, crossSize, minCross);
@@ -622,30 +628,52 @@ function measureUncached(node: LayoutNode, at: MeasureAt, cache: MeasureCache): 
 		const ordered = [...items].sort((a, b) => a.style.order - b.style.order);
 		const lines = wrapping ? wrapIntoLines(ordered, inner, gapMain, axis) : [ordered];
 
-		// the longest line, read before anything flexes because `resolveFlexible()` is
-		// about to hand out room these items have not been given: `mainTotal` is what
-		// they *ask* for. Taken from the same `hypotheticalMain()` that decided which
-		// line each item landed on, so the box cannot be measured for a packing it was
-		// not packed by.
-		//
-		// Only a wrapping row reads it. A nowrap row keeps the loop's own sum, which is
-		// each child's measured *content* width rather than its basis -- so a nowrap row
-		// whose child declares a `flex-basis` wider than its content reports less than
-		// the placement gives that child, and a `flex-basis: 40` box with no content
-		// reports a width of zero. That divergence is older than this pass and is left
-		// alone here: `mainTotal` is a width, changing it moves every intrinsic width in
-		// the engine, and this ticket is about a height. It is written down under
-		// "Known bugs" instead
-		const longest = wrapping
-			? Math.max(
-					0,
-					...lines.map(
-						(line) =>
-							line.reduce((sum, item) => sum + hypotheticalMain(item, axis), 0) +
-							gapMain * Math.max(0, line.length - 1)
-					)
-				)
-			: 0;
+		/** What one line asks for along the main axis, gaps included. */
+		const lineTotal = (line: Item[], size: (item: Item, axis: Axis) => number): number =>
+			line.reduce((sum, item) => sum + size(item, axis), 0) +
+			gapMain * Math.max(0, line.length - 1);
+
+		// both of these are read before anything flexes, because `resolveFlexible()` is
+		// about to hand out room these items have not been given: what is wanted here
+		// is what they *ask* for.
+		mainTotal = wrapping
+			? // the longest line, taken from the same `hypotheticalMain()` that decided
+				// which line each item landed on -- so the box cannot be measured for a
+				// packing it was not packed by
+				Math.max(0, ...lines.map((line) => lineTotal(line, hypotheticalMain)))
+			: // and a nowrap row is one line, so what it asks for is that line's total,
+				// which is SIG-126. It used to keep the loop's own sum instead, each
+				// child's measured *content* width, and a `flex-basis` is exactly what
+				// that misses, since `measureUncached()` already reports a declared
+				// `width`. So a `flex-basis: 40` box measured zero and was then shrunk to
+				// the zero its row had been given, which is content simply not on screen;
+				// with `flex-shrink: 0` it could give nothing up and was drawn forty
+				// columns outside a parent zero wide.
+				//
+				// Through `maxContentMain()` and deliberately not `hypotheticalMain()`,
+				// which is the distinction this took a round to see: the hypothetical size
+				// is the basis flexing starts *from*, which is right for deciding who
+				// shares a line and wrong for how wide a row wants to be. A
+				// `flex-basis: 0; flex-grow: 1` description has a hypothetical size of
+				// zero, so summing these reported a row's own min-content width -- a
+				// label-and-description row came out eleven columns instead of
+				// twenty-two, and the description was then placed in five and wrapped to
+				// seven rows inside a box drawn for three
+				lineTotal(ordered, maxContentMain);
+		minMainTotal = wrapping
+			? // the smallest a wrapping container can be on its main axis is its widest
+				// single item rather than the sum of them, because everything else can be
+				// pushed onto a line of its own
+				Math.max(0, ...items.map((item) => hypotheticalMain(item, axis)))
+			: // and a nowrap row's is the sum of how short each item can be made, because
+				// they all stay on the one line. Through `minimumMain()` rather than the
+				// loop's `Math.max(automatic, declared)`, which is the second half of
+				// SIG-126 and the same rule the line above already keeps: the minimum is
+				// the placement's `declared ?? automatic`, so a `min-width: 0` on a long
+				// word is a declaration the automatic minimum does not get a say in. It
+				// reported the word's own width, and a parent narrower than that placed
+				// the row at the width its child had said it need not keep
+				lineTotal(ordered, minimumMain);
 
 		let cross = crossGap * Math.max(0, lines.length - 1);
 		let crossMin = crossGap * Math.max(0, lines.length - 1);
@@ -690,14 +718,6 @@ function measureUncached(node: LayoutNode, at: MeasureAt, cache: MeasureCache): 
 		// kept the nineteen-column case above. The special case they were reached
 		// through -- clamp on one line, replace on several -- is gone with them.
 		minCrossMax = crossMin;
-
-		if (wrapping) {
-			// the smallest a wrapping container can be on its main axis is its widest
-			// single item rather than the sum of them, because everything else can be
-			// pushed onto a line of its own
-			mainTotal = longest;
-			minMainTotal = Math.max(0, ...items.map((item) => hypotheticalMain(item, axis)));
-		}
 	}
 
 	const width = axis.column ? crossMax + inset.cross : mainTotal + inset.main;
@@ -1332,30 +1352,97 @@ function makeItem(
 }
 
 /**
+ * An item's margins along the main axis.
+ *
+ * Written once because the three functions below all give them back *outside*
+ * their clamp -- the basis and the limits are border-box sizes -- and three
+ * copies of one conditional is three chances to take the cross axis's pair.
+ *
+ * @param item - The item.
+ * @param axis - Which way the main axis runs.
+ * @returns The cells its margins take on that axis.
+ */
+function mainMargins(item: Item, axis: Axis): number {
+	return axis.column ? item.margin.top + item.margin.bottom : item.margin.left + item.margin.right;
+}
+
+/**
  * The main size an item would take if nothing flexed: its basis clamped to its
  * own limits, plus its margins.
  *
- * CSS's hypothetical main size, and the one number three readers need to agree
+ * CSS's hypothetical main size, and the one number five readers need to agree
  * about. `wrapIntoLines()` decides which line an item lands on by it; the measure
  * sizes a wrapping row by the longest line it packs into, and by the widest single
- * item for its minimum. Read three ways it was three chances to disagree, and
- * there used to be a second copy of the arithmetic inside the measure where
- * `packLines()` was handed the sizes it had just taken.
+ * item for its minimum; and it is what both functions below fall back to, since an
+ * item that can neither grow nor shrink ends up here whatever room there is. Read
+ * five ways it is five chances to disagree, and there used to be a second copy of
+ * the arithmetic inside the measure where `packLines()` was handed the sizes it had
+ * just taken.
  *
  * Margins are included because they take room on the line: a five-wide item with a
  * two-wide margin takes seven, and deciding on five put two of them on a ten-wide
- * line. The basis and the limits are border-box sizes, so they are clamped inside
- * the margins and the margins given back.
+ * line.
  *
  * @param item - The item.
  * @param axis - Which way the main axis runs.
  * @returns The cells it asks for along the main axis, margins included.
  */
 function hypotheticalMain(item: Item, axis: Axis): number {
-	return (
-		clamp(item.basis, item.minMain, item.maxMain) +
-		(axis.column ? item.margin.top + item.margin.bottom : item.margin.left + item.margin.right)
-	);
+	return clamp(item.basis, item.minMain, item.maxMain) + mainMargins(item, axis);
+}
+
+/**
+ * The most main-axis room an item would use, given all of it.
+ *
+ * CSS's max-content contribution, as far as it is worth reading here, and the
+ * distinction it turns on is between the basis an item flexes *from* and the size
+ * it would end up at. An item that cannot grow ends at its hypothetical size
+ * whatever room there is, so that is its contribution. One that can grow will take
+ * its content's max-content size if it is offered, so that is the floor under its
+ * basis -- without which a `flex-basis: 0; flex-grow: 1` description contributes
+ * nothing and the row it is in reports its own min-content width.
+ *
+ * Only a nowrap row sums it. A wrapping row is measured by the longest line it
+ * packs into and has to be measured by the number that packed it, which is
+ * `hypotheticalMain()`.
+ *
+ * @param item - The item.
+ * @param axis - Which way the main axis runs.
+ * @returns The cells it would use, margins included.
+ */
+function maxContentMain(item: Item, axis: Axis): number {
+	if (item.style.flexGrow <= 0) {
+		return hypotheticalMain(item, axis);
+	}
+
+	const content = axis.column ? item.measured.height : item.measured.width;
+	return clamp(Math.max(content, item.basis), item.minMain, item.maxMain) + mainMargins(item, axis);
+}
+
+/**
+ * The smallest main size an item can be placed at.
+ *
+ * `resolveFlexible()`'s floor said as a function, and it has the same two halves
+ * that has: an item that cannot shrink is frozen at its hypothetical size, so it
+ * takes what it asked for however little room there is, and everything else is
+ * shrunk towards its own clamped minimum and no further. Written as a `clamp()`
+ * from zero rather than as `item.minMain ?? 0` because that is what the placement
+ * ends with, `min` beating `max` included.
+ *
+ * Only a nowrap row sums it, and it is what keeps SIG-126 from being half fixed:
+ * a minimum that took every item's clamped floor would report zero for a
+ * `flex-shrink: 0` child, which squeezes the row back to nothing and draws that
+ * child outside it -- the defect the width fix is for, arriving through the
+ * minimum instead.
+ *
+ * @param item - The item.
+ * @param axis - Which way the main axis runs.
+ * @returns The fewest cells it can be placed in, margins included.
+ */
+function minimumMain(item: Item, axis: Axis): number {
+	return item.style.flexShrink <= 0
+		? hypotheticalMain(item, axis)
+		: clamp(0, item.minMain, item.maxMain) + mainMargins(item, axis);
 }
 
 /** Breaks items into lines that fit, for `flex-wrap`. */
