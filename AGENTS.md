@@ -2899,6 +2899,34 @@ a probe`. What the longer hold costs is worth stating precisely: a key typed
   DEC's five states, is not an answer a caller can act on -- and neither is silence,
   so they are not told apart. What _is_ told apart is `'unrecognised'`, which is the
   reply that says the mode does not exist, and is the whole reason to ask.
+- **`demos/terminal/01-capabilities.js` prints both columns, and the third
+  section is the whole reason it exists.** A dump of what the terminal answered
+  is worth little on its own; what is worth having is it beside what the
+  environment guessed, with a line naming each place they part. `COLORTERM=truecolor`
+  on a terminal where `NO_COLOR` is also set resolves to level 0, and one column
+  cannot show that -- the demo says `NO_COLOR=1 outranks it`, naming the variable
+  rather than listing the three candidates, because a dump that hands the reader
+  three things to check has not answered. It also reads the capabilities back
+  through the published `exports` map, which is what makes it prove the API is
+  usable from outside the package; `terminal-probe.mjs` imports `dist/` directly
+  and is not replaced by it.
+- **A demo that probes needs a terminal on _both_ sides, and asking about one is
+  the bug.** `createInput()` refuses to exist unless `stdin` **and** the
+  terminal's output are TTYs, because the reply arrives on one and the query is
+  written to the other -- so a guard that asked only about `process.stdin.isTTY`
+  let `node demos/terminal/01-capabilities.js | cat` through _from a terminal_,
+  where stdin is a TTY and stdout is a pipe. It threw an uncaught `InputError`,
+  and what reached the screen was a stack over a minified module over the dump.
+  `demos.test.ts` could not have caught it: it spawns with `stdio[0]` as
+  `'ignore'`, so every demo it runs takes the no-terminal branch, and the one
+  command the README documents is the one nothing tests. Found by review and then
+  reproduced over a real pty with stdout piped, which is the only way to see it.
+- **And no `process.exit(0)` on that branch.** `console.log` to a pipe is
+  asynchronous, so exiting forces the process down with the write still queued.
+  Falling off the end of the module lets node drain it -- and the demos test would
+  have passed either way, because it asserts an exit code and an empty stderr
+  rather than that anything was printed. `03-focus.js` has the same shape and its
+  output is small enough not to have been bitten yet.
 - **`terminal-probe.mjs` grew a `--detect` mode, and it is the only thing that
   could.** SIG-108 asked and the answer is yes. Everything else in that file paints
   a frame and asks a human to read it; this prints what the terminal answered, byte
