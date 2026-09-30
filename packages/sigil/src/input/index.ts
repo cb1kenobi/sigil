@@ -38,7 +38,13 @@
  * cannot spell.
  */
 
-import { decodeKeys, type Key, pendingLength } from '../components/keys.js';
+import {
+	type DecodeOptions,
+	decodeKeys,
+	type Key,
+	pendingIsString,
+	pendingLength,
+} from '../components/keys.js';
 import type { Element } from '../element/index.js';
 import { State } from '../signals/index.js';
 import {
@@ -47,8 +53,40 @@ import {
 	type Terminal,
 	terminal as defaultTerminal,
 } from '../terminal/index.js';
+import {
+	type CapabilityReply,
+	isCapabilityResponse,
+	parseCapabilityResponse,
+	QUERY_TIMEOUT,
+	type QueryOptions,
+} from './capabilities.js';
 
 export { isAbort, type Key } from '../components/keys.js';
+export {
+	BACKGROUND_COLOR,
+	type Capabilities,
+	type CapabilityKind,
+	type CapabilityReply,
+	CELL_PIXELS,
+	CURSOR_POSITION,
+	DA1,
+	DA2,
+	detectCapabilities,
+	type DetectOptions,
+	FOREGROUND_COLOR,
+	isCapabilityResponse,
+	type ModeState,
+	parseCapabilityResponse,
+	QUERY_TIMEOUT,
+	type QueryOptions,
+	queryCursor,
+	queryMode,
+	readCapabilities,
+	refineColorLevel,
+	requestMode,
+	TEXT_AREA_PIXELS,
+	XTVERSION,
+} from './capabilities.js';
 
 /**
  * How long a partial sequence waits for the rest of itself.
@@ -166,6 +204,28 @@ export interface InputRouter {
 	 * @returns Removes the handler.
 	 */
 	onEnd(handler: (error?: unknown) => void): () => void;
+	/**
+	 * Writes a query to the terminal and collects what comes back.
+	 *
+	 * Here because one thing owns stdin, and a reply arrives on stdin interleaved
+	 * with whatever the user is typing -- a private listener for it would be the
+	 * exact failure this module exists to replace. What the router adds on top of
+	 * the write is the three things only it can: a reply is taken out of the key
+	 * stream before it reaches anything focused, a reply nobody is waiting for is
+	 * dropped rather than dispatched, and the decoder is told that an OSC or DCS
+	 * introducer is an answer rather than Alt-] for as long as a query is open.
+	 *
+	 * A terminal that answered nothing resolves with nothing rather than rejecting:
+	 * that is an answer, and a probe that threw over it would take a frame down for
+	 * a terminal that did nothing wrong. The far end being gone resolves the same
+	 * way. What does reject is a write that fails outright, which is a broken stream
+	 * rather than a quiet terminal -- and it leaves nothing armed, because the
+	 * question is asked before anything is registered.
+	 *
+	 * @param opts - The bytes, the deadline, and what ends the wait early.
+	 * @returns Every reply that arrived, in order.
+	 */
+	query(opts: QueryOptions): Promise<CapabilityReply[]>;
 	/** Gives stdin back and puts raw mode and the paste markers back. */
 	stop(): void;
 }
@@ -427,9 +487,21 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 	}
 
 	function consume(input: string): void {
+		// a stopped router reads nothing, which was not true and had a cost: `stop()`
+		// clears the held tail and the escape timer, and then `consume()` carried on
+		// through the rest of the chunk it was part way through and armed a new one.
+		// A Ctrl-C binding that stops the router is the ordinary way to reach it, and
+		// what it left behind was a timer firing into a router with no listeners,
+		// dispatching to the bindings `stop()` does not remove
+		if (stopped) {
+			return;
+		}
+
 		let rest = input;
 
-		while (rest !== '') {
+		// and the loop asks again, because the chunk it is part way through may be
+		// what stops it: a Ctrl-C binding that calls `stop()` is the ordinary way
+		while (!stopped && rest !== '') {
 			if (pasting !== undefined) {
 				const end = rest.indexOf(PASTE_END);
 				if (end === -1) {
@@ -452,7 +524,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 			rest = rest.slice(start + PASTE_START.length);
 		}
 
-		if (pasting === undefined && rest !== '') {
+		if (!stopped && pasting === undefined && rest !== '') {
 			keys(rest);
 		}
 	}
@@ -470,18 +542,61 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 		clearTimeout(timer);
 		timer = undefined;
 
+		// the same options to both, which is the whole reason `pendingLength()`
+		// exists: two readers of one chunk that disagree about where the last key
+		// starts is the bug it was written against, and `strings` is a second way
+		// for them to disagree
+		const opts = decoding();
 		const joined = held + input;
-		const length = pendingLength(joined);
+		const length = pendingLength(joined, opts);
 		const ready = length === 0 ? joined : joined.slice(0, joined.length - length);
 		held = length === 0 ? '' : joined.slice(joined.length - length);
 
-		for (const key of decodeKeys(ready)) {
+		for (const key of decodeKeys(ready, opts)) {
+			// asked between keys as well as at the entry, because one of them may be
+			// the Ctrl-C that stops the router: `feed('\u0003hello')` went on routing
+			// `hello` to bindings `stop()` does not remove
+			if (stopped) {
+				return;
+			}
 			route(key);
 		}
 
 		if (held !== '') {
-			timer = setTimeout(expire, ESCAPE_TIMEOUT);
+			armExpiry(joined, opts);
 		}
+		settleSatisfied();
+	}
+
+	/**
+	 * Arms the wait for the rest of what is held, unless a reply owns the wait.
+	 *
+	 * `ESCAPE_TIMEOUT` is fifty milliseconds because what follows a half-arrived
+	 * `ESC [` may be the Ctrl-C somebody is pressing to get out, and a key held
+	 * longer than that is a key that feels lost. None of that is true of a
+	 * half-arrived *reply*: it is not a key, nobody is waiting on it, and the thing
+	 * that should end the wait is the query's own deadline. Flushing one on the key
+	 * timeout instead leaves its payload to arrive as a chunk with no introducer in
+	 * front of it -- `11;rgb:1111/2222/3333` typed into somebody's answer, by the
+	 * one route the framing does not close.
+	 *
+	 * So a held control string with a query outstanding is not put on a timer at
+	 * all, and `settle()` flushes whatever is left when the last query goes. A held
+	 * *key* is untouched, which is what keeps that Ctrl-C at fifty milliseconds.
+	 */
+	function armExpiry(joined: string, opts: DecodeOptions): void {
+		// there is never a timer already armed to clear here, and that is the deferred
+		// settle's doing rather than luck: `keys()` clears on the way in, a query
+		// satisfied during the routing waits for `settleSatisfied()` afterwards, and
+		// `settle()` arms only where nothing is armed. A `clearTimeout()` was written
+		// here first, for the order this had before -- settling inside the routing
+		// armed a timer that this one then assigned over, orphaning it -- and it is
+		// gone because nothing can reach it, which is a thing to know before somebody
+		// moves the settle back
+		if (pending.size > 0 && pendingIsString(joined, opts)) {
+			return;
+		}
+		timer = setTimeout(expire, ESCAPE_TIMEOUT);
 	}
 
 	/** Nothing followed it, so what is held is a key rather than a beginning. */
@@ -489,9 +604,131 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 		timer = undefined;
 		const rest = held;
 		held = '';
-		for (const key of decodeKeys(rest)) {
+		for (const key of decodeKeys(rest, decoding())) {
+			if (stopped) {
+				return;
+			}
 			route(key);
 		}
+		// unreachable today, and kept rather than dropped. A held tail is by
+		// definition a read that did not finish, so a *whole* reply cannot be in one
+		// -- and the day that stops being true, the alternative to this line is a
+		// query that waits out its deadline over an answer it was already handed
+		settleSatisfied();
+	}
+
+	/**
+	 * Every query still waiting for its reply.
+	 *
+	 * A set rather than one, because a probe and a cursor request may legitimately
+	 * be outstanding at once and each wants its own deadline. A reply is offered to
+	 * all of them: matching by shape rather than by which query was written is the
+	 * rule the batched probe already follows, since a terminal that does not
+	 * understand one query answers nothing for it and position says nothing.
+	 */
+	interface Pending {
+		cursor: boolean;
+		replies: CapabilityReply[];
+		settle(): void;
+		timer: ReturnType<typeof setTimeout> | undefined;
+		until: QueryOptions['until'];
+	}
+
+	const pending = new Set<Pending>();
+
+	/**
+	 * Queries whose `until` fired, settled once the whole chunk has been read.
+	 *
+	 * Settling inside the routing is what the sentinel made expensive: DA1 is
+	 * written last, so its reply normally arrives last -- but a terminal that
+	 * reorders, or a multiplexer that answers for itself first, can put the DA1 in
+	 * front of a reply in the *same chunk*, and a probe that settled on the spot had
+	 * already stopped collecting by the time the next key was routed. The reply was
+	 * then dropped rather than read, since `takeReply()` claims it either way. So a
+	 * satisfied query waits for the end of the chunk, which costs nothing and is
+	 * what "matched by shape rather than by position" was supposed to mean.
+	 */
+	const satisfied = new Set<Pending>();
+
+	/** Settles every query the chunk just satisfied. */
+	function settleSatisfied(): void {
+		// eslint-disable-next-line unicorn/no-useless-spread
+		for (const it of [...satisfied]) {
+			it.settle();
+		}
+		satisfied.clear();
+	}
+
+	/**
+	 * How the decoder should read an OSC or DCS introducer right now.
+	 *
+	 * `ESC ]` is both the OSC introducer and Alt-], and only a reader that has
+	 * asked the terminal a question knows which. So this is on exactly while one is
+	 * outstanding, which closes a reply whose read split between the introducer and
+	 * its payload and costs Alt-] only inside that window.
+	 */
+	function decoding(): DecodeOptions {
+		return { strings: pending.size > 0 };
+	}
+
+	/**
+	 * Offers a decoded sequence to whatever is waiting for a reply.
+	 *
+	 * @param sequence - Exactly what the terminal sent.
+	 * @returns Whether it was a reply, and so must not be dispatched as a key.
+	 */
+	function takeReply(sequence: string): boolean {
+		const found = parseCapabilityResponse(sequence);
+		if (!found) {
+			return false;
+		}
+
+		// a cursor position report is byte for byte Shift-F3 under xterm's
+		// `modifyFunctionKeys`, so it is a reply only while somebody asked for one.
+		// Everything else `isCapabilityResponse()` claims is a shape no keyboard
+		// produces and is a reply whether or not it was asked for
+		if (!isCapabilityResponse(sequence)) {
+			let wanted = false;
+			for (const it of pending) {
+				if (it.cursor) {
+					wanted = true;
+					break;
+				}
+			}
+			if (!wanted) {
+				return false;
+			}
+		}
+
+		// over a copy and a membership check, which is the rule every handler set
+		// here follows: `until` may settle a query, and settling removes it
+		// eslint-disable-next-line unicorn/no-useless-spread
+		for (const it of [...pending]) {
+			if (!pending.has(it)) {
+				continue;
+			}
+			it.replies.push(found);
+			let done: boolean;
+			try {
+				done = it.until?.(found, it.replies) === true;
+			} catch {
+				// a predicate that throws ends its own probe rather than the process.
+				// This runs inside the stream's `data` listener, so letting it escape is
+				// an uncaught exception -- and it would leave the query outstanding with
+				// its deadline armed and the decoder still reading an `ESC ]` as an
+				// answer. The caller gets what arrived, which is what a deadline would
+				// have given it anyway
+				done = true;
+			}
+			if (done) {
+				satisfied.add(it);
+			}
+		}
+
+		// dropped where nobody was waiting, rather than dispatched. A reply that
+		// arrived late, or one the terminal sent unasked, is still not a key -- and
+		// putting it in somebody's answer is the failure this whole path is for
+		return true;
 	}
 
 	/**
@@ -504,6 +741,12 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 	 * the failure this order exists to prevent.
 	 */
 	function route(key: Key): void {
+		// before anything else, because everything else is a place a reply must not
+		// reach: a binding, a focused text prompt, or the Tab default
+		if (takeReply(key.sequence)) {
+			return;
+		}
+
 		reconcileFocus();
 
 		if (dispatch(key, false)) {
@@ -536,6 +779,15 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 	 * @param error - What the stream failed with, if it did.
 	 */
 	const ended = (error?: unknown): void => {
+		// a probe first, because the stream ending is the strongest possible answer
+		// to "will a reply arrive": no. Waiting out the deadline after that is a
+		// frame held up for nothing
+		// eslint-disable-next-line unicorn/no-useless-spread
+		for (const it of [...pending]) {
+			it.settle();
+		}
+		satisfied.clear();
+
 		// eslint-disable-next-line unicorn/no-useless-spread
 		for (const handler of [...enders]) {
 			if (!enders.has(handler)) {
@@ -604,11 +856,90 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 			return () => void resizers.delete(handler);
 		},
 
+		query(opts: QueryOptions): Promise<CapabilityReply[]> {
+			return new Promise<CapabilityReply[]>((resolve) => {
+				// a router that has been stopped writes nothing and waits for nothing:
+				// there is nobody left reading stdin, so the reply could only ever be
+				// the timeout. Resolved rather than rejected, for the reason the
+				// interface gives
+				if (stopped) {
+					resolve([]);
+					return;
+				}
+
+				// written before anything is armed, which reads backwards and is the
+				// point. `terminal.write()` swallows the far end going away and returns
+				// `false`, and it *throws* for a fault that is not that -- so a write
+				// inside the arming would reject this promise with a deadline still
+				// running and the decoder still reading an `ESC ]` as an answer. Nothing
+				// is registered until the question has actually been asked, so the one
+				// thing a failed write can cost is the answer. There is no synchronous
+				// reply to race: a terminal answers on a later turn of the loop, and a
+				// harness that feeds bytes does it after this call returns
+				if (!terminal.write(opts.write)) {
+					// the far end is gone, so waiting out the deadline is a frame held up
+					// for an answer that cannot arrive
+					resolve([]);
+					return;
+				}
+
+				const it: Pending = {
+					cursor: opts.cursor === true,
+					replies: [],
+					settle(): void {
+						// idempotent, because three things settle a query -- the reply, the
+						// deadline, and the router stopping -- and two of them can race
+						if (!pending.delete(it)) {
+							return;
+						}
+						if (it.timer) {
+							clearTimeout(it.timer);
+							it.timer = undefined;
+						}
+						// a control string held on this query's behalf has nothing left to
+						// wait for, so it goes back on the key timeout -- where it is
+						// re-read with `strings` off and an `ESC ]` becomes the Alt-] it
+						// always was. Armed rather than flushed here, because flushing
+						// would dispatch keys from inside the handling of a reply
+						if (pending.size === 0 && held !== '' && timer === undefined) {
+							timer = setTimeout(expire, ESCAPE_TIMEOUT);
+						}
+						resolve(it.replies);
+					},
+					timer: undefined,
+					until: opts.until,
+				};
+
+				pending.add(it);
+				it.timer = setTimeout(
+					() => {
+						it.timer = undefined;
+						it.settle();
+					},
+					Math.max(0, opts.timeout ?? QUERY_TIMEOUT)
+				);
+				// a timer nothing is waiting for must not be what keeps the process
+				// alive: a CLI whose last frame has been painted should exit, and a probe
+				// is by construction something nobody is blocking on
+				it.timer.unref?.();
+			});
+		},
+
 		stop(): void {
 			if (stopped) {
 				return;
 			}
 			stopped = true;
+
+			// every probe gets what it has, which for almost all of them is nothing.
+			// A query left outstanding is a promise nobody will ever settle, and the
+			// caller of a probe is usually a frame -- so this is the same rule
+			// `onEnd()` exists for, one layer along
+			// eslint-disable-next-line unicorn/no-useless-spread
+			for (const it of [...pending]) {
+				it.settle();
+			}
+			satisfied.clear();
 
 			const off = stdin.off ?? stdin.removeListener;
 			off?.call(stdin, 'data', onData);

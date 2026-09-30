@@ -163,13 +163,20 @@ export class Restyler {
 	}
 
 	/**
-	 * The terminal resized.
+	 * What the media queries are asked about changed.
 	 *
-	 * Everything, media queries included: a rule that was inside
-	 * `@media (min-width: 100)` may now apply or may now not, and which elements
-	 * those are is exactly the question a full re-match answers.
+	 * Everything is stale: a rule that was inside `@media (min-width: 100)` may now
+	 * apply or may now not, and which elements those are is exactly the question a
+	 * full re-match answers.
+	 *
+	 * Called `touchSize()` until a capability reply became a second thing that
+	 * moves the media context -- a colour level refined from what the terminal said
+	 * about itself. The body never changed and the rename is the point: a doc
+	 * reading "the media context changed" under a method called `touchSize` is a
+	 * correct comment turned false by what grew around it, which is the one failure
+	 * nothing in a build catches.
 	 */
-	touchSize(): void {
+	touchMedia(): void {
 		this.#all = true;
 	}
 

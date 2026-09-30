@@ -446,7 +446,7 @@ describe('the terminal changing', () => {
 		expect(restyler.styleOf(as(panel))?.paddingTop).toBe(1);
 
 		cascade.media = { colorLevel: 3, height: 24, width: 120 };
-		restyler.touchSize();
+		restyler.touchMedia();
 		const update = restyler.update(as(panel));
 
 		expect(update.restyled).toBe(2);

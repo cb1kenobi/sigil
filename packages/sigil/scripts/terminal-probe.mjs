@@ -265,6 +265,84 @@ export const BACKENDS = [
 	},
 ];
 
+/**
+ * The capability detector, against a real terminal.
+ *
+ *   pnpm build && node packages/sigil/scripts/terminal-probe.mjs --detect
+ *
+ * Every other probe in this file paints a frame and asks a human to read it. This
+ * one is the reverse, and it is here for the same reason: the detector makes claims
+ * only a terminal can falsify, and the suite cannot make any of them. A test can
+ * feed `ESC P > | Ghostty 1.0.1 ST` to the router and assert what it does with it;
+ * nothing in a test can say whether Ghostty *sends* that, whether it sends it
+ * before the DA1 written after it, whether DECRQM is implemented at all, or how
+ * long any of it takes -- and the default timeout is a number about the last of
+ * those.
+ *
+ * So this prints what your terminal actually answered, byte for byte, with the
+ * round trip timed. Run it in each one you care about, and over ssh and inside
+ * tmux, which are their own answers.
+ */
+async function detect() {
+	const { createInput, detectCapabilities, queryCursor, queryMode } =
+		await import('../dist/input.mjs');
+	const { supportsColor } = await import('../dist/ansi.mjs');
+
+	const show = (s) => JSON.stringify(s).replaceAll('\\u001b', 'ESC ').replaceAll('\\u0007', ' BEL');
+
+	const router = createInput({ paste: false });
+	try {
+		const inferred = supportsColor();
+		write(`inferred from the environment: colour level ${inferred}\r\n`);
+		write(`  TERM=${process.env.TERM ?? '<unset>'}`);
+		write(` COLORTERM=${process.env.COLORTERM ?? '<unset>'}`);
+		write(` TERM_PROGRAM=${process.env.TERM_PROGRAM ?? '<unset>'}\r\n\r\n`);
+
+		const at = Date.now();
+		const caps = await detectCapabilities(router, {
+			background: true,
+			colorLevel: inferred,
+			geometry: true,
+		});
+		const took = Date.now() - at;
+
+		write(`the batched probe came back in ${took}ms\r\n`);
+		write(`  answered: ${caps.responded}\r\n`);
+		write(`  name: ${caps.name ?? '<nothing>'}  version: ${caps.version ?? '<nothing>'}\r\n`);
+		write(`  device: ${caps.device ? caps.device.join(';') : '<nothing>'}\r\n`);
+		write(`  cell: ${caps.cell ? `${caps.cell.width}x${caps.cell.height}px` : '<nothing>'}\r\n`);
+		write(
+			`  text area: ${caps.pixels ? `${caps.pixels.width}x${caps.pixels.height}px` : '<nothing>'}\r\n`
+		);
+		write(`  colour level refined to: ${caps.colorLevel ?? `<unchanged, ${inferred}>`}\r\n`);
+		write(`  replies, in the order they arrived:\r\n`);
+		for (const reply of caps.replies) {
+			write(`    ${reply.kind.padEnd(8)} ${show(reply.sequence)}\r\n`);
+		}
+
+		// the sentinel's own claim, and the one the timeout default rests on: a number
+		// anywhere near 250 on a local terminal means the default is wrong
+		write(`\r\nthe claim: DA1 came back, so ${took}ms is a round trip rather than a deadline.\r\n`);
+		write(`  a local terminal should be single-digit ms; ~250 means it hit the timeout.\r\n\r\n`);
+
+		const cursor = await queryCursor(router);
+		write(
+			`cursor position: ${cursor ? `row ${cursor.row}, column ${cursor.column}` : '<nothing>'}\r\n`
+		);
+
+		for (const mode of [2004, 1006, 1049, 9999]) {
+			write(`  mode ${mode}: ${(await queryMode(router, mode)) ?? '<nothing>'}\r\n`);
+		}
+		write(
+			`  expect 9999 to be "unrecognised" rather than "<nothing>": that is DECRQM\r\n` +
+				`  telling a mode that is off from one it has never heard of, which is the whole\r\n` +
+				`  reason to ask it. "<nothing>" for all four means no DECRQM at all.\r\n`
+		);
+	} finally {
+		router.stop();
+	}
+}
+
 /** @returns {Promise<string>} The key pressed. */
 function key() {
 	return new Promise((resolve) => {
@@ -290,6 +368,13 @@ async function main() {
 	if (!process.stdout.isTTY) {
 		console.error('terminal-probe needs a real terminal; stdout is not a TTY.');
 		process.exitCode = 1;
+		return;
+	}
+
+	// the detector is text rather than a frame, and it needs stdin rather than a
+	// human reading the screen -- so it is its own mode instead of one more probe
+	if (process.argv.includes('--detect')) {
+		await detect();
 		return;
 	}
 

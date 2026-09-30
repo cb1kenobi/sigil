@@ -104,6 +104,83 @@ node demos/canvas/04-inline.js      # the log keeps scrolling above the frame
 node demos/canvas/05-fullscreen.js  # Ctrl-C it: the terminal comes back anyway
 ```
 
+## The terminal
+
+|                                                              |                                                          |
+| ------------------------------------------------------------ | -------------------------------------------------------- |
+| [`terminal/01-capabilities.js`](terminal/01-capabilities.js) | What was guessed, what was answered, and where they part |
+
+Two halves and five stacked sections, and the point is the fourth. Everything
+sigil knew about its terminal, it used to infer from `TERM`, `COLORTERM` and
+`NO_COLOR`; this asks the terminal as well and prints both, with a paragraph per
+place they part:
+
+```sh
+node demos/terminal/01-capabilities.js
+```
+
+A terminal that exports `COLORTERM=truecolor` and then resolves as something else
+is exactly what asking is for, and a dump that prints only one half is how nobody
+notices. `NO_COLOR=1 COLORTERM=truecolor` is the case to try: it says which
+variable outranked which, by name, rather than leaving the reader three to check.
+
+The sections, in order: **what the environment says**, as a table; **what the
+terminal answered** -- DA1, XTVersion's name and version, the cell and text-area
+geometry, the background from OSC 11, the cursor position, and DECRPM for three
+modes; **asked and never answered**, with what the whole sequence cost against
+what five deadlines would have; **where the two columns disagree**; and **where
+they confirm each other**. The last two are separate because most runs have
+something in each, and a heading promising disagreement over a paragraph saying
+the two agree is a heading that lies.
+
+The three modes are 2004, 1006 and 9999, and each is there for its own reason.
+The router turns bracketed paste (2004) on when it starts, so DECRPM should read
+it back as `set` -- `permanently-set` also means on, and anything else means a
+mode we believe is set is not. 1006 is mouse tracking, which nothing here turns
+on, so it is the honest "off". 9999 is a mode no terminal has: it should come back
+`unrecognised` rather than silent, and that distinction -- off versus never heard
+of it -- is the whole reason to ask DECRPM anything.
+
+A terminal that understands none of the queries answers nothing, and then all
+five wait out their own 250ms deadline. The run prints what it measured rather
+than working it out from which queries were silent, because an empty `CSI ? c`, a
+cursor report or a single mode reply each end a probe early -- so counting the
+silences and multiplying gives the wrong number. 250ms is what the default is a
+judgement about: too short and a slow link reports no capabilities with nothing to
+point at, too long and a timer is held open.
+
+### Without a terminal
+
+A probe needs one on **both** sides: the reply arrives on stdin, so there has to
+be somebody to send it, and the query is written to stdout, so there has to be
+somewhere to write it. Pipe either and no router is built and no query is written.
+It prints the inference, says which side is missing, and exits zero:
+
+```sh
+node demos/terminal/01-capabilities.js | cat        # stdout is a pipe
+node demos/terminal/01-capabilities.js < /dev/null  # stdin is not a terminal
+# ...
+# Nothing was probed: stdout is not a terminal, so there is nobody to answer.
+```
+
+`| cat` is the one worth trying, and it is where this was wrong once: run from a
+terminal it leaves stdin a TTY while piping stdout, so a guard that asked about
+stdin alone let it through and `createInput()` threw a stack over the dump. The
+demos test could not have caught it -- it spawns with stdin ignored, which takes
+the other branch.
+
+That branch is not the exception `04-prompts.js` is. A prompt with nobody to
+answer it has no answer, so it fails loudly; a capability dump has a perfectly
+good one, which is the guess, labelled as a guess. It is also the rule the whole
+feature is built on -- a CLI must not pay a round trip to print one line, so
+nothing probes unless something asked.
+
+`packages/sigil/scripts/terminal-probe.mjs --detect` is the other half and is not
+replaced by this. That one is run by hand to falsify claims only a real terminal
+can, and it reads `dist/` directly; this reads the same capabilities back through
+the public API, which is also what makes it prove the API is usable from outside
+the package.
+
 ## The element tree
 
 |                                                  |                                                    |
