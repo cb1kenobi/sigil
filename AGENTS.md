@@ -1142,6 +1142,137 @@ migrate up` reads `commands/`, `commands/db/` and `commands/db/migrate/` and
   same width has to reach the intrinsic measure as well, or the fix only moves
   the error: a column asked how tall its child was at the container's width, got
   two, and was drawn two rows around a child six rows tall.
+- **And the row's own _measure_ re-measures too, because otherwise the placement
+  is right about a height the neighbour was never told.** The entry above closes
+  the gap inside a row; this one closes the gap between a row and whatever is
+  drawn after it, and it was a known bug for as long as the engine has existed
+  (SIG-125). `measureUncached()` offered every child the **whole** content box,
+  which is a width only one child can have -- so a description beside a label
+  measured two lines in the room it was offered, was placed in the column flexing
+  gave it where it needs three, and the block after the row started inside it. All
+  three shapes of that were reproduced before anything was written: the next
+  sibling painted over the third line, the same thing inside a border, and the
+  third line drawn straight through a bottom border where the bordered box's own
+  cross size came from this measure.
+
+  So the measure runs the placement's own three functions --
+  `wrapIntoLines()`, `resolveFlexible()`, `remeasureLine()`, over items
+  `makeItem()` built -- rather than a twin of them. Agreeing with the placement is
+  the goal, and the only way to agree by construction is to _be_ the placement's
+  arithmetic; a second reading of "how tall is this item at the width it got" is
+  exactly what had drifted.
+
+- **One round, and it is the same round the percentage case already takes.** The
+  items are flexed against `inner`, this measure's own width, so the answer is
+  exact wherever `inner` is settled -- which is every row that is a child of a
+  column, since a column's cross axis does not flex, and that is the shape a help
+  screen, a diagnostic and a prompt head all are. Where it is not settled, flexing
+  a guess produces a height for a width the node may not get, which is the
+  overflow `MeasureAt.containing` is already written down as preferring and the one
+  CSS gives. Iterating would not close that: the width does not converge, it is
+  simply not known yet. The alternative considered and rejected was the ticket's
+  other option -- a full flex resolution iterated to a fixed point during the
+  measure -- which buys nothing here for the reason just given and costs a second
+  definition of when a measure has settled.
+- **What the measure changes is the cross size and nothing else.** A row's
+  `mainTotal` is still what its children ask for: the per-child loop's own sum for a
+  nowrap row, and for a wrapping one the longest line, read from
+  `hypotheticalMain()` _before_ anything flexes -- because max-content is a question
+  about room the items have not been given, and `resolveFlexible()` is about to hand
+  out exactly that. Flexing changes heights, so it changes the height a row reports
+  and leaves the width alone, which is also why this could not regress a width
+  anywhere. `longest` is computed only where it is read, since a single line's main
+  total is the loop's sum and flexing does not move it.
+- **The flexed cross size _replaces_ what the per-child loop found rather than
+  being a floor over it.** `Math.max` of the two was the first spelling and it is
+  the wrong one, because the loop answers a different question: it reads each
+  child's measured height unclamped, while an item's cross size is clamped to that
+  child's own `max-height`. A floor therefore measured a row six rows tall around
+  a box the placement puts at one, which is the disagreement being fixed, pointing
+  the other way. `should honour a max-height the placement honours rather than
+measuring past it` is the guard, and it fails if the `Math.max` comes back.
+- **And the reported _minimum_ comes from the same pass, because it is the same
+  question with `minHeight` in place of `height`.** `crossMax >= minCrossMax` used to
+  hold by construction and with the cross size replaced it does not, so the minimum
+  had to be settled too -- and getting there took three spellings, each wrong in a
+  direction the previous one was right about. A `Math.max` of the flexed cross and the
+  loop's kept a `max-height: 1` over a six-row text reporting `minHeight: 6` beside
+  `height: 1`, and a column parent clamps a child's basis **up** to its automatic
+  minimum, so the row was placed six rows tall by the very number the pass had just
+  corrected. A `Math.min` of them went the other way: two nineteen-column texts in
+  twenty columns are one line each before flexing and two rows each after, so the row
+  reported `height: 2` and `minHeight: 1`, and a column of `height: 1` squeezed it to
+  one row around two rows of text. A clamp on one line and a replacement on several
+  was the third, and it was a band-aid over both.
+
+  What settles it is asking each item how short it can be **at the width it was
+  given** -- which is what `crossSize` already asks about the height -- and summing
+  that per line. So `Item.minCrossSize` sits beside `crossSize`, `remeasureLine()`
+  writes both from one measurement, and the special case is gone. Per line rather
+  than over every item, because a line cannot be shorter than its own
+  shortest-possible tallest item and the lines stack: three one-row items on three
+  lines cannot be one row. Both failures above and the multi-line floor are each
+  pinned by a test, and each of those tests was written after a sabotage found the
+  assertion missing.
+
+- **What it costs is about a tenth of a render, and getting that number took three
+  measurements because the first two were taken on a busy machine.** Six alternating
+  rounds, forty iterations each, of a sixty-entry help screen and a two-hundred-row
+  table: the help screen goes from **10.45ms to 11.46ms** median and 8.06 to 9.11 at
+  its fastest, and the table from **5.03ms to 5.49ms** and 4.50 to 4.88 -- **+9.7%**
+  and **+9.1%** on the median. Both rows now build items and run the flex resolution
+  twice over, once to be measured and once to be placed, and the table pays it six
+  hundred `nowrap` cells at a time.
+
+  Interleaved rather than batched, for the reason the style-shaking measurement
+  records -- and interleaving was not enough. An earlier run of the same interleaved
+  script, with a fuzzer and a review agent running beside it, reported **+2.1%** for
+  the help screen and **+12.7%** for the table: the help cost understated by a factor
+  of five and the table's overstated, from one run, with alternation already in place.
+  What said so is the absolute numbers, which were four times the ones this file
+  already records for the same two workloads -- so the check is not "did I alternate"
+  but "does the baseline agree with the baseline", and the version to trust is the one
+  where a sixty-entry help screen is about 10ms rather than about 45ms.
+
+- **The cache can hold `2^depth` widths per node in principle, and tens in
+  practice.** A row measures each child at the content width and again at the share
+  flexing gave it, and a child row repeats that for both -- so a leaf under `d` rows
+  of genuinely distinct fractions is measured at `2^d` widths. What collapses it is
+  that the fractions repeat: a fixed sibling gives `{W, W-k, W-2k}` and uniform
+  halving gives `{W, W/2, ...}`, which is one new width per level and a hit after
+  that. A help screen is a column, a row, a paragraph row and its words -- depth
+  four, and the widths are the terminal's, the description's share, and each word.
+  Written down rather than bounded, because the bound would be a cap on a cache
+  whose whole job is to be complete for one pass, and the workload that needs one is
+  not a screen this engine is asked to draw.
+- **`makeItem()` takes a `Block` rather than a `Box`, because its second caller
+  knows less about the containing block.** The placement knows all of it: the
+  content box is settled, so a percentage on a child resolves against it and the
+  width handed out is the width the child gets. The measure may be sizing a node
+  whose own width is still a guess, and a `Box` cannot say so -- its `height` is a
+  number and the measure has none. So `Block` carries the width, the height, what
+  a percentage resolves against, and whether any of it is settled; `width` and
+  `containing` are the same number for the placement and part company in the
+  measure, for the reason `MeasureAt` already carries at length. `remeasureLine()`
+  grew a `definite` argument for the same reason, since a share of a guess is a
+  guess.
+- **One `makeItem()` per child, and one measure with it.** The per-child loop used
+  to take a measure of its own at `inner` while `makeItem()` takes one at
+  `inner - margins`, which is the width the child is really placed at -- so a
+  margined child was measured **twice, to two answers**, and the parent sized itself
+  by the one the placement does not use. The loop reads `item.measured` now, which
+  makes the two agree and costs a measure rather than adding one. `Item.measured` is
+  stale the moment `remeasureLine()` has run, which is why nothing reads it past the
+  flex resolution and why it says so on the field. A consequence of sharing
+  `makeItem()` rather than the point of it, and it moved no test.
+- **The fuzzer is what says the whole of it is safe, and it is read as a diff rather
+  than as a pass.** 140,000 layouts -- 200 seeds, 100 trees, seven sizes -- run over
+  the same corpus with `main`'s engine and with this one: **zero** invariant failures
+  either way, and the strict count, which includes the legitimate overflow this file
+  records 41,038 of 42,000 layouts producing, went from **135,603 to 135,485**. So the
+  change removes 118 real overflows and creates none. A pass on its own would have
+  said almost nothing here, because the invariants were already clean on `main`; what
+  carries the argument is that the one number that moved moved the right way.
 - **The width limits are applied in `measureUncached()` and nowhere else,
   because that is where the width they are a percentage _of_ is.** The callers
   hand it the containing width and what is settled about it; clamping at the call
@@ -1183,30 +1314,38 @@ migrate up` reads `commands/`, `commands/db/` and `commands/db/migrate/` and
   iteration this entry said was needed, taken where the width stops being a guess.
   Pinned by `should lay a percentage-limited text out at the width it is placed
 at`.
-- **A container that wraps is measured as the lines it wraps into.**
-  `flex-wrap` was honoured when a line was packed and ignored when the box was
-  sized, which is the same defect a property that parses and does nothing is:
-  every auto-sized wrapping box came out one line deep with its other lines drawn
-  outside it, and a paragraph -- a wrapping row of one-word items, which is how
-  inline styling is expressed here -- was the case that found it. `packLines()` is
-  the measuring twin of `wrapIntoLines()`, kept separate because the two are
-  handed different things while following one rule. A _row_ only: the main axis of
-  a wrapping column is its height and this function is never told one, so there is
-  no room to pack against. The smallest such a container can be on its main axis
-  is its widest single item rather than the sum of them, because everything else
-  can be pushed onto a line of its own.
+- **A container that wraps is measured as the lines it wraps into, and there is
+  one function that decides what those lines are.** `flex-wrap` was honoured when
+  a line was packed and ignored when the box was sized, which is the same defect a
+  property that parses and does nothing is: every auto-sized wrapping box came out
+  one line deep with its other lines drawn outside it, and a paragraph -- a
+  wrapping row of one-word items, which is how inline styling is expressed here --
+  was the case that found it. A _row_ only: the main axis of a wrapping column is
+  its height and this function is never told one, so there is no room to pack
+  against. The smallest such a container can be on its main axis is its widest
+  single item rather than the sum of them, because everything else can be pushed
+  onto a line of its own.
 
-  Four things have to match the placement or the measure is a different answer to
-  the same question, and each was wrong once. The gap _between_ lines is reserved,
-  or a `row-gap` comes out a row short per break and the block under it is drawn
-  on. The packing is by `flex-basis` rather than by content, or a `flex-basis: 40`
-  child with three columns of content is packed at three and placed at forty. It
-  is in `order` order rather than source order, or the same three children wrap
-  into two lines and are placed into three. And the minimum it clamps with is the
-  placement's -- `declared ?? automatic`, not the larger of the two, which is what
-  the container's own sizing needs one line above: a `min-width: 0` on a word is a
-  declaration the automatic minimum does not get a say in, and taking the larger
-  packed a long word at its own width where the placement shrinks it to the line.
+  `packLines()` used to be the measuring twin of `wrapIntoLines()`, kept separate
+  because the two were handed different things -- one had `Item`s with resolved
+  bases and the other had the sizes the measure had just taken -- while following
+  one rule. Four things had to match the placement or the measure was a different
+  answer to the same question, and each was wrong once: the gap _between_ lines is
+  reserved, or a `row-gap` comes out a row short per break; the packing is by
+  `flex-basis` rather than by content, or a `flex-basis: 40` child with three
+  columns of content is packed at three and placed at forty; it is in `order` order
+  rather than source order, or the same three children wrap into two lines and are
+  placed into three; and the minimum it clamps with is the placement's --
+  `declared ?? automatic`, not the larger of the two, since a `min-width: 0` on a
+  word is a declaration the automatic minimum does not get a say in.
+
+  That twin is **gone**, and the reason it existed went with SIG-125: the measure
+  builds real `Item`s now, so it calls `wrapIntoLines()` itself and there is
+  nothing left to keep in agreement. All four rules above still hold and are now
+  held in one place, which is the strictly better version of holding them twice.
+  The one number the two spellings shared is `hypotheticalMain()` -- a basis
+  clamped to its own limits plus its margins -- which is read by three callers now
+  and so is written once.
 
 - **The re-measure at the used width is every item's, not only a text's.** A box
   whose children wrap has the same dependency a text does -- its height is a
@@ -1516,12 +1655,15 @@ at`.
   every space, which turned one dim parenthetical into a sequence per word.
 - **It is laid out at the width it was given and painted into a grid as big as
   the layout came to.** `arrangedExtent()` walks the arranged tree, in both
-  directions, because `measureNode()` is a guess in two ways: a row whose children
-  flex is measured with each child offered the whole content box and placed with
-  each given a share, and a box with a declared width reports that width however
-  far its content overflows it. So a description that wrapped one line further
-  than it measured is painted rather than lost, and a flag name longer than the
-  terminal survives -- which is the rule help already had, and which a grid the
+  directions, because `measureNode()` is a guess: a box with a declared width
+  reports that width however far its content overflows it, and an item flexed
+  against a width its own ancestor was still guessing at can be placed at another.
+  It used to be a guess in a third and much commoner way -- a row whose children
+  flex was measured with each child offered the whole content box and placed with
+  each given a share -- which SIG-125 closed, so a description that wraps one line
+  further than the row reserved is no longer the case this exists for. It is still
+  what makes a flag name longer than the
+  terminal survive -- which is the rule help already had, and which a grid the
   width it was laid out in would have turned into a silent truncation now that
   `text-overflow` is honoured. The height is grown only where the caller named
   none, since a caller that did is describing a box rather than asking how big one
@@ -3044,13 +3186,17 @@ a probe`. What the longer hold costs is worth stating precisely: a key typed
   terminal, because nothing else would move it.
 - **An auto-height canvas is laid out again where it reached further than it
   measured.** The same second pass `renderToString()` takes and for the same
-  reason: a row whose children flex is measured with each child offered the whole
-  content box and placed with each given a share, so a prompt's question that
-  wraps to two lines in the share it gets was one line in the room it was offered
-  -- and the canvas reserved one row with the second clipped off the bottom.
-  `arrangedExtent()` asks the arranged tree rather than asking for another
-  estimate. It can only grow the canvas, never shrink it, so a frame that
-  measured right pays one comparison.
+  reason. What that reason _was_ is the common case SIG-125 has since closed: a row
+  whose children flex was measured with each child offered the whole content box
+  and placed with each given a share, so a prompt's question that wrapped to two
+  lines in the share it got was one line in the room it was offered, and the canvas
+  reserved one row with the second clipped off the bottom. The pass stays because a
+  measure is still a guess in the ways that entry lists -- a declared width that
+  overflows, and a percentage against a containing block nothing has settled --
+  and because the alternative is trusting an estimate over the tree that was
+  actually arranged. `arrangedExtent()` asks the arranged tree rather than asking
+  for another estimate. It can only grow the canvas, never shrink it, so a frame
+  that measured right pays one comparison.
 - **An auto-height canvas is measured, not laid out and read back.** That was the
   first answer and it is wrong in the way that matters: a root with no declared
   height fills whatever it is given, so `box.height` after a pass at the screen's
@@ -5170,15 +5316,26 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   what the drawing adds is the two things text cannot: the severity is coloured,
   and a message too long for the line hangs under itself instead of returning to
   the margin, where it reads as a second diagnostic. That is help's own pattern,
-  a flex row whose message column is a **declared** width, and the width is
-  declared for the reason help declares it: a row's intrinsic height is taken
-  with every child offered the whole content box while placement hands each one a
-  share, so a message that wraps to three lines in its share measures two in the
-  room it was offered and the row after it is painted over the third. It is the
-  known bug with the known way round it, and the way round it is the
-  subtraction. Below `MIN_MESSAGE` the location takes the line and the message is
-  indented under it, at the same threshold and for the same reason help's list
-  gives up on two columns.
+  a flex row whose message column is a **declared** width. It used to be declared
+  for the reason help declared its own: a row's intrinsic height was taken with
+  every child offered the whole content box while placement hands each one a share,
+  so a message that wrapped to three lines in its share measured two in the room it
+  was offered and the row after it was painted over the third. SIG-125 closed that
+  in the engine, so no app has to write that subtraction to get a correct layout any
+  more; this one **stays**, for a second reason it turns out to have had all along.
+  The message is built out of `nowrap` words on purpose, so the row's automatic
+  minimum is its widest _word_ -- and a report's words are mostly paths. Asked for as
+  a share it grows to that minimum, so one long path widens the whole column:
+  measured, at 60 columns with a 37-column path in the message, the column went from
+  29 to 37 and every line rewrapped. That is the same failure help's own attempt hit,
+  which is what says it is a property of a row of unbreakable words rather than of
+  either consumer. A `min-width: 0` on the container gets the old output back byte
+  for byte and is the worse trade -- three properties for one, and the property
+  `wordsView()` exists to _not_ set on its words meaning something else on their
+  container. `room` is computed for the `MIN_MESSAGE` threshold in any case, so
+  spending it differently saves no arithmetic. Below that threshold the location
+  takes the line and the message is indented under it, at the same threshold and
+  for the same reason help's list gives up on two columns.
 - **The prefix is measured as it will be drawn, on one line.** Both halves are
   rules `table()` already carries for a cell, met here through a file name. A tab
   measures nothing and draws a space, so measuring the raw string leaves the
@@ -5995,17 +6152,21 @@ people's software and will move.
   percentage down is what makes consecutive frames identical, and with `step: 30`
   it also made the last line `90%` -- a log whose last word is 90% is one the
   reader cannot tell from a build that stopped there.
-- **A prompt's head says how it divides its row.** The same piece of arithmetic
-  the help template kept, for the same reason: a row's intrinsic height is taken
-  with every child offered the whole content box and placed with each given a
-  share, so a question measured at the full width and placed in a share of it came
-  out one line tall -- and a choice list was drawn over the rest of the question.
-  The message is given a declared width, which is measured at the width it will be
-  placed at, and one column is kept back so that a question as long as the
-  terminal still leaves somewhere for the caret to be. How many rows that comes to
-  is worked out in the same place and through the same wrapper the text draws
-  with, so the width and the height cannot disagree about it -- and that is what
-  the list below subtracts, rather than assuming the question is one line.
+- **A prompt's head says how it divides its row, and it still has to after
+  SIG-125.** The reason it was written down for is gone -- a row's intrinsic height
+  was taken with every child offered the whole content box while placement hands
+  each one a share, so a question measured at the full width and placed in a share
+  of it came out one line tall and a choice list was drawn over the rest of it. No
+  app has to write that subtraction any more, and two reasons that were always here
+  keep this one. `lines` is the first and it is not
+  about the message at all: the choice list subtracts it to size its window, which
+  is imperative arithmetic no layout answers. And the width is a
+  `min(content, room)` **cap** rather than a share -- whatever follows the message
+  has to start where the message ends, so a message that grew into the line would
+  push the caret to the far edge. One column is kept back for exactly that. How
+  many rows it comes to is worked out in the same place and through the same
+  wrapper the text draws with, so the width and the height cannot disagree about
+  it.
 - **A choice list longer than the screen shows a window of itself.** A canvas is
   a fixed number of rows and what does not fit is clipped, where the live region
   wrote every line and let the terminal scroll -- which was broken in its own way,
@@ -6494,14 +6655,42 @@ people's software and will move.
   to share a line with its description, and when there is not enough room for two
   columns at all. Every entry above about what help says is unchanged, and the
   rendered screen is byte for byte what it was.
-- **The description column is told its width rather than growing into it.** The
-  one piece of arithmetic help kept, and it is a measurement rather than a
-  preference: a row's intrinsic height is taken with every child offered the whole
-  content box while placement hands each one a share, so a description that wraps
-  to three lines in its share measures two lines tall in the room it was offered
-  and the block after it is drawn over the third. A declared width is measured at
-  the width it will be placed at, which is the whole of what this needs. One
-  subtraction, against the padding, the wrapping and the alignment it gave up.
+- **The description column is told its width, and after SIG-125 that is a choice
+  rather than a necessity.** `width - column` was the one piece of arithmetic help
+  kept, and the reason was a measurement: a row's intrinsic height was taken with
+  every child offered the whole content box while placement hands each one a share,
+  so a description that wrapped to three lines in its share measured two lines tall
+  in the room it was offered and the block after it was drawn over the third. That
+  is closed in the engine now, so a plain `flex-basis: 0; flex-grow: 1` lays out
+  correctly here -- which is the whole point of the fix, and it is why an app writing
+  an ordinary row needs no subtraction of its own.
+
+  Help keeps its own, and the attempt to drop it is worth recording because it looked
+  free. Over ten widths and three contexts the two produced byte-identical screens,
+  and both reasons they are not equivalent are outside that corpus.
+
+  It **overflows the terminal** where a description's longest word is wider than the
+  column. `paragraph()` gives each word `min-width: 0`, so a paragraph's own minimum
+  looks like nothing -- but a wrapping row's minimum is `hypotheticalMain()` of its
+  items, which clamps each word's _measured_ width rather than its declared minimum.
+  Measured: `supercalifragilisticexpialidocious` beside a ten-column label in forty
+  columns came out as a **46-column** row with the word whole, where the declared
+  width breaks it at 28 and the screen stays 40. A paragraph disagreeing with the
+  wrapper is a help screen wider than the terminal, which is what `min-width: 0` on
+  the words is there to prevent.
+
+  And it is **slower**. A declared width makes the post-flex re-measure the same
+  question the first measure answered, so the words are measured once; a share is a
+  different width, so they are measured twice. Interleaved over six rounds of a
+  sixty-entry screen the share is **11.46ms to 12.81ms** median, **+11.8%**, and +16.7%
+  at its fastest -- roughly what the engine fix itself costs, spent again for nothing
+  visible.
+
+  The two one-column branches declare a width for a third reason that never had
+  anything to do with the defect: their parent is a _column_ with
+  `align-items: flex-start`, so the description's width is a cross size that never
+  flexed and there is no share to ask for.
+
 - **A hanging indent is a flex row.** `Usage:` and `Alias:` are a bold label and
   a paragraph beside it, so every line of the paragraph starts at the paragraph's
   left edge. There is no `hangingIndent` option anywhere here because a row is
@@ -6789,21 +6978,20 @@ color: magenta }` and beats the default with an ordinary rule, which is only tru
 
 ## Known bugs
 
-- **A row's intrinsic height does not account for flexing, so a block after one
-  can be drawn over.** `measureUncached()` measures every child at the whole
-  content box while placement hands each one a share, and the two part company
-  the moment a child's height is a question about its width: a description that
-  wraps to three lines in the column it is placed in measures two lines tall in
-  the room it was offered, so the container reserves one row too few and the next
-  block starts inside it. The placement itself is right -- `remeasureLine()`
-  settles each item at the width flexing gave it -- and `renderToString()` sizes
-  its grid from the arranged tree, so nothing is _lost_; what is wrong is the row
-  a neighbour was promised. The way round it is to declare the width, which is
-  what the help template does and why help lays out exactly. Closing it properly
-  means running the flex resolution during the measure, which is `resolveFlexible()`
-  reached from a function that has no content box to build items against. Pinned
-  by `should be as tall as the layout turned out to be` and by the declared-width
-  case beside it in `test/element/string.test.ts`.
+- **A nowrap row's intrinsic width is its children's _content_ widths, not their
+  flex bases.** `measureUncached()`'s per-child loop sums `measured.width`, while the
+  placement starts each item from `item.basis` -- so a nowrap row whose child declares
+  a `flex-basis` wider than its content reports less than the placement hands that
+  child, and a `flex-basis: 40` box with nothing in it reports a width of **zero**
+  while its child is placed forty columns wide. Put such a row in an
+  `align-items: flex-start` column and the child is drawn outside its own parent.
+  A wrapping row does not have it: `hypotheticalMain()` is the basis clamped to its
+  own limits, and the wrapping branch replaces `mainTotal` with the longest line
+  measured that way. Older than SIG-125 -- `packLines()` replaced `mainTotal` only
+  when wrapping too -- and found while reviewing it. Left alone because `mainTotal` is
+  a **width**: changing it moves every intrinsic width in the engine, which is a
+  ticket of its own rather than a line inside a height fix. What the two answers are
+  and why they differ is recorded where the loop sums them.
 - A subcommand's option used before its subcommand is not protected from being
   consumed as an earlier option's value, because it is not declared yet on the
   pass that reads it. A default command's options are always in that position,

@@ -1487,3 +1487,188 @@ describe('a wrapped line is as tall as its text turned out to be', () => {
 		expect(layout(tree, { height: 1, width: 11 }).children[0].box.height).toBe(3);
 	});
 });
+
+describe('a row is as tall as the widths flexing hands out', () => {
+	// SIG-125. A label-and-description row is what a CLI is made of, and its
+	// intrinsic height was taken with every child offered the *whole* content box
+	// while placement hands each one a share -- so the description measured two
+	// lines in the room it was offered, was placed in the column flexing gave it
+	// where it needs three, and the row reserved one row too few
+	const labelAndDescription = () =>
+		box(
+			{ 'column-gap': '1', 'flex-direction': 'row' },
+			text('label', { 'flex-shrink': '0', 'white-space': 'nowrap' }),
+			text('one two three four five six seven', { 'flex-basis': '0', 'flex-grow': '1' })
+		);
+
+	it('should measure the row at the height its own placement comes to', () => {
+		// the claim in one line: what the measure says and what the layout does are
+		// the same number. It said two
+		expect(measureNode(labelAndDescription(), 20).height).toBe(3);
+		expect(layout(labelAndDescription(), { width: 20 }).children[1].box.height).toBe(3);
+	});
+
+	it('should give the block after it the rows it was promised', () => {
+		// the picture is the point: `c` is the label, `d` the description, and `e`
+		// the block after. `e` used to be painted over `d`'s third row, because the
+		// row reserved two and its child took three
+		const tree = box({ 'flex-direction': 'column' }, labelAndDescription(), text('after'));
+
+		expect(picture(tree, 19, 4)).toBe(
+			[
+				'cccccbddddddddddddd',
+				'cccccbddddddddddddd',
+				'cccccbddddddddddddd',
+				'eeeeeeeeeeeeeeeeeee',
+			].join('\n')
+		);
+		checkInvariants(layout(tree, { height: 4, width: 19 }));
+	});
+
+	it('should not draw through a border it is inside', () => {
+		// the same defect one layer in: the bordered box's own cross size comes from
+		// this measure, so the third line was drawn over the bottom border
+		const tree = box({ border: 'single' }, labelAndDescription());
+
+		expect(layout(tree, { width: 24 }).box.height).toBe(5);
+		checkInvariants(layout(tree, { height: 5, width: 24 }));
+	});
+
+	it('should re-measure an item whose basis was its own content', () => {
+		// every other test in this block gives the description a `flex-basis`, and that
+		// leaves the commonest shape of all uncovered: two plain texts in a row, each
+		// with `flex-basis: auto`, so each basis *is* its content width and flexing
+		// only ever shrinks it. Found by asking for a mutation that survives the suite
+		// -- skipping the re-measure for a content-sized item that shrank reads as a
+		// width-only change and passed every assertion here, because none of them had
+		// one. It is SIG-125 with the default basis
+		const inner = () =>
+			box({ 'flex-direction': 'row' }, text('aaaa bbbb cccc dddd'), text('eeee ffff gggg hhhh'));
+		const tree = box({ 'flex-direction': 'column' }, inner(), text('after'));
+
+		// each text is one line at twenty and two lines at the ten flexing gives it, so
+		// the row is two rows and `after` starts on the third
+		expect(measureNode(tree, 20).height).toBe(3);
+		// and the row itself reports two rows as its *minimum* as well as its height.
+		// It reported one: the minimum was read at the pre-flex width, where each text
+		// is a single line, so a column parent -- which clamps a child's basis up to
+		// its automatic minimum and no further -- squeezed the row to one row around
+		// two rows of text
+		expect(measureNode(inner(), 20)).toMatchObject({ height: 2, minHeight: 2 });
+		expect(
+			layout(box({ 'flex-direction': 'column', height: '1', width: '20' }, inner()), {
+				height: 1,
+				width: 20,
+			}).children[0].box.height
+		).toBe(2);
+		expect(picture(tree, 19, 3)).toBe(
+			['ccccccccccddddddddd', 'ccccccccccddddddddd', 'eeeeeeeeeeeeeeeeeee'].join('\n')
+		);
+		checkInvariants(layout(tree, { height: 3, width: 19 }));
+	});
+
+	it('should re-measure every item on a line, not just the first two', () => {
+		// three children on one line, and the middle one is the only one that re-wraps.
+		// Asked for as a mutation that survives the suite: skipping `remeasureLine()`
+		// for a line of more than two items left every assertion in this block green,
+		// because each of them puts one or two items on the line that matters
+		const tree = () =>
+			box(
+				{ 'column-gap': '1', 'flex-direction': 'row' },
+				text('L', { 'flex-shrink': '0', 'white-space': 'nowrap' }),
+				text('one two three four five six seven eight', {
+					'flex-basis': '0',
+					'flex-grow': '1',
+				}),
+				text('R', { 'flex-shrink': '0', 'white-space': 'nowrap' })
+			);
+
+		// the middle text gets eighteen of twenty-two and wraps to three rows there,
+		// where the whole content box would have been two
+		expect(measureNode(tree(), 22)).toMatchObject({ height: 3, minHeight: 3 });
+		expect(layout(tree(), { width: 22 }).children[1].box.height).toBe(3);
+	});
+
+	it('should keep a one-line wrapping row squeezable', () => {
+		// `wrapping` is true whenever `flex-wrap` is not `nowrap` and there are two
+		// children, whether or not they land on two lines -- so the wrapping branch
+		// used to overwrite the minimum with the flexed cross size even for a row that
+		// packed onto one line, and a column parent could no longer squeeze it. The
+		// inner box declares five rows around two rows of content, so its own minimum
+		// is two: that is what this row can be squeezed to, and reporting five refuses
+		// a squeeze the placement allows
+		const tree = box(
+			{ 'flex-direction': 'row', 'flex-wrap': 'wrap' },
+			box({ 'flex-direction': 'column', height: '5' }, text('a'), text('b')),
+			text('c')
+		);
+
+		expect(measureNode(tree, 20)).toMatchObject({ height: 5, minHeight: 2 });
+	});
+
+	it('should not let a multi-line wrapping row claim it can be one line tall', () => {
+		// the other half of the same expression, and it was unguarded when it was
+		// written: replacing it with a bare `Math.min(minCrossMax, cross)` failed no
+		// test at all. The loop's minimum is a per-*child* maximum, so three one-row
+		// items report one however many lines they pack into -- and a column parent
+		// clamps a row's basis to that minimum, so it could squeeze this row to one row
+		// and cut the other two
+		const tree = box(
+			{ 'align-content': 'flex-start', 'flex-direction': 'row', 'flex-wrap': 'wrap' },
+			text('aa', { 'flex-basis': '5' }),
+			text('bb', { 'flex-basis': '5' }),
+			text('cc', { 'flex-basis': '5' })
+		);
+
+		expect(measureNode(tree, 11)).toMatchObject({ height: 2, minHeight: 2 });
+		expect(measureNode(tree, 5)).toMatchObject({ height: 3, minHeight: 3 });
+	});
+
+	it('should size a wrapping row from the lines it really packs into', () => {
+		// the wrapping half of it, which had the same bug in the same shape: each
+		// line's cross size was the unflexed height of its tallest item, so a line
+		// whose text grew when flexing narrowed it came out a row short and the line
+		// after it started inside it.
+		//
+		// The height is asserted as a number rather than against
+		// `layout(...).box.height`, which would say nothing: `layout()` takes the
+		// root's height from this very measure when the caller names none, so the two
+		// are equal by construction whatever the measure said. The picture is what
+		// shows the second line landing below the first rather than on it
+		const tree = () =>
+			box(
+				{ 'align-content': 'flex-start', 'flex-direction': 'row', 'flex-wrap': 'wrap' },
+				text('aa bb cc', { 'flex-basis': '5', 'flex-grow': '1' }),
+				text('dd ee ff', { 'flex-basis': '5', 'flex-grow': '1' }),
+				text('gg hh ii', { 'flex-basis': '5', 'flex-grow': '1' })
+			);
+
+		// the first two items grow to five and six and wrap to two rows each; the
+		// third takes a line of its own
+		expect(measureNode(tree(), 11).height).toBe(3);
+		expect(picture(tree(), 11, 3)).toBe(['bbbbbcccccc', 'bbbbbcccccc', 'ddddddddddd'].join('\n'));
+		checkInvariants(layout(tree(), { width: 11 }));
+	});
+
+	it('should honour a max-height the placement honours rather than measuring past it', () => {
+		// the flexed cross size *replaces* what the loop found rather than being a
+		// floor over it, and this is the case that says which: the text wraps to six
+		// rows and `max-height: 1` is what it is placed at, so a `Math.max` of the two
+		// would measure the row six rows tall around a one-row box
+		const tree = () =>
+			box({ 'flex-direction': 'row' }, text('one two three four five six', { 'max-height': '1' }));
+
+		expect(measureNode(tree(), 6)).toMatchObject({ height: 1, minHeight: 1 });
+
+		// and the minimum is asserted beside the height rather than left implicit,
+		// because the height alone is not the answer anything downstream reads: a
+		// column parent clamps a child's basis up to its automatic minimum, so an
+		// unclamped `minHeight: 6` placed this row six rows tall while its own measure
+		// said one. That is the defect this whole block is about, reintroduced one
+		// number along
+		const column = box({ 'flex-direction': 'column', width: '6' }, tree(), text('after'));
+		const placed = layout(column, { width: 6 });
+		expect(placed.children[0].box.height).toBe(1);
+		expect(placed.children[1].box.y).toBe(1);
+	});
+});
