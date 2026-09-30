@@ -44,6 +44,16 @@ import {
 	type Tree,
 } from '../element/index.js';
 import { errorHandler as defaultErrorHandler } from '../error-handler.js';
+// `capabilities.js` rather than `input/index.js`, and the difference is the whole
+// startup argument: that module's only runtime import is the `ESC` byte, while the
+// router would drag the focus ring and the key decoder into every renderer bundle
+import {
+	type Capabilities,
+	detectCapabilities,
+	type DetectOptions,
+	readCapabilities,
+} from '../input/capabilities.js';
+import type { InputRouter } from '../input/index.js';
 import { measureNode } from '../layout/index.js';
 import { createEffects, type Effects } from '../signals/index.js';
 import { Cascade, Restyler } from '../style/index.js';
@@ -147,6 +157,34 @@ export interface Renderer {
 	/** Where frames are going. */
 	readonly backend: CanvasBackend;
 	/**
+	 * Asks the terminal what it is, and restyles if the answer moved anything.
+	 *
+	 * **This is the only thing in the library that probes**, and it is a method on
+	 * a mounted renderer rather than a step inside `render()` for the reason
+	 * SIG-108 exists: a CLI must not pay a round trip to print one line, so
+	 * `main()`, `parse()`, the help screen and `renderToString()` write no query
+	 * ever. Environment inference stays the default answer and the synchronous one;
+	 * this refines it.
+	 *
+	 * The first frame does not wait for it. A reply that changes the colour level
+	 * is published as a media-context change and the frame loop does with it what
+	 * it already does with a resize -- a full re-match, a layout and a repaint --
+	 * so this is a signal that settles a frame or two in rather than a startup
+	 * phase.
+	 *
+	 * It takes the router rather than building one, because one thing owns stdin
+	 * and which backend and which input an app has are the app's decisions. The
+	 * order is `render()`, then `createInput({ root: view.root })`, then this.
+	 *
+	 * @param input - The router. It reads the reply out of the key stream.
+	 * @param opts - Which capabilities to ask for.
+	 * @returns What came back, which for a terminal that said nothing is nothing,
+	 *   and for a renderer that has already gone is nothing without a query being
+	 *   written. A query that could not be *written* propagates, for the reason
+	 *   `InputRouter.query()` gives: a broken stream is not a quiet terminal.
+	 */
+	detect(input: InputRouter, opts?: DetectOptions): Promise<Capabilities>;
+	/**
 	 * Unmounts everything, disposes every effect, and gives the screen back.
 	 *
 	 * The last frame stays where it was drawn, which inline means in the log,
@@ -235,9 +273,28 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 	 * decides that style. A query means "how much screen is there", which has an
 	 * answer that nothing in the frame can move.
 	 */
+	/**
+	 * What a capability reply refined, kept so that a resize does not undo it.
+	 *
+	 * `readMedia()` rebuilds the whole context from scratch on every resize, so a
+	 * level the terminal told us about has to live somewhere that survives that --
+	 * otherwise the refinement lasts exactly until the window changes by a column.
+	 *
+	 * It sits *above* `opts.colorLevel` rather than below it, and that took a
+	 * second look. A caller that names a level reads like a caller who has decided,
+	 * and `mountLive()` shows why it is not: every built-in passes
+	 * `opts.colorLevel ?? ansi.level`, which is the environment's own guess wearing
+	 * the caller's clothes -- so treating a named level as final would mean no
+	 * spinner, prompt or table could ever be refined. What actually needs
+	 * protecting is a level of *zero*, which is what `NO_COLOR` and a pipe produce,
+	 * and `refineColorLevel()` protects it by refusing to raise off that floor
+	 * rather than by anything here.
+	 */
+	let refined: { colorLevel?: ColorLevel } = {};
+
 	const readMedia = (): void => {
 		cascade.media = {
-			colorLevel: opts.colorLevel ?? supportsColor(),
+			colorLevel: refined.colorLevel ?? opts.colorLevel ?? supportsColor(),
 			height: Math.max(1, terminal.height),
 			width: Math.max(1, terminal.width),
 		};
@@ -515,11 +572,59 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 		// everything, media queries included: a rule inside `@media (min-width: 100)`
 		// may now apply or may now not, and which elements those are is exactly the
 		// question a full re-match answers
+		publishMedia();
+	});
+
+	/**
+	 * Publishes a media-context change: a full re-match, a layout, a repaint.
+	 *
+	 * The same three things a resize does, through the same three calls, because a
+	 * capability reply and a resize are the same kind of event -- the answer to a
+	 * media query moved. Written once rather than twice for the reason this file
+	 * already gives about two implementations of one thing: the day they part is
+	 * the day a late reply restyles and a resize does not, or the other way round.
+	 */
+	function publishMedia(): void {
 		readMedia();
-		restyler.touchSize();
+		restyler.touchMedia();
 		full = true;
 		requestFrame();
-	});
+	}
+
+	async function detect(input: InputRouter, options: DetectOptions = {}): Promise<Capabilities> {
+		if (disposed || failed) {
+			// a probe against a renderer that has gone would write a query nothing
+			// will read the answer to, and then restyle a tree nobody is painting
+			return readCapabilities([]);
+		}
+
+		const found = await detectCapabilities(input, {
+			...options,
+			// what the environment said, which is the floor a reply may raise and may
+			// not lower. Read here rather than in the probe, because this is where the
+			// question "what are we resolving at" already has an answer
+			colorLevel: options.colorLevel ?? (cascade.media.colorLevel as ColorLevel),
+		});
+
+		if (disposed || failed) {
+			return found;
+		}
+
+		// asked again against the level that is on screen *now* rather than only
+		// against the one captured before the await, and both halves are the
+		// invariant rather than tidiness. `> 0` because the floor may have moved
+		// while the probe was out -- a resize re-reads `NO_COLOR`, so a level that was
+		// 2 when the query went out can be 0 by the time it comes back, and
+		// `refineColorLevel()` only ever saw the old one. `>` because raise-only is
+		// the rule, and `!==` would let a reply lower a level a resize had raised
+		const level = cascade.media.colorLevel;
+		if (found.colorLevel !== undefined && level > 0 && found.colorLevel > level) {
+			refined = { ...refined, colorLevel: found.colorLevel };
+			publishMedia();
+		}
+
+		return found;
+	}
 
 	// the first frame is synchronous, so `render()` returns with something on
 	// screen rather than with a timer pending
@@ -527,6 +632,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 
 	return {
 		backend,
+		detect,
 		dispose: () => teardown(true),
 		frame: runFrame,
 		invalidate: requestFrame,

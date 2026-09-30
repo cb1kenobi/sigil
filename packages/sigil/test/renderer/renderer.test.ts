@@ -1,5 +1,6 @@
 import { createCanvas } from '../../src/canvas/index.js';
 import { box, type Element, text } from '../../src/element/index.js';
+import { parseCapabilityResponse } from '../../src/input/capabilities.js';
 import {
 	createBranch,
 	createContext,
@@ -1464,5 +1465,190 @@ describe('giving the screen back', () => {
 		terminal.write('after\r\n');
 
 		expect(screen.written).toEqual(['after']);
+	});
+});
+
+describe('refining what the terminal is', () => {
+	/**
+	 * A router that answers with whatever it was told to, and nothing else.
+	 *
+	 * `detect()` only ever calls `query()`, and the router's own half -- a reply
+	 * taken out of the key stream, the CPR gate, the deadline -- is asserted in
+	 * `test/input/capabilities.test.ts` over the real one. What is asserted here is
+	 * the renderer's half: that a late reply *restyles* rather than being dropped.
+	 */
+	function answering(replies: readonly string[]) {
+		const written: string[] = [];
+		return {
+			written,
+			router: {
+				query(opts: { write: string }) {
+					written.push(opts.write);
+					return Promise.resolve(
+						replies.map((it) => parseCapabilityResponse(it)).filter((it) => it !== undefined)
+					);
+				},
+			} as never,
+		};
+	}
+
+	const SHEET = `
+		box { color: gray }
+		@media (color-level: 3) { box { color: cyan } }
+	`;
+
+	it('should publish a late reply as a media change and restyle', async () => {
+		const h = harness(20, 4);
+		let root: Element | undefined;
+		const view = render(
+			() => {
+				root = box({}, text('x'));
+				return root;
+			},
+			{
+				backend: h.backend,
+				cascade: new Cascade([parseStylesheet(SHEET)]),
+				colorLevel: 2,
+				effects,
+				frameMs: 0,
+				terminal: h.terminal,
+			}
+		);
+
+		// the first frame did not wait for anything: it painted at the level that was
+		// inferred, which is what `probing refines it and never gates it` means
+		expect(root?.style.color).toBe(8);
+		const painted = h.painted;
+
+		const { router } = answering([`\u001bP>|Ghostty 1.0.1\u001b\\`, `\u001b[?62;c`]);
+		const caps = await view.detect(router);
+		expect(caps.colorLevel).toBe(3);
+
+		// and the frame the reply asked for arrives on its own, which is the half
+		// that silently does nothing when it is not wired up
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		expect(root?.style.color, 'the reply was read and then dropped').toBe(6);
+		expect(h.painted, 'nothing repainted').toBeGreaterThan(painted);
+		view.dispose();
+	});
+
+	it('should let a resize keep the refinement rather than undo it', async () => {
+		const h = harness(20, 4);
+		let root: Element | undefined;
+		const view = render(
+			() => {
+				root = box({}, text('x'));
+				return root;
+			},
+			{
+				backend: h.backend,
+				cascade: new Cascade([parseStylesheet(SHEET)]),
+				colorLevel: 1,
+				effects,
+				frameMs: 0,
+				terminal: h.terminal,
+			}
+		);
+
+		const { router } = answering([`\u001bP>|kitty 0.32.2\u001b\\`, `\u001b[?62;c`]);
+		await view.detect(router);
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		expect(root?.style.color).toBe(6);
+
+		// `readMedia()` rebuilds the whole context from scratch, so a level the
+		// terminal told us about has to survive that or the refinement lasts exactly
+		// until the window changes by a column
+		h.resize(40, 24);
+		view.frame();
+		expect(root?.style.color, 'a resize undid what the terminal said').toBe(6);
+		view.dispose();
+	});
+
+	it('should never raise a level of zero, whatever the terminal says', async () => {
+		const h = harness(20, 4);
+		let root: Element | undefined;
+		const view = render(
+			() => {
+				root = box({}, text('x'));
+				return root;
+			},
+			{
+				backend: h.backend,
+				cascade: new Cascade([parseStylesheet(SHEET)]),
+				// zero is what `NO_COLOR` and a pipe produce, and a probe that raised it
+				// would override a choice the user or the destination already made --
+				// the same rule the degrader keeps for a declared palette colour
+				colorLevel: 0,
+				effects,
+				frameMs: 0,
+				terminal: h.terminal,
+			}
+		);
+
+		const { router } = answering([`\u001bP>|Ghostty 1.0.1\u001b\\`, `\u001b[?62;c`]);
+		const caps = await view.detect(router);
+		expect(caps.colorLevel).toBeUndefined();
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		expect(root?.style.color, 'a level of zero was raised').toBe(-1);
+		view.dispose();
+	});
+
+	it('should write no query from a renderer that has gone', async () => {
+		const h = harness(20, 4);
+		const view = render(() => box({}, text('x')), {
+			backend: h.backend,
+			effects,
+			terminal: h.terminal,
+		});
+		view.dispose();
+
+		const { router, written } = answering([`\u001b[?1;2c`]);
+		const caps = await view.detect(router);
+		expect(written).toEqual([]);
+		expect(caps.responded).toBe(false);
+	});
+});
+
+describe('a reply that came back to a different screen', () => {
+	// `refineColorLevel()` is asked before the await and only ever sees the level
+	// that was on screen then. A resize re-reads the environment, so a level that was
+	// 2 when the query went out can be 0 -- `NO_COLOR` exported in between -- by the
+	// time the reply lands, and a publish that only compared the two would put
+	// colour back on a screen that had just been told not to have any
+	it('should not raise a level that has since gone to zero', async () => {
+		const h = harness(20, 4);
+		let root: Element | undefined;
+		const view = render(
+			() => {
+				root = box({}, text('x'));
+				return root;
+			},
+			{
+				backend: h.backend,
+				cascade: new Cascade([parseStylesheet(`box { color: gray }`)]),
+				colorLevel: 0,
+				effects,
+				frameMs: 0,
+				terminal: h.terminal,
+			}
+		);
+
+		const written: string[] = [];
+		const router = {
+			query(opts: { write: string }) {
+				written.push(opts.write);
+				return Promise.resolve(
+					[`\u001bP>|Ghostty 1.0.1\u001b\\`, `\u001b[?62;c`]
+						.map((it) => parseCapabilityResponse(it))
+						.filter((it) => it !== undefined)
+				);
+			},
+		} as never;
+
+		// the floor the probe refines from, as it was before the level moved
+		await view.detect(router, { colorLevel: 2 });
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		expect(root?.style.color, 'colour came back on a screen at level zero').toBe(-1);
+		view.dispose();
 	});
 });

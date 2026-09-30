@@ -1,9 +1,14 @@
-import { decodeKeys, isAbort, pendingLength } from '../../src/components/keys.js';
+import {
+	type DecodeOptions,
+	decodeKeys,
+	isAbort,
+	pendingLength,
+} from '../../src/components/keys.js';
 import { describe, expect, it } from 'vitest';
 
 /** The one key in a chunk, for the cases that are about decoding rather than splitting. */
-function one(input: string) {
-	const keys = decodeKeys(input);
+function one(input: string, opts?: DecodeOptions) {
+	const keys = decodeKeys(input, opts);
 	expect(keys, `expected exactly one key from ${JSON.stringify(input)}`).toHaveLength(1);
 	return keys[0];
 }
@@ -225,5 +230,74 @@ describe('isAbort()', () => {
 		for (const input of ['a', '\r', '\u001b', '\u001b[A', '\u0001']) {
 			expect(isAbort(decodeKeys(input)[0]), input).to.equal(false);
 		}
+	});
+});
+
+describe('control strings', () => {
+	const ESC = '\u001b';
+	const BEL = '\u0007';
+	const ST = `${ESC}\\`;
+
+	/**
+	 * A terminal answers a query on the stream the user types on, so a reply lands
+	 * here -- and read as keys it is typed into somebody's answer one character at a
+	 * time. Measured before this existed: an OSC 11 reply came through as 23 keys of
+	 * which a text prompt inserted 21, and XTVersion's carried the terminal's own
+	 * name into it. What the decoder owes is one read; what it *is* is
+	 * `isCapabilityResponse()`'s question.
+	 */
+	it('should read an OSC reply as one read rather than as its characters', () => {
+		expect(one(`${ESC}]11;rgb:1111/2222/3333${BEL}`).sequence).to.equal(
+			`${ESC}]11;rgb:1111/2222/3333${BEL}`
+		);
+		expect(one(`${ESC}]11;rgb:1111/2222/3333${ST}`).name).to.equal('unknown');
+		expect(one(`${ESC}]10;rgb:0/0/0\u009c`).name).to.equal('unknown');
+	});
+
+	it('should read a DCS reply as one read', () => {
+		expect(one(`${ESC}P>|Ghostty 1.0.1${ST}`).sequence).to.equal(`${ESC}P>|Ghostty 1.0.1${ST}`);
+	});
+
+	// `ESC ]` is the OSC introducer *and* it is Alt-], and nothing in the bytes
+	// tells them apart. The default is the conservative reading: a control string
+	// is claimed only where its payload could not be a key that was typed
+	it('should still read Alt-] and Alt-Shift-P as keys', () => {
+		expect(one(`${ESC}]`).name).to.equal(']');
+		expect(one(`${ESC}]`).meta).to.equal(true);
+		expect(one(`${ESC}P`).name).to.equal('P');
+		expect(decodeKeys(`${ESC}]x`).map((k) => k.name)).to.deep.equal([']', 'x']);
+	});
+
+	// which is what `strings` is for: only a reader that has asked the terminal a
+	// question knows that `ESC ]` is an answer, and it says so for exactly the
+	// window in which one can arrive
+	it('should claim an introducer whatever follows it while a query is open', () => {
+		expect(decodeKeys(`${ESC}]x${BEL}`, { strings: true }).map((k) => k.name)).to.deep.equal([
+			'unknown',
+		]);
+		expect(pendingLength(`${ESC}]`, { strings: true })).to.equal(2);
+		expect(pendingLength(`${ESC}]`)).to.equal(0);
+	});
+
+	it('should hold a control string whose terminator has not arrived', () => {
+		expect(pendingLength(`${ESC}]11;rgb:1111`)).to.equal(13);
+		expect(pendingLength(`${ESC}P>|Ghost`)).to.equal(9);
+		expect(pendingLength(`${ESC}]11;rgb:1111${BEL}`)).to.equal(0);
+	});
+
+	// the same walk answers both, which is what stops the two disagreeing about
+	// where the last key starts
+	it('should agree with the decoder about a split reply', () => {
+		const input = `a${ESC}]11;rgb:`;
+		const held = pendingLength(input);
+		expect(decodeKeys(input.slice(0, input.length - held)).map((k) => k.name)).to.deep.equal(['a']);
+		expect(input.slice(input.length - held)).to.equal(`${ESC}]11;rgb:`);
+	});
+
+	// a key pressed while a reply was arriving must survive, which is the rule the
+	// CSI path already keeps: an abort byte does not end a control string here, so
+	// the whole tail is held and flushed rather than half read
+	it('should not lose a control string to a stray ESC that is not a terminator', () => {
+		expect(one(`${ESC}]11;rgb:${ESC}[A`, { strings: true }).name).to.equal('unknown');
 	});
 });
