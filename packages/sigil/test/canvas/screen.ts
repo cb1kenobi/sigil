@@ -254,6 +254,15 @@ export class Screen {
 						// styling, which a screen model has no opinion about
 						break;
 					}
+					case 'n': {
+						// a device status request -- `CSI 6 n` is "where is the cursor". It
+						// changes nothing on screen, and the answer comes back on the *input*
+						// stream, which a test supplies by feeding bytes rather than something
+						// this could write. Modelled as nothing rather than left to the
+						// `default` below, which threw and was swallowed by the one caller
+						// that cannot report anything
+						break;
+					}
 					default: {
 						throw new Error(`unmodelled sequence: ${final}`);
 					}

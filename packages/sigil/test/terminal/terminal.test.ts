@@ -1,5 +1,14 @@
 import { createTerminal, type OutputStream, type ProcessLike } from '../../src/terminal/index.js';
-import { HIDE_CURSOR, SHOW_CURSOR } from '../../src/terminal/sequences.js';
+import {
+	DISABLE_MOUSE_BUTTONS,
+	DISABLE_MOUSE_MOTION,
+	DISABLE_MOUSE_SGR,
+	ENABLE_MOUSE_BUTTONS,
+	ENABLE_MOUSE_MOTION,
+	ENABLE_MOUSE_SGR,
+	HIDE_CURSOR,
+	SHOW_CURSOR,
+} from '../../src/terminal/sequences.js';
 import { describe, expect, it, vi } from 'vitest';
 
 /**
@@ -461,6 +470,86 @@ describe('createTerminal()', () => {
 			expect(proc.listenerCount('exit')).to.equal(1);
 
 			a.release();
+			expect(proc.listenerCount('exit')).to.equal(0);
+		});
+	});
+
+	describe('mouse tracking', () => {
+		it('should ask for SGR before the tracking mode, and put it back after', () => {
+			// there is never a moment in which the mouse is being reported in an encoding
+			// nothing here reads, which is what the ordering buys and is the only reason
+			// these are two sequences rather than one
+			const { stdout, term } = setup();
+
+			expect(term.enableMouse()).to.equal(true);
+			expect(stdout.output).to.equal(ENABLE_MOUSE_SGR + ENABLE_MOUSE_BUTTONS);
+
+			term.disableMouse();
+			expect(stdout.output).to.equal(
+				ENABLE_MOUSE_SGR + ENABLE_MOUSE_BUTTONS + DISABLE_MOUSE_BUTTONS + DISABLE_MOUSE_SGR
+			);
+		});
+
+		it('should ask for any-event tracking only where motion was asked for', () => {
+			const { stdout, term } = setup();
+
+			term.enableMouse({ motion: true });
+			expect(stdout.output).to.equal(ENABLE_MOUSE_SGR + ENABLE_MOUSE_MOTION);
+
+			term.disableMouse();
+			// the mode that was turned on is the mode that is turned off: asking `1002l`
+			// over a `1003h` would leave the terminal reporting every cell the pointer
+			// crosses into a shell
+			expect(stdout.output).to.equal(
+				ENABLE_MOUSE_SGR + ENABLE_MOUSE_MOTION + DISABLE_MOUSE_MOTION + DISABLE_MOUSE_SGR
+			);
+		});
+
+		it('should report only the call that turned it on', () => {
+			const { stdout, term } = setup();
+
+			expect(term.enableMouse()).to.equal(true);
+			// including a second call asking for the *other* mode: whoever turned it on
+			// owns which one it is, and a caller told `true` here would turn it off again
+			expect(term.enableMouse({ motion: true })).to.equal(false);
+			expect(stdout.output).to.equal(ENABLE_MOUSE_SGR + ENABLE_MOUSE_BUTTONS);
+		});
+
+		it('should do nothing when this is not a terminal', () => {
+			const term = createTerminal({ env: {}, isTTY: false, stdout: createStream() as never });
+			expect(term.enableMouse()).to.equal(false);
+		});
+
+		it('should write nothing to disable a mode nobody turned on', () => {
+			const { stdout, term } = setup();
+			term.disableMouse();
+			expect(stdout.output).to.equal('');
+		});
+
+		it('should put the mode back on restore, which is the loudest entry on the list', () => {
+			// a shell left in a tracking mode puts a report into whatever the user types
+			// next every time they move the pointer over the window
+			const { proc, stdout, term } = setup();
+
+			term.enableMouse({ motion: true });
+			expect(proc.listenerCount('exit')).to.equal(1);
+
+			term.restore();
+			expect(stdout.output).to.equal(
+				ENABLE_MOUSE_SGR + ENABLE_MOUSE_MOTION + DISABLE_MOUSE_MOTION + DISABLE_MOUSE_SGR
+			);
+			expect(proc.listenerCount('exit')).to.equal(0);
+		});
+
+		it('should hold the restore handlers for tracking alone', () => {
+			// it is on `syncRestore()`'s list, so it is enough on its own to keep the
+			// process handlers attached and enough on its own to let them go
+			const { proc, term } = setup();
+
+			term.enableMouse();
+			expect(proc.listenerCount('exit')).to.equal(1);
+
+			term.disableMouse();
 			expect(proc.listenerCount('exit')).to.equal(0);
 		});
 	});

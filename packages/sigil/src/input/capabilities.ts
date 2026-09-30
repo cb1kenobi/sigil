@@ -319,8 +319,9 @@ function numbers(params: string): number[] {
  *   a user pressed while it was arriving -- which is the failure the decoder
  *   already carries an entry for;
  * - a mouse report. `CSI < 0 ; 10 ; 5 M` leads with the private `<` and ends on
- *   `M`, which is neither a shape here nor a key, and will be an event of its own
- *   the day mouse tracking lands;
+ *   `M`, which is neither a shape here nor a key: it is `parseMouseReport()`'s, and
+ *   the router asks that separately. The two are disjoint by construction, so
+ *   neither has to know about the other;
  * - a focus report, `CSI I` and `CSI O`, for the same reason: unsolicited
  *   terminal chatter rather than an answer to anything.
  *

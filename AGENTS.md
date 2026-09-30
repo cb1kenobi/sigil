@@ -1083,6 +1083,19 @@ migrate up` reads `commands/`, `commands/db/` and `commands/db/migrate/` and
   Reporting its declared height as its minimum froze it at that height and
   pushed it out of a container too short to hold it -- which is the one thing
   shrinking exists to prevent.
+- **An over-constrained row of declared widths is squeezed rather than
+  overflowing, and what it squeezes moves when the _content_ does.** That is CSS
+  -- `flex-shrink` defaults to 1 -- and it is the trap anyone laying a fixed row
+  out walks into, because it looks right until one cell's text gets longer. Found
+  by `05-drag.js`, reported as a rendering bug: its slider row asked for `9 + 30 +
+6` in a 40-column content box, the `nowrap` track could not shrink below its own
+  width, so the label and the value absorbed all five columns -- and when the
+  value's _automatic minimum_ grew from three characters to four, at exactly
+  `100%` and nowhere else, the extra column came out of the label and shifted the
+  whole bar one cell left. Nothing in the engine was wrong and nothing overflowed,
+  which is why it reads as a drawing fault rather than as arithmetic. The fix is to
+  make the declared widths add up, and the diagnostic is to lay the row out at
+  several values and watch whether any box moves.
 - **`justify-content` and `align-content` share one divider, and it goes through
   `distribute()`.** A single `Math.floor()` per gap cannot hold a remainder:
   `space-evenly` over seven cells and four slots gave three gaps of one and a
@@ -3013,15 +3026,335 @@ dependency. Regenerate with `node scripts/generate-utilities.mjs` from inside
   that fails when either is removed. Bindings, paste handlers, resize handlers,
   and `Terminal.onResize()` all say it the same way. See
   `test/input/input.test.ts`.
-- **Mouse tracking is a follow-up, not a no.** It would give `:hover`,
-  click-to-focus and a scroll wheel, and it costs a capability check and a mode
-  that must go back on exit. That capability check now exists: `queryMode()` in the
-  section below says whether a mode the app asked for actually took, rather than
-  leaving it an assumption. The event model does not preclude it, which is why
-  the type is `KeyEvent` rather than `Event`: a mouse event can join it without
-  either having to become the other. The Kitty keyboard protocol is the same
-  shape of answer, opt-in by query, and worth having the day something needs a
-  key the legacy encoding cannot spell.
+- **The mouse is the router's too, and the Kitty keyboard protocol is what is
+  left of that list.** Two decisions were taken in advance so that the mouse could
+  be added without either layer moving -- the event type is `KeyEvent` rather than
+  `Event` so a mouse event could join it, and `:hover` parsed and matched nothing on
+  the explicit ground that the selector engine must not assume it never will -- and
+  both held. The Kitty protocol is the same shape of answer, opt-in by query, and
+  worth having the day something needs a key the legacy encoding cannot spell.
+
+### The mouse
+
+Enable `1002` plus `1006`, translate the report into the canvas, hit-test the
+arranged tree, and dispatch target-then-ancestors. `src/input/mouse.ts` is the
+report, `src/element/hit.ts` is the hit test, `Terminal.enableMouse()` is the
+mode, and the routing is the router's.
+
+- **Only SGR (`1006`) is read.** The legacy X10 encoding writes a coordinate as one
+  byte of `32 + n`, so it runs out at column 223 -- an ordinary width on a wide
+  monitor, and a failure that looks like the app ignoring clicks down the
+  right-hand side. There is no reason to accept an encoding that cannot describe
+  the screen it is reporting about, so a terminal too old for SGR reports nothing
+  rather than reporting the left two thirds of itself.
+- **The decoder already framed a report as one read, and that was not luck.**
+  `isParameter()` reads the private-use `<` because it was widened to, for exactly
+  this: ended at the `<`, `ESC [ < 0 ; 1 ; 1 M` left `0;1;1M` to be typed into
+  somebody's answer a character at a time. Nothing in the decoder had to change.
+- **A report is dropped whether or not anybody asked for tracking**, which is the
+  rule a reply nobody is waiting for already follows: it is not a key. A terminal
+  some other program left in a tracking mode, or one still reporting after this
+  router turned the mode off, would otherwise put `<35;40;12M` in an answer.
+- **`1003` is opt-in and `:hover` costs it or nothing.** `1002` reports presses,
+  releases and motion while a button is held; `1003` reports **every cell the
+  pointer crosses**, for as long as the app runs, over what may be an ssh link. So
+  `:hover`, `mouseenter` and `mouseleave` are tracked only under `motion: true`.
+  Writing them from a press instead would be worse than not writing them: with no
+  motion to clear it, a hover set by a click sticks to whatever was clicked until
+  something else is. With it off, `:hover` matches nothing -- exactly what it did
+  before there was a mouse, so no sheet changes meaning by turning tracking on.
+  The alternative was turning `1003` on by itself wherever some rule uses `:hover`,
+  and it is refused: a sheet is one of two consumers, since a `mousemove` handler
+  wants motion just as much and no scan can see one, and sheets are swapped at
+  runtime, so the wire cost would come and go underneath the app.
+- **Translation is the backend's, because a canvas does not know where it sits.**
+  Every coordinate a canvas deals in is relative to its own top-left and a report
+  is absolute. Full screen is free: the alternate buffer starts at the origin.
+  Inline knows how many rows it reserved and not which screen rows those are --
+  the log above it moves -- so it asks, with a cursor position report, and
+  `origin` is `undefined` until it has. What it costs is one report per re-anchor,
+  which is the invalidation list the anchor already had: a resize, a line written
+  above the region, an eviction. The router asks once at the start so the common
+  case never loses a click, and lazily after that; one probe is outstanding at a
+  time, or a pointer dragged across a canvas that has forgotten itself would write
+  a cursor query per cell.
+- **A reply is checked against the anchor it was asked about.** A cursor report
+  comes back a round trip later, so the position it names is where the cursor was
+  when the query went out -- which is why `locate()` captures the row rather than
+  reading it after the await, since frames in between move the cursor. A
+  _re-anchor_ in between moves the origin too, and then the answer describes a
+  canvas that is somewhere else, so `unanchor()` bumps a generation and a reply
+  that does not match it is thrown away. Both halves are sabotage-checked.
+- **`origin`, `toCanvas()` and `locate()` are required on `CanvasBackend`, not
+  optional.** Optional members mean a router that branches on their absence, and a
+  backend that silently cannot translate is a mouse that silently does not work.
+  There are two backends and both answer; an app with a custom one gets a compile
+  error naming what to add, which is the loud failure. It costs such an app nothing
+  to satisfy the router on its own either, since `MouseSurface` is structural.
+- **The asking is the router's and the arithmetic is the backend's**, because one
+  thing owns stdin: a reply arrives interleaved with what the user is typing. So
+  `locate()` takes the probe rather than making the query, and `MouseSurface` is a
+  structural interface naming the four things the router wants from a canvas rather
+  than an import of `CanvasBackend` -- the shape `InputStream` and `OutputStream`
+  already take there.
+- **The clip is carried on the arranged tree rather than computed during paint.**
+  A box clipped by an ancestor's `overflow` is not hittable where it is clipped,
+  and the hit test needs the _same_ rectangle paint drew inside -- two walks
+  intersecting one chain is two answers to one question. So `arrange()` writes
+  `element.clip`, and paint draws each element inside it. That reads as though it
+  needed `Painter.clip()` to replace rather than intersect, and it does not:
+  nothing in the paint walk leaves a clip in effect between elements, so the
+  ambient clip is always empty when it asks, and intersecting with nothing is what
+  an already-intersected rectangle wants. `undefined` where no ancestor clips,
+  which is the common case, so it costs no allocation.
+- **`paintOrder()` and `contains()` live in `hit.ts`, though `paint.ts` is paint
+  order's primary reader, and the reason is a bundle.** The mouse gave the router a
+  reason to reach into the element tree, and reaching it through `element/paint.js`
+  for two lines of arithmetic put the layout engine, the cascade and the canvas
+  behind `@ttylabs/sigil/input`: measured at **29.4 kB of static import graph before
+  and 92.9 kB after**, paid by an app that wanted a key router and no rendering at
+  all. `hit.ts` imports nothing but a type, so it is 33.0 kB and the 3.6 kB is the
+  mouse itself. The import therefore points from paint to hit rather than the other
+  way round, which reads backwards and is the lighter module winning. One
+  implementation either way, which is the part that matters. `should not drag the
+drawing stack in to import the key router` is the ceiling, at about 3x, with the
+  markers chosen for what survives minification -- an exported name and a string
+  literal, never a name that is only ever called.
+- **The hit test is reverse paint order, and `paintOrder()` is exported for it.**
+  Topmost first is that list backwards, and a second implementation of "which
+  child is on top" is a hit test that disagrees with the screen. Children are
+  asked before the element's own box and _not_ gated on the point being inside it,
+  because a child with `overflow: visible` is drawn outside its parent and is
+  hittable there. `visibility: hidden` skips the element and not the subtree, the
+  way paint does, because it inherits. A box with no background is hittable, which
+  is CSS -- transparent is not absent -- and there is no `pointer-events` to say
+  otherwise, deliberately: nothing needs one, and a property that parses and does
+  nothing is worse than one that does not exist.
+- **A press captures the pointer, and that is what makes "dropped rather than
+  clamped" affordable.** A report outside the canvas rect really is dropped -- a
+  click on the log above the region is not the app's -- and on its own that
+  strands every component that tracks a press: the release arrives outside, is
+  dropped, and a drag waits for a `mouseup` forever. So while a button is held,
+  the motion and the release go to whatever the press landed on wherever the
+  pointer got to, which is the web's implicit capture and is what makes a
+  draggable scrollbar possible. The consequence is that `x` and `y` may be outside
+  the canvas on a captured event, exactly as `clientX` is during a drag.
+- **A press is never a captured event**, which is not pedantry: it is what
+  _creates_ the capture, so reading one sent a second press for a button already
+  held to whatever the first one landed on rather than to what is under the
+  pointer now. Found by a test, and it is the only bug this ticket's own tests
+  turned up in it.
+- **A drag is not an event, and the wheel needed no motion.** Press, move and
+  release are three events a component already gets, and what a drag _means_ -- a
+  threshold, an axis lock, a grabbed handle -- differs per component. The wheel
+  turns over whatever is under the pointer, and the ticket's worry that this
+  needed `1002` motion to know was unfounded: a report _is_ a position, so a turn
+  carries its own coordinates and is hit-tested with no tracking at all.
+- **`mouseenter` and `mouseleave` are dispatched along the difference between two
+  chains, not bubbled.** It is the one place the dispatch differs by kind, and it
+  has to: moving from a child to its sibling leaves the child and enters the
+  sibling and does not leave their parent, which the pointer never left -- a
+  bubbling leave would say it did, which is precisely why the DOM has two
+  spellings of this event. Leave fires innermost first and enter outermost first,
+  which is the DOM's order.
+- **`:hover` is set on the whole chain, and it is derived rather than stored
+  twice.** In CSS the pointer is inside every box that contains it, so a
+  `.row:hover` rule has to match the row when the pointer is over the text inside
+  it. One source -- the hit test -- with the state derived from it, which is
+  exactly how focus works. The states are written before any handler is told, so a
+  handler reading `element.states` sees the answer rather than the question.
+- **There is no bindings-first step.** That ordering exists for keys so a focused
+  input cannot swallow Ctrl-C, and there is no mouse analogue of being unable to
+  quit -- so `onMouse()` runs **after** the tree, which is the useful position
+  anyway: everything the tree did not claim, _including_ the reports that landed on
+  no element at all, which nothing in the tree can see. Stopping a `mousedown`
+  there suppresses click-to-focus, which is the mouse's default action the way Tab
+  is a key's. `current` is `undefined` for those handlers, because the event is
+  past the tree.
+- **Click-to-focus leaves the focus alone where nothing under the pointer is
+  focusable.** A browser blurs there; this does not, because what that comes to in
+  a terminal is the keyboard stopping working because the pointer brushed a
+  border, and a click that landed on nothing focusable said nothing about focus.
+  Moving focus is what the ring is for.
+- **A stopped `mouseup` does not cancel the derived `click`, and finding that out
+  took a demo.** Stopping an event stops it _bubbling_; it does not cancel a
+  different event, which is the DOM's rule. The first version gated the click on the
+  mouseup, and `05-drag.js` walked straight into it: a slider stops the mouseup
+  because it owns the drag, and then silently lost the clicks it also wanted -- with
+  nothing to point at, since the two spellings look identical from outside. A
+  component that wants neither stops both, which is discoverable in a way the other
+  way round is not. `should follow a release that something stopped, because they are
+two events` is the guard, and its sibling asserts the click is still stoppable
+  itself.
+- **A click lands on the nearest box containing both ends.** A press on the text
+  inside a button and a release on the button's padding is a click on the button,
+  which is the DOM's rule and what everybody expects. A release off the canvas
+  needs no guard of its own: there is nothing under it to have anything in common
+  with, and an `inside` conjunct written here was deleted again because the suite
+  stayed green without it.
+- **The hover states are cleared when the router stops, and the focus is not.**
+  Nothing will ever clear them otherwise -- the reports have stopped -- so a
+  highlight would outlive the tracking that produced it, which is a wrong cell on
+  screen forever. Silently, because dispatching into a component while the router
+  is being torn down is a worse rule. The asymmetry with focus is the point: focus
+  is the app's and survives a prompt borrowing the stream, while hover is the
+  pointer's and the pointer has gone.
+- **The tracking mode is the loudest entry on the restore list.** A shell left in
+  one puts `ESC [ < 35 ; 40 ; 12 M` into whatever the user types next every time
+  they move the pointer over the window, which has to be reset by hand -- worse
+  than the paste markers and much worse than a hidden cursor. `1006` goes on
+  before the tracking mode and off after it, so there is never a moment in which
+  the mouse is being reported in an encoding nothing reads, and the mode that was
+  turned on is the mode that is turned off.
+- **What turning it on takes away is text selection**, and that is stated in the
+  demo and in the module docs rather than left to be discovered. A terminal
+  reporting the mouse stops doing its own selection, so an app that enables
+  tracking has, from the user's point of view, broken copy and paste; shift-drag
+  overrides it in most terminals and not all. That is the argument for the
+  selection ticket being a follow-on rather than an independent nice-to-have.
+- **A write that failed is swallowed along with a terminal that said nothing**, and
+  the two are not the same thing. `InputRouter.query()` rejects over a failed write
+  on the ground that a broken stream is not a quiet terminal; `relocate()` runs
+  inside the stream's `data` listener, where there is nobody to tell and a frame
+  must not come down over a mouse move -- so a stream fault costs the mouse and
+  nothing else, silently. Written down because it cost a debugging round: the
+  screen model in the test suite threw over the `CSI 6 n` it had not been taught,
+  and that is where the throw went. The model now models the request as nothing,
+  which is what it is -- it changes no cell, and the answer arrives on the input
+  stream.
+- **`terminal-probe.mjs --mouse` is where the claims only a terminal can settle
+  went, and there are more of them here than anywhere else in the stack.** Every
+  one is about what a terminal _sends_ rather than about what this reads: whether
+  yours answers in SGR at all, whether `1003` is implemented here, whether a click
+  past column 223 survives, whether DECRQM will say the modes took, and whether the
+  inline origin arithmetic comes out right on a screen nothing simulated. Eight
+  steps, each with its own `the claim:` line, and the last of them is the one no
+  test can reach: a real inline canvas learns its row from a real cursor report,
+  and clicking the target it drew has to report the cell it is drawn in.
+
+  Two things it can say that are worth knowing before reading it. The X10 fallback
+  is worse than "breaks past 223" here, because stdin is decoded as UTF-8 and a
+  byte past 127 is not a character at all -- so it breaks at column 95. And the
+  `1002`-against-`1003` step is an A/B rather than a description: it counts the
+  motion reports each mode produces, which is what `:hover`'s wire cost looks like
+  as a number on the terminal you are actually using.
+
+  Driving it found a bug in itself, which is the argument for driving it: it read
+  `backend.origin` _after_ `backend.done()`, and giving the rows back is exactly
+  what makes the origin unknown again -- so it printed `<unknown>` beside a press
+  that had translated perfectly, two lines contradicting each other.
+
+- **A router chooses its surface and its tracking mode when it is built, and one
+  router per step is a mode that flickers.** The first version of `--mouse` built
+  seven, and what that came to on the wire was **fourteen mode changes in under two
+  seconds**, twice inside the same millisecond -- measured by capturing every
+  `ESC [ ? 100n h/l` the probe wrote. iTerm2 spots it and offers to turn mouse
+  reporting off, which is it reading the stream correctly rather than a false
+  alarm: a mode that goes on and off seven times is indistinguishable from an app
+  that has lost track of whether it turned one on. Reported from a real terminal,
+  which is the only place it could have been.
+
+  The fix separates the two halves. The **surface** does not need a new router, so
+  it delegates to a `target` the probe swaps -- which is what lets the
+  inline-origin step share the router every other step uses. The **tracking mode**
+  genuinely does change once, so the `1003` step moved to the end. Four mode
+  changes now: on, the one switch, off. An app has no such problem, because an app
+  has one router; a probe that demonstrates every mode is the one caller that has
+  to think about it.
+
+  The step that swaps the surface asks `backend.locate()` itself rather than
+  letting the router find out lazily. That is the documented contract rather than
+  reaching past it -- `locate(probe)` takes the probe because the router owns stdin
+  -- and it is what keeps the step honest: the lazy path costs the report that
+  discovers the origin is unknown, and a step whose first click does nothing is a
+  step nobody trusts the rest of.
+
+- **A write that does not go through the backend moves an inline canvas and not
+  its origin, and with the mouse on that is silently wrong coordinates.** The
+  anchor is a row the canvas learnt once; a `console.log()` or a bare
+  `process.stdout.write()` underneath it scrolls the screen, so the frame walks up
+  while the canvas goes on believing where it started -- and every report then
+  translates to a cell a few rows below the one you clicked. `backend.write()` is
+  the way to put a line above a live region precisely because it erases, writes and
+  reserves the rows again, which throws the anchor away and makes the next report
+  re-learn it.
+
+  This is the already-recorded `console.log()`-after-`dispose()` hazard with a
+  sharper edge: there the _erase_ was wrong and you could see it, here the
+  arithmetic is wrong and everything looks fine. Reported from iTerm2 against the
+  probe's own origin step, in the exact words the mechanism predicts -- the target
+  stopped taking clicks and the last few printed lines took them instead, because
+  that is where the canvas still thought it was. The step paints its feedback into
+  the frame now, which is what a live region is for.
+
+- **iTerm2 overrides mouse reporting with alt/option, not shift.** Which key gets
+  selection back is the terminal's own and is nothing an app can influence or
+  detect, so the probe asks rather than asserting: shift in xterm and most of what
+  followed it, and **alt/option in iTerm2, where shift does nothing at all**. Worth
+  having written down because the first person to hit it assumes the app broke, and
+  because the "shift-drag overrides it in most terminals and not all" this file
+  already said turns out to have iTerm2 on the wrong side of it.
+- **Every report that arrives prints something, and that is enforced in `live()`
+  rather than left to each step.** It was reported three separate times before it
+  was taken as a rule, which is the part worth recording: both motion steps
+  summarised at the end and printed nothing while they ran, and the wheel step
+  printed only the _first_ turn of each direction, so it went quiet after up and
+  down however much anybody scrolled. All three were reported as doing nothing,
+  which is the correct reading of a screen with nothing on it -- and all three were
+  working perfectly.
+
+  Fixing them one at a time was the wrong shape, because the next step to go quiet
+  would have been the next report. So what a step's own `render` declines to
+  describe now gets a fallback line, and silence means what it should: that no
+  report arrived at all, which is itself a finding. The `1003` step is unreadably
+  fast on purpose -- that is what the wire is carrying, and a step that summarised
+  it would be describing the cost rather than showing it.
+
+  One step opts out, and it is the one that must: the inline-origin step holds an
+  anchored canvas, and a write underneath it scrolls the frame out from under the
+  origin it learnt. It draws its feedback into the frame instead, which is the
+  entry above, seen from the other side.
+
+- **iTerm2 warns about mouse reporting whatever this does, and that is unresolved
+  rather than fixed.** It offers to turn reporting off when you click during a run
+  -- "left on when an ssh session ended unexpectedly or an app misbehaved" -- and it
+  still does with the mode churn down from fourteen changes to four. So the churn
+  was a real bug and was not this. The leading guess is the **main screen**: an app
+  that legitimately wants the mouse is almost always on the alternate buffer, and
+  reporting left on after a crash is by definition not -- which would make an inline
+  mouse canvas the shape iTerm2 is looking for. Written as a guess because it is
+  one; the discriminator is whether `06-panes.js`, which is full screen, is quiet
+  where `04-mouse.js` and `05-drag.js` are not.
+- **The end-to-end test is the half nothing else can say.**
+  `test/input/mouse-router.test.ts` hands the router a canvas that already knows
+  where it sits, which is the only way to test the routing rules on their own;
+  `test/renderer/mouse.test.ts` puts a real renderer over a real inline backend
+  over the screen model, answers a real cursor report from the model's own cursor,
+  and asserts that a report naming a screen cell reaches the element painted
+  there. Neither replaces the other.
+- **The demo's own `q` key is the interaction worth showing.** `03-focus.js` quits
+  on `q` only when nothing is focused, because there it is a character somebody
+  may be typing into a field. `04-mouse.js` cannot afford that guard: click-to-focus
+  means a click leaves something focused, so the guard made `q` stop working the
+  moment you clicked anything -- which it did, until it was run.
+- **Three demos, and each one is for a claim the others cannot make.**
+  `04-mouse.js` is hover, click-to-focus and the wheel over an inline canvas.
+  `05-drag.js` is the capture, which is invisible until something is dragged past
+  the edge of the region -- and it is the demo that found the `mouseup`/`click`
+  conflation above. `06-panes.js` is the full-screen backend, where translating a
+  report is free, spent on the three things the hit test claims: a scrolled box is
+  where it is drawn, a clipped one is not hittable where it is clipped, and a
+  `z-index` overlay is hit before what it covers. None of them can be driven by the
+  demos test, which spawns with stdin ignored, so each takes the no-terminal branch
+  there and was exercised by hand through a faked TTY that answers the cursor
+  request -- without that answer the canvas never learns its row and every report is
+  dropped, which is the demo behaving correctly and looks exactly like a broken one.
+- **An overlay whose only opacity is a background is transparent at colour level
+  zero**, which is degradation working and reads as a broken demo. `06-panes.js`
+  fills its overlay with three lines of text as well, so the stacking order is
+  legible on a terminal with `NO_COLOR` set. Worth knowing before drawing anything
+  that has to cover what is behind it: the fill is a `background-color`, and level 0
+  drops colour.
 
 ### Asking the terminal what it is
 
@@ -3383,8 +3716,8 @@ a probe`. What the longer hold costs is worth stating precisely: a key typed
   have passed either way, because it asserts an exit code and an empty stderr
   rather than that anything was printed. `03-focus.js` has the same shape and its
   output is small enough not to have been bitten yet.
-- **`terminal-probe.mjs` grew a `--detect` mode, and it is the only thing that
-  could.** SIG-108 asked and the answer is yes. Everything else in that file paints
+- **`terminal-probe.mjs` grew a `--detect` mode, and then a `--mouse` one, and
+  they are the only things that could.** SIG-108 asked and the answer is yes. Everything else in that file paints
   a frame and asks a human to read it; this prints what the terminal answered, byte
   for byte, with the round trip timed. The claims it exists for are the ones no test
   can make: whether a given terminal sends XTVersion at all, whether it sends it

@@ -24,6 +24,7 @@ export {
 	type CanvasBackend,
 	createFullscreenCanvas,
 	createInlineCanvas,
+	type CursorProbe,
 	type Draw,
 	type FullscreenCanvasOptions,
 	type InlineCanvasOptions,

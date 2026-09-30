@@ -160,4 +160,33 @@ describe('what importing the package costs', () => {
 		// rendering path onto the entry blows straight through it
 		expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(20 * 1024);
 	});
+
+	it('should not drag the drawing stack in to import the key router', () => {
+		// the mouse gave the router a reason to reach into the element tree, and
+		// reaching it through `element/paint.js` for two lines of arithmetic put the
+		// layout engine, the cascade and the canvas behind `sigil/input`: measured at
+		// 29 kB before and 93 kB after, for an app that wanted a key router and no
+		// rendering at all. `paintOrder()` and `contains()` live in `element/hit.js`
+		// instead, which imports nothing but a type -- so this is 33 kB, and the
+		// 3.6 kB is the mouse itself.
+		//
+		// A ceiling rather than a measurement, at about 3x, so ordinary growth never
+		// touches it and a barrel import does
+		const graph = staticGraph('input.mjs');
+		const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
+
+		expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(100 * 1024);
+	});
+
+	// `mouseenter` and the mode sequence rather than `hitTest` and `enableMouse`: a
+	// name that is only ever called is renamed by the minifier, while an exported one
+	// and a string literal survive. The other half of the ceiling above, for the
+	// reason the component list gives -- a test that only asserts an absence passes
+	// forever the day the symbol is renamed
+	it.each(['parseMouseReport', 'mouseenter', '?1006h', '?1003h'])(
+		'should load %s to import the router',
+		(symbol) => {
+			expect(carriers(staticGraph('input.mjs'), symbol)).not.toEqual([]);
+		}
+	);
 });

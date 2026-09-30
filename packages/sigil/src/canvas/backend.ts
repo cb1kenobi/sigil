@@ -56,6 +56,18 @@ function crlf(text: string): string {
 /** What a backend is asked to draw: the same callback `Canvas.paint()` takes. */
 export type Draw = (painter: Painter, canvas: Canvas) => void;
 
+/**
+ * Asks the terminal where the cursor is.
+ *
+ * Taken as an argument rather than done here, because one thing owns stdin: a
+ * reply arrives interleaved with what the user is typing, so the asking is the
+ * input router's and only the arithmetic is the backend's.
+ *
+ * @returns The one-based cursor position, or `undefined` from a terminal that did
+ *   not answer.
+ */
+export type CursorProbe = () => Promise<{ column: number; row: number } | undefined>;
+
 export interface CanvasBackend {
 	/** Whether this backend still holds the screen. */
 	readonly active: boolean;
@@ -79,6 +91,33 @@ export interface CanvasBackend {
 	 * text rather than animated in place.
 	 */
 	readonly isLive: boolean;
+	/**
+	 * Learns where the canvas sits on the screen, so a mouse report can be read.
+	 *
+	 * A mouse report is in **screen** coordinates and a canvas is a rect that does
+	 * not know where it sits, so somebody has to close the gap, and the two
+	 * backends answer differently. Full screen is free -- the canvas is the
+	 * alternate buffer, which starts at the origin. Inline knows how many rows it
+	 * reserved and not which screen rows those are, because the log above it moves,
+	 * so it asks: the probe's answer minus where the backend knows it left the
+	 * cursor is the origin.
+	 *
+	 * Called again whenever `origin` has gone back to `undefined`, which is the
+	 * same invalidation list the anchor already has -- a resize, a write above the
+	 * region, an eviction.
+	 *
+	 * @param probe - Asks the terminal for the cursor position.
+	 * @returns Whether the origin is now known. `false` from a terminal that did
+	 *   not answer, and from a canvas whose rows are not on screen yet.
+	 */
+	locate(probe: CursorProbe): Promise<boolean>;
+	/**
+	 * Where the canvas's top-left sits on screen, zero-based, if that is known.
+	 *
+	 * `undefined` until `locate()` has succeeded, and again after anything that
+	 * threw the anchor away.
+	 */
+	readonly origin: { x: number; y: number } | undefined;
 	/**
 	 * Reconciles the screen with what is painted.
 	 *
@@ -106,6 +145,21 @@ export interface CanvasBackend {
 	stop(): void;
 	/** The terminal being drawn through, for anything that sizes itself to it. */
 	readonly terminal: Terminal;
+	/**
+	 * Translates a screen coordinate into a canvas one.
+	 *
+	 * Takes what a mouse report carries -- one-based, from the top-left of the
+	 * screen -- and answers in the canvas's own zero-based cells. It does **not**
+	 * ask whether the point is inside the canvas: a point outside it is a real
+	 * answer, which is what lets a drag that wandered off the region still be
+	 * reported to whatever the press landed on, and whether that matters is the
+	 * router's to decide rather than an arithmetic function's.
+	 *
+	 * @param column - The screen column, one-based.
+	 * @param row - The screen row, one-based.
+	 * @returns The canvas coordinate, or `undefined` while `origin` is unknown.
+	 */
+	toCanvas(column: number, row: number): { x: number; y: number } | undefined;
 	readonly width: number;
 	/**
 	 * Writes output that stays, rather than through the canvas.
@@ -232,6 +286,20 @@ export function createInlineCanvas(opts: InlineCanvasOptions = {}): CanvasBacken
 	/** The last frame written when this is not a terminal, so repeats are not. */
 	let plainWritten: string | undefined;
 
+	/** Where the canvas's top-left is on the screen, once something asked. */
+	let origin: { x: number; y: number } | undefined;
+
+	/**
+	 * Which anchor the origin describes, bumped every time the rows are given up.
+	 *
+	 * A cursor position report comes back a round trip later, so the position it
+	 * names is where the cursor was when the query went out. Frames in between move
+	 * the cursor and not the origin, which is why `locate()` captures the row it
+	 * asked at -- but a *re-anchor* in between moves the origin too, and then the
+	 * answer describes a canvas that is somewhere else. This is what says so.
+	 */
+	let generation = 0;
+
 	const isLive = (): boolean => terminal.isTTY && !terminal.closed;
 
 	const claim = createClaim(terminal, () => {
@@ -245,12 +313,23 @@ export function createInlineCanvas(opts: InlineCanvasOptions = {}): CanvasBacken
 		return anchored ? cursorUp(row) + CURSOR_HOME + ERASE_DOWN : '';
 	}
 
+	/** Gives the rows up, so the next present reserves them again. */
+	function unanchor(): void {
+		anchored = false;
+		row = 0;
+		// the rows are not where they were, so neither is the top-left. Both halves
+		// matter: clearing it is what makes the router ask again, and the bump is
+		// what stops a reply already on the wire answering for the anchor that has
+		// just gone
+		origin = undefined;
+		generation++;
+	}
+
 	function erase(): void {
 		if (isLive() && anchored) {
 			terminal.write(eraseSequence());
 		}
-		anchored = false;
-		row = 0;
+		unanchor();
 	}
 
 	const offResize = terminal.onResize(() => {
@@ -288,8 +367,7 @@ export function createInlineCanvas(opts: InlineCanvasOptions = {}): CanvasBacken
 			// otherwise the next thing written lands on the last row of the frame
 			if (claim.active && isLive() && anchored) {
 				terminal.write(cursorUp(row) + CURSOR_HOME + '\n'.repeat(canvas.height));
-				anchored = false;
-				row = 0;
+				unanchor();
 			}
 
 			stopDrawing();
@@ -301,6 +379,34 @@ export function createInlineCanvas(opts: InlineCanvasOptions = {}): CanvasBacken
 
 		get isLive() {
 			return isLive();
+		},
+
+		async locate(probe: CursorProbe): Promise<boolean> {
+			// nothing to be relative to: the rows are not on screen yet, so the cursor
+			// is wherever the log left it and says nothing about a canvas that has not
+			// been drawn. The router asks again after the next frame
+			if (!anchored) {
+				return false;
+			}
+
+			// captured before the await, because that is what the answer will be
+			// about: a frame between the question and the reply moves the cursor
+			const asked = generation;
+			const at = row;
+
+			const found = await probe();
+			if (!found || generation !== asked || !anchored) {
+				return false;
+			}
+
+			// the canvas's left edge is column one, always: every frame is written
+			// from a carriage return, so there is no horizontal offset to learn
+			origin = { x: 0, y: found.row - 1 - at };
+			return true;
+		},
+
+		get origin() {
+			return origin;
 		},
 
 		present(presentOpts = {}): void {
@@ -378,6 +484,12 @@ export function createInlineCanvas(opts: InlineCanvasOptions = {}): CanvasBacken
 
 		terminal,
 
+		toCanvas(column: number, screenRow: number): { x: number; y: number } | undefined {
+			// named away from the `row` this closure already has, which is where the
+			// cursor sits *inside* the canvas -- a different number entirely
+			return origin ? { x: column - 1 - origin.x, y: screenRow - 1 - origin.y } : undefined;
+		},
+
 		get width() {
 			return canvas.width;
 		},
@@ -393,8 +505,7 @@ export function createInlineCanvas(opts: InlineCanvasOptions = {}): CanvasBacken
 			// the text has to land above the canvas, and the only way there is
 			// through it: erase, write, and reserve the rows again underneath
 			terminal.write(eraseSequence() + crlf(line));
-			anchored = false;
-			row = 0;
+			unanchor();
 			backend.present({ full: true });
 		},
 	};
@@ -408,6 +519,14 @@ export function createInlineCanvas(opts: InlineCanvasOptions = {}): CanvasBacken
  * @param opts - The terminal.
  * @returns The backend.
  */
+/**
+ * Where a full-screen canvas sits, which is never anywhere else.
+ *
+ * Frozen and shared rather than built per read: it is the same answer every time,
+ * and a caller that could mutate it would be moving a canvas that has not moved.
+ */
+const ORIGIN: { x: number; y: number } = Object.freeze({ x: 0, y: 0 });
+
 export function createFullscreenCanvas(opts: FullscreenCanvasOptions = {}): CanvasBackend {
 	const terminal = opts.terminal ?? defaultTerminal;
 	const canvas = createCanvas({
@@ -483,6 +602,17 @@ export function createFullscreenCanvas(opts: FullscreenCanvasOptions = {}): Canv
 			return isLive();
 		},
 
+		locate(): Promise<boolean> {
+			// free: the alternate buffer starts at the top-left of the screen, so there
+			// is nothing to ask and no round trip to pay. The probe goes unused, which
+			// is the whole difference between the two backends
+			return Promise.resolve(true);
+		},
+
+		get origin() {
+			return ORIGIN;
+		},
+
 		present(presentOpts = {}): void {
 			if (!claim.begin()) {
 				return;
@@ -534,6 +664,10 @@ export function createFullscreenCanvas(opts: FullscreenCanvasOptions = {}): Canv
 		},
 
 		terminal,
+
+		toCanvas(column: number, row: number): { x: number; y: number } | undefined {
+			return { x: column - 1, y: row - 1 };
+		},
 
 		get width() {
 			return canvas.width;

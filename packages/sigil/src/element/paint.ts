@@ -24,6 +24,10 @@ import type { Style, Update } from '../style/index.js';
 import { Cascade, Restyler } from '../style/index.js';
 import { stringWidth } from '../width/index.js';
 import { truncate } from '../wrap/index.js';
+// paint order lives in `hit.js` rather than here, though this is its primary
+// reader: the hit test walks the same list backwards, and that module is the one
+// that has to stay clear of the drawing stack, since the input router imports it
+import { paintOrder } from './hit.js';
 import type { Element } from './index.js';
 
 /**
@@ -81,12 +85,65 @@ export function cellStyle(style: Style): CellStyle {
 }
 
 /**
+ * The rectangle a box clips its descendants to.
+ *
+ * The padding box, which is the border box with the border taken off: what a box
+ * clips is what its descendants draw and never its own border, because the border
+ * *is* the edge and a box that clipped itself would erase the frame it is drawing.
+ *
+ * @param area - The element's border box.
+ * @param style - Its resolved style.
+ * @returns The padding box.
+ */
+function paddingBox(area: Box, style: Style): Box {
+	const border = borderWidth(style);
+	return {
+		height: Math.max(0, area.height - border * 2),
+		width: Math.max(0, area.width - border * 2),
+		x: area.x + border,
+		y: area.y + border,
+	};
+}
+
+/**
+ * The rectangle two clips both allow.
+ *
+ * A clipping box inside another one cannot reach where its parent could not, so
+ * this intersects rather than replacing -- the same rule `Painter.clip()` keeps,
+ * for the same reason, and the reason `element.clip` is already the whole
+ * intersection by the time paint or a hit test reads it.
+ *
+ * @param outer - The clip already in effect, if any.
+ * @param inner - The one being added.
+ * @returns The overlap, which may be empty.
+ */
+function intersect(outer: Box | undefined, inner: Box): Box {
+	if (!outer) {
+		return inner;
+	}
+	const x = Math.max(outer.x, inner.x);
+	const y = Math.max(outer.y, inner.y);
+	return {
+		height: Math.max(0, Math.min(outer.y + outer.height, inner.y + inner.height) - y),
+		width: Math.max(0, Math.min(outer.x + outer.width, inner.x + inner.width) - x),
+		x,
+		y,
+	};
+}
+
+/**
  * Lays a tree out and writes every box back onto the element it belongs to.
  *
  * Matched by index rather than by identity, which is what the layout engine
  * guarantees and says so: `result.children[i]` answers for `node.children[i]`
  * whatever `order`, `display: none`, or the same node appearing twice did to the
  * placement.
+ *
+ * The clip each element is subject to is written here as well, and that is the
+ * one thing this walk decides rather than copies: it is every ancestor's
+ * `overflow` intersected, it is what paint draws inside, and it is what a hit
+ * test asks about -- so it is computed once here rather than a second time in
+ * each of them.
  *
  * @param root - The root element.
  * @param opts - The space available.
@@ -95,18 +152,27 @@ export function cellStyle(style: Style): CellStyle {
 export function arrange(root: Element, opts: LayoutOptions): LayoutResult {
 	const result = layout(root, opts);
 
-	const walk = (element: Element, node: LayoutResult): void => {
+	const walk = (element: Element, node: LayoutResult, clip: Box | undefined): void => {
 		element.box = node.box;
 		element.content = node.content;
+		element.clip = clip;
+
+		// what this element clips *for* is the clip its children are subject to,
+		// which is this one narrowed by its padding box where its `overflow` asks
+		const inner =
+			element.style.overflow === 'visible'
+				? clip
+				: intersect(clip, paddingBox(node.box, element.style));
+
 		for (const [i, child] of element.children.entries()) {
 			const laid = node.children[i];
 			if (laid) {
-				walk(child, laid);
+				walk(child, laid, inner);
 			}
 		}
 	};
 
-	walk(root, result);
+	walk(root, result, undefined);
 	return result;
 }
 
@@ -229,105 +295,63 @@ function paintText(painter: Painter, element: Element, area: Box, cell: CellStyl
 /**
  * Walks a laid-out tree and draws it.
  *
- * Document order, which is paint order: a later sibling draws over an earlier
- * one. `z-index` is parsed and is not read here, because a paint order that
- * honours it is SIG-64's along with clipping.
+ * `z-index` then document order, which is what `paintOrder()` decides and what
+ * the hit test reads back: a later-painted child is the one on top, so the hit
+ * test walks the same list backwards.
+ *
+ * Each element is drawn inside the clip `arrange()` wrote onto it, rather than
+ * inside a clip this walk nests up for itself. That reads as though it needed
+ * `Painter.clip()` to *replace* rather than intersect, and it does not: nothing
+ * here leaves a clip in effect between elements, so the painter's ambient clip is
+ * always empty when this asks -- and intersecting with nothing is what the
+ * element's own already-intersected rectangle wants.
  *
  * @param root - The root element, already arranged.
  * @param painter - The painter to draw through.
  */
 export function paint(root: Element, painter: Painter): void {
-	const walk = (element: Element, into: Painter): void => {
+	const walk = (element: Element): void => {
 		const area = element.box;
 		if (!area || element.style.display === 'none') {
 			return;
 		}
 
 		const { style } = element;
-		const cell = cellStyle(style);
 
 		// `hidden` hides this element and not its subtree: `visibility` inherits,
 		// so a descendant is hidden because it inherited the value rather than
 		// because this one was, and a descendant that sets `visible` is drawn. That
 		// is CSS, and it is the only reason this is a skip rather than a return
 		if (style.visibility !== 'hidden') {
-			if (style.backgroundColor !== DEFAULT_COLOR) {
-				into.fill(area.x, area.y, area.width, area.height, cell);
-			}
+			const cell = cellStyle(style);
+			const draw = (into: Painter): void => {
+				if (style.backgroundColor !== DEFAULT_COLOR) {
+					into.fill(area.x, area.y, area.width, area.height, cell);
+				}
 
-			paintBorder(into, area, style, cell);
+				paintBorder(into, area, style, cell);
 
-			const inner = element.content ?? area;
-			if (element.type === 'text') {
-				paintText(into, element, inner, cell);
-			} else if (element.type === 'raw') {
-				element.rawPaint?.(into, inner, element);
+				const inner = element.content ?? area;
+				if (element.type === 'text') {
+					paintText(into, element, inner, cell);
+				} else if (element.type === 'raw') {
+					element.rawPaint?.(into, inner, element);
+				}
+			};
+
+			if (element.clip) {
+				painter.clip(element.clip, draw);
+			} else {
+				draw(painter);
 			}
 		}
 
-		if (element.children.length === 0) {
-			return;
-		}
-
-		// what a box clips is what its descendants draw, never its own border: the
-		// border *is* the edge, and a box that clipped itself would erase the frame
-		// it is drawing. The padding box is what CSS clips to, which is the border
-		// box with the border taken off
-		const border = borderWidth(style);
-		const paintChildren = (target: Painter): void => {
-			for (const child of ordered(element)) {
-				walk(child, target);
-			}
-		};
-
-		if (style.overflow === 'visible') {
-			paintChildren(into);
-		} else {
-			into.clip(
-				{
-					height: Math.max(0, area.height - border * 2),
-					width: Math.max(0, area.width - border * 2),
-					x: area.x + border,
-					y: area.y + border,
-				},
-				paintChildren
-			);
+		for (const child of paintOrder(element)) {
+			walk(child);
 		}
 	};
 
-	walk(root, painter);
-}
-
-/**
- * A box's children in the order they are painted.
- *
- * `z-index` then document order, which is CSS's rule for flex items -- and every
- * child here is one, since `display: flex` is the initial value and the only
- * other one is `none`. So the property applies to all of them rather than to
- * positioned boxes alone, which is both simpler to say and what CSS says for
- * this layout mode.
- *
- * Sorted stably, so children that share a `z-index` keep the order they were
- * written in: the ordering is a way to lift one box over another, not a way to
- * shuffle everything that did not ask.
- *
- * What this does *not* do is let a descendant escape its ancestor. A child with a
- * non-zero `z-index` is painted as a unit -- its own subtree is ordered inside
- * it and cannot reach out past its siblings -- which is a stacking context by
- * another name, and it is what stops `z-index` becoming a global free-for-all
- * that every component fights over with bigger integers.
- *
- * @param element - The parent.
- * @returns Its children, in paint order.
- */
-function ordered(element: Element): readonly Element[] {
-	const children = element.children;
-	// the common case is that nobody asked, and sorting a few hundred children
-	// per frame to discover that is work a frame does not need
-	if (!children.some((child) => child.style.zIndex !== 0)) {
-		return children;
-	}
-	return [...children].sort((a, b) => a.style.zIndex - b.style.zIndex);
+	walk(root);
 }
 
 /**

@@ -214,6 +214,40 @@ describe('overflow', () => {
 
 		expect(picture(nested, 8, 1)).toBe('abc.....');
 	});
+
+	it('should carry the clip on the tree rather than leaving it to the paint walk', () => {
+		// which is what lets the hit test ask about the same rectangle paint drew
+		// inside: a box clipped by an ancestor is not hittable where it is clipped, and
+		// two walks computing one intersection is two answers to one question
+		const deep = text('x');
+		const inner = box({ height: 4, overflow: 'hidden', width: 4 }, deep);
+		const outer = box({ height: 2, overflow: 'hidden', width: 6 }, inner);
+		const root = box({ height: 8, width: 10 }, outer);
+
+		resolveStyles(root);
+		arrange(root, { height: 8, width: 10 });
+
+		// nothing above the outer box clips, so it draws wherever it likes -- including
+		// its own border, which is the edge and is never its own to clip
+		expect(root.clip).toBeUndefined();
+		expect(outer.clip).toBeUndefined();
+		// and what it clips *for* is the rectangle its children are subject to
+		expect(inner.clip).toEqual({ height: 2, width: 6, x: 0, y: 0 });
+		// intersected rather than replaced, which is what the nesting means
+		expect(deep.clip).toEqual({ height: 2, width: 4, x: 0, y: 0 });
+	});
+
+	it('should take the border off the rectangle a box clips to', () => {
+		// the padding box, which is what CSS clips to: the border is the edge, so a box
+		// that clipped itself would erase the frame it is drawing
+		const child = text('x');
+		const root = box({ border: 'single', height: 4, overflow: 'hidden', width: 6 }, child);
+
+		resolveStyles(root);
+		arrange(root, { height: 6, width: 10 });
+
+		expect(child.clip).toEqual({ height: 2, width: 4, x: 1, y: 1 });
+	});
 });
 
 describe('scrolling', () => {
