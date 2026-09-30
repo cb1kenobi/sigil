@@ -289,46 +289,10 @@ describe('the class evidence', () => {
 		expect(scanClassEvidence(root).mayName('from-a-linked-dir')).toBe(true);
 	});
 
-	it('should walk a symlink loop once rather than once per level', () => {
-		// what the loop guard is for is **cost**, not termination: the walk is
-		// recursive and a link pointing back up the tree is infinite, but the
-		// operating system stops it anyway -- a path through more than
-		// MAXSYMLINKS links fails `readdir` with ELOOP, which this treats as an
-		// unreadable directory. So the recursion ends after about thirty levels
-		// with the whole tree walked about thirty times over, measured at 3.0ms
-		// against 43.8ms on twenty files.
-		//
-		// Asserted as a **ratio** against the same tree without the link rather
-		// than as a duration, for the reason the invalidation benchmark records:
-		// an absolute threshold on a CI runner is a guard against the one thing
-		// that says nothing, a single pass stalling. Correct is about 1.1x and
-		// broken is about 15x, so four leaves headroom either way
-		const files: Record<string, string> = {};
-		for (let n = 0; n < 20; n++) {
-			files[`src/m${n}.ts`] = `export const c${n} = 'p-${n} text-red flex-col';\n`.repeat(40);
-		}
-
-		const plain = tree(files);
-		const looped = tree(files);
-		symlinkSync(looped, join(looped, 'src', 'loop'));
-
-		/** The fastest of a few runs, which is the least noisy thing to compare. */
-		const fastest = (root: string): number => {
-			let best = Infinity;
-			for (let run = 0; run < 3; run++) {
-				const at = process.hrtime.bigint();
-				scanClassEvidence(root);
-				best = Math.min(best, Number(process.hrtime.bigint() - at));
-			}
-			return best;
-		};
-
-		// warmed, so the first scan's module loading is not in either number
-		fastest(plain);
-
-		expect(scanClassEvidence(looped).mayName('flex-col')).toBe(true);
-		expect(fastest(looped) / fastest(plain)).toBeLessThan(4);
-	});
+	// what this file used to assert with a timing ratio -- that a symlink loop is
+	// walked once rather than once per level -- is a **count**, and it is counted in
+	// `shake-walk.test.ts` instead. The ratio flaked on a walk with nothing wrong
+	// with it; the reasons are written up there.
 
 	it('should step over a dangling link rather than failing', () => {
 		const root = tree({ 'src/app.ts': `const c = 'from-source';` });
