@@ -8,6 +8,11 @@
  * `stylesheet.ts`, and `cascade.ts` are the rest: what a rule matches, where it
  * sits, and which declaration wins.
  *
+ * `easing.ts`, `interpolate.ts` and `animate.ts` are the animation: a timing
+ * function, what a value is part way between two of itself, and what is on
+ * screen between two styles. The first two are pure and the third takes a clock,
+ * which is why the frame loop passes one in.
+ *
  * ```js
  * import { Cascade, declare, parseStylesheet, PROPERTIES } from '@ttylabs/sigil/style';
  *
@@ -36,6 +41,9 @@ import { isShorthand } from './shorthand.js';
 export {
 	type AliasName,
 	type AlignContent,
+	ANIMATABLE_PROPERTIES,
+	type AnimationDirection,
+	type AnimationFillMode,
 	type AlignItems,
 	type AlignSelf,
 	type BoxSizing,
@@ -48,6 +56,8 @@ export {
 	inheritFrom,
 	INHERITED,
 	initialStyle,
+	INTERPOLATION,
+	type Interpolation,
 	isProperty,
 	type JustifyContent,
 	kebab,
@@ -61,6 +71,7 @@ export {
 	type TextAlign,
 	type TextOverflow,
 	type TextTransform,
+	type TransitionProperty,
 	type Visibility,
 	type WhiteSpace,
 } from './properties.js';
@@ -72,7 +83,19 @@ export {
 	type ResolveOptions,
 	applyProps,
 } from './cascade.js';
-export { degradeColor, degradeInto, degradeStyle, oklab, paletteRgb } from './degrade.js';
+export { type AnimationFrame, Animator } from './animate.js';
+export {
+	degradeColor,
+	degradeInto,
+	degradeStyle,
+	mixColors,
+	oklab,
+	paletteRgb,
+	rgbFromOklab,
+} from './degrade.js';
+export { ease, type Easing, LINEAR, parseEasing, type StepPosition } from './easing.js';
+export { interpolate } from './interpolate.js';
+export { forcedMotion, type ReducedMotion } from './motion.js';
 export {
 	type ColorScheme,
 	forcedScheme,
@@ -123,6 +146,8 @@ export {
 	shorthandLonghands,
 } from './shorthand.js';
 export {
+	type Keyframe,
+	type Keyframes,
 	type Layer,
 	type MediaCondition,
 	type MediaContext,
@@ -149,7 +174,9 @@ export {
 	parseBoolean,
 	parseColor,
 	parseInteger,
+	parseIterations,
 	parseLength,
+	parseTime,
 	percent,
 	StyleError,
 } from './value.js';

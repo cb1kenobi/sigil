@@ -1,4 +1,4 @@
-import { type PropertyName, PROPERTIES } from './properties.js';
+import { type PropertyName, PROPERTIES, registerShorthandLookup } from './properties.js';
 import { parts, StyleError } from './value.js';
 
 /**
@@ -72,6 +72,21 @@ const GAP: readonly PropertyName[] = ['rowGap', 'columnGap'];
 const BORDER: readonly PropertyName[] = ['borderStyle', 'borderColor'];
 const FLEX: readonly PropertyName[] = ['flexGrow', 'flexShrink', 'flexBasis'];
 const FLEX_FLOW: readonly PropertyName[] = ['flexDirection', 'flexWrap'];
+const TRANSITION: readonly PropertyName[] = [
+	'transitionProperty',
+	'transitionDuration',
+	'transitionTimingFunction',
+	'transitionDelay',
+];
+const ANIMATION: readonly PropertyName[] = [
+	'animationName',
+	'animationDuration',
+	'animationTimingFunction',
+	'animationDelay',
+	'animationIterationCount',
+	'animationDirection',
+	'animationFillMode',
+];
 
 type Expander = (values: string[]) => [PropertyName, string][];
 
@@ -110,13 +125,15 @@ function shorthand(longhands: readonly PropertyName[], expand: Expander): Shorth
  * error. One fact, checked, in two places that cannot drift apart.
  */
 export type ShorthandName =
+	| 'animation'
 	| 'border'
 	| 'flex'
 	| 'flex-flow'
 	| 'gap'
 	| 'inset'
 	| 'margin'
-	| 'padding';
+	| 'padding'
+	| 'transition';
 
 const SHORTHANDS = {
 	padding: shorthand(PADDING, (v) => edges(v, PADDING, 'padding')),
@@ -288,7 +305,179 @@ const SHORTHANDS = {
 			['flexWrap', wrap ?? 'nowrap'],
 		];
 	}),
+
+	/**
+	 * `<property> || <duration> || <timing-function> || <delay>`, in any order,
+	 * with the first time being the duration and the second the delay.
+	 *
+	 * **A time in a shorthand carries its unit**, which is the one divergence from
+	 * the longhands, where a bare number is milliseconds. It is forced rather than
+	 * chosen: a bare number in `animation` is CSS's iteration count, so one
+	 * grammar cannot have both, and the two shorthands agreeing about it is worth
+	 * more than `transition: width 300` saving two characters.
+	 */
+	transition: shorthand(TRANSITION, (v) => {
+		noList(v, 'transition');
+
+		let property: string | undefined;
+		let duration: string | undefined;
+		let delay: string | undefined;
+		let timing: string | undefined;
+
+		for (const part of v) {
+			if (TIME.test(part)) {
+				if (duration === undefined) {
+					duration = part;
+				} else if (delay === undefined) {
+					delay = part;
+				} else {
+					throw new StyleError(
+						`Invalid transition "${v.join(' ')}": a transition has a duration and a delay, and no third time`
+					);
+				}
+				continue;
+			}
+			if (timing === undefined && accepts('transitionTimingFunction', part)) {
+				timing = part;
+				continue;
+			}
+			if (property === undefined && accepts('transitionProperty', part)) {
+				property = part;
+				continue;
+			}
+			throw bareTime(part, `Invalid transition "${v.join(' ')}"`);
+		}
+
+		// every longhand reset, including the ones this use did not mention, which
+		// is the shorthand rule `border` and `flex-flow` already follow
+		return [
+			['transitionProperty', property ?? 'all'],
+			['transitionDuration', duration ?? '0s'],
+			['transitionTimingFunction', timing ?? 'linear'],
+			['transitionDelay', delay ?? '0s'],
+		];
+	}),
+
+	/**
+	 * `<duration> || <timing-function> || <delay> || <iteration-count> ||
+	 * <direction> || <fill-mode> || <name>`, in any order.
+	 *
+	 * An identifier is tried as a direction, then a fill mode, then the name --
+	 * which means `@keyframes normal` cannot be started from the shorthand, the
+	 * same reservation CSS has and for the same reason. `animation-name: normal`
+	 * still reaches it.
+	 */
+	animation: shorthand(ANIMATION, (v) => {
+		noList(v, 'animation');
+
+		let name: string | undefined;
+		let duration: string | undefined;
+		let delay: string | undefined;
+		let timing: string | undefined;
+		let iterations: string | undefined;
+		let direction: string | undefined;
+		let fill: string | undefined;
+
+		for (const part of v) {
+			if (TIME.test(part)) {
+				if (duration === undefined) {
+					duration = part;
+				} else if (delay === undefined) {
+					delay = part;
+				} else {
+					throw new StyleError(
+						`Invalid animation "${v.join(' ')}": an animation has a duration and a delay, and no third time`
+					);
+				}
+				continue;
+			}
+			if (iterations === undefined && COUNT.test(part)) {
+				iterations = part;
+				continue;
+			}
+			if (timing === undefined && accepts('animationTimingFunction', part)) {
+				timing = part;
+				continue;
+			}
+			if (direction === undefined && accepts('animationDirection', part)) {
+				direction = part;
+				continue;
+			}
+			if (fill === undefined && accepts('animationFillMode', part)) {
+				fill = part;
+				continue;
+			}
+			if (name === undefined && accepts('animationName', part)) {
+				name = part;
+				continue;
+			}
+			throw bareTime(part, `Invalid animation "${v.join(' ')}"`);
+		}
+
+		return [
+			['animationName', name ?? 'none'],
+			['animationDuration', duration ?? '0s'],
+			['animationTimingFunction', timing ?? 'linear'],
+			['animationDelay', delay ?? '0s'],
+			['animationIterationCount', iterations ?? '1'],
+			['animationDirection', direction ?? 'normal'],
+			['animationFillMode', fill ?? 'none'],
+		];
+	}),
 } satisfies { readonly [K in ShorthandName]: Shorthand };
+
+/** A time with its unit, which is what a shorthand requires. */
+const TIME = /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?m?s$/i;
+
+/** A bare number, which in `animation` is the iteration count. */
+const COUNT = /^(?:infinite|\d+(?:\.\d+)?|\.\d+)$/i;
+
+/**
+ * The message for a part that is a bare number where a time was meant.
+ *
+ * Worth its own branch because it is the mistake the unit rule above creates,
+ * and "invalid animation" on its own sends the reader looking at the keyframes.
+ */
+function bareTime(part: string, prefix: string): StyleError {
+	if (/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/.test(part)) {
+		return new StyleError(
+			`${prefix}: "${part}" needs a unit here -- write ${part}ms or ${part}s, because a bare number in a shorthand is an iteration count`
+		);
+	}
+	return new StyleError(`${prefix}: "${part}" is not part of it`);
+}
+
+/**
+ * Refuses a comma-separated list of transitions or animations.
+ *
+ * CSS lets both take a list, where every longhand holds a list of its own and
+ * the shorter ones repeat to the length of the first. What that costs here is
+ * eleven array-valued properties, a second comparison path in `difference()`,
+ * and a repetition rule; what it buys is a per-property duration, which in a
+ * terminal is rare enough that nobody has asked. So the list is **refused where
+ * it is written** rather than taken as its first entry, which is the rule an
+ * unknown property in a stylesheet already follows -- a declaration whose second
+ * half was silently dropped is worse than one that did not parse.
+ *
+ * Several properties at one duration is still expressible, because
+ * `transition-property` is itself a list.
+ */
+function noList(values: readonly string[], name: string): void {
+	let depth = 0;
+	for (const part of values) {
+		for (const ch of part) {
+			if (ch === '(') {
+				depth++;
+			} else if (ch === ')') {
+				depth--;
+			} else if (ch === ',' && depth === 0) {
+				throw new StyleError(
+					`Invalid ${name} "${values.join(' ')}": one ${name} at a time -- a comma-separated list is not read here, and several properties at one duration is "${name}-property: a, b"`
+				);
+			}
+		}
+	}
+}
 
 /** A plain `<number>`, for telling a flex factor from a basis. */
 const NUMBER = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i;
@@ -369,3 +558,10 @@ export function expandShorthand(name: string, value: string): [PropertyName, str
 export function shorthandLonghands(name: string): readonly PropertyName[] | undefined {
 	return shorthandFor(name)?.longhands;
 }
+
+// `transition-property: padding` has to reach all four edges, which means the
+// property table needs to know what a shorthand covers -- and this module
+// imports *that* one, because expanding a shorthand is the longhand parsers
+// doing the reading. So the dependency goes the only way it can: a hook, filled
+// in here, where the answer is
+registerShorthandLookup(shorthandLonghands);

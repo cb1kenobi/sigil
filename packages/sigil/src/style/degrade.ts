@@ -20,7 +20,7 @@
  */
 
 import type { ColorLevel } from '../ansi/color-support.js';
-import { type Color, DEFAULT_COLOR, palette } from '../canvas/style.js';
+import { type Color, DEFAULT_COLOR, palette, rgb } from '../canvas/style.js';
 import { ATTRIBUTE_PROPERTIES, COLOR_PROPERTIES, type Style } from './properties.js';
 
 /** Where the 24-bit range starts, past the 256 palette. Mirrors `canvas/style.ts`. */
@@ -131,6 +131,83 @@ export function oklab(
 function linear(value: number): number {
 	const v = value / 255;
 	return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+}
+
+/** Linear light back to one sRGB channel, 0-255, rounded and clamped. */
+function encode(value: number): number {
+	const v = value <= 0.0031308 ? value * 12.92 : 1.055 * value ** (1 / 2.4) - 0.055;
+	return Math.min(255, Math.max(0, Math.round(v * 255)));
+}
+
+/**
+ * Oklab back to sRGB.
+ *
+ * Here rather than beside the interpolator for one reason: the forward matrix is
+ * ten lines above, with its own entry about the `b` row's last coefficient, and a
+ * pair of matrices that are supposed to be each other's inverse belong in one
+ * place. Clamped on the way out, because a mix of two in-gamut colours can leave
+ * the cube by a rounding error and `rgb()` refuses a channel rather than
+ * clamping it.
+ *
+ * @param lab - The Oklab coordinates.
+ * @returns The sRGB channels, 0-255.
+ */
+export function rgbFromOklab(
+	lab: readonly [number, number, number]
+): readonly [number, number, number] {
+	const [l, a, b] = lab;
+
+	const lc = (l + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+	const mc = (l - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+	const sc = (l - 0.0894841775 * a - 1.291485548 * b) ** 3;
+
+	return [
+		encode(4.0767416621 * lc - 3.3077115913 * mc + 0.2309699292 * sc),
+		encode(-1.2684380046 * lc + 2.6097574011 * mc - 0.3413193965 * sc),
+		encode(-0.0041960863 * lc - 0.7034186147 * mc + 1.707614701 * sc),
+	];
+}
+
+/**
+ * Mixes two colours in Oklab, or answers `undefined` where there is nothing to
+ * mix through.
+ *
+ * **Only two 24-bit colours interpolate**, and the refusal is the decision.
+ * AGENTS.md already records that a named colour stays a palette index because
+ * the basic sixteen are whatever the user's terminal theme says they are -- so
+ * easing from palette red to palette blue would have to invent a path through
+ * the xterm defaults, which means both endpoints come out of a table rather
+ * than out of the user's theme and the first frame is a different red from the
+ * one the last frame left. `DEFAULT_COLOR` is worse: the terminal's own
+ * foreground has no RGB at all. A caller that gets `undefined` snaps at the
+ * midpoint, which is what CSS does with any value it cannot interpolate.
+ *
+ * Oklab rather than RGB for the reason the degrader gives, and it is the same
+ * reason read forwards rather than backwards: a linear ramp through RGB passes
+ * through muddy greys between complementary colours, and perceptual distance is
+ * exactly what a mix is asking about.
+ *
+ * @param from - The colour at 0.
+ * @param to - The colour at 1.
+ * @param t - How far through.
+ * @returns The mix, or `undefined` if either endpoint has no channels of its own.
+ */
+export function mixColors(from: Color, to: Color, t: number): Color | undefined {
+	if (from < RGB_BASE || to < RGB_BASE) {
+		return undefined;
+	}
+	if (from === to) {
+		return from;
+	}
+
+	const a = oklab(channels(from));
+	const b = oklab(channels(to));
+	const [r, g, bl] = rgbFromOklab([
+		a[0] + (b[0] - a[0]) * t,
+		a[1] + (b[1] - a[1]) * t,
+		a[2] + (b[2] - a[2]) * t,
+	]);
+	return rgb(r, g, bl);
 }
 
 /** Squared Oklab distance. Squared because only the ordering is used. */

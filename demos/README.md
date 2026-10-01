@@ -73,15 +73,36 @@ NO_COLOR=1 node demos/components/06-ansi-and-wrap.js
 
 ## Style
 
-|                                              |                                                   |
-| -------------------------------------------- | ------------------------------------------------- |
-| [`style/01-cascade.js`](style/01-cascade.js) | Which declaration wins a property, and why        |
-| [`style/02-themes.js`](style/02-themes.js)   | Restyling the built-ins, which is what a theme is |
+|                                                  |                                                   |
+| ------------------------------------------------ | ------------------------------------------------- |
+| [`style/01-cascade.js`](style/01-cascade.js)     | Which declaration wins a property, and why        |
+| [`style/02-themes.js`](style/02-themes.js)       | Restyling the built-ins, which is what a theme is |
+| [`style/03-animation.js`](style/03-animation.js) | Transitions and keyframes, over whole cells       |
 
 `01-cascade.js` prints its answers rather than drawing them, because the contest
 is the point. Each section is one contest between two declarations that both reach the
 same property; the last section is what the parser refuses and what it says
 about it. Edit a sheet in the file and re-run it — that is what it is for.
+
+`03-animation.js` needs a terminal, because it moves. Space widens a bar, `c`
+changes two colours at once, and Tab moves a focus ring that fades rather than
+jumping — all of it declared in the sheet at the top of the file, with no
+component code driving any of it.
+
+```sh
+node demos/style/03-animation.js            # space, c, Tab, q
+SIGIL_REDUCED_MOTION=1 node demos/style/03-animation.js
+```
+
+The counter at the bottom is the part worth watching. Geometry interpolates in
+**whole cells**, so a bar going from 4 to 30 columns has twenty-seven visible
+states however long it takes — and the frame loop does not wake for a frame that
+would paint what is already on screen. What it prints is frames painted against
+the thirty a second a loop without that would have drawn.
+
+Piped, nothing moves: a pipe, a file and a CI log have no frames, so every
+animation collapses to the state it would have ended on.
+`SIGIL_REDUCED_MOTION=1` says the same thing on a terminal.
 
 ## The canvas
 

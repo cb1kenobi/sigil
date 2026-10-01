@@ -163,7 +163,13 @@ describe('layers', () => {
 });
 
 describe('media queries', () => {
-	const wide: MediaContext = { colorLevel: 3, colorScheme: 'dark', height: 50, width: 120 };
+	const wide: MediaContext = {
+		colorLevel: 3,
+		colorScheme: 'dark',
+		height: 50,
+		reducedMotion: 'no-preference',
+		width: 120,
+	};
 
 	it('should read a feature test', () => {
 		expect(parseMediaQueryList('(min-width: 100)')).toEqual([
@@ -241,7 +247,13 @@ describe('media queries', () => {
 	});
 
 	it('should ask 80 by 24 truecolor when nobody said', () => {
-		expect(DEFAULT_MEDIA).toEqual({ colorLevel: 3, colorScheme: 'dark', height: 24, width: 80 });
+		expect(DEFAULT_MEDIA).toEqual({
+			colorLevel: 3,
+			colorScheme: 'dark',
+			height: 24,
+			reducedMotion: 'no-preference',
+			width: 80,
+		});
 		expect(Object.isFrozen(DEFAULT_MEDIA)).toBe(true);
 	});
 

@@ -346,6 +346,68 @@ export function parseInteger(input: string, name: string): number {
 }
 
 /**
+ * Reads a time, in milliseconds.
+ *
+ * Milliseconds rather than CSS's seconds, because milliseconds are what a frame
+ * loop and every timer in this library already count in and a unit conversion at
+ * the boundary is one more place for a factor of a thousand to go missing. Both
+ * spellings are read -- `300ms`, `0.3s` -- and a bare number is milliseconds,
+ * which is the one divergence from CSS worth taking: CSS requires the unit
+ * because `0` is the only unitless time it accepts, and here there is one unit
+ * the way there is one length unit, so spelling it every time is noise.
+ *
+ * Fractional is allowed, unlike a length: a millisecond is not a cell, nothing
+ * is drawn at a fraction of one, and `0.3s` is exactly 300.
+ *
+ * @param input - The source text.
+ * @param name - The property, for the message.
+ * @param opts - Whether a negative time is meaningful, which it is for a delay.
+ * @returns The time in milliseconds.
+ */
+export function parseTime(input: string, name: string, opts: { negative?: boolean } = {}): number {
+	const text = input.trim().toLowerCase();
+	const bare = text.endsWith('ms')
+		? text.slice(0, -2)
+		: text.endsWith('s')
+			? text.slice(0, -1)
+			: text;
+	const scale = !text.endsWith('ms') && text.endsWith('s') ? 1000 : 1;
+	const value = blank(bare) ? undefined : readNumber(bare);
+
+	if (value === undefined) {
+		throw new StyleError(`Invalid ${name} "${input}": expected a time in ms or s`);
+	}
+	if (value < 0 && !opts.negative) {
+		throw new StyleError(`Invalid ${name} "${input}": a duration cannot be negative`);
+	}
+
+	return value * scale;
+}
+
+/**
+ * Reads an iteration count, which may be `infinite`.
+ *
+ * `Infinity` rather than a sentinel, because every arithmetic the animator does
+ * with it comes out right: `elapsed / duration >= count` is false forever, which
+ * is what infinite means, and no branch has to ask.
+ *
+ * @param input - The source text.
+ * @param name - The property, for the message.
+ * @returns The count, or `Infinity`.
+ */
+export function parseIterations(input: string, name: string): number {
+	const text = input.trim().toLowerCase();
+	if (text === 'infinite') {
+		return Number.POSITIVE_INFINITY;
+	}
+	const value = blank(text) ? undefined : readNumber(text);
+	if (value === undefined || value < 0) {
+		throw new StyleError(`Invalid ${name} "${input}": expected a number of 0 or more, or infinite`);
+	}
+	return value;
+}
+
+/**
  * Reads one of a fixed set of keywords.
  *
  * @param input - The source text.

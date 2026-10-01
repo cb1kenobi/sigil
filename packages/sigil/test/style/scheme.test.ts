@@ -49,7 +49,13 @@ describe('the media query', () => {
 	});
 
 	it('should join with the other features', () => {
-		const wide: MediaContext = { colorLevel: 3, colorScheme: 'light', height: 24, width: 120 };
+		const wide: MediaContext = {
+			colorLevel: 3,
+			colorScheme: 'light',
+			height: 24,
+			reducedMotion: 'no-preference',
+			width: 120,
+		};
 		expect(matchesMedia(query('(min-width: 100) and (prefers-color-scheme: light)'), wide)).toBe(
 			true
 		);

@@ -28,7 +28,9 @@ import {
 	Cascade,
 	type ColorScheme,
 	DEFAULT_MEDIA,
+	forcedMotion,
 	parseStylesheet,
+	type ReducedMotion,
 	schemeFromEnv,
 	type Stylesheet,
 } from '../style/index.js';
@@ -229,6 +231,13 @@ export interface StyledOptions extends ThemeOptions {
 	ansi?: Ansi;
 	/** How much colour to resolve for. Defaults to the styler's level. */
 	colorLevel?: ColorLevel;
+	/**
+	 * Whether animations run. Defaults to `SIGIL_REDUCED_MOTION`, else nothing
+	 * said -- and a built-in drawn through `mountLive()` has the renderer answer
+	 * for the terminal on top of that, since whether there is a screen to animate
+	 * on is not something a cascade can know.
+	 */
+	reducedMotion?: ReducedMotion;
 }
 
 /**
@@ -261,5 +270,10 @@ export function themedCascade(opts: StyledOptions = {}): Cascade {
 	return new Cascade(sheets, {
 		...DEFAULT_MEDIA,
 		colorScheme: opts.colorScheme ?? schemeFromEnv() ?? DEFAULT_MEDIA.colorScheme,
+		// the same reasoning one feature along, and the terminal is deliberately not
+		// in it: this call is reached by `renderToString()` as well as by a mount,
+		// and a string render has no terminal to ask about. `render()` is where the
+		// screen joins the chain
+		reducedMotion: opts.reducedMotion ?? forcedMotion() ?? DEFAULT_MEDIA.reducedMotion,
 	});
 }

@@ -1,4 +1,5 @@
 import { type Color, DEFAULT_COLOR } from '../canvas/style.js';
+import { type Easing, LINEAR, parseEasing } from './easing.js';
 import {
 	AUTO,
 	cells,
@@ -9,8 +10,10 @@ import {
 	parseCount,
 	parseFactor,
 	parseInteger,
+	parseIterations,
 	parseKeyword,
 	parseLength,
+	parseTime,
 	StyleError,
 } from './value.js';
 
@@ -60,6 +63,19 @@ export type TextAlign = 'left' | 'center' | 'right';
 export type TextTransform = 'none' | 'uppercase' | 'lowercase' | 'capitalize';
 export type WhiteSpace = 'normal' | 'pre' | 'nowrap';
 export type TextOverflow = 'clip' | 'ellipsis' | 'ellipsis-start' | 'ellipsis-middle';
+export type AnimationDirection = 'alternate' | 'alternate-reverse' | 'normal' | 'reverse';
+export type AnimationFillMode = 'backwards' | 'both' | 'forwards' | 'none';
+
+/**
+ * Which properties a transition watches: a list, or every animatable one.
+ *
+ * `'all'` is a keyword rather than the full list because the two mean different
+ * things the day a property is added -- `all` picks it up and a list written out
+ * at parse time would not -- and because what a style reports back should be
+ * what the author wrote. `none` is the empty list, which needs no keyword: a
+ * transition that watches nothing is a transition over no properties.
+ */
+export type TransitionProperty = readonly PropertyName[] | 'all';
 
 /**
  * A border's character set, rather than a rendering mode.
@@ -131,6 +147,19 @@ export interface Style {
 	textTransform: TextTransform;
 	textOverflow: TextOverflow;
 	whiteSpace: WhiteSpace;
+
+	// animation
+	transitionProperty: TransitionProperty;
+	transitionDuration: number;
+	transitionTimingFunction: Easing;
+	transitionDelay: number;
+	animationName: string;
+	animationDuration: number;
+	animationTimingFunction: Easing;
+	animationDelay: number;
+	animationIterationCount: number;
+	animationDirection: AnimationDirection;
+	animationFillMode: AnimationFillMode;
 }
 
 export type PropertyName = keyof Style;
@@ -221,6 +250,124 @@ function fromKeywords<T extends string>(
  * keyword parse that the engine cannot honour.
  */
 const POSITIONS = Object.freeze(['static', 'relative', 'absolute', 'fixed'] as const);
+
+/** A transition that watches nothing, which is what `transition-property: none` is. */
+const NO_PROPERTIES: readonly PropertyName[] = Object.freeze([]);
+
+/**
+ * Every property list ever parsed, by the resolved names it came to.
+ *
+ * Interned for the reason `easing.ts` interns its curves: `difference()` asks
+ * whether two resolved styles disagree about a property and does it with `===`
+ * plus one branch for `Length`, so a value type that is neither a primitive nor
+ * a `Length` has to compare by identity or that function grows a third branch
+ * and a list to keep in agreement. Two rules writing `transition-property:
+ * width` get the same array.
+ */
+const PROPERTY_LISTS = new Map<string, readonly PropertyName[]>([['', NO_PROPERTIES]]);
+
+/**
+ * Reads which properties a transition watches.
+ *
+ * A property that cannot animate is **refused** rather than accepted and
+ * skipped, which is the rule a keyword the engine ignores already follows: a
+ * `transition-property: transition-duration` that parsed and did nothing is a
+ * declaration whose author has no way to find out it was wrong.
+ *
+ * @param input - The source text.
+ * @returns The list, interned, or `'all'`.
+ */
+function parseTransitionProperty(input: string): TransitionProperty {
+	const text = input.trim();
+	if (text.toLowerCase() === 'all') {
+		return 'all';
+	}
+	if (text.toLowerCase() === 'none') {
+		return NO_PROPERTIES;
+	}
+
+	const names: PropertyName[] = [];
+	for (const piece of text.split(',')) {
+		const part = piece.trim();
+		if (part === '') {
+			throw new StyleError(`Invalid transition-property "${input}": an empty name in the list`);
+		}
+		// every longhand the name covers, so `transition-property: padding` watches
+		// all four edges and `font-weight` watches `bold` and `dim`. A shorthand is
+		// the spelling an author reaches for and expanding it here is the only place
+		// that can know what it covers
+		const longhands = propertyLonghands(part) ?? shorthandLonghandsOf(part);
+		if (!longhands) {
+			throw new StyleError(`Invalid transition-property "${part}": no such property`);
+		}
+		for (const name of longhands) {
+			if (INTERPOLATION.get(name) === 'none') {
+				throw new StyleError(
+					`Invalid transition-property "${part}": "${kebab(name)}" is not a property that animates`
+				);
+			}
+			if (!names.includes(name)) {
+				names.push(name);
+			}
+		}
+	}
+
+	const key = names.join(',');
+	const already = PROPERTY_LISTS.get(key);
+	if (already) {
+		return already;
+	}
+	const frozen = Object.freeze(names);
+	PROPERTY_LISTS.set(key, frozen);
+	return frozen;
+}
+
+/**
+ * The longhands a shorthand covers, asked without importing `shorthand.ts`.
+ *
+ * That module imports this one -- it reads `PROPERTIES[property].parse` to do the
+ * expanding -- so the dependency has to go the other way, and a lazy `import()`
+ * is not available to a synchronous parser. The hook is filled in by
+ * `shorthand.ts` at load, which is the one place that knows the answer.
+ */
+let shorthandLonghandsOf: (name: string) => readonly PropertyName[] | undefined = () => undefined;
+
+/**
+ * Tells this module how to expand a shorthand name.
+ *
+ * @param lookup - What `shorthand.ts` knows.
+ */
+export function registerShorthandLookup(
+	lookup: (name: string) => readonly PropertyName[] | undefined
+): void {
+	shorthandLonghandsOf = lookup;
+}
+
+/** A keyframes name: an identifier, or the keyword that means there is no animation. */
+const NAME_RE = /^[A-Za-z_][\w-]*$/;
+
+/**
+ * Reads an animation name.
+ *
+ * Case-sensitive, which is the rule this grammar already follows for a class and
+ * an id: a keyframes name is a name somebody chose rather than a CSS keyword. So
+ * `none` is the keyword and `None` is a name, and `@keyframes None` is findable.
+ *
+ * @param input - The source text.
+ * @returns The name, or `'none'`.
+ */
+function parseAnimationName(input: string): string {
+	const text = input.trim();
+	if (text === 'none') {
+		return 'none';
+	}
+	if (!NAME_RE.test(text)) {
+		throw new StyleError(
+			`Invalid animation-name "${input}": expected an identifier, or none for no animation`
+		);
+	}
+	return text;
+}
 
 /** The table. */
 export const PROPERTIES: { readonly [K in PropertyName]: Definition<K> } = {
@@ -369,6 +516,64 @@ export const PROPERTIES: { readonly [K in PropertyName]: Definition<K> } = {
 		false
 	),
 	whiteSpace: fromKeywords(['normal', 'pre', 'nowrap'] as const, 'normal', 'white-space', true),
+
+	// the animation properties do not inherit, as in CSS. The temptation is to
+	// make them inherit so that `.panel { transition: color 200ms }` covers the
+	// text inside it -- which matters more here than in a browser, because an
+	// animated value is presented on the element that animates and is not
+	// inherited (see `animate.ts`). It is refused anyway: a surprise transition on
+	// every descendant is still a surprise, and a divergence from CSS costs
+	// everyone's intuition. The spelling for a subtree is a selector that covers
+	// it, and because the *base* value still inherits, every element covered
+	// starts at the same moment and stays in lockstep
+	transitionProperty: {
+		inherits: false,
+		initial: NO_PROPERTIES,
+		parse: parseTransitionProperty,
+	},
+	transitionDuration: {
+		inherits: false,
+		initial: 0,
+		parse: (v) => parseTime(v, 'transition-duration'),
+	},
+	transitionTimingFunction: { inherits: false, initial: LINEAR, parse: parseEasing },
+	// a negative delay is meaningful on a transition the way it is on an
+	// animation: it starts the clock partway in, so the first frame is already
+	// underway. CSS allows it on both and refuses a negative *duration* on either
+	transitionDelay: {
+		inherits: false,
+		initial: 0,
+		parse: (v) => parseTime(v, 'transition-delay', { negative: true }),
+	},
+	animationName: { inherits: false, initial: 'none', parse: parseAnimationName },
+	animationDuration: {
+		inherits: false,
+		initial: 0,
+		parse: (v) => parseTime(v, 'animation-duration'),
+	},
+	animationTimingFunction: { inherits: false, initial: LINEAR, parse: parseEasing },
+	animationDelay: {
+		inherits: false,
+		initial: 0,
+		parse: (v) => parseTime(v, 'animation-delay', { negative: true }),
+	},
+	animationIterationCount: {
+		inherits: false,
+		initial: 1,
+		parse: (v) => parseIterations(v, 'animation-iteration-count'),
+	},
+	animationDirection: fromKeywords(
+		['normal', 'reverse', 'alternate', 'alternate-reverse'] as const,
+		'normal',
+		'animation-direction',
+		false
+	),
+	animationFillMode: fromKeywords(
+		['none', 'forwards', 'backwards', 'both'] as const,
+		'none',
+		'animation-fill-mode',
+		false
+	),
 };
 
 // the definitions and the table are frozen too. The initial values already were,
@@ -472,6 +677,80 @@ export const COLOR_PROPERTIES: readonly PropertyName[] = PROPERTY_NAMES.filter(
  */
 export const ATTRIBUTE_PROPERTIES: readonly PropertyName[] = PROPERTY_NAMES.filter((name) =>
 	ATTRIBUTE_NAMES.has(name)
+);
+
+/**
+ * How a property's value is interpolated between two of itself.
+ *
+ * `none` is CSS's "not animatable" and `discrete` is CSS's "flips at the
+ * midpoint" -- two different things, and collapsing them would make
+ * `transition-duration` animate by snapping half way through its own transition.
+ * `integer` and `number` differ only in the rounding, and the rounding is the
+ * whole of the terminal constraint: a padding of 1.4 cells is not a thing that
+ * can be drawn.
+ */
+export type Interpolation = 'color' | 'discrete' | 'integer' | 'length' | 'none' | 'number';
+
+/**
+ * The properties whose numbers are allowed to be fractional, and the ones whose
+ * numbers are not a value to interpolate at all.
+ *
+ * Everything else is derived, which is the rule `COLOR_PROPERTIES` and
+ * `ATTRIBUTE_PROPERTIES` already follow: a hand-written classification of
+ * fifty-five properties is a second list to keep in agreement, and the one it
+ * would disagree with is the table. So the shape of the *initial value* answers
+ * it -- a `Length` interpolates as a length, a colour as a colour, a number as a
+ * whole number, and a keyword or a flag snaps -- and the exceptions are named
+ * here because nothing about the value says them.
+ *
+ * `properties.test.ts` checks the derivation both ways: a property classified
+ * `integer` has to refuse `0.5` and one classified `number` has to accept it,
+ * which is a fact about the parsers rather than about this table, so a
+ * fractional property added without being named here fails rather than being
+ * silently rounded on every frame.
+ */
+const INTERPOLATION_EXCEPTIONS: Partial<Record<PropertyName, Interpolation>> = {
+	// ratios rather than lengths: the cells they resolve to are whole even when
+	// the ratio is not
+	flexGrow: 'number',
+	flexShrink: 'number',
+	// the animation properties are not animatable, which is CSS and is also the
+	// only answer that terminates: a transition whose own duration was in flight
+	// would be asking what the duration is in order to find out what it is
+	animationDelay: 'none',
+	animationDirection: 'none',
+	animationDuration: 'none',
+	animationFillMode: 'none',
+	animationIterationCount: 'none',
+	animationName: 'none',
+	animationTimingFunction: 'none',
+	transitionDelay: 'none',
+	transitionDuration: 'none',
+	transitionProperty: 'none',
+	transitionTimingFunction: 'none',
+};
+
+/** How each property interpolates, for every property there is. */
+export const INTERPOLATION: ReadonlyMap<PropertyName, Interpolation> = new Map(
+	PROPERTY_NAMES.map((name): [PropertyName, Interpolation] => {
+		const named = INTERPOLATION_EXCEPTIONS[name];
+		if (named) {
+			return [name, named];
+		}
+		if ((COLOR_PROPERTIES as readonly string[]).includes(name)) {
+			return [name, 'color'];
+		}
+		const initial = PROPERTIES[name].initial as unknown;
+		if (typeof initial === 'object' && initial !== null && 'type' in initial) {
+			return [name, 'length'];
+		}
+		return [name, typeof initial === 'number' ? 'integer' : 'discrete'];
+	})
+);
+
+/** Every property a `transition-property: all` watches. */
+export const ANIMATABLE_PROPERTIES: readonly PropertyName[] = PROPERTY_NAMES.filter(
+	(name) => INTERPOLATION.get(name) !== 'none'
 );
 
 /**

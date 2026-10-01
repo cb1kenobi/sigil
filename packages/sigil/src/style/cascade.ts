@@ -27,6 +27,7 @@ import {
 } from './selector.js';
 import {
 	DEFAULT_MEDIA,
+	type Keyframes,
 	LAYERS,
 	matchesMedia,
 	type MediaContext,
@@ -150,6 +151,7 @@ export class Cascade {
 	media: MediaContext;
 
 	#buckets: Map<string, Candidate[]> | undefined;
+	#keyframes: Map<string, Keyframes> | undefined;
 	readonly #sheets: Stylesheet[] = [];
 
 	constructor(sheets: Iterable<Stylesheet> = [], media: MediaContext = DEFAULT_MEDIA) {
@@ -173,7 +175,46 @@ export class Cascade {
 	add(sheet: Stylesheet): this {
 		this.#sheets.push(sheet);
 		this.#buckets = undefined;
+		this.#keyframes = undefined;
 		return this;
+	}
+
+	/**
+	 * The animation a name refers to, or `undefined` if nothing declares one.
+	 *
+	 * Resolved by origin and then by the order sheets were added, with the last
+	 * one winning -- which is the cascade's own ordering with the two axes it has
+	 * nothing to say about left out. Layers do not apply: a `@keyframes` is not a
+	 * declaration and has no property for a layer to break a tie over, so
+	 * `@layer utilities { @keyframes spin { ... } }` is the same animation as one
+	 * written outside. Specificity has nothing to apply to either, since a name
+	 * is matched rather than selected.
+	 *
+	 * Built on the first ask and thrown away when a sheet is added, the way the
+	 * bucket index is -- a theme swapped at runtime is a sheet added, and a
+	 * keyframes map kept across that would answer for a sheet nobody has.
+	 *
+	 * @param name - What `animation-name` said.
+	 * @returns The stops, or `undefined`.
+	 */
+	keyframes(name: string): Keyframes | undefined {
+		if (!this.#keyframes) {
+			const found = new Map<string, Keyframes>();
+			// origin first, then the order they were added, so that the last writer
+			// in cascade order is the one still in the map
+			for (const origin of ORIGINS) {
+				for (const sheet of this.#sheets) {
+					if (sheet.origin !== origin) {
+						continue;
+					}
+					for (const [key, frames] of sheet.keyframes) {
+						found.set(key, frames);
+					}
+				}
+			}
+			this.#keyframes = found;
+		}
+		return this.#keyframes.get(name);
 	}
 
 	/**

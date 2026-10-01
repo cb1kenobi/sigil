@@ -440,12 +440,24 @@ describe('the terminal changing', () => {
 	it('should restyle everything on a resize, media queries included', () => {
 		const panel = el('box.panel', [el('text')]);
 		const cascade = new Cascade([sheet]);
-		cascade.media = { colorLevel: 3, colorScheme: 'dark', height: 24, width: 40 };
+		cascade.media = {
+			colorLevel: 3,
+			colorScheme: 'dark',
+			height: 24,
+			reducedMotion: 'no-preference',
+			width: 40,
+		};
 		const restyler = new Restyler(cascade);
 		restyler.update(as(panel));
 		expect(restyler.styleOf(as(panel))?.paddingTop).toBe(1);
 
-		cascade.media = { colorLevel: 3, colorScheme: 'dark', height: 24, width: 120 };
+		cascade.media = {
+			colorLevel: 3,
+			colorScheme: 'dark',
+			height: 24,
+			reducedMotion: 'no-preference',
+			width: 120,
+		};
 		restyler.touchMedia();
 		const update = restyler.update(as(panel));
 

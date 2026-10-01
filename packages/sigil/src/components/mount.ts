@@ -80,6 +80,10 @@ export function mountLive(build: (live: boolean) => Element, opts: MountOptions 
 		// exists now
 		colorScheme: opts.colorScheme,
 		frameMs: opts.frameMs,
+		// passed on for the same reason the scheme is, and the renderer adds the
+		// terminal under it: a pipe collapses an animation to its end state without
+		// anybody asking, which is what `live` has always meant for a spinner
+		reducedMotion: opts.reducedMotion,
 		onError: opts.onError,
 		terminal,
 		// as wide as what is drawn: these frames end up in a log, and a canvas the
