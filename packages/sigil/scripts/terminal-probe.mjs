@@ -4,6 +4,7 @@
  *   pnpm build && node packages/sigil/scripts/terminal-probe.mjs
  *   pnpm build && node packages/sigil/scripts/terminal-probe.mjs --detect
  *   pnpm build && node packages/sigil/scripts/terminal-probe.mjs --mouse
+ *   pnpm build && node packages/sigil/scripts/terminal-probe.mjs --clipboard
  *
  * `test/canvas/diff.test.ts` replays the diff's output against `FakeTerminal`,
  * a model written in this repo. That is the right way to test a diff -- it pins
@@ -995,6 +996,198 @@ async function mouse() {
 	}
 }
 
+/**
+ * OSC 52, against a real terminal.
+ *
+ *   pnpm build && node packages/sigil/scripts/terminal-probe.mjs --clipboard
+ *
+ * The one layer where **nothing** can be verified from inside the process, which
+ * is what makes it the sharpest case for a probe. A terminal does not answer an
+ * OSC 52: there is no reply, no DECRQM, no second query that says whether the
+ * first one landed -- so `ClipboardCopy.written` is honestly limited to "the
+ * bytes reached the stream", and every question past that needs a human with a
+ * clipboard. A test can assert what `clipboardSequence()` builds; nothing in a
+ * test can say whether *your* terminal honours it, what it caps the payload at,
+ * whether tmux passes it through, or whether the primary selection means
+ * anything where you are.
+ *
+ * So each step writes one payload and asks you to paste it somewhere. Run it in
+ * each terminal you care about, and over ssh and inside tmux, which are their own
+ * answers -- and are the whole reason OSC 52 exists.
+ *
+ * Nothing here is a mode, so there is nothing to put back: OSC 52 is a write.
+ * That is why this mode has no `finally` where `--mouse` has one.
+ */
+async function clipboard() {
+	const { CLIPBOARD_LIMIT, clipboardSequence, copyToClipboard } =
+		await import('../dist/terminal.mjs');
+
+	let step = 0;
+	/**
+	 * @param {string} title
+	 * @param {string} claim - What a terminal that honours this does.
+	 */
+	const heading = (title, claim) => {
+		step++;
+		write(`\r\n[${step}] ${title}\r\n`);
+		write(`    the claim: ${claim}\r\n\r\n`);
+	};
+
+	/** Writes a payload and reports what went out, which is all this can know. */
+	const send = (text, opts = {}) => {
+		const copy = copyToClipboard(terminal, text, opts);
+		write(
+			`    written=${copy.written}  bytes=${copy.bytes}` +
+				`  truncated=${copy.truncated}  refused=${copy.refused ?? 'no'}\r\n`
+		);
+		return copy;
+	};
+
+	/** Waits, so that each step's payload is the one on the clipboard. */
+	const next = async (prompt = 'paste it somewhere, then press a key') => {
+		write(`\r\n    ${prompt} `);
+		const pressed = await key();
+		write('\r\n');
+		return pressed !== '\u0003';
+	};
+
+	write(CLEAR + HOME + SHOW_CURSOR);
+	write('OSC 52, against this terminal. Ctrl-C stops.\r\n');
+
+	// ------------------------------------------------------------ the environment
+	heading(
+		'what decides whether any of this works',
+		'the variables below are what a reader needs to interpret every step after it'
+	);
+	write(`    TERM_PROGRAM=${process.env.TERM_PROGRAM ?? '<unset>'}`);
+	write(`  TERM=${process.env.TERM ?? '<unset>'}\r\n`);
+	write(`    TMUX=${process.env.TMUX ? 'set' : '<unset>'}`);
+	write(`  STY=${process.env.STY ?? '<unset>'}`);
+	write(`  SSH_TTY=${process.env.SSH_TTY ?? '<unset>'}\r\n`);
+	if (process.env.TMUX) {
+		write(
+			'\r\n    Inside tmux. OSC 52 only reaches the outer terminal with\r\n' +
+				'      set -g set-clipboard on\r\n' +
+				'    and tmux may handle it itself instead, putting the text in a tmux\r\n' +
+				'    buffer rather than on the system clipboard -- which is a different\r\n' +
+				'    thing that pastes with a different keystroke. Worth knowing which\r\n' +
+				'    one you got.\r\n'
+		);
+	}
+	if (process.env.SSH_TTY) {
+		write(
+			'\r\n    Over ssh, which is the case OSC 52 exists for: the terminal holds\r\n' +
+				'    the clipboard, so the remote end can reach it with no channel of its\r\n' +
+				'    own. If this works here and nowhere else, that is still the win.\r\n'
+		);
+	}
+
+	// ------------------------------------------------------------ does it work
+	heading(
+		'an ordinary copy',
+		'the text below is on your clipboard; several terminals refuse this by default'
+	);
+	const marker = `sigil-osc52-${Date.now()}`;
+	write(`    sending: ${marker}\r\n`);
+	send(marker);
+	write(
+		'\r\n    Paste. The marker above means it worked. Nothing, or whatever you had\r\n' +
+			'    copied before, means this terminal refused it -- which is a setting and\r\n' +
+			'    not a bug: a remote process writing your clipboard is a real hazard, so\r\n' +
+			'    look for "allow clipboard access" or similar.\r\n'
+	);
+	if (!(await next())) return;
+
+	// --------------------------------------------------- the injection that is not
+	heading(
+		'a payload full of control characters',
+		'your window title did not change, nothing beeped, and the paste is literal'
+	);
+	// the reason OSC 52 is base64: an OSC runs until its terminator, so a control
+	// character inside the payload would end the sequence early and the rest would
+	// reach the terminal as commands. The guard is in the encoder, which is why a
+	// caller can hand it anything
+	const nasty = `before${ESC_CHAR}]0;PWNED${ESC_CHAR}\\${BEL_CHAR}after`;
+	write(`    sending: ${JSON.stringify(nasty).replaceAll('\\u001b', 'ESC ')}\r\n`);
+	send(nasty);
+	write(
+		'\r\n    A title that now says PWNED, or a beep, means the payload escaped its\r\n' +
+			'    own sequence -- which base64 is supposed to make impossible. The paste\r\n' +
+			'    should contain those bytes as text.\r\n'
+	);
+	if (!(await next())) return;
+
+	// ------------------------------------------------------------------ the cap
+	heading(
+		'the payload cap, which no terminal will tell you',
+		`${CLIPBOARD_LIMIT} bytes is what every OSC 52 tool assumes; yours may be far lower`
+	);
+	write(
+		'    Each size below ends with its own marker. Paste after each one and\r\n' +
+			"    note the last size whose marker arrives -- that is this terminal's cap,\r\n" +
+			'    and it is the number the default is a guess about.\r\n\r\n'
+	);
+	for (const size of [1_000, 10_000, CLIPBOARD_LIMIT]) {
+		const tail = `[END-${size}]`;
+		const body = 'x'.repeat(Math.max(0, size - tail.length)) + tail;
+		write(`    ${String(size).padStart(6)} bytes: `);
+		const copy = clipboardSequence(body);
+		write(`sequence is ${copy.sequence.length} bytes on the wire\r\n`);
+		send(body);
+		if (!(await next(`paste and look for ${tail}, then press a key`))) return;
+	}
+	write(
+		'    A size that silently did nothing is the failure this cap exists for:\r\n' +
+			'    a terminal handed too much drops the whole sequence, which is why the\r\n' +
+			'    default refuses rather than sending and hoping.\r\n'
+	);
+
+	// ------------------------------------------------------------ over the cap
+	heading(
+		'over the cap, refused and then truncated',
+		'the first writes nothing at all; the second writes exactly the cap'
+	);
+	const huge = 'y'.repeat(CLIPBOARD_LIMIT + 1_000);
+	write('    refused:   ');
+	send(huge);
+	write('    truncated: ');
+	send(huge, { truncate: true });
+	write(
+		'\r\n    The refusal is the default because a dropped sequence is silent: a\r\n' +
+			'    caller that asked for 80 KB and got nothing has no way to find out.\r\n'
+	);
+	if (!(await next('press a key'))) return;
+
+	// ----------------------------------------------------------- the primary one
+	heading(
+		'the primary selection',
+		'on X11 this is what middle-click pastes; elsewhere it is usually ignored'
+	);
+	send(`sigil-primary-${Date.now()}`, { target: 'primary' });
+	write(
+		'\r\n    Middle-click somewhere that takes text. Nothing happening here is the\r\n' +
+			'    ordinary answer outside X11 and is not a failure.\r\n'
+	);
+	if (!(await next('press a key'))) return;
+
+	// ------------------------------------------------------------- what is out
+	heading(
+		'reading is not implemented, deliberately',
+		'nothing below is written, and that is the whole step'
+	);
+	write(
+		'    `ESC ] 52 ; c ; ? ST` asks the terminal to send the clipboard back on\r\n' +
+			'    stdin, which is a remote process exfiltrating whatever you last copied.\r\n' +
+			'    It is disabled by default nearly everywhere, for that reason, and sigil\r\n' +
+			'    does not write it. Paste arrives through bracketed paste instead, which\r\n' +
+			'    you have to actually perform.\r\n'
+	);
+}
+
+/** Written with `fromCharCode` for the reason the rest of this repo is. */
+const ESC_CHAR = String.fromCharCode(0x1b);
+const BEL_CHAR = String.fromCharCode(0x07);
+
 /** @returns {Promise<string>} The key pressed. */
 function key() {
 	return new Promise((resolve) => {
@@ -1038,6 +1231,13 @@ async function main() {
 	// than an eye on a frame, so it is its own mode for the same reason
 	if (process.argv.includes('--mouse')) {
 		await mouse();
+		return;
+	}
+
+	// and the clipboard is text plus a human with a paste buffer, which is the one
+	// layer where nothing at all can be verified from inside the process
+	if (process.argv.includes('--clipboard')) {
+		await clipboard();
 		return;
 	}
 

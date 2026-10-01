@@ -46,6 +46,19 @@ export class Screen {
 	 * cursor off the edge would disagree with the row the backend is tracking.
 	 */
 	wrapPending = false;
+	/**
+	 * What OSC 52 put on each selection, and in the order it arrived.
+	 *
+	 * Modelled rather than swallowed with the rest of the control strings, because
+	 * a clipboard write is the one OSC a test has a reason to assert and because
+	 * the payload is base64: decoding it here is what makes the model say what the
+	 * *user* would get rather than what the sequence looked like. A real terminal
+	 * may refuse the write -- several do by default, and tmux needs
+	 * `set -g set-clipboard on` -- which is exactly the half only
+	 * `terminal-probe.mjs --clipboard` can settle, so this models a terminal that
+	 * honours it.
+	 */
+	clipboard: { selection: string; text: string }[] = [];
 
 	#main: Buffer;
 	#alt: Buffer;
@@ -170,6 +183,16 @@ export class Screen {
 			if (ch === ESC) {
 				const osc = OSC.exec(output.slice(i));
 				if (osc) {
+					// `52 ; Pc ; <base64>` is a clipboard write and is the one OSC worth
+					// keeping; everything else changes no cell, which is what a screen
+					// model has to say about it
+					const clip = /^52;([^;]*);(.*)$/s.exec(osc[1]);
+					if (clip) {
+						this.clipboard.push({
+							selection: clip[1],
+							text: Buffer.from(clip[2], 'base64').toString('utf8'),
+						});
+					}
 					i += osc[0].length;
 					continue;
 				}

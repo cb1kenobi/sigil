@@ -1,7 +1,7 @@
 import { createInlineCanvas } from '../../src/canvas/index.js';
 import { box, type Element, text } from '../../src/element/index.js';
 import { createInput } from '../../src/input/index.js';
-import { render } from '../../src/renderer/index.js';
+import { enableSelection, render } from '../../src/renderer/index.js';
 import { Cascade, parseStylesheet } from '../../src/style/index.js';
 import { createTerminal, type Terminal } from '../../src/terminal/index.js';
 import { Screen, screenStream } from '../canvas/screen.js';
@@ -205,6 +205,49 @@ describe('the mouse over a rendered tree', () => {
 		expect(input.hovered?.type).toBe('text');
 		expect(tile.states).toContain('hover');
 		expect(tile.style.color).not.toBe(before);
+
+		input.stop();
+		view.dispose();
+	});
+});
+
+describe('selection over a rendered tree', () => {
+	it('should turn a real drag into the text it covered and put it on the clipboard', async () => {
+		// the half neither the geometry tests nor the driver tests can say: a report
+		// naming a *screen* cell, translated through an inline canvas's learnt
+		// origin, selecting the cells that were painted there, and the bytes
+		// reaching a terminal that models what a clipboard write means
+		const h = harness();
+		h.terminal.write('building...\r\n');
+
+		const backend = createInlineCanvas({ height: 2, terminal: h.terminal, width: 12 });
+		const view = render(
+			() => box({ 'flex-direction': 'column' }, text('hello world'), text('second line')),
+			{ backend, colorLevel: 3, terminal: h.terminal }
+		);
+
+		const input = createInput({
+			mouse: { surface: view.backend },
+			root: view.root,
+			terminal: h.terminal,
+		});
+		const selection = enableSelection(view, input);
+		answerCursor(h);
+		await flush();
+
+		expect(h.screen.written).toEqual(['building...', 'hello world', 'second line']);
+
+		// the canvas starts on screen row 2, so screen row 2 is canvas row 0. Column
+		// 7 one-based is canvas column 6, which is the `w` of `world`
+		h.feed(`${ESC}[<0;7;2M`);
+		h.feed(`${ESC}[<32;11;2M`);
+		view.frame();
+
+		expect(selection.text()).toBe('world');
+
+		const copy = selection.copy();
+		expect(copy.written).toBe(true);
+		expect(h.screen.clipboard).toEqual([{ selection: 'c', text: 'world' }]);
 
 		input.stop();
 		view.dispose();

@@ -37,12 +37,12 @@ Paths below are inside `packages/sigil/` unless noted.
 | `src/width/`                   | Display width: grapheme clusters, East Asian Width   |
 | `src/wrap/`                    | Text wrapping, SGR state, terminal width             |
 | `src/help/`                    | The generated help screen, as an element tree        |
-| `src/terminal/`                | Terminal wrapper, live region, sequences             |
+| `src/terminal/`                | Terminal wrapper, live region, sequences, OSC 52     |
 | `src/components/`              | Spinner, progress, table, prompts, key decoding      |
 | `src/signals/`                 | The reactive graph: state, computed, watcher, effect |
 | `src/renderer/`                | Components, the owner tree, control flow, the frame  |
 | `src/template/`                | The template IR, the `ui` tag, the JSX runtimes      |
-| `src/canvas/`                  | Cell buffer, style interning, paint diff, sub-cell   |
+| `src/canvas/`                  | Cell buffer, style interning, paint diff, selection  |
 | `src/style/`                   | Properties, values, selectors, cascade, degradation  |
 | `src/theme/`                   | The framework's own sheet, and what a theme is       |
 | `src/layout/`                  | The flexbox subset, over whole cells                 |
@@ -2968,11 +2968,14 @@ dependency. Regenerate with `node scripts/generate-utilities.mjs` from inside
   into nothing reads as an app that stopped responding: every key then goes to
   the bindings and nowhere else. What is kept is where it sat in the ring, not
   which element it was, because the element is exactly what has gone.
-- **`focusable` and `tabindex` are reserved props.** Everything a prop names that
-  this list does not is a style property, and the cascade refuses one it does not
-  know -- so a typo is an error rather than a value nothing reads. A `tabindex`
-  implies `focusable`, because giving something a place in the ring and then
-  leaving it out of the ring is not a thing anybody means.
+- **`focusable` and `tabindex` are reserved props, and `selectable` joined them.**
+  Everything a prop names that this list does not is a style property, and the
+  cascade refuses one it does not know -- so a typo is an error rather than a value
+  nothing reads. A `tabindex` implies `focusable`, because giving something a place
+  in the ring and then leaving it out of the ring is not a thing anybody means. The
+  list is `class`, `focusable`, `id`, `key`, `selectable` and `tabindex`; what
+  `selectable` is for, and why it is not a style property, is under "Selection and
+  the clipboard".
 - **A paste arrives whole, and bracketed paste joins the restore list.** Without
   the markers a pasted block arrives as though it had been typed, so a newline in
   the middle of an address is Enter and a text input submits half of it. With
@@ -3210,8 +3213,11 @@ two events` is the guard, and its sibling asserts the click is still stoppable
   demo and in the module docs rather than left to be discovered. A terminal
   reporting the mouse stops doing its own selection, so an app that enables
   tracking has, from the user's point of view, broken copy and paste; shift-drag
-  overrides it in most terminals and not all. That is the argument for the
-  selection ticket being a follow-on rather than an independent nice-to-have.
+  overrides it in most terminals and not all. That was the argument for the
+  selection ticket being a follow-on rather than an independent nice-to-have, and
+  it is now answered under "Selection and the clipboard" -- `enableSelection()` is
+  how an app gives it back, and the iTerm2 alt/option entry below is why the escape
+  hatch was never enough on its own.
 - **An inline app's mouse is a profile setting away from being switched off
   entirely, and nothing can detect that.** iTerm2 has
   `KEY_RESTRICT_MOUSE_REPORTING_TO_ALTERNATE_SCREEN_MODE` -- "Restrict Mouse
@@ -3528,6 +3534,287 @@ mouse` in `packages/cli/test/mouse-echo.test.ts` is the guard, and it
   legible on a terminal with `NO_COLOR` set. Worth knowing before drawing anything
   that has to cover what is behind it: the fill is a `background-color`, and level 0
   drops colour.
+
+### Selection and the clipboard
+
+What SIG-106 took away, SIG-107 gives back. The argument is not that selection is
+a nice feature: **mouse tracking removes the terminal's own selection**, so an
+app that enabled it has, from the user's point of view, broken copy and paste --
+and the escape hatch is weaker than the ticket assumed, because this file already
+records that **iTerm2 overrides tracking with alt/option and shift does nothing
+there at all**. Which key gets selection back is the terminal's own and is nothing
+an app can influence or detect, so an app that wants it has to have its own.
+
+`src/canvas/selection.ts` is the model, `src/element/selection.ts` is which cells
+may be copied, `src/terminal/clipboard.ts` is OSC 52, and
+`src/renderer/selection.ts` is the gesture.
+
+- **A selection is two cells over the painted grid, not a range over the element
+  tree.** The tree version is to walk the texts between two elements and
+  concatenate, which gives semantically tidy text and needs a **reading order for a
+  flexbox tree**, which flexbox has not got: a `row-reverse` of three texts has no
+  answer, and an absolutely positioned overlay sitting on top of a paragraph has a
+  worse one. The grid is what the user is pointing at, it already knows what a wide
+  cluster is and where its continuation went, `toLines()` was already here, and one
+  cell pair gives both a linear and a rectangular selection with no second model.
+  What it costs is that the text is **laid-out** text -- a wrapped paragraph copies
+  with its wrap points in it -- which is what selecting from a terminal has always
+  given you.
+- **It spans the whole canvas rather than the nearest clipping box, which is the
+  first question the ticket left open.** Scoped is more useful in a two-pane layout
+  and is also where the grid model stops being a grid model: an anchor that belongs
+  to a box has to carry an element identity, and then the selection is a tree
+  reference after all -- with no answer for an anchor in one pane and a focus in
+  another, or for a box that scrolls or unmounts mid-drag. What scoping was _for_
+  is already answered twice over from the same two coordinates. **Block mode** is
+  the real need: a rectangular drag down one pane copies exactly that pane's
+  columns, which is asserted end to end -- an alt-drag down the demo's left pane
+  copies `alpha\nbravo\ncharlie` and none of the right one. And
+  `selectable={false}` is the answer for a pane that must never be copied at all.
+  So: the whole canvas, with two narrower mechanisms doing the job scoping was
+  wanted for.
+- **There is no default binding for copy, which is the second question.** Ctrl-C
+  is the abort, and the binding order exists precisely so that an app cannot become
+  unquittable -- a framework that made Ctrl-C mean copy _whenever something was
+  selected_ would be that failure wearing a condition, which is worse than the
+  unconditional version because the same key then does two things depending on
+  invisible state. Ctrl-Shift-C reaches a terminal as the same `0x03` Ctrl-C does
+  without the Kitty keyboard protocol, which is explicitly out of scope: a
+  framework claiming it would be claiming a key it cannot hear. And there is no
+  third convention a terminal app can rely on. So `enableSelection()` binds nothing
+  for it and `handle.copy()` is what an app calls; the demo picks `y`, which is
+  vi's yank and is the app's choice rather than the framework's.
+- **Shift-arrow _is_ bound, and the asymmetry is about what can be heard.** A
+  shift-arrow is a distinct sequence -- `CSI 1 ; 2 A` -- that nothing else claims,
+  where no copy chord is; so the keyboard half is real and the copy half cannot be.
+  It acts **only while nothing is focused**, which is the rule `03-focus.js`
+  already follows for its own `q`: a binding is ahead of the focused element, and
+  shift-arrow inside a text field is that field's. With no selection it starts one
+  at the canvas's own origin, which is the only cell this layer can name without
+  inventing a caret nothing else reads.
+- **The highlight is a style override applied at paint time, and nothing is ever
+  written into the cells.** `Painter.overlay()` re-styles a run of cells the tree
+  has already drawn, and it is called last inside the same `backend.render()` -- so
+  the highlight is recomputed from the live selection on every frame and `paint()`'s
+  own `clear()` is what removes the last one. The alternative is to write it in as
+  though something had painted it, after which it survives into the next frame's
+  diff and a selection that moved leaves the old one behind.
+- **`CellBuffer.restyle()` carries a style to the other half of a wide cluster,
+  and that is the grid's rather than a caller's.** `put()` writes one index to both
+  halves and the **diff draws the lead and skips the continuation**, so a style
+  written to one half alone is a style the terminal is never told about: the glyph
+  comes out in the other half's style and the highlight vanishes. Reading it from
+  either half gives the same answer for the same reason, so a selection that
+  touched either cell highlights the cluster whole -- which is also what extraction
+  does, by growing a run left onto its lead. Pinned twice: as a unit, and by a
+  **replay against the model terminal** in `diff.test.ts`, which is the only place
+  the overlay meets the diff.
+- **`overlay()` takes a run rather than a rectangle, because the one rule it needs
+  is about a row.** Visiting a continuation after its lead applies the transform
+  twice, and the transform is **not idempotent**: it toggles. A selected wide
+  cluster therefore came out _not_ highlighted. So a continuation is skipped unless
+  it is the run's first cell, where its lead sits outside the run and `restyle()` is
+  what reaches it. `should not invert a wide cluster twice` is the guard.
+- **The highlight toggles reverse video rather than setting it.** Setting the bit
+  makes a selection over a run an app already drew `inverse` invisible, which is the
+  one case a highlight exists for; toggling it un-inverts that run, which is what a
+  terminal's own selection does to one.
+- **Nothing is drawn at colour level 0, and the selection still copies.** The rule
+  the prompt caret already follows said one layer along: at level 0 the seven
+  attributes go too, so a reverse-video highlight would be the one sequence
+  `NO_COLOR` could not switch off. The two ways to reach level 0 are a pipe and
+  `NO_COLOR`; the first has no interactive selection and the second is a user who
+  asked for no attributes. What is lost is the highlight and nothing else --
+  `selectionText()` and `copy()` answer the same either way, which is asserted as a
+  pair in one test, because a vitest worker's own level is 0 and a test that only
+  asserted the absence would pass with the guard deleted. Inventing something else
+  at level 0 -- brackets, a marker glyph -- is refused for a sharper reason than the
+  degrader's: it would write _characters_ into the grid, which the selection would
+  then copy.
+- **The level is read in the renderer rather than in the canvas, which keeps the
+  canvas ignorant of colour the way it already is.** `canvas/selection.ts` emits
+  whatever style it was handed, exactly as `colorParams()` does; the renderer is
+  where `cascade.media.colorLevel` already lives.
+- **A selection change is a repaint and not a layout, so it is its own flag.** The
+  restyler answers for what a _style_ change implies and `Marks` for what the tree
+  recorded; a selection is neither an element nor a style, so nothing either of them
+  holds can say it moved -- and `full` is the wrong flag, because it forces a layout
+  and no box has moved. `repaint` is the third input to `needPaint`, beside
+  `marks.paint` and `update.paint`.
+- **A resize throws the selection away.** The cells it named describe a screen that
+  no longer exists, which is exactly why the canvas discards both buffers there --
+  so keeping a cell pair across one would name whatever the re-layout happens to put
+  at those coordinates. Dropped rather than mapped, because there is nothing to map
+  it through: the content moved and may have rewrapped.
+- **Trailing blanks go per line, and a cell nothing may copy comes out as a
+  blank.** The first is the reason `renderToString()` already gives: a region padded
+  out to the pane's width is one nobody can paste anywhere useful. The second is the
+  less obvious half -- dropping an uncopyable cell would pull the text on either side
+  together and misalign every line that crossed one, while a blank keeps the shape
+  and the trailing-blank rule removes it where it was at the end anyway. A wide
+  cluster nothing may copy becomes two blanks, for the same reason.
+- **`selectable` is a reserved prop, which changes the list this file records.** It
+  was `class`, `focusable`, `id`, `key` and `tabindex`; it is six now, and
+  `template/props.ts` says so in the same place. It is _not_ a style property, and
+  that is the decision rather than an omission: nothing about it changes what a cell
+  looks like, so it is not in the cascade's vocabulary -- and putting it there would
+  let a **theme** decide what the user may copy, which is not a thing a colour sheet
+  should be able to say. It costs the inheritance the cascade would have given for
+  free, which is the walk below.
+- **It defaults to true on `text` and false on `raw`, and it inherits.** A
+  sparkline or a half-block image is a wall of block characters nobody wants in
+  their clipboard, which is the whole reason the prop exists; an explicit value wins
+  for the element and everything under it, so a `raw` that really does draw
+  characters opts back in and a `selectable={false}` on a pane means the pane.
+- **Only `text` and `raw` write to the mask, which is the part that reads as a gap
+  and is not.** They are the two host types that draw _content_, so in paint order
+  the last one painted at a cell decides. Every element stamping its own box is the
+  obvious alternative and is wrong for a transparent `box` overlapping a `raw`: it
+  paints nothing there, the sparkline is still what is on screen, and it would have
+  marked those cells copyable. What that leaves outside the question is a box's
+  background and its border, which stay copyable -- they are blanks and box-drawing
+  characters, which a terminal's own selection hands over too, so `selectable` means
+  content rather than decoration.
+- **`selectableAt()` answers `undefined` where there is nothing to exclude, and
+  that is a fast path rather than a claim.** A tree with no `raw` and no
+  `selectable` has a mask of all ones, which is an allocation and a lookup per cell
+  to say what `undefined` says for free. It is pinned anyway, because the predicate
+  being absent is observable. The `display: none` skip beside it **is** a fast path:
+  measured, `arrange()` gives such a node a zero-area box and gives its children no
+  box at all, so the walk writes nothing either way -- it is kept for the cost and
+  because paint and the hit test ask the same question in the same place.
+- **OSC 52 is a write and not a mode, so it is not on the restore list.** That
+  settles the other thing the ticket flagged. Nothing is turned on, so there is
+  nothing for `restore()` to put back -- unlike the paste markers and the tracking
+  modes beside it, which a CLI that dies leaves a shell wearing. Asserted rather
+  than reasoned: a copy followed by `restore()` writes nothing.
+- **There is no success to claim, and `written` is named for what it can say.** A
+  terminal does not answer an OSC 52 -- no reply, no DECRQM, no second query that
+  says whether the first landed -- several refuse it by default, and tmux needs
+  `set -g set-clipboard on` and may put the text in a tmux buffer instead. So
+  `ClipboardCopy.written` means the bytes reached the stream, which is the strongest
+  true statement available, and it is false only for a refusal or a stream whose far
+  end has gone.
+- **The control-character guard is in the encoder, not in the caller.** An OSC runs
+  until its terminator, so a control character in the payload ends the sequence
+  early and the rest reaches the terminal as commands -- the same injection
+  `assertLink()` refuses for a hyperlink URI. Base64 closes it by construction,
+  which is _why_ OSC 52 is base64; the point of putting it in the encoder is that
+  there is one way to build the sequence and it always encodes, so a caller cannot
+  opt out of the safety by handing over something raw. The assertion under it is a
+  tripwire for the day somebody adds a verbatim option, and is unreachable today.
+  `ESC \` terminates rather than BEL, which is the rule `canvas/style.ts` already
+  keeps for OSC 8.
+- **Over the cap it refuses by default and truncates only when asked.** A terminal
+  handed too much drops the **whole** sequence silently, so sending and hoping is the
+  one answer that cannot be observed: a caller who asked for 80 kB and got nothing
+  has no way to find out. The refusal is visible; `truncate: true` is the deliberate
+  other half, and it cuts on **grapheme cluster** boundaries, because a cut inside a
+  cluster is a lone regional indicator or an orphaned mark -- not what anybody
+  selected, and in the surrogate case bytes no decoder can read. Code points are not
+  the unit and a test says so: a flag is two four-byte indicators, and a five-byte
+  budget takes neither.
+- **An empty text writes nothing rather than an empty payload.** OSC 52 with an
+  empty payload _clears_ the clipboard on most terminals, and "copy nothing" is not
+  a request to throw away what the user copied an hour ago. So it is a refusal the
+  caller can see, which is also what makes `y` with nothing selected say so in the
+  demo rather than silently wiping.
+- **`CLIPBOARD_LIMIT` is 74,994 and the probe found the derivation to be one byte
+  out.** It is what every other OSC 52 tool uses, derived as a 100,000-byte ceiling
+  over base64's 4-for-3 -- and the nine bytes of `ESC ] 5 2 ; c ;` and `ESC \` put
+  the whole sequence at **100,001**, which `--clipboard` printed on its first run.
+  Kept anyway, because being the same number as every other tool is worth more than
+  nine bytes against a cap nobody will state: it is a guess about other people's
+  software, several of them capping far lower, and `limit` is there for a caller who
+  has measured their own. Pinned at 100,001 rather than at the ceiling, so the
+  comment and the test say the same true thing.
+- **Reading is not implemented and is not an omission.** `ESC ] 52 ; c ; ? ST` asks
+  the terminal to send the clipboard back on stdin, which is a remote process
+  exfiltrating whatever the user last copied -- which is why it is disabled by
+  default nearly everywhere and why it should be. Paste arrives through bracketed
+  paste, which the router already reads and which the user has to actually perform.
+- **A shift-drag is left alone.** Where a terminal honours shift as the override
+  this never sees the report at all; where it forwards one with the bit set, acting
+  on it would put a selection of ours underneath the terminal's own. Either way the
+  user's muscle memory is the terminal's to serve. Alt is what makes a drag
+  rectangular, which is Windows Terminal's and iTerm2's spelling -- and in iTerm2 an
+  alt-drag never reaches the app, because alt is what gives you the terminal's own
+  selection there, which is the terminal doing the job rather than this failing to.
+  `block: 'ctrl'` is xterm's spelling, for an app that wants the mode reachable
+  everywhere.
+- **A press clears and records; the first drag report is what selects.** A click
+  with no drag therefore leaves nothing selected, which is what a terminal does --
+  and it is why the anchor is kept in the driver rather than as a one-cell selection
+  nobody asked for. Selection needs no `motion: true`: a held button's motion is
+  what `1002` already reports, so this costs no `1003` and gives up only `:hover`.
+- **A keyboard extension is clamped and a drag is not.** A press captures the
+  pointer, so a drag's focus may legitimately be outside the canvas and
+  `selectionRuns()` clamps it to the edge -- which is what the user means by it. An
+  arrow key has no capture to honour, and an unclamped focus walking further off the
+  edge every keystroke is a selection that looks stuck for as many presses as it
+  took to get there.
+- **`Canvas.cells` is exposed for reading, and extraction is why.** A selection is
+  text read back off the frame that was painted, and `toString()` is the wrong shape
+  for it: it trims and joins, where extracting a region has to ask cell by cell and
+  know which half of a wide cluster it is looking at. It is the back buffer, which
+  `paint()` clears and fills, so between frames it is what is on screen. Nothing
+  stops a caller painting through it -- the grid is a class with public methods --
+  and what that costs is a frame the next `paint()` wipes with the diff never having
+  been told, which is the trap `present()` copying forward rather than swapping
+  already records.
+- **The two lookup tables here are null-prototype and nothing else, which is one
+  half of a convention rather than both -- and a sabotage pass is what settled
+  it.** `ARROWS` maps an arrow key's name to a step and `TARGETS` maps a selection
+  to its `Pc`, and both had a prototype **and** an `Object.hasOwn` beside them,
+  which is what Conventions asks for. Removing either failed nothing: with the
+  prototype gone the `hasOwn` still refused `constructor`, and with the `hasOwn`
+  gone a falsy check over a null-prototype table answered the same. That is the
+  masking this file already records from the JSX source-type pinning, and the
+  reason the convention does not apply whole is that its second half is about the
+  **write** side -- `lookup['__proto__'] = name` going through an accessor and
+  being dropped -- which a constant nobody writes to cannot have. So one
+  mechanism, and removing it now fails a named test in each file. What it closes
+  is worth knowing: `constructor` is a truthy function, so a key of that name was
+  a step whose `x` is `undefined` and a focus of `NaN`, and a target of that name
+  would have put `function Object() { ... }` inside an OSC sequence.
+- **`terminal-probe.mjs --clipboard` is the whole of what only a terminal can
+  settle, and this is the layer with the least left over.** Every other probe mode
+  checks something a model could be wrong about; here **nothing at all** can be
+  verified from inside the process, because there is no reply. A test can assert what
+  `clipboardSequence()` builds; nothing in a test can say whether your terminal
+  honours it, where it caps the payload, whether tmux passes it through or swallows
+  it into a buffer, or whether the primary selection means anything where you are.
+  Seven steps, each with its own `the claim:` line and each writing one payload for
+  a human to paste: the environment that decides the rest, an ordinary copy, a
+  payload full of control characters that must arrive literally with no title
+  changed and no beep, three sizes to find the real cap by hand, the refusal and the
+  truncation over it, the primary selection, and the read that is not implemented.
+  It needs no `finally`, which is the restore-list entry above read from the other
+  side.
+- **`test/canvas/screen.ts` learnt OSC 52 rather than being worked around.** It
+  swallowed every control string, which is right for the ones that change no cell and
+  wrong for the one a test has a reason to assert -- so it decodes the payload and
+  records it per selection, which is what makes the model say what the _user_ would
+  get rather than what the sequence looked like. It models a terminal that honours
+  the write, which is the half only the probe can check.
+- **The end-to-end test is the half nothing else can say, and it is the mouse
+  file's.** `test/renderer/mouse.test.ts` already has a real renderer over a real
+  inline canvas over the screen model with a real cursor report answered from the
+  model's own cursor; a drag is one more thing to feed it. So a report naming a
+  _screen_ cell translates through the learnt origin, selects the cells that were
+  painted there, and the bytes reach a terminal that decodes them -- `world`, from
+  `ESC [ < 0 ; 7 ; 2 M` and a drag to column 11.
+- **The demo is `demos/element/07-selection.js`, and it is the answer to the
+  warning the other three carry.** `04-mouse.js`, `05-drag.js` and `06-panes.js` each
+  say that turning tracking on takes text selection away; this one gives it back,
+  and it is the fourth demo that cannot be driven by `demos.test.ts` for the reason
+  the others cannot. Driven by hand through a faked TTY that answers the cursor
+  report, which is also how the two claims a reader would doubt were checked: an
+  alt-drag down one pane copies `alpha\nbravo\ncharlie`, and a drag across the
+  braille sparkline copies **nothing at all** -- every cell of it is unselectable, so
+  the line comes out as blanks, the trailing-blank rule empties it, and the copy is
+  refused as empty. Which is the `selectable` default doing exactly what it is for,
+  and reads as a broken demo until you know that.
 
 ### Asking the terminal what it is
 

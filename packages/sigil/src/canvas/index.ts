@@ -31,6 +31,19 @@ export {
 } from './backend.js';
 export { BLANK, CellBuffer, cellWidth, type Clip, CONTINUATION, Painter } from './buffer.js';
 export { diff, type DiffOptions, type DiffResult } from './diff.js';
+export {
+	type Cell,
+	createSelection,
+	inSelection,
+	paintSelection,
+	type Selectable,
+	type Selection,
+	type SelectionMode,
+	type SelectionRun,
+	selectedStyle,
+	selectionRuns,
+	selectionText,
+} from './selection.js';
 export { Dots, Pixels } from './subcell.js';
 export {
 	ATTR,
@@ -71,6 +84,22 @@ export interface CanvasOptions {
 }
 
 export interface Canvas {
+	/**
+	 * The grid the last frame was painted into, for reading.
+	 *
+	 * Exposed because a selection is text read back off the painted frame, and
+	 * `toString()` is the wrong shape for that: it trims and joins, where
+	 * extracting a region has to ask cell by cell and know which half of a wide
+	 * cluster it is looking at. It is the **back** buffer, which `paint()` clears
+	 * and fills, so between frames it is what is on screen.
+	 *
+	 * For reading rather than for painting. Nothing stops a caller writing to it
+	 * -- the grid is a class with public methods -- and what that costs is a frame
+	 * the next `paint()` wipes without the diff ever having been told, which is
+	 * the trap `present()` copying forward rather than swapping already records.
+	 * `paint()` is where drawing goes.
+	 */
+	readonly cells: CellBuffer;
 	/** Drops what was painted, leaving a grid of blanks to paint onto. */
 	clear(): void;
 	readonly height: number;
@@ -172,6 +201,10 @@ export function createCanvas(opts: CanvasOptions): Canvas {
 	};
 
 	const canvas: Canvas = {
+		get cells() {
+			return back;
+		},
+
 		clear(): void {
 			back.clear();
 		},

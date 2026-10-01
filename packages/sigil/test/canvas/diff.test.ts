@@ -3,10 +3,14 @@ import {
 	CellBuffer,
 	cellWidth,
 	createCanvas,
+	createSelection,
 	DEFAULT_STYLE,
 	diff,
+	paintSelection,
+	Painter,
 	palette,
 	rgb,
+	type Selection,
 	type Style,
 	StyleTable,
 	transition,
@@ -857,5 +861,81 @@ describe('diff', () => {
 
 			expect(canvas.toString()).toBe('short');
 		});
+	});
+});
+
+describe('a selection overlay, replayed', () => {
+	/**
+	 * The claim no unit test can make: the bytes a highlighted frame produces turn
+	 * what is on screen into a screen with those cells reversed. Replayed against
+	 * the model rather than asserted as a sequence, which is the rule this file is
+	 * built on -- and it is the one place the overlay meets the diff, which is
+	 * where a style written to one half of a wide cluster would be lost, since the
+	 * diff draws a cluster's lead and skips its continuation.
+	 */
+	const highlighted = (lines: string[], sel: Selection) => {
+		const width = Math.max(...lines.map((line) => stringWidth(line)));
+		const styles = new StyleTable();
+		const before = new CellBuffer(width, lines.length);
+		const after = new CellBuffer(width, lines.length);
+		for (const [y, line] of lines.entries()) {
+			before.write(0, y, line, StyleTable.DEFAULT);
+			after.write(0, y, line, StyleTable.DEFAULT);
+		}
+		paintSelection(new Painter(after, styles), sel, {
+			height: after.height,
+			width: after.width,
+		});
+		// the table beside the replay, because `replay()` hands back the model's
+		// per-cell indices under `styles` and the attributes live in the table
+		return { ...replay(before, after, styles), table: styles };
+	};
+
+	/** Which cells the model ended up showing in reverse video. */
+	const reversed = (styles: number[][], table: StyleTable, y: number) =>
+		styles[y].map((index) => ((table.get(index).attrs & ATTR.inverse) === 0 ? '.' : '#')).join('');
+
+	it('should reverse exactly the cells the selection covers', () => {
+		const out = highlighted(['hello world'], createSelection({ x: 6, y: 0 }, { x: 10, y: 0 }));
+		expect(out.lines).toEqual(['hello world']);
+		expect(reversed(out.terminal.styles, out.table, 0)).toBe('......#####');
+	});
+
+	it('should reverse both columns of a wide cluster, from either half', () => {
+		for (const x of [1, 2]) {
+			const out = highlighted(['a漢b'], createSelection({ x, y: 0 }, { x, y: 0 }));
+			expect(out.lines).toEqual(['a漢b']);
+			expect(reversed(out.terminal.styles, out.table, 0)).toBe('.##.');
+		}
+	});
+
+	it('should reverse a block selection down one column range', () => {
+		const out = highlighted(
+			['left  right', 'one   two  '],
+			createSelection({ x: 0, y: 0 }, { x: 3, y: 1 }, 'block')
+		);
+		expect(reversed(out.terminal.styles, out.table, 0)).toBe('####.......');
+		expect(reversed(out.terminal.styles, out.table, 1)).toBe('####.......');
+	});
+
+	it('should put the terminal back where the selection is taken off again', () => {
+		// the frame after a selection is the frame before it, so the diff has to
+		// turn the reverse video off -- which is the half a one-way test misses
+		const width = 11;
+		const styles = new StyleTable();
+		const plain = new CellBuffer(width, 1);
+		const marked = new CellBuffer(width, 1);
+		plain.write(0, 0, 'hello world', StyleTable.DEFAULT);
+		marked.write(0, 0, 'hello world', StyleTable.DEFAULT);
+		paintSelection(new Painter(marked, styles), createSelection({ x: 0, y: 0 }, { x: 4, y: 0 }), {
+			height: 1,
+			width,
+		});
+
+		const on = replay(plain, marked, styles);
+		expect(reversed(on.terminal.styles, styles, 0)).toBe('#####......');
+
+		const off = replay(marked, plain, styles);
+		expect(reversed(off.terminal.styles, styles, 0)).toBe('...........');
 	});
 });

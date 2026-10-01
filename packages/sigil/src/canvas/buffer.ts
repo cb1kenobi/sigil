@@ -294,6 +294,49 @@ export class CellBuffer {
 	}
 
 	/**
+	 * Re-styles the cluster occupying a cell, leaving what it holds alone.
+	 *
+	 * The **cluster** rather than the cell, and that is the whole of why this is
+	 * the grid's rather than a caller's: `put()` writes one style index to both
+	 * halves of a wide cluster, and the diff draws the lead and skips the
+	 * continuation -- so a style written to one half alone is a style the terminal
+	 * is never told about, and the glyph comes out in the other half's. Reading it
+	 * from either half gives the same answer for the same reason, so a caller may
+	 * ask about whichever one it reached.
+	 *
+	 * What this is for is transient state over a frame somebody else painted: a
+	 * selection highlight is a reverse-video pass over cells the tree drew, and it
+	 * must not be able to change *what* they hold.
+	 *
+	 * @param x - The column.
+	 * @param y - The row.
+	 * @param styleIndex - The interned style to leave the cluster in.
+	 */
+	restyle(x: number, y: number, styleIndex: number): void {
+		const index = this.#at(x, y);
+		if (index < 0) {
+			return;
+		}
+
+		this.#styles[index] = styleIndex;
+
+		if (this.#chars[index] === CONTINUATION) {
+			const lead = this.#at(x - 1, y);
+			if (lead >= 0) {
+				this.#styles[lead] = styleIndex;
+			}
+			return;
+		}
+
+		if (cellWidth(this.#chars[index]) === 2) {
+			const tail = this.#at(x + 1, y);
+			if (tail >= 0) {
+				this.#styles[tail] = styleIndex;
+			}
+		}
+	}
+
+	/**
 	 * Paints a string, cluster by cluster, stopping at the right edge.
 	 *
 	 * @param x - The starting column.
@@ -499,6 +542,56 @@ export class Painter {
 		cluster: string = BLANK
 	): void {
 		this.#buffer.fill(x, y, width, height, cluster, this.#styles.intern(style));
+	}
+
+	/**
+	 * Re-styles a run of cells that have already been painted.
+	 *
+	 * A **style override at paint time**, which is what a selection highlight has
+	 * to be. The alternative is to write the highlight into the cells as though
+	 * something had painted it there, and then it survives into the next frame's
+	 * diff: a selection is transient state nobody drew, so it is recomputed from
+	 * the live selection every frame and `paint()`'s own `clear()` is what removes
+	 * the last one. Nothing here can change what a cell *holds*.
+	 *
+	 * A **run** rather than a rectangle, because the one rule this needs is about
+	 * a row. A wide cluster's two cells share a style index and `restyle()`
+	 * carries the change to both, so visiting the continuation after its lead
+	 * would apply the transform twice -- and a transform that inverts is not
+	 * idempotent, so a selected wide cluster came out *not* highlighted. A
+	 * continuation is therefore skipped unless it is the run's first cell, where
+	 * its lead sits outside the run and `restyle()` is what reaches it: a cluster
+	 * is highlighted as a whole from whichever half the selection touched.
+	 *
+	 * @param x - The first column.
+	 * @param y - The row.
+	 * @param length - How many columns.
+	 * @param transform - The style to leave a cell in, or `undefined` to leave it
+	 *   exactly as it is -- which is how a caller excludes a cell rather than
+	 *   having to split the run around it.
+	 */
+	overlay(
+		x: number,
+		y: number,
+		length: number,
+		transform: (style: Style, x: number, y: number) => Partial<Style> | undefined
+	): void {
+		for (let column = x; column < x + length; column++) {
+			if (!this.#buffer.inside(column, y)) {
+				continue;
+			}
+			if (column > x && this.#buffer.charAt(column, y) === CONTINUATION) {
+				// its lead was in this run and took it along
+				continue;
+			}
+
+			const current = this.#styles.get(this.#buffer.styleAt(column, y));
+			const next = transform(current, column, y);
+			if (next === undefined) {
+				continue;
+			}
+			this.#buffer.restyle(column, y, this.#styles.intern(next));
+		}
 	}
 
 	/**
