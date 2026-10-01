@@ -66,14 +66,22 @@ export interface ScrollBoxProps {
 	axis?: ScrollAxis;
 	/** The content. Built once, like any component's children. */
 	children: () => Element;
-	/**
-	 * Cells to keep visible past a row brought into view.
+	/*
+	 * There is deliberately no `margin`, and one was here and read by nothing.
 	 *
-	 * Passed to `scrollIntoView()` by nothing here -- the focus ring calls that
-	 * itself -- and read by the keyboard and the wheel so that the row at the edge
-	 * is not the last thing you can see.
+	 * It is `scrollIntoView()`'s option and means something there -- how much to
+	 * keep visible past a row being revealed -- and it means nothing to a relative
+	 * move: a key scrolls by a line or a page, a notch by its own three lines, and
+	 * there is no edge for a margin to be measured against. The prop doc claimed
+	 * the keyboard and the wheel read it, which they never did, so it was a
+	 * property that parses and does nothing: the thing this repo records as worse
+	 * than one that does not exist, found by review.
+	 *
+	 * Reaching the option is still the caller's: `scrollIntoView(row, { margin: 1 })`.
+	 * What the focus ring passes is nothing, and giving a scroll box a margin the
+	 * ring honours means the ring reading one off the element -- a `scroll-margin`
+	 * property rather than a component prop, and a decision for whoever needs it.
 	 */
-	margin?: number;
 	/** The host box's own props: the height it is given, a border, a class. */
 	props?: ElementProps;
 	/**
@@ -203,7 +211,6 @@ export function ScrollBox(props: ScrollBoxProps): Element {
 	const vertical = axis === 'both' || axis === 'vertical';
 	const horizontal = axis === 'both' || axis === 'horizontal';
 	const bars = props.scrollbar ?? true;
-	const margin = Math.max(0, Math.trunc(props.margin ?? 0));
 
 	const content = box({
 		class: 'sigil-scroll-content',
@@ -278,8 +285,8 @@ export function ScrollBox(props: ScrollBoxProps): Element {
 		host.append(scrollbar('horizontal', viewport, bars && vertical));
 	}
 
-	wireKeys(host, viewport, { horizontal, margin, vertical });
-	wireWheel(host, viewport, { horizontal, margin, vertical });
+	wireKeys(host, viewport, { horizontal, vertical });
+	wireWheel(host, viewport, { horizontal, vertical });
 
 	return host;
 }
@@ -376,9 +383,9 @@ function scrollbar(axis: 'horizontal' | 'vertical', viewport: Element, corner: b
 	return bar;
 }
 
+/** Which axes a box owns, which is what the keys and the wheel are gated on. */
 interface Axes {
 	horizontal: boolean;
-	margin: number;
 	vertical: boolean;
 }
 
@@ -390,6 +397,14 @@ interface Axes {
  * bubbles to whatever is outside it. Claiming unconditionally was the other
  * option and it is the annoying one -- a one-row list that happens to be a scroll
  * box would eat every Down in the app.
+ *
+ * A box **at its end** is a different thing and still claims the key: it has a
+ * range, so the guard lets it through, and `by` clamping to zero is what makes
+ * the press do nothing. That is deliberate -- Home in a list already at its top
+ * is still that list's key, and letting it bubble would scroll the pane around it
+ * instead -- so do not read the guard as "chains when it runs out". Chaining
+ * there needs "which end" and a definition of partial consumption, and is
+ * refused under "A scroll box" in AGENTS.md.
  *
  * A page is the viewport less a row, so that one line of what you were reading
  * survives the jump. That is what every pager does and it is the reason a page is
@@ -494,8 +509,11 @@ function wireWheel(host: Element, viewport: Element, axes: Axes): void {
 		const range = scrollRange(viewport);
 
 		if (sideways ? !axes.horizontal || range.x <= 0 : !axes.vertical || range.y <= 0) {
-			// nothing to give, so the report is left to bubble: an inner list at its
-			// end hands the wheel to the pane around it, which is what chaining is
+			// an axis with nothing to scroll gives the report up, so a box whose
+			// content fits hands the wheel to the pane around it. A box already at
+			// its *end* still has a range and still claims the turn -- chaining
+			// there would need "which end" and a definition of partial consumption,
+			// and is deliberately not done
 			return;
 		}
 

@@ -1726,12 +1726,28 @@ culling is two lines in passes that already existed.
   0.315ms at 10,000. Fast enough that it stops being the frame, and not a
   substitute for a windowed list.
 
-- **The hit test culls on the same rectangle, and that one _is_ a fast path.** It
-  cannot change an answer, by construction: every box in a subtree is inside its
-  extent, and a hit needs the point to be in some box. So the sabotage survives
-  and is meant to -- what pins it is the test that it answers the same element the
-  uncut walk would, from the other side, and what says it is worth having is the
-  measurement: **0.464ms to 0.091ms** on that tree, five times, per report.
+- **The hit test culls on the same rectangle, and it took two tests because one
+  of them could not see it.** The cull cannot change an answer, by construction:
+  every box in a subtree is inside its extent, and a hit needs the point to be in
+  some box. So it is a fast path, and the first version of this entry said that
+  the test asserting it answers the same element as the uncut walk was what pinned
+  it -- which was **wrong twice over**. That test never ran an uncut walk at all:
+  it asserted the two rows the ordinary child walk returns anyway, so deleting the
+  cull left it green. And even written properly a differential cannot fail over a
+  fast path, because agreeing is the whole claim.
+
+  So there are two, and they are the method the paint cull already used. The
+  **differential** sweeps every cell of the viewport with the extents and with
+  them cleared and requires the same answer, which is what makes the fast path
+  safe -- the guard is turned off by removing its input rather than by a second
+  copy of `hitTest()`, so both sides are one function. The **count** is what
+  fails when the cull goes: `hitTest()` asks the cull before it asks
+  `paintOrder()`, and `paintOrder()` is what reads `children`, so an element whose
+  `children` was read is exactly one the cull let through -- shadowed with a
+  recording getter, one row of forty is entered with the extents and all forty
+  without. What says it is worth having at all is the measurement: **0.464ms to
+  0.091ms** on that tree, five times, per report.
+
 - **`scrollIntoView()` walks innermost outward carrying what the nearer ancestors
   moved.** That accumulation is the part that is easy to get wrong and easy to
   write a test that cannot see. Scrolling an inner box moves the target and leaves
@@ -1830,7 +1846,28 @@ import the key router` holds. `flex.ts` keeps its own `clips()` and that is the
   import the element tree, which is the whole reason it is testable with a literal.
   `ScrollBox` itself is **3.4 kB** of the components bundle, measured by taking it
   back out of the barrel and rebuilding.
-- **Three guards were deleted for failing a sabotage, and each read as load
+- **A fourteen-second test is a flaky test one busy machine later, and this one
+  was both.** `should cap the acceleration` built a **ten-thousand-row** box and
+  turned the wheel forty times, and each turn re-lays the tree -- measured at
+  **350ms** a `lay()`, 60ms of cascade and 166ms of arrange, so fourteen seconds
+  against this package's own ten-second `testTimeout`. It passed and then stopped
+  passing with nothing in `src/` having moved, which is the only shape that
+  matters here: a test close enough to its timeout to be decided by what else the
+  machine is doing says nothing either way.
+
+  What the assertion needs is a range comfortably past its own ceiling -- forty
+  notches times twelve lines is 480 -- so **six hundred** rows reads identically
+  at a twentieth of the cost, and the file went from 18s to under 1s. Uncapped the
+  multiplier reaches twenty, which runs past the range and clamps at 596, so the
+  discrimination survived the resize and the sabotage still catches it.
+
+  The slowdown was first blamed on the `flex-shrink: 0` deletion below, which is
+  the kind of guess worth measuring before writing down: patched back in and
+  rebuilt, the same `lay()` is **351ms against 349ms**. So the deletion really is
+  inert, on the one workload where it looked least likely to be, and the test was
+  always the cost.
+
+- **Four guards were deleted for failing a sabotage, and each read as load
   bearing.** A `display: none` check in the extent union: the engine gives such a
   child a zero box at the content origin and lays nothing inside it out at all, so
   the union cannot move -- and the property is pinned by a test now, since it is
@@ -1843,13 +1880,46 @@ import the key router` holds. `flex.ts` keeps its own `clips()` and that is the
   well as by the suite -- the demo's output is byte for byte identical with and
   without. The one on the bar was inert for a simpler reason: the viewport beside
   it has a basis of zero and takes only the remainder, so nothing squeezes that
-  cell. `union()`'s early return is the one survivor that stays, and it is
-  declared: it returns the outer rectangle unchanged where it already holds the
-  inner, which allocates nothing for the overwhelmingly common contained child and
-  changes no answer.
+  cell. And the `margin` prop, which is the entry above rather than a guard.
+
+  `union()`'s early return is the one survivor that stays, and it is declared: it
+  returns the outer rectangle unchanged where it already holds the inner, which
+  allocates nothing for the overwhelmingly common contained child and changes no
+  answer. One other survived and grew a test instead -- `scrollable` is written
+  only for a box that **clips**, which nothing can currently observe, since
+  `scrollRange()` is only ever asked of one. That is a contract the field's own
+  doc states, so the answer is to assert it rather than to delete the condition or
+  to leave the doc on a reader's goodwill: `should give a box that does not clip no
+region at all` is the pin, and the condition fails it.
+
+- **There is no `margin` prop, and one shipped for a review round.** It was
+  clamped, put on the `Axes` the keys and the wheel are gated on, and read by
+  neither -- so `ScrollBox({ margin: 5 })` moved by exactly the same amounts as
+  one without it, while the prop's own doc claimed the keyboard and the wheel read
+  it so that the row at the edge is not the last thing visible. A property that
+  parses and does nothing, which this file calls worse than one that does not
+  exist, with a doc comment asserting the behaviour on top.
+
+  Deleting it rather than wiring it is the answer because there is nothing to
+  wire: a margin means something to `scrollIntoView()`, which is revealing a
+  particular box and can leave room past it, and nothing at all to a **relative**
+  move -- a key scrolls by a line or a page and a notch by its own three lines,
+  and there is no edge for a margin to be measured against. The option is still
+  the caller's through `scrollIntoView(row, { margin: 1 })`. What the focus ring
+  passes is nothing, and giving a scroll box a margin the **ring** honours means
+  the ring reading one off the element, which is a `scroll-margin` property rather
+  than a component prop and a decision for whoever needs it.
+
 - **What is deliberately left out.** **Virtualization**, with the 72ms above as
   the reason to revisit and the ticket's own instruction to defer it. **Scroll
-  chaining** past an inner box at its end, for the reason two entries up.
+  chaining** past an inner box at its end, for the reason three entries up --
+  and the prose saying otherwise is a finding of its own: the demo and
+  `demos/README.md` both said a list _at its end_ hands the key on, which is the
+  guard misread as `by === 0` rather than as `range <= 0`, and a reader who
+  "fixed" the code to match would have made Home at the top scroll the outer
+  pane. The wheel's own comment said it too. Corrected in all three, and the
+  reason it is worth an entry is that a comment which would mislead somebody into
+  a real bug is worse than one that is merely absent.
   **Arrows and steppers** on the bar, which are two more cells of a one-cell-wide
   gutter and a mouse-only affordance in a keyboard-first medium. And a
   `scrollbar-gutter` **property**, which would be a fourth thing in the style

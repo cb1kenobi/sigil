@@ -137,6 +137,23 @@ describe('scrollRange', () => {
 		const { view } = list(10);
 		expect(scrollRange(view)).toStrictEqual({ x: 0, y: 0 });
 	});
+
+	it('should give a box that does not clip no region at all', () => {
+		// the contract `Element.scrollable` states, and the reason it is a field
+		// rather than a rectangle on everything: a box that cannot scroll has no
+		// region to scroll inside. Nothing asks a non-clipping box for its range
+		// today, so writing one anyway would change no answer -- which is exactly
+		// what a sabotage of the condition proved, and why the doc needs an
+		// assertion rather than a reader's goodwill
+		const { view } = list(10);
+		const plain = box({ 'flex-direction': 'column', height: 4, width: 10 }, view);
+		lay(box({}, plain));
+
+		expect(plain.scrollable).toBeUndefined();
+		expect(scrollRange(plain)).toStrictEqual({ x: 0, y: 0 });
+		// and the one that does clip has one
+		expect(view.scrollable).toBeDefined();
+	});
 });
 
 describe('scrollBy', () => {
@@ -351,22 +368,105 @@ describe('paint culling', () => {
 });
 
 describe('hit test culling', () => {
+	/**
+	 * Takes the extents off a subtree, which is how the cull is turned off.
+	 *
+	 * The guard is written `element.extent && ...`, so a tree with no extents takes
+	 * the uncut walk -- one binary, one function, the guard disabled by removing
+	 * its input rather than by a second copy of `hitTest()`. The same method the
+	 * benchmark and the paint cull's own tests use, for the same reason: two
+	 * implementations of a walk are two things that can drift.
+	 */
+	function clearExtents(element: Element): void {
+		element.extent = undefined;
+		for (const child of element.children) {
+			clearExtents(child);
+		}
+	}
+
+	/**
+	 * Which elements the walk descended into, by shadowing `children`.
+	 *
+	 * `hitTest()` asks the cull before it asks `paintOrder()`, and `paintOrder()`
+	 * is what reads `children` -- so an element whose `children` was read is
+	 * exactly an element the cull let through. The counting equivalent of the
+	 * `raw` element the paint cull's test counts, and the only thing that can tell
+	 * a cull that works from a cull that is not there: the *answer* is the same
+	 * either way, which is what makes this a fast path and what made the first
+	 * version of these tests say nothing at all.
+	 */
+	function watchWalk(root: Element): Set<Element> {
+		const entered = new Set<Element>();
+		const walk = (element: Element): void => {
+			const own = element.children;
+			Object.defineProperty(element, 'children', {
+				configurable: true,
+				get(): readonly Element[] {
+					entered.add(element);
+					return own;
+				},
+			});
+			for (const child of own) {
+				walk(child);
+			}
+		};
+		walk(root);
+		return entered;
+	}
+
 	it('should answer the same element the uncut walk would', () => {
-		const { rows, view } = list(10);
+		// the differential, and what makes the cull safe to have: over every cell of
+		// the viewport, with the extents and without them, the answer is the same
+		const { view } = list(10);
 		lay(box({}, view));
 		view.scrollTo(0, 4);
 		lay(box({}, view));
 
-		// rows 4..7 are the ones on screen, and each is hit at its own row
-		expect(hitTest(view, 0, 0)).toBe(rows[4]);
-		expect(hitTest(view, 0, 3)).toBe(rows[7]);
+		const culled: (string | undefined)[] = [];
+		for (let y = 0; y < 4; y++) {
+			for (let x = 0; x < 10; x++) {
+				culled.push(hitTest(view, x, y)?.text);
+			}
+		}
+
+		clearExtents(view);
+		const whole: (string | undefined)[] = [];
+		for (let y = 0; y < 4; y++) {
+			for (let x = 0; x < 10; x++) {
+				whole.push(hitTest(view, x, y)?.text);
+			}
+		}
+
+		expect(culled).toStrictEqual(whole);
+		// and it really did answer something, or the comparison is two empty lists
+		expect(culled.filter(Boolean).length).toBeGreaterThan(0);
+		expect(culled[0]).toBe('row 4');
+	});
+
+	it('should not walk the rows the extent rules out', () => {
+		const { rows, view } = list(40);
+		lay(box({}, view));
+
+		const entered = watchWalk(view);
+		expect(hitTest(view, 0, 1)).toBe(rows[1]);
+		expect([...entered].filter((element) => rows.includes(element))).toStrictEqual([rows[1]]);
+
+		// and without the extents the same walk enters all forty to find out that
+		// thirty-nine of them are not under the point
+		clearExtents(view);
+		const bare = watchWalk(view);
+		expect(hitTest(view, 0, 1)).toBe(rows[1]);
+		expect(bare.size).toBeGreaterThanOrEqual(rows.length);
 	});
 
 	it('should not reach a row the clip cut away', () => {
 		const { rows, view } = list(10);
 		lay(box({}, view));
 
-		// row 9 has a box, below the viewport, and nothing may hit it there
+		// row 9 has a box, below the viewport, and nothing may hit it there. The
+		// clip is what refuses it rather than the cull, which is why this one stays
+		// green with the extents cleared -- it pins the clip, and the two tests
+		// above pin the cull
 		expect(rows[9].box?.y).toBe(9);
 		expect(hitTest(view, 0, 9)).toBeUndefined();
 	});

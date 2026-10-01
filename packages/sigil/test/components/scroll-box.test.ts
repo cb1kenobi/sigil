@@ -375,13 +375,24 @@ describe('scrolling a scroll box with the wheel', () => {
 	});
 
 	it('should cap the acceleration', () => {
-		const { turn, view } = driven(10_000);
+		// six hundred rows rather than ten thousand, which is what the cap needs: the
+		// ceiling is forty notches times twelve lines, so the range only has to be
+		// comfortably past 480 for it to be the binding constraint. The first version
+		// used ten thousand and cost **fourteen seconds** -- forty `lay()` calls at
+		// 350ms each, against this file's own ten-second timeout -- for an assertion
+		// that reads the same at a twentieth of the size. A slow test is a flaky test
+		// one busy machine later, which is the lesson `shake-walk.test.ts` already
+		// carries about timing
+		const { turn, view } = driven(600);
 		for (let i = 0; i < 40; i++) {
 			turn('down');
 			vi.advanceTimersByTime(10);
 		}
-		// forty notches, each worth at most four times three lines
+		// forty notches, each worth at most four times three lines -- and uncapped the
+		// multiplier reaches twenty, so the total runs past the range and clamps at
+		// 596, which is what this discriminates against
 		expect(view.scroll?.y).toBeLessThanOrEqual(40 * 12);
+		expect(view.scroll?.y).toBeGreaterThan(0);
 	});
 
 	it('should reset the streak when the direction reverses', () => {

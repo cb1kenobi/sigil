@@ -228,8 +228,10 @@ slideshow, and with it what is left is the layout, which is what a windowed list
 would be for and is deliberately not here.
 
 Four things to try, each of which is a claim. The arrows, PageUp/PageDown and
-Home/End are claimed only where the axis has somewhere to go, so a list at its end
-hands the key on rather than swallowing it. The wheel is three lines a notch and up
+Home/End are claimed only where the axis has somewhere to go, so a box whose
+content _fits_ hands the key on rather than swallowing it — while one at its end
+keeps it, since Home in a list already at its top is still that list's key rather
+than the outer pane's. The wheel is three lines a notch and up
 to four times that in a flick, which is the difference between crossing ten
 thousand rows and 3,333 notches. The thumb drags, and the press capture is what
 lets a drag wander off the bar and still end. And Tab walks the rows, with

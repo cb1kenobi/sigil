@@ -13,8 +13,10 @@
  * Four things to try, and each one is a claim:
  *
  * - **The arrows, PageUp/PageDown and Home/End**, which the box claims only where
- *   the axis has somewhere to go -- so a list at its end hands the key on rather
- *   than swallowing it, which is what scroll chaining is.
+ *   the axis has somewhere to go -- so a box whose content *fits* hands the key on
+ *   rather than swallowing it, which is what scroll chaining is here. A box at its
+ *   end still claims it: it has a range, and Home in a list already at its top is
+ *   still that list's key rather than the outer pane's.
  * - **The wheel, with an acceleration curve.** A deliberate turn is three lines, the
  *   convention; a flick is up to four times that. Spin it and watch the thumb cover
  *   real ground -- without the curve, crossing ten thousand rows is 3,333 notches.
