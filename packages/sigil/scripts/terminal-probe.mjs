@@ -373,9 +373,13 @@ async function detect() {
  * past column 223 survives, or whether the inline origin arithmetic comes out
  * right on a screen it did not simulate.
  *
- * So this turns tracking on and prints what arrives, byte for byte, beside what
- * the library made of it. Run it in each terminal you care about, and over ssh
- * and inside tmux, which are their own answers.
+ * So this turns tracking on and prints what arrives beside what the library made
+ * of it. Token by token rather than byte for byte -- `ESC [ < 0 ; 41 ; 13 M`,
+ * spaced the way this repository spells a sequence in prose -- which is not
+ * cosmetic and is the whole of SIG-128: `showSpaced` below carries the citation.
+ * `--detect` really does print byte for byte, because nothing there is a mouse
+ * report and nothing there arms iTerm2's echo detector. Run it in each terminal
+ * you care about, and over ssh and inside tmux, which are their own answers.
  *
  * It is the one mode here that writes a mode the terminal has to be taken back
  * out of, so everything is behind a `finally`: a shell left reporting the mouse
@@ -386,7 +390,42 @@ async function mouse() {
 	const { createInput, queryCursor, queryMode } = await import('../dist/input.mjs');
 	const { createInlineCanvas } = await import('../dist/canvas.mjs');
 
-	const show = (str) => JSON.stringify(str).replaceAll('\\u001b', 'ESC ');
+	/**
+	 * One report, spelled the way this repository spells a sequence in prose:
+	 * `ESC [ < 0 ; 41 ; 13 M`, a space between every token and a run of digits
+	 * kept whole.
+	 *
+	 * Spaced rather than verbatim, and that is the whole of SIG-128. iTerm2
+	 * watches for a mouse report being **printed to the screen**, because that is
+	 * what a stuck mouse looks like: the TUI died, tracking stayed on, and the
+	 * shell is now echoing the reports. The check is
+	 * `-[PTYSession detectTurdsForReportData:type:]`, which takes the report, drops
+	 * the `ESC` and the two bytes after it and every byte under 32, and arms a
+	 * regular expression over the next 100ms of screen text for whatever is left --
+	 * `0;41;13M` for the press above. A verbatim `"ESC [<0;41;13M"` holds that run
+	 * exactly, so the one app that has to print a report was telling iTerm2 it was
+	 * the one app that must not: it offered to turn mouse reporting off, mid-probe,
+	 * and it was reading the stream correctly. A space between the tokens breaks
+	 * the run and nothing else, and the parameters are easier to read besides.
+	 *
+	 * `--detect` keeps its own verbatim `show()` on purpose. These answer two
+	 * questions rather than one: there, fidelity is the point and no mouse report
+	 * is involved, so nothing arms the detector.
+	 *
+	 * @param {string} str
+	 * @returns {string}
+	 */
+	const showSpaced = (str) =>
+		`"${(str.match(/[0-9]+|[\s\S]/g) ?? [])
+			.map((tok) => {
+				if (tok === '\u001b') return 'ESC';
+				if (tok === '\u0007') return 'BEL';
+				if (tok.length === 1 && (tok < ' ' || tok === '\u007f')) {
+					return `\\x${tok.charCodeAt(0).toString(16).padStart(2, '0')}`;
+				}
+				return tok;
+			})
+			.join(' ')}"`;
 
 	/**
 	 * A second `data` listener, so the bytes can be shown beside the reading.
@@ -431,9 +470,16 @@ async function mouse() {
 	 * A router chooses its surface and its tracking mode when it is built, so the
 	 * first version of this made one per step -- and what that came to on the wire
 	 * was **fourteen mode changes in under two seconds**, twice inside the same
-	 * millisecond. iTerm2 spots that and offers to turn mouse reporting off, which
-	 * is it reading the stream correctly: a mode that flickers is indistinguishable
-	 * from an app that has lost track of it.
+	 * millisecond. A mode that flickers is indistinguishable from an app that has
+	 * lost track of whether it turned one on, so it was worth fixing whatever else
+	 * was true.
+	 *
+	 * What this comment used to say next is that iTerm2's offer to turn mouse
+	 * reporting off was iTerm2 spotting the churn. It was not: there is no
+	 * mode-churn heuristic anywhere in iTerm2, and the dialog is the echo detector
+	 * `showSpaced` above carries the citation for. The giveaway was already written
+	 * down -- the dialog survived this fix -- and it should have been read as the
+	 * attribution failing rather than as a second cause. SIG-128.
 	 *
 	 * The surface is the half that does not need a new router, so it delegates and
 	 * one router covers every button-event step. Only the tracking mode is left, and
@@ -457,17 +503,28 @@ async function mouse() {
 	/**
 	 * Waits for one of a few keys, through the router that owns stdin.
 	 *
+	 * `onMatch` runs **synchronously**, inside the router's dispatch, which is the
+	 * whole reason it is a parameter rather than something the caller does after
+	 * the await. The router's `data` listener was attached when the router was
+	 * built and `live()`'s raw tap afterwards, so on the chunk holding the quit key
+	 * the router dispatches first and the tap runs second -- in the same `emit`,
+	 * before any promise continuation. A flag set here is therefore visible to the
+	 * tap; one set after `await untilKey(...)` is not, and the chunk has already
+	 * been recorded by then.
+	 *
 	 * @param {import('../dist/input.mjs').InputRouter} router
 	 * @param {string[]} names
+	 * @param {() => void} [onMatch] - Runs before the promise resolves.
 	 * @returns {Promise<string>}
 	 */
-	const untilKey = (router, names) =>
+	const untilKey = (router, names, onMatch) =>
 		new Promise((resolve) => {
 			const off = router.bind((event) => {
 				const name = event.key.ctrl && event.key.name === 'c' ? 'abort' : event.key.name;
 				if (name === 'abort' || names.includes(name)) {
 					event.stop();
 					off();
+					onMatch?.();
 					resolve(name);
 				}
 			});
@@ -511,8 +568,22 @@ async function mouse() {
 	 */
 	const live = async (router, render, opts = {}) => {
 		const lines = [];
+
+		// the chunk holding `q` is not a report, and it is the one chunk every raw
+		// step is guaranteed to receive on every run -- so recording it printed
+		// `raw "q"` under a heading claiming every raw line holds `ESC [ <`. Set
+		// from inside the router's dispatch, which runs before the tap on that same
+		// chunk; see `untilKey`. A key pressed *mid*-step is still shown, which is
+		// why the heading says "of a report" rather than "every line"
+		let quitting = false;
 		const untap =
-			opts.raw === true ? tap((chunk) => lines.push(`      raw  ${show(chunk)}`)) : () => {};
+			opts.raw === true
+				? tap((chunk) => {
+						if (!quitting) {
+							lines.push(`      raw  ${showSpaced(chunk)}`);
+						}
+					})
+				: () => {};
 		const off = router.onMouse((event) => {
 			const line = render(event);
 			if (line !== undefined) {
@@ -532,7 +603,7 @@ async function mouse() {
 		}, 50);
 
 		try {
-			const key = await untilKey(router, ['q']);
+			const key = await untilKey(router, ['q'], () => void (quitting = true));
 			if (key === 'abort') {
 				aborted = true;
 			}
@@ -606,10 +677,16 @@ async function mouse() {
 
 		// ------------------------------------------------- every report, raw and read
 		heading(
-			'every report, as bytes and as this library read it',
-			'every raw line holds "ESC [ <" -- one holding "ESC [ M" is the legacy encoding'
+			'every report, token by token and as this library read it',
+			'every raw line of a report holds "ESC [ <" -- one holding "ESC [ M" is the legacy encoding'
 		);
-		write('    click, drag and scroll anywhere. q when you have seen enough.\r\n\r\n');
+		// the spacing is said here as well as after the step, because the only time
+		// it can mislead is while somebody is reading a line against what they
+		// believe the terminal sent -- which is during the clicking, not after `q`
+		write(
+			'    click, drag and scroll anywhere. q when you have seen enough.\r\n' +
+				'    The raw lines are spaced -- the spaces are not in the report.\r\n\r\n'
+		);
 		await live(
 			buttons,
 			(event) => {
@@ -629,7 +706,13 @@ async function mouse() {
 				'    this library reads nothing else -- deliberately, because that encoding puts\r\n' +
 				'    a coordinate in one byte of 32+n and cannot say "column 300". Worth knowing\r\n' +
 				'    that it is worse than that here: stdin is decoded as UTF-8, so a byte past\r\n' +
-				'    127 is not even a character, which is column 95 rather than 223.\r\n'
+				'    127 is not even a character, which is column 95 rather than 223.\r\n' +
+				'\r\n    The raw lines are spaced -- "ESC [ < 0 ; 41 ; 13 M" rather than the bytes\r\n' +
+				'    run together -- and that is not decoration. iTerm2 watches for a mouse\r\n' +
+				'    report being printed to the screen, since that is what a stuck mouse looks\r\n' +
+				'    like, and a verbatim line held the exact run it looks for: it offered to\r\n' +
+				'    turn mouse reporting off in the middle of this probe, correctly. A space\r\n' +
+				'    between the tokens breaks the run and nothing else.\r\n'
 		);
 		if (aborted) return;
 

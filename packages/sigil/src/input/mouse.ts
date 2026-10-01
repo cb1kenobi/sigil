@@ -16,6 +16,19 @@
  * reason to accept an encoding that cannot describe the screen it is reporting
  * about, and a terminal old enough to lack SGR reports nothing here rather than
  * reporting the left two thirds of itself.
+ *
+ * **Never print a report's own bytes where the user can see them.** A terminal
+ * cannot tell an app that is reading the reports from a shell that is echoing
+ * them, so some of them watch for exactly that: iTerm2 reduces every report it
+ * sends to its printable digits -- `0;41;13M` for a press at column 41, row 13 --
+ * and if that run turns up in the next 100ms of screen text it offers to turn
+ * mouse reporting off, mid-run, over an app behaving perfectly. It is right to:
+ * that is precisely what a TUI which died with tracking on leaves behind. So a
+ * debug line, a log or a `--verbose` dump prints what a report *meant* rather
+ * than what it *was*, and where the bytes are genuinely the subject it spaces
+ * them -- `ESC [ < 0 ; 41 ; 13 M` says the same thing and is not the thing.
+ * `scripts/terminal-probe.mjs --mouse` is the one caller that has to show them
+ * and does it that way for this reason.
  */
 
 import { ESC } from '../ansi/codes.js';

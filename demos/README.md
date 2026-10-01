@@ -242,7 +242,7 @@ so the pointer goes straight through them. And the overlay is written before bot
 panes and lifted with `z-index`, so it is painted last and hit first: hover it where
 it covers a pane and the pane underneath does not light up.
 
-Two things about the mouse are worth knowing before you run any of them.
+Three things about the mouse are worth knowing before you run any of them.
 
 **It takes away text selection.** A terminal reporting the mouse stops doing its
 own, so while this demo is running, selecting and copying with the pointer does
@@ -255,6 +255,19 @@ which reports every cell the pointer crosses for as long as the app runs, so the
 demo opts in with `motion: true`. Without it `:hover` matches nothing — which is
 what it did before there was a mouse at all, so no stylesheet changes meaning by
 turning tracking on.
+
+**Do not print a report's own bytes.** iTerm2 watches for a mouse report being
+printed to the screen, because that is what a stuck mouse looks like — the TUI
+died, tracking stayed on, and the shell is echoing the reports. Its check reduces
+a report to its printable digits (`0;41;13M` for a press at column 41, row 13) and
+looks for them in the next 100ms of screen text, so an app with a debug line that
+dumps the raw sequence gets offered "Looks like mouse reporting was left on when
+an ssh session ended unexpectedly or an app misbehaved. Turn it off?" — correctly,
+from the terminal's point of view. These three demos print `(39, 11)` instead,
+which is why they are quiet. If the bytes really are the point, space them out:
+`ESC [ < 0 ; 41 ; 13 M` says the same thing and is not the thing. It is nothing to
+do with the alternate screen, which was the guess for a while — the check runs on
+either buffer.
 
 Worth watching in the two inline demos: resize the window while one is running.
 That throws the canvas's anchor away, so the backend no longer knows which screen
