@@ -373,9 +373,13 @@ async function detect() {
  * past column 223 survives, or whether the inline origin arithmetic comes out
  * right on a screen it did not simulate.
  *
- * So this turns tracking on and prints what arrives, byte for byte, beside what
- * the library made of it. Run it in each terminal you care about, and over ssh
- * and inside tmux, which are their own answers.
+ * So this turns tracking on and prints what arrives beside what the library made
+ * of it. Token by token rather than byte for byte -- `ESC [ < 0 ; 41 ; 13 M`,
+ * spaced the way this repository spells a sequence in prose -- which is not
+ * cosmetic and is the whole of SIG-128: `showSpaced` below carries the citation.
+ * `--detect` really does print byte for byte, because nothing there is a mouse
+ * report and nothing there arms iTerm2's echo detector. Run it in each terminal
+ * you care about, and over ssh and inside tmux, which are their own answers.
  *
  * It is the one mode here that writes a mode the terminal has to be taken back
  * out of, so everything is behind a `finally`: a shell left reporting the mouse
@@ -673,10 +677,16 @@ async function mouse() {
 
 		// ------------------------------------------------- every report, raw and read
 		heading(
-			'every report, as bytes and as this library read it',
+			'every report, token by token and as this library read it',
 			'every raw line of a report holds "ESC [ <" -- one holding "ESC [ M" is the legacy encoding'
 		);
-		write('    click, drag and scroll anywhere. q when you have seen enough.\r\n\r\n');
+		// the spacing is said here as well as after the step, because the only time
+		// it can mislead is while somebody is reading a line against what they
+		// believe the terminal sent -- which is during the clicking, not after `q`
+		write(
+			'    click, drag and scroll anywhere. q when you have seen enough.\r\n' +
+				'    The raw lines are spaced -- the spaces are not in the report.\r\n\r\n'
+		);
 		await live(
 			buttons,
 			(event) => {
