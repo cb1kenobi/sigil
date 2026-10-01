@@ -90,7 +90,22 @@ const RELEASE = `${ESC}[<0;41;13m`;
  * press in the top-left corner -- is six characters and therefore never arms the
  * detector at all, which is the kind of edge a constant would hide.
  *
- * @param report - The bytes a terminal sends for one report.
+ * A transcription has to be pinned on **both** sides of every boundary it
+ * carries, which the first version of this was not: it asserted length 6 false
+ * and length 8 true and nothing at 7, so `> 6` could have become `>= 8` with the
+ * suite green. The same was true of the 32-byte cap, whose branch no fixture
+ * reached. Each is a two-sided assertion below, and a threshold asserted on one
+ * side is the same defect as a test that passes with the thing it is named for
+ * deleted -- it just takes a boundary value rather than a deletion to see it.
+ *
+ * The cap is iTerm2's on the **accumulated** buffer rather than on one report:
+ * `modified` starts from the previous detector's residue while that is under
+ * 100ms old, and only an already-armed detector extends, so two corner presses
+ * never concatenate into one that arms. A single SGR report cannot reach 32
+ * bytes; a run of them coalesced into one read can, which is what the fixture
+ * below is.
+ *
+ * @param report - Report bytes, one report or a run of them.
  * @returns What iTerm2 then looks for in the program's screen text.
  */
 function residue(report: string): string {
@@ -189,8 +204,13 @@ async function runRawStep(): Promise<Run> {
 			child.stdin.write(RELEASE);
 			await sleep(140);
 		}
-		// one more drain interval, which is the probe's own 50ms timer
-		await sleep(150);
+		// and then end the step the way a reader does, because the chunk holding
+		// `q` is a chunk the tap sees: recording it printed `raw "q"` under a
+		// heading about what a raw line holds, on every run of every raw step. A
+		// test that never pressed `q` could not see it.
+		child.stdin.write('q');
+		// two drain intervals, which is the probe's own 50ms timer plus slack
+		await sleep(200);
 		return { rawLines: rawOf(out), screen: strip(out) };
 	} finally {
 		child.kill('SIGKILL');
@@ -198,16 +218,40 @@ async function runRawStep(): Promise<Run> {
 }
 
 describe('the mouse report iTerm2 reads as an echo', () => {
-	it("should be six characters for a corner press, which never arms iTerm2's detector", () => {
-		// the one edge a hard-coded residue would hide, and the reason the rule is
-		// transcribed here rather than written down as a string
-		expect(residue(`${ESC}[<0;1;1M`)).to.equal('0;1;1M');
-		expect(arms(`${ESC}[<0;1;1M`)).to.equal(false);
-
+	it('should strip the introducer and the control bytes, leaving the parameters', () => {
 		expect(residue(PRESS)).to.equal('0;41;13M');
 		expect(residue(RELEASE)).to.equal('0;41;13m');
 		expect(residue(`${ESC}[<35;42;14M`)).to.equal('35;42;14M');
+		expect(residue(`${ESC}[<64;41;13M`)).to.equal('64;41;13M');
+	});
+
+	it("should arm on seven characters and not on six, which is the corner press's edge", () => {
+		// both sides of `if (string.length > 6)`. Six is a real report -- a press in
+		// the very top-left corner -- so the threshold is reachable from below as
+		// well as from above, and asserting only one side leaves the other free
+		expect(residue(`${ESC}[<0;1;1M`)).to.equal('0;1;1M');
+		expect(residue(`${ESC}[<0;1;1M`)).to.have.lengthOf(6);
+		expect(arms(`${ESC}[<0;1;1M`)).to.equal(false);
+
+		expect(residue(`${ESC}[<0;10;1M`)).to.equal('0;10;1M');
+		expect(residue(`${ESC}[<0;10;1M`)).to.have.lengthOf(7);
+		expect(arms(`${ESC}[<0;10;1M`)).to.equal(true);
+
 		expect(arms(PRESS)).to.equal(true);
+	});
+
+	it('should keep the last 32 bytes of a run long enough to need capping', () => {
+		// the other branch no fixture reached. Four motion reports coalesced into one
+		// read come to forty characters of residue, and what iTerm2 keeps is the tail
+		const drag = `${ESC}[<32;100;40M`.repeat(4);
+
+		// under the cap, so the whole thing survives: three of the same reports
+		expect(residue(`${ESC}[<32;100;40M`.repeat(3))).to.equal('32;100;40M'.repeat(3));
+		expect(residue(`${ESC}[<32;100;40M`.repeat(3))).to.have.lengthOf(30);
+
+		// over it, so the first eight go
+		expect(residue(drag)).to.equal('0M32;100;40M32;100;40M32;100;40M');
+		expect(residue(drag)).to.have.lengthOf(32);
 	});
 
 	it(
@@ -219,9 +263,21 @@ describe('the mouse report iTerm2 reads as an echo', () => {
 			// the step has to have run at all, or everything below passes by absence
 			expect(rawLines.length, `raw lines printed:\n${rawLines.join('\n')}`).toBeGreaterThan(1);
 
-			// what the probe is for: the introducer is legible, and the claim line
-			// above it says every raw line holds `ESC [ <`
+			// what the probe is for: the introducer is legible, which is what the
+			// step's claim line promises of a raw line of a report. This asserts one
+			// such line is present and spaced -- not that every raw line matches,
+			// which is the heading's claim and a wider thing than a test that feeds
+			// one report can see
 			expect(screen).toContain('ESC [ < 0 ; 41 ; 13 M');
+
+			// and the quit key is not recorded as a report. `q` holds neither
+			// introducer, so a `raw "q"` line is one the heading above cannot be true
+			// of -- and it is the one chunk every raw step receives on every run
+			for (const line of rawLines) {
+				expect(line, 'a raw line that is not a report').to.satisfy(
+					(l: string) => l.includes('ESC [ <') || l.includes('ESC [ M')
+				);
+			}
 
 			// and what SIG-128 is for: no line holds the contiguous run
 			for (const report of [PRESS, RELEASE]) {

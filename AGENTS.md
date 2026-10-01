@@ -3387,13 +3387,29 @@ it_escapedForRegex] ... deadline:[NSDate dateWithTimeIntervalSinceNow:0.1]]`
   printed `"ESC [<0;41;13M"`, which holds `0;41;13M` verbatim, inside the 50ms its
   own drain timer takes -- so iTerm2 was reading the stream correctly and the one
   caller entitled to print a report was the one caller that must not. It prints
-  `"ESC [ < 0 ; 41 ; 13 M"` now, which is how this file spells a sequence anyway,
-  and which makes the step's own claim line (`every raw line holds "ESC [ <"`)
-  literally true of the lines under it for the first time. `should not be printed
-verbatim by the probe, which iTerm2 reads as a stuck mouse` in
-  `packages/cli/test/mouse-echo.test.ts` is the guard, and it transcribes the
-  residue rule rather than hard-coding it, which is what pins the six-character
-  edge.
+  `"ESC [ < 0 ; 41 ; 13 M"` now, which is how this file spells a sequence anyway.
+  `should not be printed verbatim by the probe, which iTerm2 reads as a stuck
+mouse` in `packages/cli/test/mouse-echo.test.ts` is the guard, and it
+  **transcribes** the residue rule rather than hard-coding it -- with both sides
+  of each boundary asserted, which the first version was not: it had length 6
+  false and length 8 true and nothing at 7, so `> 6` could have become `>= 8`
+  with the suite green, and no fixture reached the 32-byte cap at all. A
+  threshold asserted on one side is the same defect as a test that passes with
+  the thing it is named for deleted; it just takes a boundary value rather than a
+  deletion to see it.
+
+  That change also claimed the step's own line (`every raw line holds "ESC [ <"`)
+  was now literally true of the lines under it, and it was not. `tap` records
+  every chunk, and the chunk holding the `q` that _ends_ the step is one -- so
+  every raw step on every run printed `raw "q"` last, which holds neither
+  `ESC [ <` nor the legacy `ESC [ M`. Two halves to that. The quit chunk is not
+  recorded, through an `onMatch` on `untilKey()` that runs inside the router's
+  dispatch -- which precedes the tap on that chunk, because the router's `data`
+  listener was attached first, and is why it cannot be done after the await. And
+  the claim is narrowed to a raw line **of a report**, because a key the reader
+  presses mid-step is still shown and no suppression should hide it: an arrow key
+  prints `ESC [ A`, which is a line the unqualified claim could never have been
+  true of either.
 
   Measured rather than reasoned, by stripping the escape sequences out of each
   one's real output and searching it for the residue: `04-mouse.js`, `05-drag.js`

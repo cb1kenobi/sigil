@@ -499,17 +499,28 @@ async function mouse() {
 	/**
 	 * Waits for one of a few keys, through the router that owns stdin.
 	 *
+	 * `onMatch` runs **synchronously**, inside the router's dispatch, which is the
+	 * whole reason it is a parameter rather than something the caller does after
+	 * the await. The router's `data` listener was attached when the router was
+	 * built and `live()`'s raw tap afterwards, so on the chunk holding the quit key
+	 * the router dispatches first and the tap runs second -- in the same `emit`,
+	 * before any promise continuation. A flag set here is therefore visible to the
+	 * tap; one set after `await untilKey(...)` is not, and the chunk has already
+	 * been recorded by then.
+	 *
 	 * @param {import('../dist/input.mjs').InputRouter} router
 	 * @param {string[]} names
+	 * @param {() => void} [onMatch] - Runs before the promise resolves.
 	 * @returns {Promise<string>}
 	 */
-	const untilKey = (router, names) =>
+	const untilKey = (router, names, onMatch) =>
 		new Promise((resolve) => {
 			const off = router.bind((event) => {
 				const name = event.key.ctrl && event.key.name === 'c' ? 'abort' : event.key.name;
 				if (name === 'abort' || names.includes(name)) {
 					event.stop();
 					off();
+					onMatch?.();
 					resolve(name);
 				}
 			});
@@ -553,8 +564,22 @@ async function mouse() {
 	 */
 	const live = async (router, render, opts = {}) => {
 		const lines = [];
+
+		// the chunk holding `q` is not a report, and it is the one chunk every raw
+		// step is guaranteed to receive on every run -- so recording it printed
+		// `raw "q"` under a heading claiming every raw line holds `ESC [ <`. Set
+		// from inside the router's dispatch, which runs before the tap on that same
+		// chunk; see `untilKey`. A key pressed *mid*-step is still shown, which is
+		// why the heading says "of a report" rather than "every line"
+		let quitting = false;
 		const untap =
-			opts.raw === true ? tap((chunk) => lines.push(`      raw  ${showSpaced(chunk)}`)) : () => {};
+			opts.raw === true
+				? tap((chunk) => {
+						if (!quitting) {
+							lines.push(`      raw  ${showSpaced(chunk)}`);
+						}
+					})
+				: () => {};
 		const off = router.onMouse((event) => {
 			const line = render(event);
 			if (line !== undefined) {
@@ -574,7 +599,7 @@ async function mouse() {
 		}, 50);
 
 		try {
-			const key = await untilKey(router, ['q']);
+			const key = await untilKey(router, ['q'], () => void (quitting = true));
 			if (key === 'abort') {
 				aborted = true;
 			}
@@ -649,7 +674,7 @@ async function mouse() {
 		// ------------------------------------------------- every report, raw and read
 		heading(
 			'every report, as bytes and as this library read it',
-			'every raw line holds "ESC [ <" -- one holding "ESC [ M" is the legacy encoding'
+			'every raw line of a report holds "ESC [ <" -- one holding "ESC [ M" is the legacy encoding'
 		);
 		write('    click, drag and scroll anywhere. q when you have seen enough.\r\n\r\n');
 		await live(
