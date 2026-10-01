@@ -21,12 +21,14 @@ function harness(width = 24, height = 3) {
 	const canvas = createCanvas({ height, width });
 	let painted = 0;
 
+	const resizeListeners = new Set<(size: { height: number; width: number }) => void>();
 	const terminal = {
 		closed: false,
 		height: 24,
 		isTTY: true,
-		onResize() {
-			return () => {};
+		onResize(fn: (size: { height: number; width: number }) => void) {
+			resizeListeners.add(fn);
+			return () => resizeListeners.delete(fn);
 		},
 		restore() {},
 		width,
@@ -60,6 +62,12 @@ function harness(width = 24, height = 3) {
 		backend: backend as never,
 		get painted() {
 			return painted;
+		},
+		/** Fires what a terminal fires when it is resized, which republishes the media. */
+		notifyResize() {
+			for (const fn of resizeListeners) {
+				fn({ height: terminal.height, width: terminal.width });
+			}
 		},
 		/** What is on the canvas, with blanks as dots so a width is countable. */
 		picture() {
@@ -553,6 +561,148 @@ describe('reduced motion through the frame loop', () => {
 		node!.addClass('wide');
 		view.frame();
 		expect((node!.style.width as { value: number }).value).toBe(12);
+		expect(view.animating).toBe(false);
+		expect(vi.getTimerCount()).toBe(0);
+		view.dispose();
+	});
+
+	it('should hold no timer for an infinite animation, which has no end state', () => {
+		// the defect the review found, at the layer where it costs something: the
+		// animation stayed `active`, so `settle()` asked for another frame every
+		// time and the loop woke every two seconds for the life of the process.
+		// A non-TTY is the plainest route to `reduce`, and a non-TTY is a CI log --
+		// which is the case the requirement was written for
+		const h = harness();
+		(h.terminal as { isTTY: boolean }).isTTY = false;
+		const cascade = sheets(`
+			@keyframes march { from { left: 0 } to { left: 4 } }
+			box { height: 1; position: relative; animation: march 400ms steps(4, end) infinite }
+		`);
+
+		const view = render(() => box({ height: 1, width: 1 }), {
+			backend: h.backend,
+			cascade,
+			effects,
+			frameMs: 1000 / 30,
+			terminal: h.terminal,
+		});
+
+		expect(view.animating).toBe(false);
+		expect(vi.getTimerCount()).toBe(0);
+
+		// and it stays that way: a loop that woke would wake inside this
+		vi.advanceTimersByTime(10_000);
+		expect(view.animating).toBe(false);
+		expect(vi.getTimerCount()).toBe(0);
+		view.dispose();
+	});
+
+	it('should hold no timer for a finite animation it collapsed either', () => {
+		// the same root one step less obvious: the end state reached the screen on
+		// the first frame while the animation stayed `active` until the wall clock
+		// passed its declared duration -- ten seconds of waking up, here
+		const h = harness();
+		(h.terminal as { isTTY: boolean }).isTTY = false;
+		const cascade = sheets(`
+			@keyframes slide { from { left: 0 } to { left: 6 } }
+			box {
+				height: 1;
+				left: 0;
+				position: relative;
+				animation: slide 10000ms linear 0s 1 normal forwards;
+			}
+		`);
+
+		let node: Element;
+		const view = render(() => (node = box({ height: 1, width: 1 })), {
+			backend: h.backend,
+			cascade,
+			effects,
+			frameMs: 1000 / 30,
+			terminal: h.terminal,
+		});
+
+		// collapsed to the state it would have ended on, which is what the ticket
+		// asked for rather than a frame per tick
+		expect((node!.style.left as { value: number }).value).toBe(6);
+		expect(view.animating).toBe(false);
+		expect(vi.getTimerCount()).toBe(0);
+		view.dispose();
+	});
+
+	it('should stop an animation the preference starts refusing', () => {
+		// whether an animation runs is a media query's answer, so it is published
+		// the way a resize is -- `publishMedia()` tells the animator as well as the
+		// restyler, or a refused animation goes on asking for frames
+		const h = harness();
+		const cascade = sheets(`
+			@keyframes march { from { left: 0 } to { left: 4 } }
+			box { height: 1; position: relative; animation: march 400ms steps(4, end) infinite }
+		`);
+
+		const view = render(() => box({ height: 1, width: 1 }), {
+			backend: h.backend,
+			cascade,
+			effects,
+			frameMs: 1000 / 30,
+			reducedMotion: 'no-preference',
+			terminal: h.terminal,
+		});
+
+		expect(view.animating).toBe(true);
+
+		// the environment is the live source under an app that named nothing, so a
+		// resize re-reads it -- which is the one way this moves under a real app
+		const before = process.env.SIGIL_REDUCED_MOTION;
+		try {
+			process.env.SIGIL_REDUCED_MOTION = '1';
+			const motionless = render(() => box({ height: 1, width: 1 }), {
+				backend: h.backend,
+				cascade,
+				effects: createEffects(),
+				frameMs: 1000 / 30,
+				terminal: h.terminal,
+			});
+			expect(motionless.animating).toBe(false);
+			motionless.dispose();
+		} finally {
+			if (before === undefined) {
+				delete process.env.SIGIL_REDUCED_MOTION;
+			} else {
+				process.env.SIGIL_REDUCED_MOTION = before;
+			}
+		}
+
+		view.dispose();
+	});
+
+	it('should stop a running animation when the terminal stops being one', () => {
+		// the published half of it, and the one route by which this really moves
+		// under a running app: the terminal's own stream going away. `publishMedia()`
+		// tells the animator as well as the restyler, or the refused animation goes
+		// on asking for a frame every two seconds for the life of the process
+		const h = harness();
+		const cascade = sheets(`
+			@keyframes march { from { left: 0 } to { left: 4 } }
+			box { height: 1; position: relative; animation: march 400ms steps(4, end) infinite }
+		`);
+
+		const view = render(() => box({ height: 1, width: 1 }), {
+			backend: h.backend,
+			cascade,
+			effects,
+			frameMs: 1000 / 30,
+			terminal: h.terminal,
+		});
+
+		expect(view.animating).toBe(true);
+
+		(h.terminal as { isTTY: boolean }).isTTY = false;
+		h.notifyResize();
+		view.frame();
+
+		expect(view.animating).toBe(false);
+		vi.advanceTimersByTime(10_000);
 		expect(view.animating).toBe(false);
 		expect(vi.getTimerCount()).toBe(0);
 		view.dispose();

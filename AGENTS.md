@@ -3293,13 +3293,62 @@ renderer's `settle()`.
   not run, and a finite one leaves behind exactly what its fill mode says it leaves
   behind -- the final frame for `forwards` or `both`, and the element's own style for
   anything else. Transitions do not start at all, which is what a style change
-  looked like before any of this existed. The `isFinite` half of that guard is a
-  **statement rather than a claim**, and the sabotage pass is what said so: deleting
-  it changes no test, because `Infinity % 1` is `NaN`, `ease()` hands `NaN` back,
-  every comparison in `valueAt()` is then false, both endpoints fall back to the
-  underlying value and the override is dropped for being equal to the base. The right
-  answer by five accidents in a row is not an answer to rest on, so the intent is
-  written where it is decided.
+  looked like before any of this existed.
+- **Whether an animation runs is `#syncAnimation()`'s single decision, and the
+  first version took it in three places that disagreed.** A review round found all
+  three, and they are one shape: that function had early exits which did not consult
+  what the rest of the class consults. Under reduced motion it stored the animation
+  anyway and left the _collapse_ to the per-frame arithmetic, so an infinite one kept
+  `active` true and the frame loop woke every two seconds **for the life of the
+  process** -- by the plainest route there is, since a non-TTY resolves to `reduce`
+  and a non-TTY is the CI log the requirement was written for. With a zero duration
+  it dropped the animation outright, which is right for a fill of `none` and loses the
+  100% keyframe CSS applies for `forwards` -- and `animation: slide forwards` is that
+  input, since an omitted duration defaults to `0s`. And a fill once left behind was
+  never taken away, so it survived `animation-name: none` and a _finished_ animation
+  restarted on the next unrelated style change.
+
+  So `#commit()` names the four answers -- **runs**, **settled** at the state it
+  would have left behind, **refused**, or none -- and only the first makes `active`
+  true. The fill carries the name of the animation that left it, because a fill
+  belongs to its animation: that is what takes it away with the name and what stops
+  a finished animation restarting. And `prefers-reduced-motion` is a media query, so
+  the decision is re-taken when the query's answer moves: `Animator.touchMedia()` is
+  the same method name the `Restyler` carries, called from the same
+  `publishMedia()`, over every element the animator has a _base_ for -- because an
+  animation the preference refused left no entry behind and turning the preference
+  off has to be able to start it.
+
+- **And the `isFinite` guard the first write-up called a statement rather than a
+  claim was load-bearing all along, which is the entry worth reading twice.** That
+  paragraph said deleting it changed no test because `Infinity % 1` is `NaN`,
+  `ease()` hands `NaN` back, every comparison in `valueAt()` is then false, both
+  endpoints fall back to the underlying value, and the override is dropped for
+  equalling the base -- "right by five accidents in a row". The chain breaks at the
+  last link, and a review round traced it: `valueAt()` does fall back to the base at
+  both ends, so `interpolate(base, base, NaN)` is what runs, and for a `Length` in
+  **cells** that is `cells(Math.round(NaN))`, which is `cells(NaN)` -- and
+  `sameValue()` compares `NaN === 0` as false, so the override is **kept** and a
+  width of `NaN` reaches the layout engine.
+
+  Why the sabotage reported otherwise is the part to keep: the harness was sound --
+  it patched the source, ran the **whole** suite, and read every failed assertion --
+  and the _fixture_ was not. The one test exercising that branch animated `left` on
+  an element that declared none, so the base was `auto`, and `mixLength()` hands an
+  `auto` back untouched for want of a `cells` or `percent` branch to take. On a base
+  of `cells(0)` the same deletion fails the same test. A sabotage result is only as
+  strong as the fixture's coverage of the branch, and the write-up compounded it by
+  reasoning _forward_ from "no test failed" to a five-step justification instead of
+  asking what input would make the guard matter. The branch is gone rather than
+  better commented: `progressOf()` is pure timing arithmetic now, asked only about
+  an animation that is running or about the end of one with a finite count, and
+  there is no path left that can produce a `NaN`. The review also predicted a
+  `TypeError` out of `rgb()` for a colour on the same path, and that one does not
+  reach: both of `valueAt()`'s endpoints degrade to the _same_ base value, so
+  `mixColors()` returns early and never builds a channel. A test covers the class
+  anyway, over both motion settings and every frame, because a `Length` of `NaN` is
+  a wrong layout and a colour of `NaN` would be a throw from inside the painter.
+
 - **The clock is injectable and the frame timer is unref'd.** `RenderOptions.now`
   is one function asked by the pacing, by the transitions and by the frame-skip
   arithmetic, so none of the three can come to disagree about what time it is -- and
@@ -3307,18 +3356,36 @@ renderer's `settle()`.
   reason `frameMs` is an option. The `unref()` is the spinner's own rule moved up a
   layer: a frame pending is not a reason for a finished process to stay alive, and
   what keeps a real app running is stdin rather than the loop that draws for it.
-- **Nothing animating still means no timer.** The renderer's own rule survives
-  this, and the way it survives is that the animation asks for its next frame from
-  inside `settle()` rather than running a timer of its own: `animator.active` is
-  false the moment the last transition is retired, and a frame that finds nothing
-  animating asks for nothing. An element that leaves the tree mid-transition is
+- **Nothing animating still means no timer, and that took a fix rather than
+  holding by itself.** The animation asks for its next frame from inside `settle()`
+  rather than running a timer of its own, so `animator.active` going false is what
+  stops the loop -- and for the first version that was true of a transition and
+  false of an animation, which is the defect two entries up. Under reduced motion
+  an infinite animation stayed `active` forever: `endOf()` is `Infinity`, so
+  `#retire()` never cleared it, `nextChange()`'s `Math.min` against `Infinity`
+  stayed at the horizon, the probe found no change and the loop woke every two
+  seconds to present nothing. The tests could not see it because the reduced-motion
+  ones asserted what was _presented_ and never `active`, while the `active` and
+  timer ones were all transitions -- which the other clear in `observe()` does
+  retire. Both halves are asserted now, for an infinite animation and for a finite
+  one with a long duration. An element that leaves the tree mid-transition is
   **forgotten**, and what that buys is not only the leak `Restyler.forget()` exists
   for -- a transition still running on a box nobody can see goes on asking for
   frames, so the loop would spin for the rest of its duration over nothing at all.
-- **A `forwards` fill outlives its animation without keeping the loop awake.** The
-  override is held after the animation is retired, so the last frame stays on
-  screen; `active` is false, because nothing more will change. That is the one state
-  where the animator is presenting a style and the frame loop may stop.
+- **A `forwards` fill outlives its animation without keeping the loop awake, and
+  it carries the name of the animation that left it.** The override is held after
+  the animation is retired, so the last frame stays on screen; `active` is false,
+  because nothing more will change. That is the one state where the animator is
+  presenting a style and the frame loop may stop. The **name** on it is what makes
+  the field's two other jobs possible: a fill belongs to its animation, so
+  `animation-name: none` takes it away rather than leaving it on screen for the life
+  of the element, and a _finished_ animation whose name is still declared is left
+  alone rather than restarting because some unrelated property moved. Both were
+  wrong while the field was a bare value map -- a colour write half a second after a
+  fade finished replayed the whole fade. And an **empty** fill is not recorded,
+  because `settled` is what says "this finished", so an empty one would stop an
+  animation ever running again; that guard is unreachable today for a reason written
+  where it lives rather than claimed as tested.
 - **The toolchain generates no utilities for the animation properties, and the
   exception is an explicit list.** `animation-direction` and `animation-fill-mode`
   are keyword properties, so the rule that a keyword added to a property gets its
@@ -3358,7 +3425,13 @@ what decided it.
   thing `width: 'auto'` exists to prevent. Fixing the extent walk is the enabling
   change and is **not** this ticket's: it is in the layout and paint layer, it
   changes `renderToString()` for every clipped tree, and SIG-110's scroll box is
-  editing exactly there.
+  editing exactly there. Confirmed from two directions and now scoped out of both:
+  SIG-110's own review established that its new `Element.extent` **does** stop at a
+  clipping box, while `arrangedExtent()` is a separate walk it does not touch -- so
+  the defect is real, pre-existing, and in neither branch. It wants a ticket of its
+  own, and the name matters when reading this: it is `arrangedExtent()`
+  specifically, not extents in general, since there is now a differently-behaved one
+  beside it.
 - **The keyframes cannot be static, because the travel is a runtime argument.**
   `createSpinner({ frames })` takes its own frames, so the reel's travel is
   `-frames.length` and the step count is `frames.length`. A sheet cannot say that,
@@ -3382,35 +3455,55 @@ which transitions a width, two colours at one duration and a focus ring, runs an
 infinite `@keyframes` with `alternate`, and prints frames painted against the thirty
 a second a loop without the frame skip would have drawn.
 
-#### What the sabotage pass caught
+#### What the sabotage pass caught, and what it got wrong
 
-Thirty-three guards and invariants were deleted one at a time with the suite run
-after each, which is how the first version of this came to have a `from`-value
-bug that no test had noticed. Twenty-six were caught by a test named for what
-they are, and seven were not -- each of those got the test it was missing:
+Forty-six guards and invariants were deleted one at a time with the suite run
+after each, over two rounds -- thirty-three before review and thirteen more over
+the guards the review's own fixes added. **All forty-six are caught now**, with
+one exception written down below. The interesting half is not the count.
 
-- **An infinite animation under reduced motion.** The fill-mode half of the
-  collapse covers every input except `infinite` beside `forwards`, which is the
-  one the other half is for.
-- **A keyframe declaring a property that does not animate.** Needs a
-  `@keyframes` that sets `transition-duration`, which nobody writes and which is
-  exactly why the skip is there.
-- **`!important` inside a keyframe.** The test asserted `/important/` and passed
-  with the guard gone, because the _colour_ parser then refuses `red !important`
-  and its message contains the word. It asserts the reason now.
-- **Laying out again for an animated geometry property.** Every assertion was on
-  the resolved style, which moves whether or not the boxes do. The test reads the
-  **picture** now: paint draws a child at the box the arrange pass gave it, so a
-  frame that repainted without laying out draws the letter exactly where it was.
-- **The frame skip itself.** Counting paints cannot see it -- a loop that woke
-  thirty times and found nothing changed paints exactly as often. The test counts
-  the **timers** the loop set.
-- **A sooner frame request replacing a later one.** Needs a signal write while a
-  slow animation's deadline is pending, and an assertion that the frame arrived
-  before it.
-- **Forgetting an unmounted element.** Reachable as behaviour rather than as a
-  leak: a transition still running on a box nobody can see goes on asking for
-  frames, so hiding a branch mid-transition has to leave `animating` false.
+Seven of the first thirty-three survived and each got the test it was missing:
+an infinite animation under reduced motion; a keyframe declaring a property that
+does not animate; `!important` inside a keyframe (the old assertion was
+`/important/` and passed with the guard gone, because the _colour_ parser then
+refuses `red !important` and its message contains the word); laying out again for
+an animated geometry property (every assertion was on the resolved style, which
+moves whether or not the boxes do -- it reads the **picture** now, since paint
+draws a child at the box arrange gave it); the frame skip itself (counting paints
+cannot see it, so it counts the **timers** the loop set); a sooner frame request
+replacing a later one; and forgetting an unmounted element, re-framed from a leak
+into behaviour -- a transition on a box nobody can see goes on asking for frames.
+
+Four more survived in the second round and are the same lesson a fourth time:
+publishing a media change to the animator needed a renderer whose terminal
+_stops_ being one mid-animation; `touchMedia()` walking every base rather than
+every live entry needed a `tick()` first, because an entry holding nothing is
+dropped and a walk over the entries would otherwise find it anyway; and clearing
+the old fill when a new animation replaces it needed two animations touching
+**different properties**, because with one property the incoming animation's own
+value covers the stale fill on every frame.
+
+**Which is the finding worth keeping, because one of those survivals was written
+into this file as a reasoned decision and it was wrong.** The entry above records
+what the `isFinite` guard really did; what it says about the _method_ is this. The
+harness was sound -- it patched the source, ran the whole suite, and read every
+failed assertion -- so "no test failed" was a true statement about the suite that
+existed. What was weak was the **fixture**: in eleven of the forty-six, the only
+test reaching the branch did not reach the state that makes the guard matter. A
+sabotage result is therefore a statement about the tests and not about the code,
+and the two diverge exactly where a fixture is too easy. The error that compounded
+it was reasoning _forward_ from the survival to a five-step justification for why
+the guard was redundant, rather than asking what input would make it matter and
+writing that input down. Every survivor since has been resolved the second way.
+
+One guard survives deliberately and says so where it lives: **an empty fill is
+not recorded**. `tick()` drops an entry holding nothing at all, so an empty
+`settled` goes with the entry before anything can read it, and nothing can reach
+the state it refuses. It is kept for the reason `undo()` keeps two guards rolldown
+cannot provoke: the invariant is a property of that field's own meaning -- an empty
+`settled` is a contradiction in terms, since `settled` is what says an animation
+has finished -- and resting it on another method happening to run first is what
+that entry declines to do.
 
 #### What is deliberately out
 

@@ -852,6 +852,10 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 	function publishMedia(): void {
 		readMedia();
 		restyler.touchMedia();
+		// and the animator, because `prefers-reduced-motion` is one of the queries
+		// that moved: whether an animation runs is a live answer, and a running one
+		// that the preference now refuses has to stop asking for frames
+		animator.touchMedia(clock());
 		full = true;
 		requestFrame();
 	}

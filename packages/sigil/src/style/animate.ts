@@ -76,6 +76,12 @@ export interface AnimationFrame<T> {
 	readonly styles: ReadonlyMap<T, Style>;
 }
 
+/** The end state an animation left behind, with the animation that left it. */
+interface Settled {
+	readonly name: string;
+	readonly values: ReadonlyMap<PropertyName, unknown>;
+}
+
 /** One property on its way from one value to another. */
 interface Transition {
 	readonly duration: number;
@@ -122,12 +128,16 @@ interface Entry {
 	 */
 	builtFrom: Style | undefined;
 	/**
-	 * The values a `forwards` fill is holding after its animation finished.
+	 * The end state an animation left behind, and which animation left it.
 	 *
-	 * Lazily created, because the common entry has none: a transition leaves
-	 * nothing behind and the default fill mode is `none`.
+	 * The name is on it because a fill belongs to its animation: CSS takes the
+	 * fill away with `animation-name: none`, and a *finished* animation whose name
+	 * is still declared must not restart because some unrelated property moved.
+	 * Both of those were wrong while this was only a value map -- a `forwards`
+	 * fill survived `animation-name: none` for the life of the element, and a
+	 * finished animation ran again on the next style change of any kind.
 	 */
-	fill?: Map<PropertyName, unknown>;
+	settled: Settled | undefined;
 	/** The property values currently overriding the base, kept to compare against. */
 	overrides: Map<PropertyName, unknown>;
 	/** What was last handed back, kept so that an unchanged frame hands back the same object. */
@@ -358,6 +368,31 @@ export class Animator<T extends object> {
 	}
 
 	/**
+	 * What the media queries are asked about changed.
+	 *
+	 * The same method name the `Restyler` carries and for the same reason, because
+	 * it is the same event: `prefers-reduced-motion` is a media query, so whether
+	 * an animation runs is a live answer rather than one settled when the
+	 * declaration was read. Reading it live from inside the per-frame arithmetic
+	 * was the first version and is what let an infinite animation under reduced
+	 * motion keep `active` true for the life of the process -- the frame loop woke
+	 * every two seconds to present nothing. One decision, re-taken when the thing
+	 * it depends on moves.
+	 *
+	 * Every element the animator has a base style for, because an animation the
+	 * preference *refused* left no entry behind and turning the preference off has
+	 * to be able to start it. That is the same cost `Restyler.touchMedia()` pays,
+	 * on the same event.
+	 *
+	 * @param now - The clock, for an animation this starts.
+	 */
+	touchMedia(now: number): void {
+		for (const [target, base] of this.#base) {
+			this.#syncAnimation(target, base, now);
+		}
+	}
+
+	/**
 	 * Drops everything the animator knows about an element.
 	 *
 	 * Called when an element is unmounted, for the reason `Restyler.forget()` is:
@@ -396,6 +431,7 @@ export class Animator<T extends object> {
 				builtFrom: undefined,
 				overrides: new Map(),
 				presented: undefined,
+				settled: undefined,
 				transitions: new Map(),
 			};
 			this.#entries.set(target, entry);
@@ -457,7 +493,25 @@ export class Animator<T extends object> {
 	}
 
 	/**
-	 * Starts, keeps or stops the element's animation to match its style.
+	 * Starts, keeps, settles or refuses the element's animation to match its
+	 * style.
+	 *
+	 * **One place decides whether an animation runs**, and getting that wrong is
+	 * what three defects had in common: this function used to take two early exits
+	 * that did not consult what the rest of the class consults. Under reduced
+	 * motion it stored the animation anyway, so an infinite one left `active` true
+	 * and the frame loop woke every two seconds for the life of the process -- by
+	 * the plainest route there is, since a non-TTY resolves to `reduce`. With a
+	 * zero duration it dropped the animation outright, which is right for a fill of
+	 * `none` and loses the 100% keyframe CSS applies for `forwards`. And a fill
+	 * once left behind was never taken away, so it survived `animation-name: none`
+	 * and a finished animation restarted on the next unrelated style change.
+	 *
+	 * So the four answers are named: an animation **runs**, or it is already
+	 * **settled** at the state it would have left behind, or it is **refused**, or
+	 * there is none. Only the first makes `active` true, which is what keeps
+	 * "nothing animating means no timer at all" true of an animation as well as of
+	 * a transition.
 	 *
 	 * A change to `animation-name` restarts; a change to the timing is taken up in
 	 * place without a restart, which is CSS -- a theme that lengthens a duration
@@ -474,37 +528,99 @@ export class Animator<T extends object> {
 	#syncAnimation(target: T, base: Style, now: number): void {
 		const live = this.#entries.get(target);
 		const name = base.animationName;
+		const frames = name === 'none' ? undefined : this.#cascade.keyframes(name);
 
-		if (name === 'none' || base.animationDuration <= 0 || base.animationIterationCount <= 0) {
-			// a zero duration or zero iterations is an animation with no play time,
-			// which CSS gives no effect beyond its fill; treating it as nothing
-			// running is the same answer with one state fewer to hold
+		if (!frames) {
+			// and the fill goes with it, because a fill belongs to its animation
 			if (live) {
 				live.animation = undefined;
+				live.settled = undefined;
 			}
 			return;
 		}
 
-		const frames = this.#cascade.keyframes(name);
-		if (!frames) {
-			if (live) {
-				live.animation = undefined;
-			}
+		// an animation that has already settled is left alone: it is finished, and
+		// a style change somewhere else on the element is not a reason to run it
+		// again. Only its *name* changing is
+		if (live?.settled?.name === name && live.animation === undefined) {
+			return;
+		}
+
+		if (live?.animation?.name === name) {
+			// the timing is taken up in place, and *whether it runs* is asked again
+			// with it: the answer can move without the declaration moving, because
+			// reduced motion is a media query and a media query is a live answer
+			this.#commit(live, { ...live.animation, ...timing(base) });
 			return;
 		}
 
 		const entry = this.#entryFor(target, base);
-		if (entry.animation && entry.animation.name === name) {
-			entry.animation = { ...entry.animation, ...timing(base) };
+		// whatever the animation this replaces left behind goes with it
+		entry.settled = undefined;
+		this.#commit(entry, { name, start: now, stops: index(frames), ...timing(base) });
+	}
+
+	/**
+	 * Writes an animation onto an entry as one of three things.
+	 *
+	 * **Runs**, where it will change what is on screen. **Settled**, where it will
+	 * not and its fill mode says it leaves something behind -- a reduced-motion
+	 * animation, which is one that has already finished, and a zero duration or
+	 * zero iteration count, which is one with no play time at all. Or **nothing**,
+	 * which is an infinite animation under reduced motion: there is no end state
+	 * for it to collapse to, so the honest collapse is not to run it, and for a
+	 * spinner in a CI log that is the base style and is what such a log has always
+	 * got.
+	 *
+	 * Only the first makes `active` true, which is the whole point: this is what
+	 * keeps "nothing animating means no timer at all" true of an animation as well
+	 * as of a transition.
+	 */
+	#commit(entry: Entry, running: Running): void {
+		entry.animation = undefined;
+
+		if (this.#reduced && !Number.isFinite(running.iterations)) {
+			entry.settled = undefined;
 			return;
 		}
 
-		entry.animation = {
-			name,
-			start: now,
-			stops: index(frames),
-			...timing(base),
-		};
+		if (running.duration <= 0 || running.iterations <= 0 || this.#reduced) {
+			this.#settle(entry, running);
+			return;
+		}
+
+		entry.animation = running;
+	}
+
+	/**
+	 * Records what an animation leaves behind, if it leaves anything.
+	 *
+	 * The fill mode is read in exactly one place -- `progressOf()`, which answers
+	 * `undefined` past the end of an animation that does not fill forwards -- so
+	 * this asks for the end values and keeps them only if there are any. Both
+	 * callers used to repeat the `forwards || both` test themselves, which a
+	 * sabotage pass found was redundant rather than load bearing: the values came
+	 * back empty either way.
+	 *
+	 * **An empty fill is no fill**, and that one is a guard nothing can currently
+	 * reach rather than a claim with a test behind it -- said here because a
+	 * sabotage of it survives and the reason is worth knowing. `settled` is what
+	 * tells `#syncAnimation()` an animation has finished and must not restart, so
+	 * an empty one would stop an animation ever running again, including when the
+	 * preference that settled it is turned back off. What makes that unreachable
+	 * is `tick()`, which drops an entry holding nothing at all -- so the empty
+	 * `settled` goes with the entry before anything can read it. That is the
+	 * `undo()` precedent rather than dead code: the invariant is a property of
+	 * this field's own meaning, an empty `settled` is a contradiction in terms,
+	 * and resting it on another method happening to run first is what that entry
+	 * declines to do.
+	 *
+	 * @param entry - The element's entry.
+	 * @param animation - The animation that is finishing or has already finished.
+	 */
+	#settle(entry: Entry, animation: Running): void {
+		const values = this.#animationValues(animation, entry, endOf(animation));
+		entry.settled = values.size > 0 ? { name: animation.name, values } : undefined;
 	}
 
 	/** Drops transitions and animations that have finished. */
@@ -521,23 +637,13 @@ export class Animator<T extends object> {
 			// outlives the animation. What does not outlive it is the entry being
 			// active, which is what stops the frame loop
 			entry.animation = undefined;
-			if (animation.fill === 'forwards' || animation.fill === 'both') {
-				for (const [property, value] of this.#animationValues(
-					animation,
-					entry,
-					endOf(animation),
-					this.#level
-				)) {
-					entry.transitions.delete(property);
-					filled(entry).set(property, value);
-				}
-			}
+			this.#settle(entry, animation);
 		}
 	}
 
 	/** Every property override in effect at a moment, animation under transitions. */
 	#overridesAt(entry: Entry, now: number, level: ColorLevel): Map<PropertyName, unknown> {
-		const out = new Map<PropertyName, unknown>(entry.fill);
+		const out = new Map<PropertyName, unknown>(entry.settled?.values);
 
 		if (entry.animation) {
 			for (const [property, value] of this.#animationValues(entry.animation, entry, now, level)) {
@@ -575,15 +681,21 @@ export class Animator<T extends object> {
 		return out;
 	}
 
-	/** What a running animation says every property it touches is, at a moment. */
+	/**
+	 * What a running animation says every property it touches is, at a moment.
+	 *
+	 * The level is an argument rather than a read because `nextChange()` captures
+	 * it once and probes with it: every probe has to be resolved at one depth or
+	 * the comparison between two of them is a comparison of two questions.
+	 */
 	#animationValues(
 		animation: Running,
 		entry: Entry,
 		now: number,
-		level: ColorLevel
+		level: ColorLevel = this.#level
 	): Map<PropertyName, unknown> {
 		const out = new Map<PropertyName, unknown>();
-		const progress = progressOf(animation, now, this.#reduced);
+		const progress = progressOf(animation, now);
 		if (progress === undefined) {
 			return out;
 		}
@@ -596,18 +708,6 @@ export class Animator<T extends object> {
 
 		return out;
 	}
-}
-
-/**
- * The filled values an entry is holding, which exist only once a `forwards` fill
- * has outlived its animation.
- *
- * A lazily created map rather than one per entry, because the common entry has
- * none and the common animation does not fill.
- */
-function filled(entry: Entry): Map<PropertyName, unknown> {
-	entry.fill ??= new Map();
-	return entry.fill;
 }
 
 /** The timing half of an animation's declaration, which is taken up in place. */
@@ -630,38 +730,29 @@ function endOf(animation: Running): number {
 /**
  * How far through its iteration an animation is, with the direction applied.
  *
- * `undefined` means it is presenting nothing: either the delay has not run out
- * and the fill does not reach backwards, or it is an infinite animation under
- * reduced motion.
+ * `undefined` means it is presenting nothing: the delay has not run out and the
+ * fill does not reach backwards, or it has finished and the fill does not reach
+ * forwards.
  *
- * **Reduced motion collapses a finite animation to its end state and refuses an
- * infinite one outright.** The ticket asked for the end state and that is the
- * answer for anything that has one; an infinite animation has no end state, so
- * the honest collapse is not to run it -- which for the spinner's case is the
- * base style, and is what a CI log has always got.
+ * **Pure timing arithmetic, with nothing in it about reduced motion.** It used to
+ * carry a `reduced` branch, and that branch is where a review found the sharpest
+ * thing in this feature: it computed `finalOffset(Infinity)`, which is
+ * `Infinity % 1` and therefore `NaN`. The guard in front of it was load-bearing
+ * and a sabotage pass had reported otherwise -- wrongly, because the one test
+ * exercising it animated `left` on an element whose base was `auto`, and
+ * `mixLength()` hands an `auto` back untouched so the `NaN` never reached any
+ * arithmetic. On a base of `cells(0)` the same deletion produces an override of
+ * `cells(NaN)`, which is kept -- `NaN === 0` is false -- and goes to the layout
+ * engine as a width.
+ *
+ * So the branch is gone rather than better commented. Whether an animation runs
+ * at all is `#syncAnimation()`'s single decision now, which is also what fixed
+ * the infinite-animation timer leak beside it; this function is only ever asked
+ * about an animation that is running, or about the end of one with a finite
+ * count, and there is no path left that can produce a `NaN`.
  */
-function progressOf(animation: Running, now: number, reduced: boolean): number | undefined {
+function progressOf(animation: Running, now: number): number | undefined {
 	const { delay, direction, duration, fill, iterations, start } = animation;
-
-	if (reduced) {
-		// a reduced-motion animation is one that has already finished, which is what
-		// makes the rule one sentence rather than two: an infinite animation has no
-		// end state to collapse to and does not run, and a finite one leaves behind
-		// exactly what its fill mode says it leaves behind -- the final frame for
-		// `forwards`, and the element's own style for anything else.
-		//
-		// The `isFinite` half is a **statement rather than a claim**, and a sabotage
-		// pass is what said so: deleting it changes no test, because
-		// `Infinity % 1` is `NaN`, `ease()` hands `NaN` straight back, and every
-		// comparison in `valueAt()` is then false -- so both endpoints fall back to
-		// the underlying value and the override is dropped for being equal to the
-		// base. The right answer by five accidents in a row is not an answer to
-		// rest on, so the intent is written where it is decided
-		if (!Number.isFinite(iterations) || (fill !== 'forwards' && fill !== 'both')) {
-			return undefined;
-		}
-		return directed(finalIteration(iterations), finalOffset(iterations), direction);
-	}
 
 	const elapsed = now - start - delay;
 
@@ -691,8 +782,17 @@ function finalIteration(iterations: number): number {
 	return Math.max(0, Math.ceil(iterations) - 1);
 }
 
-/** How far into that iteration it ends. A whole count ends at the end of one. */
+/**
+ * How far into that iteration it ends. A whole count ends at the end of one.
+ *
+ * A count of **zero** ends at the start rather than the end, which is CSS: there
+ * were no iterations, so a `forwards` fill holds the 0% keyframe. Reachable only
+ * because a zero count is now settled with its fill rather than dropped.
+ */
 function finalOffset(iterations: number): number {
+	if (iterations <= 0) {
+		return 0;
+	}
 	const fraction = iterations % 1;
 	return fraction === 0 ? 1 : fraction;
 }

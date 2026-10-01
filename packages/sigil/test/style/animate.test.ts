@@ -510,9 +510,129 @@ describe('an animation', () => {
 		for (const value of ['slide 0s linear', 'slide 100ms linear 0s 0']) {
 			const it = animator(sheet);
 			const node = target();
-			it.observe(node, declare({ animation: value, position: 'relative' }), 0);
+			it.observe(node, declare({ animation: value, left: '2', position: 'relative' }), 0);
+			expect(it.active, value).toBe(false);
+			// and with the default fill of `none` it presents nothing, which is the
+			// half the first version of this test asserted and all it asserted
+			expect(present(it, node, 'left', 0), value).toBeUndefined();
+		}
+	});
+
+	it('should still apply the fill of one with no play time, which CSS does', () => {
+		// a zero duration is an animation whose active duration is zero, so it is
+		// immediately in its after phase -- and `forwards` holds the 100% keyframe
+		// there. Dropping it outright is right for `none` and loses the frame for
+		// `forwards`, and `animation: slide forwards` is the same input, because an
+		// omitted duration defaults to `0s`
+		for (const value of [
+			'slide 0s linear 0s 1 normal forwards',
+			'slide forwards',
+			'slide 0s linear 0s 1 normal both',
+		]) {
+			const it = animator(sheet);
+			const node = target();
+			it.observe(node, declare({ animation: value, left: '2', position: 'relative' }), 0);
+			expect(present(it, node, 'left', 0), value).toEqual(cells(10));
 			expect(it.active, value).toBe(false);
 		}
+	});
+
+	it('should apply the 0% keyframe where there are no iterations at all', () => {
+		// CSS: a count of zero ran no iterations, so what `forwards` holds is the
+		// start rather than the end -- which is reachable only because a zero count
+		// now settles with its fill instead of being dropped
+		const it = animator('@keyframes slide { from { left: 3 } to { left: 9 } }');
+		const node = target();
+		it.observe(
+			node,
+			declare({ animation: 'slide 100ms linear 0s 0 normal forwards', position: 'relative' }),
+			0
+		);
+		expect(present(it, node, 'left', 0)).toEqual(cells(3));
+	});
+
+	it('should take a fill away with the animation that left it', () => {
+		// a fill belongs to its animation, so `animation-name: none` removes it --
+		// it used to survive for the life of the element
+		const it = animator(sheet);
+		const node = target();
+		const running = declare({
+			animation: 'slide 100ms linear 0s 1 normal forwards',
+			left: '0',
+			position: 'relative',
+		});
+		it.observe(node, running, 0);
+		expect(present(it, node, 'left', 200)).toEqual(cells(10));
+
+		it.observe(node, declare({ left: '0', position: 'relative' }), 200);
+		expect(present(it, node, 'left', 200)).toBeUndefined();
+		expect(it.size).toBe(0);
+	});
+
+	it('should not restart a finished animation because something else changed', () => {
+		// the same field read from the other side: a finished animation whose name
+		// is still declared ran again on the next style change of any kind, so a
+		// colour write half a second later replayed the whole thing
+		const it = animator(sheet);
+		const node = target();
+		const base = {
+			animation: 'slide 100ms linear 0s 1 normal forwards',
+			left: '0',
+			position: 'relative',
+		};
+		it.observe(node, declare(base), 0);
+		expect(present(it, node, 'left', 200)).toEqual(cells(10));
+		expect(it.active).toBe(false);
+
+		it.observe(node, declare({ ...base, color: 'red' }), 200);
+		expect(it.active).toBe(false);
+		expect(present(it, node, 'left', 250)).toEqual(cells(10));
+	});
+
+	it('should take the old fill away when a new animation replaces it', () => {
+		// the two animations touch *different* properties on purpose: with one
+		// property the incoming animation's own value covers the stale fill every
+		// frame, so a fill that was never cleared is invisible -- which is exactly
+		// how this guard came to survive its first sabotage
+		const it = animator(
+			`${sheet} @keyframes hot { from { color: #000000 } to { color: #ffffff } }`
+		);
+		const node = target();
+		const base = {
+			animation: 'slide 100ms linear 0s 1 normal forwards',
+			left: '0',
+			position: 'relative',
+		};
+		it.observe(node, declare(base), 0);
+		expect(present(it, node, 'left', 200)).toEqual(cells(10));
+
+		it.observe(node, declare({ ...base, animation: 'hot 100ms linear' }), 200);
+		it.tick(250);
+		// the colour is the new animation's, and `left` is the element's own again
+		// rather than the ten the old animation's fill was holding
+		expect(it.styleOf(node)?.left).toEqual(cells(0));
+		expect(it.styleOf(node)?.color).not.toBe(declare({ color: '#000000' }).color);
+	});
+
+	it('should restart when the name changes, which is the one thing that does', () => {
+		const it = animator(`${sheet} @keyframes other { from { left: 9 } to { left: 1 } }`);
+		const node = target();
+		const base = {
+			animation: 'slide 100ms linear 0s 1 normal forwards',
+			left: '0',
+			position: 'relative',
+		};
+		it.observe(node, declare(base), 0);
+		it.tick(200);
+		expect(it.styleOf(node)?.left).toEqual(cells(10));
+
+		it.observe(
+			node,
+			declare({ ...base, animation: 'other 100ms linear 0s 1 normal forwards' }),
+			200
+		);
+		expect(it.active).toBe(true);
+		expect(present(it, node, 'left', 250)).toEqual(cells(5));
 	});
 
 	it('should let a transition beat an animation over one property', () => {
@@ -581,33 +701,169 @@ describe('reduced motion', () => {
 	});
 
 	it('should refuse an infinite animation even where its fill would have held one', () => {
-		// the two halves of the collapse are separate guards and the fill half
-		// covers most of it, so this is the one input that reaches the other: an
-		// infinite animation has no final iteration for `forwards` to hold
+		// an infinite animation has no final iteration for `forwards` to hold, and
+		// `left: 0` on the element is load bearing in a way the first version of
+		// this test missed: with a base of `auto`, `mixLength()` hands the `auto`
+		// back untouched, so the `Infinity % 1` this once computed never reached
+		// any arithmetic and a sabotage of the guard in front of it passed. On a
+		// concrete length the same path produced an override of `cells(NaN)` --
+		// kept, because `NaN === 0` is false -- and handed the layout engine a
+		// width of `NaN`
 		const it = animator(sheet, { reducedMotion: 'reduce' });
 		const node = target();
 		it.observe(
 			node,
 			declare({
 				animation: 'slide 100ms linear 0s infinite normal forwards',
+				left: '0',
 				position: 'relative',
 			}),
 			0
 		);
 		expect(present(it, node, 'left', 0)).toBeUndefined();
 		expect(present(it, node, 'left', 500)).toBeUndefined();
+		expect(it.active).toBe(false);
 	});
 
-	it('should read the preference off the live cascade, not off a copy', () => {
-		// one source, so a resize or a theme change that moves the media context
-		// moves this with it
+	it('should present a number for every frame of every property it animates', () => {
+		// the general form of the same thing, and the reason it is worth asserting
+		// over the corpus rather than per property: what reached the layout engine
+		// was a `Length` whose value was `NaN`, which nothing downstream refuses
+		for (const reduce of [false, true]) {
+			for (const value of ['slide 100ms linear 0s infinite', 'slide 100ms linear 0s 2 alternate']) {
+				const it = animator(sheet, { reducedMotion: reduce ? 'reduce' : 'no-preference' });
+				const node = target();
+				it.observe(node, declare({ animation: value, left: '0', position: 'relative' }), 0);
+				for (let at = 0; at <= 400; at += 7) {
+					it.tick(at);
+					const left = it.styleOf(node)?.left as { value?: number } | undefined;
+					if (left?.value !== undefined) {
+						expect(Number.isFinite(left.value), `${value} at ${String(at)}`).toBe(true);
+					}
+				}
+			}
+		}
+	});
+
+	it('should present a colour for every frame, which is the sharper case', () => {
+		// a `Length` of `NaN` is a wrong layout; a *colour* of `NaN` is a throw out
+		// of `rgb()`, which refuses a channel rather than clamping it -- so this is
+		// the one where the failure arrives from inside the painter
+		const hot = '@keyframes hot { from { color: #000000 } to { color: #ffffff } }';
+		for (const reduce of [false, true]) {
+			const it = animator(hot, { reducedMotion: reduce ? 'reduce' : 'no-preference' });
+			const node = target();
+			expect(() => {
+				it.observe(
+					node,
+					declare({ animation: 'hot 100ms linear 0s infinite', color: '#808080' }),
+					0
+				);
+				for (let at = 0; at <= 400; at += 7) {
+					it.tick(at);
+				}
+			}).not.toThrow();
+		}
+	});
+
+	it('should stop a running animation when the preference is published', () => {
+		// `prefers-reduced-motion` is a media query, so whether an animation runs is
+		// a live answer -- and it is *published* rather than read from inside the
+		// per-frame arithmetic, which is the shape `Restyler.touchMedia()` already
+		// has and is what stops a refused animation holding the frame loop open
 		const sheets = cascade(sheet, { reducedMotion: 'no-preference' });
 		const it = new Animator<{ name: string }>(sheets);
 		const node = target();
 		it.observe(node, declare({ animation: 'slide 100ms linear', position: 'relative' }), 0);
 		expect(it.tick(50).styles.size).toBe(1);
+		expect(it.active).toBe(true);
 
 		sheets.media = { ...sheets.media, reducedMotion: 'reduce' };
+		it.touchMedia(50);
 		expect(it.tick(50).styles.size).toBe(0);
+		expect(it.active).toBe(false);
+	});
+
+	it('should start one the preference had refused, once it is allowed again', () => {
+		// a refused animation leaves no entry at all -- `tick()` drops an entry with
+		// nothing in it -- so the walk has to be over every element the animator has
+		// a *base* for rather than over what is in flight. The `tick()` here is what
+		// makes that true rather than incidental: without it the empty entry is
+		// still there and a walk over `#entries` would find it anyway
+		const sheets = cascade(sheet, { reducedMotion: 'reduce' });
+		const it = new Animator<{ name: string }>(sheets);
+		const node = target();
+		it.observe(
+			node,
+			declare({ animation: 'slide 100ms linear 0s infinite', position: 'relative' }),
+			0
+		);
+		it.tick(0);
+		expect(it.active).toBe(false);
+		expect(it.size).toBe(0);
+
+		sheets.media = { ...sheets.media, reducedMotion: 'no-preference' };
+		it.touchMedia(0);
+		expect(it.active).toBe(true);
+		expect(present(it, node, 'left', 50)).toEqual(cells(5));
+	});
+
+	it('should start a finite animation that held nothing, once it is allowed again', () => {
+		// a finite animation with the default fill of `none` is settled under reduced
+		// motion and leaves *nothing* behind -- and `settled` is what says an
+		// animation has finished and must not restart, so recording an empty one
+		// would stop this ever running. The fill mode is read in one place and an
+		// empty fill is no fill
+		const sheets = cascade(sheet, { reducedMotion: 'reduce' });
+		const it = new Animator<{ name: string }>(sheets);
+		const node = target();
+		it.observe(node, declare({ animation: 'slide 100ms linear', position: 'relative' }), 0);
+		it.tick(0);
+		expect(it.active).toBe(false);
+		expect(it.size).toBe(0);
+
+		sheets.media = { ...sheets.media, reducedMotion: 'no-preference' };
+		it.touchMedia(0);
+		expect(it.active).toBe(true);
+		expect(present(it, node, 'left', 50)).toEqual(cells(5));
+	});
+
+	it('should hold neither the entry nor a timer for an infinite animation', () => {
+		// the defect this is named for: `active` stayed true for the life of the
+		// process and the frame loop woke every two seconds to present nothing --
+		// reachable by the plainest route there is, since a non-TTY resolves to
+		// `reduce`
+		const it = animator(sheet, { reducedMotion: 'reduce' });
+		const node = target();
+		it.observe(
+			node,
+			declare({ animation: 'slide 100ms linear 0s infinite', position: 'relative' }),
+			0
+		);
+		it.tick(0);
+		expect(it.active).toBe(false);
+		expect(it.nextChange(0, 1000 / 30)).toBeUndefined();
+
+		it.tick(1_000_000);
+		expect(it.active).toBe(false);
+	});
+
+	it('should hold no timer for a finite one either, however long its duration', () => {
+		// the same root, one step less obvious: the end state was presented on the
+		// first frame while the animation stayed `active` until the wall clock
+		// passed its declared duration
+		const it = animator(sheet, { reducedMotion: 'reduce' });
+		const node = target();
+		it.observe(
+			node,
+			declare({
+				animation: 'slide 10000ms linear 0s 1 normal forwards',
+				position: 'relative',
+			}),
+			0
+		);
+		expect(present(it, node, 'left', 0)).toEqual(cells(10));
+		expect(it.active).toBe(false);
+		expect(it.nextChange(0, 1000 / 30)).toBeUndefined();
 	});
 });
