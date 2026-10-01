@@ -386,7 +386,42 @@ async function mouse() {
 	const { createInput, queryCursor, queryMode } = await import('../dist/input.mjs');
 	const { createInlineCanvas } = await import('../dist/canvas.mjs');
 
-	const show = (str) => JSON.stringify(str).replaceAll('\\u001b', 'ESC ');
+	/**
+	 * One report, spelled the way this repository spells a sequence in prose:
+	 * `ESC [ < 0 ; 41 ; 13 M`, a space between every token and a run of digits
+	 * kept whole.
+	 *
+	 * Spaced rather than verbatim, and that is the whole of SIG-128. iTerm2
+	 * watches for a mouse report being **printed to the screen**, because that is
+	 * what a stuck mouse looks like: the TUI died, tracking stayed on, and the
+	 * shell is now echoing the reports. The check is
+	 * `-[PTYSession detectTurdsForReportData:type:]`, which takes the report, drops
+	 * the `ESC` and the two bytes after it and every byte under 32, and arms a
+	 * regular expression over the next 100ms of screen text for whatever is left --
+	 * `0;41;13M` for the press above. A verbatim `"ESC [<0;41;13M"` holds that run
+	 * exactly, so the one app that has to print a report was telling iTerm2 it was
+	 * the one app that must not: it offered to turn mouse reporting off, mid-probe,
+	 * and it was reading the stream correctly. A space between the tokens breaks
+	 * the run and nothing else, and the parameters are easier to read besides.
+	 *
+	 * `--detect` keeps its own verbatim `show()` on purpose. These answer two
+	 * questions rather than one: there, fidelity is the point and no mouse report
+	 * is involved, so nothing arms the detector.
+	 *
+	 * @param {string} str
+	 * @returns {string}
+	 */
+	const showSpaced = (str) =>
+		`"${(str.match(/[0-9]+|[\s\S]/g) ?? [])
+			.map((tok) => {
+				if (tok === '\u001b') return 'ESC';
+				if (tok === '\u0007') return 'BEL';
+				if (tok.length === 1 && (tok < ' ' || tok === '\u007f')) {
+					return `\\x${tok.charCodeAt(0).toString(16).padStart(2, '0')}`;
+				}
+				return tok;
+			})
+			.join(' ')}"`;
 
 	/**
 	 * A second `data` listener, so the bytes can be shown beside the reading.
@@ -512,7 +547,7 @@ async function mouse() {
 	const live = async (router, render, opts = {}) => {
 		const lines = [];
 		const untap =
-			opts.raw === true ? tap((chunk) => lines.push(`      raw  ${show(chunk)}`)) : () => {};
+			opts.raw === true ? tap((chunk) => lines.push(`      raw  ${showSpaced(chunk)}`)) : () => {};
 		const off = router.onMouse((event) => {
 			const line = render(event);
 			if (line !== undefined) {
@@ -629,7 +664,13 @@ async function mouse() {
 				'    this library reads nothing else -- deliberately, because that encoding puts\r\n' +
 				'    a coordinate in one byte of 32+n and cannot say "column 300". Worth knowing\r\n' +
 				'    that it is worse than that here: stdin is decoded as UTF-8, so a byte past\r\n' +
-				'    127 is not even a character, which is column 95 rather than 223.\r\n'
+				'    127 is not even a character, which is column 95 rather than 223.\r\n' +
+				'\r\n    The raw lines are spaced -- "ESC [ < 0 ; 41 ; 13 M" rather than the bytes\r\n' +
+				'    run together -- and that is not decoration. iTerm2 watches for a mouse\r\n' +
+				'    report being printed to the screen, since that is what a stuck mouse looks\r\n' +
+				'    like, and a verbatim line held the exact run it looks for: it offered to\r\n' +
+				'    turn mouse reporting off in the middle of this probe, correctly. A space\r\n' +
+				'    between the tokens breaks the run and nothing else.\r\n'
 		);
 		if (aborted) return;
 

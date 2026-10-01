@@ -3212,6 +3212,21 @@ two events` is the guard, and its sibling asserts the click is still stoppable
   tracking has, from the user's point of view, broken copy and paste; shift-drag
   overrides it in most terminals and not all. That is the argument for the
   selection ticket being a follow-on rather than an independent nice-to-have.
+- **An inline app's mouse is a profile setting away from being switched off
+  entirely, and nothing can detect that.** iTerm2 has
+  `KEY_RESTRICT_MOUSE_REPORTING_TO_ALTERNATE_SCREEN_MODE` -- "Restrict Mouse
+  Reporting to Alternate Screen Mode", default `@NO`
+  (`sources/Settings/iTermProfilePreferences.m:1204`) -- and
+  `-[PTYSession xtermMouseReporting]` (`PTYSession.m:7076-7084`) reads it: off the
+  alternate screen, a profile with that on reports **nothing**, whatever modes the
+  app set. So an inline mouse canvas can come up with tracking enabled, the modes
+  acknowledged by DECRQM, and not one report ever arriving -- which looks exactly
+  like a broken app and is a setting. Found while reading iTerm2 for SIG-128,
+  unverified against a real terminal because it is a preference rather than a
+  claim about bytes; `terminal-probe.mjs --mouse` is where somebody can settle it,
+  since a probe that reports nothing at all in step three on one profile and
+  everything on another is the A/B. The full-screen backend is the answer for an
+  app that cannot live without the pointer.
 - **A write that failed is swallowed along with a terminal that said nothing**, and
   the two are not the same thing. `InputRouter.query()` rejects over a failed write
   on the ground that a broken stream is not a quiet terminal; `relocate()` runs
@@ -3248,11 +3263,17 @@ two events` is the guard, and its sibling asserts the click is still stoppable
   router per step is a mode that flickers.** The first version of `--mouse` built
   seven, and what that came to on the wire was **fourteen mode changes in under two
   seconds**, twice inside the same millisecond -- measured by capturing every
-  `ESC [ ? 100n h/l` the probe wrote. iTerm2 spots it and offers to turn mouse
-  reporting off, which is it reading the stream correctly rather than a false
-  alarm: a mode that goes on and off seven times is indistinguishable from an app
-  that has lost track of whether it turned one on. Reported from a real terminal,
+  `ESC [ ? 100n h/l` the probe wrote. A mode that goes on and off seven times is
+  indistinguishable from an app that has lost track of whether it turned one on,
+  so it was worth fixing whatever else was true. Reported from a real terminal,
   which is the only place it could have been.
+
+  What this entry used to say next, and what SIG-128 took out, is that iTerm2's
+  offer to turn mouse reporting off was iTerm2 spotting the churn. It was not:
+  there is no mode-churn heuristic anywhere in iTerm2, the dialog is an echo
+  detector, and the entry below is where that is settled with a citation. The
+  giveaway was already written down -- the dialog survived this fix -- and it
+  should have been read as the attribution failing rather than as a second cause.
 
   The fix separates the two halves. The **surface** does not need a new router, so
   it delegates to a `target` the probe swaps -- which is what lets the
@@ -3315,16 +3336,152 @@ two events` is the guard, and its sibling asserts the click is still stoppable
   origin it learnt. It draws its feedback into the frame instead, which is the
   entry above, seen from the other side.
 
-- **iTerm2 warns about mouse reporting whatever this does, and that is unresolved
-  rather than fixed.** It offers to turn reporting off when you click during a run
-  -- "left on when an ssh session ended unexpectedly or an app misbehaved" -- and it
-  still does with the mode churn down from fourteen changes to four. So the churn
-  was a real bug and was not this. The leading guess is the **main screen**: an app
-  that legitimately wants the mouse is almost always on the alternate buffer, and
-  reporting left on after a crash is by definition not -- which would make an inline
-  mouse canvas the shape iTerm2 is looking for. Written as a guess because it is
-  one; the discriminator is whether `06-panes.js`, which is full screen, is quiet
-  where `04-mouse.js` and `05-drag.js` are not.
+- **iTerm2's offer to turn mouse reporting off is an _echo_ detector, and it was
+  the probe printing the report that armed it.** The entry this replaces said the
+  dialog -- "Looks like mouse reporting was left on when an ssh session ended
+  unexpectedly or an app misbehaved. Turn it off?" -- was unresolved, and guessed at
+  the **main screen**, on the theory that an app which legitimately wants the mouse
+  is almost always on the alternate buffer. The guess was wrong in both directions
+  and the source settles it (iTerm2 master `91411f5`, 2026-09-30):
+
+  - `-[PTYSession writeMouseReport:]` (`sources/PTYSession/PTYSession.m:14245`)
+    calls `detectTurdsForReportData:type:` for **every report iTerm2 sends**, gated
+    on the `AutodetectMouseReportingStuck` advanced setting -- **default `YES`**,
+    and its own description is the whole answer:
+    _"Automatically detect when mouse reporting got stuck on? This watches for
+    parts of mouse reporting control sequences being printed to the screen"_
+    (`sources/Settings/iTermAdvancedSettingsModel.m:373`).
+  - `detectTurdsForReportData:type:` (`PTYSession.m:14258`) reduces the report to
+    its **printable residue**: drop the `ESC` and the two bytes after it --
+    `if (c == 27) { // Shells generally swallow esc and two characters after it,
+then echo the rest. ignoreCount = 3; }` -- then every byte under 32, keep the
+    last 32 of what survives, accumulating onto the previous detector's residue
+    while that is under 100ms old. For `ESC [ < 0 ; 41 ; 13 M` the residue is
+    `0;41;13M`.
+  - `if (string.length > 6)` it arms `[_expect expectRegularExpression:[string
+it_escapedForRegex] ... deadline:[NSDate dateWithTimeIntervalSinceNow:0.1]]`
+    (`PTYSession.m:14300-14312`).
+  - Expectations are matched by
+    `-[PTYTriggerEvaluator reallyCheckTriggersOnPartialLine:...]`
+    (`sources/Triggers/PTYTriggerEvaluator.m:173-183`) against
+    `stringLine.stringValue`, unanchored -- the **text the program printed**. Only
+    printable characters reach that line, through `terminalAppendString:` and
+    `terminalAppendAsciiData:`
+    (`sources/VT100Screen/VT100ScreenMutableState+TerminalDelegate.m:58,84`), so
+    the escape sequences an app writes never count.
+  - A match reaches `didDetectTurdOfType:` (`PTYSession.m:14320`), and if
+    `_xtermMouseReportingEverAllowed && terminal.mouseMode != MOUSE_REPORTING_NONE`
+    it offers (`turnOffMouseReportingOrOffer:`, `PTYSession.m:18243`).
+
+  So the condition is: **the program prints a mouse report's own digits within
+  100ms of iTerm2 sending it.** Nothing in that chain reads the alternate screen.
+  The one place it could have -- `triggerEvaluatorShouldUseTriggers`
+  (`VT100ScreenMutableState.m:7567`), which turns triggers off in interactive apps
+  -- falls through to the profile's `Enable Triggers in Interactive Apps`, which
+  **defaults to `@YES`** (`iTermProfilePreferences.m:1281`), so the detector runs
+  on the alternate buffer too. Nor is it a rate: one armed report is enough, and a
+  press in the very corner is never armed at all, because `0;1;1M` is six
+  characters and the guard is `> 6`.
+
+  The probe was doing exactly the thing that defines a stuck mouse. Its raw step
+  printed `"ESC [<0;41;13M"`, which holds `0;41;13M` verbatim, inside the 50ms its
+  own drain timer takes -- so iTerm2 was reading the stream correctly and the one
+  caller entitled to print a report was the one caller that must not. It prints
+  `"ESC [ < 0 ; 41 ; 13 M"` now, which is how this file spells a sequence anyway,
+  and which makes the step's own claim line (`every raw line holds "ESC [ <"`)
+  literally true of the lines under it for the first time. `should not be printed
+verbatim by the probe, which iTerm2 reads as a stuck mouse` in
+  `packages/cli/test/mouse-echo.test.ts` is the guard, and it transcribes the
+  residue rule rather than hard-coding it, which is what pins the six-character
+  edge.
+
+  Measured rather than reasoned, by stripping the escape sequences out of each
+  one's real output and searching it for the residue: `04-mouse.js`, `05-drag.js`
+  and `06-panes.js` put **no** residue on screen -- they print `(39, 11)` -- and
+  the probe's raw step put one there for **every** report that arrived. Which also
+  retires the discriminator the old entry proposed: `06-panes.js` being quiet would
+  have proved nothing, since it is quiet for printing coordinates rather than for
+  being full screen.
+
+  What it leaves for an app author is a real constraint rather than a sigil bug: a
+  debug overlay, a log line or a `--verbose` dump that writes a report's bytes
+  where the user can see them will be offered this dialog, on any iTerm2 with the
+  default settings, and the terminal is right to offer it. Print what the report
+  _meant_, not what it _was_; if the bytes are the point, space them out.
+
+- **"Never" on that dialog is stored under a key nobody would have looked for, and
+  the catalog it was looked for in is the wrong mechanism.** The dialog's three
+  buttons are Yes / Always / Never, and Never writes
+  `[[iTermUserDefaults userDefaults] setBool:NO forKey:@"NoSyncTurnOffMouseReportingOnHostChange"]`
+  (`PTYSession.m:18405-18408`, with the key at `PTYSession.m:247`) -- in
+  `com.googlecode.iterm2`, since `+[iTermUserDefaults userDefaults]` is
+  `NSUserDefaults standardUserDefaults` unless a custom suite is in play
+  (`sources/Settings/iTermUserDefaults.m:99-113`). So **clearing it is
+  `defaults delete com.googlecode.iterm2 NoSyncTurnOffMouseReportingOnHostChange`,
+  with iTerm2 quit first**, because it writes prefs on the way out and would
+  otherwise put the value back; or Settings → Advanced → "Always turn off mouse
+  reporting when host changes?" → back to **Unspecified**, which is the same key
+  exposed as a tri-state (`iTermAdvancedSettingsModel.m:777`). `nil` there is what
+  means "ask", which is why deleting the key is the un-suppress rather than setting
+  it to anything. The _other_ key worth clearing is
+  `NoSyncNeverAskAboutMouseReportingFrustration`, because it is read as a gate on
+  this dialog too (`PTYSession.m:14248` and `14324`) even though it is set by a
+  different nag about Cmd-C.
+
+  It is not in `NoSyncSuppressedAlertsCatalog`, and that is a fact about the
+  mechanism rather than a flush that had not happened: that catalog tracks
+  `iTermWarning` modals -- "Tracks alerts (iTermWarning) that were auto-answered
+  because the user previously chose 'remember my choice'"
+  (`sources/Infrastructure/iTermSuppressedAlerts.swift:5-8`) -- and this is an
+  `iTermAnnouncementViewController`, the banner that slides down inside the
+  session. Announcements keep their suppression in their own keys and appear in no
+  catalog, so the right place to look for any of them is the `kTurnOff...UserDefaultsKey`
+  constants at the top of `PTYSession.m`.
+
+- **The same dialog has a second door, and no sigil app can reach it.**
+  `maybeResetTerminalStateOnHostChange:` (`PTYSession.m:18280`) offers it when
+  shell integration reports a **host change** with tracking still on -- the
+  genuinely stuck case the wording is written for. It is gated on
+  `previousHostName && ![previousHostName isEqualToString:host.hostname] &&
+!viaSSHIntegration && !bothLocalhost` (`PTYSession.m:18226-18229`), so a local run
+  never reaches it. Worth writing down because it is why the wording mentions ssh
+  at all, and because it means a sigil app that really does leave tracking on after
+  dying over ssh gets told -- which is the restore list working from the far side.
+  iTerm2 says the two doors itself, in the comment over the announcement's
+  identifier: _"This used to be only for host change but now it also runs off an
+  expectation"_ (`PTYSession.m:251`). The expectation is the echo detector, and the
+  stale name is why the user-defaults key reads `OnHostChange` for a dialog that a
+  local run with no shell integration can still raise.
+
+- **There is no mode-churn heuristic in iTerm2, so the churn entry above was right
+  about the bug and wrong about the dialog.** Grepping every user-facing string
+  that mentions mouse reporting finds three and only three:
+  `PTYSession.MouseReportingLeftOn`, which is this one and whose only two triggers
+  are the echo detector and the host change; `NaggingController.MouseReportingFrustration`
+  (`sources/PTYSession/iTermNaggingController.m:501`), a different sentence about a
+  drag followed by Cmd-C; and `PTYSession.HorizontalScrollInfo`
+  (`PTYSession.m:21988`), which is informational. Nothing counts mode changes. So
+  fourteen mode changes in two seconds was a real bug and worth the fix on its own
+  terms -- a mode that flickers is a mode nobody can reason about -- but the
+  sentence attributing the dialog to it was a guess, and the fact that the dialog
+  survived the fix is what should have been read as the guess failing rather than
+  as a second cause.
+
+- **The mode-transition discipline was audited on the wire and is exactly what this
+  file claims.** Not read and reasoned about: each demo and the probe were spawned
+  over streams that answer `isTTY`, with `process.stdout.write` wrapped to record
+  every `CSI ? Ps h` and `CSI ? Ps l` with the millisecond it was written at.
+  `04-mouse.js`, `05-drag.js` and `06-panes.js` each write **four** mouse-related
+  transitions and no more -- `1006h`, `1003h`, then `1003l`, `1006l` -- so `1006`
+  goes on before the tracking mode and off after it, nothing is turned on twice,
+  and nothing is turned off that was not on. `06-panes.js` adds `1049h`/`1049l`
+  around them and asks for no cursor report, which is the full-screen origin being
+  free. The probe writes **eight**, because it builds two routers: `1006h 1002h`,
+  then `1002l 1006l 1006h 1003h` inside one millisecond for the `1003` switch, then
+  `1003l 1006l`. That is the "four mode changes" this file already records, counted
+  the way the fourteen were counted -- **tracking**-mode changes, two per router --
+  and the encoding's four ride along with them. Written out because the two counts
+  are of different things and the next reader should not have to work out which.
 - **The end-to-end test is the half nothing else can say.**
   `test/input/mouse-router.test.ts` hands the router a canvas that already knows
   where it sits, which is the only way to test the routing rules on their own;
