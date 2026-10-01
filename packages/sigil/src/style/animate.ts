@@ -76,9 +76,25 @@ export interface AnimationFrame<T> {
 	readonly styles: ReadonlyMap<T, Style>;
 }
 
-/** The end state an animation left behind, with the animation that left it. */
+/**
+ * The end state an animation left behind, with the animation that left it.
+ *
+ * `animation` rather than a bare name, because two readers want more than the
+ * name: a sheet that rewrites a `@keyframes` under the same name has to be able
+ * to recompute the fill, which needs the stops it was computed from.
+ *
+ * `ran` is the distinction one field was doing two jobs without. An animation
+ * that **ran and finished** must not restart because some unrelated property
+ * moved, which is CSS. One that was **collapsed** -- by reduced motion, or by
+ * having no play time -- never ran, so if the thing that collapsed it moves it
+ * has to be able to start. Those are opposite answers to "is this finished", and
+ * conflating them meant whichever was written last was wrong: the first version
+ * refused the restart and so could not start a collapsed animation when the
+ * preference came back.
+ */
 interface Settled {
-	readonly name: string;
+	readonly animation: Running;
+	readonly ran: boolean;
 	readonly values: ReadonlyMap<PropertyName, unknown>;
 }
 
@@ -297,11 +313,19 @@ export class Animator<T extends object> {
 
 			// an entry with nothing left to say is dropped, so that `size` is the
 			// animation's footprint rather than the tree's. The element's base stays
-			// in `#base`, because that is what the *next* change animates from
+			// in `#base`, because that is what the *next* change animates from.
+			//
+			// An animation that **ran** is something left to say even when it holds
+			// no override: that record is what stops it restarting, and dropping it
+			// is how a `color` write came to replay a finished animation. Two inputs
+			// reach that and a test covered neither -- a `forwards` fill whose value
+			// equals the base, which `#overridesAt()` drops for being equal, and a
+			// fill of `none`, which holds nothing to begin with
 			if (
 				entry.transitions.size === 0 &&
 				entry.animation === undefined &&
-				entry.overrides.size === 0
+				entry.overrides.size === 0 &&
+				!entry.settled?.ran
 			) {
 				this.#entries.delete(target);
 			}
@@ -539,25 +563,36 @@ export class Animator<T extends object> {
 			return;
 		}
 
-		// an animation that has already settled is left alone: it is finished, and
-		// a style change somewhere else on the element is not a reason to run it
-		// again. Only its *name* changing is
-		if (live?.settled?.name === name && live.animation === undefined) {
+		const stops = index(frames);
+		const settled = live?.settled;
+
+		// an animation that has **run** is left alone: it is finished, and a style
+		// change somewhere else on the element is not a reason to run it again.
+		// Only its name changing is -- or its keyframes being rewritten under that
+		// name, which is a sheet swap and makes the fill it is holding stale
+		if (settled?.ran && settled.animation.name === name) {
+			if (settled.animation.stops !== stops) {
+				this.#settle(live as Entry, { ...settled.animation, stops }, true);
+			}
 			return;
 		}
 
 		if (live?.animation?.name === name) {
-			// the timing is taken up in place, and *whether it runs* is asked again
-			// with it: the answer can move without the declaration moving, because
-			// reduced motion is a media query and a media query is a live answer
-			this.#commit(live, { ...live.animation, ...timing(base) });
+			// the timing is taken up in place, and two things are asked again with
+			// it. *Whether it runs*, because reduced motion is a media query and a
+			// media query is a live answer. And the **stops**, because `timing()`
+			// deliberately does not carry them: a `touchSheets()` that rewrites
+			// `@keyframes slide` while `animation-name` stays `slide` otherwise ran
+			// on for the rest of its duration against the stops it indexed at start,
+			// which is a stale cache with no way to see it
+			this.#commit(live, { ...live.animation, ...timing(base), stops });
 			return;
 		}
 
 		const entry = this.#entryFor(target, base);
 		// whatever the animation this replaces left behind goes with it
 		entry.settled = undefined;
-		this.#commit(entry, { name, start: now, stops: index(frames), ...timing(base) });
+		this.#commit(entry, { name, start: now, stops, ...timing(base) });
 	}
 
 	/**
@@ -579,13 +614,34 @@ export class Animator<T extends object> {
 	#commit(entry: Entry, running: Running): void {
 		entry.animation = undefined;
 
-		if (this.#reduced && !Number.isFinite(running.iterations)) {
+		const endless = !Number.isFinite(running.iterations);
+		const plays = running.duration > 0 && running.iterations > 0;
+
+		// nothing to run and nothing to settle at. An **endless** animation has no
+		// end state, so neither reduced motion nor a zero duration can collapse it
+		// to one -- and a `@keyframes` with no stops in it touches no property, so
+		// it would be an animation that holds the frame loop open to present
+		// nothing. Both reach `active` the same way and both are refused here.
+		//
+		// The endless-with-no-play-time case is the one a review found and it is
+		// worth naming, because the arithmetic is the thing: `animation-duration`
+		// **starts at `0`**, so `animation: slide infinite` and the two longhands
+		// `animation-name` plus `animation-iteration-count: infinite` are the same
+		// input -- and `endOf()` for it is `0 * Infinity`, which is `NaN`. Settling
+		// at `NaN` walked `progressOf()` past both of its guards, since `NaN < 0`
+		// and `NaN >= NaN` are each false, and presented `flexGrow: NaN` and
+		// `cells(NaN)` with `active` false, so nothing on screen said so and no
+		// timer ran. `finalOffset(Infinity)` is `NaN` for the same reason, so
+		// "settle at the end" is not an answer here either
+		if (running.stops.size === 0 || (endless && (this.#reduced || !plays))) {
 			entry.settled = undefined;
 			return;
 		}
 
-		if (running.duration <= 0 || running.iterations <= 0 || this.#reduced) {
-			this.#settle(entry, running);
+		// and anything that will never change what is on screen is settled rather
+		// than running
+		if (!plays || this.#reduced) {
+			this.#settle(entry, running, false);
 			return;
 		}
 
@@ -602,25 +658,27 @@ export class Animator<T extends object> {
 	 * sabotage pass found was redundant rather than load bearing: the values came
 	 * back empty either way.
 	 *
-	 * **An empty fill is no fill**, and that one is a guard nothing can currently
-	 * reach rather than a claim with a test behind it -- said here because a
-	 * sabotage of it survives and the reason is worth knowing. `settled` is what
-	 * tells `#syncAnimation()` an animation has finished and must not restart, so
-	 * an empty one would stop an animation ever running again, including when the
-	 * preference that settled it is turned back off. What makes that unreachable
-	 * is `tick()`, which drops an entry holding nothing at all -- so the empty
-	 * `settled` goes with the entry before anything can read it. That is the
-	 * `undo()` precedent rather than dead code: the invariant is a property of
-	 * this field's own meaning, an empty `settled` is a contradiction in terms,
-	 * and resting it on another method happening to run first is what that entry
-	 * declines to do.
+	 * It records **whatever** it finds, an empty map included, which is the half a
+	 * previous version got wrong twice over. It used to keep a non-empty fill only,
+	 * on the argument that an empty `settled` would stop an animation ever running
+	 * again and that `tick()` dropped such an entry before anything could read it.
+	 * Both halves were wrong. `touchMedia()` is a reader that does **not** tick --
+	 * a resize and a capability reply each publish one -- so a second
+	 * `#syncAnimation()` in that window did see it. And the real distinction was
+	 * never emptiness but `ran`: a fill of `none` leaves nothing behind and has
+	 * still finished, so dropping the record is what let a `color` write replay a
+	 * whole animation.
 	 *
 	 * @param entry - The element's entry.
 	 * @param animation - The animation that is finishing or has already finished.
+	 * @param ran - Whether it played. A collapsed one may still start later.
 	 */
-	#settle(entry: Entry, animation: Running): void {
-		const values = this.#animationValues(animation, entry, endOf(animation));
-		entry.settled = values.size > 0 ? { name: animation.name, values } : undefined;
+	#settle(entry: Entry, animation: Running, ran: boolean): void {
+		entry.settled = {
+			animation,
+			ran,
+			values: this.#animationValues(animation, entry, endOf(animation)),
+		};
 	}
 
 	/** Drops transitions and animations that have finished. */
@@ -637,7 +695,7 @@ export class Animator<T extends object> {
 			// outlives the animation. What does not outlive it is the entry being
 			// active, which is what stops the frame loop
 			entry.animation = undefined;
-			this.#settle(entry, animation);
+			this.#settle(entry, animation, true);
 		}
 	}
 
@@ -812,10 +870,44 @@ function directed(iteration: number, offset: number, direction: AnimationDirecti
 }
 
 /**
+ * Every `@keyframes` ever indexed, by the frozen array it came from.
+ *
+ * Memoised because `#syncAnimation()` re-reads the stops on every observe of a
+ * running animation -- it has to, or a sheet swap leaves it on the old ones -- and
+ * rebuilding the index per frame per animating element is a real cost on the hot
+ * path. The key is identity, which is exactly the right question: `Cascade` hands
+ * back the same frozen `Keyframes` while its sheets do not move and a different
+ * one the moment they do, so the memo misses precisely when the answer changed.
+ * Weak, so a sheet nobody holds any more takes its index with it.
+ *
+ * A sabotage of it survives, and it is **a fast path rather than a claim**: without
+ * it every observe rebuilds the index and the stale-fill comparison below always
+ * differs, so every answer is the same and some of them are computed twice. What
+ * it costs to delete is work, not correctness.
+ */
+const INDEXED = new WeakMap<
+	Keyframes,
+	Map<PropertyName, readonly (readonly [number, unknown])[]>
+>();
+
+/**
  * The stops a `@keyframes` declares, per property, with a repeated offset
  * collapsed to its last writer.
  */
 function index(frames: Keyframes): Map<PropertyName, readonly (readonly [number, unknown])[]> {
+	const already = INDEXED.get(frames);
+	if (already) {
+		return already;
+	}
+	const built = indexUncached(frames);
+	INDEXED.set(frames, built);
+	return built;
+}
+
+/** The walk itself, which the memo above is over. */
+function indexUncached(
+	frames: Keyframes
+): Map<PropertyName, readonly (readonly [number, unknown])[]> {
 	const byProperty = new Map<PropertyName, Map<number, unknown>>();
 
 	for (const frame of frames) {

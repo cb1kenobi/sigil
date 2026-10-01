@@ -137,6 +137,48 @@ describe('easing a fraction', () => {
 		expect(Number.isFinite(ease(easing, 0.999))).toBe(true);
 	});
 
+	it('should answer with a finite number for every easing there is', () => {
+		// the enumeration the rest of this feature needed and this file did not have:
+		// a timing function is the first thing every animated value goes through, so
+		// one that answered `NaN` or divided by zero would reach the layout engine
+		// through every property at once. Written as a walk over the whole grammar
+		// rather than over the four curves somebody thought of
+		const every = [
+			'linear',
+			'ease',
+			'ease-in',
+			'ease-out',
+			'ease-in-out',
+			'step-start',
+			'step-end',
+			'steps(1)',
+			'steps(1, jump-both)',
+			'steps(2, jump-none)',
+			'steps(10, end)',
+			'steps(10, start)',
+			'steps(1000, jump-end)',
+			'cubic-bezier(0, 0, 1, 1)',
+			'cubic-bezier(0.42, 0, 1, 1)',
+			'cubic-bezier(1, 0, 0, 1)',
+			'cubic-bezier(0, 1, 1, 0)',
+		];
+
+		for (const source of every) {
+			const easing = parseEasing(source);
+			for (const fraction of [-1, -0.0001, 0, 0.0001, 0.3, 0.5, 0.7, 0.9999, 1, 1.0001, 2]) {
+				const value = ease(easing, fraction);
+				expect(Number.isFinite(value), `${source} at ${String(fraction)}`).toBe(true);
+				expect(value, `${source} at ${String(fraction)}`).toBeGreaterThanOrEqual(0);
+				expect(value, `${source} at ${String(fraction)}`).toBeLessThanOrEqual(1);
+			}
+			// and across the whole interval at a fine grain, which is what a
+			// division by zero inside a step function would fail
+			for (let i = 0; i <= 500; i++) {
+				expect(Number.isFinite(ease(easing, i / 500)), `${source} at ${String(i)}/500`).toBe(true);
+			}
+		}
+	});
+
 	it('should agree with the named curve a cubic-bezier spells out', () => {
 		const named = parseEasing('ease-out');
 		const spelled = parseEasing('cubic-bezier(0, 0, 0.58, 1)');

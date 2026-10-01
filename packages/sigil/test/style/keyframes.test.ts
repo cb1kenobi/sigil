@@ -122,6 +122,34 @@ describe('reading @keyframes', () => {
 		expect(() => parseStylesheet('@supports (x) { }')).toThrow(/@layer, @media and @keyframes/);
 	});
 
+	it('should read a body with no stops in it', () => {
+		// a `@keyframes` an author emptied out while debugging, which this file did
+		// not reach: it parses, it is in the map, and it is *truthy* -- so the
+		// animator has to refuse to run it rather than treating a found name as an
+		// animation, or it holds the frame loop open to present nothing
+		const sheet = parseStylesheet('@keyframes spin { }');
+		expect(sheet.keyframes.has('spin')).toBe(true);
+		expect(sheet.keyframes.get('spin')).toEqual([]);
+	});
+
+	it('should read a body with only one end of it', () => {
+		for (const [css, offset] of [
+			['@keyframes x { from { left: 1 } }', 0],
+			['@keyframes x { to { left: 1 } }', 1],
+			['@keyframes x { 50% { left: 1 } }', 0.5],
+		] as const) {
+			const frames = parseStylesheet(css).keyframes.get('x');
+			expect(frames?.length, css).toBe(1);
+			expect(frames?.[0].offset, css).toBe(offset);
+		}
+	});
+
+	it('should read a stop that sets nothing', () => {
+		const frames = parseStylesheet('@keyframes x { to { } }').keyframes.get('x');
+		expect(frames?.length).toBe(1);
+		expect(frames?.[0].declarations).toEqual([]);
+	});
+
 	it('should leave a sheet with none with an empty map rather than nothing', () => {
 		expect(parseStylesheet('text { color: red }').keyframes.size).toBe(0);
 	});

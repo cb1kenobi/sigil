@@ -4,6 +4,7 @@ import {
 	Cascade,
 	cells,
 	declare,
+	type Declarations,
 	DEFAULT_MEDIA,
 	type MediaContext,
 	parseStylesheet,
@@ -614,6 +615,82 @@ describe('an animation', () => {
 		expect(it.styleOf(node)?.color).not.toBe(declare({ color: '#000000' }).color);
 	});
 
+	it('should not restart a finished animation whose fill matches the base', () => {
+		// the input the first restart test missed: `#overridesAt()` drops an override
+		// equal to the base, so the entry held nothing and `tick()` dropped it --
+		// taking the record of what had finished with it, after which a `color`
+		// write replayed the whole animation
+		const it = animator('@keyframes nudge { to { left: 10 } }');
+		const node = target();
+		const base = {
+			animation: 'nudge 100ms linear 0s 1 normal forwards',
+			left: '10',
+			position: 'relative',
+		};
+		it.observe(node, declare(base), 0);
+		it.tick(200);
+		expect(it.active).toBe(false);
+		expect(it.size).toBe(1);
+
+		it.observe(node, declare({ ...base, color: 'red' }), 200);
+		expect(it.active).toBe(false);
+	});
+
+	it('should not restart one whose fill mode is none either', () => {
+		// the same thing with nothing to hold at all, which is the default fill
+		const it = animator('@keyframes nudge { to { left: 10 } }');
+		const node = target();
+		const base = { animation: 'nudge 100ms linear', left: '0', position: 'relative' };
+		it.observe(node, declare(base), 0);
+		it.tick(200);
+		expect(it.active).toBe(false);
+
+		it.observe(node, declare({ ...base, color: 'red' }), 200);
+		expect(it.active).toBe(false);
+		expect(present(it, node, 'left', 250)).toBeUndefined();
+	});
+
+	it('should re-read the stops when a sheet rewrites them under the same name', () => {
+		// `timing()` deliberately does not carry the stops, which is right for the
+		// path it was written for -- a timing change -- and wrong for the one that
+		// grew beside it: a `touchSheets()` rewriting `@keyframes slide` while
+		// `animation-name` stays `slide` left the animation running on the stops it
+		// indexed at start, for the rest of its duration, with nothing to see
+		const sheets = cascade(sheet, { reducedMotion: 'no-preference' });
+		const it = new Animator<{ name: string }>(sheets);
+		const node = target();
+		const base = { animation: 'slide 100ms linear', color: 'red', position: 'relative' };
+		it.observe(node, declare(base), 0);
+		expect(present(it, node, 'left', 50)).toEqual(cells(5));
+
+		sheets.add(parseStylesheet('@keyframes slide { from { left: 0 } to { left: 100 } }'));
+		it.observe(node, declare({ ...base, color: 'blue' }), 50);
+		expect(present(it, node, 'left', 50)).toEqual(cells(50));
+	});
+
+	it('should recompute a fill a sheet made stale', () => {
+		// the same question asked of an animation that has already finished: the
+		// value it is holding came from stops that are no longer the animation's
+		const sheets = cascade('@keyframes k { to { left: 10 } }', {
+			reducedMotion: 'no-preference',
+		});
+		const it = new Animator<{ name: string }>(sheets);
+		const node = target();
+		const base = {
+			animation: 'k 100ms linear 0s 1 normal forwards',
+			left: '0',
+			position: 'relative',
+		};
+		it.observe(node, declare(base), 0);
+		expect(present(it, node, 'left', 200)).toEqual(cells(10));
+
+		sheets.add(parseStylesheet('@keyframes k { to { left: 3 } }'));
+		it.observe(node, declare({ ...base, color: 'red' }), 200);
+		expect(present(it, node, 'left', 200)).toEqual(cells(3));
+		// and it still has not restarted
+		expect(it.active).toBe(false);
+	});
+
 	it('should restart when the name changes, which is the one thing that does', () => {
 		const it = animator(`${sheet} @keyframes other { from { left: 9 } to { left: 1 } }`);
 		const node = target();
@@ -633,6 +710,104 @@ describe('an animation', () => {
 		);
 		expect(it.active).toBe(true);
 		expect(present(it, node, 'left', 250)).toEqual(cells(5));
+	});
+
+	it('should present a finite value for every defaulted and degenerate input', () => {
+		// **the enumeration, rather than a claim that no path can produce a `NaN`.**
+		// That claim was made once and was false, and the input that falsified it is
+		// the one nobody writes on purpose: `animation-duration` *starts at `0`*, so
+		// `animation: slide infinite` and the bare longhands are an endless
+		// animation with no play time -- and `endOf()` for that is `0 * Infinity`,
+		// which is `NaN`. It presented `flexGrow: NaN` and `cells(NaN)` with
+		// `active` false, so nothing on screen said so and no timer ran.
+		//
+		// A negative claim about all inputs cannot be established by tracing the
+		// route you had in mind, so this walks the defaults instead: every
+		// combination of the two values that can be left out, the five iteration
+		// counts worth having, every fill mode and direction, both motion settings
+		// and an empty keyframes body.
+		const bodies = [
+			'@keyframes k { from { left: 0; flex-grow: 0 } to { left: 10; flex-grow: 2 } }',
+			'@keyframes k { to { left: 10 } }',
+			'@keyframes k { }',
+		];
+		const durations = ['', '0s ', '100ms '];
+		const counts = ['', '0 ', '1 ', '2.5 ', 'infinite '];
+		const fills = ['', 'none', 'forwards', 'backwards', 'both'];
+		const directions = ['', 'reverse', 'alternate', 'alternate-reverse'];
+
+		let checked = 0;
+		for (const body of bodies) {
+			for (const reduce of [false, true]) {
+				for (const duration of durations) {
+					for (const count of counts) {
+						for (const fill of fills) {
+							for (const direction of directions) {
+								const value = `k ${duration}linear 0s ${count}${direction} ${fill}`.replace(
+									/\s+/g,
+									' '
+								);
+								const it = animator(body, {
+									reducedMotion: reduce ? 'reduce' : 'no-preference',
+								});
+								const node = target();
+								it.observe(
+									node,
+									declare({ animation: value, 'flex-grow': '0', left: '0', position: 'relative' }),
+									0
+								);
+								for (const at of [0, 1, 37, 100, 101, 400]) {
+									it.tick(at);
+									const style = it.styleOf(node);
+									if (!style) {
+										continue;
+									}
+									const left = style.left as { value?: number };
+									const where = `"${value}" reduce=${String(reduce)} at ${String(at)}`;
+									expect(Number.isFinite(style.flexGrow), where).toBe(true);
+									if (left.value !== undefined) {
+										expect(Number.isFinite(left.value), where).toBe(true);
+									}
+									checked++;
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		// and the walk really did reach presented styles rather than skipping
+		expect(checked).toBeGreaterThan(200);
+	});
+
+	it('should run nothing for a keyframes body with no stops in it', () => {
+		// it touches no property, so running it would hold the frame loop open to
+		// present nothing -- which is the rule `#commit()` already states, met by an
+		// input nothing covered
+		const it = animator('@keyframes spin { }');
+		const node = target();
+		it.observe(node, declare({ animation: 'spin 100ms linear 0s infinite' }), 0);
+		it.tick(0);
+		expect(it.active).toBe(false);
+		expect(it.nextChange(0, 1000 / 30)).toBeUndefined();
+		expect(it.size).toBe(0);
+	});
+
+	it('should refuse an endless animation with no play time, whichever way it is written', () => {
+		// the two spellings are one input, because `animation-duration` starts at 0
+		const spellings: Declarations[] = [
+			{ animation: 'k infinite' },
+			{ 'animation-iteration-count': 'infinite', 'animation-name': 'k' },
+			{ animation: 'k 0s linear 0s infinite normal forwards' },
+		];
+		for (const style of spellings) {
+			const it = animator('@keyframes k { to { left: 10 } }');
+			const node = target();
+			it.observe(node, declare({ ...style, left: '4', position: 'relative' }), 0);
+			it.tick(0);
+			expect(present(it, node, 'left', 0), JSON.stringify(style)).toBeUndefined();
+			expect(it.active, JSON.stringify(style)).toBe(false);
+		}
 	});
 
 	it('should let a transition beat an animation over one property', () => {
@@ -801,6 +976,28 @@ describe('reduced motion', () => {
 		it.tick(0);
 		expect(it.active).toBe(false);
 		expect(it.size).toBe(0);
+
+		sheets.media = { ...sheets.media, reducedMotion: 'no-preference' };
+		it.touchMedia(0);
+		expect(it.active).toBe(true);
+		expect(present(it, node, 'left', 50)).toEqual(cells(5));
+	});
+
+	it('should start a collapsed animation across two publishes with no frame between', () => {
+		// `touchMedia()` is a reader that does **not** tick, and a resize and a
+		// capability reply each publish one -- so two of them can land back to back.
+		// The first version recorded a fill only when it was non-empty and argued
+		// that `tick()` dropped an empty entry before anything could read it, which
+		// is exactly the caller that argument did not enumerate: the second
+		// `#syncAnimation()` saw the empty record, took it for a finished animation
+		// and returned, and turning the preference off in that window never started
+		// anything. What tells the two apart is `ran`, not emptiness
+		const sheets = cascade(sheet, { reducedMotion: 'reduce' });
+		const it = new Animator<{ name: string }>(sheets);
+		const node = target();
+		it.observe(node, declare({ animation: 'slide 100ms linear', position: 'relative' }), 0);
+		it.touchMedia(0);
+		it.touchMedia(0);
 
 		sheets.media = { ...sheets.media, reducedMotion: 'no-preference' };
 		it.touchMedia(0);

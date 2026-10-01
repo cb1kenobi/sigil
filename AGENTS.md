@@ -29,35 +29,35 @@ the runtime.
 
 Paths below are inside `packages/sigil/` unless noted.
 
-| Path                           | Contents                                                |
-| ------------------------------ | ------------------------------------------------------- |
-| `src/parser/`                  | The parser: commands, options, arguments, registries    |
-| `src/parser/command/routes.ts` | The route rules, shared with `sigil build`              |
-| `src/ansi/`                    | SGR styling, strip, color support detection             |
-| `src/width/`                   | Display width: grapheme clusters, East Asian Width      |
-| `src/wrap/`                    | Text wrapping, SGR state, terminal width                |
-| `src/help/`                    | The generated help screen, as an element tree           |
-| `src/terminal/`                | Terminal wrapper, live region, sequences, OSC 52        |
-| `src/components/`              | Spinner, progress, table, prompts, scroll box, keys     |
-| `src/signals/`                 | The reactive graph: state, computed, watcher, effect    |
-| `src/renderer/`                | Components, the owner tree, control flow, the frame     |
-| `src/template/`                | The template IR, the `ui` tag, the JSX runtimes         |
-| `src/canvas/`                  | Cell buffer, style interning, paint diff, selection     |
+| Path                           | Contents                                                       |
+| ------------------------------ | -------------------------------------------------------------- |
+| `src/parser/`                  | The parser: commands, options, arguments, registries           |
+| `src/parser/command/routes.ts` | The route rules, shared with `sigil build`                     |
+| `src/ansi/`                    | SGR styling, strip, color support detection                    |
+| `src/width/`                   | Display width: grapheme clusters, East Asian Width             |
+| `src/wrap/`                    | Text wrapping, SGR state, terminal width                       |
+| `src/help/`                    | The generated help screen, as an element tree                  |
+| `src/terminal/`                | Terminal wrapper, live region, sequences, OSC 52               |
+| `src/components/`              | Spinner, progress, table, prompts, scroll box, keys            |
+| `src/signals/`                 | The reactive graph: state, computed, watcher, effect           |
+| `src/renderer/`                | Components, the owner tree, control flow, the frame            |
+| `src/template/`                | The template IR, the `ui` tag, the JSX runtimes                |
+| `src/canvas/`                  | Cell buffer, style interning, paint diff, selection            |
 | `src/style/`                   | Properties, values, selectors, cascade, animation, degradation |
-| `src/theme/`                   | The framework's own sheet, and what a theme is          |
-| `src/layout/`                  | The flexbox subset, over whole cells                    |
-| `src/infer.ts`                 | `initOption()` and `initArg()`, in the type system      |
-| `src/util/`                    | Shared helpers (type coercion, camelCase, mkdir)        |
-| `src/debug/`                   | `DEBUG`-driven logger; replaces snooplogg               |
-| `src/paths.ts`                 | XDG base directories                                    |
-| `src/which.ts`                 | Resolving an executable against `PATH`                  |
-| `src/updates/`                 | npm update check, run in a spawned worker               |
-| `src/error-handler.ts`         | Renders an error and sets the exit code                 |
-| `src/error-hooks.ts`           | Fires `beforeError` hooks; carries state on an error    |
-| `scripts/`                     | Run by hand: generators, the terminal probe, benchmarks |
-| `docs/parser.md`               | Parser reference: syntax, semantics, precedence         |
-| `test/parser/commander/`       | Ported Commander test cases                             |
-| `test/parser/yargs/`           | Ported yargs-parser test cases                          |
+| `src/theme/`                   | The framework's own sheet, and what a theme is                 |
+| `src/layout/`                  | The flexbox subset, over whole cells                           |
+| `src/infer.ts`                 | `initOption()` and `initArg()`, in the type system             |
+| `src/util/`                    | Shared helpers (type coercion, camelCase, mkdir)               |
+| `src/debug/`                   | `DEBUG`-driven logger; replaces snooplogg                      |
+| `src/paths.ts`                 | XDG base directories                                           |
+| `src/which.ts`                 | Resolving an executable against `PATH`                         |
+| `src/updates/`                 | npm update check, run in a spawned worker                      |
+| `src/error-handler.ts`         | Renders an error and sets the exit code                        |
+| `src/error-hooks.ts`           | Fires `beforeError` hooks; carries state on an error           |
+| `scripts/`                     | Run by hand: generators, the terminal probe, benchmarks        |
+| `docs/parser.md`               | Parser reference: syntax, semantics, precedence                |
+| `test/parser/commander/`       | Ported Commander test cases                                    |
+| `test/parser/yargs/`           | Ported yargs-parser test cases                                 |
 
 At the repository root: `demos/` (runnable examples that import `@ttylabs/sigil` by
 name, so they need `pnpm build` first, and a workspace member so that the name
@@ -3340,14 +3340,45 @@ renderer's `settle()`.
   strong as the fixture's coverage of the branch, and the write-up compounded it by
   reasoning _forward_ from "no test failed" to a five-step justification instead of
   asking what input would make the guard matter. The branch is gone rather than
-  better commented: `progressOf()` is pure timing arithmetic now, asked only about
-  an animation that is running or about the end of one with a finite count, and
-  there is no path left that can produce a `NaN`. The review also predicted a
+  better commented: `progressOf()` is pure timing arithmetic now. The review also
+  predicted a
   `TypeError` out of `rgb()` for a colour on the same path, and that one does not
   reach: both of `valueAt()`'s endpoints degrade to the _same_ base value, so
   `mixColors()` returns early and never builds a channel. A test covers the class
   anyway, over both motion settings and every frame, because a `Length` of `NaN` is
   a wrong layout and a colour of `NaN` would be a throw from inside the painter.
+
+- **"There is no path left that can produce a `NaN`" was the next sentence, and a
+  second review round falsified it -- so the claim is an enumeration now rather
+  than a sentence.** The input is the one nobody writes on purpose and it is sitting
+  in this repository's own property table: **`animation-duration` starts at `0`**. So
+  `animation: slide infinite` -- and equally the bare longhands `animation-name`
+  plus `animation-iteration-count: infinite` -- is an endless animation with no play
+  time, `#commit` tested the zero duration _before_ the non-finite count, and
+  `endOf()` for it is `0 * Infinity`, which is `NaN`. Settling at `NaN` walked
+  `progressOf()` straight past both of its guards, because `NaN < 0` and
+  `NaN >= NaN` are each false, and the fill mode was never consulted at all. What it
+  presented was `flexGrow: NaN` through `mix()` and `cells(NaN)` through
+  `mixLength()`, with `active` **false** -- so no timer ran and nothing on screen
+  said anything. `finalOffset(Infinity)` is `NaN` for the same reason, so "settle at
+  the end" is not an answer for that input either: it is refused outright, which is
+  the rule an endless animation already follows under reduced motion.
+
+  The lesson is the one two rounds have now taught in three places, and it is not
+  that the reasoning was sloppy. **A negative claim about all inputs or all callers
+  cannot be established by tracing the route you had in mind.** "No path can produce
+  a `NaN`" and "`tick()` drops it before anything can read it" are both of that
+  kind and both were false -- the first because a default made an input nobody
+  writes reachable, the second because `touchMedia()` is a reader that does not
+  tick. When the fix is "this is now impossible", the thing to do is enumerate the
+  defaults and the callers. So `should present a finite value for every defaulted
+and degenerate input` walks the two values that can be left out against five
+  iteration counts, every fill mode and direction, three keyframe bodies and both
+  motion settings, and asserts a finite presented value at six moments of each --
+  about fifteen hundred assertions in place of a sentence. `easing.test.ts` and
+  `interpolate.test.ts` grew the same shape of walk over their own grammars, since
+  a timing function and an interpolator are what every animated value passes
+  through.
 
 - **The clock is injectable and the frame timer is unref'd.** `RenderOptions.now`
   is one function asked by the pacing, by the transitions and by the frame-skip
@@ -3372,6 +3403,14 @@ renderer's `settle()`.
   **forgotten**, and what that buys is not only the leak `Restyler.forget()` exists
   for -- a transition still running on a box nobody can see goes on asking for
   frames, so the loop would spin for the rest of its duration over nothing at all.
+- **A `@keyframes` with no stops in it runs nothing, which is the same rule met by
+  a different input.** An empty body parses, lands in the map, and is **truthy** --
+  so a found name was taken for an animation, and one with `infinite` held the frame
+  loop open at the horizon forever to present nothing. It touches no property, so it
+  can never change what is on screen, which is exactly what `#commit()` already
+  refuses to run. Found while checking the three test files two review rounds had
+  never opened, which is where it should have been found: `keyframes.test.ts` had no
+  empty body, no single-ended body and no stop that sets nothing.
 - **A `forwards` fill outlives its animation without keeping the loop awake, and
   it carries the name of the animation that left it.** The override is held after
   the animation is retired, so the last frame stays on screen; `active` is false,
@@ -3382,10 +3421,38 @@ renderer's `settle()`.
   of the element, and a _finished_ animation whose name is still declared is left
   alone rather than restarting because some unrelated property moved. Both were
   wrong while the field was a bare value map -- a colour write half a second after a
-  fade finished replayed the whole fade. And an **empty** fill is not recorded,
-  because `settled` is what says "this finished", so an empty one would stop an
-  animation ever running again; that guard is unreachable today for a reason written
-  where it lives rather than claimed as tested.
+  fade finished replayed the whole fade.
+- **`Settled` carries the whole animation and a `ran` flag, and both halves were
+  found by a review round after the first fix looked right.** The flag is the
+  distinction one field was doing two jobs without: an animation that **ran and
+  finished** must not restart, and one that was **collapsed** -- by reduced motion,
+  or by having no play time -- never ran, so it has to be able to start if the thing
+  that collapsed it moves. Those are opposite answers to "is this finished", so
+  whichever was written last was wrong. The first fix refused the restart, and the
+  cost was an animation collapsed under `reduce` that could never start again across
+  two `touchMedia()` calls with no frame between them -- which a resize and a
+  capability reply can produce back to back.
+
+  Two inputs also reached the restart through `tick()`'s drop condition and a test
+  covered neither: a `forwards` fill whose value **equals the base**, which
+  `#overridesAt()` drops for being equal, and a fill of **`none`**, which holds
+  nothing to begin with. Either way the entry held no override, was dropped, and
+  took the record of what had finished with it. So the drop condition keeps an entry
+  whose animation ran, and `#settle()` records whatever it finds, empty map
+  included -- which deleted the `values.size > 0` guard the first fix had argued was
+  unreachable rather than keeping a guard with a false reason attached to it.
+
+  And the animation is on there rather than only its name because a **sheet swap**
+  is a third reader: `cascade.keyframes()` answers with new frames the moment a
+  sheet is added, so a `touchSheets()` that rewrites `@keyframes slide` while
+  `animation-name` stays `slide` has to reach both a running animation and a
+  finished one's fill. `timing()` deliberately does not carry the stops -- correct
+  for the path it was written for, a timing change, and wrong for the one that grew
+  beside it -- so the keep path passes `stops` explicitly and the settled path
+  recomputes when they have moved. `index()` is memoised on the `Keyframes` object
+  for it, which is the right question by identity: the cascade hands back the same
+  frozen array while its sheets do not move and a different one the moment they do.
+
 - **The toolchain generates no utilities for the animation properties, and the
   exception is an explicit list.** `animation-direction` and `animation-fill-mode`
   are keyword properties, so the rule that a keyword added to a property gets its
@@ -3457,10 +3524,12 @@ a second a loop without the frame skip would have drawn.
 
 #### What the sabotage pass caught, and what it got wrong
 
-Forty-six guards and invariants were deleted one at a time with the suite run
-after each, over two rounds -- thirty-three before review and thirteen more over
-the guards the review's own fixes added. **All forty-six are caught now**, with
-one exception written down below. The interesting half is not the count.
+Fifty-eight mutations, one at a time with the suite run after each, over three
+rounds: thirty-three before any review, fifteen over the guards round 1's fixes
+added, and ten over round 2's. **All fifty-eight are caught now** bar one, written
+down below. The interesting half is not the count -- it is that each round's
+survivors had the same cause, and that twice a survivor was written up as a
+reasoned decision and was not one.
 
 Seven of the first thirty-three survived and each got the test it was missing:
 an infinite animation under reduced motion; a keyframe declaring a property that
@@ -3474,7 +3543,7 @@ cannot see it, so it counts the **timers** the loop set); a sooner frame request
 replacing a later one; and forgetting an unmounted element, re-framed from a leak
 into behaviour -- a transition on a box nobody can see goes on asking for frames.
 
-Four more survived in the second round and are the same lesson a fourth time:
+Four more survived in round 2's own set and are the same lesson a fourth time:
 publishing a media change to the animator needed a renderer whose terminal
 _stops_ being one mid-animation; `touchMedia()` walking every base rather than
 every live entry needed a `tick()` first, because an entry holding nothing is
@@ -3482,6 +3551,19 @@ dropped and a walk over the entries would otherwise find it anyway; and clearing
 the old fill when a new animation replaces it needed two animations touching
 **different properties**, because with one property the incoming animation's own
 value covers the stale fill on every frame.
+
+Round 3's ten were written after the fixes rather than before, and all but the
+memo were caught first time -- which is what the enumeration bought: a walk over
+the defaulted inputs fails on nine of those ten by construction, where a fixture
+picked by hand had reached none of them.
+
+Two review rounds also never opened `easing.test.ts`, `interpolate.test.ts` or
+`keyframes.test.ts`, which is where this feature's arithmetic lives. Checked for
+the same weakness and it was there -- none of the three reached a defaulted or
+degenerate input: no zero or omitted duration, no non-finite count, no empty
+keyframes body, no fraction outside the interval. The code held for everything the
+new walks over those three grammars ask, with one exception that was a live defect:
+an empty `@keyframes` body, which is the entry above.
 
 **Which is the finding worth keeping, because one of those survivals was written
 into this file as a reasoned decision and it was wrong.** The entry above records
@@ -3496,14 +3578,21 @@ it was reasoning _forward_ from the survival to a five-step justification for wh
 the guard was redundant, rather than asking what input would make it matter and
 writing that input down. Every survivor since has been resolved the second way.
 
-One guard survives deliberately and says so where it lives: **an empty fill is
-not recorded**. `tick()` drops an entry holding nothing at all, so an empty
-`settled` goes with the entry before anything can read it, and nothing can reach
-the state it refuses. It is kept for the reason `undo()` keeps two guards rolldown
-cannot provoke: the invariant is a property of that field's own meaning -- an empty
-`settled` is a contradiction in terms, since `settled` is what says an animation
-has finished -- and resting it on another method happening to run first is what
-that entry declines to do.
+Five of round 2's fifteen survived: the four above, and one more -- an empty fill
+not being recorded -- which was kept on an unreachability argument that round 2
+then falsified, since `touchMedia()` is a reader that does not tick. It is gone,
+replaced by the `ran` flag that was the real distinction, and that one has a test.
+
+Nine of round 3's ten were caught by the tests written with them. The tenth
+survives and is **a fast path rather than a claim**: `index()`'s memo on the
+`Keyframes` object. Delete it and every observe rebuilds the index, the stale-fill
+comparison always differs, and every answer is the same with some of them computed
+twice -- so what it costs to delete is work rather than correctness, and it says so
+where it lives.
+
+Which leaves the tally at **one** deliberate survivor across three rounds, and it
+is the only one of the three that was ever a fast path rather than a claim -- the
+other two were a false unreachability argument and a false structural one.
 
 #### What is deliberately out
 

@@ -218,6 +218,58 @@ describe('colour, in Oklab', () => {
 	});
 });
 
+describe('every property, over every fraction', () => {
+	it('should never answer with a value that is not a number', () => {
+		// the enumeration this file did not have, and the one that would have caught
+		// the defect a structural claim was made about instead: an interpolation
+		// producing `NaN` reaches the layout engine as a width or the painter as a
+		// colour channel, and neither refuses it. Over every property the table has,
+		// its own initial value as one endpoint, and fractions inside and outside
+		// the interval
+		const samples: Partial<Record<string, unknown>> = {
+			color: rgb(255, 0, 0),
+			backgroundColor: palette(4),
+			borderColor: DEFAULT_COLOR,
+		};
+
+		for (const property of PROPERTY_NAMES) {
+			const initial = PROPERTIES[property].initial as unknown;
+			const other = samples[property] ?? initial;
+			for (const level of [0, 1, 2, 3] as const) {
+				for (const t of [-1, 0, 0.25, 0.5, 0.75, 1, 2]) {
+					for (const [from, to] of [
+						[initial, other],
+						[other, initial],
+						[initial, initial],
+					]) {
+						const value = interpolate(property, from, to, t, level);
+						const where = `${property} at ${String(t)} level ${String(level)}`;
+						if (typeof value === 'number') {
+							expect(Number.isFinite(value), where).toBe(true);
+						} else if (value && typeof value === 'object' && 'value' in value) {
+							const length = value as { value?: number };
+							if (length.value !== undefined) {
+								expect(Number.isFinite(length.value), where).toBe(true);
+							}
+						}
+					}
+				}
+			}
+		}
+	});
+
+	it('should hold a length to whole cells over every fraction', () => {
+		// the constraint the whole feature is shaped around, asserted over the
+		// interval rather than at the three points a test would pick
+		for (let i = 0; i <= 200; i++) {
+			const value = interpolate('width', cells(0), cells(7), i / 200, 3) as { value: number };
+			expect(Number.isInteger(value.value), String(i)).toBe(true);
+			expect(value.value).toBeGreaterThanOrEqual(0);
+			expect(value.value).toBeLessThanOrEqual(7);
+		}
+	});
+});
+
 describe('discrete properties', () => {
 	it('should flip at the midpoint', () => {
 		expect(interpolate('bold', false, true, 0.49, 3)).toBe(false);
