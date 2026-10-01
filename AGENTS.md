@@ -3752,6 +3752,52 @@ when extend follows a resize`. The other half is an app doing it to itself, and 
   `ClipboardCopy.written` means the bytes reached the stream, which is the strongest
   true statement available, and it is false only for a refusal or a stream whose far
   end has gone.
+- **"Several refuse it by default" is iTerm2 out of the box, which is the sharpest
+  form of the entry above.** `AllowClipboardAccess` defaults to `@NO`
+  (`iTermPreferences.m:726`), and `screenCopyStringToPasteboard:`
+  (`PTYSession.m:20258`) notes the attempt and _then_ reads it, returning without
+  copying when it is off -- so the refusal is silent to the app: the bytes went out,
+  `written` is true, and nothing reached the pasteboard. That is `written` doing the
+  job it is named for rather than a hole in it, and it is why the demo's answer is
+  to paste somewhere and find out. iTerm2 does announce the denial itself, behind
+  `noSyncSuppressClipboardAccessDeniedWarning` (`PTYSession.m:19895`), which is the
+  diagnostic worth having: a copy that never arrives _and_ no denial banner is that
+  warning having been suppressed earlier, not a write that was allowed. Read out of
+  the source at `91411f5` and deliberately not claimed of any running profile --
+  what a given one has set is a question only that machine answers, which is what
+  `--clipboard` is for.
+- **iTerm2 nags on a drag followed by Cmd-C, and copying is what disarms it.** A
+  third announcement, separate from the two the mouse section catalogues: a state
+  machine of its own, `iTermMouseReportingFrustrationDetector`
+  (`sources/TryingTooHard/iTermMouseReportingFrustrationDetector.m`), arms on a
+  **reported** mouse-down, a reported drag, and a reported mouse-up with
+  `clickCount == 0`, and fires on Cmd-C from there -- "mouse reporting has prevented
+  making a selection. Disable mouse reporting?" (`iTermNaggingController.m:497`).
+  Any other keypress resets it to Ground, so the trigger is exactly a drag and then
+  Cmd-C with nothing in between, and it is iTerm2 being right again: with tracking
+  on there is no selection for Cmd-C to take. What makes it worth recording rather
+  than merely surviving is that **iTerm2 offers a cooperation hook and this feature
+  already satisfies it** -- `screenTerminalAttemptedPasteboardAccess`
+  (`PTYSession.m:19890`) calls `didCopyToPasteboardWithControlSequence`, which puts
+  the detector back to Ground, and it runs _before_ the permission gate, so even a
+  refused OSC 52 disarms the nag. An app that copies the way this one does is
+  rewarded for doing it, and the answer to the banner is the app's own copy key
+  rather than Cmd-C. Reported from a real iTerm2; the condition is read from the
+  source.
+- **A key binding cannot get round that one, so do not reach for one.** Remapping
+  Cmd-C to send the app's copy key looks like the fix and is not: `keyDown:` on
+  `PTYTextView` feeds the mouse handler before the keyboard handler
+  (`PTYTextView.m:767-768`), so the detector sees the Cmd-C whatever the bindings
+  say, and the app's OSC 52 arrives a round trip later -- after the banner. The
+  remap makes Cmd-C copy and still nags. An option-drag is the way out that works,
+  because a drag the terminal keeps for itself is never reported and the detector
+  never arms at all.
+- **That banner's "Stop Asking" is shared with the echo detector's.** It sets
+  `NoSyncNeverAskAboutMouseReportingFrustration` (`iTermNaggingController.m:523`),
+  which is the key `PTYSession.m:14248` and `14324` also read as a gate on the
+  "mouse reporting was left on" dialog -- so suppressing this one suppresses that
+  one too. The mouse section records the sharing from the other end; this is the end
+  that sets it.
 - **The control-character guard is in the encoder, not in the caller.** An OSC runs
   until its terminator, so a control character in the payload ends the sequence
   early and the rest reaches the terminal as commands -- the same injection
