@@ -1,4 +1,4 @@
-import { box, type Element, resolveStyles, text } from '../../src/element/index.js';
+import { arrange, box, type Element, resolveStyles, text } from '../../src/element/index.js';
 import { createInput, InputError, type KeyEvent } from '../../src/input/index.js';
 import { createTerminal, type Terminal } from '../../src/terminal/index.js';
 import { describe, expect, it } from 'vitest';
@@ -571,6 +571,73 @@ describe('paste', () => {
 
 		feed('a[200~xyz[201~b');
 		expect(names).toEqual(['a', 'b']);
+		input.stop();
+	});
+});
+
+describe('the focus ring and the clip rect', () => {
+	/** A scrolling list of `count` focusable rows, in a four-row viewport. */
+	function scroller(count: number): { root: Element; rows: Element[]; view: Element } {
+		const rows = Array.from({ length: count }, (_, i) => text(`r${i}`, { focusable: true }));
+		const content = box({ 'flex-direction': 'column', 'flex-shrink': 0 }, ...rows);
+		const view = box(
+			{ 'flex-direction': 'column', height: 4, overflow: 'hidden', width: 10 },
+			content
+		);
+		const root = box({}, view);
+		resolveStyles(root);
+		arrange(root, { height: 4, width: 10 });
+		return { root, rows, view };
+	}
+
+	it('should scroll a focused row below the fold into view', () => {
+		// the requirement the ticket is written around: a highlight somewhere the
+		// user cannot see reads as an app that stopped responding
+		const { terminal } = harness();
+		const { root, rows, view } = scroller(12);
+		const input = createInput({ root, terminal });
+
+		input.focus.focus(rows[7]);
+		expect(view.scroll?.y).toBe(4);
+		input.stop();
+	});
+
+	it('should scroll it back when Tab wraps to the first row', () => {
+		const { terminal } = harness();
+		const { root, rows, view } = scroller(12);
+		const input = createInput({ root, terminal });
+
+		input.focus.focus(rows[11]);
+		expect(view.scroll?.y).toBe(8);
+
+		// the ring wraps, and the arrange that follows is what moves the boxes --
+		// so the next move is computed against them rather than against a guess
+		resolveStyles(root);
+		arrange(root, { height: 4, width: 10 });
+		input.focus.next();
+		expect(input.focus.current.get()).toBe(rows[0]);
+		expect(view.scroll?.y).toBe(0);
+		input.stop();
+	});
+
+	it('should leave a row already on screen where it is', () => {
+		const { terminal } = harness();
+		const { root, rows, view } = scroller(12);
+		const input = createInput({ root, terminal });
+
+		input.focus.focus(rows[2]);
+		expect(view.scroll).toBeUndefined();
+		input.stop();
+	});
+
+	it('should not touch a tree nothing has laid out', () => {
+		const { terminal } = harness();
+		const rows = [text('a', { focusable: true }), text('b', { focusable: true })];
+		const root = box({ height: 1, overflow: 'hidden' }, ...rows);
+		const input = createInput({ root, terminal });
+
+		expect(() => input.focus.focus(rows[1])).not.toThrow();
+		expect(root.scroll).toBeUndefined();
 		input.stop();
 	});
 });

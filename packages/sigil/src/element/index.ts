@@ -261,6 +261,46 @@ export class Element implements LayoutNode {
 	clip: Box | undefined;
 
 	/**
+	 * Every cell this element's subtree could paint in, as one rectangle.
+	 *
+	 * The union of this element's own box and every descendant's, written
+	 * by `arrange()` on the way back up -- and bounded at a box that *clips*,
+	 * because nothing inside one is drawn outside its border box however far its
+	 * content reaches. So this is sound in both directions: it never excludes a
+	 * cell something will paint, and a nested scroll region does not report its
+	 * ten thousand rows to the box around it.
+	 *
+	 * Two readers, which is why it is a field rather than a walk either of them
+	 * takes. Paint culls a subtree whose extent does not meet its clip, and the hit
+	 * test skips one that does not contain the point -- the same question asked of
+	 * the same rectangle, so the two cannot come to disagree about what is off
+	 * screen. `scrollRange()` is the third, and it reads the children's extents to
+	 * learn how tall the content came out.
+	 *
+	 * `undefined` until something arranges the tree, which is why both culls are
+	 * written to pass a tree nothing has laid out rather than to refuse one.
+	 */
+	extent: Box | undefined;
+
+	/**
+	 * What this box's content reaches **before** it is scrolled, if it clips.
+	 *
+	 * CSS calls it the scrollable overflow region, and it is how far a scroll
+	 * offset may go: the content box unioned with every child's extent,
+	 * shifted back by the offset the placement used. `undefined` on a box that
+	 * does not clip, because a box that cannot scroll has no such region.
+	 *
+	 * Shifted **back** on purpose, which is the whole reason it is a field and not
+	 * a walk `scrollRange()` takes. The children's boxes have already moved by the
+	 * offset, so a reader that added it on afterwards would be right only until
+	 * something wrote a new offset -- and the next `scrollTo()` is exactly what a
+	 * handler does before any frame has arranged the tree again. Two wheel notches
+	 * in one read would then each see a range the first one had already grown, and
+	 * the second would scroll past the end of a list it had not finished reading.
+	 */
+	scrollable: Box | undefined;
+
+	/**
 	 * How far this element's content is scrolled, which the layout engine reads.
 	 *
 	 * Only honoured on a box that clips, since scrolling what is not clipped moves
@@ -1095,6 +1135,14 @@ export function createTree(root: Element, onMark?: () => void): Tree {
 }
 
 export { ancestry, contains, hitTest, paintOrder } from './hit.js';
+export {
+	clipsContent,
+	overlaps,
+	scrollBy,
+	scrollIntoView,
+	type ScrollIntoViewOptions,
+	scrollRange,
+} from './scroll.js';
 export { arrange, arrangedExtent, cellStyle, paint, resolveStyles, settleStyles } from './paint.js';
 export { type Selectable, selectableAt } from './selection.js';
 export { renderToLines, renderToString, type RenderStringOptions } from './string.js';

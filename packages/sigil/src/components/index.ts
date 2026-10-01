@@ -44,6 +44,7 @@ export {
 	spinnerView,
 } from './spinner.js';
 export { decodeKeys, isAbort, type Key, pendingLength } from './keys.js';
+export { type ScrollAxis, ScrollBox, type ScrollBoxProps, thumbExtent } from './scroll-box.js';
 export {
 	type Align,
 	type Column,

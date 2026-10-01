@@ -86,6 +86,15 @@ export function hitTest(root: Element, x: number, y: number): Element | undefine
 			return undefined;
 		}
 
+		// every box in this subtree is inside its extent, and a hit needs the point
+		// to be in some box -- so a point outside it cannot be in any of them. The
+		// same rectangle paint culls against, asked the other way round: a scrolled
+		// list of ten thousand rows tests the handful under the pointer rather than
+		// walking all of them to find out they are not there
+		if (element.extent && !contains(element.extent, x, y)) {
+			return undefined;
+		}
+
 		// children first, and backwards: the last child painted is the one on top.
 		// Asked before this element's own box rather than after, and *not* gated on
 		// the point being inside this one -- a child with `overflow: visible` is
