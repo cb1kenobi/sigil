@@ -29,35 +29,35 @@ the runtime.
 
 Paths below are inside `packages/sigil/` unless noted.
 
-| Path                           | Contents                                             |
-| ------------------------------ | ---------------------------------------------------- |
-| `src/parser/`                  | The parser: commands, options, arguments, registries |
-| `src/parser/command/routes.ts` | The route rules, shared with `sigil build`           |
-| `src/ansi/`                    | SGR styling, strip, color support detection          |
-| `src/width/`                   | Display width: grapheme clusters, East Asian Width   |
-| `src/wrap/`                    | Text wrapping, SGR state, terminal width             |
-| `src/help/`                    | The generated help screen, as an element tree        |
-| `src/terminal/`                | Terminal wrapper, live region, sequences, OSC 52     |
-| `src/components/`              | Spinner, progress, table, prompts, scroll box, keys  |
-| `src/signals/`                 | The reactive graph: state, computed, watcher, effect |
-| `src/renderer/`                | Components, the owner tree, control flow, the frame  |
-| `src/template/`                | The template IR, the `ui` tag, the JSX runtimes      |
-| `src/canvas/`                  | Cell buffer, style interning, paint diff, selection  |
-| `src/style/`                   | Properties, values, selectors, cascade, degradation  |
-| `src/theme/`                   | The framework's own sheet, and what a theme is       |
-| `src/layout/`                  | The flexbox subset, over whole cells                 |
-| `src/infer.ts`                 | `initOption()` and `initArg()`, in the type system   |
-| `src/util/`                    | Shared helpers (type coercion, camelCase, mkdir)     |
-| `src/debug/`                   | `DEBUG`-driven logger; replaces snooplogg            |
-| `src/paths.ts`                 | XDG base directories                                 |
-| `src/which.ts`                 | Resolving an executable against `PATH`               |
-| `src/updates/`                 | npm update check, run in a spawned worker            |
-| `src/error-handler.ts`         | Renders an error and sets the exit code              |
-| `src/error-hooks.ts`           | Fires `beforeError` hooks; carries state on an error |
-| `scripts/`                     | Run by hand: generators, and the real-terminal probe |
-| `docs/parser.md`               | Parser reference: syntax, semantics, precedence      |
-| `test/parser/commander/`       | Ported Commander test cases                          |
-| `test/parser/yargs/`           | Ported yargs-parser test cases                       |
+| Path                           | Contents                                                |
+| ------------------------------ | ------------------------------------------------------- |
+| `src/parser/`                  | The parser: commands, options, arguments, registries    |
+| `src/parser/command/routes.ts` | The route rules, shared with `sigil build`              |
+| `src/ansi/`                    | SGR styling, strip, color support detection             |
+| `src/width/`                   | Display width: grapheme clusters, East Asian Width      |
+| `src/wrap/`                    | Text wrapping, SGR state, terminal width                |
+| `src/help/`                    | The generated help screen, as an element tree           |
+| `src/terminal/`                | Terminal wrapper, live region, sequences, OSC 52        |
+| `src/components/`              | Spinner, progress, table, prompts, scroll box, keys     |
+| `src/signals/`                 | The reactive graph: state, computed, watcher, effect    |
+| `src/renderer/`                | Components, the owner tree, control flow, the frame     |
+| `src/template/`                | The template IR, the `ui` tag, the JSX runtimes         |
+| `src/canvas/`                  | Cell buffer, style interning, paint diff, selection     |
+| `src/style/`                   | Properties, values, selectors, cascade, degradation     |
+| `src/theme/`                   | The framework's own sheet, and what a theme is          |
+| `src/layout/`                  | The flexbox subset, over whole cells                    |
+| `src/infer.ts`                 | `initOption()` and `initArg()`, in the type system      |
+| `src/util/`                    | Shared helpers (type coercion, camelCase, mkdir)        |
+| `src/debug/`                   | `DEBUG`-driven logger; replaces snooplogg               |
+| `src/paths.ts`                 | XDG base directories                                    |
+| `src/which.ts`                 | Resolving an executable against `PATH`                  |
+| `src/updates/`                 | npm update check, run in a spawned worker               |
+| `src/error-handler.ts`         | Renders an error and sets the exit code                 |
+| `src/error-hooks.ts`           | Fires `beforeError` hooks; carries state on an error    |
+| `scripts/`                     | Run by hand: generators, the terminal probe, benchmarks |
+| `docs/parser.md`               | Parser reference: syntax, semantics, precedence         |
+| `test/parser/commander/`       | Ported Commander test cases                             |
+| `test/parser/yargs/`           | Ported yargs-parser test cases                          |
 
 At the repository root: `demos/` (runnable examples that import `@ttylabs/sigil` by
 name, so they need `pnpm build` first, and a workspace member so that the name
@@ -1690,6 +1690,17 @@ culling is two lines in passes that already existed.
   **bounded at a box that clips**, because nothing inside one is painted outside
   its border box however far its content reaches, and that bound is what stops a
   nested scroll region reporting its ten thousand rows to the box around it.
+
+  It is **not** `arrangedExtent()`, and the two are now easy to confuse. That one
+  is a separate walk in `renderToString()`, read by the auto-height canvas as
+  well, which asks how big a grid has to be to hold what was laid out -- so it
+  reads layout boxes rather than elements, it is taken per call rather than
+  carried on the tree, and it deliberately does **not** intersect `element.clip`:
+  a box clipped to nothing still grows the grid there. SIG-62 reported that last
+  part as a defect and it is one, in that walk, and it is older than this ticket;
+  culling fixed nothing about it and was never going to, because the two answer
+  different questions. Fixed where it is, rather than here.
+
 - **`Element.scrollable` is the same question with the scroll taken back out, and
   the version that did not was a real defect.** The content box unioned with the
   children's extents, shifted **back** by the offset the placement used. The first
@@ -1700,31 +1711,68 @@ culling is two lines in passes that already existed.
   list that had grown by however far the first had scrolled, so it scrolled past
   the end. Found by a test asserting that a second `scrollBy()` past the end
   reports nothing moved, which is the cheapest shape that could have caught it.
-- **Paint culling is 38.05ms to 0.315ms at ten thousand rows, and it fixes the
-  half of that frame it can.** Measured on 10,000 two-text rows -- 30,003 elements
-  -- in an 80x24 window, six interleaved rounds of twenty iterations with the
-  guard turned off by clearing the extents rather than by a second copy of
-  `paint()`, so both sides are one binary: **37.02 / 38.05 / 38.82ms** before and
-  **0.265 / 0.315 / 0.495ms** after, min / median / max. The painted grid is
-  identical, which the benchmark asserts before it times anything. Run three
-  times, twice on a quiet machine and once with the suite running beside it; the
-  quiet runs agree to a tenth of a millisecond and the loaded one reads 40.05
-  against 0.367, which is the same two orders of magnitude on larger absolutes.
-  The figures above are a quiet run, for the reason the style-shaking measurement
-  records.
+- **Paint culling is 34.82ms to 0.290ms at ten thousand rows, and the script that
+  says so is committed.** `scripts/benchmark-paint-cull.mjs`, run by hand like
+  `terminal-probe.mjs` and for the same reason read from the other side: a number
+  in a pull request is a claim the next reader has to trust, and a script they can
+  run is one they can check. 10,000 two-text rows -- 30,003 elements -- in an
+  80x24 window, six interleaved rounds of twenty iterations, with the guard turned
+  off by **clearing the extents** rather than by a second copy of `paint()`, so
+  both sides are one binary; it asserts the two grids are identical before it
+  times anything, and refuses to report a number over a cull that changed a cell.
+  **34.404 / 34.824 / 35.045ms** before and **0.254 / 0.290 / 0.430ms** after, min
+  / median / max, which is **120x** on the median. It is deliberately out of the
+  suite: ten thousand rows is a second of arrange per pass against this package's
+  ten-second `testTimeout`, with a fuzzer already running beside it, and this
+  ticket had to cut a fourteen-second test for exactly that.
 
-  What it does **not** fix is the arrange, which is **72ms** on the same tree and
-  is now the whole frame. That is the virtualization argument stated as a number
-  rather than as a worry, and it is why this ticket did the first tier only: an
-  element that does not exist is not measured, not re-resolved and not painted,
-  and nothing short of not building it addresses the 72ms.
+  Four runs agree, which is the part worth knowing, because the first three were
+  by hand before the script existed and the figures above are the script's. Two
+  quiet runs read 37.02 / 38.05 / 38.82 against 0.265 / 0.315 / 0.495 and agree to
+  a tenth of a millisecond; one with the suite running beside it reads 40.05
+  against 0.367, the same two orders of magnitude on larger absolutes. So the
+  spread across runs is a few milliseconds on a thirty-five millisecond number and
+  the ratio never moves, which is what interleaving is for -- and the check is
+  still the one the style-shaking measurement records: ask whether the baseline
+  agrees with the baseline, not whether the alternation was written.
+
+  What it does **not** fix is the arrange, which is **72ms to 81ms** across those
+  runs on the same tree and is now the whole frame -- the script prints it beside
+  the paint figures for that reason, as context rather than as its subject. That
+  is the virtualization argument stated as a number rather than as a worry, and it
+  is why this ticket did the first tier only: an element that does not exist is not
+  measured, not re-resolved and not painted, and nothing short of not building it
+  addresses the 72ms.
 
   It is also worth knowing what shape the win has, because it is not
   `O(visible)`. The content box of a scrolled list still has ten thousand
   children and paint still visits each one to cull it, so the cost is
   `O(children of the scrolled container)` -- 0.119ms at 1,000 rows against
-  0.315ms at 10,000. Fast enough that it stops being the frame, and not a
-  substitute for a windowed list.
+  0.290ms at 10,000, which the script's own row-count argument reproduces. Fast
+  enough that it stops being the frame, and not a substitute for a windowed list.
+
+- **What pins the paint cull is a counter, and the picture beside it answers a
+  different question.** `Painter.clip()` **always** invokes its callback and the
+  cell grid then drops the writes that fall outside -- which is the rule that
+  makes the cull safe, and is also why no comparison of painted cells can see the
+  cull being deleted: the rows are drawn, refused, and the grid comes out
+  identical. So `should not walk a subtree whose extent misses its clip` is the
+  test that fails when the `return` goes, by counting the `raw` elements whose
+  `paint` ran. The first version of this called the **picture** the differential
+  the whole optimization rested on, and a review round pointed out it stays green
+  with the cull deleted -- which is the entry below's failure one file along: a
+  credit nothing in a build checks.
+
+  The three sabotages are worth writing out, because what each test is for is not
+  what it looks like. Deleting the `return` fails the **counter** and nothing else.
+  Culling on `element.box` rather than on `element.extent`, which is the unsound
+  rule, fails `should keep a child drawn outside a parent that misses the clip` --
+  that tree is the only one where the two rectangles differ, which is the whole
+  reason it exists. And an off-by-one in `overlaps()`, a predicate that culls too
+  much, fails the **picture** differential and the counter together: that is the
+  one that takes a row off the screen, and the picture is what says so in cells.
+  So the differential is not redundant and is not the deletion's guard either, and
+  both of those sentences had to be measured rather than reasoned.
 
 - **The hit test culls on the same rectangle, and it took two tests because one
   of them could not see it.** The cull cannot change an answer, by construction:
@@ -1736,17 +1784,27 @@ culling is two lines in passes that already existed.
   cull left it green. And even written properly a differential cannot fail over a
   fast path, because agreeing is the whole claim.
 
-  So there are two, and they are the method the paint cull already used. The
-  **differential** sweeps every cell of the viewport with the extents and with
-  them cleared and requires the same answer, which is what makes the fast path
-  safe -- the guard is turned off by removing its input rather than by a second
-  copy of `hitTest()`, so both sides are one function. The **count** is what
-  fails when the cull goes: `hitTest()` asks the cull before it asks
-  `paintOrder()`, and `paintOrder()` is what reads `children`, so an element whose
-  `children` was read is exactly one the cull let through -- shadowed with a
+  So there are two. The **differential** sweeps every cell of the viewport with
+  the extents and with them cleared and requires the same answer, which is what
+  makes the fast path safe -- the guard is turned off by removing its input rather
+  than by a second copy of `hitTest()`, so both sides are one function. The
+  **count** is what fails when the cull goes: `hitTest()` asks the cull before it
+  asks `paintOrder()`, and `paintOrder()` is what reads `children`, so an element
+  whose `children` was read is exactly one the cull let through -- shadowed with a
   recording getter, one row of forty is entered with the extents and all forty
-  without. What says it is worth having at all is the measurement: **0.464ms to
-  0.091ms** on that tree, five times, per report.
+  without. What says it is worth having at all is the measurement: **0.343ms to
+  0.079ms** on that tree, four times, per report.
+
+  The first version of this entry said the clear-extents differential was "the
+  method the paint cull already used", and a second review round found that
+  **nothing on the paint side called `clearExtents()` at all** -- the helper was
+  local to the hit-test block and the paint picture was asserted against literals.
+  So the sentence credited a method to tests that did not use it, which is the
+  same failure one level up from the one it was written to record: an attribution
+  nothing in a build checks. `clearExtents()` is module-scope now, both blocks
+  read the one helper, and the benchmark does the same thing for the same reason
+  -- the paint cull and the hit cull are two readers of one trick rather than two
+  spellings of it.
 
 - **`scrollIntoView()` walks innermost outward carrying what the nearer ancestors
   moved.** That accumulation is the part that is easy to get wrong and easy to

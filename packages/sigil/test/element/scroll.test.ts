@@ -47,6 +47,24 @@ function list(count: number, height = 4): { rows: Element[]; view: Element } {
 	return { rows, view };
 }
 
+/**
+ * Takes the extents off a subtree, which is how either cull is turned off.
+ *
+ * Both guards are written `element.extent && ...`, so a tree with no extents
+ * takes the uncut walk -- one binary, one function, the guard disabled by
+ * removing its input rather than by a second copy of `paint()` or `hitTest()`.
+ * The same method `scripts/benchmark-paint-cull.mjs` times with, and the reason
+ * it is at module scope: the paint tests and the hit tests are two readers of one
+ * helper rather than two spellings of it, which is what round 2 of review found
+ * the comments claiming while only the hit tests did it.
+ */
+function clearExtents(element: Element): void {
+	element.extent = undefined;
+	for (const child of element.children) {
+		clearExtents(child);
+	}
+}
+
 /** Paints a tree into a grid and reads it back, one string per row. */
 function picture(root: Element, width: number, height: number): string[] {
 	const buffer = new CellBuffer(width, height);
@@ -288,13 +306,23 @@ describe('scrollIntoView', () => {
 });
 
 describe('paint culling', () => {
-	/** A `raw` element that records every time paint asked it to draw. */
+	/**
+	 * A `raw` element that records every time paint asked it to draw, and draws.
+	 *
+	 * The record is what catches a cull that was **deleted**, because `draw()` still
+	 * runs for a clip that paints no cells -- `Painter.clip()` always invokes its
+	 * callback and the grid drops what falls outside, which is exactly why the cull
+	 * is safe and exactly why a grid cannot see it go. It paints as well so that
+	 * the same tree can be compared as cells, which is what catches a cull that was
+	 * made **unsound**.
+	 */
 	function counted(label: string, drawn: string[]): Element {
 		return raw(
 			{
 				measure: () => ({ height: 1, width: 4 }),
-				paint: () => {
+				paint: (painter, area) => {
 					drawn.push(label);
+					painter.text(area.x, area.y, label[0]);
 				},
 			},
 			{ height: 1, width: 4 }
@@ -322,9 +350,25 @@ describe('paint culling', () => {
 		expect(drawn).toStrictEqual(['d', 'e']);
 	});
 
-	it('should draw what it drew before, because a cull changes no cell', () => {
-		// the differential the whole optimization rests on: the cells are the cells,
-		// and the only thing culling removes is work
+	it('should paint the cells the uncut walk would, because a cull changes no cell', () => {
+		// the differential, and it is the method the hit cull's own tests use: paint
+		// the same tree twice, once with the extents cleared so the guard is off, and
+		// compare the grids.
+		//
+		// What this is **not** is the test that catches a cull that was deleted, and
+		// the first version of it claimed to be: `Painter.clip()` always invokes its
+		// callback and the cell grid drops what falls outside, so an uncut walk puts
+		// the same cells on the grid and a picture test stays green with the guard
+		// gone. Round 2 of review found that, and `should not walk a subtree whose
+		// extent misses its clip` is what actually fails there.
+		//
+		// What it catches, measured rather than claimed, is a predicate that culls
+		// too much: an off-by-one in `overlaps()` fails this and takes a row of the
+		// screen with it, which is the shape "a cell went missing" has in the
+		// ordinary case. The *unsound* cull -- asking about the element's own box
+		// rather than its extent -- is `should keep a child drawn outside a parent
+		// that misses the clip`'s, because that needs a child drawn outside its
+		// parent and here every element's box is its extent.
 		const build = (): Element => {
 			const rows = Array.from({ length: 8 }, (_, i) => text(`row ${i}`));
 			const content = box({ 'flex-direction': 'column', 'flex-shrink': 0 }, ...rows);
@@ -336,7 +380,14 @@ describe('paint culling', () => {
 			lay(box({}, view), 8, 3);
 			view.scrollTo(0, offset);
 			lay(box({}, view), 8, 3);
-			expect(picture(view, 8, 3), `at ${offset}`).toStrictEqual([
+
+			const culled = picture(view, 8, 3);
+			clearExtents(view);
+			const whole = picture(view, 8, 3);
+
+			expect(culled, `at ${offset}`).toStrictEqual(whole);
+			// and it drew something, or the comparison is two empty grids
+			expect(culled, `at ${offset}`).toStrictEqual([
 				`row ${offset}`,
 				`row ${offset + 1}`,
 				`row ${offset + 2}`,
@@ -364,26 +415,17 @@ describe('paint culling', () => {
 
 		expect(parent.box?.y).toBe(-2);
 		expect(drawn).toStrictEqual(['escapee']);
+
+		// and as cells, with and without the extents, because an unsound cull is a
+		// row missing from the screen rather than a counter that did not tick
+		const culled = picture(view, 6, 4);
+		clearExtents(view);
+		expect(culled).toStrictEqual(picture(view, 6, 4));
+		expect(culled).toStrictEqual(['', 'e', '', '']);
 	});
 });
 
 describe('hit test culling', () => {
-	/**
-	 * Takes the extents off a subtree, which is how the cull is turned off.
-	 *
-	 * The guard is written `element.extent && ...`, so a tree with no extents takes
-	 * the uncut walk -- one binary, one function, the guard disabled by removing
-	 * its input rather than by a second copy of `hitTest()`. The same method the
-	 * benchmark and the paint cull's own tests use, for the same reason: two
-	 * implementations of a walk are two things that can drift.
-	 */
-	function clearExtents(element: Element): void {
-		element.extent = undefined;
-		for (const child of element.children) {
-			clearExtents(child);
-		}
-	}
-
 	/**
 	 * Which elements the walk descended into, by shadowing `children`.
 	 *

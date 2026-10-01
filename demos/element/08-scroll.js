@@ -6,9 +6,12 @@
  * Ten thousand rows in a twenty-row window, which is the size at which the thing
  * this demo is really about becomes visible: **paint culls a subtree whose extent
  * misses its clip**, so a frame draws the twenty rows on screen rather than the ten
- * thousand that exist. Without it the same frame is 38ms of painting and the app is
- * a slideshow; with it the paint is a third of a millisecond and what is left is the
- * layout, which is what virtualization would be for and is deliberately not here.
+ * thousand that exist. Without it the same frame is 35ms of painting and the app is
+ * a slideshow; with it the paint is three tenths of a millisecond and what is left
+ * is the layout, which is what virtualization would be for and is deliberately not
+ * here. This demo shows that rather than measuring it -- the numbers come from
+ * `node packages/sigil/scripts/benchmark-paint-cull.mjs`, which asserts the two
+ * frames are identical before it times either of them.
  *
  * Four things to try, and each one is a claim:
  *

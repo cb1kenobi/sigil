@@ -197,7 +197,7 @@ the package.
 | [`element/05-drag.js`](element/05-drag.js)           | A drag, and the capture that makes one work        |
 | [`element/06-panes.js`](element/06-panes.js)         | Full screen: a clip, a scroll and a stacking order |
 | [`element/07-selection.js`](element/07-selection.js) | Selecting cells, and OSC 52 to the clipboard       |
-| [`element/08-scroll.js`](element/08-scroll.js)       | Ten thousand rows, a scrollbar, and paint culling   |
+| [`element/08-scroll.js`](element/08-scroll.js)       | Ten thousand rows, a scrollbar, and paint culling  |
 
 The whole stack in one file, and the point of it is what it prints at the end: a
 mutation says exactly what it implies and nothing else.
@@ -222,10 +222,12 @@ node demos/element/08-scroll.js  # arrows, wheel, drag the thumb, tab, q
 
 **`08-scroll.js`** is ten thousand rows in a twenty-row window, and the number is
 the point: a frame paints the twenty rows on screen rather than the ten thousand
-that exist, because paint culls a subtree whose extent misses its clip. Measured on
-that tree, the paint goes from 38.05ms to 0.315ms — without it the demo is a
-slideshow, and with it what is left is the layout, which is what a windowed list
-would be for and is deliberately not here.
+that exist, because paint culls a subtree whose extent misses its clip. The paint
+goes from 34.8ms to 0.29ms on that tree — without it the demo is a slideshow, and
+with it what is left is the layout, which is what a windowed list would be for and
+is deliberately not here. Those two numbers are not this demo's to prove:
+`node packages/sigil/scripts/benchmark-paint-cull.mjs` is what measures them, and
+it checks the two grids are identical before it times anything.
 
 Four things to try, each of which is a claim. The arrows, PageUp/PageDown and
 Home/End are claimed only where the axis has somewhere to go, so a box whose
