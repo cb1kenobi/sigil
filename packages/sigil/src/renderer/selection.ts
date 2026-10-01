@@ -188,6 +188,7 @@ export function enableSelection(
 
 		stop(): void {
 			offMouse();
+			offResize();
 			offKeys?.();
 		},
 
@@ -223,6 +224,26 @@ export function enableSelection(
 		if (event.kind === 'mousemove' && anchor && event.button === 'left') {
 			view.setSelection(createSelection(anchor, { x: event.x, y: event.y }, anchor.mode));
 		}
+	});
+
+	/**
+	 * A resize ends the gesture, because the anchor is a cell of the old grid.
+	 *
+	 * The renderer drops the *selection* on a resize, for the reason the canvas
+	 * discards both buffers there: a cell pair names a screen that no longer
+	 * exists. The anchor is a cell of that same grid and is held here rather than
+	 * on the renderer, so clearing one and not the other left a drag still in
+	 * progress writing the selection straight back from the pre-resize cell -- the
+	 * highlight and `selectionText()` both returning, anchored where nothing is any
+	 * more. `extend()` read the same stale anchor.
+	 *
+	 * The anchor and nothing else: `view.setSelection(undefined)` here as well
+	 * would be a second mechanism for a thing the renderer already owns, and two
+	 * that cover each other is what a sabotage pass cannot tell apart -- which this
+	 * file has already been caught by once, over the lookup tables below.
+	 */
+	const offResize = input.onResize(() => {
+		anchor = undefined;
 	});
 
 	const offKeys =

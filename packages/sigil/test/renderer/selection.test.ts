@@ -102,6 +102,7 @@ function harness(width = 20, height = 4) {
 function router() {
 	const mousers = new Set<MouseHandler>();
 	const binds = new Set<KeyHandler>();
+	const resizers = new Set<(size: { height: number; width: number }) => void>();
 	const focus = new State<undefined | { focusable: boolean }>(undefined);
 
 	return {
@@ -110,6 +111,22 @@ function router() {
 			return () => void binds.delete(handler);
 		},
 		focus: { current: focus } as never,
+		/** How many resize handlers are attached, for "put back what you attached". */
+		get resizers() {
+			return resizers.size;
+		},
+		onResize(handler: (size: { height: number; width: number }) => void) {
+			resizers.add(handler);
+			return () => void resizers.delete(handler);
+		},
+		/** A resize, the way the router re-emits the terminal's. */
+		resized(width: number, height: number) {
+			// no snapshot: the router copies the set for the reason its own docblock
+			// gives, and `input.test.ts` is what pins that -- here it is a dispatch
+			for (const handler of resizers) {
+				handler({ height, width });
+			}
+		},
 		/** Dispatches a mouse event, the way the router's own `onMouse` step does. */
 		mouse(event: Partial<MouseEvent>) {
 			const full = {
@@ -366,6 +383,40 @@ describe('enableSelection', () => {
 		input.mouse({ kind: 'mousedown', shift: true, x: 0, y: 0 });
 		input.mouse({ kind: 'mousemove', shift: true, x: 4, y: 0 });
 		expect(view.selection).toBeUndefined();
+	});
+
+	it('should not put a selection back from a stale anchor after a resize', () => {
+		// the renderer drops the selection on a resize because the cells named a
+		// screen that no longer exists -- and the *gesture* is anchored at a cell of
+		// that same old grid, so a drag still in progress wrote the selection
+		// straight back from it. The renderer's own test could not see this: it
+		// calls `view.setSelection()` directly and installs no driver, so there was
+		// no anchor for a resize to leave behind
+		const { h, input, view } = mounted();
+
+		input.mouse({ kind: 'mousedown', x: 0, y: 0 });
+		input.mouse({ kind: 'mousemove', x: 4, y: 0 });
+		expect(view.selection).toBeDefined();
+
+		// the terminal's resize reaches the renderer and the router, which is what
+		// an app has while a button is still held
+		h.resize(30, 10);
+		input.resized(30, 10);
+		expect(view.selection).toBeUndefined();
+
+		// the drag has not finished: the button is still down and the pointer is
+		// still moving
+		input.mouse({ kind: 'mousemove', x: 6, y: 1 });
+		expect(view.selection).toBeUndefined();
+	});
+
+	it('should put its resize handler back when it stops', () => {
+		// "put back what you attached", which is the rule the terminal's own
+		// `EPIPE` guard and every mode on the restore list already follow
+		const { input, selection } = mounted();
+		expect(input.resizers).toBe(1);
+		selection.stop();
+		expect(input.resizers).toBe(0);
 	});
 
 	it('should clear a selection when a new press starts', () => {

@@ -3646,6 +3646,37 @@ may be copied, `src/terminal/clipboard.ts` is OSC 52, and
   so keeping a cell pair across one would name whatever the re-layout happens to put
   at those coordinates. Dropped rather than mapped, because there is nothing to map
   it through: the content moved and may have rewrapped.
+- **The _gesture_ has to go with it, and clearing one and not the other put the
+  selection straight back.** The renderer holds the selection and the driver holds
+  the anchor, which is a cell of the same grid -- so a resize that cleared only the
+  renderer's half left a drag still in progress writing the selection back from the
+  pre-resize cell on its very next motion report, with the highlight and
+  `selectionText()` both returning and anchored where nothing is any more.
+  `extend()` read the same stale anchor. So `enableSelection()` subscribes to
+  `input.onResize()` and clears the anchor, which ends the gesture: `mousemove` is
+  gated on the anchor existing, and a release is a `mouseup` the driver ignores. The
+  **anchor and nothing else** -- a `view.setSelection(undefined)` here as well would
+  be a second mechanism for a thing the renderer already owns, which is the masking
+  recorded two entries below. The unsubscribe is "put back what you attached", the
+  rule the `EPIPE` guard and every restore-list entry already follow, and it has an
+  assertion of its own because what it leaves behind is a handler rather than a wrong
+  pixel.
+- **The sabotage pass found none of that, and the reason is the method's own
+  boundary rather than a slip.** Twenty-six guards were each deleted and each
+  failed a named test, which is a true statement about the guards that **exist** --
+  and a pass built out of deletions cannot find a guard nobody wrote. This one was
+  found by review. The near miss is sharper than a missing test, and worth knowing
+  as a shape: `should clear the selection on a resize` is **correct for what it
+  claims** -- it is the renderer's rule, it calls `view.setSelection()` directly,
+  and sabotaging `selected = undefined` fails it. What it cannot see is the
+  _driver_, because it installs none; the gap was the **crossover**, one layer's
+  event against another layer's state, and neither file's tests had a reason to
+  reach for it. The audit that followed is the useful half: every test in the
+  overlay block asserts a renderer claim through a renderer call, and every test in
+  the driver block asserts a gesture through `input`, so the scopes were right and
+  the crossing was simply absent. A sabotage pass answers "is this guard load
+  bearing"; it never answers "is a guard missing", and reading it as the second is
+  how a review round finds something a green suite did not.
 - **Trailing blanks go per line, and a cell nothing may copy comes out as a
   blank.** The first is the reason `renderToString()` already gives: a region padded
   out to the pane's width is one nobody can paste anywhere useful. The second is the
