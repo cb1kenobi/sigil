@@ -466,9 +466,16 @@ async function mouse() {
 	 * A router chooses its surface and its tracking mode when it is built, so the
 	 * first version of this made one per step -- and what that came to on the wire
 	 * was **fourteen mode changes in under two seconds**, twice inside the same
-	 * millisecond. iTerm2 spots that and offers to turn mouse reporting off, which
-	 * is it reading the stream correctly: a mode that flickers is indistinguishable
-	 * from an app that has lost track of it.
+	 * millisecond. A mode that flickers is indistinguishable from an app that has
+	 * lost track of whether it turned one on, so it was worth fixing whatever else
+	 * was true.
+	 *
+	 * What this comment used to say next is that iTerm2's offer to turn mouse
+	 * reporting off was iTerm2 spotting the churn. It was not: there is no
+	 * mode-churn heuristic anywhere in iTerm2, and the dialog is the echo detector
+	 * `showSpaced` above carries the citation for. The giveaway was already written
+	 * down -- the dialog survived this fix -- and it should have been read as the
+	 * attribution failing rather than as a second cause. SIG-128.
 	 *
 	 * The surface is the half that does not need a new router, so it delegates and
 	 * one router covers every button-event step. Only the tracking mode is left, and
