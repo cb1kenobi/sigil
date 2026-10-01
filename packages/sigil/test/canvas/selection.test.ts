@@ -1,5 +1,6 @@
 import {
 	ATTR,
+	type Cell,
 	CellBuffer,
 	createSelection,
 	inSelection,
@@ -103,21 +104,54 @@ describe('selectionRuns', () => {
 });
 
 describe('inSelection', () => {
-	it('should agree with the runs it is the per-cell form of', () => {
+	const grid = { height: 4, width: 10 };
+
+	/** Every cell of the grid, asked of both readers. */
+	function agrees(anchor: Cell, focus: Cell): void {
 		for (const mode of ['linear', 'block'] as const) {
-			const sel = createSelection({ x: 7, y: 0 }, { x: 2, y: 2 }, mode);
+			const sel = createSelection(anchor, focus, mode);
 			const covered = new Set<string>();
-			for (const run of selectionRuns(sel, 10, 4)) {
+			for (const run of selectionRuns(sel, grid.width, grid.height)) {
 				for (let x = run.x; x < run.x + run.length; x++) {
 					covered.add(`${x},${run.y}`);
 				}
 			}
-			for (let y = 0; y < 4; y++) {
-				for (let x = 0; x < 10; x++) {
-					expect(inSelection(sel, x, y, 10), `${mode} ${x},${y}`).toBe(covered.has(`${x},${y}`));
+
+			const where = `${mode} (${anchor.x},${anchor.y})-(${focus.x},${focus.y})`;
+			for (let y = 0; y < grid.height; y++) {
+				for (let x = 0; x < grid.width; x++) {
+					expect(inSelection(sel, { x, y }, grid), `${where} at ${x},${y}`).toBe(
+						covered.has(`${x},${y}`)
+					);
 				}
 			}
 		}
+	}
+
+	it('should agree with the runs it is the per-cell form of', () => {
+		agrees({ x: 7, y: 0 }, { x: 2, y: 2 });
+	});
+
+	it('should agree with the runs about an endpoint off the grid, which a captured drag reaches', () => {
+		// a focus above the grid: the clamp makes row 0 the selection's *first*
+		// row, so it starts at a column rather than filling edge to edge
+		agrees({ x: 5, y: 2 }, { x: 3, y: -5 });
+		// and below it, which is the same thing about the last row
+		agrees({ x: 2, y: 1 }, { x: 7, y: 99 });
+		// one row, with both ends past the right edge -- the clamp lands them
+		// both on the last column, which is a cell rather than none
+		agrees({ x: 20, y: 0 }, { x: 30, y: 0 });
+		// and past the left edge
+		agrees({ x: -9, y: 1 }, { x: -3, y: 1 });
+		// both ends off, opposite corners
+		agrees({ x: -4, y: -4 }, { x: 40, y: 40 });
+	});
+
+	it('should read a cell the way a selection reads its own', () => {
+		const sel = createSelection({ x: 2, y: 0 }, { x: 4, y: 0 });
+		expect(inSelection(sel, { x: 3.9, y: 0.9 }, grid)).toBe(true);
+		expect(inSelection(sel, { x: 1.9, y: 0 }, grid)).toBe(false);
+		expect(inSelection(sel, { x: Number.NaN, y: 0 }, grid)).toBe(false);
 	});
 });
 
@@ -251,6 +285,26 @@ describe('paintSelection', () => {
 		]);
 	});
 
+	it('should ask selectable where the copy asks it, for a run starting on a continuation', () => {
+		// the two readers of one cluster: the copy grows the run left onto its lead
+		// and asks there, while the highlight used to ask at the continuation the
+		// run began on -- so a mask whose two halves disagree had the cluster
+		// copied and not highlighted, or the reverse. Asserted as the agreement
+		// rather than as either answer, because which cell is asked is the claim
+		for (const lead of [true, false]) {
+			const selectable: Selectable = (x) => (x === 1 ? lead : !lead);
+			const sel = createSelection({ x: 2, y: 0 }, { x: 3, y: 0 });
+
+			const buffer = grid(['a漢b'], 4);
+			expect(buffer.charAt(2, 0)).toBe('');
+			const copied = selectionText(buffer, sel, { selectable });
+			const { styles } = highlight(buffer, sel, selectable);
+			const drawn = attrsOf(buffer, styles, 0)[1] === ATTR.inverse;
+
+			expect(drawn, `lead selectable: ${lead}`).toBe(copied.includes('漢'));
+		}
+	});
+
 	it('should not change what any cell holds', () => {
 		const buffer = grid(['hello', 'world'], 5);
 		const before = buffer.toLines();
@@ -266,6 +320,19 @@ describe('Painter.overlay', () => {
 		const painter = new Painter(buffer, styles);
 		painter.overlay(0, 0, 3, (style, x) => (x === 1 ? { ...style, attrs: ATTR.bold } : undefined));
 		expect(attrsOf(buffer, styles, 0)).toEqual([ATTR.none, ATTR.bold, ATTR.none]);
+	});
+
+	it('should ask about the lead where the run begins on a continuation', () => {
+		const buffer = grid(['a漢b'], 4);
+		const styles = new StyleTable();
+		const painter = new Painter(buffer, styles);
+		const asked: number[] = [];
+		painter.overlay(2, 0, 2, (style, x) => {
+			asked.push(x);
+			return { ...style, attrs: ATTR.bold };
+		});
+		// 1 is the cluster's lead and sits outside the run; 3 is the `b` after it
+		expect(asked).toEqual([1, 3]);
 	});
 
 	it('should ignore a run that reaches off the grid', () => {

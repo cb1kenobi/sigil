@@ -3661,6 +3661,23 @@ may be copied, `src/terminal/clipboard.ts` is OSC 52, and
   rule the `EPIPE` guard and every restore-list entry already follow, and it has an
   assertion of its own because what it leaves behind is a handler rather than a wrong
   pixel.
+
+  **"Every other path is gated on the anchor" is one path wider than the code, and
+  the honest version names the way out.** `extend()` falls back to
+  `view.selection?.anchor`, which is what makes it work after a bare
+  `view.setSelection()` and is worth keeping for that -- so during the resize
+  fan-out itself, an **app** handler on `input.onResize` that calls `extend()`
+  before the renderer's own clear has run reads the stale selection and writes it
+  back, and the `anchor ??=` beside it resurrects the anchor too. Nothing in the
+  framework calls `extend()` in that window, and once both clears have run there is
+  neither an anchor nor a selection to fall back to, so the next shift-arrow calls
+  `begin(0, 0)` rather than reading a cell of the old grid -- which is the half that
+  is guaranteed and is pinned by `should begin fresh rather than from a stale anchor
+when extend follows a resize`. The other half is an app doing it to itself, and is
+  recorded rather than guarded: the alternative is clearing the renderer's half from
+  the driver as well, which is exactly the second mechanism the paragraph above
+  refuses.
+
 - **The sabotage pass found none of that, and the reason is the method's own
   boundary rather than a slip.** Twenty-six guards were each deleted and each
   failed a named test, which is a true statement about the guards that **exist** --
@@ -3677,6 +3694,15 @@ may be copied, `src/terminal/clipboard.ts` is OSC 52, and
   the crossing was simply absent. A sabotage pass answers "is this guard load
   bearing"; it never answers "is a guard missing", and reading it as the second is
   how a review round finds something a green suite did not.
+
+  Three more rounds of review found four more of exactly that shape, which is what
+  makes it a rule rather than one anecdote: `inSelection()` against
+  `selectionRuns()`, `selectable` asked at a cluster's two halves, `extend()`'s
+  fallback against the gesture's anchor, and `visibility: hidden` on the mask with
+  no test. Every one is either two readers of one rule or a rule with no reader at
+  all, and a deletion-based pass can see neither -- it asks whether the code that is
+  there is load bearing, and all four were about code that agreed with itself.
+
 - **Trailing blanks go per line, and a cell nothing may copy comes out as a
   blank.** The first is the reason `renderToString()` already gives: a region padded
   out to the pane's width is one nobody can paste anywhere useful. The second is the
@@ -3784,6 +3810,94 @@ may be copied, `src/terminal/clipboard.ts` is OSC 52, and
   arrow key has no capture to honour, and an unclamped focus walking further off the
   edge every keystroke is a selection that looks stuck for as many presses as it
   took to get there.
+- **`inSelection()` is asked of `selectionRuns()`, because two readers of that
+  clamp disagreed.** It had arithmetic of its own over the raw endpoints, and what
+  it did not have is the clamp in the entry above: on a 10x4 grid an anchor at
+  `(5,2)` with a focus at `(3,-5)` makes row 0 the selection's **first** row, so
+  its run starts at column 3 -- while the predicate still read row 0 as a _middle_
+  row, since `y > start.y && y < end.y` is true of a row the clamp promoted, and
+  filled it edge to edge. Measured over every cell rather than argued: three cells
+  on that selection, two more for a focus _below_ the grid, and one in each mode
+  for a same-row pair whose two ends both sit right of the edge, where the runs
+  cover the last column and the predicate covers nothing at all.
+
+  **Kept rather than deleted, and derived rather than taught the clamp.** Nothing
+  in `src/` calls it, which is the decision to take rather than a reason to
+  dismiss it: `Command.file` and `BundleResult.generated` were both removed for
+  being exported, unread and wrong if read, and what separates this from those is
+  that the question has one right answer which `selectionRuns()` already holds. So
+  the fix is not to copy the clamp into the second reader, which is the shape that
+  drifted in the first place -- it is to stop having a second reader. Membership is
+  a walk over the runs now, which is the rule `isSgr()` and `readRoutes()` already
+  follow and is what makes the agreement structural instead of a coincidence. It
+  costs a run list per point query, which at terminal scale is nothing, and it
+  costs the signature a `height`: the grid is what membership needs, because the
+  height is what decides which row is first. The `Cell` is truncated the way
+  `createSelection()` truncates its own, so the type means one thing at both entry
+  points, and `NaN` matches no run.
+
+  **Whether a drag can reach it was disputed, and the trace says yes.** The
+  reviewer's narrowing -- that the disagreement needs both ends past the same edge,
+  since a press outside the canvas is dropped -- is right about the press and wrong
+  about the conclusion: a press _inside_ is the ordinary case, so the anchor is
+  always on the grid, and the first counterexample above is exactly an on-grid
+  anchor with an off-grid focus. Three links, each already pinned or documented: a
+  captured move is dispatched while `!inside`, which `should report a captured
+position even where it is off the canvas` asserts; `toCanvas()` is a subtraction
+  with no clamp, so an inline canvas anchored at row 10 reads a report at screen
+  row 3 as `y = -8`; and a drag is deliberately unclamped where a keyboard
+  extension is not. What is **not** claimed is that any of it was user-visible --
+  with no caller, the divergence was a wrong answer waiting for its first one,
+  which is the whole argument for fixing the contract rather than the symptom.
+
+  **And its test was vacuous at the boundary, which is the third instance of that
+  shape on this branch.** `should agree with the runs it is the per-cell form of`
+  built both endpoints inside the grid, which is the one case the clamp cannot
+  matter in, so it stayed green with the clamp removed _and_ with the old
+  predicate in place. It walks five off-grid pairs now, in both modes, over every
+  cell. The sabotage is worth reading for what it says about the fix: the old
+  predicate fails the off-grid test on the reported cell, while removing the clamp
+  fails `should clamp a focus the capture let wander off the canvas` and **not**
+  the agreement test -- which is the fix working rather than a gap, since with one
+  implementation a clamp both readers share cannot be caught by asking whether
+  they agree.
+
+- **A run that begins on a continuation is asked about its lead, and that was the
+  same two-reader shape one layer down.** `selectionText()` grows such a run left
+  onto the lead and asks `selectable` there, because a cluster is one character and
+  that is where it is; `overlay()` asked its transform at the continuation the run
+  began on. They agree wherever a wide cluster's two cells share a bit, which is
+  the ordinary case -- `put()` refuses a cluster whose continuation does not fit, so
+  one cannot straddle a clip edge -- and the mask is written per element over
+  rectangles that _can_ part them: a `raw` whose box covers the continuation's
+  column and which paints nothing there, which is exactly what `Dots` and `Pixels`
+  do with a cell nothing was drawn in, leaves the cluster on screen with the lead
+  marked copyable and the continuation not. Copied and not highlighted, or the
+  reverse. So `overlay()` names the cluster's lead to the transform -- `restyle()`
+  already carries the style to both halves from either, so nothing else had to
+  move -- and the test asserts the two readers _agree_ for both spellings of a
+  disagreeing mask rather than asserting either answer, because which cell is asked
+  is the claim.
+- **`visibility: hidden` is the mask's rule as well as paint's, and it had no test
+  of its own.** It inherits, so paint skips the element rather than the subtree and
+  a descendant that sets `visible` is drawn -- which the mask has to do too, or
+  copying and drawing disagree about a hidden box's visible child. Both halves are
+  pinned now: a hidden `raw` excludes nothing, because there is no wall of block
+  characters on screen to keep out of the clipboard, and a `raw` that sets
+  `visible` inside a hidden box excludes its cells however hidden the box said it
+  was. A coverage gap rather than a wrong answer, and the one-line kind worth
+  closing because the rule is not what anybody guesses.
+- **A canvas resize the _frame_ asked for keeps the selection, and for an
+  auto-width canvas that is a known limit.** `terminal.onResize` is what drops it,
+  while `layoutInto()` calls `backend.resize()` -- which discards both grids --
+  without going near it. For the auto-height second pass that is right: the pass
+  repaints the same frame at a taller canvas, so the cells a selection named are
+  where they were. The leftover is an **auto-width** canvas whose content width
+  changes while a selection is held, where the coordinates then name whatever the
+  reflow put there. Left alone deliberately: clearing on every canvas resize would
+  drop selections that are still perfectly correct, and the frame has no way to say
+  which of the two it just did. Recorded because it is the kind of thing the next
+  person rediscovers as a bug.
 - **`Canvas.cells` is exposed for reading, and extraction is why.** A selection is
   text read back off the frame that was painted, and `toString()` is the wrong shape
   for it: it trims and joins, where extracting a region has to ask cell by cell and

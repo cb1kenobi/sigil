@@ -410,6 +410,29 @@ describe('enableSelection', () => {
 		expect(view.selection).toBeUndefined();
 	});
 
+	it('should begin fresh rather than from a stale anchor when extend follows a resize', () => {
+		// the half of that which is guaranteed, and it is worth naming because the
+		// other half is not: once the renderer's clear and the driver's have both
+		// run there is neither an anchor nor a selection to fall back to, so
+		// `extend()` starts one where it was asked. What it is *not* is an
+		// invariant about the fan-out itself -- `extend()` reads
+		// `view.selection?.anchor` where the driver's anchor has gone, so an app
+		// handler on `input.onResize` that calls it before the renderer's clear has
+		// run can still write a stale cell back. That is an app doing it to itself
+		// and is recorded rather than guarded, because the fallback is what makes
+		// `extend()` work after a bare `view.setSelection()`
+		const { h, input, selection, view } = mounted();
+
+		input.mouse({ kind: 'mousedown', x: 0, y: 0 });
+		input.mouse({ kind: 'mousemove', x: 4, y: 0 });
+		h.resize(30, 10);
+		input.resized(30, 10);
+
+		selection.extend(2, 3);
+		expect(view.selection?.anchor).toEqual({ x: 2, y: 3 });
+		expect(view.selection?.focus).toEqual({ x: 2, y: 3 });
+	});
+
 	it('should put its resize handler back when it stops', () => {
 		// "put back what you attached", which is the rule the terminal's own
 		// `EPIPE` guard and every mode on the restore list already follow

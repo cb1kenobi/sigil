@@ -3,6 +3,7 @@ import {
 	box,
 	createTree,
 	type Element,
+	type ElementProps,
 	raw,
 	resolveStyles,
 	selectableAt,
@@ -20,14 +21,14 @@ import { describe, expect, it } from 'vitest';
  */
 
 /** A `raw` that claims a size and paints nothing, which is all the mask needs. */
-function sparkline(width: number, height: number): Element {
+function sparkline(width: number, height: number, props: ElementProps = {}): Element {
 	const measure = (): Measurement => ({
 		height,
 		minHeight: height,
 		minWidth: width,
 		width,
 	});
-	return raw({ measure, paint: () => {} });
+	return raw({ measure, paint: () => {} }, props);
 }
 
 /** Arranges a tree and asks what may be copied. */
@@ -134,6 +135,30 @@ describe('selectableAt', () => {
 			box({ display: 'none', selectable: false }, text('hidden'))
 		);
 		expect(mask(root, 4, 1)).toBeUndefined();
+	});
+
+	it('should skip a hidden element rather than its subtree, because visibility inherits', () => {
+		// paint's own rule, which the mask has to keep or copying and drawing
+		// disagree about a hidden box's visible child. A hidden `raw` is not on
+		// screen, so it excludes nothing -- there is no wall of block characters
+		// there to keep out of the clipboard
+		const hidden = box(
+			{ 'flex-direction': 'column' },
+			text('abcd'),
+			sparkline(4, 1, { visibility: 'hidden' })
+		);
+		expect(mask(hidden, 4, 2)).toBeUndefined();
+
+		// and a descendant that says `visible` is drawn, so its cells are excluded
+		// however hidden the box around it said it was
+		const revealed = box(
+			{ 'flex-direction': 'column' },
+			text('abcd'),
+			box({ visibility: 'hidden' }, sparkline(4, 1, { visibility: 'visible' }))
+		);
+		const allows = mask(revealed, 4, 2);
+		expect(row(allows, 0, 4)).toBe('....');
+		expect(row(allows, 1, 4)).toBe('----');
 	});
 
 	it('should answer false for a cell off the grid', () => {

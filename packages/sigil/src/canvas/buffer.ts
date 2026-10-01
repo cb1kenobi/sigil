@@ -563,12 +563,17 @@ export class Painter {
 	 * its lead sits outside the run and `restyle()` is what reaches it: a cluster
 	 * is highlighted as a whole from whichever half the selection touched.
 	 *
+	 * Which is why the transform is asked **once per cluster, at its lead**: a run
+	 * starting on a continuation is asked about the column one to the left, since
+	 * that is where the character is and is what every other reader of those cells
+	 * keys on.
+	 *
 	 * @param x - The first column.
 	 * @param y - The row.
 	 * @param length - How many columns.
 	 * @param transform - The style to leave a cell in, or `undefined` to leave it
 	 *   exactly as it is -- which is how a caller excludes a cell rather than
-	 *   having to split the run around it.
+	 *   having to split the run around it. Its `x` is the cluster's lead.
 	 */
 	overlay(
 		x: number,
@@ -585,8 +590,20 @@ export class Painter {
 				continue;
 			}
 
+			// a run that *begins* on a continuation is asked about the lead that sits
+			// outside it, because a cluster is one character and the lead is where it
+			// is: `restyle()` already carries the style to both halves from either,
+			// and anything else reading the run cell by cell -- `selectionText()`
+			// grows left onto the lead for exactly this reason -- would otherwise be
+			// answering about the other column. Two readers of one cluster that ask
+			// at two cells is the divergence this file keeps rediscovering
+			const at =
+				column === x && column > 0 && this.#buffer.charAt(column, y) === CONTINUATION
+					? column - 1
+					: column;
+
 			const current = this.#styles.get(this.#buffer.styleAt(column, y));
-			const next = transform(current, column, y);
+			const next = transform(current, at, y);
 			if (next === undefined) {
 				continue;
 			}

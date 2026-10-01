@@ -154,36 +154,41 @@ export function selectionRuns(
 }
 
 /**
- * Whether a selection covers a cell.
+ * Whether a selection covers a cell, asked of `selectionRuns()` rather than
+ * worked out again.
+ *
+ * It had its own arithmetic over the raw endpoints once, and the two readers
+ * disagreed the moment an endpoint was off the grid -- which a captured drag
+ * reaches as a matter of course. There is one implementation of what a
+ * selection covers now, so they cannot.
+ *
+ * Takes a whole grid rather than a width because membership is
+ * `selectionRuns()`'s answer and that needs both: the height is what decides
+ * which row is the selection's first, and a row the clamp promoted is a row
+ * whose run starts at a column rather than at zero. The cell is truncated the
+ * way `createSelection()` truncates its own, so a `Cell` means the same thing
+ * at both entry points.
  *
  * @param sel - The selection.
- * @param x - The column.
- * @param y - The row.
- * @param width - The grid's width, which is what a linear selection wraps at.
+ * @param cell - The cell.
+ * @param grid - The grid's size.
  * @returns Whether it is in.
  */
-export function inSelection(sel: Selection, x: number, y: number, width: number): boolean {
-	const [start, end] = ordered(sel);
+export function inSelection(
+	sel: Selection,
+	cell: Cell,
+	grid: { height: number; width: number }
+): boolean {
+	const x = Math.trunc(cell.x);
+	const y = Math.trunc(cell.y);
 
-	if (sel.mode === 'block') {
-		return (
-			y >= start.y &&
-			y <= end.y &&
-			x >= Math.min(sel.anchor.x, sel.focus.x) &&
-			x <= Math.max(sel.anchor.x, sel.focus.x)
-		);
+	// one run per row, so the row that matches is the whole answer
+	for (const run of selectionRuns(sel, grid.width, grid.height)) {
+		if (run.y === y) {
+			return x >= run.x && x < run.x + run.length;
+		}
 	}
-
-	if (y < start.y || y > end.y) {
-		return false;
-	}
-	if (y > start.y && y < end.y) {
-		return x >= 0 && x < width;
-	}
-	if (start.y === end.y) {
-		return x >= start.x && x <= end.x;
-	}
-	return y === start.y ? x >= start.x && x < width : x >= 0 && x <= end.x;
+	return false;
 }
 
 /**
