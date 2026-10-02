@@ -145,7 +145,7 @@ export interface Tree {
  * which refuses one it does not know -- so a typo is an error rather than a
  * value nothing reads.
  */
-const RESERVED = new Set(['class', 'focusable', 'id', 'key', 'tabindex']);
+const RESERVED = new Set(['class', 'focusable', 'id', 'key', 'selectable', 'tabindex']);
 
 export type PropValue = boolean | number | string | undefined;
 
@@ -157,6 +157,16 @@ export interface ElementProps {
 	focusable?: boolean;
 	id?: string;
 	key?: number | string;
+	/**
+	 * Whether this element's content may be selected and copied.
+	 *
+	 * Inherited down the subtree, which is what makes `selectable={false}` on a
+	 * pane mean the pane. `text` defaults to true and `raw` to false, so a
+	 * sparkline or an image does not copy as a wall of block characters -- and an
+	 * explicit value wins for the element and everything under it, which is how a
+	 * `raw` that really does draw characters opts back in.
+	 */
+	selectable?: boolean;
 	/** Where in the ring, for an element that should not be in document order. */
 	tabindex?: number;
 }
@@ -273,6 +283,7 @@ export class Element implements LayoutNode {
 	#raw: RawOptions | undefined;
 	#focusable = false;
 	#tabIndex: number | undefined;
+	#selectable: boolean | undefined;
 
 	/**
 	 * The last measurement, and what it was taken against.
@@ -331,6 +342,19 @@ export class Element implements LayoutNode {
 	/** Where in the ring this element sits, if it asked not to be in tree order. */
 	get tabIndex(): number | undefined {
 		return this.#tabIndex;
+	}
+
+	/**
+	 * What this element said about being selectable, or `undefined` for nothing.
+	 *
+	 * Deliberately three-valued rather than resolved here. What a cell may be
+	 * copied from is the *subtree's* answer -- an explicit value inherits down and
+	 * `raw` defaults the other way from `text` -- and resolving it on the element
+	 * would mean every element carrying a guess at what its ancestors said.
+	 * `selectableAt()` does the walk, once per frame, with the boxes it needs.
+	 */
+	get selectable(): boolean | undefined {
+		return this.#selectable;
 	}
 
 	get parent(): Element | undefined {
@@ -688,6 +712,15 @@ export class Element implements LayoutNode {
 					// to be told -- but a selector can match on the state this enables,
 					// and that is a class-level change
 					this.#mark('classes');
+				}
+			} else if (name === 'selectable') {
+				const next = value === undefined ? undefined : value !== false && value !== 'false';
+				if (next !== this.#selectable) {
+					this.#selectable = next;
+					// paint rather than classes: no selector matches on it and no box
+					// moves, and what does change is which cells the selection overlay
+					// covers -- which is drawn by the paint pass, from the live selection
+					this.#mark('paint');
 				}
 			} else if (name === 'tabindex') {
 				const next = value === undefined ? undefined : Number(value);
@@ -1063,4 +1096,5 @@ export function createTree(root: Element, onMark?: () => void): Tree {
 
 export { ancestry, contains, hitTest, paintOrder } from './hit.js';
 export { arrange, arrangedExtent, cellStyle, paint, resolveStyles, settleStyles } from './paint.js';
+export { type Selectable, selectableAt } from './selection.js';
 export { renderToLines, renderToString, type RenderStringOptions } from './string.js';

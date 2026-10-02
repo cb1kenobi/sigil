@@ -33,13 +33,20 @@
  */
 
 import { type ColorLevel, supportsColor } from '../ansi/index.js';
-import { type CanvasBackend, createInlineCanvas } from '../canvas/index.js';
+import {
+	type CanvasBackend,
+	createInlineCanvas,
+	paintSelection,
+	type Selection,
+	selectionText,
+} from '../canvas/index.js';
 import {
 	arrange,
 	arrangedExtent,
 	createTree,
 	type Element,
 	paint,
+	selectableAt,
 	settleStyles,
 	type Tree,
 } from '../element/index.js';
@@ -67,6 +74,12 @@ import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js
 import { createRoot, disposeOwner, drainMounts, getOwner, type Owner } from './owner.js';
 
 export { For, type ForProps, Show, type ShowProps } from './control.js';
+export {
+	type BlockModifier,
+	enableSelection,
+	type SelectionHandle,
+	type SelectionOptions,
+} from './selection.js';
 export {
 	type Cleanup,
 	type Context,
@@ -231,6 +244,37 @@ export interface Renderer {
 	 * a theme change has no other way to say that every rule is stale.
 	 */
 	readonly restyler: Restyler;
+	/**
+	 * What is selected, if anything.
+	 *
+	 * Two cells and a mode, over the painted grid rather than over the tree --
+	 * `canvas/selection.ts` records why. The renderer holds it because it is the
+	 * thing that paints, and because a selection that moved has to ask for a frame
+	 * the way any other change does.
+	 */
+	readonly selection: Selection | undefined;
+	/**
+	 * Selects a region, or clears the selection.
+	 *
+	 * Asks for a frame, and that frame repaints: the highlight is a style override
+	 * recomputed from the live selection every time the tree is drawn, so moving
+	 * the selection without a repaint would leave the old one on screen.
+	 *
+	 * @param next - The selection, or `undefined` for none.
+	 */
+	setSelection(next: Selection | undefined): void;
+	/**
+	 * The text the selection covers, read off the frame last painted.
+	 *
+	 * Laid-out text: a paragraph that wrapped comes back with its wrap points in
+	 * it, and a two-column row comes back as both columns per line. That is what
+	 * selecting from a terminal has always given you, and the rectangular mode is
+	 * the answer where it is not what was wanted. Trailing blanks go per line, and
+	 * a cell `selectable` excludes comes back as a blank.
+	 *
+	 * @returns The text, or `''` with nothing selected.
+	 */
+	selectionText(): string;
 	/** The element tree, for anything that wants the marks. */
 	readonly tree: Tree;
 }
@@ -361,6 +405,17 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 	let offResize: (() => void) | undefined;
 	/** Whether a frame is settling, which is what makes `frame()` safe to call. */
 	let settling = false;
+	/** What is selected, which the paint pass draws over whatever it drew. */
+	let selected: Selection | undefined;
+	/**
+	 * Whether the next frame has to paint whatever else it finds to do.
+	 *
+	 * The selection is not an element and not a style, so nothing in `Marks` or in
+	 * the restyler's answer can say it moved -- and `full` is the wrong flag,
+	 * because that forces a layout and no box has moved. A selection change is
+	 * exactly a repaint.
+	 */
+	let repaint = false;
 
 	function requestFrame(): void {
 		if (disposed || failed || scheduled) {
@@ -533,15 +588,37 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 		// telling it to lay out again
 		const needLayout =
 			full || update.layout.size > 0 || marks.layout.size > 0 || marks.children.size > 0;
-		const needPaint = needLayout || update.paint.size > 0 || marks.paint.size > 0;
+		const needPaint = needLayout || repaint || update.paint.size > 0 || marks.paint.size > 0;
 
 		if (needLayout) {
 			layoutInto();
 		}
 		if (needPaint) {
-			backend.render((painter) => paint(root, painter));
+			backend.render((painter, canvas) => {
+				paint(root, painter);
+
+				// the selection last, so it is over everything the tree drew -- and
+				// recomputed from `selected` every time rather than written into the
+				// cells, because a selection is transient state nobody painted and
+				// `paint()`'s own `clear()` is what takes the last one off.
+				//
+				// Nothing at all at colour level 0, which is the rule the prompt caret
+				// already follows: the seven attributes go there too, so a reverse-video
+				// highlight would be the one sequence `NO_COLOR` could not switch off.
+				// The selection still exists and still copies; what is lost is the
+				// highlight, on a destination that is a pipe or a user who asked for
+				// plain text
+				if (selected && cascade.media.colorLevel > 0) {
+					paintSelection(painter, selected, {
+						height: canvas.height,
+						selectable: selectableAt(root, canvas.width, canvas.height),
+						width: canvas.width,
+					});
+				}
+			});
 		}
 		full = false;
+		repaint = false;
 
 		// 3. anything waiting to be told it is on screen, now that it has a box
 		if (owner) {
@@ -618,6 +695,13 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 		if (disposed || failed) {
 			return;
 		}
+		// the selection goes, because it is two cells of a grid that no longer
+		// exists: the canvas discards both buffers on a resize for exactly that
+		// reason, and a cell pair kept across one names whatever the re-layout
+		// happens to put there. Dropped rather than mapped -- there is nothing to
+		// map it through, since the content moved and may have rewrapped
+		selected = undefined;
+
 		// everything, media queries included: a rule inside `@media (min-width: 100)`
 		// may now apply or may now not, and which elements those are is exactly the
 		// question a full re-match answers
@@ -720,6 +804,30 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 		},
 		restyler,
 		root,
+
+		get selection() {
+			return selected;
+		},
+
+		selectionText(): string {
+			if (!selected) {
+				return '';
+			}
+			const cells = backend.canvas.cells;
+			return selectionText(cells, selected, {
+				selectable: selectableAt(root, cells.width, cells.height),
+			});
+		},
+
+		setSelection(next: Selection | undefined): void {
+			if (next === selected) {
+				return;
+			}
+			selected = next;
+			repaint = true;
+			requestFrame();
+		},
+
 		tree,
 	};
 }

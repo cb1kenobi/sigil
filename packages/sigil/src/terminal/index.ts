@@ -14,6 +14,16 @@ import {
 	SHOW_CURSOR,
 } from './sequences.js';
 
+export {
+	CLIPBOARD_LIMIT,
+	type ClipboardCopy,
+	type ClipboardOptions,
+	type ClipboardRefusal,
+	type ClipboardSequence,
+	clipboardSequence,
+	type ClipboardTarget,
+	copyToClipboard,
+} from './clipboard.js';
 export { createLiveRegion, frameHeight, type LiveRegion, type LiveRegionOptions } from './live.js';
 export {
 	CURSOR_HOME,

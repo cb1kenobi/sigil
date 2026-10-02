@@ -125,7 +125,7 @@ type ShorthandProps = {
 };
 
 /**
- * The five props that are not style properties.
+ * The six props that are not style properties.
  *
  * Exactly what `Element.#apply()` branches on before it hands the rest to the
  * cascade, which is what makes this list the same list rather than one more of
@@ -138,6 +138,8 @@ export interface ReservedProps {
 	id?: Reactive<string>;
 	/** Identity across renders, which is what a keyed list diff matches on. */
 	key?: number | string;
+	/** Whether this element's content may be selected and copied. Inherits. */
+	selectable?: Reactive<boolean>;
 	/** Where in the ring, for an element that should not be in document order. */
 	tabindex?: Reactive<number>;
 }

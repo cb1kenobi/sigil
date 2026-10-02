@@ -188,14 +188,15 @@ the package.
 
 ## The element tree
 
-|                                                  |                                                    |
-| ------------------------------------------------ | -------------------------------------------------- |
-| [`element/01-tree.js`](element/01-tree.js)       | A tree, a stylesheet, a layout, and cells          |
-| [`element/02-overlay.js`](element/02-overlay.js) | An overlay, a stacking order, and a scrolling pane |
-| [`element/03-focus.js`](element/03-focus.js)     | One router owns stdin, and Tab moves the focus     |
-| [`element/04-mouse.js`](element/04-mouse.js)     | `:hover` from a hit test, a click, and the wheel   |
-| [`element/05-drag.js`](element/05-drag.js)       | A drag, and the capture that makes one work        |
-| [`element/06-panes.js`](element/06-panes.js)     | Full screen: a clip, a scroll and a stacking order |
+|                                                      |                                                    |
+| ---------------------------------------------------- | -------------------------------------------------- |
+| [`element/01-tree.js`](element/01-tree.js)           | A tree, a stylesheet, a layout, and cells          |
+| [`element/02-overlay.js`](element/02-overlay.js)     | An overlay, a stacking order, and a scrolling pane |
+| [`element/03-focus.js`](element/03-focus.js)         | One router owns stdin, and Tab moves the focus     |
+| [`element/04-mouse.js`](element/04-mouse.js)         | `:hover` from a hit test, a click, and the wheel   |
+| [`element/05-drag.js`](element/05-drag.js)           | A drag, and the capture that makes one work        |
+| [`element/06-panes.js`](element/06-panes.js)         | Full screen: a clip, a scroll and a stacking order |
+| [`element/07-selection.js`](element/07-selection.js) | Selecting cells, and OSC 52 to the clipboard       |
 
 The whole stack in one file, and the point of it is what it prints at the end: a
 mutation says exactly what it implies and nothing else.
@@ -204,7 +205,7 @@ mutation says exactly what it implies and nothing else.
 node demos/element/01-tree.js
 ```
 
-The last four need a terminal on both sides, because they read what you press. In
+The last five need a terminal on both sides, because they read what you press. In
 `04-mouse.js` the highlight is zero lines of component code for the same reason
 the focus ring's is: the hit test sets a state and the stylesheet matches it with
 `:hover`.
@@ -214,6 +215,7 @@ node demos/element/03-focus.js   # Tab, Shift-Tab, type, q
 node demos/element/04-mouse.js   # move, click, scroll a tile, q
 node demos/element/05-drag.js    # press the bar and drag past the edge, q
 node demos/element/06-panes.js   # hover, scroll a pane, click a row, q
+node demos/element/07-selection.js  # drag, alt-drag, ctrl-y to copy, q
 ```
 
 Each of the three mouse demos is for a claim the others cannot make.
@@ -242,13 +244,29 @@ so the pointer goes straight through them. And the overlay is written before bot
 panes and lifted with `z-index`, so it is painted last and hit first: hover it where
 it covers a pane and the pane underneath does not light up.
 
+**`07-selection.js`** is selection and the clipboard. Drag to select, alt-drag for
+a rectangle -- which is what copies one pane of a two-column layout without the
+other -- and Ctrl-Y to send it with OSC 52, which is what makes this work over ssh.
+Three things to watch. The paragraph copies with its wrap points in it, because
+the selection is over the _laid-out_ grid rather than over the tree. The braille
+sparkline does not copy at all: `raw` elements are `selectable={false}` by
+default, so a plot's block characters stay out of your clipboard. And there is no
+success to report -- a terminal does not answer an OSC 52, several refuse it by
+default, and tmux needs `set -g set-clipboard on` -- so the status line says the
+bytes were written and nothing more. Paste somewhere to find out, which is the
+only way there is. It needs no `motion: true`: a drag's motion is what `1002`
+already reports.
+
 Three things about the mouse are worth knowing before you run any of them.
 
 **It takes away text selection.** A terminal reporting the mouse stops doing its
 own, so while this demo is running, selecting and copying with the pointer does
-not work. Shift-drag overrides it in most terminals and not all. That is the
-price of the feature rather than a bug in the demo, and it is why an app has to
-ask for tracking rather than getting it by default.
+not work. Shift-drag overrides it in most terminals and not all -- iTerm2 uses
+alt/option and shift does nothing there at all, which is the terminal's own
+choice and nothing an app can detect. That is the price of the feature rather
+than a bug in the demo, and it is why an app has to ask for tracking rather than
+getting it by default. **`07-selection.js` is the answer to it**: the app gives
+selection back, over the painted grid, with Ctrl-Y to copy.
 
 **`:hover` costs a report per cell of pointer travel.** It needs xterm's `1003`,
 which reports every cell the pointer crosses for as long as the app runs, so the
@@ -269,7 +287,7 @@ which is why they are quiet. If the bytes really are the point, space them out:
 do with the alternate screen, which was the guess for a while — the check runs on
 either buffer.
 
-Worth watching in the two inline demos: resize the window while one is running.
+Worth watching in the three inline demos: resize the window while one is running.
 That throws the canvas's anchor away, so the backend no longer knows which screen
 row it is on, and the first report afterwards is the one that pays for asking — the
 status line does not move for that one click. `06-panes.js` has nothing to re-learn,
