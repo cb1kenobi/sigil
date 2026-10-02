@@ -56,7 +56,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Hooks](#hooks)
 - [Help](#help)
 - [Typed argv](#typed-argv)
-- [Subpath modules](#subpath-modules) — `ansi`, `wrap`, `width`, `help`, `terminal`, `components`, `canvas`, `signals`, `style`, `paths`, `updates`
+- [Subpath modules](#subpath-modules) — `ansi`, `wrap`, `width`, `help`, `terminal`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `which`, `updates`
 
 ---
 
@@ -756,6 +756,38 @@ cursor down rather than walking up a number it cannot trust.
 Creating a second region evicts the first, through the same claim the terminal
 hands out.
 
+The clipboard is OSC 52 — a write rather than a mode, so there is nothing for
+`restore()` to put back:
+
+```js
+import { terminal, copyToClipboard, CLIPBOARD_LIMIT } from '@ttylabs/sigil/terminal';
+
+const copy = copyToClipboard(terminal, 'text to copy');
+
+copy.written; // the bytes reached the stream -- NOT that the clipboard changed
+copy.bytes; // how many
+copy.refused; // 'empty' or 'too-large', else undefined
+copy.truncated; // only ever true with { truncate: true }
+```
+
+It works over ssh, which is the whole reason to prefer it to shelling out to
+`pbcopy` or `xclip`: the terminal holding the clipboard is the one in front of
+the user, not the one the process is running on.
+
+**There is no success to report, and `written` is named for what it can say.** A
+terminal does not answer an OSC 52 — no reply, no second query that says whether
+the first landed. Several refuse it by default; iTerm2's "Applications in
+terminal may access clipboard" is **off** out of the box, and tmux needs `set -g
+set-clipboard on` and may put the text in a tmux buffer rather than the system
+one. So `written` means the bytes went out, and an app that reports "copied!" is
+guessing. Tell the user what was sent and let them paste to find out.
+
+Over `CLIPBOARD_LIMIT` it refuses rather than truncating, because half a block
+copied silently is worse than a refusal — `{ truncate: true }` opts in and cuts
+on grapheme boundaries. An empty string is refused for a sharper reason: an empty
+OSC 52 payload _clears_ the clipboard on most terminals, and "copy nothing" is
+not a request to throw away what the user copied an hour ago.
+
 ### `sigil/components`
 
 Prompts, a spinner, a progress bar, and a table. Plain functions that render
@@ -990,6 +1022,156 @@ rows onto that one line. `DiffResult` also reports `wrapPending`, set when the
 last thing written was a row's final column and the terminal's deferred wrap is
 armed; any cursor movement clears it, so only a backend that writes immediately
 afterwards has to care.
+
+### `sigil/input`
+
+One thing owns stdin: a router that reads it, decodes it, and dispatches.
+Components subscribe rather than attaching their own `data` listeners, because
+two of those fight over the stream and neither can see what the other consumed.
+
+```js
+import { createInput } from '@ttylabs/sigil/input';
+
+const input = createInput({ root: view.root });
+
+input.bind((event) => {
+  // every key, ahead of the tree
+  if (event.key.ctrl && event.key.name === 'c') quit();
+});
+
+input.onPaste((text) => insert(text)); // a bracketed paste, arriving whole
+input.onResize(({ width, height }) => redraw());
+input.stop(); // puts back only what it turned on
+```
+
+A key reaches the bindings, then the focused element, then its ancestors, then
+the default action. Bindings come first so that quitting always works — an app
+that cannot be quit because a focused text input swallowed Ctrl-C is the failure
+that ordering prevents. **Tab is last**, so a component that wants Tab keeps it
+by stopping the event rather than by asking to be left out of the focus ring.
+
+A router refuses to exist where stdin is not a terminal. It exists to read keys,
+so one that never can is a bug in the app rather than a state to carry through
+every dispatch as a branch.
+
+#### The mouse
+
+Opt in, per router. Nothing is reported until you ask for it.
+
+```js
+const input = createInput({
+  root: view.root,
+  mouse: { surface: view.backend, motion: true },
+});
+
+input.onMouse((event) => {
+  // everything the tree did not claim
+  event.kind; // click mousedown mouseup mousemove wheel mouseenter mouseleave
+  event.x; // the canvas's own cells, not the screen's
+  event.y;
+  event.button; // left middle right extra1..4, or undefined
+  event.wheel; // up down left right, on a wheel event
+  event.target; // the element hit, if any
+  event.stop(); // a stopped mousedown suppresses click-to-focus
+});
+```
+
+`surface` is the canvas backend, because translating a report is the backend's
+job: a report is absolute and a canvas is relative to its own top-left. Full
+screen is free — the alternate buffer starts at the origin — while an inline
+canvas has to learn which screen row it begins on, which costs one cursor report
+and is re-learnt whenever the anchor is thrown away by a resize or a write above
+the region.
+
+Only the SGR encoding (`1006`) is read. The legacy one writes a coordinate as a
+single byte, so it runs out at column 223 — an ordinary width on a wide monitor —
+and there is no reason to accept an encoding that cannot describe the screen it
+is reporting about. A terminal too old for SGR reports nothing rather than
+reporting the left two thirds of itself.
+
+`motion: true` is xterm's `1003`, which reports **every cell the pointer crosses**
+for as long as the app runs, over what may be an ssh link. That is what `:hover`,
+`mouseenter` and `mouseleave` cost. Without it they match nothing — which is what
+they did before there was a mouse at all, so no stylesheet changes meaning by
+turning tracking on.
+
+A press captures the pointer, so a drag that wanders off the region still reaches
+whatever it started on. The consequence is that `x` and `y` may be outside the
+canvas on a captured event, exactly as `clientX` is during a drag in a browser.
+
+#### Turning the mouse on takes text selection away
+
+This is the cost to know about before reaching for any of the above, and it is
+not a bug in sigil or in the terminal.
+
+Normally _the terminal_ does the selecting. You drag, it highlights characters,
+it remembers which ones, and the system copy shortcut copies them; the program
+running inside is not involved and does not even know you dragged. The moment an
+app enables mouse reporting, the terminal stops interpreting the mouse and
+forwards it to the app instead — so it has no selection of its own, and **the
+user's usual copy shortcut stops working.**
+
+Most terminals let the user override that by holding a modifier while dragging,
+but which modifier is the terminal's own choice and is nothing an app can detect
+or influence: shift in xterm and most of what followed it, and **alt/option in
+iTerm2, where shift does nothing at all.**
+
+The system shortcut itself cannot be made to work, and it is worth knowing why
+rather than looking for the option. Cmd-C on macOS, and Ctrl-Shift-C in many
+Linux terminals, is a menu command belonging to the terminal application: it is
+consumed before anything is sent to the program, and there is no byte sequence
+for it that a terminal program can receive. There is nothing for sigil to decode,
+so nothing it could offer to handle.
+
+So an app that turns tracking on owes the user a way to copy, which is
+`enableSelection()`, exported from `@ttylabs/sigil/renderer`:
+
+```js
+import { enableSelection } from '@ttylabs/sigil/renderer';
+
+const selection = enableSelection(view, input);
+
+// there is no default binding for copy -- pick one and call copy()
+input.bind((event) => {
+  if (event.key.ctrl && event.key.name === 'y') {
+    event.stop();
+    const copy = selection.copy(); // OSC 52, so it works over ssh
+    status(copy.written ? `sent ${copy.bytes} bytes` : `refused: ${copy.refused}`);
+  }
+});
+```
+
+Drag to select. Alt-drag selects a rectangle, which is what copies one pane of a
+two-column layout without the other. Shift and an arrow key extend a selection
+while nothing is focused. A `text` element is selectable by default and a `raw`
+one is not, so a sparkline's block characters stay out of the clipboard — the
+`selectable` prop overrides either, and it inherits.
+
+Four things about it that are decisions rather than gaps:
+
+- **The selection is over the painted grid, not over the element tree.** The grid
+  is what the user is pointing at, it handles wide characters because the cell
+  grid already does, and a flexbox tree has no reading order to walk — a
+  `row-reverse` of three texts has no answer, and neither does an absolutely
+  positioned overlay lying across a paragraph. The cost is that a wrapped
+  paragraph copies with its wrap points in it, which is what selecting from a
+  terminal has always given you.
+- **There is no default binding for copy.** Ctrl-C is the abort and the binding
+  order above exists so that an app cannot become unquittable; Ctrl-Shift-C
+  reaches a terminal as that same byte. Claiming either would be claiming a key
+  the framework cannot hear or one it must not take, so you bind what suits your
+  app — the demo uses Ctrl-Y, which keeps vi's yank mnemonic and is a chord a
+  text field cannot swallow.
+- **The block modifier defaults to `alt`**, which is what Windows Terminal and
+  iTerm2 both use for a rectangular selection. In iTerm2 alt is _also_ the
+  mouse-reporting override, so an alt-drag there never reaches the app and the
+  user gets the terminal's own selection instead — which is the thing they were
+  reaching for, so it is left alone. `block: 'ctrl'` is xterm's spelling, for an
+  app that wants the block mode reachable everywhere.
+- **Nothing is drawn at colour level 0, and the selection still copies.** The
+  highlight is reverse video, and at level 0 every attribute is dropped — so a
+  piped or `NO_COLOR` run shows no highlight while `copy()` returns the same
+  text. The gesture is not the drawing.
 
 ### `sigil/style`
 
