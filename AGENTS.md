@@ -29,35 +29,35 @@ the runtime.
 
 Paths below are inside `packages/sigil/` unless noted.
 
-| Path                           | Contents                                             |
-| ------------------------------ | ---------------------------------------------------- |
-| `src/parser/`                  | The parser: commands, options, arguments, registries |
-| `src/parser/command/routes.ts` | The route rules, shared with `sigil build`           |
-| `src/ansi/`                    | SGR styling, strip, color support detection          |
-| `src/width/`                   | Display width: grapheme clusters, East Asian Width   |
-| `src/wrap/`                    | Text wrapping, SGR state, terminal width             |
-| `src/help/`                    | The generated help screen, as an element tree        |
-| `src/terminal/`                | Terminal wrapper, live region, sequences, OSC 52     |
-| `src/components/`              | Spinner, progress, table, prompts, key decoding      |
-| `src/signals/`                 | The reactive graph: state, computed, watcher, effect |
-| `src/renderer/`                | Components, the owner tree, control flow, the frame  |
-| `src/template/`                | The template IR, the `ui` tag, the JSX runtimes      |
-| `src/canvas/`                  | Cell buffer, style interning, paint diff, selection  |
-| `src/style/`                   | Properties, values, selectors, cascade, degradation  |
-| `src/theme/`                   | The framework's own sheet, and what a theme is       |
-| `src/layout/`                  | The flexbox subset, over whole cells                 |
-| `src/infer.ts`                 | `initOption()` and `initArg()`, in the type system   |
-| `src/util/`                    | Shared helpers (type coercion, camelCase, mkdir)     |
-| `src/debug/`                   | `DEBUG`-driven logger; replaces snooplogg            |
-| `src/paths.ts`                 | XDG base directories                                 |
-| `src/which.ts`                 | Resolving an executable against `PATH`               |
-| `src/updates/`                 | npm update check, run in a spawned worker            |
-| `src/error-handler.ts`         | Renders an error and sets the exit code              |
-| `src/error-hooks.ts`           | Fires `beforeError` hooks; carries state on an error |
-| `scripts/`                     | Run by hand: generators, and the real-terminal probe |
-| `docs/parser.md`               | Parser reference: syntax, semantics, precedence      |
-| `test/parser/commander/`       | Ported Commander test cases                          |
-| `test/parser/yargs/`           | Ported yargs-parser test cases                       |
+| Path                           | Contents                                                |
+| ------------------------------ | ------------------------------------------------------- |
+| `src/parser/`                  | The parser: commands, options, arguments, registries    |
+| `src/parser/command/routes.ts` | The route rules, shared with `sigil build`              |
+| `src/ansi/`                    | SGR styling, strip, color support detection             |
+| `src/width/`                   | Display width: grapheme clusters, East Asian Width      |
+| `src/wrap/`                    | Text wrapping, SGR state, terminal width                |
+| `src/help/`                    | The generated help screen, as an element tree           |
+| `src/terminal/`                | Terminal wrapper, live region, sequences, OSC 52        |
+| `src/components/`              | Spinner, progress, table, prompts, scroll box, keys     |
+| `src/signals/`                 | The reactive graph: state, computed, watcher, effect    |
+| `src/renderer/`                | Components, the owner tree, control flow, the frame     |
+| `src/template/`                | The template IR, the `ui` tag, the JSX runtimes         |
+| `src/canvas/`                  | Cell buffer, style interning, paint diff, selection     |
+| `src/style/`                   | Properties, values, selectors, cascade, degradation     |
+| `src/theme/`                   | The framework's own sheet, and what a theme is          |
+| `src/layout/`                  | The flexbox subset, over whole cells                    |
+| `src/infer.ts`                 | `initOption()` and `initArg()`, in the type system      |
+| `src/util/`                    | Shared helpers (type coercion, camelCase, mkdir)        |
+| `src/debug/`                   | `DEBUG`-driven logger; replaces snooplogg               |
+| `src/paths.ts`                 | XDG base directories                                    |
+| `src/which.ts`                 | Resolving an executable against `PATH`                  |
+| `src/updates/`                 | npm update check, run in a spawned worker               |
+| `src/error-handler.ts`         | Renders an error and sets the exit code                 |
+| `src/error-hooks.ts`           | Fires `beforeError` hooks; carries state on an error    |
+| `scripts/`                     | Run by hand: generators, the terminal probe, benchmarks |
+| `docs/parser.md`               | Parser reference: syntax, semantics, precedence         |
+| `test/parser/commander/`       | Ported Commander test cases                             |
+| `test/parser/yargs/`           | Ported yargs-parser test cases                          |
 
 At the repository root: `demos/` (runnable examples that import `@ttylabs/sigil` by
 name, so they need `pnpm build` first, and a workspace member so that the name
@@ -1603,7 +1603,9 @@ at`.
 - **A scrollbar is a component, not a layout feature.** The layout knows how far
   a box is scrolled and how tall its content came out; what to draw about that --
   a track, a thumb, an arrow, nothing at all -- has a dozen answers and none of
-  them belong to the engine.
+  them belong to the engine. One of the dozen is written now, in
+  `src/components/scroll-box.ts`, and "A scroll box" below is where its decisions
+  are.
 - **`DECSTBM` is not used for a scrolled region, and that is a decision rather
   than an omission.** A terminal's own scroll region would move a scrolled pane's
   rows for free, which for a log viewer is the whole cost of the frame. It is
@@ -1613,6 +1615,374 @@ at`.
   anything is drawn over the scrolled area -- a border, a status line, an overlay
   -- which is most of the cases worth having. Revisit it behind a profile, and
   only for a pane that owns its full width.
+
+### A scroll box: the scrollbar, scroll-into-view, and culling
+
+SIG-64 landed the engine half of scrolling and left the rest with a sentence
+about why. This is the rest: `src/components/scroll-box.ts` is the component,
+`src/element/scroll.ts` is the range and the walk that reveals a row, and the
+culling is two lines in passes that already existed.
+
+- **The gutter takes a cell, and it takes it whether or not anything can
+  scroll.** That settles the ticket's first question, and the argument against
+  overlaying is not a preference -- it is that the web's reason for an overlay
+  does not exist in a terminal. An overlay scrollbar works there because it is
+  translucent over pixels that are still underneath it; a cell holds **one**
+  character, so a scrollbar drawn over content does not shade the text, it
+  deletes it -- the last character of every row, which for a log of paths is the
+  end of every path. What overlaying buys is that nothing reflows when the
+  content grows past the window, and that is bought instead by reserving the
+  gutter **unconditionally**: it is CSS's `scrollbar-gutter: stable`, it costs one
+  column, and it is the one version of the trade that costs nothing in a cell
+  grid. Content that fits fills the track rather than hiding it, which says "this
+  scrolls and you are seeing all of it" and is one fewer thing moving on screen.
+  `scrollbar: false` gives the column back for a list that draws its own
+  indicator.
+- **The thumb drags, and the press capture SIG-106 landed is the whole reason it
+  can.** That settles the second question. While a button is held, the motion and
+  the release go to whatever the press landed on wherever the pointer got to -- so
+  a drag that wanders off the bar, or off the canvas, still reaches the thumb and
+  still ends, which is the failure a scrollbar would otherwise have as its most
+  visible bug. Clicking the track above or below the thumb pages towards the
+  click. Every offset is computed **from the press** rather than accumulated from
+  the last move, so a drag across a long track does not drift by a cell per frame
+  of rounding, and a round trip lands exactly where it started.
+- **It stops the release _and_ the click, which is the trap `05-drag.js`
+  found.** Stopping an event stops it bubbling; it does not cancel a different
+  one, and the derived click is a different one. A component that owns a drag and
+  does not want the click has to say both, and this is the second component to
+  need telling.
+- **The bar's first question is what _kind_ of event it is, and that is a claim
+  rather than a saving.** It reads like one -- an early return that skips reading
+  the geometry for an event it has no answer for -- and with a drag in progress
+  the branch below it takes any event carrying a position: a wheel turned over a
+  held thumb would scroll to wherever the wheel was reported from, and stop the
+  report besides. The first sabotage of it survived, which is how that was found;
+  `should leave a wheel alone while the thumb is held, not read it as a move` is
+  the test that makes it a claim.
+- **The bar is two `raw` elements stacked over one rectangle, and the alternative
+  is a thumb one frame late.** The thumb's size and position are questions about
+  the laid-out content, and nothing knows how tall the content came out until
+  layout has run -- so reading it back into a signal puts the thumb behind the
+  content it describes by a frame, visible as a lag on every wheel notch, and
+  costs a frame per scroll to do it. A `raw` element paints from the boxes of the
+  frame it is in, which is what `raw` is for and the one shape where the thumb
+  cannot be out of date. **Two** of them because each needs its own resolved
+  style: the track and the thumb carry separate classes, so a theme colours them
+  separately through the ordinary cascade, and one element cannot resolve two.
+  Both are `position: absolute` with all four insets over a `relative` bar, so
+  each fills it and neither takes any space; document order is paint order, so the
+  thumb is drawn over the track.
+- **`ScrollBox` holds no state, and that is the design rather than an
+  omission.** The offset already lives on `viewport.scroll`, which the layout
+  engine reads and `scrollTo()` writes -- marking layout and asking for a frame --
+  so a signal beside it would be a second copy of one number for the two to
+  disagree about. Every handler writes that offset directly. The consequence worth
+  knowing is that it needs no renderer at all: a `renderToString()` of a scroll
+  box scrolled to row forty prints row forty, which is also how most of its tests
+  are written.
+- **`Element.extent` is the rectangle three passes share, and it is what makes
+  culling sound.** The union of a subtree's boxes, written by `arrange()` on the
+  way back up. The obvious cheaper rule -- cull where the element's own box misses
+  the clip -- is **wrong**, and wrong in the direction that deletes something from
+  the screen: a child with `overflow: visible` is drawn outside its parent, so a
+  parent whose box missed the clip would take a visible child with it. It is
+  **bounded at a box that clips**, because nothing inside one is painted outside
+  its border box however far its content reaches, and that bound is what stops a
+  nested scroll region reporting its ten thousand rows to the box around it.
+
+  It is **not** `arrangedExtent()`, and the two are now easy to confuse. That one
+  is a separate walk in `renderToString()`, read by the auto-height canvas as
+  well, which asks how big a grid has to be to hold what was laid out -- so it
+  reads layout boxes rather than elements, it is taken per call rather than
+  carried on the tree, and it deliberately does **not** intersect `element.clip`:
+  a box clipped to nothing still grows the grid there. SIG-62 reported that last
+  part as a defect and it is one, in that walk, and it is older than this ticket;
+  culling fixed nothing about it and was never going to, because the two answer
+  different questions. Fixed where it is, rather than here.
+
+- **`Element.scrollable` is the same question with the scroll taken back out, and
+  the version that did not was a real defect.** The content box unioned with the
+  children's extents, shifted **back** by the offset the placement used. The first
+  spelling read the children's extents and added the live offset on afterwards,
+  which is correct only until something writes a new one -- and writing one before
+  the next frame is exactly what a handler does. Two wheel notches decoded from
+  one read of the stream each asked for the range, and the second was handed a
+  list that had grown by however far the first had scrolled, so it scrolled past
+  the end. Found by a test asserting that a second `scrollBy()` past the end
+  reports nothing moved, which is the cheapest shape that could have caught it.
+- **Paint culling is 34.82ms to 0.290ms at ten thousand rows, and the script that
+  says so is committed.** `scripts/benchmark-paint-cull.mjs`, run by hand like
+  `terminal-probe.mjs` and for the same reason read from the other side: a number
+  in a pull request is a claim the next reader has to trust, and a script they can
+  run is one they can check. 10,000 two-text rows -- 30,003 elements -- in an
+  80x24 window, six interleaved rounds of twenty iterations, with the guard turned
+  off by **clearing the extents** rather than by a second copy of `paint()`, so
+  both sides are one binary; it asserts the two grids are identical before it
+  times anything, and refuses to report a number over a cull that changed a cell.
+  **34.404 / 34.824 / 35.045ms** before and **0.254 / 0.290 / 0.430ms** after, min
+  / median / max, which is **120x** on the median. It is deliberately out of the
+  suite: ten thousand rows is a second of arrange per pass against this package's
+  ten-second `testTimeout`, with a fuzzer already running beside it, and this
+  ticket had to cut a fourteen-second test for exactly that.
+
+  Four runs agree, which is the part worth knowing, because the first three were
+  by hand before the script existed and the figures above are the script's. Two
+  quiet runs read 37.02 / 38.05 / 38.82 against 0.265 / 0.315 / 0.495 and agree to
+  a tenth of a millisecond; one with the suite running beside it reads 40.05
+  against 0.367, the same two orders of magnitude on larger absolutes. So the
+  spread across runs is a few milliseconds on a thirty-five millisecond number and
+  the ratio never moves, which is what interleaving is for -- and the check is
+  still the one the style-shaking measurement records: ask whether the baseline
+  agrees with the baseline, not whether the alternation was written.
+
+  What it does **not** fix is the arrange, which is **72ms to 81ms** across those
+  runs on the same tree and is now the whole frame -- the script prints it beside
+  the paint figures for that reason, as context rather than as its subject. That
+  is the virtualization argument stated as a number rather than as a worry, and it
+  is why this ticket did the first tier only: an element that does not exist is not
+  measured, not re-resolved and not painted, and nothing short of not building it
+  addresses the 72ms.
+
+  It is also worth knowing what shape the win has, because it is not
+  `O(visible)`. The content box of a scrolled list still has ten thousand
+  children and paint still visits each one to cull it, so the cost is
+  `O(children of the scrolled container)` -- 0.119ms at 1,000 rows against
+  0.290ms at 10,000, which the script's own row-count argument reproduces. Fast
+  enough that it stops being the frame, and not a substitute for a windowed list.
+
+- **What pins the paint cull is a counter, and the picture beside it answers a
+  different question.** `Painter.clip()` **always** invokes its callback and the
+  cell grid then drops the writes that fall outside -- which is the rule that
+  makes the cull safe, and is also why no comparison of painted cells can see the
+  cull being deleted: the rows are drawn, refused, and the grid comes out
+  identical. So `should not walk a subtree whose extent misses its clip` is the
+  test that fails when the `return` goes, by counting the `raw` elements whose
+  `paint` ran. The first version of this called the **picture** the differential
+  the whole optimization rested on, and a review round pointed out it stays green
+  with the cull deleted -- which is the entry below's failure one file along: a
+  credit nothing in a build checks.
+
+  The three sabotages are worth writing out, because what each test is for is not
+  what it looks like. Deleting the `return` fails the **counter** and nothing else.
+  Culling on `element.box` rather than on `element.extent`, which is the unsound
+  rule, fails `should keep a child drawn outside a parent that misses the clip` --
+  that tree is the only one where the two rectangles differ, which is the whole
+  reason it exists. And an off-by-one in `overlaps()`, a predicate that culls too
+  much, fails the **picture** differential and the counter together: that is the
+  one that takes a row off the screen, and the picture is what says so in cells.
+  So the differential is not redundant and is not the deletion's guard either, and
+  both of those sentences had to be measured rather than reasoned.
+
+- **The hit test culls on the same rectangle, and it took two tests because one
+  of them could not see it.** The cull cannot change an answer, by construction:
+  every box in a subtree is inside its extent, and a hit needs the point to be in
+  some box. So it is a fast path, and the first version of this entry said that
+  the test asserting it answers the same element as the uncut walk was what pinned
+  it -- which was **wrong twice over**. That test never ran an uncut walk at all:
+  it asserted the two rows the ordinary child walk returns anyway, so deleting the
+  cull left it green. And even written properly a differential cannot fail over a
+  fast path, because agreeing is the whole claim.
+
+  So there are two. The **differential** sweeps every cell of the viewport with
+  the extents and with them cleared and requires the same answer, which is what
+  makes the fast path safe -- the guard is turned off by removing its input rather
+  than by a second copy of `hitTest()`, so both sides are one function. The
+  **count** is what fails when the cull goes: `hitTest()` asks the cull before it
+  asks `paintOrder()`, and `paintOrder()` is what reads `children`, so an element
+  whose `children` was read is exactly one the cull let through -- shadowed with a
+  recording getter, one row of forty is entered with the extents and all forty
+  without. What says it is worth having at all is the measurement: **0.343ms to
+  0.079ms** on that tree, four times, per report.
+
+  The first version of this entry said the clear-extents differential was "the
+  method the paint cull already used", and a second review round found that
+  **nothing on the paint side called `clearExtents()` at all** -- the helper was
+  local to the hit-test block and the paint picture was asserted against literals.
+  So the sentence credited a method to tests that did not use it, which is the
+  same failure one level up from the one it was written to record: an attribution
+  nothing in a build checks. `clearExtents()` is module-scope now, both blocks
+  read the one helper, and the benchmark does the same thing for the same reason
+  -- the paint cull and the hit cull are two readers of one trick rather than two
+  spellings of it.
+
+- **`scrollIntoView()` walks innermost outward carrying what the nearer ancestors
+  moved.** That accumulation is the part that is easy to get wrong and easy to
+  write a test that cannot see. Scrolling an inner box moves the target and leaves
+  the inner box where it was, so the next ancestor out has to be asked about where
+  the target has **got to** rather than about the box the last arrange gave it;
+  scrolling an outer box moves the inner one and the target together, which is why
+  the other order would need no accumulation and would also be wrong. What is
+  added up is the **clamped** move rather than the asked-for one, or an ancestor
+  that could not go as far as it was told hands the next one a lie.
+
+  The first test for it **passed without the accumulation**, and the reason is
+  worth recording: the outer box's range stopped at exactly the answer, so the
+  unaccumulated reading was clamped to the same number. A trailing spacer inside
+  the outer content is what made the two readings differ -- six against ten -- and
+  the sabotage is what said the test was saying nothing.
+
+- **An element taller than the view aligns its start.** Showing the top of a row
+  that cannot fit is the useful half of it, which is CSS's `nearest`, and it falls
+  out of taking the smaller of the two candidate moves rather than needing a
+  branch. That `Math.min` also survived its first sabotage, because the test for
+  it put the row **above** the view -- where the move is the unconditional one and
+  the minimum is never reached. The test that catches it starts the row _inside_
+  the view and ends it past the bottom, which is the only place the two candidates
+  differ.
+- **The focus ring calls it unconditionally.** The ring already skips a
+  `display: none` subtree because there is nothing on screen there to move the
+  focus to; a row below the fold is that case with the opposite answer -- it is on
+  screen, somewhere the user cannot see -- so the fix is to scroll rather than to
+  skip. There is no option to turn it off, because a focused element nobody can
+  find reads as an app that stopped responding, and that is not a thing to make
+  configurable. It is `focus()` rather than `next()` that calls it, so
+  click-to-focus and a focus repaired after an unmount get it too.
+- **A key is claimed only where the axis has somewhere to go, and then it is
+  claimed even where the move is zero.** Those two together are what scroll
+  chaining is here: an inner list whose content fits swallows nothing, so Down
+  bubbles to the pane around it, while Home in a list already at its top is still
+  that list's key -- letting it through would scroll the pane instead, which is
+  the one answer nobody meant. Claiming unconditionally was the other option and
+  it is the annoying one, since a one-row list that happens to be a scroll box
+  would eat every Down in the app. Chaining past an inner box that is merely _at
+  its end_ is deliberately not done: it needs "which end" and a definition of
+  partial consumption, and an inner box that keeps its own keys is predictable.
+- **A page is the viewport less a row.** One line of what you were reading
+  survives the jump, which is what every pager does and the reason a page is not
+  simply the viewport.
+- **The wheel is three lines a notch with a curve over it, and the curve is why a
+  long log is usable.** Three because one notch of a real wheel is one detent and
+  a terminal reports one event per detent, so a notch has to be worth more than a
+  keystroke. The curve multiplies by up to **four** for notches arriving inside
+  **120ms** of each other -- a quarter of a second would accelerate a slow,
+  deliberate scroll and fifty milliseconds would need a faster wheel than a hand
+  produces. Crossing ten thousand rows at three lines a notch is 3,333 notches,
+  which is the measurement that makes this a feature rather than a flourish.
+  Reversing the **direction** resets the streak as well as the window lapsing,
+  because otherwise reversing mid-flick launches the content the other way at full
+  speed -- a scroll that overshoots the thing you were trying to get back to.
+  Shift takes a vertical turn sideways where there is a horizontal axis, which is
+  what every browser and every terminal's own reader do.
+- **The thumb is at least one cell and touches an end only at that end.** The
+  first is the case a long log is: one row visible in ten thousand rounds to
+  nothing, and a scrollbar with nothing in it reads as broken. The second is the
+  one a reader believes over their own memory -- a thumb drawn at the top while a
+  row is still above it says the list is at its start when it is not -- so offset
+  zero is the only thing that draws at the start, the maximum the only thing that
+  draws at the end, and everything between is interpolated across the cells in the
+  middle. That is the same rule the progress bar keeps for saying it finished.
+- **The framework sheet gains two classes and no light half.**
+  `.sigil-scroll-track` is `gray` and `.sigil-scroll-thumb` is `cyan`, which are
+  palette indices -- so they are whatever the user's own theme renders, and index 8
+  is the one a light theme has to render text in. That is the rule the rest of that
+  sheet already follows working rather than a gap, and it is why only `dim` ever
+  needed a conditional. The geometry stays in props where the component that worked
+  it out can see it, which is the rule the sheet keeps for every other built-in.
+- **The host's class is added rather than written.** `class` on a props object
+  replaces rather than merges, so writing it into the constructor props would let
+  a caller passing `class="log"` silently take the component's own class away --
+  and with it everything a theme can reach. `flex-direction` goes **after** the
+  caller's props for the opposite reason: the bars are placed against it, so a
+  caller setting it would be rearranging a layout it cannot see the rest of.
+  `focusable` goes before, so a caller may opt out.
+- **The host is focusable, so a box holding nothing focusable can still be
+  scrolled.** A descendant that takes the focus reaches these keys anyway, since a
+  key walks from the focused element up through its ancestors -- so this is for the
+  log of plain text, and it is what `08-scroll.js` focuses on startup. Found by
+  driving the demo: with nothing focused, the first arrow key goes to the bindings
+  and nowhere else, which is the "reported as doing nothing and was working
+  perfectly" failure the probe's own entries record, arriving in a demo.
+- **`clipsContent()` and `overlaps()` live in `scroll.ts`, which imports nothing
+  but types.** The reason is `hit.ts`'s: the focus ring needs `scrollIntoView()`,
+  and reaching it through the element barrel would put the layout engine, the
+  cascade and the canvas behind `@ttylabs/sigil/input` -- measured at **34.1 kB**
+  of static import graph with this module in it, against the 33.0 kB that entry
+  already carried and the 100 kB ceiling `should not drag the drawing stack in to
+import the key router` holds. `flex.ts` keeps its own `clips()` and that is the
+  boundary rather than drift: the layout engine takes a `LayoutNode` and may not
+  import the element tree, which is the whole reason it is testable with a literal.
+  `ScrollBox` itself is **3.4 kB** of the components bundle, measured by taking it
+  back out of the barrel and rebuilding.
+- **A fourteen-second test is a flaky test one busy machine later, and this one
+  was both.** `should cap the acceleration` built a **ten-thousand-row** box and
+  turned the wheel forty times, and each turn re-lays the tree -- measured at
+  **350ms** a `lay()`, 60ms of cascade and 166ms of arrange, so fourteen seconds
+  against this package's own ten-second `testTimeout`. It passed and then stopped
+  passing with nothing in `src/` having moved, which is the only shape that
+  matters here: a test close enough to its timeout to be decided by what else the
+  machine is doing says nothing either way.
+
+  What the assertion needs is a range comfortably past its own ceiling -- forty
+  notches times twelve lines is 480 -- so **six hundred** rows reads identically
+  at a twentieth of the cost, and the file went from 18s to under 1s. Uncapped the
+  multiplier reaches twenty, which runs past the range and clamps at 596, so the
+  discrimination survived the resize and the sabotage still catches it.
+
+  The slowdown was first blamed on the `flex-shrink: 0` deletion below, which is
+  the kind of guess worth measuring before writing down: patched back in and
+  rebuilt, the same `lay()` is **351ms against 349ms**. So the deletion really is
+  inert, on the one workload where it looked least likely to be, and the test was
+  always the cost.
+
+- **Four guards were deleted for failing a sabotage, and each read as load
+  bearing.** A `display: none` check in the extent union: the engine gives such a
+  child a zero box at the content origin and lays nothing inside it out at all, so
+  the union cannot move -- and the property is pinned by a test now, since it is
+  what makes the absence correct. And **two** `flex-shrink: 0` declarations, which
+  is the more interesting pair. The one on the content wrapper reads as the
+  declaration that makes the content overflow, and it changes nothing, because
+  what bounds the scroll is the **extent** of what is inside the wrapper rather
+  than the wrapper's own box: a squeezed wrapper is one its children overflow, and
+  they are drawn, scrolled and counted exactly as before. Verified the hard way as
+  well as by the suite -- the demo's output is byte for byte identical with and
+  without. The one on the bar was inert for a simpler reason: the viewport beside
+  it has a basis of zero and takes only the remainder, so nothing squeezes that
+  cell. And the `margin` prop, which is the entry above rather than a guard.
+
+  `union()`'s early return is the one survivor that stays, and it is declared: it
+  returns the outer rectangle unchanged where it already holds the inner, which
+  allocates nothing for the overwhelmingly common contained child and changes no
+  answer. One other survived and grew a test instead -- `scrollable` is written
+  only for a box that **clips**, which nothing can currently observe, since
+  `scrollRange()` is only ever asked of one. That is a contract the field's own
+  doc states, so the answer is to assert it rather than to delete the condition or
+  to leave the doc on a reader's goodwill: `should give a box that does not clip no
+region at all` is the pin, and the condition fails it.
+
+- **There is no `margin` prop, and one shipped for a review round.** It was
+  clamped, put on the `Axes` the keys and the wheel are gated on, and read by
+  neither -- so `ScrollBox({ margin: 5 })` moved by exactly the same amounts as
+  one without it, while the prop's own doc claimed the keyboard and the wheel read
+  it so that the row at the edge is not the last thing visible. A property that
+  parses and does nothing, which this file calls worse than one that does not
+  exist, with a doc comment asserting the behaviour on top.
+
+  Deleting it rather than wiring it is the answer because there is nothing to
+  wire: a margin means something to `scrollIntoView()`, which is revealing a
+  particular box and can leave room past it, and nothing at all to a **relative**
+  move -- a key scrolls by a line or a page and a notch by its own three lines,
+  and there is no edge for a margin to be measured against. The option is still
+  the caller's through `scrollIntoView(row, { margin: 1 })`. What the focus ring
+  passes is nothing, and giving a scroll box a margin the **ring** honours means
+  the ring reading one off the element, which is a `scroll-margin` property rather
+  than a component prop and a decision for whoever needs it.
+
+- **What is deliberately left out.** **Virtualization**, with the 72ms above as
+  the reason to revisit and the ticket's own instruction to defer it. **Scroll
+  chaining** past an inner box at its end, for the reason three entries up --
+  and the prose saying otherwise is a finding of its own: the demo and
+  `demos/README.md` both said a list _at its end_ hands the key on, which is the
+  guard misread as `by === 0` rather than as `range <= 0`, and a reader who
+  "fixed" the code to match would have made Home at the top scroll the outer
+  pane. The wheel's own comment said it too. Corrected in all three, and the
+  reason it is worth an entry is that a comment which would mislead somebody into
+  a real bug is worse than one that is merely absent.
+  **Arrows and steppers** on the bar, which are two more cells of a one-cell-wide
+  gutter and a mouse-only affordance in a keyboard-first medium. And a
+  `scrollbar-gutter` **property**, which would be a fourth thing in the style
+  table to say what `scrollbar: false` already says to the one component that
+  could honour it.
 
 ### The element tree
 
@@ -1709,6 +2079,13 @@ at`.
   appearing twice did to the placement. Matching by identity would collapse two
   appearances of one node into one box, which is the bug the layout engine
   already carries an entry for.
+- **It also writes the two rectangles more than one pass above needs.** The clip
+  is one and was always one; `extent` and `scrollable` joined it in SIG-110, both
+  taken on the way back up, and the argument is the clip's said twice over -- paint
+  culls against the extent, the hit test skips a subtree by it and `scrollRange()`
+  reads the scrollable region, so three walks computing one union would be three
+  answers to one question. "A scroll box" has what each of them is and why the
+  cheaper rule for either is unsound.
 - **Paint is `z-index` then document order, and `visibility: hidden` skips the
   element rather than the subtree.** Hidden is a skip rather than a return
   because `visibility` inherits: a descendant is hidden because it inherited the

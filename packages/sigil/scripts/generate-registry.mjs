@@ -78,6 +78,10 @@ const ENTRIES = [
 		desc: 'The five prompts: text, password, confirm, select and multiselect',
 		name: 'prompt',
 	},
+	{
+		desc: 'A scrolling viewport with a scrollbar, keyboard, wheel and a draggable thumb',
+		name: 'scroll-box',
+	},
 ];
 
 /** `./src/element/index.ts` -> `element`, read off the build's own entry list. */

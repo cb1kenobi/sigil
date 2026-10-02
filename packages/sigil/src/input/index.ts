@@ -53,6 +53,10 @@ import {
 // two are real code and this is the one file that needs them
 import { ancestry, hitTest } from '../element/hit.js';
 import type { Element } from '../element/index.js';
+// `scroll.js` imports nothing but types, for the same reason `hit.js` does: the
+// focus ring needs one function out of the element tree and reaching it through
+// the barrel would put the layout engine and the cascade behind this module
+import { scrollIntoView } from '../element/scroll.js';
 import { State } from '../signals/index.js';
 import {
 	PASTE_END,
@@ -523,6 +527,14 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 			current.set(element);
 			if (element) {
 				lastIndex = Math.max(0, focusables(root).indexOf(element));
+				// and it is brought on screen, unconditionally. The ring already
+				// skips a `display: none` subtree because there is nothing on screen
+				// there to move the focus to; a row below the fold is that case with
+				// the opposite answer -- it is on screen, somewhere the user cannot
+				// see -- so the fix is to scroll rather than to skip. Left out, Tab
+				// into a long list moves a highlight nobody can find, which reads as
+				// an app that stopped responding
+				scrollIntoView(element);
 			}
 		},
 

@@ -67,6 +67,8 @@ export const FRAMEWORK_CSS = `
  *   .sigil-table  .sigil-table-row  .sigil-table-cell
  *   .sigil-prompt  .sigil-prompt-line  .sigil-prompt-field
  *   .sigil-choice  .sigil-choice-pointer  .sigil-choice-mark  .sigil-choice-hint
+ *   .sigil-scroll  .sigil-scroll-row  .sigil-scroll-viewport  .sigil-scroll-content
+ *   .sigil-scroll-bar
  *   .sigil-help
  * A class with no rule is still a hook; giving it an empty rule would be a
  * declaration that says nothing and a line for somebody to wonder about.
@@ -98,6 +100,18 @@ export const FRAMEWORK_CSS = `
 .sigil-choice.is-active { color: cyan }
 .sigil-choice-mark.is-on { color: green }
 .sigil-choice-hint { dim: true }
+
+/*
+ * scroll box
+ *
+ * Two classes rather than one, because the track and the thumb are two elements
+ * stacked over one rectangle and each resolves its own style -- which is the
+ * whole reason the bar is built that way. Both are palette indices, so neither
+ * needs a light half: 8 is the one a light theme has to render text in, so it is
+ * dark there and grey here, and cyan is whatever the user chose it to be.
+ */
+.sigil-scroll-track { color: gray }
+.sigil-scroll-thumb { color: cyan }
 
 /* help */
 .sigil-help-heading { font-weight: bold }

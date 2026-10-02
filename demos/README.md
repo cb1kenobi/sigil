@@ -197,6 +197,7 @@ the package.
 | [`element/05-drag.js`](element/05-drag.js)           | A drag, and the capture that makes one work        |
 | [`element/06-panes.js`](element/06-panes.js)         | Full screen: a clip, a scroll and a stacking order |
 | [`element/07-selection.js`](element/07-selection.js) | Selecting cells, and OSC 52 to the clipboard       |
+| [`element/08-scroll.js`](element/08-scroll.js)       | Ten thousand rows, a scrollbar, and paint culling  |
 
 The whole stack in one file, and the point of it is what it prints at the end: a
 mutation says exactly what it implies and nothing else.
@@ -216,7 +217,28 @@ node demos/element/04-mouse.js   # move, click, scroll a tile, q
 node demos/element/05-drag.js    # press the bar and drag past the edge, q
 node demos/element/06-panes.js   # hover, scroll a pane, click a row, q
 node demos/element/07-selection.js  # drag, alt-drag, ctrl-y to copy, q
+node demos/element/08-scroll.js  # arrows, wheel, drag the thumb, tab, q
 ```
+
+**`08-scroll.js`** is ten thousand rows in a twenty-row window, and the number is
+the point: a frame paints the twenty rows on screen rather than the ten thousand
+that exist, because paint culls a subtree whose extent misses its clip. The paint
+goes from 34.8ms to 0.29ms on that tree — without it the demo is a slideshow, and
+with it what is left is the layout, which is what a windowed list would be for and
+is deliberately not here. Those two numbers are not this demo's to prove:
+`node packages/sigil/scripts/benchmark-paint-cull.mjs` is what measures them, and
+it checks the two grids are identical before it times anything.
+
+Four things to try, each of which is a claim. The arrows, PageUp/PageDown and
+Home/End are claimed only where the axis has somewhere to go, so a box whose
+content _fits_ hands the key on rather than swallowing it — while one at its end
+keeps it, since Home in a list already at its top is still that list's key rather
+than the outer pane's. The wheel is three lines a notch and up
+to four times that in a flick, which is the difference between crossing ten
+thousand rows and 3,333 notches. The thumb drags, and the press capture is what
+lets a drag wander off the bar and still end. And Tab walks the rows, with
+`scrollIntoView()` wired to the focus ring, so tabbing past the last visible row
+scrolls rather than leaving the highlight somewhere you cannot see.
 
 Each of the three mouse demos is for a claim the others cannot make.
 

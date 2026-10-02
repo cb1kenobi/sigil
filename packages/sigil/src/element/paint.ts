@@ -29,6 +29,10 @@ import { truncate } from '../wrap/index.js';
 // that has to stay clear of the drawing stack, since the input router imports it
 import { paintOrder } from './hit.js';
 import type { Element } from './index.js';
+// the clip predicate and the overlap test live in `scroll.js`, which imports
+// nothing but types: the input router reads the same two, and reaching them
+// through this module would put the drawing stack behind the key router
+import { clipsContent, overlaps } from './scroll.js';
 
 /**
  * The characters each border style is drawn with.
@@ -132,6 +136,61 @@ function intersect(outer: Box | undefined, inner: Box): Box {
 }
 
 /**
+ * The smallest rectangle holding both, or `a` where it already holds `b`.
+ *
+ * The early return is not tidiness: a child inside its parent is the common case
+ * by an enormous margin, so a tree of ten thousand rows allocates one rectangle
+ * per level that actually overflows rather than one per element.
+ *
+ * @param a - One rectangle.
+ * @param b - The other.
+ * @returns Their union.
+ */
+function union(a: Box, b: Box): Box {
+	const x = Math.min(a.x, b.x);
+	const y = Math.min(a.y, b.y);
+	const right = Math.max(a.x + a.width, b.x + b.width);
+	const bottom = Math.max(a.y + a.height, b.y + b.height);
+
+	if (x === a.x && y === a.y && right === a.x + a.width && bottom === a.y + a.height) {
+		return a;
+	}
+	return { height: bottom - y, width: right - x, x, y };
+}
+
+/**
+ * What a clipping box's content reaches, with the scroll taken back out.
+ *
+ * The content box unioned with what its children came to, which is what bounds a
+ * scroll offset -- and shifted back by the offset the placement used, so that the
+ * answer does not move when somebody writes a new one. The content box is in
+ * there as a floor, so a box whose content fits reports a region exactly its own
+ * size and therefore no range at all.
+ *
+ * @param node - The laid-out node.
+ * @param offset - The offset the placement shifted its children by.
+ * @param reach - The union of its children's extents, as placed.
+ * @returns The region, in the coordinates the children were placed in before
+ *   anything scrolled them.
+ */
+function scrollableRegion(
+	node: LayoutResult,
+	offset: { x: number; y: number } | undefined,
+	reach: Box | undefined
+): Box {
+	const base = node.content ?? node.box;
+	if (!reach) {
+		return base;
+	}
+
+	const unshifted =
+		offset && (offset.x !== 0 || offset.y !== 0)
+			? { height: reach.height, width: reach.width, x: reach.x + offset.x, y: reach.y + offset.y }
+			: reach;
+	return union(base, unshifted);
+}
+
+/**
  * Lays a tree out and writes every box back onto the element it belongs to.
  *
  * Matched by index rather than by identity, which is what the layout engine
@@ -139,11 +198,20 @@ function intersect(outer: Box | undefined, inner: Box): Box {
  * whatever `order`, `display: none`, or the same node appearing twice did to the
  * placement.
  *
- * The clip each element is subject to is written here as well, and that is the
- * one thing this walk decides rather than copies: it is every ancestor's
- * `overflow` intersected, it is what paint draws inside, and it is what a hit
- * test asks about -- so it is computed once here rather than a second time in
- * each of them.
+ * Two things this walk decides rather than copies, and both are rectangles more
+ * than one pass above needs.
+ *
+ * The **clip** is every ancestor's `overflow` intersected: what paint draws
+ * inside, and what a hit test asks about.
+ *
+ * The **extent** is the union of a subtree's boxes, taken on the way back up and
+ * bounded at a box that clips. It is what paint culls against and what the hit
+ * test skips a subtree by, and it is sound where the element's own box is not: a
+ * child with `overflow: visible` is drawn outside its parent, so a parent whose
+ * box misses the clip can still hold a descendant that does not. `visibility:
+ * hidden` contributes, because paint skips the element and not its children and a
+ * descendant that sets `visible` is drawn; `display: none` contributes a zero box
+ * at the content origin, which is already inside the parent and so moves nothing.
  *
  * @param root - The root element.
  * @param opts - The space available.
@@ -152,24 +220,44 @@ function intersect(outer: Box | undefined, inner: Box): Box {
 export function arrange(root: Element, opts: LayoutOptions): LayoutResult {
 	const result = layout(root, opts);
 
-	const walk = (element: Element, node: LayoutResult, clip: Box | undefined): void => {
+	const walk = (element: Element, node: LayoutResult, clip: Box | undefined): Box => {
 		element.box = node.box;
 		element.content = node.content;
 		element.clip = clip;
 
 		// what this element clips *for* is the clip its children are subject to,
 		// which is this one narrowed by its padding box where its `overflow` asks
-		const inner =
-			element.style.overflow === 'visible'
-				? clip
-				: intersect(clip, paddingBox(node.box, element.style));
+		const clipping = clipsContent(element.style);
+		const inner = clipping ? intersect(clip, paddingBox(node.box, element.style)) : clip;
+
+		let extent = node.box;
+		let reach: Box | undefined;
 
 		for (const [i, child] of element.children.entries()) {
 			const laid = node.children[i];
-			if (laid) {
-				walk(child, laid, inner);
+			if (!laid) {
+				continue;
+			}
+			const reached = walk(child, laid, inner);
+			// no `display: none` check, and one was written and then deleted for
+			// failing its own sabotage: the engine gives such a child a zero box at
+			// the content origin and lays nothing inside it out at all, so the union
+			// cannot move and the check changed no answer. Were that ever to change,
+			// the extent would merely grow -- which makes culling conservative rather
+			// than wrong, so this is also the safe direction to be relying on
+			reach = reach ? union(reach, reached) : reached;
+			// a clipping box's extent is its own border box and nothing further: its
+			// descendants cannot paint outside it however far they reach, which is
+			// what keeps a nested scroll region from reporting its whole content to
+			// the box around it
+			if (!clipping) {
+				extent = union(extent, reached);
 			}
 		}
+
+		element.extent = extent;
+		element.scrollable = clipping ? scrollableRegion(node, element.scroll, reach) : undefined;
+		return extent;
 	};
 
 	walk(root, result, undefined);
@@ -313,6 +401,17 @@ export function paint(root: Element, painter: Painter): void {
 	const walk = (element: Element): void => {
 		const area = element.box;
 		if (!area || element.style.display === 'none') {
+			return;
+		}
+
+		// culled: nothing this subtree draws can reach a cell its clip allows, so
+		// neither the drawing nor the walk is worth doing. No API and no new
+		// concept -- it is the rectangle `arrange()` already wrote for the hit test,
+		// asked one question earlier. `extent` is bounded at a clipping box, which
+		// is what makes this sound where the element's own box would not be: a child
+		// with `overflow: visible` is drawn outside its parent, and a parent that
+		// missed the clip would otherwise take that child with it
+		if (element.clip && element.extent && !overlaps(element.extent, element.clip)) {
 			return;
 		}
 
