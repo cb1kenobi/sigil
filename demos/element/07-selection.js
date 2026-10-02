@@ -25,12 +25,15 @@
  *   `selectable={false}`, because a plot's braille is a wall of block characters
  *   nobody wants in their clipboard. Drag across it and the highlight skips it.
  *
- * `y` copies with OSC 52, which is what makes this work over ssh -- the terminal
+ * Ctrl-Y copies with OSC 52, which is what makes this work over ssh -- the terminal
  * holds the clipboard, so a remote app can reach it. **There is no default
  * binding for copy and that is deliberate**: Ctrl-C is the abort, and
  * Ctrl-Shift-C reaches a terminal as the same byte Ctrl-C does without the Kitty
  * keyboard protocol -- so a framework claiming either would be claiming a key it
- * cannot hear or one it must not take. `y` is this app's choice.
+ * cannot hear or one it must not take. Ctrl-Y is this app's choice: it keeps vi's
+ * yank mnemonic, it cannot be typed into a field by accident the way a bare `y`
+ * can, and it needs no keyboard layout or Option-key setting to arrive, which
+ * Ctrl-6 and Alt-6 -- nano's mark and copy -- both do.
  *
  * And there is no success to report. A terminal does not answer an OSC 52,
  * several refuse it by default, and tmux needs `set -g set-clipboard on` -- so
@@ -61,7 +64,7 @@ if (process.stdin.isTTY && process.stdout.isTTY) {
 	`);
 
 	/** What the last copy came to, which is all anybody can be told. */
-	const status = new State('drag to select, y to copy');
+	const status = new State('drag to select, ctrl-y to copy');
 
 	/** A braille sparkline, which is the thing that must not copy. */
 	const plot = () => {
@@ -137,7 +140,7 @@ if (process.stdin.isTTY && process.stdout.isTTY) {
 			return;
 		}
 
-		if (event.key.name === 'y') {
+		if (event.key.ctrl && event.key.name === 'y') {
 			event.stop();
 			const copy = selection.copy();
 			status.set(

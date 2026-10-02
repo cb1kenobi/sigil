@@ -3582,8 +3582,15 @@ may be copied, `src/terminal/clipboard.ts` is OSC 52, and
   without the Kitty keyboard protocol, which is explicitly out of scope: a
   framework claiming it would be claiming a key it cannot hear. And there is no
   third convention a terminal app can rely on. So `enableSelection()` binds nothing
-  for it and `handle.copy()` is what an app calls; the demo picks `y`, which is
-  vi's yank and is the app's choice rather than the framework's.
+  for it and `handle.copy()` is what an app calls; the demo picks Ctrl-Y, which is
+  the app's choice rather than the framework's. It keeps vi's yank mnemonic while
+  being a chord a text field cannot swallow, which a bare `y` is not, and it
+  arrives on every layout with nothing configured -- which the two keys nano uses
+  do not. nano's `^6` is _Set Mark_ rather than copy, and it reaches a terminal as
+  `0x1E` only because `^` sits on the 6 key, so a layout that moves `^` sends
+  something else or nothing; nano's copy is `M-6`, which decodes cleanly here as
+  meta with a name of `6` and then depends on the terminal mapping Option to Esc+,
+  a per-profile setting on macOS. Both are hearable and neither is portable.
 - **Shift-arrow _is_ bound, and the asymmetry is about what can be heard.** A
   shift-arrow is a distinct sequence -- `CSI 1 ; 2 A` -- that nothing else claims,
   where no copy chord is; so the keyboard half is real and the copy half cannot be.
@@ -3820,8 +3827,8 @@ when extend follows a resize`. The other half is an app doing it to itself, and 
 - **An empty text writes nothing rather than an empty payload.** OSC 52 with an
   empty payload _clears_ the clipboard on most terminals, and "copy nothing" is not
   a request to throw away what the user copied an hour ago. So it is a refusal the
-  caller can see, which is also what makes `y` with nothing selected say so in the
-  demo rather than silently wiping.
+  caller can see, which is also what makes Ctrl-Y with nothing selected say so in
+  the demo rather than silently wiping.
 - **`CLIPBOARD_LIMIT` is 74,994 and the probe found the derivation to be one byte
   out.** It is what every other OSC 52 tool uses, derived as a 100,000-byte ceiling
   over base64's 4-for-3 -- and the nine bytes of `ESC ] 5 2 ; c ;` and `ESC \` put

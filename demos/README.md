@@ -215,7 +215,7 @@ node demos/element/03-focus.js   # Tab, Shift-Tab, type, q
 node demos/element/04-mouse.js   # move, click, scroll a tile, q
 node demos/element/05-drag.js    # press the bar and drag past the edge, q
 node demos/element/06-panes.js   # hover, scroll a pane, click a row, q
-node demos/element/07-selection.js  # drag, alt-drag, y to copy, q
+node demos/element/07-selection.js  # drag, alt-drag, ctrl-y to copy, q
 ```
 
 Each of the three mouse demos is for a claim the others cannot make.
@@ -246,7 +246,7 @@ it covers a pane and the pane underneath does not light up.
 
 **`07-selection.js`** is selection and the clipboard. Drag to select, alt-drag for
 a rectangle -- which is what copies one pane of a two-column layout without the
-other -- and `y` to send it with OSC 52, which is what makes this work over ssh.
+other -- and Ctrl-Y to send it with OSC 52, which is what makes this work over ssh.
 Three things to watch. The paragraph copies with its wrap points in it, because
 the selection is over the _laid-out_ grid rather than over the tree. The braille
 sparkline does not copy at all: `raw` elements are `selectable={false}` by
@@ -266,7 +266,7 @@ alt/option and shift does nothing there at all, which is the terminal's own
 choice and nothing an app can detect. That is the price of the feature rather
 than a bug in the demo, and it is why an app has to ask for tracking rather than
 getting it by default. **`07-selection.js` is the answer to it**: the app gives
-selection back, over the painted grid, with `y` to copy.
+selection back, over the painted grid, with Ctrl-Y to copy.
 
 **`:hover` costs a report per cell of pointer travel.** It needs xterm's `1003`,
 which reports every cell the pointer crosses for as long as the app runs, so the
