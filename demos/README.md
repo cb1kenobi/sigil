@@ -335,3 +335,72 @@ That throws the canvas's anchor away, so the backend no longer knows which scree
 row it is on, and the first report afterwards is the one that pays for asking — the
 status line does not move for that one click. `06-panes.js` has nothing to re-learn,
 because a full-screen canvas is always at the origin.
+
+## The renderer
+
+|                                                |                                                      |
+| ---------------------------------------------- | ---------------------------------------------------- |
+| [`renderer/01-app.js`](renderer/01-app.js)     | Bodies that run once, effects that update in place   |
+| [`renderer/02-tasks.js`](renderer/02-tasks.js) | A list that keeps what each row holds, through moves |
+
+Both need a terminal on both sides, because they read what you press.
+
+```sh
+node demos/renderer/01-app.js    # Tab, space, a, d, q
+node demos/renderer/02-tasks.js  # j/k, space, e, x, J/K, f, n, q
+```
+
+**`01-app.js`** is what a component runtime _is_. A component is a function of
+props that builds elements, its body runs **once**, and the reactive parts are
+`createEffect()`s that write to the node they built — so the interesting thing to
+watch is what does _not_ happen: the counter prints how many component bodies have
+run, and that number does not move however much the screen changes.
+
+**`02-tasks.js`** is the question that justifies the tax. `Show` and `For` exist
+because an `if` in a body runs once and a `.map()` builds the list it saw, so a
+conditional and a list have to be components — the only thing that can own a
+branch and dispose it. What you buy for writing them out is in the reorder: each
+row owns state nothing above it can see, and `J`/`K` move the row without the
+expansion, the move count or the focus going anywhere, because a row keyed by
+identity is the _same_ row rather than a new one at a new position.
+
+The honest half is the filter. `f` cycles all/open/done, and a row filtered out is
+**disposed** rather than hidden — so its expansion is gone when it comes back.
+That is `For` keying on the items it was given, and `n` is the same rule one level
+up: collapsing the list with `Show` loses every expansion at once. Hiding is
+`visibility` and a different question.
+
+`n` is also where the deferred frame shows through. Collapsing takes the focus with
+the rows, and the ring does not repair that — nothing focused is a legitimate state,
+and the element it would repair _to_ is exactly what has gone — so the app puts the
+focus back itself on the way out. The obvious spelling does not work:
+`listOpen.set(true)` only _marks_ the branch stale, so focusing immediately walks a
+tree that still has no rows in it. There is a `view.frame()` in between, and that is
+the one line of this demo you would not have guessed.
+
+The panel at the bottom is why this demo was written rather than merely run. `e`
+inspects a task, and the panel is a `Show` whose `when` produces a **value** — the
+shape anybody writes for a detail pane, an error banner or a selected row. Press
+`e` on one task and then on another and it follows, because `children` is handed
+an _accessor_ onto what `when` produced. It was handed the value itself until this
+demo existed, and then it did not follow: both tasks are present, so presence never
+moved, so the branch was never rebuilt, and the panel described the first task for
+the rest of the run.
+
+Without a terminal on **both** sides both print one line and exit `0`, which is
+what the component demos do and for the same reason — the keys arrive on stdin and
+the frame is drawn to the output, so either one being a pipe means there is nothing
+to run:
+
+```sh
+node demos/renderer/01-app.js | cat
+# This demo reads keys and draws frames, so it needs a terminal on both sides.
+```
+
+Both sides is the point rather than pedantry, and `| cat` is exactly the case that
+needs it: run from a terminal, stdin is still a TTY while stdout is a pipe. A guard
+that asked only about stdin let that through, drew half a frame, and then threw an
+`InputError` stack over a minified module — which is the failure
+`demos/terminal/01-capabilities.js` already carries an entry for, and which four
+demos still had. `demos.test.ts` cannot catch it: it spawns with stdin ignored, so
+every demo it runs takes the no-terminal branch.

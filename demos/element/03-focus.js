@@ -18,8 +18,12 @@ import { createInput, isAbort } from '@ttylabs/sigil/input';
 import { Cascade, parseStylesheet, Restyler } from '@ttylabs/sigil/style';
 import { graphemes } from '@ttylabs/sigil/width';
 
-if (!process.stdin.isTTY) {
-	console.log('This demo reads keys, so it needs a terminal. Run it without a pipe.');
+// both sides, for the reason `demos/terminal/01-capabilities.js` records:
+// `createInput()` refuses to exist unless stdin *and* the terminal's output are
+// terminals, so asking only about stdin let `| cat` through *from* a terminal and
+// threw an `InputError` stack over a minified module
+if (!process.stdin.isTTY || !process.stdout.isTTY) {
+	console.log('This demo reads keys and draws frames, so it needs a terminal on both sides.');
 	process.exit(0);
 }
 

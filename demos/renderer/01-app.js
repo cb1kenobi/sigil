@@ -23,8 +23,14 @@ import { createEffect, For, onMount, render, Show } from '@ttylabs/sigil/rendere
 import { State } from '@ttylabs/sigil/signals';
 import { Cascade, parseStylesheet } from '@ttylabs/sigil/style';
 
-if (!process.stdin.isTTY) {
-	console.log('This demo reads keys, so it needs a terminal. Run it without a pipe.');
+// both sides, which is the rule `demos/terminal/01-capabilities.js` is written
+// down for: `createInput()` refuses to exist unless stdin *and* the terminal's
+// output are terminals, because the keys arrive on one and the frame is drawn to
+// the other. Asking only about stdin let `| cat` through *from a terminal*, where
+// stdin is a TTY and stdout is a pipe, and what reached the screen was half a
+// frame and then an `InputError` stack over a minified module
+if (!process.stdin.isTTY || !process.stdout.isTTY) {
+	console.log('This demo reads keys and draws frames, so it needs a terminal on both sides.');
 	process.exit(0);
 }
 

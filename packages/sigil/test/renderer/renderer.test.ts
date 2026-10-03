@@ -1,6 +1,7 @@
 import { createCanvas } from '../../src/canvas/index.js';
 import { box, type Element, text } from '../../src/element/index.js';
 import { parseCapabilityResponse } from '../../src/input/capabilities.js';
+import { createInput } from '../../src/input/index.js';
 import {
 	createBranch,
 	createContext,
@@ -101,6 +102,49 @@ function harness(width = 20, height = 4) {
 			}
 		},
 		terminal,
+	};
+}
+
+/**
+ * A terminal whose stdin is a TTY nothing is typing on.
+ *
+ * `createInput()` refuses to exist where stdin is not a terminal, which is the
+ * rule a router with nobody to read from is written down for -- so a test about
+ * the focus ring needs one of these rather than the `harness()` above, whose
+ * terminal has no streams at all.
+ */
+function keyboard() {
+	const stdin = {
+		isTTY: true,
+		off() {
+			return this;
+		},
+		on() {
+			return this;
+		},
+		pause() {
+			return this;
+		},
+		resume() {
+			return this;
+		},
+		setEncoding() {
+			return this;
+		},
+		setRawMode() {
+			return this;
+		},
+	};
+
+	return {
+		terminal: createTerminal({
+			env: {},
+			isTTY: true,
+			proc: { on() {}, pid: 1, removeListener() {} } as never,
+			stderr: { isTTY: true, write() {} } as never,
+			stdin: stdin as never,
+			stdout: { isTTY: true, write() {} } as never,
+		}),
 	};
 }
 
@@ -515,6 +559,122 @@ describe('Show', () => {
 		expect(builds).toBe(1);
 		view.dispose();
 	});
+
+	it('should hand the branch an accessor, so a value that moved still reaches it', () => {
+		// the other half of the rule above, and the one combination that is wrong:
+		// a branch kept across a value change has to be able to read the new value.
+		// Handed the value itself, a `when` producing one object and then another
+		// left the branch describing the first for good -- both are present, so
+		// presence never moved, so nothing was ever rebuilt. Found by writing
+		// `demos/renderer/02-tasks.js`, whose detail pane is exactly this shape
+		const h = harness();
+		const ada = { name: 'ada' };
+		const grace = { name: 'grace' };
+		const user = new State<{ name: string } | undefined>(ada);
+		let builds = 0;
+
+		const view = render(
+			() =>
+				box(
+					{},
+					Show({
+						children: (who) => {
+							builds++;
+							const label = text('');
+							// braced rather than a concise body, because `setText` returns
+							// `this` for chaining and `createEffect`'s parameter is
+							// `() => void | Cleanup` -- a union, which gives up the
+							// return-anything leniency a bare `() => void` would have had
+							createEffect(() => {
+								label.setText(who().name);
+							});
+							return label;
+						},
+						when: () => user.get(),
+					})
+				),
+			{ backend: h.backend, effects, terminal: h.terminal }
+		);
+
+		expect(h.picture().split('\n')[0]).toBe('ada.................');
+
+		user.set(grace);
+		view.frame();
+		expect(h.picture().split('\n')[0]).toBe('grace...............');
+		// and the branch was *kept* while it followed, which is what makes the
+		// accessor necessary rather than merely sufficient: rebuilding on a value
+		// change would have given the same picture and lost the branch's own state
+		expect(builds).toBe(1);
+
+		view.dispose();
+	});
+
+	it('should leave a build-time read of that accessor a snapshot', () => {
+		// the accessor makes a live read *possible*; it does not make a build-time
+		// read live, because the branch is not rebuilt while presence holds. Same
+		// contract as `For`'s index, and worth pinning so that the one way to follow
+		// a value -- read it in an effect -- is not mistaken for two.
+		//
+		// Named for what it pins rather than for the mechanism: the first version of
+		// this said "untracked at build time", and deleting the `untrack()` around the
+		// build leaves it green, because the early return is what stops the rebuild.
+		// What that `untrack()` really buys has a test of its own, under `For`
+		const h = harness();
+		const user = new State<{ name: string } | undefined>({ name: 'ada' });
+
+		const view = render(
+			() =>
+				box(
+					{},
+					Show({
+						// read once, at build time, and never again
+						children: (who) => text(who().name),
+						when: () => user.get(),
+					})
+				),
+			{ backend: h.backend, effects, terminal: h.terminal }
+		);
+
+		user.set({ name: 'grace' });
+		view.frame();
+		expect(h.picture().split('\n')[0]).toBe('ada.................');
+		view.dispose();
+	});
+
+	it('should not let the branch builder make the condition depend on what it read', () => {
+		// what the `untrack()` around the build buys, which a review round had to
+		// refute a claim to find: a builder that reads a signal *directly* rather
+		// than in an effect would otherwise subscribe `Show`'s own effect to it, so
+		// an unrelated change re-evaluates `when` -- and `when` is where presence
+		// comes from, which is the one answer a conditional must not take from
+		// somewhere else. The same guard `For` has one block down, and the snapshot
+		// test above cannot see it: the early return on an unchanged presence hides
+		// the re-run, so what has to be counted is the `when` evaluations
+		const effects = createEffects();
+		const theme = new State('dark');
+		const on = new State(true);
+		let conditions = 0;
+
+		createRoot(() => {
+			Show({
+				children: () => text(theme.get()),
+				when: () => {
+					conditions++;
+					return on.get();
+				},
+			});
+		}, effects.effect);
+
+		expect(conditions).toBe(1);
+		theme.set('light');
+		effects.flush();
+		expect(conditions).toBe(1);
+
+		// and the condition is still live, so this is not a dead `Show`
+		on.set(false);
+		effects.flush();
+		expect(conditions).toBe(2);
+	});
 });
 
 describe('For', () => {
@@ -687,6 +847,98 @@ describe('For', () => {
 		view.frame();
 		expect(h.picture().split('\n')[0]).toBe('a...................');
 		view.dispose();
+	});
+
+	it('should keep the focus on a row that moved', () => {
+		// the reason keying exists, stated as the thing a user would feel: position
+		// keying rebuilds every row after the change, and the focused element is
+		// then one nothing is holding any more. Every other `For` test here asserts
+		// element identity, which is the mechanism; this asserts the consequence,
+		// across the one layer that reads it
+		const h = harness();
+		const a = { n: 'a' };
+		const b = { n: 'b' };
+		const items = new State<readonly { n: string }[]>([a, b]);
+		const made = new Map<string, Element>();
+
+		const view = render(
+			() =>
+				box(
+					{},
+					For({
+						children: (item) => {
+							const row = box({ focusable: true }, text(item.n));
+							made.set(item.n, row);
+							return row;
+						},
+						each: () => items.get(),
+						props: { 'flex-direction': 'column' },
+					})
+				),
+			{ backend: h.backend, effects, terminal: h.terminal }
+		);
+
+		const input = createInput({ root: view.root, terminal: keyboard().terminal });
+		input.focus.focus(made.get('a'));
+		expect(input.focus.current.get()).toBe(made.get('a'));
+
+		items.set([b, a]);
+		view.frame();
+
+		// the same element, now second in the ring rather than first -- so a Tab
+		// from here goes to `b`, which is what "the focus moved with the row" means
+		expect(input.focus.current.get()).toBe(made.get('a'));
+		expect(input.focus.ring()).toEqual([made.get('b'), made.get('a')]);
+
+		// and then a key, which is what the first version of this test was missing.
+		// Placing a row is `insertBefore`, which is a removal followed by an
+		// insertion -- so the focus repair has to decide that a row which *ended*
+		// attached was never unmounted, and that decision is only taken when a key
+		// arrives. Without the key the assertions above hold with the repair
+		// repairing unconditionally, which is a sabotage that survived: it would
+		// hand the focus to whatever now sits where `a` used to, and the second `J`
+		// of a `J J J` in the demo would be moving the wrong row
+		input.feed('z');
+		expect(input.focus.current.get()).toBe(made.get('a'));
+
+		input.stop();
+		view.dispose();
+	});
+
+	it('should not let a row reading a signal make the reconcile depend on it', () => {
+		// what the `untrack()` around the row builder buys, which nothing asked
+		// about: a row body that reads a signal *directly* rather than in an effect
+		// -- a theme, a width, a format -- would otherwise be read while the
+		// reconcile's own effect is evaluating, so the whole list re-reconciles
+		// whenever it moves. One row and one signal is enough to show it; at a
+		// hundred rows it is a hundred-row walk for a value one row looked at
+		const effects = createEffects();
+		const theme = new State('dark');
+		const items = new State<readonly { n: string }[]>([{ n: 'a' }]);
+		let reconciles = 0;
+
+		createRoot(() => {
+			box(
+				{},
+				For({
+					children: (item) => text(`${item.n}-${theme.get()}`),
+					each: () => {
+						reconciles++;
+						return items.get();
+					},
+				})
+			);
+		}, effects.effect);
+
+		expect(reconciles).toBe(1);
+		theme.set('light');
+		effects.flush();
+		expect(reconciles).toBe(1);
+
+		// and the list itself still reconciles, so this is not a dead `For`
+		items.set([{ n: 'b' }]);
+		effects.flush();
+		expect(reconciles).toBe(2);
 	});
 });
 
@@ -930,7 +1182,7 @@ describe('a builder that throws', () => {
 					if (explode) {
 						throw new Error('nope');
 					}
-					return text(`v${n}`);
+					return text(`v${n()}`);
 				},
 				when: () => which.get() || false,
 			});

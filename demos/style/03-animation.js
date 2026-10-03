@@ -69,10 +69,13 @@ const sheet = parseStylesheet(`
 	.field:focus { border-color: cyan }
 `);
 
-if (process.stdin.isTTY) {
+// both sides, for the reason `demos/terminal/01-capabilities.js` records: the
+// keys arrive on stdin and the frames are drawn to the output, so asking only
+// about stdin let `| cat` through *from* a terminal and threw a stack
+if (process.stdin.isTTY && process.stdout.isTTY) {
 	run();
 } else {
-	console.log('This demo animates and reads keys, so it needs a terminal. Run it without a pipe.');
+	console.log('This demo animates and reads keys, so it needs a terminal on both sides.');
 	console.log('Piped, every animation collapses to its end state -- which is what you would want');
 	console.log('in a log: one line per thing that happened rather than one per tick.');
 }

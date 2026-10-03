@@ -31,8 +31,16 @@ export interface ShowProps<T> {
 	fallback?: () => Element;
 	/** The wrapper's own props. */
 	props?: ElementProps;
-	/** What to build, handed what `when` produced. */
-	children: (value: Truthy<T>) => Element;
+	/**
+	 * Builds the branch.
+	 *
+	 * Handed an accessor onto what `when` produced rather than the value itself,
+	 * for the reason `For`'s index is one: the branch is kept while presence
+	 * holds, so a value passed at build time is frozen the moment the branch was
+	 * built. Reading the accessor inside an effect is how a branch follows a
+	 * value that changed without presence changing with it.
+	 */
+	children: (value: () => Truthy<T>) => Element;
 	/** Read reactively; `false`, `null` and `undefined` are absent. */
 	when: () => T;
 }
@@ -48,7 +56,16 @@ export interface ShowProps<T> {
  * The branch is rebuilt only when presence *changes*, not on every change to
  * what `when` returned -- a `when` that reads a counter would otherwise tear its
  * branch down and build it again on every tick, losing whatever state the branch
- * held. What the branch is handed is therefore read untracked at build time.
+ * held.
+ *
+ * Which is why `children` is handed an **accessor** rather than the value. The
+ * two go together and only one pairing is coherent: a branch kept across a value
+ * change has to be able to read the new value, and a branch handed the value
+ * itself would have to be rebuilt whenever it moved -- which is the thing the
+ * paragraph above refuses. Handing over the value *and* keeping the branch is the
+ * one combination that is wrong, and it is what this used to do: a
+ * `when: () => user.get()` whose user changed from one object to another left the
+ * branch rendering the first one for good, because presence never moved.
  *
  * @param props - The branch, the condition, and the wrapper's props.
  * @returns The wrapper element.
@@ -57,10 +74,22 @@ export function Show<T>(props: ShowProps<T>): Element {
 	const host = box(props.props ?? {});
 	let dispose: (() => void) | undefined;
 	let showing: boolean | undefined;
+	/**
+	 * The last value `when` produced while present, so that the accessor the
+	 * branch holds is live. Never cleared: the only thing that can read it is a
+	 * branch, and a branch only exists while presence held -- so there is no
+	 * window in which it answers for an absence.
+	 */
+	const current = new State<Truthy<T> | undefined>(undefined);
 
 	createEffect(() => {
 		const value = props.when();
 		const present = value !== false && value !== null && value !== undefined;
+		// written before the early return, because a value that moved while
+		// presence held is exactly the case the early return is taken for
+		if (present) {
+			current.set(value as Truthy<T>);
+		}
 		if (present === showing) {
 			return;
 		}
@@ -72,7 +101,7 @@ export function Show<T>(props: ShowProps<T>): Element {
 		// claiming a branch that was gone. Either way the effect caches what it
 		// threw and goes clean, so the presence that came back matched the recorded
 		// one and returned early -- and the host stayed empty for good
-		const build = present ? () => props.children(value as Truthy<T>) : props.fallback;
+		const build = present ? () => props.children(() => current.get() as Truthy<T>) : props.fallback;
 		let branch: { dispose: () => void; owner: Owner } | undefined;
 		let built: Element | undefined;
 		if (build) {
