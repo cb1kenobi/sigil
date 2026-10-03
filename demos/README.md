@@ -50,7 +50,8 @@ node demos/parser/06-lazy-commands.js --help  # commands listed by name alone
 The interesting half. Pipe any of them and there is no cursor to move, so
 nothing is repainted — a spinner writes one line per change instead of one per
 frame, a bar one line every ten percent, and a typewriter the whole text at once
-rather than one line per keystroke:
+rather than one line per step -- seven lines for that run rather than about a
+hundred:
 
 ```sh
 node demos/components/01-spinner.js | cat

@@ -5,9 +5,9 @@
  *   node demos/components/07-typewriter.js | cat     <- the same run, with no terminal
  *
  * Piped, there is nothing to animate, so the whole text arrives at once and each
- * change is one line. A build log gets the three lines it would have got anyway
- * rather than one line per keystroke -- and the same is true under
- * `SIGIL_REDUCED_MOTION=reduce` on a real terminal.
+ * change is one line: seven lines for this run, because the third typewriter has
+ * four things appended to it. One line per step would be about a hundred.
+ * The same is true under `SIGIL_REDUCED_MOTION=reduce` on a real terminal.
  *
  * It reads no keys, so there is nothing here that needs a terminal on both sides.
  */

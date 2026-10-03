@@ -650,10 +650,13 @@ describe('typewriterReveal()', () => {
 				const it = drive('ab', { animate: () => true, interval: 10 });
 				vi.advanceTimersByTime(10);
 
+				// exactly where it was, rather than merely no further back: an append
+				// that moved the position at all would be revealing early, and `>=`
+				// would have held for that as readily as for the right answer
 				const before = it.state.revealed.get();
 				for (const more of ['c', 'd', 'e']) {
 					it.state.text.set(it.state.text.get() + more);
-					expect(it.state.revealed.get()).to.be.greaterThanOrEqual(before);
+					expect(it.state.revealed.get()).to.equal(before);
 				}
 
 				it.dispose();
