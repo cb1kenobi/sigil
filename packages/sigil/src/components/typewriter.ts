@@ -198,9 +198,10 @@ export interface TypewriterState {
 	 * would have to round back to a boundary and re-reveal what was already on
 	 * screen, which is a visible stutter on every append.
 	 *
-	 * It is therefore allowed to sit inside a cluster for exactly as long as it
-	 * takes the next step to land, which is the only moment anything can put it
-	 * there.
+	 * Which means it can land inside a cluster -- the characters two texts share
+	 * need not be a boundary of either -- so the reveal moves it forward to the end
+	 * of the step it fell inside rather than leaving it there. An earlier version let
+	 * it sit until the next step, and that drew a lone high surrogate for one frame.
 	 */
 	readonly revealed: State<number>;
 	/** What is being typed. */
