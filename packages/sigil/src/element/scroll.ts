@@ -165,6 +165,16 @@ function offsetInto(
  * middle: `scrollTo()` marks layout, and the frame that follows is where the
  * boxes move.
  *
+ * The chain is collected **before** anything scrolls, and that is not tidiness:
+ * `scrollTo()` dispatches `onScroll`, a handler may mutate the tree -- rebuilding
+ * a window is exactly what one is for -- and walking `.parent` as it went meant
+ * an ancestor detached by a nearer one's handler ended the walk in silence.
+ * Measured over three nested clipping boxes: with the innermost's handler
+ * detaching the one above it, the outermost was never scrolled at all and
+ * `scrollIntoView()` still answered `true`. A list of elements taken up front
+ * cannot be shortened by what the scrolling does, and a detached ancestor is then
+ * merely one more box the target is no longer inside.
+ *
  * @param target - The element to reveal.
  * @param opts - How much room to leave around it.
  * @returns Whether anything scrolled.
@@ -176,12 +186,17 @@ export function scrollIntoView(target: Element, opts: ScrollIntoViewOptions = {}
 		return false;
 	}
 
+	const chain: Element[] = [];
+	for (let at = target.parent; at; at = at.parent) {
+		chain.push(at);
+	}
+
 	const margin = Math.max(0, Math.trunc(opts.margin ?? 0));
 	let shiftX = 0;
 	let shiftY = 0;
 	let moved = false;
 
-	for (let at = target.parent; at; at = at.parent) {
+	for (const at of chain) {
 		if (!clipsContent(at.style)) {
 			continue;
 		}

@@ -209,16 +209,17 @@ the package.
 
 ## The element tree
 
-|                                                      |                                                    |
-| ---------------------------------------------------- | -------------------------------------------------- |
-| [`element/01-tree.js`](element/01-tree.js)           | A tree, a stylesheet, a layout, and cells          |
-| [`element/02-overlay.js`](element/02-overlay.js)     | An overlay, a stacking order, and a scrolling pane |
-| [`element/03-focus.js`](element/03-focus.js)         | One router owns stdin, and Tab moves the focus     |
-| [`element/04-mouse.js`](element/04-mouse.js)         | `:hover` from a hit test, a click, and the wheel   |
-| [`element/05-drag.js`](element/05-drag.js)           | A drag, and the capture that makes one work        |
-| [`element/06-panes.js`](element/06-panes.js)         | Full screen: a clip, a scroll and a stacking order |
-| [`element/07-selection.js`](element/07-selection.js) | Selecting cells, and OSC 52 to the clipboard       |
-| [`element/08-scroll.js`](element/08-scroll.js)       | Ten thousand rows, a scrollbar, and paint culling  |
+|                                                      |                                                                 |
+| ---------------------------------------------------- | --------------------------------------------------------------- |
+| [`element/01-tree.js`](element/01-tree.js)           | A tree, a stylesheet, a layout, and cells                       |
+| [`element/02-overlay.js`](element/02-overlay.js)     | An overlay, a stacking order, and a scrolling pane              |
+| [`element/03-focus.js`](element/03-focus.js)         | One router owns stdin, and Tab moves the focus                  |
+| [`element/04-mouse.js`](element/04-mouse.js)         | `:hover` from a hit test, a click, and the wheel                |
+| [`element/05-drag.js`](element/05-drag.js)           | A drag, and the capture that makes one work                     |
+| [`element/06-panes.js`](element/06-panes.js)         | Full screen: a clip, a scroll and a stacking order              |
+| [`element/07-selection.js`](element/07-selection.js) | Selecting cells, and OSC 52 to the clipboard                    |
+| [`element/08-scroll.js`](element/08-scroll.js)       | Ten thousand rows, a scrollbar, and paint culling               |
+| [`element/09-virtual.js`](element/09-virtual.js)     | The same list windowed: a hundred elements, not thirty thousand |
 
 The whole stack in one file, and the point of it is what it prints at the end: a
 mutation says exactly what it implies and nothing else.
@@ -227,7 +228,7 @@ mutation says exactly what it implies and nothing else.
 node demos/element/01-tree.js
 ```
 
-The last five need a terminal on both sides, because they read what you press. In
+The last six need a terminal on both sides, because they read what you press. In
 `04-mouse.js` the highlight is zero lines of component code for the same reason
 the focus ring's is: the hit test sets a state and the stylesheet matches it with
 `:hover`.
@@ -239,14 +240,16 @@ node demos/element/05-drag.js    # press the bar and drag past the edge, q
 node demos/element/06-panes.js   # hover, scroll a pane, click a row, q
 node demos/element/07-selection.js  # drag, alt-drag, ctrl-y to copy, q
 node demos/element/08-scroll.js  # arrows, wheel, drag the thumb, tab, q
+node demos/element/09-virtual.js # the same list, windowed
 ```
 
 **`08-scroll.js`** is ten thousand rows in a twenty-row window, and the number is
 the point: a frame paints the twenty rows on screen rather than the ten thousand
 that exist, because paint culls a subtree whose extent misses its clip. The paint
 goes from 34.8ms to 0.29ms on that tree — without it the demo is a slideshow, and
-with it what is left is the layout, which is what a windowed list would be for and
-is deliberately not here. Those two numbers are not this demo's to prove:
+with it what is left is the layout, which is what windowing is for and is
+deliberately not here: `09-virtual.js` is this list windowed. Those two numbers
+are not this demo's to prove:
 `node packages/sigil/scripts/benchmark-paint-cull.mjs` is what measures them, and
 it checks the two grids are identical before it times anything.
 
@@ -260,6 +263,28 @@ thousand rows and 3,333 notches. The thumb drags, and the press capture is what
 lets a drag wander off the bar and still end. And Tab walks the rows, with
 `scrollIntoView()` wired to the focus ring, so tabbing past the last visible row
 scrolls rather than leaving the highlight somewhere you cannot see.
+
+**`09-virtual.js`** is that list with only the visible rows **built**, and it is
+meant to be run straight after `08-scroll.js`: the two look the same, scroll the
+same, report the same range and draw the thumb in the same place. The only visible
+difference is the line at the bottom, which counts the elements that exist —
+thirty thousand against about fifty. Paint culling took the paint from 34.8ms to
+0.29ms and left the **arrange** as the whole frame at 72ms; an element that does
+not exist is not measured, not re-resolved and not painted, so a wheel notch goes
+from 122ms to 0.59ms. What makes it cheap is that it is only a component: a spacer
+above and below is an ordinary box with a declared height, so nothing in the
+layout engine, the cascade, the paint walk or `scrollRange()` knows a window is in
+play. `node packages/sigil/scripts/benchmark-virtual-list.mjs` is what measures
+it, and it asserts three sides paint the same frame before it times any of them.
+
+Two things to try, and the second is the tier's honest edge. Scroll it every way —
+Home and End are the sharpest, because the thumb reaches the very top and the very
+bottom, which it could not do if the range came from what was built. Then press
+Tab: the rows are focusable and Tab walks the ones that **exist**, so the focus can
+never end up somewhere you cannot see — which is the failure `scrollIntoView()` is
+wired to the focus ring to prevent, and a window makes it unreachable rather than
+fixed. What it costs is the other direction: tabbing past the last visible row
+wraps instead of scrolling on, because a row nobody built is not in the ring.
 
 Each of the three mouse demos is for a claim the others cannot make.
 

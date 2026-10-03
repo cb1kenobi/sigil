@@ -1772,14 +1772,18 @@ culling is two lines in passes that already existed.
   is the virtualization argument stated as a number rather than as a worry, and it
   is why this ticket did the first tier only: an element that does not exist is not
   measured, not re-resolved and not painted, and nothing short of not building it
-  addresses the 72ms.
+  addresses the 72ms. Which SIG-131 then did -- the 72ms is 0.59ms, under
+  "Windowing a long list" below -- so read this paragraph as the measurement that
+  filed that ticket rather than as a cost still outstanding.
 
   It is also worth knowing what shape the win has, because it is not
   `O(visible)`. The content box of a scrolled list still has ten thousand
   children and paint still visits each one to cull it, so the cost is
   `O(children of the scrolled container)` -- 0.119ms at 1,000 rows against
   0.290ms at 10,000, which the script's own row-count argument reproduces. Fast
-  enough that it stops being the frame, and not a substitute for a windowed list.
+  enough that it stops being the frame, and not a substitute for a windowed list:
+  that one is `O(visible)` and reads 0.58ms at both sizes, which is the
+  comparison the entry below is written around.
 
 - **What pins the paint cull is a counter, and the picture beside it answers a
   different question.** `Painter.clip()` **always** invokes its callback and the
@@ -1998,8 +2002,7 @@ region at all` is the pin, and the condition fails it.
   the ring reading one off the element, which is a `scroll-margin` property rather
   than a component prop and a decision for whoever needs it.
 
-- **What is deliberately left out.** **Virtualization**, with the 72ms above as
-  the reason to revisit and the ticket's own instruction to defer it. **Scroll
+- **What is deliberately left out.** **Scroll
   chaining** past an inner box at its end, for the reason three entries up --
   and the prose saying otherwise is a finding of its own: the demo and
   `demos/README.md` both said a list _at its end_ hands the key on, which is the
@@ -2012,7 +2015,270 @@ region at all` is the pin, and the condition fails it.
   gutter and a mouse-only affordance in a keyboard-first medium. And a
   `scrollbar-gutter` **property**, which would be a fourth thing in the style
   table to say what `scrollbar: false` already says to the one component that
-  could honour it.
+  could honour it. **Virtualization** was the fourth entry here and is the
+  section below: the 72ms it named is 0.59ms now.
+
+#### Windowing a long list: two spacers, and one hook on the element
+
+SIG-110 left the arrange as the whole frame and said why: "an element that does
+not exist is not measured, not re-resolved and not painted, and nothing short of
+not building it addresses the 72ms." This is not building it.
+`rows` on `ScrollBox` is the component, `rowWindow()` is the arithmetic,
+`Element.onScroll` is the one thing the framework had to grow, and
+`packages/sigil/scripts/benchmark-virtual-list.mjs` is what measures it.
+
+- **The whole mechanism is two boxes with a declared height, and the four
+  contracts a windowed list was supposed to break turn out to be kept for
+  free.** That is the finding, and it is what made this a small change rather
+  than a large one. The rows the viewport can see are built; a spacer above and
+  a spacer below stand in for the rest. Nothing in the layout engine, the
+  cascade, the paint walk, `Element.scrollable` or `scrollRange()` knows a
+  window is in play -- a spacer is an ordinary box, so the content box's extent
+  spans the whole list and the range, the clamp and the **thumb** are the
+  answers they would be over every row. Measured rather than argued, and before
+  anything else was written: ten thousand two-text rows at 80x24, at seven
+  offsets including both ends and one past the end, paint a **byte for byte
+  identical** frame and report an identical range. `selectableAt()` agrees cell
+  for cell at every offset too, because a spacer draws nothing and only `text`
+  and `raw` write to the mask -- which is the rule that walk already followed.
+
+- **`flex-shrink: 0` on the spacers is the single declaration the feature rests
+  on, and without it the range is 1.** A box with no children has no
+  content-based automatic minimum -- which the layout engine records as a
+  decision, for the reason that reporting its declared height froze it at that
+  height and pushed it out of a container too short to hold it -- so a spacer
+  defaults to `flex-shrink: 1` and is squeezed to **nothing**. Measured in both
+  directions on the first probe: with it, a 10,000-row list reports a range of
+  9,976 and paints the rows; without it, a range of **1** and an empty viewport.
+  It is also the opposite call from the two `flex-shrink: 0` declarations SIG-110
+  deleted for being inert, and the difference is exactly the entry above: what
+  bounds a scroll is the **extent** of what is inside the content wrapper, so
+  squeezing the wrapper changes nothing and squeezing the thing whose height
+  _is_ the arithmetic changes everything.
+
+- **Every row gets a slot of exactly the declared height, so "fixed height" is
+  true of the tree rather than of the intention.** The ticket asked for the
+  decision to be explicit and it is: the first tier is **fixed height only**,
+  declared and not estimated. The range is `count * height - viewport`, so a
+  height that disagrees with how the rows lay out is a scrollbar that moves
+  while you read and a clamp that stops short of the end -- and an estimate
+  cannot be corrected without measuring rows nobody built, which is the cost
+  being avoided. So the component holds each row to the height it was told
+  rather than guessing and apologising: a slot that cannot shrink, which is one
+  extra element per visible row and about 25 of them. A row that draws past its
+  slot overflows it, which is what the engine does with any overflow and is
+  visible rather than silently out by one.
+
+- **`Element.onScroll` is the one hook, because `scrollTo()` is the one
+  writer.** A windowed list has to learn that the offset moved, and the obvious
+  place to do it is the handlers the component already owns -- the keys, the
+  wheel, the dragged thumb. That leaves `scrollIntoView()` out, and the focus
+  ring calls that one **unconditionally**, so a row revealed by it would scroll
+  under a window built for where the list used to be. `scrollTo()` is the only
+  assignment to `scroll` in the library, verified by grep rather than assumed,
+  so one hook there answers for all four writers where four `sync()` calls would
+  be four places that each have to remember. One function rather than a list,
+  for the reason `onKey` is one, and it fires **synchronously** -- the tree the
+  frame arranges is the tree the handler left, so there is never a frame drawn
+  for a window the offset has already left.
+
+- **A `scrollTo()` from inside an element's own handler writes and marks without
+  dispatching again.** That bounds the recursion by construction rather than by
+  a depth count, and what it refuses -- a handler that scrolls the box it was
+  called about -- is a loop being described rather than a case anybody has. The
+  latch is **per element**, so a handler that scrolls a _different_ viewport
+  still reaches that one's handler, which is what a nested list needs. It is put
+  back in a `finally`, because a viewport left deaf for the life of the process
+  is a worse thing to survive a throw than the throw is. A throw propagates, as
+  `onKey`'s does: a scroll handler is the component's own code.
+
+- **`scrollIntoView()` collects its ancestor chain before anything scrolls, and
+  that was a real defect rather than tidiness.** The walk was
+  `for (let at = target.parent; at; at = at.parent)`, which reads `.parent`
+  after each `scrollTo()` -- and `scrollTo()` now dispatches a handler, and
+  rebuilding a window is exactly what one is for. Measured over three nested
+  clipping boxes with the innermost's handler detaching the one above it: the
+  outermost was **never scrolled at all** and `scrollIntoView()` still answered
+  `true`. A list taken up front cannot be shortened by what the scrolling does,
+  and a detached ancestor is then merely one more box the target is no longer
+  inside. The target's own box is read once at the top already, which is why the
+  accumulated shift arithmetic survives the target itself being dropped.
+
+- **Rows that stay in the window are kept, not rebuilt, and the reason is the
+  focus.** An element that leaves the tree hands the focus on by position, so a
+  list rebuilt wholesale would move the focus on every wheel notch. Keeping them
+  also keeps each row's resolved style and its text measurement, which are keyed
+  on the style **object** and so are worth nothing to a fresh element. The
+  reconcile moves only what is out of place, so a scroll of one row is one
+  insert rather than a reshuffle of the window -- and a move is a removal and an
+  insertion, which is the thing that would have taken the focus off a row that
+  stayed.
+
+- **The first window is bounded by the height the host _declared_, and that is a
+  bound rather than a guess.** Nothing has arranged the tree when the component
+  is built, so there is no viewport height to read -- and the viewport sits
+  **inside** the host, so a height declared on the host is never less than the
+  height the viewport gets. Which makes a first window built from it long enough
+  rather than merely likely to be, and it is superseded by the arranged height
+  from the first scroll onward. Where the host declares no height in cells the
+  answer is the **whole list**, deliberately: over-building is a slow frame and
+  under-building is a row that is not on screen, so the unknown case resolves
+  towards the one that is merely expensive. A number or a string of digits, and
+  anything else -- a percentage, `auto` -- is no bound; matched rather than read
+  through `Number()`, because `Number('50%')` is `NaN`, `NaN <= 0` is false, and
+  it would walk straight past `rowWindow()`'s unknown-viewport branch and make
+  the window itself `NaN`, which builds no rows at all.
+
+- **Which has an edge the demo found, and it is worth stating because the
+  idiomatic spelling walks into it.** A height written in a **stylesheet** --
+  `.log { height: 20 }`, which is how everything else in that demo is styled --
+  is no declared bound, so frame one builds all 20,009 elements and the first
+  scroll is what windows it down to 45. Correct, and 200ms of startup for
+  nothing. `09-virtual.js` puts the height in props and says why in a comment;
+  closing it properly means re-windowing once the viewport has been arranged,
+  which needs a second layout pass in one frame, and that is the entry below.
+
+- **A vertically windowed list's _horizontal_ extent is the widest row that was
+  built, and `rows.width` is what closes it.** Found by probing `axis: 'both'`
+  and worth the entry because the failure is visible rather than theoretical:
+  the cross extent is the union of what exists, so `scrollRange().x` describes
+  the window. Measured -- scroll a `both`-axis list right by 20, scroll down
+  into shorter rows, and the range collapses to **zero**, so the next horizontal
+  scroll clamps the offset back and the view jumps left. Declaring `width` pins
+  the cross extent the way `height` pins the vertical one, and with it the same
+  sequence keeps its range and the offset goes to 21 rather than to 0. It is
+  **optional** because the default `vertical` axis reads that range for nothing,
+  and both halves are pinned: the limitation as well as the fix, so that whoever
+  meets it finds it written down rather than reported.
+
+- **The content box's `flex-direction: column` is written only where `rows` is
+  in play, and writing it unconditionally is visible.** With `rows` the
+  component owns the stacking, because the spacers are placed against it --
+  left at the default, the slots laid out **side by side** in one row with a
+  horizontal overflow, which is how it was found. With `children` the caller's
+  own box says which way its content goes, and the content box's direction then
+  decides which axis its one child is _stretched_ on: a bordered `children` box
+  went from content-width to the whole viewport's width. Probed over eight
+  shapes, four axis-and-size combinations and two offsets before a test was
+  written, because "the direction cannot matter for one child" is the kind of
+  negative claim this file records as unestablishable by tracing the route you
+  had in mind.
+
+- **What it is worth, interleaved, on a machine with two other agents on it.**
+  Ten thousand two-text rows, 80x24, six rounds alternating per round. The
+  baseline agrees with the baseline: `benchmark-paint-cull.mjs` reads 34.66ms /
+  0.289ms for the paint and 65.8ms for the arrange on the same tree, against the
+  34.82ms / 0.290ms and 72-81ms this file already records.
+
+  |                     | whole   | windowed |      |
+  | ------------------- | ------- | -------- | ---- |
+  | elements            | 40,010  | 105      |      |
+  | first frame, total  | 202.7ms | 0.646ms  | 314x |
+  | -- of which cascade | 103.3ms | 0.251ms  | 412x |
+  | -- of which arrange | 86.3ms  | 0.169ms  | 511x |
+  | -- of which build   | 11.8ms  | 0.063ms  | 186x |
+  | -- of which paint   | 1.4ms   | 0.163ms  | 8x   |
+  | a wheel notch       | 122.5ms | 0.590ms  | 208x |
+
+  Re-run on the same machine it reads 212.5ms / 0.629ms and 121.8ms / 0.650ms,
+  so the spread is a few per cent on the window and about five on the baseline
+  and the ratio never moves -- which is the check this file insists on, asking
+  whether the baseline agrees with the baseline rather than whether the
+  alternation was written. The load average was 2.0 to 2.3 throughout, with two
+  other agents on the machine, which is why the absolutes are worth stating
+  beside the deltas rather than instead of them.
+
+  The notch is read **conservatively**, which matters because the two sides do
+  not pay the same things: a scroll marks layout and not style, so the list an
+  app writes today re-resolves nothing and its frame is the arrange and the
+  paint, while a window is a tree that changed and really does re-resolve -- and
+  it is charged the whole `resolveStyles()` of its eighty elements rather than
+  the marked subtrees a `Restyler` narrows it to. So the window is charged more
+  than it costs and the baseline less, and 208x is a floor.
+
+  The number that carries the argument is not any of those, though. It is that
+  the windowed cost is **flat**: at 1,000 rows it is 0.636ms and 0.580ms, and at
+  10,000 rows 0.646ms and 0.590ms, while the list beside it goes from 20.2ms and
+  8.4ms to 202.7ms and 122.5ms. That is `O(visible)` measured rather than
+  claimed -- and it is the thing paint culling could not deliver, since that is
+  `O(children of the scrolled container)` and went from 0.119ms at 1,000 rows to
+  0.290ms at 10,000.
+
+- **The benchmark's two sides are one binary with the window's input taken
+  away.** `rowWindow()` reads the viewport's height, and before the first
+  arrange the only height there is is the one the host declared -- so the
+  "whole" side is the same `ScrollBox({ rows })`, the same window code and the
+  same row builder, with the declaration removed and the host bounded by a flex
+  parent instead. A third side is the status quo, `children` holding every row,
+  which is what the notch is measured against. All three are required to paint
+  the **same** frame at six offsets before anything is timed, which is what
+  keeps the hand-assembled side honest: a window that drew something else would
+  be faster and wrong.
+
+- **Twenty-four sabotages, twenty-three caught, and one survivor that is a
+  declared fast path.** The survivor is the unchanged-window early return in the sync:
+  the window's inputs are four numbers, so when none of them moved the work
+  below is a `setProp()` to the value it already holds and a reconcile that
+  finds everything in place -- no mark, no answer changed, and nothing can be
+  written that fails when it goes. It says so where it lives, which is the rule
+  `index()`'s memo and `reachable()` already follow. What it buys is every
+  scroll _inside_ one row, which for a row taller than a cell is most of them.
+
+  Two of the first round's survivors were the method's own boundary rather than
+  missing tests and are worth recording as such. One was a **sabotage that was
+  equivalent**: `declaredHeight`'s regex replaced with `Number(value) || 0`,
+  where the `|| 0` rescued exactly the `NaN` the regex is for -- so it said
+  nothing, and the sharper version, a bare `Number()`, is caught. The other was
+  a guard that was simply **dead**: a `Math.max(1, ...)` under the window's
+  length, which for any `view` above zero cannot fire, because
+  `ceil((at + view) / step)` is at least `floor(at / step) + 1` and clamping
+  both ends to the same ceiling keeps the order. Brute-forced over 1.8 million
+  combinations of the four inputs, fractional views included, and reached zero
+  times -- so it is **deleted** rather than commented, which is what this file
+  does with a guard that cannot fire, and the property that has to stay true if
+  the expression changes is asserted instead.
+
+  And the harness itself needed the guard this file records twice: two of the
+  slot sabotages went **stale** the moment `rows.width` reformatted that
+  constructor onto several lines, and a pattern that silently matches nothing is
+  a green suite reading as "the guard is not load bearing". So it reports a
+  pattern that missed, a pattern that matched more than once and a replacement
+  equal to its original as their own verdicts rather than as passes, and it
+  verifies the edit landed against the fixed file rather than against `HEAD`.
+  All three fired while this was being written.
+
+- **The window arithmetic is walked exhaustively rather than sampled.**
+  `rowWindow()` is four numbers in and two out, which is where every off-by-one
+  a windowed list can have lives -- so `should hold every row a viewport can
+see, at every offset` asserts the _property_, over four row heights, four
+  viewport heights and every offset from zero to past the end: about ten
+  thousand windows, each checked against every row in the list. The cases beside
+  it are the ones worth naming, and the one that is easy to get backwards is the
+  extra row: the rows in the window are the ones that intersect
+  `offset..offset + view`, which is one more than `view / height` whenever the
+  first row is partly scrolled off, and a window short by it is a blank line at
+  the bottom that only appears at some offsets.
+
+- **What is left for a later tier, and the first one has a number.** The
+  **first frame of a flex-sized list**: 200ms for ten thousand rows where a
+  declared height makes it 0.6ms, because the viewport's height is not knowable
+  until something has arranged it. Closing it means re-windowing after the
+  layout and laying out again -- which the renderer already does for an
+  auto-height canvas, and which `renderToString()` would need too, so it is a
+  change to the frame rather than to a component and does not belong in a
+  ticket about a list. **Variable row heights**, refused above with its reason
+  rather than deferred for want of time. **Tabbing past the last built row**,
+  which wraps rather than scrolling on, because a row nobody built is not in
+  the focus ring -- note the direction: a window makes a focus nobody can find
+  _unreachable_ rather than fixed, since only on-screen rows exist, and what is
+  lost is reaching the ones that do not. A **windowed horizontal** axis, which
+  is the same mechanism turned ninety degrees and has no caller -- and which is
+  not the cross-axis extent three entries up, since that one is answered by
+  `rows.width` rather than deferred. And
+  **overscan**, which is one more number than the design needs: a window rebuild
+  is 0.26ms of cascade over eighty elements, and rows that stay in the window
+  are kept rather than rebuilt, so what a notch costs is the rows that newly
+  entered.
 
 ### The element tree
 

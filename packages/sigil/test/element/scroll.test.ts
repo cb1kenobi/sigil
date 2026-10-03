@@ -513,3 +513,117 @@ describe('hit test culling', () => {
 		expect(hitTest(view, 0, 9)).toBeUndefined();
 	});
 });
+
+describe('onScroll', () => {
+	it('should be called with the offset that will be laid out', () => {
+		const view = box({ height: 2, overflow: 'hidden' });
+		const seen: { at: Element; y: number | undefined }[] = [];
+		view.onScroll = (at) => seen.push({ at, y: at.scroll?.y });
+
+		view.scrollTo(0, 3);
+		expect(seen).toStrictEqual([{ at: view, y: 3 }]);
+	});
+
+	it('should not be called for a scroll that did not move', () => {
+		// the offset is what it is called about, and an offset that did not change
+		// is not news -- which is also what makes a window rebuild cost nothing for
+		// a `scrollTo()` of where it already is
+		const view = box({ height: 2, overflow: 'hidden' });
+		let calls = 0;
+		view.onScroll = () => calls++;
+
+		view.scrollTo(0, 3);
+		view.scrollTo(0, 3);
+		expect(calls).toBe(1);
+	});
+
+	it('should not re-enter its own handler, which bounds the recursion', () => {
+		// a handler that scrolls the box it was called about is a loop being
+		// described; the offset it asked for is still written, so a clamp is honoured
+		const view = box({ height: 2, overflow: 'hidden' });
+		let calls = 0;
+		view.onScroll = (at) => {
+			calls++;
+			at.scrollTo(0, (at.scroll?.y ?? 0) + 1);
+		};
+
+		view.scrollTo(0, 1);
+		expect(calls).toBe(1);
+		expect(view.scroll?.y).toBe(2);
+	});
+
+	it('should still reach another viewport, which is what a nested list needs', () => {
+		const outer = box({ height: 2, overflow: 'hidden' });
+		const inner = box({ height: 2, overflow: 'hidden' });
+		const order: string[] = [];
+		outer.onScroll = () => {
+			order.push('outer');
+			inner.scrollTo(0, 5);
+		};
+		inner.onScroll = () => order.push('inner');
+
+		outer.scrollTo(0, 1);
+		expect(order).toStrictEqual(['outer', 'inner']);
+		expect(inner.scroll?.y).toBe(5);
+	});
+
+	it('should put its latch back after a handler threw', () => {
+		// a throw propagates, as `onKey`'s does -- what must not survive it is a
+		// viewport left deaf for the life of the process
+		const view = box({ height: 2, overflow: 'hidden' });
+		let calls = 0;
+		view.onScroll = () => {
+			calls++;
+			throw new Error('from the handler');
+		};
+
+		expect(() => view.scrollTo(0, 1)).toThrow(/from the handler/);
+		expect(() => view.scrollTo(0, 2)).toThrow(/from the handler/);
+		expect(calls).toBe(2);
+	});
+});
+
+describe('scrollIntoView over a tree a handler is changing', () => {
+	/** Three clipping levels, each needing to scroll to reveal the target. */
+	function nest(): { inner: Element; outer: Element; shell: Element; target: Element } {
+		const target = text('row', { 'white-space': 'nowrap' });
+		const inner = box(
+			{ 'flex-direction': 'column', height: 2, overflow: 'hidden' },
+			box({ 'flex-shrink': 0, height: 6 }),
+			target,
+			box({ 'flex-shrink': 0, height: 6 })
+		);
+		const outer = box(
+			{ 'flex-direction': 'column', height: 3, overflow: 'hidden' },
+			box({ 'flex-shrink': 0, height: 8 }),
+			inner,
+			box({ 'flex-shrink': 0, height: 8 })
+		);
+		const shell = box(
+			{ 'flex-direction': 'column', height: 4, overflow: 'hidden' },
+			box({ 'flex-shrink': 0, height: 5 }),
+			outer,
+			box({ 'flex-shrink': 0, height: 5 })
+		);
+		lay(box({}, shell), 20, 4);
+		return { inner, outer, shell, target };
+	}
+
+	it('should scroll every ancestor, which is the walk with nothing in its way', () => {
+		const { inner, outer, shell, target } = nest();
+		expect(scrollIntoView(target)).toBe(true);
+		expect([inner.scroll?.y, outer.scroll?.y, shell.scroll?.y]).toStrictEqual([6, 8, 2]);
+	});
+
+	it('should scroll every ancestor even where a handler detached one', () => {
+		// the chain is collected before anything scrolls, because `scrollTo()`
+		// dispatches `onScroll` and rebuilding a window is exactly what one is for.
+		// Walking `.parent` as it went, the detached ancestor ended the walk in
+		// silence: the outermost box was never scrolled and this still answered true
+		const { inner, outer, shell, target } = nest();
+		inner.onScroll = () => outer.remove();
+
+		expect(scrollIntoView(target)).toBe(true);
+		expect([inner.scroll?.y, outer.scroll?.y, shell.scroll?.y]).toStrictEqual([6, 8, 2]);
+	});
+});
