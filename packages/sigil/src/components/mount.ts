@@ -20,6 +20,7 @@ import { ansi as defaultAnsi } from '../ansi/index.js';
 import type { CanvasBackend } from '../canvas/index.js';
 import type { Element } from '../element/index.js';
 import { render, type Renderer } from '../renderer/index.js';
+import type { ReducedMotion } from '../style/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 
@@ -61,17 +62,31 @@ export interface Mounted {
  * Mounts a built-in component over an inline canvas.
  *
  * @param build - Builds the tree. Handed whether there is a terminal to animate
- *   on, because that is a question about what to draw.
+ *   on, and whether anything should move, because both are questions about what
+ *   to draw rather than about how it is drawn.
  * @param opts - The terminal, the theme, and the colour level.
  * @returns The handle.
  */
-export function mountLive(build: (live: boolean) => Element, opts: MountOptions = {}): Mounted {
+export function mountLive(
+	build: (live: boolean, motion: ReducedMotion) => Element,
+	opts: MountOptions = {}
+): Mounted {
 	const terminal = opts.terminal ?? defaultTerminal;
 	const live = terminal.isTTY && !terminal.closed;
+	/**
+	 * Held, so that the build can read the motion the *renderer* resolved.
+	 *
+	 * `render()` sets `cascade.media` before it runs the component, and its own
+	 * `motion()` is the only thing that folds the three sources together -- the
+	 * caller's, `SIGIL_REDUCED_MOTION`, and whether there is a screen at all. A
+	 * component asking those three for itself would be a second reader of one
+	 * rule, which is how the two come to disagree about whether a pipe animates.
+	 */
+	const cascade = themedCascade(opts);
 
-	const renderer = render(() => build(live), {
+	const renderer = render(() => build(live, cascade.media.reducedMotion), {
 		backend: opts.backend,
-		cascade: themedCascade(opts),
+		cascade,
 		colorLevel: opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level,
 		// passed on as well as into the cascade, because `readMedia()` rebuilds the
 		// whole media context and would otherwise drop it: `themedCascade()` sets the
