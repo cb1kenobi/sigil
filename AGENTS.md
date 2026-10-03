@@ -5628,13 +5628,19 @@ a probe`. What the longer hold costs is worth stating precisely: a key typed
   `demos/renderer/02-tasks.js` wanted a detail pane over the task being inspected,
   which is the shape of every detail pane, error banner and selected row there is,
   and it was the first code in this repository to ask `Show` for a value it then
-  had to **follow**. Counted rather than guessed at, because the first draft of this
-  paragraph said "six of the seven" and was wrong: there are **fourteen** uses on
-  `main` -- nine object calls and five template or JSX spellings -- and **thirteen**
-  of them pass a boolean or a length comparison and ignore the argument entirely.
-  The fourteenth does use it, inside a test about retrying a throw, where the branch
-  really is rebuilt -- so even the one reader of that argument could not have seen
-  the staleness. The three ordering bugs `For` cost were found by writing `For`;
+  had to **follow**. Counted rather than guessed at, and counted twice, because the
+  first draft said "six of the seven" and the second "fourteen" and both were
+  wrong: there are **seventeen** uses on `main` -- **nine** object calls
+  (`01-app.js`, `counter-elements.js`, `animation.test.ts`, and six in
+  `renderer.test.ts`) and **eight** template or JSX spellings (`counter-jsx.tsx`,
+  `counter-tag.js`, three corpus entries, two in `jsx-types.tsx`, and
+  `tag.test.ts`) -- and **sixteen** of them pass a boolean or a length comparison
+  and ignore the argument entirely. The seventeenth does use it, inside a test
+  about retrying a throw, where the branch really is rebuilt -- so even the one
+  reader of that argument could not have seen the staleness. The split is written
+  out rather than only the total, for the reason the toolchain's dependencies are:
+  a number nobody can re-derive is a number that goes stale quietly, and this one
+  went stale twice before it was derived at all. The three ordering bugs `For` cost were found by writing `For`;
   this one needed somebody to want something from it.
 
 - **`For` keys by the item, and an index is an accessor.** Identity rather than
@@ -5881,12 +5887,39 @@ needs in order to know what to re-ask.
   so without the `untrack()` the whole list re-reconciles every time that signal
   moves. Measured on one row and one signal: two reconciles where there should be
   one, which at a hundred rows is a hundred-row walk for a value one row looked at.
-  It has a test now. Its sibling in `Show` is a different matter and was left
-  alone: deleting that one changes no answer, because the early return on an
-  unchanged presence is already what stops the rebuild -- so a test named for it
-  would be a test of nothing, which is what the first draft of
-  `should leave a build-time read of that accessor a snapshot` was called and is
-  renamed for. Two `untrack()`s, one answer each, and only one of them is a guard.
+  It has a test now, and so does its sibling in `Show` -- which this entry first
+  claimed was **not** a guard, on the strength of a sabotage that survived. A
+  review round refuted that, and it was right. Deleting `Show`'s `untrack()`
+  subscribes `Show`'s own effect to whatever the builder read, so an unrelated
+  signal change re-evaluates `when` -- and `when` is where **presence** comes from,
+  which is the one answer a conditional must not take from somewhere else. What
+  hid it is that the early return on an unchanged presence swallows the re-run, so
+  nothing on screen moves for the obvious fixture and what has to be counted is
+  the `when` evaluations. Both guards are pinned now, the second one named for the
+  condition rather than for the picture.
+
+  The lesson is the one this file already records twice and reached a third way: a
+  **negative** claim about all inputs cannot be established by a sabotage that
+  survived. "No test failed" is a statement about the tests. The honest move when
+  one survives is the one the entry below takes -- name the input that would make
+  the guard matter -- and here the first draft reasoned forward from the survival
+  to a mechanism instead, which is exactly the error the `isFinite` entry under
+  the animator is written down for.
+
+- **And the demo guard that was wrong in four files, which is a recorded rule that
+  was only ever fixed where it was found.** AGENTS.md already says a demo that
+  reads keys needs a terminal on **both** sides, because `createInput()` refuses to
+  exist unless stdin and the terminal's output are both terminals -- the entry is
+  under "Asking the terminal what it is" and it was written when
+  `01-capabilities.js` had exactly this bug. It was fixed there and nowhere else.
+  Measured by spawning each demo with stdin faked as a TTY and stdout left a pipe,
+  which is what `| cat` from a terminal is: `renderer/01-app.js`,
+  `renderer/02-tasks.js`, `element/03-focus.js` and `style/03-animation.js` each
+  drew part of a frame to the pipe and then exited **1** with an `InputError` stack
+  over a minified module. All four guard both sides now. `demos.test.ts` cannot see
+  it, for the reason that entry already gives -- it spawns with stdin `'ignore'`, so
+  every demo takes the no-terminal branch -- and the half of this that is a finding
+  rather than a fix is that `demos/README.md` was documenting the broken command.
 - **And the focus test it found to be saying nothing, which is the discipline
   rather than an aside.** `should keep the focus on a row that moved` first
   asserted the focus and the ring straight after the reorder, and the guard it

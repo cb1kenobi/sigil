@@ -640,6 +640,41 @@ describe('Show', () => {
 		expect(h.picture().split('\n')[0]).toBe('ada.................');
 		view.dispose();
 	});
+
+	it('should not let the branch builder make the condition depend on what it read', () => {
+		// what the `untrack()` around the build buys, which a review round had to
+		// refute a claim to find: a builder that reads a signal *directly* rather
+		// than in an effect would otherwise subscribe `Show`'s own effect to it, so
+		// an unrelated change re-evaluates `when` -- and `when` is where presence
+		// comes from, which is the one answer a conditional must not take from
+		// somewhere else. The same guard `For` has one block down, and the snapshot
+		// test above cannot see it: the early return on an unchanged presence hides
+		// the re-run, so what has to be counted is the `when` evaluations
+		const effects = createEffects();
+		const theme = new State('dark');
+		const on = new State(true);
+		let conditions = 0;
+
+		createRoot(() => {
+			Show({
+				children: () => text(theme.get()),
+				when: () => {
+					conditions++;
+					return on.get();
+				},
+			});
+		}, effects.effect);
+
+		expect(conditions).toBe(1);
+		theme.set('light');
+		effects.flush();
+		expect(conditions).toBe(1);
+
+		// and the condition is still live, so this is not a dead `Show`
+		on.set(false);
+		effects.flush();
+		expect(conditions).toBe(2);
+	});
 });
 
 describe('For', () => {

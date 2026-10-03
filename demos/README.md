@@ -387,10 +387,20 @@ demo existed, and then it did not follow: both tasks are present, so presence ne
 moved, so the branch was never rebuilt, and the panel described the first task for
 the rest of the run.
 
-Without a terminal both print one line and exit `0`, which is what the component
-demos do and for the same reason — there is nobody to read keys from:
+Without a terminal on **both** sides both print one line and exit `0`, which is
+what the component demos do and for the same reason — the keys arrive on stdin and
+the frame is drawn to the output, so either one being a pipe means there is nothing
+to run:
 
 ```sh
 node demos/renderer/01-app.js | cat
-# This demo reads keys, so it needs a terminal. Run it without a pipe.
+# This demo reads keys and draws frames, so it needs a terminal on both sides.
 ```
+
+Both sides is the point rather than pedantry, and `| cat` is exactly the case that
+needs it: run from a terminal, stdin is still a TTY while stdout is a pipe. A guard
+that asked only about stdin let that through, drew half a frame, and then threw an
+`InputError` stack over a minified module — which is the failure
+`demos/terminal/01-capabilities.js` already carries an entry for, and which four
+demos still had. `demos.test.ts` cannot catch it: it spawns with stdin ignored, so
+every demo it runs takes the no-terminal branch.
