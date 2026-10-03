@@ -116,11 +116,10 @@ if (process.stdin.isTTY && process.stdout.isTTY) {
 			// the height is in **props** and not in the sheet, deliberately: the first
 			// window is bounded by the height the host declared, because the viewport
 			// sits inside the host and nothing has arranged anything yet. Written as
-			// `.log { height: 20 }` instead there is no bound to read, so frame one
-			// builds all 20,009 elements and the first scroll is what windows it down
-			// to 45 -- measured both ways, correct, and 200ms of startup for nothing.
-			// That is this tier's edge and it is recorded under "A scroll box" rather
-			// than hidden here
+			// `.log { height: 20 }` instead there is no bound to read, so the *first
+			// layout* builds nothing and it is the frame's second pass that fills the
+			// window in -- which is correct either way since SIG-132, and is one layout
+			// rather than two. Recorded under "Windowing a long list" in AGENTS.md
 			props: { class: 'log', height: WINDOW },
 			rows: { count: ROWS, height: 1, row },
 		});
