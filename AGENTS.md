@@ -2299,9 +2299,10 @@ infinite` on a row a **resize** revealed never started, while the same row revea
   this component is documented for, and a declared height makes even a bare layout
   right -- which is what the demo, the benchmark and every test here do. It also
   cost the benchmark its old shape, since "the optimization turned off by removing
-  its input" is no longer reachable by removing the declaration; it declares the
-  _whole list's_ height instead, which is a floor that cannot narrow anything, and
-  the element counts are the same 40,010 and 105 as before.
+  its input" is no longer reachable: the first-frame section is measured against the
+  same rows assembled by hand instead, for the reason under "What is left" below --
+  a declared floor cannot reproduce the whole list at a non-zero offset, because
+  `rowWindow()` takes `first` from the offset.
 
 - **Which closed the edge the demo found, and the idiomatic spelling no longer
   walks into it.** A height written in a **stylesheet** -- `.log { height: 20 }`,
@@ -2575,28 +2576,42 @@ changed the viewport` over a renderer, plus the shrinking direction and a
 
   The **first frame of a flex-sized list** was the merely-slow one, and it needed
   the pre-layout fallback to change as well as the hook to exist -- re-windowing
-  after the layout does not unpay a layout of the whole list, which the ticket's
-  own framing of it missed. Measured by `benchmark-virtual-list.mjs`, which grew a
+  after the layout does not unpay a layout of the whole list, which the ticket's own
+  framing of it missed. Measured by `benchmark-virtual-list.mjs`, which grew a
   section for it because a layout cannot answer the question at all: ten thousand
   two-text rows at 80x24 through `renderToLines()`, six interleaved rounds, both
   sides built afresh each round and required to produce identical lines first. The
-  flex-sized side goes from **176.8ms to 0.581ms** median -- three runs of each
-  binary reading 179.7 / 176.8 / 176.3 before and 0.580 / 0.584 / 0.581 after -- and
-  what that number means is that it now comes within **1.1x** of a list that
-  declared its height, 0.581ms against 0.519ms, where it was 315x off. Elements
-  built for that frame: **40,010 before and 106 after**.
+  flex-sized side goes from **186.0ms to 0.605ms** median -- three runs of each
+  binary reading 186.0 / 185.1 / 190.1 before and 0.583 / 0.605 / 0.642 after, so
+  about **307x** -- and what the number means is that it now comes within **1.1x** of
+  a list that declared its height, 0.605ms against 0.542ms, where it was 330x off.
+  Elements built for that frame: **40,010 before, and 10 built with 106 after it**.
 
-  The control is the part worth reading twice, because the absolutes do not agree
-  with the ones recorded above. The same script's older sections read a 105.8ms
-  whole-list first frame on `main`'s binary and 97.7ms on this one -- the same
-  number, which is what says the harness did not move -- against the **190.6ms**
-  this file writes down for the same workload. So this machine is about 1.8x
-  quicker at the big tree than the one SIG-131 was measured on, which that entry
-  half predicts ("load average 1.4 to 2.3", and it records 65.8ms for an arrange
-  the paint-cull script put at 72-81ms). The windowed side is 0.6ms on both
-  machines, so only the expensive half moved. The delta is measured on one machine
-  with one script against two binaries, which is the claim; the absolutes are
-  stated beside it rather than instead of it.
+  **And the control caught the harness being wrong, which is the entry worth keeping
+  rather than the figure.** The first version of this measurement read a 97.7ms
+  whole-list first frame against the **190.6ms** this file already records for the
+  same workload, and that was written up as the machine being 1.8x quicker -- with
+  the delta claimed as sound because the two binaries agreed with each other. The
+  file was right and the harness was wrong, which is the rule this repo states and
+  that write-up inverted. What halved it was the `whole` side itself: the old one
+  turned the optimization off by **removing** the declared height, which SIG-132 made
+  mean "no rows", so it was given the whole list's height as a floor instead -- and
+  `rowWindow()` takes `first` from the **offset**, so no `view` however large can put
+  a row _above_ the offset in the window. At the timed offset, which is deliberately
+  the middle of the list, that side built **20,106 elements rather than 40,010**:
+  exactly half, exactly the factor. There is no value of a declared height that fixes
+  it, so the first-frame section is measured against `children()` -- the same rows
+  assembled by hand, which is what an app writes today, is already the notch
+  section's baseline, and really does hold every row at every offset. It reads
+  **209.2 / 209.4 / 206.9ms** on `main`'s binary and **210.6 / 217.6 / 225.0ms** on
+  this one, which is the same number and is what says the harness is sound now.
+
+  Two things follow for whoever measures this next. The sides are no longer "the same
+  component with one input removed" for that section, and the one place that purity
+  survives is the flex-vs-declared section -- because a frame is what makes the
+  flex-sized side work at all. And a number that disagrees with this file by a factor
+  of two is a harness to go and read, not a machine to blame; rationalising it cost a
+  commit and was caught only by going back to the element count.
 
   What was refused with that pair, and is now simply done, was a change to the
   **frame** and to `arrange()`'s contract for every caller taken inside a ticket
