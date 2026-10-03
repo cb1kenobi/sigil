@@ -796,12 +796,23 @@ describe('a windowed scroll box', () => {
 			lay(win);
 			const a = selectableAt(whole, 12, 4);
 			const b = selectableAt(win, 12, 4);
-			expect(Boolean(b)).toBe(Boolean(a));
+			// both have a mask, and it is one that says something: the bar's two `raw`
+			// elements default to unselectable, so the gutter column is `false` while
+			// the rows are `true`. Without asserting that, two `undefined` masks or
+			// two all-true ones would satisfy the comparison below having compared
+			// nothing -- which is the shape the stripped picture differential had
+			expect(a).toBeDefined();
+			expect(b).toBeDefined();
+			let refused = 0;
 			for (let y = 0; a && b && y < 4; y++) {
 				for (let x = 0; x < 12; x++) {
 					expect(b(x, y)).toBe(a(x, y));
+					if (!b(x, y)) {
+						refused++;
+					}
 				}
 			}
+			expect(refused).toBe(4);
 		}
 	});
 
@@ -966,6 +977,50 @@ describe('a windowed scroll box', () => {
 		view.scrollTo(0, 6);
 		view.scrollTo(0, 5);
 		expect(held(host)).toStrictEqual(['r5', 'r6', 'r7', 'r8']);
+	});
+
+	it('should draw the thumb at the ends, which it could not from what was built', () => {
+		// the claim the demo leads with. The thumb reads `scrollRange()` plus the
+		// viewport's own height, so a range describing the window rather than the
+		// content would put it near the top forever -- and "it touches an end only
+		// at that end" is the bar's own recorded rule, so the top and bottom cells
+		// are what say the range is the whole list's
+		const win = windowBox(500);
+		const view = viewportIn(win);
+		const column = (): string =>
+			picture(win)
+				.map((line) => line.at(-1) ?? ' ')
+				.join('');
+
+		view.scrollTo(0, 0);
+		expect(column()).toBe('█│││');
+		view.scrollTo(0, scrollRange(view).y);
+		expect(column()).toBe('│││█');
+		// and the whole list agrees, cell for cell, at both ends
+		for (const offset of [0, 496]) {
+			const whole = wholeBox(500);
+			viewportIn(whole).scrollTo(0, offset);
+			view.scrollTo(0, offset);
+			lay(whole);
+			lay(win);
+			expect(column()).toBe(
+				picture(whole)
+					.map((line) => line.at(-1) ?? ' ')
+					.join('')
+			);
+		}
+	});
+
+	it('should drag the thumb to the last row', () => {
+		// the drag maps pointer movement onto `scrollRange()`, so it reaches the end
+		// of the content rather than the end of the window
+		const win = lay(windowBox(500));
+		const bar = find(win, (e) => e.classes.includes('sigil-scroll-bar'));
+		expect(bar).toBeDefined();
+		bar?.onMouse?.(mouseEvent({ kind: 'mousedown', x: 11, y: 0 }));
+		bar?.onMouse?.(mouseEvent({ kind: 'mousemove', x: 11, y: 99 }));
+		expect(viewportIn(win).scroll?.y).toBe(scrollRange(viewportIn(win)).y);
+		expect(held(win)).toStrictEqual(['r496', 'r497', 'r498', 'r499']);
 	});
 
 	it('should still scroll from the keyboard and the wheel', () => {
