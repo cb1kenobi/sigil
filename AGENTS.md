@@ -1606,6 +1606,47 @@ at`.
   them belong to the engine. One of the dozen is written now, in
   `src/components/scroll-box.ts`, and "A scroll box" below is where its decisions
   are.
+- **The clip bounds what a grid has to be big enough for, and three guards hold
+  that, of which one is a declared fast path.** The rule is in "Rendering a tree
+  to a string", where `arrangedExtent()`'s entry is; what it took to be true of
+  the clip is here, because it is clipping arithmetic.
+
+  The **clamp** -- a box's bottom-right taken as the smaller of its own and its
+  clip's -- is the general rule and is reachable only below a clipping _root_,
+  since anything else is pruned. It bites where the child's overflowing axis is
+  its parent's **main** axis: in a `row` pane the same child is crushed to the
+  window by `align-items: stretch`, because `flex-shrink` is a main axis rule, so
+  its box never exceeds the clip. The first test written for it was that tree and
+  it passed with the clamp deleted.
+
+  The **reach** test is asked with `overlaps()` rather than by reading the
+  intersection's size, because an empty intersection is still a rectangle
+  somewhere: a box five rows below a one-row clip intersects to a zero-height
+  rectangle _at row five_, and the clamp read off that is the very five the clip
+  exists to refuse. The tree where it is the only thing answering is an overlay
+  anchored past the clip on the other axis, which is the one shape where
+  `min(bottom, clip.bottom)` says nothing about whether the axes ever met.
+
+  The **prune** at a box that clips is a fast path and says so where it lives: a
+  clipping box's descendants each clamp to a rectangle inside the border box it
+  has already contributed, so deleting it fails no test and that is correct. What
+  it buys is the walk -- **0.0002ms against 0.0730ms** over a ten-thousand-row
+  list inside a 24-row clip, to the same answer, because the alternative is
+  visiting 30,003 elements to learn how big a one-row window is. It is the bound
+  `Element.extent` takes, for the same structural reason and a different
+  question.
+
+- **Reading the element tree is what made a `display: none` guard necessary, and
+  it is about staleness rather than about a zero box.** `layoutNode()` returns
+  before it reaches a hidden node's children, so `result.children` is empty there
+  and `arrange()` finds no box for any of them -- leaving whatever a _previous_
+  arrange wrote. Measured: a panel laid out visible and then hidden still
+  reported the four rows it used to take, where the layout result the walk used to
+  read simply did not contain those nodes. That is the opposite of the guard
+  `arrange()`'s own extent walk had deleted for failing its sabotage, and the two
+  are not in tension -- there the hidden node's zero box at the content origin
+  really does move nothing. The question is asked about the **root** separately,
+  because the root's own box is skipped while its children are not.
 - **`DECSTBM` is not used for a scrolled region, and that is a decision rather
   than an omission.** A terminal's own scroll region would move a scrolled pane's
   rows for free, which for a log viewer is the whole cost of the frame. It is
@@ -1691,15 +1732,21 @@ culling is two lines in passes that already existed.
   its border box however far its content reaches, and that bound is what stops a
   nested scroll region reporting its ten thousand rows to the box around it.
 
-  It is **not** `arrangedExtent()`, and the two are now easy to confuse. That one
-  is a separate walk in `renderToString()`, read by the auto-height canvas as
-  well, which asks how big a grid has to be to hold what was laid out -- so it
-  reads layout boxes rather than elements, it is taken per call rather than
-  carried on the tree, and it deliberately does **not** intersect `element.clip`:
-  a box clipped to nothing still grows the grid there. SIG-62 reported that last
-  part as a defect and it is one, in that walk, and it is older than this ticket;
-  culling fixed nothing about it and was never going to, because the two answer
-  different questions. Fixed where it is, rather than here.
+  It is **not** `arrangedExtent()`, and the two are still easy to confuse. That
+  one is a separate walk in `renderToString()`, read by the auto-height canvas as
+  well, which asks how big a grid has to be to hold what was laid out -- so it is
+  taken per call rather than carried on the tree, and it skips the root's own box,
+  which here is the space the call was _offered_ rather than the space the answer
+  takes. The sentence this replaces said it deliberately did not intersect
+  `element.clip` and that a box clipped to nothing still grew the grid there: a
+  defect, reported by SIG-62, older than this ticket, and closed by SIG-130
+  instead -- where it belonged, because the two answer different questions. They
+  now take the **same bound at a box that clips**, for the same structural reason
+  and still to two different answers: that one stops there because nothing inside
+  is painted outside, and this one because nothing inside can ask for more room
+  than the box already asked for. Which is why merging them is still wrong: the
+  root's box is the whole of what one needs and the one thing the other must not
+  read.
 
 - **`Element.scrollable` is the same question with the scroll taken back out, and
   the version that did not was a real defect.** The content box unioned with the
@@ -2131,6 +2178,36 @@ region at all` is the pin, and the condition fails it.
   `text-overflow` is honoured. The height is grown only where the caller named
   none, since a caller that did is describing a box rather than asking how big one
   is; the width is not the caller's to name and always follows the content.
+- **It asks how much room the answer takes, which is not how far the boxes
+  reach: a box an ancestor's `overflow` clips away takes none.** That walk had
+  no reference to clipping at all, which this file diagnosed twice and left to a
+  ticket of its own (SIG-130). What it cost is a grid sized for a box nobody can
+  see. Measured, a one-row pane over a four-row column that cannot shrink came
+  back as `['r1', '', '', '']` -- four rows, three of them blank, with the clip
+  perfectly correct and only `r1` drawn. The **width** half over-allocated
+  identically and was masked, because a line's trailing blanks are dropped: a
+  ten-column reel in a one-column window printed as one character over a grid
+  that was still ten wide, so reading the trimmed string says nothing and the
+  test for it asserts the extent.
+
+  The worst of it was not the synthetic case. A `ScrollBox` is the one shipped
+  component that clips, and `renderToString()` of a three-row one over fifty rows
+  came back as **fifty lines, forty-seven of them blank** -- its own tests all
+  pass a height, which skips the second pass entirely, so every one of them
+  dodged it. The renderer's auto-height canvas reads the same walk and
+  `mountLive()` asks for `width: 'auto'`, so a spinner, bar, prompt or table in a
+  clipping layout held those rows of the user's scrollback open for the life of
+  the frame.
+
+  What is **not** the rule is "did anything escape": overflow nothing clips still
+  grows the grid, which is what makes a flag name longer than the terminal
+  survive, and that non-regression is the whole difficulty of the ticket rather
+  than a footnote to it. The clip is read off `element.clip`, which `arrange()`
+  has already written, rather than worked out a second time -- two readers of one
+  rule being how the two come to disagree about where the edge is. Which is why
+  it is handed the **element** tree now and not the layout result: the rectangle
+  saying so lives on the element.
+
 - **It costs what the stack costs, and where that cost goes was profiled rather
   than guessed at.** A sixty-entry help screen is 10.2ms against the old string
   builder's 0.42ms, and a two-hundred-row table is 6.3ms against 0.08ms. End to
@@ -3513,22 +3590,22 @@ inside a one-column window with `overflow: hidden`, stepping `left` from `0` to
 `-10` with `steps(10, end)` -- and every piece of that exists here. What it costs is
 what decided it.
 
-- **A reel necessarily overflows its window, and `arrangedExtent()` does not
-  intersect the clip.** The strip has to be its natural width or `text-overflow`
-  cuts it to the one column the window gives, which is the whole mechanism gone --
-  and the extent walk takes `box.x + box.width` of every node with no reference to
-  `element.clip`, so an auto-width canvas would claim the reel's full width. Every
-  live spinner frame would be nine columns wider than it needs, which is the one
-  thing `width: 'auto'` exists to prevent. Fixing the extent walk is the enabling
-  change and is **not** this ticket's: it is in the layout and paint layer, it
-  changes `renderToString()` for every clipped tree, and SIG-110's scroll box is
-  editing exactly there. Confirmed from two directions and now scoped out of both:
-  SIG-110's own review established that its new `Element.extent` **does** stop at a
-  clipping box, while `arrangedExtent()` is a separate walk it does not touch -- so
-  the defect is real, pre-existing, and in neither branch. It wants a ticket of its
-  own, and the name matters when reading this: it is `arrangedExtent()`
-  specifically, not extents in general, since there is now a differently-behaved one
-  beside it.
+- **A reel necessarily overflows its window, and `arrangedExtent()` did not
+  intersect the clip. SIG-130 closed that, so this cost is gone and the other two
+  stand.** The strip has to be its natural width or `text-overflow` cuts it to the
+  one column the window gives, which is the whole mechanism gone -- and the extent
+  walk took `box.x + box.width` of every node with no reference to `element.clip`,
+  so an auto-width canvas would have claimed the reel's full width. Every live
+  spinner frame would have been nine columns wider than it needs, which is the one
+  thing `width: 'auto'` exists to prevent. That walk now stops at a clipping box
+  and clamps what is under one, measured on the reel's own shape: a ten-column
+  text inside a one-column `overflow: hidden` window reports a width of one where
+  it reported ten. The enabling change was correctly **not** taken here -- it is
+  in the layout and paint layer and it changes `renderToString()` for every
+  clipped tree -- and it got the ticket of its own this paragraph asked for. The
+  name still matters when reading this: it was `arrangedExtent()` specifically,
+  not extents in general, since SIG-110's `Element.extent` already stopped at a
+  clipping box.
 - **The keyframes cannot be static, because the travel is a runtime argument.**
   `createSpinner({ frames })` takes its own frames, so the reel's travel is
   `-frames.length` and the step count is `frames.length`. A sheet cannot say that,
@@ -3546,8 +3623,11 @@ piped/non-TTY behaviour, which AGENTS.md says is byte for byte what it was".
 
 So the line under "The built-in components" has been corrected rather than left:
 the spinner's `setInterval` is where a `steps()` keyframe animation goes **when
-there is a content property or a clip-aware extent walk**, and today there is
-neither. What the feature is proved on instead is `demos/style/03-animation.js`,
+there is a content property**, which there is still not -- the clip-aware extent
+walk the first version of this sentence also waited on arrived with SIG-130, and
+on its own it is not enough, because the two costs below are about the keyframes
+rather than about the grid. What the feature is proved on instead is
+`demos/style/03-animation.js`,
 which transitions a width, two colours at one duration and a focus ring, runs an
 infinite `@keyframes` with `alternate`, and prints frames painted against the thirty
 a second a loop without the frame skip would have drawn.
@@ -5530,7 +5610,9 @@ a probe`. What the longer hold costs is worth stating precisely: a key typed
   and because the alternative is trusting an estimate over the tree that was
   actually arranged. `arrangedExtent()` asks the arranged tree rather than asking
   for another estimate. It can only grow the canvas, never shrink it, so a frame
-  that measured right pays one comparison.
+  that measured right pays one comparison -- and since SIG-130 it does not grow it
+  for rows a clip hides, which is what had every spinner, bar, prompt and table in
+  a clipping layout holding blank rows of the user's scrollback open.
 - **An auto-height canvas is measured, not laid out and read back.** That was the
   first answer and it is wrong in the way that matters: a root with no declared
   height fills whatever it is given, so `box.height` after a pass at the screen's
@@ -8486,9 +8568,11 @@ people's software and will move.
   cleanup, and the line that used to end "which is where a `steps()` keyframe
   animation goes when there is one" was half right: there is one now, and the
   spinner is still driven by that interval. The reason is under "The spinner port
-  was measured and refused" -- what a spinner animates is _content_, and the
-  declarative spelling of that is a sprite reel behind a clip, which
-  `arrangedExtent()` does not yet intersect. Each prompt's raw-mode handling, `data` listener, decoder, held tail and escape
+  was measured and refused" -- what a spinner animates is _content_, and there is
+  no animatable content property. The clip half of that sentence is gone:
+  `arrangedExtent()` intersects the clip since SIG-130, so a sprite reel behind a
+  clip no longer widens the canvas, and what is left refusing the port is the
+  content property and the two keyframe costs recorded there. Each prompt's raw-mode handling, `data` listener, decoder, held tail and escape
   timer are the one input router's. The prompts' frame assembly and cursor
   arithmetic are layout. `padCell()` is a declared width and `text-align`, and
   `truncateCell()` is `text-overflow` -- both gone, with `truncate()` in

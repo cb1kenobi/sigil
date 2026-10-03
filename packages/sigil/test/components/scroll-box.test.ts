@@ -580,3 +580,22 @@ describe('a horizontal scroll box', () => {
 		expect(rows[2]?.length).toBeLessThan(10);
 	});
 });
+
+describe('a scroll box read back as a string', () => {
+	// SIG-130, on the component the defect was worst for. `picture()` above names
+	// a height, which skips `renderToLines()`'s second pass entirely -- so every
+	// other test in this file dodged it. With no height named, `arrangedExtent()`
+	// used to report the fifty rows *inside* the clip: measured, a three-row box
+	// over fifty rows came back as 50 lines, 47 of them blank
+	it('should be as tall as its window rather than as tall as its content', () => {
+		const host = listBox(50, { height: 3, width: 12 });
+
+		const lines = renderToLines(host, { cascade: themedCascade(), width: 40 }).map((line) =>
+			strip(line).trimEnd()
+		);
+
+		expect(lines).to.have.length(3);
+		expect(lines[0]).to.contain('r0');
+		expect(lines[2]).to.contain('r2');
+	});
+});

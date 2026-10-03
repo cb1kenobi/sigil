@@ -97,6 +97,18 @@ describe('renderToString()', () => {
 		);
 	});
 
+	// the same rule for a root with nothing in it, which is the one case where the
+	// extent is read off the root's own box -- and a *declared* width is the only
+	// thing that puts that box past the room it was offered, since `layout()`
+	// honours the root's own size and an undeclared root simply fills what it was
+	// given. Pre-existing and uncovered: with the extent read off the walk instead
+	// the grid comes out six columns and `text-overflow` cuts the rest off
+	it('should widen the grid to a childless root that declared more', () => {
+		const tree = text('abcdefghijklmnop', { 'white-space': 'nowrap', width: 16 });
+
+		expect(renderToString(tree, { colorLevel: 0, width: 6 })).to.equal('abcdefghijklmnop');
+	});
+
 	// a label-and-description row: the description is placed in the column flexing
 	// gives it, and the row has to be as tall as that comes to. This test used to
 	// expect four lines with no blank among them, which is the defect rather than
@@ -161,6 +173,31 @@ describe('renderToString()', () => {
 				width: 20,
 			})
 		).to.deep.equal(declared);
+	});
+
+	// SIG-130: the clip was right and the grid was not. Only `r1` is drawn, and
+	// this used to come back as `['r1', '', '', '']` -- four rows, three of them
+	// blank, reserved for a box nobody can see. What the grid is sized to is what
+	// the drawing reaches, and a box an ancestor's `overflow` hides reaches
+	// nothing
+	it('should not reserve rows a clip hides', () => {
+		const pane = box(
+			{ height: 1, overflow: 'hidden', width: 6 },
+			box(
+				{ 'flex-direction': 'column', 'flex-shrink': 0 },
+				text('r1'),
+				text('r2'),
+				text('r3'),
+				text('r4')
+			)
+		);
+
+		expect(
+			renderToLines(box({ 'flex-direction': 'column' }, pane), {
+				colorLevel: 0,
+				width: 40,
+			})
+		).to.deep.equal(['r1']);
 	});
 
 	// the sheets are the caller's, and a media context left behind would be the

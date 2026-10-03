@@ -604,7 +604,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 			backend.resize(width, height);
 		}
 
-		const result = arrange(root, { height: backend.height, width: backend.width });
+		arrange(root, { height: backend.height, width: backend.width });
 
 		// and laid out again where it reached further than it measured, which is the
 		// same second pass `renderToString()` takes and for the same reason: a row
@@ -613,7 +613,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 		// lines in the share it gets was one line in the room it was offered -- and
 		// the canvas reserved one row, with the second line clipped off the bottom
 		if (autoHeight) {
-			const used = Math.min(room, Math.max(1, arrangedExtent(result).height));
+			const used = Math.min(room, Math.max(1, arrangedExtent(root).height));
 			if (used > backend.height) {
 				backend.resize(backend.width, used);
 				arrange(root, { height: backend.height, width: backend.width });
