@@ -2167,6 +2167,28 @@ not building it addresses the 72ms." This is not building it.
   that was never committed is pruned by the next sync's own prune loop, so it
   changes no answer. Found by review.
 
+  **And the offset is the rest of that commit, which a second round found the
+  first one had missed.** `scrollTo()` writes the offset and _then_ dispatches, so
+  a failed window left the viewport scrolled to somewhere its content box was not
+  built for -- the spacer over the whole visible area, blank -- and `scrollTo()` of
+  those same coordinates is a no-op, so nothing short of scrolling **elsewhere**
+  could repair it. So a throw puts the offset back, which is `For`'s own answer
+  rather than a new one: that component rolls back every branch it made and every
+  index it had already moved rather than leaving half a commit. Writing it back
+  from inside the handler is exactly what the latch makes safe -- a `scrollTo()`
+  reached from inside this element's own handler writes and marks without
+  dispatching again -- so the latch is a _use_ here and not only a guard.
+
+  It rolls back to the offset the last **settled** window was for, which is kept
+  rather than read: inside the handler `viewport.scroll` is already the new one.
+  Both exits record it, the commit and the unchanged-window fast path, and a test
+  that reached only one of them left the other's assignment surviving its
+  sabotage -- which took a row **taller than a cell**, so that a scroll inside one
+  row goes through the fast path at all. The first version of the test for the
+  whole thing could not see the hole either: it retried the offset by going
+  somewhere else and back, which is the one sequence that never reaches
+  `scrollTo()`'s equality check.
+
 - **A slot is a **column**, so the row's width is the stretched axis -- and the
   differential could not see that until it compared colour.** "Stretched is what
   rows want, so that a highlight fills the width" is the content box's own
@@ -2277,8 +2299,8 @@ not building it addresses the 72ms." This is not building it.
   keeps the hand-assembled side honest: a window that drew something else would
   be faster and wrong.
 
-- **Thirty-one sabotages, thirty caught, and one survivor that is a declared
-  fast path.** The survivor is the unchanged-window early return in the
+- **Thirty-six sabotages, thirty-five caught, and one survivor that is a
+  declared fast path.** The survivor is the unchanged-window early return in the
   sync: the window's inputs are a handful of numbers, so when none of them moved the work
   below is a `setProp()` to the value it already holds and a reconcile that
   finds everything in place -- no mark, no answer changed, and nothing can be
@@ -2309,7 +2331,20 @@ not building it addresses the 72ms." This is not building it.
   verifies the edit landed against the fixed file rather than against `HEAD`.
   All three fired while this was being written -- as did a fourth shape, a test
   whose fixture could not reach the branch it was named for, which is the
-  `count`-in-the-guard entry above.
+  `count`-in-the-guard entry above and happened twice more over the rollback.
+
+  What the two review rounds caught that no sabotage could is worth the tally.
+  Round 1 found five, all confirmed: the `??` that read a height of **0** as "not
+  arranged yet", the host that **grows** and makes a declared height no bound,
+  the committed window a throw could not repair, an exhaustive walk that rejected
+  only a _missing_ row, and every element count in the demo and the README being
+  wrong. Round 2 was pointed at the regions round 1 said it had skipped, and
+  every one of round 1's six premises **held** -- while three new findings came
+  out of those regions: the offset half of the rollback, a function doc still
+  calling the floor "a sound upper bound" after the code had stopped treating it
+  as one, and a test named for the keyboard **and the wheel** that only ever
+  pressed a key. That is the pattern this file already records: premise-attacking
+  rounds confirm, and the findings come from what nobody opened.
 
 - **The window arithmetic is walked exhaustively rather than sampled.**
   `rowWindow()` is four numbers in and two out, which is where every off-by-one

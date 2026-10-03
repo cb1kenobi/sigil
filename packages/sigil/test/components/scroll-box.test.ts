@@ -970,11 +970,17 @@ describe('a windowed scroll box', () => {
 		// ones from before
 		expect(held(host)).toStrictEqual(before);
 		expect(spacer?.props.height).toBe(0);
+		// and so is the **offset**, which is the rest of the commit: `scrollTo()` had
+		// already written it, so a throw that left it there would show the spacer
+		// over a window built for somewhere else -- and `scrollTo(0, 5)` again is a
+		// no-op, so nothing short of scrolling elsewhere could have repaired it
+		expect(view.scroll?.y).toBe(0);
 
-		// and the same window is reachable again once the builder stops throwing,
-		// which is what committing first made impossible
+		// which is what makes the *same* offset reachable again once the builder
+		// stops throwing. Asserted by retrying it directly rather than by going
+		// somewhere else and back, which is what the first version of this did and
+		// is the one sequence that cannot reach the equality check
 		fail = -1;
-		view.scrollTo(0, 6);
 		view.scrollTo(0, 5);
 		expect(held(host)).toStrictEqual(['r5', 'r6', 'r7', 'r8']);
 	});
@@ -1023,6 +1029,50 @@ describe('a windowed scroll box', () => {
 		expect(held(win)).toStrictEqual(['r496', 'r497', 'r498', 'r499']);
 	});
 
+	it('should roll back to the offset the last settled window was for', () => {
+		// not to zero, and not to the offset `scrollTo()` has just written. Rows three
+		// cells tall so that a scroll *inside* one row takes the unchanged-window fast
+		// path -- which still has to record the offset it settled at, or a later
+		// failure rolls back past it to an older one
+		let fail = -1;
+		const rows = {
+			count: 100,
+			height: 3,
+			row: (i: number): Element => {
+				if (i === fail) {
+					throw new Error('from the row builder');
+				}
+				return row(i);
+			},
+		};
+		const host = ScrollBox({ props: { height: 4, width: 12 }, rows });
+		const view = viewportIn(host);
+		lay(host);
+		expect(held(host)).toStrictEqual(['r0', 'r1']);
+
+		// a scroll inside the first row: the window is the one already there, so this
+		// goes through the fast path and nothing is rebuilt
+		view.scrollTo(0, 1);
+		expect(held(host)).toStrictEqual(['r0', 'r1']);
+
+		// and now a window that has to build a row the builder refuses
+		fail = 2;
+		expect(() => view.scrollTo(0, 6)).toThrow(/from the row builder/);
+		expect(view.scroll?.y).toBe(1);
+		expect(held(host)).toStrictEqual(['r0', 'r1']);
+
+		// the same thing again from an offset the *commit* path settled, rather than
+		// the fast path: both have to record it, and a test that only reached one of
+		// them left the other's assignment surviving its sabotage
+		fail = -1;
+		view.scrollTo(0, 6);
+		expect(held(host)).toStrictEqual(['r2', 'r3']);
+		fail = 4;
+		expect(() => view.scrollTo(0, 12)).toThrow(/from the row builder/);
+		expect(view.scroll?.y).toBe(6);
+		expect(held(host)).toStrictEqual(['r2', 'r3']);
+	});
+
 	it('should still scroll from the keyboard and the wheel', () => {
 		const win = lay(windowBox(100));
 		const event = keyEvent('down');
@@ -1030,6 +1080,14 @@ describe('a windowed scroll box', () => {
 		expect(event.claimed()).toBe(true);
 		expect(viewportIn(win).scroll?.y).toBe(1);
 		expect(held(win)).toStrictEqual(['r1', 'r2', 'r3', 'r4']);
+
+		// the wheel as well, which this was named for and did not do: a notch is
+		// three lines, and the window has to follow it
+		const notch = mouseEvent({ kind: 'wheel', wheel: 'down' });
+		win.onMouse?.(notch);
+		expect(notch.claimed()).toBe(true);
+		expect(viewportIn(win).scroll?.y).toBe(4);
+		expect(held(win)).toStrictEqual(['r4', 'r5', 'r6', 'r7']);
 	});
 
 	it('should leave a children-built box sized the way it already was', () => {

@@ -323,8 +323,8 @@ export function thumbExtent(
  * one place this trades cost for correctness: over-building is a slow frame and
  * under-building is a row that is not on screen, so the unknown case resolves
  * towards the one that is merely expensive. `ScrollBox` narrows it with the
- * host's own declared height, which bounds the viewport because the viewport is
- * inside the host.
+ * host's own declared height, which it takes as a **floor** rather than a
+ * ceiling -- a host that can grow makes a declared height no bound at all.
  *
  * No overscan, which is one number this does not have: a window rebuild is
  * measured at a fraction of a frame -- 0.26ms of cascade for eighty elements --
@@ -370,13 +370,15 @@ function noSize(): { height: number; width: number } {
 }
 
 /**
- * A sound upper bound on the viewport's height before anything has arranged it.
+ * The height the host declared, which `sync()` uses as a **floor**.
  *
- * The viewport sits **inside** the host, so a height declared on the host is
- * never less than the height the viewport gets -- which makes this a bound rather
- * than a guess, and a first window built from it long enough rather than merely
- * likely to be. It is superseded by the arranged height from the first scroll
- * onward, so being generous costs one frame of a few extra rows.
+ * Not a ceiling, and an earlier version of this doc called it "a sound upper
+ * bound" on the ground that the viewport sits inside the host. That is true only
+ * while the host really is the height it declared: `height: 10` with
+ * `flex-grow: 1` in a forty-row parent is a viewport of forty, and capping the
+ * window at ten left thirty rows blank. So `sync()` takes `Math.max` of this and
+ * whatever the last arrange gave the viewport, and the arranged height wins
+ * wherever they disagree -- do not put a `??` back to match the older wording.
  *
  * A number, or a string of digits, which are the two spellings of a length in
  * cells. Anything else -- a percentage, `auto`, a height a stylesheet sets -- is
@@ -390,7 +392,7 @@ function noSize(): { height: number; width: number } {
  * already what "no bound" is spelled as.
  *
  * @param props - The host's props, as the caller wrote them.
- * @returns The bound in cells, or nothing where the props do not give one.
+ * @returns The floor in cells, or zero where the props do not give one.
  */
 function declaredHeight(props: ElementProps | undefined): number {
 	const value = props?.height;
@@ -543,7 +545,7 @@ export function ScrollBox(props: ScrollBoxProps): Element {
  * @param viewport - The clipping box, which is what owns the offset.
  * @param content - The box the rows go in.
  * @param rows - The count, the row height and the row builder.
- * @param bound - An upper bound on the viewport's height before it is arranged.
+ * @param bound - A floor under the viewport's height: the host's declared one.
  */
 function wireRows(viewport: Element, content: Element, rows: ScrollRows, bound: number): void {
 	const built = new Map<number, Element>();
@@ -555,6 +557,10 @@ function wireRows(viewport: Element, content: Element, rows: ScrollRows, bound: 
 	// the count is part of what the last window was computed from, or a `count`
 	// that grew while the offset stayed put would be skipped by the guard below
 	let at: (RowWindow & { count: number }) | undefined;
+	// the offset the last settled window was for, which is what a failed one is
+	// rolled back to. It cannot be read off the viewport inside the handler --
+	// `scrollTo()` writes the new offset before it dispatches -- so it is kept
+	let seen = { x: 0, y: 0 };
 
 	// `height`, `width` and `row` built the slots and are read once; `count` is
 	// read on every window, which is the line a command's own declaration draws --
@@ -565,41 +571,15 @@ function wireRows(viewport: Element, content: Element, rows: ScrollRows, bound: 
 	const step = Math.max(1, Math.trunc(rows.height));
 	const span = rows.width === undefined ? undefined : Math.max(0, Math.trunc(rows.width));
 
-	const sync = (): void => {
-		// the **larger** of what the last arrange gave the viewport and what the host
-		// declared, and `Math.max` rather than `??` for two reasons measured
-		// separately. A height of **0** is a measurement rather than "not arranged
-		// yet" -- a bordered host of height 2 has a content box of zero, and `??`
-		// read that as unknown and built all five hundred rows. And a host that can
-		// **grow** makes its declared height no bound at all: `height: 10` with
-		// `flex-grow: 1` in a forty-row parent is a viewport of forty, where `??`
-		// kept the ten and left thirty rows blank for as long as nobody scrolled.
-		// Over-building by the difference is the safe direction and is two rows for a
-		// border
-		const view = Math.max(viewportOf(viewport)?.height ?? 0, bound);
-		const count = Math.max(0, Math.trunc(rows.count));
-		const next = rowWindow(count, step, viewport.scroll?.y ?? 0, view);
-		if (at && at.first === next.first && at.length === next.length && at.count === count) {
-			// a fast path rather than a claim, and it says so because it survived its
-			// sabotage: the window's inputs are these four numbers and no others, so
-			// the work below is a `setProp()` to the value it already holds and a
-			// reconcile that finds everything in place -- no mark, no answer changed,
-			// which is why nothing can be written that fails when it goes. What it
-			// buys is every scroll *inside* one row, which for a row taller than a
-			// cell is most of them
-			return;
-		}
-		const end = next.first + next.length;
-
-		// what the content box should hold, in order -- built **before** anything is
-		// committed, which is `Show`'s own order and is the only one where a failure
-		// needs no undo. `rows.row()` is the caller's code and may throw, and the
-		// offset is already the new one by the time this runs: committing first left
-		// `at` claiming a window the content box did not hold and the spacers at
-		// heights for it, and no later scroll to the same window could repair it,
-		// because the guard above sees nothing to do
-		const want: Element[] = [above];
-		for (let i = next.first; i < end; i++) {
+	/**
+	 * Puts a window's slots on a list, building the ones that are new.
+	 *
+	 * Separated from `sync()` so that the one thing in there which can throw --
+	 * `rows.row()`, which is the caller's code -- is a call rather than a loop in
+	 * the middle of the commit.
+	 */
+	const buildWindow = (first: number, end: number, want: Element[]): void => {
+		for (let i = first; i < end; i++) {
 			let slot = built.get(i);
 			if (!slot) {
 				// a slot of exactly the declared height that cannot shrink, so that
@@ -630,10 +610,63 @@ function wireRows(viewport: Element, content: Element, rows: ScrollRows, bound: 
 			}
 			want.push(slot);
 		}
+	};
+
+	const sync = (): void => {
+		const now = viewport.scroll ?? { x: 0, y: 0 };
+		// the **larger** of what the last arrange gave the viewport and what the host
+		// declared, and `Math.max` rather than `??` for two reasons measured
+		// separately. A height of **0** is a measurement rather than "not arranged
+		// yet" -- a bordered host of height 2 has a content box of zero, and `??`
+		// read that as unknown and built all five hundred rows. And a host that can
+		// **grow** makes its declared height no bound at all: `height: 10` with
+		// `flex-grow: 1` in a forty-row parent is a viewport of forty, where `??`
+		// kept the ten and left thirty rows blank for as long as nobody scrolled.
+		// Over-building by the difference is the safe direction and is two rows for a
+		// border
+		const view = Math.max(viewportOf(viewport)?.height ?? 0, bound);
+		const count = Math.max(0, Math.trunc(rows.count));
+		const next = rowWindow(count, step, viewport.scroll?.y ?? 0, view);
+		if (at && at.first === next.first && at.length === next.length && at.count === count) {
+			// a fast path rather than a claim, and it says so because it survived its
+			// sabotage: the window's inputs are these four numbers and no others, so
+			// the work below is a `setProp()` to the value it already holds and a
+			// reconcile that finds everything in place -- no mark, no answer changed,
+			// which is why nothing can be written that fails when it goes. What it
+			// buys is every scroll *inside* one row, which for a row taller than a
+			// cell is most of them
+			seen = now;
+			return;
+		}
+		const end = next.first + next.length;
+
+		// what the content box should hold, in order -- built **before** anything is
+		// committed, which is `Show`'s own order. `rows.row()` is the caller's code
+		// and may throw: committing first left `at` claiming a window the content box
+		// did not hold, with the spacers measuring it.
+		//
+		// The **offset** is the rest of that commit, and `scrollTo()` has already
+		// written it by the time this runs -- so a throw puts it back, or the
+		// viewport shows the spacer over a window built for somewhere else and
+		// `scrollTo()` of the same coordinates is a no-op, which leaves nothing short
+		// of scrolling elsewhere to repair it. Writing it back from in here is what
+		// the latch makes safe: a `scrollTo()` reached from inside this element's own
+		// handler writes and marks without dispatching again, so this is a use for
+		// that rule rather than only a guard
+		const want: Element[] = [above];
+		try {
+			buildWindow(next.first, end, want);
+		} catch (error) {
+			if (seen.x !== now.x || seen.y !== now.y) {
+				viewport.scrollTo(seen.x, seen.y);
+			}
+			throw error;
+		}
 		want.push(below);
 
 		// past the last thing that can throw, so everything below is bookkeeping
 		at = { ...next, count };
+		seen = now;
 		above.setProp('height', next.first * step);
 		below.setProp('height', Math.max(0, count - end) * step);
 
