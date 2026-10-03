@@ -5627,11 +5627,14 @@ a probe`. What the longer hold costs is worth stating precisely: a key typed
   Found by **using** it rather than by writing it, which is the whole of SIG-118:
   `demos/renderer/02-tasks.js` wanted a detail pane over the task being inspected,
   which is the shape of every detail pane, error banner and selected row there is,
-  and it was the first code in this repository to ask `Show` for a value at all.
-  Six of the seven uses in the tree pass a boolean and ignore the argument; the
-  seventh uses it incidentally, inside a test about retrying a throw, where the
-  branch really is rebuilt -- so nothing pinned the behaviour and nothing could
-  have noticed. The three ordering bugs `For` cost were found by writing `For`;
+  and it was the first code in this repository to ask `Show` for a value it then
+  had to **follow**. Counted rather than guessed at, because the first draft of this
+  paragraph said "six of the seven" and was wrong: there are **fourteen** uses on
+  `main` -- nine object calls and five template or JSX spellings -- and **thirteen**
+  of them pass a boolean or a length comparison and ignore the argument entirely.
+  The fourteenth does use it, inside a test about retrying a throw, where the branch
+  really is rebuilt -- so even the one reader of that argument could not have seen
+  the staleness. The three ordering bugs `For` cost were found by writing `For`;
   this one needed somebody to want something from it.
 
 - **`For` keys by the item, and an index is an accessor.** Identity rather than
@@ -5832,10 +5835,12 @@ needs in order to know what to re-ask.
   substitute and is labelled one.
 - **A demo is weaker evidence, and the usual reason did not apply.** The ticket's
   own objection is that a demo author reaches for whatever the docs show. Here
-  there was nothing to reach for: `Show` and `For` appear in **no** README -- not
-  the root one, not `packages/sigil/README.md`, not `demos/README.md` -- so the
-  only prose about them is the module comment in `src/renderer/control.ts` and the
-  entries above, and learning the shape of `ShowProps` meant reading the source.
+  there was nothing to reach for: **no README documented either component** -- not
+  the root one, not `packages/sigil/README.md`, not `demos/README.md`, whose only
+  occurrence of the word was `Show help for a command` inside a sample help screen
+  -- so the only prose about them was the module comment in
+  `src/renderer/control.ts` and the entries above, and learning the shape of
+  `ShowProps` meant reading the source.
   That is a finding in its own right and the cheapest one here to fix; the README
   section `demos/README.md` now carries is half of it.
 - **`demos/renderer/01-app.js` was not evidence either, which is why the ticket
