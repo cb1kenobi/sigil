@@ -50,6 +50,20 @@ describe('reading a timing function', () => {
 		expect(() => parseEasing('steps(0)')).toThrow(StyleError);
 	});
 
+	it('should refuse a zero step count the position would otherwise hide', () => {
+		// the guard above is about a count and a position that disagree, and it is
+		// what hid this: `jumpsFor(0, 'jump-both')` is `1`, so three of the four
+		// positions came out empty and were refused while `steps(0, jump-both)`
+		// parsed -- after which `floor(t * 0) + 1` is `1` at every fraction, a
+		// timing function that reports finished for the whole of the duration
+		expect(() => parseEasing('steps(0, jump-both)')).toThrow(/1 or more/);
+		expect(() => parseEasing('steps(0, jump-start)')).toThrow(/1 or more/);
+		expect(() => parseEasing('steps(0, jump-none)')).toThrow(/1 or more/);
+		expect(() => parseEasing('steps(0, end)')).toThrow(/1 or more/);
+		// and one step is still a step function, which is what `step-end` is
+		expect(parseEasing('steps(1, jump-both)')).toMatchObject({ count: 1 });
+	});
+
 	it('should refuse an x coordinate outside the unit interval', () => {
 		// a curve that doubles back has no single answer for "where are we at t"
 		expect(() => parseEasing('cubic-bezier(-0.1, 0, 1, 1)')).toThrow(/x coordinates/);
@@ -68,6 +82,26 @@ describe('reading a timing function', () => {
 		expect(() => parseEasing('swing')).toThrow(StyleError);
 		expect(() => parseEasing('cubic-bezier(0, 0, 1)')).toThrow(/four numbers/);
 		expect(() => parseEasing('steps(2, sideways)')).toThrow(/steps\(\) position/);
+	});
+
+	it('should read a cubic-bezier through the number grammar rather than Number()', () => {
+		// `Number('')` and `Number(' ')` are both `0` and `Number('0x1')` is `1`, so
+		// each of these used to resolve to a perfectly valid curve nobody had
+		// written: the trailing comma came out as `(0.4, 0, 0.2, 0)`, which ends
+		// flat rather than at 1, with nothing to say so
+		expect(() => parseEasing('cubic-bezier(0.4, 0.0, 0.2,)')).toThrow(/four numbers/);
+		expect(() => parseEasing('cubic-bezier(0.4, , 0.2, 1)')).toThrow(/four numbers/);
+		expect(() => parseEasing('cubic-bezier(0x1, 0, 0, 1)')).toThrow(/four numbers/);
+		// a stray comma beside four good numbers is the half the component count
+		// answers for on its own: the numbers are all there and the declaration is
+		// still malformed, which a stylesheet reports rather than reads past
+		expect(() => parseEasing('cubic-bezier(0, 0, 1, 1,)')).toThrow(/four numbers/);
+		expect(() => parseEasing('cubic-bezier(,0, 0, 1, 1)')).toThrow(/four numbers/);
+		// and what CSS's `<number>` does allow still reads -- a leading dot and an
+		// exponent, which is the half a tighter pattern would have taken with it
+		expect(parseEasing('cubic-bezier(.4, 0, .2, 1e0)')).toMatchObject({
+			points: [0.4, 0, 0.2, 1],
+		});
 	});
 });
 

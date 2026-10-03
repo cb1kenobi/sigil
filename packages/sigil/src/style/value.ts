@@ -94,10 +94,14 @@ const NUMBER = /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?$/i;
  * cannot detect. The parser's data types already carry an entry about this;
  * rediscovering it here would have been the second time.
  *
+ * Exported for `easing.ts`, which reads `cubic-bezier()`'s four components and
+ * has the same reason to refuse what `Number()` takes -- and not re-exported by
+ * the barrel, so the grammar stays one implementation without becoming API.
+ *
  * @param text - The source text.
  * @returns The number, or `undefined` if it is not one.
  */
-function readNumber(text: string): number | undefined {
+export function readNumber(text: string): number | undefined {
 	const trimmed = text.trim();
 	if (!NUMBER.test(trimmed)) {
 		return undefined;

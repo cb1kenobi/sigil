@@ -15,7 +15,7 @@
  * ```
  */
 
-import { parseCount, StyleError } from './value.js';
+import { parseCount, readNumber, StyleError } from './value.js';
 
 /** Where a step function jumps, in CSS Easing 1's vocabulary. */
 export type StepPosition = 'jump-both' | 'jump-end' | 'jump-none' | 'jump-start';
@@ -172,6 +172,18 @@ export function parseEasing(input: string): Easing {
 	const steps = STEPS.exec(text);
 	if (steps) {
 		const count = parseCount(steps[1], 'steps() count');
+		// CSS requires at least one interval, and `parseCount` accepts zero because
+		// every other count in this grammar legitimately may be -- so the floor is
+		// this caller's. It is not caught by the guard below, which is what made it
+		// worth its own: `jumpsFor(0, 'jump-both')` is `1`, so only the other three
+		// positions came out empty and `steps(0, jump-both)` parsed -- after which
+		// `floor(t * 0) + 1` is `1` at every fraction, a timing function that reports
+		// finished for the whole of the duration
+		if (count < 1) {
+			throw new StyleError(
+				`Invalid steps() count "${steps[1].trim()}": expected a whole number of 1 or more`
+			);
+		}
 		const name = steps[2] ?? 'jump-end';
 		if (!Object.hasOwn(POSITIONS, name)) {
 			throw new StyleError(
@@ -193,8 +205,17 @@ export function parseEasing(input: string): Easing {
 
 	const cubic = CUBIC.exec(text);
 	if (cubic) {
-		const numbers = cubic[1].split(',').map((part) => Number(part.trim()));
-		if (numbers.length !== 4 || numbers.some((n) => !Number.isFinite(n))) {
+		// read through `readNumber()` rather than `Number()`, which is the rule the
+		// rest of this grammar already keeps and the one place that had not: `Number('')`
+		// and `Number(' ')` are both `0` and `Number('0x1')` is `1`, so a trailing
+		// comma, an empty component or a hex one resolved to a perfectly valid curve
+		// nobody had written -- `cubic-bezier(0.4, 0.0, 0.2,)` came out as
+		// `(0.4, 0, 0.2, 0)`, which ends flat instead of at 1, with nothing to say so.
+		// Both lengths are compared because both have to be four: four components,
+		// each of them a number
+		const parts = cubic[1].split(',');
+		const numbers = parts.map((part) => readNumber(part)).filter((n) => n !== undefined);
+		if (parts.length !== 4 || numbers.length !== 4) {
 			throw new StyleError(`Invalid cubic-bezier "${input}": expected four numbers`);
 		}
 		// the control points' x coordinates have to stay in [0, 1] or the curve is

@@ -3210,6 +3210,36 @@ renderer's `settle()`.
   to. What it would buy at whole-cell quantization is one cell of spring on a
   ten-cell box. Refused where it is written, which is the rule a fractional length
   already follows.
+- **And its four components go through the `<number>` grammar, which is the one
+  reader in this file that had never kept that rule.** They were read with
+  `Number()`, so every trap the Style entry above exists for was open here: `Number('')`
+  and `Number(' ')` are `0`, which made `cubic-bezier(0.4, 0.0, 0.2,)` the curve
+  `(0.4, 0, 0.2, 0)` -- one that ends **flat** rather than at 1, so an animation ran
+  a different shape from the one that was written with nothing to say so -- and
+  `Number('0x1')` is `1`, so the hex that entry refuses was taken. Found by review
+  in a file no earlier round had read, which is the argument for pointing a round at
+  the files the previous ones skipped rather than at the diff again. `readNumber()`
+  is **exported** for it rather than copied, and deliberately not re-exported by the
+  barrel, so the grammar stays one implementation without becoming API -- a second
+  spelling of `<number>` beside this one is how the two come to disagree about
+  `1e0`, which CSS allows and a tighter pattern would have taken with it. The
+  component **count** is a separate check and is load bearing on its own, which a
+  sabotage had to say: `cubic-bezier(0, 0, 1, 1,)` has all four numbers it needs and
+  is still malformed, and a stylesheet reports that rather than reading past it.
+- **`steps()` takes at least one step, and the position hid the count that did
+  not.** `parseCount()` accepts zero because every other count in this grammar
+  legitimately may be, so the floor is this caller's -- and the guard next to it,
+  which refuses a count and a position that leave no jumps, is exactly what hid the
+  gap: `jumpsFor(0, 'jump-both')` is `1`, so three of the four positions came out
+  empty and were refused while `steps(0, jump-both)` parsed. What it then did is the
+  part worth writing down, because it is not a crash: `floor(t * 0) + 1` is `1` at
+  **every** fraction, so it is a timing function that reports finished for the whole
+  of the duration -- an animation that shows its end state and never moves. The
+  existing test asserted `steps(0)`, which is `jump-end` and was refused all along,
+  which is the shape this file keeps rediscovering -- a rule pinned by the spelling
+  the reporter happened to write. Its own guard rather than a widened one, so the
+  comment on the other stays true: with a count of one or more, `steps(1, jump-none)`
+  really is the only place the count and the position are not independent.
 - **A time carries its unit in a shorthand and not in a longhand, and that is
   forced rather than chosen.** `transition-duration: 300` is milliseconds, because
   there is one time unit here the way there is one length unit and spelling it every
