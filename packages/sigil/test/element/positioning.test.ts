@@ -1,10 +1,12 @@
 import { createCanvas } from '../../src/canvas/index.js';
 import {
 	arrange,
+	arrangedExtent,
 	box,
 	createTree,
 	type Element,
 	paint,
+	renderToLines,
 	resolveStyles,
 	text,
 } from '../../src/element/index.js';
@@ -247,6 +249,181 @@ describe('overflow', () => {
 		arrange(root, { height: 6, width: 10 });
 
 		expect(child.clip).toEqual({ height: 2, width: 4, x: 1, y: 1 });
+	});
+});
+
+/** Arranges a tree and asks how much room the drawing it produced takes. */
+function roomFor(root: Element, width: number, height: number): { height: number; width: number } {
+	resolveStyles(root);
+	return arrangedExtent(arrange(root, { height, width }));
+}
+
+/** A column of rows that keeps its own size, which is what a clip has to hide. */
+function stubbornRows(...rows: string[]): Element {
+	return box({ 'flex-direction': 'column', 'flex-shrink': 0 }, ...rows.map((row) => text(row)));
+}
+
+describe('the room an arranged tree takes', () => {
+	// SIG-130. The clip was right and the grid was not: only `r1` is ever drawn,
+	// and `renderToString()` still reserved four rows for a box nobody can see.
+	// A child that *can* shrink does not reproduce it -- `flex-shrink` defaults to
+	// 1, so it is squeezed to the window and its box never exceeds the clip
+	it('should take no room for the rows a clip hides', () => {
+		const pane = box({ height: 1, overflow: 'hidden', width: 6 }, stubbornRows('r1', 'r2', 'r3'));
+
+		expect(roomFor(box({ 'flex-direction': 'column' }, pane), 40, 3)).toEqual({
+			height: 1,
+			width: 6,
+		});
+	});
+
+	// the width half of the same defect, which `renderToString()` masks: it strips
+	// a line's trailing blanks, so a ten-column reel in a one-column window prints
+	// as one character over a grid that was still ten wide. Asserted here rather
+	// than through the string for exactly that reason
+	it('should take no room for the columns a clip hides', () => {
+		const reel = box(
+			{ height: 1, overflow: 'hidden', width: 1 },
+			text('0123456789', { 'flex-shrink': 0, 'white-space': 'nowrap' })
+		);
+
+		expect(roomFor(box({ 'flex-direction': 'column' }, reel), 40, 1)).toEqual({
+			height: 1,
+			width: 1,
+		});
+	});
+
+	// the regression risk, and the whole difficulty of the ticket: the question is
+	// "how much room does the answer take" rather than "did anything escape", so
+	// overflow nothing clips is legitimate and is what makes a flag name longer
+	// than the terminal survive
+	it('should still take room for overflow nothing clips', () => {
+		const wide = box(
+			{ height: 1, width: 4 },
+			text('abcdefghij', { 'flex-shrink': 0, 'white-space': 'nowrap' })
+		);
+		const tall = box({ height: 1, width: 4 }, stubbornRows('r1', 'r2', 'r3'));
+
+		expect(roomFor(box({ 'flex-direction': 'column' }, wide), 4, 1)).toEqual({
+			height: 1,
+			width: 10,
+		});
+		expect(roomFor(box({ 'flex-direction': 'column' }, tall), 4, 1)).toEqual({
+			height: 3,
+			width: 4,
+		});
+	});
+
+	// the root is the one place the stop needs saying twice, because the root's own
+	// box is otherwise skipped -- and it is the case somebody writes: a pane
+	// rendered to a string on its own. Its box is the answer there rather than the
+	// space it was offered, since nothing below it can be drawn outside it
+	it('should take the room a clipping root asked for', () => {
+		const pane = box(
+			{ 'flex-direction': 'column', height: 1, overflow: 'hidden', width: 6 },
+			stubbornRows('r1', 'r2', 'r3')
+		);
+
+		expect(roomFor(pane, 40, 3)).toEqual({ height: 1, width: 6 });
+	});
+
+	// which has to be its **border** box and not the padding box it clips its
+	// children to, or the grid comes out a column short of the frame the pane is
+	// about to draw. Found by review: measured, this came back as `┌──────` with
+	// the right edge gone, where asking the children instead stops one cell in
+	it('should take room for a clipping root own border', () => {
+		const pane = box(
+			{ 'border-style': 'single', height: 3, overflow: 'hidden', width: 8 },
+			text('0123456789', { 'flex-shrink': 0, 'white-space': 'nowrap' })
+		);
+
+		expect(roomFor(pane, 4, 3)).toEqual({ height: 3, width: 8 });
+		expect(renderToLines(pane, { colorLevel: 0, width: 4 })).to.deep.equal([
+			'┌──────┐',
+			'│012345│',
+			'└──────┘',
+		]);
+	});
+
+	// and it is the root's far **edges** rather than its size, because `layout()`
+	// applies the root's own relative offset -- every other node's is applied by
+	// the parent that places it and the root has no parent. Found by review round
+	// 2, after round 1's border fix: measured, this came back as `["", "", "  ┌─────"]`,
+	// the top border row alone, with the text and the bottom border past the end
+	// of the grid
+	it('should take room for a clipping root where it was offset to', () => {
+		const pane = box(
+			{
+				'border-style': 'single',
+				height: 3,
+				left: 2,
+				overflow: 'hidden',
+				position: 'relative',
+				top: 2,
+				width: 8,
+			},
+			text('0123456789', { 'flex-shrink': 0, 'white-space': 'nowrap' })
+		);
+
+		expect(roomFor(pane, 8, 3)).toEqual({ height: 5, width: 10 });
+		expect(renderToLines(pane, { colorLevel: 0, width: 8 })).to.deep.equal([
+			'',
+			'',
+			'  ┌──────┐',
+			'  │012345│',
+			'  └──────┘',
+		]);
+	});
+
+	// and nothing at all where the offset put the whole box off the first cell,
+	// which is the other direction of the same read
+	it('should take no room for a root offset off the grid', () => {
+		const pane = box(
+			{ height: 3, overflow: 'hidden', position: 'relative', top: -5, width: 8 },
+			stubbornRows('r1', 'r2', 'r3')
+		);
+
+		expect(roomFor(pane, 8, 3)).toEqual({ height: 0, width: 8 });
+	});
+
+	// a clip inside a clip is never reached at all, which is the stop working
+	// rather than a second rule: the outer one answers for both
+	it('should answer for a nested clip at the outer one', () => {
+		const inner = box(
+			{ height: 1, overflow: 'hidden', width: 10 },
+			text('abcdefghij', { 'flex-shrink': 0, 'white-space': 'nowrap' })
+		);
+		const outer = box({ height: 1, overflow: 'hidden', width: 3 }, inner);
+
+		expect(roomFor(outer, 40, 1)).toEqual({ height: 1, width: 3 });
+	});
+
+	// a hidden node is laid out as a zero box at the content origin with nothing
+	// inside it laid out at all, so it moves nothing and its descendants are not
+	// in the result to be asked -- which is the half that reads as a missing guard
+	// and is not. Laid out visible first, so that the boxes under it would be
+	// *stale* rather than absent for anything that did walk the elements
+	it('should take no room for a subtree hidden after it was laid out', () => {
+		const panel = box({ 'flex-shrink': 0 }, text('deep', { height: 3, width: 9 }));
+		const tree = box({ 'flex-direction': 'column' }, text('x'), panel);
+
+		expect(roomFor(tree, 10, 5)).toEqual({ height: 4, width: 10 });
+
+		panel.setProps({ display: 'none' });
+
+		expect(roomFor(tree, 10, 5)).toEqual({ height: 1, width: 10 });
+	});
+
+	// and the same one level up, where the root's zero box is read back through
+	// the childless branch rather than through the walk
+	it('should take no room for a root hidden after it was laid out', () => {
+		const tree = box({ 'flex-direction': 'column' }, text('x', { height: 4 }));
+
+		expect(roomFor(tree, 10, 5)).toEqual({ height: 4, width: 10 });
+
+		tree.setProps({ display: 'none', 'flex-direction': 'column' });
+
+		expect(roomFor(tree, 10, 5)).toEqual({ height: 0, width: 0 });
 	});
 });
 

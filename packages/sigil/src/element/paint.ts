@@ -279,21 +279,71 @@ export function arrange(root: Element, opts: LayoutOptions): LayoutResult {
  * than asking again for an estimate.
  *
  * Every descendant is walked rather than only the root's children, because a box
- * that fits can hold one that does not: overflow is legitimate here, and the
- * question is "how much room does the answer take" rather than "did anything
- * escape". The root itself is skipped, since a root with no declared size fills
- * whatever it was given and would report that back.
+ * that fits can hold one that does not: **unclipped** overflow is legitimate
+ * here, and the question is "how much room does the answer take" rather than
+ * "did anything escape" -- which is what makes a flag name longer than the
+ * terminal survive. The root itself is skipped unless it clips, since a root
+ * with no declared size fills whatever it was given and would report that back.
+ *
+ * What it does *not* take room for is a box an ancestor's `overflow` clips away,
+ * and the one rule that says so is **a box that clips is where this stops**: its
+ * descendants are each clipped to its padding box, which is inside the border box
+ * it has just contributed, so nothing below it can ask for more room than it has
+ * already asked for. That is why no clip *rectangle* is read here -- the stop
+ * means no box with a clipping ancestor is ever visited, so every box this does
+ * see has none, and `box.x + box.width` is exactly right for it.
+ *
+ * It is the bound `Element.extent` takes, for the same structural reason and a
+ * different question, and the two must not be merged: that one answers for a
+ * whole subtree *including* the root's own box, which here is the space the call
+ * was offered rather than the space the answer takes.
  *
  * @param result - What `arrange()` returned.
  * @returns The last row and the last column any box reaches, as counts.
  */
 export function arrangedExtent(result: LayoutResult): { height: number; width: number } {
+	// the root's own far edges, which is `y + height` and not `height`: `layout()`
+	// applies the root's relative offset itself, since every other node's is
+	// applied by the parent that places it and the root has no parent -- so a
+	// `position: relative` root with `top: 2` is drawn two rows down and reading
+	// its size back reports a grid two rows short of it. Measured: a bordered
+	// `overflow: hidden` pane at `top: 2, left: 2` came back as the top border row
+	// alone, with the text and the bottom border past the end of the grid. Floored
+	// at zero for the other direction, where a negative offset puts the whole box
+	// above or left of the first cell and nothing of it is drawn
+	const rootEdges = (): { height: number; width: number } => ({
+		height: Math.max(0, result.box.y + result.box.height),
+		width: Math.max(0, result.box.x + result.box.width),
+	});
+
+	// a clipping root is the one place the root's own box is the answer rather
+	// than the space it was offered: it bounds everything below it to inside its
+	// own border box, so there is nothing further to ask -- and its border is
+	// drawn on that box while what it clips its children to is the padding box one
+	// cell in, so clamping the children instead reports a grid a column short of
+	// the frame it is about to draw. Measured: an eight-column bordered pane with
+	// `overflow: hidden`, rendered at four, came back as `┌──────` with the right
+	// edge gone
+	if (clipsContent(result.node.style)) {
+		return rootEdges();
+	}
+
 	let bottom = 0;
 	let right = 0;
 
 	const walk = (node: LayoutResult): void => {
 		bottom = Math.max(bottom, node.box.y + node.box.height);
 		right = Math.max(right, node.box.x + node.box.width);
+
+		// where it stops, for the reason the doc comment gives. What walking instead
+		// costs is the measurement, over a ten-thousand-row list inside a 24-row
+		// clip and six interleaved rounds of twenty: **0.00027ms against
+		// 0.15715ms** median, visiting 3 nodes rather than 30,003 to learn how big
+		// a one-row window is
+		if (clipsContent(node.node.style)) {
+			return;
+		}
+
 		for (const child of node.children) {
 			walk(child);
 		}
@@ -304,10 +354,11 @@ export function arrangedExtent(result: LayoutResult): { height: number; width: n
 	}
 
 	// a tree with nothing in it is as big as it measured, which is the root's own
-	// box and the one case where reading it back is the answer
-	return result.children.length > 0
-		? { height: bottom, width: right }
-		: { height: result.box.height, width: result.box.width };
+	// box and the one case where reading it back is the answer. Through the same
+	// function as the clipping root above, because the offset was wrong here too
+	// and had been on `main`: a childless `position: relative` root with `top: 2`
+	// drew its one row at row two of a one-row grid, which is to say nowhere
+	return result.children.length > 0 ? { height: bottom, width: right } : rootEdges();
 }
 
 /** Draws a border around a box, if its style asks for one. */

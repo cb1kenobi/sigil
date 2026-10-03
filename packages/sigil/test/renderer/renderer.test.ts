@@ -21,6 +21,7 @@ import { State } from '../../src/signals/index.js';
 import { Cascade, parseStylesheet } from '../../src/style/index.js';
 import { createTerminal, type Terminal } from '../../src/terminal/index.js';
 import { Screen, screenStream } from '../canvas/screen.js';
+import { setup } from '../components/helpers.js';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 /**
@@ -1926,5 +1927,63 @@ describe('where the scheme comes from', () => {
 			delete process.env.SIGIL_COLOR_SCHEME;
 			Object.assign(process.env, before);
 		}
+	});
+});
+
+describe('a canvas that follows what it draws', () => {
+	// SIG-130, through the other reader of the same walk. `mountLive()` asks for
+	// `width: 'auto'` and names no height, so every spinner, bar, prompt and
+	// table reserves the rows `arrangedExtent()` reports -- and a clipped pane
+	// used to report the rows nobody can see, so the canvas held three blank rows
+	// of the user's scrollback open for the life of the frame
+	it('should not reserve rows a clip hides', () => {
+		const { terminal } = setup({ columns: 40 });
+		const view = render(
+			() =>
+				box(
+					{ 'flex-direction': 'column' },
+					box(
+						{ height: 1, overflow: 'hidden', width: 6 },
+						box(
+							{ 'flex-direction': 'column', 'flex-shrink': 0 },
+							text('r1'),
+							text('r2'),
+							text('r3'),
+							text('r4')
+						)
+					)
+				),
+			{ frameMs: 0, terminal, width: 'auto' }
+		);
+
+		expect(view.backend.height).to.equal(1);
+		view.dispose();
+	});
+
+	// and the second pass still grows it where nothing clips, which is the rule
+	// this must not have broken: a row whose description wraps further than it
+	// measured is why that pass exists at all
+	it('should still reserve rows for overflow nothing clips', () => {
+		const { terminal } = setup({ columns: 40 });
+		const view = render(
+			() =>
+				box(
+					{ 'flex-direction': 'column' },
+					box(
+						{ height: 1, width: 6 },
+						box(
+							{ 'flex-direction': 'column', 'flex-shrink': 0 },
+							text('r1'),
+							text('r2'),
+							text('r3'),
+							text('r4')
+						)
+					)
+				),
+			{ frameMs: 0, terminal, width: 'auto' }
+		);
+
+		expect(view.backend.height).to.equal(4);
+		view.dispose();
 	});
 });
