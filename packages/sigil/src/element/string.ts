@@ -122,8 +122,7 @@ export function renderToLines(root: Element, opts: RenderStringOptions): string[
 
 		height = Math.max(1, Math.floor(opts.height ?? measureNode(root, width).height));
 
-		arrange(root, { height, width });
-		let extent = arrangedExtent(root);
+		let extent = arrangedExtent(arrange(root, { height, width }));
 
 		// laid out again where it reached further down than it measured. A row whose
 		// children flex is measured with each child offered the whole content box
@@ -134,8 +133,7 @@ export function renderToLines(root: Element, opts: RenderStringOptions): string[
 		// how big one is
 		if (opts.height === undefined && extent.height > height) {
 			height = extent.height;
-			arrange(root, { height, width });
-			extent = arrangedExtent(root);
+			extent = arrangedExtent(arrange(root, { height, width }));
 		}
 
 		// and painted into a grid as wide as what the layout came to rather than as

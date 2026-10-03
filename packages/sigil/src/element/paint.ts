@@ -282,101 +282,68 @@ export function arrange(root: Element, opts: LayoutOptions): LayoutResult {
  * that fits can hold one that does not: **unclipped** overflow is legitimate
  * here, and the question is "how much room does the answer take" rather than
  * "did anything escape" -- which is what makes a flag name longer than the
- * terminal survive. The root itself is skipped, since a root with no declared
- * size fills whatever it was given and would report that back.
+ * terminal survive. The root itself is skipped unless it clips, since a root
+ * with no declared size fills whatever it was given and would report that back.
  *
  * What it does *not* take room for is a box an ancestor's `overflow` clips away,
- * and this is handed the **element** tree rather than the layout result because
- * that is where the rectangle saying so lives. `arrange()` has already written
- * `element.clip`, so this asks it rather than working the chain out a second time
- * -- two readers of one rule being how the two come to disagree about where the
- * edge is. It is not `Element.extent` and must not become it: that one answers
- * for the whole of a subtree *including* the root's own box, which here is the
- * space the call was offered rather than the space the answer takes.
+ * and the one rule that says so is **a box that clips is where this stops**: its
+ * descendants are each clipped to its padding box, which is inside the border box
+ * it has just contributed, so nothing below it can ask for more room than it has
+ * already asked for. That is why no clip *rectangle* is read here -- the stop
+ * means no box with a clipping ancestor is ever visited, so every box this does
+ * see has none, and `box.x + box.width` is exactly right for it.
  *
- * @param root - The root element, already arranged.
+ * It is the bound `Element.extent` takes, for the same structural reason and a
+ * different question, and the two must not be merged: that one answers for a
+ * whole subtree *including* the root's own box, which here is the space the call
+ * was offered rather than the space the answer takes.
+ *
+ * @param result - What `arrange()` returned.
  * @returns The last row and the last column any box reaches, as counts.
  */
-export function arrangedExtent(root: Element): { height: number; width: number } {
+export function arrangedExtent(result: LayoutResult): { height: number; width: number } {
+	// a clipping root is the one place the root's own box is the answer rather
+	// than the space it was offered: it bounds everything below it to inside its
+	// own border box, so there is nothing further to ask -- and its border is
+	// drawn on that box while what it clips its children to is the padding box one
+	// cell in, so clamping the children instead reports a grid a column short of
+	// the frame it is about to draw. Measured: an eight-column bordered pane with
+	// `overflow: hidden`, rendered at four, came back as `┌──────` with the right
+	// edge gone
+	if (clipsContent(result.node.style)) {
+		return { height: result.box.height, width: result.box.width };
+	}
+
 	let bottom = 0;
 	let right = 0;
 
-	const walk = (element: Element): void => {
-		const area = element.box;
-		// the two questions `paint()` asks before anything else, for the reason it
-		// asks them: a subtree nothing draws is no room the answer takes. Reading
-		// the element tree is what makes the `display` half necessary, and it is
-		// about *staleness* rather than about a zero box -- `layoutNode()` returns
-		// before it reaches a hidden node's children, so `arrange()` finds no result
-		// for any of them and leaves whatever boxes and clips a *previous* arrange
-		// wrote. The layout result this used to walk simply did not contain them,
-		// which is why no such guard was here before and why one in `arrange()`'s
-		// own extent walk was deleted for failing its sabotage: there the hidden
-		// node's zero box really does move nothing
-		if (!area || element.style.display === 'none') {
+	const walk = (node: LayoutResult): void => {
+		bottom = Math.max(bottom, node.box.y + node.box.height);
+		right = Math.max(right, node.box.x + node.box.width);
+
+		// where it stops, for the reason the doc comment gives. What walking instead
+		// costs is the measurement, over a ten-thousand-row list inside a 24-row
+		// clip and six interleaved rounds of twenty: **0.00027ms against
+		// 0.15715ms** median, visiting 3 nodes rather than 30,003 to learn how big
+		// a one-row window is
+		if (clipsContent(node.node.style)) {
 			return;
 		}
 
-		const { clip } = element;
-		if (clip) {
-			// a box the clip does not reach draws nothing at all, so it is not room
-			// anything takes. Asked with `overlaps()` rather than by reading the
-			// intersection's own size, because an empty intersection is still a
-			// rectangle *somewhere*: a box five rows below a one-row clip intersects
-			// to a zero-height rectangle at row five, and `y + height` off that is
-			// the very five the clip exists to refuse
-			if (!overlaps(area, clip)) {
-				return;
-			}
-			bottom = Math.max(bottom, Math.min(area.y + area.height, clip.y + clip.height));
-			right = Math.max(right, Math.min(area.x + area.width, clip.x + clip.width));
-		} else {
-			bottom = Math.max(bottom, area.y + area.height);
-			right = Math.max(right, area.x + area.width);
-		}
-
-		// a **fast path rather than a claim**, and it says so because deleting it
-		// fails no test and that is correct: a clipping box's descendants are each
-		// clipped to its padding box, which is inside the border box just
-		// contributed, so every one of them clamps to a rectangle this already took
-		// room for. It is the bound `Element.extent` stops at, for the same
-		// structural reason and a different question -- and what it buys is the
-		// walk. Measured over a ten-thousand-row list inside a 24-row clip, six
-		// interleaved rounds of twenty: **0.0002ms against 0.0730ms** median, to
-		// the same answer, because the alternative is visiting 30,003 elements to
-		// learn how big a one-row window is
-		if (clipsContent(element.style)) {
-			return;
-		}
-
-		for (const child of element.children) {
+		for (const child of node.children) {
 			walk(child);
 		}
 	};
 
-	// the root's own box is skipped and its children are not, so the `display`
-	// question has to be asked about it separately: a hidden root is one
-	// `layoutNode()` returned from, so every child box under it is a previous
-	// arrange's. The root is deliberately *not* pruned for clipping, though --
-	// what it clips its children to is inside the space the call was offered, so
-	// their clamped boxes are a better answer than its own box, which is that
-	// offered space read back
-	if (root.style.display !== 'none') {
-		for (const child of root.children) {
-			walk(child);
-		}
-	}
-
-	if (root.children.length > 0) {
-		return { height: bottom, width: right };
+	for (const child of result.children) {
+		walk(child);
 	}
 
 	// a tree with nothing in it is as big as it measured, which is the root's own
-	// box and the one case where reading it back is the answer. A root nothing has
-	// arranged has no box and so no answer, which is the same honest zero
-	// `scrollRange()` gives for the same reason
-	const area = root.box;
-	return { height: area?.height ?? 0, width: area?.width ?? 0 };
+	// box and the one case where reading it back is the answer
+	return result.children.length > 0
+		? { height: bottom, width: right }
+		: { height: result.box.height, width: result.box.width };
 }
 
 /** Draws a border around a box, if its style asks for one. */
