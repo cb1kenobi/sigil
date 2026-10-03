@@ -265,8 +265,18 @@ describe('the selection overlay', () => {
 		// settled on for the same reason.
 		//
 		// A `raw`'s `measure` is the seam: measurements are cached for the length of
-		// one `layout()` call, so it runs once per layout pass and not at all on a
+		// one `layout()` call, so it runs when a layout pass runs and not at all on a
 		// frame that skipped the layout.
+		//
+		// How many times it runs per layout is deliberately **not** asserted, and the
+		// reason is worth knowing before anybody edits the fixture. Measured: this
+		// column runs it once, and a *row* whose child's width flexing changes runs
+		// it twice -- `remeasureLine()` re-measuring at the used width, doing exactly
+		// its job. This fixture would stay at one even as a row, because the `raw`'s
+		// `minWidth` equals its `width` so flexing cannot move it, but none of that is
+		// load bearing: the test compares a before and an after rather than a number,
+		// so all it needs is that the count moves when a layout runs and does not when
+		// one is skipped. Both hold in either shape.
 		let measured = 0;
 		const h = harness();
 		const view = render(
