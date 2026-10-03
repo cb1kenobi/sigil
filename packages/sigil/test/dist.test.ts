@@ -121,12 +121,19 @@ describe('what importing the package costs', () => {
 	 * is themed -- so a search for the *vocabulary* finds the theme and reports
 	 * the whole component set as loaded when none of it is.
 	 */
+	// one per component, because the presence half below is what stops the absence
+	// half going vacuous -- so a component added without a name here is one whose
+	// absence from the root entry is pinned by nothing it can be renamed out of.
+	// `ScrollBox` was missing for the same reason `createTypewriter` was: the list
+	// is not derived from anything, so it is a list somebody has to add to
 	const IMPLEMENTATIONS = [
 		'createSpinner',
 		'createProgress',
+		'createTypewriter',
 		'mountLive',
 		'PromptError',
 		'renderBar',
+		'ScrollBox',
 		'tableView',
 	];
 

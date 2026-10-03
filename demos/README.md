@@ -43,19 +43,30 @@ node demos/parser/06-lazy-commands.js --help  # commands listed by name alone
 | [`components/04-prompts.js`](components/04-prompts.js)             | Text, password, select, multiselect, confirm  |
 | [`components/05-live-region.js`](components/05-live-region.js)     | A string frame repainted in place, on its own |
 | [`components/06-ansi-and-wrap.js`](components/06-ansi-and-wrap.js) | Styling, wrapping, and display width          |
+| [`components/07-typewriter.js`](components/07-typewriter.js)       | Text that arrives rather than appears         |
 
 ### Try them without a terminal
 
 The interesting half. Pipe any of them and there is no cursor to move, so
 nothing is repainted — a spinner writes one line per change instead of one per
-frame, and a bar one line every ten percent:
+frame, a bar one line every ten percent, and a typewriter the whole text at once
+rather than one line per step -- seven lines for that run rather than about a
+hundred:
 
 ```sh
 node demos/components/01-spinner.js | cat
 node demos/components/02-progress.js | cat
+node demos/components/07-typewriter.js | cat
 ```
 
 That is what a CI log gets, and no component had to know about it.
+
+The typewriter answers the same way to a preference rather than to a pipe, so a
+terminal whose user has asked for less motion gets the text in one go too:
+
+```sh
+SIGIL_REDUCED_MOTION=reduce node demos/components/07-typewriter.js
+```
 
 A prompt has nobody to ask, so it fails rather than waiting forever on a stdin
 that will never produce a keystroke:

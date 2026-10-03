@@ -54,6 +54,23 @@ export {
 	thumbExtent,
 } from './scroll-box.js';
 export {
+	byLine,
+	byWord,
+	type Chunker,
+	createTypewriter,
+	type Pace,
+	type RevealStep,
+	revealSteps,
+	type Typewriter,
+	type TypewriterOptions,
+	type TypewriterRevealOptions,
+	typewriterReveal,
+	type TypewriterState,
+	typewriterState,
+	type TypewriterViewOptions,
+	typewriterView,
+} from './typewriter.js';
+export {
 	type Align,
 	type Column,
 	table,

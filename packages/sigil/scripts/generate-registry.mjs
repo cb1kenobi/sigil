@@ -82,6 +82,10 @@ const ENTRIES = [
 		desc: 'A scrolling viewport with a scrollbar, keyboard, wheel and a draggable thumb',
 		name: 'scroll-box',
 	},
+	{
+		desc: 'A typewriter that reveals text a grapheme, word or line at a time',
+		name: 'typewriter',
+	},
 ];
 
 /** `./src/element/index.ts` -> `element`, read off the build's own entry list. */
