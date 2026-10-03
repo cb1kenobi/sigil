@@ -9465,7 +9465,9 @@ when a chunk boundary stops being one` is the guard.
 - **Which is also why the cursor must be a visible glyph.** A space is not one: a
   `text` of nothing but spaces measures zero at `white-space: normal`, which is the
   defect the choice list's pointer column already records, so a space cursor would
-  draw nothing unless it carried `nowrap` and an attribute. `cursor` is a `string`
+  draw nothing unless it carried `nowrap` and an attribute. That is pinned rather
+  than left to be discovered, beside the cases that do work -- a wide cluster, a
+  flag, and a cursor of more than one character. `cursor` is a `string`
   rather than a `boolean | string` for the reason `MediaContext.keyword` is a field
   of its own: nothing downstream should have to ask which of two types it was
   handed.
@@ -9505,6 +9507,25 @@ when a chunk boundary stops being one` is the guard.
   as 1, so a `Math.max(0, ...)` here was this file saying what the host already
   says, and it failed its sabotage for exactly that reason. The contract is still
   asserted; it is simply kept somewhere else.
+- **Every delay is taken when the steps are, because the timer must run no caller
+  code at all.** `pace` is the caller's, and the first version called it from inside
+  the `setTimeout` -- where a throw is an **uncaught exception**: node prints a stack
+  and the process goes, which skips the renderer's teardown and is the opposite of
+  the rule that a CLI shows a message rather than a stack. Proved both ways with real
+  timers before it was changed, with a pace that starts throwing fifteen
+  milliseconds in: from inside the timer the reveal stopped four characters into a
+  ten-character string and the throw escaped as an unhandled error, and with the
+  delays taken up front the same pace is asked nine times at chunk time and the
+  reveal finishes. This is `until()`'s own rule one component along -- a predicate
+  that throws ends its own probe, not the process -- reached by moving the caller's
+  code into the effect body, where a throw is reported by the machinery that already
+  answers for a component that throws. Found by walking the degenerate inputs rather
+  than by a test, so `should ask the pace nothing from inside a timer` asserts the
+  structural property and its sibling asserts where the error goes. What it costs is
+  `steps.length - 1` calls per text change rather than one per step, which is the
+  order the chunking already is. The last chunk is skipped rather than computed and
+  ignored, because the delay before a chunk is the one in front of it earned -- so a
+  caller counting the calls sees the number it should.
 - **No timer when nothing is revealing.** The last chunk schedules nothing, so a
   finished typewriter holds no timer, and a reveal that cannot animate starts none
   at all. **The timer is unref'd**, because a program that has finished should exit
@@ -9574,6 +9595,25 @@ when a chunk boundary stops being one` is the guard.
   because it is a character in the text rather than an element -- the entry above is
   why, and `.sigil-typewriter .sigil-caret` is what a caller who wants the prompt's
   caret here would have had to write.
+
+##### The clamp that looked dead and was not
+
+- **`shownOf()` is one function because two readers of one clamp is how the two come
+  to disagree**, and the clamp itself is the entry worth keeping: `String.slice`
+  reads a negative end as an offset from the **far** end, so `'abc'.slice(0, -1)` is
+  `'ab'` -- every character but the last, from a position that means nothing is on
+  screen. `revealed` is a public signal an app building its own tree writes, so that
+  is reachable rather than theoretical.
+- **The first test for it used `-5` and survived its sabotage, because `-5` is the
+  one kind of negative where `slice` agrees.** A position past `-length` clamps to
+  nothing by itself; only `-1` through `-length` differ. That is the
+  fixture-too-easy shape this file records under the animator's `isFinite` guard,
+  met again: the sabotage was sound and the fixture could not reach the state that
+  makes the guard matter.
+- **And the other half of the same clamp really is dead.** `Math.min(value.length,
+at)` changes nothing, because `slice` clamps an end past the string and so the
+  length of what comes back is clamped too -- which is the whole of what the cursor
+  gate asks about. Deleted, after its own sabotage survived.
 
 ##### What the sabotage pass found
 

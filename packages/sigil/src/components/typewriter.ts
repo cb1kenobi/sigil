@@ -145,6 +145,35 @@ export function revealSteps(value: string, chunk: Chunker): RevealStep[] {
 	return steps;
 }
 
+/**
+ * What a position shows of a text, which is one rule with two readers.
+ *
+ * The clamp is load bearing and the obvious fixture cannot see it: `String.slice`
+ * reads a negative end as an offset from the *far* end, so `'abc'.slice(0, -1)` is
+ * `'ab'` -- every character but the last, from a position that means nothing is on
+ * screen. A position past `-length` clamps to nothing by itself, which is why the
+ * first test for this used `-5` and survived its sabotage.
+ *
+ * Reachable because `revealed` is a public signal an app that builds its own tree
+ * writes. It is a function rather than the same expression in both places for the
+ * reason `inSelection()` is a walk over `selectionRuns()`: two readers of one clamp
+ * is how the two come to disagree, and the second one here is the facade's own
+ * getter, where nothing can reach a negative position and a copy would have been
+ * dead code that looked like defence.
+ *
+ * Only the low end is clamped, and the other half was written and deleted again for
+ * failing its sabotage: `slice` clamps an end past the string by itself, and so the
+ * length of what comes back is clamped too, which is the whole of what the cursor
+ * gate above asks about.
+ *
+ * @param value - The whole text.
+ * @param at - Where the reveal has got to.
+ * @returns What is on screen.
+ */
+function shownOf(value: string, at: number): string {
+	return value.slice(0, Math.max(0, at));
+}
+
 /** How many characters two strings begin the same way. */
 function shared(a: string, b: string): number {
 	const limit = Math.min(a.length, b.length);
@@ -241,10 +270,10 @@ export function typewriterView(state: TypewriterState, opts: TypewriterViewOptio
 
 	createEffect(() => {
 		const value = state.text.get();
-		const at = Math.max(0, Math.min(value.length, state.revealed.get()));
+		const shown = shownOf(value, state.revealed.get());
 		// the cursor only while there is a write head for it to be at
-		const head = opts.cursor !== undefined && at < value.length ? opts.cursor : '';
-		body.setText(value.slice(0, at) + head);
+		const head = opts.cursor !== undefined && shown.length < value.length ? opts.cursor : '';
+		body.setText(shown + head);
 	});
 
 	return box({ class: 'sigil-typewriter' }, body);
@@ -322,6 +351,37 @@ export function typewriterReveal(state: TypewriterState, opts: TypewriterRevealO
 		}
 
 		const steps = revealSteps(value, chunk);
+		/**
+		 * What each chunk earns, taken here rather than inside the timer.
+		 *
+		 * `pace` is the caller's code, and a throw from inside a `setTimeout` is an
+		 * uncaught exception: node prints a stack and the process goes, which is the
+		 * opposite of the rule that a CLI shows a message rather than a stack, and it
+		 * skips the renderer's own teardown. From an effect body it is reported
+		 * instead, through the machinery that already answers for a component that
+		 * throws -- so the timer below runs no caller code at all, and a `pace` that
+		 * throws now fails the same way a `chunk` that throws does. Found by probing
+		 * it rather than by a test, which is why there is one now.
+		 *
+		 * The last chunk is left out rather than computed and ignored, because the
+		 * delay before a chunk is the one in front of it earned: asking the last one
+		 * would be asking a question whose answer is never read, and a caller counting
+		 * the calls would see one too many.
+		 */
+		const held: number[] = [];
+		for (let index = 0; index < steps.length - 1; index++) {
+			const earned = pace === undefined ? flat : pace(steps[index]!.chunk, index);
+			// a pace that answers with nothing usable is read as the flat interval
+			// rather than as zero: `NaN` would schedule immediately and reveal the
+			// whole text in one macrotask, which is the one failure that looks like
+			// the feature being broken rather than like a bad return value.
+			//
+			// A negative one is kept, because `setTimeout` documents a delay under 1
+			// as 1 -- so a `Math.max(0, ...)` here was this file saying what the host
+			// already says, and it failed its sabotage for exactly that reason. The
+			// contract is still asserted; it is simply kept somewhere else
+			held.push(Number.isFinite(earned) ? earned : flat);
+		}
 
 		// the first chunk lands on the first frame rather than one interval later: a
 		// typewriter showing an empty line before it starts reads as a stall, and it
@@ -343,20 +403,6 @@ export function typewriterReveal(state: TypewriterState, opts: TypewriterRevealO
 		state.revealed.set(at);
 
 		let timer: ReturnType<typeof setTimeout> | undefined;
-
-		const hold = (index: number): number => {
-			const earned = pace === undefined ? flat : pace(steps[index]!.chunk, index);
-			// a pace that answers with nothing usable is read as the flat interval
-			// rather than as zero: `NaN` would schedule immediately and reveal the
-			// whole text in one macrotask, which is the one failure that looks like
-			// the feature being broken rather than like a bad return value.
-			//
-			// A negative one is passed through, because `setTimeout` documents a delay
-			// under 1 as 1 -- so a `Math.max(0, ...)` here was this file saying what
-			// the host already says, and it failed its sabotage for exactly that
-			// reason. The contract is still asserted; it is simply kept somewhere else
-			return Number.isFinite(earned) ? earned : flat;
-		};
 
 		const schedule = (): void => {
 			const now = state.revealed.get();
@@ -387,7 +433,7 @@ export function typewriterReveal(state: TypewriterState, opts: TypewriterRevealO
 					state.revealed.set(steps[index]!.end);
 					schedule();
 				},
-				hold(next - 1)
+				held[next - 1]
 			);
 			// a typewriter is not a reason to stay alive
 			timer.unref?.();
@@ -505,8 +551,7 @@ export function createTypewriter(opts: TypewriterOptions = {}): Typewriter {
 		},
 
 		get revealed() {
-			const value = state.text.get();
-			return value.slice(0, Math.max(0, Math.min(value.length, state.revealed.get())));
+			return shownOf(state.text.get(), state.revealed.get());
 		},
 
 		get revealing() {

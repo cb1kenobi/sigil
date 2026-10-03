@@ -201,9 +201,20 @@ describe('typewriterView()', () => {
 		expect(draw('hello', 5, '#')).to.equal('hello');
 	});
 
+	/**
+	 * `-1` rather than some larger negative, which is what makes this say anything.
+	 *
+	 * `String.slice` reads a negative end as an offset from the far end, so
+	 * `'abc'.slice(0, -1)` is `'ab'` -- a position of `-1` without the clamp shows
+	 * every character but the last. A position past `-length` clamps to nothing on
+	 * its own, which is why the first fixture here was `-5` and survived its
+	 * sabotage: the one negative where `slice` happens to agree.
+	 */
 	it('should clamp a position past either end of the text', () => {
-		expect(draw('hi', 99, '#')).to.equal('hi');
-		expect(draw('hi', -5, '#')).to.equal('#');
+		expect(draw('abc', 99, '#')).to.equal('abc');
+		expect(draw('abc', -1, '#')).to.equal('#');
+		expect(draw('abc', -99, '#')).to.equal('#');
+		expect(draw('abc', Number.NaN, '#')).to.equal('#');
 	});
 
 	/**
@@ -244,6 +255,23 @@ describe('typewriterView()', () => {
 	it('should wrap at the width it is laid out in', () => {
 		expect(draw('aaa bbb ccc ddd eee', 19, undefined, 11)).to.equal('aaa bbb ccc\nddd eee');
 		expect(draw('aaa bbb ccc ddd eee', 19, undefined, 40)).to.equal('aaa bbb ccc ddd eee');
+	});
+
+	// the limitation the glyph design comes with, pinned rather than left to be
+	// discovered: a text of nothing but spaces measures zero at `white-space:
+	// normal`, which is the defect the choice list's pointer column records, so a
+	// cursor has to be something that draws
+	it('should draw nothing for a cursor that is whitespace', () => {
+		expect(draw('ab', 1, ' ')).to.equal('a');
+		expect(draw('ab', 1, '')).to.equal('a');
+	});
+
+	it.each([
+		['a wide cluster', '漢'],
+		['a flag', FLAG],
+		['more than one character', '<>'],
+	])('should draw %s as the cursor', (_name, cursor) => {
+		expect(draw('ab', 1, cursor)).to.equal(`a${cursor}`);
 	});
 
 	// a cursor glyph is a character rather than an attribute over a cell, which is
@@ -505,6 +533,41 @@ describe('typewriterReveal()', () => {
 			expect(it.state.revealed.get()).to.equal(1);
 			vi.advanceTimersByTime(1);
 			expect(it.state.revealed.get()).to.equal(2);
+
+			it.dispose();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	/**
+	 * The one piece of caller code the timer must not run.
+	 *
+	 * A `pace` that throws from inside a `setTimeout` is an uncaught exception: node
+	 * prints a stack and the process goes, which skips the renderer's teardown and is
+	 * the opposite of the rule that a CLI shows a message. Proved before it was fixed,
+	 * with real timers: the reveal stopped four characters in and vitest reported an
+	 * unhandled error. Asserted here as the structural property instead of as the
+	 * crash, because the crash is not something a test can survive asking for.
+	 */
+	it('should ask the pace nothing from inside a timer', () => {
+		vi.useFakeTimers();
+		try {
+			let calls = 0;
+			const it = drive('abcdef', {
+				animate: () => true,
+				pace: () => {
+					calls++;
+					return 10;
+				},
+			});
+
+			// every chunk but the last, taken when the steps were
+			expect(calls).to.equal(5);
+
+			vi.advanceTimersByTime(100);
+			expect(it.state.revealed.get()).to.equal(6);
+			expect(calls).to.equal(5);
 
 			it.dispose();
 		} finally {
@@ -907,6 +970,25 @@ describe('createTypewriter()', () => {
 		expect(stdout.text).to.equal('ab\n');
 	});
 
+	// a skip before there is anything to skip is a skip of nothing, so the reveal
+	// that follows starts where a reveal starts. The position is kept per mount, and
+	// nothing was mounted
+	it('should type from the beginning when it is started after a skip', () => {
+		const ui = screenSetup();
+		const it = createTypewriter({
+			ansi: ui.ansi,
+			frameMs: 0,
+			terminal: ui.terminal,
+			text: 'abc',
+		});
+
+		it.skip();
+		expect(ui.log).to.deep.equal([]);
+
+		it.start();
+		expect(it.revealed).to.equal('a');
+	});
+
 	it('should change nothing on a second start()', () => {
 		vi.useFakeTimers();
 		try {
@@ -1081,6 +1163,43 @@ describe('createTypewriter()', () => {
 			it.text = 'abZZ';
 			expect(it.revealed).to.equal('ab');
 			expect(ui.frame).to.equal('ab');
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	// the other half of the entry above: a pace that starts throwing once the
+	// renderer is up is reported where a component's throw is reported, rather than
+	// escaping into a timer nothing is watching
+	it('should report a pace that throws after it is mounted', () => {
+		vi.useFakeTimers();
+		try {
+			const ui = screenSetup();
+			const errors: unknown[] = [];
+			let armed = false;
+			const it = createTypewriter({
+				ansi: ui.ansi,
+				frameMs: 0,
+				interval: 10,
+				onError: (error) => errors.push(error),
+				pace: () => {
+					if (armed) {
+						throw new Error('pace boom');
+					}
+					return 10;
+				},
+				terminal: ui.terminal,
+				text: 'abcd',
+			}).start();
+
+			type(30);
+			expect(it.revealed).to.equal('abcd');
+			expect(errors).to.deep.equal([]);
+
+			armed = true;
+			it.append('efgh');
+
+			expect(errors.map(String)).to.deep.equal(['Error: pace boom']);
 		} finally {
 			vi.useRealTimers();
 		}
