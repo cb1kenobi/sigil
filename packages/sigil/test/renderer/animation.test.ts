@@ -1,4 +1,5 @@
 import { createCanvas } from '../../src/canvas/index.js';
+import { ScrollBox } from '../../src/components/scroll-box.js';
 import { box, type Element, text } from '../../src/element/index.js';
 import { createEffect, render, Show } from '../../src/renderer/index.js';
 import { createEffects } from '../../src/signals/index.js';
@@ -67,6 +68,23 @@ function harness(width = 24, height = 3) {
 		notifyResize() {
 			for (const fn of resizeListeners) {
 				fn({ height: terminal.height, width: terminal.width });
+			}
+		},
+		/**
+		 * A real resize: the terminal, the canvas that follows it, and the notify.
+		 *
+		 * The canvas follows because every real backend's does -- an inline one with no
+		 * width of its own erases and resizes itself, and a full-screen one is the
+		 * alternate buffer. Without that the terminal grows while nothing inside the
+		 * canvas is given a different box, which is the one thing a test about a resize
+		 * needs to be true.
+		 */
+		resize(w: number, h: number) {
+			(terminal as { width: number }).width = w;
+			(terminal as { height: number }).height = h;
+			canvas.resize(w, h);
+			for (const fn of resizeListeners) {
+				fn({ height: h, width: w });
 			}
 		},
 		/** What is on the canvas, with blanks as dots so a width is countable. */
@@ -729,6 +747,71 @@ describe('reduced motion through the frame loop', () => {
 		view.frame();
 		expect((node!.style.width as { value: number }).value).toBe(12);
 		expect(view.animating).toBe(false);
+		view.dispose();
+	});
+});
+
+describe('an animation on a frame that rebuilt a windowed list', () => {
+	it('should keep the presented style the second settle would have written over', () => {
+		// the two halves of a frame meeting: `settleResized()` restyles what a resize
+		// handler built, and `settleStyles()` writes the **base** style onto every
+		// element it has a cached one for -- animating ones included. So without
+		// putting the presented styles back, a frame that re-windowed drew every
+		// animation at its base value and, worse, laid it out there: an animated
+		// geometry property is in `LAYOUT_PROPERTIES`, so a width easing from four to
+		// twelve is placed at four for that frame. Asserted on the **box** as well as
+		// on the style, because that is what says the layout used it and not only the
+		// paint -- a picture cannot, since a box with a background and no characters
+		// draws blanks either way
+		const h = harness(14, 12);
+		const cascade = sheets(`
+			box.bar { width: 4; height: 1; background-color: #ff0000; transition: width 300ms linear }
+			box.bar.wide { width: 12 }
+		`);
+
+		let bar: Element;
+		let host: Element;
+		const view = render(
+			() => {
+				bar = box({ class: 'bar' });
+				host = ScrollBox({
+					props: { 'flex-grow': 1, 'min-height': 0 },
+					rows: { count: 500, height: 1, row: (i) => text(`r${i}`) },
+				});
+				return box({ 'flex-direction': 'column' }, bar, host);
+			},
+			{
+				backend: h.backend,
+				cascade,
+				effects,
+				reducedMotion: 'no-preference',
+				terminal: h.terminal,
+			}
+		);
+
+		vi.setSystemTime(0);
+		bar!.addClass('wide');
+		view.frame();
+		// part way through, so the presented width is neither end
+		vi.setSystemTime(150);
+		view.frame();
+		const easing = (bar!.style.width as { value: number }).value;
+		expect(easing).toBeGreaterThan(4);
+		expect(easing).toBeLessThan(12);
+		expect(bar!.box?.width, 'the layout used the eased width').toBe(easing);
+
+		// and now a frame that re-windows as well: the viewport gained rows, which is
+		// what makes `settleResized()` run a pass
+		h.resize(14, 30);
+		vi.setSystemTime(180);
+		view.frame();
+
+		const after = (bar!.style.width as { value: number }).value;
+		expect(after, 'the presented width was replaced by its base').toBeGreaterThan(4);
+		expect(after).toBeLessThan(12);
+		// the **box** is what says the layout used it rather than only the paint: a bar
+		// laid out at its base width would be four cells wide whatever its style said
+		expect(bar!.box?.width, 'the layout used the base width').toBe(after);
 		view.dispose();
 	});
 });

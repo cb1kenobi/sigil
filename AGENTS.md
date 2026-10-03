@@ -2149,6 +2149,20 @@ not building it addresses the 72ms." This is not building it.
   that genuinely does not converge is drawn at the last window it reached, which
   is the status quo rather than a new failure.
 
+- **And the presented styles go back on after it, which is the other thing a
+  second settle writes over.** `settleStyles()` sets `element.style` to the
+  **base** style for every element the restyler has a cached one for -- animating
+  ones included, which is why the first pass writes the animator's presented styles
+  _after_ it. A second settle undoes that, so a frame that re-windowed drew every
+  animation at its base value and, worse, **laid it out** there: an animated
+  geometry property is in `LAYOUT_PROPERTIES`, so a width easing from four to twelve
+  is placed at four for that frame. The same two lines in the same order, through the
+  same function, which is what makes it one rule rather than two. Pinned on the
+  element's **box** as well as on its style, because the box is what says the layout
+  used it -- a picture cannot, since a box with a background and no characters draws
+  blanks either way. Found by reading the frame rather than by a test, and the test
+  came after.
+
 - **The marks are drained twice in a frame, and the second time is not
   tidiness.** A new window writes the two spacers' heights with `setProp()`, and a
   kept restyler is marks-driven -- so a frame that re-settled styles without
@@ -2414,8 +2428,8 @@ not building it addresses the 72ms." This is not building it.
   `index()`'s memo and `reachable()` already follow. What it buys is every
   scroll _inside_ one row, which for a row taller than a cell is most of them.
 
-  **SIG-132 added eighteen and caught all eighteen, and six of them took a test
-  written for them.** Six survived the first pass and every one was a _cost_ guard
+  **SIG-132 added twenty-three and caught all twenty-three, and eight of them took
+  a test written for them.** Six survived the first pass and every one was a _cost_ guard
   rather than a claim, which is the state this file usually declares and leaves --
   the loop's exit, the pass bound, the per-pass clear in each of the two frames,
   `arrange()` collecting only what changed rather than everything with a hook, and

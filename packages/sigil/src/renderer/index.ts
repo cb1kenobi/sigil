@@ -709,9 +709,13 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 			animator.observe(element, element.style, at);
 		}
 		const animated = animator.tick(at);
-		for (const [element, style] of animated.styles) {
-			element.style = style;
-		}
+		/** Puts the presented styles back over the base ones a settle just wrote. */
+		const present = (): void => {
+			for (const [element, style] of animated.styles) {
+				element.style = style;
+			}
+		};
+		present();
 
 		// the restyler answers for what a *style* change implies and cannot answer
 		// for the other two. A text that was edited or a `raw` that re-measured
@@ -763,6 +767,14 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 			settleResized(resized, () => {
 				drainMarks();
 				settleStyles(root, restyler);
+				// and the presented styles again, because `settleStyles()` writes the
+				// **base** one onto every element it has a cached style for -- animating
+				// ones included. Without this a frame that re-windowed drew every
+				// animation at its base value, and worse laid it out there: an animated
+				// geometry property is in `LAYOUT_PROPERTIES`, so a width easing from ten
+				// to twenty would be placed at ten for that frame. The same order the
+				// first pass keeps, which is why it is the same function
+				present();
 				layoutInto();
 			});
 		}
