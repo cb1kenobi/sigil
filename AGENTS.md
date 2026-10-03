@@ -2752,16 +2752,19 @@ changed the viewport` over a renderer, plus the shrinking direction and a
   reads the scrollable region, so three walks computing one union would be three
   answers to one question. "A scroll box" has what each of them is and why the
   cheaper rule for either is unsound.
-- **And it collects the elements whose size moved, for a caller that asks.** An
-  optional third argument, appended to rather than cleared, because the question is
-  free exactly here: the box the last layout left _is_ the before, so the walk that
-  is about to overwrite it is the one place nothing has to be kept. What it is for
-  is `Element.onResize`, which is the one hook `arrange()` is the writer behind --
-  and the dispatch is deliberately **not** here, because a handler that builds
-  elements leaves them below the cascade and `arrange()` has no sheets to resolve
-  them against. A caller that passes no collector sees no change at all, which is
-  what keeps a bare `arrange()` a layout rather than a frame. See "Windowing a long
-  list".
+- **And it collects the elements that have not been _told_ the size it just gave
+  them, for a caller that asks.** An optional third argument, a `Set` added to rather
+  than cleared, because a caller that lays out twice in one pass must not lose the
+  first answer to the second agreeing with it. Not "whose size moved", which is what
+  this entry said for one commit and what the mechanism stopped being: the size a
+  handler was told is recorded after it returns, so a handler that **threw** is asked
+  again even though the box is already at its new size -- see "Windowing a long list"
+  for the measurement that forced that. What it is all for is `Element.onResize`,
+  which is the one hook `arrange()` is the writer behind -- and the dispatch is
+  deliberately **not** here, because a handler that builds elements leaves them below
+  the cascade and `arrange()` has no sheets to resolve them against. A caller that
+  passes no collector sees no change at all, which is what keeps a bare `arrange()` a
+  layout rather than a frame.
 - **Paint is `z-index` then document order, and `visibility: hidden` skips the
   element rather than the subtree.** Hidden is a skip rather than a return
   because `visibility` inherits: a descendant is hidden because it inherited the
@@ -6368,8 +6371,9 @@ a probe`. What the longer hold costs is worth stating precisely: a key typed
   `renderToString()` -- so a resize cannot be answered in one and not the other.
   What makes it the frame's rather than `arrange()`'s is the restyle it has to do
   in between, and the renderer drains the tree's marks a **second** time to narrow
-  that to what the handlers touched; see "Windowing a long list" for the defect
-  that said so. It costs nothing on a frame where no box changed size, which is
+  that to what the handlers touched, then shows the animator that settle so that an
+  animation on a row the handler built starts at all; see "Windowing a long list" for
+  the two defects that said so. It costs nothing on a frame where no box changed size, which is
   every frame of an app with no windowed list in it: the collector is empty, so
   there is nothing to dispatch and nothing to lay out again.
 - **An auto-height canvas is measured, not laid out and read back.** That was the
