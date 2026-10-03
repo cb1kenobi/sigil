@@ -11,6 +11,10 @@
  * of its own -- one text per row plus eight nodes of chrome -- so the comparison
  * is this number against that one rather than two numbers on two screens.
  *
+ * It reads **45** at the very bottom, and that is the arithmetic rather than a
+ * leak: the window is the rows the viewport can see, and at the end of the list
+ * there are only eighteen left to see.
+ *
  * Paint culling (SIG-110) already meant the frame drew the twenty rows on screen
  * rather than the ten thousand that existed, which took the paint from 35ms to
  * three tenths of a millisecond and left the **arrange** as the whole frame at
@@ -29,7 +33,8 @@
  *
  * - **Scroll it, every way.** Arrows, PageUp/PageDown, Home/End, the wheel with
  *   its acceleration curve, and dragging the thumb. Watch the element count stay
- *   at 49 and the thumb describe ten thousand rows rather than the window. Home
+ *   in the forties and the thumb describe ten thousand rows rather than the
+ *   window. Home
  *   and End are the sharpest: the thumb goes to the very top and the very bottom,
  *   which it could not do if the range came from what was built.
  * - **Tab.** The rows are focusable and Tab walks the ones that **exist**, which

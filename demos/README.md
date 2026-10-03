@@ -269,7 +269,9 @@ meant to be run straight after `08-scroll.js`: the two look the same, scroll the
 same, report the same range and draw the thumb in the same place. The only visible
 difference is the line at the bottom, which counts the elements that exist — 49
 against the 10,008 that list comes to with every row built, measured both ways
-(08 prints no count of its own). Paint culling took the paint from 34.8ms to
+(08 prints no count of its own). It reads 45 at the very bottom, which is the
+arithmetic rather than a leak: at the end of the list there are only eighteen
+rows left to see. Paint culling took the paint from 34.8ms to
 0.29ms and left the **arrange** as the whole frame at 72ms; an element that does
 not exist is not measured, not re-resolved and not painted, so a wheel notch goes
 from 81ms to 0.61ms. What makes it cheap is that it is only a component: a spacer
