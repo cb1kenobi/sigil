@@ -1484,16 +1484,22 @@ describe('createTypewriter()', () => {
 		});
 
 		// a cluster of no width is a step in which nothing changes, which is what
-		// typing a lone mark looks like and is not something to refuse
+		// typing a lone mark looks like and is not something to refuse.
+		//
+		// The step has to be asserted as well as the blank screen: a blank screen is
+		// what a `start()` that did nothing at all also leaves, so on its own this
+		// said only "no throw and no garbage"
 		it('should take a lone combining mark', () => {
 			const ui = screenSetup();
-			createTypewriter({
+			const it = createTypewriter({
 				ansi: ui.ansi,
 				frameMs: 0,
 				terminal: ui.terminal,
 				text: ACUTE,
 			}).start();
 
+			expect(it.revealed).to.equal(ACUTE);
+			expect(it.revealing).to.equal(false);
 			expect(ui.log.join('')).to.equal('');
 		});
 	});

@@ -9206,6 +9206,17 @@ people's software and will move.
   and every one of its siblings and is on the help path, so searching for the
   vocabulary finds the theme and reports the whole component set as loaded when
   none of it is.
+- **And the list of symbols is one somebody has to add to, which two components had
+  not been.** `IMPLEMENTATIONS` is written out rather than derived, so a component
+  added without a name in it is one whose absence from the root entry is pinned by
+  nothing that a rename could take away -- which is precisely the vacuity the
+  presence half exists to stop, arriving through the door of the list rather than of
+  the assertion. `ScrollBox` had been missing since SIG-64 and `createTypewriter`
+  since it was written; a review round pointed at the file and found both. Deriving
+  the list is the obvious fix and is not available: what belongs in it is one
+  _implementation_ per component, and the barrel exports the state builders, the view
+  functions and the types beside them, so a derived list would be asserting that
+  `typewriterState` is not on the root entry -- true, and not the claim.
 - **The components barrel is not split per component, because the components are
   not what it costs.** Reaching for one is 124 KB, of which the component
   implementations are 13.4 KB and the other 111 KB is the stack any single one
@@ -9426,15 +9437,22 @@ one` is the guard.
   which looks like a hung animation rather than like a chunker with a bug in it. Each
   step's chunk is sliced out of the string rather than taken from the chunker, so
   what `Pace` is shown is what reached the screen.
-- **Whitespace travels forward, in both chunkers, so that no chunk reveals
-  nothing.** `byWord()` puts the whitespace in front of the word it belongs to and
-  `byLine()` puts the break in front of the line it opens. A space on its own is a
-  step in which the screen does not change, which reads as a dropped frame rather
-  than as typing -- and a break revealed at the _end_ of a line leaves the cursor
-  dangling on an empty row for one step, where a break revealed with the line it
-  opens leaves it where the text just stopped. One rule rather than one per chunker.
-  Text with no word in it at all is the exception and is one chunk, because there
-  is nothing for its whitespace to travel to.
+- **Whitespace travels forward, in both chunkers.** `byWord()` puts the whitespace
+  in front of the word it belongs to and `byLine()` puts the break in front of the
+  line it opens. A space on its own is a step in which the screen does not change,
+  which reads as a dropped frame rather than as typing -- and a break revealed at
+  the _end_ of a line leaves the cursor dangling on an empty row for one step, where
+  a break revealed with the line it opens leaves it where the text just stopped. One
+  rule rather than one per chunker.
+- **What that buys is a `byWord()` chunk that is never whitespace alone, and it is
+  not the same claim about `byLine()`.** A review round caught the overclaim: a
+  blank line is a chunk of exactly `"\n"`, so `byLine('a\n\nb')` is
+  `['a', '\n', '\nb']` and the middle chunk is whitespace while the text has words
+  in it. That is right rather than an exception -- a bare break reveals a blank
+  **line**, which is a row appearing, where a bare space reveals nothing at all --
+  and `should keep a blank line as its own chunk` is what pins it. Text with no word
+  in it at all is one chunk under either, because there is nothing for its
+  whitespace to travel to.
 - **There is no `byGrapheme`, because `graphemes()` is already it.** It is the
   default chunker and it is exported from `@ttylabs/sigil/width`; a second name for
   one function is how the two come to disagree, which is the rule
