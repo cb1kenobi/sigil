@@ -1064,3 +1064,53 @@ describe('reduced motion', () => {
 		expect(it.nextChange(0, 1000 / 30)).toBeUndefined();
 	});
 });
+
+describe('forgetting an unmounted element', () => {
+	/** A target shaped like a tree, which is what `forget()` walks. */
+	interface Node {
+		readonly children?: readonly Node[];
+		name: string;
+	}
+
+	const from = declare({ transition: 'width 100ms linear', width: '10' });
+	const to = declare({ transition: 'width 100ms linear', width: '20' });
+
+	it('should forget the subtree and not only the element it was handed', () => {
+		// the doc on `forget()` always claimed this -- "a subtree that was shown and
+		// hidden would stay reachable for the life of the animator" -- and it deleted
+		// the one element it was given, where `Restyler.forget()` recurses. What a
+		// renderer records as removed is the element whose parent dropped it and never
+		// its children, so nothing else was going to. A windowed list is what makes it
+		// unbounded: a wheel notch unmounts a slot holding a row, and a ten-thousand-row
+		// log scrolled through once leaves an entry per element ever built.
+		//
+		// Read through a **transition**, because the base map is private and a kept base
+		// is exactly what a transition comes from: a child whose base survived animates
+		// on its next style change, and one that was forgotten records a first sight and
+		// animates nothing
+		const it = new Animator<Node>(cascade());
+		const child: Node = { name: 'child' };
+		const parent: Node = { children: [child], name: 'parent' };
+
+		it.observe(parent, from, 0);
+		it.observe(child, from, 0);
+		it.forget(parent);
+
+		it.observe(child, to, 0);
+		expect(it.tick(0).styles.size, 'the child animated from a base nobody kept').toBe(0);
+		expect(it.active).toBe(false);
+	});
+
+	it('should still animate a child that is only forgotten with its own parent', () => {
+		// the other direction, so the test above cannot pass by `forget()` doing nothing
+		// at all: a child nobody forgot keeps its base and transitions from it
+		const it = new Animator<Node>(cascade());
+		const child: Node = { name: 'child' };
+		const parent: Node = { children: [child], name: 'parent' };
+
+		it.observe(parent, from, 0);
+		it.observe(child, from, 0);
+		it.observe(child, to, 0);
+		expect(it.tick(0).styles.get(child)?.width).toEqual(cells(10));
+	});
+});

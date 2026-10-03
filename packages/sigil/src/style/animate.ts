@@ -423,11 +423,35 @@ export class Animator<T extends object> {
 	 * both maps are keyed by element identity, so a subtree that was shown and
 	 * hidden would stay reachable for the life of the animator.
 	 *
-	 * @param target - The element that went.
+	 * The **subtree**, which is what that sentence always claimed and what this did
+	 * not do -- `Restyler.forget()` recurses and this deleted the one element it was
+	 * handed, so every descendant of an unmounted subtree stayed in `#base` for the
+	 * life of the animator. What a renderer records as removed is the element whose
+	 * parent dropped it and never its children, so nothing else was going to. A
+	 * windowed list is what makes it unbounded rather than merely untidy: a notch
+	 * unmounts a slot holding a row, and scrolling a ten-thousand-row log through
+	 * once leaves an entry per element ever built. `#entries` only ever held
+	 * something that was actually animating, so the frame timer never stayed awake
+	 * for it -- which is why nothing but the memory said so. Found by review, which
+	 * is where a comment asserting what the code does not do gets found.
+	 *
+	 * The children are read through a cast rather than through the constraint, which
+	 * is the one place this class gives up on knowing nothing about its target. A
+	 * constraint of `{ readonly children?: readonly T[] }` is a **weak type** --
+	 * every property optional -- so TypeScript refuses to match it against something
+	 * with no property in common, and the `{ name: string }` these tests animate is
+	 * exactly that. `T extends object` is what the class promises and it stays; what
+	 * is cast is one optional property read, which is `undefined` for a target that
+	 * is not a tree and is therefore the same answer as not looking.
+	 *
+	 * @param target - The element that went, and everything under it.
 	 */
 	forget(target: T): void {
 		this.#base.delete(target);
 		this.#entries.delete(target);
+		for (const child of (target as { children?: readonly T[] }).children ?? []) {
+			this.forget(child);
+		}
 	}
 
 	/** The style an element is presenting, if the animator is overriding one. */

@@ -775,9 +775,12 @@ export class Element implements LayoutNode {
 	 * until the next scroll.
 	 *
 	 * Unlike `onScroll` it is **not** dispatched by the writer. `arrange()` collects
-	 * the elements whose size moved and hands them back, and whoever called it
-	 * dispatches -- because a handler that builds elements leaves them with no
-	 * resolved style, and `arrange()` sits below the cascade and must stay there. So
+	 * every element carrying this hook that has not been **told** the size the layout
+	 * just gave it -- which is deliberately not "whose size moved": a handler that
+	 * threw was told nothing, so the next layout asks it again even though the box is
+	 * already at its new size. Whoever called `arrange()` dispatches, because a
+	 * handler that builds elements leaves them with no resolved style and `arrange()`
+	 * sits below the cascade and must stay there. So
 	 * what calls this is a *frame*: the renderer's `settle()` and
 	 * `renderToString()`, each of which can restyle what the handler built and lay
 	 * out again. A bare `arrange()` dispatches nothing, which is why the components'
