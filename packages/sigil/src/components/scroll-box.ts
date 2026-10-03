@@ -152,7 +152,13 @@ export interface ScrollRows {
 export interface RowWindow {
 	/** The first row in the window. */
 	first: number;
-	/** How many rows it holds, which is zero only for a list with no rows. */
+	/**
+	 * How many rows it holds.
+	 *
+	 * Zero for a list with no rows, and zero for a viewport of no height -- which
+	 * is a viewport nothing has arranged as well as one a border left no room in,
+	 * and the two are deliberately not told apart.
+	 */
 	length: number;
 }
 
@@ -318,13 +324,26 @@ export function thumbExtent(
  * built, and a window short by that one row is a blank line at the bottom of the
  * list that only appears at some offsets.
  *
- * A viewport of **no height** is the case before anything has arranged the tree,
- * and the answer there is the **whole list**. That is deliberate and it is the
- * one place this trades cost for correctness: over-building is a slow frame and
- * under-building is a row that is not on screen, so the unknown case resolves
- * towards the one that is merely expensive. `ScrollBox` narrows it with the
- * host's own declared height, which it takes as a **floor** rather than a
- * ceiling -- a host that can grow makes a declared height no bound at all.
+ * A viewport of **no height** holds **no rows**, which is the arithmetic said
+ * plainly: a viewport with no cells in it can see nothing. SIG-131 answered the
+ * whole list there instead, and the reason it gave was sound at the time --
+ * "over-building is a slow frame and under-building is a row that is not on
+ * screen, so the unknown case resolves towards the one that is merely expensive"
+ * -- because nothing recomputed a window after the layout, so a window built
+ * before one was the only window there would ever be. `Element.onResize` is what
+ * moved that premise (SIG-132): a frame lays out, tells the viewport its height,
+ * rebuilds the window and lays out again **before it paints**, so under-building
+ * here is a row built one layout later rather than a row nobody sees -- while
+ * over-building is the whole list cascaded and arranged, which is the 190ms the
+ * windowing exists to avoid. So the hedge is gone and the honest answer stands.
+ *
+ * What it costs is the one path that lays out without a frame: a bare `arrange()`
+ * and `paint()` of a list that declared no height in cells draws an empty
+ * viewport, because nothing dispatched `onResize`. `ScrollBox` narrows it with
+ * the host's own declared height, which it takes as a **floor** rather than a
+ * ceiling -- a host that can grow makes a declared height no bound at all -- and
+ * a declared height is what makes even that path right. The two frames there are,
+ * `renderToString()` and the renderer, both re-window.
  *
  * No overscan, which is one number this does not have: a window rebuild is
  * measured at a fraction of a frame -- 0.26ms of cascade for eighty elements --
@@ -345,8 +364,10 @@ export function rowWindow(count: number, height: number, offset: number, view: n
 
 	const step = Math.max(1, Math.trunc(height));
 	if (view <= 0) {
-		// nothing has said how tall the viewport is, so every row is in the window
-		return { first: 0, length: rows };
+		// a viewport with no cells in it can see no rows. What makes that affordable
+		// rather than a blank list is that a frame re-windows after the layout that
+		// gave the viewport its height, before it paints anything -- see the note above
+		return { first: 0, length: 0 };
 	}
 
 	const at = Math.max(0, Math.trunc(offset));
@@ -382,14 +403,23 @@ function noSize(): { height: number; width: number } {
  *
  * A number, or a string of digits, which are the two spellings of a length in
  * cells. Anything else -- a percentage, `auto`, a height a stylesheet sets -- is
- * no bound, and `rowWindow()` then builds the whole list for the first frame.
+ * no bound, so the first window holds **no rows** and the first layout is what says
+ * how many there should be: `onResize` fires on it, because the viewport had no
+ * size and now it has one. So a missing declaration costs a list its rows for
+ * exactly one layout where a frame is laying out -- and costs them altogether
+ * where nothing dispatches, which is a bare `arrange()`. Declaring it in props is
+ * what makes every path right and is what the demo does.
  * Matched rather than read through `Number()`, and the trap is **`NaN`** rather
  * than the `Number('')` one the parser's data types record: `Number('50%')` is
  * `NaN`, `NaN <= 0` is false, so it would walk straight past `rowWindow()`'s
- * unknown-viewport branch and make the window itself `NaN` -- which builds no
- * rows at all, the one failure mode the generous fallback exists to avoid. The
- * empty string is the harmless half, because `Number('')` is `0` and zero is
- * already what "no bound" is spelled as.
+ * unknown-viewport branch and make the window's own length `NaN` -- which builds no
+ * rows, and builds none **for ever**: `Math.max(anything, NaN)` is `NaN`, so no
+ * layout can put it right, and the unchanged-window guard compares `NaN === NaN`
+ * as false, so every sync rebuilds the same nothing. That is the one failure the
+ * floor being a number rather than a guess exists to avoid, and it is sharper than
+ * the old wording made it -- an empty first window is a layout away from being
+ * filled in, and a `NaN` one is not. The empty string is the harmless half, because
+ * `Number('')` is `0` and zero is already what "no bound" is spelled as.
  *
  * @param props - The host's props, as the caller wrote them.
  * @returns The floor in cells, or zero where the props do not give one.
@@ -511,23 +541,28 @@ export function ScrollBox(props: ScrollBoxProps): Element {
 /**
  * Keeps the content box holding exactly the rows the viewport can see.
  *
- * The window is rebuilt by `viewport.onScroll`, which is the only hook this needs
- * because `scrollTo()` is the only writer of the offset: the keys, the wheel, a
- * dragged thumb and `scrollIntoView()` all arrive there, so one handler answers
- * for all four. Doing it from the handlers above instead would have left the
- * fourth out, and the focus ring calls that one unconditionally.
+ * A window is `rowWindow()` of four numbers, and **two** of them move: the offset
+ * and the viewport's height. So there are two hooks and one handler, because there
+ * is one question -- `scrollTo()` is the only writer of `scroll` and `arrange()` is
+ * the only writer of `content`, so each number has exactly one place that can say
+ * it moved, and `sync()` recomputes from both whenever it is called by either.
  *
- * Synchronously, before the frame that lays the new offset out, which is what
- * keeps the two in step: the window the frame arranges is the window the offset
- * asked for, so there is never a frame drawn for a window the offset has left.
+ * `onScroll` is the offset's. It is the only hook that half needs because
+ * `scrollTo()` is the only writer: the keys, the wheel, a dragged thumb and
+ * `scrollIntoView()` all arrive there, so one handler answers for all four. Doing
+ * it from the handlers above instead would have left the fourth out, and the focus
+ * ring calls that one unconditionally. Synchronously, before the frame that lays
+ * the new offset out, which is what keeps the two in step: the window the frame
+ * arranges is the window the offset asked for.
  *
- * The offset is the **only** thing that recomputes it, which is also this tier's
- * known edge: a viewport whose *height* changes while the offset stays put keeps
- * the window it had. A declared cell height cannot reach it, since such a
- * viewport does not change height; a list bounded by its parent can, and a
- * resize then leaves the rows the viewport gained blank until the next scroll.
- * Written down under "A scroll box" in AGENTS.md with the measurement and with
- * the reason the fix belongs to the frame rather than here.
+ * `onResize` is the height's, and it is dispatched *after* a layout by whoever ran
+ * one rather than by `arrange()` -- because a window builds elements and
+ * `arrange()` sits below the cascade, so a slot built there would be laid out with
+ * neither the `height` nor the `flex-shrink: 0` this whole mechanism rests on. What
+ * that closes was two symptoms of one cause (SIG-132): a resize, which writes no
+ * offset, left a list bounded by its parent holding ten rows where forty-one were
+ * needed, and a list whose height is not knowable before layout built every row of
+ * itself for its first frame.
  *
  * The two spacers are the mechanism and they need `flex-shrink: 0`. Without it
  * they are shrunk to nothing -- a box with no children has no content-based
@@ -612,7 +647,7 @@ function wireRows(viewport: Element, content: Element, rows: ScrollRows, bound: 
 		}
 	};
 
-	const sync = (): void => {
+	const sync = (): boolean => {
 		const now = viewport.scroll ?? { x: 0, y: 0 };
 		// the **larger** of what the last arrange gave the viewport and what the host
 		// declared, and `Math.max` rather than `??` for two reasons measured
@@ -636,7 +671,7 @@ function wireRows(viewport: Element, content: Element, rows: ScrollRows, bound: 
 			// buys is every scroll *inside* one row, which for a row taller than a
 			// cell is most of them
 			seen = now;
-			return;
+			return false;
 		}
 		const end = next.first + next.length;
 
@@ -692,9 +727,17 @@ function wireRows(viewport: Element, content: Element, rows: ScrollRows, bound: 
 				content.insertBefore(want_, content.children[i]);
 			}
 		}
+		return true;
 	};
 
 	viewport.onScroll = sync;
+	// the same function on the other hook, because the window is one answer to one
+	// question and the two hooks are the two numbers it is computed from: the offset,
+	// which `scrollTo()` writes, and the viewport's height, which `arrange()` writes.
+	// `sync()` already recomputes from both every time it is called, so there is
+	// nothing to add here beyond somebody calling it after a layout -- and its own
+	// unchanged-window guard is what makes a resize that moved no row free
+	viewport.onResize = sync;
 	sync();
 }
 

@@ -215,12 +215,34 @@ function scrollableRegion(
  *
  * @param root - The root element.
  * @param opts - The space available.
+ * @param resized - Collects every element carrying an `onResize` handler whose
+ *   size came out different from the one it had before this call. **Appended to**
+ *   rather than cleared, because a caller that lays out twice -- which
+ *   `layoutInto()` does for an auto-height canvas -- would otherwise lose the
+ *   first pass's answer to the second pass agreeing with it. Clearing is the
+ *   caller's, once, before the layout it is asking about.
  * @returns The laid-out tree, for anything that wants it directly.
  */
-export function arrange(root: Element, opts: LayoutOptions): LayoutResult {
+export function arrange(root: Element, opts: LayoutOptions, resized?: Element[]): LayoutResult {
 	const result = layout(root, opts);
 
 	const walk = (element: Element, node: LayoutResult, clip: Box | undefined): Box => {
+		// read before the write, which is what makes the question free: the box the
+		// last arrange left *is* the before, so nothing has to be kept for this
+		if (resized && element.onResize) {
+			const was = element.content ?? element.box;
+			const now = node.content ?? node.box;
+			// `content ?? box` because that is the size a box holding children was
+			// given to put them in, and is the same pair a component asks -- the
+			// border box answers for a `text` or a `raw`, which has no content box.
+			// Undefined before means the first arrange of this element, which is a
+			// change: it is how a list bounded by its parent learns its real height at
+			// all, and is the whole of the flex-sized first frame
+			if (!was || was.height !== now.height || was.width !== now.width) {
+				resized.push(element);
+			}
+		}
+
 		element.box = node.box;
 		element.content = node.content;
 		element.clip = clip;
@@ -262,6 +284,64 @@ export function arrange(root: Element, opts: LayoutOptions): LayoutResult {
 
 	walk(root, result, undefined);
 	return result;
+}
+
+/**
+ * How many extra layouts a frame will spend settling what a resize changed.
+ *
+ * A **cycle breaker rather than a budget**: the loop exits the moment nothing
+ * reports a change, so the ordinary case spends exactly one -- a windowed list
+ * learns its viewport's height, rebuilds its window, and the layout after that
+ * gives the viewport the same height again, because the two spacers keep the
+ * content's total height at `count * height` whichever rows are built. What the
+ * headroom is for is a windowed list **inside** one, which settles a level per
+ * pass because the inner viewport does not exist until the outer window has been
+ * built; four is more nesting than a terminal UI has, and a configuration that
+ * genuinely does not converge is laid out at the last window it reached rather
+ * than spinning, which is the status quo rather than a new failure.
+ */
+const RESIZE_PASSES = 4;
+
+/**
+ * Tells the elements whose size moved, and lays out again where that changed the
+ * tree.
+ *
+ * The second half of what `arrange()`'s `resized` collects, and it is here rather
+ * than in `arrange()` for one structural reason: a handler that *builds* elements
+ * leaves them with the shared frozen initial style, which carries none of their
+ * props -- so a slot built below the cascade would be laid out with neither the
+ * `height` nor the `flex-shrink: 0` that the whole windowing mechanism rests on.
+ * `arrange()` is below the cascade and stays there, so the dispatch belongs to
+ * whoever can restyle and lay out again, which is a frame.
+ *
+ * A handler on an element an **earlier** handler detached is still called. That is
+ * `scrollIntoView()`'s own rule -- the list is taken up front and cannot be
+ * shortened by what the handlers do -- and the cost of being wrong about it is a
+ * window rebuilt on a subtree nobody looks at, which is wasted work rather than a
+ * wrong answer. Guarding on `element.tree` would be worse than nothing, since
+ * `renderToString()` has no tree at all and nothing would ever be dispatched.
+ *
+ * @param resized - What the last layout collected.
+ * @param again - Restyles what the handlers built and lays out again, refilling
+ *   `resized` from scratch -- clearing it is the layout's, which is where the
+ *   collection begins.
+ */
+export function settleResized(resized: readonly Element[], again: () => void): void {
+	for (let pass = 0; pass < RESIZE_PASSES; pass++) {
+		let changed = false;
+		// every one of them, rather than stopping at the first that says yes: a
+		// handler is being told its own box moved, and one that is not called is one
+		// window left describing a viewport that is not there any more
+		for (const element of resized) {
+			if (element.onResize?.(element) === true) {
+				changed = true;
+			}
+		}
+		if (!changed) {
+			return;
+		}
+		again();
+	}
 }
 
 /**

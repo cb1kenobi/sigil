@@ -1,5 +1,6 @@
 import { createCanvas } from '../../src/canvas/index.js';
-import { box, type Element, text } from '../../src/element/index.js';
+import { ScrollBox } from '../../src/components/scroll-box.js';
+import { box, type Element, scrollRange, text } from '../../src/element/index.js';
 import { parseCapabilityResponse } from '../../src/input/capabilities.js';
 import { createInput } from '../../src/input/index.js';
 import {
@@ -97,12 +98,33 @@ function harness(width = 20, height = 4) {
 		resize(w: number, h: number) {
 			(terminal as { width: number }).width = w;
 			(terminal as { height: number }).height = h;
+			// the canvas follows, which is what every real backend does: an inline
+			// canvas with no width of its own erases and resizes itself on a resize,
+			// and a full-screen one is the alternate buffer. Without it the terminal
+			// grows while the canvas stays the size it was, so nothing inside it is
+			// ever given a different box -- which is the one thing a test about a
+			// resize needs to be true
+			canvas.resize(w, h);
 			for (const fn of resizeListeners) {
 				fn({ height: h, width: w });
 			}
 		},
 		terminal,
 	};
+}
+
+/** The first element in a tree that answers, which is how a component is found. */
+function findIn(at: Element, want: (e: Element) => boolean): Element | undefined {
+	if (want(at)) {
+		return at;
+	}
+	for (const child of at.children) {
+		const found = findIn(child, want);
+		if (found) {
+			return found;
+		}
+	}
+	return undefined;
 }
 
 /**
@@ -2237,5 +2259,116 @@ describe('a canvas that follows what it draws', () => {
 
 		expect(view.backend.height).to.equal(4);
 		view.dispose();
+	});
+});
+
+describe('a frame over a windowed list', () => {
+	/** A list bounded by the canvas rather than by a height of its own. */
+	function loose(count: number): { host: Element; root: Element } {
+		const host = ScrollBox({
+			props: { 'flex-grow': 1, 'min-height': 0 },
+			rows: { count, height: 1, row: (i) => text(`r${i}`, { id: `r${i}` }) },
+		});
+		return { host, root: box({ 'flex-direction': 'column' }, host) };
+	}
+
+	const held = (root: Element): string[] => {
+		const out: string[] = [];
+		const walk = (at: Element): void => {
+			if (at.id?.startsWith('r')) {
+				out.push(at.id);
+			}
+			for (const child of at.children) {
+				walk(child);
+			}
+		};
+		walk(root);
+		return out;
+	};
+
+	it('should rebuild the window when a resize changed the viewport', () => {
+		// the defect SIG-132 is filed for, met through the renderer rather than through
+		// `renderToString()`: a resize writes no offset, so `onScroll` never fires, and
+		// the window a windowed list is holding was built for a viewport that has gone.
+		// The frame is what closes it -- `settleResized()` after `layoutInto()`
+		const h = harness(12, 10);
+		const { root } = loose(500);
+		const view = render(() => root, { backend: h.backend, terminal: h.terminal });
+		try {
+			expect(held(root).length).toBe(10);
+			h.resize(12, 40);
+			view.frame();
+			expect(held(root).length).toBe(40);
+			expect(
+				h
+					.picture()
+					.split('\n')
+					.filter((line) => line.includes('r'))
+			).toHaveLength(40);
+		} finally {
+			view.dispose();
+		}
+	});
+
+	it('should build only what the first frame can show, not the whole list', () => {
+		// the second symptom of the one cause: nothing knows the viewport's height
+		// before a layout, so a window built for an unknown one used to be every row --
+		// ten thousand rows cascaded and arranged for a frame that shows ten
+		const h = harness(12, 10);
+		const { root } = loose(10_000);
+		const view = render(() => root, { backend: h.backend, terminal: h.terminal });
+		try {
+			expect(held(root)).toStrictEqual(Array.from({ length: 10 }, (_, i) => `r${i}`));
+		} finally {
+			view.dispose();
+		}
+	});
+
+	it('should tell an element once per frame rather than once per frame since', () => {
+		// the collector is cleared where the layout begins, which for a renderer is the
+		// top of `layoutInto()` -- it lays out twice for an auto-height canvas, so the
+		// two answers are one answer and the clear cannot sit between them. Left
+		// uncleared it grows for the life of the renderer, and every frame asks every
+		// element that has ever resized about a box that has not moved
+		const h = harness(12, 6);
+		let calls = 0;
+		const counted = box({ 'flex-shrink': 0, height: 1 }, text('x'));
+		counted.onResize = () => {
+			calls++;
+			return false;
+		};
+		const view = render(() => box({ 'flex-direction': 'column' }, counted), {
+			backend: h.backend,
+			terminal: h.terminal,
+		});
+		try {
+			expect(calls, 'the first frame is a change: there was no box and now there is').toBe(1);
+			// wider, so the box it stretches to is a different box
+			h.resize(13, 6);
+			view.frame();
+			expect(calls).toBe(2);
+			view.frame();
+			expect(calls, 'a frame that moved no box tells nothing').toBe(2);
+		} finally {
+			view.dispose();
+		}
+	});
+
+	it('should ask the restyler again, or a new window reports the old range', () => {
+		// a new window writes the two spacers' heights with `setProp()`, and a kept
+		// restyler is marks-driven -- so without draining the marks a second time
+		// those two keep the style they had and the content box's extent describes the
+		// window that has gone. Measured as exactly that before it was fixed: a range
+		// of 500 over a viewport of 8, where it should have been 492
+		const h = harness(12, 8);
+		const { host, root } = loose(500);
+		const view = render(() => root, { backend: h.backend, terminal: h.terminal });
+		try {
+			const viewport = findIn(host, (e) => e.classes.includes('sigil-scroll-viewport'));
+			expect(viewport?.content?.height).toBe(8);
+			expect(scrollRange(viewport as Element).y).toBe(492);
+		} finally {
+			view.dispose();
+		}
 	});
 });

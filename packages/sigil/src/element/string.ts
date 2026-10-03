@@ -35,7 +35,7 @@ import {
 import { measureNode } from '../layout/index.js';
 import { Cascade, type ColorScheme, Restyler } from '../style/index.js';
 import type { Element } from './index.js';
-import { arrange, arrangedExtent, paint, settleStyles } from './paint.js';
+import { arrange, arrangedExtent, paint, settleResized, settleStyles } from './paint.js';
 
 /**
  * The attributes that draw something on a cell holding no character.
@@ -122,7 +122,17 @@ export function renderToLines(root: Element, opts: RenderStringOptions): string[
 
 		height = Math.max(1, Math.floor(opts.height ?? measureNode(root, width).height));
 
-		let extent = arrangedExtent(arrange(root, { height, width }));
+		// what the last layout gave a different size to, which is what a windowed
+		// list is told so that it can rebuild a window the viewport's height has
+		// moved out from under. Cleared here rather than by `arrange()`, because the
+		// growth pass below lays out twice and the two answers are one answer
+		const resized: Element[] = [];
+		const layoutOnce = (): { height: number; width: number } => {
+			resized.length = 0;
+			return arrangedExtent(arrange(root, { height, width }, resized));
+		};
+
+		let extent = layoutOnce();
 
 		// laid out again where it reached further down than it measured. A row whose
 		// children flex is measured with each child offered the whole content box
@@ -133,8 +143,26 @@ export function renderToLines(root: Element, opts: RenderStringOptions): string[
 		// how big one is
 		if (opts.height === undefined && extent.height > height) {
 			height = extent.height;
-			extent = arrangedExtent(arrange(root, { height, width }));
+			extent = arrangedExtent(arrange(root, { height, width }, resized));
 		}
+
+		// and again where the layout told something its box had moved and that
+		// changed the tree, which is the same second pass one line up with a
+		// different question behind it: that one asks how tall the answer came out,
+		// this one asks who needs rebuilding now that there is a box to read.
+		//
+		// A **fresh** restyler, which is a full re-match and is what this path has to
+		// pay: a kept one is marks-driven, and there is no `Tree` here for `setProp()`
+		// to record a mark on -- so a spacer whose height a new window just wrote
+		// would keep the style it resolved to before, and the content box's extent
+		// would describe a window that is not there. Measured as exactly that: a
+		// range of 500 where it should have been 492, with the rows painted correctly
+		// on top of it. The renderer has a tree and narrows this to what the handlers
+		// touched; nothing here can
+		settleResized(resized, () => {
+			settleStyles(root, new Restyler(cascade));
+			extent = layoutOnce();
+		});
 
 		// and painted into a grid as wide as what the layout came to rather than as
 		// wide as it was laid out in. The two part company only where something

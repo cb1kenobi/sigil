@@ -47,6 +47,7 @@ import {
 	type Element,
 	paint,
 	selectableAt,
+	settleResized,
 	settleStyles,
 	type Tree,
 } from '../element/index.js';
@@ -572,9 +573,20 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 		}
 	}
 
+	/**
+	 * What the last `layoutInto()` gave a different size to.
+	 *
+	 * Lives across frames rather than per call because it is cleared where the
+	 * collection begins -- at the top of `layoutInto()`, which is the layout and
+	 * lays out twice for an auto-height canvas: clearing between those two would
+	 * lose the first one's answer to the second one agreeing with it.
+	 */
+	const resized: Element[] = [];
+
 	function layoutInto(): void {
+		resized.length = 0;
 		if (!autoHeight && !autoWidth) {
-			arrange(root, { height: backend.height, width: backend.width });
+			arrange(root, { height: backend.height, width: backend.width }, resized);
 			return;
 		}
 
@@ -604,7 +616,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 			backend.resize(width, height);
 		}
 
-		const result = arrange(root, { height: backend.height, width: backend.width });
+		const result = arrange(root, { height: backend.height, width: backend.width }, resized);
 
 		// and laid out again where it reached further than it measured, which is the
 		// same second pass `renderToString()` takes and for the same reason: a row
@@ -616,9 +628,44 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 			const used = Math.min(room, Math.max(1, arrangedExtent(result).height));
 			if (used > backend.height) {
 				backend.resize(backend.width, used);
-				arrange(root, { height: backend.height, width: backend.width });
+				arrange(root, { height: backend.height, width: backend.width }, resized);
 			}
 		}
+	}
+
+	/**
+	 * Hands what the tree recorded to the restyler and the animator.
+	 *
+	 * A function rather than a block inside `settle()` because a frame drains twice:
+	 * once for what the effects did, and again for what a resize handler did after
+	 * the layout. `take()` drains rather than the caller clearing, so the second
+	 * call sees exactly what the handlers touched and nothing else -- which is what
+	 * narrows the re-match to the rows a window built and the two spacers whose
+	 * heights it wrote, where `renderToString()` has no tree and pays a full one.
+	 *
+	 * @returns What was recorded, for whoever wants to read it.
+	 */
+	function drainMarks(): ReturnType<Tree['take']> {
+		const marks = tree.take();
+		for (const element of marks.classes) {
+			restyler.touchClasses(element);
+		}
+		for (const element of marks.props) {
+			restyler.touchProps(element);
+		}
+		for (const element of marks.children) {
+			restyler.touchChildren(element);
+		}
+		for (const element of marks.removed) {
+			// still attached means it was moved rather than removed, and a move is a
+			// removal and an insertion -- forgetting one of those would throw away
+			// the style of every row a `For` reordered
+			if (!element.tree) {
+				restyler.forget(element);
+				animator.forget(element);
+			}
+		}
+		return marks;
 	}
 
 	/**
@@ -645,26 +692,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 		//    frames re-resolves nothing after the first, and does it silently: the
 		//    state really did change and the selector really would match, and the
 		//    frame was simply never asked
-		const marks = tree.take();
-		for (const element of marks.classes) {
-			restyler.touchClasses(element);
-		}
-		for (const element of marks.props) {
-			restyler.touchProps(element);
-		}
-		for (const element of marks.children) {
-			restyler.touchChildren(element);
-		}
-		for (const element of marks.removed) {
-			// still attached means it was moved rather than removed, and a move is a
-			// removal and an insertion -- forgetting one of those would throw away
-			// the style of every row a `For` reordered
-			if (!element.tree) {
-				restyler.forget(element);
-				animator.forget(element);
-			}
-		}
-
+		const marks = drainMarks();
 		const update = settleStyles(root, restyler);
 
 		// 2a. the animation, which sits between the cascade and the screen: the
@@ -714,6 +742,29 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 
 		if (needLayout) {
 			layoutInto();
+
+			// and again for anything the layout told its box had moved, where that
+			// changed the tree. The offset is not the only input to a windowed list's
+			// window -- the viewport's *height* is the other, and nothing knows that
+			// until a layout has run -- so a resize, which writes no offset, used to
+			// leave a list holding the window it had: ten rows where forty-one were
+			// needed, with thirty rows of the viewport blank until the next scroll.
+			//
+			// The restyle is what makes this the frame's rather than `arrange()`'s: a
+			// handler that *builds* elements leaves them with the shared frozen initial
+			// style, which carries none of their props -- measured, a slot built there
+			// has `height: auto` and `flex-shrink: 1`, which is both halves of what the
+			// windowing rests on. And the marks are drained again rather than left for
+			// the next frame, because a new window writes the two spacers' heights with
+			// `setProp()`: a kept restyler is marks-driven, so without it those two keep
+			// the style they already had and the content box's extent describes the
+			// window that has gone. Draining is also what forgets the rows the new
+			// window displaced in this frame rather than the next
+			settleResized(resized, () => {
+				drainMarks();
+				settleStyles(root, restyler);
+				layoutInto();
+			});
 		}
 		if (needPaint) {
 			backend.render((painter, canvas) => {
