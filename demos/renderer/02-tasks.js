@@ -291,7 +291,22 @@ input.bind((event) => {
 		filter.set(FILTERS[(FILTERS.indexOf(filter.get()) + 1) % FILTERS.length]);
 	} else if (key.name === 'n') {
 		event.stop();
-		listOpen.set(!listOpen.get());
+		const open = !listOpen.get();
+		listOpen.set(open);
+		// collapsing disposes every row, so the focus goes with them -- and nothing
+		// focused is a legitimate state the ring will not repair, since the element
+		// it would repair *to* is exactly what has gone. So an app that collapses
+		// focusable content has to put the focus back itself, or the next keystroke
+		// reaches the bindings and nowhere else
+		if (open) {
+			// and the frame has to be forced first, which is the friction worth
+			// knowing: `listOpen.set()` only *marks* the branch stale, so the rows do
+			// not exist until a frame has settled -- and `focusables()` walks the
+			// tree, so focusing before that walks a tree with no rows in it and
+			// lands on nothing
+			view.frame();
+			input.focus.next();
+		}
 	}
 });
 

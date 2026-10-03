@@ -5819,7 +5819,7 @@ a probe`. What the longer hold costs is worth stating precisely: a key typed
 SIG-78 asked whether `Show` and `For` in place of an `if` and a `.map()` are
 tolerable in real code or merely defensible in a design document, and SIG-118
 asked it again because nothing had answered it. The answer is **yes, with one
-real defect and four frictions**, and the evidence is weaker than the ticket
+real defect and five frictions**, and the evidence is weaker than the ticket
 wanted -- which is worth stating first, because it is the part a later reader
 needs in order to know what to re-ask.
 
@@ -5897,7 +5897,7 @@ needs in order to know what to re-ask.
   the input that makes it matter, and with it the sabotage fails that test and no
   other in either file. The demo had been right about the behaviour all along,
   because `J J J` is three keys.
-- **The four frictions, which are the honest answer to "where is it worst".**
+- **The five frictions, which are the honest answer to "where is it worst".**
   First and worst: **the wrapper tax is paid per use and cannot be inferred**.
   Both components return a `box` because there is no fragment, so every `Show` and
   every `For` must be told the layout the branch would have had -- and in a row
@@ -5946,10 +5946,24 @@ needs in order to know what to re-ask.
   while `each: visible` re-reconciles whenever the filter or the list moves -- and
   nothing in either spelling says which. Both are correct here, because the notes
   really are fixed; what the pair shows is that the distinction is carried entirely
-  by what the thunk happens to read. Fourth, and smallest: the focus ring is
-  `input.focus.next()` rather than `input.next()`, and no demo called it before this
-  one, so the first guess was wrong and the type error was the only thing that said
-  so.
+  by what the thunk happens to read.
+
+  Fourth: **a signal write does not rebuild the tree until a frame settles, so an
+  app that wants to act on the new tree in the same handler has to force one.**
+  Collapsing the demo's list with `Show` disposes every row, and the focus goes
+  with them -- which the ring will not repair, correctly, because nothing focused is
+  a legitimate state and the element it would repair _to_ is exactly what has gone.
+  So the app puts the focus back itself, and the obvious spelling does not work:
+  `listOpen.set(true)` followed by `input.focus.next()` focuses nothing, because
+  `set()` only marks the branch stale and `focusables()` walks a tree that still has
+  no rows in it. A `view.frame()` in between is the answer. Nothing here is wrong --
+  it is the deferred frame this file argues for at length, met from the one
+  direction that is not obvious -- and it cost the demo a dead `space` key until
+  somebody pressed `n n space`.
+
+  Fifth, and smallest: the focus ring is `input.focus.next()` rather than
+  `input.next()`, and no demo called it before this one, so the first guess was
+  wrong and the type error was the only thing that said so.
 
 - **How strong this is.** It is a positive result from one app written by somebody
   who had read the renderer's source, which is the weaker of the two things the

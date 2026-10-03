@@ -370,6 +370,14 @@ That is `For` keying on the items it was given, and `n` is the same rule one lev
 up: collapsing the list with `Show` loses every expansion at once. Hiding is
 `visibility` and a different question.
 
+`n` is also where the deferred frame shows through. Collapsing takes the focus with
+the rows, and the ring does not repair that — nothing focused is a legitimate state,
+and the element it would repair _to_ is exactly what has gone — so the app puts the
+focus back itself on the way out. The obvious spelling does not work:
+`listOpen.set(true)` only _marks_ the branch stale, so focusing immediately walks a
+tree that still has no rows in it. There is a `view.frame()` in between, and that is
+the one line of this demo you would not have guessed.
+
 The panel at the bottom is why this demo was written rather than merely run. `e`
 inspects a task, and the panel is a `Show` whose `when` produces a **value** — the
 shape anybody writes for a detail pane, an error banner or a selected row. Press
