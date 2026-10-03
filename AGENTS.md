@@ -5601,6 +5601,39 @@ a probe`. What the longer hold costs is worth stating precisely: a key typed
   every change to what `when` returned rather than on the change in _presence_
   would tear the branch down and build it again on every tick of a counter,
   losing whatever state it held -- so what the branch is handed is read untracked.
+- **Which forces `children` to be handed an _accessor_, and the pairing it used to
+  have was the one combination that is wrong.** There are two coherent designs and
+  this file had already argued for half of each: a branch kept across a value
+  change has to be able to _read_ the new value, and a branch handed the value
+  itself would have to be rebuilt whenever it moved. `Show` handed over the value
+  **and** kept the branch, so a `when: () => user.get()` whose user changed from
+  one object to another left the branch describing the first one for the life of
+  the process -- both are present, presence never moved, nothing was ever rebuilt.
+  Which is the rule this file keeps everywhere else, met in an API signature:
+  `children: (value: Truthy<T>) => Element` advertises live narrowed data and
+  delivered a snapshot, and something that parses and then silently lies is worse
+  than something that does not exist. The fix is the precedent sitting in the same
+  file: `For`'s index is an accessor for exactly this reason, in exactly these
+  words -- a row that moved is the same row, so telling it where it sits has to be
+  a signal it reads. `Show` pays the same tax now, over a `State` holding the last
+  present value, written before the early return because a value that moved while
+  presence held is the case that early return is taken for. It is never cleared,
+  which needs no guard: the only thing that can read it is a branch, and a branch
+  exists only while presence held. What the accessor does _not_ do is make a
+  build-time read live -- the build runs untracked, so reading it in an effect is
+  the one way to follow a value, which is `For`'s contract said again and is pinned
+  rather than left to be assumed.
+
+  Found by **using** it rather than by writing it, which is the whole of SIG-118:
+  `demos/renderer/02-tasks.js` wanted a detail pane over the task being inspected,
+  which is the shape of every detail pane, error banner and selected row there is,
+  and it was the first code in this repository to ask `Show` for a value at all.
+  Six of the seven uses in the tree pass a boolean and ignore the argument; the
+  seventh uses it incidentally, inside a test about retrying a throw, where the
+  branch really is rebuilt -- so nothing pinned the behaviour and nothing could
+  have noticed. The three ordering bugs `For` cost were found by writing `For`;
+  this one needed somebody to want something from it.
+
 - **`For` keys by the item, and an index is an accessor.** Identity rather than
   position, because position keying rebuilds every row after the first change,
   which in a terminal moves the focus ring out from under whoever was typing. A
@@ -5777,6 +5810,136 @@ a probe`. What the longer hold costs is worth stating precisely: a key typed
   "await an answer" have to be reconciled -- and doing it before anything has been
   ported would be a guess with nothing to check it against. `runWithOwner()` is
   the seam either will use, which is why it is public now.
+
+#### Whether the explicit control flow is tolerable, and what the answer is worth
+
+SIG-78 asked whether `Show` and `For` in place of an `if` and a `.map()` are
+tolerable in real code or merely defensible in a design document, and SIG-118
+asked it again because nothing had answered it. The answer is **yes, with one
+real defect and three frictions**, and the evidence is weaker than the ticket
+wanted -- which is worth stating first, because it is the part a later reader
+needs in order to know what to re-ask.
+
+- **The toolchain could not be the vehicle and was not made into one.** SIG-118
+  named three, and `@ttylabs/cli` is the one that cannot work: it imports neither
+  `/renderer` nor `/signals`, because a build tool's output is **static** --
+  `report.ts` builds one tree per report and hands it to `renderToString()`, and
+  there is nothing to react to. Making it reactive to tick the box would answer an
+  ergonomics question with a rigged example, which is the opposite of what the
+  ticket is for. The Titanium port (SIG-31) is the vehicle that would answer the
+  question as asked, since the question is about somebody who did not design the
+  API having to use it; it was out of scope, so what is written down here is a
+  substitute and is labelled one.
+- **A demo is weaker evidence, and the usual reason did not apply.** The ticket's
+  own objection is that a demo author reaches for whatever the docs show. Here
+  there was nothing to reach for: `Show` and `For` appear in **no** README -- not
+  the root one, not `packages/sigil/README.md`, not `demos/README.md` -- so the
+  only prose about them is the module comment in `src/renderer/control.ts` and the
+  entries above, and learning the shape of `ShowProps` meant reading the source.
+  That is a finding in its own right and the cheapest one here to fix; the README
+  section `demos/README.md` now carries is half of it.
+- **`demos/renderer/01-app.js` was not evidence either, which is why the ticket
+  was right that nothing had exercised them.** It uses both, and `git log` puts it
+  in the **same commit as the renderer** -- framework-author code written beside
+  the thing it demonstrates. It is also the narrowest possible exercise: a flat
+  list, append and pop, one boolean toggle. No reorder, which is the whole reason
+  keying exists; no row-local state, which is what keying buys; no nested control
+  flow; no derived list; and no `Show` over a value, which is where the defect
+  was.
+- **So the vehicle is `demos/renderer/02-tasks.js`, and it is driven by hand.**
+  It holds state while it is on screen -- each row owns an expansion flag and a
+  move counter that nothing above it can see -- and it exercises the five things
+  nothing else did: reorder, row-local state surviving one, a `Show` inside a
+  `For` row, a filtered list into `each`, and a `Show` whose `when` produces a
+  value. It is in the class of demo `demos.test.ts` cannot drive, since that
+  spawns with stdin ignored, so it takes the no-terminal branch there and was
+  exercised through a spawned child preloaded to answer `isTTY` -- the technique
+  `packages/cli/test/output-forms.test.ts` already uses, with enough of a screen
+  model to read the frames back. Every claim it makes was read off those frames.
+- **What it found is one defect, and it is the entry above.** `Show` handed
+  `children` a value and kept the branch, which is the one incoherent pairing of
+  the two. It is fixed, pinned twice, and it is the argument for the ticket
+  existing: three of the bugs `For` cost were found by _writing_ `For`, and this
+  one needed somebody to want a detail pane.
+- **What it found that is _not_ a defect** was checked and left alone, because a
+  composition that works is worth knowing about too. `onMount` fires for a row
+  built forty frames in. A row that arrives and leaves inside one frame is never
+  built at all, which is coalescing rather than a dropped cleanup. An inner
+  `Show`'s branch is disposed with the row around it. A `Show` whose `when` reads
+  `index()` follows a reorder. `For` nests in `For`, `Show` nests in `Show`, a
+  reconcile over the same array identity builds nothing, and remove-and-reorder in
+  one pass places correctly.
+- **What the sabotage pass found that the demo did not: the `untrack()` around
+  `For`'s row builder is load bearing and nothing asked about it.** A row body that
+  reads a signal **directly** rather than in an effect -- a theme, a terminal
+  width, a date format -- is read while the reconcile's own effect is evaluating,
+  so without the `untrack()` the whole list re-reconciles every time that signal
+  moves. Measured on one row and one signal: two reconciles where there should be
+  one, which at a hundred rows is a hundred-row walk for a value one row looked at.
+  It has a test now. Its sibling in `Show` is a different matter and was left
+  alone: deleting that one changes no answer, because the early return on an
+  unchanged presence is already what stops the rebuild -- so a test named for it
+  would be a test of nothing, which is what the first draft of
+  `should leave a build-time read of that accessor a snapshot` was called and is
+  renamed for. Two `untrack()`s, one answer each, and only one of them is a guard.
+- **And the focus test it found to be saying nothing, which is the discipline
+  rather than an aside.** `should keep the focus on a row that moved` first
+  asserted the focus and the ring straight after the reorder, and the guard it
+  exists for -- `reconcileFocus()` leaving alone an element that _ended_ attached,
+  since placing a row is `insertBefore`, which is a removal followed by an
+  insertion -- is only consulted **when a key arrives**. So removing that guard
+  left the test green: nothing had asked. One `input.feed('z')` after the move is
+  the input that makes it matter, and with it the sabotage fails that test and no
+  other in either file. The demo had been right about the behaviour all along,
+  because `J J J` is three keys.
+- **The four frictions, which are the honest answer to "where is it worst".**
+  First and worst: **the wrapper tax is paid per use and cannot be inferred**.
+  Both components return a `box` because there is no fragment, so every `Show` and
+  every `For` must be told the layout the branch would have had -- and in a row
+  containing a `Show` containing a `For` that is three wrappers and three `props`
+  objects, each of which is silently wrong rather than loud if forgotten. This
+  file already records that a `For` whose rows should stack writes
+  `'flex-direction': 'column'` on the `For`; what using it adds is that the rule
+  does not stay in your head at the third nesting level, and the failure is a
+  layout that looks nearly right.
+
+  Second: **the concise effect body this file calls "the spelling worth
+  encouraging" is a type error for most of the element API**, and the mechanism is
+  worth writing down because it is not obvious. `createEffect`'s parameter is
+  `() => void | Cleanup`, and TypeScript's rule that a function returning anything
+  is assignable to a signature returning `void` applies to a bare `() => void` and
+  **not** to a union with it -- so the union is what gives that leniency up. Every
+  element setter returns `this` for chaining, so
+  `createEffect(() => label.setText(x))` does not compile while
+  `createEffect(() => a.set(b.get()))` does, and the runtime ignores a non-cleanup
+  return either way. Deliberately left alone rather than fixed here: the workaround
+  is a pair of braces, the failure is a compile error rather than a wrong answer on
+  screen, and both ways to widen it cost something real --
+  `(() => void) | (() => Cleanup)` would accept an `async` body, which the current
+  type catches and the runtime can only throw about, and a conditional generic that
+  keeps both is a signature nobody reading it would understand. Loud and
+  inconvenient beats silent and wrong, which is the whole of why this is a note and
+  `Show`'s value was a fix. It is invisible in the demos because they are `.js` and
+  nothing type-checks them, while JSX is the canonical template syntax -- so an app
+  meets it on its first effect and this repository never had to.
+
+  Third: **whether `each` is reactive is invisible at the call site**.
+  `each: () => item.notes` over a plain array gives an effect with no dependencies,
+  so it runs once and never again -- correct, and indistinguishable from
+  `each: () => items.get()` by reading it. Fourth, and smallest: the focus ring is
+  `input.focus.next()` rather than `input.next()`, and no demo called it before this
+  one, so the first guess was wrong and the type error was the only thing that said
+  so.
+
+- **How strong this is.** It is a positive result from one app written by somebody
+  who had read the renderer's source, which is the weaker of the two things the
+  ticket asked for. What it does establish is narrower and still worth having: the
+  control flow survives the compositions an app actually reaches for, the one
+  place it did not was found within a day of somebody wanting something from it,
+  and the frictions above are specific enough to act on. What it does not
+  establish is that an author who had only the README could get there -- the
+  README had nothing, and that is now the cheapest thing left to improve before
+  SIG-31 asks the question properly.
 
 ### Templates
 
