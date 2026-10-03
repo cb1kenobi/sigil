@@ -1,6 +1,6 @@
 import { ESC } from '../../src/ansi/index.js';
 import { createCanvas, createSelection } from '../../src/canvas/index.js';
-import { box, text } from '../../src/element/index.js';
+import { box, raw, text } from '../../src/element/index.js';
 import type { InputRouter, MouseHandler, MouseEvent, KeyHandler } from '../../src/input/index.js';
 import { enableSelection, render } from '../../src/renderer/index.js';
 import { createEffects } from '../../src/signals/index.js';
@@ -252,6 +252,53 @@ describe('the selection overlay', () => {
 		view.setSelection(undefined);
 		view.frame();
 		expect(h.sgr()).toEqual([]);
+	});
+
+	it('should mark a selection change a repaint and not a layout', () => {
+		// The rule is `repaint` sitting in `needPaint` and *not* in `needLayout`:
+		// a selection names cells on a frame that has already been laid out, and no
+		// box moved. It cannot be pinned by output, which is why it had no test for
+		// as long as it had the flag -- a spurious layout over an unchanged tree
+		// produces the same boxes and the same cells, so every assertion about what
+		// is on screen passes either way. What it costs is *work*, so the only
+		// thing that can see it is a counter, which is the technique the paint cull
+		// settled on for the same reason.
+		//
+		// A `raw`'s `measure` is the seam: measurements are cached for the length of
+		// one `layout()` call, so it runs once per layout pass and not at all on a
+		// frame that skipped the layout.
+		let measured = 0;
+		const h = harness();
+		const view = render(
+			() =>
+				box(
+					{ 'flex-direction': 'column' },
+					// the text is what carries the selection -- a `raw` defaults to
+					// `selectable: false`, which is the whole point of that default, so
+					// selecting over one draws no highlight and this would assert nothing
+					text('hello'),
+					raw({
+						measure: () => {
+							measured += 1;
+							return { height: 1, minHeight: 1, minWidth: 5, width: 5 };
+						},
+						paint: (painter) => void painter.text(0, 0, 'plot.'),
+					})
+				),
+			{ backend: h.backend, colorLevel: 3, effects, terminal: h.terminal }
+		);
+
+		// the first frame lays out, or the count below says nothing
+		const laidOut = measured;
+		expect(laidOut).toBeGreaterThan(0);
+
+		view.setSelection(createSelection({ x: 0, y: 0 }, { x: 4, y: 0 }));
+		view.frame();
+
+		// both halves, or a frame that did nothing at all passes: the highlight
+		// really was drawn, and nothing was laid out to draw it
+		expect(h.sgr().some((params) => params.includes('7'))).toBe(true);
+		expect(measured).toBe(laidOut);
 	});
 
 	it('should read the text off the frame rather than off the tree', () => {
