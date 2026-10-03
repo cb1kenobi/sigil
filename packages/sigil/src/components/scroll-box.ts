@@ -58,11 +58,11 @@
  * the clamp and the thumb -- is the same answer it would be over every row.
  * Measured on ten thousand two-text rows at 80x24 by
  * `packages/sigil/scripts/benchmark-virtual-list.mjs`: 40,010 elements become
- * 105, a first frame goes from 202.7ms to 0.646ms and a wheel notch from 122.5ms
- * to 0.590ms, and the painted frame is byte for byte the one the whole list
- * produces. The windowed cost is **flat** -- 0.58ms at a thousand rows and at ten
- * thousand -- which is what `O(visible)` comes to and is the thing paint culling
- * could not deliver.
+ * 105, a first frame goes from 190.6ms to 0.593ms and a wheel notch from 81.4ms
+ * to 0.614ms, and the painted frame is byte for byte the one the whole list
+ * produces. The windowed cost is **flat** -- 0.53ms at a thousand rows and 0.61ms
+ * at ten thousand -- which is what `O(visible)` comes to and is the thing paint
+ * culling could not deliver.
  */
 
 import {
@@ -142,6 +142,8 @@ export interface ScrollRows {
 	 * window, exactly as `height` makes the vertical one exact. Left out, the
 	 * behaviour above is what you get, which is harmless on the default `vertical`
 	 * axis because nothing reads that range.
+	 *
+	 * Like `height`, read once: it builds the slots.
 	 */
 	width?: number;
 }
@@ -517,6 +519,14 @@ export function ScrollBox(props: ScrollBoxProps): Element {
  * keeps the two in step: the window the frame arranges is the window the offset
  * asked for, so there is never a frame drawn for a window the offset has left.
  *
+ * The offset is the **only** thing that recomputes it, which is also this tier's
+ * known edge: a viewport whose *height* changes while the offset stays put keeps
+ * the window it had. A declared cell height cannot reach it, since such a
+ * viewport does not change height; a list bounded by its parent can, and a
+ * resize then leaves the rows the viewport gained blank until the next scroll.
+ * Written down under "A scroll box" in AGENTS.md with the measurement and with
+ * the reason the fix belongs to the frame rather than here.
+ *
  * The two spacers are the mechanism and they need `flex-shrink: 0`. Without it
  * they are shrunk to nothing -- a box with no children has no content-based
  * automatic minimum, which the layout engine records as a decision -- so a 10,000
@@ -556,9 +566,17 @@ function wireRows(viewport: Element, content: Element, rows: ScrollRows, bound: 
 	const span = rows.width === undefined ? undefined : Math.max(0, Math.trunc(rows.width));
 
 	const sync = (): void => {
-		// the arranged height where there is one, and the host's declared bound
-		// before the first arrange -- never a guess in between
-		const view = viewportOf(viewport)?.height ?? bound;
+		// the **larger** of what the last arrange gave the viewport and what the host
+		// declared, and `Math.max` rather than `??` for two reasons measured
+		// separately. A height of **0** is a measurement rather than "not arranged
+		// yet" -- a bordered host of height 2 has a content box of zero, and `??`
+		// read that as unknown and built all five hundred rows. And a host that can
+		// **grow** makes its declared height no bound at all: `height: 10` with
+		// `flex-grow: 1` in a forty-row parent is a viewport of forty, where `??`
+		// kept the ten and left thirty rows blank for as long as nobody scrolled.
+		// Over-building by the difference is the safe direction and is two rows for a
+		// border
+		const view = Math.max(viewportOf(viewport)?.height ?? 0, bound);
 		const count = Math.max(0, Math.trunc(rows.count));
 		const next = rowWindow(count, step, viewport.scroll?.y ?? 0, view);
 		if (at && at.first === next.first && at.length === next.length && at.count === count) {
@@ -571,13 +589,15 @@ function wireRows(viewport: Element, content: Element, rows: ScrollRows, bound: 
 			// cell is most of them
 			return;
 		}
-		at = { ...next, count };
-
 		const end = next.first + next.length;
-		above.setProp('height', next.first * step);
-		below.setProp('height', Math.max(0, count - end) * step);
 
-		// what the content box should hold, in order
+		// what the content box should hold, in order -- built **before** anything is
+		// committed, which is `Show`'s own order and is the only one where a failure
+		// needs no undo. `rows.row()` is the caller's code and may throw, and the
+		// offset is already the new one by the time this runs: committing first left
+		// `at` claiming a window the content box did not hold and the spacers at
+		// heights for it, and no later scroll to the same window could repair it,
+		// because the guard above sees nothing to do
 		const want: Element[] = [above];
 		for (let i = next.first; i < end; i++) {
 			let slot = built.get(i);
@@ -602,11 +622,20 @@ function wireRows(viewport: Element, content: Element, rows: ScrollRows, bound: 
 					},
 					rows.row(i)
 				);
+				// cached even though nothing is committed yet, which costs nothing: a
+				// slot for a window that was never committed is pruned by the next
+				// sync's own prune loop, and a `made` list to defer it was written here
+				// and deleted for changing no answer
 				built.set(i, slot);
 			}
 			want.push(slot);
 		}
 		want.push(below);
+
+		// past the last thing that can throw, so everything below is bookkeeping
+		at = { ...next, count };
+		above.setProp('height', next.first * step);
+		below.setProp('height', Math.max(0, count - end) * step);
 
 		const keep = new Set(want);
 		// backwards, so that removing at `i` cannot move anything still to be

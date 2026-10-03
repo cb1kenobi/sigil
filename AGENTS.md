@@ -2115,28 +2115,57 @@ not building it addresses the 72ms." This is not building it.
   stayed.
 
 - **The first window is bounded by the height the host _declared_, and that is a
-  bound rather than a guess.** Nothing has arranged the tree when the component
-  is built, so there is no viewport height to read -- and the viewport sits
-  **inside** the host, so a height declared on the host is never less than the
-  height the viewport gets. Which makes a first window built from it long enough
-  rather than merely likely to be, and it is superseded by the arranged height
-  from the first scroll onward. Where the host declares no height in cells the
-  answer is the **whole list**, deliberately: over-building is a slow frame and
-  under-building is a row that is not on screen, so the unknown case resolves
-  towards the one that is merely expensive. A number or a string of digits, and
-  anything else -- a percentage, `auto` -- is no bound; matched rather than read
-  through `Number()`, because `Number('50%')` is `NaN`, `NaN <= 0` is false, and
-  it would walk straight past `rowWindow()`'s unknown-viewport branch and make
-  the window itself `NaN`, which builds no rows at all.
+  floor under it, and calling it a _bound_ was a claim a review round
+  falsified.** Nothing has arranged the tree when the component is built, so
+  there is no viewport height to read, and the host's own declared height is the
+  only number there is. The first version of this entry argued it was an upper
+  bound -- the viewport sits inside the host -- and that is only true while the
+  host really is the height it declared. A host that can **grow** is the
+  counterexample and it is ordinary: `height: 10` with `flex-grow: 1` in a
+  forty-row parent is a viewport of forty, where the declared ten left **thirty
+  rows blank**. Measured. So the window is built for the **larger** of the two,
+  which makes the declaration a floor rather than a ceiling and makes the
+  arranged height the thing that wins wherever they disagree.
+
+  `Math.max` rather than `??` for a second measured reason: a height of **0** is
+  a measurement and not "not arranged yet". A bordered host of height 2 has a
+  content box of zero, and reading that as unknown built all five hundred rows --
+  which is the cost the feature exists to avoid, hidden behind the clip, with no
+  blank viewport to notice. Over-building by the difference is the safe direction
+  and is two rows for a border.
+
+  Where the host declares no height in cells the answer is the **whole list**,
+  deliberately: over-building is a slow frame and under-building is a row that is
+  not on screen, so the unknown case resolves towards the one that is merely
+  expensive. A number or a string of digits, and anything else -- a percentage,
+  `auto` -- is no floor; matched rather than read through `Number()`, because
+  `Number('50%')` is `NaN`, `NaN <= 0` is false, and it would walk straight past
+  `rowWindow()`'s unknown-viewport branch and make the window itself `NaN`, which
+  builds no rows at all.
 
 - **Which has an edge the demo found, and it is worth stating because the
   idiomatic spelling walks into it.** A height written in a **stylesheet** --
   `.log { height: 20 }`, which is how everything else in that demo is styled --
-  is no declared bound, so frame one builds all 20,009 elements and the first
-  scroll is what windows it down to 45. Correct, and 200ms of startup for
-  nothing. `09-virtual.js` puts the height in props and says why in a comment;
-  closing it properly means re-windowing once the viewport has been arranged,
-  which needs a second layout pass in one frame, and that is the entry below.
+  is no declared floor, so frame one builds all 20,009 elements and the first
+  scroll is what windows it down to 45 -- measured both ways. Correct, and 200ms
+  of startup for nothing. `09-virtual.js` puts the height in props and says why
+  in a comment; closing it properly means re-windowing once the viewport has been
+  arranged, which needs a second layout pass in one frame, and that is the entry
+  below.
+
+- **Nothing commits until every row in the window has been built, which is
+  `Show`'s own order.** `rows.row()` is the caller's code and may throw, and the
+  offset is already the new one by the time the window is computed -- so a version
+  that wrote `at` and the spacer heights first left `at` claiming a window the
+  content box did not hold, with the spacers measuring it, and **no later scroll
+  to that same window could repair it**, because the unchanged-window guard sees
+  nothing to do. Recovery took a scroll somewhere else and back. `Show` records
+  the fix as a rule already: build first and touch nothing on screen until there
+  is something to put there, which is also the only order where a failure needs
+  no undo. A `made` list to keep a failed pass's slots out of `built` as well was
+  written here and deleted for failing its sabotage: a slot cached for a window
+  that was never committed is pruned by the next sync's own prune loop, so it
+  changes no answer. Found by review.
 
 - **A slot is a **column**, so the row's width is the stretched axis -- and the
   differential could not see that until it compared colour.** "Stretched is what
@@ -2198,28 +2227,28 @@ not building it addresses the 72ms." This is not building it.
   had in mind.
 
 - **What it is worth, interleaved, on a machine with two other agents on it.**
-  Ten thousand two-text rows, 80x24, six rounds alternating per round. The
-  baseline agrees with the baseline: `benchmark-paint-cull.mjs` reads 34.66ms /
-  0.289ms for the paint and 65.8ms for the arrange on the same tree, against the
-  34.82ms / 0.290ms and 72-81ms this file already records.
+  Ten thousand two-text rows, 80x24, six rounds alternating per round, load
+  average 1.4 to 2.3. The baseline agrees with the baseline:
+  `benchmark-paint-cull.mjs` reads 34.66ms / 0.289ms for the paint and 65.8ms for
+  the arrange on the same tree, against the 34.82ms / 0.290ms and 72-81ms this
+  file already records.
 
   |                     | whole   | windowed |      |
   | ------------------- | ------- | -------- | ---- |
   | elements            | 40,010  | 105      |      |
-  | first frame, total  | 202.7ms | 0.646ms  | 314x |
-  | -- of which cascade | 103.3ms | 0.251ms  | 412x |
-  | -- of which arrange | 86.3ms  | 0.169ms  | 511x |
-  | -- of which build   | 11.8ms  | 0.063ms  | 186x |
-  | -- of which paint   | 1.4ms   | 0.163ms  | 8x   |
-  | a wheel notch       | 122.5ms | 0.590ms  | 208x |
+  | first frame, total  | 190.6ms | 0.593ms  | 321x |
+  | -- of which cascade | 106.5ms | 0.255ms  | 417x |
+  | -- of which arrange | 71.6ms  | 0.127ms  | 565x |
+  | -- of which build   | 11.1ms  | 0.061ms  | 182x |
+  | -- of which paint   | 1.4ms   | 0.151ms  | 9x   |
+  | a wheel notch       | 81.4ms  | 0.614ms  | 133x |
 
-  Re-run on the same machine it reads 212.5ms / 0.629ms and 121.8ms / 0.650ms,
-  so the spread is a few per cent on the window and about five on the baseline
-  and the ratio never moves -- which is the check this file insists on, asking
-  whether the baseline agrees with the baseline rather than whether the
-  alternation was written. The load average was 2.0 to 2.3 throughout, with two
-  other agents on the machine, which is why the absolutes are worth stating
-  beside the deltas rather than instead of them.
+  Three runs, medians, agreeing to a few per cent: the total reads 184.6, 190.6
+  and 193.6 against 0.596, 0.593 and 0.611, and the notch 79.3, 81.4 and 81.1
+  against 0.617, 0.614 and 0.631. So the ratio never moves, which is the check
+  this file insists on -- asking whether the baseline agrees with the baseline
+  rather than whether the alternation was written. The absolutes are worth
+  stating beside the deltas because of the load, not instead of them.
 
   The notch is read **conservatively**, which matters because the two sides do
   not pay the same things: a scroll marks layout and not style, so the list an
@@ -2227,12 +2256,12 @@ not building it addresses the 72ms." This is not building it.
   paint, while a window is a tree that changed and really does re-resolve -- and
   it is charged the whole `resolveStyles()` of its eighty elements rather than
   the marked subtrees a `Restyler` narrows it to. So the window is charged more
-  than it costs and the baseline less, and 208x is a floor.
+  than it costs and the baseline less, and 133x is a floor.
 
   The number that carries the argument is not any of those, though. It is that
-  the windowed cost is **flat**: at 1,000 rows it is 0.636ms and 0.580ms, and at
-  10,000 rows 0.646ms and 0.590ms, while the list beside it goes from 20.2ms and
-  8.4ms to 202.7ms and 122.5ms. That is `O(visible)` measured rather than
+  the windowed cost is **flat**: at 1,000 rows it is 0.593ms and 0.533ms, and at
+  10,000 rows 0.593ms and 0.614ms, while the list beside it goes from 17.8ms and
+  5.7ms to 190.6ms and 81.4ms. That is `O(visible)` measured rather than
   claimed -- and it is the thing paint culling could not deliver, since that is
   `O(children of the scrolled container)` and went from 0.119ms at 1,000 rows to
   0.290ms at 10,000.
@@ -2248,8 +2277,8 @@ not building it addresses the 72ms." This is not building it.
   keeps the hand-assembled side honest: a window that drew something else would
   be faster and wrong.
 
-- **Twenty-seven sabotages, twenty-six caught, and one survivor that is a
-  declared fast path.** The survivor is the unchanged-window early return in the
+- **Thirty-one sabotages, thirty caught, and one survivor that is a declared
+  fast path.** The survivor is the unchanged-window early return in the
   sync: the window's inputs are a handful of numbers, so when none of them moved the work
   below is a `setProp()` to the value it already holds and a reconcile that
   finds everything in place -- no mark, no answer changed, and nothing can be
@@ -2294,14 +2323,36 @@ see, at every offset` asserts the _property_, over four row heights, four
   first row is partly scrolled off, and a window short by it is a blank line at
   the bottom that only appears at some offsets.
 
-- **What is left for a later tier, and the first one has a number.** The
-  **first frame of a flex-sized list**: 200ms for ten thousand rows where a
+- **What is left for a later tier, and the first one has a number.** The window
+  is recomputed when the **offset** moves and at no other time, so a viewport
+  whose **height** changes while the offset stays put keeps the window it had.
+  Two shapes of that, both measured, both wanting one fix.
+
+  The **first frame of a flex-sized list**: 200ms for ten thousand rows where a
   declared height makes it 0.6ms, because the viewport's height is not knowable
-  until something has arranged it. Closing it means re-windowing after the
-  layout and laying out again -- which the renderer already does for an
-  auto-height canvas, and which `renderToString()` would need too, so it is a
-  change to the frame rather than to a component and does not belong in a
-  ticket about a list. **Variable row heights**, refused above with its reason
+  until something has arranged it. That one is merely slow.
+
+  A **resize**, which is the one that is visibly wrong rather than slow, and it
+  was found by review. A list bounded by its parent rather than by a declared
+  height -- `flex-grow: 1`, or a percentage -- starts un-windowed, narrows to the
+  arranged height on the first scroll, and then keeps that window when the
+  terminal grows: measured, laid out at ten rows and scrolled, then re-laid-out at
+  forty, it holds **ten rows where forty-one are needed**, so thirty rows of the
+  viewport are blank until the next scroll. A resize writes no offset, so
+  `onScroll` never fires. A list with a **declared cell height** cannot reach it,
+  because its viewport's height does not change on a resize -- which is the
+  documented, demoed and benchmarked shape, and is why this is an edge rather
+  than the common case.
+
+  One fix closes both: re-window once the viewport has been arranged, and lay out
+  again. The renderer already takes a second pass for an auto-height canvas, so
+  the shape exists -- but `arrange()` would have to report what moved and
+  `renderToString()` would need the same pass, which is a change to the **frame**
+  and to `arrange()`'s contract for every caller, taken inside a ticket about a
+  list. That is the refusal `sigil build`'s own type check is written down for:
+  narrowing it to `tsconfig.build.json` was refused as "a change to what
+  `sigil build` promises every app, taken inside a caching ticket". So this says
+  what is true instead. **Variable row heights**, refused above with its reason
   rather than deferred for want of time. **Tabbing past the last built row**,
   which wraps rather than scrolling on, because a row nobody built is not in
   the focus ring -- note the direction: a window makes a focus nobody can find

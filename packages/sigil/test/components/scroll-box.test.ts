@@ -651,14 +651,25 @@ describe('rowWindow', () => {
 			for (const view of [1, 4, 7, 24]) {
 				for (let offset = 0; offset <= count * step; offset++) {
 					const at = rowWindow(count, step, offset, view);
+					// past the end the window legitimately holds the last row and nothing
+					// is visible at all, which is `scrollTo()` not clamping
+					const inside = offset < count * step;
 					for (let row = 0; row < count; row++) {
 						const top = row * step;
 						const seen = top < offset + view && offset < top + step;
-						const held = row >= at.first && row < at.first + at.length;
-						if (seen && !held) {
+						const has = row >= at.first && row < at.first + at.length;
+						if (seen && !has) {
 							throw new Error(
 								`row ${row} is visible at offset ${offset} (step ${step}, view ${view}) ` +
 									`and the window is ${at.first}..${at.first + at.length - 1}`
+							);
+						}
+						// the other direction, or a window one row too long reads as correct:
+						// over-building is safe and is still not what this answers
+						if (inside && has && !seen) {
+							throw new Error(
+								`row ${row} is held at offset ${offset} (step ${step}, view ${view}) ` +
+									`and the viewport cannot see it`
 							);
 						}
 					}
@@ -886,6 +897,75 @@ describe('a windowed scroll box', () => {
 		expect(scrollRange(view).x).toBe(before);
 		scrollBy(view, 1, 0);
 		expect(view.scroll?.x).toBe(11);
+	});
+
+	it('should take the larger of the arranged height and the declared one', () => {
+		// a height of **0** is a measurement rather than "not arranged yet": a
+		// bordered host of height 2 has a content box of zero, and reading that as
+		// unknown built all five hundred rows
+		const bordered = ScrollBox({
+			props: { 'border-style': 'single', height: 2, width: 12 },
+			rows: { count: 500, height: 1, row },
+		});
+		resolveStyles(bordered);
+		arrange(bordered, { height: 2, width: 12 });
+		expect(viewportIn(bordered).content?.height).toBe(0);
+		viewportIn(bordered).scrollTo(0, 1);
+		expect(held(bordered).length).toBeLessThan(5);
+	});
+
+	it('should let the arranged height beat a declared one the host outgrew', () => {
+		// a host that can **grow** makes its declared height no bound at all, so the
+		// arranged height has to win: `height: 10` with `flex-grow: 1` in a forty-row
+		// parent is a viewport of forty, and keeping the ten left thirty rows blank
+		const host = ScrollBox({
+			props: { 'flex-grow': 1, height: 10, 'min-height': 0, width: 12 },
+			rows: { count: 500, height: 1, row },
+		});
+		const root = box({ 'flex-direction': 'column', height: 40 }, host);
+		resolveStyles(root);
+		arrange(root, { height: 40, width: 12 });
+		expect(viewportIn(host).content?.height).toBe(40);
+		viewportIn(host).scrollTo(0, 1);
+		// rows 1..40, which is the forty a forty-row viewport can see at offset one
+		expect(held(host).length).toBe(40);
+	});
+
+	it('should commit nothing when a row builder throws', () => {
+		// `rows.row()` is the caller's code, and the offset is already the new one by
+		// the time the window is computed. Committing first left `at` claiming a
+		// window the content box did not hold, and no later scroll to the same window
+		// could repair it -- the guard would see nothing to do
+		let fail = -1;
+		const rows = {
+			count: 100,
+			height: 1,
+			row: (i: number): Element => {
+				if (i === fail) {
+					throw new Error('from the row builder');
+				}
+				return row(i);
+			},
+		};
+		const host = ScrollBox({ props: { height: 4, width: 12 }, rows });
+		const view = viewportIn(host);
+		lay(host);
+		const before = held(host);
+		const spacer = find(host, (e) => e.classes.includes('sigil-scroll-spacer'));
+
+		fail = 5;
+		expect(() => view.scrollTo(0, 5)).toThrow(/from the row builder/);
+		// the window the content box holds, and the spacer that measures it, are the
+		// ones from before
+		expect(held(host)).toStrictEqual(before);
+		expect(spacer?.props.height).toBe(0);
+
+		// and the same window is reachable again once the builder stops throwing,
+		// which is what committing first made impossible
+		fail = -1;
+		view.scrollTo(0, 6);
+		view.scrollTo(0, 5);
+		expect(held(host)).toStrictEqual(['r5', 'r6', 'r7', 'r8']);
 	});
 
 	it('should still scroll from the keyboard and the wheel', () => {

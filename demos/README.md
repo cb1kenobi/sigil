@@ -209,17 +209,17 @@ the package.
 
 ## The element tree
 
-|                                                      |                                                                 |
-| ---------------------------------------------------- | --------------------------------------------------------------- |
-| [`element/01-tree.js`](element/01-tree.js)           | A tree, a stylesheet, a layout, and cells                       |
-| [`element/02-overlay.js`](element/02-overlay.js)     | An overlay, a stacking order, and a scrolling pane              |
-| [`element/03-focus.js`](element/03-focus.js)         | One router owns stdin, and Tab moves the focus                  |
-| [`element/04-mouse.js`](element/04-mouse.js)         | `:hover` from a hit test, a click, and the wheel                |
-| [`element/05-drag.js`](element/05-drag.js)           | A drag, and the capture that makes one work                     |
-| [`element/06-panes.js`](element/06-panes.js)         | Full screen: a clip, a scroll and a stacking order              |
-| [`element/07-selection.js`](element/07-selection.js) | Selecting cells, and OSC 52 to the clipboard                    |
-| [`element/08-scroll.js`](element/08-scroll.js)       | Ten thousand rows, a scrollbar, and paint culling               |
-| [`element/09-virtual.js`](element/09-virtual.js)     | The same list windowed: a hundred elements, not thirty thousand |
+|                                                      |                                                    |
+| ---------------------------------------------------- | -------------------------------------------------- |
+| [`element/01-tree.js`](element/01-tree.js)           | A tree, a stylesheet, a layout, and cells          |
+| [`element/02-overlay.js`](element/02-overlay.js)     | An overlay, a stacking order, and a scrolling pane |
+| [`element/03-focus.js`](element/03-focus.js)         | One router owns stdin, and Tab moves the focus     |
+| [`element/04-mouse.js`](element/04-mouse.js)         | `:hover` from a hit test, a click, and the wheel   |
+| [`element/05-drag.js`](element/05-drag.js)           | A drag, and the capture that makes one work        |
+| [`element/06-panes.js`](element/06-panes.js)         | Full screen: a clip, a scroll and a stacking order |
+| [`element/07-selection.js`](element/07-selection.js) | Selecting cells, and OSC 52 to the clipboard       |
+| [`element/08-scroll.js`](element/08-scroll.js)       | Ten thousand rows, a scrollbar, and paint culling  |
+| [`element/09-virtual.js`](element/09-virtual.js)     | The same list windowed: 49 elements, not 10,008    |
 
 The whole stack in one file, and the point of it is what it prints at the end: a
 mutation says exactly what it implies and nothing else.
@@ -267,11 +267,12 @@ scrolls rather than leaving the highlight somewhere you cannot see.
 **`09-virtual.js`** is that list with only the visible rows **built**, and it is
 meant to be run straight after `08-scroll.js`: the two look the same, scroll the
 same, report the same range and draw the thumb in the same place. The only visible
-difference is the line at the bottom, which counts the elements that exist —
-thirty thousand against about fifty. Paint culling took the paint from 34.8ms to
+difference is the line at the bottom, which counts the elements that exist — 49
+against the 10,008 that list comes to with every row built, measured both ways
+(08 prints no count of its own). Paint culling took the paint from 34.8ms to
 0.29ms and left the **arrange** as the whole frame at 72ms; an element that does
 not exist is not measured, not re-resolved and not painted, so a wheel notch goes
-from 122ms to 0.59ms. What makes it cheap is that it is only a component: a spacer
+from 81ms to 0.61ms. What makes it cheap is that it is only a component: a spacer
 above and below is an ordinary box with a declared height, so nothing in the
 layout engine, the cascade, the paint walk or `scrollRange()` knows a window is in
 play. `node packages/sigil/scripts/benchmark-virtual-list.mjs` is what measures

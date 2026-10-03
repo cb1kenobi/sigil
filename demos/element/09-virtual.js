@@ -5,9 +5,11 @@
  *
  * `08-scroll.js` is this list with every row in the tree, and the two are meant
  * to be run one after the other: they look the same, scroll the same, report the
- * same range and draw the thumb in the same place. The only visible difference is
- * the line at the bottom, which counts the elements that exist -- **thirty
- * thousand against about a hundred** -- and that is the whole claim.
+ * same range and draw the thumb in the same place. What differs is the line at
+ * the bottom, which counts the elements that exist: **49**, against the **10,008**
+ * the same list comes to with every row built. Measured, and 08 prints no count
+ * of its own -- one text per row plus eight nodes of chrome -- so the comparison
+ * is this number against that one rather than two numbers on two screens.
  *
  * Paint culling (SIG-110) already meant the frame drew the twenty rows on screen
  * rather than the ten thousand that existed, which took the paint from 35ms to
@@ -15,7 +17,7 @@
  * 72ms. An element that does not exist is not measured, not re-resolved and not
  * painted, so this is the other half: `node
  * packages/sigil/scripts/benchmark-virtual-list.mjs` asserts the two frames are
- * identical and then reports 122ms against 0.59ms for one wheel notch.
+ * identical and then reports 81ms against 0.61ms for one wheel notch.
  *
  * What makes it cheap is that it is **only a component**. Nothing in the layout
  * engine, the cascade, the paint walk or `scrollRange()` knows a window is in
@@ -27,7 +29,7 @@
  *
  * - **Scroll it, every way.** Arrows, PageUp/PageDown, Home/End, the wheel with
  *   its acceleration curve, and dragging the thumb. Watch the element count stay
- *   flat and the thumb describe ten thousand rows rather than the window. Home
+ *   at 49 and the thumb describe ten thousand rows rather than the window. Home
  *   and End are the sharpest: the thumb goes to the very top and the very bottom,
  *   which it could not do if the range came from what was built.
  * - **Tab.** The rows are focusable and Tab walks the ones that **exist**, which
@@ -111,8 +113,9 @@ if (process.stdin.isTTY && process.stdout.isTTY) {
 			// sits inside the host and nothing has arranged anything yet. Written as
 			// `.log { height: 20 }` instead there is no bound to read, so frame one
 			// builds all 20,009 elements and the first scroll is what windows it down
-			// to 45 -- correct, and 200ms of startup for nothing. That is this tier's
-			// edge and it is recorded under "A scroll box" rather than hidden here
+			// to 45 -- measured both ways, correct, and 200ms of startup for nothing.
+			// That is this tier's edge and it is recorded under "A scroll box" rather
+			// than hidden here
 			props: { class: 'log', height: WINDOW },
 			rows: { count: ROWS, height: 1, row },
 		});
