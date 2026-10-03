@@ -827,9 +827,14 @@ describe('a windowed scroll box', () => {
 		expect(() => ScrollBox({})).toThrow(/either children or rows/);
 	});
 
-	it('should bound the first window by the height the host declared', () => {
-		// the viewport is inside the host, so a declared host height is never less
-		// than the height the viewport gets -- which makes it a bound and not a guess
+	it('should start the first window from the height the host declared', () => {
+		// a **floor** and not a bound, which is the correction SIG-131 made to the code
+		// and left in this comment: "the viewport is inside the host, so a declared
+		// height is never less than what the viewport gets" is only true while the host
+		// really is the height it declared, and `should let the arranged height beat a
+		// declared one the host outgrew` two tests down is the counterexample. What it
+		// pins is that the floor is read at all -- without it the first window holds no
+		// rows, which is `rowWindow()`'s answer for a viewport nothing has arranged
 		const declared = ScrollBox({
 			props: { height: 4, width: 12 },
 			rows: { count: 500, height: 1, row },
@@ -844,10 +849,13 @@ describe('a windowed scroll box', () => {
 	});
 
 	it('should build no row where the host declares no height in cells', () => {
-		// no bound is no window, and nothing is built until a layout says how tall the
-		// viewport came out. That is `rowWindow()`'s rule met through the component,
-		// and the half that makes it affordable is the one below: a frame fills it in
-		// before it paints
+		// no bound is no window, and nothing is built until something says how tall the
+		// viewport came out. That is `rowWindow()`'s rule met through the component. Two
+		// things fill it in and this test exercises the **second**: a *frame* dispatches
+		// `onResize` after its layout, and a bare `arrange()` leaves the window empty but
+		// gets the range right from the spacers -- so the first `scrollTo()`, key or
+		// wheel notch goes through `onScroll` and fills it, which is what the `lay()`
+		// plus `scrollTo()` below is. The frame half is in the describe at the bottom
 		const loose = ScrollBox({ props: { width: 12 }, rows: { count: 40, height: 1, row } });
 		expect(held(loose)).toStrictEqual([]);
 		// a height a `Number()` cannot read as cells is no bound either, and the one

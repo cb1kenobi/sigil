@@ -811,14 +811,15 @@ describe('an animation on a frame that rebuilt a windowed list', () => {
 		view.dispose();
 	});
 
-	it('should take a running animation up in place rather than restarting it', () => {
-		// `animate()` is called once per settle, so a frame that re-windows **observes
-		// twice at one `now`** -- and an element marked by the handler can be in both
-		// settles' `paint`. That is only safe because `#syncAnimation()` takes a live
-		// animation of the same name up in place rather than committing a new one, and
-		// because `difference(before, base)` of one object against itself is empty. If
-		// either were not true, every re-windowing frame would restart every animation
-		// on the element it touched
+	it('should not move a running animation on a frame that re-windowed', () => {
+		// a frame that re-windows settles **twice** at one `now`, and the second settle
+		// writes the base style over every element the restyler has a cached one for.
+		// So two things have to hold or an animation jumps on every such frame:
+		// `tick()` at an unchanged `now` has to answer the same overrides, and
+		// `present()` has to put them back. What this element is *not* is observed
+		// twice -- its style did not change, so `difference()` keeps it out of the
+		// second settle's `paint` -- which is the correction a review round made to the
+		// claim this test was first written for
 		const h = harness(14, 12);
 		const cascade = sheets(`
 			@keyframes grow { from { padding-left: 0 } to { padding-left: 6 } }

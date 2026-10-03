@@ -2170,15 +2170,28 @@ infinite` on a row a **resize** revealed never started, while the same row revea
   Asking `tick()` again at an unchanged `now` is what makes that safe: the overrides
   come out equal, so nothing is reported as moved and the presented objects keep their
   identity -- which is the property the measurement cache depends on, read from the
-  other side. **`observe()` twice at one `now` is the other half of that**, and it is
-  safe for two reasons that are somebody else's decisions rather than luck: a live
-  animation of the same name is taken up **in place** rather than committed afresh, so
-  it keeps its `start`, and `difference(before, base)` of one `Style` object against
-  itself is empty, so no transition begins. An element the handler marked really can
-  be in both settles' `paint`, so both of those are load bearing here and neither was
-  written for this -- `should take a running animation up in place rather than
-restarting it` is what says so now, because a re-windowing frame would otherwise
-  restart every animation on the element it touched.
+  other side.
+
+  **Which elements the second `observe()` reaches is narrower than the first write-up
+  of this said**, and getting it right is the difference between a safety argument and
+  a guess. An element is in a settle's `paint` only where `difference()` found its
+  style genuinely changed, so an element whose style did not move is not observed
+  again at all: the second set is the rows the handler **built**, which have no base
+  and so start nothing, plus the elements whose style the handler's own writes
+  changed, where a transition starting is correct rather than spurious. The first
+  version claimed the guard was `difference()` of one `Style` object against itself
+  being empty -- and the cascade hands back a **new** object whenever it re-resolves,
+  so identity was never the guard, and that sentence would have survived somebody
+  making `difference()` identity-based. Found by review, which is also what made this
+  a shorter list than it looked.
+
+  What a re-windowing frame therefore must not do is move an animation nothing
+  changed, and `should not move a running animation on a frame that re-windowed` is
+  the pin: `tick()` at an unchanged `now` answers the same overrides and `present()`
+  puts them back over the base the second settle wrote. `#syncAnimation()` taking a
+  live animation of the same name up **in place** rather than committing afresh is
+  what keeps its `start` across every frame it is observed on, which is pre-existing
+  and is why none of this needed a new rule.
 
 - **And the presented styles go back on after it, which is the other half of the same
   function.** `settleStyles()` sets `element.style` to the
@@ -2486,7 +2499,8 @@ restarting it` is what says so now, because a re-windowing frame would otherwise
   test written for them.** Six survived the first pass and every one was a _cost_ guard
   rather than a claim, which is the state this file usually declares and leaves --
   the loop's exit, the pass bound, the per-pass clear in each of the two frames,
-  `arrange()` collecting only what changed rather than everything with a hook, and
+  `arrange()` collecting only what has not been told rather than everything with a
+  hook, and
   the return value of that same unchanged-window early return. Each is now pinned,
   and what made that possible is one fixture: a box whose **own size never
   settles**, so the number of times it is told is the number of times the frame
@@ -2506,16 +2520,34 @@ restarting it` is what says so now, because a re-windowing frame would otherwise
   place, which is the same failure in the tool that checks the tool. The fix is the
   same both times -- assert the edit landed.
 
-  **What the sabotage pass could not find is what the review round did**, and all five
-  of its findings are shapes a pass built out of deletions is blind to by construction:
-  three were code that _agrees with itself_ (the animator never shown the second
-  settle, the grid height never asked again, `Animator.forget()` not recursing), and
-  two were **sentences** -- a doc still describing the collector the commit before had
-  replaced, and a claim here that the next frame asks again where only the next frame
-  that lays out does. A deletion asks whether the code that is there is load bearing;
-  it never asks whether a guard is missing, and it cannot read prose at all. Which is
-  the boundary this file already records from the selection work, met again with a
-  bigger tally on the review's side.
+  **What the sabotage pass could not find is what the review rounds did**, and every
+  one of their findings is a shape a pass built out of deletions is blind to by
+  construction. Round 1 found five: three were code that _agrees with itself_ (the
+  animator never shown the second settle, the grid height never asked again,
+  `Animator.forget()` not recursing) and two were **sentences**. Round 2 found no
+  runtime defect at all in the surfaces round 1 had skipped -- `observe()` under a
+  second settle, the restructured benchmark, the scrollbar and the keys over an empty
+  window, and the pre-branch tests all held -- and its findings were **six more
+  sentences**, which is the pattern worth keeping rather than the count.
+
+  All six were the same drift: the collector was documented as "the elements whose
+  size moved" in five places and as "told" in three, after the mechanism became the
+  second. That is dangerous rather than untidy, and the reviewer said why -- somebody
+  aligning the code with the stale comments reintroduces exactly the throw-path defect
+  the `told` map exists for. It was introduced **three times** in this one ticket, each
+  time by changing the mechanism after writing the prose, and caught once by round 1,
+  once by reading the diff, and four more times by round 2. A deletion asks whether
+  the code that is there is load bearing; it never asks whether a guard is missing,
+  and it cannot read prose at all. Which is the boundary this file already records
+  from the selection work, with a much bigger tally on the review's side.
+
+  One of round 2's findings went further than it was reported, which is worth the
+  note: it flagged the observe-twice wording as resting on identity where the guard is
+  value equality, and following that through found the claim narrower still -- an
+  element whose style did not change is not in the second settle's `paint` at all, so
+  it is not observed twice, and the test written for the old claim was renamed to what
+  it actually pins. A reviewer pointing at the right sentence is worth more than its
+  own correction being complete.
 
   Two of the first round's survivors were the method's own boundary rather than
   missing tests and are worth recording as such. One was a **sabotage that was
@@ -6364,7 +6396,7 @@ a probe`. What the longer hold costs is worth stating precisely: a key typed
   that measured right pays one comparison -- and since SIG-130 it does not grow it
   for rows a clip hides, which is what had every spinner, bar, prompt and table in
   a clipping layout holding blank rows of the user's scrollback open.
-- **And laid out again for what the layout told something its box had moved, which
+- **And laid out again for what the layout told a size it did not know about, which
   is a different question behind the same shape.** That one asks how tall the
   answer came out; this one asks who needs rebuilding now that there is a box to
   read. `settleResized()` is the loop and both frames call it -- this one and
@@ -6373,9 +6405,13 @@ a probe`. What the longer hold costs is worth stating precisely: a key typed
   in between, and the renderer drains the tree's marks a **second** time to narrow
   that to what the handlers touched, then shows the animator that settle so that an
   animation on a row the handler built starts at all; see "Windowing a long list" for
-  the two defects that said so. It costs nothing on a frame where no box changed size, which is
-  every frame of an app with no windowed list in it: the collector is empty, so
-  there is nothing to dispatch and nothing to lay out again.
+  the two defects that said so. It costs nothing on a frame of an app that has no
+  `onResize` handler anywhere in its tree, which is every app with no windowed list
+  in it: `arrange()` asks the question only of an element carrying the hook, so the
+  collector is empty and there is nothing to dispatch or lay out again. Not "no box
+  changed size", which is what this said and is a different claim -- a windowed
+  list's **first** frame always collects, because nothing has been told anything
+  yet.
 - **An auto-height canvas is measured, not laid out and read back.** That was the
   first answer and it is wrong in the way that matters: a root with no declared
   height fills whatever it is given, so `box.height` after a pass at the screen's
