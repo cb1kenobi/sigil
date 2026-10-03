@@ -6,15 +6,17 @@
  * reveals one chunk at a time.
  *
  * **It reveals by chunk rather than by column, and that is the whole design.**
- * The classic CSS typewriter animates `width` over `overflow: hidden`, which
- * cannot work here: a wide cluster is two columns, so a column-at-a-time sweep
- * shows half a glyph -- exactly the state the canvas diff works to prevent -- and
- * a ZWJ emoji is one chunk that a sweep would cut into pieces. It also only works
- * on one line, because a column sweep reveals left to right on every row at once,
- * which is not what anybody means by a paragraph typing itself out. Cutting the
- * text where `graphemes()` says one character ends and the next begins makes the
- * wide cluster, the combining mark, the flag and the family emoji fall out rather
- * than need handling.
+ * The classic CSS typewriter animates `width` over `overflow: hidden`, and the
+ * reason that cannot work here was measured rather than assumed. A column sweep
+ * reveals every row at once: at a clip of one column a paragraph wrapped into two
+ * rows draws the first column of *both*, which is not what anybody means by a
+ * paragraph typing itself out, and nothing about the sweep can be told to go line
+ * by line. The wide-cluster half is real and smaller than it sounds -- the grid
+ * refuses a two-column cluster with one column left and a blank takes the column,
+ * so a sweep cannot draw half a glyph; what it draws is nothing, for the step where
+ * the cluster does not fit. Cutting the text where `graphemes()` says one character
+ * ends and the next begins makes the wide cluster, the combining mark, the flag and
+ * the family emoji fall out rather than need handling.
  *
  * It is a component rather than a keyframe animation, for the reason the spinner
  * is: what it steps is *content*, and there is no animatable content property.
@@ -331,7 +333,14 @@ export interface TypewriterRevealOptions {
  */
 export function typewriterReveal(state: TypewriterState, opts: TypewriterRevealOptions): void {
 	const chunk = opts.chunk ?? graphemes;
-	const flat = opts.interval !== undefined && opts.interval >= 0 ? opts.interval : INTERVAL;
+	// `Number.isFinite` rather than a bare comparison, because `Infinity >= 0` is
+	// true and `setTimeout` reads a delay past 2^31-1 as 1 -- so `interval: Infinity`
+	// asked for "never" and got "as fast as possible", where `NaN` already fell back
+	// here. One question rather than two answers to it
+	const flat =
+		opts.interval !== undefined && Number.isFinite(opts.interval) && opts.interval >= 0
+			? opts.interval
+			: INTERVAL;
 	const pace = opts.pace;
 	/** The text the position on screen is an offset into, for the prefix rule. */
 	let shown = '';
@@ -351,6 +360,39 @@ export function typewriterReveal(state: TypewriterState, opts: TypewriterRevealO
 		}
 
 		const steps = revealSteps(value, chunk);
+		// A position that is not on a step boundary is moved forward to the end of the
+		// step it fell inside, which does two things.
+		//
+		// It puts the first chunk on the first frame rather than one interval later: a
+		// typewriter showing an empty line before it starts reads as a stall, and it is
+		// what makes `pace` unambiguously the time a chunk is *held* -- so the delay
+		// before a chunk is the one in front of it earned, and the last chunk's is
+		// never used.
+		//
+		// And it is what keeps a text change from drawing a cluster in half. The clamp
+		// above stops at the characters the two texts share, which need not be a
+		// boundary of either: typing a combining mark onto an `a` already on screen
+		// makes the two one cluster, and swapping one emoji for another leaves the
+		// position on the surrogate they have in common -- measured, that drew a lone
+		// high surrogate for one frame before the next step repaired it. Moving forward
+		// reveals the whole cluster instead, which is at most one chunk early and is
+		// the only direction that does not take something off the screen that was
+		// already on it. It was written as a special case for the *first* step and
+		// generalised when the surrogate case turned up; `=== 0` before that stalled
+		// the reveal outright, because the schedule below has no previous chunk to take
+		// a delay from and gave up.
+		let at = kept;
+		const inside = steps.findIndex((step) => step.end >= at);
+		if (inside >= 0 && steps[inside]!.end > at) {
+			at = steps[inside]!.end;
+		}
+		// settled before any of the caller's code runs below, so that a `pace` which
+		// writes the position -- a `skip()` from inside one is the shape that found
+		// this -- is the last word rather than the first. Read the other way round, the
+		// effect computed `at` from a position taken before `pace` and then wrote it
+		// back over whatever `pace` had done
+		state.revealed.set(at);
+
 		/**
 		 * What each chunk earns, taken here rather than inside the timer.
 		 *
@@ -382,25 +424,6 @@ export function typewriterReveal(state: TypewriterState, opts: TypewriterRevealO
 			// contract is still asserted; it is simply kept somewhere else
 			held.push(Number.isFinite(earned) ? earned : flat);
 		}
-
-		// the first chunk lands on the first frame rather than one interval later: a
-		// typewriter showing an empty line before it starts reads as a stall, and it
-		// is what makes `pace` unambiguously the time a chunk is *held* -- so the
-		// delay before a chunk is the one the chunk in front of it earned, and the
-		// last chunk's is never used.
-		//
-		// It is `<` rather than `=== 0` because the clamp above can leave the
-		// position *inside* the first step: typing a combining mark onto an `a` that
-		// is already on screen makes the two one cluster, so a position of 1 is a
-		// cluster boundary that has stopped being one. Snapping forward to the end of
-		// the step it fell into is what keeps that from stalling the whole reveal,
-		// which `=== 0` did -- the schedule below has no previous chunk to take a
-		// delay from and gave up
-		let at = kept;
-		if (steps.length > 0 && at < steps[0]!.end) {
-			at = steps[0]!.end;
-		}
-		state.revealed.set(at);
 
 		let timer: ReturnType<typeof setTimeout> | undefined;
 

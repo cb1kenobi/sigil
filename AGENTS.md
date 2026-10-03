@@ -9392,11 +9392,22 @@ it.
   typing a combining mark onto an `a` that is already on screen makes the two one
   cluster two code units long. Rounding back re-reveals what was already on screen,
   which is a stutter on every token a stream appends. An offset survives it, and it
-  is allowed to sit _inside_ a cluster for exactly as long as it takes the next step
-  to land -- which is the only moment anything can put it there. The first version
-  gave up on that position instead of snapping forward to the end of the step it
-  fell into, and stalled the reveal for the rest of the process; `should not stall
-when a chunk boundary stops being one` is the guard.
+  is moved forward to the end of the step it fell inside the moment anything puts it
+  there. The first version gave up on such a position instead, and stalled the reveal
+  for the rest of the process; `should not stall when a chunk boundary stops being
+one` is the guard.
+- **And the snap is to any step rather than to the first, because a swap can leave
+  the position mid-cluster anywhere.** It was written as a special case for the first
+  step, which is where the combining mark puts it, and a review round found the other
+  shape: swapping one emoji for another leaves the position on the **surrogate the
+  two share**, which is a boundary of neither text. Measured, that drew a lone high
+  surrogate for one frame before the next step repaired it -- `"x\u{1F600}"` fully
+  revealed, then `"x\u{1F601}"`, and the frame came out `x\ud83d`. Forward rather
+  than back, because back takes something off the screen that was already on it;
+  what forward costs is at most one chunk revealed early, on a text change where the
+  content has moved anyway. One rule where there were two, and the first-step case
+  falls out of it. `should never leave half a cluster on screen` is the guard, and the
+  first-step spelling fails it.
 - **A text change keeps as much as the new text still says, which is
   "continue from the common prefix" with the prefix taken on the _text_.** The
   three candidates were restart, continue, and snap. Restarting retypes the whole
@@ -9526,6 +9537,20 @@ when a chunk boundary stops being one` is the guard.
   order the chunking already is. The last chunk is skipped rather than computed and
   ignored, because the delay before a chunk is the one in front of it earned -- so a
   caller counting the calls sees the number it should.
+- **And the position is settled before any of the caller's code runs, which is the
+  other half of the same ordering.** The effect used to compute where to go from a
+  position read _before_ `pace`, and then write it -- so a `skip()` from inside a
+  `pace` was set and immediately written back over, and the reveal carried on typing.
+  Nobody writes that on purpose, and it is the general shape that matters: read, run
+  the caller's code, write the stale value. The write moved above the delay loop, so
+  the caller is the last word rather than the first, and `should let a pace that
+moves the position have the last word` fails if the two swap back. Found by review.
+- **An interval has to be a number `setTimeout` can wait for, and `Infinity` is
+  not.** `Infinity >= 0` is true, and node reads a delay past 2^31-1 as 1 -- so
+  `interval: Infinity` asked for "never" and got "as fast as possible", while `NaN`
+  already fell back to the default through the same comparison. `Number.isFinite`
+  makes it one question rather than two answers to it. Found by review, and the kind
+  of asymmetry a guard acquires when it is written for the input somebody reported.
 - **No timer when nothing is revealing.** The last chunk schedules nothing, so a
   finished typewriter holds no timer, and a reveal that cannot animate starts none
   at all. **The timer is unref'd**, because a program that has finished should exit

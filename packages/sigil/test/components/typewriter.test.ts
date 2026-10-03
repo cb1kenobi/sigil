@@ -523,7 +523,11 @@ describe('typewriterReveal()', () => {
 
 	it.each([
 		['a negative interval', -5, 40],
-		['a non-finite interval', Number.NaN, 40],
+		['a NaN interval', Number.NaN, 40],
+		// `Infinity >= 0` is true, so a bare comparison let this through and
+		// `setTimeout` read it as 1: an interval asking for "never" got "as fast as
+		// possible", which is the opposite answer
+		['an infinite interval', Number.POSITIVE_INFINITY, 40],
 	])('should fall back to the default for %s', (_name, interval, expected) => {
 		vi.useFakeTimers();
 		try {
@@ -721,6 +725,36 @@ describe('typewriterReveal()', () => {
 			}
 		});
 
+		/**
+		 * Swapping one emoji for another leaves the position on the surrogate the two
+		 * share, which is not a boundary of either text.
+		 *
+		 * Measured before it was fixed: the frame drew a lone high surrogate for one
+		 * step and the next step repaired it. Moving the position forward to the end of
+		 * the step it fell inside is what closes it, and it is the same rule the
+		 * combining mark needs -- which is why it is one rule rather than a special
+		 * case for the first step.
+		 */
+		it('should never leave half a cluster on screen', () => {
+			vi.useFakeTimers();
+			try {
+				const it = drive('x\u{1F600}', { animate: () => true, interval: 10 });
+				vi.advanceTimersByTime(10);
+				expect(it.state.revealed.get()).to.equal(3);
+
+				it.state.text.set('x\u{1F601}');
+
+				// `x` plus the high surrogate is what the two share; the step it fell
+				// inside ends past it
+				expect(it.state.revealed.get()).to.equal(3);
+				expect(it.state.text.get().slice(0, it.state.revealed.get())).to.equal('x\u{1F601}');
+
+				it.dispose();
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
 		it('should restart from nothing when the first character changed', () => {
 			vi.useFakeTimers();
 			try {
@@ -784,6 +818,51 @@ describe('typewriterReveal()', () => {
 				vi.useRealTimers();
 			}
 		});
+	});
+
+	/**
+	 * A `pace` that writes the position is the last word, not the first.
+	 *
+	 * The effect used to compute where to go from a position read *before* it ran
+	 * the caller's code, and then write it -- so a `skip()` from inside a `pace`
+	 * was set and immediately undone, and the reveal carried on typing. Settling the
+	 * position before the delays are asked for is the fix, and the ordering is the
+	 * whole of it.
+	 */
+	it('should let a pace that moves the position have the last word', () => {
+		vi.useFakeTimers();
+		try {
+			const state = typewriterState('hello');
+			const scope = createEffects();
+			scope.setScheduler((run) => run());
+			const dispose = createRoot(
+				(release) => {
+					typewriterReveal(state, {
+						animate: () => true,
+						interval: 10,
+						pace: () => {
+							state.revealed.set(state.text.get().length);
+							return 10;
+						},
+					});
+					return release;
+				},
+				scope.effect,
+				(error) => {
+					throw error;
+				}
+			);
+
+			expect(state.revealed.get()).to.equal(5);
+			expect(vi.getTimerCount()).to.equal(0);
+
+			vi.advanceTimersByTime(100);
+			expect(state.revealed.get()).to.equal(5);
+
+			dispose();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it('should not be undone by a step that was already in flight', () => {
