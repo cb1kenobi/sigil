@@ -1,5 +1,12 @@
 import { ATTR, DEFAULT_COLOR, palette } from '../../src/canvas/index.js';
-import { box, paragraph, renderToLines, renderToString, text } from '../../src/element/index.js';
+import {
+	box,
+	type Element,
+	paragraph,
+	renderToLines,
+	renderToString,
+	text,
+} from '../../src/element/index.js';
 import { Cascade, parseStylesheet } from '../../src/style/index.js';
 import { describe, expect, it } from 'vitest';
 
@@ -340,5 +347,135 @@ describe('the cell styles a resolved style paints with', () => {
 		// stylesheet to bytes, and these are the two halves of what a cell holds
 		expect(ATTR.bold).to.be.a('number');
 		expect(palette(1)).to.not.equal(DEFAULT_COLOR);
+	});
+});
+
+describe('laying out again for what the layout resized', () => {
+	/**
+	 * A box that counts what it was told and says whether it changed anything.
+	 *
+	 * `grows` makes its box a different size on **every** layout, which is what makes
+	 * the count a count of *layouts* rather than of boxes that moved: an element whose
+	 * size settles is collected once and tells nothing after that, so a guard about
+	 * how many times a frame lays out would be invisible without one that never
+	 * settles.
+	 */
+	function counter(opts: { grows?: boolean; says: boolean | 'once' }): {
+		calls: () => number;
+		element: Element;
+	} {
+		let calls = 0;
+		let height = 1;
+		const element = box({ 'flex-shrink': 0, height }, text('x'));
+		element.onResize = () => {
+			calls++;
+			if (opts.grows) {
+				height = height === 1 ? 2 : 1;
+				element.setProp('height', height);
+			}
+			return opts.says === 'once' ? calls === 1 : opts.says;
+		};
+		return { calls: () => calls, element };
+	}
+
+	it('should lay out again only where a handler said it changed the tree', () => {
+		// the exit, and it is a cost guard rather than a claim about what is drawn:
+		// without it every frame over a tree holding one of these lays out `RESIZE_PASSES`
+		// times. A handler whose box never settles is what makes that countable --
+		// one that settles is collected once however many times the frame laid out
+		const c = counter({ grows: true, says: false });
+		renderToLines(box({ 'flex-direction': 'column' }, c.element), { height: 4, width: 8 });
+		expect(c.calls()).toBe(1);
+	});
+
+	it('should give up rather than laying out for ever', () => {
+		// the bound, which is a cycle breaker rather than a budget: a handler that
+		// reports a change every time it is asked is a configuration that does not
+		// converge, and the frame is drawn at the last window it reached
+		const c = counter({ grows: true, says: true });
+		renderToLines(box({ 'flex-direction': 'column' }, c.element), { height: 4, width: 8 });
+		expect(c.calls()).toBe(4);
+	});
+
+	it('should tell nothing where no box changed size', () => {
+		// the hook's own contract, and the reason `arrange()` compares rather than
+		// collecting every element that carries one: `onResize` means "your size moved",
+		// so a second render at the same size tells nothing at all. A handler that read
+		// it as "a layout happened" would be reading a different hook
+		const c = counter({ says: false });
+		const tree = box({ 'flex-direction': 'column' }, c.element);
+		renderToLines(tree, { height: 4, width: 8 });
+		expect(c.calls(), 'the first layout is a change: there was no box and now there is').toBe(1);
+		renderToLines(tree, { height: 4, width: 8 });
+		expect(c.calls()).toBe(1);
+		renderToLines(tree, { height: 4, width: 9 });
+		expect(c.calls(), 'a width that moved is a size that moved').toBe(2);
+	});
+
+	it('should tell every element that resized, not only the first to answer', () => {
+		// two of them, because a frame holding two windowed lists has to rebuild both:
+		// stopping at the first handler that reports a change leaves the second
+		// describing a viewport that is not there
+		const a = counter({ says: 'once' });
+		const b = counter({ says: 'once' });
+		renderToLines(box({ 'flex-direction': 'column' }, a.element, b.element), {
+			height: 4,
+			width: 8,
+		});
+		expect([a.calls(), b.calls()]).toStrictEqual([1, 1]);
+	});
+
+	it('should not tell an element twice for one layout', () => {
+		// the collector is cleared where the layout begins rather than by `arrange()`,
+		// because the growth pass lays out twice and the two answers are one answer --
+		// so what is left is that the *next* pass starts from nothing. Left uncleared,
+		// a handler that reported a change is asked again about a box that has not moved
+		const c = counter({ says: 'once' });
+		renderToLines(box({ 'flex-direction': 'column' }, c.element), { height: 4, width: 8 });
+		expect(c.calls()).toBe(1);
+	});
+
+	it('should grow the grid for what a handler built, not only for what it measured', () => {
+		// the growth pass runs after **every** layout rather than only after the first,
+		// because a handler can grow the tree too and the grid is allocated from the
+		// height rather than from the extent. Found by review: an empty root measures
+		// one row, so a handler that appends an eight-row child used to come back as
+		// one line with seven rows of content nowhere. A `ScrollBox` cannot reach it,
+		// which is why no test did -- it clips, so `arrangedExtent()` stops at its
+		// border box, and its spacers give the measure the whole list's height before
+		// any handler runs
+		const host = box({ 'flex-direction': 'column' });
+		let built = false;
+		host.onResize = () => {
+			if (built) {
+				return false;
+			}
+			built = true;
+			host.append(box({ 'flex-shrink': 0, height: 8 }, text('deep')));
+			return true;
+		};
+
+		expect(renderToLines(host, { width: 8 })).toHaveLength(8);
+	});
+
+	it('should restyle what a handler built before laying it out', () => {
+		// the whole reason the dispatch is a frame's rather than `arrange()`'s: an
+		// element built below the cascade carries none of its props -- measured, a box
+		// declaring `height: 3` has `height: auto` and `flex-shrink: 1` until something
+		// resolves it -- so a handler that builds one needs a restyle before the layout
+		// that places it
+		const host = box({ 'flex-direction': 'column' });
+		let built = false;
+		host.onResize = () => {
+			if (built) {
+				return false;
+			}
+			built = true;
+			host.append(box({ 'flex-shrink': 0, height: 3 }, text('deep')));
+			return true;
+		};
+
+		renderToLines(host, { height: 6, width: 8 });
+		expect(host.children[0]?.box?.height, 'the box a handler built was laid out unstyled').toBe(3);
 	});
 });

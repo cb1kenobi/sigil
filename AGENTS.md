@@ -2069,7 +2069,15 @@ not building it addresses the 72ms." This is not building it.
   slot overflows it, which is what the engine does with any overflow and is
   visible rather than silently out by one.
 
-- **`Element.onScroll` is the one hook, because `scrollTo()` is the one
+- **Two hooks and one handler, because a window is four numbers and two of them
+  move.** `rowWindow()` reads the count, the row height, the offset and the
+  viewport's height; the offset is `scrollTo()`'s to write and the viewport's
+  height is `arrange()`'s, so each has exactly one place that can say it moved.
+  `sync()` recomputes from all four whenever either hook calls it, so the second
+  hook added no arithmetic at all -- SIG-132 was somebody calling it, not
+  something new for it to work out.
+
+- **`Element.onScroll` is the offset's, because `scrollTo()` is the one
   writer.** A windowed list has to learn that the offset moved, and the obvious
   place to do it is the handlers the component already owns -- the keys, the
   wheel, the dragged thumb. That leaves `scrollIntoView()` out, and the focus
@@ -2081,6 +2089,153 @@ not building it addresses the 72ms." This is not building it.
   for the reason `onKey` is one, and it fires **synchronously** -- the tree the
   frame arranges is the tree the handler left, so there is never a frame drawn
   for a window the offset has already left.
+
+- **`Element.onResize` is the height's, and it is dispatched by whoever ran the
+  layout rather than by `arrange()`.** That is structural rather than a
+  preference, and it is the whole of why the second half of this feature is a
+  change to the **frame**: a handler that _builds_ elements leaves them below the
+  cascade, and props are not in a style until something resolves them -- measured,
+  a slot built there has `height: auto` and `flex-shrink: 1`, which is both halves
+  of what the windowing rests on. `arrange()` cannot fix that by restyling either,
+  because it has no `Cascade` to restyle against: `resolveStyles()` matches no
+  sheet, so every row would lose its theme. So `arrange()` **collects** and a frame
+  dispatches, restyles what the handlers built, and lays out again.
+
+- **What it collects is every element that has not been _told_ the size it now
+  has, which is not the same question as "did its size move".** The first version
+  asked the second, by reading `content ?? box` before the walk overwrote it -- free,
+  since the box the last layout left _is_ the before. The two part on exactly the
+  paths where a dispatch did not happen, and one of those is reachable: a row
+  builder that **throws** while a resize is rebuilding a window. Measured -- the
+  viewport's box is already at its new size when the handler throws, so no later
+  layout at that height collected it and the stale window survived every resize back
+  to it. Which is SIG-131's own defect one hook along, where "no later scroll to that
+  same window could repair it", so it gets the same answer: the size is recorded
+  **after** the handler returned, in a `WeakMap` keyed by element rather than a field
+  every element would pay a slot for. The other path it closes is the loop giving up
+  on its bound, whose last collection is never dispatched; with this, the next frame
+  **that lays out** asks again -- which is not the same as the next frame, and is the
+  honest version of a sentence that claimed it was: nothing marks layout or asks for a
+  frame because the bound was hit, so a tree that needed a fifth pass waits for a
+  scroll, a resize or an animated geometry property, with a blank innermost viewport
+  rather than an oscillating one. It takes five nested windowed lists to reach, and
+  found by review rather than by a test, which is where an overclaiming sentence gets
+  found. A `Set` rather than a list for the same reason one step along: a frame that
+  lays out twice collects twice, and one element is told once.
+
+- **What it costs a frame with no windowed list in it is nothing measurable.** Six
+  interleaved renders of a sixty-entry help screen, forty iterations each: **2.390 /
+  2.454 / 2.409ms** before and **2.432 / 2.362 / 2.436ms** after, which is noise in
+  both directions. It has to be: the collector is empty, so there is nothing to
+  dispatch and the loop's first pass exits. What a `table()` and a help screen print
+  is byte for byte what they printed, checked rather than argued.
+
+  `settleResized()` is the one implementation of that loop and both frames call
+  it: `renderToString()` and the renderer's own `settle()`. A **bare** `arrange()`
+  dispatches nothing, which is why the component's own tests still describe the
+  window a single layout produces, and is the cost recorded two entries down.
+
+  The handler **returns whether it changed the tree**, which is the rule
+  `hideCursor()` and `setRawMode()` already keep: a caller that owes a second pass
+  has one question to ask and only the handler can answer it. `sync()`'s own
+  unchanged-window guard is what makes that a `false` on the overwhelming majority
+  of frames, so a layout that moved a viewport's width and not its window is one
+  `rowWindow()` call and no second layout. Pinned rather than declared -- a width-
+  only resize beside a box whose own size never settles is what counts the layouts
+  -- which is the one place this differs from SIG-131's treatment of the same
+  guard, where there was nothing a count could see.
+
+  The loop is bounded at **four** passes, and the bound is a cycle breaker rather
+  than a budget: it exits the moment nothing reports a change, which for the
+  ordinary case is after exactly one, because the two spacers hold the content's
+  total height at `count * height` whichever rows are built -- so the layout after
+  a rebuild gives the viewport the same height again. The headroom is for a
+  windowed list **inside** one, which settles a level per pass because the inner
+  viewport does not exist until the outer window has been built. A configuration
+  that genuinely does not converge is drawn at the last window it reached, which
+  is the status quo rather than a new failure.
+
+- **The animator is shown the second settle as well, which is two halves of one
+  thing and both were missing.** `animate()` is the function, called once per settle,
+  and it observes and then presents. Without the **observe**, a row that first exists
+  because a handler built it is never shown to the animator at all: it is in the
+  second settle's `Update.paint` and in no other, and the next frame has no mark for
+  it, since it now has a cached style and nothing touched it. So `animation: pulse 1s
+infinite` on a row a **resize** revealed never started, while the same row revealed
+  by a wheel notch did -- `scrollTo()` runs the handler before the frame, so that one
+  is in the first settle's set. Found by review, and the asymmetry is what makes it a
+  defect rather than a limitation: two rows of one list behaving differently according
+  to which hook built them.
+
+  Asking `tick()` again at an unchanged `now` is what makes that safe: the overrides
+  come out equal, so nothing is reported as moved and the presented objects keep their
+  identity -- which is the property the measurement cache depends on, read from the
+  other side.
+
+  **Which elements the second `observe()` reaches is narrower than the first write-up
+  of this said**, and getting it right is the difference between a safety argument and
+  a guess. An element is in a settle's `paint` only where `difference()` found its
+  style genuinely changed, so an element whose style did not move is not observed
+  again at all: the second set is the rows the handler **built**, which have no base
+  and so start nothing, plus the elements whose style the handler's own writes
+  changed, where a transition starting is correct rather than spurious. The first
+  version claimed the guard was `difference()` of one `Style` object against itself
+  being empty -- and the cascade hands back a **new** object whenever it re-resolves,
+  so identity was never the guard, and that sentence would have survived somebody
+  making `difference()` identity-based. Found by review, which is also what made this
+  a shorter list than it looked.
+
+  What a re-windowing frame therefore must not do is move an animation nothing
+  changed, and `should not move a running animation on a frame that re-windowed` is
+  the pin: `tick()` at an unchanged `now` answers the same overrides and `present()`
+  puts them back over the base the second settle wrote. `#syncAnimation()` taking a
+  live animation of the same name up **in place** rather than committing afresh is
+  what keeps its `start` across every frame it is observed on, which is pre-existing
+  and is why none of this needed a new rule.
+
+- **And the presented styles go back on after it, which is the other half of the same
+  function.** `settleStyles()` sets `element.style` to the
+  **base** style for every element the restyler has a cached one for -- animating
+  ones included, which is why the first pass writes the animator's presented styles
+  _after_ it. A second settle undoes that, so a frame that re-windowed drew every
+  animation at its base value and, worse, **laid it out** there: an animated
+  geometry property is in `LAYOUT_PROPERTIES`, so a width easing from four to twelve
+  is placed at four for that frame. The same two lines in the same order, through the
+  same function, which is what makes it one rule rather than two. Pinned on the
+  element's **box** as well as on its style, because the box is what says the layout
+  used it -- a picture cannot, since a box with a background and no characters draws
+  blanks either way. Found by reading the frame rather than by a test, and the test
+  came after.
+
+- **`Animator.forget()` forgets the subtree now, which its own doc had always
+  claimed.** It exists "for the reason `Restyler.forget()` is: both maps are keyed by
+  element identity, so a subtree that was shown and hidden would stay reachable for
+  the life of the animator" -- and it deleted the one element it was handed, where the
+  restyler recurses. What a frame records as removed is the element whose parent
+  dropped it and never its children, so nothing else was going to. A windowed list is
+  what makes that unbounded rather than untidy: a notch unmounts a slot holding a row,
+  so a ten-thousand-row log scrolled through once left an entry per element ever
+  built. `#entries` only ever held something actually animating, so no frame timer
+  stayed awake for it, which is why nothing but the memory said so. Pre-existing since
+  SIG-62 and fixed here because this is the feature that makes it matter, found by
+  review, and it is the shape this file keeps warning about: a comment asserting a
+  behaviour the code does not have, which a documented codebase is _more_ prone to
+  because the written rule is what stops the reader checking. The children are read
+  through a cast rather than through `T`'s constraint, because a constraint of only
+  optional properties is a **weak type** TypeScript refuses to match against the
+  `{ name: string }` the animator's own tests animate.
+
+- **The marks are drained twice in a frame, and the second time is not
+  tidiness.** A new window writes the two spacers' heights with `setProp()`, and a
+  kept restyler is marks-driven -- so a frame that re-settled styles without
+  draining again left those two carrying the style they already had, and the
+  content box's extent then described the window that had gone. Measured as
+  exactly that: a range of **500** over a viewport of 8 where it should have been
+  492, with the rows painted correctly on top of it, which is the shape that would
+  have shipped as "the scrollbar is slightly wrong". `renderToString()` has no
+  `Tree` for a `setProp()` to record on at all, so it pays a **full** re-match
+  instead and says so. Draining is also what forgets the rows the new window
+  displaced in this frame rather than the next.
 
 - **A `scrollTo()` from inside an element's own handler writes and marks without
   dispatching again.** That bounds the recursion by construction rather than by
@@ -2134,24 +2289,56 @@ not building it addresses the 72ms." This is not building it.
   blank viewport to notice. Over-building by the difference is the safe direction
   and is two rows for a border.
 
-  Where the host declares no height in cells the answer is the **whole list**,
-  deliberately: over-building is a slow frame and under-building is a row that is
-  not on screen, so the unknown case resolves towards the one that is merely
-  expensive. A number or a string of digits, and anything else -- a percentage,
-  `auto` -- is no floor; matched rather than read through `Number()`, because
-  `Number('50%')` is `NaN`, `NaN <= 0` is false, and it would walk straight past
-  `rowWindow()`'s unknown-viewport branch and make the window itself `NaN`, which
-  builds no rows at all.
+  Where the host declares no height in cells the answer is **no rows**, and that
+  is SIG-132 moving a premise rather than reversing a decision. SIG-131 answered
+  the whole list there, on the ground that "over-building is a slow frame and
+  under-building is a row that is not on screen, so the unknown case resolves
+  towards the one that is merely expensive" -- which was sound while nothing
+  recomputed a window after a layout, because a window built before one was the
+  only window there would ever be. With `onResize`, a frame lays out, tells the
+  viewport its height, rebuilds and lays out again **before it paints**, so
+  under-building is a row one layout early while over-building is still ten
+  thousand rows cascaded and arranged for a frame that shows twenty-four. So the
+  hedge is gone and `rowWindow(count, step, offset, 0)` is the arithmetic said
+  plainly: a viewport with no cells in it can see nothing.
 
-- **Which has an edge the demo found, and it is worth stating because the
-  idiomatic spelling walks into it.** A height written in a **stylesheet** --
-  `.log { height: 20 }`, which is how everything else in that demo is styled --
-  is no declared floor, so frame one builds all 20,009 elements and the first
-  scroll is what windows it down to 45 -- measured both ways. Correct, and 200ms
-  of startup for nothing. `09-virtual.js` puts the height in props and says why
-  in a comment; closing it properly means re-windowing once the viewport has been
-  arranged, which needs a second layout pass in one frame, and that is the entry
-  below.
+  A number or a string of digits, and anything else -- a percentage, `auto` -- is
+  no floor; matched rather than read through `Number()`, because `Number('50%')`
+  is `NaN`, `NaN <= 0` is false, and it would walk straight past `rowWindow()`'s
+  unknown-viewport branch and make the window's own length `NaN`. That is **still**
+  the failure the matching exists for and it is now the sharper of the two, which
+  the old wording had backwards: an empty window is one layout away from being
+  filled in, and a `NaN` one is not -- `Math.max(anything, NaN)` is `NaN`, so no
+  layout can repair it, and the unchanged-window guard compares `NaN === NaN` as
+  false, so every sync rebuilds the same nothing for ever.
+
+- **What it costs is the first layout of the one path that lays out without a
+  frame.** A bare `arrange()` and `paint()` of a list that declared no height in
+  cells draws an **empty viewport**, because nothing dispatched `onResize`. The
+  _first_ one only, which is narrower than it sounds and was checked rather than
+  assumed: the spacers mean the range is right while the window is empty -- measured,
+  494 over a 500-row list in a six-row viewport -- so the first Down, the first wheel
+  notch or any `scrollTo()` at all goes through `onScroll` and fills it. What is left
+  is a list nobody has scrolled yet, painted by something that is not a frame. The
+  two frames there are both re-window, `renderToString()` is the no-renderer path
+  this component is documented for, and a declared height makes even a bare layout
+  right -- which is what the demo, the benchmark and every test here do. It also
+  cost the benchmark its old shape, since "the optimization turned off by removing
+  its input" is no longer reachable: the first-frame section is measured against the
+  same rows assembled by hand instead, for the reason under "What is left" below --
+  a declared floor cannot reproduce the whole list at a non-zero offset, because
+  `rowWindow()` takes `first` from the offset.
+
+- **Which closed the edge the demo found, and the idiomatic spelling no longer
+  walks into it.** A height written in a **stylesheet** -- `.log { height: 20 }`,
+  which is how everything else in that demo is styled -- is no declared floor, so
+  frame one used to build all 20,009 elements and the first scroll was what
+  windowed it down to 45: correct, and 200ms of startup for nothing. The frame
+  rebuilds before it paints now, so the first frame is `O(visible)` whether the
+  height was written in props or in a sheet. `09-virtual.js` still puts it in props
+  and the comment there still says why, because the floor is what makes the _first
+  layout_ narrow too rather than the layout after it -- one pass against two, and
+  the only thing left that a sheet cannot give.
 
 - **Nothing commits until every row in the window has been built, which is
   `Show`'s own order.** `rows.row()` is the caller's code and may throw, and the
@@ -2308,6 +2495,60 @@ not building it addresses the 72ms." This is not building it.
   `index()`'s memo and `reachable()` already follow. What it buys is every
   scroll _inside_ one row, which for a row taller than a cell is most of them.
 
+  **SIG-132 added twenty-six and caught all twenty-six, and eleven of them took a
+  test written for them.** Six survived the first pass and every one was a _cost_ guard
+  rather than a claim, which is the state this file usually declares and leaves --
+  the loop's exit, the pass bound, the per-pass clear in each of the two frames,
+  `arrange()` collecting only what has not been told rather than everything with a
+  hook, and
+  the return value of that same unchanged-window early return. Each is now pinned,
+  and what made that possible is one fixture: a box whose **own size never
+  settles**, so the number of times it is told is the number of times the frame
+  laid out. Without one, an element whose size settles is collected once however
+  many layouts a pass took, and nothing a test can read distinguishes one layout
+  from four. Which also closes the one SIG-131 could only declare: the _return_
+  from that early return is countable where the early return itself is not, because
+  a viewport whose **width** moved and whose window did not is a `sync()` that
+  really is asked and really does have to answer `false`.
+
+  **And the harness reported two stale patterns rather than passing over them**, which
+  is the guard SIG-131 added for exactly this and the second time it has earned its
+  keep: both went stale the moment `present()` became `animate()`, and a pattern that
+  silently matches nothing is a green suite reading as "the guard is not load bearing".
+  It happened a third time one level up, in the _editor_ of the harness: a `replace`
+  with no assertion behind it quietly matched nothing and left the old patterns in
+  place, which is the same failure in the tool that checks the tool. The fix is the
+  same both times -- assert the edit landed.
+
+  **What the sabotage pass could not find is what the review rounds did**, and every
+  one of their findings is a shape a pass built out of deletions is blind to by
+  construction. Round 1 found five: three were code that _agrees with itself_ (the
+  animator never shown the second settle, the grid height never asked again,
+  `Animator.forget()` not recursing) and two were **sentences**. Round 2 found no
+  runtime defect at all in the surfaces round 1 had skipped -- `observe()` under a
+  second settle, the restructured benchmark, the scrollbar and the keys over an empty
+  window, and the pre-branch tests all held -- and its findings were **six more
+  sentences**, which is the pattern worth keeping rather than the count.
+
+  All six were the same drift: the collector was documented as "the elements whose
+  size moved" in five places and as "told" in three, after the mechanism became the
+  second. That is dangerous rather than untidy, and the reviewer said why -- somebody
+  aligning the code with the stale comments reintroduces exactly the throw-path defect
+  the `told` map exists for. It was introduced **three times** in this one ticket, each
+  time by changing the mechanism after writing the prose, and caught once by round 1,
+  once by reading the diff, and four more times by round 2. A deletion asks whether
+  the code that is there is load bearing; it never asks whether a guard is missing,
+  and it cannot read prose at all. Which is the boundary this file already records
+  from the selection work, with a much bigger tally on the review's side.
+
+  One of round 2's findings went further than it was reported, which is worth the
+  note: it flagged the observe-twice wording as resting on identity where the guard is
+  value equality, and following that through found the claim narrower still -- an
+  element whose style did not change is not in the second settle's `paint` at all, so
+  it is not observed twice, and the test written for the old claim was renamed to what
+  it actually pins. A reviewer pointing at the right sentence is worth more than its
+  own correction being complete.
+
   Two of the first round's survivors were the method's own boundary rather than
   missing tests and are worth recording as such. One was a **sabotage that was
   equivalent**: `declaredHeight`'s regex replaced with `Number(value) || 0`,
@@ -2358,37 +2599,76 @@ see, at every offset` asserts the _property_, over four row heights, four
   first row is partly scrolled off, and a window short by it is a blank line at
   the bottom that only appears at some offsets.
 
-- **What is left for a later tier, and the first one has a number.** The window
-  is recomputed when the **offset** moves and at no other time, so a viewport
-  whose **height** changes while the offset stays put keeps the window it had.
-  Two shapes of that, both measured, both wanting one fix.
+- **The two shapes of "the window is recomputed when the offset moves and at no
+  other time" are closed, and SIG-132 is where.** They were one cause -- the window
+  was computed from a viewport height the component knew before any layout -- and
+  the fix is the entry under `Element.onResize` above: the height has a hook of its
+  own, a frame dispatches it after the layout, restyles what the handlers built and
+  lays out again. Both halves of what that replaced are worth keeping, because both
+  were measured and because the second one's premise is what made the first look
+  acceptable.
 
-  The **first frame of a flex-sized list**: 200ms for ten thousand rows where a
-  declared height makes it 0.6ms, because the viewport's height is not knowable
-  until something has arranged it. That one is merely slow.
+  The **resize** was the one that was visibly wrong rather than slow. A list
+  bounded by its parent -- `flex-grow: 1`, or a percentage -- laid out at ten rows
+  and scrolled, then re-laid-out at forty, held **ten rows where forty-one were
+  needed**, so thirty rows of the viewport were blank until the next scroll,
+  because a resize writes no offset and `onScroll` never fired. Pinned now in both
+  frames: `should rebuild the window when the viewport grew, which writes no
+offset` over `renderToString()` and `should rebuild the window when a resize
+changed the viewport` over a renderer, plus the shrinking direction and a
+  coloured differential against a list that declared its height at five offsets.
 
-  A **resize**, which is the one that is visibly wrong rather than slow, and it
-  was found by review. A list bounded by its parent rather than by a declared
-  height -- `flex-grow: 1`, or a percentage -- starts un-windowed, narrows to the
-  arranged height on the first scroll, and then keeps that window when the
-  terminal grows: measured, laid out at ten rows and scrolled, then re-laid-out at
-  forty, it holds **ten rows where forty-one are needed**, so thirty rows of the
-  viewport are blank until the next scroll. A resize writes no offset, so
-  `onScroll` never fires. A list with a **declared cell height** cannot reach it,
-  because its viewport's height does not change on a resize -- which is the
-  documented, demoed and benchmarked shape, and is why this is an edge rather
-  than the common case.
+  The **first frame of a flex-sized list** was the merely-slow one, and it needed
+  the pre-layout fallback to change as well as the hook to exist -- re-windowing
+  after the layout does not unpay a layout of the whole list, which the ticket's own
+  framing of it missed. Measured by `benchmark-virtual-list.mjs`, which grew a
+  section for it because a layout cannot answer the question at all: ten thousand
+  two-text rows at 80x24 through `renderToLines()`, six interleaved rounds, both
+  sides built afresh each round and required to produce identical lines first. The
+  flex-sized side goes from **186.0ms to 0.605ms** median -- three runs of each
+  binary reading 186.0 / 185.1 / 190.1 before and 0.583 / 0.605 / 0.642 after, so
+  about **307x** -- and what the number means is that it now comes within **1.1x** of
+  a list that declared its height, 0.605ms against 0.542ms, where it was 330x off.
+  Elements built for that frame: **40,010 before, and 10 built with 106 after it**.
 
-  One fix closes both: re-window once the viewport has been arranged, and lay out
-  again. The renderer already takes a second pass for an auto-height canvas, so
-  the shape exists -- but `arrange()` would have to report what moved and
-  `renderToString()` would need the same pass, which is a change to the **frame**
-  and to `arrange()`'s contract for every caller, taken inside a ticket about a
-  list. That is the refusal `sigil build`'s own type check is written down for:
-  narrowing it to `tsconfig.build.json` was refused as "a change to what
-  `sigil build` promises every app, taken inside a caching ticket". So this says
-  what is true instead. **Variable row heights**, refused above with its reason
-  rather than deferred for want of time. **Tabbing past the last built row**,
+  **And the control caught the harness being wrong, which is the entry worth keeping
+  rather than the figure.** The first version of this measurement read a 97.7ms
+  whole-list first frame against the **190.6ms** this file already records for the
+  same workload, and that was written up as the machine being 1.8x quicker -- with
+  the delta claimed as sound because the two binaries agreed with each other. The
+  file was right and the harness was wrong, which is the rule this repo states and
+  that write-up inverted. What halved it was the `whole` side itself: the old one
+  turned the optimization off by **removing** the declared height, which SIG-132 made
+  mean "no rows", so it was given the whole list's height as a floor instead -- and
+  `rowWindow()` takes `first` from the **offset**, so no `view` however large can put
+  a row _above_ the offset in the window. At the timed offset, which is deliberately
+  the middle of the list, that side built **20,106 elements rather than 40,010**:
+  exactly half, exactly the factor. There is no value of a declared height that fixes
+  it, so the first-frame section is measured against `children()` -- the same rows
+  assembled by hand, which is what an app writes today, is already the notch
+  section's baseline, and really does hold every row at every offset. It reads
+  **209.2 / 209.4 / 206.9ms** on `main`'s binary and **210.6 / 217.6 / 225.0ms** on
+  this one, which is the same number and is what says the harness is sound now.
+
+  Two things follow for whoever measures this next. The sides are no longer "the same
+  component with one input removed" for that section, and the one place that purity
+  survives is the flex-vs-declared section -- because a frame is what makes the
+  flex-sized side work at all. And a number that disagrees with this file by a factor
+  of two is a harness to go and read, not a machine to blame; rationalising it cost a
+  commit and was caught only by going back to the element count.
+
+  What was refused with that pair, and is now simply done, was a change to the
+  **frame** and to `arrange()`'s contract for every caller taken inside a ticket
+  about a list. `arrange()`'s contract did move, and it moved by an **optional
+  third argument**: it still lays a tree out and returns a `LayoutResult`, and a
+  caller that passes no collector sees no behaviour change at all. What a frame
+  gained is `settleResized()`, which both frames share rather than each having a
+  loop, and the restyle that goes with it -- which is the half `arrange()` could
+  not have taken, since it sits below the cascade and has no sheets to resolve
+  against.
+
+  **Variable row heights** are still refused, above, with their reason rather than
+  deferred for want of time. **Tabbing past the last built row**,
   which wraps rather than scrolling on, because a row nobody built is not in
   the focus ring -- note the direction: a window makes a focus nobody can find
   _unreachable_ rather than fixed, since only on-screen rows exist, and what is
@@ -2504,6 +2784,19 @@ see, at every offset` asserts the _property_, over four row heights, four
   reads the scrollable region, so three walks computing one union would be three
   answers to one question. "A scroll box" has what each of them is and why the
   cheaper rule for either is unsound.
+- **And it collects the elements that have not been _told_ the size it just gave
+  them, for a caller that asks.** An optional third argument, a `Set` added to rather
+  than cleared, because a caller that lays out twice in one pass must not lose the
+  first answer to the second agreeing with it. Not "whose size moved", which is what
+  this entry said for one commit and what the mechanism stopped being: the size a
+  handler was told is recorded after it returns, so a handler that **threw** is asked
+  again even though the box is already at its new size -- see "Windowing a long list"
+  for the measurement that forced that. What it is all for is `Element.onResize`,
+  which is the one hook `arrange()` is the writer behind -- and the dispatch is
+  deliberately **not** here, because a handler that builds elements leaves them below
+  the cascade and `arrange()` has no sheets to resolve them against. A caller that
+  passes no collector sees no change at all, which is what keeps a bare `arrange()` a
+  layout rather than a frame.
 - **Paint is `z-index` then document order, and `visibility: hidden` skips the
   element rather than the subtree.** Hidden is a skip rather than a return
   because `visibility` inherits: a descendant is hidden because it inherited the
@@ -2549,6 +2842,22 @@ see, at every offset` asserts the _property_, over four row heights, four
   `text-overflow` is honoured. The height is grown only where the caller named
   none, since a caller that did is describing a box rather than asking how big one
   is; the width is not the caller's to name and always follows the content.
+- **And it is a frame rather than a layout, which is what makes a windowed list
+  inside one correct.** It dispatches `Element.onResize` through the shared
+  `settleResized()` after the layout, restyles what the handlers built and lays out
+  again -- the same pass the renderer takes, because a resize answered in one frame
+  and not the other is the divergence this file keeps closing. The **growth** pass one
+  entry up runs again with it, which took a review round: a handler can grow the tree
+  too, and the grid is allocated from `height` rather than from the extent, so a root
+  whose `onResize` appended an eight-row child came back as **one line** -- the
+  measure saw an empty root and nothing asked again. A `ScrollBox` cannot reach it,
+  which is why no test did: it clips, so `arrangedExtent()` stops at its border box,
+  and its spacers give the measure the whole list's height before any handler runs. The restyle here is a
+  **fresh** `Restyler`, which is a full re-match and is the cost this path has: a
+  kept one is marks-driven and there is no `Tree` for a `setProp()` to record on, so
+  a spacer whose height a new window just wrote would keep the style it already had.
+  Measured as exactly that -- a range of 500 where it should have been 492, with the
+  rows painted correctly over the top. See "Windowing a long list".
 - **It asks how much room the answer takes, which is not how far the boxes
   reach: a box an ancestor's `overflow` clips away takes none.** That walk had
   no reference to clipping at all, which this file diagnosed twice and left to a
@@ -6087,6 +6396,22 @@ a probe`. What the longer hold costs is worth stating precisely: a key typed
   that measured right pays one comparison -- and since SIG-130 it does not grow it
   for rows a clip hides, which is what had every spinner, bar, prompt and table in
   a clipping layout holding blank rows of the user's scrollback open.
+- **And laid out again for what the layout told a size it did not know about, which
+  is a different question behind the same shape.** That one asks how tall the
+  answer came out; this one asks who needs rebuilding now that there is a box to
+  read. `settleResized()` is the loop and both frames call it -- this one and
+  `renderToString()` -- so a resize cannot be answered in one and not the other.
+  What makes it the frame's rather than `arrange()`'s is the restyle it has to do
+  in between, and the renderer drains the tree's marks a **second** time to narrow
+  that to what the handlers touched, then shows the animator that settle so that an
+  animation on a row the handler built starts at all; see "Windowing a long list" for
+  the two defects that said so. It costs nothing on a frame of an app that has no
+  `onResize` handler anywhere in its tree, which is every app with no windowed list
+  in it: `arrange()` asks the question only of an element carrying the hook, so the
+  collector is empty and there is nothing to dispatch or lay out again. Not "no box
+  changed size", which is what this said and is a different claim -- a windowed
+  list's **first** frame always collects, because nothing has been told anything
+  yet.
 - **An auto-height canvas is measured, not laid out and read back.** That was the
   first answer and it is wrong in the way that matters: a root with no declared
   height fills whatever it is given, so `box.height` after a pass at the screen's

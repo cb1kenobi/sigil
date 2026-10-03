@@ -67,6 +67,20 @@ export type RawPaint = (painter: RawPainter, box: Box, element: Element) => void
 export type ScrollHandler = (viewport: Element) => void;
 
 /**
+ * What an element does when the layout gave it a size it had not been told about.
+ *
+ * One function rather than a list, for the reason `onKey` is one, and handed the
+ * element for the reason `ScrollHandler` is.
+ *
+ * It **returns whether it changed the tree**, which is the rule `hideCursor()`
+ * and `setRawMode()` already keep: a caller that owes a second pass has one
+ * question to ask, and the handler is the only thing that can answer it. `false`
+ * is what a handler that found nothing to do says, and it is what keeps a frame
+ * over a tree nobody resized at exactly one layout.
+ */
+export type ResizeHandler = (element: Element) => boolean;
+
+/**
  * What a `raw` element is handed to paint with.
  *
  * A type-only import of the canvas's `Painter`: precise about what arrives,
@@ -744,6 +758,38 @@ export class Element implements LayoutNode {
 	 */
 	onScroll: ScrollHandler | undefined;
 
+	/**
+	 * What this element does when the layout gave it a size it had not been told about.
+	 *
+	 * The twin of `onScroll`, and the pairing is the whole of why it is one hook:
+	 * `scrollTo()` is the only writer of `scroll` and `arrange()` is the only writer
+	 * of `box` and `content`, so each of the two numbers a windowed list is computed
+	 * from has exactly one place that can say it moved.
+	 *
+	 * It exists because the offset is not the only input to a window. The rows a
+	 * viewport can see are a question about the viewport's **height** as well, and
+	 * that height is not knowable until something has laid the tree out -- so a
+	 * terminal resize, which writes no offset, used to leave a windowed list holding
+	 * the window it had: measured, a list laid out at ten rows and then at forty held
+	 * ten where forty-one were needed, and thirty rows of the viewport stayed blank
+	 * until the next scroll.
+	 *
+	 * Unlike `onScroll` it is **not** dispatched by the writer. `arrange()` collects
+	 * every element carrying this hook that has not been **told** the size the layout
+	 * just gave it -- which is deliberately not "whose size moved": a handler that
+	 * threw was told nothing, so the next layout asks it again even though the box is
+	 * already at its new size. Whoever called `arrange()` dispatches, because a
+	 * handler that builds elements leaves them with no resolved style and `arrange()`
+	 * sits below the cascade and must stay there. So
+	 * what calls this is a *frame*: the renderer's `settle()` and
+	 * `renderToString()`, each of which can restyle what the handler built and lay
+	 * out again. A bare `arrange()` dispatches nothing, which is why the components'
+	 * own tests still describe the window a single layout produces.
+	 *
+	 * A throw propagates to whatever was laying out, as `onScroll`'s does.
+	 */
+	onResize: ResizeHandler | undefined;
+
 	/** A `raw` element's painter, for the paint walk. */
 	get rawPaint(): RawPaint | undefined {
 		return this.#raw?.paint;
@@ -1201,6 +1247,14 @@ export {
 	type ScrollIntoViewOptions,
 	scrollRange,
 } from './scroll.js';
-export { arrange, arrangedExtent, cellStyle, paint, resolveStyles, settleStyles } from './paint.js';
+export {
+	arrange,
+	arrangedExtent,
+	cellStyle,
+	paint,
+	resolveStyles,
+	settleResized,
+	settleStyles,
+} from './paint.js';
 export { type Selectable, selectableAt } from './selection.js';
 export { renderToLines, renderToString, type RenderStringOptions } from './string.js';

@@ -604,12 +604,14 @@ describe('a scroll box read back as a string', () => {
 });
 
 describe('rowWindow', () => {
-	it('should hold every row until something says how tall the viewport is', () => {
-		// the deliberate fallback: over-building is a slow frame and under-building
-		// is a row that is not on screen, so the unknown case resolves to the
-		// expensive answer rather than to the wrong one
-		expect(rowWindow(10_000, 1, 0, 0)).toStrictEqual({ first: 0, length: 10_000 });
-		expect(rowWindow(10_000, 1, 500, -1)).toStrictEqual({ first: 0, length: 10_000 });
+	it('should hold no row until something says how tall the viewport is', () => {
+		// a viewport with no cells in it can see nothing, which is the arithmetic said
+		// plainly. SIG-131 answered the whole list here, on the ground that
+		// under-building is a row nobody sees -- and `Element.onResize` is what moved
+		// that premise: a frame lays out, tells the viewport its height, rebuilds and
+		// lays out again before it paints, so this is a row one layout early
+		expect(rowWindow(10_000, 1, 0, 0)).toStrictEqual({ first: 0, length: 0 });
+		expect(rowWindow(10_000, 1, 500, -1)).toStrictEqual({ first: 0, length: 0 });
 	});
 
 	it('should hold the rows the viewport can see', () => {
@@ -825,9 +827,14 @@ describe('a windowed scroll box', () => {
 		expect(() => ScrollBox({})).toThrow(/either children or rows/);
 	});
 
-	it('should bound the first window by the height the host declared', () => {
-		// the viewport is inside the host, so a declared host height is never less
-		// than the height the viewport gets -- which makes it a bound and not a guess
+	it('should start the first window from the height the host declared', () => {
+		// a **floor** and not a bound, which is the correction SIG-131 made to the code
+		// and left in this comment: "the viewport is inside the host, so a declared
+		// height is never less than what the viewport gets" is only true while the host
+		// really is the height it declared, and `should let the arranged height beat a
+		// declared one the host outgrew` two tests down is the counterexample. What it
+		// pins is that the floor is read at all -- without it the first window holds no
+		// rows, which is `rowWindow()`'s answer for a viewport nothing has arranged
 		const declared = ScrollBox({
 			props: { height: 4, width: 12 },
 			rows: { count: 500, height: 1, row },
@@ -841,21 +848,35 @@ describe('a windowed scroll box', () => {
 		expect(held(written)).toStrictEqual(['r0', 'r1', 'r2', 'r3']);
 	});
 
-	it('should build the whole list where the host declares no height in cells', () => {
-		// no bound is no window, and the answer is the expensive one rather than the
-		// wrong one -- superseded by the arranged height from the first scroll on
+	it('should build no row where the host declares no height in cells', () => {
+		// no bound is no window, and nothing is built until something says how tall the
+		// viewport came out. That is `rowWindow()`'s rule met through the component. Two
+		// things fill it in and this test exercises the **second**: a *frame* dispatches
+		// `onResize` after its layout, and a bare `arrange()` leaves the window empty but
+		// gets the range right from the spacers -- so the first `scrollTo()`, key or
+		// wheel notch goes through `onScroll` and fills it, which is what the `lay()`
+		// plus `scrollTo()` below is. The frame half is in the describe at the bottom
 		const loose = ScrollBox({ props: { width: 12 }, rows: { count: 40, height: 1, row } });
-		expect(held(loose).length).toBe(40);
-		// `Number('')` and `Number(' ')` are both 0, so a height nobody wrote must
-		// not read as a bound of nothing
-		expect(
-			held(ScrollBox({ props: { height: '', width: 12 }, rows: { count: 7, height: 1, row } }))
-				.length
-		).toBe(7);
-		expect(
-			held(ScrollBox({ props: { height: '50%', width: 12 }, rows: { count: 7, height: 1, row } }))
-				.length
-		).toBe(7);
+		expect(held(loose)).toStrictEqual([]);
+		// a height a `Number()` cannot read as cells is no bound either, and the one
+		// that matters is `'50%'`: `Number('50%')` is `NaN`, which would make the
+		// window's own length `NaN` and leave it there -- no layout can repair a
+		// `Math.max(anything, NaN)`, and the unchanged-window guard compares
+		// `NaN === NaN` as false, so every sync would rebuild the same nothing
+		for (const height of ['', ' ', '50%', 'auto', '4.5', '0x4']) {
+			const odd = ScrollBox({ props: { height, width: 12 }, rows: { count: 7, height: 1, row } });
+			expect(held(odd)).toStrictEqual([]);
+		}
+		// and the two of those the cascade will take are laid out and filled in, which
+		// is what says the `NaN` costs one layout rather than every one of them. How
+		// many rows a percentage or an `auto` comes to is not this test's business --
+		// that the window stopped being empty and starts where the offset says is
+		for (const height of ['50%', 'auto']) {
+			const odd = ScrollBox({ props: { height, width: 12 }, rows: { count: 7, height: 1, row } });
+			lay(odd);
+			viewportIn(odd).scrollTo(0, 1);
+			expect(held(odd)[0]).toBe('r1');
+		}
 		// and once it has been arranged, the arranged height is what it windows by
 		lay(loose);
 		viewportIn(loose).scrollTo(0, 10);
@@ -1163,5 +1184,200 @@ describe('a windowed list whose count changed', () => {
 		resolveStyles(host);
 		arrange(host, { height: 4, width: 12 });
 		expect(scrollRange(view).y).toBe(116);
+	});
+});
+
+describe('a windowed list whose viewport changed height', () => {
+	const row = (i: number): Element =>
+		text(`r${i}`, { 'background-color': i % 3 === 0 ? 'blue' : 'red', id: `r${i}` });
+
+	/** A list bounded by its parent rather than by a height of its own. */
+	function loose(count: number, props: Record<string, number | string> = {}): Element {
+		return ScrollBox({
+			props: { 'flex-grow': 1, 'min-height': 0, width: 12, ...props },
+			rows: { count, height: 1, row },
+		});
+	}
+
+	/** The lines `renderToLines()` comes to, which is a frame rather than a layout. */
+	const lines = (root: Element, height: number): string[] =>
+		renderToLines(root, { cascade: themedCascade(), colorLevel: 3, height, width: 12 });
+
+	/** Every row id the tree is holding, in order. */
+	const held = (host: Element): string[] =>
+		every(host)
+			.filter((e) => e.id?.startsWith('r'))
+			.map((e) => e.id as string);
+
+	it('should rebuild the window when the viewport grew, which writes no offset', () => {
+		// the defect SIG-132 is filed for, in the shape AGENTS.md recorded it: a list
+		// bounded by its parent, laid out at ten rows and scrolled -- which narrows the
+		// window to ten -- and then laid out at forty, where it held ten and left
+		// thirty rows of the viewport blank until something scrolled. A resize writes
+		// no offset, so `onScroll` never fires and the window had nothing to tell it
+		const host = loose(500);
+		const root = box({ 'flex-direction': 'column' }, host);
+		lines(root, 10);
+		viewportIn(host).scrollTo(0, 1);
+		expect(held(host).length).toBe(10);
+
+		const grown = lines(root, 40);
+		// rows 1..40 is the forty a forty-row viewport can see at offset one
+		expect(held(host).length).toBe(40);
+		expect(grown.filter((line) => strip(line).trim().length > 1)).toHaveLength(40);
+	});
+
+	it('should rebuild it when the viewport shrank as well', () => {
+		// the other direction, and it is the one that costs rather than the one that
+		// looks broken: a window kept over a viewport that lost rows is slots built for
+		// cells the clip now throws away
+		const host = loose(500);
+		const root = box({ 'flex-direction': 'column' }, host);
+		lines(root, 40);
+		expect(held(host).length).toBe(40);
+		lines(root, 10);
+		expect(held(host).length).toBe(10);
+	});
+
+	it('should be asked again after a row builder threw, at the same size', () => {
+		// a throw leaves the window uncommitted and the viewport's box already at its
+		// new size, so a hook that fired on "your size moved" would never fire again:
+		// no later layout at that height is a change, and the stale window survives
+		// every resize back to it. Which is the defect SIG-131 records one hook along
+		// -- "no later scroll to that same window could repair it" -- so `arrange()`
+		// asks whether the handler was **told** its current size rather than whether
+		// the size moved, and a handler that threw was told nothing
+		let armed = false;
+		const host = ScrollBox({
+			props: { 'flex-grow': 1, 'min-height': 0, width: 12 },
+			rows: {
+				count: 500,
+				height: 1,
+				row: (i) => {
+					if (armed && i > 3) {
+						throw new Error(`boom at ${i}`);
+					}
+					return row(i);
+				},
+			},
+		});
+		const root = box({ 'flex-direction': 'column' }, host);
+		lines(root, 4);
+		expect(held(host).length).toBe(4);
+
+		armed = true;
+		expect(() => lines(root, 20)).toThrow('boom at 4');
+		expect(held(host).length, 'nothing is committed when a row builder throws').toBe(4);
+
+		// and the same size again, which is the whole point: the viewport is already
+		// twenty cells tall, so "did it move" would answer no for ever
+		armed = false;
+		lines(root, 20);
+		expect(held(host).length).toBe(20);
+	});
+
+	it('should paint what a list that declared the height paints', () => {
+		// the differential: a window built from what the layout said has to come out
+		// where a window built from a declaration does, at every offset and in colour
+		// -- a width that differs is invisible until something paints a background
+		for (const offset of [0, 1, 37, 400, 9000]) {
+			const declared = ScrollBox({
+				props: { height: 8, width: 12 },
+				rows: { count: 500, height: 1, row },
+			});
+			const host = loose(500);
+			const root = box({ 'flex-direction': 'column' }, host);
+			viewportIn(declared).scrollTo(0, offset);
+			viewportIn(host).scrollTo(0, offset);
+			expect(lines(root, 8)).toStrictEqual(lines(declared, 8));
+			expect(scrollRange(viewportIn(host))).toStrictEqual(scrollRange(viewportIn(declared)));
+		}
+	});
+
+	it('should build only the rows the viewport can see for its first frame', () => {
+		// the second symptom of the one cause, and the reason the pre-layout fallback
+		// stopped being the whole list: nothing knows the height until a layout has
+		// run, and a window built for an unknown viewport used to be every row -- which
+		// is the whole list cascaded and arranged for a frame that shows twenty-four of
+		// them. Measured by `scripts/benchmark-virtual-list.mjs`; counted here
+		const host = loose(10_000);
+		const root = box({ 'flex-direction': 'column' }, host);
+		expect(every(root).length).toBeLessThan(20);
+		lines(root, 24);
+		expect(every(root).length).toBeLessThan(120);
+		expect(held(host)[0]).toBe('r0');
+		expect(held(host).length).toBe(24);
+	});
+
+	it('should leave a frame alone where no box changed size', () => {
+		// the fast path, which is what keeps this free for every app that has no
+		// windowed list in it and for every frame of one that does: `sync()` recomputes
+		// from the offset and the height, so a layout that moved neither is one
+		// `rowWindow()` call and no second layout
+		const host = loose(500);
+		const root = box({ 'flex-direction': 'column' }, host);
+		lines(root, 10);
+		const before = held(host);
+		const builds: number[] = [];
+		const counted = ScrollBox({
+			props: { 'flex-grow': 1, 'min-height': 0, width: 12 },
+			rows: {
+				count: 500,
+				height: 1,
+				row: (i) => {
+					builds.push(i);
+					return row(i);
+				},
+			},
+		});
+		const countedRoot = box({ 'flex-direction': 'column' }, counted);
+		lines(countedRoot, 10);
+		const built = builds.length;
+		lines(countedRoot, 10);
+		expect(builds.length).toBe(built);
+		expect(held(host)).toStrictEqual(before);
+	});
+});
+
+describe('a windowed list whose viewport changed size without changing its window', () => {
+	const row = (i: number): Element => text(`r${i}`, { id: `r${i}` });
+
+	/**
+	 * A box whose own **width** is a different number on every layout.
+	 *
+	 * Which is what makes a count of how many times it was told a count of
+	 * *layouts*: an element whose size settles is collected once however many
+	 * layouts a frame took. Sideways rather than taller, so that nothing it does
+	 * changes the height of the scroll box beside it in a column.
+	 */
+	function layoutCounter(): { calls: () => number; element: Element } {
+		let calls = 0;
+		let width = 3;
+		const element = box({ 'flex-shrink': 0, height: 1, width }, text('x'));
+		element.onResize = () => {
+			calls++;
+			width = width === 3 ? 4 : 3;
+			element.setProp('width', width);
+			return false;
+		};
+		return { calls: () => calls, element };
+	}
+
+	it('should report no change where the window it recomputed is the one it has', () => {
+		// the fast path's **return value**, which is what keeps a frame over a windowed
+		// list at one layout. A viewport whose *width* moved is a viewport that resized
+		// and a window that did not change: `sync()` recomputes, finds the same four
+		// numbers, and has to say so -- a `true` there is a second layout on every such
+		// frame, drawing exactly what the first one drew
+		const host = ScrollBox({ props: { height: 8 }, rows: { count: 500, height: 1, row } });
+		const counter = layoutCounter();
+		const root = box({ 'flex-direction': 'column' }, host, counter.element);
+
+		renderToLines(root, { cascade: themedCascade(), height: 10, width: 12 });
+		const settled = counter.calls();
+		// only the width, so the window cannot have moved
+		renderToLines(root, { cascade: themedCascade(), height: 10, width: 13 });
+		expect(counter.calls() - settled, 'one layout, because nothing reported a change').toBe(1);
+		expect(viewportIn(host).content?.width).toBe(12);
 	});
 });
