@@ -2114,8 +2114,14 @@ not building it addresses the 72ms." This is not building it.
   **after** the handler returned, in a `WeakMap` keyed by element rather than a field
   every element would pay a slot for. The other path it closes is the loop giving up
   on its bound, whose last collection is never dispatched; with this, the next frame
-  asks again. A `Set` rather than a list for the same reason one step along: a frame
-  that lays out twice collects twice, and one element is told once.
+  **that lays out** asks again -- which is not the same as the next frame, and is the
+  honest version of a sentence that claimed it was: nothing marks layout or asks for a
+  frame because the bound was hit, so a tree that needed a fifth pass waits for a
+  scroll, a resize or an animated geometry property, with a blank innermost viewport
+  rather than an oscillating one. It takes five nested windowed lists to reach, and
+  found by review rather than by a test, which is where an overclaiming sentence gets
+  found. A `Set` rather than a list for the same reason one step along: a frame that
+  lays out twice collects twice, and one element is told once.
 
 - **What it costs a frame with no windowed list in it is nothing measurable.** Six
   interleaved renders of a sixty-entry help screen, forty iterations each: **2.390 /
@@ -2149,8 +2155,25 @@ not building it addresses the 72ms." This is not building it.
   that genuinely does not converge is drawn at the last window it reached, which
   is the status quo rather than a new failure.
 
-- **And the presented styles go back on after it, which is the other thing a
-  second settle writes over.** `settleStyles()` sets `element.style` to the
+- **The animator is shown the second settle as well, which is two halves of one
+  thing and both were missing.** `animate()` is the function, called once per settle,
+  and it observes and then presents. Without the **observe**, a row that first exists
+  because a handler built it is never shown to the animator at all: it is in the
+  second settle's `Update.paint` and in no other, and the next frame has no mark for
+  it, since it now has a cached style and nothing touched it. So `animation: pulse 1s
+infinite` on a row a **resize** revealed never started, while the same row revealed
+  by a wheel notch did -- `scrollTo()` runs the handler before the frame, so that one
+  is in the first settle's set. Found by review, and the asymmetry is what makes it a
+  defect rather than a limitation: two rows of one list behaving differently according
+  to which hook built them.
+
+  Asking `tick()` again at an unchanged `now` is what makes that safe: the overrides
+  come out equal, so nothing is reported as moved and the presented objects keep their
+  identity -- which is the property the measurement cache depends on, read from the
+  other side.
+
+- **And the presented styles go back on after it, which is the other half of the same
+  function.** `settleStyles()` sets `element.style` to the
   **base** style for every element the restyler has a cached one for -- animating
   ones included, which is why the first pass writes the animator's presented styles
   _after_ it. A second settle undoes that, so a frame that re-windowed drew every
@@ -2162,6 +2185,24 @@ not building it addresses the 72ms." This is not building it.
   used it -- a picture cannot, since a box with a background and no characters draws
   blanks either way. Found by reading the frame rather than by a test, and the test
   came after.
+
+- **`Animator.forget()` forgets the subtree now, which its own doc had always
+  claimed.** It exists "for the reason `Restyler.forget()` is: both maps are keyed by
+  element identity, so a subtree that was shown and hidden would stay reachable for
+  the life of the animator" -- and it deleted the one element it was handed, where the
+  restyler recurses. What a frame records as removed is the element whose parent
+  dropped it and never its children, so nothing else was going to. A windowed list is
+  what makes that unbounded rather than untidy: a notch unmounts a slot holding a row,
+  so a ten-thousand-row log scrolled through once left an entry per element ever
+  built. `#entries` only ever held something actually animating, so no frame timer
+  stayed awake for it, which is why nothing but the memory said so. Pre-existing since
+  SIG-62 and fixed here because this is the feature that makes it matter, found by
+  review, and it is the shape this file keeps warning about: a comment asserting a
+  behaviour the code does not have, which a documented codebase is _more_ prone to
+  because the written rule is what stops the reader checking. The children are read
+  through a cast rather than through `T`'s constraint, because a constraint of only
+  optional properties is a **weak type** TypeScript refuses to match against the
+  `{ name: string }` the animator's own tests animate.
 
 - **The marks are drained twice in a frame, and the second time is not
   tidiness.** A new window writes the two spacers' heights with `setProp()`, and a
@@ -2428,8 +2469,8 @@ not building it addresses the 72ms." This is not building it.
   `index()`'s memo and `reachable()` already follow. What it buys is every
   scroll _inside_ one row, which for a row taller than a cell is most of them.
 
-  **SIG-132 added twenty-three and caught all twenty-three, and eight of them took
-  a test written for them.** Six survived the first pass and every one was a _cost_ guard
+  **SIG-132 added twenty-six and caught all twenty-six, and eleven of them took a
+  test written for them.** Six survived the first pass and every one was a _cost_ guard
   rather than a claim, which is the state this file usually declares and leaves --
   the loop's exit, the pass bound, the per-pass clear in each of the two frames,
   `arrange()` collecting only what changed rather than everything with a hook, and
@@ -2442,6 +2483,26 @@ not building it addresses the 72ms." This is not building it.
   from that early return is countable where the early return itself is not, because
   a viewport whose **width** moved and whose window did not is a `sync()` that
   really is asked and really does have to answer `false`.
+
+  **And the harness reported two stale patterns rather than passing over them**, which
+  is the guard SIG-131 added for exactly this and the second time it has earned its
+  keep: both went stale the moment `present()` became `animate()`, and a pattern that
+  silently matches nothing is a green suite reading as "the guard is not load bearing".
+  It happened a third time one level up, in the _editor_ of the harness: a `replace`
+  with no assertion behind it quietly matched nothing and left the old patterns in
+  place, which is the same failure in the tool that checks the tool. The fix is the
+  same both times -- assert the edit landed.
+
+  **What the sabotage pass could not find is what the review round did**, and all five
+  of its findings are shapes a pass built out of deletions is blind to by construction:
+  three were code that _agrees with itself_ (the animator never shown the second
+  settle, the grid height never asked again, `Animator.forget()` not recursing), and
+  two were **sentences** -- a doc still describing the collector the commit before had
+  replaced, and a claim here that the next frame asks again where only the next frame
+  that lays out does. A deletion asks whether the code that is there is load bearing;
+  it never asks whether a guard is missing, and it cannot read prose at all. Which is
+  the boundary this file already records from the selection work, met again with a
+  bigger tally on the review's side.
 
   Two of the first round's survivors were the method's own boundary rather than
   missing tests and are worth recording as such. One was a **sabotage that was
@@ -2723,7 +2784,13 @@ changed the viewport` over a renderer, plus the shrinking direction and a
   inside one correct.** It dispatches `Element.onResize` through the shared
   `settleResized()` after the layout, restyles what the handlers built and lays out
   again -- the same pass the renderer takes, because a resize answered in one frame
-  and not the other is the divergence this file keeps closing. The restyle here is a
+  and not the other is the divergence this file keeps closing. The **growth** pass one
+  entry up runs again with it, which took a review round: a handler can grow the tree
+  too, and the grid is allocated from `height` rather than from the extent, so a root
+  whose `onResize` appended an eight-row child came back as **one line** -- the
+  measure saw an empty root and nothing asked again. A `ScrollBox` cannot reach it,
+  which is why no test did: it clips, so `arrangedExtent()` stops at its border box,
+  and its spacers give the measure the whole list's height before any handler runs. The restyle here is a
   **fresh** `Restyler`, which is a full re-match and is the cost this path has: a
   kept one is marks-driven and there is no `Tree` for a `setProp()` to record on, so
   a spacer whose height a new window just wrote would keep the style it already had.

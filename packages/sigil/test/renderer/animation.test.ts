@@ -752,6 +752,65 @@ describe('reduced motion through the frame loop', () => {
 });
 
 describe('an animation on a frame that rebuilt a windowed list', () => {
+	it('should start an animation on a row the resize revealed', () => {
+		// a row that first exists because an `onResize` handler built it is in the
+		// **second** settle's `paint` and in no other -- the next frame has no mark for
+		// it, since it now has a cached style and nothing touched it -- so a frame that
+		// discarded that `Update` never showed it to the animator at all. Measured as
+		// exactly that: `animation` on a row a resize revealed never started, while the
+		// same row revealed by a wheel notch did, because `scrollTo()` runs the handler
+		// before the frame. Found by review
+		const h = harness(14, 6);
+		const cascade = sheets(`
+			@keyframes grow { from { padding-left: 0 } to { padding-left: 6 } }
+			box.row { animation: grow 1s linear infinite }
+		`);
+
+		const rows: Element[] = [];
+		const view = render(
+			() =>
+				ScrollBox({
+					props: { 'flex-grow': 1, 'min-height': 0 },
+					rows: {
+						count: 500,
+						height: 1,
+						row: (i) => {
+							const made = box({ class: 'row' }, text(`r${i}`));
+							rows.push(made);
+							return made;
+						},
+					},
+				}),
+			{
+				backend: h.backend,
+				cascade,
+				effects,
+				reducedMotion: 'no-preference',
+				terminal: h.terminal,
+			}
+		);
+
+		vi.setSystemTime(0);
+		view.frame();
+		const first = rows.length;
+		expect(first, 'the first frame built the window').toBeGreaterThan(0);
+
+		// a resize reveals rows nothing has ever shown the animator
+		h.resize(14, 20);
+		vi.setSystemTime(0);
+		view.frame();
+		const revealed = rows.at(-1);
+		expect(rows.length, 'the resize built more rows').toBeGreaterThan(first);
+
+		// half way through the keyframe, the padding is part way between its ends
+		vi.setSystemTime(500);
+		view.frame();
+		const padding = (revealed?.style.paddingLeft as number | undefined) ?? 0;
+		expect(padding, 'the row the resize revealed never animated').toBeGreaterThan(0);
+		expect(padding).toBeLessThan(6);
+		view.dispose();
+	});
+
 	it('should keep the presented style the second settle would have written over', () => {
 		// the two halves of a frame meeting: `settleResized()` restyles what a resize
 		// handler built, and `settleStyles()` writes the **base** style onto every

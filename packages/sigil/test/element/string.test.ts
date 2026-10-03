@@ -435,6 +435,29 @@ describe('laying out again for what the layout resized', () => {
 		expect(c.calls()).toBe(1);
 	});
 
+	it('should grow the grid for what a handler built, not only for what it measured', () => {
+		// the growth pass runs after **every** layout rather than only after the first,
+		// because a handler can grow the tree too and the grid is allocated from the
+		// height rather than from the extent. Found by review: an empty root measures
+		// one row, so a handler that appends an eight-row child used to come back as
+		// one line with seven rows of content nowhere. A `ScrollBox` cannot reach it,
+		// which is why no test did -- it clips, so `arrangedExtent()` stops at its
+		// border box, and its spacers give the measure the whole list's height before
+		// any handler runs
+		const host = box({ 'flex-direction': 'column' });
+		let built = false;
+		host.onResize = () => {
+			if (built) {
+				return false;
+			}
+			built = true;
+			host.append(box({ 'flex-shrink': 0, height: 8 }, text('deep')));
+			return true;
+		};
+
+		expect(renderToLines(host, { width: 8 })).toHaveLength(8);
+	});
+
 	it('should restyle what a handler built before laying it out', () => {
 		// the whole reason the dispatch is a frame's rather than `arrange()`'s: an
 		// element built below the cascade carries none of its props -- measured, a box

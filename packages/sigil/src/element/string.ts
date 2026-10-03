@@ -132,8 +132,6 @@ export function renderToLines(root: Element, opts: RenderStringOptions): string[
 			return arrangedExtent(arrange(root, { height, width }, resized));
 		};
 
-		let extent = layoutOnce();
-
 		// laid out again where it reached further down than it measured. A row whose
 		// children flex is measured with each child offered the whole content box
 		// and placed with each given a share, so a description that wraps to three
@@ -141,10 +139,24 @@ export function renderToLines(root: Element, opts: RenderStringOptions): string[
 		// rows after it were painted over. Only where the caller did not name a
 		// height, since a caller that did is describing a box rather than asking
 		// how big one is
-		if (opts.height === undefined && extent.height > height) {
-			height = extent.height;
-			extent = arrangedExtent(arrange(root, { height, width }, resized));
-		}
+		//
+		// Asked after **every** layout rather than only after the first, because a
+		// resize handler can grow the tree too and the grid is allocated from `height`
+		// rather than from the extent. Measured: a root whose `onResize` appended an
+		// eight-row child came back as **one line**, since the measure saw an empty
+		// root and nothing asked again. A `ScrollBox` cannot reach it -- it clips, so
+		// `arrangedExtent()` stops at its border box, and its spacers give the measure
+		// the whole list's height before any handler runs -- which is why it took a
+		// review round rather than a test
+		const grow = (): void => {
+			if (opts.height === undefined && extent.height > height) {
+				height = extent.height;
+				extent = arrangedExtent(arrange(root, { height, width }, resized));
+			}
+		};
+
+		let extent = layoutOnce();
+		grow();
 
 		// and again where the layout told something its box had moved and that
 		// changed the tree, which is the same second pass one line up with a
@@ -162,6 +174,7 @@ export function renderToLines(root: Element, opts: RenderStringOptions): string[
 		settleResized(resized, () => {
 			settleStyles(root, new Restyler(cascade));
 			extent = layoutOnce();
+			grow();
 		});
 
 		// and painted into a grid as wide as what the layout came to rather than as

@@ -65,6 +65,7 @@ import type { InputRouter } from '../input/index.js';
 import { measureNode } from '../layout/index.js';
 import { createEffects, type Effects } from '../signals/index.js';
 import {
+	type AnimationFrame,
 	Animator,
 	Cascade,
 	type ColorScheme,
@@ -72,6 +73,7 @@ import {
 	forcedScheme,
 	type ReducedMotion,
 	Restyler,
+	type StyleTarget,
 	schemeFromTerminalEnv,
 } from '../style/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
@@ -702,20 +704,42 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 		//     "an animation writes through to paint rather than marking style
 		//     dirty" -- the cascade is not re-run for a frame of an animation
 		const at = clock();
-		for (const target of update.paint) {
-			// the restyler answers in terms of `StyleTarget`, which is what keeps it
-			// free of the element tree; what it was handed is this tree's elements
-			const element = target as Element;
-			animator.observe(element, element.style, at);
-		}
-		const animated = animator.tick(at);
-		/** Puts the presented styles back over the base ones a settle just wrote. */
-		const present = (): void => {
-			for (const [element, style] of animated.styles) {
+		/**
+		 * Shows the animator what a settle wrote, and puts what it presents on screen.
+		 *
+		 * A function because a frame settles **twice** when a resize rebuilt something,
+		 * and both halves of this have to happen for the second settle as well. Missing
+		 * either was a defect. Without the *observe*, a row that first exists because an
+		 * `onResize` handler built it is never shown to the animator at all -- it is in
+		 * the second settle's `paint` and in no other, and the next frame has no mark
+		 * for it -- so `animation: pulse 1s infinite` on a row a **resize** revealed
+		 * never started, while the same row revealed by a wheel notch did, because
+		 * `scrollTo()` runs the handler before the frame. And without the *present*,
+		 * `settleStyles()` writes the base style over every animating element, so the
+		 * frame draws and lays out every animation at its start.
+		 *
+		 * `tick()` at an unchanged `now` answers the same thing twice: the overrides
+		 * come out equal, so nothing is reported as moved and the presented objects keep
+		 * their identity -- which is what makes asking again safe rather than a second
+		 * frame of the animation.
+		 *
+		 * @param paint - What the settle says changed, which is who to observe.
+		 * @returns What the animator answered, for the frame to fold into its marks.
+		 */
+		const animate = (paint: Iterable<StyleTarget>): AnimationFrame<Element> => {
+			for (const target of paint) {
+				// the restyler answers in terms of `StyleTarget`, which is what keeps it
+				// free of the element tree; what it was handed is this tree's elements
+				const element = target as Element;
+				animator.observe(element, element.style, at);
+			}
+			const frame = animator.tick(at);
+			for (const [element, style] of frame.styles) {
 				element.style = style;
 			}
+			return frame;
 		};
-		present();
+		const animated = animate(update.paint);
 
 		// the restyler answers for what a *style* change implies and cannot answer
 		// for the other two. A text that was edited or a `raw` that re-measured
@@ -766,15 +790,12 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 			// window displaced in this frame rather than the next
 			settleResized(resized, () => {
 				drainMarks();
-				settleStyles(root, restyler);
-				// and the presented styles again, because `settleStyles()` writes the
-				// **base** one onto every element it has a cached style for -- animating
-				// ones included. Without this a frame that re-windowed drew every
-				// animation at its base value, and worse laid it out there: an animated
-				// geometry property is in `LAYOUT_PROPERTIES`, so a width easing from ten
-				// to twenty would be placed at ten for that frame. The same order the
-				// first pass keeps, which is why it is the same function
-				present();
+				// the same three steps the frame already took, in the same order and
+				// through the same two functions: hand the marks over, settle the styles,
+				// show the animator what moved and present what it answers. What the second
+				// settle's `Update` carries that the first's could not is the rows a handler
+				// just built, which is the whole of why `animate()` is given it
+				animate(settleStyles(root, restyler).paint);
 				layoutInto();
 			});
 		}
