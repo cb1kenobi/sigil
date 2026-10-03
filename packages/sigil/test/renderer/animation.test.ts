@@ -811,6 +811,57 @@ describe('an animation on a frame that rebuilt a windowed list', () => {
 		view.dispose();
 	});
 
+	it('should take a running animation up in place rather than restarting it', () => {
+		// `animate()` is called once per settle, so a frame that re-windows **observes
+		// twice at one `now`** -- and an element marked by the handler can be in both
+		// settles' `paint`. That is only safe because `#syncAnimation()` takes a live
+		// animation of the same name up in place rather than committing a new one, and
+		// because `difference(before, base)` of one object against itself is empty. If
+		// either were not true, every re-windowing frame would restart every animation
+		// on the element it touched
+		const h = harness(14, 12);
+		const cascade = sheets(`
+			@keyframes grow { from { padding-left: 0 } to { padding-left: 6 } }
+			box.pulse { animation: grow 1000ms linear infinite }
+		`);
+
+		let pulse: Element;
+		const view = render(
+			() => {
+				pulse = box({ class: 'pulse' }, text('p'));
+				return box(
+					{ 'flex-direction': 'column' },
+					pulse,
+					ScrollBox({
+						props: { 'flex-grow': 1, 'min-height': 0 },
+						rows: { count: 500, height: 1, row: (i) => text(`r${i}`) },
+					})
+				);
+			},
+			{
+				backend: h.backend,
+				cascade,
+				effects,
+				reducedMotion: 'no-preference',
+				terminal: h.terminal,
+			}
+		);
+
+		vi.setSystemTime(0);
+		view.frame();
+		vi.setSystemTime(900);
+		view.frame();
+		const late = (pulse!.style.paddingLeft as number | undefined) ?? 0;
+		expect(late, 'nine tenths through the cycle').toBeGreaterThan(4);
+
+		// and now a frame that re-windows, at the same moment: a restart would put the
+		// padding back at the start of the cycle
+		h.resize(14, 30);
+		view.frame();
+		expect(pulse!.style.paddingLeft, 'the animation restarted').toBe(late);
+		view.dispose();
+	});
+
 	it('should keep the presented style the second settle would have written over', () => {
 		// the two halves of a frame meeting: `settleResized()` restyles what a resize
 		// handler built, and `settleStyles()` writes the **base** style onto every

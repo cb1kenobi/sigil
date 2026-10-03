@@ -2170,7 +2170,15 @@ infinite` on a row a **resize** revealed never started, while the same row revea
   Asking `tick()` again at an unchanged `now` is what makes that safe: the overrides
   come out equal, so nothing is reported as moved and the presented objects keep their
   identity -- which is the property the measurement cache depends on, read from the
-  other side.
+  other side. **`observe()` twice at one `now` is the other half of that**, and it is
+  safe for two reasons that are somebody else's decisions rather than luck: a live
+  animation of the same name is taken up **in place** rather than committed afresh, so
+  it keeps its `start`, and `difference(before, base)` of one `Style` object against
+  itself is empty, so no transition begins. An element the handler marked really can
+  be in both settles' `paint`, so both of those are load bearing here and neither was
+  written for this -- `should take a running animation up in place rather than
+restarting it` is what says so now, because a re-windowing frame would otherwise
+  restart every animation on the element it touched.
 
 - **And the presented styles go back on after it, which is the other half of the same
   function.** `settleStyles()` sets `element.style` to the
@@ -2291,10 +2299,14 @@ infinite` on a row a **resize** revealed never started, while the same row revea
   layout can repair it, and the unchanged-window guard compares `NaN === NaN` as
   false, so every sync rebuilds the same nothing for ever.
 
-- **What it costs is the one path that lays out without a frame.** A bare
-  `arrange()` and `paint()` of a list that declared no height in cells draws an
-  **empty viewport**, because nothing dispatched `onResize`. That is the whole
-  price of the entry above and it is written down rather than worked around: the
+- **What it costs is the first layout of the one path that lays out without a
+  frame.** A bare `arrange()` and `paint()` of a list that declared no height in
+  cells draws an **empty viewport**, because nothing dispatched `onResize`. The
+  _first_ one only, which is narrower than it sounds and was checked rather than
+  assumed: the spacers mean the range is right while the window is empty -- measured,
+  494 over a 500-row list in a six-row viewport -- so the first Down, the first wheel
+  notch or any `scrollTo()` at all goes through `onScroll` and fills it. What is left
+  is a list nobody has scrolled yet, painted by something that is not a frame. The
   two frames there are both re-window, `renderToString()` is the no-renderer path
   this component is documented for, and a declared height makes even a bare layout
   right -- which is what the demo, the benchmark and every test here do. It also
