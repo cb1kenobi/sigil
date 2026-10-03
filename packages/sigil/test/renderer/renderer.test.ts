@@ -2347,8 +2347,12 @@ describe('a frame over a windowed list', () => {
 			h.resize(13, 6);
 			view.frame();
 			expect(calls).toBe(2);
+			// a third frame that really does lay out -- a resize marks everything, so
+			// `layoutInto()` runs -- and moves no box. Left uncleared the set grows for
+			// the life of the renderer and every such frame asks everything in it
+			h.resize(13, 6);
 			view.frame();
-			expect(calls, 'a frame that moved no box tells nothing').toBe(2);
+			expect(calls, 'a frame that laid out and moved no box tells nothing').toBe(2);
 		} finally {
 			view.dispose();
 		}

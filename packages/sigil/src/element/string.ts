@@ -126,9 +126,9 @@ export function renderToLines(root: Element, opts: RenderStringOptions): string[
 		// list is told so that it can rebuild a window the viewport's height has
 		// moved out from under. Cleared here rather than by `arrange()`, because the
 		// growth pass below lays out twice and the two answers are one answer
-		const resized: Element[] = [];
+		const resized = new Set<Element>();
 		const layoutOnce = (): { height: number; width: number } => {
-			resized.length = 0;
+			resized.clear();
 			return arrangedExtent(arrange(root, { height, width }, resized));
 		};
 

@@ -581,10 +581,10 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 	 * lays out twice for an auto-height canvas: clearing between those two would
 	 * lose the first one's answer to the second one agreeing with it.
 	 */
-	const resized: Element[] = [];
+	const resized = new Set<Element>();
 
 	function layoutInto(): void {
-		resized.length = 0;
+		resized.clear();
 		if (!autoHeight && !autoWidth) {
 			arrange(root, { height: backend.height, width: backend.width }, resized);
 			return;

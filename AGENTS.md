@@ -2098,10 +2098,31 @@ not building it addresses the 72ms." This is not building it.
   a slot built there has `height: auto` and `flex-shrink: 1`, which is both halves
   of what the windowing rests on. `arrange()` cannot fix that by restyling either,
   because it has no `Cascade` to restyle against: `resolveStyles()` matches no
-  sheet, so every row would lose its theme. So `arrange()` **collects** -- every
-  element carrying the hook whose `content ?? box` came out a different size, read
-  before the write because the box the last layout left is the before -- and a
-  frame dispatches, restyles what the handlers built, and lays out again.
+  sheet, so every row would lose its theme. So `arrange()` **collects** and a frame
+  dispatches, restyles what the handlers built, and lays out again.
+
+- **What it collects is every element that has not been _told_ the size it now
+  has, which is not the same question as "did its size move".** The first version
+  asked the second, by reading `content ?? box` before the walk overwrote it -- free,
+  since the box the last layout left _is_ the before. The two part on exactly the
+  paths where a dispatch did not happen, and one of those is reachable: a row
+  builder that **throws** while a resize is rebuilding a window. Measured -- the
+  viewport's box is already at its new size when the handler throws, so no later
+  layout at that height collected it and the stale window survived every resize back
+  to it. Which is SIG-131's own defect one hook along, where "no later scroll to that
+  same window could repair it", so it gets the same answer: the size is recorded
+  **after** the handler returned, in a `WeakMap` keyed by element rather than a field
+  every element would pay a slot for. The other path it closes is the loop giving up
+  on its bound, whose last collection is never dispatched; with this, the next frame
+  asks again. A `Set` rather than a list for the same reason one step along: a frame
+  that lays out twice collects twice, and one element is told once.
+
+- **What it costs a frame with no windowed list in it is nothing measurable.** Six
+  interleaved renders of a sixty-entry help screen, forty iterations each: **2.390 /
+  2.454 / 2.409ms** before and **2.432 / 2.362 / 2.436ms** after, which is noise in
+  both directions. It has to be: the collector is empty, so there is nothing to
+  dispatch and the loop's first pass exits. What a `table()` and a help screen print
+  is byte for byte what they printed, checked rather than argued.
 
   `settleResized()` is the one implementation of that loop and both frames call
   it: `renderToString()` and the renderer's own `settle()`. A **bare** `arrange()`
