@@ -9701,6 +9701,18 @@ undone by a step that was already in flight` advanced a hundred milliseconds and
   than a second cursor rule.
 - **A `now` to inject**, for the reason under the frame-loop rules: nothing here
   measures elapsed time.
+- **Noticing that the media context moved after it mounted.** `moving` is read once,
+  from what `mountLive()` hands the build, so a terminal that _stops_ being one
+  mid-reveal -- a pipe whose far end goes, which sets `closed` and makes `motion()`
+  answer `reduce` -- does not collapse the reveal. Measured: it runs to the end at
+  its own pace, writing to a stream that swallows it, and holds no timer afterwards.
+  So it is bounded, invisible and finite, which is the whole reason it is left: the
+  animator needed `touchMedia()` because an infinite animation kept the frame loop
+  awake for the life of the process, and a reveal ends. It is also exactly what the
+  spinner does with the same `live` flag, so fixing it here alone would be one
+  component disagreeing with its neighbour about a question `mountLive()` answers for
+  both. The shape of a fix is `touchMedia()`'s and it wants a second caller before it
+  is worth a change to what the mount promises.
 
 ### Prompts and keys
 
