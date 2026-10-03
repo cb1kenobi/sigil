@@ -2138,6 +2138,21 @@ not building it addresses the 72ms." This is not building it.
   closing it properly means re-windowing once the viewport has been arranged,
   which needs a second layout pass in one frame, and that is the entry below.
 
+- **`count` is read on every window and the other three are read once, which is
+  the line a command's own declaration already draws.** `choices` and `default`
+  are read on every parse while `name` and `format` built the registry lookups;
+  here `height`, `width` and `row` built the slots and `count` is what the range
+  is computed from -- and it is the one of the four that plausibly moves, since a
+  log grows. So it is re-read each time the window is, and it is part of what the
+  unchanged-window guard compares: a count that grew while the offset stayed
+  inside one row is exactly the case that guard would otherwise skip, leaving the
+  spacer below at its old height. That case needs a row **taller than a cell** to
+  reach at all, because at one cell every offset is a different window and the
+  guard never answers -- which is why the first test for it was vacuous and
+  survived its sabotage. A list that has to grow while nobody is scrolling is
+  left for a later tier: it needs a way to ask for a re-sync, which is a second
+  mechanism beside `onScroll` and has no caller yet.
+
 - **A vertically windowed list's _horizontal_ extent is the widest row that was
   built, and `rows.width` is what closes it.** Found by probing `axis: 'both'`
   and worth the entry because the failure is visible rather than theoretical:
@@ -2215,9 +2230,9 @@ not building it addresses the 72ms." This is not building it.
   keeps the hand-assembled side honest: a window that drew something else would
   be faster and wrong.
 
-- **Twenty-four sabotages, twenty-three caught, and one survivor that is a
-  declared fast path.** The survivor is the unchanged-window early return in the sync:
-  the window's inputs are four numbers, so when none of them moved the work
+- **Twenty-six sabotages, twenty-five caught, and one survivor that is a
+  declared fast path.** The survivor is the unchanged-window early return in the
+  sync: the window's inputs are a handful of numbers, so when none of them moved the work
   below is a `setProp()` to the value it already holds and a reconcile that
   finds everything in place -- no mark, no answer changed, and nothing can be
   written that fails when it goes. It says so where it lives, which is the rule
@@ -2245,7 +2260,9 @@ not building it addresses the 72ms." This is not building it.
   pattern that missed, a pattern that matched more than once and a replacement
   equal to its original as their own verdicts rather than as passes, and it
   verifies the edit landed against the fixed file rather than against `HEAD`.
-  All three fired while this was being written.
+  All three fired while this was being written -- as did a fourth shape, a test
+  whose fixture could not reach the branch it was named for, which is the
+  `count`-in-the-guard entry above.
 
 - **The window arithmetic is walked exhaustively rather than sampled.**
   `rowWindow()` is four numbers in and two out, which is where every off-by-one
@@ -2273,8 +2290,9 @@ see, at every offset` asserts the _property_, over four row heights, four
   _unreachable_ rather than fixed, since only on-screen rows exist, and what is
   lost is reaching the ones that do not. A **windowed horizontal** axis, which
   is the same mechanism turned ninety degrees and has no caller -- and which is
-  not the cross-axis extent three entries up, since that one is answered by
-  `rows.width` rather than deferred. And
+  not the cross-axis extent above, since that one is answered by `rows.width`
+  rather than deferred. **A list that grows while nobody is scrolling**, for the
+  reason the `count` entry gives. And
   **overscan**, which is one more number than the design needs: a window rebuild
   is 0.26ms of cascade over eighty elements, and rows that stay in the window
   are kept rather than rebuilt, so what a notch costs is the rows that newly

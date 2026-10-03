@@ -898,3 +898,49 @@ describe('a windowed scroll box', () => {
 		expect(boxes).toStrictEqual([0, 1, 2, 3]);
 	});
 });
+
+describe('a windowed list whose count changed', () => {
+	const row = (i: number): Element => text(`r${i}`, { id: `r${i}` });
+
+	it('should pick up the new count the next time the window is computed', () => {
+		// `count` is read on every window rather than captured, which is the line a
+		// command's own declaration draws between what is read on every parse and
+		// what built the registry lookups. A log grows, and what the range is
+		// computed from has to be able to follow it
+		const rows = { count: 10, height: 1, row };
+		const host = ScrollBox({ props: { height: 4, width: 12 }, rows });
+		const view = viewportIn(host);
+		resolveStyles(host);
+		arrange(host, { height: 4, width: 12 });
+		expect(scrollRange(view).y).toBe(6);
+
+		rows.count = 40;
+		// the next window is what reads it, which is the next time the offset moves
+		view.scrollTo(0, 1);
+		resolveStyles(host);
+		arrange(host, { height: 4, width: 12 });
+		expect(scrollRange(view).y).toBe(36);
+	});
+
+	it('should not be skipped by the unchanged-window guard', () => {
+		// the guard compares what the last window was computed from, and a count
+		// that grew while `first` and `length` stayed put is exactly the case it
+		// would otherwise skip -- so the spacer below would keep its old height.
+		// Rows three cells tall, because at one cell every offset is a different
+		// window and the guard is never the thing that answers
+		const rows = { count: 10, height: 3, row };
+		const host = ScrollBox({ props: { height: 4, width: 12 }, rows });
+		const view = viewportIn(host);
+		resolveStyles(host);
+		arrange(host, { height: 4, width: 12 });
+		expect(scrollRange(view).y).toBe(26);
+
+		rows.count = 40;
+		// a scroll inside the first row: the offset moved, so the handler runs, and
+		// the window it computes is the one that is already there
+		view.scrollTo(0, 1);
+		resolveStyles(host);
+		arrange(host, { height: 4, width: 12 });
+		expect(scrollRange(view).y).toBe(116);
+	});
+});

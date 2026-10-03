@@ -87,6 +87,15 @@ export interface ScrollRows {
 	 * The whole of what the range is computed from, which is why it is a count
 	 * rather than a list: a windowed list never holds its own data, so handing it
 	 * ten thousand rows' worth of anything would be the cost it exists to avoid.
+	 *
+	 * Read **on every window** rather than captured, unlike the three below, which
+	 * is the line a command's own declaration draws: `choices` and `default` are
+	 * read on every parse while `name` and `format` built the registry lookups. So
+	 * a list that grows picks the new count up the next time the window is
+	 * computed, which is the next time the offset moves. A log that has to grow
+	 * while nobody is scrolling is left for a later tier -- it needs a way to ask
+	 * for a re-sync, which is a second mechanism beside `onScroll` and has no
+	 * caller yet.
 	 */
 	count: number;
 	/**
@@ -530,9 +539,16 @@ function wireRows(viewport: Element, content: Element, rows: ScrollRows, bound: 
 	// range, the clamp and the thumb -- span the whole list
 	const above = spacer();
 	const below = spacer();
-	let at: RowWindow | undefined;
+	// the count is part of what the last window was computed from, or a `count`
+	// that grew while the offset stayed put would be skipped by the guard below
+	let at: (RowWindow & { count: number }) | undefined;
 
-	const count = Math.max(0, Math.trunc(rows.count));
+	// `height`, `width` and `row` built the slots and are read once; `count` is
+	// read on every window, which is the line a command's own declaration draws --
+	// `choices` and `default` are read on every parse while `name` and `format`
+	// built the registry lookups. It is also the one of the four that plausibly
+	// moves: a log grows, and what it means is "how much is there", which is the
+	// whole of what the range is computed from
 	const step = Math.max(1, Math.trunc(rows.height));
 	const span = rows.width === undefined ? undefined : Math.max(0, Math.trunc(rows.width));
 
@@ -540,8 +556,9 @@ function wireRows(viewport: Element, content: Element, rows: ScrollRows, bound: 
 		// the arranged height where there is one, and the host's declared bound
 		// before the first arrange -- never a guess in between
 		const view = viewportOf(viewport)?.height ?? bound;
+		const count = Math.max(0, Math.trunc(rows.count));
 		const next = rowWindow(count, step, viewport.scroll?.y ?? 0, view);
-		if (at && at.first === next.first && at.length === next.length) {
+		if (at && at.first === next.first && at.length === next.length && at.count === count) {
 			// a fast path rather than a claim, and it says so because it survived its
 			// sabotage: the window's inputs are these four numbers and no others, so
 			// the work below is a `setProp()` to the value it already holds and a
@@ -551,7 +568,7 @@ function wireRows(viewport: Element, content: Element, rows: ScrollRows, bound: 
 			// cell is most of them
 			return;
 		}
-		at = next;
+		at = { ...next, count };
 
 		const end = next.first + next.length;
 		above.setProp('height', next.first * step);
