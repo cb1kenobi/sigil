@@ -14,24 +14,28 @@
  *
  * Imports `dist/` rather than `src/`: what ships is what should be measured.
  *
- * ## The sides are one binary
+ * ## The sides
  *
- * `rowWindow()` reads the viewport's height, and the host's declared height is a
- * **floor** under it. So the "whole" side is `ScrollBox({ rows })` declaring the
- * *whole list's* height -- the optimization turned off by giving its one input a
- * value that cannot narrow anything, over the same component, the same window code
- * and the same row builder, which is the only differential that cannot drift
- * between its sides.
+ * The whole-list side is `children()`: the same rows assembled by hand, which is
+ * what an app writes today. It used to be `ScrollBox({ rows })` with the declared
+ * height **removed** -- the optimization turned off by removing its one input, over
+ * the same component and the same window code, which is the better shape -- and
+ * SIG-132 made that mean "no rows" rather than "every row". Giving the floor the
+ * whole list's height does not get it back and was tried: `rowWindow()` takes
+ * `first` from the **offset**, so no `view` however large puts a row above the
+ * offset in the window, and at the mid-list offset this times at that side built
+ * 20,106 elements rather than 40,010 -- which read as a 97.7ms first frame where
+ * AGENTS.md records 190.6, and was very nearly written up as a faster machine.
  *
- * The third side is the status quo: `children` holding every row, which is what
- * an app writes today and is what the steady-state number is against. Its rows
- * are assembled by hand, and what keeps that honest is that all three are
- * required to paint the **same frame** at several offsets before anything is
- * timed. A window that drew something else would be faster and wrong.
+ * What keeps the hand-built side honest is that it and the window are required to
+ * paint the **same frame** and report the **same range** at six offsets before
+ * anything is timed. A window that drew something else would be faster and wrong.
  *
  * The last section's two sides are a **frame** rather than a layout, because the
- * thing it measures cannot be reached without one: a list bounded by its parent
- * has no height to window by until something has arranged it. That is SIG-132.
+ * thing it measures cannot be reached without one: a list bounded by its parent has
+ * no height to window by until something has arranged it. That one keeps the purity
+ * the first section lost -- it is the same component with the declaration removed --
+ * and it is SIG-132.
  *
  * Interleaved rather than batched, for the reason AGENTS.md records twice: two
  * batches minutes apart disagree with each other, and run in the other order
@@ -87,36 +91,6 @@ const rows = { count: ROWS, height: ROW_HEIGHT, row };
 /** The window, as an app writes it. */
 function windowed() {
 	return ScrollBox({ props: { height: HEIGHT, width: WIDTH }, rows });
-}
-
-/**
- * The same thing with the window's one input given a value that cannot narrow it.
- *
- * The declared height is a **floor** under the window and never a ceiling, so
- * declaring the whole list's height is the optimization turned off: every window
- * this side computes holds every row, before a layout and after one. The host is
- * wrapped in a flex parent of the canvas's height and shrinks to it, so the
- * viewport is exactly as tall as the windowed side's and the painted frame is the
- * same one -- which is what makes it a differential rather than two programs.
- *
- * It used to turn the optimization off by **removing** the declaration, which was
- * the better shape and is no longer available: SIG-132 made a window computed
- * before any layout hold no rows rather than all of them, because a frame rebuilds
- * it after the layout and before the paint. So "no declared height" is now a thing
- * only a *frame* can measure, which is the section at the bottom of this file.
- */
-function whole() {
-	const host = ScrollBox({
-		props: {
-			'flex-basis': 0,
-			'flex-grow': 1,
-			height: ROWS * ROW_HEIGHT,
-			'min-height': 0,
-			width: WIDTH,
-		},
-		rows,
-	});
-	return { host, root: box({ 'flex-direction': 'column', height: HEIGHT }, host) };
 }
 
 /**
@@ -189,24 +163,13 @@ const ms = (from) => Number(process.hrtime.bigint() - from) / 1e6;
 {
 	let ok = true;
 	for (const offset of [0, 1, 7, MID, ROWS - HEIGHT, ROWS * ROW_HEIGHT]) {
-		const w = whole();
-		const a = frame(w.root, offset, w.host);
-		const b = frame(windowed(), offset);
-		const c = frame(children(), offset);
-		const same = a.grid === b.grid && a.grid === c.grid;
-		const ranges =
-			JSON.stringify(a.range) === JSON.stringify(b.range) &&
-			JSON.stringify(a.range) === JSON.stringify(c.range);
-		if (!same || !ranges) {
+		const a = frame(windowed(), offset);
+		const b = frame(children(), offset);
+		if (a.grid !== b.grid || JSON.stringify(a.range) !== JSON.stringify(b.range)) {
 			ok = false;
-			console.error(
-				`offset ${offset}: grid ${same ? 'same' : 'DIFFERENT'}, range ${
-					ranges ? 'same' : 'DIFFERENT'
-				}`
-			);
-			console.error(`  whole    ${JSON.stringify(a.range)}\n${a.grid}`);
-			console.error(`  windowed ${JSON.stringify(b.range)}\n${b.grid}`);
-			console.error(`  children ${JSON.stringify(c.range)}\n${c.grid}`);
+			console.error(`offset ${offset}: the window drew something else`);
+			console.error(`  windowed ${JSON.stringify(a.range)}\n${a.grid}`);
+			console.error(`  children ${JSON.stringify(b.range)}\n${b.grid}`);
 		}
 	}
 	if (!ok) {
@@ -216,18 +179,18 @@ const ms = (from) => Number(process.hrtime.bigint() - from) / 1e6;
 }
 
 {
-	const w = whole();
-	resolveStyles(w.root);
-	arrange(w.root, { height: HEIGHT, width: WIDTH });
+	const w = children();
+	resolveStyles(w);
+	arrange(w, { height: HEIGHT, width: WIDTH });
 	const v = windowed();
 	resolveStyles(v);
 	arrange(v, { height: HEIGHT, width: WIDTH });
 	console.log(`${ROWS} rows, ${WIDTH}x${HEIGHT}, row height ${ROW_HEIGHT}`);
-	console.log(`elements: whole ${countElements(w.root)}, windowed ${countElements(v)}`);
+	console.log(`elements: whole ${countElements(w)}, windowed ${countElements(v)}`);
 	console.log('identical output: true\n');
 }
 
-// -- the first frame, where the declared height is the input ------------------
+// -- the first frame, against the list an app writes today --------------------
 
 const first = { arrange: {}, build: {}, cascade: {}, paint: {} };
 for (const key of Object.keys(first)) {
@@ -239,8 +202,8 @@ for (let round = 0; round < ROUNDS; round++) {
 		const offset = MID + round;
 
 		let t = process.hrtime.bigint();
-		const made = side === 'whole' ? whole() : { host: windowed() };
-		made.root ??= made.host;
+		const made = { host: side === 'whole' ? children() : windowed() };
+		made.root = made.host;
 		first.build[side].push(ms(t));
 
 		viewportIn(made.host).scrollTo(0, offset);
@@ -259,7 +222,7 @@ for (let round = 0; round < ROUNDS; round++) {
 	}
 }
 
-console.log('the first frame, with the declared height as the input removed:');
+console.log('the first frame, against the same list with every row built:');
 let wholeTotal = 0;
 let windowTotal = 0;
 for (const [name, data] of Object.entries(first)) {
