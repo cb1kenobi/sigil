@@ -1231,6 +1231,43 @@ describe('a windowed list whose viewport changed height', () => {
 		expect(held(host).length).toBe(10);
 	});
 
+	it('should be asked again after a row builder threw, at the same size', () => {
+		// a throw leaves the window uncommitted and the viewport's box already at its
+		// new size, so a hook that fired on "your size moved" would never fire again:
+		// no later layout at that height is a change, and the stale window survives
+		// every resize back to it. Which is the defect SIG-131 records one hook along
+		// -- "no later scroll to that same window could repair it" -- so `arrange()`
+		// asks whether the handler was **told** its current size rather than whether
+		// the size moved, and a handler that threw was told nothing
+		let armed = false;
+		const host = ScrollBox({
+			props: { 'flex-grow': 1, 'min-height': 0, width: 12 },
+			rows: {
+				count: 500,
+				height: 1,
+				row: (i) => {
+					if (armed && i > 3) {
+						throw new Error(`boom at ${i}`);
+					}
+					return row(i);
+				},
+			},
+		});
+		const root = box({ 'flex-direction': 'column' }, host);
+		lines(root, 4);
+		expect(held(host).length).toBe(4);
+
+		armed = true;
+		expect(() => lines(root, 20)).toThrow('boom at 4');
+		expect(held(host).length, 'nothing is committed when a row builder throws').toBe(4);
+
+		// and the same size again, which is the whole point: the viewport is already
+		// twenty cells tall, so "did it move" would answer no for ever
+		armed = false;
+		lines(root, 20);
+		expect(held(host).length).toBe(20);
+	});
+
 	it('should paint what a list that declared the height paints', () => {
 		// the differential: a window built from what the layout said has to come out
 		// where a window built from a declaration does, at every offset and in colour
