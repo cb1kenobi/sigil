@@ -302,6 +302,20 @@ export function arrange(root: Element, opts: LayoutOptions): LayoutResult {
  * @returns The last row and the last column any box reaches, as counts.
  */
 export function arrangedExtent(result: LayoutResult): { height: number; width: number } {
+	// the root's own far edges, which is `y + height` and not `height`: `layout()`
+	// applies the root's relative offset itself, since every other node's is
+	// applied by the parent that places it and the root has no parent -- so a
+	// `position: relative` root with `top: 2` is drawn two rows down and reading
+	// its size back reports a grid two rows short of it. Measured: a bordered
+	// `overflow: hidden` pane at `top: 2, left: 2` came back as the top border row
+	// alone, with the text and the bottom border past the end of the grid. Floored
+	// at zero for the other direction, where a negative offset puts the whole box
+	// above or left of the first cell and nothing of it is drawn
+	const rootEdges = (): { height: number; width: number } => ({
+		height: Math.max(0, result.box.y + result.box.height),
+		width: Math.max(0, result.box.x + result.box.width),
+	});
+
 	// a clipping root is the one place the root's own box is the answer rather
 	// than the space it was offered: it bounds everything below it to inside its
 	// own border box, so there is nothing further to ask -- and its border is
@@ -311,7 +325,7 @@ export function arrangedExtent(result: LayoutResult): { height: number; width: n
 	// `overflow: hidden`, rendered at four, came back as `┌──────` with the right
 	// edge gone
 	if (clipsContent(result.node.style)) {
-		return { height: result.box.height, width: result.box.width };
+		return rootEdges();
 	}
 
 	let bottom = 0;
@@ -340,10 +354,11 @@ export function arrangedExtent(result: LayoutResult): { height: number; width: n
 	}
 
 	// a tree with nothing in it is as big as it measured, which is the root's own
-	// box and the one case where reading it back is the answer
-	return result.children.length > 0
-		? { height: bottom, width: right }
-		: { height: result.box.height, width: result.box.width };
+	// box and the one case where reading it back is the answer. Through the same
+	// function as the clipping root above, because the offset was wrong here too
+	// and had been on `main`: a childless `position: relative` root with `top: 2`
+	// drew its one row at row two of a one-row grid, which is to say nowhere
+	return result.children.length > 0 ? { height: bottom, width: right } : rootEdges();
 }
 
 /** Draws a border around a box, if its style asks for one. */

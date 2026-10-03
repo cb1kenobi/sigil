@@ -2229,6 +2229,21 @@ region at all` is the pin, and the condition fails it.
   the same way and always has, on `main` identically; that is the root-skip's own
   hole rather than this one's, and it is left alone.
 
+  And it is the root's far **edges** rather than its size, which is the same read
+  the walk already takes and is the one place the root differs from every other
+  node: `layout()` applies the root's own relative offset, because every other
+  node's is applied by the parent that places it and the root has no parent. So
+  `result.box.height` is not where the root ends. Measured, that bordered pane at
+  `position: relative; top: 2; left: 2` came back as `["", "", "  ┌─────"]` -- the
+  top border row alone, with the text and the bottom border past the end of the
+  grid, and the right border cut. Floored at zero for the other direction, where
+  a negative offset puts the whole box off the first cell and none of it is drawn.
+  The **childless** branch reads the same two numbers through the same function,
+  because it had the identical hole and had it on `main`: a childless
+  `position: relative` root with `top: 2` drew its one row at row two of a one-row
+  grid, which is to say nowhere. Found by a second review round pointing at the
+  first one's fix.
+
 - **What it costs is a `clipsContent()` call per node, and what it buys is the
   walk.** Six interleaved rounds against the old formula: a sixty-entry help
   screen is **0.00952ms against 0.00439ms** median and a two-hundred-row table

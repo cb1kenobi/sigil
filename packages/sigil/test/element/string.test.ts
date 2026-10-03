@@ -97,6 +97,17 @@ describe('renderToString()', () => {
 		);
 	});
 
+	// the same read is what a childless root's own relative offset needs, and it
+	// was wrong here on `main` too: `layout()` applies that offset itself, since
+	// every other node's is applied by the parent that places it, so reading the
+	// root's *size* back drew the one row at row two of a one-row grid -- which is
+	// to say nowhere. Found by review round 2 on the clipping root beside it
+	it('should widen the grid to where a childless root was offset to', () => {
+		const tree = text('x', { position: 'relative', top: 2, 'white-space': 'nowrap' });
+
+		expect(renderToLines(tree, { colorLevel: 0, width: 5 })).to.deep.equal(['', '', 'x']);
+	});
+
 	// the same rule for a root with nothing in it, which is the one case where the
 	// extent is read off the root's own box -- and a *declared* width is the only
 	// thing that puts that box past the room it was offered, since `layout()`

@@ -345,6 +345,47 @@ describe('the room an arranged tree takes', () => {
 		]);
 	});
 
+	// and it is the root's far **edges** rather than its size, because `layout()`
+	// applies the root's own relative offset -- every other node's is applied by
+	// the parent that places it and the root has no parent. Found by review round
+	// 2, after round 1's border fix: measured, this came back as `["", "", "  ┌─────"]`,
+	// the top border row alone, with the text and the bottom border past the end
+	// of the grid
+	it('should take room for a clipping root where it was offset to', () => {
+		const pane = box(
+			{
+				'border-style': 'single',
+				height: 3,
+				left: 2,
+				overflow: 'hidden',
+				position: 'relative',
+				top: 2,
+				width: 8,
+			},
+			text('0123456789', { 'flex-shrink': 0, 'white-space': 'nowrap' })
+		);
+
+		expect(roomFor(pane, 8, 3)).toEqual({ height: 5, width: 10 });
+		expect(renderToLines(pane, { colorLevel: 0, width: 8 })).to.deep.equal([
+			'',
+			'',
+			'  ┌──────┐',
+			'  │012345│',
+			'  └──────┘',
+		]);
+	});
+
+	// and nothing at all where the offset put the whole box off the first cell,
+	// which is the other direction of the same read
+	it('should take no room for a root offset off the grid', () => {
+		const pane = box(
+			{ height: 3, overflow: 'hidden', position: 'relative', top: -5, width: 8 },
+			stubbornRows('r1', 'r2', 'r3')
+		);
+
+		expect(roomFor(pane, 8, 3)).toEqual({ height: 0, width: 8 });
+	});
+
 	// a clip inside a clip is never reached at all, which is the stop working
 	// rather than a second rule: the outer one answers for both
 	it('should answer for a nested clip at the outer one', () => {
