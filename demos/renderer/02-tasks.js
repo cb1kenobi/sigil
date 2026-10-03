@@ -100,15 +100,23 @@ function visible() {
 	return tasks.get().filter((task) => mode === 'all' || (mode === 'done') === task.done);
 }
 
+/**
+ * Moves a task, and says whether it went anywhere.
+ *
+ * @param task - The task to move.
+ * @param by - How far, in list positions.
+ * @returns Whether the list changed.
+ */
 function move(task, by) {
 	const list = [...tasks.get()];
 	const at = list.indexOf(task);
 	const to = at + by;
 	if (at === -1 || to < 0 || to >= list.length) {
-		return;
+		return false;
 	}
 	list.splice(to, 0, ...list.splice(at, 1));
 	tasks.set(list);
+	return true;
 }
 
 /**
@@ -155,17 +163,22 @@ function Task(item, index) {
 	row.append(
 		box({ class: 'line' }, mark, title, moved),
 		// the notes hang off the row's *own* state, so expanding one row says
-		// nothing about any other. The wrapper is told the layout the branch would
-		// have had, which is the tax every `Show` and `For` charges here
+		// nothing about any other. Each wrapper is told the layout the branch would
+		// have had and *only* that, which is the tax every `Show` and `For` charges
+		// here: `.notes` carries the indent, so it goes on exactly one of the two.
+		// It was on both for a review round, and the notes were indented twice
 		Show({
 			children: () =>
 				For({
 					children: (note) => text(`- ${note}`, { class: 'note' }),
 					each: () => item.notes,
+					// a task with no notes still has something to say, so that `space`
+					// is never a key that does nothing
+					fallback: () => text('(no notes)', { class: 'note' }),
 					props: { class: 'notes' },
 				}),
-			props: { class: 'notes' },
-			when: () => expanded.get() && item.notes.length > 0,
+			props: { 'flex-direction': 'column' },
+			when: () => expanded.get(),
 		})
 	);
 
@@ -189,14 +202,14 @@ function Task(item, index) {
 			// the data is not a signal, so say what changed: the array identity is
 			// what the effects above are watching
 			tasks.set([...tasks.get()]);
-		} else if (key.sequence === 'J') {
+		} else if (key.sequence === 'J' || key.sequence === 'K') {
 			event.stop();
-			moves.set(moves.get() + 1);
-			move(item, 1);
-		} else if (key.sequence === 'K') {
-			event.stop();
-			moves.set(moves.get() + 1);
-			move(item, -1);
+			// counted only where the list changed, or the row at an end reports a
+			// move it did not make -- and the whole point of the counter is that it
+			// is a true record of what happened to *this* row
+			if (move(item, key.sequence === 'J' ? 1 : -1)) {
+				moves.set(moves.get() + 1);
+			}
 		}
 	};
 

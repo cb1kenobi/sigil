@@ -5816,7 +5816,7 @@ a probe`. What the longer hold costs is worth stating precisely: a key typed
 SIG-78 asked whether `Show` and `For` in place of an `if` and a `.map()` are
 tolerable in real code or merely defensible in a design document, and SIG-118
 asked it again because nothing had answered it. The answer is **yes, with one
-real defect and three frictions**, and the evidence is weaker than the ticket
+real defect and four frictions**, and the evidence is weaker than the ticket
 wanted -- which is worth stating first, because it is the part a later reader
 needs in order to know what to re-ask.
 
@@ -5903,6 +5903,18 @@ needs in order to know what to re-ask.
   does not stay in your head at the third nesting level, and the failure is a
   layout that looks nearly right.
 
+  It is **measured** rather than asserted, because the demo written to answer this
+  question paid it wrong: a row's notes are a `Show` whose only child is a `For`,
+  and `.notes` -- the class carrying the indent -- went on **both** wrappers, so
+  every note was indented twice. Four columns became eight, nothing overflowed,
+  nothing threw, and it read as a design choice until a review round counted the
+  columns. That is the whole of the complaint in one artefact: the layout a branch
+  would have had has to be restated at every level because there is no fragment,
+  each restatement is a separate chance to say it twice or not at all, and neither
+  mistake is loud. A fragment, or a `display: contents`-shaped box, is the one
+  change to this API that would pay for itself; it would not remove the thunks or
+  the accessor, which are the parts that are merely verbose rather than wrong.
+
   Second: **the concise effect body this file calls "the spelling worth
   encouraging" is a type error for most of the element API**, and the mechanism is
   worth writing down because it is not obvious. `createEffect`'s parameter is
@@ -5923,10 +5935,13 @@ needs in order to know what to re-ask.
   nothing type-checks them, while JSX is the canonical template syntax -- so an app
   meets it on its first effect and this repository never had to.
 
-  Third: **whether `each` is reactive is invisible at the call site**.
-  `each: () => item.notes` over a plain array gives an effect with no dependencies,
-  so it runs once and never again -- correct, and indistinguishable from
-  `each: () => items.get()` by reading it. Fourth, and smallest: the focus ring is
+  Third: **whether `each` is reactive is invisible at the call site**, and the demo
+  has one of each a hundred lines apart. `each: () => item.notes` over a plain
+  array gives an effect with no dependencies, so it runs once and never again,
+  while `each: visible` re-reconciles whenever the filter or the list moves -- and
+  nothing in either spelling says which. Both are correct here, because the notes
+  really are fixed; what the pair shows is that the distinction is carried entirely
+  by what the thunk happens to read. Fourth, and smallest: the focus ring is
   `input.focus.next()` rather than `input.next()`, and no demo called it before this
   one, so the first guess was wrong and the type error was the only thing that said
   so.
