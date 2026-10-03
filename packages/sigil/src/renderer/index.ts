@@ -64,9 +64,12 @@ import type { InputRouter } from '../input/index.js';
 import { measureNode } from '../layout/index.js';
 import { createEffects, type Effects } from '../signals/index.js';
 import {
+	Animator,
 	Cascade,
 	type ColorScheme,
+	forcedMotion,
 	forcedScheme,
+	type ReducedMotion,
 	Restyler,
 	schemeFromTerminalEnv,
 } from '../style/index.js';
@@ -158,6 +161,28 @@ export interface RenderOptions {
 	/** Milliseconds between frames. Defaults to 1000/30. */
 	frameMs?: number;
 	/**
+	 * Where the frame loop reads the time. Defaults to `Date.now`.
+	 *
+	 * Injectable because an animation test that depends on wall time is flaky
+	 * forever, which is the same reason `frameMs` is an option -- and a fake timer
+	 * that patches `Date.now` happens to work only for as long as nothing else in
+	 * the process wants a real clock. One function, asked by the pacing, by the
+	 * transitions and by the frame-skip arithmetic, so none of the three can come
+	 * to disagree about what time it is.
+	 */
+	now?: () => number;
+	/**
+	 * Whether animations run, or collapse to their end state.
+	 *
+	 * The top of three sources, and the order is the scheme's: this, then
+	 * `SIGIL_REDUCED_MOTION`, then whether there is a terminal to animate on. An
+	 * app that names one is stating a fact about its output; the variable is the
+	 * user correcting the detection; and a pipe, a file or a CI log has no frames
+	 * at all, so an animation there would write a line per tick into something
+	 * nobody will watch play.
+	 */
+	reducedMotion?: ReducedMotion;
+	/**
 	 * How many rows an inline canvas occupies. Defaults to following the content.
 	 *
 	 * Ignored when `backend` was passed: how big that is, is its owner's.
@@ -185,6 +210,19 @@ export interface RenderOptions {
 }
 
 export interface Renderer {
+	/**
+	 * Whether anything is mid-transition or mid-animation.
+	 *
+	 * The one thing the animation machinery exposes, and deliberately the only
+	 * thing: there is no `onfinish`. An event needs a target identity, a delivery
+	 * point inside the frame -- where a handler writing a signal is the
+	 * re-entrancy `runFrame()` already refuses -- and a story for an element
+	 * unmounted mid-flight. All three have answers and none of them has a caller
+	 * yet, which is the rule `which` waited on. What a caller genuinely cannot
+	 * observe any other way is whether the loop will keep going, so that is what
+	 * is here.
+	 */
+	readonly animating: boolean;
 	/** Where frames are going. */
 	readonly backend: CanvasBackend;
 	/**
@@ -320,9 +358,11 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 	/** The same for the width, which is opt-in for the reason `width` records. */
 	const autoWidth = ownBackend && opts.width === 'auto';
 	const frameMs = Math.max(0, opts.frameMs ?? FRAME_MS);
+	const clock = opts.now ?? Date.now;
 	const scope: Effects = opts.effects ?? createEffects();
 	const cascade = opts.cascade ?? new Cascade([]);
 	const restyler = new Restyler(cascade);
+	const animator = new Animator<Element>(cascade);
 	const onError = opts.onError ?? ((error: unknown) => defaultErrorHandler(error));
 
 	/**
@@ -368,6 +408,23 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 		);
 	}
 
+	/**
+	 * Whether anything should move.
+	 *
+	 * The terminal is the last term rather than the first, so a pipe collapses
+	 * every animation to its end state without an app having to ask -- which is
+	 * the same distinction `mountLive()` already makes for a spinner, generalized
+	 * from one component to the cascade. `closed` is in it for the reason it is
+	 * there: a terminal whose stream has gone is no more a screen than a pipe is.
+	 */
+	function motion(): ReducedMotion {
+		return (
+			opts.reducedMotion ??
+			forcedMotion() ??
+			(terminal.isTTY && !terminal.closed ? 'no-preference' : 'reduce')
+		);
+	}
+
 	const readMedia = (): void => {
 		cascade.media = {
 			colorLevel: refined.colorLevel ?? opts.colorLevel ?? supportsColor(),
@@ -389,6 +446,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 			// the call that sat under `refined`
 			colorScheme: scheme(),
 			height: Math.max(1, terminal.height),
+			reducedMotion: motion(),
 			width: Math.max(1, terminal.width),
 		};
 	};
@@ -398,6 +456,8 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 	let failed = false;
 	let scheduled = false;
 	let timer: ReturnType<typeof setTimeout> | undefined;
+	/** When the pending timer is due, so that an earlier request can replace it. */
+	let dueAt = 0;
 	let last = 0;
 	/** Whether the next frame lays out and paints whatever the marks said. */
 	let full = true;
@@ -417,17 +477,44 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 	 */
 	let repaint = false;
 
-	function requestFrame(): void {
-		if (disposed || failed || scheduled) {
+	/**
+	 * Asks for a frame, no sooner than the pacing allows and no later than `after`.
+	 *
+	 * `after` is what the animator's frame skip is spent through: a step animation
+	 * whose next step is eighty milliseconds away sets one timer for eighty
+	 * milliseconds rather than waking three times to find nothing quantized
+	 * differently. A request that wants the frame *sooner* than one already
+	 * pending replaces it, which is what keeps a keystroke from waiting out an
+	 * animation's deadline -- so the scheduled time is tracked rather than only
+	 * the fact of a timer.
+	 *
+	 * @param after - The earliest the frame may run, in milliseconds from now.
+	 */
+	function requestFrame(after = 0): void {
+		if (disposed || failed) {
 			return;
 		}
+		const at = clock() + Math.max(after, Math.max(0, frameMs - (clock() - last)));
+		if (scheduled && dueAt <= at) {
+			return;
+		}
+		if (timer) {
+			clearTimeout(timer);
+		}
 		scheduled = true;
-		const wait = Math.max(0, frameMs - (Date.now() - last));
-		timer = setTimeout(() => {
-			timer = undefined;
-			scheduled = false;
-			runFrame();
-		}, wait);
+		dueAt = at;
+		timer = setTimeout(
+			() => {
+				timer = undefined;
+				scheduled = false;
+				runFrame();
+			},
+			Math.max(0, at - clock())
+		);
+		// a frame pending is not a reason for a finished process to stay alive,
+		// which is the rule the spinner's own interval already followed. What keeps
+		// a real app running is stdin, not the loop that draws for it
+		timer.unref?.();
 	}
 
 	function teardown(finish: boolean): void {
@@ -574,10 +661,29 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 			// the style of every row a `For` reordered
 			if (!element.tree) {
 				restyler.forget(element);
+				animator.forget(element);
 			}
 		}
 
 		const update = settleStyles(root, restyler);
+
+		// 2a. the animation, which sits between the cascade and the screen: the
+		//     settle has just written each element's *base* style, so the animator
+		//     is shown the change and then writes what is actually presented over
+		//     the top. Nothing here touches the restyler, which is the whole of
+		//     "an animation writes through to paint rather than marking style
+		//     dirty" -- the cascade is not re-run for a frame of an animation
+		const at = clock();
+		for (const target of update.paint) {
+			// the restyler answers in terms of `StyleTarget`, which is what keeps it
+			// free of the element tree; what it was handed is this tree's elements
+			const element = target as Element;
+			animator.observe(element, element.style, at);
+		}
+		const animated = animator.tick(at);
+		for (const [element, style] of animated.styles) {
+			element.style = style;
+		}
 
 		// the restyler answers for what a *style* change implies and cannot answer
 		// for the other two. A text that was edited or a `raw` that re-measured
@@ -586,9 +692,25 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 		// after it is somewhere else -- found by a `For` that reordered its rows
 		// correctly and drew them in the old order, because the frame had nothing
 		// telling it to lay out again
+		//
+		// an animated *geometry* property is in `LAYOUT_PROPERTIES`, so it really
+		// does have to re-lay-out -- which is the one refinement the recorded
+		// architecture needed and is why the animator reports the two separately.
+		// What makes it affordable is that geometry interpolates in whole cells, so
+		// a box going from ten columns to twenty lays out ten times rather than
+		// once per frame
 		const needLayout =
-			full || update.layout.size > 0 || marks.layout.size > 0 || marks.children.size > 0;
-		const needPaint = needLayout || repaint || update.paint.size > 0 || marks.paint.size > 0;
+			full ||
+			update.layout.size > 0 ||
+			marks.layout.size > 0 ||
+			marks.children.size > 0 ||
+			animated.layout.size > 0;
+		const needPaint =
+			needLayout ||
+			repaint ||
+			update.paint.size > 0 ||
+			marks.paint.size > 0 ||
+			animated.paint.size > 0;
 
 		if (needLayout) {
 			layoutInto();
@@ -626,6 +748,16 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 				onError(error);
 			}
 		}
+
+		// 4. and a frame for the animation to carry on in, asked for *here* rather
+		//    than by a timer of its own: nothing dirty still means no frame, and an
+		//    animation is the one thing that is dirty about the future rather than
+		//    about the past. The delay is how long until something would quantize
+		//    differently, which is the frame skip spent as a longer sleep rather
+		//    than as a wakeup that does nothing
+		if (animator.active) {
+			requestFrame(animator.nextChange(at, frameMs) ?? 0);
+		}
 	}
 
 	function runFrame(): void {
@@ -647,7 +779,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 			timer = undefined;
 		}
 		scheduled = false;
-		last = Date.now();
+		last = clock();
 		settling = true;
 		try {
 			settle();
@@ -720,6 +852,10 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 	function publishMedia(): void {
 		readMedia();
 		restyler.touchMedia();
+		// and the animator, because `prefers-reduced-motion` is one of the queries
+		// that moved: whether an animation runs is a live answer, and a running one
+		// that the preference now refuses has to stop asking for frames
+		animator.touchMedia(clock());
 		full = true;
 		requestFrame();
 	}
@@ -794,6 +930,9 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 	runFrame();
 
 	return {
+		get animating() {
+			return animator.active;
+		},
 		backend,
 		detect,
 		dispose: () => teardown(true),

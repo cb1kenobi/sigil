@@ -29,35 +29,35 @@ the runtime.
 
 Paths below are inside `packages/sigil/` unless noted.
 
-| Path                           | Contents                                                |
-| ------------------------------ | ------------------------------------------------------- |
-| `src/parser/`                  | The parser: commands, options, arguments, registries    |
-| `src/parser/command/routes.ts` | The route rules, shared with `sigil build`              |
-| `src/ansi/`                    | SGR styling, strip, color support detection             |
-| `src/width/`                   | Display width: grapheme clusters, East Asian Width      |
-| `src/wrap/`                    | Text wrapping, SGR state, terminal width                |
-| `src/help/`                    | The generated help screen, as an element tree           |
-| `src/terminal/`                | Terminal wrapper, live region, sequences, OSC 52        |
-| `src/components/`              | Spinner, progress, table, prompts, scroll box, keys     |
-| `src/signals/`                 | The reactive graph: state, computed, watcher, effect    |
-| `src/renderer/`                | Components, the owner tree, control flow, the frame     |
-| `src/template/`                | The template IR, the `ui` tag, the JSX runtimes         |
-| `src/canvas/`                  | Cell buffer, style interning, paint diff, selection     |
-| `src/style/`                   | Properties, values, selectors, cascade, degradation     |
-| `src/theme/`                   | The framework's own sheet, and what a theme is          |
-| `src/layout/`                  | The flexbox subset, over whole cells                    |
-| `src/infer.ts`                 | `initOption()` and `initArg()`, in the type system      |
-| `src/util/`                    | Shared helpers (type coercion, camelCase, mkdir)        |
-| `src/debug/`                   | `DEBUG`-driven logger; replaces snooplogg               |
-| `src/paths.ts`                 | XDG base directories                                    |
-| `src/which.ts`                 | Resolving an executable against `PATH`                  |
-| `src/updates/`                 | npm update check, run in a spawned worker               |
-| `src/error-handler.ts`         | Renders an error and sets the exit code                 |
-| `src/error-hooks.ts`           | Fires `beforeError` hooks; carries state on an error    |
-| `scripts/`                     | Run by hand: generators, the terminal probe, benchmarks |
-| `docs/parser.md`               | Parser reference: syntax, semantics, precedence         |
-| `test/parser/commander/`       | Ported Commander test cases                             |
-| `test/parser/yargs/`           | Ported yargs-parser test cases                          |
+| Path                           | Contents                                                       |
+| ------------------------------ | -------------------------------------------------------------- |
+| `src/parser/`                  | The parser: commands, options, arguments, registries           |
+| `src/parser/command/routes.ts` | The route rules, shared with `sigil build`                     |
+| `src/ansi/`                    | SGR styling, strip, color support detection                    |
+| `src/width/`                   | Display width: grapheme clusters, East Asian Width             |
+| `src/wrap/`                    | Text wrapping, SGR state, terminal width                       |
+| `src/help/`                    | The generated help screen, as an element tree                  |
+| `src/terminal/`                | Terminal wrapper, live region, sequences, OSC 52               |
+| `src/components/`              | Spinner, progress, table, prompts, scroll box, keys            |
+| `src/signals/`                 | The reactive graph: state, computed, watcher, effect           |
+| `src/renderer/`                | Components, the owner tree, control flow, the frame            |
+| `src/template/`                | The template IR, the `ui` tag, the JSX runtimes                |
+| `src/canvas/`                  | Cell buffer, style interning, paint diff, selection            |
+| `src/style/`                   | Properties, values, selectors, cascade, animation, degradation |
+| `src/theme/`                   | The framework's own sheet, and what a theme is                 |
+| `src/layout/`                  | The flexbox subset, over whole cells                           |
+| `src/infer.ts`                 | `initOption()` and `initArg()`, in the type system             |
+| `src/util/`                    | Shared helpers (type coercion, camelCase, mkdir)               |
+| `src/debug/`                   | `DEBUG`-driven logger; replaces snooplogg                      |
+| `src/paths.ts`                 | XDG base directories                                           |
+| `src/which.ts`                 | Resolving an executable against `PATH`                         |
+| `src/updates/`                 | npm update check, run in a spawned worker                      |
+| `src/error-handler.ts`         | Renders an error and sets the exit code                        |
+| `src/error-hooks.ts`           | Fires `beforeError` hooks; carries state on an error           |
+| `scripts/`                     | Run by hand: generators, the terminal probe, benchmarks        |
+| `docs/parser.md`               | Parser reference: syntax, semantics, precedence                |
+| `test/parser/commander/`       | Ported Commander test cases                                    |
+| `test/parser/yargs/`           | Ported yargs-parser test cases                                 |
 
 At the repository root: `demos/` (runnable examples that import `@ttylabs/sigil` by
 name, so they need `pnpm build` first, and a workspace member so that the name
@@ -366,9 +366,9 @@ Next.js for CLIs — and there is no 1.0 without it.
 
 What that adds, bottom to top: a cell-addressable canvas that diffs frames,
 cascading stylesheets with real selectors, a flexbox layout engine over whole
-cells, TC39-shaped signals, an element tree, a renderer, compiled templates
-with one IR behind several syntaxes, and a `sigil` CLI that builds and packages
-apps. See the "sigil 2.0" project in Linear; each layer is its own ticket and
+cells, transitions and keyframe animations over those cells, TC39-shaped
+signals, an element tree, a renderer, compiled templates with one IR behind
+several syntaxes, and a `sigil` CLI that builds and packages apps. See the "sigil 2.0" project in Linear; each layer is its own ticket and
 each ticket carries the decisions behind it.
 
 The components and the help screen are ported onto it (SIG-76, SIG-77): the
@@ -2254,6 +2254,8 @@ is proved.
   that then disagrees with `DEFAULT_MEDIA`'s. What it costs is a type error at
   every literal in the suite, which is the change being visible rather than a
   problem: a context that does not say is a context that has not decided.
+  `reducedMotion` is required for the same reason and paid the same cost, which is
+  the precedent working rather than a second argument.
 - **`DEFAULT_MEDIA.colorScheme` is `dark`, and that is a default rather than a
   guess at the terminal.** Dark because it is what every default colour in this
   library has always been a bet on, so making the constant anything else would
@@ -2269,7 +2271,10 @@ is proved.
   than an error. Both are refused where they are written, which is the rule an
   unknown property in a stylesheet already follows. `MediaCondition.keyword` is a
   field of its own rather than a widened `value`, so nothing downstream has to ask
-  which of the two a `number | string` is.
+  which of the two a `number | string` is. There are two keyword features now --
+  `prefers-reduced-motion` joined it in SIG-62 -- so `KEYWORD_FEATURES` carries the
+  context field beside the values each one accepts, and the one `if` in `holds()`
+  is a two-entry lookup rather than a second `if`.
 - **The keyword is read in any case and the feature name already was.** The rule
   every keyword in this grammar follows: a property name and `inherit` are
   case-insensitive while a class is not, because one is a CSS keyword and the other
@@ -2885,6 +2890,12 @@ dependency. Regenerate with `node scripts/generate-utilities.mjs` from inside
   what make the space unbounded again, and they are the reason a scanner has to
   exist at all. They are SIG-81's, along with the question of what a computed
   `class` expression does, which should be answered once rather than twice.
+- **Nothing is generated for the animation properties, and the exception is
+  explicit.** `animation-direction` and `animation-fill-mode` are keyword
+  properties, so the rule above would have handed them a family each; they are
+  named in `UNGENERATED` instead, with the reason under "Transitions and keyframe
+  animations". The short of it is that both are half a vocabulary without the
+  name and the duration beside them, and those are open-ended.
 - **Two variants are better here than on the web, and one that was missing is
   not any more.** `md:flex-row` is the responsive problem a TUI actually has and
   nothing solves well today; `c16:text-red` is SIG-61's "give the author control"
@@ -2980,10 +2991,18 @@ dependency. Regenerate with `node scripts/generate-utilities.mjs` from inside
   are strong and bidirectional, so every element ever removed stays reachable
   until its sources die. Elegance that buys nothing measurable and costs a
   lifecycle problem.
-- **An animation writes through to paint rather than marking style dirty.**
-  Not built yet, decided now: marking style dirty every frame drags the whole
-  cascade behind a 60fps animation, which is the one workload where the naive
-  re-match above stops being free.
+- **An animation writes through to paint rather than marking style dirty, and
+  it is built now.** The decision was taken here in advance and it holds exactly:
+  `Animator` never calls into the `Restyler`, so the cascade is not re-run for a
+  frame of an animation -- what it holds is a _presented_ style per animating
+  element, built over the base style the cascade resolved. The reason is the
+  measurement two entries up: a full re-match is 0.67ms per 201 elements, which
+  is affordable once per frame when something changed and is not something to
+  drag behind every frame of an animation. The one refinement it needed is
+  **layout**, which is a different bit: an animated geometry property is in
+  `LAYOUT_PROPERTIES` and the boxes really do have to be placed again, so
+  `tick()` reports layout and paint separately and the frame folds the first into
+  `needLayout`. See the section below for what makes that affordable.
 - **The signal wiring is the renderer's, and it is now written.** `Restyler`
   still takes marks from whatever calls it -- that seam did not move -- and
   `render()` is what calls it, draining `Tree.take()` into `touchClasses()`,
@@ -2994,6 +3013,639 @@ dependency. Regenerate with `node scripts/generate-utilities.mjs` from inside
   it -- Tab moved the focus ring and the `:focus` highlight stayed where it
   started -- and it still writes the bridge out by hand, because it predates the
   renderer and demonstrates the layer below it.
+
+### Transitions and keyframe animations
+
+A terminal is a frame loop, so CSS animation works here -- and it turns a
+category of thing that was hand-written imperative code into declarative style.
+Two mechanisms, both CSS's: a `transition` animates a style change caused by
+anything at all, and `@keyframes` plus `animation` runs a named sequence.
+`src/style/easing.ts` is the timing functions, `src/style/interpolate.ts` is what
+a value is part way between two of itself, `src/style/animate.ts` is the
+`Animator`, `@keyframes` is the stylesheet parser's, `prefers-reduced-motion` is
+one more field on `MediaContext`, and the wiring is one block inside the
+renderer's `settle()`.
+
+- **What eleven more properties cost, measured, is 8% of a layout and nothing
+  else.** The table went from 55 properties to 66, and `initialStyle()` builds
+  every one of them per element -- so the question is what that does to the two
+  things that call it in a loop. Measured against the same tree corpus:
+  `initialStyle()` 20,000 times is **88.2ms to 95.1ms**, `declare({ width: '4' })`
+  20,000 times is **100.3ms to 124.2ms**, and 200 random trees laid out at 80x24
+  is **218.8ms to 235.7ms** -- +8%, +24% and +8%. The `declare()` number is the
+  one that moved and it is the one that matters least: what an app declares per
+  element is a handful of properties and the 24% is the fixed cost of the fifty-odd
+  it does not.
+
+  Worth writing down because the first reading of it was wrong. The layout fuzzer
+  blew its ten-second per-seed timeout twice in a row while this was being written
+  and the obvious conclusion was the property count; measured against `main`'s
+  `src/` in the same worktree, both sides run each seed in 1.0-1.5s and the full
+  suite had gone from 7s to 24s because three other agents were on the machine.
+  That is the batched-against-interleaved failure this file records for the style
+  shaking, met in a suite with a per-test deadline -- and the check is the same
+  one: does the baseline agree with the baseline.
+
+- **Two maps, and the split is the whole of what makes a transition start.** A
+  transition animates from the value an element had _before_ the change, so the
+  last base style has to be kept for every element the animator has been shown.
+  The first version kept it on the same entry as the running state -- and `tick()`
+  drops an entry with nothing left to say, which is exactly when there is nothing
+  to animate yet, so the entry was gone by the time the change arrived and **no
+  transition ever started**: every change looked like an element's first style.
+  So `#base` is a record per element, the size of the tree and cleaned by
+  `forget()` the way the restyler's caches are, and `#entries` holds only what is
+  in flight -- which is what `tick()` and `active` walk, so the per-frame cost is
+  proportional to the animation rather than to the tree.
+- **The from-value is the value on _screen_, which is not the same as the base.**
+  `observe()` writes the new base before it diffs, so a `#startTransition()` that
+  read `entry.base` would start every transition where it was meant to end -- which
+  is to say it would start nothing. It reads the running override where there is
+  one, the presented style where there is one, and the style the cascade had before
+  this change otherwise. All three are the same question asked of whatever is
+  nearest to the screen.
+- **An animated value is presented, not inherited.** A `color` transition on a
+  container does not drag its text with it. Inheriting a presented value means
+  re-resolving the subtree every frame, which is the one thing the recorded
+  architecture rules out and which the 0.67ms re-match is the measurement for. What
+  it costs is small, because the _base_ value still inherits: a selector covering
+  the container and its text gives every element its own transition, all starting
+  at the same moment with the same duration, so they stay in lockstep. Making
+  `transition-*` **inherit** was considered for exactly that -- it would make
+  `.panel { transition: color 200ms }` cover the subtree -- and refused, because a
+  surprise transition on every descendant is still a surprise and a divergence from
+  CSS costs everyone's intuition.
+- **Geometry interpolates in whole cells, and that is what makes a frame
+  skippable at all.** A box going from 10 to 20 columns has eleven visible states
+  however long it takes, and the timing function decides which frames land on
+  which integer. So the interpolator rounds rather than truncating -- truncating
+  biases every frame downwards and leaves the last frame before the end a whole
+  cell short -- and the declaration's own rule, that a fractional length is refused
+  rather than rounded, is about a value somebody _wrote_ rather than one nobody
+  did.
+- **The frame skip is "do not set a timer", not "wake up and return early".** The
+  ticket asked for the saving to be measured rather than asserted, and the
+  measurement is also the argument for the shape: a loop that woke at `frameMs` and
+  compared would paint exactly as often as this one does, so counting paints says
+  nothing. `Animator.nextChange()` probes the interpolation forward at `frameMs`
+  granularity, up to a bounded horizon of 64 probes, and answers how long until
+  something would quantize differently; the renderer spends that as a longer sleep.
+  Measured by counting wakes against a loop pacing itself at thirty a second:
+
+  | what is animating                  | naive wakes | wakes |
+  | ---------------------------------- | ----------- | ----- |
+  | `width` 10 to 20 over 300ms        | 10          | 10    |
+  | `width` 2 to 4 over 1000ms         | 31          | 4     |
+  | `width` 0 to 40 over 2000ms        | 61          | 41    |
+  | a colour over 1000ms, truecolor    | 31          | 31    |
+  | a colour over 1000ms, 256 colours  | 31          | 11    |
+  | a colour over 1000ms, 16 colours   | 31          | 6     |
+  | `steps(10)` over 800ms, two cycles | 49          | 20    |
+
+  Which says the honest thing rather than the flattering one: the saving is
+  exactly `frames - distinct quantized states`, so it is **nothing** where the
+  animation changes every frame -- a fast geometry change has more states than
+  there are frames, and a truecolor ramp is a different colour every time -- and it
+  is large exactly where a terminal animation usually lives. A stepped animation,
+  which is the shape a spinner is, wakes 20 times where a paced loop wakes 49, and
+  a slow small geometry change wakes 4 times where it wakes 31.
+
+- **The horizon is bounded, and a running animation's end is woken for.** 64
+  probes at thirty frames a second is about two seconds, so a transition whose next
+  cell is five seconds away wakes once per two seconds rather than being solved
+  exactly -- the search is linear in the probes and the point of it is to not wake
+  up. The end of every running transition and animation clamps the limit, because
+  the entry has to be _retired_ for `active` to go false and `active` going false
+  is what stops the timer.
+- **A frame asked for sooner than one already pending replaces it.** The deadline
+  is a floor on the animation's own next frame and must not become a floor on
+  everything else: without the `dueAt` comparison a keystroke waited out the
+  quarter of a second a slow animation's next change was away. That is why the
+  scheduled _time_ is tracked rather than only the fact of a timer.
+- **The presented style is the same object where nothing quantized differently.**
+  A text's measurement is cached per width and keyed on the resolved style
+  _object_, so a new one per frame would re-wrap every string in an animating
+  subtree thirty times a second -- which is the most expensive thing in the stack,
+  measured at 24% of a render in grapheme segmentation alone. The object is rebuilt
+  only when an override moved, or when the _base_ moved under it: a colour changing
+  while a width eases has to reach the screen, and `builtFrom` answers "is the
+  presented style still built over the current base" by identity, which is free and
+  exact for the same reason the measurement cache keys that way.
+- **A transition is interruptible, and it animates from the current interpolated
+  value.** That is the first question the ticket left open and the answer is CSS's,
+  because it is the only one that does not look broken: a focus ring half way
+  through easing in and then unfocused has to ease back from where it is, not jump
+  to the full value and ease from there. The alternative -- restart from the
+  declared value -- is cheaper by nothing and visibly wrong on exactly the input
+  this feature exists for, a state that toggles faster than the duration.
+- **Reversal shortening is out.** CSS has a reversing-shortening factor so that
+  reversing a half-done transition takes half the time rather than the full
+  duration, which matters at 60fps over 200ms in a browser. At whole-cell
+  quantization it changes _which_ of a handful of states you see rather than
+  whether the result looks right, and it is a second timing rule to hold. Noted and
+  skipped.
+- **A transition whose declaration has gone is cancelled, which the diff cannot
+  see.** Removing `transition: width 100ms` changes the transition longhands and
+  leaves `width` exactly where it was, so nothing in the property diff is ever
+  asked about the property that is running. CSS cancels there and so does this: a
+  transition still easing on a rule nobody declares any more is one with no live
+  writer, which is the parser's own phrase for the same shape.
+- **There is no `onfinish`, and `Renderer.animating` is the one observable.**
+  That is the second open question and the answer is "declarative for now, with a
+  reason". An event needs a target identity, a delivery point inside the frame --
+  where a handler writing a signal is the re-entrancy `runFrame()` already refuses
+  -- and a story for an element unmounted mid-flight. All three have answers and
+  none of them has a caller, which is the rule `which` waited on for eighteen
+  months. What a caller genuinely cannot observe any other way is whether the loop
+  will keep going, so that is what is exposed; a fade on the way out is the use that
+  will ask for the event, and it should bring the delivery rule with it.
+- **Colour interpolates in Oklab, and only between two 24-bit colours.** The
+  first half is the degrader's own argument read forwards: a ramp through
+  gamma-encoded sRGB dips in perceived lightness in the middle, so a red easing to
+  a blue goes visibly dark half way. Measured, red is L=0.628 and blue L=0.452, so
+  their average is 0.540 -- the Oklab midpoint comes to 0.539 and the sRGB midpoint
+  `#800080` to 0.421. The second half is the refusal: a **palette** colour does not
+  interpolate, because AGENTS.md already records that a named colour stays a palette
+  index -- the basic sixteen are whatever the user's terminal theme says they are,
+  so a mix through the xterm defaults would draw a first frame in a red the user
+  never chose, and `DEFAULT_COLOR` has no channels at all. A pair with no path
+  between them snaps at the midpoint, which is what CSS does with any value it
+  cannot interpolate.
+- **A mix is degraded at the level the cascade resolved at.** Degradation happens
+  at resolve time, so what the animator was handed is already degraded and a mix of
+  two degraded colours is an off-cube colour nothing would degrade again -- which
+  would make an animation the one path in the library that emits truecolor on a
+  256-colour terminal. The level is read off `cascade.media` rather than captured,
+  for the reason the colour level is kept on the renderer: a resize re-reads
+  `NO_COLOR`.
+- **How a property interpolates is derived from the table, with two exceptions
+  named and the parsers as the cross-check.** The shape of the _initial value_
+  answers it -- a `Length` interpolates as a length, a colour as a colour, a number
+  as a whole number, and a keyword or a flag snaps -- which is the rule
+  `COLOR_PROPERTIES` and `ATTRIBUTE_PROPERTIES` already follow and is why a new
+  `Length` property animates for free. `INTERPOLATION_EXCEPTIONS` names what the
+  value cannot say: `flexGrow` and `flexShrink` are ratios and keep their
+  fractions, and the eleven transition and animation longhands are `none`, which is
+  CSS's "not animatable" and is a different thing from `discrete`. The cross-check
+  is a fact about the parsers rather than about the table: a property classified
+  `integer` has to **refuse** `0.5` and one classified `number` has to accept it, so
+  a fractional property added without being named fails rather than being quietly
+  rounded on every frame of every animation.
+- **An easing is interned by its canonical shape, not by its source.** Interning
+  at all is so that `difference()` answers with `===`: it compares two resolved
+  styles with identity plus one branch for a `Length`, and a value type that is
+  neither would mean a third branch and a list to keep in agreement. Keying on the
+  _source_ is the half that was wrong: `steps(4, end)` and `steps(4,end)` are one
+  timing function written two ways, and two objects meant a sheet that wrote one and
+  a theme that wrote the other reported a changed property -- so the frame after
+  repainted to draw exactly what was already on screen. `source` is then the first
+  spelling that produced the entry, and `ease-out` and the bezier it stands for stay
+  separate on purpose, because those are different things to have written.
+- **A cubic-bezier may not overshoot, which is a deliberate divergence from
+  CSS.** The y coordinates are held to `[0, 1]` as well as the x ones. On the web an
+  overshoot curve is the point of letting y leave the unit interval; here every
+  geometry property is whole cells with a grammar of its own -- a padding is a count
+  and a gap cannot be negative -- so an overshoot resolves to a value no declaration
+  could have written, and nothing on the property table says where to clamp it back
+  to. What it would buy at whole-cell quantization is one cell of spring on a
+  ten-cell box. Refused where it is written, which is the rule a fractional length
+  already follows.
+- **And its four components go through the `<number>` grammar, which is the one
+  reader in this file that had never kept that rule.** They were read with
+  `Number()`, so every trap the Style entry above exists for was open here: `Number('')`
+  and `Number(' ')` are `0`, which made `cubic-bezier(0.4, 0.0, 0.2,)` the curve
+  `(0.4, 0, 0.2, 0)` -- one that ends **flat** rather than at 1, so an animation ran
+  a different shape from the one that was written with nothing to say so -- and
+  `Number('0x1')` is `1`, so the hex that entry refuses was taken. Found by review
+  in a file no earlier round had read, which is the argument for pointing a round at
+  the files the previous ones skipped rather than at the diff again. `readNumber()`
+  is **exported** for it rather than copied, and deliberately not re-exported by the
+  barrel, so the grammar stays one implementation without becoming API -- a second
+  spelling of `<number>` beside this one is how the two come to disagree about
+  `1e0`, which CSS allows and a tighter pattern would have taken with it. The
+  component **count** is a separate check and is load bearing on its own, which a
+  sabotage had to say: `cubic-bezier(0, 0, 1, 1,)` has all four numbers it needs and
+  is still malformed, and a stylesheet reports that rather than reading past it.
+- **`steps()` takes at least one step, and the position hid the count that did
+  not.** `parseCount()` accepts zero because every other count in this grammar
+  legitimately may be, so the floor is this caller's -- and the guard next to it,
+  which refuses a count and a position that leave no jumps, is exactly what hid the
+  gap: `jumpsFor(0, 'jump-both')` is `1`, so three of the four positions came out
+  empty and were refused while `steps(0, jump-both)` parsed. What it then did is the
+  part worth writing down, because it is not a crash: `floor(t * 0) + 1` is `1` at
+  **every** fraction, so it is a timing function that reports finished for the whole
+  of the duration -- an animation that shows its end state and never moves. The
+  existing test asserted `steps(0)`, which is `jump-end` and was refused all along,
+  which is the shape this file keeps rediscovering -- a rule pinned by the spelling
+  the reporter happened to write. Its own guard rather than a widened one, so the
+  comment on the other stays true: with a count of one or more, `steps(1, jump-none)`
+  really is the only place the count and the position are not independent.
+- **A time carries its unit in a shorthand and not in a longhand, and that is
+  forced rather than chosen.** `transition-duration: 300` is milliseconds, because
+  there is one time unit here the way there is one length unit and spelling it every
+  time is noise. In the `animation` shorthand a bare number is CSS's iteration
+  count, so one grammar cannot have both -- and the two shorthands agreeing about it
+  is worth more than `transition: width 300` saving two characters. The error says
+  so by name, because a bare number where a time was meant is the mistake the rule
+  creates.
+- **A comma-separated list of transitions or animations is refused where it is
+  written.** CSS lets both take a list, where every longhand holds a list of its own
+  and the shorter ones repeat to the length of the first. What that costs here is
+  eleven array-valued properties, a second comparison path in `difference()` and a
+  repetition rule; what it buys is a per-property duration, which in a terminal is
+  rare enough that nobody has asked. Several properties at one duration is still
+  expressible, because `transition-property` is itself a list -- and it expands a
+  **shorthand**, so `transition-property: padding` watches all four edges. Taken as
+  its first entry instead, a declaration whose second half was silently dropped is
+  worse than one that did not parse.
+- **A `transition-property` naming something that cannot animate is refused.** The
+  rule a keyword the engine ignores already follows: a
+  `transition-property: transition-duration` that parsed and did nothing is a
+  declaration whose author has no way to find out it was wrong. The same question
+  inside a `@keyframes` is **skipped** rather than refused, because a keyframe block
+  is read before anything knows it will be used as one -- and an animation that
+  animated its own duration would be asking what the duration is in order to find
+  out what it is.
+- **`@keyframes` is parsed eagerly, resolved by name, and refused inside
+  `@media`.** Eagerly because an unknown property in a stylesheet is an error
+  reported where it was written, which is the rule this parser already follows and
+  which deferring the read to the first frame would give up; `!important` and a
+  cascade keyword are both refused there for the reason `readDeclarations()` refuses
+  one, since there is no cascade to invert and no parent to inherit from. By name,
+  with the last declaration of a name replacing the earlier one whole, which is CSS
+  -- resolved across sheets by origin and then by the order they were added, with
+  **layers and specificity left out** because a `@keyframes` is not a declaration
+  and a name is matched rather than selected. Inside `@media` it is refused:
+  `animation-name` resolves with no media context to hand, so a conditional block
+  needs a rule for which of two matching blocks of one name wins, and inventing a
+  resolution order nothing needs is how a feature that parses comes to mean
+  something nobody wrote. The use that looks like it wants it --
+  `@media (prefers-reduced-motion: reduce)` -- is already answered by the feature
+  itself.
+- **A `@keyframes` endpoint nothing declares is the element's own value.** CSS's
+  implicit 0% and 100% keyframes take the underlying value, which is what makes
+  `@keyframes fade { from { color: red } }` ease into whatever the element's colour
+  is rather than holding red forever. Two blocks at one offset keep the later one
+  per property, which is what writing them in order comes to.
+- **`prefers-reduced-motion` has a real analogue here and is added the way the
+  colour scheme was: one media feature, one field, one lookup.** No new resolution
+  path and nothing added to the matching engine, which is the argument the utility
+  layer and the colour scheme are both built on. `MediaContext.reducedMotion` is
+  **required** rather than optional for the reason `colorScheme` is -- a context
+  that does not say is a context that has not decided, and the type error at every
+  literal in the suite is the change being visible. `DEFAULT_MEDIA.reducedMotion` is
+  `no-preference`, which is CSS's initial value and means "nothing has said
+  otherwise": it is deliberately not where the non-TTY rule lives, because a frozen
+  constant cannot know whether there is a terminal and because the same constant is
+  what `renderToString()` and a bare `Cascade` resolve against.
+- **The one `if` in `holds()` became a two-entry lookup, and that is still one
+  mechanism.** A second keyword feature has to say which _field_ of the context it
+  compares, so `KEYWORD_FEATURES` carries the field beside the values it accepts and
+  the parser and the match read the same entry. Two `if`s would be two places to
+  disagree about which field goes with which feature, which is what a test named for
+  it now fails over.
+- **The chain is the app, then the user, then whether there is a terminal at
+  all.** `RenderOptions.reducedMotion`, then `SIGIL_REDUCED_MOTION`, then
+  `terminal.isTTY && !terminal.closed`. The shape is the colour scheme's and so is
+  each reason: an app that names one is stating a fact about its output, the variable
+  is the user correcting the detection, and a pipe, a file or a CI log has no frames
+  at all -- so an animation there would write a line per tick into something nobody
+  will watch play. That last term is the live region's own rule for a spinner,
+  generalized from one component to the cascade, and it is why a piped app needs no
+  option to behave. The variable is namespaced for the reason `SIGIL_COLOR_SCHEME`
+  is, it reads the vocabulary a boolean property reads plus the feature's own two
+  keywords, and a value that is neither falls through rather than deciding.
+  `themedCascade()` reads it too, because that is the one place every built-in's
+  cascade comes from and a sheet with a reduced-motion half would otherwise resolve
+  at the frozen default for every table and every help screen there is.
+- **Reduced motion is an animation that has already finished.** One sentence
+  rather than two: an infinite animation has no end state to collapse to and does
+  not run, and a finite one leaves behind exactly what its fill mode says it leaves
+  behind -- the final frame for `forwards` or `both`, and the element's own style for
+  anything else. Transitions do not start at all, which is what a style change
+  looked like before any of this existed.
+- **Whether an animation runs is `#syncAnimation()`'s single decision, and the
+  first version took it in three places that disagreed.** A review round found all
+  three, and they are one shape: that function had early exits which did not consult
+  what the rest of the class consults. Under reduced motion it stored the animation
+  anyway and left the _collapse_ to the per-frame arithmetic, so an infinite one kept
+  `active` true and the frame loop woke every two seconds **for the life of the
+  process** -- by the plainest route there is, since a non-TTY resolves to `reduce`
+  and a non-TTY is the CI log the requirement was written for. With a zero duration
+  it dropped the animation outright, which is right for a fill of `none` and loses the
+  100% keyframe CSS applies for `forwards` -- and `animation: slide forwards` is that
+  input, since an omitted duration defaults to `0s`. And a fill once left behind was
+  never taken away, so it survived `animation-name: none` and a _finished_ animation
+  restarted on the next unrelated style change.
+
+  So `#commit()` names the four answers -- **runs**, **settled** at the state it
+  would have left behind, **refused**, or none -- and only the first makes `active`
+  true. The fill carries the name of the animation that left it, because a fill
+  belongs to its animation: that is what takes it away with the name and what stops
+  a finished animation restarting. And `prefers-reduced-motion` is a media query, so
+  the decision is re-taken when the query's answer moves: `Animator.touchMedia()` is
+  the same method name the `Restyler` carries, called from the same
+  `publishMedia()`, over every element the animator has a _base_ for -- because an
+  animation the preference refused left no entry behind and turning the preference
+  off has to be able to start it.
+
+- **And the `isFinite` guard the first write-up called a statement rather than a
+  claim was load-bearing all along, which is the entry worth reading twice.** That
+  paragraph said deleting it changed no test because `Infinity % 1` is `NaN`,
+  `ease()` hands `NaN` back, every comparison in `valueAt()` is then false, both
+  endpoints fall back to the underlying value, and the override is dropped for
+  equalling the base -- "right by five accidents in a row". The chain breaks at the
+  last link, and a review round traced it: `valueAt()` does fall back to the base at
+  both ends, so `interpolate(base, base, NaN)` is what runs, and for a `Length` in
+  **cells** that is `cells(Math.round(NaN))`, which is `cells(NaN)` -- and
+  `sameValue()` compares `NaN === 0` as false, so the override is **kept** and a
+  width of `NaN` reaches the layout engine.
+
+  Why the sabotage reported otherwise is the part to keep: the harness was sound --
+  it patched the source, ran the **whole** suite, and read every failed assertion --
+  and the _fixture_ was not. The one test exercising that branch animated `left` on
+  an element that declared none, so the base was `auto`, and `mixLength()` hands an
+  `auto` back untouched for want of a `cells` or `percent` branch to take. On a base
+  of `cells(0)` the same deletion fails the same test. A sabotage result is only as
+  strong as the fixture's coverage of the branch, and the write-up compounded it by
+  reasoning _forward_ from "no test failed" to a five-step justification instead of
+  asking what input would make the guard matter. The branch is gone rather than
+  better commented: `progressOf()` is pure timing arithmetic now. The review also
+  predicted a
+  `TypeError` out of `rgb()` for a colour on the same path, and that one does not
+  reach: both of `valueAt()`'s endpoints degrade to the _same_ base value, so
+  `mixColors()` returns early and never builds a channel. A test covers the class
+  anyway, over both motion settings and every frame, because a `Length` of `NaN` is
+  a wrong layout and a colour of `NaN` would be a throw from inside the painter.
+
+- **"There is no path left that can produce a `NaN`" was the next sentence, and a
+  second review round falsified it -- so the claim is an enumeration now rather
+  than a sentence.** The input is the one nobody writes on purpose and it is sitting
+  in this repository's own property table: **`animation-duration` starts at `0`**. So
+  `animation: slide infinite` -- and equally the bare longhands `animation-name`
+  plus `animation-iteration-count: infinite` -- is an endless animation with no play
+  time, `#commit` tested the zero duration _before_ the non-finite count, and
+  `endOf()` for it is `0 * Infinity`, which is `NaN`. Settling at `NaN` walked
+  `progressOf()` straight past both of its guards, because `NaN < 0` and
+  `NaN >= NaN` are each false, and the fill mode was never consulted at all. What it
+  presented was `flexGrow: NaN` through `mix()` and `cells(NaN)` through
+  `mixLength()`, with `active` **false** -- so no timer ran and nothing on screen
+  said anything. `finalOffset(Infinity)` is `NaN` for the same reason, so "settle at
+  the end" is not an answer for that input either: it is refused outright, which is
+  the rule an endless animation already follows under reduced motion.
+
+  The lesson is the one two rounds have now taught in three places, and it is not
+  that the reasoning was sloppy. **A negative claim about all inputs or all callers
+  cannot be established by tracing the route you had in mind.** "No path can produce
+  a `NaN`" and "`tick()` drops it before anything can read it" are both of that
+  kind and both were false -- the first because a default made an input nobody
+  writes reachable, the second because `touchMedia()` is a reader that does not
+  tick. When the fix is "this is now impossible", the thing to do is enumerate the
+  defaults and the callers. So `should present a finite value for every defaulted
+and degenerate input` walks the two values that can be left out against five
+  iteration counts, every fill mode and direction, three keyframe bodies and both
+  motion settings, and asserts a finite presented value at six moments of each --
+  about fifteen hundred assertions in place of a sentence. `easing.test.ts` and
+  `interpolate.test.ts` grew the same shape of walk over their own grammars, since
+  a timing function and an interpolator are what every animated value passes
+  through.
+
+- **The clock is injectable and the frame timer is unref'd.** `RenderOptions.now`
+  is one function asked by the pacing, by the transitions and by the frame-skip
+  arithmetic, so none of the three can come to disagree about what time it is -- and
+  an animation test that waits for wall time is flaky forever, which is the same
+  reason `frameMs` is an option. The `unref()` is the spinner's own rule moved up a
+  layer: a frame pending is not a reason for a finished process to stay alive, and
+  what keeps a real app running is stdin rather than the loop that draws for it.
+- **Nothing animating still means no timer, and that took a fix rather than
+  holding by itself.** The animation asks for its next frame from inside `settle()`
+  rather than running a timer of its own, so `animator.active` going false is what
+  stops the loop -- and for the first version that was true of a transition and
+  false of an animation, which is the defect two entries up. Under reduced motion
+  an infinite animation stayed `active` forever: `endOf()` is `Infinity`, so
+  `#retire()` never cleared it, `nextChange()`'s `Math.min` against `Infinity`
+  stayed at the horizon, the probe found no change and the loop woke every two
+  seconds to present nothing. The tests could not see it because the reduced-motion
+  ones asserted what was _presented_ and never `active`, while the `active` and
+  timer ones were all transitions -- which the other clear in `observe()` does
+  retire. Both halves are asserted now, for an infinite animation and for a finite
+  one with a long duration. An element that leaves the tree mid-transition is
+  **forgotten**, and what that buys is not only the leak `Restyler.forget()` exists
+  for -- a transition still running on a box nobody can see goes on asking for
+  frames, so the loop would spin for the rest of its duration over nothing at all.
+- **A `@keyframes` with no stops in it runs nothing, which is the same rule met by
+  a different input.** An empty body parses, lands in the map, and is **truthy** --
+  so a found name was taken for an animation, and one with `infinite` held the frame
+  loop open at the horizon forever to present nothing. It touches no property, so it
+  can never change what is on screen, which is exactly what `#commit()` already
+  refuses to run. Found while checking the three test files two review rounds had
+  never opened, which is where it should have been found: `keyframes.test.ts` had no
+  empty body, no single-ended body and no stop that sets nothing.
+- **A `forwards` fill outlives its animation without keeping the loop awake, and
+  it carries the name of the animation that left it.** The override is held after
+  the animation is retired, so the last frame stays on screen; `active` is false,
+  because nothing more will change. That is the one state where the animator is
+  presenting a style and the frame loop may stop. The **name** on it is what makes
+  the field's two other jobs possible: a fill belongs to its animation, so
+  `animation-name: none` takes it away rather than leaving it on screen for the life
+  of the element, and a _finished_ animation whose name is still declared is left
+  alone rather than restarting because some unrelated property moved. Both were
+  wrong while the field was a bare value map -- a colour write half a second after a
+  fade finished replayed the whole fade.
+- **`Settled` carries the whole animation and a `ran` flag, and both halves were
+  found by a review round after the first fix looked right.** The flag is the
+  distinction one field was doing two jobs without: an animation that **ran and
+  finished** must not restart, and one that was **collapsed** -- by reduced motion,
+  or by having no play time -- never ran, so it has to be able to start if the thing
+  that collapsed it moves. Those are opposite answers to "is this finished", so
+  whichever was written last was wrong. The first fix refused the restart, and the
+  cost was an animation collapsed under `reduce` that could never start again across
+  two `touchMedia()` calls with no frame between them -- which a resize and a
+  capability reply can produce back to back.
+
+  Two inputs also reached the restart through `tick()`'s drop condition and a test
+  covered neither: a `forwards` fill whose value **equals the base**, which
+  `#overridesAt()` drops for being equal, and a fill of **`none`**, which holds
+  nothing to begin with. Either way the entry held no override, was dropped, and
+  took the record of what had finished with it. So the drop condition keeps an entry
+  whose animation ran, and `#settle()` records whatever it finds, empty map
+  included -- which deleted the `values.size > 0` guard the first fix had argued was
+  unreachable rather than keeping a guard with a false reason attached to it.
+
+  And the animation is on there rather than only its name because a **sheet swap**
+  is a third reader: `cascade.keyframes()` answers with new frames the moment a
+  sheet is added, so a `touchSheets()` that rewrites `@keyframes slide` while
+  `animation-name` stays `slide` has to reach both a running animation and a
+  finished one's fill. `timing()` deliberately does not carry the stops -- correct
+  for the path it was written for, a timing change, and wrong for the one that grew
+  beside it -- so the keep path passes `stops` explicitly and the settled path
+  recomputes when they have moved. `index()` is memoised on the `Keyframes` object
+  for it, which is the right question by identity: the cascade hands back the same
+  frozen array while its sheets do not move and a different one the moment they do.
+
+- **The toolchain generates no utilities for the animation properties, and the
+  exception is an explicit list.** `animation-direction` and `animation-fill-mode`
+  are keyword properties, so the rule that a keyword added to a property gets its
+  utility for free would have produced four and three classes. They are refused in
+  `UNGENERATED` with the reason: both are half a vocabulary on their own, because
+  the **name** and the **duration** are open-ended and a utility set cannot
+  enumerate them -- an `animate-alternate` with no way to spell either is a class
+  that cannot express an animation however many of them you write. What a utility
+  layer would want instead is Tailwind's answer, a handful of named composites with
+  their own `@keyframes`, which means the generator emitting an at-rule and somebody
+  inventing a vocabulary of animations. Neither has a caller. The list is explicit
+  for the reason the raw-control-character exceptions are one: the next property
+  added to it should be a decision somebody makes.
+
+#### The spinner port was measured and refused
+
+SIG-62 called the spinner the strongest evidence the feature belongs -- "`steps(10,
+end)` over a `@keyframes` cycling ten Braille frames _is_ the spinner, declared
+rather than driven by a `setInterval`" -- and asked for the port or a concrete
+reason it does not pay. It does not pay, and the reason is one sentence with three
+costs under it: **the spinner animates _content_, and there is no animatable content
+property.**
+
+`content` is not in the property table and cannot be: a cell grid draws a style per
+cell, and what a `text` holds is the element's own. CSS's answer for stepping
+through content is a sprite reel behind a clip -- a wide strip of all ten frames
+inside a one-column window with `overflow: hidden`, stepping `left` from `0` to
+`-10` with `steps(10, end)` -- and every piece of that exists here. What it costs is
+what decided it.
+
+- **A reel necessarily overflows its window, and `arrangedExtent()` does not
+  intersect the clip.** The strip has to be its natural width or `text-overflow`
+  cuts it to the one column the window gives, which is the whole mechanism gone --
+  and the extent walk takes `box.x + box.width` of every node with no reference to
+  `element.clip`, so an auto-width canvas would claim the reel's full width. Every
+  live spinner frame would be nine columns wider than it needs, which is the one
+  thing `width: 'auto'` exists to prevent. Fixing the extent walk is the enabling
+  change and is **not** this ticket's: it is in the layout and paint layer, it
+  changes `renderToString()` for every clipped tree, and SIG-110's scroll box is
+  editing exactly there. Confirmed from two directions and now scoped out of both:
+  SIG-110's own review established that its new `Element.extent` **does** stop at a
+  clipping box, while `arrangedExtent()` is a separate walk it does not touch -- so
+  the defect is real, pre-existing, and in neither branch. It wants a ticket of its
+  own, and the name matters when reading this: it is `arrangedExtent()`
+  specifically, not extents in general, since there is now a differently-behaved one
+  beside it.
+- **The keyframes cannot be static, because the travel is a runtime argument.**
+  `createSpinner({ frames })` takes its own frames, so the reel's travel is
+  `-frames.length` and the step count is `frames.length`. A sheet cannot say that,
+  so every spinner would parse a stylesheet of its own -- which means plumbing a
+  `sheets` option through `mountLive()` and `themedCascade()` for one component.
+- **The frames would have to be padded to a common width.** `frames[frame %
+frames.length]` handles any frame content today; a reel with a uniform step offset
+  does not, so a caller passing frames of differing widths gets half a glyph.
+
+Against that, what the port deletes is the `setInterval`, its `unref()` and its
+cleanup: fifteen lines, replaced by more than fifteen. And the ticket's own
+constraint is the clearest argument of the three, because a wider live canvas is
+observable: it says the facade's behaviour must not change, "including the
+piped/non-TTY behaviour, which AGENTS.md says is byte for byte what it was".
+
+So the line under "The built-in components" has been corrected rather than left:
+the spinner's `setInterval` is where a `steps()` keyframe animation goes **when
+there is a content property or a clip-aware extent walk**, and today there is
+neither. What the feature is proved on instead is `demos/style/03-animation.js`,
+which transitions a width, two colours at one duration and a focus ring, runs an
+infinite `@keyframes` with `alternate`, and prints frames painted against the thirty
+a second a loop without the frame skip would have drawn.
+
+#### What the sabotage pass caught, and what it got wrong
+
+Fifty-eight mutations, one at a time with the suite run after each, over three
+rounds: thirty-three before any review, fifteen over the guards round 1's fixes
+added, and ten over round 2's. **All fifty-eight are caught now** bar one, written
+down below. The interesting half is not the count -- it is that each round's
+survivors had the same cause, and that twice a survivor was written up as a
+reasoned decision and was not one.
+
+Seven of the first thirty-three survived and each got the test it was missing:
+an infinite animation under reduced motion; a keyframe declaring a property that
+does not animate; `!important` inside a keyframe (the old assertion was
+`/important/` and passed with the guard gone, because the _colour_ parser then
+refuses `red !important` and its message contains the word); laying out again for
+an animated geometry property (every assertion was on the resolved style, which
+moves whether or not the boxes do -- it reads the **picture** now, since paint
+draws a child at the box arrange gave it); the frame skip itself (counting paints
+cannot see it, so it counts the **timers** the loop set); a sooner frame request
+replacing a later one; and forgetting an unmounted element, re-framed from a leak
+into behaviour -- a transition on a box nobody can see goes on asking for frames.
+
+Four more survived in round 2's own set and are the same lesson a fourth time:
+publishing a media change to the animator needed a renderer whose terminal
+_stops_ being one mid-animation; `touchMedia()` walking every base rather than
+every live entry needed a `tick()` first, because an entry holding nothing is
+dropped and a walk over the entries would otherwise find it anyway; and clearing
+the old fill when a new animation replaces it needed two animations touching
+**different properties**, because with one property the incoming animation's own
+value covers the stale fill on every frame.
+
+Round 3's ten were written after the fixes rather than before, and all but the
+memo were caught first time -- which is what the enumeration bought: a walk over
+the defaulted inputs fails on nine of those ten by construction, where a fixture
+picked by hand had reached none of them.
+
+Two review rounds also never opened `easing.test.ts`, `interpolate.test.ts` or
+`keyframes.test.ts`, which is where this feature's arithmetic lives. Checked for
+the same weakness and it was there -- none of the three reached a defaulted or
+degenerate input: no zero or omitted duration, no non-finite count, no empty
+keyframes body, no fraction outside the interval. The code held for everything the
+new walks over those three grammars ask, with one exception that was a live defect:
+an empty `@keyframes` body, which is the entry above.
+
+**Which is the finding worth keeping, because one of those survivals was written
+into this file as a reasoned decision and it was wrong.** The entry above records
+what the `isFinite` guard really did; what it says about the _method_ is this. The
+harness was sound -- it patched the source, ran the whole suite, and read every
+failed assertion -- so "no test failed" was a true statement about the suite that
+existed. What was weak was the **fixture**: in eleven of the forty-six, the only
+test reaching the branch did not reach the state that makes the guard matter. A
+sabotage result is therefore a statement about the tests and not about the code,
+and the two diverge exactly where a fixture is too easy. The error that compounded
+it was reasoning _forward_ from the survival to a five-step justification for why
+the guard was redundant, rather than asking what input would make it matter and
+writing that input down. Every survivor since has been resolved the second way.
+
+Five of round 2's fifteen survived: the four above, and one more -- an empty fill
+not being recorded -- which was kept on an unreachability argument that round 2
+then falsified, since `touchMedia()` is a reader that does not tick. It is gone,
+replaced by the `ran` flag that was the real distinction, and that one has a test.
+
+Nine of round 3's ten were caught by the tests written with them. The tenth
+survives and is **a fast path rather than a claim**: `index()`'s memo on the
+`Keyframes` object. Delete it and every observe rebuilds the index, the stale-fill
+comparison always differs, and every answer is the same with some of them computed
+twice -- so what it costs to delete is work rather than correctness, and it says so
+where it lives.
+
+Which leaves the tally at **one** deliberate survivor across three rounds, and it
+is the only one of the three that was ever a fast path rather than a claim -- the
+other two were a false unreachability argument and a false structural one.
+
+#### What is deliberately out
+
+Each of these is a decision rather than an omission, and each is one somebody will
+reach for.
+
+- **Per-keyframe timing functions.** `animation-timing-function` inside a keyframe
+  block means the easing changes between stops, which is a second timing rule and a
+  second place for the measure and the paint to disagree about where a value is.
+  The animation's own easing covers the whole iteration.
+- **`animation-play-state`.** Pausing needs a second clock -- elapsed time has to
+  stop accumulating while the state is `paused` and resume from where it was -- and
+  nothing asks for it. A component that wants it today sets `animation-name: none`,
+  which stops the animation and loses its phase.
+- **More than one animation or transition per element.** The comma list above, read
+  from the other side.
+- **`animation-composition`, `@starting-style`, and `currentcolor`.** The first two
+  are CSS features that depend on a composite ordering this cascade does not have;
+  the third already has a recorded entry saying it needs a resolution order of its
+  own.
+- **An interpolation that can produce a value the property would refuse.** The
+  overshoot refusal above is the general form: there is no clamp table, so the
+  grammar is held where the value is read.
 
 ### Canvas
 
@@ -7831,8 +8483,12 @@ people's software and will move.
   is driven by and the tree each one builds are exported beside the facade, so a
   component tree can use them directly.
 - **What the rewrite deleted.** The spinner's `setInterval` is an effect with a
-  cleanup, which is where a `steps()` keyframe animation goes when there is one.
-  Each prompt's raw-mode handling, `data` listener, decoder, held tail and escape
+  cleanup, and the line that used to end "which is where a `steps()` keyframe
+  animation goes when there is one" was half right: there is one now, and the
+  spinner is still driven by that interval. The reason is under "The spinner port
+  was measured and refused" -- what a spinner animates is _content_, and the
+  declarative spelling of that is a sprite reel behind a clip, which
+  `arrangedExtent()` does not yet intersect. Each prompt's raw-mode handling, `data` listener, decoder, held tail and escape
   timer are the one input router's. The prompts' frame assembly and cursor
   arithmetic are layout. `padCell()` is a declared width and `text-align`, and
   `truncateCell()` is `text-overflow` -- both gone, with `truncate()` in

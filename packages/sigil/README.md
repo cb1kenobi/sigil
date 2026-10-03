@@ -1279,6 +1279,88 @@ A bad value inside a shorthand is reported against the longhand that could not
 take it — `padding: 1 nonsense` fails at `padding-right`, which is more use than
 saying the shorthand failed.
 
+`transition` and `animation` are shorthands too, and they are the one place a
+time needs its unit — see below.
+
+#### Transitions and animations
+
+A terminal is a frame loop, so CSS animation works here. A `transition` animates
+a style change caused by anything at all — a class, a theme, a resize, a
+`:focus` that just matched — and `@keyframes` plus `animation` runs a named
+sequence.
+
+```css
+.bar {
+  width: 4;
+  transition: width 300ms ease-out;
+}
+.bar.wide {
+  width: 30;
+}
+
+@keyframes march {
+  from {
+    left: 0;
+  }
+  to {
+    left: 20;
+  }
+}
+.runner {
+  position: relative;
+  animation: march 1600ms ease-in-out infinite alternate;
+}
+```
+
+Nothing in the component changes: adding `wide` is an ordinary class write and
+the frame loop does the rest.
+
+**Geometry interpolates in whole cells.** A bar going from 4 to 30 columns has
+twenty-seven visible states however long it takes, so the timing function decides
+which frames land on which integer — and the frame loop does not wake for a frame
+that would paint what is already on screen.
+
+**Colours interpolate in Oklab**, which keeps the perceived lightness two
+endpoints average to rather than dipping dark in the middle. Only two 24-bit
+colours interpolate: a palette colour is whatever the user's terminal theme says
+it is, so there is no honest path between two of them and the value snaps at the
+midpoint — which is what CSS does with anything it cannot interpolate. So do
+`bold`, `border-style` and `display`.
+
+**A time carries its unit in a shorthand** and may leave it off in a longhand,
+because a bare number in `animation` is CSS's iteration count:
+
+```js
+declare({ transition: 'width 300ms linear' });
+declare({ 'transition-duration': '300' }); // milliseconds, like every time here
+declare({ animation: 'march 1s linear 0s infinite alternate' });
+```
+
+The timing functions are `linear`, `ease`, `ease-in`, `ease-out`, `ease-in-out`,
+`step-start`, `step-end`, `steps(n, position)` and `cubic-bezier(a, b, c, d)` —
+whose y coordinates must stay in `[0, 1]`, because an overshoot resolves to a
+value no declaration could have written.
+
+One transition and one animation per element: `transition-property` takes a list,
+so several properties at one duration is `transition-property: width, height`,
+and a comma-separated list of whole transitions is refused rather than read as
+its first entry.
+
+#### Nothing moves where there is nothing to move on
+
+`@media (prefers-reduced-motion: reduce)` is an ordinary media query, and the
+answer comes from `RenderOptions.reducedMotion`, then `SIGIL_REDUCED_MOTION`,
+then whether there is a terminal at all. A pipe, a file and a CI log have no
+frames, so every animation there collapses to the state it would have ended on
+rather than writing a line per tick.
+
+```sh
+SIGIL_REDUCED_MOTION=1 mycli    # or just: mycli | cat
+```
+
+`Renderer.animating` says whether anything is in flight. There is no `onfinish`
+yet.
+
 ### `sigil/signals`
 
 The reactive core, shaped like the [TC39 Signals proposal][signals] (stage 1)

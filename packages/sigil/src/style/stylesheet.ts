@@ -20,6 +20,8 @@
  */
 
 import { type Setting, readSettings } from './declaration.js';
+import type { ReducedMotion } from './motion.js';
+import type { PropertyName } from './properties.js';
 import type { ColorScheme } from './scheme.js';
 import { type Selector, parseSelectorList } from './selector.js';
 import { StyleError } from './value.js';
@@ -66,17 +68,39 @@ export const ORIGINS: readonly Origin[] = ['framework', 'theme', 'app'];
  * spelling of a scale the library already has is how two parts of one library
  * come to disagree about what `2` means.
  */
-export type MediaFeature = 'color-level' | 'height' | 'prefers-color-scheme' | 'width';
+export type MediaFeature =
+	| 'color-level'
+	| 'height'
+	| 'prefers-color-scheme'
+	| 'prefers-reduced-motion'
+	| 'width';
 
 /**
- * The features whose values are keywords rather than numbers.
+ * The features whose values are keywords rather than numbers, and what each one
+ * accepts.
  *
- * One so far. A range on a keyword means nothing and a bare form would be a query
+ * Two now. A range on a keyword means nothing and a bare form would be a query
  * that is always true, so both are refused where they are written rather than
  * quietly accepted -- which is the rule an unknown property in a stylesheet
  * already follows.
+ *
+ * The values live here rather than in `holds()` so that one table answers both
+ * halves: what the parser accepts, and which field of the context the match
+ * reads. A second keyword feature is what turned the one `if` into a lookup, and
+ * a lookup is still one mechanism -- what it is not is two `if`s that can come to
+ * disagree about which field goes with which feature.
  */
-const KEYWORD_FEATURES: readonly MediaFeature[] = ['prefers-color-scheme'];
+const KEYWORD_FEATURES: Record<
+	string,
+	{ field: 'colorScheme' | 'reducedMotion'; values: readonly string[] }
+> = {
+	__proto__: null,
+	'prefers-color-scheme': { field: 'colorScheme', values: ['light', 'dark'] },
+	'prefers-reduced-motion': { field: 'reducedMotion', values: ['no-preference', 'reduce'] },
+} as unknown as Record<
+	string,
+	{ field: 'colorScheme' | 'reducedMotion'; values: readonly string[] }
+>;
 
 /**
  * One feature test.
@@ -93,6 +117,29 @@ export interface MediaCondition {
 	readonly value: number;
 }
 
+/** One `@keyframes` stop: how far through, and what it sets there. */
+export interface Keyframe {
+	/** The declarations, already read into longhands. A cascade keyword is refused. */
+	readonly declarations: readonly (readonly [PropertyName, unknown])[];
+	/** 0 to 1. `from` is 0 and `to` is 1. */
+	readonly offset: number;
+}
+
+/**
+ * A named animation: its stops, in offset order.
+ *
+ * Parsed eagerly into longhands rather than kept as source, because an unknown
+ * property in a stylesheet is an error reported where it was written -- which is
+ * the rule this parser already follows and would be given up by deferring the
+ * read to the first frame that needed it.
+ *
+ * `!important` has no meaning inside a keyframe and neither does a cascade
+ * keyword: there is no cascade here to resolve one against and no parent to
+ * inherit from, which is exactly the argument `readDeclarations()` already makes
+ * for refusing them. Both are refused where they are written.
+ */
+export type Keyframes = readonly Keyframe[];
+
 /** Conditions joined by `and`: all must hold. */
 export type MediaQuery = readonly MediaCondition[];
 
@@ -106,6 +153,16 @@ export interface MediaContext {
 	/** Whether the destination has a light background or a dark one. */
 	readonly colorScheme: ColorScheme;
 	readonly height: number;
+	/**
+	 * Whether anything should move.
+	 *
+	 * Required rather than optional, for the reason `colorScheme` is: an optional
+	 * field means `holds()` carries a default that then disagrees with
+	 * `DEFAULT_MEDIA`'s, and a context that does not say is a context that has not
+	 * decided. The type error at every literal in the suite is the change being
+	 * visible.
+	 */
+	readonly reducedMotion: ReducedMotion;
 	readonly width: number;
 }
 
@@ -127,6 +184,13 @@ export const DEFAULT_MEDIA: MediaContext = Object.freeze({
 	// `getColorLevel()` detects on first read rather than at import
 	colorScheme: 'dark',
 	height: 24,
+	// CSS's own initial value, which means "nothing has said otherwise" rather
+	// than "animate". It is deliberately *not* where the non-TTY rule lives: a
+	// frozen constant cannot know whether there is a terminal, and this one is
+	// also what `renderToString()` and a bare `Cascade` resolve against -- where
+	// the honest answer is that nobody asked. The renderer puts `reduce` on the
+	// context for a pipe, for `SIGIL_REDUCED_MOTION`, or because the app said so
+	reducedMotion: 'no-preference',
 	width: 80,
 });
 
@@ -151,6 +215,15 @@ export interface Rule {
 }
 
 export interface Stylesheet {
+	/**
+	 * The `@keyframes` this sheet declares, by name.
+	 *
+	 * Keyed by name and not by anything else, because that is how CSS resolves
+	 * one: `animation-name` names it, and the last declaration of a name replaces
+	 * the earlier one outright rather than merging with it. Which sheet's wins
+	 * when two declare a name is the cascade's, by origin and then by order.
+	 */
+	readonly keyframes: ReadonlyMap<string, Keyframes>;
 	readonly origin: Origin;
 	readonly rules: readonly Rule[];
 }
@@ -184,9 +257,11 @@ export function matchesMedia(media: readonly MediaQueryList[], context: MediaCon
 
 function holds(condition: MediaCondition, context: MediaContext): boolean {
 	// a keyword feature has no order, so there is nothing for `min`/`max` to mean
-	// and the parser refuses both: equality is the whole of the test
+	// and the parser refuses both: equality is the whole of the test. Which field
+	// to compare comes off the same table the parser read the values from
 	if (condition.keyword !== undefined) {
-		return context.colorScheme === condition.keyword;
+		const keyword = KEYWORD_FEATURES[condition.feature];
+		return keyword !== undefined && context[keyword.field] === condition.keyword;
 	}
 
 	const actual =
@@ -212,6 +287,7 @@ const FEATURES: readonly MediaFeature[] = [
 	'color-level',
 	'height',
 	'prefers-color-scheme',
+	'prefers-reduced-motion',
 	'width',
 ];
 
@@ -225,7 +301,11 @@ const FEATURES: readonly MediaFeature[] = [
 export function parseStylesheet(source: string, opts: StylesheetOptions = {}): Stylesheet {
 	const parser = new Parser(source);
 	const rules = parser.read(opts.layer ?? 'components', [], false);
-	return Object.freeze({ origin: opts.origin ?? 'app', rules: Object.freeze(rules) });
+	return Object.freeze({
+		keyframes: parser.keyframes,
+		origin: opts.origin ?? 'app',
+		rules: Object.freeze(rules),
+	});
 }
 
 /**
@@ -238,6 +318,8 @@ export function parseStylesheet(source: string, opts: StylesheetOptions = {}): S
 class Parser {
 	#at = 0;
 	#order = 0;
+	/** What `@keyframes` this sheet declared, in the order they were read. */
+	readonly keyframes = new Map<string, Keyframes>();
 	readonly #text: string;
 
 	constructor(text: string) {
@@ -407,7 +489,155 @@ class Parser {
 			return this.read(layer, [...media, query], true);
 		}
 
-		throw this.#fail(`unknown at-rule "@${keyword}": there is @layer and @media`, at);
+		if (keyword === 'keyframes') {
+			if (!opened) {
+				throw this.#fail('expected "{" after a @keyframes name', at);
+			}
+			// refused inside a media query rather than honoured there, and that is a
+			// decision: `animation-name` resolves a name with no media context to
+			// hand, so a conditional `@keyframes` needs a rule for which of two
+			// matching blocks wins -- a resolution order nothing needs yet, and
+			// inventing one is how a feature that parses comes to mean something
+			// nobody wrote. `@media (prefers-reduced-motion: reduce)` is the use that
+			// looks like it wants this, and the media feature already collapses an
+			// animation without any help from a second block
+			if (media.length > 0) {
+				throw this.#fail(
+					'@keyframes cannot sit inside @media: an animation is resolved by name with no media context, so there is nothing to choose between two blocks of one name',
+					at
+				);
+			}
+			this.#readKeyframes(prelude, at);
+			return [];
+		}
+
+		throw this.#fail(`unknown at-rule "@${keyword}": there is @layer, @media and @keyframes`, at);
+	}
+
+	/**
+	 * Reads one `@keyframes name { ... }` into `#keyframes`.
+	 *
+	 * The stops are sorted by offset and a repeated offset keeps both, because two
+	 * blocks at one offset are two sets of declarations and the later one wins per
+	 * property -- which is what merging them in order comes to. A whole *name*
+	 * declared twice is replaced rather than merged, which is CSS.
+	 */
+	#readKeyframes(prelude: string, at: number): void {
+		const name = prelude.trim();
+		if (!KEYFRAMES_NAME.test(name)) {
+			throw this.#fail(`invalid @keyframes name "${name}": expected an identifier`, at);
+		}
+
+		const frames: Keyframe[] = [];
+
+		for (;;) {
+			this.#trivia();
+			if (this.#done) {
+				throw this.#fail(`unclosed @keyframes ${name}`, at);
+			}
+			if (this.#peek === '}') {
+				this.#at++;
+				break;
+			}
+
+			const stopAt = this.#at;
+			const selector = this.#until('{};');
+			if (selector.stopped !== '{') {
+				throw this.#fail(`expected "{" after a keyframe selector in @keyframes ${name}`, stopAt);
+			}
+			const body = this.#until('}');
+			if (body.stopped !== '}') {
+				throw this.#fail(`unclosed keyframe in @keyframes ${name}`, stopAt);
+			}
+
+			const declarations = Object.freeze(this.#keyframeDeclarations(body.text, stopAt));
+			for (const offset of this.#offsets(selector.text, stopAt)) {
+				frames.push(Object.freeze({ declarations, offset }));
+			}
+		}
+
+		// stable, so two blocks at one offset stay in source order
+		frames.sort((a, b) => a.offset - b.offset);
+		this.keyframes.set(name, Object.freeze(frames));
+	}
+
+	/** Reads `from`, `to`, `50%`, or a comma-separated list of them. */
+	#offsets(selector: string, at: number): number[] {
+		const out: number[] = [];
+
+		for (const piece of selector.split(',')) {
+			const text = piece.trim().toLowerCase();
+			if (text === 'from') {
+				out.push(0);
+				continue;
+			}
+			if (text === 'to') {
+				out.push(1);
+				continue;
+			}
+			const percent = /^(\d+(?:\.\d+)?|\.\d+)%$/.exec(text);
+			if (!percent) {
+				throw this.#fail(
+					`invalid keyframe selector "${piece.trim()}": expected from, to, or a percentage`,
+					at
+				);
+			}
+			const value = Number(percent[1]);
+			if (value > 100) {
+				throw this.#fail(
+					`invalid keyframe selector "${piece.trim()}": a percentage past 100% is past the end of the animation`,
+					at
+				);
+			}
+			out.push(value / 100);
+		}
+
+		if (out.length === 0) {
+			throw this.#fail('a keyframe needs a selector: from, to, or a percentage', at);
+		}
+
+		return out;
+	}
+
+	/** Reads a keyframe's declarations, refusing what has no meaning in one. */
+	#keyframeDeclarations(body: string, at: number): [PropertyName, unknown][] {
+		const out: [PropertyName, unknown][] = [];
+
+		for (const piece of split(body)) {
+			const text = piece.trim();
+			if (text === '') {
+				continue;
+			}
+
+			const colon = indexOfTop(text, ':');
+			if (colon === -1) {
+				throw this.#fail(`expected "property: value" in "${text}"`, at);
+			}
+
+			const name = text.slice(0, colon).trim();
+			const value = text.slice(colon + 1).trim();
+			if (IMPORTANT.test(value)) {
+				throw this.#fail(
+					`"!important" means nothing inside @keyframes: there is no cascade here for it to invert`,
+					at
+				);
+			}
+			if (value === '') {
+				throw this.#fail(`no value for "${name}"`, at);
+			}
+
+			for (const setting of this.#guard(at, () => readSettings(name, value))) {
+				if (setting.keyword) {
+					throw this.#fail(
+						`"${setting.keyword}" means nothing inside @keyframes: there is no parent here to inherit from and no cascade to resolve it against`,
+						at
+					);
+				}
+				out.push([setting.property, setting.value]);
+			}
+		}
+
+		return out;
 	}
 
 	/** Reads the name of an `@layer` block, which must be one of the three. */
@@ -479,6 +709,9 @@ class Parser {
 }
 
 const AT_RULE_NAME = /[-a-zA-Z]+/y;
+
+/** A keyframes name: an identifier, the same shape `animation-name` accepts. */
+const KEYFRAMES_NAME = /^[A-Za-z_][\w-]*$/;
 
 const IMPORTANT = /!\s*important\s*$/i;
 
@@ -626,7 +859,7 @@ function parseCondition(source: string, whole: string): MediaCondition {
 		if (prefix) {
 			throw new StyleError(`Media feature "${prefix}${feature}" in "${whole}" needs a value`);
 		}
-		if ((KEYWORD_FEATURES as readonly string[]).includes(feature)) {
+		if (Object.hasOwn(KEYWORD_FEATURES, feature)) {
 			// the bare form of a numeric feature means "not zero", which is a real
 			// question. A keyword feature always has one of its values, so the bare
 			// form would be a query that is always true -- and a rule inside one reads
@@ -638,16 +871,17 @@ function parseCondition(source: string, whole: string): MediaCondition {
 		return Object.freeze({ feature: feature as MediaFeature, kind: 'boolean', value: 0 });
 	}
 
-	if ((KEYWORD_FEATURES as readonly string[]).includes(feature)) {
+	if (Object.hasOwn(KEYWORD_FEATURES, feature)) {
 		if (prefix) {
 			throw new StyleError(
 				`Media feature "${prefix}${feature}" in "${whole}" takes no range: "${feature}" has values rather than an order`
 			);
 		}
+		const allowed = KEYWORD_FEATURES[feature].values;
 		const keyword = raw.trim().toLowerCase();
-		if (keyword !== 'light' && keyword !== 'dark') {
+		if (!allowed.includes(keyword)) {
 			throw new StyleError(
-				`Invalid value "${raw.trim()}" for media feature "${feature}": expected light or dark`
+				`Invalid value "${raw.trim()}" for media feature "${feature}": expected ${allowed.join(' or ')}`
 			);
 		}
 		// read in any case, which is the rule every keyword in this grammar follows:

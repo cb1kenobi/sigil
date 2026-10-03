@@ -9,6 +9,7 @@ import {
 	parseStylesheet,
 	PROPERTIES,
 	PROPERTY_NAMES,
+	type PropertyName,
 	readDeclarations,
 } from '@ttylabs/sigil/style';
 import { describe, expect, it } from 'vitest';
@@ -20,9 +21,33 @@ const sheet = parseStylesheet(generateUtilities());
 /** Resolves a class string against the generated sheet. */
 function resolve(classes: string[], width = 100, colorLevel = 3) {
 	const cascade = new Cascade([sheet]);
-	cascade.media = { colorLevel, colorScheme: 'dark', height: 24, width };
+	cascade.media = {
+		colorLevel,
+		colorScheme: 'dark',
+		height: 24,
+		reducedMotion: 'no-preference',
+		width,
+	};
 	return cascade.resolve({ classes, type: 'box' });
 }
+
+/**
+ * The keyword properties that deliberately generate nothing.
+ *
+ * An explicit list rather than an inferred rule, for the reason the
+ * raw-control-character exceptions are one: the next property added here should
+ * be a decision somebody makes rather than a silence somebody inherits.
+ *
+ * Both are an animation's, and both are half a vocabulary on their own. An
+ * `animate-alternate` with no way to spell the *name* or the *duration* beside
+ * it -- those are open-ended and a utility set cannot enumerate them -- is a
+ * class that cannot express an animation however many of them you write. What a
+ * utility layer would want instead is Tailwind's answer, a handful of named
+ * composites with their own `@keyframes`, which means the generator emitting an
+ * at-rule and somebody inventing a vocabulary of animations. Neither has a
+ * caller.
+ */
+const UNGENERATED: readonly PropertyName[] = ['animationDirection', 'animationFillMode'];
 
 describe('generated from the property table', () => {
 	it('should give every keyword of every keyword property a utility', () => {
@@ -33,7 +58,7 @@ describe('generated from the property table', () => {
 		let checked = 0;
 		for (const property of PROPERTY_NAMES) {
 			const keywords = PROPERTIES[property].keywords;
-			if (!keywords) {
+			if (!keywords || UNGENERATED.includes(property)) {
 				continue;
 			}
 			for (const keyword of keywords) {

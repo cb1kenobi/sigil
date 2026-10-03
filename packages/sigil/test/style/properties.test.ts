@@ -115,6 +115,15 @@ function writeValue(value: unknown): string | undefined {
 	if (typeof value === 'string') {
 		return value;
 	}
+	// `transition-property`, whose empty list is spelled `none`
+	if (Array.isArray(value)) {
+		return value.length === 0 ? 'none' : value.join(', ');
+	}
+	// a timing function, which carries the source it was written as for exactly
+	// this reason: `ease-out` round-trips as the name rather than as the curve
+	if (value && typeof value === 'object' && 'kind' in value && 'source' in value) {
+		return (value as { source: string }).source;
+	}
 	if (value && typeof value === 'object' && 'type' in value) {
 		const length = value as { type: string; value?: number };
 		if (length.type === 'auto') {
@@ -709,6 +718,7 @@ describe('number grammar edges', () => {
 describe('the longhands a name covers', () => {
 	/** One value per shorthand, so a shorthand added without one fails here. */
 	const SAMPLES: Record<string, string> = {
+		animation: 'spin 1s linear 0s 1 normal none',
 		border: 'single red',
 		flex: '1 1 2',
 		'flex-flow': 'row wrap',
@@ -716,6 +726,7 @@ describe('the longhands a name covers', () => {
 		inset: '1',
 		margin: '1',
 		padding: '1',
+		transition: 'all 1s linear 0s',
 	};
 
 	it('should be exactly what expanding one produces', () => {
@@ -816,6 +827,16 @@ describe('every property is classified as moving a box or not', () => {
 	 * only on the layout that happened to use it.
 	 */
 	const PAINT_ONLY: readonly PropertyName[] = [
+		// the animation declarations move nothing by themselves: what an animation
+		// changes is some *other* property, and that property's own classification
+		// is what decides whether the frame lays out again
+		'animationDelay',
+		'animationDirection',
+		'animationDuration',
+		'animationFillMode',
+		'animationIterationCount',
+		'animationName',
+		'animationTimingFunction',
 		'backgroundColor',
 		'bold',
 		'borderColor',
@@ -828,6 +849,10 @@ describe('every property is classified as moving a box or not', () => {
 		'strikethrough',
 		'textAlign',
 		'textOverflow',
+		'transitionDelay',
+		'transitionDuration',
+		'transitionProperty',
+		'transitionTimingFunction',
 		'underline',
 		'visibility',
 		'zIndex',
