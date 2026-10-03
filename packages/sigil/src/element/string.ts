@@ -122,9 +122,9 @@ export function renderToLines(root: Element, opts: RenderStringOptions): string[
 
 		height = Math.max(1, Math.floor(opts.height ?? measureNode(root, width).height));
 
-		// what the last layout gave a different size to, which is what a windowed
-		// list is told so that it can rebuild a window the viewport's height has
-		// moved out from under. Cleared here rather than by `arrange()`, because the
+		// what the last layout gave a size nothing has been told about, which is what a
+		// windowed list is told so that it can rebuild a window the viewport's height
+		// has moved out from under. Cleared here rather than by `arrange()`, because the
 		// growth pass below lays out twice and the two answers are one answer
 		const resized = new Set<Element>();
 		const layoutOnce = (): { height: number; width: number } => {
@@ -158,8 +158,8 @@ export function renderToLines(root: Element, opts: RenderStringOptions): string[
 		let extent = layoutOnce();
 		grow();
 
-		// and again where the layout told something its box had moved and that
-		// changed the tree, which is the same second pass one line up with a
+		// and again where the layout told something a size it did not know about and
+		// that changed the tree, which is the same second pass one line up with a
 		// different question behind it: that one asks how tall the answer came out,
 		// this one asks who needs rebuilding now that there is a box to read.
 		//

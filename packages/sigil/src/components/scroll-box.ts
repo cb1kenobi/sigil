@@ -57,12 +57,18 @@
  * extent spans the whole list and `Element.scrollable` -- and therefore the range,
  * the clamp and the thumb -- is the same answer it would be over every row.
  * Measured on ten thousand two-text rows at 80x24 by
- * `packages/sigil/scripts/benchmark-virtual-list.mjs`: 40,010 elements become
- * 105, a first frame goes from 190.6ms to 0.593ms and a wheel notch from 81.4ms
- * to 0.614ms, and the painted frame is byte for byte the one the whole list
- * produces. The windowed cost is **flat** -- 0.53ms at a thousand rows and 0.61ms
- * at ten thousand -- which is what `O(visible)` comes to and is the thing paint
- * culling could not deliver.
+ * `packages/sigil/scripts/benchmark-virtual-list.mjs`: 40,008 elements become 105, a
+ * first frame goes from 214ms to 0.65ms and a wheel notch from 86.8ms to 0.54ms, and
+ * the painted frame is byte for byte the one the whole list produces. The windowed
+ * cost is **flat** -- 0.63ms at a thousand rows and 0.65ms at ten thousand -- which
+ * is what `O(visible)` comes to and is the thing paint culling could not deliver.
+ *
+ * SIG-131 recorded 40,010 and 190.6ms there, against a side built from this component
+ * with its declared height removed; SIG-132 made that mean "no rows" rather than
+ * "every row", so the baseline is the same rows assembled by hand instead -- which is
+ * the same tree to within the two spacers and really is every row at every offset.
+ * A list that declares no height is now the *flex-sized* section's subject and is
+ * **186ms to 0.605ms**, within 1.1x of one that declared it.
  */
 
 import {
@@ -337,13 +343,16 @@ export function thumbExtent(
  * over-building is the whole list cascaded and arranged, which is the 190ms the
  * windowing exists to avoid. So the hedge is gone and the honest answer stands.
  *
- * What it costs is the one path that lays out without a frame: a bare `arrange()`
- * and `paint()` of a list that declared no height in cells draws an empty
- * viewport, because nothing dispatched `onResize`. `ScrollBox` narrows it with
- * the host's own declared height, which it takes as a **floor** rather than a
- * ceiling -- a host that can grow makes a declared height no bound at all -- and
- * a declared height is what makes even that path right. The two frames there are,
- * `renderToString()` and the renderer, both re-window.
+ * What it costs is the **first** layout of the one path that lays out without a
+ * frame: a bare `arrange()` and `paint()` of a list that declared no height in cells
+ * draws an empty viewport, because nothing dispatched `onResize`. Only the first,
+ * because the two spacers get the range right while the window is empty -- so the
+ * first `scrollTo()`, key or wheel notch goes through `onScroll` and fills it, and
+ * what is left is a list nobody has touched yet painted by something that is not a
+ * frame. `ScrollBox` narrows even that with the host's own declared height, which it
+ * takes as a **floor** rather than a ceiling -- a host that can grow makes a declared
+ * height no bound at all. The two frames there are, `renderToString()` and the
+ * renderer, both re-window.
  *
  * No overscan, which is one number this does not have: a window rebuild is
  * measured at a fraction of a frame -- 0.26ms of cascade for eighty elements --

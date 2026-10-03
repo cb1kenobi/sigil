@@ -67,7 +67,7 @@ export type RawPaint = (painter: RawPainter, box: Box, element: Element) => void
 export type ScrollHandler = (viewport: Element) => void;
 
 /**
- * What an element does when the layout gave it a different size.
+ * What an element does when the layout gave it a size it had not been told about.
  *
  * One function rather than a list, for the reason `onKey` is one, and handed the
  * element for the reason `ScrollHandler` is.
@@ -759,7 +759,7 @@ export class Element implements LayoutNode {
 	onScroll: ScrollHandler | undefined;
 
 	/**
-	 * What this element does when the layout gave it a different size.
+	 * What this element does when the layout gave it a size it had not been told about.
 	 *
 	 * The twin of `onScroll`, and the pairing is the whole of why it is one hook:
 	 * `scrollTo()` is the only writer of `scroll` and `arrange()` is the only writer

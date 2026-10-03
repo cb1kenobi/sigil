@@ -321,8 +321,8 @@ const told = new WeakMap<Element, { height: number; width: number }>();
 const RESIZE_PASSES = 4;
 
 /**
- * Tells the elements whose size moved, and lays out again where that changed the
- * tree.
+ * Tells the elements that have not been told their current size, and lays out
+ * again where that changed the tree.
  *
  * The second half of what `arrange()`'s `resized` collects, and it is here rather
  * than in `arrange()` for one structural reason: a handler that *builds* elements

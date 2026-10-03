@@ -576,7 +576,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 	}
 
 	/**
-	 * What the last `layoutInto()` gave a different size to.
+	 * What the last `layoutInto()` gave a size nothing has been told about.
 	 *
 	 * Lives across frames rather than per call because it is cleared where the
 	 * collection begins -- at the top of `layoutInto()`, which is the layout and
@@ -771,8 +771,8 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 		if (needLayout) {
 			layoutInto();
 
-			// and again for anything the layout told its box had moved, where that
-			// changed the tree. The offset is not the only input to a windowed list's
+			// and again for anything the layout gave a size it did not know about, where
+			// that changed the tree. The offset is not the only input to a windowed list's
 			// window -- the viewport's *height* is the other, and nothing knows that
 			// until a layout has run -- so a resize, which writes no offset, used to
 			// leave a list holding the window it had: ten rows where forty-one were
