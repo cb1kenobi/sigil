@@ -58,6 +58,15 @@ export type ElementType = 'box' | 'raw' | 'text';
 export type RawPaint = (painter: RawPainter, box: Box, element: Element) => void;
 
 /**
+ * What an element does when its scroll offset moved.
+ *
+ * One function rather than a list, for the reason `onKey` is one. Handed the
+ * element it was called about, so that one handler can answer for several
+ * viewports without a closure per viewport.
+ */
+export type ScrollHandler = (viewport: Element) => void;
+
+/**
  * What a `raw` element is handed to paint with.
  *
  * A type-only import of the canvas's `Painter`: precise about what arrives,
@@ -324,6 +333,7 @@ export class Element implements LayoutNode {
 	#focusable = false;
 	#tabIndex: number | undefined;
 	#selectable: boolean | undefined;
+	#scrolling = false;
 
 	/**
 	 * The last measurement, and what it was taken against.
@@ -642,6 +652,21 @@ export class Element implements LayoutNode {
 	 * A scroll that only repainted would leave every descendant claiming a
 	 * position it is no longer drawn at.
 	 *
+	 * This is the **only** writer of `scroll` in the library, which is what makes
+	 * `onScroll` one hook rather than one per caller: `scrollBy()`,
+	 * `scrollIntoView()` and an app writing an offset by hand all arrive here. The
+	 * handler runs after the offset is written and after the mark, so what it reads
+	 * is the offset that will be laid out and what it mutates records marks of its
+	 * own on top of this one.
+	 *
+	 * A `scrollTo()` reached from **inside** this element's own handler writes and
+	 * marks without dispatching again. That bounds the recursion by construction
+	 * rather than by a depth count, and the thing it refuses -- a handler that
+	 * scrolls the box it was called about -- is a loop being described rather than
+	 * a case anybody has. The guard is per element, so a handler that scrolls a
+	 * *different* viewport still reaches that one's handler, which is what a
+	 * nested list needs.
+	 *
 	 * @param x - Cells scrolled right.
 	 * @param y - Cells scrolled down.
 	 * @returns This element.
@@ -653,6 +678,17 @@ export class Element implements LayoutNode {
 		}
 		this.scroll = next;
 		this.#mark('layout');
+
+		if (this.onScroll && !this.#scrolling) {
+			this.#scrolling = true;
+			try {
+				this.onScroll(this);
+			} finally {
+				// put back whatever the handler did to the latch, or one that threw
+				// would leave this viewport deaf for the life of the process
+				this.#scrolling = false;
+			}
+		}
 		return this;
 	}
 
@@ -685,6 +721,28 @@ export class Element implements LayoutNode {
 	 * element it landed on upwards until something stops the event.
 	 */
 	onMouse: MouseHandler | undefined;
+
+	/**
+	 * What this element does when its scroll offset moved.
+	 *
+	 * One function rather than a list, for the reason `onKey` is one, and called
+	 * by `scrollTo()` -- the only writer of `scroll` there is, so one hook answers
+	 * for the keys, the wheel, a dragged thumb and `scrollIntoView()` alike.
+	 *
+	 * It exists because a **windowed** list has to learn that the offset moved: it
+	 * builds the rows the viewport can see and two spacers for the rest, so a new
+	 * offset is a new window. Doing it from the handlers a component owns would
+	 * leave `scrollIntoView()` out, and the focus ring calls that one
+	 * unconditionally -- a row revealed by it would scroll under a window built for
+	 * where the list used to be.
+	 *
+	 * It runs **synchronously**, before the frame that will lay the new offset out,
+	 * which is what keeps the two in step: the tree the frame arranges is the tree
+	 * the handler left. A throw propagates to whatever scrolled, as `onKey`'s does
+	 * -- a scroll handler is the component's own code and a throw in one is a bug
+	 * in that component rather than something for the element to swallow.
+	 */
+	onScroll: ScrollHandler | undefined;
 
 	/** A `raw` element's painter, for the paint walk. */
 	get rawPaint(): RawPaint | undefined {

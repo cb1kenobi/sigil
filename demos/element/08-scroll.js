@@ -8,10 +8,11 @@
  * misses its clip**, so a frame draws the twenty rows on screen rather than the ten
  * thousand that exist. Without it the same frame is 35ms of painting and the app is
  * a slideshow; with it the paint is three tenths of a millisecond and what is left
- * is the layout, which is what virtualization would be for and is deliberately not
- * here. This demo shows that rather than measuring it -- the numbers come from
- * `node packages/sigil/scripts/benchmark-paint-cull.mjs`, which asserts the two
- * frames are identical before it times either of them.
+ * is the layout, which is what windowing is for and is deliberately not here --
+ * `09-virtual.js` is this list windowed, and the two are meant to be run one after
+ * the other. This demo shows the culling rather than measuring it: the numbers come
+ * from `node packages/sigil/scripts/benchmark-paint-cull.mjs`, which asserts the
+ * two frames are identical before it times either of them.
  *
  * Four things to try, and each one is a claim:
  *

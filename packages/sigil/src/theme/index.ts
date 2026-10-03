@@ -70,7 +70,7 @@ export const FRAMEWORK_CSS = `
  *   .sigil-prompt  .sigil-prompt-line  .sigil-prompt-field
  *   .sigil-choice  .sigil-choice-pointer  .sigil-choice-mark  .sigil-choice-hint
  *   .sigil-scroll  .sigil-scroll-row  .sigil-scroll-viewport  .sigil-scroll-content
- *   .sigil-scroll-bar
+ *   .sigil-scroll-bar  .sigil-scroll-slot  .sigil-scroll-spacer
  *   .sigil-help
  * A class with no rule is still a hook; giving it an empty rule would be a
  * declaration that says nothing and a line for somebody to wonder about.

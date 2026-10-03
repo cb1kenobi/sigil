@@ -1,13 +1,16 @@
 import { strip } from '../../src/ansi/index.js';
 import type { Key } from '../../src/components/keys.js';
-import { ScrollBox, thumbExtent } from '../../src/components/scroll-box.js';
+import { rowWindow, ScrollBox, thumbExtent } from '../../src/components/scroll-box.js';
 import {
 	arrange,
 	box,
 	type Element,
 	renderToLines,
 	resolveStyles,
+	scrollBy,
+	scrollIntoView,
 	scrollRange,
+	selectableAt,
 	text,
 } from '../../src/element/index.js';
 import type { KeyEvent, MouseEvent } from '../../src/input/index.js';
@@ -597,5 +600,568 @@ describe('a scroll box read back as a string', () => {
 		expect(lines).to.have.length(3);
 		expect(lines[0]).to.contain('r0');
 		expect(lines[2]).to.contain('r2');
+	});
+});
+
+describe('rowWindow', () => {
+	it('should hold every row until something says how tall the viewport is', () => {
+		// the deliberate fallback: over-building is a slow frame and under-building
+		// is a row that is not on screen, so the unknown case resolves to the
+		// expensive answer rather than to the wrong one
+		expect(rowWindow(10_000, 1, 0, 0)).toStrictEqual({ first: 0, length: 10_000 });
+		expect(rowWindow(10_000, 1, 500, -1)).toStrictEqual({ first: 0, length: 10_000 });
+	});
+
+	it('should hold the rows the viewport can see', () => {
+		expect(rowWindow(100, 1, 0, 4)).toStrictEqual({ first: 0, length: 4 });
+		expect(rowWindow(100, 1, 10, 4)).toStrictEqual({ first: 10, length: 4 });
+		expect(rowWindow(100, 2, 0, 6)).toStrictEqual({ first: 0, length: 3 });
+	});
+
+	it('should hold one more row where the first is partly scrolled off', () => {
+		// the row at the bottom edge is half on screen and has to be built; a window
+		// short by it is a blank line that only appears at some offsets
+		expect(rowWindow(100, 2, 1, 6)).toStrictEqual({ first: 0, length: 4 });
+		expect(rowWindow(100, 3, 2, 6)).toStrictEqual({ first: 0, length: 3 });
+	});
+
+	it('should stop at the last row', () => {
+		expect(rowWindow(6, 1, 4, 4)).toStrictEqual({ first: 4, length: 2 });
+		// past the end is the caller's -- `scrollTo()` deliberately does not clamp
+		expect(rowWindow(6, 1, 100, 4)).toStrictEqual({ first: 5, length: 1 });
+	});
+
+	it('should answer for a list with no rows', () => {
+		expect(rowWindow(0, 1, 0, 4)).toStrictEqual({ first: 0, length: 0 });
+		expect(rowWindow(-3, 1, 0, 4)).toStrictEqual({ first: 0, length: 0 });
+	});
+
+	it('should hold the row a viewport shorter than one row is looking at', () => {
+		// what has to stay true with no floor under the length, which was deleted
+		// for being unreachable
+		expect(rowWindow(100, 10, 25, 1)).toStrictEqual({ first: 2, length: 1 });
+		expect(rowWindow(100, 10, 0, 1)).toStrictEqual({ first: 0, length: 1 });
+	});
+
+	it('should hold every row a viewport can see, at every offset', () => {
+		// the property rather than the cases: walked exhaustively, because this is
+		// where every off-by-one a windowed list can have lives
+		for (const step of [1, 2, 3, 5]) {
+			const count = 40;
+			for (const view of [1, 4, 7, 24]) {
+				for (let offset = 0; offset <= count * step; offset++) {
+					const at = rowWindow(count, step, offset, view);
+					// past the end the window legitimately holds the last row and nothing
+					// is visible at all, which is `scrollTo()` not clamping
+					const inside = offset < count * step;
+					for (let row = 0; row < count; row++) {
+						const top = row * step;
+						const seen = top < offset + view && offset < top + step;
+						const has = row >= at.first && row < at.first + at.length;
+						if (seen && !has) {
+							throw new Error(
+								`row ${row} is visible at offset ${offset} (step ${step}, view ${view}) ` +
+									`and the window is ${at.first}..${at.first + at.length - 1}`
+							);
+						}
+						// the other direction, or a window one row too long reads as correct:
+						// over-building is safe and is still not what this answers
+						if (inside && has && !seen) {
+							throw new Error(
+								`row ${row} is held at offset ${offset} (step ${step}, view ${view}) ` +
+									`and the viewport cannot see it`
+							);
+						}
+					}
+				}
+			}
+		}
+	});
+});
+
+describe('a windowed scroll box', () => {
+	/**
+	 * The same row a hand-built list and a windowed one are both made of.
+	 *
+	 * With a **background**, so that the differential below compares the width each
+	 * row was placed at and not only the glyphs it drew. Without one the two sides
+	 * agreed while the slots were 4 cells wide on one and 11 on the other, which is
+	 * a differential that could not see the thing it was written for.
+	 */
+	const row = (i: number): Element =>
+		text(`r${i}`, {
+			'background-color': i % 3 === 0 ? 'blue' : 'red',
+			focusable: true,
+			id: `r${i}`,
+		});
+
+	/**
+	 * What `rows` builds, assembled by hand: the baseline the window is diffed
+	 * against.
+	 *
+	 * `flex-grow: 1` on the column and `flex-direction: column` on each slot are
+	 * what make this the **same tree** rather than a similar one -- `rows` writes
+	 * the direction on the component's own content box, so a hand-built list needs
+	 * its wrapper to fill the same way or its rows are placed at their content
+	 * width while the window's fill the line.
+	 */
+	function wholeBox(count: number, height = 1): Element {
+		return ScrollBox({
+			children: () =>
+				box(
+					{ 'flex-direction': 'column', 'flex-grow': 1 },
+					...Array.from({ length: count }, (_, i) =>
+						box({ 'flex-direction': 'column', 'flex-shrink': 0, height }, row(i))
+					)
+				),
+			props: { height: 4, width: 12 },
+		});
+	}
+
+	/** The rendered rows with their colour kept, which is what compares the widths. */
+	function coloured(host: Element): string[] {
+		return renderToLines(host, { cascade: themedCascade(), colorLevel: 3, height: 4, width: 12 });
+	}
+
+	function windowBox(count: number, height = 1): Element {
+		return ScrollBox({ props: { height: 4, width: 12 }, rows: { count, height, row } });
+	}
+
+	/** Every row id the tree is holding, in order. */
+	function held(host: Element): string[] {
+		return every(host)
+			.filter((e) => e.id?.startsWith('r'))
+			.map((e) => e.id as string);
+	}
+
+	it('should paint what the whole list paints, and report the range it reports', () => {
+		// the differential the whole thing rests on: a window that drew something
+		// else would be faster and wrong, and a range off by a row is a scrollbar
+		// describing the window instead of the content
+		for (const height of [1, 2]) {
+			for (const offset of [0, 1, 3, 50, 96 / height, 400]) {
+				const whole = wholeBox(100, height);
+				const win = windowBox(100, height);
+				viewportIn(whole).scrollTo(0, offset);
+				viewportIn(win).scrollTo(0, offset);
+				lay(whole);
+				lay(win);
+				expect(coloured(win)).toStrictEqual(coloured(whole));
+				expect(scrollRange(viewportIn(win))).toStrictEqual(scrollRange(viewportIn(whole)));
+			}
+		}
+	});
+
+	it('should build only the rows the viewport can see', () => {
+		const win = lay(windowBox(10_000));
+		expect(every(win).length).toBeLessThan(40);
+		expect(held(win)).toStrictEqual(['r0', 'r1', 'r2', 'r3']);
+		expect(every(wholeBox(10_000)).length).toBeGreaterThan(20_000);
+	});
+
+	it('should keep a row that stayed in the window, so the focus survives a notch', () => {
+		// a list rebuilt wholesale would unmount the element holding the focus on
+		// every wheel notch, and an unmounted focus is handed on by position
+		const win = lay(windowBox(100));
+		const kept = find(win, (e) => e.id === 'r2');
+		viewportIn(win).scrollTo(0, 1);
+		expect(find(win, (e) => e.id === 'r2')).toBe(kept);
+		// still attached, which is the question the focus repair asks -- a row that
+		// left the tree is one whose focus is handed on by position
+		expect(kept?.parent).toBeDefined();
+		expect(held(win)).toStrictEqual(['r1', 'r2', 'r3', 'r4']);
+	});
+
+	it('should follow a scrollIntoView that moved, which no handler of its own sees', () => {
+		// `scrollIntoView()` is the writer the component does not own: the focus ring
+		// calls it, and a row revealed by it would otherwise scroll under a window
+		// built for where the list used to be
+		const win = lay(windowBox(100));
+		const edge = find(win, (e) => e.id === 'r3');
+		expect(edge).toBeDefined();
+		expect(scrollIntoView(edge as Element, { margin: 2 })).toBe(true);
+		expect(viewportIn(win).scroll?.y).toBe(1);
+		expect(held(win)).toStrictEqual(['r1', 'r2', 'r3', 'r4']);
+		// and the row it was asked to reveal is still one of them
+		expect(find(win, (e) => e.id === 'r3')).toBe(edge);
+	});
+
+	it('should mask the cells the whole list masks, so a selection copies the same', () => {
+		for (const offset of [0, 40]) {
+			const whole = wholeBox(100);
+			const win = windowBox(100);
+			viewportIn(whole).scrollTo(0, offset);
+			viewportIn(win).scrollTo(0, offset);
+			lay(whole);
+			lay(win);
+			const a = selectableAt(whole, 12, 4);
+			const b = selectableAt(win, 12, 4);
+			// both have a mask, and it is one that says something: the bar's two `raw`
+			// elements default to unselectable, so the gutter column is `false` while
+			// the rows are `true`. Without asserting that, two `undefined` masks or
+			// two all-true ones would satisfy the comparison below having compared
+			// nothing -- which is the shape the stripped picture differential had
+			expect(a).toBeDefined();
+			expect(b).toBeDefined();
+			let refused = 0;
+			for (let y = 0; a && b && y < 4; y++) {
+				for (let x = 0; x < 12; x++) {
+					expect(b(x, y)).toBe(a(x, y));
+					if (!b(x, y)) {
+						refused++;
+					}
+				}
+			}
+			expect(refused).toBe(4);
+		}
+	});
+
+	it('should take either children or rows and never both', () => {
+		// refused where the component is built, the way a command declaring a `path`
+		// beside a `run` is: two answers to "what is the content" and no way to pick
+		expect(() =>
+			ScrollBox({ children: () => text('x'), rows: { count: 1, height: 1, row } })
+		).toThrow(/either children or rows/);
+		expect(() => ScrollBox({})).toThrow(/either children or rows/);
+	});
+
+	it('should bound the first window by the height the host declared', () => {
+		// the viewport is inside the host, so a declared host height is never less
+		// than the height the viewport gets -- which makes it a bound and not a guess
+		const declared = ScrollBox({
+			props: { height: 4, width: 12 },
+			rows: { count: 500, height: 1, row },
+		});
+		expect(held(declared)).toStrictEqual(['r0', 'r1', 'r2', 'r3']);
+		// and a string of digits is the other spelling of the same length
+		const written = ScrollBox({
+			props: { height: '4', width: 12 },
+			rows: { count: 500, height: 1, row },
+		});
+		expect(held(written)).toStrictEqual(['r0', 'r1', 'r2', 'r3']);
+	});
+
+	it('should build the whole list where the host declares no height in cells', () => {
+		// no bound is no window, and the answer is the expensive one rather than the
+		// wrong one -- superseded by the arranged height from the first scroll on
+		const loose = ScrollBox({ props: { width: 12 }, rows: { count: 40, height: 1, row } });
+		expect(held(loose).length).toBe(40);
+		// `Number('')` and `Number(' ')` are both 0, so a height nobody wrote must
+		// not read as a bound of nothing
+		expect(
+			held(ScrollBox({ props: { height: '', width: 12 }, rows: { count: 7, height: 1, row } }))
+				.length
+		).toBe(7);
+		expect(
+			held(ScrollBox({ props: { height: '50%', width: 12 }, rows: { count: 7, height: 1, row } }))
+				.length
+		).toBe(7);
+		// and once it has been arranged, the arranged height is what it windows by
+		lay(loose);
+		viewportIn(loose).scrollTo(0, 10);
+		expect(held(loose)).toStrictEqual(['r10', 'r11', 'r12', 'r13']);
+	});
+
+	it('should take its cross extent from the rows that were built', () => {
+		// what windowing a vertical axis costs on the horizontal one: the extent is
+		// the widest row that *exists*, so the range moves as you scroll down -- and
+		// an offset the new range cannot hold is clamped, which reads as the view
+		// jumping left. Pinned so that it is discovered here rather than in an app
+		const wide = (i: number): Element =>
+			text(i < 6 ? `r${i} ${'x'.repeat(20)}` : `r${i}`, { 'white-space': 'nowrap' });
+		const host = ScrollBox({
+			axis: 'both',
+			props: { height: 4, width: 12 },
+			rows: { count: 12, height: 1, row: wide },
+		});
+		const view = viewportIn(host);
+		lay(host);
+		expect(scrollRange(view).x).toBeGreaterThan(0);
+
+		scrollBy(view, 10, 0);
+		scrollBy(view, 0, 8);
+		lay(host);
+		expect(scrollRange(view).x).toBe(0);
+		scrollBy(view, 1, 0);
+		expect(view.scroll?.x).toBe(0);
+	});
+
+	it('should take it from the declared width where there is one', () => {
+		// the fix, and it is `height`'s decision on the axis that is not windowed:
+		// a declared row width makes the cross extent constant whichever rows are
+		// in the window
+		const wide = (i: number): Element =>
+			text(i < 6 ? `r${i} ${'x'.repeat(20)}` : `r${i}`, { 'white-space': 'nowrap' });
+		const host = ScrollBox({
+			axis: 'both',
+			props: { height: 4, width: 12 },
+			rows: { count: 12, height: 1, row: wide, width: 24 },
+		});
+		const view = viewportIn(host);
+		lay(host);
+		const before = scrollRange(view).x;
+		expect(before).toBeGreaterThan(0);
+
+		scrollBy(view, 10, 0);
+		scrollBy(view, 0, 8);
+		lay(host);
+		expect(scrollRange(view).x).toBe(before);
+		scrollBy(view, 1, 0);
+		expect(view.scroll?.x).toBe(11);
+	});
+
+	it('should take the larger of the arranged height and the declared one', () => {
+		// a height of **0** is a measurement rather than "not arranged yet": a
+		// bordered host of height 2 has a content box of zero, and reading that as
+		// unknown built all five hundred rows
+		const bordered = ScrollBox({
+			props: { 'border-style': 'single', height: 2, width: 12 },
+			rows: { count: 500, height: 1, row },
+		});
+		resolveStyles(bordered);
+		arrange(bordered, { height: 2, width: 12 });
+		expect(viewportIn(bordered).content?.height).toBe(0);
+		viewportIn(bordered).scrollTo(0, 1);
+		expect(held(bordered).length).toBeLessThan(5);
+	});
+
+	it('should let the arranged height beat a declared one the host outgrew', () => {
+		// a host that can **grow** makes its declared height no bound at all, so the
+		// arranged height has to win: `height: 10` with `flex-grow: 1` in a forty-row
+		// parent is a viewport of forty, and keeping the ten left thirty rows blank
+		const host = ScrollBox({
+			props: { 'flex-grow': 1, height: 10, 'min-height': 0, width: 12 },
+			rows: { count: 500, height: 1, row },
+		});
+		const root = box({ 'flex-direction': 'column', height: 40 }, host);
+		resolveStyles(root);
+		arrange(root, { height: 40, width: 12 });
+		expect(viewportIn(host).content?.height).toBe(40);
+		viewportIn(host).scrollTo(0, 1);
+		// rows 1..40, which is the forty a forty-row viewport can see at offset one
+		expect(held(host).length).toBe(40);
+	});
+
+	it('should commit nothing when a row builder throws', () => {
+		// `rows.row()` is the caller's code, and the offset is already the new one by
+		// the time the window is computed. Committing first left `at` claiming a
+		// window the content box did not hold, and no later scroll to the same window
+		// could repair it -- the guard would see nothing to do
+		let fail = -1;
+		const rows = {
+			count: 100,
+			height: 1,
+			row: (i: number): Element => {
+				if (i === fail) {
+					throw new Error('from the row builder');
+				}
+				return row(i);
+			},
+		};
+		const host = ScrollBox({ props: { height: 4, width: 12 }, rows });
+		const view = viewportIn(host);
+		lay(host);
+		const before = held(host);
+		const spacer = find(host, (e) => e.classes.includes('sigil-scroll-spacer'));
+
+		fail = 5;
+		expect(() => view.scrollTo(0, 5)).toThrow(/from the row builder/);
+		// the window the content box holds, and the spacer that measures it, are the
+		// ones from before
+		expect(held(host)).toStrictEqual(before);
+		expect(spacer?.props.height).toBe(0);
+		// and so is the **offset**, which is the rest of the commit: `scrollTo()` had
+		// already written it, so a throw that left it there would show the spacer
+		// over a window built for somewhere else -- and `scrollTo(0, 5)` again is a
+		// no-op, so nothing short of scrolling elsewhere could have repaired it
+		expect(view.scroll?.y).toBe(0);
+
+		// which is what makes the *same* offset reachable again once the builder
+		// stops throwing. Asserted by retrying it directly rather than by going
+		// somewhere else and back, which is what the first version of this did and
+		// is the one sequence that cannot reach the equality check
+		fail = -1;
+		view.scrollTo(0, 5);
+		expect(held(host)).toStrictEqual(['r5', 'r6', 'r7', 'r8']);
+	});
+
+	it('should draw the thumb at the ends, which it could not from what was built', () => {
+		// the claim the demo leads with. The thumb reads `scrollRange()` plus the
+		// viewport's own height, so a range describing the window rather than the
+		// content would put it near the top forever -- and "it touches an end only
+		// at that end" is the bar's own recorded rule, so the top and bottom cells
+		// are what say the range is the whole list's
+		const win = windowBox(500);
+		const view = viewportIn(win);
+		const column = (): string =>
+			picture(win)
+				.map((line) => line.at(-1) ?? ' ')
+				.join('');
+
+		view.scrollTo(0, 0);
+		expect(column()).toBe('█│││');
+		view.scrollTo(0, scrollRange(view).y);
+		expect(column()).toBe('│││█');
+		// and the whole list agrees, cell for cell, at both ends
+		for (const offset of [0, 496]) {
+			const whole = wholeBox(500);
+			viewportIn(whole).scrollTo(0, offset);
+			view.scrollTo(0, offset);
+			lay(whole);
+			lay(win);
+			expect(column()).toBe(
+				picture(whole)
+					.map((line) => line.at(-1) ?? ' ')
+					.join('')
+			);
+		}
+	});
+
+	it('should drag the thumb to the last row', () => {
+		// the drag maps pointer movement onto `scrollRange()`, so it reaches the end
+		// of the content rather than the end of the window
+		const win = lay(windowBox(500));
+		const bar = find(win, (e) => e.classes.includes('sigil-scroll-bar'));
+		expect(bar).toBeDefined();
+		bar?.onMouse?.(mouseEvent({ kind: 'mousedown', x: 11, y: 0 }));
+		bar?.onMouse?.(mouseEvent({ kind: 'mousemove', x: 11, y: 99 }));
+		expect(viewportIn(win).scroll?.y).toBe(scrollRange(viewportIn(win)).y);
+		expect(held(win)).toStrictEqual(['r496', 'r497', 'r498', 'r499']);
+	});
+
+	it('should roll back to the offset the last settled window was for', () => {
+		// not to zero, and not to the offset `scrollTo()` has just written. Rows three
+		// cells tall so that a scroll *inside* one row takes the unchanged-window fast
+		// path -- which still has to record the offset it settled at, or a later
+		// failure rolls back past it to an older one
+		let fail = -1;
+		const rows = {
+			count: 100,
+			height: 3,
+			row: (i: number): Element => {
+				if (i === fail) {
+					throw new Error('from the row builder');
+				}
+				return row(i);
+			},
+		};
+		const host = ScrollBox({ props: { height: 4, width: 12 }, rows });
+		const view = viewportIn(host);
+		lay(host);
+		expect(held(host)).toStrictEqual(['r0', 'r1']);
+
+		// a scroll inside the first row: the window is the one already there, so this
+		// goes through the fast path and nothing is rebuilt
+		view.scrollTo(0, 1);
+		expect(held(host)).toStrictEqual(['r0', 'r1']);
+
+		// and now a window that has to build a row the builder refuses
+		fail = 2;
+		expect(() => view.scrollTo(0, 6)).toThrow(/from the row builder/);
+		expect(view.scroll?.y).toBe(1);
+		expect(held(host)).toStrictEqual(['r0', 'r1']);
+
+		// the same thing again from an offset the *commit* path settled, rather than
+		// the fast path: both have to record it, and a test that only reached one of
+		// them left the other's assignment surviving its sabotage
+		fail = -1;
+		view.scrollTo(0, 6);
+		expect(held(host)).toStrictEqual(['r2', 'r3']);
+		fail = 4;
+		expect(() => view.scrollTo(0, 12)).toThrow(/from the row builder/);
+		expect(view.scroll?.y).toBe(6);
+		expect(held(host)).toStrictEqual(['r2', 'r3']);
+	});
+
+	it('should still scroll from the keyboard and the wheel', () => {
+		const win = lay(windowBox(100));
+		const event = keyEvent('down');
+		win.onKey?.(event);
+		expect(event.claimed()).toBe(true);
+		expect(viewportIn(win).scroll?.y).toBe(1);
+		expect(held(win)).toStrictEqual(['r1', 'r2', 'r3', 'r4']);
+
+		// the wheel as well, which this was named for and did not do: a notch is
+		// three lines, and the window has to follow it
+		const notch = mouseEvent({ kind: 'wheel', wheel: 'down' });
+		win.onMouse?.(notch);
+		expect(notch.claimed()).toBe(true);
+		expect(viewportIn(win).scroll?.y).toBe(4);
+		expect(held(win)).toStrictEqual(['r4', 'r5', 'r6', 'r7']);
+	});
+
+	it('should leave a children-built box sized the way it already was', () => {
+		// the column is written only where `rows` is in play, and writing it
+		// unconditionally is a visible change to every `children` list: the content
+		// box's direction decides which axis its one child is *stretched* on, so a
+		// bordered box went from content-width to the whole viewport's width
+		const host = lay(
+			ScrollBox({
+				children: () =>
+					box({ 'border-style': 'single', 'flex-direction': 'column' }, text('x'), text('y')),
+				props: { height: 4, width: 12 },
+			})
+		);
+		expect(picture(host)).toStrictEqual([
+			'┌─┐        █',
+			'│x│        █',
+			'│y│        █',
+			'└─┘        █',
+		]);
+	});
+
+	it('should stack its rows, whatever a row element is', () => {
+		// the content box's direction is the component's where `rows` is in play,
+		// because the spacers are placed against it. Left at the default the slots
+		// were laid out side by side: one row of content and a horizontal overflow
+		const win = lay(windowBox(100));
+		const boxes = held(win).map((id) => find(win, (e) => e.id === id)?.box?.y);
+		expect(boxes).toStrictEqual([0, 1, 2, 3]);
+	});
+});
+
+describe('a windowed list whose count changed', () => {
+	const row = (i: number): Element => text(`r${i}`, { id: `r${i}` });
+
+	it('should pick up the new count the next time the window is computed', () => {
+		// `count` is read on every window rather than captured, which is the line a
+		// command's own declaration draws between what is read on every parse and
+		// what built the registry lookups. A log grows, and what the range is
+		// computed from has to be able to follow it
+		const rows = { count: 10, height: 1, row };
+		const host = ScrollBox({ props: { height: 4, width: 12 }, rows });
+		const view = viewportIn(host);
+		resolveStyles(host);
+		arrange(host, { height: 4, width: 12 });
+		expect(scrollRange(view).y).toBe(6);
+
+		rows.count = 40;
+		// the next window is what reads it, which is the next time the offset moves
+		view.scrollTo(0, 1);
+		resolveStyles(host);
+		arrange(host, { height: 4, width: 12 });
+		expect(scrollRange(view).y).toBe(36);
+	});
+
+	it('should not be skipped by the unchanged-window guard', () => {
+		// the guard compares what the last window was computed from, and a count
+		// that grew while `first` and `length` stayed put is exactly the case it
+		// would otherwise skip -- so the spacer below would keep its old height.
+		// Rows three cells tall, because at one cell every offset is a different
+		// window and the guard is never the thing that answers
+		const rows = { count: 10, height: 3, row };
+		const host = ScrollBox({ props: { height: 4, width: 12 }, rows });
+		const view = viewportIn(host);
+		resolveStyles(host);
+		arrange(host, { height: 4, width: 12 });
+		expect(scrollRange(view).y).toBe(26);
+
+		rows.count = 40;
+		// a scroll inside the first row: the offset moved, so the handler runs, and
+		// the window it computes is the one that is already there
+		view.scrollTo(0, 1);
+		resolveStyles(host);
+		arrange(host, { height: 4, width: 12 });
+		expect(scrollRange(view).y).toBe(116);
 	});
 });

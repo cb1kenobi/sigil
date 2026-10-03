@@ -38,6 +38,31 @@
  * it is in: the track underneath and the thumb over it, in document order, each
  * carrying its own class and therefore its own resolved style. That is what `raw`
  * is for, and it is the one shape where the thumb cannot be out of date.
+ *
+ * ## A long list is windowed, and two spacers are the whole mechanism
+ *
+ * `rows` in place of `children` builds only the rows the viewport can see, with a
+ * spacer above and below standing in for the rest:
+ *
+ * ```js
+ * const log = ScrollBox({
+ *   props: { height: 24, width: 80 },
+ *   rows: { count: 10_000, height: 1, row: (i) => text(`event ${i}`) },
+ * });
+ * ```
+ *
+ * What makes that cheap is that it is *only* a component: nothing in the layout
+ * engine, the cascade, the paint walk or `scrollRange()` knows a window is in
+ * play. A spacer is an ordinary box with a declared height, so the content box's
+ * extent spans the whole list and `Element.scrollable` -- and therefore the range,
+ * the clamp and the thumb -- is the same answer it would be over every row.
+ * Measured on ten thousand two-text rows at 80x24 by
+ * `packages/sigil/scripts/benchmark-virtual-list.mjs`: 40,010 elements become
+ * 105, a first frame goes from 190.6ms to 0.593ms and a wheel notch from 81.4ms
+ * to 0.614ms, and the painted frame is byte for byte the one the whole list
+ * produces. The windowed cost is **flat** -- 0.53ms at a thousand rows and 0.61ms
+ * at ten thousand -- which is what `O(visible)` comes to and is the thing paint
+ * culling could not deliver.
  */
 
 import {
@@ -55,6 +80,82 @@ import type { KeyEvent, MouseEvent } from '../input/index.js';
 /** Which axes a scroll box scrolls, and therefore which bars it draws. */
 export type ScrollAxis = 'both' | 'horizontal' | 'vertical';
 
+export interface ScrollRows {
+	/**
+	 * How many rows there are.
+	 *
+	 * The whole of what the range is computed from, which is why it is a count
+	 * rather than a list: a windowed list never holds its own data, so handing it
+	 * ten thousand rows' worth of anything would be the cost it exists to avoid.
+	 *
+	 * Read **on every window** rather than captured, unlike the three below, which
+	 * is the line a command's own declaration draws: `choices` and `default` are
+	 * read on every parse while `name` and `format` built the registry lookups. So
+	 * a list that grows picks the new count up the next time the window is
+	 * computed, which is the next time the offset moves. A log that has to grow
+	 * while nobody is scrolling is left for a later tier -- it needs a way to ask
+	 * for a re-sync, which is a second mechanism beside `onScroll` and has no
+	 * caller yet.
+	 */
+	count: number;
+	/**
+	 * Every row's height in cells, and it is **fixed** rather than estimated.
+	 *
+	 * The decision, and it is the one a variable-height list gets wrong: the range
+	 * is `count * height - viewport`, so a height that disagrees with how the rows
+	 * actually lay out is a scrollbar that moves while you read and a clamp that
+	 * stops short of the end. An estimate cannot be corrected without measuring
+	 * rows nobody built, which is the cost being avoided -- so this says the height
+	 * and the component holds each row to it, rather than guessing and apologising.
+	 *
+	 * Held by giving each row a slot of exactly this height that cannot shrink, so
+	 * the arithmetic is true of the tree rather than true of the intention. A row
+	 * that draws more than its slot overflows it, which is what the engine does
+	 * with any overflow and is visible rather than silently out by one. The slot
+	 * is a **column**, so what it stretches is the row's width -- a `:focus`
+	 * background fills the line rather than stopping at the text, which is the
+	 * content box's own recorded rule passed on.
+	 */
+	height: number;
+	/**
+	 * Builds the row at an index, called for the rows in the window.
+	 *
+	 * Called again when a row enters the window and not while it stays in one: a
+	 * row that merely moved is the same row, which is the rule `For` keeps and the
+	 * reason it matters here is the focus. A list rebuilt wholesale on every notch
+	 * would hand the focus on by position on every notch, because the element
+	 * holding it would have been unmounted.
+	 */
+	row: (index: number) => Element;
+	/**
+	 * Every row's width in cells, which only a **horizontal** axis needs.
+	 *
+	 * The same decision as `height` on the axis that is not windowed, and the hole
+	 * it closes is one windowing opens: a vertically windowed list's horizontal
+	 * extent is the widest row that was **built**, so `scrollRange().x` describes
+	 * the window rather than the content and moves as you scroll down. Measured:
+	 * scroll a `both`-axis list right by 20, scroll down into shorter rows, and the
+	 * range collapses to zero -- so the next horizontal scroll clamps the offset
+	 * back and the view jumps left.
+	 *
+	 * Declaring it makes the horizontal extent constant whichever rows are in the
+	 * window, exactly as `height` makes the vertical one exact. Left out, the
+	 * behaviour above is what you get, which is harmless on the default `vertical`
+	 * axis because nothing reads that range.
+	 *
+	 * Like `height`, read once: it builds the slots.
+	 */
+	width?: number;
+}
+
+/** Which rows a windowed list is holding. */
+export interface RowWindow {
+	/** The first row in the window. */
+	first: number;
+	/** How many rows it holds, which is zero only for a list with no rows. */
+	length: number;
+}
+
 export interface ScrollBoxProps {
 	/**
 	 * Which axes scroll. Defaults to `vertical`.
@@ -65,7 +166,16 @@ export interface ScrollBoxProps {
 	 */
 	axis?: ScrollAxis;
 	/** The content. Built once, like any component's children. */
-	children: () => Element;
+	children?: () => Element;
+	/**
+	 * A windowed list in place of `children`: only the visible rows are built.
+	 *
+	 * Exactly one of the two, refused where the component is built rather than
+	 * resolved by preferring one -- the rule a command declaring both a `path` and
+	 * a `run` already follows, and for its reason: two answers to "what is the
+	 * content" with no defensible way to pick between them.
+	 */
+	rows?: ScrollRows;
 	/*
 	 * There is deliberately no `margin`, and one was here and read by nothing.
 	 *
@@ -195,9 +305,101 @@ export function thumbExtent(
 	};
 }
 
+/**
+ * Which rows a viewport of a given height can see at a given offset.
+ *
+ * Pure arithmetic over four numbers, exported for the reason `thumbExtent()` is:
+ * it is where every off-by-one a windowed list can have lives, and a function
+ * that takes numbers and answers numbers is one a test can walk exhaustively.
+ *
+ * The rows the window holds are the ones that intersect `offset..offset + view`,
+ * which is one more than `view / height` whenever the first row is partly
+ * scrolled off -- the row at the bottom edge is half on screen and has to be
+ * built, and a window short by that one row is a blank line at the bottom of the
+ * list that only appears at some offsets.
+ *
+ * A viewport of **no height** is the case before anything has arranged the tree,
+ * and the answer there is the **whole list**. That is deliberate and it is the
+ * one place this trades cost for correctness: over-building is a slow frame and
+ * under-building is a row that is not on screen, so the unknown case resolves
+ * towards the one that is merely expensive. `ScrollBox` narrows it with the
+ * host's own declared height, which it takes as a **floor** rather than a
+ * ceiling -- a host that can grow makes a declared height no bound at all.
+ *
+ * No overscan, which is one number this does not have: a window rebuild is
+ * measured at a fraction of a frame -- 0.26ms of cascade for eighty elements --
+ * and rows that stay in the window are kept rather than rebuilt, so what a notch
+ * costs is the rows that newly entered.
+ *
+ * @param count - How many rows there are.
+ * @param height - Every row's height in cells.
+ * @param offset - How far the viewport is scrolled.
+ * @param view - The viewport's height in cells, or zero if nothing has arranged it.
+ * @returns The rows to build.
+ */
+export function rowWindow(count: number, height: number, offset: number, view: number): RowWindow {
+	const rows = Math.max(0, Math.trunc(count));
+	if (rows === 0) {
+		return { first: 0, length: 0 };
+	}
+
+	const step = Math.max(1, Math.trunc(height));
+	if (view <= 0) {
+		// nothing has said how tall the viewport is, so every row is in the window
+		return { first: 0, length: rows };
+	}
+
+	const at = Math.max(0, Math.trunc(offset));
+	const first = Math.min(rows - 1, Math.floor(at / step));
+	const last = Math.min(rows - 1, Math.ceil((at + view) / step) - 1);
+	// no floor under the length, and a `Math.max(1, ...)` was written here and
+	// deleted for being dead: for any `view` above zero
+	// `ceil((at + view) / step)` is at least `floor(at / step) + 1`, so `last` is
+	// never below `first`, and clamping both to the same ceiling keeps that order.
+	// Brute-forced over 1.8 million combinations of the four, fractional views
+	// included, and reached zero times. What has to stay true if this expression
+	// changes is that a viewport shorter than one row still holds the row it is
+	// looking at, which `should hold every row a viewport can see, at every
+	// offset` is what asks
+	return { first, length: last - first + 1 };
+}
+
 /** A `raw` element's measure, for one whose size is its four insets. */
 function noSize(): { height: number; width: number } {
 	return { height: 0, width: 0 };
+}
+
+/**
+ * The height the host declared, which `sync()` uses as a **floor**.
+ *
+ * Not a ceiling, and an earlier version of this doc called it "a sound upper
+ * bound" on the ground that the viewport sits inside the host. That is true only
+ * while the host really is the height it declared: `height: 10` with
+ * `flex-grow: 1` in a forty-row parent is a viewport of forty, and capping the
+ * window at ten left thirty rows blank. So `sync()` takes `Math.max` of this and
+ * whatever the last arrange gave the viewport, and the arranged height wins
+ * wherever they disagree -- do not put a `??` back to match the older wording.
+ *
+ * A number, or a string of digits, which are the two spellings of a length in
+ * cells. Anything else -- a percentage, `auto`, a height a stylesheet sets -- is
+ * no bound, and `rowWindow()` then builds the whole list for the first frame.
+ * Matched rather than read through `Number()`, and the trap is **`NaN`** rather
+ * than the `Number('')` one the parser's data types record: `Number('50%')` is
+ * `NaN`, `NaN <= 0` is false, so it would walk straight past `rowWindow()`'s
+ * unknown-viewport branch and make the window itself `NaN` -- which builds no
+ * rows at all, the one failure mode the generous fallback exists to avoid. The
+ * empty string is the harmless half, because `Number('')` is `0` and zero is
+ * already what "no bound" is spelled as.
+ *
+ * @param props - The host's props, as the caller wrote them.
+ * @returns The floor in cells, or zero where the props do not give one.
+ */
+function declaredHeight(props: ElementProps | undefined): number {
+	const value = props?.height;
+	if (typeof value === 'number') {
+		return Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
+	}
+	return typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : 0;
 }
 
 /**
@@ -211,6 +413,10 @@ export function ScrollBox(props: ScrollBoxProps): Element {
 	const vertical = axis === 'both' || axis === 'vertical';
 	const horizontal = axis === 'both' || axis === 'horizontal';
 	const bars = props.scrollbar ?? true;
+
+	if ((props.children === undefined) === (props.rows === undefined)) {
+		throw new Error('A scroll box takes either children or rows, and not both');
+	}
 
 	const content = box({
 		class: 'sigil-scroll-content',
@@ -226,8 +432,16 @@ export function ScrollBox(props: ScrollBoxProps): Element {
 		// its cross size is its own only where the cross axis scrolls too: stretched
 		// is what rows want, so that a highlight fills the width
 		...(horizontal ? { 'align-self': 'flex-start' } : {}),
+		// a windowed list stacks, and the direction is the component's because the
+		// spacers are placed against it. With `children` it stays the default and
+		// the caller's own box says which way its content goes -- which is why this
+		// is conditional rather than unconditional: writing it always would turn
+		// every `children` whose box is a row into a column
+		...(props.rows ? { 'flex-direction': 'column' } : {}),
 	});
-	content.append(props.children());
+	if (props.children) {
+		content.append(props.children());
+	}
 
 	const viewport = box(
 		{
@@ -287,8 +501,212 @@ export function ScrollBox(props: ScrollBoxProps): Element {
 
 	wireKeys(host, viewport, { horizontal, vertical });
 	wireWheel(host, viewport, { horizontal, vertical });
+	if (props.rows) {
+		wireRows(viewport, content, props.rows, declaredHeight(props.props));
+	}
 
 	return host;
+}
+
+/**
+ * Keeps the content box holding exactly the rows the viewport can see.
+ *
+ * The window is rebuilt by `viewport.onScroll`, which is the only hook this needs
+ * because `scrollTo()` is the only writer of the offset: the keys, the wheel, a
+ * dragged thumb and `scrollIntoView()` all arrive there, so one handler answers
+ * for all four. Doing it from the handlers above instead would have left the
+ * fourth out, and the focus ring calls that one unconditionally.
+ *
+ * Synchronously, before the frame that lays the new offset out, which is what
+ * keeps the two in step: the window the frame arranges is the window the offset
+ * asked for, so there is never a frame drawn for a window the offset has left.
+ *
+ * The offset is the **only** thing that recomputes it, which is also this tier's
+ * known edge: a viewport whose *height* changes while the offset stays put keeps
+ * the window it had. A declared cell height cannot reach it, since such a
+ * viewport does not change height; a list bounded by its parent can, and a
+ * resize then leaves the rows the viewport gained blank until the next scroll.
+ * Written down under "A scroll box" in AGENTS.md with the measurement and with
+ * the reason the fix belongs to the frame rather than here.
+ *
+ * The two spacers are the mechanism and they need `flex-shrink: 0`. Without it
+ * they are shrunk to nothing -- a box with no children has no content-based
+ * automatic minimum, which the layout engine records as a decision -- so a 10,000
+ * row list reported a range of **1** and painted an empty viewport. Measured in
+ * both directions before anything else was written, and it is the single
+ * declaration the whole feature rests on.
+ *
+ * Rows that stay in the window are **kept**, not rebuilt. What that buys is the
+ * focus: an element that leaves the tree hands the focus on by position, so a
+ * list rebuilt wholesale would move the focus on every wheel notch. It also keeps
+ * each row's resolved style and its text measurement, which are both keyed on
+ * things a fresh element does not have.
+ *
+ * @param viewport - The clipping box, which is what owns the offset.
+ * @param content - The box the rows go in.
+ * @param rows - The count, the row height and the row builder.
+ * @param bound - A floor under the viewport's height: the host's declared one.
+ */
+function wireRows(viewport: Element, content: Element, rows: ScrollRows, bound: number): void {
+	const built = new Map<number, Element>();
+	// the spacers stand in for the rows that are not built: ordinary boxes with a
+	// declared height, which is what makes the content box's extent -- and so the
+	// range, the clamp and the thumb -- span the whole list
+	const above = spacer();
+	const below = spacer();
+	// the count is part of what the last window was computed from, or a `count`
+	// that grew while the offset stayed put would be skipped by the guard below
+	let at: (RowWindow & { count: number }) | undefined;
+	// the offset the last settled window was for, which is what a failed one is
+	// rolled back to. It cannot be read off the viewport inside the handler --
+	// `scrollTo()` writes the new offset before it dispatches -- so it is kept
+	let seen = { x: 0, y: 0 };
+
+	// `height`, `width` and `row` built the slots and are read once; `count` is
+	// read on every window, which is the line a command's own declaration draws --
+	// `choices` and `default` are read on every parse while `name` and `format`
+	// built the registry lookups. It is also the one of the four that plausibly
+	// moves: a log grows, and what it means is "how much is there", which is the
+	// whole of what the range is computed from
+	const step = Math.max(1, Math.trunc(rows.height));
+	const span = rows.width === undefined ? undefined : Math.max(0, Math.trunc(rows.width));
+
+	/**
+	 * Puts a window's slots on a list, building the ones that are new.
+	 *
+	 * Separated from `sync()` so that the one thing in there which can throw --
+	 * `rows.row()`, which is the caller's code -- is a call rather than a loop in
+	 * the middle of the commit.
+	 */
+	const buildWindow = (first: number, end: number, want: Element[]): void => {
+		for (let i = first; i < end; i++) {
+			let slot = built.get(i);
+			if (!slot) {
+				// a slot of exactly the declared height that cannot shrink, so that
+				// "every row is `height` cells" is true of the tree rather than of the
+				// caller's intention -- which is what makes the range exact
+				slot = box(
+					{
+						class: 'sigil-scroll-slot',
+						// a column, so the row's *width* is the stretched axis: "stretched
+						// is what rows want, so that a highlight fills the width" is the
+						// content box's own recorded rule, and a slot in between has to
+						// pass it on or a `:focus` background stops at the text
+						'flex-direction': 'column',
+						'flex-shrink': 0,
+						height: step,
+						// only where the caller said: without it the cross extent is the
+						// widest row that happens to be built, which is the entry on
+						// `ScrollRows.width`
+						...(span === undefined ? {} : { width: span }),
+					},
+					rows.row(i)
+				);
+				// cached even though nothing is committed yet, which costs nothing: a
+				// slot for a window that was never committed is pruned by the next
+				// sync's own prune loop, and a `made` list to defer it was written here
+				// and deleted for changing no answer
+				built.set(i, slot);
+			}
+			want.push(slot);
+		}
+	};
+
+	const sync = (): void => {
+		const now = viewport.scroll ?? { x: 0, y: 0 };
+		// the **larger** of what the last arrange gave the viewport and what the host
+		// declared, and `Math.max` rather than `??` for two reasons measured
+		// separately. A height of **0** is a measurement rather than "not arranged
+		// yet" -- a bordered host of height 2 has a content box of zero, and `??`
+		// read that as unknown and built all five hundred rows. And a host that can
+		// **grow** makes its declared height no bound at all: `height: 10` with
+		// `flex-grow: 1` in a forty-row parent is a viewport of forty, where `??`
+		// kept the ten and left thirty rows blank for as long as nobody scrolled.
+		// Over-building by the difference is the safe direction and is two rows for a
+		// border
+		const view = Math.max(viewportOf(viewport)?.height ?? 0, bound);
+		const count = Math.max(0, Math.trunc(rows.count));
+		const next = rowWindow(count, step, viewport.scroll?.y ?? 0, view);
+		if (at && at.first === next.first && at.length === next.length && at.count === count) {
+			// a fast path rather than a claim, and it says so because it survived its
+			// sabotage: the window's inputs are these four numbers and no others, so
+			// the work below is a `setProp()` to the value it already holds and a
+			// reconcile that finds everything in place -- no mark, no answer changed,
+			// which is why nothing can be written that fails when it goes. What it
+			// buys is every scroll *inside* one row, which for a row taller than a
+			// cell is most of them
+			seen = now;
+			return;
+		}
+		const end = next.first + next.length;
+
+		// what the content box should hold, in order -- built **before** anything is
+		// committed, which is `Show`'s own order. `rows.row()` is the caller's code
+		// and may throw: committing first left `at` claiming a window the content box
+		// did not hold, with the spacers measuring it.
+		//
+		// The **offset** is the rest of that commit, and `scrollTo()` has already
+		// written it by the time this runs -- so a throw puts it back, or the
+		// viewport shows the spacer over a window built for somewhere else and
+		// `scrollTo()` of the same coordinates is a no-op, which leaves nothing short
+		// of scrolling elsewhere to repair it. Writing it back from in here is what
+		// the latch makes safe: a `scrollTo()` reached from inside this element's own
+		// handler writes and marks without dispatching again, so this is a use for
+		// that rule rather than only a guard
+		const want: Element[] = [above];
+		try {
+			buildWindow(next.first, end, want);
+		} catch (error) {
+			if (seen.x !== now.x || seen.y !== now.y) {
+				viewport.scrollTo(seen.x, seen.y);
+			}
+			throw error;
+		}
+		want.push(below);
+
+		// past the last thing that can throw, so everything below is bookkeeping
+		at = { ...next, count };
+		seen = now;
+		above.setProp('height', next.first * step);
+		below.setProp('height', Math.max(0, count - end) * step);
+
+		const keep = new Set(want);
+		// backwards, so that removing at `i` cannot move anything still to be
+		// looked at -- `children` is the live array
+		for (let i = content.children.length - 1; i >= 0; i--) {
+			const child = content.children[i];
+			if (child && !keep.has(child)) {
+				content.removeChild(child);
+			}
+		}
+		for (const [index] of built) {
+			if (index < next.first || index >= end) {
+				built.delete(index);
+			}
+		}
+		// only what is out of place is moved, so a scroll of one row is one insert
+		// rather than a reshuffle of the whole window -- and a move is a removal and
+		// an insertion, which is what would take the focus off a row that stayed
+		for (const [i, want_] of want.entries()) {
+			if (content.children[i] !== want_) {
+				content.insertBefore(want_, content.children[i]);
+			}
+		}
+	};
+
+	viewport.onScroll = sync;
+	sync();
+}
+
+/**
+ * A box standing in for the rows that are not built.
+ *
+ * `flex-shrink: 0` is load bearing and is the entry in `wireRows()`'s own note.
+ * The height is written by the sync rather than declared here, because it is what
+ * changes on every window.
+ */
+function spacer(): Element {
+	return box({ class: 'sigil-scroll-spacer', 'flex-shrink': 0, height: 0 });
 }
 
 /** The viewport's content box, or nothing before anything has arranged it. */
