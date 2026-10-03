@@ -669,19 +669,47 @@ describe('rowWindow', () => {
 });
 
 describe('a windowed scroll box', () => {
-	/** The same row a hand-built list and a windowed one are both made of. */
-	const row = (i: number): Element => text(`r${i}`, { focusable: true, id: `r${i}` });
+	/**
+	 * The same row a hand-built list and a windowed one are both made of.
+	 *
+	 * With a **background**, so that the differential below compares the width each
+	 * row was placed at and not only the glyphs it drew. Without one the two sides
+	 * agreed while the slots were 4 cells wide on one and 11 on the other, which is
+	 * a differential that could not see the thing it was written for.
+	 */
+	const row = (i: number): Element =>
+		text(`r${i}`, {
+			'background-color': i % 3 === 0 ? 'blue' : 'red',
+			focusable: true,
+			id: `r${i}`,
+		});
 
-	/** What `rows` builds, assembled by hand: the baseline the window is diffed against. */
+	/**
+	 * What `rows` builds, assembled by hand: the baseline the window is diffed
+	 * against.
+	 *
+	 * `flex-grow: 1` on the column and `flex-direction: column` on each slot are
+	 * what make this the **same tree** rather than a similar one -- `rows` writes
+	 * the direction on the component's own content box, so a hand-built list needs
+	 * its wrapper to fill the same way or its rows are placed at their content
+	 * width while the window's fill the line.
+	 */
 	function wholeBox(count: number, height = 1): Element {
 		return ScrollBox({
 			children: () =>
 				box(
-					{ 'flex-direction': 'column' },
-					...Array.from({ length: count }, (_, i) => box({ 'flex-shrink': 0, height }, row(i)))
+					{ 'flex-direction': 'column', 'flex-grow': 1 },
+					...Array.from({ length: count }, (_, i) =>
+						box({ 'flex-direction': 'column', 'flex-shrink': 0, height }, row(i))
+					)
 				),
 			props: { height: 4, width: 12 },
 		});
+	}
+
+	/** The rendered rows with their colour kept, which is what compares the widths. */
+	function coloured(host: Element): string[] {
+		return renderToLines(host, { cascade: themedCascade(), colorLevel: 3, height: 4, width: 12 });
 	}
 
 	function windowBox(count: number, height = 1): Element {
@@ -707,7 +735,7 @@ describe('a windowed scroll box', () => {
 				viewportIn(win).scrollTo(0, offset);
 				lay(whole);
 				lay(win);
-				expect(picture(win)).toStrictEqual(picture(whole));
+				expect(coloured(win)).toStrictEqual(coloured(whole));
 				expect(scrollRange(viewportIn(win))).toStrictEqual(scrollRange(viewportIn(whole)));
 			}
 		}

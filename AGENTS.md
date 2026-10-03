@@ -2138,6 +2138,24 @@ not building it addresses the 72ms." This is not building it.
   closing it properly means re-windowing once the viewport has been arranged,
   which needs a second layout pass in one frame, and that is the entry below.
 
+- **A slot is a **column**, so the row's width is the stretched axis -- and the
+  differential could not see that until it compared colour.** "Stretched is what
+  rows want, so that a highlight fills the width" is the content box's own
+  recorded rule, and a slot in between has to pass it on: with the slot left at
+  the default direction, the row's main axis is its width, so a `:focus`
+  background stopped at the end of the text. Measured, 2 highlighted cells
+  against 11. The reason it went unnoticed for three commits is the finding: the
+  differential compared `strip()`ped pictures, so two sides whose slots were 4
+  cells wide and 11 cells wide **agreed perfectly** -- a width that differs is
+  invisible until something paints a background. It compares the coloured lines
+  now, over rows that have one, and the hand-built baseline carries
+  `flex-grow: 1` and the same slot direction so that it is the **same tree**
+  rather than a similar one. Dropping the direction fails that test; with the
+  stripped comparison it failed nothing. Found by self-review rather than by the
+  sabotage pass, which is its own boundary again: a pass built out of deletions
+  asks whether the code that is there is load bearing, never whether a test can
+  see it.
+
 - **`count` is read on every window and the other three are read once, which is
   the line a command's own declaration already draws.** `choices` and `default`
   are read on every parse while `name` and `format` built the registry lookups;
@@ -2230,7 +2248,7 @@ not building it addresses the 72ms." This is not building it.
   keeps the hand-assembled side honest: a window that drew something else would
   be faster and wrong.
 
-- **Twenty-six sabotages, twenty-five caught, and one survivor that is a
+- **Twenty-seven sabotages, twenty-six caught, and one survivor that is a
   declared fast path.** The survivor is the unchanged-window early return in the
   sync: the window's inputs are a handful of numbers, so when none of them moved the work
   below is a `setProp()` to the value it already holds and a reconcile that

@@ -111,7 +111,10 @@ export interface ScrollRows {
 	 * Held by giving each row a slot of exactly this height that cannot shrink, so
 	 * the arithmetic is true of the tree rather than true of the intention. A row
 	 * that draws more than its slot overflows it, which is what the engine does
-	 * with any overflow and is visible rather than silently out by one.
+	 * with any overflow and is visible rather than silently out by one. The slot
+	 * is a **column**, so what it stretches is the row's width -- a `:focus`
+	 * background fills the line rather than stopping at the text, which is the
+	 * content box's own recorded rule passed on.
 	 */
 	height: number;
 	/**
@@ -585,6 +588,11 @@ function wireRows(viewport: Element, content: Element, rows: ScrollRows, bound: 
 				slot = box(
 					{
 						class: 'sigil-scroll-slot',
+						// a column, so the row's *width* is the stretched axis: "stretched
+						// is what rows want, so that a highlight fills the width" is the
+						// content box's own recorded rule, and a slot in between has to
+						// pass it on or a `:focus` background stops at the text
+						'flex-direction': 'column',
 						'flex-shrink': 0,
 						height: step,
 						// only where the caller said: without it the cross extent is the

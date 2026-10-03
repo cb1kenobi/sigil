@@ -57,9 +57,17 @@ function row(i) {
 	);
 }
 
-/** What `rows` wraps each row in, written out for the side that does it by hand. */
+/**
+ * What `rows` wraps each row in, written out for the side that does it by hand.
+ *
+ * `flex-direction: column` matters: it is what stretches the row to the slot's
+ * width, so a hand-built list places its rows where the window places them. The
+ * glyphs are the same either way, which is why the test beside this one compares
+ * the **coloured** output -- a width that differs is invisible until something
+ * paints a background.
+ */
 function slot(i) {
-	return box({ 'flex-shrink': 0, height: ROW_HEIGHT }, row(i));
+	return box({ 'flex-direction': 'column', 'flex-shrink': 0, height: ROW_HEIGHT }, row(i));
 }
 
 const rows = { count: ROWS, height: ROW_HEIGHT, row };
@@ -93,7 +101,10 @@ function whole() {
 function children() {
 	return ScrollBox({
 		children: () =>
-			box({ 'flex-direction': 'column' }, ...Array.from({ length: ROWS }, (_, i) => slot(i))),
+			box(
+				{ 'flex-direction': 'column', 'flex-grow': 1 },
+				...Array.from({ length: ROWS }, (_, i) => slot(i))
+			),
 		props: { height: HEIGHT, width: WIDTH },
 	});
 }
