@@ -9642,9 +9642,24 @@ at)` changes nothing, because `slice` clamps an end past the string and so the
 
 ##### What the sabotage pass found
 
-Forty mutations, one at a time with the file's own suite run after each. **All but
-one are caught**, and the interesting half is not the count: six guards turned out
-to be dead, one test turned out to be vacuous, and two claims had no test at all.
+Forty-nine mutations against the final code, one at a time with the file's own
+suite run after each. **Forty-eight are caught**, and the interesting half is not
+the count: six guards turned out to be dead, one test turned out to be vacuous, and
+two claims had no test at all.
+
+Four of the forty-nine are there to answer one question about the suite rather than
+about a guard -- could any assertion hold if the component simply drew nothing? A
+view whose text is set to `''`, a view with no text child at all, a reveal that
+never advances, and a mount that never happens are each caught by dozens of tests,
+so the answer is no. Worth asking, because a component whose tests are mostly
+`expect(log).to.deep.equal([])` can pass while drawing nothing, and three of this
+one's are exactly that shape.
+
+The harness reports a pattern that missed, a pattern that matched more than once
+and a replacement equal to its original as their own verdicts rather than as
+passes, and it needed to: three earlier rounds went **stale** as the code changed
+under them, and a pattern that silently matches nothing is a green suite reading as
+"the guard is not load bearing". The final tally is one run against one tree.
 
 - **Three guards were dead because the signal layer already answers.**
   `State.set()` returns early when the new value equals the old, so a guard against
