@@ -10386,18 +10386,21 @@ it is a component rather than the frame effect SIG-103 is.
   bar and the typewriter all draw through `mountLive()` over a canvas, where
   styling is a style per cell.
 
-  Carrying it _properly_ means a `text` element per run of same-styled cells plus
-  a new **SGR-to-`Style` decoder**, and that is a third SGR table beside the
-  styler's `reopen()` and the wrapper's `sgr-state.ts` -- which this file records
-  as kept separate deliberately, and which would here be a _reverse_ mapping
-  nothing else in the library needs. It also cannot be laid out: three texts in a
-  row are three flex items placed beside each other's **boxes**, so a run that
-  wraps leaves the next one beside its first row, which is the typewriter's own
-  recorded reason for using one `text` element. Stacking two elements over one
-  rectangle, which is how the scroll bar resolves two styles, does not rescue it
-  either: a blank paints a blank, so the upper element erases the lower --
-  measured, `x x` stacked over `ABC` comes back as `x x` rather than `xBC` -- and
-  transparency is SIG-103.
+  Carrying it _properly_ means an element per run of same-styled cells plus a new
+  **SGR-to-`Style` decoder**, and that is a third SGR table beside the styler's
+  `reopen()` and the wrapper's `sgr-state.ts` -- which this file records as kept
+  separate deliberately, and which would here be a _reverse_ mapping nothing else
+  in the library needs. The decoder is what is refused; the elements are not, and
+  the entry below is what they turned out to be. What cannot be done with **texts**
+  still cannot: three in a row are three flex items placed beside each other's
+  **boxes**, so a run that wraps leaves the next one beside its first row, which is
+  the typewriter's own recorded reason for using one `text` element -- and stacking
+  two of them over one rectangle does not rescue it, because a blank paints a blank
+  and the upper one erases the lower, measured as `x x` over `ABC` coming back as
+  `x x` rather than `xBC`. Transparency is still SIG-103's. A `raw` is the way
+  round it and the reason it is the way round it is that it **skips** the cells it
+  does not want, which is what `Dots` and `Pixels` already rely on to sit over
+  something somebody else drew.
 
   So `sgr-state.ts` is **not** imported, and the sharper finding is that it would
   have been the wrong module for the route the ticket recommended anyway. Its job
@@ -10408,26 +10411,180 @@ it is a component rather than the frame effect SIG-103 is.
   reused is `strip()`, which is what `stringWidth()` already does to its input.
 
   Nothing else is sanitized, so what a finished animation leaves behind is what it
-  was given: a tab, a stray control character, a lone surrogate and a CRLF are the
-  element's to draw, exactly as they are for every other component. A tab is
-  `cellWidth()` zero, so it is never hidden and shows as the space the element
-  draws it as, consistently in every frame -- which is the only property the
-  no-reflow rule needs of it.
+  was given: a stray control character, a lone surrogate and a CRLF are drawn the
+  way the cells say, exactly as for every other component. A **tab** is the one
+  thing the second pass changed about what reaches the screen, and it is worth the
+  sentence because the old one is still the obvious guess: it is `cellWidth()`
+  zero, so it is never hidden, and the one-element view drew it as the space
+  `toDisplayText()` turns it into while the two layers draw **nothing** for it. A
+  cell of no width has no column to paint in, which is the same answer the plan
+  already gives it -- so `a\tb` is `ab` now where it was `a b`, and the drawn width
+  of a line is the sum of the widths the plan assigned rather than one column more.
+  Measured both ways over a 19-text corpus, where it is one of exactly two
+  divergences -- the other being the reflow four entries below, which this fixed.
 
-- **The colour is the whole block's, and `is-masked` is how a sheet reaches it.**
-  One declaration in `FRAMEWORK_CSS`: a block with anything still hidden is
-  `dim`, and the frame that resolves the last cell brings it up to full strength.
-  That is the component's reveal beat expressed in the cascade and it is as far as
-  a colour can go, for the layout reason above -- "optionally in a colour" per
-  _cell_ is what the per-run elements were for. It carries the light half the
-  `dim` rule already requires, on `gray`, for the reason `.sigil-prompt-hint`
-  does.
+- **The colour is per cell, and two `raw` layers over one rectangle are how.** The
+  cipher layer draws the cells that are still hidden and the plain layer draws the
+  ones that have resolved, so each carries its own class and resolves its own style
+  -- and a character takes the plaintext's colour **the moment it lands** rather
+  than when the last one does. That is the scroll bar's own shape, and its own
+  recorded reason is this one word for word: the track and the thumb are two
+  elements because one element cannot resolve two styles. `.sigil-decrypt-cipher` is `dim` in
+  `FRAMEWORK_CSS` with the light half on `gray`, which is where
+  `.sigil-decrypt-text.is-masked` used to be and is why nothing about the default
+  look moved: the last frame has no cipher cells in it, so a finished decrypt is
+  what it always was. `.sigil-decrypt-plain` carries no default, for the reason the
+  spinner's text does not.
+
+  The ticket's "optionally in a colour" per _cell_ was written off against the
+  per-run **text** elements, and the layout reason it was written off for is still
+  true of texts and never applied to a `raw`: a `raw` paints its own cells and
+  **skips** the ones it does not want, so the two layers never erase each other and
+  there is nothing for transparency to do. The one-element view is gone and so is
+  `is-masked`, which the per-cell split subsumes -- a block-level hook with no rule
+  behind it would be a class for somebody to wonder about.
+
+- **The cipher layer is the one in flow, and that asymmetry is load bearing.** An
+  `absolute` box takes no space and `measureUncached()` filters it out of what its
+  parent measures, so something has to say how big the block is -- which is the
+  layer whose cells are the text's own widths. The plain layer is `absolute` with
+  all four insets, so it fills the same rectangle and reserves nothing, exactly as
+  the track and the thumb do, and `.sigil-decrypt` carries the `position: relative`
+  that gives those insets a containing block.
+
+  It paints at the **cipher's** box rather than at its own, which reads like a
+  detail and is what keeps the two in register: insets resolve against the host's
+  _padding_ box while the cipher sits inside the host's padding, so a
+  `.sigil-decrypt { padding: 1 }` an app writes would otherwise put every resolved
+  character a column left of the cipher it replaces. Reading the boxes of the frame
+  it is in is what a `raw` is for, and it is what the scroll thumb already does with
+  its viewport.
+
+- **The frame carries cells, because only the frame function knows which is
+  which.** `DecryptFrame.lines` is a `DecryptFrameCell` per cluster -- what is
+  drawn, whether that is a mask, and how many columns it takes -- built by
+  `decryptFrameAt()` while it is deciding, beside the `text` it already produced.
+  `text` stays rather than being derived by every reader: it is what the
+  no-terminal path writes in one go and what most of this component's assertions
+  are written on. `decryptedFrame(text)` is the frame with nothing hidden, which is
+  what `decryptState()` starts at and what the no-terminal path sets -- one builder
+  rather than a second path that has to agree with this one.
+
+  What that costs is a cell per cluster on the path that does **not** animate,
+  which the old comment there was written to avoid. The comment is now half true
+  and says so: a pipe still neither draws from the generator nor works out a reveal
+  time, and it does build the cells, because the view draws cells and a frame with
+  none of them is one it cannot draw.
+
+- **The component wraps its own cells, and the two layers agreeing is what makes
+  that safe.** A `text` element wraps a string and that is what the one-element
+  view got for nothing. A cell is not a cluster -- `ASCII.wide` hides a two-column
+  character with _two_ narrow glyphs -- so there is no cluster-to-cell
+  correspondence to map `wrap()`'s answer back through, and the wrap is therefore
+  `placeCells()`'s. What matters far more than agreeing with `wrap()` is that the
+  two layers agree with **each other**, and that is structural rather than careful:
+  one function decides where every cell landed and both layers read it.
+
+  It keeps `wrap()`'s rules anyway, because a block that broke somewhere else from
+  the rest of the library is a surprise nobody asked for, and it is a
+  **differential** rather than a rule said twice: `should wrap where the wrapper
+does` renders seven texts at nine widths and compares against `wrap()` itself,
+  with each line's trailing blanks dropped because the renderer drops them -- which
+  is the one place the two legitimately differ, since `wrap()` leaves an indent on
+  a line of its own where the word after it could not fit and a row of spaces and
+  an empty row are the same row on screen.
+
+  Which **break opportunities** there are is asked of the plan rather than of what
+  is drawn -- a hidden cell is never whitespace, so `hidden` settles it before the
+  text is looked at. That is what makes the breaks a function of the plan alone,
+  and it is what the no-reflow rule needs: a caller whose alphabet held a space
+  would otherwise break a jumbling line where the resolved one does not.
+
+- **And it fixed a reflow the one-element view had.** The old one could break
+  **inside** a wide cell's ASCII substitute, because `##` is two clusters to a text
+  and one cell here -- so `日本語` at three columns wrapped into two rows while
+  jumbling and three once resolved, which is the one thing this component is
+  written not to do. Measured over a 1,672-render differential against the
+  one-element view: **zero** differences besides the tab above and this, which is
+  the whole of what two layers changed about what is drawn. `should not reflow as
+it decrypts` is the guard, over four texts, eight widths, three alphabets and a
+  forty-step sweep.
+
+- **A control character is refused, and a cell of no column is skipped, and only
+  the first of those is a guard.** `CellBuffer.put()` _throws_ on a control
+  character rather than dropping it, and a throw from inside paint takes the frame
+  and the renderer with it -- so a `raw` has to answer for what `displayText` used
+  to answer for on the one-element path. The only way a cell can carry one is a
+  caller's own **alphabet**: every C0, DEL and C1 character measures zero columns,
+  verified over all of them, so no cluster of a real text can be one. That makes it
+  a tripwire rather than a case anybody has, and it is the half that cannot go.
+
+  The width test beside it survived its sabotage and is kept as a declared fast
+  path, because `put()` refuses a zero-width cluster a cell of its own -- so what
+  it saves is a `painter.text()` call per tab rather than an answer. The two read as
+  one rule and are not, which is worth the sentence: the obvious reading is that
+  the width rule is what keeps the control characters out, and it is the other way
+  round.
+
+- **A cell outside the box it was given is not drawn either, on both axes.** One
+  rule where `paintText()` has two: it stops at the bottom of the box because
+  painting further would draw over whatever the layout put underneath, and it cuts
+  a line too wide for the box because `text-overflow` says to. Both come to the
+  same thing when what you hold is cells rather than a string, and the answer is
+  `text-overflow`'s own initial value -- so an `ellipsis` a sheet asks for is
+  **not** honoured, which is the one property the trapdoor costs. `white-space:
+nowrap` **is**, because the one-element view honoured it for free and a property
+  that quietly stopped working is worse than one that never did. Neither clamp is
+  observable through an auto-sized `renderToString()`, because a cell painted past
+  the grid is one the grid refuses; the test is over a grid bigger than the boxes,
+  which is what a canvas is.
+
+- **Both layers are `selectable: true`, and it costs an ancestor's say.** A `raw`
+  defaults to not selectable, which is right for a sparkline and wrong here --
+  these cells _are_ the text, and what a selection copies is what is on screen.
+  There is no third value meaning "inherit", so a `selectable={false}` on a pane no
+  longer reaches a decrypt inside it; the alternative is a decrypt nobody can copy,
+  which is the worse of the two. It is only observable where something **else** has
+  excluded, since a `true` writes nothing until the mask exists at all -- so the
+  test puts a sparkline **above** the block, which is both the shape `selectable`
+  is for and a mask the layers must not widen. Each layer's own answer is asserted
+  beside that rather than inferred from it, because the two cannot be told apart by
+  the mask: the plain layer's rectangle contains the cipher's and is written last,
+  so either one alone looks inert. That pair is the entangled kind the tally below
+  has an entry about.
+
+- **Per-tick invalidation is not a regression, and it was checked rather than
+  assumed.** The effect calls `invalidateMeasure()` on the cipher and
+  `invalidatePaint()` on the plain layer; the one-element view called `setText()`,
+  which marks **layout** for every value it did not already hold -- which while
+  jumbling is every tick. So the old path marked layout per tick too, and the only
+  new mark is the one for a frame that drew exactly what the last one drew, which a
+  jumble does not produce. Each call says what changed about **its own** element
+  rather than what the frame will do about it: a frame coalesces them today, since
+  a layout mark repaints everything, which is why the guard reads the marks rather
+  than the picture and why it is written against the day paint is narrowed.
+
+- **What two layers cost per frame is nothing, and what they cost on the wire is
+  real.** Interleaved, eight rounds of two hundred frames each, medians, with both
+  sides asserted to paint the **same grid** for every frame: a 33-cell line is
+  **0.0555ms against 0.0462ms**, a three-line 90-cell block **0.1029 against
+  0.0913** and a 600-cell block **0.7324 against 0.7081** -- the two layers are
+  _faster_, by 16%, 11% and 3%, because a cell walk over data the frame function
+  already produced is cheaper than re-wrapping and re-segmenting the whole line the
+  way a `text` whose content changed has to. Three runs agree. What it does cost is
+  **bytes**: a mixed row is an SGR run per transition rather than one for the line,
+  so at truecolor a frame goes from **33 to 83 bytes**, 79 to 158 and 567 to 1,546
+  -- 2.5x, which is exactly what per-character colour _is_. At level 0 the counts
+  are identical to the byte, because there is no transition to emit.
+
 - **Level 0 is the characters and nothing else, and that is the answer rather
-  than a gap.** At level 0 the seven attributes go along with the colour, so the
-  one declaration this component has drops and what is left is the glyphs
-  changing -- which _is_ the effect. A decrypt asked for plain text gets plain
-  text, which is the rule the prompt's caret is the worked example of, and here it
-  costs nothing because the effect was never carried by colour.
+  than a gap.** At level 0 the seven attributes go along with the colour, so both
+  layers resolve to the same style and what is left is the glyphs changing -- which
+  _is_ the effect. A decrypt asked for plain text gets plain text, which is the
+  rule the prompt's caret is the worked example of, and here it costs nothing
+  because the effect was never carried by colour: two colours degrade to none and
+  the characters are still turning over. Asserted at level 0 and at truecolor in
+  both schemes, as every other claim about this sheet is.
 - **It resolves when it is over, and `cancel()` resolves too.** Awaiting
   `decrypt(text)` is the API, because unlike a spinner this animation is finite.
   Over rather than _finished_: a promise that rejected on an abort would be a thing
@@ -10600,6 +10757,46 @@ for`.
   no count is written down any more and the property is asserted instead -- every
   entry the width its half promises, and none repeated, which is what caught
   `ASCII.wide` shipping `##` twice.
+
+- **The per-cell pass: thirty-eight mutations, thirty-six caught, two declared --
+  and the first run of the harness was worth nothing.** It ran `vitest run` with
+  paths relative to the **repository root** while `pnpm --filter ... exec` runs in
+  the package, so every run matched no test file, exited non-zero, and was recorded
+  as the mutation being _caught_: 38 of 38, a perfect score that said nothing at
+  all. It is the glob-that-matches-nothing failure this file records for the
+  Windows build filter and for the `perl` substitution in the TTY test, arriving
+  through a third door -- and the thing that caught it was spot-checking one
+  verdict by hand rather than anything in the harness. So it asserts the run found
+  the tests now, by count, and treats a run that did not as its own verdict rather
+  than as a pass. A sabotage harness needs a control as much as a benchmark does.
+
+  What the real run then found is the half that matters. Nine survived, five of
+  them because the test naming the claim could not see it, and each of those five
+  got the test it was missing: breaks taken from the plan rather than from the
+  glyphs (an alphabet of _spaces_ is what makes the difference observable); a width
+  of zero wrapping at one column; the placement cache keyed on the width as well as
+  on the frame, which is what a **resize** is; the plain layer's box being the
+  rectangle its insets name, which is what `position: absolute`, the four insets and
+  the host's `position: relative` are all for; and each layer's own `selectable`.
+
+  Two of those five are the **entangled** kind this file has an entry about from the
+  animator's pass, and they could not have been found one at a time: the cipher's
+  `selectable: true` and the plain layer's insets cover for each other, because the
+  mask is written per element in paint order and the plain layer's rectangle
+  contains the cipher's. Either one alone looks inert. What makes them both
+  observable is a sparkline **above** the block -- a mask the layers could widen but
+  must not -- plus each layer's own answer asserted directly, which is a claim about
+  the decision rather than about a picture and is the honest shape for a pair that
+  cannot be separated.
+
+  The two declared survivors are both of the kind this file already keeps: the
+  `cell.width > 0` half of `draw`, which `put()`'s own refusal makes inert and which
+  is the entry above, and the plain layer's `measure`, which a box given two insets
+  never asks -- the scroll bar's `noSize()` said again. And one "caught" is worth
+  discounting rather than counting: swapping the two layers' document order fails
+  two tests because they read `view.children` positionally, which is not a claim
+  about paint order -- the order really is inert here, since the two layers draw
+  **disjoint** cells and neither can overpaint the other.
 
 ### Prompts and keys
 
