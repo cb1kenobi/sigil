@@ -1,8 +1,8 @@
 /**
  * A decrypt effect: text that arrives unreadable and resolves into itself.
  *
- *   node demos/components/08-decrypt.js
- *   node demos/components/08-decrypt.js | cat     <- the same run, with no terminal
+ *   node demos/components/09-decrypt.js
+ *   node demos/components/09-decrypt.js | cat     <- the same run, with no terminal
  *
  * Piped, there is nothing to animate, so each text is written once: six lines for
  * this run, because the fourth text is three of them. On a terminal each one

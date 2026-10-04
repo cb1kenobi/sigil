@@ -45,7 +45,7 @@ node demos/parser/06-lazy-commands.js --help  # commands listed by name alone
 | [`components/06-ansi-and-wrap.js`](components/06-ansi-and-wrap.js) | Styling, wrapping, and display width          |
 | [`components/07-typewriter.js`](components/07-typewriter.js)       | Text that arrives rather than appears         |
 | [`components/08-large-text.js`](components/08-large-text.js)       | Banner text, and the `.flf` format behind it  |
-| [`components/08-decrypt.js`](components/08-decrypt.js)             | Text that jumbles, then resolves into itself  |
+| [`components/09-decrypt.js`](components/09-decrypt.js)             | Text that jumbles, then resolves into itself  |
 
 ### Try them without a terminal
 
@@ -59,7 +59,7 @@ hundred:
 node demos/components/01-spinner.js | cat
 node demos/components/02-progress.js | cat
 node demos/components/07-typewriter.js | cat
-node demos/components/08-decrypt.js | cat
+node demos/components/09-decrypt.js | cat
 ```
 
 That is what a CI log gets, and no component had to know about it. The decrypt is
@@ -82,7 +82,7 @@ too:
 
 ```sh
 SIGIL_REDUCED_MOTION=reduce node demos/components/07-typewriter.js
-SIGIL_REDUCED_MOTION=reduce node demos/components/08-decrypt.js
+SIGIL_REDUCED_MOTION=reduce node demos/components/09-decrypt.js
 ```
 
 A prompt has nobody to ask, so it fails rather than waiting forever on a stdin
@@ -97,7 +97,7 @@ And `NO_COLOR=1` turns the styling off everywhere:
 
 ```sh
 NO_COLOR=1 node demos/components/06-ansi-and-wrap.js
-NO_COLOR=1 node demos/components/08-decrypt.js
+NO_COLOR=1 node demos/components/09-decrypt.js
 ```
 
 The decrypt is where that reads as a decision rather than as an absence: the only
