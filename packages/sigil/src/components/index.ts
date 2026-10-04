@@ -71,6 +71,19 @@ export {
 	typewriterView,
 } from './typewriter.js';
 export {
+	type FigDirection,
+	type FigFont,
+	type FigLayout,
+	type FigLayoutMode,
+	type FigletOptions,
+	type FigSmushRules,
+	largeText,
+	type LargeTextOptions,
+	largeTextView,
+	parseFlf,
+	renderFiglet,
+} from './large-text.js';
+export {
 	type Align,
 	type Column,
 	table,
