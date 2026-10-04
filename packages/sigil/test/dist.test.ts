@@ -130,6 +130,7 @@ describe('what importing the package costs', () => {
 		'createSpinner',
 		'createProgress',
 		'createTypewriter',
+		'largeTextView',
 		'mountLive',
 		'PromptError',
 		'renderBar',
