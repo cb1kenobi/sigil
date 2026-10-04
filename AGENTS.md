@@ -10434,6 +10434,43 @@ it is a component rather than the frame effect SIG-103 is.
   every caller has to wrap for an outcome nobody considers an error, and a
   rejection out of a command's `run()` is a message and a non-zero exit code, which
   a Ctrl-C is not.
+- **An awaited run keeps the process alive, and the unref'd timer every other
+  component has is what made `await decrypt()` never return.** The rule the spinner
+  and the typewriter keep -- unref the timer, because a program that has finished
+  should exit even if somebody forgot to stop it -- is right for them and wrong
+  here, and the two entries above are why: this is the one component whose API _is_
+  a promise, so a caller awaiting it means the program has **not** finished. With
+  the driving timer unref'd and the renderer's frame timer unref'd by design there
+  is nothing ref'd left for the loop to do, so node exits instead of settling.
+  Reported from a real terminal and reproduced exactly:
+  `node demos/components/09-decrypt.js` exited **13** with `Detected unsettled
+top-level await` at the first `await`, having drawn nothing, while the identical
+  run **piped** was fine -- because the piped path writes the text once and
+  schedules no timer at all, which is why every test, every CI run and a full
+  review pass missed it. So `DecryptRevealOptions.hold` refs the timer and the
+  facade is what sets it; a component driving its own tree still gets the unref'd
+  default, because that app stays alive on its own. What it costs is that a run
+  nobody awaits holds the process open until it finishes, which is a bounded couple
+  of seconds against a spinner's forever, and which `stop()` and `cancel()` both
+  end at once.
+- **Which needed a test that spawns, because the claim is about the process rather
+  than about a frame.** The component's own suite drives an injected clock, so it
+  can say what every frame holds and cannot say whether node was still running when
+  the last one landed -- and `demos.test.ts` cannot either, for the reason recorded
+  there: it spawns with stdio `ignore` and pipes, so every demo takes the
+  no-terminal branch. `packages/cli/test/decrypt-tty.test.ts` fakes a terminal the
+  way `output-forms.test.ts` does, awaits a run and looks for a line printed
+  **after** the await. Its discriminator is a **masked glyph** rather than a count
+  of escape sequences, which was the first spelling and measures the wrong thing: at
+  colour level 0 over a one-line canvas a repaint is mostly a carriage return, so an
+  animated run emitted **three** escapes. The plaintext and every sequence around it
+  are ASCII while the alphabet is CP437, so one character above U+007F is one frame
+  that hid something -- 46 of them animated, none piped. The sabotage that proves it
+  also had to be verified rather than trusted: the first attempt was a `perl`
+  substitution that **silently matched nothing**, the suite stayed green, and that
+  reads exactly like a guard which is not load bearing. Anchored on an exact line
+  and asserted to have landed, it reproduces the reported exit 13 and fails the
+  test.
 - **`stop()` keeps the text and `cancel()` erases, which is the opposite way round
   from the spinner and the typewriter.** On those, `stop()` erases. The ticket named
   this spelling and the semantics earn it: for a _finite_ animation "stop" is what

@@ -456,6 +456,31 @@ export interface DecryptRevealOptions extends DecryptPlanOptions {
 	 * beside it.
 	 */
 	animate: () => boolean;
+	/**
+	 * Whether the driving timer keeps the process alive. False by default.
+	 *
+	 * The timer is unref'd otherwise, which is the spinner's rule and is right for
+	 * a component driving its own tree: that app stays alive on its own -- stdin,
+	 * its own frame loop -- and a decrypt somebody forgot to stop must not be what
+	 * holds a finished program open.
+	 *
+	 * It is wrong for an **awaited** run, and that is the one case this exists for.
+	 * `await decrypt(text)` is the headline API, so the caller is waiting and the
+	 * program has *not* finished -- with the timer unref'd there is nothing ref'd
+	 * left for the loop to do, so node exits before the animation can settle the
+	 * promise. Measured: `node demos/components/09-decrypt.js` on a terminal exited
+	 * **13** with `Detected unsettled top-level await` at the first `await`, having
+	 * drawn nothing, while the identical run piped was fine -- because the piped
+	 * path never schedules a timer at all. A no-op ref'd timer beside this one was
+	 * the alternative and is worse: it is a second thing to clear on every exit,
+	 * and it says "stay alive" in a place that knows nothing about whether there is
+	 * animating left to do.
+	 *
+	 * What it costs is that a run nobody awaits keeps the process alive until it
+	 * finishes, which is a bounded couple of seconds rather than a spinner's
+	 * forever, and which `stop()` and `cancel()` both end at once.
+	 */
+	hold?: boolean;
 	/** How often a hidden cell redraws while jumbling. Defaults to 35ms. */
 	interval?: number;
 	/** What time it is. Defaults to `Date.now`. */
@@ -483,8 +508,10 @@ export interface DecryptRevealOptions extends DecryptPlanOptions {
  *
  * **No timer when nothing is hidden.** The frame that resolves the last cell
  * schedules nothing, so a finished decrypt holds no timer and a CLI that prints
- * one line never acquires a frame loop at all. **The timer is unref'd**, because
- * a program that has finished should exit even if somebody forgot to stop it.
+ * one line never acquires a frame loop at all. **The timer is unref'd unless
+ * `hold` says otherwise**, because a program that has finished should exit even if
+ * somebody forgot to stop it -- and because an awaited run is one that has *not*
+ * finished, which is the whole of what `hold` is for and is documented there.
  * **The clock is injectable**, unlike the typewriter's: this measures how far
  * through a duration it is rather than only scheduling, which is exactly why the
  * animator has a `now` and the typewriter has none. And **`onDone` fires from the
@@ -534,8 +561,11 @@ export function decryptReveal(state: DecryptState, opts: DecryptRevealOptions): 
 			}
 
 			timer = setTimeout(step, at < jumble ? fast : slow);
-			// a decrypt is not a reason to stay alive
-			timer.unref?.();
+			if (!opts.hold) {
+				// a decrypt is not a reason to stay alive -- unless somebody is awaiting
+				// this one, which is what `hold` says and why it is the facade that sets it
+				timer.unref?.();
+			}
 		};
 
 		// the first frame now rather than one tick from now: a decrypt that showed
@@ -732,6 +762,9 @@ export function createDecrypt(opts: DecryptOptions = {}): Decrypt {
 					// finished text rather than needing to write the frame itself -- and
 					// what makes a decrypt stopped before it ever started leave its text
 					animate: () => moving && running.get(),
+					// this facade is the one that hands back a promise, so its timer is
+					// what has to keep the loop alive long enough to settle it
+					hold: true,
 					onDone: finish,
 				});
 				return decryptView(state);
