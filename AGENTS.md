@@ -29,35 +29,35 @@ the runtime.
 
 Paths below are inside `packages/sigil/` unless noted.
 
-| Path                           | Contents                                                       |
-| ------------------------------ | -------------------------------------------------------------- |
-| `src/parser/`                  | The parser: commands, options, arguments, registries           |
-| `src/parser/command/routes.ts` | The route rules, shared with `sigil build`                     |
-| `src/ansi/`                    | SGR styling, strip, color support detection                    |
-| `src/width/`                   | Display width: grapheme clusters, East Asian Width             |
-| `src/wrap/`                    | Text wrapping, SGR state, terminal width                       |
-| `src/help/`                    | The generated help screen, as an element tree                  |
-| `src/terminal/`                | Terminal wrapper, live region, sequences, OSC 52               |
-| `src/components/`              | Spinner, progress, table, prompts, scroll box, keys            |
-| `src/signals/`                 | The reactive graph: state, computed, watcher, effect           |
-| `src/renderer/`                | Components, the owner tree, control flow, the frame            |
-| `src/template/`                | The template IR, the `ui` tag, the JSX runtimes                |
-| `src/canvas/`                  | Cell buffer, style interning, paint diff, selection            |
-| `src/style/`                   | Properties, values, selectors, cascade, animation, degradation |
-| `src/theme/`                   | The framework's own sheet, and what a theme is                 |
-| `src/layout/`                  | The flexbox subset, over whole cells                           |
-| `src/infer.ts`                 | `initOption()` and `initArg()`, in the type system             |
-| `src/util/`                    | Shared helpers (type coercion, camelCase, mkdir)               |
-| `src/debug/`                   | `DEBUG`-driven logger; replaces snooplogg                      |
-| `src/paths.ts`                 | XDG base directories                                           |
-| `src/which.ts`                 | Resolving an executable against `PATH`                         |
-| `src/updates/`                 | npm update check, run in a spawned worker                      |
-| `src/error-handler.ts`         | Renders an error and sets the exit code                        |
-| `src/error-hooks.ts`           | Fires `beforeError` hooks; carries state on an error           |
-| `scripts/`                     | Run by hand: generators, the terminal probe, benchmarks        |
-| `docs/parser.md`               | Parser reference: syntax, semantics, precedence                |
-| `test/parser/commander/`       | Ported Commander test cases                                    |
-| `test/parser/yargs/`           | Ported yargs-parser test cases                                 |
+| Path                           | Contents                                                        |
+| ------------------------------ | --------------------------------------------------------------- |
+| `src/parser/`                  | The parser: commands, options, arguments, registries            |
+| `src/parser/command/routes.ts` | The route rules, shared with `sigil build`                      |
+| `src/ansi/`                    | SGR styling, strip, color support detection                     |
+| `src/width/`                   | Display width: grapheme clusters, East Asian Width              |
+| `src/wrap/`                    | Text wrapping, SGR state, terminal width                        |
+| `src/help/`                    | The generated help screen, as an element tree                   |
+| `src/terminal/`                | Terminal wrapper, live region, sequences, OSC 52                |
+| `src/components/`              | Spinner, progress, table, prompts, scroll box, typewriter, keys |
+| `src/signals/`                 | The reactive graph: state, computed, watcher, effect            |
+| `src/renderer/`                | Components, the owner tree, control flow, the frame             |
+| `src/template/`                | The template IR, the `ui` tag, the JSX runtimes                 |
+| `src/canvas/`                  | Cell buffer, style interning, paint diff, selection             |
+| `src/style/`                   | Properties, values, selectors, cascade, animation, degradation  |
+| `src/theme/`                   | The framework's own sheet, and what a theme is                  |
+| `src/layout/`                  | The flexbox subset, over whole cells                            |
+| `src/infer.ts`                 | `initOption()` and `initArg()`, in the type system              |
+| `src/util/`                    | Shared helpers (type coercion, camelCase, mkdir)                |
+| `src/debug/`                   | `DEBUG`-driven logger; replaces snooplogg                       |
+| `src/paths.ts`                 | XDG base directories                                            |
+| `src/which.ts`                 | Resolving an executable against `PATH`                          |
+| `src/updates/`                 | npm update check, run in a spawned worker                       |
+| `src/error-handler.ts`         | Renders an error and sets the exit code                         |
+| `src/error-hooks.ts`           | Fires `beforeError` hooks; carries state on an error            |
+| `scripts/`                     | Run by hand: generators, the terminal probe, benchmarks         |
+| `docs/parser.md`               | Parser reference: syntax, semantics, precedence                 |
+| `test/parser/commander/`       | Ported Commander test cases                                     |
+| `test/parser/yargs/`           | Ported yargs-parser test cases                                  |
 
 At the repository root: `demos/` (runnable examples that import `@ttylabs/sigil` by
 name, so they need `pnpm build` first, and a workspace member so that the name
@@ -9206,6 +9206,17 @@ people's software and will move.
   and every one of its siblings and is on the help path, so searching for the
   vocabulary finds the theme and reports the whole component set as loaded when
   none of it is.
+- **And the list of symbols is one somebody has to add to, which two components had
+  not been.** `IMPLEMENTATIONS` is written out rather than derived, so a component
+  added without a name in it is one whose absence from the root entry is pinned by
+  nothing that a rename could take away -- which is precisely the vacuity the
+  presence half exists to stop, arriving through the door of the list rather than of
+  the assertion. `ScrollBox` had been missing since SIG-64 and `createTypewriter`
+  since it was written; a review round pointed at the file and found both. Deriving
+  the list is the obvious fix and is not available: what belongs in it is one
+  _implementation_ per component, and the barrel exports the state builders, the view
+  functions and the types beside them, so a derived list would be asserting that
+  `typewriterState` is not on the root entry -- true, and not the claim.
 - **The components barrel is not split per component, because the components are
   not what it costs.** Reaching for one is 124 KB, of which the component
   implementations are 13.4 KB and the other 111 KB is the stack any single one
@@ -9333,6 +9344,408 @@ people's software and will move.
   paste handler, so a pasted block is typed in as keys -- which is what a terminal
   that cannot bracket one sends anyway, and what a `y` pasted into a confirm
   should mean.
+
+#### A typewriter: text that arrives a chunk at a time
+
+SIG-83 asked for text that arrives rather than appears, and asked first whether
+it is a component or an animation primitive. It is a component, and the reason
+was already written down one section up: what it steps is _content_, and there is
+no animatable content property. `src/components/typewriter.ts` is the whole of
+it.
+
+- **The "no content property" argument was checked against the code rather than
+  taken from the spinner's entry, and it holds in four places.** `content` is not
+  in `PROPERTIES` at all, and the property table is the single source of truth.
+  `ANIMATABLE_PROPERTIES` is `PROPERTY_NAMES` filtered, so an animation cannot
+  name anything the table does not have. `transition-property` throws
+  `no such property` for a name outside it. And `src/style/animate.ts` mentions
+  neither `setText` nor `displayText`: what an animation produces is a _presented
+  style_, which is the one thing it can produce. So `steps()` over a `@keyframes`
+  can step a number of cells, a colour or a keyword, and "how many graphemes are
+  visible" is none of those. A content property would have to carry the text, be
+  interpolated, be degraded and be invalidated, which is a property table entry
+  whose value is a string the layout re-measures -- and the entry above already
+  refuses it for the spinner.
+- **The ticket's three reasons for not animating `width` are two reasons, and the
+  one that decides it is measured.** Clipping has landed since the ticket was
+  filed (SIG-64, and SIG-130 made `arrangedExtent()` stop at a clipping box), so
+  that third reason is stale. What remains was measured on a real sweep -- a
+  `text` at its natural width inside an `overflow: hidden` box whose own width
+  steps one column at a time:
+
+  **A column sweep reveals every row at once.** At a clip of one column a
+  paragraph wrapped into two rows comes out `"a\nd"` -- the first column of row
+  one _and_ the first column of row two. At three columns it is `"aaa\nddd"`, so
+  the last word of the paragraph is fully on screen while the second word is not
+  there at all. That is not a typewriter by any reading, and nothing about the
+  sweep can be told to go line by line.
+
+  **And the wide-cluster reason is real but smaller than the ticket says.** The
+  ticket says a column sweep "shows half a glyph -- exactly the state the canvas
+  diff works to prevent", and the measurement says the canvas does in fact prevent
+  it: a two-column cluster with one column left is refused and a blank takes the
+  column, which is `CellBuffer.inside()`'s own rule. So at a clip of one column a
+  family emoji draws _nothing_, and at two it draws whole. What a sweep actually
+  produces is a reveal whose steps and whose glyph boundaries disagree -- a step in
+  which the screen does not change -- rather than a corrupted cell. Worth
+  correcting rather than repeating, because a reader who trusted the stronger claim
+  would go looking for a half-drawn glyph that the grid cannot produce.
+
+  Revealing by cluster makes all of it fall out instead of needing handling: a ZWJ
+  family, a flag, a keycap, a combining mark and a Devanagari spacing mark are one
+  cluster each, so each is one step, and `revealSteps()` is asserted never to split
+  any of them.
+
+- **The position is an offset into the text, not a count of chunks, and that is
+  what makes a text change cheap.** A count would have to round back to a chunk
+  boundary whenever the chunking moved, and the chunking moves on an ordinary
+  append: by word, `hel` then `hello` turns one chunk into another; by grapheme,
+  typing a combining mark onto an `a` that is already on screen makes the two one
+  cluster two code units long. Rounding back re-reveals what was already on screen,
+  which is a stutter on every token a stream appends. An offset survives it, and it
+  is moved forward to the end of the step it fell inside the moment anything puts it
+  there. The first version gave up on such a position instead, and stalled the reveal
+  for the rest of the process; `should not stall when a chunk boundary stops being
+one` is the guard.
+- **And the snap is to any step rather than to the first, because a swap can leave
+  the position mid-cluster anywhere.** It was written as a special case for the first
+  step, which is where the combining mark puts it, and a review round found the other
+  shape: swapping one emoji for another leaves the position on the **surrogate the
+  two share**, which is a boundary of neither text. Measured, that drew a lone high
+  surrogate for one frame before the next step repaired it -- `"x\u{1F600}"` fully
+  revealed, then `"x\u{1F601}"`, and the frame came out `x\ud83d`. Forward rather
+  than back, because back takes something off the screen that was already on it;
+  what forward costs is at most one chunk revealed early, on a text change where the
+  content has moved anyway. One rule where there were two, and the first-step case
+  falls out of it. `should never leave half a cluster on screen` is the guard, and the
+  first-step spelling fails it.
+- **A text change keeps as much as the new text still says, which is
+  "continue from the common prefix" with the prefix taken on the _text_.** The
+  three candidates were restart, continue, and snap. Restarting retypes the whole
+  answer on every token a stream appends, which is the case the component is
+  first described by; snapping throws away the effect. So the position is clamped
+  to the characters the old and new text share: appending continues from where it
+  had got to, a divergence re-reveals from the point the two part, and a shorter
+  text clamps back. The prefix is of the text rather than of the chunk list for the
+  reason above -- a chunk list's own prefix is not stable under an append.
+- **The chunker decides where the steps land and the string decides what is
+  shown.** That is what makes any chunker safe to pass, including a caller's own: a
+  chunk running past the end is clamped, one that adds nothing is dropped, and a
+  chunker that loses characters -- or returns nothing at all -- still ends with the
+  whole string revealed, because the last step is forced to the end. Without that a
+  lossy chunker strands the reveal one character short with the cursor still on,
+  which looks like a hung animation rather than like a chunker with a bug in it. Each
+  step's chunk is sliced out of the string rather than taken from the chunker, so
+  what `Pace` is shown is what reached the screen.
+- **Whitespace travels forward, in both chunkers.** `byWord()` puts the whitespace
+  in front of the word it belongs to and `byLine()` puts the break in front of the
+  line it opens. A space on its own is a step in which the screen does not change,
+  which reads as a dropped frame rather than as typing -- and a break revealed at
+  the _end_ of a line leaves the cursor dangling on an empty row for one step, where
+  a break revealed with the line it opens leaves it where the text just stopped. One
+  rule rather than one per chunker.
+- **What that buys is a `byWord()` chunk that is never whitespace alone, and it is
+  not the same claim about `byLine()`.** A review round caught the overclaim: a
+  blank line is a chunk of exactly `"\n"`, so `byLine('a\n\nb')` is
+  `['a', '\n', '\nb']` and the middle chunk is whitespace while the text has words
+  in it. That is right rather than an exception -- a bare break reveals a blank
+  **line**, which is a row appearing, where a bare space reveals nothing at all --
+  and `should keep a blank line as its own chunk` is what pins it. Text with no word
+  in it at all is one chunk under either, because there is nothing for its
+  whitespace to travel to.
+- **There is no `byGrapheme`, because `graphemes()` is already it.** It is the
+  default chunker and it is exported from `@ttylabs/sigil/width`; a second name for
+  one function is how the two come to disagree, which is the rule
+  `COLOR_PROPERTIES` and `readRoutes()` already follow. What that costs is
+  discoverability from the components barrel, and it is paid by the default being
+  the one nobody has to name.
+
+##### The cursor is a character in the text, and that was measured
+
+- **A caret beside the text lands at the end of its _first_ row.** The prompt
+  draws its caret as reverse video over a grapheme cluster, and the ticket points
+  at it -- but there is no inline layout here, so a caret beside a `text` is a
+  second flex item placed beside that text's **box**. Measured: a caret after a
+  paragraph wrapped into two rows comes out `hello there world_` / `again friend`,
+  which is the AGENTS.md rule the prompt's own field records, arriving one
+  component along.
+- **Three designs were built and measured before one was kept.** A `paragraph()`
+  with the caret as one more word item places it correctly on the last row -- and
+  a `column-gap: 1` then sits between the last word and it, so the cursor is one
+  column off the write head. Cancelling that with `margin-left: -1` is exact
+  everywhere except an exactly-full line, where the item wraps and is pulled to
+  `x = -1`: measured, the cursor **disappears** for the two frames per line where
+  the line is full. Gluing the caret to the last word by giving the two one item
+  fixes that and is correct at every reveal length -- and then misplaces inside an
+  over-long word, because the pair's own text wraps and the caret is beside _its_
+  box: measured, `super#` / `cal` where the write head is after `al`.
+- **So the cursor is a glyph appended to the revealed string, which is right in
+  every case there is.** It wraps with the text, it follows the last character
+  through a broken over-long word, and it moves to a new row when the row it was
+  on filled up -- all measured at every reveal length of a wrapping paragraph, of
+  an over-long word, and of text with newlines in it. With no cursor the view
+  renders byte for byte what a bare `text` renders, which is the non-regression.
+- **What it costs is a class of its own, and what it buys back is colour level 0.** A theme cannot colour the cursor apart from the text, which is a real loss
+  and the reason the other two designs were built first. Against it: at level 0
+  every attribute is dropped, so the prompt's reverse-video caret is deliberately
+  not drawn there at all -- measured, a `.sigil-caret` space comes out as nothing
+  -- while a glyph survives `NO_COLOR`. A bug beats a missing feature, and a caret
+  in the wrong place is the bug.
+- **Which is also why the cursor must be a visible glyph.** A space is not one: a
+  `text` of nothing but spaces measures zero at `white-space: normal`, which is the
+  defect the choice list's pointer column already records, so a space cursor would
+  draw nothing unless it carried `nowrap` and an attribute. That is pinned rather
+  than left to be discovered, beside the cases that do work -- a wide cluster, a
+  flag, and a cursor of more than one character. `cursor` is a `string`
+  rather than a `boolean | string` for the reason `MediaContext.keyword` is a field
+  of its own: nothing downstream should have to ask which of two types it was
+  handed.
+- **It is drawn only while there is more to reveal.** The write head is where the
+  next character goes and a finished line has no next character -- which is also
+  what keeps a cursor out of the log, and out of the whole text a pipe gets.
+- **It does not blink, and that is the frame loop's rule rather than taste.** A
+  blink is a second timer with a period of its own, running _after_ the reveal has
+  finished, which contradicts "no timer when nothing is revealing" -- a rule the
+  ticket itself lists. It is also motion, so it would have to be suppressed under
+  a reduced-motion opt-out as well, which means the cursor's appearance would
+  depend on a preference nobody connected it to.
+
+##### The pace is the caller's, and the four frame-loop rules
+
+- **`pace(chunk, index)` is how long that chunk is _held_, and a flat interval is
+  the default.** The three candidates the ticket names are a constant, a built-in
+  with punctuation pauses and jitter, and a curve the caller supplies; building all
+  three is what it asks not to do. The curve wins on two arguments. The component
+  cannot know the language or the content: a pause after `.` is wrong for `3.14`,
+  for `index.ts`, for a file path and for an ellipsis, so a built-in rule is wrong
+  for the text the caller actually has -- and `pace: (c) => (c.endsWith('.') ? 400 :
+40)` is the whole feature in the caller's hands. And jitter needs randomness,
+  which makes the component non-deterministic: a test that depends on
+  `Math.random()` is the same flakiness an injectable clock exists to prevent, and
+  a caller who wants jitter supplies a seeded generator.
+- **Held _after_ rather than waited _before_, so the first chunk lands on the
+  first frame.** A typewriter showing an empty line for an interval before it
+  starts reads as a stall, and the after-reading is what makes a punctuation pause
+  expressible as a property of the chunk that ends with the full stop rather than
+  of the one after it. The consequence worth knowing is that the last chunk's delay
+  is never asked for, which is asserted.
+- **A pace that answers with nothing usable is read as the interval.** `NaN` would
+  schedule immediately and reveal the whole text in one macrotask, which is the one
+  failure that looks like the feature being broken rather than like a bad return
+  value. A _negative_ one is passed through: `setTimeout` documents a delay under 1
+  as 1, so a `Math.max(0, ...)` here was this file saying what the host already
+  says, and it failed its sabotage for exactly that reason. The contract is still
+  asserted; it is simply kept somewhere else.
+- **Every delay is taken when the steps are, because the timer must run no caller
+  code at all.** `pace` is the caller's, and the first version called it from inside
+  the `setTimeout` -- where a throw is an **uncaught exception**: node prints a stack
+  and the process goes, which skips the renderer's teardown and is the opposite of
+  the rule that a CLI shows a message rather than a stack. Proved both ways with real
+  timers before it was changed, with a pace that starts throwing fifteen
+  milliseconds in: from inside the timer the reveal stopped four characters into a
+  ten-character string and the throw escaped as an unhandled error, and with the
+  delays taken up front the same pace is asked nine times at chunk time and the
+  reveal finishes. This is `until()`'s own rule one component along -- a predicate
+  that throws ends its own probe, not the process -- reached by moving the caller's
+  code into the effect body, where a throw is reported by the machinery that already
+  answers for a component that throws. Found by walking the degenerate inputs rather
+  than by a test, so `should ask the pace nothing from inside a timer` asserts the
+  structural property and its sibling asserts where the error goes. What it costs is
+  `steps.length - 1` calls per text change rather than one per step, which is the
+  order the chunking already is. The last chunk is skipped rather than computed and
+  ignored, because the delay before a chunk is the one in front of it earned -- so a
+  caller counting the calls sees the number it should.
+- **And the position is settled before any of the caller's code runs, which is the
+  other half of the same ordering.** The effect used to compute where to go from a
+  position read _before_ `pace`, and then write it -- so a `skip()` from inside a
+  `pace` was set and immediately written back over, and the reveal carried on typing.
+  Nobody writes that on purpose, and it is the general shape that matters: read, run
+  the caller's code, write the stale value. The write moved above the delay loop, so
+  the caller is the last word rather than the first, and `should let a pace that
+moves the position have the last word` fails if the two swap back. Found by review.
+- **An interval has to be a number `setTimeout` can wait for, and `Infinity` is
+  not.** `Infinity >= 0` is true, and node reads a delay past 2^31-1 as 1 -- so
+  `interval: Infinity` asked for "never" and got "as fast as possible", while `NaN`
+  already fell back to the default through the same comparison. `Number.isFinite`
+  makes it one question rather than two answers to it. Found by review, and the kind
+  of asymmetry a guard acquires when it is written for the input somebody reported.
+- **No timer when nothing is revealing.** The last chunk schedules nothing, so a
+  finished typewriter holds no timer, and a reveal that cannot animate starts none
+  at all. **The timer is unref'd**, because a program that has finished should exit
+  even if somebody forgot to stop it. **The clock is the timer**, and there is
+  deliberately no `now` to inject: nothing here measures elapsed time, it only
+  schedules, so fake timers are the whole of what a test needs -- where the animator
+  has a `now` precisely because it computes how far through a duration it is. An
+  option nothing needs is an option designed by guessing, which is the rule `which`
+  waited eighteen months for a caller over.
+- **The step reads where the reveal has got to at fire time rather than
+  capturing it.** A `skip()` while a timer is in flight would otherwise be undone
+  by it: the pending step writes a position _behind_ the one the skip reached and
+  the text comes back off the screen. The test for that was vacuous in its first
+  version and is the entry under the sabotage pass below.
+- **The whole string arrives at once in a pipe, in a CI log, and under a
+  reduced-motion opt-out, which is one question rather than three.**
+  `mountLive()` now hands the build what the _renderer_ resolved, because the
+  renderer's `motion()` is the only thing that folds the three sources together --
+  the caller's, `SIGIL_REDUCED_MOTION`, and whether there is a screen at all. A
+  component asking those three for itself would be a second reader of one rule,
+  which is how the two come to disagree about whether a pipe animates. `render()`
+  sets `cascade.media` before it runs the component, so the mount holds the cascade
+  it built and reads the answer off it; the build callback's second parameter is
+  additive, so the spinner, the bar and the prompts were not touched.
+- **And it is a function rather than a boolean, which is what makes `done()`
+  finish the reveal.** `animate` is read on every run and is gated on the
+  typewriter running, so turning it off _is_ the way a reveal ends -- rather than
+  `done()` writing the position itself, which would be a second answer to "how
+  does a reveal finish" and did in fact disagree: the first version set the
+  position and then let the effect re-run over the new text `done()` had been
+  handed, which clamped back to the common prefix and left a **truncated** line in
+  the log. `should leave the text done() was handed, whole` is the guard.
+
+##### Interruption is a method, not a key
+
+- **`skip()` is the mechanism and the gesture is the app's.** A keypress skipping
+  to the end is the right gesture and it does not belong here: the components are
+  reachable with no router at all -- `renderToString()` of this one works, and most
+  of its tests are written that way -- so a design that _required_ one would narrow
+  the component to apps that have a focus ring. An app with a router binds a key to
+  `skip()` in one line, which is the same split the scroll box keeps between a
+  `scrollTo()` and the key that calls it.
+- **`done()` reveals the rest and leaves the line; `stop()` erases.** Which is the
+  progress bar's pair, for the progress bar's reasons. `skip()` differs from
+  `done()` in that it keeps the typewriter mounted, because a stream may append
+  more afterwards -- and it does, which is asserted.
+
+##### What the view does not carry
+
+- **There is no width option, and one was written and deleted for failing its
+  sabotage.** A `max-width` of the terminal's looked necessary: an inline canvas
+  follows its content, so an auto measure of one long line reads like a canvas two
+  thousand columns wide. It is not, and the renderer is why -- `layoutInto()`
+  measures an auto-width canvas at `terminal.width` and caps it there, and
+  `renderToString()` lays out at the width it was given. Both paths were already
+  bounded, the sabotage proved it, and the option was a knob that did nothing.
+- **What is not redundant is `min-width: 0` on the text.** The canvas is capped
+  either way, so without it a word longer than the terminal keeps its own width and
+  is cut off at the canvas edge rather than broken -- which is the rule
+  `paragraph()` gives its own words and the reason it gives it. Both halves are
+  pinned, one in the view and one through a mounted canvas six columns wide.
+- **Two classes and no rule for either.** `.sigil-typewriter` and
+  `.sigil-typewriter-text` join the vocabulary comment in `FRAMEWORK_CSS` and get
+  no declaration, because there is no colour a typewriter has by default: the text
+  is the app's. A class with no rule is still a hook, and giving it an empty rule
+  would be a declaration that says nothing. The cursor has no class of its own,
+  because it is a character in the text rather than an element -- the entry above is
+  why, and `.sigil-typewriter .sigil-caret` is what a caller who wants the prompt's
+  caret here would have had to write.
+
+##### The clamp that looked dead and was not
+
+- **`shownOf()` is one function because two readers of one clamp is how the two come
+  to disagree**, and the clamp itself is the entry worth keeping: `String.slice`
+  reads a negative end as an offset from the **far** end, so `'abc'.slice(0, -1)` is
+  `'ab'` -- every character but the last, from a position that means nothing is on
+  screen. `revealed` is a public signal an app building its own tree writes, so that
+  is reachable rather than theoretical.
+- **The first test for it used `-5` and survived its sabotage, because `-5` is the
+  one kind of negative where `slice` agrees.** A position past `-length` clamps to
+  nothing by itself; only `-1` through `-length` differ. That is the
+  fixture-too-easy shape this file records under the animator's `isFinite` guard,
+  met again: the sabotage was sound and the fixture could not reach the state that
+  makes the guard matter.
+- **And the other half of the same clamp really is dead.** `Math.min(value.length,
+at)` changes nothing, because `slice` clamps an end past the string and so the
+  length of what comes back is clamped too -- which is the whole of what the cursor
+  gate asks about. Deleted, after its own sabotage survived.
+
+##### What the sabotage pass found
+
+Forty-nine mutations against the final code, one at a time with the file's own
+suite run after each. **Forty-eight are caught**, and the interesting half is not
+the count: six guards turned out to be dead, one test turned out to be vacuous, and
+two claims had no test at all.
+
+Four of the forty-nine are there to answer one question about the suite rather than
+about a guard -- could any assertion hold if the component simply drew nothing? A
+view whose text is set to `''`, a view with no text child at all, a reveal that
+never advances, and a mount that never happens are each caught by dozens of tests,
+so the answer is no. Worth asking, because a component whose tests are mostly
+`expect(log).to.deep.equal([])` can pass while drawing nothing, and three of this
+one's are exactly that shape.
+
+The harness reports a pattern that missed, a pattern that matched more than once
+and a replacement equal to its original as their own verdicts rather than as
+passes, and it needed to: three earlier rounds went **stale** as the code changed
+under them, and a pattern that silently matches nothing is a green suite reading as
+"the guard is not load bearing". The final tally is one run against one tree.
+
+- **Three guards were dead because the signal layer already answers.**
+  `State.set()` returns early when the new value equals the old, so a guard against
+  an `append('')`, a second `start()`, and a write of a position that did not move
+  were each a guard that could not fire. All three are gone and the properties they
+  were standing for are asserted instead -- which is what `should change nothing on
+an append of nothing` and `should change nothing on a second start()` are for.
+  Worth knowing because the spinner keeps the same `if (!spinning)` guard and is
+  right to: there is a `state.outcome.set(undefined)` inside it, and here there was
+  nothing.
+- **Three more were dead for arithmetic reasons.** An early return for an empty
+  string in `revealSteps()` could not change an answer, because no step can have an
+  end past zero. A check for the end of the reveal inside the schedule was subsumed
+  by the one under it, which answers `-1` for the same input. And the view's own
+  clamp of the position was subsumed by `String.slice`, which clamps both ends, and
+  by a comparison that behaves the same at both. Deleted rather than commented,
+  which is what this file does with a guard that cannot fire.
+- **One survivor stays and is declared.** `if (next < 1)` catches two things: the
+  `-1` that is how the end of a reveal arrives, and a `0` that cannot be reached,
+  because the snap above leaves the position at or past the end of the first step.
+  Weakening it to `next < 0` therefore fails nothing; _removing_ it fails eight
+  tests. It stays as one comparison rather than two, because what it would otherwise
+  be is an unreachable `steps[-1]` and a crash, and the comment says which half
+  fires.
+- **One test was vacuous in the way this file keeps rediscovering.** `should not be
+undone by a step that was already in flight` advanced a hundred milliseconds and
+  asserted the final position, so a step that had captured where it was going wrote
+  a position behind the skip, rescheduled, and **caught back up** before the
+  assertion ran -- green, with the text having come off the screen and gone on
+  again. One interval is what makes it say anything.
+- **And two claims had nothing asserting them, both found by the sabotage rather
+  than by review.** Renaming `.sigil-typewriter-text` failed no test, so a theme
+  written against the class could have stopped applying silently -- the registry
+  reads the classes out of the source, so it agrees with whatever the source says.
+  And `mountLive()` building its cascade from `{}` rather than from the caller's
+  options failed no test in `components/`, `theme.test.ts` or `renderer/`, which is
+  a hole older than this ticket: nothing anywhere asserted that a theme handed to a
+  _mounted_ built-in reaches it. Both have tests now, and the second one closes a
+  gap for every component rather than only this one.
+
+##### What is deliberately out
+
+- **A blinking cursor**, for the reason under the cursor above: a second timer
+  running after the reveal has finished.
+- **Built-in punctuation pauses and jitter**, with the curve in their place and the
+  reason above. A caller gets both in one expression and the component stays
+  deterministic.
+- **A key binding for `skip()`**, because a component that needs a router is a
+  component an app without one cannot draw.
+- **Per-chunk styling.** A chunk that arrives in its own colour would make the view
+  a `paragraph()` of styled runs rather than one `text`, and then the cursor is back
+  to being a flex item beside a box -- which is the measurement this whole design
+  came out of. The day somebody wants it, it wants the inline-layout answer rather
+  than a second cursor rule.
+- **A `now` to inject**, for the reason under the frame-loop rules: nothing here
+  measures elapsed time.
+- **Noticing that the media context moved after it mounted.** `moving` is read once,
+  from what `mountLive()` hands the build, so a terminal that _stops_ being one
+  mid-reveal -- a pipe whose far end goes, which sets `closed` and makes `motion()`
+  answer `reduce` -- does not collapse the reveal. Measured: it runs to the end at
+  its own pace, writing to a stream that swallows it, and holds no timer afterwards.
+  So it is bounded, invisible and finite, which is the whole reason it is left: the
+  animator needed `touchMedia()` because an infinite animation kept the frame loop
+  awake for the life of the process, and a reveal ends. It is also exactly what the
+  spinner does with the same `live` flag, so fixing it here alone would be one
+  component disagreeing with its neighbour about a question `mountLive()` answers for
+  both. The shape of a fix is `touchMedia()`'s and it wants a second caller before it
+  is worth a change to what the mount promises.
 
 ### Prompts and keys
 
