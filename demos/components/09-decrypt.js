@@ -44,22 +44,22 @@ await decrypt(
 );
 
 // and the colours are an app sheet's rather than an option's, because a built-in
-// carries no colour in its props: `.is-masked` is on the text while anything is
-// still hidden, so one rule is the cipher and the other is what it resolves to.
-// `dim: false` is what takes the framework's own de-emphasis back off -- the
-// default sheet dims a masked decrypt, and a cipher that is meant to be *read* as
-// a colour wants it off rather than blended towards the background.
+// carries no colour in its props. Two classes, because the cells still hiding
+// something and the cells that have resolved are two elements over one rectangle:
+// one rule is the cipher and the other is what it resolves to. `dim: false` is what
+// takes the framework's own de-emphasis back off -- the default sheet dims the
+// cipher, and a cipher that is meant to be *read* as a colour wants it off rather
+// than blended towards the background.
 //
-// Block-level, which is the whole of what one `text` element can say: the colour
-// changes when the last character lands rather than per character as each one
-// does. Per-character would need a view that styles runs or paints its own cells,
-// which is a component change rather than a sheet.
+// Per character, which is what two layers buy: each character turns green the
+// moment it lands rather than the whole line turning when the last one does. Watch
+// one word rather than the line and it is the clearer of the two.
 await decrypt('The quick brown fox jumps over the lazy dog', {
 	...pace,
 	sheets: [
 		`
-			.sigil-decrypt-text { color: green }
-			.sigil-decrypt-text.is-masked { color: cyan; dim: false }
+			.sigil-decrypt-plain { color: green }
+			.sigil-decrypt-cipher { color: cyan; dim: false }
 		`,
 	],
 });

@@ -66,8 +66,11 @@ That is what a CI log gets, and no component had to know about it. The decrypt i
 the sharpest case: five texts, written once each, which is seven lines because one
 of them is three — against a couple of hundred frames of noise on a terminal. Its
 last text is also the one that shows colour doing the work: an app sheet puts the
-cipher in one colour and what it resolves to in another, which is a `.is-masked`
-rule rather than an option, because a built-in carries no colour in its props.
+cipher in one colour and what it resolves to in another, which is two class rules
+rather than an option, because a built-in carries no colour in its props. Per
+character, not per block — each one turns the resolved colour the moment it lands,
+because the cipher cells and the resolved ones are two elements over one
+rectangle and each resolves its own style.
 
 `08-large-text.js` is the one where the answer is that nothing changes: a banner
 is static text, so there is no cursor to move and a pipe gets byte for byte what
