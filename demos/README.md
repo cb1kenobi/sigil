@@ -44,6 +44,7 @@ node demos/parser/06-lazy-commands.js --help  # commands listed by name alone
 | [`components/05-live-region.js`](components/05-live-region.js)     | A string frame repainted in place, on its own |
 | [`components/06-ansi-and-wrap.js`](components/06-ansi-and-wrap.js) | Styling, wrapping, and display width          |
 | [`components/07-typewriter.js`](components/07-typewriter.js)       | Text that arrives rather than appears         |
+| [`components/08-large-text.js`](components/08-large-text.js)       | Banner text, and the `.flf` format behind it  |
 
 ### Try them without a terminal
 
@@ -60,6 +61,15 @@ node demos/components/07-typewriter.js | cat
 ```
 
 That is what a CI log gets, and no component had to know about it.
+
+`08-large-text.js` is the one where the answer is that nothing changes: a banner
+is static text, so there is no cursor to move and a pipe gets byte for byte what
+a terminal gets. What the destination does change is how much colour it takes,
+which is the last section of that run and is what `NO_COLOR=1` turns off. It
+reads its font from `components/fonts/blocks.flf`, written for these demos --
+no third-party `.flf` is committed here and none is bundled in the runtime,
+because the look of a banner is the app's choice and there are hundreds of fonts
+already written.
 
 The typewriter answers the same way to a preference rather than to a pipe, so a
 terminal whose user has asked for less motion gets the text in one go too:

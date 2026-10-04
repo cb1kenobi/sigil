@@ -75,6 +75,10 @@ const ENTRIES = [
 		name: 'table',
 	},
 	{
+		desc: 'Banner text: a FIGlet renderer and the .flf format',
+		name: 'large-text',
+	},
+	{
 		desc: 'The five prompts: text, password, confirm, select and multiselect',
 		name: 'prompt',
 	},
