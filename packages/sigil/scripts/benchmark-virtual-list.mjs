@@ -14,20 +14,28 @@
  *
  * Imports `dist/` rather than `src/`: what ships is what should be measured.
  *
- * ## The three sides are one binary
+ * ## The sides
  *
- * `rowWindow()` reads the viewport's height, and before anything has arranged
- * the tree the only height there is is the one the host *declared*. So the
- * "whole" side is `ScrollBox({ rows })` with that declaration **taken away** --
- * the optimization turned off by removing its input, over the same component,
- * the same window code and the same row builder, which is the only differential
- * that cannot drift between its sides.
+ * The whole-list side is `children()`: the same rows assembled by hand, which is
+ * what an app writes today. It used to be `ScrollBox({ rows })` with the declared
+ * height **removed** -- the optimization turned off by removing its one input, over
+ * the same component and the same window code, which is the better shape -- and
+ * SIG-132 made that mean "no rows" rather than "every row". Giving the floor the
+ * whole list's height does not get it back and was tried: `rowWindow()` takes
+ * `first` from the **offset**, so no `view` however large puts a row above the
+ * offset in the window, and at the mid-list offset this times at that side built
+ * 20,106 elements rather than 40,010 -- which read as a 97.7ms first frame where
+ * AGENTS.md records 190.6, and was very nearly written up as a faster machine.
  *
- * The third side is the status quo: `children` holding every row, which is what
- * an app writes today and is what the steady-state number is against. Its rows
- * are assembled by hand, and what keeps that honest is that all three are
- * required to paint the **same frame** at several offsets before anything is
- * timed. A window that drew something else would be faster and wrong.
+ * What keeps the hand-built side honest is that it and the window are required to
+ * paint the **same frame** and report the **same range** at six offsets before
+ * anything is timed. A window that drew something else would be faster and wrong.
+ *
+ * The last section's two sides are a **frame** rather than a layout, because the
+ * thing it measures cannot be reached without one: a list bounded by its parent has
+ * no height to window by until something has arranged it. That one keeps the purity
+ * the first section lost -- it is the same component with the declaration removed --
+ * and it is SIG-132.
  *
  * Interleaved rather than batched, for the reason AGENTS.md records twice: two
  * batches minutes apart disagree with each other, and run in the other order
@@ -36,7 +44,15 @@
  */
 import { CellBuffer, Painter, StyleTable } from '../dist/canvas.mjs';
 import { ScrollBox } from '../dist/components.mjs';
-import { arrange, box, paint, resolveStyles, scrollRange, text } from '../dist/element.mjs';
+import {
+	arrange,
+	box,
+	paint,
+	renderToLines,
+	resolveStyles,
+	scrollRange,
+	text,
+} from '../dist/element.mjs';
 
 const ROWS = Number(process.argv[2] ?? 10_000);
 const WIDTH = 80;
@@ -78,18 +94,15 @@ function windowed() {
 }
 
 /**
- * The same thing with the window's one input taken away.
+ * A list bounded by its parent and nothing else, which is SIG-132's subject.
  *
- * No declared height, so `rowWindow()` has no bound and holds every row -- and
- * it stays that way as long as nothing has arranged it, which is why each round
- * builds a fresh one. The host is wrapped so that it is still laid out at the
- * same size.
+ * Nothing declared a height, so no window can be computed until a layout has given
+ * the viewport a box -- which means this side is only correct through a *frame*,
+ * and is why it is measured with `renderToLines()` rather than with an `arrange()`
+ * of its own. A bare layout and paint of one of these draws an empty viewport, and
+ * that is written down under "Windowing a long list" rather than worked around.
  */
-function whole() {
-	// bounded by its parent rather than by a height of its own, which is the
-	// shape the generous fallback is written for: the viewport ends up exactly as
-	// tall as the windowed side's and nothing declared a number for the first
-	// window to read
+function flexSized() {
 	const host = ScrollBox({
 		props: { 'flex-basis': 0, 'flex-grow': 1, 'min-height': 0, width: WIDTH },
 		rows,
@@ -150,24 +163,13 @@ const ms = (from) => Number(process.hrtime.bigint() - from) / 1e6;
 {
 	let ok = true;
 	for (const offset of [0, 1, 7, MID, ROWS - HEIGHT, ROWS * ROW_HEIGHT]) {
-		const w = whole();
-		const a = frame(w.root, offset, w.host);
-		const b = frame(windowed(), offset);
-		const c = frame(children(), offset);
-		const same = a.grid === b.grid && a.grid === c.grid;
-		const ranges =
-			JSON.stringify(a.range) === JSON.stringify(b.range) &&
-			JSON.stringify(a.range) === JSON.stringify(c.range);
-		if (!same || !ranges) {
+		const a = frame(windowed(), offset);
+		const b = frame(children(), offset);
+		if (a.grid !== b.grid || JSON.stringify(a.range) !== JSON.stringify(b.range)) {
 			ok = false;
-			console.error(
-				`offset ${offset}: grid ${same ? 'same' : 'DIFFERENT'}, range ${
-					ranges ? 'same' : 'DIFFERENT'
-				}`
-			);
-			console.error(`  whole    ${JSON.stringify(a.range)}\n${a.grid}`);
-			console.error(`  windowed ${JSON.stringify(b.range)}\n${b.grid}`);
-			console.error(`  children ${JSON.stringify(c.range)}\n${c.grid}`);
+			console.error(`offset ${offset}: the window drew something else`);
+			console.error(`  windowed ${JSON.stringify(a.range)}\n${a.grid}`);
+			console.error(`  children ${JSON.stringify(b.range)}\n${b.grid}`);
 		}
 	}
 	if (!ok) {
@@ -177,18 +179,18 @@ const ms = (from) => Number(process.hrtime.bigint() - from) / 1e6;
 }
 
 {
-	const w = whole();
-	resolveStyles(w.root);
-	arrange(w.root, { height: HEIGHT, width: WIDTH });
+	const w = children();
+	resolveStyles(w);
+	arrange(w, { height: HEIGHT, width: WIDTH });
 	const v = windowed();
 	resolveStyles(v);
 	arrange(v, { height: HEIGHT, width: WIDTH });
 	console.log(`${ROWS} rows, ${WIDTH}x${HEIGHT}, row height ${ROW_HEIGHT}`);
-	console.log(`elements: whole ${countElements(w.root)}, windowed ${countElements(v)}`);
+	console.log(`elements: whole ${countElements(w)}, windowed ${countElements(v)}`);
 	console.log('identical output: true\n');
 }
 
-// -- the first frame, where the declared height is the input ------------------
+// -- the first frame, against the list an app writes today --------------------
 
 const first = { arrange: {}, build: {}, cascade: {}, paint: {} };
 for (const key of Object.keys(first)) {
@@ -200,8 +202,8 @@ for (let round = 0; round < ROUNDS; round++) {
 		const offset = MID + round;
 
 		let t = process.hrtime.bigint();
-		const made = side === 'whole' ? whole() : { host: windowed() };
-		made.root ??= made.host;
+		const made = { host: side === 'whole' ? children() : windowed() };
+		made.root = made.host;
 		first.build[side].push(ms(t));
 
 		viewportIn(made.host).scrollTo(0, offset);
@@ -220,7 +222,7 @@ for (let round = 0; round < ROUNDS; round++) {
 	}
 }
 
-console.log('the first frame, with the declared height as the input removed:');
+console.log('the first frame, against the same list with every row built:');
 let wholeTotal = 0;
 let windowTotal = 0;
 for (const [name, data] of Object.entries(first)) {
@@ -289,6 +291,80 @@ for (const side of ['children', 'windowed']) {
 	);
 }
 console.log(`  speedup: ${(median(notch.children) / median(notch.windowed)).toFixed(0)}x median\n`);
+// -- and the first frame of a flex-sized list, as a frame pays for it ---------
+//
+// The section above is a *layout*: `resolveStyles()` and `arrange()` by hand, which
+// is what every other script here measures and is the shape the window's own tests
+// are written in. It cannot answer for the flex-sized case, and that is the whole
+// of SIG-132: a list bounded by its parent has no height for `rowWindow()` to read
+// before something has arranged it, so the window its first frame gets is one a
+// **frame** rebuilds -- after the layout that gave the viewport a box and before
+// the paint. `renderToLines()` is that frame here, because a string is what a
+// script can compare byte for byte; the renderer's `settle()` takes the same pass
+// through the same `settleResized()`.
+//
+// So the two sides are the same component with the same one input removed, exactly
+// as above, and the question is whether a list that declared nothing now costs
+// what a list that declared its height costs. Each round builds both afresh,
+// because the first frame is the subject.
+
+/** A frame rather than a layout: this is what dispatches `onResize`. */
+const framed = (root) => renderToLines(root, { colorLevel: 3, height: HEIGHT, width: WIDTH });
+
+{
+	let ok = true;
+	for (const offset of [0, 1, 7, MID, ROWS - HEIGHT, ROWS * ROW_HEIGHT]) {
+		const flex = flexSized();
+		const declared = windowed();
+		viewportIn(flex.host).scrollTo(0, offset);
+		viewportIn(declared).scrollTo(0, offset);
+		const a = framed(flex.root);
+		const b = framed(declared);
+		if (a.join('\n') !== b.join('\n')) {
+			ok = false;
+			console.error(`offset ${offset}: the flex-sized frame drew something else`);
+			console.error(`  flex\n${a.join('\n')}`);
+			console.error(`  declared\n${b.join('\n')}`);
+		}
+	}
+	if (!ok) {
+		console.error('not timing a wrong answer');
+		process.exit(1);
+	}
+	const flex = flexSized();
+	const before = countElements(flex.root);
+	framed(flex.root);
+	console.log('the first frame of a flex-sized list, as a frame pays for one:');
+	console.log(
+		`  identical lines: true, elements: ${before} built, ${countElements(flex.root)} after the frame`
+	);
+}
+
+const frames = { declared: [], flex: [] };
+for (let round = 0; round < ROUNDS; round++) {
+	for (const side of ['flex', 'declared']) {
+		const made = side === 'flex' ? flexSized() : { host: windowed() };
+		made.root ??= made.host;
+		viewportIn(made.host).scrollTo(0, MID + round);
+
+		const t = process.hrtime.bigint();
+		framed(made.root);
+		frames[side].push(ms(t));
+	}
+}
+
+for (const side of ['flex', 'declared']) {
+	const sorted = [...frames[side]].sort((x, y) => x - y);
+	console.log(
+		`  ${side.padEnd(8)}: min ${sorted[0].toFixed(3)}ms  median ${median(frames[side]).toFixed(
+			3
+		)}ms  max ${sorted.at(-1).toFixed(3)}ms`
+	);
+}
+console.log(
+	`  flex / declared: ${(median(frames.flex) / median(frames.declared)).toFixed(2)}x median\n`
+);
+
 console.log(
 	'the arrange is no longer the frame; what is left is under "A scroll box" in AGENTS.md.'
 );

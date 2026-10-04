@@ -113,14 +113,18 @@ if (process.stdin.isTTY && process.stdout.isTTY) {
 
 	function App() {
 		const log = ScrollBox({
-			// the height is in **props** and not in the sheet, deliberately: the first
-			// window is bounded by the height the host declared, because the viewport
-			// sits inside the host and nothing has arranged anything yet. Written as
-			// `.log { height: 20 }` instead there is no bound to read, so frame one
-			// builds all 20,009 elements and the first scroll is what windows it down
-			// to 45 -- measured both ways, correct, and 200ms of startup for nothing.
-			// That is this tier's edge and it is recorded under "A scroll box" rather
-			// than hidden here
+			// the height is in **props** and not in the sheet, deliberately: a declared
+			// height in cells is a floor under the first window, so `wireRows()` builds
+			// it before anything has arranged anything and this frame takes **one**
+			// layout. Written as `.log { height: 20 }` instead there is no floor to read,
+			// so the first layout builds no rows and the frame's second pass is what
+			// fills the window in -- correct either way since SIG-132, and two layouts
+			// rather than one. Recorded under "Windowing a long list" in AGENTS.md.
+			//
+			// It is a floor rather than a bound, which is the same entry: a host that can
+			// grow makes a declared height no ceiling at all, and the arranged height
+			// wins wherever the two disagree. This demo's host is exactly `WINDOW` tall,
+			// so here they agree
 			props: { class: 'log', height: WINDOW },
 			rows: { count: ROWS, height: 1, row },
 		});

@@ -1,4 +1,5 @@
 import { createCanvas } from '../../src/canvas/index.js';
+import { ScrollBox } from '../../src/components/scroll-box.js';
 import { box, type Element, text } from '../../src/element/index.js';
 import { createEffect, render, Show } from '../../src/renderer/index.js';
 import { createEffects } from '../../src/signals/index.js';
@@ -67,6 +68,23 @@ function harness(width = 24, height = 3) {
 		notifyResize() {
 			for (const fn of resizeListeners) {
 				fn({ height: terminal.height, width: terminal.width });
+			}
+		},
+		/**
+		 * A real resize: the terminal, the canvas that follows it, and the notify.
+		 *
+		 * The canvas follows because every real backend's does -- an inline one with no
+		 * width of its own erases and resizes itself, and a full-screen one is the
+		 * alternate buffer. Without that the terminal grows while nothing inside the
+		 * canvas is given a different box, which is the one thing a test about a resize
+		 * needs to be true.
+		 */
+		resize(w: number, h: number) {
+			(terminal as { width: number }).width = w;
+			(terminal as { height: number }).height = h;
+			canvas.resize(w, h);
+			for (const fn of resizeListeners) {
+				fn({ height: h, width: w });
 			}
 		},
 		/** What is on the canvas, with blanks as dots so a width is countable. */
@@ -729,6 +747,182 @@ describe('reduced motion through the frame loop', () => {
 		view.frame();
 		expect((node!.style.width as { value: number }).value).toBe(12);
 		expect(view.animating).toBe(false);
+		view.dispose();
+	});
+});
+
+describe('an animation on a frame that rebuilt a windowed list', () => {
+	it('should start an animation on a row the resize revealed', () => {
+		// a row that first exists because an `onResize` handler built it is in the
+		// **second** settle's `paint` and in no other -- the next frame has no mark for
+		// it, since it now has a cached style and nothing touched it -- so a frame that
+		// discarded that `Update` never showed it to the animator at all. Measured as
+		// exactly that: `animation` on a row a resize revealed never started, while the
+		// same row revealed by a wheel notch did, because `scrollTo()` runs the handler
+		// before the frame. Found by review
+		const h = harness(14, 6);
+		const cascade = sheets(`
+			@keyframes grow { from { padding-left: 0 } to { padding-left: 6 } }
+			box.row { animation: grow 1s linear infinite }
+		`);
+
+		const rows: Element[] = [];
+		const view = render(
+			() =>
+				ScrollBox({
+					props: { 'flex-grow': 1, 'min-height': 0 },
+					rows: {
+						count: 500,
+						height: 1,
+						row: (i) => {
+							const made = box({ class: 'row' }, text(`r${i}`));
+							rows.push(made);
+							return made;
+						},
+					},
+				}),
+			{
+				backend: h.backend,
+				cascade,
+				effects,
+				reducedMotion: 'no-preference',
+				terminal: h.terminal,
+			}
+		);
+
+		vi.setSystemTime(0);
+		view.frame();
+		const first = rows.length;
+		expect(first, 'the first frame built the window').toBeGreaterThan(0);
+
+		// a resize reveals rows nothing has ever shown the animator
+		h.resize(14, 20);
+		vi.setSystemTime(0);
+		view.frame();
+		const revealed = rows.at(-1);
+		expect(rows.length, 'the resize built more rows').toBeGreaterThan(first);
+
+		// half way through the keyframe, the padding is part way between its ends
+		vi.setSystemTime(500);
+		view.frame();
+		const padding = (revealed?.style.paddingLeft as number | undefined) ?? 0;
+		expect(padding, 'the row the resize revealed never animated').toBeGreaterThan(0);
+		expect(padding).toBeLessThan(6);
+		view.dispose();
+	});
+
+	it('should not move a running animation on a frame that re-windowed', () => {
+		// a frame that re-windows settles **twice** at one `now`, and the second settle
+		// writes the base style over every element the restyler has a cached one for.
+		// So two things have to hold or an animation jumps on every such frame:
+		// `tick()` at an unchanged `now` has to answer the same overrides, and
+		// `present()` has to put them back. What this element is *not* is observed
+		// twice -- its style did not change, so `difference()` keeps it out of the
+		// second settle's `paint` -- which is the correction a review round made to the
+		// claim this test was first written for
+		const h = harness(14, 12);
+		const cascade = sheets(`
+			@keyframes grow { from { padding-left: 0 } to { padding-left: 6 } }
+			box.pulse { animation: grow 1000ms linear infinite }
+		`);
+
+		let pulse: Element;
+		const view = render(
+			() => {
+				pulse = box({ class: 'pulse' }, text('p'));
+				return box(
+					{ 'flex-direction': 'column' },
+					pulse,
+					ScrollBox({
+						props: { 'flex-grow': 1, 'min-height': 0 },
+						rows: { count: 500, height: 1, row: (i) => text(`r${i}`) },
+					})
+				);
+			},
+			{
+				backend: h.backend,
+				cascade,
+				effects,
+				reducedMotion: 'no-preference',
+				terminal: h.terminal,
+			}
+		);
+
+		vi.setSystemTime(0);
+		view.frame();
+		vi.setSystemTime(900);
+		view.frame();
+		const late = (pulse!.style.paddingLeft as number | undefined) ?? 0;
+		expect(late, 'nine tenths through the cycle').toBeGreaterThan(4);
+
+		// and now a frame that re-windows, at the same moment: a restart would put the
+		// padding back at the start of the cycle
+		h.resize(14, 30);
+		view.frame();
+		expect(pulse!.style.paddingLeft, 'the animation restarted').toBe(late);
+		view.dispose();
+	});
+
+	it('should keep the presented style the second settle would have written over', () => {
+		// the two halves of a frame meeting: `settleResized()` restyles what a resize
+		// handler built, and `settleStyles()` writes the **base** style onto every
+		// element it has a cached one for -- animating ones included. So without
+		// putting the presented styles back, a frame that re-windowed drew every
+		// animation at its base value and, worse, laid it out there: an animated
+		// geometry property is in `LAYOUT_PROPERTIES`, so a width easing from four to
+		// twelve is placed at four for that frame. Asserted on the **box** as well as
+		// on the style, because that is what says the layout used it and not only the
+		// paint -- a picture cannot, since a box with a background and no characters
+		// draws blanks either way
+		const h = harness(14, 12);
+		const cascade = sheets(`
+			box.bar { width: 4; height: 1; background-color: #ff0000; transition: width 300ms linear }
+			box.bar.wide { width: 12 }
+		`);
+
+		let bar: Element;
+		let host: Element;
+		const view = render(
+			() => {
+				bar = box({ class: 'bar' });
+				host = ScrollBox({
+					props: { 'flex-grow': 1, 'min-height': 0 },
+					rows: { count: 500, height: 1, row: (i) => text(`r${i}`) },
+				});
+				return box({ 'flex-direction': 'column' }, bar, host);
+			},
+			{
+				backend: h.backend,
+				cascade,
+				effects,
+				reducedMotion: 'no-preference',
+				terminal: h.terminal,
+			}
+		);
+
+		vi.setSystemTime(0);
+		bar!.addClass('wide');
+		view.frame();
+		// part way through, so the presented width is neither end
+		vi.setSystemTime(150);
+		view.frame();
+		const easing = (bar!.style.width as { value: number }).value;
+		expect(easing).toBeGreaterThan(4);
+		expect(easing).toBeLessThan(12);
+		expect(bar!.box?.width, 'the layout used the eased width').toBe(easing);
+
+		// and now a frame that re-windows as well: the viewport gained rows, which is
+		// what makes `settleResized()` run a pass
+		h.resize(14, 30);
+		vi.setSystemTime(180);
+		view.frame();
+
+		const after = (bar!.style.width as { value: number }).value;
+		expect(after, 'the presented width was replaced by its base').toBeGreaterThan(4);
+		expect(after).toBeLessThan(12);
+		// the **box** is what says the layout used it rather than only the paint: a bar
+		// laid out at its base width would be four cells wide whatever its style said
+		expect(bar!.box?.width, 'the layout used the base width').toBe(after);
 		view.dispose();
 	});
 });
