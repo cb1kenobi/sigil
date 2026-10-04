@@ -4,10 +4,10 @@
  *   node demos/components/09-decrypt.js
  *   node demos/components/09-decrypt.js | cat     <- the same run, with no terminal
  *
- * Piped, there is nothing to animate, so each text is written once: six lines for
- * this run, because the fourth text is three of them. On a terminal each one
+ * Piped, there is nothing to animate, so each text is written once: seven lines
+ * for this run, because the fourth text is three of them. On a terminal each one
  * jumbles and then resolves, which at the durations below is about two seconds
- * each, so about a hundred and fifty frames rather than six lines. The same is
+ * each, so a couple of hundred frames rather than seven lines. The same is
  * true under
  * `SIGIL_REDUCED_MOTION=reduce` on a real terminal, and under `NO_COLOR=1` the
  * de-emphasis goes with every other attribute -- what is left is the characters
@@ -42,3 +42,24 @@ await decrypt(
 	['  ACCESS GRANTED', '  cooper, d.    ****  cleared', '  bishop, m.    ****  cleared'].join('\n'),
 	pace
 );
+
+// and the colours are an app sheet's rather than an option's, because a built-in
+// carries no colour in its props: `.is-masked` is on the text while anything is
+// still hidden, so one rule is the cipher and the other is what it resolves to.
+// `dim: false` is what takes the framework's own de-emphasis back off -- the
+// default sheet dims a masked decrypt, and a cipher that is meant to be *read* as
+// a colour wants it off rather than blended towards the background.
+//
+// Block-level, which is the whole of what one `text` element can say: the colour
+// changes when the last character lands rather than per character as each one
+// does. Per-character would need a view that styles runs or paints its own cells,
+// which is a component change rather than a sheet.
+await decrypt('The quick brown fox jumps over the lazy dog', {
+	...pace,
+	sheets: [
+		`
+			.sigil-decrypt-text { color: green }
+			.sigil-decrypt-text.is-masked { color: cyan; dim: false }
+		`,
+	],
+});
