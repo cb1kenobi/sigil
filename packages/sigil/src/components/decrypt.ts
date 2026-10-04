@@ -31,7 +31,7 @@
 // that cannot resolve once it is in somebody's app
 import { strip } from '../ansi/index.js';
 import { cellWidth } from '../canvas/index.js';
-import { box, type Element, text as textNode } from '../element/index.js';
+import { box, cellStyle, type Element, raw, type RawPaint } from '../element/index.js';
 import { createEffect, onCleanup } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
@@ -307,12 +307,65 @@ export function decryptPlan(text: string, opts: DecryptPlanOptions = {}): Decryp
 	return { duration, lines, text: clean };
 }
 
+/** One cell as it is drawn this frame. */
+export interface DecryptFrameCell {
+	/** Whether what is drawn is a mask rather than the real cluster. */
+	readonly hidden: boolean;
+	/** What is drawn: the real cluster, or the glyph hiding it. */
+	readonly text: string;
+	/** How many columns it occupies: one, or two. */
+	readonly width: number;
+}
+
 /** What is on screen, and whether any of it is still hidden. */
 export interface DecryptFrame {
+	/**
+	 * What each cell is drawing, one list per line.
+	 *
+	 * The frame said per *cell* rather than only as a string, which is what lets
+	 * the view colour a character the moment it lands: two elements over one
+	 * rectangle paint the hidden cells and the resolved ones separately, and each
+	 * resolves its own style. Which cells are which is a question only this
+	 * function can answer -- it is the one place that knows, because it is the
+	 * thing deciding.
+	 *
+	 * `text` stays beside it rather than being derived from it by every reader: it
+	 * is what the no-terminal path writes in one go, and a line is what most of
+	 * what is asserted about this component is asserted on.
+	 */
+	readonly lines: readonly (readonly DecryptFrameCell[])[];
 	/** Whether any cell is still showing a glyph that is not its own. */
 	readonly masked: boolean;
 	/** What to draw, newlines and all. */
 	readonly text: string;
+}
+
+/**
+ * The frame for a text with nothing hidden in it.
+ *
+ * What the no-terminal path writes, and what a state starts at. Its cells are the
+ * clusters of the text, so the view draws it the same way it draws every other
+ * frame rather than through a second path that has to agree with this one.
+ *
+ * `strip()` for the reason `decryptPlan()` strips: one answer to "what does this
+ * say", shared by the path that animates and the path that does not.
+ *
+ * @param text - What it says.
+ * @returns The frame.
+ */
+export function decryptedFrame(text: string): DecryptFrame {
+	const clean = strip(text);
+	const lines: DecryptFrameCell[][] = [];
+
+	for (const line of clean.split('\n')) {
+		const cells: DecryptFrameCell[] = [];
+		for (const cluster of graphemes(line)) {
+			cells.push({ hidden: false, text: cluster, width: cellWidth(cluster) });
+		}
+		lines.push(cells);
+	}
+
+	return { lines, masked: false, text: clean };
 }
 
 /**
@@ -341,25 +394,35 @@ export function decryptFrameAt(
 	// with narrow glyphs and no wide ones gets the default's wide ones
 	const narrow = alphabet.narrow.length > 0 ? alphabet.narrow : CP437.narrow;
 	const wide = alphabet.wide.length > 0 ? alphabet.wide : CP437.wide;
-	const lines: string[] = [];
+	const lines: DecryptFrameCell[][] = [];
+	const text: string[] = [];
 	let masked = false;
 
 	for (const cells of plan.lines) {
+		const row: DecryptFrameCell[] = [];
 		let line = '';
 
 		for (const cell of cells) {
-			if (!cell.hidden || at >= cell.reveal) {
-				line += cell.cluster;
-				continue;
-			}
-			masked = true;
-			line += cell.width === 2 ? pick(wide, unit(random)) : pick(narrow, unit(random));
+			// the generator is drawn from for a hidden cell and for nothing else, so
+			// what a seed produces does not shift when a resolved cell is written a
+			// second way
+			const hiding = cell.hidden && at < cell.reveal;
+			const drawn = hiding
+				? cell.width === 2
+					? pick(wide, unit(random))
+					: pick(narrow, unit(random))
+				: cell.cluster;
+
+			masked ||= hiding;
+			row.push({ hidden: hiding, text: drawn, width: cell.width });
+			line += drawn;
 		}
 
-		lines.push(line);
+		lines.push(row);
+		text.push(line);
 	}
 
-	return { masked, text: lines.join('\n') };
+	return { lines, masked, text: text.join('\n') };
 }
 
 /** What a decrypt's tree is driven by, and what the driver writes to. */
@@ -393,48 +456,371 @@ export function decryptState(text = ''): DecryptState {
 		// has already written a frame by the time the view's effect reads one -- so
 		// this is about an app that builds its own tree and wires the two up in the
 		// other order
-		frame: new State<DecryptFrame>({ masked: false, text: '' }),
+		frame: new State<DecryptFrame>(decryptedFrame('')),
 		text: new State(text),
 	};
 }
 
 /**
+ * A control character, which the cell grid refuses rather than drawing.
+ *
+ * `\p{Cc}` rather than a class of escapes, which is the rule the build's own pass
+ * keeps: it names the set instead of enumerating it and carries no control
+ * character, escaped or otherwise.
+ */
+const CONTROL = /\p{Cc}/u;
+
+/** A cell and where the block put it. */
+interface PlacedCell {
+	/** What it draws, and whether that is a mask. */
+	readonly cell: DecryptFrameCell;
+	/**
+	 * Whether it is drawn at all.
+	 *
+	 * Two conditions, and only one of them is load bearing. **A control character
+	 * is refused**, because `CellBuffer.put()` *throws* on one rather than dropping
+	 * it and a throw from inside paint takes the frame and the renderer with it.
+	 * The only way a cell can carry one is a caller's own alphabet -- every C0, DEL
+	 * and C1 character measures zero columns, verified over all of them, so no real
+	 * cluster this draws can -- which makes it a tripwire rather than a case
+	 * anybody has.
+	 *
+	 * **A cell of no width is skipped**, which is the same answer `decryptPlan()`
+	 * already gives it by never hiding it: a tab, a lone combining mark, a stray
+	 * control character. That one is a fast path rather than a claim and it says so
+	 * because it survived its sabotage: `put()` refuses a zero-width cluster a cell
+	 * of its own, so what it saves is a `painter.text()` call per such cell rather
+	 * than an answer. It is kept because a tab is common and because the rule it
+	 * states -- a cell with no column has nothing to paint in -- is the one this
+	 * component reasons in.
+	 */
+	readonly draw: boolean;
+	/** The column it starts at, relative to the block's left edge. */
+	readonly x: number;
+}
+
+/** A run of cells with no break opportunity inside it. */
+interface CellRun {
+	/** The cells, in order. */
+	readonly cells: readonly DecryptFrameCell[];
+	/** Whether it is whitespace, and therefore a place a line may break. */
+	readonly space: boolean;
+	/** How many columns it occupies. */
+	readonly width: number;
+}
+
+/**
+ * One line's cells, split into words and the whitespace between them.
+ *
+ * Whether a cell is whitespace is asked of the **plan** rather than of what is
+ * drawn -- a hidden cell is never whitespace, so `hidden` is what settles it
+ * before the text is looked at. That is what makes the break opportunities a
+ * function of the plan alone, which is what the no-reflow rule needs: a caller
+ * whose alphabet held a space would otherwise break a jumbling line in places the
+ * resolved one does not, and the text would move as it decrypts.
+ *
+ * @param cells - One line of a frame.
+ * @returns The runs, in order.
+ */
+function cellRuns(cells: readonly DecryptFrameCell[]): CellRun[] {
+	const runs: CellRun[] = [];
+	let current: DecryptFrameCell[] = [];
+	let space = false;
+	let width = 0;
+
+	for (const cell of cells) {
+		const blank = !cell.hidden && WHITESPACE.test(cell.text);
+		if (current.length > 0 && blank !== space) {
+			runs.push({ cells: current, space, width });
+			current = [];
+			width = 0;
+		}
+		space = blank;
+		current.push(cell);
+		width += cell.width;
+	}
+	if (current.length > 0) {
+		runs.push({ cells: current, space, width });
+	}
+
+	return runs;
+}
+
+/**
+ * Where every cell of a frame lands, wrapped at a width.
+ *
+ * **The component wraps its own cells, and it has to.** A `text` element wraps a
+ * string and that is what the one-element view used to get for nothing; two `raw`
+ * elements paint cells, and a cell is not a cluster -- `ASCII.wide` hides a
+ * two-column character with *two* narrow glyphs -- so there is no cluster-to-cell
+ * correspondence to map `wrap()`'s answer back through. What matters far more than
+ * agreeing with `wrap()` is that the two layers agree with **each other**, and
+ * that is structural rather than careful: one function decides, both read it.
+ *
+ * It keeps `wrap()`'s rules all the same, because a block that broke somewhere
+ * else from the rest of the library is a surprise nobody asked for. Measured
+ * against it rather than assumed: a whitespace run is kept where the line carries
+ * on and thrown away where it breaks, so indentation survives and a trailing run
+ * does not; and a word that cannot fit a line of its own is broken at the edge
+ * rather than left to run off it. `should wrap where the wrapper does` is what
+ * holds the two together.
+ *
+ * @param lines - The frame's cells, one list per line.
+ * @param limit - The width to wrap at. `Infinity` for no wrapping at all.
+ * @returns The rows, each holding where its cells start.
+ */
+function placeCells(
+	lines: readonly (readonly DecryptFrameCell[])[],
+	limit: number
+): PlacedCell[][] {
+	const rows: PlacedCell[][] = [];
+
+	for (const cells of lines) {
+		const start = rows.length;
+		let row: PlacedCell[] = [];
+		let x = 0;
+
+		const place = (cell: DecryptFrameCell): void => {
+			row.push({ cell, draw: cell.width > 0 && !CONTROL.test(cell.text), x });
+			x += cell.width;
+		};
+		const next = (): void => {
+			rows.push(row);
+			row = [];
+			x = 0;
+		};
+		/** The whitespace since the last word, which a break throws away. */
+		let gap: CellRun | undefined;
+
+		for (const run of cellRuns(cells)) {
+			if (run.space) {
+				gap = run;
+				continue;
+			}
+
+			if (x > 0 && x + (gap?.width ?? 0) + run.width > limit) {
+				next();
+			} else if (gap) {
+				for (const cell of gap.cells) {
+					place(cell);
+				}
+			}
+			gap = undefined;
+
+			for (const cell of run.cells) {
+				// only reachable for a word that did not fit a line of its own, since
+				// the row was broken for one that did: this is where it is cut
+				if (x > 0 && x + cell.width > limit) {
+					next();
+				}
+				place(cell);
+			}
+		}
+
+		// a line with nothing on it is still a line, so that the one after it is
+		// drawn below rather than over it
+		if (row.length > 0 || rows.length === start) {
+			rows.push(row);
+		}
+	}
+
+	return rows;
+}
+
+/**
  * The decrypt effect, as an element tree.
  *
- * **One `text` element, holding the newlines.** That is the typewriter's decision
- * and it is taken here for its reasons and one of its own. A text wraps at the
- * width it is given and keeps the breaks the author wrote, so a block of lines
- * lays itself out; and the alternative -- an element per line, or per run of
- * same-state cells so that resolved characters could take a colour of their own
- * -- cannot work, because three texts in a row are three flex items placed beside
- * each other's *boxes*, so a run that wraps leaves the next one beside its first
- * row. What colour there is is therefore the whole block's, and `is-masked` is
- * what a sheet reaches it by.
+ * **Two `raw` elements over one rectangle, which is the scroll bar's own shape.**
+ * The cipher layer draws the cells that are still hidden and the plain layer draws
+ * the ones that have resolved, so each carries its own class and resolves its own
+ * style -- and a character takes the plaintext's colour *the moment it lands*
+ * rather than when the last one does. One element cannot resolve two styles, which
+ * is the whole reason the track and the thumb are two elements as well.
  *
- * `min-width: 0` rather than the automatic minimum, which for a text is its
- * longest word: the canvas is capped at the terminal either way, so without it a
- * word longer than the terminal keeps its width and is cut off at the canvas edge
- * rather than broken. That is the rule `paragraph()` gives its own words, and a
- * text that disagreed with `wrap()` about an over-long word is a frame wider than
- * the terminal it was asked to fit.
+ * **`raw` rather than an element per run of same-state cells**, which is the shape
+ * this was written as and could not be. Three texts in a row are three flex items
+ * placed beside each other's *boxes*, so a run that wraps leaves the next one
+ * beside its first row; and stacking two texts over one rectangle does not rescue
+ * it, because a blank paints a blank and the upper one erases the lower --
+ * measured, `x x` over `ABC` comes back as `x x` rather than `xBC`. A `raw` skips
+ * the cells it does not want, which is what `Dots` and `Pixels` already rely on to
+ * sit over something somebody else drew, and transparency is still SIG-103's.
+ *
+ * **The cipher layer is the one in flow, and that asymmetry is load bearing.** An
+ * `absolute` box takes no space and is filtered out of what its parent measures, so
+ * something has to be the thing that says how big the block is -- which is the
+ * layer whose cells are the text's own widths. The plain layer is `absolute` with
+ * all four insets, so it fills the same rectangle and reserves nothing, exactly as
+ * the track and the thumb do.
+ *
+ * It paints at the **cipher's** box rather than at its own, which reads like a
+ * detail and is what keeps the two in register: its insets resolve against the
+ * host's padding box, so a `.sigil-decrypt { padding: 1 }` an app writes would
+ * otherwise put every resolved character a column left of the cipher it replaces.
+ * Reading the box of the frame it is in is what a `raw` is for.
+ *
+ * **Both are `selectable: true`, and it costs an ancestor's say.** A `raw` defaults
+ * to not selectable, which is right for a sparkline and wrong here -- these cells
+ * *are* the text, and what a selection copies is what is on screen. There is no
+ * third value meaning "inherit", so a `selectable={false}` on a pane no longer
+ * reaches a decrypt inside it; the alternative is a decrypt nobody can copy, which
+ * is the worse of the two.
+ *
+ * `min-width: 0` rather than the automatic minimum, which is the widest word: the
+ * canvas is capped at the terminal either way, so without it a word longer than the
+ * terminal keeps its width and the cells past the edge are dropped rather than
+ * broken. That is the rule `paragraph()` gives its own words, and it is why this
+ * block disagreeing with the wrapper about an over-long word would be a frame
+ * wider than the terminal it was asked to fit.
  *
  * @param state - What it reads.
  * @returns The tree.
  */
 export function decryptView(state: DecryptState): Element {
-	const body = textNode('', { class: 'sigil-decrypt-text', 'min-width': 0 });
+	/**
+	 * The frame on screen, as a plain field rather than as a signal read.
+	 *
+	 * The measure and the paint are called by the frame rather than from inside an
+	 * effect, and reading a signal from a place that might be tracking is how an
+	 * unrelated effect comes to subscribe to this one. The effect below is the one
+	 * reader, and it runs as it is created, so nothing ever draws this blank.
+	 */
+	let frame = decryptedFrame('');
+	/** The last placement, which both layers read and which only a frame changes. */
+	let placed: { limit: number; of: DecryptFrame; rows: PlacedCell[][] } | undefined;
+
+	/**
+	 * The width to wrap at, which is the box unless a sheet said not to wrap.
+	 *
+	 * `white-space: nowrap` is honoured because the one-element view honoured it for
+	 * free and a property that quietly stopped working is worse than one that never
+	 * did. `text-overflow` is **not**: a line too wide for its box is clipped at the
+	 * edge, which is that property's own initial value, and an ellipsis would be the
+	 * component inventing a policy for cells it was told to draw.
+	 *
+	 * A width of zero is no width to wrap at rather than a width of one, which is
+	 * the rule a text keeps: wrapping there is one row per character, and the
+	 * measure that comes back is a shape nothing asked for.
+	 */
+	function limitAt(width: number): number {
+		return cipher.style.whiteSpace === 'nowrap' || width <= 0 ? Number.POSITIVE_INFINITY : width;
+	}
+
+	/** Where the frame's cells land at a width, worked out once for both layers. */
+	function rowsAt(width: number): PlacedCell[][] {
+		const limit = limitAt(width);
+		if (placed?.of !== frame || placed.limit !== limit) {
+			placed = { limit, of: frame, rows: placeCells(frame.lines, limit) };
+		}
+		return placed.rows;
+	}
+
+	/** What the block takes at a width: the widest row, and a row per line it wrapped into. */
+	function measure(width: number): {
+		height: number;
+		minHeight: number;
+		minWidth: number;
+		width: number;
+	} {
+		const rows = rowsAt(width);
+		let widest = 0;
+		for (const row of rows) {
+			const last = row.at(-1);
+			widest = Math.max(widest, last ? last.x + last.cell.width : 0);
+		}
+
+		// the narrowest it can be is its widest word, which is what a text reports
+		// and is the number `min-width: 0` is written to override
+		let word = 0;
+		for (const cells of frame.lines) {
+			for (const run of cellRuns(cells)) {
+				word = run.space ? word : Math.max(word, run.width);
+			}
+		}
+
+		// as short as it can be at the width it was given: wrapping it narrower
+		// makes it taller rather than shorter
+		return { height: rows.length, minHeight: rows.length, minWidth: word, width: widest };
+	}
+
+	/**
+	 * Draws one half of the frame into the rectangle the cipher was given.
+	 *
+	 * A cell outside that rectangle is not drawn, on either axis, which is one rule
+	 * where `paintText()` has two: it stops at the bottom of the box because
+	 * painting further would draw over whatever the layout put underneath, and it
+	 * cuts a line too wide for the box because `text-overflow` says to. Both come to
+	 * the same thing here, since what this holds is cells rather than a string.
+	 */
+	const layer =
+		(hidden: boolean): RawPaint =>
+		(painter, area, element) => {
+			const style = cellStyle(element.style);
+			const rows = rowsAt(area.width);
+
+			for (const [row, cells] of rows.entries()) {
+				if (row >= area.height) {
+					break;
+				}
+				for (const { cell, draw, x } of cells) {
+					if (cell.hidden !== hidden || !draw || x + cell.width > area.width) {
+						continue;
+					}
+					painter.text(area.x + x, area.y + row, cell.text, style);
+				}
+			}
+		};
+
+	const cipher = raw(
+		{ measure, paint: layer(true) },
+		{ class: 'sigil-decrypt-cipher', 'min-width': 0, selectable: true }
+	);
+
+	const resolved = layer(false);
+	const plain = raw(
+		{
+			// never asked, because a box given two insets on an axis is as big as they
+			// say: the same thing `noSize()` means in the scroll bar
+			measure: () => ({ height: 0, width: 0 }),
+			// its own rectangle is deliberately not what it draws into: the cipher's is
+			paint: (painter, _area, element) => {
+				const area = cipher.content ?? cipher.box;
+				if (area) {
+					resolved(painter, area, element);
+				}
+			},
+		},
+		{
+			bottom: 0,
+			class: 'sigil-decrypt-plain',
+			left: 0,
+			position: 'absolute',
+			right: 0,
+			selectable: true,
+			top: 0,
+		}
+	);
 
 	createEffect(() => {
-		const frame = state.frame.get();
-		body.setText(frame.text);
-		// the class list is diffed by the element, so this is a write per
-		// transition rather than one per tick
-		body.setProps({
-			class: frame.masked ? 'sigil-decrypt-text is-masked' : 'sigil-decrypt-text',
-		});
+		frame = state.frame.get();
+		// the cipher is what measures the block, so a new frame is a new size; the
+		// plain layer's rectangle is its insets and cannot move, so all it needs is to
+		// be drawn again. A frame coalesces the two -- a layout mark repaints
+		// everything -- so each of these says what changed about its own element
+		// rather than what the frame will do about it, which is the contract
+		// `invalidateMeasure()` and `invalidatePaint()` are each written for.
+		//
+		// Per tick, which is not a regression: the one-element view wrote the frame
+		// with `setText()`, and that marks layout on every value it has not already
+		// got -- which while jumbling is every tick.
+		cipher.invalidateMeasure();
+		plain.invalidatePaint();
 	});
 
-	return box({ class: 'sigil-decrypt' }, body);
+	// `position: relative` with no insets moves nothing and is what gives the plain
+	// layer a containing block to resolve its own against, which is the same line
+	// the scroll bar's own box carries
+	return box({ class: 'sigil-decrypt', position: 'relative' }, cipher, plain);
 }
 
 export interface DecryptRevealOptions extends DecryptPlanOptions {
@@ -533,12 +919,12 @@ export function decryptReveal(state: DecryptState, opts: DecryptRevealOptions): 
 		const value = state.text.get();
 
 		if (!opts.animate()) {
-			// `strip()` rather than the caller's string, which is the same reading
-			// `decryptPlan()` takes -- one answer to "what does this say", shared by the
-			// path that animates and the path that does not. Asked before the plan is
-			// built rather than after, so a pipe neither draws from the generator nor
-			// builds a cell per character of a text it is about to print in one go
-			state.frame.set({ masked: false, text: strip(value) });
+			// asked before the plan is built rather than after, so a pipe neither draws
+			// from the generator nor works out a reveal time for a text it is about to
+			// print in one go. It still builds a cell per cluster, because the view
+			// draws cells and a frame with none of them is one it cannot draw -- which
+			// is what two layers over one rectangle cost the path that does not animate
+			state.frame.set(decryptedFrame(value));
 			opts.onDone?.();
 			return;
 		}

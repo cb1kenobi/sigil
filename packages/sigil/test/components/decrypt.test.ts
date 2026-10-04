@@ -4,6 +4,8 @@ import {
 	CP437,
 	createDecrypt,
 	decrypt,
+	decryptedFrame,
+	type DecryptFrame,
 	decryptFrameAt,
 	type DecryptPlan,
 	decryptPlan,
@@ -15,11 +17,22 @@ import {
 	type Random,
 	seeded,
 } from '../../src/components/decrypt.js';
-import { renderToString } from '../../src/element/index.js';
+import {
+	arrange,
+	box,
+	createTree,
+	type Element,
+	raw,
+	renderToString,
+	resolveStyles,
+	selectableAt,
+	text as textNode,
+} from '../../src/element/index.js';
 import { createRoot } from '../../src/renderer/index.js';
 import { createEffects } from '../../src/signals/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { graphemes, stringWidth } from '../../src/width/index.js';
+import { wrap } from '../../src/wrap/index.js';
 import { screenSetup, setup } from './helpers.js';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -58,6 +71,21 @@ const flat =
 	(value: number): Random =>
 	() =>
 		value;
+
+/**
+ * A generator that answers each of a list in turn, then begins again.
+ *
+ * What makes a *mixed* frame assertable: with one fraction per cell the reveal
+ * times are the ones the test named rather than a seed's, so a moment says exactly
+ * which cells are still hidden. A seeded plan can only be read back.
+ */
+const cycle =
+	(...values: number[]): Random =>
+	() => {
+		const value = values.shift() as number;
+		values.push(value);
+		return value;
+	};
 
 /**
  * Every moment worth asking about between zero and the end, and a little past.
@@ -417,7 +445,40 @@ describe('decryptState()', () => {
 		const state = decryptState('secret');
 
 		expect(state.text.get()).to.equal('secret');
-		expect(state.frame.get()).to.deep.equal({ masked: false, text: '' });
+		expect(state.frame.get()).to.deep.equal({ lines: [[]], masked: false, text: '' });
+	});
+});
+
+describe('decryptedFrame()', () => {
+	it('should hide nothing and say so', () => {
+		const frame = decryptedFrame('ab cd');
+
+		expect(frame.masked).to.equal(false);
+		expect(frame.text).to.equal('ab cd');
+		expect(frame.lines).to.deep.equal([
+			[
+				{ hidden: false, text: 'a', width: 1 },
+				{ hidden: false, text: 'b', width: 1 },
+				{ hidden: false, text: ' ', width: 1 },
+				{ hidden: false, text: 'c', width: 1 },
+				{ hidden: false, text: 'd', width: 1 },
+			],
+		]);
+	});
+
+	it('should split on newlines and keep every line', () => {
+		expect(decryptedFrame('a\n\nb').lines.map((cells) => cells.length)).to.deep.equal([1, 0, 1]);
+	});
+
+	it('should take the escape sequences out, as the plan does', () => {
+		const frame = decryptedFrame(`${ESC}[31mred`);
+
+		expect(frame.text).to.equal('red');
+		expect(frame.lines[0]).to.have.length(3);
+	});
+
+	it('should read a wide cluster as two columns', () => {
+		expect(decryptedFrame(CJK).lines[0]?.map((cell) => cell.width)).to.deep.equal([2, 2, 2]);
 	});
 });
 
@@ -426,101 +487,157 @@ describe('decryptView()', () => {
 	 * Renders a tree over a state, with the framework sheet behind it.
 	 *
 	 * Stripped, because a worker's own colour level is not this file's subject: the
-	 * two tests below that are about the styling ask for a level by name.
+	 * tests below that are about the styling ask for a level by name.
 	 *
 	 * @param state - What the tree reads.
+	 * @param width - The width to render at.
 	 * @returns What it draws, with the styling taken off.
 	 */
 	function draw(state: DecryptState, width = 40): string {
 		return strip(renderToString(decryptView(state), { cascade: themedCascade(), width }));
 	}
 
+	/** The same, over a frame rather than over a state somebody has to build. */
+	function drawFrame(frame: DecryptFrame, width = 40): string {
+		const state = decryptState('');
+		state.frame.set(frame);
+		return draw(state, width);
+	}
+
+	/**
+	 * A frame part way through, built so that which cells have resolved is known.
+	 *
+	 * `cycle()` makes the reveal times the fractions it was given rather than a
+	 * seed's, so a time names exactly which cells are still hidden -- which is what
+	 * every assertion about the two layers needs and what a seeded plan cannot say
+	 * without being read back.
+	 *
+	 * @param text - What to decrypt.
+	 * @param fractions - One per hidden cell, in order, cycled.
+	 * @param at - How far through, in milliseconds.
+	 * @returns The frame.
+	 */
+	function part(text: string, fractions: number[], at: number): DecryptFrame {
+		const plan = decryptPlan(text, { jumble: 0, random: cycle(...fractions), reveal: 100 });
+		return decryptFrameAt(plan, at, MARKS, flat(0));
+	}
+
+	/**
+	 * What is in effect at each drawn column of a one-line render.
+	 *
+	 * The SGR *parameters* rather than a substring, which is this repository's own
+	 * rule -- and per column rather than for the whole line, because what this
+	 * component now claims is that two cells of one row are drawn differently. The
+	 * state it keeps is the three transitions these assertions need: a reset
+	 * clears, `22` takes the faint off and `39` takes a foreground off.
+	 *
+	 * @param out - A rendered line, sequences and all.
+	 * @returns One entry per drawn cluster.
+	 */
+	function columns(out: string): { params: Set<string>; text: string }[] {
+		const cells: { params: Set<string>; text: string }[] = [];
+		const open = new Set<string>();
+		const pattern = new RegExp(`${ESC}\\[([\\d;]*)m`, 'g');
+		let at = 0;
+
+		for (const match of out.matchAll(pattern)) {
+			for (const cluster of graphemes(out.slice(at, match.index))) {
+				cells.push({ params: new Set(open), text: cluster });
+			}
+			at = match.index + match[0].length;
+			for (const param of (match[1] as string).split(';')) {
+				if (param === '0' || param === '') {
+					open.clear();
+				} else if (param === '22') {
+					open.delete('2');
+				} else if (param === '39') {
+					for (const held of open) {
+						if (/^(?:3\d|9\d)$/.test(held)) {
+							open.delete(held);
+						}
+					}
+				} else {
+					open.add(param);
+				}
+			}
+		}
+		for (const cluster of graphemes(out.slice(at))) {
+			cells.push({ params: new Set(open), text: cluster });
+		}
+
+		return cells;
+	}
+
 	it('should draw the frame rather than the text', () => {
 		const state = decryptState('secret');
-		state.frame.set({ masked: true, text: '######' });
+		state.frame.set(part('secret', [1], 0));
 
 		expect(draw(state)).to.equal('######');
 	});
 
 	it('should keep the lines of a block', () => {
-		const state = decryptState('a\nb');
-		state.frame.set({ masked: false, text: 'a\nb' });
-
-		expect(draw(state)).to.equal('a\nb');
+		expect(drawFrame(decryptedFrame('a\nb'))).to.equal('a\nb');
 	});
 
-	// the state class is how a sheet reaches the reveal beat, and the component
-	// carries no colour of its own for a theme to have to fight
-	it('should mark the block while anything is still hidden', () => {
+	// the headline of this component's second pass: the cipher and the plaintext are
+	// two elements over one rectangle, so each resolves its own style and a character
+	// takes the resolved colour the moment it lands rather than when the last one does
+	it('should colour a character as it lands rather than when the last one does', () => {
 		const cascade = themedCascade({ colorLevel: 3, colorScheme: 'dark' });
 		const state = decryptState('ab');
+		// the first cell resolves at once and the second at the end of the window
+		state.frame.set(part('ab', [0, 1], 0));
 
-		state.frame.set({ masked: true, text: '##' });
-		const hidden = renderToString(decryptView(state), { cascade, colorLevel: 3, width: 40 });
+		const out = renderToString(decryptView(state), { cascade, colorLevel: 3, width: 40 });
+		const cells = columns(out);
 
-		state.frame.set({ masked: false, text: 'ab' });
-		const shown = renderToString(decryptView(state), { cascade, colorLevel: 3, width: 40 });
-
-		// dim while hidden, and nothing once it has resolved
-		expect(hidden).to.contain(`${ESC}[2m`);
-		expect(shown).not.to.contain(`${ESC}[2m`);
-		expect(strip(hidden)).to.equal('##');
-		expect(strip(shown)).to.equal('ab');
-	});
-
-	// `min-width: 0` rather than the automatic minimum, which for a text is its
-	// longest word: without it an over-long word keeps its full width and is cut off
-	// at the canvas edge rather than broken, which is a frame wider than the terminal
-	// it was asked to fit. Measured: 34 columns in a 12-column render
-	it('should break a word longer than the width it was given', () => {
-		const state = decryptState('');
-		state.frame.set({ masked: false, text: 'supercalifragilisticexpialidocious' });
-
-		for (const line of draw(state, 12).split('\n')) {
-			expect(stringWidth(line), `${line} is wider than the render`).to.be.at.most(12);
-		}
+		expect(strip(out)).to.equal('a#');
+		expect(cells.map((cell) => cell.text)).to.deep.equal(['a', '#']);
+		// 2 is faint, which is what `dim` emits: on the cipher cell and on nothing else
+		expect(cells[0]?.params.has('2'), 'the resolved cell is de-emphasised').to.equal(false);
+		expect(cells[1]?.params.has('2'), 'the hidden cell is not de-emphasised').to.equal(true);
 	});
 
 	// `dim` is the one declaration whose legibility depends on which way the
 	// background goes, so it carries a light half on `gray` -- the same rule and the
 	// same remedy `.sigil-prompt-hint` and help's own note already have
 	it('should de-emphasise without dim on a light terminal', () => {
-		const state = decryptState('ab');
-		state.frame.set({ masked: true, text: '##' });
+		const frame = part('ab', [0, 1], 0);
 
-		const at = (scheme: 'dark' | 'light'): string =>
-			renderToString(decryptView(state), {
-				cascade: themedCascade({ colorLevel: 3, colorScheme: scheme }),
-				colorLevel: 3,
-				colorScheme: scheme,
-				width: 40,
-			});
-
-		// the SGR *parameters* rather than a substring, which is this repository's
-		// rule: `2m` also matches the `[22m` that closes bold
-		const params = (out: string): Set<string> =>
-			new Set(
-				[...out.matchAll(new RegExp(`${ESC}\\[([\\d;]*)m`, 'g'))].flatMap((m) =>
-					(m[1] as string).split(';')
-				)
+		const at = (scheme: 'dark' | 'light'): { params: Set<string>; text: string }[] => {
+			const state = decryptState('ab');
+			state.frame.set(frame);
+			return columns(
+				renderToString(decryptView(state), {
+					cascade: themedCascade({ colorLevel: 3, colorScheme: scheme }),
+					colorLevel: 3,
+					colorScheme: scheme,
+					width: 40,
+				})
 			);
+		};
 
 		const dark = at('dark');
 		const light = at('light');
 
-		// 2 is faint, which is what `dim` emits; 90 is the foreground of palette 8
-		expect(params(dark).has('2'), 'dark lost its dim').to.equal(true);
-		expect(params(light).has('2'), 'light still emits faint').to.equal(false);
-		expect(params(light).has('90'), 'light has no de-emphasis at all').to.equal(true);
+		// 2 is faint; 90 is the foreground of palette 8, which a light theme has to
+		// render text in and so renders dark
+		expect(dark[1]?.params.has('2'), 'dark lost its dim').to.equal(true);
+		expect(light[1]?.params.has('2'), 'light still emits faint').to.equal(false);
+		expect(light[1]?.params.has('90'), 'light has no de-emphasis at all').to.equal(true);
+		// and the resolved cell is left alone either way, which is what the light half
+		// moving onto the cipher class is for
+		expect(dark[0]?.params.size, 'dark styled the resolved cell').to.equal(0);
+		expect(light[0]?.params.size, 'light styled the resolved cell').to.equal(0);
 		// and the glyphs are the same either way: only how they are drawn moved
-		expect(strip(light)).to.equal(strip(dark));
+		expect(dark.map((cell) => cell.text)).to.deep.equal(light.map((cell) => cell.text));
 	});
 
 	// the attributes go at level 0 along with the colour, so what is left is the
-	// characters changing -- which is the whole effect
+	// characters changing -- which is the whole effect, and it is still per character
 	it('should draw nothing but the characters at colour level 0', () => {
 		const state = decryptState('ab');
-		state.frame.set({ masked: true, text: '##' });
+		state.frame.set(part('ab', [0, 1], 0));
 
 		const out = renderToString(decryptView(state), {
 			cascade: themedCascade({ colorLevel: 0 }),
@@ -528,7 +645,346 @@ describe('decryptView()', () => {
 			width: 40,
 		});
 
-		expect(out).to.equal('##');
+		expect(out).to.equal('a#');
+	});
+
+	// `min-width: 0` rather than the automatic minimum, which is the widest word:
+	// without it an over-long word keeps its full width and the cells past the canvas
+	// edge are dropped rather than broken, which is a frame wider than the terminal it
+	// was asked to fit. Measured: 34 columns in a 12-column render
+	it('should break a word longer than the width it was given', () => {
+		const out = drawFrame(decryptedFrame('supercalifragilisticexpialidocious'), 12);
+
+		expect(out.split('\n').length).to.be.greaterThan(1);
+		for (const line of out.split('\n')) {
+			expect(stringWidth(line), `${line} is wider than the render`).to.be.at.most(12);
+		}
+	});
+
+	// the component wraps its own cells, because a cell is not a cluster -- an ASCII
+	// substitute for a wide character is two of them -- so there is nothing to map
+	// `wrap()`'s answer back through. What it must not do is break somewhere else
+	// from the rest of the library, which is a differential rather than a rule said
+	// twice
+	it('should wrap where the wrapper does', () => {
+		for (const text of [
+			'one two three four five',
+			'    indented text here that goes on',
+			'  lead  and  double  spaces  ',
+			'supercalifragilisticexpialidocious and more',
+			'x verylongwordhererightherenow',
+			'a\nbb cc\n\nddd',
+			'trailing space ',
+		]) {
+			for (const width of [1, 2, 4, 6, 8, 12, 20, 24, 40]) {
+				// a line's trailing blanks are dropped by the renderer, so they are
+				// dropped here too: `wrap()` leaves an indent on a line of its own where
+				// the word after it could not fit, and a row of spaces and an empty row
+				// are the same row on screen
+				const wrapped = wrap(text, { width })
+					.split('\n')
+					.map((line) => line.replace(/\s+$/u, ''))
+					.join('\n');
+
+				expect(
+					drawFrame(decryptedFrame(text), width),
+					`${JSON.stringify(text)} at ${width}`
+				).to.equal(wrapped);
+			}
+		}
+	});
+
+	// the invariant the whole component rests on, read at the one place the
+	// one-element view broke it: an ASCII substitute is two characters and a text
+	// element could break *between* them, so a masked block wrapped into a different
+	// number of rows from the one it resolves to
+	it('should not reflow as it decrypts', () => {
+		for (const text of [CJK, `${CJK} ${FLAG}`, `a${FAMILY}b`, 'one two three']) {
+			for (const width of [1, 2, 3, 4, 5, 6, 8, 40]) {
+				const plan = decryptPlan(text, { random: seeded(13) });
+				const shape = (frame: DecryptFrame): number[] =>
+					drawFrame(frame, width)
+						.split('\n')
+						.map((line) => stringWidth(line));
+				const resolved = shape(decryptFrameAt(plan, plan.duration, ASCII, seeded(17)));
+
+				for (const at of sweep(plan)) {
+					for (const alphabet of [CP437, ASCII, MARKS]) {
+						expect(
+							shape(decryptFrameAt(plan, at, alphabet, seeded(19))),
+							`${JSON.stringify(text)} at ${width} columns, ${at}ms`
+						).to.deep.equal(resolved);
+					}
+				}
+			}
+		}
+	});
+
+	// a negative claim about every input is not established by tracing the route you
+	// had in mind, so the degenerate ones are walked rather than reasoned about: what
+	// each one draws once resolved, and that a frame with *every* cell hidden draws
+	// the same shape as one with none -- which is the no-reflow rule read off the
+	// render rather than off the frame's text
+	it.each([
+		['empty', '', ''],
+		['whitespace only', '   ', ''],
+		['one character', 'a', 'a'],
+		['all wide', CJK, CJK],
+		['a ZWJ sequence', FAMILY, FAMILY],
+		['a flag', FLAG, FLAG],
+		['a lone surrogate', SURROGATE, SURROGATE],
+		['a lone combining mark', ACUTE, ''],
+		['a tab', 'a\tb', 'ab'],
+		['CRLF', 'a\r\nb', 'a\nb'],
+		['a blank line', 'a\n\nb', 'a\n\nb'],
+		['wider than the render', 'x'.repeat(30), 'xxxxxxxxxxxx\nxxxxxxxxxxxx\nxxxxxx'],
+	])('should draw %s', (_name, text, expected) => {
+		expect(drawFrame(decryptedFrame(text), 12)).to.equal(expected);
+
+		const plan = decryptPlan(text, { random: seeded(5) });
+		const shape = (frame: DecryptFrame): number[] =>
+			drawFrame(frame, 12)
+				.split('\n')
+				.map((line) => stringWidth(line));
+		const resolved = shape(decryptedFrame(text));
+
+		for (const at of sweep(plan)) {
+			for (const alphabet of [CP437, ASCII, MARKS]) {
+				expect(shape(decryptFrameAt(plan, at, alphabet, seeded(9))), `${at}ms`).to.deep.equal(
+					resolved
+				);
+			}
+		}
+	});
+
+	// a cell of no width has no column to draw in, which is the same answer the plan
+	// already gives it by never hiding it. It is also what keeps a control character
+	// away from the cell grid, which throws on one rather than dropping it -- so this
+	// is the one thing the two layers changed about what reaches the screen: the
+	// one-element view drew a tab as the space `toDisplayText()` turns it into
+	it.each([
+		['a tab', 'a\tb', 'ab'],
+		['a carriage return', 'a\rb', 'ab'],
+		['a lone combining mark', `${ACUTE}a`, 'a'],
+		['a bell', 'a\u0007b', 'ab'],
+	])('should draw nothing for %s, which occupies no column', (_name, text, expected) => {
+		expect(drawFrame(decryptedFrame(text))).to.equal(expected);
+	});
+
+	// a cell whose *mask* holds one is the only way a positive-width cell can, which
+	// is a caller's own alphabet rather than anything this component produces -- and
+	// a throw from inside paint takes the frame and the renderer with it
+	it('should draw nothing for a mask glyph that is a control character', () => {
+		const plan = decryptPlan('ab', { random: flat(0) });
+		const frame = decryptFrameAt(plan, 0, { narrow: ['\u0007'], wide: ['\u0007\u0007'] }, flat(0));
+
+		expect(frame.text).to.equal('\u0007\u0007');
+		expect(drawFrame(frame)).to.equal('');
+	});
+
+	// the plain layer's insets resolve against the host's padding box while the
+	// cipher sits inside its padding, so a layer that painted at its own box would
+	// put every resolved character to the left of the cipher it replaces
+	it('should keep the two layers in register under a host with padding', () => {
+		const state = decryptState('ab');
+		state.frame.set(part('ab', [0, 1], 0));
+
+		const out = strip(
+			renderToString(decryptView(state), {
+				cascade: themedCascade({
+					theme: '.sigil-decrypt { padding-left: 2; padding-top: 1 }',
+				}),
+				width: 40,
+			})
+		);
+
+		expect(out).to.equal('\n  a#');
+	});
+
+	// each layer says what changed about *itself*: the cipher is what measures the
+	// block, so a new frame is a new size, and the plain layer's rectangle is its
+	// insets and cannot move. A frame coalesces the two today -- a layout mark
+	// repaints everything -- so this reads the marks rather than the picture
+	it('should record a measure on the cipher and a repaint on the plain layer', () => {
+		// a scheduler that runs what it is handed, so that writing the frame runs the
+		// effect rather than leaving it on a microtask the assertion would precede
+		const scope = createEffects();
+		scope.setScheduler((run) => run());
+		const state = decryptState('ab');
+
+		createRoot((release) => {
+			const root = decryptView(state);
+			const tree = createTree(root);
+			const [cipher, plain] = root.children;
+			tree.take();
+
+			state.frame.set(part('ab', [0, 1], 0));
+			const marks = tree.take();
+
+			expect(marks.layout.has(cipher as Element), 'the cipher did not record a measure').to.equal(
+				true
+			);
+			expect(
+				marks.paint.has(plain as Element),
+				'the plain layer did not record a repaint'
+			).to.equal(true);
+			release();
+			return undefined;
+		}, scope.effect);
+	});
+
+	// which cells are break opportunities is asked of the plan rather than of what is
+	// drawn, so an alphabet that happened to hold a space cannot break a jumbling line
+	// where the resolved one does not -- which is the no-reflow rule again, one layer
+	// along from the widths
+	it('should take its breaks from the plan rather than from the glyphs', () => {
+		const text = 'one two three four';
+		const plan = decryptPlan(text, { random: seeded(23) });
+		const blanks: MaskAlphabet = { narrow: [' '], wide: ['  '] };
+		const shape = (frame: DecryptFrame): number[] =>
+			drawFrame(frame, 9)
+				.split('\n')
+				.map((line) => line.length);
+		const resolved = shape(decryptFrameAt(plan, plan.duration, blanks, flat(0)));
+
+		for (const at of sweep(plan)) {
+			expect(shape(decryptFrameAt(plan, at, blanks, flat(0))), `${at}ms`).to.have.length(
+				resolved.length
+			);
+		}
+	});
+
+	// a width of nothing is no width to wrap at rather than a width of one, which is
+	// the rule a text keeps: wrapping there is one row per character, and the measure
+	// that comes back is a shape nobody asked for
+	it('should not wrap at a width of nothing', () => {
+		const state = decryptState('');
+		state.frame.set(decryptedFrame('abcdef'));
+
+		const out = renderToString(decryptView(state), {
+			cascade: themedCascade({ theme: '.sigil-decrypt-cipher { width: 0 }' }),
+			width: 40,
+		});
+
+		expect(strip(out)).to.equal('');
+	});
+
+	// the placement is cached for the frame it was taken of, and a width is half of
+	// that key: a resize lays the same frame out again at another width, and rows kept
+	// from the width before it are a block drawn for a terminal that has gone
+	it('should place the cells again when the width changed', () => {
+		const state = decryptState('');
+		state.frame.set(decryptedFrame('one two three'));
+		const tree = decryptView(state);
+		const at = (width: number): string =>
+			strip(renderToString(tree, { cascade: themedCascade(), width }));
+
+		expect(at(40)).to.equal('one two three');
+		expect(at(7)).to.equal('one two\nthree');
+		// and back, because a cache that is right once is not a cache
+		expect(at(40)).to.equal('one two three');
+	});
+
+	// the plain layer's box is the rectangle it paints in, which is what the insets
+	// and the host's `position: relative` are for -- and it is what every pass that
+	// reads boxes is told about it, the selection mask above all
+	it('should give the plain layer the block its insets name', () => {
+		const state = decryptState('ab');
+		state.frame.set(part('ab', [0, 1], 0));
+		const view = decryptView(state);
+		// a root bigger than the block, so that resolving against the root rather than
+		// against the host is a different answer
+		const root = box({ 'flex-direction': 'column' }, view, textNode('below'));
+
+		resolveStyles(root);
+		arrange(root, { height: 4, width: 10 });
+		const [cipher, plain] = view.children;
+
+		// the host is stretched to the column's width and is one row tall, which is the
+		// rectangle the insets name; the cipher is the two cells it measured
+		expect(view.box).to.deep.equal({ height: 1, width: 10, x: 0, y: 0 });
+		expect(plain?.box, 'the plain layer is not the block').to.deep.equal(view.box);
+		expect(cipher?.box, 'the cipher is not its own content').to.deep.equal({
+			height: 1,
+			width: 2,
+			x: 0,
+			y: 0,
+		});
+	});
+
+	// a `raw` is not selectable by default, which is right for a sparkline and wrong
+	// for cells that *are* the text. There is no third value meaning "inherit", so
+	// this is also what a `selectable={false}` on a pane no longer reaches
+	it('should let a selection copy what is on screen', () => {
+		const state = decryptState('ab');
+		state.frame.set(part('ab', [0, 1], 0));
+		// a `true` writes nothing while nothing has been excluded -- the mask is only
+		// built once something says no -- so the sparkline beside it is what makes the
+		// answer observable at all, and is the shape `selectable` exists for
+		const sparkline = raw({ measure: () => ({ height: 1, width: 2 }), paint: () => {} });
+		const view = decryptView(state);
+		// the sparkline *first*, so that the mask it writes is one the decrypt's own
+		// layers could widen: a plain layer whose insets resolved against the root
+		// rather than against the block would mark the row above it copyable
+		const root = box({ 'flex-direction': 'column' }, sparkline, view);
+
+		resolveStyles(root);
+		arrange(root, { height: 4, width: 10 });
+		const selectable = selectableAt(root, 10, 4);
+		const [cipher, plain] = view.children;
+
+		// each layer says so for itself. The two cannot be told apart by the mask,
+		// because the plain layer's rectangle contains the cipher's and is written
+		// last -- which is two guards covering for each other rather than one claim
+		expect(cipher?.selectable, 'the cipher does not say').to.equal(true);
+		expect(plain?.selectable, 'the plain layer does not say').to.equal(true);
+
+		expect(selectable, 'nothing was excluded at all').not.to.equal(undefined);
+		expect(selectable?.(0, 1), 'the resolved cell cannot be copied').to.equal(true);
+		expect(selectable?.(1, 1), 'the cipher cell cannot be copied').to.equal(true);
+		// and the rule it is an exception to is still the rule, above it and under it
+		expect(selectable?.(0, 0), 'a raw that draws no text can be copied').to.equal(false);
+		expect(selectable?.(4, 0), 'the block widened the mask past itself').to.equal(false);
+	});
+
+	// the rows past the bottom of the box are not this component's to invent a policy
+	// for, which is `paintText()`'s own rule -- and a cell past the right-hand edge is
+	// the same sentence on the other axis, which is what `text-overflow: clip` means
+	it('should draw no cell outside the box it was given', () => {
+		const state = decryptState('');
+		state.frame.set(decryptedFrame('abcdef\nghi'));
+
+		// over a grid bigger than the boxes, which is what a canvas is and what an
+		// auto-sized render is not: the rows a `renderToString()` grows to its content
+		// hide this, because a cell painted past the grid is one the grid refuses
+		const out = renderToString(decryptView(state), {
+			cascade: themedCascade({
+				theme: '.sigil-decrypt-cipher { height: 1; white-space: nowrap; width: 3 }',
+			}),
+			height: 3,
+			width: 10,
+		});
+
+		// the second row is past the bottom of the box and the fourth column is past
+		// its right-hand edge: neither is drawn, so neither is over whatever the layout
+		// put there
+		expect(strip(out).split('\n')).to.deep.equal(['abc', '', '']);
+	});
+
+	// `white-space: nowrap` is honoured because the one-element view honoured it for
+	// free, and a property that quietly stopped working is worse than one that never
+	// did
+	it('should not wrap a block a sheet told not to', () => {
+		const state = decryptState('');
+		state.frame.set(decryptedFrame('one two three'));
+		const at = (theme: string): string =>
+			strip(renderToString(decryptView(state), { cascade: themedCascade({ theme }), width: 5 }));
+
+		// one row rather than three, and what does not fit the canvas is clipped at the
+		// edge -- which is `text-overflow`'s own initial value and what the one-element
+		// view did with the same declaration
+		expect(at('.sigil-decrypt-cipher { white-space: nowrap }')).to.equal('one t');
+		expect(at('')).to.equal('one\ntwo\nthree');
 	});
 });
 
@@ -638,7 +1094,7 @@ describe('decryptReveal()', () => {
 			expect(vi.getTimerCount()).to.equal(1);
 
 			vi.advanceTimersByTime(2000);
-			expect(it.state.frame.get()).to.deep.equal({ masked: false, text: 'abcdef' });
+			expect(it.state.frame.get()).to.deep.equal(decryptedFrame('abcdef'));
 			expect(vi.getTimerCount()).to.equal(0);
 			expect(it.finished()).to.equal(1);
 
@@ -667,7 +1123,7 @@ describe('decryptReveal()', () => {
 			const it = drive('abcdef', { animate: () => false });
 
 			expect(vi.getTimerCount()).to.equal(0);
-			expect(it.state.frame.get()).to.deep.equal({ masked: false, text: 'abcdef' });
+			expect(it.state.frame.get()).to.deep.equal(decryptedFrame('abcdef'));
 			expect(it.finished()).to.equal(1);
 			it.dispose();
 		} finally {
@@ -743,7 +1199,7 @@ describe('decryptReveal()', () => {
 
 			clock = 2000;
 			vi.advanceTimersByTime(20);
-			expect(it.state.frame.get()).to.deep.equal({ masked: false, text: 'abcdef' });
+			expect(it.state.frame.get()).to.deep.equal(decryptedFrame('abcdef'));
 			it.dispose();
 		} finally {
 			vi.useRealTimers();
@@ -776,7 +1232,16 @@ describe('decryptReveal()', () => {
 			expect(it.state.frame.get().text).to.equal('abcdef');
 
 			it.state.text.set('ghi');
-			expect(it.state.frame.get()).to.deep.equal({ masked: true, text: '###' });
+			const frame = it.state.frame.get();
+			expect(frame.masked).to.equal(true);
+			expect(frame.text).to.equal('###');
+			expect(frame.lines).to.deep.equal([
+				[
+					{ hidden: true, text: '#', width: 1 },
+					{ hidden: true, text: '#', width: 1 },
+					{ hidden: true, text: '#', width: 1 },
+				],
+			]);
 			it.dispose();
 		} finally {
 			vi.useRealTimers();

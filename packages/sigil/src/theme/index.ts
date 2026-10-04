@@ -73,7 +73,7 @@ export const FRAMEWORK_CSS = `
  *   .sigil-scroll-bar  .sigil-scroll-slot  .sigil-scroll-spacer
  *   .sigil-typewriter  .sigil-typewriter-text
  *   .sigil-large-text  .sigil-large-text-body
- *   .sigil-decrypt  .sigil-decrypt-text
+ *   .sigil-decrypt  .sigil-decrypt-plain
  *   .sigil-help
  * A class with no rule is still a hook; giving it an empty rule would be a
  * declaration that says nothing and a line for somebody to wonder about.
@@ -121,19 +121,20 @@ export const FRAMEWORK_CSS = `
 /*
  * decrypt
  *
- * The one declaration, and it is a state rather than a kind: while any cell is
- * still hidden the whole block is de-emphasised, and the frame that resolves the
- * last cell is what brings it up to full strength. That is the component's reveal
- * beat expressed in the cascade, and it is as far as a colour can go here --
- * colouring resolved cells apart from hidden ones would need an element per run
- * of them, and three texts in a row are placed beside each other's boxes rather
- * than after each other's last line.
+ * Two classes rather than one, for the reason the scroll bar has two: the cells
+ * still hiding something and the cells that have resolved are two elements over
+ * one rectangle, and each resolves its own style -- so a cipher cell is
+ * de-emphasised while a resolved one is drawn at full strength the moment it
+ * lands. That is the component's reveal beat expressed in the cascade, per
+ * character rather than per block, and the plain half carries no default for the
+ * same reason the spinner's text does not: what it resolves to is the terminal's
+ * own foreground unless somebody says otherwise.
  *
  * Nothing is drawn differently at colour level 0, deliberately: the attributes go
  * there along with the colour, so what is left is the characters changing, which
  * is the whole effect. A decrypt asked for plain text gets plain text.
  */
-.sigil-decrypt-text.is-masked { dim: true }
+.sigil-decrypt-cipher { dim: true }
 
 /* help */
 .sigil-help-heading { font-weight: bold }
@@ -172,7 +173,7 @@ export const FRAMEWORK_CSS = `
 	.sigil-prompt-answer { dim: false; color: gray }
 	.sigil-prompt-placeholder { dim: false; color: gray }
 	.sigil-choice-hint { dim: false; color: gray }
-	.sigil-decrypt-text.is-masked { dim: false; color: gray }
+	.sigil-decrypt-cipher { dim: false; color: gray }
 	.sigil-help-note { dim: false; color: gray }
 }
 `;
