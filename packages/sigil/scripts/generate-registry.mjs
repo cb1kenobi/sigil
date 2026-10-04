@@ -90,6 +90,10 @@ const ENTRIES = [
 		desc: 'A typewriter that reveals text a grapheme, word or line at a time',
 		name: 'typewriter',
 	},
+	{
+		desc: 'A decrypt effect: text that jumbles and then resolves into itself',
+		name: 'decrypt',
+	},
 ];
 
 /** `./src/element/index.ts` -> `element`, read off the build's own entry list. */
