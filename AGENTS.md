@@ -10412,16 +10412,25 @@ it is a component rather than the frame effect SIG-103 is.
 
   Nothing else is sanitized, so what a finished animation leaves behind is what it
   was given: a stray control character, a lone surrogate and a CRLF are drawn the
-  way the cells say, exactly as for every other component. A **tab** is the one
-  thing the second pass changed about what reaches the screen, and it is worth the
-  sentence because the old one is still the obvious guess: it is `cellWidth()`
-  zero, so it is never hidden, and the one-element view drew it as the space
-  `toDisplayText()` turns it into while the two layers draw **nothing** for it. A
-  cell of no width has no column to paint in, which is the same answer the plan
-  already gives it -- so `a\tb` is `ab` now where it was `a b`, and the drawn width
-  of a line is the sum of the widths the plan assigned rather than one column more.
-  Measured both ways over a 19-text corpus, where it is one of exactly two
-  divergences -- the other being the reflow four entries below, which this fixed.
+  way the cells say, exactly as for every other component -- and making that true of
+  a **tab** took a fix rather than a sentence. The layers paint the plan's own cells,
+  so what a cell holds has to be what any other text in this library would draw, and
+  a tab is `cellWidth()` zero: the first version of the two layers drew **nothing**
+  for one, so `a\tb` came out `ab` where an ordinary `text` draws `a b`. That was
+  defensible on its own terms -- a cell of no width has no column to paint in, which
+  is what the plan already said by never hiding it -- and it is still the decrypt
+  being the one text in the library that disagrees about what a tab is, which is the
+  worse of the two costs. The grid models no tab stops precisely so that one answer
+  can be shared, and `toDisplayText()` is exported so anything measuring what will be
+  drawn can reach it. So `said()` normalises with `strip()` and then
+  `toDisplayText()` -- in that order, because stripping second would leave an ESC's
+  parameters behind as text, which is the failure the styled-input decision above
+  exists for -- and the plan holds a space of width one. `should say what an ordinary
+text says` pins the pairing against the function rather than against a literal, so
+  the two cannot drift. What this costs is that the final frame is what the text
+  _says_ rather than the argument it was handed, which the plan's own `strip()` had
+  already made true for a sequence; `should end at exactly what it says` is that
+  assertion renamed to what it checks.
 
 - **The colour is per cell, and two `raw` layers over one rectangle are how.** The
   cipher layer draws the cells that are still hidden and the plain layer draws the

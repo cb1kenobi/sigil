@@ -27,6 +27,7 @@ import {
 	resolveStyles,
 	selectableAt,
 	text as textNode,
+	toDisplayText,
 } from '../../src/element/index.js';
 import { createRoot } from '../../src/renderer/index.js';
 import { createEffects } from '../../src/signals/index.js';
@@ -146,7 +147,11 @@ describe('decryptPlan()', () => {
 	it.each([' ', '\t', ' ', '　', ' '])('should never hide %j', (space) => {
 		const plan = decryptPlan(`a${space}b`, { random: flat(0) });
 		const cells = plan.lines[0] ?? [];
-		const found = cells.find((cell) => cell.cluster === space);
+		// a tab is a space by the time the plan holds one, because the plan
+		// normalises through `toDisplayText()` -- so what is looked for is what a
+		// cell can hold rather than what the caller typed
+		const want = toDisplayText(space);
+		const found = cells.find((cell) => cell.cluster === want);
 
 		expect(found?.hidden, `${JSON.stringify(space)} was hidden`).to.equal(false);
 	});
@@ -248,12 +253,18 @@ describe('decryptPlan()', () => {
 		expect((plan.lines[0] ?? []).map((cell) => cell.cluster).join('')).to.equal('red');
 	});
 
-	it('should leave everything else to the element to draw', () => {
-		// a tab, a carriage return and a lone surrogate are not this component's to
-		// sanitize: they are the element's, exactly as for every other built-in
+	it('should say what an ordinary text says', () => {
+		// the two `raw` layers paint the plan's own cells, so what a cell holds has to
+		// be what any other text in this library would draw: a tab is a space, because
+		// the grid models no tab stops, and a stray control character is nothing. While
+		// the view was one `text` element this was the element's answer and the plan
+		// never had to carry it -- `a\tb` drew `a b` through `toDisplayText()` and the
+		// plan's own `\t` of width zero was never read. It is read now, so the plan
+		// normalises too, and the pairing below is what keeps the two agreeing
 		const plan = decryptPlan(`a\tb\r${SURROGATE}`, { random: flat(0) });
 
-		expect(plan.text).to.equal(`a\tb\r${SURROGATE}`);
+		expect(plan.text).to.equal(`a b${SURROGATE}`);
+		expect(plan.text).to.equal(toDisplayText(`a\tb\r${SURROGATE}`));
 	});
 });
 
@@ -304,10 +315,17 @@ describe('decryptFrameAt()', () => {
 		'a\tb',
 		'a\r\nb',
 		'x'.repeat(400),
-	])('should end at exactly what it was given: %j', (text) => {
+	])('should end at exactly what it says: %j', (text) => {
 		const plan = decryptPlan(text, { random: seeded(2) });
 
-		expect(decryptFrameAt(plan, plan.duration, CP437, seeded(4)).text).to.equal(text);
+		// what it *says* rather than what it was handed, which is the same thing for
+		// every input with no control character in it. It never was the raw argument:
+		// the plan has always stripped escape sequences, and it now normalises a tab to
+		// the space any other text draws for one. Against the function rather than a
+		// literal, so the two cannot drift apart
+		expect(decryptFrameAt(plan, plan.duration, CP437, seeded(4)).text).to.equal(
+			toDisplayText(text)
+		);
 		expect(decryptFrameAt(plan, plan.duration, CP437, seeded(4)).masked).to.equal(false);
 	});
 
@@ -334,7 +352,7 @@ describe('decryptFrameAt()', () => {
 	);
 
 	it('should keep the whitespace exactly where it was', () => {
-		const text = '  indented\n\tand a tab  ';
+		const text = toDisplayText('  indented\n\tand a tab  ');
 		const plan = decryptPlan(text, { random: seeded(21) });
 
 		for (const at of sweep(plan)) {
@@ -734,7 +752,7 @@ describe('decryptView()', () => {
 		['a flag', FLAG, FLAG],
 		['a lone surrogate', SURROGATE, SURROGATE],
 		['a lone combining mark', ACUTE, ''],
-		['a tab', 'a\tb', 'ab'],
+		['a tab', 'a\tb', 'a b'],
 		['CRLF', 'a\r\nb', 'a\nb'],
 		['a blank line', 'a\n\nb', 'a\n\nb'],
 		['wider than the render', 'x'.repeat(30), 'xxxxxxxxxxxx\nxxxxxxxxxxxx\nxxxxxx'],
@@ -759,11 +777,12 @@ describe('decryptView()', () => {
 
 	// a cell of no width has no column to draw in, which is the same answer the plan
 	// already gives it by never hiding it. It is also what keeps a control character
-	// away from the cell grid, which throws on one rather than dropping it -- so this
-	// is the one thing the two layers changed about what reaches the screen: the
-	// one-element view drew a tab as the space `toDisplayText()` turns it into
+	// away from the cell grid, which throws on one rather than dropping it.
+	//
+	// A tab is deliberately *not* in this table: it is the one control character with
+	// a column, because `toDisplayText()` turns it into a space and the plan now
+	// normalises through that -- see `should say what an ordinary text says`
 	it.each([
-		['a tab', 'a\tb', 'ab'],
 		['a carriage return', 'a\rb', 'ab'],
 		['a lone combining mark', `${ACUTE}a`, 'a'],
 		['a bell', 'a\u0007b', 'ab'],

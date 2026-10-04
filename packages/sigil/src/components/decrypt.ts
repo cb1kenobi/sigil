@@ -31,7 +31,14 @@
 // that cannot resolve once it is in somebody's app
 import { strip } from '../ansi/index.js';
 import { cellWidth } from '../canvas/index.js';
-import { box, cellStyle, type Element, raw, type RawPaint } from '../element/index.js';
+import {
+	box,
+	cellStyle,
+	type Element,
+	raw,
+	type RawPaint,
+	toDisplayText,
+} from '../element/index.js';
 import { createEffect, onCleanup } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
@@ -256,6 +263,30 @@ export interface DecryptPlanOptions {
 const WHITESPACE = /^\s+$/u;
 
 /**
+ * What a decrypt really says: no escape sequences, and what a cell will *draw*.
+ *
+ * `strip()` first and `toDisplayText()` second, in that order. The first takes
+ * whole sequences out, which is the styled-input decision recorded in AGENTS.md;
+ * running it second would leave an ESC's parameters behind as text, which is the
+ * very failure that decision exists for.
+ *
+ * `toDisplayText()` is the half the two `raw` layers made load bearing. It is what
+ * every other text in this library is measured and painted through -- a tab becomes
+ * a space, because the grid models no tab stops and a tab that measured one width
+ * and painted another takes a column off every cell to its right. While the view was
+ * one `text` element that rule was the element's and the plan never had to care; the
+ * layers paint the plan's own cells, so a tab arrived as a cell of width zero and
+ * `a\tb` drew as `ab` where an ordinary text draws `a b`. One answer to "what does
+ * this say" across the library, which is what the function is exported for.
+ *
+ * @param text - What the caller said.
+ * @returns What the cells are built from.
+ */
+function said(text: string): string {
+	return toDisplayText(strip(text));
+}
+
+/**
  * The schedule for a text: which cells hide, and when each stops.
  *
  * **Escape sequences are taken out, and that is the styled-input decision.** An
@@ -279,7 +310,7 @@ const WHITESPACE = /^\s+$/u;
  * @returns The plan.
  */
 export function decryptPlan(text: string, opts: DecryptPlanOptions = {}): DecryptPlan {
-	const clean = strip(text);
+	const clean = said(text);
 	const random = opts.random ?? Math.random;
 	const jumble = ms(opts.jumble, JUMBLE);
 	const spread = ms(opts.reveal, REVEAL);
@@ -354,7 +385,7 @@ export interface DecryptFrame {
  * @returns The frame.
  */
 export function decryptedFrame(text: string): DecryptFrame {
-	const clean = strip(text);
+	const clean = said(text);
 	const lines: DecryptFrameCell[][] = [];
 
 	for (const line of clean.split('\n')) {
