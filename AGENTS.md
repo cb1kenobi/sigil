@@ -10298,6 +10298,270 @@ undone by a step that was already in flight` advanced a hundred milliseconds and
   both. The shape of a fix is `touchMedia()`'s and it wants a second caller before it
   is worth a change to what the mount promises.
 
+#### A decrypt effect: masking text that already knows what it says
+
+The Sneakers/CSI effect, as in `bartobri/no-more-secrets`: every non-whitespace
+cell becomes a random glyph, the block jumbles for a couple of seconds, and then
+each cell resolves at its own random moment over the next few.
+`src/components/decrypt.ts` is the whole of it -- a plan, a frame function, a
+driver and a facade -- and it needed nothing from the canvas, which is the reason
+it is a component rather than the frame effect SIG-103 is.
+
+- **Nothing is ever read back off a grid, which is what makes this not a canvas
+  feature.** The general version snapshots what was painted, paints something
+  derived from it and ramps a mask over it, which needs transparency and
+  compositing and is deliberately v2. This component already holds the true text,
+  so which cells are showing their own character is a function of the text, each
+  cell's reveal time and how far through it is. `decryptPlan()` and
+  `decryptFrameAt()` are that function and they are where every assertion about the
+  effect lives -- no renderer, no terminal, no timers.
+
+  Not **pure**, which is the one word the ticket's phrasing invites and which would
+  be wrong: a hidden cell draws a _fresh_ glyph on every call, which is what makes
+  the jumble move, and `should re-randomize a hidden cell on every call` asserts
+  exactly that. They are deterministic given a generator, which is the property a
+  test needs and is what the injectable RNG buys. What the ticket's sentence is
+  really about is the half that does hold unconditionally -- nothing is read back
+  off a grid, because the component is holding the answer.
+
+- **Whitespace is never masked, and it is the single detail the effect rests
+  on.** The spaces, the indentation and the line breaks stay where they are, so
+  the _shape_ of the text is legible from the first frame while not one word of it
+  is. Masking them gives a rectangle of noise, which is a screensaver. `\s` rather
+  than a list of the ones a terminal is likely to see, because a non-breaking
+  space and an ideographic space hold a line's shape exactly as an ordinary one
+  does.
+- **A substitute is as wide as what it hides, and a zero-width cluster is never
+  hidden at all.** A one-column glyph over a two-column CJK character leaves a
+  hole and shifts every cell to its right for the whole animation, so the text
+  visibly reflows as it decrypts and lands back where it started -- which is the
+  one thing nms gets to take for granted, because it masks a terminal that has
+  already laid the text out. The width comes from `cellWidth()`, which is the rule
+  `CellBuffer.fill()` already follows when it steps by what its cluster consumes.
+  The second half is that rule taken to its end: a combining mark on its own has
+  no cell, so a one-column glyph over it would _add_ a column. Asserted as a
+  property rather than by example -- `stringWidth()` of every line of every frame,
+  over all three alphabets, across a forty-step sweep that runs past the end.
+- **A mask entry is a string of the right width rather than one glyph, and that
+  is what lets an ASCII set exist.** Measured before anything was written: **every
+  CP437 graphic character is one column**, so there is no wide CP437 glyph to
+  reach for, and no printable ASCII character is two columns either. So
+  `MaskAlphabet.wide` holds two-column _strings_: the default's are the fullwidth
+  Latin forms, which are the narrow half's answer in the width a wide cell needs
+  and are present wherever the characters they hide are, and `ASCII`'s are pairs.
+  The default could have used pairs too and does not, because one glyph per cell
+  reads as one character being hidden where two read as two.
+- **Two alphabets, as the spinner has two frame sets.** `CP437` is what nms masks
+  with and what looks right; `ASCII` is for a terminal that cannot be trusted with
+  anything else. `DOTS` and `LINE` is the precedent down to the shape of the
+  decision.
+- **An empty alphabet half falls back to the default's, per half.** `pick()` over
+  an empty list answers `undefined`, which reaches the screen as the _word_ rather
+  than as a glyph -- so a caller with narrow glyphs and no wide ones gets the
+  default's wide ones rather than `undefined` where a CJK character was.
+- **The RNG is injectable and whatever it answers is clamped.** Every visible
+  property of this component comes out of it, so without a seed there is nothing to
+  assert. The clamp is load bearing in both directions and is the one guard this
+  component could not do without: a value above one puts a cell's reveal time past
+  the end of the window, so `await decrypt(text)` **never resolves**, and a
+  negative one resolves a cell during the jumble. `NaN` is read as zero rather
+  than propagated, because every comparison against it is false -- so a cell whose
+  reveal time was `NaN` would be both never resolved and never past its time. It
+  is clamped to `[0, 1]` _inclusive_, which `pick()` is written to take, because a
+  reveal time of exactly the window end should resolve at the window end.
+  `seeded()` ships because a component whose documentation says the randomness is
+  injectable should carry the thing to inject -- xorshift32, which is the generator
+  the layout fuzzer already uses, so there is one algorithm here rather than two,
+  and reaching for a package would break the zero-dependency rule.
+- **Styled input is stripped and restyled, and the rejected option does not
+  work at all.** This is the question the ticket said to settle first, and it was
+  settled by measuring rather than by preference: **an element's text cannot carry
+  a sequence.** `toDisplayText()` removes the `ESC` as a control character and
+  leaves `[31m` printable, so `ESC[31mred` renders as `[31mred` -- measured through
+  `renderToString()`, twice, before a line of the component was written. So
+  "track the state and re-emit it per frame" puts the _parameters_ of every
+  sequence on screen as text rather than putting colour on anything. The ticket's
+  premise is what had gone stale: every component used to build a string and hand
+  it to a `LiveRegion`, and since the component rewrite the spinner, the progress
+  bar and the typewriter all draw through `mountLive()` over a canvas, where
+  styling is a style per cell.
+
+  Carrying it _properly_ means a `text` element per run of same-styled cells plus
+  a new **SGR-to-`Style` decoder**, and that is a third SGR table beside the
+  styler's `reopen()` and the wrapper's `sgr-state.ts` -- which this file records
+  as kept separate deliberately, and which would here be a _reverse_ mapping
+  nothing else in the library needs. It also cannot be laid out: three texts in a
+  row are three flex items placed beside each other's **boxes**, so a run that
+  wraps leaves the next one beside its first row, which is the typewriter's own
+  recorded reason for using one `text` element. Stacking two elements over one
+  rectangle, which is how the scroll bar resolves two styles, does not rescue it
+  either: a blank paints a blank, so the upper element erases the lower --
+  measured, `x x` stacked over `ABC` comes back as `x x` rather than `xBC` -- and
+  transparency is SIG-103.
+
+  So `sgr-state.ts` is **not** imported, and the sharper finding is that it would
+  have been the wrong module for the route the ticket recommended anyway. Its job
+  is to reconstruct what was in effect at a _break_; masking breaks nothing -- it
+  is a one-for-one substitution per cell, so every sequence stays exactly where it
+  was relative to the clusters around it. What that route needs is `tokenize()`,
+  which is what neither `graphemes()` nor `strip()` can do on its own. The one
+  reused is `strip()`, which is what `stringWidth()` already does to its input.
+
+  Nothing else is sanitized, so what a finished animation leaves behind is what it
+  was given: a tab, a stray control character, a lone surrogate and a CRLF are the
+  element's to draw, exactly as they are for every other component. A tab is
+  `cellWidth()` zero, so it is never hidden and shows as the space the element
+  draws it as, consistently in every frame -- which is the only property the
+  no-reflow rule needs of it.
+
+- **The colour is the whole block's, and `is-masked` is how a sheet reaches it.**
+  One declaration in `FRAMEWORK_CSS`: a block with anything still hidden is
+  `dim`, and the frame that resolves the last cell brings it up to full strength.
+  That is the component's reveal beat expressed in the cascade and it is as far as
+  a colour can go, for the layout reason above -- "optionally in a colour" per
+  _cell_ is what the per-run elements were for. It carries the light half the
+  `dim` rule already requires, on `gray`, for the reason `.sigil-prompt-hint`
+  does.
+- **Level 0 is the characters and nothing else, and that is the answer rather
+  than a gap.** At level 0 the seven attributes go along with the colour, so the
+  one declaration this component has drops and what is left is the glyphs
+  changing -- which _is_ the effect. A decrypt asked for plain text gets plain
+  text, which is the rule the prompt's caret is the worked example of, and here it
+  costs nothing because the effect was never carried by colour.
+- **It resolves when it is over, and `cancel()` resolves too.** Awaiting
+  `decrypt(text)` is the API, because unlike a spinner this animation is finite.
+  Over rather than _finished_: a promise that rejected on an abort would be a thing
+  every caller has to wrap for an outcome nobody considers an error, and a
+  rejection out of a command's `run()` is a message and a non-zero exit code, which
+  a Ctrl-C is not.
+- **`stop()` keeps the text and `cancel()` erases, which is the opposite way round
+  from the spinner and the typewriter.** On those, `stop()` erases. The ticket named
+  this spelling and the semantics earn it: for a _finite_ animation "stop" is what
+  somebody says when they want it over with rather than gone, and the thing they
+  wanted was always the text. `typewriter.done()` is what corresponds to `stop()`
+  here and `typewriter.stop()` to `cancel()`.
+- **The screen is given back before the promise resolves, on the microtask after
+  the run settled.** The animation finishes from inside the effect that is drawing
+  it -- the timer's own step, or the effect body for a text with nothing to hide --
+  and disposing a renderer from inside its own frame is not a thing to do. So the
+  teardown is chained onto the promise: by the time `await decrypt(text)` returns,
+  the rows are back and an ordinary `console.log()` lands below the frame rather
+  than inside it, which is the already-recorded `console.log()`-after-`dispose()`
+  hazard answered rather than inherited. Chained rather than resolved after a bare
+  `queueMicrotask(leave)` because the two differ in where a failure goes: a throw
+  out of the renderer's disposal is a rejection whoever awaited sees, and would be
+  an uncaught exception out of a microtask. `stop()` and `cancel()` do the screen
+  **themselves and synchronously**, because a caller writing a line straight after
+  either of them must not race a teardown -- and the chained one is idempotent
+  through `mounted`, so it then finds nothing to do.
+- **A run has a generation, and both halves of that were measured as bugs rather
+  than reasoned about.** `start()` after a settled run has to tear the old one down
+  _eagerly_: `mount()` reuses whatever is mounted, so a second run over a finished
+  run's renderer finds an effect that is not dirty -- nothing animates and nothing
+  ever resolves. It presented as a **hang**. And it has to do that _before_ writing
+  the new text, because leaving a frame re-runs the effect: with the text set first,
+  the line the previous run left behind said what the _second_ run says -- measured
+  as `['two', 'two']` where it should be `['one', 'two']`. The counter is the third
+  piece: the settled run's own teardown is still queued, and without a generation
+  to compare it disposed the renderer the new run had just built, because the only
+  thing it had to go on was whether anything was mounted and something is.
+- **`stop()` and `cancel()` each turn `running` off themselves, and the teardown
+  deliberately does not.** It is not bookkeeping in those two: with the flag left
+  on, a `stop()` after the animation finished mounts a fresh renderer whose effect
+  reads it as still animating -- so it masks the text all over again and leaves
+  _that_ in the log -- and a `cancel()` leaves `decrypting` reading `true`, because
+  the frame it was erased on is still a masked one. Both are pinned.
+
+  In the **teardown** it is inert, and a `running.set(false)` there was written and
+  deleted again for failing its sabotage: the two methods above do it themselves, so
+  the only path left through it is a run that finished, where the frame already says
+  nothing is hidden. Which came with a lesson about the method rather than about the
+  code -- the deletion then **weakened the generation guard's own fixture**, because
+  the discriminator that test had been using was the flag the deletion removed. Two
+  guards whose observability was entangled, which one pass could not have seen.
+
+- **Two intervals rather than two mechanisms, which is nms's own shape.** 35ms
+  while nothing is resolving and 50ms once things are, one timer rescheduled per
+  tick. A glyph is drawn per hidden cell per call, so how often the jumble moves is
+  the caller's decision rather than a second schedule inside the frame function.
+- **The clock is injectable, unlike the typewriter's.** That file records why it
+  has no `now`: it only schedules. This measures how far through a duration it is,
+  which is exactly why the animator has one -- so a test can hold the clock still
+  and watch the frame not move however many timers fire.
+- **A duration that is not a finite non-negative number falls back to the
+  default.** The typewriter's own rule for its interval, and here the cost of
+  getting it wrong is worse than a wrong delay: `Infinity >= 0` is true, so an
+  infinite jumble is a promise nothing will ever settle. A negative one falls back
+  rather than clamping to zero, which is what that option already does -- somebody
+  who wants it instant writes `0`, and a negative number is a mistake rather than a
+  request.
+- **A text with nothing to hide costs no timer and finishes at once.** Empty,
+  whitespace-only, a lone combining mark: there is no hidden cell, so the first
+  frame is already the answer and nothing is scheduled. It falls out of the same
+  condition that ends the animation rather than being a case beside it.
+- **The first frame is drawn now rather than one tick from now**, because a decrypt
+  that showed the real text for one frame before hiding it has given the answer
+  away.
+- **Not a terminal, no effect**, and a reduced-motion opt-out is the same question
+  asked of a screen that exists. The text is written once and the promise resolves:
+  a CI log full of noise is worse than no effect at all. Reached through the one
+  path that decides it -- turning `animate()` off -- rather than through a second
+  mechanism, which is what makes `stop()` snap to the finished text for free.
+- **It imports the barrels rather than the modules behind them, and that is a
+  constraint rather than a style.** `sigil add` rewrites a component's relative
+  imports to the published subpath that answers for each, and neither
+  `src/ansi/strip.ts` nor `src/canvas/buffer.ts` is published -- so
+  `import { cellWidth } from '../canvas/buffer.js'` fails the _build_ with
+  `which no published subpath answers for` rather than failing a test. Found by
+  reading the generator rather than by running it, and then checked by running it:
+  it is the one rule in this file that no unit test can see, which is what the
+  generator's own refusal is for.
+- **Fifty-five mutations, one at a time with the suite run after each, and three
+  deliberate survivors.** Counted against the shipped code in one run rather than
+  summed across rounds, so the number is re-derivable: 55 applied, 50 caught by the
+  suite, 2 caught by the build, 3 declared below.
+
+  Two of the three survivors are a statement _order_ rather than a guard -- the
+  settle after the screen in `stop()` and in `cancel()` -- and the sabotage is what
+  established that the order is **inert**: a promise resolves on a later turn, so the
+  caller cannot run until the method has returned and both spellings look the same
+  from outside. The comments said otherwise and now say what is true, which is the
+  finding rather than a footnote: what is load bearing is that those two do the
+  screen work _at all_, and both of those are caught. The third is a `+` against a
+  `*` in the whitespace pattern, which cannot differ because the only caller asks it
+  after `width > 0` and no cluster of positive width is the empty string.
+
+  Two more survive the _test_ file and are caught by the **build**, which is the
+  honest place for them: the two barrel imports above. Checked by reverting each and
+  running `generate-registry.mjs`, which answers `which no published subpath answers
+for`.
+
+  What the pass found that no review round had is worth the tally. Six fixtures could
+  not reach the branch they were named for -- `running` off in `cancel()` (nothing
+  asserted `decrypting` after one), the generation guard, the listener removal (a
+  real `AbortSignal` cannot be asked how many listeners it holds, so it took a
+  recording stub), attaching once, the final frame being painted before the screen is
+  given back (every run in the file resolved inside its own first frame, where
+  `start()` has already painted it), and `min-width: 0`, which is 34 columns against
+  12 the moment anything asks. And one guard was _deleted_ for being inert, which is
+  the entry above.
+
+  Three bugs came out of writing the tests rather than out of the sabotage, and all
+  three were in the restart path: a **hang**, from a second run reusing a finished
+  run's renderer; a line in the log that said what the _next_ run says, from setting
+  the text before leaving the old frame; and a settled run's queued teardown
+  disposing the renderer that had replaced it.
+
+  And three things were wrong in this file's own prose rather than in the code, which
+  is the shape a documented codebase is most prone to. `onDone` was documented as
+  firing "once" and fires once per **pass** -- measured at three over three text
+  changes, and pinned now. `decryptPlan()` and `decryptFrameAt()` were called
+  **pure** and are not, which is the entry at the top of this section. And the
+  default alphabet's doc counted ninety-two glyphs where there were ninety-five, so
+  no count is written down any more and the property is asserted instead -- every
+  entry the width its half promises, and none repeated, which is what caught
+  `ASCII.wide` shipping `##` twice.
+
 ### Prompts and keys
 
 - **A text prompt inserts the key that named itself, and it moves over grapheme
