@@ -9670,6 +9670,232 @@ people's software and will move.
   that cannot bracket one sends anyway, and what a `y` pasted into a confirm
   should mean.
 
+#### Large text: a FIGlet renderer and the .flf format
+
+SIG-82 asked for banner text and asked four things to be decided rather than
+discovered. `src/components/large-text.ts` is the whole of it: `parseFlf()` reads
+a font, `renderFiglet()` turns a string into a rectangle of characters, and
+`largeTextView()` puts that rectangle in a `text`.
+
+- **It is a component rather than a `font-size`, and that distinction is the
+  ticket's own and is load bearing.** The cell size is the user's, so nothing here
+  is scaled: one logical character becomes an N by M picture of ordinary cells. A
+  `font-size` meaning "this string now occupies three rows" would change how many
+  cells a string _consumes_, which puts the cascade in front of the layout
+  engine's measure step -- every text measurement would have to resolve a style
+  before it knew its own width, which nothing else in the property table does. As
+  a component it is a node with an unusually tall intrinsic size, and layout
+  already handles those.
+- **Full smushing, not kerning first.** That is the first thing the ticket asked
+  to be settled, and kerning-only was the alternative: a fraction of the work, and
+  acceptable on most fonts. It is refused because the six rules are about sixty
+  lines of lookup once the overlap arithmetic exists -- which kerning needs
+  anyway, since kerning _is_ that arithmetic with the smush refused -- so the
+  saving is small and the cost is paid twice. Shipping kerning first means every
+  banner an app drew changes shape in a later release, which is worse than either
+  answer on its own. A font declaring smushing is the common case: it is what the
+  reference distribution's own fonts declare.
+- **No font is bundled, `font` is required, and that is two decisions with two
+  reasons.** The first is licensing, and it is the ticket's own instruction: the
+  notices inside the fonts the FIGlet distribution ships grant permission to
+  _modify_ and say nothing about redistribution, committing a font is a
+  distribution decision rather than a file copy, and none of them could be
+  verified as clearly permissive from here -- so no third-party `.flf` is
+  committed anywhere in this repository. The second is that the look of a banner is
+  the app's choice, which is the whole reason the format is supported rather than
+  invented: there are hundreds of fonts written and the app drawing the masthead
+  has picked one. A default would be bytes every app carries and the app that
+  cares replaces.
+
+  Measured, because the ticket asked for a number if anything is bundled and the
+  number is the argument for not doing it: the font written for the demos is
+  6,205 bytes of `.flf`, and as a string constant with a `blocksFont()` beside it
+  `components.mjs` goes from **26,524 to 32,803 bytes** -- a quarter again on the
+  one chunk every app that draws anything loads. It is nothing to a _bundled_ app,
+  which shakes a constant one unreachable function names, so the cost falls
+  entirely on the unbundled apps the deferral elsewhere in this file exists for.
+  Required rather than defaulted means a type error rather than a surprise at run
+  time. `demos/components/fonts/blocks.flf` is written here, MIT with the rest, and
+  is the demo's font rather than the runtime's.
+
+- **The parser is separable as functions and deliberately not as a subpath.**
+  `parseFlf()` and `renderFiglet()` import nothing from the element tree, the
+  renderer or the cascade, so a `.flf` is read and a banner is rendered with no
+  component runtime anywhere and the tests for both are a plain character grid --
+  which is what the ticket meant by separable. A `@ttylabs/sigil/figlet` entry was
+  the alternative and is refused: it is permanent API surface whose only consumer
+  is the component beside it, and what makes the parser testable is that it is a
+  pure function rather than that it sits behind a module boundary. One file is
+  also one `sigil add` entry, so ejecting the banner takes the format with it,
+  which is what somebody ejecting it wants.
+- **A `text` element rather than a `raw` one, which is the one place the ticket's
+  own sketch was not followed.** It said to measure to `font.height` and paint row
+  by row through `Painter.text()`, and that is reaching for the trapdoor when the
+  front door works: the rows are joined with newlines into one `nowrap` `text`, so
+  a `nowrap` text being one line per newline whatever room it was offered makes the
+  intrinsic height the row count and the intrinsic width the widest row, the
+  measurement is cached per resolved style, and `color`, `background-color` and
+  `bold` inherit because each cell is still one cell. `raw` exists for a thing the
+  layout engine cannot express, and a grid of ordinary single-column characters is
+  precisely what a `text` expresses. It would also cost a second implementation of
+  what a string measures to, and it would stop a banner being copyable --
+  `selectable` defaults to false on a `raw`, which is right for a wall of block
+  characters nobody wants in their clipboard and wrong for a word somebody wants
+  to paste.
+- **`Full_Layout` wins and `Old_Layout` is read only where the header has none.**
+  That is the precedence the ticket asked to be got right and written down. It is
+  the only reading that works in the case it exists for: `Old_Layout` cannot
+  express the vertical rules or the fit-by-default bit at all, so in a font
+  carrying both it is the lossy summary kept for drivers that predate the other.
+  Intersecting them was the alternative and it is wrong in exactly that case,
+  holding a modern font down to what its backwards-compatibility field could say.
+  Both directions are pinned -- a full layout that says _more_ than the old one and
+  one that says _less_ -- because intersecting agrees with the first and not the
+  second.
+- **The conversion keeps all six rule bits, not five.** `(old & 63) | 128`, because
+  the format documents bit 32 of `Old_Layout` as rule 6 exactly as it documents it
+  in `Full_Layout`. Masking to five is the version that looks equivalent and is
+  dramatic rather than subtle: an old layout of `32` -- smush, and only two
+  hardblanks -- comes out as `128`, which is _universal_ smushing and merges
+  everything it meets. The bits above the sixth are the vertical rules and are read
+  as nothing, which is a font setting them being a full-width font here.
+- **A character one column wide never smushes, only kerns.** It is the reference
+  implementation's rule, it reads like a kludge, and it is load bearing: a
+  one-column `|` merged into its neighbour is simply gone. It is why `smush()`
+  takes the two characters' widths rather than being a function of two columns.
+- **A hardblank is a visible column everywhere except the last line of the
+  render.** The ticket names the two classic bugs and they are the two ends of this:
+  drawing it as a literal `$` is the first, and treating it as a space is the
+  second. It is visible to the overlap scan, so a space character drawn out of
+  hardblanks keeps its width through a smush -- which is what hardblanks are _for_,
+  and the font a `$` was read out of is the font that decides, so a `$` in a font
+  that nominated `#` is an ordinary `$`. Both halves are pinned against each other:
+  the same font with its space glyph drawn out of _spaces_ loses the word gap
+  entirely, which is the behaviour hardblanks exist to avoid.
+- **The rules are asked in the format's own order, and the order is the whole of
+  it.** Rule 6 comes first because it is the one rule a hardblank can take part in,
+  and everything after it refuses a hardblank outright. The same ordering holds one
+  level down, in what a merged column becomes: a blank gives way _first_, so a blank
+  meeting a hardblank yields the hardblank and the hardblank survives to refuse the
+  next character. Read the other way round the blank wins, the hardblank is gone,
+  and the character after it lands a column early -- which takes three characters to
+  see, and has a test with three characters in it.
+- **Right-to-left is parsed, reported, and refused by the renderer.** A font that
+  declares it throws rather than being rendered the wrong way round, which is the
+  rule a property the engine ignores already follows one layer along. Mirroring the
+  overlap arithmetic is contained work and it is not work to do blind: there is no
+  right-to-left font here to check it against, and the obvious shortcut -- render
+  the reversed string left to right -- is _not_ equivalent, because the two compose
+  from opposite ends and an accumulated block's two edges are not the same edge. The
+  day somebody has `ivrit.flf` is the day to write it, with that font to hand.
+- **A character the font does not have is the glyph at code 0, else nothing at
+  all.** The format's own answer, and the only one that does not invent a glyph the
+  font's author did not draw -- a `?` or a blank the width of a space would both be
+  this renderer deciding what a missing letter looks like. The lookup is by code
+  point rather than by code unit, so an astral character is one miss rather than two
+  halves of one that neither matches.
+- **A font that stops partway is read as far as it goes.** Refusing it was the loud
+  alternative and it rejects real fonts: the required range is routinely cut short,
+  and the renderer already has a defined answer for a character a font lacks, so a
+  font with a smaller repertoire is a usable font. What is _not_ kept is a character
+  the file ran out in the middle of, because a glyph shorter than `height` would
+  break the one promise the intrinsic size makes. And nothing after a cut is read as
+  a code tag: a code tag only ever follows the whole required run, so what is left of
+  a truncated file is the rows of the character it ran out in -- which was being read
+  as a code tag, where `x@` is not a number, so a font that merely stopped early was
+  refused outright. Found by the first run of the tests rather than by reasoning.
+- **`Codetag_Count` is not read and `Max_Length` is not kept.** The count is
+  informational and the reference implementation ignores it, so trusting it would
+  stop reading early on a font whose count is wrong -- a font missing characters it
+  has, for a field nothing needs. `Max_Length` is derivable from the glyphs and the
+  header's value is documented as untrustworthy, so publishing it would be
+  publishing a number that can be wrong about what it describes. `baseline` is kept,
+  because it cannot be derived and is the one thing a caller aligning a banner
+  against ordinary text needs; nothing here reads it, and the doc comment says so.
+- **A glyph column is one code point, and the cheap half of that is the padding.**
+  The format is a picture drawn with single-column characters, so a column is a
+  character and an astral one is still a character. The expensive half is what the
+  other reading costs: by code unit the join can land _between_ the halves of a
+  surrogate pair, the second is smushed away, and what reaches the screen is a lone
+  high surrogate no terminal can draw and no decoder can read -- which is the same
+  defect the typewriter's own entry records from the other side. Pinned by a font
+  whose glyph holds an astral character, which is the one shape where the two
+  readings differ observably. The width the _box_ gets is `stringWidth()` rather
+  than a column count, because a font drawn with wide characters is wider on screen
+  than its own column arithmetic says and the box has to be the width that will be
+  drawn.
+- **Neither side of a join can give up more columns than it has.** The reference
+  implementation caps the overlap at the arriving character's width alone, and a
+  three-column blank arriving on a one-column row then slides two columns past the
+  start of it. Capping at the lesser of the two is the fix, and it is what makes the
+  all-blank cases answerable at all -- a space glyph drawn out of spaces collapsing
+  into its neighbours is correct, and collapsing past them is not.
+- **Vertical smushing and a bundled vertical answer are out, and a newline is still
+  a line break.** A banner is one line, which is the ticket's own framing, and the
+  five vertical rules need a notion of what a line's sub-rows are -- with the one
+  that is genuinely hard, vertical line supersmushing, able to _change the height_
+  of the result, which is the one number the intrinsic size promises. Refusing a
+  newline outright was the other option and it is worse: a newline is ordinary
+  input, so the lines are rendered and stacked with no overlap, which is predictable
+  and is what a reader expects of a two-line banner.
+- **The degenerate inputs were walked rather than reasoned about**, and three of
+  them were defects. An empty file, another signature, a signature with nothing
+  after it, a hardblank that is a space, a hardblank that is a control character,
+  fewer than five numbers, a height that is `0`, `-1`, `3.5`, `six`, `0x3`, twenty digits long or
+  absent, a negative comment count, a comment count that overruns the file, a print
+  direction that is neither `0` nor `1`, a full layout that is not a number, a code
+  tag that is not a number, a code tag in each of the three bases and signed either
+  way, a code tag whose glyph rows the file ran out of, a blank line between code
+  tags, a `Codetag_Count` that lies, a `Max_Length` that lies, a character whose
+  rows disagree in width, a row of nothing but endmarks, a font that stops at `A`, a
+  font that stops after ASCII 126, a font with no characters in it at all, a byte
+  order mark, CRLF, and a file written with carriage returns alone. The three that
+  were wrong: a truncated font was refused rather than tolerated (the entry above),
+  the old-layout mask dropped rule 6, and the file's own final newline was being
+  read as the last row of a glyph wherever the character before it was short.
+- **A font with whitespace after its endmark is a font this cannot read, and that
+  is said rather than guessed around.** The format's rule is that the last character
+  of the line is the endmark and the whole trailing run of it comes off; with a
+  space there, the run that comes off is the glyph's own right-hand padding. It is a
+  font the reference implementation cannot read either, and guessing which of the
+  two trailing runs was meant is a heuristic that is wrong about the next font.
+- **Two sabotages survive out of sixty-four, and both are declared.** The visibility
+  bound in `rowOverlap()` is a _bounds_ guard rather than a behaviour one: deleting
+  it changes no answer, because the global cap is tighter than the inflated distance
+  a phantom column produces, and what it buys is not reading past the end of a row
+  and relying on an argument three functions away. The `?? right` in `combine()` is
+  unreachable by construction -- the overlap is only ever taken at a distance where
+  every visible pair smushes, and at that distance there is exactly one such pair,
+  because any other would need a visible column further in than its own last one --
+  so it is the type's answer, and it is `right` because that is what universal
+  smushing does. Four guards were deleted for failing the pass: a padding branch
+  that `repeat(0)` already answered, an early return in `stripEndmark()` that the
+  loop below it already answered, an `outWidth === 0` case the cap already answered,
+  and a `Math.max(0, ...)` over a value that cannot be negative.
+- **One mutation came back a survivor and was the harness being blunt rather than
+  the guard being dead**, which is the second of the two failures this file records
+  about the method. `readInt()`'s pattern was weakened from `\d+` to `[\d.]+`, and
+  that survived -- because `3.5` then reaches `Number.isSafeInteger()`, which refuses
+  it. The two guards overlap and neither is redundant: the pattern is the only thing
+  that refuses `''`, whitespace, `1e3` and `0x10`, where `Number()` answers `0`, `0`,
+  `1000` and `16`, and the safe-integer check is the only thing that refuses `3.5`
+  and a twenty-digit field. Weakened to `\w*` instead -- which admits `0x10` and
+  nothing the other guard covers -- it is caught. The lesson is the one already
+  written down: a mutation that another guard answers for says nothing about the one
+  it was aimed at, so the mutation has to be the input that only that guard
+  refuses.
+- **And the pass found a literal U+FEFF in the source, which `sources.test.ts`
+  cannot see.** That file checks C0, `DEL` and C1, and a byte order mark is a
+  _format_ character rather than a control one -- so an invisible character sat in
+  `src/` and in the test beside it, in the one line whose job is to strip a byte
+  order mark, which is the shape this file already records twice. Both are `﻿`
+  escapes now. Widening the check to `\p{Cc}` plus `\p{Cf}` is the obvious
+  follow-up and is deliberately not taken here: the repository has two legitimate
+  U+200D characters, in `packages/sigil/README.md` and in
+  `test/components/typewriter.test.ts`, where they are the joiners inside emoji
+  sequences -- so the check needs an allow-list, which is a decision about that test
+  rather than about this feature.
+
 #### A typewriter: text that arrives a chunk at a time
 
 SIG-83 asked for text that arrives rather than appears, and asked first whether
