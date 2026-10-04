@@ -10519,7 +10519,9 @@ it is a component rather than the frame effect SIG-103 is.
 - **Fifty-five mutations, one at a time with the suite run after each, and three
   deliberate survivors.** Counted against the shipped code in one run rather than
   summed across rounds, so the number is re-derivable: 55 applied, 50 caught by the
-  suite, 2 caught by the build, 3 declared below.
+  suite, 2 caught by the build, 3 declared below. Two more were added afterwards for
+  guards the pass itself produced -- `min-width: 0`, and the sheet's light half --
+  and both are caught.
 
   Two of the three survivors are a statement _order_ rather than a guard -- the
   settle after the screen in `stop()` and in `cancel()` -- and the sabotage is what

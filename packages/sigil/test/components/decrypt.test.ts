@@ -481,6 +481,41 @@ describe('decryptView()', () => {
 		}
 	});
 
+	// `dim` is the one declaration whose legibility depends on which way the
+	// background goes, so it carries a light half on `gray` -- the same rule and the
+	// same remedy `.sigil-prompt-hint` and help's own note already have
+	it('should de-emphasise without dim on a light terminal', () => {
+		const state = decryptState('ab');
+		state.frame.set({ masked: true, text: '##' });
+
+		const at = (scheme: 'dark' | 'light'): string =>
+			renderToString(decryptView(state), {
+				cascade: themedCascade({ colorLevel: 3, colorScheme: scheme }),
+				colorLevel: 3,
+				colorScheme: scheme,
+				width: 40,
+			});
+
+		// the SGR *parameters* rather than a substring, which is this repository's
+		// rule: `2m` also matches the `[22m` that closes bold
+		const params = (out: string): Set<string> =>
+			new Set(
+				[...out.matchAll(new RegExp(`${ESC}\\[([\\d;]*)m`, 'g'))].flatMap((m) =>
+					(m[1] as string).split(';')
+				)
+			);
+
+		const dark = at('dark');
+		const light = at('light');
+
+		// 2 is faint, which is what `dim` emits; 90 is the foreground of palette 8
+		expect(params(dark).has('2'), 'dark lost its dim').to.equal(true);
+		expect(params(light).has('2'), 'light still emits faint').to.equal(false);
+		expect(params(light).has('90'), 'light has no de-emphasis at all').to.equal(true);
+		// and the glyphs are the same either way: only how they are drawn moved
+		expect(strip(light)).to.equal(strip(dark));
+	});
+
 	// the attributes go at level 0 along with the colour, so what is left is the
 	// characters changing -- which is the whole effect
 	it('should draw nothing but the characters at colour level 0', () => {
