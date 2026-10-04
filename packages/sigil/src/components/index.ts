@@ -45,6 +45,28 @@ export {
 } from './spinner.js';
 export { decodeKeys, isAbort, type Key, pendingLength } from './keys.js';
 export {
+	ASCII,
+	CP437,
+	createDecrypt,
+	type Decrypt,
+	decrypt,
+	type DecryptCell,
+	type DecryptFrame,
+	decryptFrameAt,
+	type DecryptOptions,
+	type DecryptPlan,
+	decryptPlan,
+	type DecryptPlanOptions,
+	decryptReveal,
+	type DecryptRevealOptions,
+	type DecryptState,
+	decryptState,
+	decryptView,
+	type MaskAlphabet,
+	type Random,
+	seeded,
+} from './decrypt.js';
+export {
 	type RowWindow,
 	rowWindow,
 	type ScrollAxis,

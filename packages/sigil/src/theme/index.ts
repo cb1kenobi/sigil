@@ -73,6 +73,7 @@ export const FRAMEWORK_CSS = `
  *   .sigil-scroll-bar  .sigil-scroll-slot  .sigil-scroll-spacer
  *   .sigil-typewriter  .sigil-typewriter-text
  *   .sigil-large-text  .sigil-large-text-body
+ *   .sigil-decrypt  .sigil-decrypt-text
  *   .sigil-help
  * A class with no rule is still a hook; giving it an empty rule would be a
  * declaration that says nothing and a line for somebody to wonder about.
@@ -117,6 +118,23 @@ export const FRAMEWORK_CSS = `
 .sigil-scroll-track { color: gray }
 .sigil-scroll-thumb { color: cyan }
 
+/*
+ * decrypt
+ *
+ * The one declaration, and it is a state rather than a kind: while any cell is
+ * still hidden the whole block is de-emphasised, and the frame that resolves the
+ * last cell is what brings it up to full strength. That is the component's reveal
+ * beat expressed in the cascade, and it is as far as a colour can go here --
+ * colouring resolved cells apart from hidden ones would need an element per run
+ * of them, and three texts in a row are placed beside each other's boxes rather
+ * than after each other's last line.
+ *
+ * Nothing is drawn differently at colour level 0, deliberately: the attributes go
+ * there along with the colour, so what is left is the characters changing, which
+ * is the whole effect. A decrypt asked for plain text gets plain text.
+ */
+.sigil-decrypt-text.is-masked { dim: true }
+
 /* help */
 .sigil-help-heading { font-weight: bold }
 .sigil-help-note { dim: true }
@@ -154,6 +172,7 @@ export const FRAMEWORK_CSS = `
 	.sigil-prompt-answer { dim: false; color: gray }
 	.sigil-prompt-placeholder { dim: false; color: gray }
 	.sigil-choice-hint { dim: false; color: gray }
+	.sigil-decrypt-text.is-masked { dim: false; color: gray }
 	.sigil-help-note { dim: false; color: gray }
 }
 `;
