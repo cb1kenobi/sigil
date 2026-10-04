@@ -26,6 +26,10 @@ import { describe, expect, it } from 'vitest';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
+/** Written as codes rather than as bytes, because source carries no raw control. */
+const ESC = String.fromCharCode(0x1b);
+const CR = String.fromCharCode(0x0d);
+
 /**
  * A preload making a child's stdout answer `isTTY`, as `output-forms.test.ts` does.
  *
@@ -52,6 +56,29 @@ await decrypt('Setec Astronomy', { jumble: 60, random: seeded(1989), reveal: 120
 console.log('AWAIT-RETURNED');
 `;
 
+/**
+ * The same, with the cipher and the plaintext in two colours an app sheet names.
+ *
+ * Longer than the run above on purpose: the frame loop paces itself at thirty a
+ * second, so a window of a couple of hundred milliseconds is a handful of frames
+ * and most of what this is looking for is a frame with *both* states in it. The
+ * plan is seeded, so which cell resolves when is fixed; when each frame lands is
+ * the wall clock's, which is why what is asserted is a property of some frame
+ * rather than of a particular one.
+ */
+const COLOURED = `
+import { decrypt, seeded } from '@ttylabs/sigil/components';
+await decrypt('Setec Astronomy: too many secrets', {
+	jumble: 100,
+	random: seeded(1989),
+	reveal: 600,
+	sheets: [
+		'.sigil-decrypt-cipher { color: cyan; dim: false } .sigil-decrypt-plain { color: green }',
+	],
+});
+console.log('AWAIT-RETURNED');
+`;
+
 interface Ran {
 	code: number | null;
 	stderr: string;
@@ -67,15 +94,25 @@ interface Ran {
  * above it. Which also means this test needs a built `dist/`, like everything else
  * in this package.
  */
-function run(tty: boolean): Promise<Ran> {
+function run(tty: boolean, opts: { colour?: boolean } = {}): Promise<Ran> {
+	const source = opts.colour ? COLOURED : SOURCE;
 	const args = tty
-		? ['--import', TTY_PRELOAD, '--input-type=module', '-e', SOURCE]
-		: ['--input-type=module', '-e', SOURCE];
+		? ['--import', TTY_PRELOAD, '--input-type=module', '-e', source]
+		: ['--input-type=module', '-e', source];
+	// `NO_COLOR` wins over `FORCE_COLOR` wherever both are set, which is the point of
+	// it -- so the colour run takes it back out rather than setting both
+	const env: Record<string, string | undefined> = { ...process.env, COLUMNS: '80' };
+	if (opts.colour) {
+		delete env.NO_COLOR;
+		env.FORCE_COLOR = '3';
+	} else {
+		env.NO_COLOR = '1';
+	}
 
 	return new Promise((settle, fail) => {
 		const child = spawn(process.execPath, args, {
 			cwd: join(root, 'demos'),
-			env: { ...process.env, COLUMNS: '80', NO_COLOR: '1' },
+			env,
 			stdio: ['ignore', 'pipe', 'pipe'],
 		});
 		let stderr = '';
@@ -126,6 +163,27 @@ describe('awaiting a decrypt on a terminal', () => {
 		// Measured: 46 of them animated, none piped.
 		const masked = [...ran.stdout].filter((ch) => ch.codePointAt(0)! > 0x7f);
 		expect(masked.length).toBeGreaterThan(0);
+	}, 30_000);
+
+	it('should draw the cipher and the plaintext in two colours in one frame', async () => {
+		const ran = await run(true, { colour: true });
+
+		expect(ran.stdout).toContain('AWAIT-RETURNED');
+
+		// a frame is a diff against the one before it, so a *row* is the unit: the
+		// cells of one row are written contiguously, between the cursor movements that
+		// place them. Both colours inside one of those is the claim this spawns for --
+		// a per-cell colour cannot be read off anything smaller than a frame, and the
+		// component's own suite drives an injected clock over `renderToString()`
+		// written as codes rather than as bytes, which is this repository's rule twice
+		// over: no raw control character in source, and no `no-control-regex`
+		// suppression for a formatter to detach from the line it was written over
+		const rows = ran.stdout.split(new RegExp(`${CR}|${ESC}\\[[\\d;]*[ABCDJKH]`, 'u'));
+		const cyan = rows.filter((row) => row.includes(`${ESC}[36m`));
+		const both = rows.filter((row) => row.includes(`${ESC}[36m`) && row.includes(`${ESC}[32m`));
+
+		expect(cyan.length, 'nothing was drawn as cipher at all').toBeGreaterThan(0);
+		expect(both.length, 'no row ever held both colours at once').toBeGreaterThan(0);
 	}, 30_000);
 
 	it('should still resolve with no terminal, where no timer is ever scheduled', async () => {
