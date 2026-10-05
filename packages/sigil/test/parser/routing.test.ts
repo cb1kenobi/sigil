@@ -341,6 +341,84 @@ describe('filesystem routing', () => {
 		});
 	});
 
+	/**
+	 * A command declares its subcommands the same way the schema does, and the
+	 * runtime has always read every shape here -- but `Command.commands` was
+	 * typed `Record<string, AnyCommand>` while the schema's field was wide, so
+	 * the two documented spellings that involve a path were a **type error** on a
+	 * nested command. Nothing in this repository had hit it, because every case
+	 * above declares its paths on the schema.
+	 *
+	 * These run, so they pin the behaviour; `tsconfig.json` includes `./test`, so
+	 * they also pin the type -- narrowing it again fails `pnpm check` rather than
+	 * waiting for somebody's app to find out.
+	 */
+	describe("a nested command's own subcommands", () => {
+		const foo = path.join(__dirname, 'fixtures/simple/foo.js');
+
+		it('should take a path to a directory of them', async () => {
+			const result = await parse({
+				argv: ['group', 'foo'],
+				schema: { commands: { group: { commands: path.join(__dirname, 'fixtures/simple') } } },
+			});
+
+			expect(result.cmd?.name).to.equal('foo');
+			expect(result.cmd?.desc).to.equal('foo!');
+		});
+
+		it('should take a path as a value', async () => {
+			const result = await parse({
+				argv: ['group', 'foo'],
+				schema: { commands: { group: { commands: { foo } } } },
+			});
+
+			expect(result.cmd?.desc).to.equal('foo!');
+		});
+
+		it('should take a list of paths', async () => {
+			const result = await parse({
+				argv: ['group', 'foo'],
+				schema: { commands: { group: { commands: [foo] } } },
+			});
+
+			expect(result.cmd?.desc).to.equal('foo!');
+		});
+
+		it('should take a list of declarations', async () => {
+			const result = await parse({
+				argv: ['group', 'foo'],
+				schema: {
+					commands: { group: { commands: [{ name: 'foo', desc: 'inline foo' }] } },
+				},
+			});
+
+			expect(result.cmd?.desc).to.equal('inline foo');
+		});
+
+		it('should take a map of declarations, which it always did', async () => {
+			const result = await parse({
+				argv: ['group', 'foo'],
+				schema: { commands: { group: { commands: { foo: { desc: 'inline foo' } } } } },
+			});
+
+			expect(result.cmd?.desc).to.equal('inline foo');
+		});
+
+		it('should resolve a relative path against the schema it was declared in', async () => {
+			// the rule a path in any command declaration follows, which is the whole
+			// reason a nested command needs the wide type rather than an absolute one
+			const result = await parse({
+				argv: ['group', 'foo'],
+				schema: {
+					baseDir: __dirname,
+					commands: { group: { commands: './fixtures/simple' } },
+				},
+			});
+
+			expect(result.cmd?.desc).to.equal('foo!');
+		});
+	});
+
 	describe('TypeScript', () => {
 		const ts = path.join(__dirname, 'fixtures/routes-ts');
 
