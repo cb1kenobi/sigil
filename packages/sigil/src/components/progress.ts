@@ -112,7 +112,7 @@ export interface ProgressViewOptions {
  */
 export function progressView(state: ProgressState, opts: ProgressViewOptions): Element {
 	const label = textNode('', { class: 'sigil-progress-label', 'margin-right': 1 });
-	const bar = textNode('', { class: 'sigil-progress-bar', 'margin-right': 1 });
+	const bar = textNode('', { class: 'sigil-progress-bar sigil-accent', 'margin-right': 1 });
 	const percent = textNode('', { class: 'sigil-progress-percent' });
 
 	const ratio = (): number => {

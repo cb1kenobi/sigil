@@ -94,10 +94,10 @@ const check: AnyCommand = command({
 				// so the last word of a build log reads at a glance
 				counts.warnings
 					? {
-							class: 'cli-warning',
+							class: 'cli-warning sigil-warn',
 							text: `${counts.warnings} warning${counts.warnings === 1 ? '' : 's'}`,
 						}
-					: { class: 'cli-ok', text: 'no problems found' },
+					: { class: 'cli-ok sigil-success', text: 'no problems found' },
 			],
 			process.stderr
 		);

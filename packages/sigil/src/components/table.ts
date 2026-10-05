@@ -181,7 +181,7 @@ export function tableView(
 		? cells.map((row) => rowOf(row, widths, columns, gap, 'sigil-table-cell'))
 		: [];
 	const children = head
-		? [rowOf(headers, widths, columns, gap, 'sigil-table-head'), ...body]
+		? [rowOf(headers, widths, columns, gap, 'sigil-table-head sigil-heading'), ...body]
 		: body;
 
 	const natural =

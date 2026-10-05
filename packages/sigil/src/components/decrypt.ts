@@ -934,7 +934,7 @@ export function decryptView(state: DecryptState): Element {
 	// said otherwise
 	const cipher = raw(
 		{ drawsText: true, measure, paint: layer(true) },
-		{ class: 'sigil-decrypt-cipher', 'min-width': 0 }
+		{ class: 'sigil-decrypt-cipher sigil-muted', 'min-width': 0 }
 	);
 
 	const resolved = layer(false);

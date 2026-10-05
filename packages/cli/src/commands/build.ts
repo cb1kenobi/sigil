@@ -189,7 +189,7 @@ const build: AnyCommand = command({
 				...(counts.warnings
 					? [
 							{
-								class: 'cli-warning',
+								class: 'cli-warning sigil-warn',
 								text: `${counts.warnings} warning${counts.warnings === 1 ? '' : 's'}`,
 							},
 						]
@@ -360,7 +360,7 @@ function warnEmptyShake(styles: ShakenStyles | undefined): void {
 
 	writeNote(
 		[
-			{ class: 'cli-warning', text: 'No utility class is named anywhere in this app,' },
+			{ class: 'cli-warning sigil-warn', text: 'No utility class is named anywhere in this app,' },
 			`so all ${styles.total} rules were dropped from the sheet it asked for.`,
 			'If its classes are built out of values that are never literals in the source,',
 			'name them in "build.safelist" in sigil.json, or pass --no-shake.',
