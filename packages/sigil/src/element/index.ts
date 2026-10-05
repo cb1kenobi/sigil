@@ -90,6 +90,26 @@ export type ResizeHandler = (element: Element) => boolean;
 export type RawPainter = Painter;
 
 export interface RawOptions {
+	/**
+	 * Whether the cells this paints are text, which decides what `selectable`
+	 * defaults to.
+	 *
+	 * A `raw` is not selectable unless something says so, because the two in this
+	 * library are a sparkline and a half-block image: a wall of block characters
+	 * nobody wants in their clipboard, which is the whole reason the prop exists.
+	 * A `raw` that paints *characters somebody is reading* is the other kind, and
+	 * it wants exactly what a `text` gets -- so this says which it is, once, where
+	 * the element is built.
+	 *
+	 * It changes the **default** rather than the answer, which is what keeps the
+	 * loss it closes closed: a `selectable={false}` on a pane reaches such a raw
+	 * again, the way it reaches the texts inside it, and an explicit `selectable`
+	 * on the element still beats both. Written here rather than as a third prop
+	 * value because it is a property of what the painter draws rather than of what
+	 * a caller or a sheet wants -- a raw that forgot to say it in its props would
+	 * be silently uncopyable, and a raw cannot forget what it is.
+	 */
+	drawsText?: boolean;
 	/** What this element's content would take, measured like a text's. */
 	measure: (availableWidth: number) => Measurement;
 	/** Paints it, given the box the layout gave it. */
@@ -793,6 +813,16 @@ export class Element implements LayoutNode {
 	/** A `raw` element's painter, for the paint walk. */
 	get rawPaint(): RawPaint | undefined {
 		return this.#raw?.paint;
+	}
+
+	/**
+	 * Whether a `raw` element's cells are text, which `selectableAt()` reads.
+	 *
+	 * `false` for every other type, so the mask walk asks one question rather than
+	 * asking whether it is looking at a `raw` first.
+	 */
+	get drawsText(): boolean {
+		return this.#raw?.drawsText ?? false;
 	}
 
 	/**

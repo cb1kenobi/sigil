@@ -73,6 +73,7 @@ export const FRAMEWORK_CSS = `
  *   .sigil-scroll-bar  .sigil-scroll-slot  .sigil-scroll-spacer
  *   .sigil-typewriter  .sigil-typewriter-text
  *   .sigil-large-text  .sigil-large-text-body
+ *   .sigil-decrypt  .sigil-decrypt-plain
  *   .sigil-help
  * A class with no rule is still a hook; giving it an empty rule would be a
  * declaration that says nothing and a line for somebody to wonder about.
@@ -117,6 +118,24 @@ export const FRAMEWORK_CSS = `
 .sigil-scroll-track { color: gray }
 .sigil-scroll-thumb { color: cyan }
 
+/*
+ * decrypt
+ *
+ * Two classes rather than one, for the reason the scroll bar has two: the cells
+ * still hiding something and the cells that have resolved are two elements over
+ * one rectangle, and each resolves its own style -- so a cipher cell is
+ * de-emphasised while a resolved one is drawn at full strength the moment it
+ * lands. That is the component's reveal beat expressed in the cascade, per
+ * character rather than per block, and the plain half carries no default for the
+ * same reason the spinner's text does not: what it resolves to is the terminal's
+ * own foreground unless somebody says otherwise.
+ *
+ * Nothing is drawn differently at colour level 0, deliberately: the attributes go
+ * there along with the colour, so what is left is the characters changing, which
+ * is the whole effect. A decrypt asked for plain text gets plain text.
+ */
+.sigil-decrypt-cipher { dim: true }
+
 /* help */
 .sigil-help-heading { font-weight: bold }
 .sigil-help-note { dim: true }
@@ -154,6 +173,7 @@ export const FRAMEWORK_CSS = `
 	.sigil-prompt-answer { dim: false; color: gray }
 	.sigil-prompt-placeholder { dim: false; color: gray }
 	.sigil-choice-hint { dim: false; color: gray }
+	.sigil-decrypt-cipher { dim: false; color: gray }
 	.sigil-help-note { dim: false; color: gray }
 }
 `;

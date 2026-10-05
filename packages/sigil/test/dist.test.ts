@@ -131,6 +131,7 @@ describe('what importing the package costs', () => {
 		'createProgress',
 		'createTypewriter',
 		'largeTextView',
+		'createDecrypt',
 		'mountLive',
 		'PromptError',
 		'renderBar',

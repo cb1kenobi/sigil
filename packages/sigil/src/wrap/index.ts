@@ -421,26 +421,82 @@ export function truncate(text: string, width: number, mode: TruncateMode = 'elli
 	if (stringWidth(text) <= width) {
 		return text;
 	}
+
+	const { head, marker, tail } = cutAt(width, mode);
+
+	// `takeEnd()` materializes the cluster list before it walks, so the two modes
+	// that keep no tail do not pay for one. `take(text, 0)` breaks on its first
+	// cluster, so the head needs no such guard
+	return take(text, head).text + marker + (tail > 0 ? takeEnd(text, tail) : '');
+}
+
+/**
+ * How the columns of a line too wide for its box are divided.
+ *
+ * The head keeps the first `head` columns and the tail the last `tail`, with
+ * `marker` between them -- so `head + stringWidth(marker) + tail` is the whole
+ * budget and a `tail` of zero is a cut at the end.
+ */
+export interface Cut {
+	/** Columns kept from the start. */
+	head: number;
+	/** What marks the cut, or `''` where nothing does. */
+	marker: string;
+	/** Columns kept from the end. */
+	tail: number;
+}
+
+/**
+ * Where a line too wide for its box is cut, and what marks the cut.
+ *
+ * The whole of what `text-overflow` *means*, with no text in it -- and it is a
+ * function of its own because two things honour that property and neither one's
+ * walk is the other's. `truncate()` walks grapheme clusters, because slicing a
+ * string in the middle of a surrogate pair leaves half a code point. The decrypt
+ * component walks **cells**, because a cell is not a cluster -- `ASCII.wide` hides
+ * one two-column character with two narrow glyphs -- so there is no
+ * cluster-to-cell correspondence to map an answer about clusters back through.
+ *
+ * What the two must not disagree about is the arithmetic, and this is the
+ * arithmetic: which columns survive and what goes between them. Written once for
+ * the reason `readRoutes()` and `isSgr()` are -- two readers of one rule is how
+ * the two come to answer differently, and here they would answer differently
+ * about where `ellipsis-middle` puts its odd column, which nothing in a build
+ * catches.
+ *
+ * `clip` cuts and marks nothing, which is CSS's default and what a caller wants
+ * when the edge itself says there is more. The other three keep one column back
+ * for the ellipsis, so a width of one is the ellipsis alone -- and a width that is
+ * no width keeps nothing at all, which is what makes this safe to ask before
+ * anything has checked.
+ *
+ * @param width - The most columns the line may take.
+ * @param mode - Where the mark goes. `ellipsis` by default.
+ * @returns How to divide the budget.
+ */
+export function cutAt(width: number, mode: TruncateMode = 'ellipsis'): Cut {
+	// `NaN` fails every comparison, so it is asked about first rather than falling
+	// through to a head of `NaN` columns: the rule `truncate()` already records
+	if (!(width > 0)) {
+		return { head: 0, marker: '', tail: 0 };
+	}
 	if (mode === 'clip') {
-		return take(text, width).text;
+		return { head: width, marker: '', tail: 0 };
 	}
 	if (width === 1) {
-		return ELLIPSIS;
+		return { head: 0, marker: ELLIPSIS, tail: 0 };
 	}
-
 	if (mode === 'ellipsis-start') {
-		return ELLIPSIS + takeEnd(text, width - 1);
+		return { head: 0, marker: ELLIPSIS, tail: width - 1 };
 	}
-
 	if (mode === 'ellipsis-middle') {
 		// the head keeps the odd column, because the beginning of a path or an
 		// identifier is what says which one it is
 		const tail = Math.floor((width - 1) / 2);
-		const head = width - 1 - tail;
-		return take(text, head).text + ELLIPSIS + takeEnd(text, tail);
+		return { head: width - 1 - tail, marker: ELLIPSIS, tail };
 	}
 
-	return take(text, width - 1).text + ELLIPSIS;
+	return { head: width - 1, marker: ELLIPSIS, tail: 0 };
 }
 
 /**

@@ -45,6 +45,7 @@ node demos/parser/06-lazy-commands.js --help  # commands listed by name alone
 | [`components/06-ansi-and-wrap.js`](components/06-ansi-and-wrap.js) | Styling, wrapping, and display width          |
 | [`components/07-typewriter.js`](components/07-typewriter.js)       | Text that arrives rather than appears         |
 | [`components/08-large-text.js`](components/08-large-text.js)       | Banner text, and the `.flf` format behind it  |
+| [`components/09-decrypt.js`](components/09-decrypt.js)             | Text that jumbles, then resolves into itself  |
 
 ### Try them without a terminal
 
@@ -58,9 +59,20 @@ hundred:
 node demos/components/01-spinner.js | cat
 node demos/components/02-progress.js | cat
 node demos/components/07-typewriter.js | cat
+node demos/components/09-decrypt.js | cat
 ```
 
-That is what a CI log gets, and no component had to know about it.
+That is what a CI log gets, and no component had to know about it. The decrypt is
+the sharpest case: six texts, written once each, which is eight lines because one
+of them is three — against a couple of hundred frames of noise on a terminal. Its
+fifth text is also the one that shows colour doing the work: an app sheet puts the
+cipher in one colour and what it resolves to in another, which is two class rules
+rather than an option, because a built-in carries no colour in its props. Per
+character, not per block — each one turns the resolved colour the moment it lands,
+because the cipher cells and the resolved ones are two elements over one
+rectangle and each resolves its own style. The sixth is `text-overflow` on a path
+too long for its box: a decrypt is cut and marked the way any other text is, in
+`ellipsis-middle`, which keeps the project at one end and the file at the other.
 
 `08-large-text.js` is the one where the answer is that nothing changes: a banner
 is static text, so there is no cursor to move and a pipe gets byte for byte what
@@ -71,11 +83,13 @@ no third-party `.flf` is committed here and none is bundled in the runtime,
 because the look of a banner is the app's choice and there are hundreds of fonts
 already written.
 
-The typewriter answers the same way to a preference rather than to a pipe, so a
-terminal whose user has asked for less motion gets the text in one go too:
+The typewriter and the decrypt answer the same way to a preference rather than to
+a pipe, so a terminal whose user has asked for less motion gets the text in one go
+too:
 
 ```sh
 SIGIL_REDUCED_MOTION=reduce node demos/components/07-typewriter.js
+SIGIL_REDUCED_MOTION=reduce node demos/components/09-decrypt.js
 ```
 
 A prompt has nobody to ask, so it fails rather than waiting forever on a stdin
@@ -90,7 +104,13 @@ And `NO_COLOR=1` turns the styling off everywhere:
 
 ```sh
 NO_COLOR=1 node demos/components/06-ansi-and-wrap.js
+NO_COLOR=1 node demos/components/09-decrypt.js
 ```
+
+The decrypt is where that reads as a decision rather than as an absence: the only
+thing its stylesheet says is that a block with anything still hidden is
+de-emphasised, and at colour level 0 the attributes go along with the colour — so
+what is left is the characters changing, which is the whole effect.
 
 ## Style
 
