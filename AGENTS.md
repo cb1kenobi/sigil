@@ -7137,6 +7137,61 @@ makes it testable with a fixture directory and no bundler at all.
   `path` and `run` already follow -- and picking silently is what makes it a
   trapdoor. A `load` beside a `path` would fetch the module twice by two
   mechanisms and merge whichever won.
+- **A load that fails says which module it was, and neither branch could before.**
+  `Failed to load command module: no chunk` identified nothing at all for a
+  bundled app, whose loader is an anonymous closure -- while the export check
+  immediately below it in the same function already said which command it was
+  reading. Two errors about one failure, disagreeing about whether the reader is
+  told where to look. The `path` branch had the hole too and it is narrower than
+  it looks, which is why it is worth writing down rather than inferring: a missing
+  file never reaches that `catch` at all, since `existsSync()` answers first with
+  a message that names the path, and a module whose own `import` is missing
+  already reports `imported from <that module>`. What is left is the module that
+  exists and will not **parse** -- measured, one that stops mid-declaration
+  reports `Unexpected end of input` and names no file whatsoever, so a routed
+  tree of sixty commands said only that one of them would not parse. That is the
+  case the test is named for. It is `(the "build" command's loader)` for a loader and
+  `(<path>)` for a `path`, which is the `source` vocabulary that export check was
+  already using. That is also the whole of what "decorate its errors" wanted out
+  of a load hook, answered by the message rather than by a seam.
+- **And `load` is not a hook, which is the question its being a function
+  invites.** It is one of three mutually exclusive answers to "what is this
+  command", and every hook here is the opposite in each respect: without a hook
+  the command works fine, hooks combine freely, a hook observes or modifies a
+  command rather than constituting one, and `initCommand()` **copies** the
+  `hooks` object precisely so a hook can replace a hook. Moving `load` under
+  `hooks` would also put two of the three exclusive answers at different nesting
+  levels, and would make `sigil build` **merge** into an app's existing `hooks`
+  object where it now assigns a property -- a new failure mode in generated code,
+  bought for nothing. Dynamic command _registration_ is already a hook's job and
+  already works: an `init` or `parse` hook is handed the registries and can
+  `commands.add(await initCommand(...))`.
+- **And there is no hook _around_ the load, which is refused for want of a caller
+  rather than deferred.** Nothing can observe or wrap the moment a module is
+  fetched, so there is no way to time it, retry it, or answer it from somewhere
+  that is not a module -- and the fourth thing that list named, decorating the
+  error, is the entry above rather than a seam. `loadCommand()` has three call
+  sites, all of them inside `parse.ts` and `help.ts`, and nothing in either
+  package wraps one or wants to; the callers such a hook is for, a plugin
+  resolver or a remote command, do not exist here. The rule is `which`'s -- a
+  feature nothing needs is a feature designed by guessing, and that API sat in
+  the backlog until `sigil new` turned up wanting it, after which its shape came
+  from the caller rather than from a sketch.
+
+  What a caller would have to settle is written down so that it is not
+  re-derived. **Where it fires**, because a directory command reads its own level
+  in `loadCommandDir()` before `fetchModule()` is reached -- so "loading a
+  command" is two events, and a hook that sees one of them misses the tree walk.
+  **Whether it may answer**, which is the interesting half and is what a plugin
+  resolver wants, and which makes it `beforeError`-shaped: return nothing to
+  leave the module alone, return a value to replace it. **Whose it is**, which is
+  likely the schema's, since a hook on the command being loaded cannot fire
+  before that command is known while a hook on the schema can. **What a throw
+  means**, since `loadCommand()` leaves `loaded` false so that the next match
+  retries, and a hook that throws has to land somewhere consistent with that.
+  And **whether it fires at all** for a command with no module -- an inline
+  `run`, or a namespace directory with no `index`.
+
 - **A loader gets no `baseDir`, because there is no file for a path to be
   relative to.** A bundled module declaring a `path` is already asking for a
   file that is not there, so it resolves from the working directory -- which is

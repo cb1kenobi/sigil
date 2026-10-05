@@ -93,7 +93,7 @@ declaring both throws.
 | `default`   | `boolean`                | Runs when argv named no command — see below        |
 | `desc`      | `string`                 | Description for help                               |
 | `hidden`    | `boolean`                | Omit from help; a `!` name prefix sets it too      |
-| `hooks`     | `{ init, parse }`        | Lifecycle callbacks                                |
+| `hooks`     | `object`                 | `init`, `parse`, `help`, `beforeError` — see below |
 | `load`      | `() => Promise<unknown>` | The module as a function, for a bundled app        |
 | `options`   | `object`                 | Options scoped to this command and its children    |
 | `path`      | `string`                 | A module to load the command from                  |
@@ -316,6 +316,60 @@ from it are carried onto the loaded command; a module that declares its own
 merged in, but it cannot resolve the command — the parser has to match the
 command before it can load the module that declares the alias, so a name a user
 is expected to type belongs on the placeholder.
+
+#### A module as a function
+
+`path` is a file to read, and a bundled app has no file to read: its command
+modules are chunks a bundler named, reached by a dynamic `import()` the bundler
+rewrote. `load` is the same statement said as a function instead:
+
+```js
+commands: {
+	build: { desc: 'Build the app', load: () => import('./commands/build.js') };
+}
+```
+
+`sigil build` emits one of those per command where the source tree had a
+directory to walk, so the deferral above survives bundling rather than being
+flattened into the entry chunk. A literal specifier inside a dynamic import is
+the one thing a bundler can see, follow and split on, which is why it is a
+function rather than a registry or a manifest.
+
+Otherwise it is `path` exactly. The module it resolves to **is** the command, its
+default export is merged over whatever the declaration left `undefined`, and it
+is not called until the command is matched or help describes it. Whatever it
+resolves with is read for a `default` the way an imported module is, so a loader
+handing back the command object itself works too. It gets no base directory,
+because there is no file for a path to be relative to — a path the module
+declares resolves from the working directory, which is the answer a schema
+written inline already gets.
+
+A load that throws leaves the command unloaded, so the next time it is matched
+the loader is called again rather than the placeholder quietly standing in for
+it.
+
+#### `path`, `load`, and `run` are one choice
+
+They are three answers to "what is this command", and declaring two of them
+throws while the schema is built:
+
+```js
+{ path: './build.js', run() {} }                 // throws
+{ load: () => import('./build.js'), run() {} }   // throws
+{ path: './build.js', load: () => import('./build.js') }  // throws
+```
+
+The module named by `path` or `load` _is_ the command, so an inline `run` beside
+one is a handler that runs on exactly the modules that happen not to declare
+one — and a module that cannot be read is a hard error however good the inline
+handler was. A `path` and a `load` together would fetch the module twice by two
+mechanisms and merge whichever won. There is no right one to pick between them,
+and picking silently is what would make it a trapdoor, so it is refused where it
+is written.
+
+None of the three is a hook: a command without one has no implementation, while
+a command with no hooks works fine. `AGENTS.md` has the whole of that
+distinction, and why there is no hook around the load itself.
 
 ## Arguments
 
@@ -1369,11 +1423,12 @@ Schema-level hooks are functions on `schema.hooks` -- one each, not a list:
 
 Command-level hooks live on `command.hooks`:
 
-| Hook          | When                                                       |
-| ------------- | ---------------------------------------------------------- |
-| `init`        | When the command is initialized                            |
-| `parse`       | When the command is matched during parsing                 |
-| `beforeError` | On the way out of any error, before the schema's own hooks |
+| Hook          | When                                                                      |
+| ------------- | ------------------------------------------------------------------------- |
+| `init`        | When the command is initialized                                           |
+| `parse`       | When the command is matched during parsing                                |
+| `help`        | Before its help is rendered — see [sections](#contributing-help-sections) |
+| `beforeError` | On the way out of any error, before the schema's own hooks                |
 
 A command hook is called with `{ cmd, ...cmd[Internal] }`, so it is handed the
 initialized command along with the registries the parser reads — see below for

@@ -17,13 +17,24 @@ const { log } = debug('sigil:parser:load-command');
  * modules are chunks a bundler named, so `sigil build` emits the loader and the
  * deferral survives bundling.
  *
- * @param internal - The command's internal state.
+ * Either failure names the module it was reading as well as what went wrong. A
+ * loader is an anonymous closure, so `Failed to load command module: no chunk`
+ * identified nothing at all -- while the export check below it already said
+ * which command it was reading, which is two errors about one failure
+ * disagreeing about whether the reader is told where to look. A `path` is the
+ * same hole for a less obvious reason: a module that is simply missing reports
+ * its own specifier, and one that does not *parse* reports `Unexpected end of
+ * input` and names no file.
+ *
+ * @param cmd - The command whose module to fetch.
  * @returns The module's default export and the file it came from, or
  *   `undefined` when the command declared no module at all.
  */
 async function fetchModule(
-	internal: InternalCommand[typeof Internal]
+	cmd: InternalCommand
 ): Promise<{ def: unknown; entryFile?: string } | undefined> {
+	const internal = cmd[Internal];
+
 	if (internal.load) {
 		log('Loading command from its loader');
 
@@ -31,7 +42,9 @@ async function fetchModule(
 		try {
 			mod = await internal.load();
 		} catch (e: unknown) {
-			throw new Error(`Failed to load command module: ${(<Error>e).message}`);
+			throw new Error(
+				`Failed to load command module (the "${cmd.name}" command's loader): ${(<Error>e).message}`
+			);
 		}
 
 		// read for a `default` the way an imported module is, so that
@@ -63,7 +76,7 @@ async function fetchModule(
 			const def = (await import(pathToFileURL(internal.path).href)).default;
 			return { def, entryFile: internal.path };
 		} catch (e: unknown) {
-			throw new Error(`Failed to load command module: ${(<Error>e).message}`);
+			throw new Error(`Failed to load command module (${internal.path}): ${(<Error>e).message}`);
 		}
 	}
 
@@ -85,7 +98,7 @@ export async function loadCommand(cmd: InternalCommand): Promise<InternalCommand
 		await loadCommandDir(cmd);
 	}
 
-	const fetched = await fetchModule(internal);
+	const fetched = await fetchModule(cmd);
 
 	if (fetched) {
 		const { def, entryFile } = fetched;
