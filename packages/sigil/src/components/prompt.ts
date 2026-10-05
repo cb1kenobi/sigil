@@ -744,7 +744,9 @@ export function confirm(opts: ConfirmOptions): Promise<boolean> {
 	const fallback = opts.default ?? true;
 
 	return run<boolean>(opts, () => {
-		const tail = textNode(`(${fallback ? 'Y/n' : 'y/N'})`, { class: 'sigil-prompt-hint sigil-muted' });
+		const tail = textNode(`(${fallback ? 'Y/n' : 'y/N'})`, {
+			class: 'sigil-prompt-hint sigil-muted',
+		});
 		const { line, mark } = promptHead(
 			opts.message,
 			headWidths(opts.message, Math.max(1, (opts.terminal ?? defaultTerminal).width)).message,
@@ -895,7 +897,9 @@ function paintChoices(
 		if (ticked) {
 			const on = ticked.has(i);
 			row.mark.setText(on ? SYMBOL.on : SYMBOL.off);
-			row.mark.setProps({ class: on ? 'sigil-choice-mark is-on sigil-success' : 'sigil-choice-mark' });
+			row.mark.setProps({
+				class: on ? 'sigil-choice-mark is-on sigil-success' : 'sigil-choice-mark',
+			});
 		}
 	}
 }
@@ -993,7 +997,9 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
 	}
 
 	return run<T[]>(opts, () => {
-		const hint = textNode('(space to select, enter to confirm)', { class: 'sigil-prompt-hint sigil-muted' });
+		const hint = textNode('(space to select, enter to confirm)', {
+			class: 'sigil-prompt-hint sigil-muted',
+		});
 		const head = headWidths(opts.message, Math.max(1, terminal.width));
 		const { line, mark } = promptHead(opts.message, head.message, hint);
 		const { list, rows } = choiceRows(choices, true);

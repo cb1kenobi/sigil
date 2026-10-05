@@ -295,7 +295,11 @@ export function hanging(
 ): Element {
 	return box(
 		{ 'column-gap': 1, 'flex-direction': 'row' },
-		textNode(label, { class: 'sigil-help-heading sigil-heading', 'flex-shrink': 0, 'white-space': 'nowrap' }),
+		textNode(label, {
+			class: 'sigil-help-heading sigil-heading',
+			'flex-shrink': 0,
+			'white-space': 'nowrap',
+		}),
 		paragraph(runs, {
 			'flex-shrink': 0,
 			width: Math.max(1, width - stringWidth(label) - 1),
