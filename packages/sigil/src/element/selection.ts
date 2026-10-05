@@ -23,11 +23,19 @@ export type Selectable = (x: number, y: number) => boolean;
 
 /** What a `selectable` nobody wrote means, per host type. */
 function defaultFor(element: Element, inherited: boolean): boolean {
-	// `raw` paints its own cells and they are not text: a plot's braille, an
-	// image's half blocks. `box` and `text` inherit, so a `selectable={false}`
+	// `raw` paints its own cells and they are usually not text: a plot's braille,
+	// an image's half blocks. `box` and `text` inherit, so a `selectable={false}`
 	// on a pane reaches the texts inside it without this having to know about
-	// panes
-	return element.type === 'raw' ? false : inherited;
+	// panes.
+	//
+	// `drawsText` is a raw saying it is the other kind -- characters somebody is
+	// reading rather than a picture -- and such a raw inherits exactly as a text
+	// does. Which is what the decrypt component needs, and what it could not have
+	// while the only way to be copyable was `selectable={true}`: that is an answer
+	// rather than a default, so it stopped an ancestor's `selectable={false}`
+	// reaching the block at all. The condition is the raw's own claim and not the
+	// property, so a sheet still cannot decide what may be copied
+	return element.type === 'raw' && !element.drawsText ? false : inherited;
 }
 
 /** The rectangle two boxes both allow. */

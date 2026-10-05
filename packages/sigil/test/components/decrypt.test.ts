@@ -33,7 +33,7 @@ import { createRoot } from '../../src/renderer/index.js';
 import { createEffects } from '../../src/signals/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { graphemes, stringWidth } from '../../src/width/index.js';
-import { wrap } from '../../src/wrap/index.js';
+import { truncate, type TruncateMode, wrap } from '../../src/wrap/index.js';
 import { screenSetup, setup } from './helpers.js';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -932,8 +932,8 @@ describe('decryptView()', () => {
 	});
 
 	// a `raw` is not selectable by default, which is right for a sparkline and wrong
-	// for cells that *are* the text. There is no third value meaning "inherit", so
-	// this is also what a `selectable={false}` on a pane no longer reaches
+	// for cells that *are* the text -- so each layer says `drawsText`, which changes
+	// that default rather than answering over the top of it
 	it('should let a selection copy what is on screen', () => {
 		const state = decryptState('ab');
 		state.frame.set(part('ab', [0, 1], 0));
@@ -954,9 +954,14 @@ describe('decryptView()', () => {
 
 		// each layer says so for itself. The two cannot be told apart by the mask,
 		// because the plain layer's rectangle contains the cipher's and is written
-		// last -- which is two guards covering for each other rather than one claim
-		expect(cipher?.selectable, 'the cipher does not say').to.equal(true);
-		expect(plain?.selectable, 'the plain layer does not say').to.equal(true);
+		// last -- which is two guards covering for each other rather than one claim.
+		//
+		// And neither writes a `selectable` of its own, which is the half that makes
+		// the test below possible: an answer here would beat an ancestor's
+		expect(cipher?.drawsText, 'the cipher does not say').to.equal(true);
+		expect(plain?.drawsText, 'the plain layer does not say').to.equal(true);
+		expect(cipher?.selectable, 'the cipher answers rather than inheriting').to.equal(undefined);
+		expect(plain?.selectable, 'the plain layer answers rather than inheriting').to.equal(undefined);
 
 		expect(selectable, 'nothing was excluded at all').not.to.equal(undefined);
 		expect(selectable?.(0, 1), 'the resolved cell cannot be copied').to.equal(true);
@@ -964,6 +969,47 @@ describe('decryptView()', () => {
 		// and the rule it is an exception to is still the rule, above it and under it
 		expect(selectable?.(0, 0), 'a raw that draws no text can be copied').to.equal(false);
 		expect(selectable?.(4, 0), 'the block widened the mask past itself').to.equal(false);
+	});
+
+	// the other half of `drawsText`, and the thing a `selectable: true` on each layer
+	// could not do: it is a *default*, so a pane that excludes itself still excludes
+	// the decrypt inside it, exactly as it reaches the texts inside it. Which is the
+	// rule the mask is written around -- without this, a pane marked uncopyable had
+	// its decrypt copied anyway
+	it('should let a pane that excludes itself exclude the decrypt inside it', () => {
+		const state = decryptState('ab');
+		state.frame.set(part('ab', [0, 1], 0));
+		const view = decryptView(state);
+		const root = box({ 'flex-direction': 'column', selectable: false }, view);
+
+		resolveStyles(root);
+		arrange(root, { height: 4, width: 10 });
+		const selectable = selectableAt(root, 10, 4);
+
+		expect(selectable, 'nothing was excluded at all').not.to.equal(undefined);
+		expect(selectable?.(0, 0), 'the resolved cell is still copyable').to.equal(false);
+		expect(selectable?.(1, 0), 'the cipher cell is still copyable').to.equal(false);
+	});
+
+	// an explicit `selectable` on the block still beats both, which is what keeps
+	// `drawsText` a default rather than a second mechanism: a caller who wants a
+	// decrypt copyable inside a pane that is not says so, and is obeyed
+	it('should let the block say so over a pane that excluded it', () => {
+		const state = decryptState('ab');
+		state.frame.set(part('ab', [0, 1], 0));
+		const view = decryptView(state);
+		view.setProp('selectable', true);
+		// a sparkline, so that something has excluded and the mask exists at all
+		const sparkline = raw({ measure: () => ({ height: 1, width: 2 }), paint: () => {} });
+		const root = box({ 'flex-direction': 'column', selectable: false }, sparkline, view);
+
+		resolveStyles(root);
+		arrange(root, { height: 4, width: 10 });
+		const selectable = selectableAt(root, 10, 4);
+
+		expect(selectable?.(0, 1), 'the block was not obeyed').to.equal(true);
+		expect(selectable?.(1, 1), 'the block was not obeyed').to.equal(true);
+		expect(selectable?.(0, 0), 'the sparkline stopped being a sparkline').to.equal(false);
 	});
 
 	// the rows past the bottom of the box are not this component's to invent a policy
@@ -1004,6 +1050,132 @@ describe('decryptView()', () => {
 		// view did with the same declaration
 		expect(at('.sigil-decrypt-cipher { white-space: nowrap }')).to.equal('one t');
 		expect(at('')).to.equal('one\ntwo\nthree');
+	});
+
+	/** A one-line `nowrap` block in five columns, cut however the mode says. */
+	function cut(mode: string): string {
+		const state = decryptState('');
+		state.frame.set(decryptedFrame('one two three'));
+		const theme = `.sigil-decrypt-cipher { text-overflow: ${mode}; white-space: nowrap }`;
+		return strip(
+			renderToString(decryptView(state), { cascade: themedCascade({ theme }), width: 5 })
+		);
+	}
+
+	// and `text-overflow` the same way, which is what a `raw` costs unless the
+	// component spends it: the paint walk cuts a *text* because it holds the string,
+	// and a raw paints its own cells, so there is no output for the walk to cut. What
+	// is shared is the decision rather than the drawing -- `cutAt()` -- because the
+	// two layers each hand over part of a row and a painter-side cut would compute
+	// the boundary from half of one
+	it('should cut a line the way text-overflow says', () => {
+		expect(cut('clip'), 'clip').to.equal('one t');
+		expect(cut('ellipsis'), 'ellipsis').to.equal('one …');
+		expect(cut('ellipsis-start'), 'ellipsis-start').to.equal('…hree');
+		expect(cut('ellipsis-middle'), 'ellipsis-middle').to.equal('on…ee');
+	});
+
+	// the differential that makes the sharing structural rather than careful. For a
+	// frame with nothing hidden a cell *is* a cluster, so the component's cell walk
+	// and `truncate()`'s cluster walk are the same question asked of the same text --
+	// and a divergence about where `ellipsis-middle` puts its odd column, or about a
+	// wide cluster straddling a boundary, is a thing nothing else would catch
+	it('should cut where the truncator does', () => {
+		const modes: TruncateMode[] = ['clip', 'ellipsis', 'ellipsis-start', 'ellipsis-middle'];
+
+		for (const text of ['one two three', 'abcdefghij', '日本語のテキスト', 'a日b語c']) {
+			const state = decryptState('');
+			state.frame.set(decryptedFrame(text));
+			const view = decryptView(state);
+
+			for (const mode of modes) {
+				for (const width of [1, 2, 3, 4, 5, 6, 7, 9, 12]) {
+					const theme = `.sigil-decrypt-cipher { text-overflow: ${mode}; white-space: nowrap }`;
+					const out = strip(renderToString(view, { cascade: themedCascade({ theme }), width }));
+					// trailing blanks are dropped per line, which is the one place the two
+					// legitimately differ: a row of spaces and an empty row are one row
+					const want = truncate(text, width, mode).replace(/\s+$/u, '');
+					expect(out, `${text} ${mode} at ${width}`).to.equal(want);
+				}
+			}
+		}
+	});
+
+	// an ellipsis is a cut *mark* rather than content, so neither layer owns it on
+	// its own terms -- CSS gives it the block's style and there is no single block
+	// style here, which is the whole reason there are two elements. It stands for the
+	// run it replaced and takes the state of the first cell of that run, which is the
+	// only answer that needs no new rule and is the honest thing for it to say: the
+	// line is still decrypting and so is the mark
+	it('should draw the mark as the cell it hides', () => {
+		const theme = `
+			.sigil-decrypt-cipher { color: red; dim: false; text-overflow: ellipsis; white-space: nowrap }
+			.sigil-decrypt-plain { color: green }
+		`;
+		/** The mark's own column, with `at` deciding whether the cell under it resolved. */
+		const mark = (at: number): Set<string> => {
+			const state = decryptState('');
+			// five cells in a four-column box, so the cut falls at the fourth -- which is
+			// the one cell whose own reveal time decides anything here. The first three
+			// land at once so that what is drawn is readable, and the fifth is behind the
+			// mark whatever it is doing
+			state.frame.set(part('abcde', [0, 0, 0, 0.5, 0], at));
+			const out = renderToString(decryptView(state), {
+				cascade: themedCascade({ colorLevel: 3, colorScheme: 'dark', theme }),
+				colorLevel: 3,
+				width: 4,
+			});
+			const drawn = columns(out);
+			expect(drawn.map((c) => c.text).join(''), `at ${at}`).to.equal('abc…');
+			return drawn[3]?.params ?? new Set();
+		};
+
+		// while the fourth cell is still ciphered the mark is the cipher's colour, and
+		// once it has landed the mark lands with it
+		expect([...mark(10)], 'the mark did not follow the cipher').to.include('31');
+		expect([...mark(60)], 'the mark did not follow the plaintext').to.include('32');
+	});
+
+	// the cut is cached beside the placement, so what invalidates it has to include
+	// the *mode*: a frame and a width that did not move are not enough, because a
+	// sheet swapped at runtime moves neither. `touchSheets()` is exactly that -- one
+	// view, one frame, one width, and a different answer -- and every other test here
+	// builds a fresh view per mode, which is the one arrangement that cannot see it
+	it('should notice a mode that changed under a frame that did not', () => {
+		const state = decryptState('');
+		state.frame.set(decryptedFrame('one two three'));
+		const view = decryptView(state);
+		const [cipher] = view.children;
+		cipher?.setProp('white-space', 'nowrap');
+
+		const at = (mode: string): string => {
+			cipher?.setProp('text-overflow', mode);
+			return strip(renderToString(view, { cascade: themedCascade(), width: 5 }));
+		};
+
+		expect(at('clip'), 'clip').to.equal('one t');
+		expect(at('ellipsis'), 'the cut survived the mode').to.equal('one …');
+		// and back, because a cache that is right once is not a cache
+		expect(at('clip'), 'the cut survived the mode').to.equal('one t');
+	});
+
+	// `text-overflow` says what is *drawn* and never what a block wants, so the
+	// measure reads the uncut rows. A measure that reported the cut width would make
+	// the box as narrow as the cut it provoked -- which is why the cut cannot live in
+	// `placeCells()` at all, and is the split `paintText()` already keeps
+	it('should report what the block wants rather than what was drawn', () => {
+		for (const mode of ['clip', 'ellipsis', 'ellipsis-start', 'ellipsis-middle']) {
+			const state = decryptState('');
+			state.frame.set(decryptedFrame('one two three'));
+			const view = decryptView(state);
+			const [cipher] = view.children;
+			// props rather than a sheet, which beat it per property and need no cascade
+			cipher?.setProp('white-space', 'nowrap');
+			cipher?.setProp('text-overflow', mode);
+			resolveStyles(view);
+
+			expect(cipher?.measure?.(5).width, mode).to.equal(13);
+		}
 	});
 });
 

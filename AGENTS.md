@@ -3372,7 +3372,12 @@ is proved.
   `white-space: nowrap` costs: exactly as in CSS. Read off the text element
   rather than inherited, so a container setting it does not silently cut every
   descendant. The cut itself is `truncate()` in `@ttylabs/sigil/wrap`, which is
-  one implementation with four modes rather than a helper per caller.
+  one implementation with four modes rather than a helper per caller -- and the
+  _arithmetic_ under it is `cutAt()`, which is one step further and is there
+  because `truncate()` is not the only reader. A `raw` that paints text honours
+  the same property and cannot use the same walk, since a cell is not a cluster;
+  what the two share is which columns survive and what goes between them. See
+  "A decrypt effect" for the reader that forced the split.
 - **The attribute properties are derived from the table, like the colour ones.**
   `flag()` is used for the terminal's seven attributes and for nothing else, so
   what it was asked to build is the answer -- and a hand-written list is a second
@@ -5578,8 +5583,18 @@ when extend follows a resize`. The other half is an app doing it to itself, and 
 - **It defaults to true on `text` and false on `raw`, and it inherits.** A
   sparkline or a half-block image is a wall of block characters nobody wants in
   their clipboard, which is the whole reason the prop exists; an explicit value wins
-  for the element and everything under it, so a `raw` that really does draw
-  characters opts back in and a `selectable={false}` on a pane means the pane.
+  for the element and everything under it, so a `selectable={false}` on a pane means
+  the pane.
+- **And a `raw` that really does draw characters says so where it is built, through
+  `RawOptions.drawsText`, which changes that default rather than answering over the
+  top of it.** The decrypt component is the reader and the entry under "A decrypt
+  effect" has the measurement: `selectable: true` on such an element is an _answer_,
+  so it beats everything above it and a pane marked `selectable={false}` had its
+  decrypt copied anyway. On the options rather than as a third prop value because it
+  is a property of what the painter draws rather than of what a caller wants -- a
+  raw cannot forget what it is, and it keeps a sheet out of deciding what may be
+  copied, which is why `selectable` is a reserved prop rather than a style property
+  at all.
 - **Only `text` and `raw` write to the mask, which is the part that reads as a gap
   and is not.** They are the two host types that draw _content_, so in paint order
   the last one painted at a cell decides. Every element stamping its own box is the
@@ -10535,32 +10550,103 @@ it decrypts` is the guard, over four texts, eight widths, three alphabets and a
   the width rule is what keeps the control characters out, and it is the other way
   round.
 
-- **A cell outside the box it was given is not drawn either, on both axes.** One
-  rule where `paintText()` has two: it stops at the bottom of the box because
-  painting further would draw over whatever the layout put underneath, and it cuts
-  a line too wide for the box because `text-overflow` says to. Both come to the
-  same thing when what you hold is cells rather than a string, and the answer is
-  `text-overflow`'s own initial value -- so an `ellipsis` a sheet asks for is
-  **not** honoured, which is the one property the trapdoor costs. `white-space:
-nowrap` **is**, because the one-element view honoured it for free and a property
-  that quietly stopped working is worse than one that never did. Neither clamp is
-  observable through an auto-sized `renderToString()`, because a cell painted past
-  the grid is one the grid refuses; the test is over a grid bigger than the boxes,
-  which is what a canvas is.
+- **A cell outside the box it was given is not drawn either, and the two axes are
+  two rules.** A row past the bottom is skipped because painting it would draw over
+  whatever the layout put underneath, which is the box's `overflow` to decide and
+  not this pass's to invent a policy for -- `paintText()`'s own sentence. A row too
+  wide is **cut by `text-overflow`**, so the rule is the property's rather than the
+  edge's and all four of its modes work. `white-space: nowrap` is honoured for the
+  same reason the one-element view honoured it: a property that quietly stopped
+  working is worse than one that never did, and both are read off the **cipher**,
+  because that is the layer in flow and the one whose box both layers draw into --
+  which is also where an app writes them, as it writes them on a `text` rather than
+  on the box around one. Neither clamp is observable through an auto-sized
+  `renderToString()` where the mode is `clip`, because a cell painted past the grid
+  is one the grid refuses, so that test is over a grid bigger than the boxes; an
+  `ellipsis` is observable anywhere, because it draws something.
 
-- **Both layers are `selectable: true`, and it costs an ancestor's say.** A `raw`
-  defaults to not selectable, which is right for a sparkline and wrong here --
-  these cells _are_ the text, and what a selection copies is what is on screen.
-  There is no third value meaning "inherit", so a `selectable={false}` on a pane no
-  longer reaches a decrypt inside it; the alternative is a decrypt nobody can copy,
-  which is the worse of the two. It is only observable where something **else** has
-  excluded, since a `true` writes nothing until the mask exists at all -- so the
-  test puts a sparkline **above** the block, which is both the shape `selectable`
-  is for and a mask the layers must not widen. Each layer's own answer is asserted
-  beside that rather than inferred from it, because the two cannot be told apart by
-  the mask: the plain layer's rectangle contains the cipher's and is written last,
-  so either one alone looks inert. That pair is the entangled kind the tally below
-  has an entry about.
+- **The ellipsis is a library change, because nothing smaller could have been
+  one.** The paint walk cuts a `text` for free -- it holds the string -- and a `raw`
+  paints its own cells, so there is no output for the walk to cut. Nor can the cut
+  be pushed into the `Painter`: the two layers each hand over _part_ of a row, so a
+  painter-side cut would compute the boundary from half of one. What is shared is
+  therefore the **decision** rather than the drawing, and `wrap/index.ts` now
+  exports `cutAt(width, mode)` -- which columns survive, and what goes between them.
+  `truncate()` reads it instead of inlining the same four branches, and `cutRow()`
+  in the component reads it too. Two walks, because a cell is not a cluster:
+  `ASCII.wide` hides one two-column character with two narrow glyphs, so there is no
+  cluster-to-cell correspondence to map a string's answer back through. One policy,
+  because the two disagreeing about where `ellipsis-middle` puts its odd column is
+  a wrong column on screen with nothing in a build to catch it.
+
+  **The three pieces are laid end to end rather than against the box's own edges,
+  and that is what makes the agreement exact.** `truncate()` concatenates, so a wide
+  cluster dropped at either boundary leaves its answer a column narrower; anchoring
+  the tail to the right-hand edge instead -- which was the first spelling -- leaves
+  the gap _inside_ the line, and the two draw the same text two ways. With the
+  pieces compacted, a frame with nothing hidden has a cell per cluster and the two
+  answer **the same string for every mode and every width**, which `should cut where
+the truncator does` holds them to over four texts, four modes and nine widths. A
+  differential rather than a rule written twice, and it is what caught two of the
+  five sabotages below.
+
+  **The marker takes the state of the first cell it hides**, which is the one new
+  decision two layers forced. An ellipsis is a cut mark rather than content, so
+  neither layer owns it on its own terms, and CSS gives it the block's style where
+  there is no single block style here -- which is the whole reason there are two
+  elements. Standing for the run it replaced is the only answer that needs no new
+  rule, and it is the honest thing for it to say: the mark is drawn in the cipher's
+  colour while that cell is still ciphered and in the plaintext's once it has
+  landed, because the line is still decrypting and so is the mark. It falls out
+  rather than being arranged, since the marker is an ordinary cell carrying an
+  ordinary `hidden` and the layers already ask only about that.
+
+  **The cut is cached beside the placement and not folded into it**, because the
+  _measure_ must read the uncut rows: `text-overflow` says what is drawn and never
+  what a block wants, so a measure that reported the cut width would make the box as
+  narrow as the cut it provoked. That is the split `paintText()` already keeps -- it
+  measures through `element.wrapped()` and cuts in the paint -- and it is why the cut
+  cannot live in `placeCells()` at all, since under `nowrap` the limit is `Infinity`
+  while the box is whatever it is and the two widths are not the same number. The
+  cache is keyed on the **mode** as well as on the frame and the width, which was the
+  one sabotage of the five to survive: a sheet swapped at runtime moves neither of
+  the other two, and every other test here builds a fresh view per mode, which is
+  the one arrangement that cannot see it.
+
+  With the cut in place, the per-cell `x + cell.width > area.width` test in the layer
+  is gone: every cell that reaches the paint is one that fits, and a second answer
+  to a question that already has one is what this file keeps deleting.
+
+- **`RawOptions.drawsText` is what gives a decrypt its `selectable` back, and
+  `selectable: true` on each layer was the wrong answer to the same question.** A
+  `raw` is not selectable unless something says so, which is right for the two in
+  this library -- a sparkline and a half-block image, a wall of block characters
+  nobody wants in their clipboard. A decrypt is the other kind: those cells _are_
+  the text. The first version said so with `selectable: true`, and that is an
+  **answer** rather than a default, so it beat everything above it: a pane marked
+  `selectable={false}` had its decrypt copied anyway, which is the rule the mask is
+  written around, broken by the component it was meant to serve.
+
+  So `defaultFor()` asks the raw what it draws, and a raw that draws text inherits
+  exactly as a `text` does. It is on `RawOptions` rather than being a third prop
+  value -- `selectable: 'inherit'` -- because it is a property of **what the painter
+  draws** rather than of what a caller or a sheet wants: a raw cannot forget what it
+  is, where a raw whose props forgot the word would be silently uncopyable. And it
+  keeps a sheet out of deciding what may be copied, which is the reason `selectable`
+  is a reserved prop rather than a style property in the first place.
+
+  Three claims, because they come apart. That each layer says `drawsText` and
+  neither says `selectable` -- the second half is what makes the first observable at
+  all, since an answer here would beat the ancestor. That a pane which excludes
+  itself excludes the block. And that an explicit `selectable` on the block still
+  beats the pane, which is what keeps this a default rather than a second mechanism.
+  The copy test needs something **else** to have excluded, since a `true` writes
+  nothing until the mask exists -- so it puts a sparkline **above** the block, which
+  is both the shape `selectable` is for and a mask the layers must not widen. Each
+  layer is asserted directly rather than through the mask, because the two cannot be
+  told apart there: the plain layer's rectangle contains the cipher's and is written
+  last, so either one alone looks inert. That pair is the entangled kind the tally
+  below has an entry about.
 
 - **Per-tick invalidation is not a regression, and it was checked rather than
   assumed.** The effect calls `invalidateMeasure()` on the cipher and
@@ -10778,6 +10864,18 @@ for`.
   verdict by hand rather than anything in the harness. So it asserts the run found
   the tests now, by count, and treats a run that did not as its own verdict rather
   than as a pass. A sabotage harness needs a control as much as a benchmark does.
+
+  **And a fourteen-mutation pass over the ellipsis and `drawsText`, thirteen caught
+  first time.** The survivor is the entry above -- the drawn cache not keyed on the
+  mode -- and it is worth the note because it is the only one of the fourteen that
+  was a real guard with a missing test rather than a guard the suite already held.
+  Four of the thirteen are caught by the `truncate()` differential alone, which is
+  the argument for having written it: the head condition, the tail condition, the
+  compaction, and `truncate()`'s own composition each fail it and nothing else. Two
+  more are the `selectable` pair, and they fail different tests in each direction --
+  not reading `drawsText` fails the copy tests, and reading it as an _answer_ rather
+  than as a default fails the pane tests -- which is what says the three claims
+  really do come apart.
 
   What the real run then found is the half that matters. Nine survived, five of
   them because the test naming the claim could not see it, and each of those five

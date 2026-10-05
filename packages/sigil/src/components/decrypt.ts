@@ -43,6 +43,7 @@ import { createEffect, onCleanup } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { graphemes } from '../width/index.js';
+import { cutAt, type TruncateMode } from '../wrap/index.js';
 import { type Mounted, type MountOptions, mountLive } from './mount.js';
 
 /** How long the jumble lasts before anything resolves, in milliseconds. */
@@ -659,6 +660,102 @@ function placeCells(
 }
 
 /**
+ * A row's cells as they are drawn in a box too narrow to hold it.
+ *
+ * **What honours `text-overflow` here, and the arithmetic is not this function's.**
+ * `cutAt()` says which columns survive and what goes between them, and
+ * `truncate()` -- which is how a `text` element honours the same property -- reads
+ * the same answer. Two walks, because a cell is not a cluster: `ASCII.wide` hides
+ * one two-column character with *two* narrow glyphs, so there is no
+ * cluster-to-cell correspondence to map a string's answer back through. One
+ * policy, because the two disagreeing about where `ellipsis-middle` puts its odd
+ * column is a thing nothing in a build would catch.
+ *
+ * It bites only where a row overflows, which with wrapping never happens --
+ * `placeCells()` breaks at the edge -- so in practice this is what
+ * `white-space: nowrap` costs, exactly as in CSS and exactly as for a text.
+ *
+ * **The marker takes the state of the first cell it hides**, which is the one new
+ * decision two layers forced. An ellipsis is a cut mark rather than content, so
+ * neither layer owns it on its own terms; CSS gives it the block's style and there
+ * is no single block style here, which is the whole reason there are two elements.
+ * Standing for the run it replaced is the only answer that needs no new rule -- so
+ * it is drawn in the cipher's colour while that cell is still ciphered and in the
+ * plaintext's once it has landed, which is also the honest thing for it to say: the
+ * line is still decrypting and so is the mark. It falls out rather than being
+ * arranged, because the marker is an ordinary cell carrying an ordinary `hidden`
+ * and the layers already ask only about that.
+ *
+ * A cell that would straddle the cut is dropped rather than half drawn, on both
+ * sides, which is the rule `take()` and `takeEnd()` keep for a cluster -- and the
+ * three pieces are laid down **end to end** rather than against the box's own
+ * edges, which is the one thing that makes the agreement exact. `truncate()`
+ * concatenates, so a wide cluster dropped at either boundary leaves its answer a
+ * column narrower; anchoring the tail to the right-hand edge instead would leave
+ * the gap *inside* the line, and the two would draw the same text two ways.
+ *
+ * What falls out of that is worth knowing before measuring it: for a frame with
+ * nothing hidden, a cell *is* a cluster, so this and `truncate()` answer the same
+ * string for every mode and every width -- which is what `should cut where the
+ * truncator does` holds them to, and is a differential rather than a rule written
+ * twice.
+ *
+ * @param row - Where the row's cells landed.
+ * @param width - The columns the box has.
+ * @param mode - What the resolved `text-overflow` says.
+ * @returns The cells to draw, at the columns to draw them in.
+ */
+function cutRow(row: PlacedCell[], width: number, mode: TruncateMode): PlacedCell[] {
+	const last = row.at(-1);
+	const used = last ? last.x + last.cell.width : 0;
+	if (used <= width) {
+		return row;
+	}
+
+	const { head, marker, tail } = cutAt(width, mode);
+	const out: PlacedCell[] = [];
+	/** Where the next piece goes, since the three are laid down end to end. */
+	let x = 0;
+	/** The first cell the marker hides, whose state it takes. */
+	let hides: DecryptFrameCell | undefined;
+
+	// the longest run of whole cells that fits the head, which is `take()`'s own
+	// condition asked of a cell rather than of a cluster
+	for (const placed of row) {
+		if (placed.x + placed.cell.width <= head) {
+			out.push(placed);
+			x = placed.x + placed.cell.width;
+			continue;
+		}
+		// the first cell that does not fit is where the cut falls, and everything
+		// after it is behind the mark
+		hides = placed.cell;
+		break;
+	}
+
+	if (marker !== '') {
+		const cell = { hidden: hides?.hidden ?? false, text: marker, width: cellWidth(marker) };
+		out.push({ cell, draw: true, x });
+		x += cell.width;
+	}
+
+	if (tail > 0) {
+		// and the longest *suffix* of whole cells that fits, which is `takeEnd()`'s
+		// condition said as a column: the suffix from here is `used - placed.x` wide,
+		// so it fits exactly where that is no more than the tail
+		const from = used - tail;
+		for (const placed of row) {
+			if (placed.x >= from) {
+				out.push({ ...placed, x });
+				x += placed.cell.width;
+			}
+		}
+	}
+
+	return out;
+}
+
+/**
  * The decrypt effect, as an element tree.
  *
  * **Two `raw` elements over one rectangle, which is the scroll bar's own shape.**
@@ -717,17 +814,22 @@ export function decryptView(state: DecryptState): Element {
 	 * reader, and it runs as it is created, so nothing ever draws this blank.
 	 */
 	let frame = decryptedFrame('');
-	/** The last placement, which both layers read and which only a frame changes. */
+	/** The last placement, which the measure reads and which only a frame changes. */
 	let placed: { limit: number; of: DecryptFrame; rows: PlacedCell[][] } | undefined;
+	/** And the last placement *as drawn*, which both layers read. */
+	let drawn:
+		| { mode: TruncateMode; of: DecryptFrame; rows: PlacedCell[][]; width: number }
+		| undefined;
 
 	/**
 	 * The width to wrap at, which is the box unless a sheet said not to wrap.
 	 *
 	 * `white-space: nowrap` is honoured because the one-element view honoured it for
 	 * free and a property that quietly stopped working is worse than one that never
-	 * did. `text-overflow` is **not**: a line too wide for its box is clipped at the
-	 * edge, which is that property's own initial value, and an ellipsis would be the
-	 * component inventing a policy for cells it was told to draw.
+	 * did. `text-overflow` is honoured for the same reason, by `cutRow()`, and the
+	 * two are read off the *cipher* because that is the layer in flow and the one
+	 * whose box both layers draw into -- which is also where an app writes them, as
+	 * it writes them on a `text` rather than on the box around one.
 	 *
 	 * A width of zero is no width to wrap at rather than a width of one, which is
 	 * the rule a text keeps: wrapping there is one row per character, and the
@@ -737,13 +839,34 @@ export function decryptView(state: DecryptState): Element {
 		return cipher.style.whiteSpace === 'nowrap' || width <= 0 ? Number.POSITIVE_INFINITY : width;
 	}
 
-	/** Where the frame's cells land at a width, worked out once for both layers. */
+	/** Where the frame's cells land at a width, before anything is cut. */
 	function rowsAt(width: number): PlacedCell[][] {
 		const limit = limitAt(width);
 		if (placed?.of !== frame || placed.limit !== limit) {
 			placed = { limit, of: frame, rows: placeCells(frame.lines, limit) };
 		}
 		return placed.rows;
+	}
+
+	/**
+	 * And as they are drawn in a box of that width, worked out once for both layers.
+	 *
+	 * Separate from the placement rather than folded into it, because the *measure*
+	 * must read the uncut rows: `text-overflow` says what is drawn and never what a
+	 * block wants, so a measure that reported the cut width would make the box as
+	 * narrow as the cut it provoked. That is the split `paintText()` already keeps --
+	 * it measures through `element.wrapped()` and cuts in the paint -- and it is why
+	 * the cut cannot live in `placeCells()` at all: under `nowrap` the limit is
+	 * `Infinity` while the box is whatever it is, so the two widths are not the same
+	 * number.
+	 */
+	function drawnAt(width: number): PlacedCell[][] {
+		const mode = cipher.style.textOverflow;
+		if (drawn?.of !== frame || drawn.mode !== mode || drawn.width !== width) {
+			const rows = rowsAt(width).map((row) => cutRow(row, width, mode));
+			drawn = { mode, of: frame, rows, width };
+		}
+		return drawn.rows;
 	}
 
 	/** What the block takes at a width: the widest row, and a row per line it wrapped into. */
@@ -777,24 +900,26 @@ export function decryptView(state: DecryptState): Element {
 	/**
 	 * Draws one half of the frame into the rectangle the cipher was given.
 	 *
-	 * A cell outside that rectangle is not drawn, on either axis, which is one rule
-	 * where `paintText()` has two: it stops at the bottom of the box because
-	 * painting further would draw over whatever the layout put underneath, and it
-	 * cuts a line too wide for the box because `text-overflow` says to. Both come to
-	 * the same thing here, since what this holds is cells rather than a string.
+	 * The two axes are two rules, as they are in `paintText()`. A row past the
+	 * bottom of the box is not drawn, because painting it would draw over whatever
+	 * the layout put underneath -- which is the box's `overflow` to decide and not
+	 * this pass's to invent a policy for. A row too wide for the box is cut by
+	 * `drawnAt()`, because `text-overflow` says how; so every cell that arrives here
+	 * is one that fits, and a per-cell width test beside this would be a second
+	 * answer to a question that already has one.
 	 */
 	const layer =
 		(hidden: boolean): RawPaint =>
 		(painter, area, element) => {
 			const style = cellStyle(element.style);
-			const rows = rowsAt(area.width);
+			const rows = drawnAt(area.width);
 
 			for (const [row, cells] of rows.entries()) {
 				if (row >= area.height) {
 					break;
 				}
 				for (const { cell, draw, x } of cells) {
-					if (cell.hidden !== hidden || !draw || x + cell.width > area.width) {
+					if (cell.hidden !== hidden || !draw) {
 						continue;
 					}
 					painter.text(area.x + x, area.y + row, cell.text, style);
@@ -802,14 +927,20 @@ export function decryptView(state: DecryptState): Element {
 			}
 		};
 
+	// `drawsText` rather than `selectable: true`, which is what the first version of
+	// this said and is an *answer* rather than a default -- so it stopped an
+	// ancestor's `selectable={false}` reaching the block at all. These cells are the
+	// text, so they want exactly what a `text` gets: copyable unless something above
+	// said otherwise
 	const cipher = raw(
-		{ measure, paint: layer(true) },
-		{ class: 'sigil-decrypt-cipher', 'min-width': 0, selectable: true }
+		{ drawsText: true, measure, paint: layer(true) },
+		{ class: 'sigil-decrypt-cipher', 'min-width': 0 }
 	);
 
 	const resolved = layer(false);
 	const plain = raw(
 		{
+			drawsText: true,
 			// never asked, because a box given two insets on an axis is as big as they
 			// say: the same thing `noSize()` means in the scroll bar
 			measure: () => ({ height: 0, width: 0 }),
@@ -827,7 +958,6 @@ export function decryptView(state: DecryptState): Element {
 			left: 0,
 			position: 'absolute',
 			right: 0,
-			selectable: true,
 			top: 0,
 		}
 	);

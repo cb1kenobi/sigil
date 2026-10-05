@@ -4,7 +4,7 @@
  *   node demos/components/09-decrypt.js
  *   node demos/components/09-decrypt.js | cat     <- the same run, with no terminal
  *
- * Piped, there is nothing to animate, so each text is written once: seven lines
+ * Piped, there is nothing to animate, so each text is written once: eight lines
  * for this run, because the fourth text is three of them. On a terminal each one
  * jumbles and then resolves, which at the durations below is about two seconds
  * each, so a couple of hundred frames rather than seven lines. The same is
@@ -60,6 +60,28 @@ await decrypt('The quick brown fox jumps over the lazy dog', {
 		`
 			.sigil-decrypt-plain { color: green }
 			.sigil-decrypt-cipher { color: cyan; dim: false }
+		`,
+	],
+});
+
+// and `text-overflow`, which is honoured the way it is on any other text -- so a
+// line that cannot fit says so rather than stopping at the edge. `ellipsis-middle`
+// is the one worth showing: the start of a path says which project and the end says
+// which file, and the middle is what nobody needed. It bites only where a line
+// overflows, which is what `nowrap` is here for, and the mark is drawn in the colour
+// of the cell it hides -- so it is cipher-coloured until that cell lands.
+await decrypt('/Users/you/projects/sigil/packages/sigil/src/components/decrypt.ts', {
+	...pace,
+	sheets: [
+		`
+			.sigil-decrypt-plain { color: green }
+			.sigil-decrypt-cipher {
+				color: cyan;
+				dim: false;
+				text-overflow: ellipsis-middle;
+				white-space: nowrap;
+				width: 40
+			}
 		`,
 	],
 });
