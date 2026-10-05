@@ -360,6 +360,31 @@ directory to walk, and the deferral survives bundling. Declare `path`, `load`
 or `run`, never two of them: they are three answers to "what is this command"
 and there is no right one to pick between.
 
+A lazily declared command is a placeholder until it is matched, so nothing above
+it knows what it really is until the module arrives. `subcommandLoaded` is where
+it becomes knowable — it fires on whatever **declared** the subcommand, once that
+subcommand has loaded:
+
+```js
+{
+  hooks: {
+    async subcommandLoaded({ cmd, parent }) {
+      await cmd[Internal].options.add({ format: '--dry-run' });
+    },
+  },
+  commands: { migrate: { load: () => import('./migrate.js') } },
+}
+```
+
+The option is matchable on that same parse, so this is how a parent gives its
+subcommands a flag it could not have declared for them in advance. Return a
+command instead and it replaces the one that loaded. The schema is the root
+command, so declaring the hook there covers every top-level command.
+
+There is deliberately no hook around a command's _own_ load: a command has to be
+loaded before anything of its own can fire, so its module body and its `init`
+hook already are that moment.
+
 ### Command properties
 
 | Property                      | Purpose                                                                          |
@@ -371,7 +396,7 @@ and there is no right one to pick between.
 | `alias`                       | extra names that stay out of the help label                                      |
 | `hidden`                      | keep it out of help                                                              |
 | `help`                        | a string that replaces the screen, or a renderer that receives the generated one |
-| `hooks`                       | `init`, `parse`, `help`, `beforeError`                                           |
+| `hooks`                       | `init`, `parse`, `help`, `beforeError`, `subcommandLoaded`                       |
 | `path`                        | a module to load the command from, resolved from the file that declared it       |
 | `load`                        | that module as a function -- `() => import('./build.js')` -- for a bundled app   |
 | `routeInfo`                   | descriptions a build lifted out of the modules a `commands` path points at       |

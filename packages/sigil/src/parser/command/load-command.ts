@@ -83,7 +83,79 @@ async function fetchModule(
 	return undefined;
 }
 
-export async function loadCommand(cmd: InternalCommand): Promise<InternalCommand> {
+/**
+ * Tells the command that declared this one that it has finished loading.
+ *
+ * One place rather than one per `loadCommand()` return, because the two paths --
+ * a module was fetched, or there was never one to fetch -- are the same event to
+ * whoever declared it, and a parent that saw only the first would see some of
+ * its subcommands and not others according to how each was declared.
+ *
+ * It is reached only after both `loaded` flags are set, which is what bounds a
+ * hook that loads something itself: a hook reaching back into `loadCommand()`
+ * for this same command takes the early return rather than looping.
+ *
+ * @param cmd - The subcommand that loaded.
+ * @param parent - The command that declared it, when the caller knows it.
+ * @returns The command the parse should use: the one that loaded, or whatever
+ *   the hook replaced it with.
+ */
+async function announceLoaded(
+	cmd: InternalCommand,
+	parent: InternalCommand | undefined
+): Promise<InternalCommand> {
+	const hook = parent?.hooks?.subcommandLoaded;
+
+	if (!parent || !hook) {
+		return cmd;
+	}
+
+	log(`Announcing "${cmd.name}" to "${parent.name}"`);
+
+	const replacement = await hook({ cmd, parent });
+
+	if (replacement === undefined) {
+		return cmd;
+	}
+
+	// a replacement answers "what is this command" and a `path` or a `load` asks
+	// it again -- and nothing would read one, since this is already past the
+	// fetch, so such a command would be handed to the parse with its module
+	// never imported. Refused rather than fetched, because fetching it is this
+	// hook re-entered on its own answer
+	if (replacement.path !== undefined || replacement.load !== undefined) {
+		throw new Error(
+			`The "${parent.name}" command's subcommandLoaded hook returned a command declaring "${
+				replacement.path !== undefined ? 'path' : 'load'
+			}": the module has already been loaded, so a replacement is a command rather than another module to fetch`
+		);
+	}
+
+	// a replacement for `migrate` is a `migrate`, so the name it is replacing is
+	// the one it keeps unless it brought its own. Initialized against the
+	// *parent's* directory, because the hook is the parent's code and a path in
+	// a declaration is relative to the file that declared it
+	return initCommand(
+		replacement.name === undefined ? { ...(replacement as Command), name: cmd.name } : replacement,
+		undefined,
+		parent[Internal].baseDir
+	);
+}
+
+/**
+ * Loads a command's module, if it declared one, and tells its parent.
+ *
+ * @param cmd - The command to load.
+ * @param parent - The command that declared it, so that its
+ *   `subcommandLoaded` hook can fire. Omitted by a caller with no tree above
+ *   this command, in which case no hook fires because there is nobody to tell.
+ * @returns The loaded command, which is a different object from `cmd` whenever
+ *   a module was merged into it.
+ */
+export async function loadCommand(
+	cmd: InternalCommand,
+	parent?: InternalCommand
+): Promise<InternalCommand> {
 	const internal = cmd[Internal];
 
 	if (internal.loaded) {
@@ -202,10 +274,12 @@ export async function loadCommand(cmd: InternalCommand): Promise<InternalCommand
 		// re-import the same file and run its init hooks a second time
 		loaded[Internal].loaded = true;
 
-		return loaded;
+		return announceLoaded(loaded, parent);
 	}
 
 	internal.loaded = true;
 
-	return cmd;
+	// a command with no module at all is still a command that has finished
+	// loading, which is the whole of what its parent was told about
+	return announceLoaded(cmd, parent);
 }

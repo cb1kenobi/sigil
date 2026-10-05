@@ -586,10 +586,13 @@ async function dispatchDefaultCommand(
 
 	// matched before loaded, same as a typed command: a module that will not
 	// load is an error this command's own `beforeError` hooks should still see
+	// the parent is read before the unshift puts `cmd` in front of it
+	const parent = state.contexts[0];
+
 	state.contexts.unshift(cmd);
 	state.cmd = cmd;
 
-	const loaded = await loadCommand(cmd);
+	const loaded = await loadCommand(cmd, parent);
 	if (loaded !== cmd) {
 		state.contexts[0] = loaded;
 		state.cmd = loaded;
@@ -645,10 +648,14 @@ async function parseArgv(state: ParseState): Promise<void> {
 				// the command has matched, so it joins the chain before the module
 				// behind it is loaded -- a module that will not load is an error
 				// this command's own `beforeError` hooks should still see
+				// the parent is the context the command was found in, read before
+				// the unshift puts `cmd` in front of it
+				const parent = contexts[0]!;
+
 				contexts.unshift(cmd);
 				state.cmd = cmd;
 
-				const loaded = await loadCommand(cmd);
+				const loaded = await loadCommand(cmd, parent);
 				if (loaded !== cmd) {
 					// loading merged the module's exports into a new command object
 					contexts[0] = loaded;

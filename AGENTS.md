@@ -7166,31 +7166,74 @@ makes it testable with a fixture directory and no bundler at all.
   bought for nothing. Dynamic command _registration_ is already a hook's job and
   already works: an `init` or `parse` hook is handed the registries and can
   `commands.add(await initCommand(...))`.
-- **And there is no hook _around_ the load, which is refused for want of a caller
-  rather than deferred.** Nothing can observe or wrap the moment a module is
-  fetched, so there is no way to time it, retry it, or answer it from somewhere
-  that is not a module -- and the fourth thing that list named, decorating the
-  error, is the entry above rather than a seam. `loadCommand()` has three call
-  sites, all of them inside `parse.ts` and `help.ts`, and nothing in either
-  package wraps one or wants to; the callers such a hook is for, a plugin
-  resolver or a remote command, do not exist here. The rule is `which`'s -- a
-  feature nothing needs is a feature designed by guessing, and that API sat in
-  the backlog until `sigil new` turned up wanting it, after which its shape came
-  from the caller rather than from a sketch.
-
-  What a caller would have to settle is written down so that it is not
-  re-derived. **Where it fires**, because a directory command reads its own level
-  in `loadCommandDir()` before `fetchModule()` is reached -- so "loading a
-  command" is two events, and a hook that sees one of them misses the tree walk.
-  **Whether it may answer**, which is the interesting half and is what a plugin
-  resolver wants, and which makes it `beforeError`-shaped: return nothing to
-  leave the module alone, return a value to replace it. **Whose it is**, which is
-  likely the schema's, since a hook on the command being loaded cannot fire
-  before that command is known while a hook on the schema can. **What a throw
-  means**, since `loadCommand()` leaves `loaded` false so that the next match
-  retries, and a hook that throws has to land somewhere consistent with that.
-  And **whether it fires at all** for a command with no module -- an inline
-  `run`, or a namespace directory with no `index`.
+- **`subcommandLoaded` is the hook, and it is the parent's rather than the
+  command's own.** A hook wrapping a command's own load cannot usefully exist and
+  that is the whole of why one looked unbuildable for a while: the command has to
+  be loaded before anything of its own can fire, so its module body and its `init`
+  hook already _are_ that moment. The direction with nothing in it is a parent
+  watching its children arrive, and that one is real -- a command declared with a
+  `path` or a `load` is a placeholder until it is matched, so its description, its
+  options and its own subcommands are unknowable to anything above it until the
+  module lands. An option a parent adds there is matchable on that same parse, the
+  way an `init` hook's is, which is what makes it the moment a parent can give its
+  subcommands a flag it could not have declared for them in advance.
+- **The schema _is_ the root command, so there is one mechanism rather than
+  two.** `parse()` builds `contexts[0]` from `initCommand({ ...schema, name:
+schema.name ?? 'global' })` and `initCommand()` copies `hooks`, so a
+  `subcommandLoaded` declared on the schema is already the root command's and
+  fires for every top-level command with no special case anywhere. That is what
+  collapsed the ticket's "whose hook is it" question: the answer is "the parent's"
+  and the schema is a parent. `loadCommand()` therefore takes one extra argument
+  -- the parent -- rather than a parent and a schema, and `SubcommandLoadedHookData`
+  has no optional `parent` to branch on.
+- **It fires after _both_ halves of a load, which is what makes "loading a
+  command is two events" a non-problem.** A directory command reads its own level
+  in `loadCommandDir()` before `fetchModule()` is reached, so the only point at
+  which the command is final is after the second -- and `announceLoaded()` is one
+  function reached from both of `loadCommand()`'s returns rather than a call beside
+  each, because a module that was fetched and one that never existed are the same
+  event to whoever declared it.
+- **And it fires for a command with no module at all, because the alternative is
+  an asymmetry.** An inline `run` loads nothing and a namespace directory with no
+  `index` fetches nothing, and a hook that skipped them would show a parent some of
+  its subcommands and not others according to how each happened to be declared --
+  which is the shape this file records from the animator, where two rows of one
+  list behaved differently according to which hook built them. It also means the
+  `help` command the framework adds is announced on a parse that named it, which
+  is correct rather than noise: it is an ordinary registered subcommand of the
+  root, and it is **not** announced on a parse that did not name it, because
+  nothing loaded it. Both halves are pinned, since the second is the one that
+  would be noise.
+- **A replacement is a command, not another module to fetch.** Returning nothing
+  leaves the loaded command alone -- so mutating it in place is how to adjust one,
+  which is how every other hook changes a command -- and returning one replaces
+  it, the way `beforeError` replaces an error. What it may not carry is a `path` or
+  a `load`, and that throws: this fires _past_ the fetch, so nothing would read
+  one, and such a command would reach the parse with its module never imported and
+  nothing saying so. Fetching it instead would be this hook re-entered on its own
+  answer. A declaration keeps the replaced command's name unless it brings one,
+  because a replacement for `migrate` is a `migrate`, and it is initialized against
+  the **parent's** `baseDir` -- the hook is the parent's code, and a path in a
+  declaration is relative to the file that declared it. That last one is only
+  reachable through a replacement's own `commands`, since `path` and `load` are
+  refused, and it survived its first sabotage for exactly that reason.
+- **The hook is reached only after both `loaded` flags are set, which bounds
+  re-entrancy by construction rather than by a depth count.** A hook that reaches
+  back into `loadCommand()` for the command it was just handed takes the early
+  return instead of looping. It is also why a hook that throws leaves the command
+  marked loaded, which is the opposite of what a module that throws does and is the
+  right way round: the module failing means the command is not loaded, while the
+  hook failing means it loaded and the parent's own code is what broke, and
+  re-importing a module over a buggy hook would run its `init` a second time.
+- **Fourteen mutations, fourteen caught.** The one that survived first time was
+  the parent's `baseDir`, and it is the entry above: every test for a replacement
+  used one that declared no paths at all, so nothing could see which directory it
+  was initialized against. Two others are worth recording for what they pin rather
+  than for being caught -- reading the parent **after** `contexts.unshift(cmd)`
+  rather than before, at each of the two `parse.ts` sites, which hands the hook the
+  command that just loaded as its own parent. The first run of the harness also
+  reported a pattern matching twice rather than passing over it, because both
+  `parse.ts` sites had become the same line of source.
 
 - **A loader gets no `baseDir`, because there is no file for a path to be
   relative to.** A bundled module declaring a `path` is already asking for a
