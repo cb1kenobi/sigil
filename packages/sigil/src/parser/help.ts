@@ -196,15 +196,17 @@ async function resolve(state: ParseState, names: string[]): Promise<InternalComm
 	const chain = [state.contexts[state.contexts.length - 1]!];
 
 	for (const name of names) {
-		const found = chain[0]![Internal].commands.find(name);
+		const parent = chain[0]!;
+		const found = parent[Internal].commands.find(name);
 
 		if (!found) {
 			throw new Error(`Unknown command "${name}"`);
 		}
 
 		// a lazily declared command has its description and its own subcommands in
-		// a module, and describing it means reading them
-		chain.unshift(await loadCommand(found));
+		// a module, and describing it means reading them -- so `help <command>` is
+		// a load like any other and its parent is told about it like any other
+		chain.unshift(await loadCommand(found, parent));
 	}
 
 	return chain;

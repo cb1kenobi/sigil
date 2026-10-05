@@ -182,6 +182,11 @@ export interface Command<
 		help?: HelpHook;
 		init?: CommandHook;
 		parse?: CommandHook;
+		/**
+		 * Fires once each time one of this command's own subcommands finishes
+		 * loading. See `SubcommandLoadedHook`.
+		 */
+		subcommandLoaded?: SubcommandLoadedHook;
 	};
 	name?: string;
 	options?: O;
@@ -242,6 +247,60 @@ export interface InternalCommandBase extends InternalBase {
  * is, so `() => import('./build.js')` is the whole of the ordinary use.
  */
 export type CommandLoader = () => Promise<unknown>;
+
+/**
+ * Fires on the command that declared a subcommand, once that subcommand has
+ * loaded.
+ *
+ * A hook wrapping a command's *own* load cannot usefully exist: the command has
+ * to be loaded before anything of its own can fire, so its module body and its
+ * `init` hook already *are* that moment. What had no hook is the other
+ * direction -- a parent watching its children arrive, which is what this is.
+ *
+ * It fires once per subcommand, after **both** halves of a load are done: a
+ * directory command reads its own level in `loadCommandDir()` before its module
+ * is fetched, so "loading a command" is two events and the only point at which
+ * the command is final is after the second. It fires for a command with no
+ * module at all -- an inline `run`, or a namespace directory with no `index` --
+ * because the alternative is a parent that sees some of its subcommands and not
+ * others according to how each was declared.
+ *
+ * The schema **is** the root command, built from a copy of the schema by
+ * `parse()`, so a `subcommandLoaded` declared on the schema fires for every
+ * top-level command through this one mechanism rather than through a second.
+ *
+ * Returning nothing leaves the loaded command alone, so mutating it in place is
+ * how to adjust one -- which is how every other hook changes a command, and is
+ * early enough that an option added here is matchable on the same parse.
+ *
+ * Returning a command replaces it, the way `beforeError` replaces an error. A
+ * replacement may be an initialized command or a plain declaration; a
+ * declaration keeps the replaced command's name unless it brings one of its own,
+ * and its relative paths -- a `commands` directory, and whatever its own
+ * subcommands declare -- resolve against the **declaring** command's directory,
+ * because the hook is that command's code. What it may **not** carry is a `path`
+ * or a `load`: this fires past the fetch, so nothing would read one, and a
+ * command whose module was never imported would reach the parse looking
+ * perfectly valid.
+ *
+ * @param data - The loaded subcommand and the command that declared it.
+ * @returns A replacement command, or `undefined` to keep the one that loaded.
+ */
+export type SubcommandLoadedHook = (
+	data: SubcommandLoadedHookData
+) => AnyCommand | void | Promise<AnyCommand | void>;
+
+export interface SubcommandLoadedHookData {
+	/** The subcommand, loaded and initialized. */
+	cmd: InternalCommand;
+	/**
+	 * The command that declared it, and whose hook this is -- the root command
+	 * for a top-level command, which is what the schema was initialized into.
+	 * Its `[Internal]` registries are how a hook reaches the loaded command's
+	 * siblings.
+	 */
+	parent: InternalCommand;
+}
 
 export type CommandHook =
 	| (() => Promise<void> | void)
@@ -518,6 +577,13 @@ export interface Schema {
 		 * declare their own, and those run first; see `BeforeErrorHook`.
 		 */
 		beforeError?: BeforeErrorHook;
+		/**
+		 * Fires once each time a top-level command finishes loading. It is the
+		 * same hook a command declares, reached by the same mechanism -- the
+		 * schema *is* the root command, so this needs no special case. See
+		 * `SubcommandLoadedHook`.
+		 */
+		subcommandLoaded?: SubcommandLoadedHook;
 	};
 	name?: string;
 	options?: OptionDeclarations;

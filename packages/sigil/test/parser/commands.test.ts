@@ -422,7 +422,10 @@ describe('commands', () => {
 			).rejects.toThrow('Command module not found: does_not_exist.js');
 		});
 
-		it('should error if command module has invalid syntax', async () => {
+		it('should name the module that would not parse, which node does not', async () => {
+			// the file as well as the failure, and a syntax error is the case that
+			// needs it: a missing module reports its own specifier, while this one
+			// reports `Unexpected end of input` and names nothing
 			await expect(
 				parse({
 					argv: ['foo'],
@@ -432,7 +435,7 @@ describe('commands', () => {
 						},
 					},
 				})
-			).rejects.toThrow('Failed to load command module:');
+			).rejects.toThrow(/^Failed to load command module \(.*bad-syntax\.js\): /u);
 		});
 
 		it('should error if command module does not export default', async () => {

@@ -554,13 +554,16 @@ describe('filesystem routing', () => {
 			).rejects.toThrow('Invalid load function in "build" command');
 		});
 
-		it('should report a loader that throws', async () => {
+		it('should name the command whose loader threw, since a loader has no name', async () => {
+			// a bundled app's loader is an anonymous closure, so the underlying
+			// message is the whole of what a reader gets unless the command is named
+			// -- and the export check beside this one already named it
 			await expect(
 				parse({
 					argv: ['build'],
 					schema: { commands: { build: { load: () => Promise.reject(new Error('no chunk')) } } },
 				})
-			).rejects.toThrow('Failed to load command module: no chunk');
+			).rejects.toThrow(`Failed to load command module (the "build" command's loader): no chunk`);
 		});
 
 		it('should refuse a loader whose module is not a command object', async () => {

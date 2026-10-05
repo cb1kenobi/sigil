@@ -627,4 +627,380 @@ describe('hooks', () => {
 			})
 		).rejects.toThrow('Invalid value "three" for option --mode');
 	});
+
+	describe('subcommandLoaded', () => {
+		const loads = (desc: string) => () => Promise.resolve({ default: { desc } });
+
+		it('should fire on the command that declared the subcommand', async () => {
+			const seen: [string, string][] = [];
+
+			await parse({
+				argv: ['db', 'migrate'],
+				schema: {
+					name: 'mycli',
+					commands: {
+						db: {
+							hooks: {
+								subcommandLoaded({ cmd, parent }) {
+									seen.push([parent.name, cmd.name]);
+								},
+							},
+							commands: { migrate: { load: loads('run migrations') } },
+						},
+					},
+				},
+			});
+
+			expect(seen).to.deep.equal([['db', 'migrate']]);
+		});
+
+		it('should fire on the schema for a top-level command, which is the root command', async () => {
+			// the schema is initialized into the root command, so its hook reaches
+			// a top-level command through the same mechanism rather than a second one
+			const seen: string[] = [];
+
+			await parse({
+				argv: ['build'],
+				schema: {
+					name: 'mycli',
+					hooks: {
+						subcommandLoaded({ cmd }) {
+							seen.push(cmd.name);
+						},
+					},
+					commands: { build: { load: loads('build it') } },
+				},
+			});
+
+			expect(seen).to.deep.equal(['build']);
+		});
+
+		it('should hand over the loaded command rather than the placeholder', async () => {
+			let desc: string | undefined;
+
+			await parse({
+				argv: ['build'],
+				schema: {
+					name: 'mycli',
+					hooks: {
+						subcommandLoaded({ cmd }) {
+							desc = cmd.desc;
+						},
+					},
+					commands: { build: { load: loads('from the module') } },
+				},
+			});
+
+			// the merge has happened by the time the parent is told, which is the
+			// whole reason it fires after the fetch rather than around it
+			expect(desc).to.equal('from the module');
+		});
+
+		it('should fire for a subcommand with no module at all', async () => {
+			// an inline `run` loads nothing, and a parent that saw only its
+			// module-backed subcommands would see some of its children and not
+			// others according to how each happened to be declared
+			const seen: string[] = [];
+
+			await parse({
+				argv: ['build'],
+				schema: {
+					name: 'mycli',
+					hooks: {
+						subcommandLoaded({ cmd }) {
+							seen.push(cmd.name);
+						},
+					},
+					commands: { build: { run() {} } },
+				},
+			});
+
+			expect(seen).to.deep.equal(['build']);
+		});
+
+		it('should fire for a namespace directory with no index module', async () => {
+			// `loadCommandDir()` read the level and no module was fetched, which is
+			// the other half of "loading a command is two events"
+			const seen: string[] = [];
+
+			await parse({
+				argv: ['deploy'],
+				schema: {
+					name: 'mycli',
+					commands: path.join(__dirname, 'fixtures/routes'),
+					hooks: {
+						subcommandLoaded({ cmd }) {
+							seen.push(cmd.name);
+						},
+					},
+				},
+			});
+
+			expect(seen).to.deep.equal(['deploy']);
+		});
+
+		it('should not fire on a command that did not declare it', async () => {
+			const seen: string[] = [];
+
+			await parse({
+				argv: ['build'],
+				schema: {
+					name: 'mycli',
+					commands: {
+						build: { load: loads('build it') },
+						db: {
+							hooks: {
+								subcommandLoaded({ cmd }) {
+									seen.push(cmd.name);
+								},
+							},
+							commands: { migrate: { run() {} } },
+						},
+					},
+				},
+			});
+
+			expect(seen).to.deep.equal([]);
+		});
+
+		it('should let a parent add an option to the subcommand that just loaded', async () => {
+			// the use the hook exists for: a module's command is not knowable until
+			// it has loaded, and this is the first moment a parent can reach it --
+			// still early enough for the option to be matchable on this same parse
+			const state = await parse({
+				argv: ['build', '--extra', 'yes'],
+				schema: {
+					name: 'mycli',
+					hooks: {
+						async subcommandLoaded({ cmd }) {
+							await cmd[Internal].options.add({ format: '--extra [v]' });
+						},
+					},
+					commands: { build: { load: loads('build it') } },
+				},
+			});
+
+			expect(state.argv.extra).to.equal('yes');
+		});
+
+		it('should replace the subcommand when the hook returns one', async () => {
+			let ran = false;
+
+			const state = await parse({
+				argv: ['build'],
+				schema: {
+					name: 'mycli',
+					hooks: {
+						subcommandLoaded() {
+							return {
+								desc: 'the replacement',
+								run() {
+									ran = true;
+								},
+							};
+						},
+					},
+					commands: { build: { load: loads('from the module') } },
+				},
+			});
+
+			expect(state.cmd?.desc).to.equal('the replacement');
+			await state.cmd?.run?.(state as never);
+			expect(ran).to.equal(true);
+		});
+
+		it('should keep the replaced name when the replacement brought none', async () => {
+			// a replacement for `build` is a `build`, so repeating the name it is
+			// replacing would be noise
+			const state = await parse({
+				argv: ['build'],
+				schema: {
+					name: 'mycli',
+					hooks: {
+						subcommandLoaded() {
+							return { desc: 'the replacement' };
+						},
+					},
+					commands: { build: { load: loads('from the module') } },
+				},
+			});
+
+			expect(state.cmd?.name).to.equal('build');
+		});
+
+		it('should take a replacement that names itself', async () => {
+			const state = await parse({
+				argv: ['build'],
+				schema: {
+					name: 'mycli',
+					hooks: {
+						subcommandLoaded() {
+							return { name: 'renamed', desc: 'the replacement' };
+						},
+					},
+					commands: { build: { load: loads('from the module') } },
+				},
+			});
+
+			expect(state.cmd?.name).to.equal('renamed');
+		});
+
+		it("should resolve a replacement's own relative paths against the parent", async () => {
+			// a replacement may not name a module of its own -- the refusals below --
+			// but it may declare `commands`, and a path in a declaration is relative
+			// to whatever declared it. The hook is the parent's code, so the parent's
+			// directory is what it is relative to
+			const state = await parse({
+				argv: ['build', 'foo'],
+				schema: {
+					name: 'mycli',
+					baseDir: __dirname,
+					hooks: {
+						subcommandLoaded() {
+							return { commands: { foo: { path: './fixtures/simple/foo.js' } } };
+						},
+					},
+					commands: { build: { load: loads('from the module') } },
+				},
+			});
+
+			expect(state.cmd?.name).to.equal('foo');
+			expect(state.cmd?.desc).to.equal('foo!');
+		});
+
+		it('should refuse a replacement declaring a path, which is a module to fetch', async () => {
+			// the module has already been loaded, so nothing would read one -- such
+			// a command would reach the parse with its module never imported
+			await expect(
+				parse({
+					argv: ['build'],
+					schema: {
+						name: 'mycli',
+						hooks: {
+							subcommandLoaded() {
+								return { path: path.join(__dirname, 'fixtures/simple/foo.js') };
+							},
+						},
+						commands: { build: { load: loads('from the module') } },
+					},
+				})
+			).rejects.toThrow(/subcommandLoaded hook returned a command declaring "path"/u);
+		});
+
+		it('should refuse a replacement declaring a loader', async () => {
+			await expect(
+				parse({
+					argv: ['build'],
+					schema: {
+						name: 'mycli',
+						hooks: {
+							subcommandLoaded() {
+								return { load: loads('another one') };
+							},
+						},
+						commands: { build: { load: loads('from the module') } },
+					},
+				})
+			).rejects.toThrow(/subcommandLoaded hook returned a command declaring "load"/u);
+		});
+
+		it('should leave the subcommand alone when the hook returns nothing', async () => {
+			const state = await parse({
+				argv: ['build'],
+				schema: {
+					name: 'mycli',
+					hooks: {
+						subcommandLoaded() {
+							// explicitly nothing
+						},
+					},
+					commands: { build: { load: loads('from the module') } },
+				},
+			});
+
+			expect(state.cmd?.desc).to.equal('from the module');
+		});
+
+		it('should fire when help loads a command to describe it', async () => {
+			// `help <command>` is a load like any other, and a parent told about its
+			// subcommands only when argv ran one would be told inconsistently.
+			// `help` itself is in there because it is an ordinary registered
+			// subcommand of the root -- the one the framework added -- and argv named
+			// it; it is announced for the same reason every other module-less command
+			// is, and only when it is actually matched
+			const seen: string[] = [];
+
+			await parse({
+				argv: ['help', 'build'],
+				schema: {
+					name: 'mycli',
+					hooks: {
+						subcommandLoaded({ cmd }) {
+							seen.push(cmd.name);
+						},
+					},
+					commands: { build: { load: loads('build it') } },
+				},
+			});
+
+			expect(seen).to.deep.equal(['help', 'build']);
+		});
+
+		it('should not announce the help command on a parse that never named it', async () => {
+			// the sibling above shows `help` being announced because argv asked for
+			// it. What would be noise is announcing it on every parse there is
+			const seen: string[] = [];
+
+			await parse({
+				argv: ['build'],
+				schema: {
+					name: 'mycli',
+					hooks: {
+						subcommandLoaded({ cmd }) {
+							seen.push(cmd.name);
+						},
+					},
+					commands: { build: { load: loads('build it') } },
+				},
+			});
+
+			expect(seen).to.deep.equal(['build']);
+		});
+
+		it('should fire for a default command, which argv never named', async () => {
+			const seen: string[] = [];
+
+			await parse({
+				argv: [],
+				schema: {
+					name: 'mycli',
+					hooks: {
+						subcommandLoaded({ cmd }) {
+							seen.push(cmd.name);
+						},
+					},
+					commands: { build: { default: true, load: loads('build it') } },
+				},
+			});
+
+			expect(seen).to.deep.equal(['build']);
+		});
+
+		it('should let a throw out, the way an init hook does', async () => {
+			await expect(
+				parse({
+					argv: ['build'],
+					schema: {
+						name: 'mycli',
+						hooks: {
+							subcommandLoaded() {
+								throw new Error('the parent blew up');
+							},
+						},
+						commands: { build: { load: loads('build it') } },
+					},
+				})
+			).rejects.toThrow('the parent blew up');
+		});
+	});
 });
