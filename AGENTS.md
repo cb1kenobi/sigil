@@ -831,6 +831,28 @@ false` rethrows instead; a function replaces the handler.
   there is no way to say either thing: a directory that always meant "one
   command" could not express a command tree's root, and one that always meant
   "these commands" could not express a subcommand with children.
+- **...and that is as true of a command's `commands` as of the schema's, which
+  the _type_ refused for as long as both existed.** `Schema.commands` has always
+  been `string | (string | AnyCommand)[] | Record<string, string | AnyCommand>`
+  while `Command.commands` was `Record<string, AnyCommand>`, so on a **nested**
+  command both spellings in the entry above were a type error -- a path for a
+  directory of them, and a path as a value. The runtime read every shape there
+  all along, measured on all five: a path, a list of paths, a list of
+  declarations, a map of paths and a map of declarations each resolve a nested
+  command's subcommands exactly as they do the schema's. So the narrow type
+  bought nothing and cost a type error on correct, documented code, in the one
+  place a `tsc` would meet it and nothing here would: every case in the suite
+  declared its paths on the **schema**, which is why a repository that routes its
+  own toolchain had never hit it. It is the same shape as a property the engine
+  ignores, inverted -- a feature that works, is documented twice, and will not
+  compile -- and the cost fell entirely on apps rather than on anything in here.
+
+  What pins it is a `tsc` rather than the runner, and the sabotage is what says
+  so: narrowing it back fails `pnpm check` on four lines of
+  `routing.test.ts` while that file's own 56 tests all still pass. The tests are
+  there to give the type-check something to check, since `packages/sigil`'s
+  `include` covers `./test` -- a runtime assertion cannot see a type that moved.
+
 - **A route is a module file or a subdirectory, and `index` is the directory
   itself.** Inside a directory, a module file -- `.js`, `.mjs`, `.cjs`, `.ts`,
   `.mts` or `.cts` -- is a command named after the file and a subdirectory is a command named after the

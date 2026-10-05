@@ -143,7 +143,19 @@ export interface Command<
 	alias?: string | string[];
 	args?: A;
 	choices?: readonly unknown[];
-	commands?: Record<string, AnyCommand>;
+	/**
+	 * This command's subcommands, in every shape `Schema.commands` takes -- a
+	 * path, a list, or a map -- because a command's subcommands are declared the
+	 * same way the schema's are and the runtime has always read all of them here.
+	 *
+	 * It was `Record<string, AnyCommand>`, which refused the two spellings
+	 * `docs/parser.md` documents: `commands: './sub'` for a directory of them,
+	 * and a path as a value, `commands: { db: './db' }`. Both work, so what the
+	 * narrow type bought was a type error on correct code -- and only on a
+	 * *nested* command, since the schema's own field was always wide, which is
+	 * why nothing in this repository had hit it.
+	 */
+	commands?: string | (string | AnyCommand)[] | Record<string, string | AnyCommand>;
 	default?: boolean;
 	desc?: string;
 	/**
