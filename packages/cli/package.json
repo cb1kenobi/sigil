@@ -40,7 +40,7 @@
     "@ttylabs/sigil": "workspace:*",
     "magic-string": "1.4.2",
     "oxc-parser": "0.152.0",
-    "rolldown": "1.2.11"
+    "rolldown": "1.2.12"
   },
   "devDependencies": {
     "@types/node": "26.6.3",
