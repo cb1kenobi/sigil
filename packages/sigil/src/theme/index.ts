@@ -116,6 +116,8 @@ export const FRAMEWORK_CSS = `
  *   .sigil-large-text  .sigil-large-text-body
  *   .sigil-decrypt  .sigil-decrypt-plain  .sigil-decrypt-cipher
  *   .sigil-help  .sigil-help-heading  .sigil-help-note
+ *   .sigil-debug-head  .sigil-debug-title  .sigil-debug-stats
+ *   .sigil-debug-log  .sigil-debug-list  .sigil-debug-entry
  * A class with no rule is still a hook; giving it an empty rule would be a
  * declaration that says nothing and a line for somebody to wonder about. Most of
  * them are here because a role carries what they used to say, which is the point
@@ -139,7 +141,38 @@ export const FRAMEWORK_CSS = `
 .sigil-scroll-track { color: gray }
 
 /*
- * And the light half, which is one declaration now and was six.
+ * the debug overlay
+ *
+ * One declaration, and it is a background rather than a colour: the pane is
+ * position: fixed over the app's own content, and a box with no background
+ * paints nothing in its empty cells -- so without this the app shows through
+ * between the words and the pane is unreadable. Everything else in it draws in a
+ * role, which is why there is nothing else here: a level is de-emphasis, a
+ * warning or an error, and each of those already has exactly one site. An
+ * ordinary console.log line draws in **no** role, because the ordinary case is
+ * the default foreground -- so it is the one part of the pane a role rule does
+ * not reach, and .sigil-debug-entry is the hook for it. (No backtick in this
+ * comment, for the reason this file records: the sheet is a template literal,
+ * and one here ends it twenty lines further down than the character that caused
+ * it. Which is what happened while this sentence was being written.)
+ *
+ * Index 0 with a light half of index 7, which is the narrowest pair that works
+ * on both: the text in the pane is the terminal's own default foreground, so
+ * black behind it on a dark terminal and white behind it on a light one is in
+ * both cases the background that foreground was chosen to be legible against.
+ * No hex, for the reason every colour in this sheet is an index.
+ *
+ * It is transparent at colour level 0, which is degradation working rather than
+ * a gap -- the same thing the panes demo records, where an overlay whose only
+ * opacity is a background has none at level 0. What is left there is the pane's
+ * border, which is box-drawing characters and survives, with the app's content
+ * showing between the lines. The two ways to reach level 0 are a pipe, which has
+ * no overlay to toggle, and a user who asked for no colour.
+ */
+.sigil-debug { background-color: black }
+
+/*
+ * And the light half, which is two rules now and was six declarations.
  *
  * Nearly nothing above needs one: every colour in this sheet is a palette index,
  * and the basic sixteen are whatever the user's terminal theme says they are -- so
@@ -158,7 +191,13 @@ export const FRAMEWORK_CSS = `
  * and it is still legible: gray is index 8, which a light theme renders dark
  * because it has to render *text* in it.
  *
- * It is one rule because de-emphasis is one role. It was six -- a hint, an answer,
+ * The de-emphasis is one rule because de-emphasis is one role, and the overlay's
+ * background is the second: that one is not a foreground at all, so no role could
+ * carry it, and it is the only thing in this sheet that needs a different *index*
+ * rather than a different attribute -- 0 behind the terminal's own default
+ * foreground on a dark terminal and 7 on a light one.
+ *
+ * The de-emphasis was six declarations -- a hint, an answer,
  * a placeholder, a choice hint, a cipher cell and a help note, each saying the same
  * thing -- which is a rule said six times and therefore a rule that can be said
  * wrongly, and TOOLCHAIN_CSS said it zero times: the toolchain's own location
@@ -175,6 +214,7 @@ export const FRAMEWORK_CSS = `
  */
 @media (prefers-color-scheme: light) {
 	.sigil-muted { dim: false; color: gray }
+	.sigil-debug { background-color: white }
 }
 
 `;

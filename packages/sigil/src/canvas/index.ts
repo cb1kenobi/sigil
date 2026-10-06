@@ -120,6 +120,32 @@ export interface CanvasOptions {
 	width: number;
 }
 
+/**
+ * What the last frame cost, for anything reporting on the frame loop.
+ *
+ * Every number here is one the canvas already had: `present()` is handed the
+ * diff's own count of the cells it drew and the sequence it built, and the style
+ * table knows how big it is and how often it has been swept. So this is a read
+ * rather than a measurement -- which is the whole reason a debug overlay can
+ * have it for nothing.
+ *
+ * **It is the canvas's and not a subtree's.** A cell count cannot be attributed
+ * to part of an element tree: the diff is over a grid, and by the time it runs
+ * there is no tree left to ask which element painted a cell. So an overlay
+ * reporting these is reporting on itself along with everything else, and the
+ * exclusion a `FrameStats` makes is a claim about the tree-shaped numbers only.
+ */
+export interface CanvasStats {
+	/** How many bytes the last `present()` wrote. Zero when nothing changed. */
+	bytes: number;
+	/** How many cells it drew. */
+	cells: number;
+	/** How many styles are interned right now. */
+	styles: number;
+	/** How many times the table has been swept since the canvas was built. */
+	sweeps: number;
+}
+
 export interface Canvas {
 	/**
 	 * The grid the last frame was painted into, for reading.
@@ -258,6 +284,13 @@ export interface Canvas {
 	 * @returns A new grid holding what was last presented.
 	 */
 	snapshot(): CellBuffer;
+	/**
+	 * What the last `present()` cost, and what the style table holds.
+	 *
+	 * A fresh object per read rather than a live one, so a caller that keeps a
+	 * snapshot keeps the numbers it read rather than a view of the next frame's.
+	 */
+	readonly stats: CanvasStats;
 	/** What the last painted frame says, as plain text. For tests. */
 	toString(): string;
 	readonly width: number;
@@ -296,6 +329,12 @@ export function createCanvas(opts: CanvasOptions): Canvas {
 	// how big the table was left by the last sweep, which is what the next one
 	// measures growth against
 	let sweptSize = styles.size;
+
+	// and what the last frame cost, which is read rather than measured: the diff
+	// already counted its cells and already built its sequence
+	let lastBytes = 0;
+	let lastCells = 0;
+	let sweeps = 0;
 
 	/**
 	 * Drops the styles nothing the canvas holds names any more.
@@ -350,6 +389,7 @@ export function createCanvas(opts: CanvasOptions): Canvas {
 			remap(grid, moved);
 		}
 		sweptSize = styles.size;
+		sweeps++;
 	};
 
 	const canvas: Canvas = {
@@ -395,6 +435,8 @@ export function createCanvas(opts: CanvasOptions): Canvas {
 			// current contents. A grid this size copies in microseconds, and a
 			// canvas whose `toString()` lies is a debugging trap
 			front.copyFrom(back);
+			lastBytes = result.output.length;
+			lastCells = result.cells;
 			sweepStyles();
 
 			return result;
@@ -419,6 +461,13 @@ export function createCanvas(opts: CanvasOptions): Canvas {
 			// no walk and no remapping
 			styles.compact([]);
 			sweptSize = styles.size;
+			sweeps++;
+			// and what the last frame cost goes with the grid it was drawn on: the
+			// numbers describe a screen that no longer exists, so leaving them would
+			// let a `stats` read between a resize and the next present report a
+			// pre-resize frame's cells beside a post-resize style table
+			lastBytes = 0;
+			lastCells = 0;
 			invalidated = true;
 		},
 
@@ -426,6 +475,10 @@ export function createCanvas(opts: CanvasOptions): Canvas {
 			const copy = new CellBuffer(front.width, front.height);
 			copy.copyFrom(front);
 			return copy;
+		},
+
+		get stats(): CanvasStats {
+			return { bytes: lastBytes, cells: lastCells, styles: styles.size, sweeps };
 		},
 
 		toString(): string {

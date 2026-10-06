@@ -57,6 +57,20 @@ export interface DiffResult {
 	 * `width` would name a column that does not exist and put any backend
 	 * computing a relative move one out.
 	 */
+	/**
+	 * How many cells were drawn, which is the honest measure of a frame's cost.
+	 *
+	 * `output.length` is bytes and counts the cursor moves and the SGR
+	 * transitions along with the glyphs; this counts the cells a terminal was
+	 * asked to repaint. Here rather than worked out by a caller because this is
+	 * the loop that already walks them -- a second count over the same grid would
+	 * be a second answer to one question, and a count derived from the output
+	 * would have to parse it back.
+	 *
+	 * A wide cluster is **one** cell, because one glyph was written. The
+	 * continuation beside it is drawn by its lead and is never written on its own.
+	 */
+	cells: number;
 	column: number;
 	/** The row, relative to the canvas's top edge. */
 	row: number;
@@ -126,6 +140,7 @@ export function diff(previous: CellBuffer, next: CellBuffer, opts: DiffOptions):
 	const full = opts.full || previous.width !== width || previous.height !== height;
 
 	let output = '';
+	let cells = 0;
 	let cursorRow = 0;
 	let cursorColumn = 0;
 	let style: Style = DEFAULT_STYLE;
@@ -209,6 +224,7 @@ export function diff(previous: CellBuffer, next: CellBuffer, opts: DiffOptions):
 
 				useStyle(next.styleAt(column, y));
 				output += cell;
+				cells++;
 
 				const consumed = Math.max(1, cellWidth(cell));
 				cursorColumn += consumed;
@@ -234,6 +250,7 @@ export function diff(previous: CellBuffer, next: CellBuffer, opts: DiffOptions):
 
 	const wrapPending = cursorColumn >= width && width > 0;
 	return {
+		cells,
 		column: wrapPending ? width - 1 : cursorColumn,
 		output,
 		row: cursorRow,

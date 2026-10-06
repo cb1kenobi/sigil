@@ -116,6 +116,84 @@ export type Component<P = Record<string, never>> = (props: P) => Element;
  */
 const FRAME_MS = 1000 / 30;
 
+/**
+ * What one frame did, for anything reporting on the frame loop.
+ *
+ * Every number here is one the frame already had in hand: the restyler answers
+ * with how many elements it re-resolved, the settle knows whether it laid out
+ * and whether it painted, and the canvas was handed the diff's own count of the
+ * cells it drew. So gathering this is a read rather than a measurement -- which
+ * is why `gatherStats` can be off by default and cost nothing when it is, and
+ * why turning it on costs one walk of the tree rather than a second frame.
+ *
+ * **It describes the frame before the one reading it.** A frame cannot report on
+ * itself: the numbers are not known until it has finished, and a tree built from
+ * them would be built after the layout and the paint that it is describing. So
+ * `Renderer.stats` is what the last completed frame did, and a pane showing it is
+ * always one frame behind -- which is the honest answer rather than a limitation,
+ * because the alternative is a stat that reports on the instrument reading it.
+ *
+ * **Two of these numbers are the tree's and four are the grid's.** `elements` and
+ * `changed` leave out every subtree `excludeFromStats()` named, which is what
+ * keeps an overlay out of what it reports. `resolved`, `bytes`, `cells`, `styles`
+ * and `sweeps` cannot: the first is a count the cascade hands back rather than a
+ * set to filter, and the rest are the canvas's, where the diff is over a grid and
+ * there is no tree left to ask which element painted a cell.
+ */
+export interface FrameStats {
+	/** When the frame ran, from the renderer's own clock. */
+	at: number;
+	/** How many bytes the diff wrote. Zero for a frame that painted nothing. */
+	bytes: number;
+	/** How many cells the diff drew. */
+	cells: number;
+	/**
+	 * How many elements the settle reported as moved, outside the excluded
+	 * subtrees: the union of what it marked for layout and for paint.
+	 */
+	changed: number;
+	/**
+	 * How long the settle took, in milliseconds, by the renderer's clock.
+	 *
+	 * Measured from **after** the frame handlers, not from the top of the frame,
+	 * because `onFrame` is an observer and a debug pane is one of them: a handler
+	 * that spends two milliseconds rebuilding its rows would otherwise make every
+	 * frame read two milliseconds slower, which is the instrument measuring itself
+	 * in the one direction somebody turns the pane on to look at. What this is, is
+	 * the work the frame did.
+	 *
+	 * `Date.now` by default, so a frame under a millisecond reads as `0` or `1`.
+	 * An app that wants better passes `now`, which is the one clock the pacing,
+	 * the transitions and the frame skip all read -- a second clock here would be
+	 * a fourth reader with its own idea of what time it is.
+	 */
+	duration: number;
+	/** How many elements the tree holds, outside the excluded subtrees. */
+	elements: number;
+	/** Which frame this was, counted from the first. */
+	frame: number;
+	/** Whether the layout ran. */
+	laidOut: boolean;
+	/** Whether anything was painted. */
+	painted: boolean;
+	/**
+	 * How many elements the cascade re-resolved, over the **whole** tree.
+	 *
+	 * The number the recorded invalidation measurement is about -- a full re-match
+	 * of 201 elements against 100 rules is 0.67ms -- and the one of the tree-shaped
+	 * numbers that cannot be attributed to a subtree, because the restyler answers
+	 * with a count rather than with the elements it visited.
+	 */
+	resolved: number;
+	/** How many styles the canvas has interned. */
+	styles: number;
+	/** How many times its style table has been swept. */
+	sweeps: number;
+}
+
+/** Called at the top of every frame, before the effects run. */
+export type FrameHandler = (stats: FrameStats | undefined) => void;
+
 export interface RenderOptions {
 	/**
 	 * Where frames go. Defaults to an inline canvas that follows its content.
@@ -163,6 +241,20 @@ export interface RenderOptions {
 	effects?: Effects;
 	/** Milliseconds between frames. Defaults to 1000/30. */
 	frameMs?: number;
+	/**
+	 * Whether each frame records what it did. Defaults to `false`.
+	 *
+	 * Off by default because a frame that is not asked pays nothing at all: the
+	 * numbers are already produced by the passes that compute them, and what
+	 * turning this on adds is one walk of the tree per frame -- which is what
+	 * `elements` and `changed` cost, since both leave out the subtrees
+	 * `excludeFromStats()` named and that is a question only a walk answers.
+	 *
+	 * A flag rather than always-on for the reason the sweep's growth factor is a
+	 * comparison rather than a walk: an app that never reads the numbers should
+	 * not pay `O(elements)` a frame to produce them.
+	 */
+	gatherStats?: boolean;
 	/**
 	 * Where the frame loop reads the time. Defaults to `Date.now`.
 	 *
@@ -269,10 +361,58 @@ export interface Renderer {
 	 * quietly does nothing.
 	 */
 	dispose(): void;
+	/**
+	 * Leaves a subtree out of what `stats` reports about the tree.
+	 *
+	 * For a pane that is part of the tree it is reporting on, which is what a
+	 * debug overlay is: "how many elements changed this frame" that counts the
+	 * overlay's own rows is a measurement of the instrument. It excludes the
+	 * element **and its descendants**, read at the moment the stats are gathered
+	 * rather than captured, so a pane that rebuilds its rows needs to say this
+	 * once.
+	 *
+	 * It reaches `elements` and `changed` and nothing else, for the reason
+	 * `FrameStats` records: the other numbers are a count the cascade hands back
+	 * and four the canvas measured over a grid, and neither has a subtree to leave
+	 * out.
+	 *
+	 * The returned function is how it goes back in, and not calling it keeps that
+	 * element reachable for as long as the renderer is -- the set is a strong one,
+	 * and `countTree()` walks from the root, so an excluded element that was then
+	 * removed from the tree is never visited and never dropped. `dispose()` clears
+	 * the set, so the leak is bounded by the renderer rather than by the process.
+	 *
+	 * @param element - The subtree's root.
+	 * @returns Puts it back in. Idempotent, and safe after `dispose()`.
+	 */
+	excludeFromStats(element: Element): () => void;
 	/** Settles and paints a frame now, whatever the pacing says. */
 	frame(): void;
 	/** Asks for a frame, for a mutation a signal did not make. */
 	invalidate(): void;
+	/**
+	 * Calls back at the top of every frame, before the effects run.
+	 *
+	 * Before rather than after, which is the whole of what it is for: a handler
+	 * that writes a signal or touches an element is settled, laid out and painted
+	 * by the **same** frame that called it, so a pane reading some non-reactive
+	 * source picks its changes up on a frame that was already happening rather
+	 * than asking for one of its own. A handler that runs after the paint would be
+	 * a frame late and would have to ask for another.
+	 *
+	 * It is handed the stats of the frame **before** this one, for the reason
+	 * `FrameStats` gives: this frame has not done anything yet, and a frame that
+	 * reported on itself would have to report before it had.
+	 *
+	 * A handler that throws is reported to `onError` and the frame carries on: a
+	 * frame callback is an observer, and a failing observer must not take the
+	 * screen down -- which is the rule an `onMount` throw already follows.
+	 *
+	 * @param handler - Called with the last frame's stats, or `undefined`.
+	 * @returns Unsubscribes. A handler registered while a frame is dispatching
+	 *   does not receive that frame, and one removed during it is not called.
+	 */
+	onFrame(handler: FrameHandler): () => void;
 	/** Whether this renderer is still mounted. */
 	readonly mounted: boolean;
 	/** What the component built. Hand this to `createInput()` for keys and focus. */
@@ -294,6 +434,12 @@ export interface Renderer {
 	 * the way any other change does.
 	 */
 	readonly selection: Selection | undefined;
+	/**
+	 * What the last completed frame did, or `undefined`.
+	 *
+	 * `undefined` with `gatherStats` off, and before the first frame has finished.
+	 */
+	readonly stats: FrameStats | undefined;
 	/**
 	 * Selects a region, or clears the selection.
 	 *
@@ -481,6 +627,30 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 	let repaint = false;
 
 	/**
+	 * Whether every frame records what it did, and where the last one's record is.
+	 *
+	 * The record is the *previous* frame's by construction: it is written at the
+	 * bottom of `settle()`, so what a frame handler at the top of the next one is
+	 * handed is the one before it.
+	 */
+	const gatherStats = opts.gatherStats === true;
+	let stats: FrameStats | undefined;
+	let frames = 0;
+	/** The subtrees `stats` leaves out, which is what keeps a pane off its own report. */
+	const excluded = new Set<Element>();
+	/**
+	 * What is told at the top of each frame.
+	 *
+	 * Dispatched over a copy **and** a membership check, which are two rules and
+	 * not one: without the copy, a handler registered by another handler receives
+	 * the very frame that registered it, and whether it does depends on where in
+	 * the iteration it joined; without the check, the copy calls one that has just
+	 * unsubscribed. The rule the router's bindings and `Terminal.onResize()`
+	 * already keep.
+	 */
+	const frameHandlers = new Set<FrameHandler>();
+
+	/**
 	 * Asks for a frame, no sooner than the pacing allows and no later than `after`.
 	 *
 	 * `after` is what the animator's frame skip is spent through: a step animation
@@ -530,6 +700,21 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 			timer = undefined;
 		}
 		scheduled = false;
+		// and what was handed to this renderer goes with it, which is the renderer's
+		// own half of "put back what you attached": a handler nothing will ever call
+		// and an excluded element nothing will ever walk are both references this
+		// object has no further use for. A caller that holds an unsubscribe may
+		// still call it, which is why these are cleared rather than replaced.
+		//
+		// **Declared rather than pinned**, because nothing can observe it: no frame
+		// runs after this, `stats` is not recomputed, and a second renderer has sets
+		// of its own -- so what the clear buys is that a disposed renderer stops
+		// holding an app's handler and a subtree it was asked to skip, which is the
+		// category `Restyler.forget()` is in. The sabotage pass found the first test
+		// for it to be vacuous for exactly that reason, and it was deleted rather
+		// than made to look load bearing
+		frameHandlers.clear();
+		excluded.clear();
 		offResize?.();
 		scope.setScheduler(previousScheduler);
 		scope.setErrorHandler(previousHandler);
@@ -671,10 +856,92 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 	}
 
 	/**
+	 * Counts the tree and what moved in it, leaving out the excluded subtrees.
+	 *
+	 * One walk for both numbers rather than a walk for the count and an ancestor
+	 * test for the filter, because that would be two readers of "is this excluded"
+	 * and the day they disagree is the day a pane is half in its own report. Here
+	 * the question is asked once per element, at the top of the walk, and an
+	 * excluded element's descendants are simply never reached -- so the two answers
+	 * cannot come apart.
+	 *
+	 * Allocates nothing per element: the stack is reused rather than a set of
+	 * included elements being built, which is the difference between `O(elements)`
+	 * of work and `O(elements)` of garbage on a frame of a ten-thousand-row list.
+	 *
+	 * @param layout - What the settle marked for layout.
+	 * @param paint - What it marked for paint.
+	 * @returns How many elements the tree holds and how many of them moved.
+	 */
+	function countTree(
+		layout: ReadonlySet<StyleTarget>,
+		paint: ReadonlySet<StyleTarget>
+	): { changed: number; elements: number } {
+		let changed = 0;
+		let elements = 0;
+		const stack: Element[] = [root];
+		for (let element = stack.pop(); element !== undefined; element = stack.pop()) {
+			if (excluded.has(element)) {
+				continue;
+			}
+			elements++;
+			if (paint.has(element) || layout.has(element)) {
+				changed++;
+			}
+			for (const child of element.children) {
+				stack.push(child);
+			}
+		}
+		return { changed, elements };
+	}
+
+	/**
+	 * Tells whoever is watching that a frame is starting.
+	 *
+	 * At the top of the frame, before the flush, so that what a handler writes is
+	 * settled by this frame rather than by the next one.
+	 */
+	function dispatchFrame(): void {
+		if (frameHandlers.size === 0) {
+			return;
+		}
+		// a copy, and `has`: the two rules this file's own handler sets already keep
+		// eslint-disable-next-line unicorn/no-useless-spread
+		for (const handler of [...frameHandlers]) {
+			if (!frameHandlers.has(handler)) {
+				continue;
+			}
+			try {
+				handler(stats);
+			} catch (error) {
+				// reported rather than raised: this is an observer of the frame, and a
+				// failing observer must not take the screen down. Raising would reach
+				// `runFrame()`'s catch, which is `fail()`
+				onError(error);
+			}
+		}
+	}
+
+	/**
 	 * Style, then layout, then paint: each implies the ones after it, and each is
 	 * skipped when nothing asked for it.
 	 */
 	function settle(): void {
+		// 0. whoever is watching the loop, told *before* the flush: a handler that
+		//    writes a signal or touches an element is settled, laid out and painted
+		//    by this frame rather than by one it had to ask for. What it is handed is
+		//    the frame before this one, because this one has done nothing yet
+		const began = clock();
+		dispatchFrame();
+		if (disposed || failed) {
+			// a handler called `dispose()`, which is the one thing it may do that
+			// makes carrying on wrong
+			return;
+		}
+		// and the clock the duration is measured from starts *here*, after the
+		// observers: `FrameStats.duration` records why
+		const worked = clock();
+
 		// 1. run whatever went stale. Effects write to elements, so this is what
 		//    produces the marks the rest of the frame reads
 		scope.flush();
@@ -831,6 +1098,34 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 			for (const error of drainMounts(owner)) {
 				onError(error);
 			}
+		}
+
+		// 3a. and what the frame did, if anybody asked. Recorded here rather than
+		//     handed to the handlers above, because none of these numbers existed
+		//     when they ran: a frame reports on itself to the frame after it
+		frames++;
+		if (gatherStats) {
+			const counted = countTree(update.layout, update.paint);
+			const canvas = backend.canvas.stats;
+			stats = {
+				at: began,
+				// zero for a frame that painted nothing, rather than what the last one
+				// that did cost: the canvas's numbers describe its last `present()`,
+				// which for a frame that found nothing to paint is some earlier frame --
+				// so reading them straight through would report every quiet frame as
+				// having cost whatever the last busy one did
+				bytes: needPaint ? canvas.bytes : 0,
+				cells: needPaint ? canvas.cells : 0,
+				changed: counted.changed,
+				duration: clock() - worked,
+				elements: counted.elements,
+				frame: frames,
+				laidOut: needLayout,
+				painted: needPaint,
+				resolved: update.restyled,
+				styles: canvas.styles,
+				sweeps: canvas.sweeps,
+			};
 		}
 
 		// 4. and a frame for the animation to carry on in, asked for *here* rather
@@ -1020,11 +1315,27 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 		backend,
 		detect,
 		dispose: () => teardown(true),
+
+		excludeFromStats(element: Element): () => void {
+			excluded.add(element);
+			return () => {
+				excluded.delete(element);
+			};
+		},
+
 		frame: runFrame,
 		invalidate: requestFrame,
 		get mounted() {
 			return !disposed && !failed;
 		},
+
+		onFrame(handler: FrameHandler): () => void {
+			frameHandlers.add(handler);
+			return () => {
+				frameHandlers.delete(handler);
+			};
+		},
+
 		restyler,
 		root,
 
@@ -1040,6 +1351,10 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 			return selectionText(cells, selected, {
 				selectable: selectableAt(root, cells.width, cells.height),
 			});
+		},
+
+		get stats() {
+			return stats;
 		},
 
 		setSelection(next: Selection | undefined): void {

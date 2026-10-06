@@ -52,12 +52,15 @@ describe('the framework sheet', () => {
 	 * `.sigil-prompt-hint { dim: true }` added back here is a declaration the
 	 * light half does not cover, and it looks like every other rule in the file.
 	 *
-	 * The two exceptions are declared rather than discovered. `.sigil-caret` is
+	 * The three exceptions are declared rather than discovered. `.sigil-caret` is
 	 * `inverse` and no role is inversion. `.sigil-scroll-track` is the one grey
 	 * here that is not de-emphasised *text*, so it must not be `.sigil-muted` --
-	 * that role is `dim` on a dark terminal, and a dim track is not a track.
+	 * that role is `dim` on a dark terminal, and a dim track is not a track. And
+	 * `.sigil-debug` is a **background** rather than a foreground: no role is one,
+	 * and the debug pane is the one built-in drawn over the app's own content, so
+	 * without it the app shows through between its words.
 	 */
-	it('should declare on a role, bar two exceptions that say why', () => {
+	it('should declare on a role, bar three exceptions that say why', () => {
 		const ROLES = [
 			'.sigil-accent',
 			'.sigil-muted',
@@ -67,7 +70,7 @@ describe('the framework sheet', () => {
 			'.sigil-warn',
 			'.sigil-info',
 		];
-		const EXCEPTIONS = ['.sigil-caret', '.sigil-scroll-track'];
+		const EXCEPTIONS = ['.sigil-caret', '.sigil-debug', '.sigil-scroll-track'];
 
 		// the selectors that carry a declaration, read off the parsed sheet rather
 		// than off the source, so a comment cannot be mistaken for a rule

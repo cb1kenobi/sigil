@@ -503,16 +503,18 @@ because a full-screen canvas is always at the origin.
 
 ## The renderer
 
-|                                                |                                                      |
-| ---------------------------------------------- | ---------------------------------------------------- |
-| [`renderer/01-app.js`](renderer/01-app.js)     | Bodies that run once, effects that update in place   |
-| [`renderer/02-tasks.js`](renderer/02-tasks.js) | A list that keeps what each row holds, through moves |
+|                                                |                                                         |
+| ---------------------------------------------- | ------------------------------------------------------- |
+| [`renderer/01-app.js`](renderer/01-app.js)     | Bodies that run once, effects that update in place      |
+| [`renderer/02-tasks.js`](renderer/02-tasks.js) | A list that keeps what each row holds, through moves    |
+| [`renderer/03-debug.js`](renderer/03-debug.js) | Captured console output and frame stats, inside the app |
 
-Both need a terminal on both sides, because they read what you press.
+All three need a terminal on both sides, because they read what you press.
 
 ```sh
 node demos/renderer/01-app.js    # Tab, space, a, d, q
 node demos/renderer/02-tasks.js  # j/k, space, e, x, J/K, f, n, q
+node demos/renderer/03-debug.js  # space, l, c, ctrl-g, q
 ```
 
 **`01-app.js`** is what a component runtime _is_. A component is a function of
@@ -552,8 +554,32 @@ demo existed, and then it did not follow: both tasks are present, so presence ne
 moved, so the branch was never rebuilt, and the panel described the first task for
 the rest of the run.
 
-Without a terminal on **both** sides both print one line and exit `0`, which is
-what the component demos do and for the same reason — the keys arrive on stdin and
+**`03-debug.js`** is full screen, which is the case the overlay is for: that
+backend holds what is written to it and flushes it on the way out, so the only
+`console.log` you can read while the app is running is one inside the app. `ctrl-g`
+toggles the pane -- `position: fixed`, so the counter above it does not move when it
+appears, which is what lets the pane be appended to a root that knows nothing about
+it.
+
+`l` is the one thing worth doing deliberately, because it reads as a bug and is not.
+It logs a line and the line does **not** appear: a write into the ring marks nothing
+and asks for no frame, since a log line that asked for a frame from inside the effect
+that logged it is a loop. Press `space` and it arrives, on the frame that was already
+happening. The counter's own effect logs too, so most lines do appear at once -- the
+write that caused the frame is what carried them in.
+
+The stats line is where the second half of it shows. `f` is the frame number, `L`/`P`
+is whether that frame laid out and painted, and `n/m el` is how many elements moved
+out of how many there are -- and `m` stays at the app's own handful while the pane
+holds hundreds of rows, because a stat that counted the pane would be a measurement
+of the instrument. The four fields after it do include the pane, and for two
+different reasons: `re` is how many elements the cascade re-resolved, which is a
+count it hands back rather than a set to filter, and `c`/`b`/`s`/`w` are the
+canvas's -- a cell count cannot leave a subtree out, since the diff is over a grid
+and there is no tree left to ask which element painted a cell.
+
+Without a terminal on **both** sides all three say so and exit `0`, which is what
+the component demos do and for the same reason — the keys arrive on stdin and
 the frame is drawn to the output, so either one being a pipe means there is nothing
 to run:
 
