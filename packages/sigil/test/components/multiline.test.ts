@@ -124,6 +124,7 @@ const ALT_D = '\u001bd';
 const ALT_B = '\u001bb';
 const ALT_F = '\u001bf';
 const ALT_BACKSPACE = '\u001b\u007f';
+const ESCAPE = '\u001b';
 const PASTE_START = '\u001b[200~';
 const PASTE_END = '\u001b[201~';
 
@@ -160,6 +161,24 @@ describe('multiline()', () => {
 			expect(ui.log[0]).to.contain('(alt-enter to submit)');
 
 			await type(ui.stdin, '\u001b\r');
+
+			expect(await answer).to.equal('a');
+		});
+
+		it('should take escape then enter as alt-enter, which is the same gesture', async () => {
+			// the README says so, and what makes it true is the router holding a lone
+			// trailing escape for `ESCAPE_TIMEOUT` and joining it to the next chunk -- so
+			// the two keys pressed in quick succession arrive as one `ESC \r`. Sent as two
+			// chunks here, which is what two keypresses are
+			const ui = screenSetup();
+			const answer = multiline({
+				ansi: ui.ansi,
+				message: 'Why?',
+				submit: { meta: true, name: 'enter' },
+				terminal: ui.terminal,
+			});
+
+			await type(ui.stdin, 'a', ESCAPE, ENTER);
 
 			expect(await answer).to.equal('a');
 		});
