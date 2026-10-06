@@ -12496,6 +12496,22 @@ wrap a line too wide for the field without touching the value` asserts the
   is the caret's own column, and it is what makes the caret clamp a no-op
   anywhere but a one-column field, where `limit` cannot be zero and a cell really
   can land on the column the box ends at.
+- **`rows` is enumerated rather than clamped, and a submit key nothing can press
+  is refused.** Two degenerate inputs, found by walking the options rather than
+  by a report, which is the rule the typewriter's own interval already records.
+  `Math.min(NaN, anything)` is `NaN`, so a `rows` of `NaN` reached the measure as
+  a height of `NaN` and the layout engine was handed a box no arithmetic can
+  place -- and a fraction reached it as a fractional height, which is the thing a
+  declaration is refused for. `Infinity` is fine on its own, because the
+  terminal's own cap is the other half of that `Math.min`, and it goes through
+  `rowCap()` anyway so that one function answers for every value rather than
+  three guards agreeing. A `submit.name` of `''` is a key `decodeKeys()` never
+  produces, so the field has no way out at all: it is refused the way a choice
+  list with nothing to offer is, rather than by quietly putting the default back
+  -- which would be a prompt answered by a key its own hint does not name. Both
+  halves are the hang `PromptError` exists for, and the sabotage for the second
+  one takes the whole ten-second timeout to be caught, which is what the hang
+  looks like.
 - **The field grows into its row cap rather than starting there.** A field that
   reserved ten rows for a one-line answer would hold nine blank rows of the
   user's scrollback open for the life of the prompt, which is the auto-height

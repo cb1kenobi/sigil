@@ -1237,6 +1237,25 @@ export function fieldLayers(read: () => FieldFrame): { caret: Element; field: El
 	return { caret, field };
 }
 
+/**
+ * How many rows a field may take, from what the caller asked for.
+ *
+ * **Enumerated rather than clamped**, which is the rule the typewriter's own
+ * interval keeps and the trap it keeps it for: `Math.min(NaN, anything)` is
+ * `NaN`, so a `rows` of `NaN` reached the measure as a height of `NaN` and the
+ * layout engine was handed a box no arithmetic can place -- and a fractional one
+ * reached it as a fractional height, which is the thing a declaration is refused
+ * for. `Infinity` is fine on its own, because the terminal's own cap is the
+ * other half of the `Math.min`, and it is read here anyway so that one function
+ * answers for every value rather than three guards agreeing.
+ *
+ * @param rows - What the caller asked for.
+ * @returns A whole number of rows, or the default.
+ */
+function rowCap(rows: number | undefined): number {
+	return rows !== undefined && Number.isFinite(rows) && rows >= 1 ? Math.floor(rows) : 10;
+}
+
 /** `ctrl-d`, as a reader would type it. */
 function keyLabel(key: SubmitKey): string {
 	return `${key.ctrl ? 'ctrl-' : ''}${key.meta ? 'alt-' : ''}${key.name}`;
@@ -1271,6 +1290,16 @@ function isSubmitKey(k: Key, spec: SubmitKey): boolean {
 export function multiline(opts: MultilineOptions): Promise<string> {
 	const terminal = opts.terminal ?? defaultTerminal;
 	const submit = opts.submit ?? { ctrl: true, name: 'd' };
+
+	// a key with no name is one `decodeKeys()` never produces, so a field given one
+	// has no way to be submitted at all -- which is the hang `PromptError` exists
+	// for, and is refused the way a choice list with nothing to offer is rather
+	// than by quietly putting the default back
+	if (submit.name === '') {
+		return Promise.reject(
+			new PromptError(`"${opts.message}" has no key to submit with: \`submit.name\` is empty`)
+		);
+	}
 	// through the same normalizer a paste goes through, so that the value holds
 	// one spelling of a line break and every rule below can split on it
 	let value = pastedBlock(opts.initial ?? '');
@@ -1306,7 +1335,7 @@ export function multiline(opts: MultilineOptions): Promise<string> {
 		 */
 		const cap = Math.max(
 			1,
-			Math.min(opts.rows ?? 10, Math.max(1, terminal.height) - head.lines - 1)
+			Math.min(rowCap(opts.rows), Math.max(1, terminal.height) - head.lines - 1)
 		);
 
 		/**

@@ -305,6 +305,65 @@ describe('multiline()', () => {
 		});
 	});
 
+	describe('what a caller may hand it', () => {
+		it('should take a whole number of rows from anything else', async () => {
+			// enumerated rather than clamped, which is the rule the typewriter's interval
+			// keeps and the trap it keeps it for: `Math.min(NaN, anything)` is `NaN`, so a
+			// `rows` of `NaN` reached the measure as a height of `NaN` and the layout
+			// engine was handed a box no arithmetic can place. A fraction is the other
+			// half of it, and is what a declaration is refused for
+			for (const rows of [
+				Number.NaN,
+				2.5,
+				0,
+				-5,
+				Number.POSITIVE_INFINITY,
+				Number.NEGATIVE_INFINITY,
+			]) {
+				const ui = screenSetup({ rows: 20 });
+				const answer = multiline({
+					ansi: ui.ansi,
+					initial: '1\n2\n3\n4',
+					message: 'Hm',
+					rows,
+					terminal: ui.terminal,
+				});
+
+				await type(ui.stdin, LEFT);
+				// whatever it came to, every row drawn is a row of the value and a whole
+				// number of them was drawn
+				const drawn = fieldRows(ui);
+				expect(drawn.length, `rows: ${rows}`).to.be.greaterThanOrEqual(1);
+				expect(drawn.length, `rows: ${rows}`).to.equal(Math.floor(drawn.length));
+				for (const row of drawn) {
+					expect(['1', '2', '3', '4'], `rows: ${rows} drew ${row}`).to.contain(row);
+				}
+
+				await type(ui.stdin, CTRL_D);
+				expect(await answer, `rows: ${rows}`).to.equal('1\n2\n3\n4');
+			}
+		});
+
+		it('should refuse a submit key nothing can press', async () => {
+			// the hang `PromptError` exists for: a key `decodeKeys()` never produces is a
+			// field with no way out, and putting the default back quietly would be a
+			// prompt answered by a key the hint does not name
+			const ui = screenSetup();
+			const answer = settle(
+				multiline({
+					ansi: ui.ansi,
+					message: 'Why?',
+					submit: { name: '' },
+					terminal: ui.terminal,
+				})
+			);
+
+			const { error } = await answer;
+			expect(error?.message).to.contain('no key to submit with');
+			expect(error?.aborted).to.equal(false);
+		});
+	});
+
 	describe('drawing', () => {
 		it('should draw the lines it was given on rows of their own', async () => {
 			const ui = screenSetup();
