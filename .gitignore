@@ -6,6 +6,7 @@ dist
 node_modules
 *.tsbuildinfo
 .turbo
+.claude
 
 # A test fixture may legitimately be called `dist`. The rule above is
 # unanchored, so it matches at any depth, and `discover/built-app` is a fixture
