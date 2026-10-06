@@ -12578,6 +12578,14 @@ wrap a line too wide for the field without touching the value` asserts the
   for and what the terminal has left under the question, with the error line
   reserved either way so that showing one does not push the last row off the
   screen.
+
+  Asserted as that property rather than at the end of one sequence, because
+  nothing else in the field would notice if it stopped holding: `should keep the
+caret on screen after every key there is` checks it after each of twenty-one
+  keys, which is every key the field reads. Bounded by the row cap rather than by
+  what the log holds, because a row whose only cell is the caret is a row of
+  spaces -- the harness trims it, and the row is still on screen.
+
 - **Submitting is Ctrl-D, and `run()` grew a `claims()` hook because `isAbort()`
   would otherwise take it first.** Ctrl-C and Ctrl-D are both aborts, checked in
   `run()` before any handler sees a key -- which is right for the four prompts

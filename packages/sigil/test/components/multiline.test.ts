@@ -1227,6 +1227,65 @@ describe('multiline()', () => {
 			await answer;
 		});
 
+		it('should keep the caret on screen after every key there is', async () => {
+			// the one thing that has to be true of the window, asserted after each key of
+			// a long sequence rather than at the end of one: `windowStart()` is what makes
+			// it hold, and nothing else in the field would notice if it stopped
+			const ui = screenSetup({ rows: 20 });
+			const answer = multiline({
+				ansi: ui.ansi,
+				colorLevel: 1,
+				initial: 'one\ntwo\nthree\nfour\nfive\nsix\nseven\neight',
+				message: 'Hm',
+				rows: 3,
+				terminal: ui.terminal,
+			});
+
+			const KEYS = [
+				['up', UP],
+				['up', UP],
+				['up', UP],
+				['up', UP],
+				['down', DOWN],
+				['pageup', PAGEUP],
+				['pagedown', PAGEDOWN],
+				['ctrl-home', CTRL_HOME],
+				['ctrl-end', CTRL_END],
+				['home', HOME],
+				['end', END],
+				['enter', ENTER],
+				['a character', 'x'],
+				['backspace', BACKSPACE],
+				['ctrl-left', CTRL_LEFT],
+				['ctrl-right', CTRL_RIGHT],
+				['ctrl-u', CTRL_U],
+				['ctrl-k', CTRL_K],
+				['a paste', `${PASTE_START}p\nq\nr${PASTE_END}`],
+				['ctrl-w', CTRL_W],
+				['up again', UP],
+			] as const;
+
+			for (const [label, key] of KEYS) {
+				await type(ui.stdin, key);
+				const at = caretAt(ui);
+				// the head is one row at forty columns and the field is at most the three
+				// it asked for, so the window is screen rows one to three. Bounded by the
+				// cap rather than by what the log holds, because a row whose only cell is
+				// the caret is a row of spaces -- the harness trims it, and the row is
+				// still on screen
+				expect(at, `no caret after ${label}`).to.not.equal(undefined);
+				expect(at?.row, `the caret is above the field after ${label}`).to.be.greaterThanOrEqual(1);
+				expect(at?.row, `the caret is below the window after ${label}`).to.be.lessThanOrEqual(3);
+				expect(
+					ui.log.length - 1,
+					`the field drew more rows than it asked for after ${label}`
+				).to.be.lessThanOrEqual(3);
+			}
+
+			await type(ui.stdin, CTRL_D);
+			await answer;
+		});
+
 		it('should cap the rows by what the terminal has left under the question', async () => {
 			// the cap is the smaller of what was asked for and what is there, and the
 			// error line is reserved either way
