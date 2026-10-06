@@ -147,7 +147,7 @@ const layout = parseStylesheet(`
  * position rather than a reference, which is a thing that moves the moment
  * anything is added above it.
  */
-function panel(name) {
+function panel(name, keys) {
 	const line = (mark, markClass, label, labelClass) =>
 		box(
 			{ class: 'row' },
@@ -170,10 +170,46 @@ function panel(name) {
 		line('ℹ', 'sigil-symbol is-info sigil-info', 'cached from a previous run'),
 		text('', {}),
 		text('████████████░░░░░░░░░░░░', { class: 'sigil-progress-bar sigil-accent' }),
-		text('(seven declarations, a dozen classes)', { class: 'sigil-help-note sigil-muted' })
+		text('(seven declarations, a dozen classes)', { class: 'sigil-help-note sigil-muted' }),
+		// the keys, where there are keys to press. Wrapping `text`s rather than a row
+		// of them, so that adding a theme cannot push the line off the panel
+		...(keys === undefined
+			? []
+			: [text('', {}), ...keys.map((line) => text(line, { class: 'sigil-help-note sigil-muted' }))])
 	);
 
 	return { heading, view };
+}
+
+/**
+ * The key map, built from `THEMES` so that it cannot drift from it.
+ *
+ * Adding a theme adds its key here, which is the whole reason this is derived
+ * rather than written out -- a hint naming four of five themes is worse than no
+ * hint, because it reads as though the fifth key does nothing.
+ *
+ * Laid out as a padded grid rather than one wrapping line, because wrapping
+ * breaks on whitespace and the gap between a key and its theme is whitespace: at
+ * this width a single line put `3` at the end of one row and `ocean` at the start
+ * of the next. `q` is one more entry rather than a line of its own, since it is a
+ * key like the others.
+ */
+function keyHint() {
+	const entries = [...THEMES.map(([name], i) => `${String(i + 1)} ${name}`), 'q quit'];
+	const column = Math.max(...entries.map((entry) => entry.length)) + 2;
+	const rows = [];
+
+	for (let at = 0; at < entries.length; at += 3) {
+		rows.push(
+			entries
+				.slice(at, at + 3)
+				.map((entry) => entry.padEnd(column))
+				.join('')
+				.trimEnd()
+		);
+	}
+
+	return rows;
 }
 
 if (process.stdin.isTTY && process.stdout.isTTY) {
@@ -207,7 +243,9 @@ function piped() {
 		console.log();
 	}
 
-	console.log('On a terminal this is one panel with 1-5 switching the theme under it.');
+	console.log(
+		`On a terminal this is one panel instead, with ${keyHint().join('  ').replace(/\s+/gu, ' ')}.`
+	);
 }
 
 /** One tree, one renderer, and a number key swaps the sheet under it. */
@@ -222,7 +260,7 @@ function live() {
 	let heading;
 
 	function App() {
-		const built = panel(THEMES[at][0]);
+		const built = panel(THEMES[at][0], keyHint());
 		heading = built.heading;
 		return built.view;
 	}

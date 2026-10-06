@@ -133,8 +133,10 @@ declaration the framework shares between two built-ins is on a **role** —
 component class and its role together. So the panel wears a dozen component
 classes and each theme sets exactly seven things.
 
-On a terminal, `1`-`5` swap the theme under a live frame: a sheet added to the
-cascade and a `touchSheets()` to say every rule it matched is stale. Piped, it
+On a terminal, `1`-`5` swap the theme under a live frame and `q` quits — the
+panel prints its own key map, derived from the theme list so it cannot name four
+of five. A switch is a sheet added to the cascade and a `touchSheets()` to say
+every rule it matched is stale. Piped, it
 renders each theme one after another instead, including a real `table()`, which
 is what shows the roles reaching a built-in rather than only the hand-built panel.
 
