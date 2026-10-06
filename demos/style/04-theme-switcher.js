@@ -51,12 +51,15 @@ import { parseTheme, themedCascade } from '@ttylabs/sigil/theme';
  *
  * Two consequences worth seeing rather than being told.
  *
- * `framework` restates the defaults instead of being the absence of a sheet,
- * since there is nothing to remove -- going back means saying them again. It is
- * the only one here with a light half, because it is the only one that
- * de-emphasises with `dim`: SGR 2 blends the foreground *towards* the background,
- * so it is grey on black one way and grey on white the other, and a theme using it
- * owes the other scheme a rule. Try `SIGIL_COLOR_SCHEME=light`.
+ * `sigil` restates the defaults instead of being the absence of a sheet, since
+ * there is nothing to remove -- going back means saying them again. It is named
+ * for what ships rather than `framework`, which is taken: that is the *origin*
+ * the real defaults sit at, and this one is an ordinary theme at origin `theme`
+ * like the other four. It is also the only one here with a light half, because it
+ * is the only one that de-emphasises with `dim`: SGR 2 blends the foreground
+ * *towards* the background, so it is grey on black one way and grey on white the
+ * other, and a theme using it owes the other scheme a rule. Try
+ * `SIGIL_COLOR_SCHEME=light`.
  *
  * And every colour theme says `dim: false` on `.sigil-muted`. A theme overrides
  * per *property*, so a theme that only sets a colour inherits the framework's
@@ -66,7 +69,7 @@ import { parseTheme, themedCascade } from '@ttylabs/sigil/theme';
  */
 const THEMES = [
 	[
-		'framework',
+		'sigil',
 		`.sigil-accent { color: cyan }
 		 .sigil-muted { color: initial; dim: true }
 		 @media (prefers-color-scheme: light) { .sigil-muted { color: gray; dim: false } }
@@ -130,8 +133,10 @@ const ROWS = [
  * Nothing here names a colour -- not even the border, which is why it stays the
  * terminal's own foreground while everything inside it moves. The point is that
  * every colour on screen arrives through a role, and a gray border would also sit
- * right on top of the framework's gray de-emphasis in light mode. Parsed at module scope so that a typo in it fails the piped
- * demos test, which never reaches the terminal branch below.
+ * right on top of the framework's gray de-emphasis in light mode.
+ *
+ * Parsed at module scope so that a typo in it fails the piped demos test, which
+ * never reaches the terminal branch below.
  */
 const layout = parseStylesheet(`
 	.panel { flex-direction: column; width: 48; border: round; padding: 1 }
