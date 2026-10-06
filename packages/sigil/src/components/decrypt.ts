@@ -772,12 +772,13 @@ function cutRow(row: PlacedCell[], width: number, mode: TruncateMode): PlacedCel
  * otherwise put every resolved character a column left of the cipher it replaces.
  * Reading the box of the frame it is in is what a `raw` is for.
  *
- * **Both are `selectable: true`, and it costs an ancestor's say.** A `raw` defaults
- * to not selectable, which is right for a sparkline and wrong here -- these cells
- * *are* the text, and what a selection copies is what is on screen. There is no
- * third value meaning "inherit", so a `selectable={false}` on a pane no longer
- * reaches a decrypt inside it; the alternative is a decrypt nobody can copy, which
- * is the worse of the two.
+ * **Both say `drawsText`, which is a default rather than an answer.** A `raw` is
+ * not selectable unless something says so, which is right for a sparkline and
+ * wrong here -- these cells *are* the text, and what a selection copies is what is
+ * on screen. `selectable: true` was the first version of this and it is an
+ * *answer*, so it beat a pane that had marked itself `selectable={false}`;
+ * `drawsText` changes what the default is instead, so the block inherits exactly
+ * as the texts around it do.
  *
  * `min-width: 0` rather than the automatic minimum, which is the widest word: the
  * canvas is capped at the terminal either way, so without it a word longer than the

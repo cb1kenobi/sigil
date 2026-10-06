@@ -822,7 +822,7 @@ render target is text: re-rendering a frame and diffing lines _is_ the diff.
 #### Prompts
 
 ```js
-import { text, password, confirm, select, multiselect } from '@ttylabs/sigil/components';
+import { text, multiline, password, confirm, select, multiselect } from '@ttylabs/sigil/components';
 
 const name = await text({ message: 'Project name', default: 'my-app' });
 const secret = await password({ message: 'Token' });
@@ -844,6 +844,40 @@ const features = await multiselect({
 async — return a string to reject the answer with that message. Editing keys
 are the usual ones: arrows, Home/End, Ctrl-A/E/U, Backspace, Delete. A paste
 arrives as one chunk and is read as the keys it carries, not just the first.
+
+#### A multiline answer
+
+```js
+import { multiline } from '@ttylabs/sigil/components';
+
+const notes = await multiline({
+  message: 'Release notes',
+  placeholder: 'what changed, and why',
+  initial: process.env.EDITOR_DRAFT,
+  rows: 10,
+});
+```
+
+Enter inserts a newline, so **Ctrl-D is what submits** — `submit` names another
+key, and the hint the field draws is generated from it so the two cannot
+disagree. `{ meta: true, name: 'enter' }` is Alt-Enter, which is also what
+Escape-then-Enter arrives as when the two are pressed in quick succession.
+
+The field **soft wraps**: it wraps for display and the value keeps exactly the
+breaks you typed, so a line too wide for the terminal is drawn over two rows and
+comes back as one. Up and Down move between the rows on screen with a remembered
+goal column, so Up-Up-Down comes back to the column it started in through a short
+line. Home, End, Ctrl-A, Ctrl-E, Ctrl-U and Ctrl-K are the **logical line**,
+which is what readline means by them; Ctrl-Home and Ctrl-End are the whole value.
+Ctrl-Left, Ctrl-Right, Alt-B and Alt-F move by words and Ctrl-W and Alt-D delete
+one, crossing a line break the way emacs does. Past `rows` the field scrolls and
+keeps the caret visible.
+
+> [!NOTE]
+> A pasted block **keeps its line breaks here**, which is the deliberate inverse
+> of `text()` — a one-line field flattens them, because obeying a break there is
+> what makes a paste submit half an address. Keeping them is the entire point of
+> having more than one line.
 
 > [!IMPORTANT]
 > A prompt **throws rather than hangs** when there is no terminal — in a

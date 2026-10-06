@@ -6,6 +6,7 @@
  */
 import {
 	confirm,
+	multiline,
 	multiselect,
 	password,
 	PromptError,
@@ -37,10 +38,20 @@ try {
 		required: true,
 	});
 
+	// the multiline field: Enter is a newline, so Ctrl-D is what submits. Arrow
+	// keys move between rows with a remembered column, Ctrl-Left and Ctrl-Right
+	// move by words, and a pasted block keeps its line breaks -- which is the
+	// deliberate inverse of what the one-line field above does with one
+	const notes = await multiline({
+		message: 'Release notes',
+		placeholder: 'what changed, and why',
+		rows: 6,
+	});
+
 	const ok = await confirm({ message: `Create ${name}?` });
 
 	console.log('\n---');
-	console.log({ name, token: '*'.repeat(token.length), target, features, ok });
+	console.log({ name, token: '*'.repeat(token.length), target, features, notes, ok });
 } catch (err) {
 	if (err instanceof PromptError) {
 		// the two ways a prompt does not get answered, which are different in kind

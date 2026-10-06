@@ -3,6 +3,8 @@ export {
 	confirm,
 	type ConfirmOptions,
 	ESCAPE_TIMEOUT,
+	multiline,
+	type MultilineOptions,
 	multiselect,
 	type MultiselectOptions,
 	password,
@@ -10,6 +12,7 @@ export {
 	type PromptOptions,
 	select,
 	type SelectOptions,
+	type SubmitKey,
 	text,
 	type TextOptions,
 } from './prompt.js';
@@ -44,6 +47,22 @@ export {
 	spinnerView,
 } from './spinner.js';
 export { decodeKeys, isAbort, type Key, pendingLength } from './keys.js';
+export {
+	boundary,
+	deleteAfter,
+	deleteBefore,
+	deleteRange,
+	type Edit,
+	insertAt,
+	isControlChar,
+	isSpaceCluster,
+	pastedBlock,
+	pastedLine,
+	snap,
+	typedText,
+	wordAfter,
+	wordBefore,
+} from './editing.js';
 export {
 	ASCII,
 	CP437,

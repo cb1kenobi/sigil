@@ -59,6 +59,24 @@ export class Screen {
 	 * honours it.
 	 */
 	clipboard: { selection: string; text: string }[] = [];
+	/**
+	 * The cell of the most recent write made with reverse video in effect.
+	 *
+	 * The one piece of styling this model keeps, and it is kept because one thing
+	 * on screen *is* styling and nothing else: a prompt's caret is reverse video
+	 * over a cluster, so a model that holds characters alone cannot see it at all
+	 * -- the cell under the caret holds the same character either way. The
+	 * alternative is a second cursor tracker written inside a test, which is a
+	 * second model of the thing this one is for.
+	 *
+	 * The *most recent* rather than a list, because what a test asks is where the
+	 * caret is now: a frame repaints, and the caret is the last thing painted in
+	 * the one tree that draws one.
+	 */
+	lastInverse: { column: number; row: number } | undefined;
+
+	/** Whether reverse video is in effect, which is what `lastInverse` is recorded on. */
+	#inverse = false;
 
 	#main: Buffer;
 	#alt: Buffer;
@@ -274,7 +292,18 @@ export class Screen {
 						break;
 					}
 					case 'm': {
-						// styling, which a screen model has no opinion about
+						// styling, which a screen model has no opinion about -- bar the one
+						// attribute something on screen is made of rather than merely wearing.
+						// Read parameter by parameter, because a transition combines what it
+						// closes with what it opens: green after inverse is `27;32`, so a test
+						// matching the whole string would be pinning one spelling of it
+						for (const part of params.split(';')) {
+							if (part === '7') {
+								this.#inverse = true;
+							} else if (part === '27' || part === '0' || part === '') {
+								this.#inverse = false;
+							}
+						}
 						break;
 					}
 					case 'n': {
@@ -300,6 +329,9 @@ export class Screen {
 			}
 
 			this.#buffer.rows[this.row][this.column] = ch;
+			if (this.#inverse) {
+				this.lastInverse = { column: this.column, row: this.row };
+			}
 
 			if (this.column === this.width - 1) {
 				this.wrapPending = true;

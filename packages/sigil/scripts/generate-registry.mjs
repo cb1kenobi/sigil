@@ -79,7 +79,7 @@ const ENTRIES = [
 		name: 'large-text',
 	},
 	{
-		desc: 'The five prompts: text, password, confirm, select and multiselect',
+		desc: 'The six prompts: text, multiline, password, confirm, select and multiselect',
 		name: 'prompt',
 	},
 	{
