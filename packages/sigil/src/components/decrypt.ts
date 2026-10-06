@@ -30,7 +30,7 @@
 // published -- so the generator refuses the entry outright rather than shipping one
 // that cannot resolve once it is in somebody's app
 import { strip } from '../ansi/index.js';
-import { cellWidth } from '../canvas/index.js';
+import { cellWidth, type Random, seeded } from '../canvas/index.js';
 import {
 	box,
 	cellStyle,
@@ -59,7 +59,7 @@ const JUMBLE_TICK = 35;
 const REVEAL_TICK = 50;
 
 /**
- * A source of randomness, in `[0, 1)`.
+ * A source of randomness, in `[0, 1)`, and a seeded one to inject.
  *
  * Injectable because every visible property of this component comes out of it:
  * which glyph hides a cell and when each cell resolves. Without a seed there is
@@ -69,8 +69,19 @@ const REVEAL_TICK = 50;
  * or an infinity is clamped rather than trusted, because a reveal time past the
  * window is an animation that never finishes and `await decrypt(text)` would
  * simply never resolve.
+ *
+ * Re-exported rather than declared here, because a mask generator wants the same
+ * thing and may not reach into `src/components/`: the rule `seeded()` was written
+ * under is one algorithm in this repository rather than two, and a second caller
+ * is what moved it to `src/util/random.ts`. What this package exports is
+ * unchanged.
+ *
+ * Through the canvas barrel rather than from `src/util/` directly, because this
+ * file is a `sigil add` entry and a registry component may only import what the
+ * package exports -- `generate-registry.mjs` refuses the deeper specifier by
+ * name, which is that rule being a build failure rather than a comment.
  */
-export type Random = () => number;
+export { type Random, seeded };
 
 /**
  * The glyphs a hidden cell can show, in the two widths a cell grid has.
@@ -134,32 +145,6 @@ export const ASCII: MaskAlphabet = {
 	narrow: [...'!#$%&*+-/0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_{|}~'],
 	wide: ['##', '%%', '&&', '**', '++', '//', '<>', '==', '?@', '[]', '{}', '~~', '$$', '@@', '&%'],
 };
-
-/**
- * A seeded generator, so that a run reproduces.
- *
- * xorshift32, which is the generator the layout fuzzer already uses -- one
- * algorithm in this repository rather than two. It is shipped because a component
- * whose documentation says the randomness is injectable should carry the thing to
- * inject: a demo that reproduces and a test that asserts both want one, and
- * reaching for a package would break the rule that this runtime has no
- * dependencies.
- *
- * @param seed - Any integer. Zero is read as a fixed non-zero seed, because
- *   xorshift32 has no way out of it.
- * @returns The generator.
- */
-export function seeded(seed: number): Random {
-	let state = seed >>> 0 || 0x9e37_79b9;
-	return () => {
-		state ^= state << 13;
-		state >>>= 0;
-		state ^= state >>> 17;
-		state ^= state << 5;
-		state >>>= 0;
-		return state / 0x1_0000_0000;
-	};
-}
 
 /**
  * A fraction, whatever the source answered.

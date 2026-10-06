@@ -198,13 +198,14 @@ animation collapses to the state it would have ended on.
 
 ## The canvas
 
-|                                                      |                                            |
-| ---------------------------------------------------- | ------------------------------------------ |
-| [`canvas/01-sparkline.js`](canvas/01-sparkline.js)   | A chart at 2x4 the resolution the grid has |
-| [`canvas/02-image.js`](canvas/02-image.js)           | A picture at two pixels per cell           |
-| [`canvas/03-links.js`](canvas/03-links.js)           | Text that is also a URL                    |
-| [`canvas/04-inline.js`](canvas/04-inline.js)         | A canvas at the bottom of a scrolling log  |
-| [`canvas/05-fullscreen.js`](canvas/05-fullscreen.js) | The alternate screen, given back           |
+|                                                        |                                            |
+| ------------------------------------------------------ | ------------------------------------------ |
+| [`canvas/01-sparkline.js`](canvas/01-sparkline.js)     | A chart at 2x4 the resolution the grid has |
+| [`canvas/02-image.js`](canvas/02-image.js)             | A picture at two pixels per cell           |
+| [`canvas/03-links.js`](canvas/03-links.js)             | Text that is also a URL                    |
+| [`canvas/04-inline.js`](canvas/04-inline.js)           | A canvas at the bottom of a scrolling log  |
+| [`canvas/05-fullscreen.js`](canvas/05-fullscreen.js)   | The alternate screen, given back           |
+| [`canvas/06-transitions.js`](canvas/06-transitions.js) | Four transitions over one mechanism        |
 
 The first two draw with ordinary characters — braille patterns and half blocks —
 so they need nothing from the terminal but the font. Each prints what the frame
@@ -221,6 +222,26 @@ node demos/canvas/05-fullscreen.js  # Ctrl-C it: the terminal comes back anyway
 Cmd-click the underlined text. In one that does not, you get the same words with
 no link and nothing broken, which is why setting the underline and the colour
 matters: they are what says "this is a link" when the link itself is invisible.
+
+`06-transitions.js` is a dissolve, a blue-noise dissolve, a wipe and an iris, and
+the point is that all four are the same six lines with a different generator:
+
+```sh
+node demos/canvas/06-transitions.js
+node demos/canvas/06-transitions.js | cat   # the end state of each, once
+```
+
+What cannot be faked in the `paint()` callback is that a transition needs the
+**previous screen's content**, and by the time anybody wants one the state that
+produced it is gone — `canvas.snapshot()` is that content and is the only thing
+here a caller could not write for themselves. Piped it prints one frame per
+state and no half-dissolved ones, which is not a special case: a backend with no
+terminal writes its text and returns before `canvas.present()` -- `render()` does
+call `backend.present()`, which is the method that skips the diff -- so there is
+nothing on screen to snapshot, the
+layer composites nothing, and every frame of the ramp is the end state. An
+animation with no screen to play on is one that has already finished, which is
+the same answer `SIGIL_REDUCED_MOTION=1` gives one layer up.
 
 ## The terminal
 

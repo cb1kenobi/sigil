@@ -1038,6 +1038,57 @@ it renders. That is what snapshots want, and what makes a failing layout test
 readable as a picture. `toString()` trims trailing blanks; `toLines()` does not,
 for when the exact width matters.
 
+#### Layers, masks, and transitions
+
+A frame may have **layers** composited over it: a second grid plus where its
+top-left sits relative to the canvas's, with an optional mask saying which of its
+cells show. The screen position a canvas refuses to know is a backend's; a
+layer's origin is canvas-relative, so it is a number the canvas may have.
+
+```js
+import { maskThreshold, wipeMask } from '@ttylabs/sigil/canvas';
+
+const mask = wipeMask(canvas.width, canvas.height);
+canvas.layers.push({ cells: canvas.snapshot(), mask, x: 0, y: 0 });
+
+for (let frame = 30; frame >= 0; frame--) {
+  mask.threshold = maskThreshold(frame / 30); // 1 reveals all of it, 0 none
+  canvas.paint(drawTheNewState);
+  process.stdout.write(canvas.present().output);
+}
+canvas.layers.length = 0;
+```
+
+`snapshot()` is the point. A dissolve can be faked in the `paint()` callback by
+painting conditionally; what cannot is that a transition needs the **previous
+screen's content**, and by the time anybody wants one the state that produced it
+is gone. That snapshot is the only thing here a caller could not write for
+themselves — the rest is `layers`, which is an ordinary array, and the last entry
+is on top.
+
+A mask is one byte per cell saying _when_ that cell shows, plus a threshold: a
+cell is in when `values[i] <= threshold`. `dissolveMask()` is a shuffled even
+ramp, `blueNoiseMask()` is the same ramp spread so no step of it clumps (and
+costs about 8ms to generate at 80x24, once), `wipeMask()` is a hard edge, and
+`irisMask()` is a circle opening out. Generate one **once** and ramp the
+threshold; a per-frame random flickers. `maskThreshold()` is the arithmetic
+between a fraction and a threshold, and it exists because both ends are off by
+one.
+
+A layer is live for as long as it is in `layers` — its style indices are swept
+with the canvas's, so a buffer taken out and put back across a sweep holds
+indices that moved. Leave it in with `threshold: -1`, which composites nothing. A
+resize drops the stack, because a transition spanning one is undefined. And
+`canvas.painter(cells)` is how a layer gets painted: a cell holds a style
+_index_, so a grid painted through a table of its own means something else here.
+
+Into a pipe the whole thing collapses to the end state, with no special case: a
+backend with no terminal returns before `canvas.present()` -- `render()` does call
+`backend.present()`, which is the method that writes the text and skips the diff
+-- so there is nothing on screen
+to snapshot, the layer composites nothing, and each frame of the ramp is the new
+state.
+
 #### What a backend owes it
 
 Movement is relative, and downward movement never scrolls — so **every row of the

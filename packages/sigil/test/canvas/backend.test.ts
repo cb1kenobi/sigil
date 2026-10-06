@@ -1,4 +1,9 @@
-import { createFullscreenCanvas, createInlineCanvas } from '../../src/canvas/index.js';
+import {
+	createFullscreenCanvas,
+	createInlineCanvas,
+	maskThreshold,
+	wipeMask,
+} from '../../src/canvas/index.js';
 import { createTerminal, type Terminal } from '../../src/terminal/index.js';
 import { Screen, screenStream } from './screen.js';
 import { describe, expect, it } from 'vitest';
@@ -173,6 +178,50 @@ describe('the inline backend', () => {
 		// and an evicted backend does not take the screen back
 		backend.render(lines('not', 'mine'));
 		expect(screen.written).toEqual(['log']);
+	});
+
+	it('should collapse a transition to its end state when this is not a terminal', () => {
+		// a pipe has no frames, so a dissolve there would be one line of
+		// half-dissolved content per tick down a log file -- the failure the
+		// reduced-motion rule names one layer up, where an animation with no screen
+		// to play on is "one that has already finished".
+		//
+		// It falls out rather than being arranged, and that is the part worth
+		// pinning: the plain path writes text and deliberately never calls
+		// `canvas.present()`, because there is nothing to repaint -- so `front` is
+		// never written, `snapshot()` holds nothing, a layer over it has no occupied
+		// cell to composite, and every frame is the new state. A caller gets the end
+		// state and one line of log, with the same six lines of transition code that
+		// dissolves on a terminal.
+		const chunks: string[] = [];
+		const terminal = createTerminal({
+			env: {},
+			isTTY: false,
+			proc: { on() {}, pid: 1, removeListener() {} } as never,
+			stdin: undefined,
+			stdout: { write: (chunk: string) => void chunks.push(chunk) } as never,
+		});
+		const backend = createInlineCanvas({ height: 1, terminal, width: 4 });
+		const { canvas } = backend;
+
+		backend.render(lines('old.'));
+		expect(canvas.snapshot().toString()).toBe('');
+
+		const mask = wipeMask(4, 1, 'left');
+		canvas.layers.push({ cells: canvas.snapshot(), mask, x: 0, y: 0 });
+		for (let step = 4; step >= 0; step--) {
+			mask.threshold = maskThreshold(step / 4);
+			backend.render(lines('new.'));
+		}
+		canvas.layers.length = 0;
+
+		expect(
+			chunks
+				.join('')
+				.split('\n')
+				.filter(Boolean)
+				.map((line) => line.trimEnd())
+		).toEqual(['old.', 'new.']);
 	});
 
 	it('should write plain frames when this is not a terminal', () => {
