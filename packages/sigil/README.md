@@ -1386,6 +1386,61 @@ SIGIL_REDUCED_MOTION=1 mycli    # or just: mycli | cat
 `Renderer.animating` says whether anything is in flight. There is no `onfinish`
 yet.
 
+### `sigil/themes`
+
+Themes sigil ships, as the CSS an app hands to `themedCascade({ theme })`.
+
+```js
+import { themedCascade } from '@ttylabs/sigil/theme';
+import { VIOLET } from '@ttylabs/sigil/themes';
+
+const cascade = themedCascade({ theme: VIOLET });
+```
+
+| Theme    | What it is                                                 |
+| -------- | ---------------------------------------------------------- |
+| `MONO`   | No colour at all — the seven roles told apart by attribute |
+| `VIOLET` | Magenta where the defaults are cyan                        |
+| `FOREST` | Green, with the cooler half of the sixteen behind it       |
+| `AMBER`  | Yellow and red, for a surface that reads warm              |
+
+Each is a value for every one of the seven roles — `.sigil-accent`,
+`.sigil-muted`, `.sigil-heading`, `.sigil-success`, `.sigil-error`, `.sigil-warn`,
+`.sigil-info` — which is the whole of what the role layer is for: seven
+declarations restyle a surface wearing a dozen component classes.
+
+**Import them by name.** They are separate exports of their own subpath so that a
+bundler drops the ones you did not take, which is measured rather than hoped for:
+an app importing `VIOLET` alone bundles `VIOLET` and shakes the other three out.
+The subpath is separate from `sigil/theme` for the other half of the same reason —
+`theme` is on the path of every app that draws a built-in, and these are not.
+
+There is deliberately **no map of them**, because an enumeration references every
+theme and so nothing is unreachable: with one, the same app bundled all four. An
+app offering a `--theme` option writes its own map of the themes it chose to
+offer, which is the honest version anyway.
+
+**Every colour in them is a palette index rather than a hex value**, and that is
+what makes a shipped theme safe on a background it cannot see. The tension is
+arithmetic: a colour bright enough to read on black is usually too light to read
+on white, and measured with WCAG contrast against both `#000` and `#fff`, every
+truecolor palette anybody reaches for has entries below 3:1 on one side. An index
+delegates the choice to the only actor that knows the background — the user's own
+terminal theme.
+
+Your own theme may use truecolor freely, since it knows its audience. What it owes
+in exchange is a `@media (prefers-color-scheme: light)` half, because a hex value
+picked against one background is a bet on that background. `dim` is the same
+question: SGR 2 blends the foreground _towards_ the background, so it is grey on
+black one way and grey on white the other. `MONO` is the only theme here that uses
+it, and it carries that half.
+
+Switching at runtime **adds** a sheet rather than replacing one, because a
+`Cascade` has `add` and no `remove` — so a property the new theme does not mention
+keeps whatever the last one said. An app picking one theme at startup never meets
+this; a theme _switcher_ prepends a rule turning every role's properties off, which
+is what `demos/style/04-theme-switcher.js` does and why.
+
 ### `sigil/signals`
 
 The reactive core, shaped like the [TC39 Signals proposal][signals] (stage 1)

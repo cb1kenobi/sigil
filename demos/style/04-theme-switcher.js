@@ -1,36 +1,41 @@
 /**
- * A theme is seven declarations, and they restyle the whole surface.
+ * The themes sigil ships, swapped under a live frame.
  *
  *   pnpm build
  *   node demos/style/04-theme-switcher.js        <- needs a terminal; 1-5 switch, q quits
  *   node demos/style/04-theme-switcher.js | cat  <- the same themes, rendered one after another
+ *   SIGIL_COLOR_SCHEME=light node demos/style/04-theme-switcher.js
+ *   NO_COLOR=1 node demos/style/04-theme-switcher.js
  *
  * `02-themes.js` is the mechanism: a theme is a stylesheet origin, so restyling a
- * built-in is an ordinary rule. This one is the *vocabulary*. Every declaration
- * the framework shares between two built-ins is on a **role** --
+ * built-in is an ordinary rule. This is the *vocabulary* and what ships with it.
+ *
+ * Every declaration the framework shares between two built-ins is on a **role** --
  * `.sigil-accent`, `.sigil-muted`, `.sigil-heading`, `.sigil-success`,
  * `.sigil-error`, `.sigil-warn`, `.sigil-info` -- and an element carries its
- * component class and its role together.
+ * component class and its role together. So the panel below wears a dozen
+ * component classes and each theme sets exactly seven things. Before the roles,
+ * "de-emphasise what the framework de-emphasises" meant finding
+ * `.sigil-prompt-hint`, `.sigil-prompt-answer`, `.sigil-prompt-placeholder`,
+ * `.sigil-choice-hint`, `.sigil-help-note` and `.sigil-decrypt-cipher` and writing
+ * all six.
  *
- * So the panel below wears a dozen component classes and every theme here sets
- * exactly seven things. Before the roles, "de-emphasise what the framework
- * de-emphasises" meant finding `.sigil-prompt-hint`, `.sigil-prompt-answer`,
- * `.sigil-prompt-placeholder`, `.sigil-choice-hint`, `.sigil-help-note` and
- * `.sigil-decrypt-cipher` and writing all six.
+ * The four named themes come from `@ttylabs/sigil/themes`, which an app imports by
+ * name so that a bundler drops the ones it did not take -- measured: an app
+ * importing `VIOLET` alone bundles `VIOLET` and shakes the other three out.
  *
- * Two things worth noticing in the themes themselves.
+ * Every colour in them is a palette index rather than a hex value, which is what
+ * makes a shipped theme safe on a background it cannot see. The tension is
+ * arithmetic: a colour bright enough to read on black is usually too light to read
+ * on white, and measured with WCAG contrast against both, every truecolor palette
+ * anybody reaches for has entries below 3:1 on one side. An index delegates the
+ * choice to the only actor that knows the background -- the user's own terminal
+ * theme. An app's own theme may use truecolor freely, and owes the other scheme a
+ * `@media (prefers-color-scheme: light)` half when it does.
  *
- * None of them de-emphasises with `dim`, and that is deliberate: SGR 2 blends the
- * foreground *towards the background*, so it is grey on black one way and grey on
- * white the other. The framework's own sheet uses `dim` and carries a light half
- * for exactly that reason; a theme that uses a colour needs no second half, which
- * is the easier thing to get right. Run any of this under
- * `SIGIL_COLOR_SCHEME=light` to see the framework's half switch.
- *
- * And a theme that only works in colour is not a theme: `NO_COLOR=1` drops every
- * colour *and* every attribute, so run it that way to see the panel with the
- * roles doing nothing at all. It still has to read, which is why no line here
- * depends on colour to say what it is -- the marks carry that.
+ * `NO_COLOR=1` drops every colour *and* every attribute, so run it that way to see
+ * the panel with the roles doing nothing at all. It still has to read, which is why
+ * no line here depends on colour to say what it is -- the marks carry that.
  */
 import { supportsColor } from '@ttylabs/sigil/ansi';
 import { table } from '@ttylabs/sigil/components';
@@ -39,87 +44,54 @@ import { createInput, isAbort } from '@ttylabs/sigil/input';
 import { render } from '@ttylabs/sigil/renderer';
 import { parseStylesheet } from '@ttylabs/sigil/style';
 import { parseTheme, themedCascade } from '@ttylabs/sigil/theme';
+import { AMBER, FOREST, MONO, VIOLET } from '@ttylabs/sigil/themes';
+
+/** The seven roles, which is the whole of what a theme is a value for. */
+const ROLES = ['accent', 'muted', 'heading', 'success', 'error', 'warn', 'info'];
 
 /**
- * The themes. Each one gives a colour to every role, every time.
+ * Every property any theme here sets, turned off for every role.
  *
- * That is not tidiness, it is the mechanism: switching **adds** a sheet at origin
- * `theme` over the last one, because a cascade can `add` a sheet and cannot take
- * one away. So a property the new theme leaves out keeps whatever the previous
- * theme said -- miss `.sigil-error` out of one of these and the last theme's red
- * is still on screen under the new one's name.
+ * A switcher needs this and an app does not, which is the distinction worth
+ * drawing: an app picks one theme at startup and never switches, while switching
+ * **adds** a sheet over the last one because a `Cascade` has `add` and no `remove`.
+ * So a property the new theme does not mention keeps whatever the old one said --
+ * measured, going from `MONO` to `VIOLET` left MONO's `underline` on the heading,
+ * its `inverse` on the error and its `italic` on the info line, because a colour
+ * theme has no reason to mention any of them.
  *
- * Two consequences worth seeing rather than being told.
- *
- * `sigil` restates the defaults instead of being the absence of a sheet, since
- * there is nothing to remove -- going back means saying them again. It is named
- * for what ships rather than `framework`, which is taken: that is the *origin*
- * the real defaults sit at, and this one is an ordinary theme at origin `theme`
- * like the other four. It is also the only one here with a light half, because it
- * is the only one that de-emphasises with `dim`: SGR 2 blends the foreground
- * *towards* the background, so it is grey on black one way and grey on white the
- * other, and a theme using it owes the other scheme a rule. Try
- * `SIGIL_COLOR_SCHEME=light`.
- *
- * And every colour theme says `dim: false` on `.sigil-muted`. A theme overrides
- * per *property*, so a theme that only sets a colour inherits the framework's
- * `dim: true` and the text comes out dim **and** coloured. `color: initial` is the
- * other half of the same rule: it is how a theme says "nothing here" rather than
- * leaving the last theme's value standing.
+ * Prepending this makes each switch complete whatever came before it. It is also
+ * why `sigil` below has to restate the defaults rather than being the absence of a
+ * sheet: there is nothing to remove, so going back means saying them again.
  */
+const RESET = ROLES.map(
+	(role) =>
+		`.sigil-${role} { color: initial; dim: false; font-weight: normal; ` +
+		`text-decoration: none; inverse: false; italic: false }`
+).join('\n');
+
+/** The framework's own defaults, restated so that the switcher can return to them. */
+const SIGIL = `
+.sigil-accent { color: cyan }
+.sigil-muted { dim: true }
+.sigil-heading { font-weight: bold }
+.sigil-success { color: green }
+.sigil-error { color: red }
+.sigil-warn { color: yellow }
+.sigil-info { color: blue }
+
+@media (prefers-color-scheme: light) {
+	.sigil-muted { color: gray; dim: false }
+}
+`;
+
+/** What a number key selects. `sigil` first, because it is what you start on. */
 const THEMES = [
-	[
-		'sigil',
-		`.sigil-accent { color: cyan }
-		 .sigil-muted { color: initial; dim: true }
-		 @media (prefers-color-scheme: light) { .sigil-muted { color: gray; dim: false } }
-		 .sigil-heading { color: initial }
-		 .sigil-success { color: green }
-		 .sigil-error { color: red }
-		 .sigil-warn { color: yellow }
-		 .sigil-info { color: blue }`,
-	],
-	[
-		'ember',
-		`.sigil-accent { color: #ff7b29 }
-		 .sigil-muted { color: #8a6a55; dim: false }
-		 .sigil-heading { color: #ffd166 }
-		 .sigil-success { color: #c2d94c }
-		 .sigil-error { color: #ff4d4d }
-		 .sigil-warn { color: #ffb300 }
-		 .sigil-info { color: #d98cff }`,
-	],
-	[
-		'ocean',
-		`.sigil-accent { color: #35d0ba }
-		 .sigil-muted { color: #5c7a8a; dim: false }
-		 .sigil-heading { color: #9fe8ff }
-		 .sigil-success { color: #4fd6a0 }
-		 .sigil-error { color: #ff6b8a }
-		 .sigil-warn { color: #ffd479 }
-		 .sigil-info { color: #7aa2f7 }`,
-	],
-	[
-		'grape',
-		`.sigil-accent { color: magenta }
-		 .sigil-muted { color: #7a6b8a; dim: false }
-		 .sigil-heading { color: #e0b0ff }
-		 .sigil-success { color: #9fe88a }
-		 .sigil-error { color: #ff5d8f }
-		 .sigil-warn { color: #ffc94d }
-		 .sigil-info { color: #8ab4ff }`,
-	],
-	[
-		'paper',
-		// for a light terminal: the same seven roles, picked to sit on white
-		`.sigil-accent { color: #0b6e99 }
-		 .sigil-muted { color: #6b6b6b; dim: false }
-		 .sigil-heading { color: #1a1a1a }
-		 .sigil-success { color: #1b7f3b }
-		 .sigil-error { color: #b3261e }
-		 .sigil-warn { color: #8a5a00 }
-		 .sigil-info { color: #3b4ea8 }`,
-	],
+	['sigil', SIGIL],
+	['mono', MONO],
+	['violet', VIOLET],
+	['forest', FOREST],
+	['amber', AMBER],
 ];
 
 const ROWS = [
@@ -141,8 +113,10 @@ const ROWS = [
 const layout = parseStylesheet(`
 	.panel { flex-direction: column; width: 48; border: round; padding: 1 }
 	.row { flex-direction: row; column-gap: 1 }
-	.bar { height: 1; width: 24 }
 `);
+
+/** A theme as the switcher applies it: complete, whatever was applied before it. */
+const sheetFor = (css) => parseTheme(`${RESET}\n${css}`);
 
 /**
  * The panel, wearing the classes the built-ins really emit.
@@ -180,7 +154,7 @@ function panel(name, keys) {
 		// of them, so that adding a theme cannot push the line off the panel
 		...(keys === undefined
 			? []
-			: [text('', {}), ...keys.map((line) => text(line, { class: 'sigil-help-note sigil-muted' }))])
+			: [text('', {}), ...keys.map((row) => text(row, { class: 'sigil-help-note sigil-muted' }))])
 	);
 
 	return { heading, view };
@@ -193,11 +167,11 @@ function panel(name, keys) {
  * rather than written out -- a hint naming four of five themes is worse than no
  * hint, because it reads as though the fifth key does nothing.
  *
- * Laid out as a padded grid rather than one wrapping line, because wrapping
- * breaks on whitespace and the gap between a key and its theme is whitespace: at
- * this width a single line put `3` at the end of one row and `ocean` at the start
- * of the next. `q` is one more entry rather than a line of its own, since it is a
- * key like the others.
+ * Laid out as a padded grid rather than one wrapping line, because wrapping breaks
+ * on whitespace and the gap between a key and its theme is whitespace: at this
+ * width a single line put `3` at the end of one row and the name at the start of
+ * the next. `q` is one more entry rather than a line of its own, since it is a key
+ * like the others.
  */
 function keyHint() {
 	const entries = [...THEMES.map(([name], i) => `${String(i + 1)} ${name}`), 'q quit'];
@@ -234,23 +208,20 @@ function piped() {
 	// the environment, so a block would otherwise disagree with itself
 	const colorLevel = supportsColor({
 		// `TERM` only where the environment has none, so that the one thing able to
-		// turn this off is the user: `NO_COLOR` and `FORCE_COLOR=0` are somebody
-		// saying something, where a pipe and a missing `TERM` are only a destination
+		// turn this off is the user
 		env: { TERM: 'xterm-256color', ...process.env },
 		stream: { columns: 80, isTTY: true },
 	});
 
 	for (const [name, css] of THEMES) {
-		const cascade = themedCascade({ sheets: [layout], theme: css });
+		const cascade = themedCascade({ sheets: [layout], theme: `${RESET}\n${css}` });
 
 		console.log(renderToString(panel(name).view, { cascade, colorLevel, width: 50 }));
 		console.log(table(ROWS, { colorLevel, indent: 2, sheets: [layout], theme: css }));
 		console.log();
 	}
 
-	console.log(
-		`On a terminal this is one panel instead, with ${keyHint().join('  ').replace(/\s+/gu, ' ')}.`
-	);
+	console.log(`On a terminal this is one panel instead, with ${keyHint().join('  ')}.`);
 }
 
 /** One tree, one renderer, and a number key swaps the sheet under it. */
@@ -260,7 +231,8 @@ function live() {
 	// the cascade is kept, because switching is a sheet added to *this* one and a
 	// `touchSheets()` to say every rule it matched is stale. That is the one thing
 	// only the owner of a restyler can do, which is why the handle exposes it
-	const cascade = themedCascade({ sheets: [layout], theme: THEMES[0][1] });
+	const cascade = themedCascade({ sheets: [layout] });
+	cascade.add(sheetFor(SIGIL));
 
 	let heading;
 
@@ -290,7 +262,7 @@ function live() {
 			at = n - 1;
 			const [name, css] = THEMES[at];
 
-			cascade.add(parseTheme(css));
+			cascade.add(sheetFor(css));
 			// the heading names the theme, so it is the one thing the switch has to
 			// write rather than restyle
 			heading.setText(`theme: ${name}`);

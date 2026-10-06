@@ -3127,6 +3127,61 @@ exceptions that say why` is the invariant, and it reads the **parsed** sheet
   is the same object for the CLI, so nothing about a real run moved -- what it
   buys is that a report's light half is reachable from a test at all.
 
+- **The themes sigil ships are their own subpath, and every colour in them is a
+  palette index.** `@ttylabs/sigil/themes` holds `MONO`, `VIOLET`, `FOREST` and
+  `AMBER` as CSS string constants, each a value for all seven roles. Two
+  measurements shaped it and both were taken rather than assumed.
+
+  **A separate subpath, because `./theme` is on everyone's path.**
+  `components.mjs` and `help` both import it -- it is where `themedCascade()` is,
+  which is the one place every built-in's cascade comes from -- so putting the
+  themes there taxes every unbundled app for themes most of them never name. On
+  their own subpath they cost nothing unless imported, and 1.26 kB when they are.
+
+  **Named exports rather than a subpath each, because that is what shakes.** An
+  app importing `VIOLET` alone bundles `VIOLET` and drops the other three,
+  verified by bundling a fixture and grepping the chunks for a marker unique to
+  each. So `sigil/themes/violet` would buy nothing a named export does not --
+  which is worth knowing, because a subpath per theme is the obvious shape to
+  reach for.
+
+  **And there is deliberately no map of them.** The first version shipped a frozen
+  `Record` of all four beside them, which defeated the whole point: the map
+  references each one, so nothing is unreachable and the same app bundled all four.
+  Caught by measuring, not by reading. An app offering a `--theme` option writes its
+  own map of the themes it chose to offer, which is the honest version anyway, since
+  which themes an app offers is the app's decision.
+
+- **A shipped theme names palette indices because there is no hex value that is
+  safe on an unknown background.** The tension is arithmetic rather than
+  aesthetic: a colour bright enough to read on black is usually too light to read
+  on white. Measured with WCAG contrast against both `#000` and `#fff` over the
+  obvious candidates, **every** truecolor palette has entries below 3:1 on one side
+  -- `#ffd166` is 1.44:1 on white and `#1a1a1a` is 1.21:1 on black. The sixteen are
+  not colours but indices the user's own terminal theme resolves, so the choice goes
+  to the only actor that knows the background. That is not a guarantee, since yellow
+  on white is hard for any theme, and it is strictly better than this package
+  guessing. An **app's** theme may use truecolor freely and owes the other scheme a
+  light half when it does.
+
+  Found by shipping the defect first: a demo theme picked for a light terminal had
+  a near-black heading, which on the dark default was text nobody could see. The
+  guards are in `test/themes.test.ts` -- every role set, no hex or `rgb(`, every
+  resolved colour an index in 0-15, a light half wherever a theme sets `dim`, and
+  every role saying _something_ in both schemes, which is the one the near-black
+  heading would have failed.
+
+- **Switching a theme at runtime needs a reset prelude, and an app picking one does
+  not.** A `Cascade` has `add` and no `remove`, so a switch layers a sheet over the
+  last one and a property the new theme does not mention keeps whatever the old one
+  said. Measured: going from `MONO` to `VIOLET` left MONO's `underline` on the
+  heading, its `inverse` on the error and its `italic` on the info line, because a
+  colour theme has no reason to mention any of them. A switcher prepends a rule
+  turning every role's properties off, which is what
+  `demos/style/04-theme-switcher.js` does; it is also why the demo restates the
+  framework's own defaults as a theme rather than removing a sheet to get back to
+  them. This is a switcher's problem alone -- an app picks one theme at startup and
+  never meets it.
 - **Parsed once, and a cascade built per call.** A `Stylesheet` is frozen and a
   `Cascade` only reads it, so parsing per spinner would be the same work per
   component per process; the cascade differs per call because the sheets do, and

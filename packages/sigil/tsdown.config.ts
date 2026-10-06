@@ -80,6 +80,7 @@ const config: UserConfig = defineConfig({
 		template: './src/template/index.ts',
 		terminal: './src/terminal/index.ts',
 		theme: './src/theme/index.ts',
+		themes: './src/theme/themes.ts',
 		updates: './src/updates/index.ts',
 		width: './src/width/index.ts',
 		which: './src/which.ts',

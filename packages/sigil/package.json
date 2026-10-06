@@ -98,6 +98,10 @@
       "types": "./dist/theme.d.mts",
       "default": "./dist/theme.mjs"
     },
+    "./themes": {
+      "types": "./dist/themes.d.mts",
+      "default": "./dist/themes.mjs"
+    },
     "./updates": {
       "types": "./dist/updates.d.mts",
       "default": "./dist/updates.mjs"

@@ -119,14 +119,16 @@ what is left is the characters changing, which is the whole effect.
 | [`style/01-cascade.js`](style/01-cascade.js)               | Which declaration wins a property, and why        |
 | [`style/02-themes.js`](style/02-themes.js)                 | Restyling the built-ins, which is what a theme is |
 | [`style/03-animation.js`](style/03-animation.js)           | Transitions and keyframes, over whole cells       |
-| [`style/04-theme-switcher.js`](style/04-theme-switcher.js) | Seven roles, swapped under a live frame           |
+| [`style/04-theme-switcher.js`](style/04-theme-switcher.js) | The themes sigil ships, swapped live              |
 
 `01-cascade.js` prints its answers rather than drawing them, because the contest
 is the point. Each section is one contest between two declarations that both reach the
 same property; the last section is what the parser refuses and what it says
 about it. Edit a sheet in the file and re-run it — that is what it is for.
 
-`04-theme-switcher.js` is the vocabulary rather than the mechanism. Every
+`04-theme-switcher.js` is the vocabulary rather than the mechanism, and what ships
+with it: the four named themes come from `@ttylabs/sigil/themes`, which an app
+imports by name so a bundler drops the ones it did not take. Every
 declaration the framework shares between two built-ins is on a **role** —
 `.sigil-accent`, `.sigil-muted`, `.sigil-heading`, `.sigil-success`,
 `.sigil-error`, `.sigil-warn`, `.sigil-info` — and an element carries its
