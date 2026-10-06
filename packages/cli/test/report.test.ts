@@ -6,10 +6,12 @@ import {
 	reportLevel,
 	summaryView,
 	writeDiagnostics,
+	SEVERITY_ROLE,
 	writeNote,
 	writeSummary,
 } from '../src/report.js';
 import { ESC, hasAnsi, strip } from '@ttylabs/sigil/ansi';
+import { FRAMEWORK_CSS } from '@ttylabs/sigil/theme';
 import { stringWidth } from '@ttylabs/sigil/width';
 import { MAX_WIDTH } from '@ttylabs/sigil/wrap';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -578,14 +580,33 @@ describe('the toolchain report', () => {
 			// a walk rather than two examples, because the class is *computed* from the
 			// severity -- which is exactly how this broke: every other `cli-*` emission
 			// names its role as a literal, this one interpolated, and `sigil-warning` is
-			// not a role, so a warning's label came out unstyled with nothing to say so
-			const severities: Severity[] = ['error', 'warning'];
+			// not a role, so a warning's label came out unstyled with nothing to say so.
+			//
+			// The colour the role resolves to rather than `hasAnsi`, which was the first
+			// version of this and said nothing: the location prefix beside the label is
+			// `cli-location sigil-muted`, so it emits SGR 2 and the row holds a sequence
+			// whatever happened to the label. Pointing `SEVERITY_ROLE.warning` at a class
+			// no sheet defines left this green, which is a guard claiming more than it
+			// checks. 31 is red and 33 is yellow, and neither is reachable from anything
+			// else on the row
+			const expected: Record<Severity, number> = { error: 31, warning: 33 };
 
-			for (const severity of severities) {
+			for (const severity of ['error', 'warning'] as Severity[]) {
 				const out = render((width) => diagnosticsView([diagnostic({ severity })], { width }), WIDE);
 
-				expect(hasAnsi(out), severity).toBe(true);
+				expect(sgr(out), severity).toContain(expected[severity]);
 				expect(strip(out), severity).toContain(`${severity}:`);
+			}
+		});
+
+		it('should map every severity onto a role the framework sheet sets', () => {
+			// the other half of the walk above, and the half a render cannot make: a
+			// severity added to the union without a role is a type error, and one added
+			// *with* a role the sheet does not declare is a label nothing styles. There
+			// are two severities today and the map is keyed by the union, so this is
+			// exhaustive by construction
+			for (const [severity, role] of Object.entries(SEVERITY_ROLE)) {
+				expect(FRAMEWORK_CSS, severity).toContain(`.${role} {`);
 			}
 		});
 
@@ -606,14 +627,50 @@ describe('the toolchain report', () => {
 				...readFileSync(file, 'utf8').matchAll(/class: [`']([^`']*\bcli-[^`']*)[`']/gu),
 			]);
 
-			// the guard against the walk going quiet: these are known to exist, and a
-			// glob that matches nothing would otherwise pass this test for ever
-			expect(emitted.length).toBeGreaterThanOrEqual(8);
+			/*
+			 * The guard against the walk going quiet, and it names the sites rather than
+			 * counting them.
+			 *
+			 * A floor was the first version -- `>= 8` against the nine that exist -- and
+			 * deleting an emission outright left it green, which is the slack a count
+			 * always has. A set cannot: every name here is one somebody would have to
+			 * delete on purpose, and a tenth emission added later does not fail it.
+			 */
+			const names = new Set(
+				emitted.flatMap(([, classes]) => [...classes.matchAll(/\bcli-[a-z$]+/gu)].map(([m]) => m))
+			);
+
+			for (const name of [
+				'cli-app',
+				'cli-entry',
+				'cli-location',
+				'cli-note',
+				'cli-ok',
+				'cli-warning',
+			]) {
+				expect([...names], name).toContain(name);
+			}
+
+			// and the computed one, which is `cli-${severity}` in the source
+			expect([...names]).toContain('cli-$');
 
 			for (const [, classes] of emitted) {
-				// a literal role, or an interpolated lookup -- which is what the computed
-				// one has to be, since the two vocabularies do not line up
-				expect(classes, classes).toMatch(/sigil-[a-z]+|\$\{[A-Z_]+\[/u);
+				/*
+				 * The role has to be one the framework sheet really declares, not merely
+				 * something role-shaped. The old assertion was
+				 * `/sigil-[a-z]+|\$\{[A-Z_]+\[/`, which the interpolated emission
+				 * satisfies by its *spelling* -- so `SEVERITY_ROLE.warning` could point at
+				 * `sigil-warning`, a class no sheet defines, and this stayed green while
+				 * the label came out unstyled.
+				 */
+				const roles = [...classes.matchAll(/\bsigil-[a-z-]+/gu)].map(([m]) => m);
+				const computed = /\$\{SEVERITY_ROLE\[/u.test(classes) ? Object.values(SEVERITY_ROLE) : [];
+				const named = [...roles, ...computed];
+
+				expect(named, classes).not.toHaveLength(0);
+				for (const role of named) {
+					expect(FRAMEWORK_CSS, `${classes} -> ${role}`).toContain(`.${role} {`);
+				}
 			}
 		});
 	});

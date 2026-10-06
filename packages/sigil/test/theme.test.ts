@@ -1,6 +1,6 @@
 import { table } from '../src/components/index.js';
 import { box, renderToString, text } from '../src/element/index.js';
-import { parseStylesheet } from '../src/style/index.js';
+import { Cascade, parseStylesheet, type Stylesheet } from '../src/style/index.js';
 import { frameworkSheet, FRAMEWORK_CSS, parseTheme, themedCascade } from '../src/theme/index.js';
 import { describe, expect, it } from 'vitest';
 
@@ -119,20 +119,37 @@ describe('themedCascade()', () => {
 		);
 	});
 
-	// no specificity contest and no `!important`, which is only true because the
-	// defaults are an earlier origin rather than rules in the same one
-	it('should not need specificity to be overridden', () => {
-		const tree = box({}, text('x', { class: 'sigil-symbol is-success' }));
-		const themed = renderToString(tree, {
-			cascade: themedCascade({ theme: '.sigil-symbol { color: magenta }' }),
-			colorLevel: 1,
-			width: 5,
-		});
+	/*
+	 * The three origins, in the one arrangement that can tell the origin axis from
+	 * source order.
+	 *
+	 * `themedCascade()` pushes framework, then theme, then the app's own sheets --
+	 * which is origin order, so within anything it builds the two axes always agree
+	 * and no assertion over one can say which did the work. The rules are all
+	 * `(0,1,0)` on one role, so specificity cannot either. Added here in **reverse**
+	 * source order, the app's colour is the answer only if origin decides; sorting
+	 * by source order hands it to the framework.
+	 *
+	 * The test this replaces asserted a theme beating a compound `(0,2,0)` component
+	 * rule, and both halves of that had stopped being true: the role vocabulary
+	 * deleted every compound colour rule from the sheet, and the node it built
+	 * carried `sigil-symbol is-success` rather than a role -- so nothing in the
+	 * framework sheet matched it at all and the theme's rule was uncontested. It
+	 * passed with the origins inverted, which is a test saying nothing.
+	 */
+	it('should let a later origin beat an earlier one added after it', () => {
+		const tree = box({}, text('x', { class: 'sigil-error' }));
+		const app = parseStylesheet('.sigil-error { color: blue }');
+		const theme = parseTheme('.sigil-error { color: magenta }');
 
-		// the framework's `.sigil-symbol.is-success` is (0,2,0) and the theme's
-		// `.sigil-symbol` is (0,1,0), so specificity would keep green -- the origin
-		// is what makes the theme win
-		expect(themed).to.equal(`${ESC}[35mx${ESC}[0m`);
+		const over = (...sheets: Stylesheet[]) =>
+			renderToString(tree, { cascade: new Cascade(sheets), colorLevel: 1, width: 5 });
+
+		// app beats theme beats framework, with the framework's own sheet last in
+		// source order every time
+		expect(over(app, theme, frameworkSheet())).to.equal(`${ESC}[34mx${ESC}[0m`);
+		expect(over(theme, frameworkSheet())).to.equal(`${ESC}[35mx${ESC}[0m`);
+		expect(over(frameworkSheet())).to.equal(`${ESC}[31mx${ESC}[0m`);
 	});
 });
 

@@ -155,11 +155,16 @@ every theme gives every role a colour, and a role one of them left out would kee
 the previous theme's. A theme overrides per _property_, so a theme that sets only
 a colour on `.sigil-muted` inherits the framework's `dim: true` and comes out dim
 **and** coloured; `dim: false` is the fix and `color: initial` is how a theme says
-"nothing here". And only `sigil` carries a light half, because it is the only one
-that de-emphasises with `dim` at all — which is what `SIGIL_COLOR_SCHEME=light` is
-there to show. It is named for what ships rather than `framework`, because that
-name is taken: `framework` is the _origin_ the real defaults sit at, while this is
-an ordinary theme at origin `theme` like the other five.
+"nothing here". And every theme here carries a light half, which is what
+`SIGIL_COLOR_SCHEME=light` is there to show — but they are two different halves,
+and that is the part worth seeing. `sigil` and `MONO` de-emphasise with `dim`, so
+their light half moves that one declaration onto `gray`; the four colour themes
+have no `dim` to fix and instead carry a second _palette_ for white, inside
+`@media (min-color-level: 2) and (prefers-color-scheme: light)`. So the light run
+changes one role under `mono` and all seven under `violet`. `sigil` is named for
+what ships rather than `framework`, because that name is taken: `framework` is the
+_origin_ the real defaults sit at, while this is an ordinary theme at origin
+`theme` like the other five.
 
 The last row of the panel is a real hyperlink, and it is the one row a `text`
 could not be: `link` is a **canvas** style property rather than a cascade one, so

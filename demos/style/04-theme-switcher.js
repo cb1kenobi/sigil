@@ -2,7 +2,7 @@
  * The themes sigil ships, swapped under a live frame.
  *
  *   pnpm build
- *   node demos/style/04-theme-switcher.js        <- needs a terminal; 1-5 switch, q quits
+ *   node demos/style/04-theme-switcher.js        <- needs a terminal; 1-6 switch, q quits
  *   node demos/style/04-theme-switcher.js | cat  <- the same themes, rendered one after another
  *   SIGIL_COLOR_SCHEME=light node demos/style/04-theme-switcher.js
  *   NO_COLOR=1 node demos/style/04-theme-switcher.js
@@ -216,10 +216,24 @@ function hyperlink(label, url, props) {
 const ROW = { 'column-gap': 1, 'flex-direction': 'row' };
 
 function panel(name, keys) {
+	/*
+	 * One marked line. A mark of `undefined` reserves the column without drawing
+	 * in it, and `visibility: hidden` is the only way to do that: a `text` of
+	 * nothing but spaces measures **zero**, because `white-space: normal` collapses
+	 * a run of them, so the obvious `text(' ')` left every unmarked label one
+	 * column left of every marked one -- which is what the panel looked like until
+	 * a review round read it. Hidden content still takes its space, so the glyph
+	 * is a real one and the column is its own width rather than a guess at it.
+	 * `paintChoices()` reserves the pointer's column the same way, for the same
+	 * reason.
+	 */
 	const line = (mark, markClass, label, labelClass) =>
 		box(
 			{ class: 'row' },
-			text(mark, { class: markClass }),
+			text(mark ?? '·', {
+				class: markClass,
+				visibility: mark === undefined ? 'hidden' : 'visible',
+			}),
 			text(label, { class: labelClass ?? '' })
 		);
 
@@ -229,7 +243,14 @@ function panel(name, keys) {
 	const choice = (on, label, hint) =>
 		box(
 			{ class: on ? 'sigil-choice is-active sigil-accent' : 'sigil-choice', ...ROW },
-			text(on ? '❯' : ' ', { class: on ? 'sigil-symbol sigil-accent' : '' }),
+			// `sigil-choice-pointer` and `visibility`, which is what `paintChoices()`
+			// emits: the pointer carries no role and takes the accent by inheritance
+			// from the row, and the column is reserved on every row whether or not
+			// there is a pointer in it
+			text('❯', {
+				class: on ? 'sigil-choice-pointer' : '',
+				visibility: on ? 'visible' : 'hidden',
+			}),
 			text(on ? '◉' : '◯', {
 				class: on ? 'sigil-choice-mark is-on sigil-success' : 'sigil-choice-mark',
 			}),
@@ -243,10 +264,24 @@ function panel(name, keys) {
 		text('', {}),
 
 		// a prompt, answered and unanswered
-		line('?', 'sigil-symbol sigil-accent', 'what is your name?', 'sigil-prompt-message'),
-		line(' ', '', 'press enter to accept', 'sigil-prompt-hint sigil-muted'),
-		line('✔', 'sigil-symbol is-success sigil-success', 'name', 'sigil-prompt-message'),
-		line(' ', '', 'ada', 'sigil-prompt-answer sigil-muted'),
+		line(
+			'?',
+			'sigil-symbol sigil-accent',
+			'what is your name?',
+			// `promptHead()` emits both: the message is a heading, so bold lives on the
+			// role rather than on the component class. Writing the component class
+			// alone is what the panel did until a review round compared it with the
+			// emission, and it came out normal weight on every theme
+			'sigil-prompt-message sigil-heading'
+		),
+		line(undefined, '', 'press enter to accept', 'sigil-prompt-hint sigil-muted'),
+		line(
+			'✔',
+			'sigil-symbol is-success sigil-success',
+			'name',
+			'sigil-prompt-message sigil-heading'
+		),
+		line(undefined, '', 'ada', 'sigil-prompt-answer sigil-muted'),
 		text('', {}),
 
 		// a choice list, which is where the accent and the success mark meet
@@ -256,10 +291,15 @@ function panel(name, keys) {
 		text('', {}),
 
 		// the four outcomes a spinner settles on
-		line('✔', 'sigil-symbol is-success sigil-success', 'built in 1.2s'),
-		line('✖', 'sigil-symbol is-error sigil-error', 'two type errors'),
-		line('▲', 'sigil-symbol is-warn sigil-warn', 'no baseDir declared'),
-		line('ℹ', 'sigil-symbol is-info sigil-info', 'cached from a previous run'),
+		line('✔', 'sigil-symbol is-success sigil-success', 'built in 1.2s', 'sigil-spinner-text'),
+		line('✖', 'sigil-symbol is-error sigil-error', 'two type errors', 'sigil-spinner-text'),
+		line('▲', 'sigil-symbol is-warn sigil-warn', 'no baseDir declared', 'sigil-spinner-text'),
+		line(
+			'ℹ',
+			'sigil-symbol is-info sigil-info',
+			'cached from a previous run',
+			'sigil-spinner-text'
+		),
 		text('', {}),
 
 		// a progress bar with its label and percentage, and a spinner mid-spin
@@ -267,7 +307,10 @@ function panel(name, keys) {
 			ROW,
 			text('bundling', { class: 'sigil-progress-label' }),
 			text('████████████░░░░░░░░░░', { class: 'sigil-progress-bar sigil-accent' }),
-			text('55%', { class: 'sigil-progress-percent sigil-muted' })
+			// no role, which is what `progressView()` emits: the percentage is the
+			// terminal's own foreground, and giving it `sigil-muted` here made the
+			// panel's bar read as dimmer than a real one
+			text('55%', { class: 'sigil-progress-percent' })
 		),
 		line('⠹', 'sigil-spinner-frame sigil-accent', 'resolving dependencies', 'sigil-spinner-text'),
 		text('', {}),
@@ -360,8 +403,16 @@ function piped() {
 		stream: { columns: 80, isTTY: true },
 	});
 
+	// the theme on its own rather than through `sheetFor()`, because this branch
+	// builds a *fresh* cascade per theme and so has nothing to reset -- which is the
+	// point: what an app gets is one theme at startup, and that is what should be on
+	// screen here. Prepending RESET made the two renders below disagree, and
+	// measurably: VIOLET sets only `color` on `.sigil-heading`, so RESET's
+	// `font-weight: normal` reached the panel's table head while the `table()` under
+	// it kept the framework's bold -- one theme printed two ways, under a header
+	// calling them the same
 	for (const [name, css] of THEMES) {
-		const cascade = themedCascade({ sheets: [layout], theme: `${RESET}\n${css}` });
+		const cascade = themedCascade({ sheets: [layout], theme: css });
 
 		console.log(renderToString(panel(name).view, { cascade, colorLevel, width: 58 }));
 		console.log(table(ROWS, { colorLevel, indent: 2, sheets: [layout], theme: css }));

@@ -69,8 +69,11 @@ export const FRAMEWORK_CSS = `
  * placeholder, an answer, a choice hint and a decrypt's cipher cells, which were
  * six rules to find and write before. A role is a single class, so a theme or an
  * app beats it with a single class -- and beats it by *origin* rather than by
- * specificity, which is what lets one (0,1,0) role rule override a compound
- * component rule the framework wrote at (0,2,0).
+ * specificity, which is what makes that enough: every rule in this sheet is
+ * (0,1,0) now, so a one-class theme rule meets a one-class default and the origin
+ * is the only axis left to decide it. The compound (0,2,0) colour rules this used
+ * to say it beat -- .sigil-symbol.is-success and its siblings -- are gone, because
+ * the role is where that colour went.
  *
  * An element carries its component class and its role class together, and a
  * property is set by one or the other and never by both: two rules of equal
@@ -79,8 +82,8 @@ export const FRAMEWORK_CSS = `
  * what the framework says about them, and the component rules under them are what
  * is left -- the declarations with exactly one site.
  *
- * Six roles, and which six is the evidence's to say rather than the ticket's. It
- * named label, description and hint: hint is de-emphasis, which is
+ * Seven roles, and which seven is the evidence's to say rather than the ticket's.
+ * It named label, description and hint: hint is de-emphasis, which is
  * muted, and the other two carry no declaration anywhere in this sheet -- a
  * role nothing sets is the empty rule this file already refuses one line down. It
  * did not name accent, which is the most repeated colour there is: the question

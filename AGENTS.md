@@ -3136,12 +3136,18 @@ exceptions that say why` is the invariant, and it reads the **parsed** sheet
   `components.mjs` and `help` both import it -- it is where `themedCascade()` is,
   which is the one place every built-in's cascade comes from -- so putting the
   themes there taxes every unbundled app for themes most of them never name. On
-  their own subpath they cost nothing unless imported, and 1.26 kB when they are.
+  their own subpath they cost nothing unless imported: `themes.mjs` is **4,062
+  bytes** of string constants and **imports nothing at all**, so an app that names
+  one drags in no module behind it. The figure here used to read 1.26 kB, which was
+  four themes with a base half each and went stale when the second palette and
+  `NEON` landed.
 
   **Named exports rather than a subpath each, because that is what shakes.** An
-  app importing `VIOLET` alone bundles `VIOLET` and drops the other three,
+  app importing `VIOLET` alone bundles `VIOLET` and drops the other **four**,
   verified by bundling a fixture and grepping the chunks for a marker unique to
-  each. So `sigil/themes/violet` would buy nothing a named export does not --
+  each -- re-measured when the fifth theme landed: a one-import entry comes out at
+  **938 bytes** with four of the five markers absent, against 3,966 bytes of CSS in
+  the module. So `sigil/themes/violet` would buy nothing a named export does not --
   which is worth knowing, because a subpath per theme is the obvious shape to
   reach for.
 
@@ -3389,8 +3395,7 @@ is proved.
   cascade's own answer stands -- which for `themedCascade()` is what the environment
   knew and for a bare `Cascade` is the frozen dark -- and the context is put back
   exactly as it was found, which is the rule that path already keeps.
-- **The framework sheet's light half is five declarations, and its size is the
-  finding.** Every colour in that sheet is a palette index, and the basic sixteen
+- **The framework sheet's light half is one rule, and its size is the finding.** Every colour in that sheet is a palette index, and the basic sixteen
   are whatever the user's terminal theme says they are -- so there is nothing in
   them to fix conditionally, which is the rule working rather than a gap, and it is
   also exactly why an _app_ or a _theme_ needs this: a `#666` somebody wants for
@@ -3404,6 +3409,15 @@ is proved.
   and it is still legible. Conservative deliberately: the states, the symbols and
   the bars are left alone, because a palette colour is already right for them and
   changing one would be inventing a problem.
+
+  It is **one** rule rather than the five declarations this entry used to record,
+  and the role vocabulary is what collapsed it: `dim` is `.sigil-muted`'s now, so
+  the one place a light terminal needs a different answer is the one rule that says
+  it -- where before it was `.sigil-help-note`, `.sigil-prompt-hint`,
+  `.sigil-prompt-answer`, `.sigil-choice-hint` and `.sigil-decrypt-cipher` each
+  saying it separately, which is five chances to leave one out. That is the
+  argument for the roles stated as a number.
+
 - **`FRAMEWORK_CSS` is a template literal, so it holds no backtick and no
   `${`.** Written down because the failure is not local: a backtick in a comment
   inside that string ends the sheet, and what `tsc` then reports is a syntax error

@@ -286,8 +286,14 @@ export function diagnosticsView(
  *
  * Keyed by the union rather than by `string`, so a severity added without a role
  * is a type error here rather than an uncoloured label on somebody's screen.
+ *
+ * Exported for the reason `rawJsxIn()` is: this is the one `cli-*` emission whose
+ * role is *computed*, so the invariant that every one of them names a role the
+ * framework sheet really sets cannot be read off the source the way the other
+ * eight can. Nothing outside this package can see it -- the toolchain publishes a
+ * bin and nothing else -- so it costs no API to make the claim checkable.
  */
-const SEVERITY_ROLE: Record<Severity, string> = {
+export const SEVERITY_ROLE: Record<Severity, string> = {
 	error: 'sigil-error',
 	warning: 'sigil-warn',
 };

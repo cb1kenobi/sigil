@@ -574,8 +574,12 @@ describe('a terminal', () => {
 	it('should colour the severity', () => {
 		const opened = sgr(laidOut.err);
 
-		// 33 is yellow, which `.cli-warning` sets, and 2 is the dim the location
-		// carries. Parameters rather than bytes, for the reason `sgr()` records
+		// 33 is yellow, which `.sigil-warn` sets, and 2 is the dim the location
+		// carries through `.sigil-muted`. Both were `.cli-*` rules of the toolchain's
+		// own until the role vocabulary deleted that sheet; the parameters did not
+		// move, which is why these two assertions stayed green over the change and
+		// the comment above them did not. Parameters rather than bytes, for the
+		// reason `sgr()` records
 		expect(opened, laidOut.err).toContain(33);
 		expect(opened, laidOut.err).toContain(2);
 	});
@@ -583,8 +587,9 @@ describe('a terminal', () => {
 	it('should colour an error differently from a warning', () => {
 		const opened = sgr(brokenLaidOut.err);
 
-		// 31 is red, which `.cli-error` sets. This fixture has one of each, so both
-		// are on screen at once and the two classes cannot have collapsed into one
+		// 31 is red, which `.sigil-error` sets -- `.cli-error` until the roles landed.
+		// This fixture has one of each, so both are on screen at once and the two
+		// severities cannot have collapsed onto one role
 		expect(opened, brokenLaidOut.err).toContain(31);
 		expect(opened, brokenLaidOut.err).toContain(33);
 	});

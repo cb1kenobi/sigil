@@ -6,13 +6,18 @@
  * two built-ins share on a role, so seven declarations restyle a surface wearing a
  * dozen component classes.
  *
- * ## Two palettes per theme, picked by the terminal rather than by the app
+ * ## Two palettes per colour theme, picked by the terminal rather than by the app
  *
- * Each theme names the basic sixteen first and then a richer set inside
- * `@media (min-color-level: 2)`, per scheme. So a 16-colour terminal gets the
- * user's own palette, a 256-colour one gets the shade the theme actually wanted,
- * and a light background gets a value picked for white -- with no `if` anywhere in
- * the app, because the cascade already answers all three questions.
+ * Each of the four colour themes names the basic sixteen first and then a richer
+ * set inside `@media (min-color-level: 2)`, per scheme. So a 16-colour terminal
+ * gets the user's own palette, a 256-colour one gets the shade the theme actually
+ * wanted, and a light background gets a value picked for white -- with no `if`
+ * anywhere in the app, because the cascade already answers all three questions.
+ *
+ * `MONO` is the one with a single half, and that is what it is rather than an
+ * omission: it names no colour, so there is no shade for a richer terminal to
+ * improve on. Its light half is about `dim`, which is the one declaration whose
+ * legibility depends on which way the background goes.
  *
  * That is why there is no `VIOLET_256` beside `VIOLET`. A pair of exports makes
  * the app choose, which means reading `ansi.level` and the scheme at startup and

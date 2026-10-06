@@ -1410,11 +1410,16 @@ Each is a value for every one of the seven roles — `.sigil-accent`,
 `.sigil-info` — which is the whole of what the role layer is for: seven
 declarations restyle a surface wearing a dozen component classes.
 
-**Each carries two palettes.** The basic sixteen first, then a richer set inside
-`@media (min-color-level: 2)`, written per scheme. So a 16-colour terminal gets
-the user's own palette, a 256-colour one gets the shade the theme actually wanted,
-and a light background gets a value picked for white — with no `if` anywhere in
-your app, because the cascade already answers all three questions.
+**Each colour theme carries two palettes.** The basic sixteen first, then a richer
+set inside `@media (min-color-level: 2)`, written per scheme. So a 16-colour
+terminal gets the user's own palette, a 256-colour one gets the shade the theme
+actually wanted, and a light background gets a value picked for white — with no
+`if` anywhere in your app, because the cascade already answers all three questions.
+
+`MONO` is the one without a second palette, and that is what it is: it names no
+colour at all, so there is no shade for a richer terminal to improve on. Its own
+`@media (prefers-color-scheme: light)` half is about `dim` rather than about a
+palette, for the reason the framework sheet's is.
 
 That is why there is no `VIOLET_256` beside `VIOLET`. A pair of exports makes the
 app choose, which means reading `ansi.level` and the scheme at startup and getting
