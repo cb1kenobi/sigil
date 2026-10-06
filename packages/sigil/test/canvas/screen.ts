@@ -71,7 +71,11 @@ export class Screen {
 	 *
 	 * The *most recent* rather than a list, because what a test asks is where the
 	 * caret is now: a frame repaints, and the caret is the last thing painted in
-	 * the one tree that draws one.
+	 * the one tree that draws one. A plain write to the recorded cell clears it,
+	 * since a cell cannot be both -- but a frame that draws **no** caret anywhere
+	 * leaves the last one in place, because this model has no notion of a frame to
+	 * hang a reset on. A test asking whether a caret went away reads the bytes for
+	 * `ESC[7m` instead, which is what `should go once the prompt is answered` does.
 	 */
 	lastInverse: { column: number; row: number } | undefined;
 
@@ -350,6 +354,9 @@ export class Screen {
 			this.#buffer.rows[this.row][this.column] = ch;
 			if (this.#inverse) {
 				this.lastInverse = { column: this.column, row: this.row };
+			} else if (this.lastInverse?.column === this.column && this.lastInverse.row === this.row) {
+				// a cell cannot be both, and the recorded one has just been painted over
+				this.lastInverse = undefined;
 			}
 
 			if (this.column === this.width - 1) {

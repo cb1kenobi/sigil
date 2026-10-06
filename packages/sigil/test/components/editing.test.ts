@@ -186,6 +186,12 @@ describe('wordBefore()', () => {
 	it('should clamp an offset past the end', () => {
 		expect(wordBefore('one two', 99)).to.equal(4);
 	});
+
+	it('should clamp an offset below the start, which would come back negative', () => {
+		// the loop breaks at once for a negative offset, so without the clamp the
+		// fallback hands the offset itself back -- a cursor outside the value
+		expect(wordBefore('one two', -5)).to.equal(0);
+	});
 });
 
 describe('wordAfter()', () => {

@@ -12362,8 +12362,16 @@ genuinely new thing is a `raw`-backed field with a goal column over it.
   "text, caret, text" flowing across wrapped rows. So the field is the third
   host type -- the one designed in for what the layout engine cannot express:
   it measures like a text, it paints its own cells, the value is wrapped once,
-  and the caret is a cell coordinate derived from an offset. This is `raw`'s
-  first caller inside the framework that is not a picture.
+  and the caret is a cell coordinate derived from an offset.
+
+  The **second** caller inside the framework that is not a picture, and the
+  decrypt block is the first -- which is worth being right about rather than
+  claiming a first, because that block is this one's precedent in three separate
+  places: two `raw` layers over one rectangle, `drawsText` rather than
+  `selectable: true`, and a component wrapping its own cells because a cell is
+  not a cluster. The scroll bar's thumb is a picture; a decrypt cell is a
+  character, exactly as a field's is.
+
 - **The caret marks the cluster at the cursor, which is the one rule that
   answers "end of this row or start of the next" without a second rule.** It is
   the single-line field's own rule -- reverse video over a whole grapheme
@@ -12558,16 +12566,26 @@ wrap a line too wide for the field without touching the value` asserts the
   `Math.min(NaN, anything)` is `NaN`, so a `rows` of `NaN` reached the measure as
   a height of `NaN` and the layout engine was handed a box no arithmetic can
   place -- and a fraction reached it as a fractional height, which is the thing a
-  declaration is refused for. `Infinity` is fine on its own, because the
-  terminal's own cap is the other half of that `Math.min`, and it goes through
-  `rowCap()` anyway so that one function answers for every value rather than
-  three guards agreeing. A `submit.name` of `''` is a key `decodeKeys()` never
+  declaration is refused for.
+
+  `Infinity` **passes through**, unlike the typewriter's interval, and the
+  difference is what the value means: there it is a wait with no end, and here it
+  is a field with no cap of its own, which the terminal's own `Math.min` then
+  bounds. Said precisely because the first version of this entry said it and the
+  code did the opposite -- a `Number.isFinite()` beside the `>= 1` refused
+  `Infinity` while both this entry and the function's own comment claimed the
+  `Math.min` was what limited it. `rows >= 1` is the whole of what refuses `NaN`,
+  since every comparison against it is false, so the second guard was buying
+  nothing and costing the one value the prose named. Found by the second review
+  round, pointed at the prose rather than at the code -- which is this file's own
+  recorded experience about where a second round's findings come from. A `submit.name` of `''` is a key `decodeKeys()` never
   produces, so the field has no way out at all: it is refused the way a choice
   list with nothing to offer is, rather than by quietly putting the default back
   -- which would be a prompt answered by a key its own hint does not name. Both
   halves are the hang `PromptError` exists for, and the sabotage for the second
   one takes the whole ten-second timeout to be caught, which is what the hang
   looks like.
+
 - **The field grows into its row cap rather than starting there.** A field that
   reserved ten rows for a one-line answer would hold nine blank rows of the
   user's scrollback open for the life of the prompt, which is the auto-height
@@ -12723,10 +12741,11 @@ colour channel as reverse video` -- which is in `backend.test.ts`, because the
 
 ##### What the sabotage pass found
 
-Forty-nine mutations, one at a time with the component suite -- and the screen
-model's own tests -- run after each. **All forty-nine are caught** bar three, and
-the three are each declared where they live. The interesting half is not the count: twelve survived the first pass,
-and what each of those twelve turned out to be is the finding.
+Sixty-one mutations, one at a time with the component suite -- and the screen
+model's own tests -- run after each. **All sixty-one are caught** bar seven, and
+the seven are each declared where they live. The interesting half is not the
+count: twelve survived the first pass, and what each of those twelve turned out
+to be is the finding.
 
 - **Four were a guard with a missing test, and each got the input that makes it
   matter.** `lineStart()`'s guard at zero, which `lastIndexOf` needs because it
@@ -12771,17 +12790,38 @@ and what each of those twelve turned out to be is the finding.
   somebody else built, which is what the test hands it -- and `put()` _throws_ on
   a control character rather than dropping it, so what the guard is standing
   against is a frame and a renderer taken down from inside paint.
-- **And three are declared.** `move()`'s snap and clamp cannot change an answer,
+- **And seven are declared, five of them because the sabotage is _equivalent_
+  rather than the code dead.** That is the shape this file already records from
+  the FIGlet pass, and it is most of what is left once the real guards have
+  tests: `clusterText()`'s newline branch, because `cellWidth('\n')` is zero --
+  measured -- so the cell is unpaintable either way and what the branch buys is
+  that no raw `\n` can reach `put()`; `typedText()` reading the sequence rather
+  than the name, and refusing a key with a modifier held, because past its own
+  `name === sequence` guard the two **are** the same string and a modified key's
+  sequence is never its name; and the empty-input and empty-range fast paths in
+  `insertAt()` and `deleteRange()`, where the slicing and the snap answer the
+  same for a boundary cursor. `wordAfter()`'s clamp is the fifth: a negative
+  offset is already past every cluster's start, so it behaves as zero. Its twin
+  in `wordBefore()` is **not** equivalent and has a test -- the loop breaks at
+  once there, so the fallback hands a negative offset straight back -- which is
+  the pair worth knowing about, because the two functions look symmetrical and
+  are not.
+- **And `move()`'s snap and clamp are the sixth, declared for a different
+  reason.** It cannot change an answer,
   because the one way an offset from the wrong string gets there is with a value
   of `''` and every rule below answers the same for any offset into that; what
   it buys is that the invariant is asserted where a cursor is written rather than
-  assumed of each reader. The other two are **equivalent** sabotages rather than
-  dead code, which is the shape this file already records from the FIGlet pass:
-  `clusterText()`'s newline branch, because `cellWidth('\n')` is zero -- measured
-  -- so the cell is unpaintable either way and what the branch buys is that no
-  raw `\n` can reach `put()`; and `typedText()` reading the sequence rather than
-  the name, because past its own guard the two **are** the same string, so the
-  rule is about the condition and the condition is caught.
+  assumed of each reader.
+
+**And the harness reported a survivor it should have reported as its own
+failure**, which is the third time this file has had to record that a sabotage
+pass needs guarding as much as the code does. The replacement for the screen
+model's clearing branch removed the `}` that closed the `if` above it, so what it
+left behind was unbalanced -- and the run came back with no failures and no
+harness complaint, which reads exactly like a guard that is not load bearing. The
+balanced replacement fails the test named for it. So a harness that checks the
+pattern matched once and that the replacement differs is checking two of the
+three things: the third is that what it wrote is still the language.
 
 Two findings came from writing the property tests rather than from the pass, and
 both are about the delete paths. The cursor invariant is **inductive** -- it

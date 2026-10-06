@@ -493,6 +493,21 @@ describe('the screen model itself', () => {
 			expect(after('abc')).to.equal(undefined);
 		});
 
+		it('should forget a cell it recorded once something plain is written over it', () => {
+			// a cell cannot be both, and the field says it is where the caret is *now*
+			expect(after('\u001b[7mx\r\u001b[0my')).to.equal(undefined);
+			// and a write to a different cell leaves the record where it is
+			expect(after('\u001b[7mx\u001b[0my')).to.deep.equal({ column: 0, row: 0 });
+		});
+
+		it('should keep the last one through a frame that drew no caret at all', () => {
+			// declared rather than fixed: this model has no notion of a frame to hang a
+			// reset on, so a test asking whether a caret went away reads the bytes
+			// a second frame that writes somewhere else entirely, which is what a frame
+			// with the caret hidden is
+			expect(after('\u001b[7mx', '\n\u001b[0mz')).to.deep.equal({ column: 0, row: 0 });
+		});
+
 		it('should read a transition parameter by parameter', () => {
 			// a transition combines what it closes with what it opens, so matching the
 			// whole string would be pinning one spelling of it

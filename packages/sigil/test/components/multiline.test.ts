@@ -329,37 +329,46 @@ describe('multiline()', () => {
 			// enumerated rather than clamped, which is the rule the typewriter's interval
 			// keeps and the trap it keeps it for: `Math.min(NaN, anything)` is `NaN`, so a
 			// `rows` of `NaN` reached the measure as a height of `NaN` and the layout
-			// engine was handed a box no arithmetic can place. A fraction is the other
-			// half of it, and is what a declaration is refused for
-			for (const rows of [
-				Number.NaN,
-				2.5,
-				0,
-				-5,
-				Number.POSITIVE_INFINITY,
-				Number.NEGATIVE_INFINITY,
-			]) {
-				const ui = screenSetup({ rows: 20 });
+			// engine was handed a box no arithmetic can place.
+			//
+			// Each value gets the window it comes to rather than a shared "it drew
+			// something" assertion, which is what the first version of this had: a cap of
+			// ten and a cap of the terminal's room both draw every line of a short value,
+			// so `Infinity` was pinned by nothing. The screen is thirty rows and the
+			// question takes one, so the terminal's own cap is twenty-eight
+			const value = Array.from({ length: 15 }, (_, i) => `line ${i + 1}`).join('\n');
+			for (const [rows, drew] of [
+				[undefined, 10],
+				[Number.NaN, 10],
+				[0, 10],
+				[-5, 10],
+				[Number.NEGATIVE_INFINITY, 10],
+				// a fraction floors, and 2.5 is the value where a cap that did not would
+				// hand the measure a fractional height
+				[2.5, 2],
+				// and `Infinity` is a field with no cap of its own, which the terminal
+				// bounds: fifteen lines of a fifteen-line value
+				[Number.POSITIVE_INFINITY, 15],
+				[4, 4],
+			] as const) {
+				const ui = screenSetup({ rows: 30 });
 				const answer = multiline({
 					ansi: ui.ansi,
-					initial: '1\n2\n3\n4',
+					initial: value,
 					message: 'Hm',
 					rows,
 					terminal: ui.terminal,
 				});
 
 				await type(ui.stdin, LEFT);
-				// whatever it came to, every row drawn is a row of the value and a whole
-				// number of them was drawn
-				const drawn = fieldRows(ui);
-				expect(drawn.length, `rows: ${rows}`).to.be.greaterThanOrEqual(1);
-				expect(drawn.length, `rows: ${rows}`).to.equal(Math.floor(drawn.length));
-				for (const row of drawn) {
-					expect(['1', '2', '3', '4'], `rows: ${rows} drew ${row}`).to.contain(row);
+				expect(fieldRows(ui), `rows: ${rows}`).to.have.length(drew);
+				// and every row drawn is a row of the value, at a whole row each
+				for (const row of fieldRows(ui)) {
+					expect(value.split('\n'), `rows: ${rows} drew ${row}`).to.contain(row);
 				}
 
 				await type(ui.stdin, CTRL_D);
-				expect(await answer, `rows: ${rows}`).to.equal('1\n2\n3\n4');
+				expect(await answer, `rows: ${rows}`).to.equal(value);
 			}
 		});
 

@@ -1276,15 +1276,24 @@ export function fieldLayers(read: () => FieldFrame): { caret: Element; field: El
  * `NaN`, so a `rows` of `NaN` reached the measure as a height of `NaN` and the
  * layout engine was handed a box no arithmetic can place -- and a fractional one
  * reached it as a fractional height, which is the thing a declaration is refused
- * for. `Infinity` is fine on its own, because the terminal's own cap is the
- * other half of the `Math.min`, and it is read here anyway so that one function
- * answers for every value rather than three guards agreeing.
+ * for.
+ *
+ * `Infinity` **passes through**, unlike the typewriter's interval, and the
+ * difference is what the value means: there it is a wait with no end, and here
+ * it is a field with no cap of its own, which the terminal then bounds. Said
+ * precisely because the first version of this said it and did the opposite --
+ * `Number.isFinite()` refused `Infinity` while the comment claimed the
+ * `Math.min` below was what limited it, and the test named for the branch could
+ * not tell a cap of ten from a cap of the terminal's room. Found by review.
  *
  * @param rows - What the caller asked for.
  * @returns A whole number of rows, or the default.
  */
 function rowCap(rows: number | undefined): number {
-	return rows !== undefined && Number.isFinite(rows) && rows >= 1 ? Math.floor(rows) : 10;
+	// `rows >= 1` is what refuses `NaN`, since every comparison against it is
+	// false -- so `Number.isFinite()` beside it was refusing `Infinity` as well,
+	// which is the one value the comment above says passes through
+	return rows !== undefined && rows >= 1 ? Math.floor(rows) : 10;
 }
 
 /** `ctrl-d`, as a reader would type it. */
