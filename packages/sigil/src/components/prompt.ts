@@ -856,6 +856,43 @@ function clusterRuns(clusters: readonly Cluster[]): ClusterRun[] {
 }
 
 /**
+ * Where a caret goes on a row, given the column it would like.
+ *
+ * **A caret may not be painted on the far half of a wide cluster**, and that is
+ * not about how it looks: `CellBuffer` carries a write on either half of one to
+ * the other, so a space on the continuation blanks the lead and the character is
+ * *gone*. Measured -- `漢` in a two-column grid, a space at column one, and the
+ * row comes back as two blanks.
+ *
+ * Two columns are the only place it can happen and both are reachable. A cluster
+ * wider than the wrap limit is placed at column zero anyway, because the break
+ * guard asks `x > 0` -- there is nowhere else to put it -- so a field of one or
+ * two columns holds a row two columns wide, the reported width is the room, and
+ * the clamp under `edge` lands on column one. And a zero-width cell is clamped
+ * to the wrap column by `place()`, so a newline after such a cluster is *already*
+ * there: `漢\nmore` with End pressed on the first line is the same cell.
+ *
+ * So the caret backs up to the cluster's lead and **marks the cluster**, which is
+ * this field's own rule applied to the only cluster there is room for. It is
+ * wrong about where the next character goes -- in a two-column field holding a
+ * wide character there is no column that is right about that -- and it is the only
+ * answer that keeps the character on screen.
+ *
+ * @param row - The row the caret is on.
+ * @param at - The column it would like.
+ * @returns The column to paint in, and what to paint there.
+ */
+function caretOn(row: FieldRow, at: number): { text: string; x: number } {
+	for (const cell of row.cells) {
+		if (cell.width > 0 && at >= cell.x && at < cell.x + cell.width) {
+			return { text: cell.text, x: cell.x };
+		}
+	}
+
+	return { text: ' ', x: at };
+}
+
+/**
  * A value laid out as rows of cells, with the caret placed among them.
  *
  * **This is what the `raw` node buys and why the field is one.** A wrapping
@@ -1005,18 +1042,15 @@ export function layoutField(value: string, cursor: number, room: number): FieldL
 	for (const [row, built] of rows.entries()) {
 		for (const cell of built.cells) {
 			if (cell.at === at) {
-				return {
-					caret: {
-						row,
-						// a cluster with no cell -- a newline, a lone combining mark, a
-						// control character a caller handed in -- has nothing to mark, so
-						// the caret is a blank in the column it would have taken
-						text: cell.width > 0 ? cell.text : ' ',
-						x: Math.min(edge, cell.x),
-					},
-					rows,
-					width,
-				};
+				// through `caretOn()` whatever the cell is, which is one rule rather
+				// than two: a cell of positive width finds itself there and takes its
+				// own text, and a cell with no cell at all -- a newline, a lone
+				// combining mark, a control character a caller handed in -- has nothing
+				// to mark, so it comes back a blank unless the column it was clamped to
+				// belongs to a cluster. `place()` clamps a zero-width cell to the wrap
+				// column, which a wide cluster may already be sitting on
+				const on = caretOn(built, Math.min(edge, cell.x));
+				return { caret: { row, text: on.text, x: on.x }, rows, width };
 			}
 		}
 	}
@@ -1024,11 +1058,8 @@ export function layoutField(value: string, cursor: number, room: number): FieldL
 	// past the last cluster, which is the one position no cluster owns -- and it is
 	// the last row's, because every other row's end is the next row's start
 	const last = rows.at(-1);
-	return {
-		caret: { row: rows.length - 1, text: ' ', x: Math.min(edge, last ? last.width : 0) },
-		rows,
-		width,
-	};
+	const on = last ? caretOn(last, Math.min(edge, last.width)) : { text: ' ', x: 0 };
+	return { caret: { row: rows.length - 1, text: on.text, x: on.x }, rows, width };
 }
 
 /**

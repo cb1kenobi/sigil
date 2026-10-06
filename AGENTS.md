@@ -12390,17 +12390,70 @@ rather than past the last` is what pins it.
   cannot, because a space is an offset the caret has to be able to sit on -- so
   the gap stays on the row it ended. Whitespace that would then land past the
   wrap column is placed **at** it, so a run of several spaces at a break shares
-  one column. They are all blanks, so nothing on screen says so. Three
-  alternatives were worked through and each is worse. Letting the row overflow
-  and clipping the drawing puts the caret outside the box, which is a caret
-  nobody can see. Breaking the gap like a word is total and injective and
-  visibly wrong: a word ending exactly on the limit pushes the single space to
-  the next row, so an ordinary paragraph grows a leading blank on roughly one
-  row in five. And a phantom row for an invisible character is the entry above.
-  `should keep every offset of the value on exactly one row` is the property the
-  caret derivation rests on, walked over nine values at six widths; `should keep
-the caret inside the box it reports, at every offset` is the other half, at
-  every cursor of every one of them.
+  one column. They are all blanks, so nothing on screen says so.
+
+  **A single space is never the case this is for**, which is worth stating
+  because the first version of this entry got it wrong in both directions. The
+  clamp can only bite past the wrap column, a row's content ends at or before
+  it, and the box is a column wider -- so one space always has a column of its
+  own. What needs the clamp is a **run**: a double space after a full stop, or
+  trailing spaces somebody typed. Measured, because the first write-up claimed a
+  frequency it had not counted: over a paragraph of this file's own prose at 38,
+  60 and 78 columns, a gap landed past the wrap column in **0 of 36 rows**.
+
+  Two alternatives, and the one that is nearly equivalent is the one the
+  corrected measurement is about. Letting the row overflow and clipping the
+  drawing puts the caret outside the box, which is a caret nobody can see.
+  Breaking the gap like a word is total and injective, and it agrees with this
+  everywhere a single space is involved -- what it does differently is spread a
+  **run** across the break, so five trailing spaces at a break indent the next
+  row by four and push the word after them along. The clamp collapses them into
+  the last column, where they are blanks. And a phantom row for an invisible
+  character is the entry above. `should keep every offset of the value on
+exactly one row` is the property the caret derivation rests on, walked over
+  nine values at six widths; `should keep the caret inside the box it reports,
+at every offset` is the other half, at every cursor of every one of them.
+
+- **The caret is never painted on the far half of a wide cluster, and that is
+  not about how it looks.** `CellBuffer` carries a write on either half of a wide
+  cluster to the other, so a space on the continuation blanks the lead and the
+  character is **gone** -- measured, `漢` in a two-column grid with a space at
+  column one comes back as two blanks. Found by review rather than by a test, and
+  the review had to name the input: a field two columns wide.
+
+  Two columns are the only place it can happen and both routes are reachable. A
+  cluster wider than the wrap limit is placed at column zero anyway, because the
+  break guard asks `x > 0` and there is nowhere else to put it -- so a field of
+  one or two columns holds a row two columns wide, the reported width is the room
+  rather than the content plus a caret, and the clamp under `edge` lands on column
+  one. And a zero-width cell is clamped to the wrap column by `place()`, so a
+  newline after such a cluster is **already** there: `漢\nmore` with End pressed
+  on the first line is the same cell, reached without any clamp at all.
+
+  So `caretOn()` is where a caret's column and its text are settled together, and
+  it is one rule rather than a guard: the caret takes the cluster that occupies
+  the column it ended up in, and a blank only where no cluster does. A wide
+  cluster therefore gets **marked** rather than blanked, which is this field's own
+  rule -- the caret marks a cluster -- applied to the only cluster there is room
+  for. It is wrong about where the next character goes, and in a two-column field
+  holding a wide character there is no column that is right about that; it is the
+  only answer that keeps the character on screen.
+
+  The uniform rule turned out to be the better answer away from the degenerate
+  case too, which is why it is not written as a special case. A control character
+  draws nothing, so the column `place()` gave it belongs to the cluster after it
+  -- and marking that one says the truer thing, because the next character really
+  does go in front of it. Two cursor positions then share a column, which is
+  inherent rather than chosen: one of them takes none.
+
+  The first spelling of the fix claimed a positive-width cell's own column is
+  never past `edge` and skipped the check for one. That is false at a room of
+  one, where `limit` is `max(1, 0)` and therefore **larger** than `edge`: a space
+  clamped to the wrap column sits at column one of a one-column field, and
+  `should keep the caret inside the box it reports, at every offset` is what said
+  so. The property test is what caught the fix to the review's finding, which is
+  the argument for having written it as a property.
+
 - **Soft wrap only, and a hard-wrap mode is deliberately out.** A mode that
   inserted real newlines at a column changes what the value _is_, which every
   caller can see -- so it is a decision about the return type of the prompt
@@ -12613,6 +12666,24 @@ constraint is worth recording because it shaped every edit.
   selector engine already keep: it takes the rows, the window and the caret, and
   a test hands it a literal where the component hands it a closure over its own
   state.
+- **`test/canvas/screen.ts` advances one column per character, so a _picture_ over
+  a row holding a wide cluster is not to be trusted.** Pre-existing, surfaced by
+  driving this field by hand, and worth writing down because it reads exactly like
+  a bug in whatever is being tested: a CJK row came back as `日本語 is ihree` after
+  an Up, with the `t` apparently replaced by an `i`. The bytes say otherwise --
+  `ESC[9C ESC[7m i` moves to **real** column 9, which is where that `i` already is,
+  so the frame changed a style and nothing else -- and the model, which writes one
+  cell and does `column++` whatever the character's width, had put the same `i` in
+  model column 9, where its own row holds the `t`. `diff.test.ts`'s `FakeTerminal`
+  models a continuation and this one does not, which is the difference.
+
+  Not fixed here, because it is a shared harness this ticket merely met, and what
+  it costs is bounded: `lastInverse` is read off the cursor the diff moved, so a
+  caret _coordinate_ is a real column and is sound, and none of this field's wide-
+  cluster tests asserts a row's text. A picture over a wide row is the one thing to
+  avoid, and `renderToString()` -- which paints one full frame rather than a diff --
+  is where a wide row can be asserted as cells.
+
 - **`test/canvas/screen.ts` learnt about reverse video**, which is the one piece
   of styling it keeps. A prompt's caret _is_ styling, so a model holding
   characters alone cannot see it at all; the alternative is a second cursor
@@ -12626,10 +12697,10 @@ constraint is worth recording because it shaped every edit.
 
 ##### What the sabotage pass found
 
-Forty mutations, one at a time with the component suite run after each. **All
-forty are caught** bar three, and the three are each declared where they live.
-The interesting half is not the count: twelve survived the first pass, and what
-each of those twelve turned out to be is the finding.
+Forty-five mutations, one at a time with the component suite run after each.
+**All forty-five are caught** bar three, and the three are each declared where
+they live. The interesting half is not the count: twelve survived the first pass,
+and what each of those twelve turned out to be is the finding.
 
 - **Four were a guard with a missing test, and each got the input that makes it
   matter.** `lineStart()`'s guard at zero, which `lastIndexOf` needs because it

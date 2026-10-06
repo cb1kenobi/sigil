@@ -1423,8 +1423,17 @@ describe('layoutField()', () => {
 		});
 	});
 
-	it('should mark a cluster with no cell as a blank', () => {
-		expect(layoutField('a\u0001b', 1, 20).caret).to.deep.equal({ row: 0, text: ' ', x: 1 });
+	it('should mark whatever is in the column a cluster with no cell was given', () => {
+		// a control character draws nothing, so the column it was placed at belongs to
+		// the cluster after it -- and marking that one is the truer answer: the next
+		// character really does go in front of the `b`. Two cursor positions share the
+		// column, which is inherent rather than a choice, since one of them takes none
+		expect(layoutField('a\u0001b', 1, 20).caret).to.deep.equal({ row: 0, text: 'b', x: 1 });
+		expect(layoutField('a\u0001b', 2, 20).caret).to.deep.equal({ row: 0, text: 'b', x: 1 });
+	});
+
+	it('should mark a newline as a blank, since nothing else is in its column', () => {
+		expect(layoutField('ab\ncd', 2, 20).caret).to.deep.equal({ row: 0, text: ' ', x: 2 });
 	});
 
 	it('should place a soft break at the start of the next row rather than past the last', () => {
@@ -1433,6 +1442,52 @@ describe('layoutField()', () => {
 		expect(layoutField('aaa bbb ccc', 8, 10).caret).to.deep.equal({ row: 1, text: 'c', x: 0 });
 		// and the space that ended the row above is the offset before it
 		expect(layoutField('aaa bbb ccc', 7, 10).caret).to.deep.equal({ row: 0, text: ' ', x: 7 });
+	});
+
+	it('should never put the caret on the far half of a wide cluster', () => {
+		// not about how it looks: `CellBuffer` carries a write on either half of a
+		// wide cluster to the other, so a space on the continuation blanks the lead and
+		// the character is *gone*. A cluster wider than the wrap limit is placed at
+		// column zero anyway -- there is nowhere else -- so a one- or two-column field
+		// is where the clamp under the edge lands on a continuation
+		for (const [value, cursor, label] of [
+			['\u6f22', 1, 'past the end'],
+			['\u6f22\nmore', 1, 'on the newline, which `place()` clamped there'],
+			['\u6f22', 0, 'on the glyph itself'],
+			['a\u6f22', 2, 'past a glyph that wrapped onto a row of its own'],
+		] as const) {
+			const layout = layoutField(value, cursor, 2);
+			const row = layout.rows[layout.caret.row];
+			for (const cell of row.cells) {
+				expect(
+					cell.width > 1 && layout.caret.x > cell.x && layout.caret.x < cell.x + cell.width,
+					`the caret landed on a continuation ${label}`
+				).to.equal(false);
+			}
+		}
+	});
+
+	it('should keep the glyph on screen rather than blanking it with the caret', () => {
+		// the same claim as cells rather than as coordinates, because what the
+		// arithmetic is protecting is a character nobody can get back
+		for (const [value, cursor] of [
+			['\u6f22', 1],
+			['\u6f22\nmore', 1],
+			['\u6f22', 0],
+		] as const) {
+			const layout = layoutField(value, cursor, 2);
+			const { caret, field } = fieldLayers(() => ({
+				layout,
+				top: 0,
+				visible: layout.rows.length,
+			}));
+			const host = box({ position: 'relative' }, field, caret);
+
+			expect(
+				strip(renderToString(host, { cascade: themedCascade(), width: 2 })).split('\n')[0],
+				`the glyph was blanked with the cursor at ${cursor} of ${JSON.stringify(value)}`
+			).to.equal('\u6f22');
+		}
 	});
 
 	it('should share the wrap column between the spaces of a run that would overflow', () => {
