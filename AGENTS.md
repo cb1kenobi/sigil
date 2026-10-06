@@ -4971,6 +4971,705 @@ reach for.
   blocks instead: two pixels per cell, the top as the foreground and the bottom
   as the background, which is nothing but cells and works everywhere.
 
+### Layers and masks: compositing, and the transition it buys
+
+A canvas paints one grid. SIG-103 gives it a stack of them plus a per-cell field
+deciding which one shows, which is what a dissolve, a wipe and an iris all are.
+`src/canvas/buffer.ts` gains the occupancy bits, `src/canvas/layer.ts` is the
+`Layer` and the composite, `src/canvas/mask.ts` is the threshold field and its
+generators, and `src/canvas/index.ts` is where the composite runs and where the
+style sweep had to grow.
+
+- **A layer is a grid plus an origin, and the origin is the one position the
+  canvas is allowed to have.** "A canvas is a rect plus an anchor, and it does
+  not know its anchor" is about the _screen_: where the rect sits is a backend's
+  business, because the log above an inline canvas moves. A layer's top-left
+  relative to the canvas's own is a different number entirely, and it is one
+  nothing has to ask the terminal for -- so the thing the canvas refuses to know
+  is exactly the thing a layer may. Screen-sized or a sub-rect is the same object
+  with a different buffer and a different origin; there is no second shape for "a
+  small layer".
+- **Nothing below the composite changed.** `diff()` sees `front` against `back`
+  and has no idea how `back` got its contents, so this is a pass at the end of
+  `paint()` and the wire is whatever the diff makes of the result. That is the
+  whole of why it was a small change: `CellBuffer` and `Painter` were already
+  exported and `new Painter(layer, styles)` already worked.
+- **There is no "nothing here", and that is what occupancy is for.** `clear()`
+  fills with `BLANK` in `StyleTable.DEFAULT`, so a space painted in the
+  terminal's own colours is indistinguishable from a cell nothing painted.
+  Compositing on `char !== BLANK` is wrong in the case anybody writes first: **a
+  panel filled with a background colour is opaque and must occlude, and every
+  cell of it is a blank.** So a `Uint8Array` sits beside `#chars` and `#styles`,
+  set by `put()` and cleared by `clear()`, one byte per cell and 1,920 of them at
+  80x24.
+
+  A parallel array rather than a sentinel grapheme, which is the ticket's own
+  argument and holds: a sentinel would be a third meaning for a slot that already
+  carries two -- `BLANK` and `CONTINUATION` -- and it would have to survive
+  `#breakCluster()`, `copyFrom()` and `toLines()`, each of which reads what a cell
+  holds for a different reason.
+
+- **The composite replays `put()`; it does not copy arrays.** This is the sharp
+  edge of the feature and it is why the grid owns the repair. A layer cell landing
+  on a wide cluster below has to take that cluster's **other half** with it, or
+  the terminal is told to draw half a character and every column after it on the
+  row is shifted. `#breakCluster()` already does exactly that, so going through
+  `put()` buys the repair, the clipping at both grids' edges and the refusal of a
+  wide cluster with no room for its continuation, for nothing. A raw `set()` on
+  the typed arrays is faster and leaves half-glyphs on screen, which is asserted
+  rather than asserted-about: the sabotage that replaces the `put()` with raw
+  writes fails seven tests.
+- **A continuation is skipped, and that is a statement rather than a guard.**
+  `put()` would refuse one anyway, since `cellWidth('')` is zero -- so the skip
+  changes no answer and says so where it lives. It is the one deliberate survivor
+  of the sabotage pass below. What it buys is a `put()` call per continuation
+  rather than correctness, and what it says is that a cluster is written once, by
+  its lead, which is what writes both of its cells.
+- **The mask is sampled once per cluster, at its lead.** A wide cluster is atomic:
+  either both of its columns composite or neither does, because revealing one is
+  revealing half a character. That is the rule `Painter.overlay()` already keeps
+  for the same reason, and it means a field whose threshold falls _between_ a
+  cluster's two cells does not split it -- which is the only arrangement that can
+  tell a per-cell reading from a per-cluster one, and is what the test for it is
+  built out of.
+- **Array order is paint order, so the last entry is on top.** The reading
+  document order already has everywhere else here, and the one that makes "push a
+  layer" mean "put it in front".
+- **The composite runs at the end of `paint()`, not at the start of
+  `present()`.** `cells` is what a selection reads and `toString()` is what a
+  snapshot reads, so both have to describe the frame that will be presented rather
+  than the base somebody drew -- a selection taken mid-transition is over the
+  composite. The consequence worth knowing is that a threshold moved without a
+  `paint()` changes nothing: a frame is a `paint()`, and the composite is a pass
+  inside one.
+- **Binary per cell, and no alpha.** A "tint what is below" mode needs a
+  background colour meaning _transparent_, and `DEFAULT_COLOR` is taken -- it
+  means "the terminal's own", which is a different thing. That is an alpha model,
+  it is a much larger decision, and nothing here needs one.
+
+#### `sweepStyles()` was silently wrong, which is the half a layer stack changed
+
+- **A layer holds style indices across a `compact()`, so it joins the live set
+  and the remap.** The sweep read the live set off `front` alone, on the argument
+  that `back` is re-interned from scratch by every `paint()` -- true while the
+  canvas owned exactly two grids, and false the moment one persists across frames.
+  A dissolve is exactly that: paint both states once and ramp for thirty frames.
+  Left alone, the layer's indices are remapped to garbage underneath it.
+
+  It is the shape of bug that ships, which the ticket called correctly: it fires
+  only once the table has passed `SWEEP_MIN` **and** doubled, so a demo painting a
+  dozen styles never reaches it. `should keep a persistent layer's styles meaning
+what they meant` grows the table to 281 entries over seven frames of forty
+  distinct truecolour cells, which is the first frame that qualifies -- and
+  `should actually have swept, which is what the test above rests on` is beside it,
+  because without that one the first is vacuous: every index still means what it
+  meant when nothing moved.
+
+- **The grids are a `Set`, because `remap()` is not idempotent.** It rewrites an
+  index through the move map, so a grid rewritten twice lands on
+  `moved[moved[i]]`. Two layers legitimately share one buffer -- the same sprite
+  at two origins is two `Layer`s over one grid -- so the duplicate is reachable
+  rather than pathological, and the sabotage that makes it a list fails four
+  tests.
+- **A layer is live for exactly as long as it is in `layers`, and two shapes
+  reach the window that leaves.** A grid that is not in the array when a sweep
+  runs is one whose indices moved underneath it, and nothing can see that: the
+  canvas owns the table and the grids it knows about, and a grid it has been
+  handed back is not one of them. The obvious shape is a layer taken out and put
+  back. The one found by re-reading rather than by a test is a buffer
+  **snapshotted or painted before the `present()` that pushes it** -- the window
+  is one `present()` wide in both cases, and the ordinary transition never opens
+  it, because it snapshots and pushes in the same breath. What to do instead needs
+  no new mechanism: leave a parked layer in with its mask's threshold at `-1`,
+  which composites nothing, because the mask already means "which cells show".
+  Recorded rather than guarded, for the reason `compact()`'s own doc gives --
+  registering a buffer at `snapshot()` would be a registration nothing can ever
+  unregister, since the canvas cannot know when the caller is done with it.
+- **A resize drops the layers, and that is the honest answer rather than a
+  convenience.** A transition spanning a resize is undefined because both grids
+  are discarded, so a layer that survived one would be a rectangle sized for a
+  screen that no longer exists -- and worse, `resize()` calls `styles.compact([])`,
+  so its indices would point into a table with one entry in it. Sweeping them
+  instead would mean compositing the old screen's content over the new layout,
+  which is the fragment-of-the-old-frame failure a full repaint exists to prevent.
+- **`back` joined the live walk as well as the remap, and it changes nothing.**
+  The sweep runs after `front.copyFrom(back)`, so the two are identical there --
+  reading both is the same answer, and it is the more honest statement of what the
+  pass is for.
+
+#### The cheap path is `snapshot()`, and it is what survives
+
+- **A transition needs the previous screen's content, and that is the only thing
+  here a caller cannot get for themselves.** A dissolve can already be faked
+  inside the `paint()` callback by painting conditionally; what cannot be faked is
+  that by the time anybody wants a transition, the state that produced the frame
+  on screen is gone. `front` is exactly that snapshot and nothing outside can
+  reach it, so `snapshot()` plus `layers` is the whole primitive and a transition
+  is six lines of app code.
+- **A copy rather than the buffer itself.** `present()` writes into `front` on
+  every frame, so handing the live one over would give a layer that tracked the
+  screen it is supposed to be a snapshot of -- which composites as a no-op, and
+  looks exactly like a transition that is not working.
+- **The occupancy travels with it, which is what makes a snapshot usable at
+  all.** A copy that kept the characters and lost which of them were painted would
+  composite as a grid of transparent blanks wherever the frame had nothing on it,
+  and the whole point of taking one is that it occludes exactly where the frame
+  did.
+- **There is no `transition()` helper, and that is a refusal rather than an
+  omission.** The ramp is a frame loop's and the canvas does not own one: it has no
+  clock, no scheduler and no opinion about how many frames a dissolve takes. That
+  is the same split this file already keeps between `scrollTo()` and the key that
+  calls it, and between `skip()` and the gesture -- the mechanism is the
+  framework's, the gesture is the app's. What the primitive does carry is
+  `maskThreshold()`, which is the one piece of arithmetic every caller would get
+  wrong once, because both ends are off by one.
+- **Into a pipe the whole thing collapses to the end state, for free.** A backend
+  with no terminal writes text and deliberately never calls `canvas.present()` --
+  there is nothing to repaint -- so `front` stays blank, a layer over the snapshot
+  has no occupied cell to composite, and every frame of the ramp is the new state.
+  One line of log rather than eighteen half-dissolved ones, from the same code
+  that dissolves on a terminal. That is the reduced-motion rule said one layer
+  down: an animation with no screen to play on is one that has already finished.
+  It falls out rather than being arranged, which is why it is pinned by a test of
+  its own -- a behaviour that is right for a reason nobody wrote down is one
+  somebody later "fixes".
+- **`canvas.painter(cells)` exists because there was no way to build a layer.**
+  Found by writing the test rather than by reading the design: a cell holds a style
+  **index**, so a grid painted through a table of its own holds indices that mean
+  something else here -- `{ fg: palette(5) }` interned as 1 in a fresh table and as
+  7 in the canvas's composites as whatever the canvas's 7 happens to be, which is a
+  wrong colour on screen rather than an error. `snapshot()` is already correct
+  because the canvas painted it; anything else had no sanctioned path at all.
+
+  A method rather than exposing the table, because only something owning both the
+  table and every grid painted with it can say when a `compact()` is safe -- which
+  is why nothing in `style.ts` calls one, and a caller holding the table could.
+
+#### A selection is the live tree's and a layer is a photograph
+
+- **The highlight shows only where the new frame is visible, and the copy gives
+  what is on screen.** Those are two different answers and the pair is the
+  decision rather than an inconsistency to iron out. `paintSelection()` runs
+  _inside_ the `canvas.paint()` callback -- it is "the selection last, so it is
+  over everything the tree drew" -- and the composite runs after the callback, so
+  a layer paints over the highlight on every cell it covers. Meanwhile
+  `Renderer.selectionText()` reads `backend.canvas.cells`, which **is** the
+  composite, so a copy hands over the characters that are on screen.
+
+  Which is the right way round. A selection is a region of the live tree, and a
+  snapshot layer is a photograph of a frame that may have had a different
+  selection on it or none; highlighting the photograph in the new tree's colours
+  would be asserting something about content the tree does not own. So during a
+  dissolve the highlight arrives along with the content it belongs to, and the
+  copy is what the user can see. Not restructured so that the selection pass runs
+  after the composite, which would be a change to the renderer's frame for every
+  app taken inside a layers ticket -- the shape this file refuses elsewhere -- and
+  would have to invent an answer for a photograph's selectability anyway.
+
+- **A composited cell is masked by the element tree's `selectable`, because a
+  layer has none of its own.** `selectableAt()` is computed from the tree, which
+  describes the frame that was just painted rather than the photograph over it. A
+  layer is a raw grid with no elements, so there is no third answer available: the
+  alternatives are the tree's mask, which is what it uses, or treating every
+  composited cell as uncopyable, which would make a transition a region nobody can
+  copy out of. Recorded as a limit rather than guarded.
+
+#### Masks are their own module, and are the easy half
+
+- **A mask is a `Uint8Array` over a rectangle plus a threshold, and a cell shows
+  when `values[i] <= threshold`.** Wipes, irises and dissolves are the same field
+  with a different generator, which is the whole argument for the separation: none
+  of it knows what a `CellBuffer` is and none of it imports one.
+- **A module rather than a subpath.** `@ttylabs/sigil/canvas` exports it, because a
+  mask is used _with_ a canvas and anybody who wants one already imports it. A
+  `@ttylabs/sigil/mask` would be permanent API surface whose only consumer is the
+  thing beside it, which is the argument this file already records for refusing
+  `@ttylabs/sigil/figlet`.
+- **256 buckets, not one value per cell, which is why the field is a byte
+  array.** A permutation of 1,920 distinct ranks does not fit in a byte and nothing
+  wants 1,920 steps of a reveal. What a generator produces is a cell's _position
+  in the ramp_ scaled to the same 0-255 whatever the rectangle's size, so a caller
+  ramping over thirty frames does the same arithmetic for an 80x24 canvas and for a
+  three-cell one.
+- **Scaled by `count` rather than by `count - 1`.** `floor(i * 256 / n)` spreads
+  `n` cells evenly over the buckets, which is what makes a ramp reveal roughly
+  `n / 256` cells a step; dividing by `n - 1` puts the first cell at 0 and the last
+  at 255 and bunches everything between, which for `n` of two is a transition with
+  one step in it.
+- **`maskThreshold()` exists because both ends are off by one.** A cell shows at
+  `<=` and a field always has cells at zero, so the threshold that reveals
+  _nothing_ is `-1` rather than `0`, and the one that reveals everything is
+  `MASK_MAX`. The progress is clamped rather than trusted, for the reason the
+  decrypt component's own clamp gives: a `NaN` threshold compares false against
+  every value, so a reveal driven by one shows nothing for ever with nothing to say
+  so.
+- **`masked()` says no about a cell it has nothing to say about.** A mask is a
+  statement about its own rectangle, and the other reading would make a mask
+  narrower than its layer silently reveal the whole right-hand side.
+- **A generator's `Random` is clamped, and the clamp is load bearing twice.**
+  `unit()` reads a value at or above one as just under it, because this is an index
+  multiplier and `1` is one past the end: without it a hostile source swaps a cell
+  with `undefined` and leaves a hole in the permutation, and a hole is a value
+  nothing reveals, so a cell stays hidden for the whole transition. `NaN` is read
+  as zero rather than propagated, for the reason every other reader of a fraction
+  here gives.
+- **`seeded()` and `Random` moved to `src/util/random.ts`, because there are two
+  callers now.** The rule that function was written under is "one algorithm in this
+  repository rather than two", and `src/canvas/` may not import `src/components/`
+  -- the dependency already runs the other way, since a component imports the
+  canvas. Both barrels re-export it, so each answers for the generator its own
+  documentation says is injectable and a caller wanting a mask does not drag the
+  124 kB component stack in to get a seed. `decrypt.ts` re-exports it through
+  `../canvas/index.js` rather than from `src/util/` directly, because that file is
+  a `sigil add` entry and a registry component may only import what the package
+  exports -- `generate-registry.mjs` refuses the deeper specifier **by name**,
+  which is that rule being a build failure rather than a comment, and is how it
+  was found.
+
+  And it costs the components path **nothing**, which was worth measuring rather
+  than hoping: the obvious worry is that a component reaching `seeded` through the
+  canvas barrel drags `mask.ts` and its void-and-cluster class into the chunk
+  every app importing `@ttylabs/sigil/components` loads. Measured as the
+  transitive byte weight of each entry's own import graph -- which is what an
+  unbundled app actually loads -- the barrel route is **196,141 B** against a
+  local copy's **196,238 B**: 97 bytes _smaller_, because the duplicate function
+  is bigger than the re-export and the mask code is shaken out of the components
+  reachability altogether. The canvas entry is 33,796 B either way. So the "one
+  algorithm" rule is free here rather than paid for, and `rankAll` appearing in
+  the shared `canvas-*.mjs` chunk -- which it does -- is the _canvas_ entry's
+  reachability rather than the components entry's.
+
+#### Blue noise against a shuffle, measured
+
+- **Two dissolve generators ship, because the trade is real in both
+  directions.** `dissolveMask()` is an even permutation of the ramp, shuffled:
+  each step of the threshold takes about the same number of cells. What it does not
+  have is spatial evenness _within_ a step -- the cells revealed between two
+  thresholds are drawn from the whole rectangle uniformly, so they clump by chance.
+  `blueNoiseMask()` is void-and-cluster (Ulichney 1993), which cannot clump,
+  because a cell that would is exactly the one it ranks last.
+- **The difference is 0.813 against 4.250, and it is the only assertion that can
+  see it.** The mean variance of the per-block revealed count over 4x4 blocks at
+  half the ramp, over eight seeds. Both generators lay the _same_ even ramp, so the
+  histogram -- which is what catches a phase that ranked one cell twice -- cannot
+  tell them apart at all; `should spread each step more evenly than a shuffle does`
+  is the differential, and replacing the void-and-cluster with a plain shuffle
+  fails it and nothing else.
+- **What it costs is a frame eighty times the length of the ones after it.**
+  Measured over three runs: **8.34 / 8.40 / 8.71ms** for 80x24 and
+  **1.10 / 1.13 / 1.15ms** for 40x12, against `dissolveMask()`'s **0.25ms** for the
+  same 80x24 and a frame this file already records at 0.10ms. It is generated
+  **once**, so a thirty-frame transition pays it on the frame the transition
+  starts -- which for a full-screen dissolve is a visible hitch at exactly the
+  moment somebody is looking. Build the mask before the transition starts, or reach
+  for the shuffle, which is `O(cells)`. That trade is why both ship rather than one.
+- **Phase zero needs a _strict_ improvement, or it does not terminate.** The
+  published loop moves the tightest cluster into the largest void until "the largest
+  void is where the cluster was", and two equal-energy cells then swap back and
+  forth for ever -- exact ties are not exotic, since a symmetric arrangement on a
+  small rectangle produces them. Requiring the energy to fall makes the total
+  strictly decrease each move over a finite set of arrangements, so there is nowhere
+  for a cycle to be, and it needs no iteration bound on top.
+- **The initial pattern is a partial Fisher-Yates, and that is a hang rather than
+  a preference.** "Pick a cell, set it if it is free, try again" terminates only
+  for a generator that eventually answers something else: a stuck one -- `() => 1`,
+  which the clamp turns into the last index, or `() => NaN`, which it reads as the
+  first -- hands back the same cell for ever and the second of `ones` never lands.
+  **Found by the test written to assert the clamp, which hung instead of failing**,
+  which is the sharpest argument for walking the degenerate inputs there is. A
+  shuffle takes `ones` steps whatever the source answers.
+- **The three phases share one cursor, and the ranges they used to have could
+  overwrite each other.** Phase one ranks the prototype's own cells into
+  `order[0..ones-1]` and the two after it fill the rest -- and `half` is not
+  reliably above `ones`: for a one-cell rectangle it is below it, so a phase three
+  starting at its own `half` would overwrite what phase one had already written.
+  Sharing the cursor also means a phase that gives up early is continued from rather
+  than skipped over, which is the difference between a short order and one with a
+  duplicate in it. `should rank every cell exactly once` walks eight rectangle sizes
+  down to 1x1 for exactly that, because a duplicate leaves one cell that never
+  reveals and another that reveals twice.
+- **Toroidal, as the published algorithm is.** A terminal rectangle has edges and a
+  torus does not, so wrapping is a choice: it is taken because the alternative is a
+  field whose cells near an edge see less energy and are therefore preferred, which
+  puts a visible bias along all four sides of the reveal.
+- **An iris is scaled by distance rather than ranked by position.** What decides an
+  iris is _how far_ a cell is rather than how many cells are nearer: ranking reveals
+  a constant number of cells per step, which makes the circle crawl at the start and
+  race at the end. Measured, a centred iris at half the ramp has **307 of 861 cells**
+  -- 35.7%, not a quarter, because the disc at the full radius reaches the corners
+  and so extends past the rectangle's own edges -- where a ranked field would have
+  exactly half.
+- **And a row is worth two columns, by default.** A terminal cell is about twice as
+  tall as it is wide, so a field built on raw cell distance draws an ellipse twice
+  as tall as it is round. `aspect` is the knob and `2` is the usual ratio; a caller
+  whose font says otherwise says so.
+- **`wipeMask` and `irisMask` ship although the ticket's checklist named only the
+  permutation and the blue noise**, because they are what make "masks are not a
+  layers feature" a demonstrated claim rather than a sentence -- each is a handful
+  of lines over the same field, and `demos/canvas/06-transitions.js` is the caller
+  that makes all four one mechanism on screen. That is the rule `which` waited
+  eighteen months on, satisfied rather than waived.
+
+#### What the first review round found
+
+Two concrete wrong grids, both confirmed and both fixed. The round was pointed at
+the composite's wide-cluster handling, the occupancy bookkeeping, the sweep over
+persistent layers, the clipping at each edge and the mask generators, and it
+reported the last three clean.
+
+- **A clip could leave half a glyph behind, and that one is the element tree's
+  rather than a stray `clipTo()`.** `#breakCluster()` found the other half of a
+  cluster through `#at()`, which honours the clip -- so overwriting half of a wide
+  cluster whose other half sat one column _outside_ the clip blanked nothing. The
+  diff then drew the surviving lead over both columns: the cell inside the clip
+  had been changed and the glyph on screen had not. Reachable in an ordinary
+  frame, which is what makes it worth fixing rather than noting -- a wide cluster
+  drawn by one element across a clip boundary and overwritten by a clipped
+  sibling is exactly it, and `Painter.clip()` is how `overflow: hidden` is
+  painted.
+
+  The fix is `#onGrid()`, which asks about the grid's bounds and not the clip, and
+  the argument is that **the repair is not a paint**: the clip governs what a
+  caller may paint, while repairing a cluster is the grid un-painting a cell it
+  wrote itself. Both halves are damaged either way -- that is what painting over
+  half a cluster means -- and only one of the two answers leaves the grid
+  addressable, which is the whole of what the continuation marker is for.
+  `restyle()` had the same shape for the same reason and got the same fix, which
+  matters more than it looks: `Painter.overlay()` asks `inside()` before it gets
+  there, so a selection run inside a clip touching a cluster whose lead is outside
+  left the lead in its old style and the glyph rendered in that.
+
+  Pre-existing on `main`, which the round said itself. It is fixed here rather
+  than filed because it is a wrong frame the ticket's own test requirement is
+  written about -- "no wide cluster may lose its continuation and no continuation
+  its lead at the end of a frame" -- and because nothing in the suite asserted the
+  old behaviour, so the fix cost nothing to make.
+
+- **Compositing a grid onto itself smeared it, and is refused.**
+  `canvas.layers.push({ cells: canvas.cells, x: 1, y: 0 })` reads and writes the
+  same arrays left to right, so the walk reads the cell it wrote one column ago:
+  `['A','B','C']` came out `['A','A','A']`. Reachable because `cells` and `layers`
+  are both public, even though `cells` is documented for reading. A copy per row
+  would make the aliasing _work_, which is inventing a feature nobody asked for;
+  a `TypeError` names the mistake where it was made, which is the line `rgb()`
+  already takes with an out-of-range channel. Nothing in the library pushes
+  `canvas.cells`, so this is a guard against a caller rather than against the
+  framework.
+
+- **And two sentences that were false about the code beside them.**
+  `copyFrom()`'s doc said "must be the same size" over a body that reallocates --
+  true of both callers here and not a constraint the method has. And phase zero's
+  own comment claimed each move makes "the total" strictly decrease, where the sum
+  of the energy _array_ is invariant on a torus: every cell's splat carries the
+  same mass wherever it sits. What decreases is the **pairwise** energy, the sum
+  over pairs of set cells, which is what the strict comparison actually changes by
+  exactly the difference. The termination argument was right and the sentence
+  naming it was not, which is the failure a documented codebase is most prone to.
+
+- **Five of its fixes' guards were sabotaged and all five are caught**, after one
+  survivor and one deletion. The survivor was a missing test: the re-style case
+  covered a clip excluding the _lead_ and not one excluding the continuation,
+  which is a different branch. The deletion was an integer check copied into
+  `#onGrid()` beside `inside()`'s -- both callers are one column either side of a
+  cell that has already been through `#at()`, so `x ± 1` is an integer by the time
+  it arrives and the guard could not fire.
+
+#### What the second review round found, and the shape it came in
+
+Pointed at the files the first round's own SKIPPED list named -- the tests, the
+public surface, the orderings, and the prose -- it found **no runtime defect and
+five sentences that were false about the code beside them**. That is the pattern
+this file already records from the windowing work, reproduced exactly: a round
+aimed at the same diff confirms, and the findings come from what nobody opened.
+It also confirmed all four of the first round's fixes, which is the other half of
+that pattern.
+
+- **`restyle()`'s own comment had the composite ordering backwards.** It said "a
+  selection is painted over the canvas's own grid after the composite, not over a
+  layer" -- and `paintSelection()` runs _inside_ the `canvas.paint()` callback, so
+  the highlight lands **before** the layers composite over it. The conclusion was
+  right and the reason was inverted, which is the worse of the two ways to be
+  wrong: somebody aligning the code with that sentence would move the selection
+  pass after the composite and reverse a decision recorded two subsections up.
+- **Two measurement comments were stacked over one assertion block**, the stale
+  one naming three counters and 193 / 86 / 35 where the live assertions are four
+  and 250 / 60 / 25 / 20. An editing slip rather than a claim, and exactly the
+  kind a reader believes because it is specific.
+- **`323 / 82 / 37 / 33 of 240` is wrong about the first number.** `seen.wide`
+  counts per **grid**, base and layer, so its ceiling is 480; the other three are
+  per composite. The figure was right and the denominator was not.
+- **An assertion's lower bound was vacuous and its comment claimed otherwise.**
+  `should open by area rather than by cell count` said the bound "sits clear of
+  both numbers", and the lower one was `> 0` -- which a reveal of one cell passes,
+  so the upper bound was carrying the whole claim. It is `> 25%` now, and the two
+  sabotages that bracket it -- a cubed distance, which reveals almost nothing, and
+  one tuned to reveal exactly half as a ranked field would -- each fail it.
+- **"A backend with no terminal never calls `present()`" named the wrong
+  method**, in two READMEs and in `snapshot()`'s own doc. `render()` always calls
+  `backend.present()`; what it returns before is `canvas.present()`. The
+  behaviour described is right and a reader checking it would have found the call
+  and concluded the sentence was false.
+
+- **And one observation that was right about a gap and wrong about the fix.** The
+  round noted the fuzzer's replay compares `toLines()` only, so a style-only
+  difference is invisible there. True -- and a style comparison inside the replay
+  cannot close it, which is what writing one showed: `replay()` compares the model
+  against the grid, and both sides read whatever style the composite wrote, so a
+  composite that carried the style one cell along passes. The loop was deleted
+  again for being a guard that cannot fire, and `should carry each cell its own
+style, not a neighbour's` replaced it -- three styles side by side against
+  **expected** values, which is the only shape that can see it. A differential is
+  blind to an error both of its sides share.
+
+#### Two defects this found that predate it
+
+- **A coordinate that is not a whole number crashed the grid, and `NaN` with
+  it.** `inside()` answered `true` for `0.5` -- every comparison in it passes --
+  so `#at()` produced a fractional index, `#chars[0.5]` was `undefined`, and
+  `cellWidth(undefined)` threw out of `graphemeWidth()` three frames inside
+  `put()`. `NaN` reached the same place by failing every comparison rather than by
+  passing one, and both infinities with it. Pre-existing and reachable through
+  `write()`, and what made it _likely_ is a `Layer` origin: it is the first
+  coordinate here a caller fills in as a plain field rather than getting from a
+  loop. Answered in `inside()` rather than truncated in the one caller that found
+  it, because that is where the index arithmetic is -- the same argument the clip
+  itself already takes, and it fixes every caller at once. Refused rather than
+  rounded, which is the rule a fractional length already follows: a coordinate that
+  is not a whole number names no cell, which is the same answer as one past the
+  edge.
+
+  What it costs is nothing measurable, which had to be checked because `inside()`
+  is asked once per cell by `put()`, by every read through `#at()` and by the
+  diff's own `charAt()`. Six interleaved rounds of a full 80x24 paint and present,
+  forty samples each: **0.4322ms against 0.4327ms** at the fastest and 0.4507
+  against 0.4556 at the median -- noise in both directions, as it has to be, since
+  `Number.isInteger` is an intrinsic and the branch is taken on every call either
+  way.
+
+- **`copyFrom()` across sizes would have left the occupancy array the wrong
+  length**, which is a silent `undefined` on every read out of bounds and a dropped
+  write on the way in -- so every cell would have read as holding nothing. No frame
+  reaches it, since `present()` and `snapshot()` are both same-size, so it is a
+  claim about the method rather than about a path and is asserted as one.
+
+#### What the sabotage pass caught, and the one survivor
+
+Thirty-three mutations, one at a time with the canvas suite run after each.
+**Thirty-two caught**, counted against the shipped code in one run rather than
+summed across rounds, so the number is re-derivable: 33 applied, 32 caught by the
+suite, 1 declared below.
+
+Two smaller passes sit beside it and are counted separately on purpose, because
+each asks a different question. **Five** mutations over the guards the first
+review round's fixes added, all five caught, and they are written up under that
+round. **Four** over the guards the second round's fixes added and the two bounds it
+sharpened, all four caught. And **six** aimed at the composite from the other
+direction -- can the _fuzzer_ fail at all? -- of which it catches three by itself
+and the suite catches all six; the three it cannot see are about what a grid _holds_ rather than about
+whether it is structurally sound, which is what the hand-written cases are for.
+A grid can be perfectly self-consistent and still hold the wrong characters, and
+a differential against the diff cannot see that, because the diff agrees with
+whatever the grid says.
+
+The harness reports a pattern that missed, a pattern that matched more than once,
+or a replacement equal to its original as its own verdict rather than as a pass,
+and it earned that: one mutation's pattern spelled an apostrophe as `\u2019`
+where the source has a straight one, so it silently matched nothing and would
+have read as "the guard is not load bearing". The same failure happened one level
+up, in the _editor_ of the harness -- two `perl` substitutions against the
+harness file matched nothing and were caught only by grepping for the result
+afterwards, which is exactly the shape this file already records from the
+windowing work: a `replace` with no assertion behind it quietly matches nothing
+and leaves the old patterns in place. Assert the edit landed.
+
+It fired a third time on the last run, which is the one that says the guard is
+worth keeping rather than worth having had: the re-style mutation's pattern
+quoted `this.#at(x - 1, y)`, and the first review round's fix changed that line to
+`#onGrid()`. The harness reported `PATTERN MISSED` rather than a pass, so a guard
+that had stopped being exercised said so instead of reading as one that is not
+load bearing. A sabotage harness goes stale every time the code it mutates moves,
+which on a branch with review rounds on it is every round.
+
+The one deliberate survivor is the **continuation skip** in `composite()`, and it
+is a declared statement rather than a claim: `put()` refuses a zero-width cluster
+anyway, so deleting it costs a call per continuation and changes no answer. It
+says so where it lives, which is the rule `index()`'s memo and `reachable()`
+already follow.
+
+**Two guards were deleted for failing a sabotage**, and both read as load bearing.
+`#breakCluster()` set the occupancy on each cell it blanks, on the argument that
+the repair leaves a blank _this grid painted_ -- true, and the cell was already
+occupied: the only thing that writes a `CONTINUATION` is `put()`, which occupies
+both halves of a cluster, so a cell that function reaches was occupied before it
+got there. Neither assignment could change an answer. What the behaviour comes to
+is asserted instead -- `should keep the orphaned half of a broken cluster
+occupied` -- because it is the answer that matters rather than the line, and that
+test passes either way, which is exactly the proof the line was dead.
+
+**Four survivors were missing tests rather than dead code**, and each got the one
+it was missing: the continuation of a wide cluster being occupied (the composite
+never asks about it, so it is `occupiedAt()`'s public answer rather than something
+the composite depends on); `copyFrom()` across sizes; `resize()` replacing the
+array; and `blueNoiseMask()` reading its source at all -- that last one is the
+shape worth noting, because a generator whose randomness was ignored passes
+`should reproduce from a seed` trivially, and it took `should read its source, so
+two seeds disagree` to make the parameter load bearing.
+
+**And two "survivors" were the harness being blunt rather than the code being
+unguarded**, which is the boundary this file already records from the decrypt
+pass. A composite-ordering sabotage that _added_ a composite before the draw
+while leaving the one after it is two composites to the same answer; _moving_ it
+is caught by nine tests. And an iris sabotage that replaced `distance / longest`
+with `distance / (longest - 1)` is a different _scaling_ rather than a ranking, so
+it produced a nearly identical field and said nothing -- the real mutation sorts
+the cells by distance and ranks them, and **that** one needed a test as well,
+since nothing yet asserted how many cells an iris reveals part way. So the iris is
+in both lists for two different reasons, which is worth saying rather than
+double-counting: the sabotage was blunt, and the sharper one found a hole.
+
+#### The composite is fuzzed, and the fuzzer was vacuous for its first run
+
+- **240 random composites, checked on the grid and replayed against the model
+  terminal.** A scattered base, a scattered layer of its own size at an origin
+  that may hang off any edge, and a field that may be open, a wipe, a dissolve or
+  arbitrary bytes. What is asserted is the invariant the whole wide-cluster
+  argument is about -- no orphaned continuation and no orphaned lead -- plus the
+  two properties a transition rests on: **idempotence**, since the second pass
+  meets a base already holding the layer's content and `#breakCluster()` has to
+  make the same decisions, and **monotonicity** in the threshold, because a cell
+  the layer showed at one threshold going back to the base at a higher one is a
+  dissolve that flickers rather than resolving.
+
+  Three of six composite mutations are caught by the fuzzer alone -- raw writes in
+  place of `put()`, and each half of the cluster repair -- and all six by the
+  canvas suite.
+
+- **Its first version asserted nothing at all, and the reason is `seeded()`.**
+  It built a fresh `seeded(seed)` per iteration, and xorshift32 **cold-starts
+  small** -- the first draw is very nearly linear in the seed, measured at 6.30e-5
+  for seed 1 and 1.51e-2 for seed 240, so `1 + floor(random() * 7)` was **1 for
+  every one of the 240 seeds**. Every grid was one column wide, which is a grid
+  too narrow to hold a wide cluster at all, since `put()` refuses one with no room
+  for its continuation. So the corpus contained zero wide clusters, measured, and
+  the test passed with the cluster repair _deleted_ and nothing said a word. One
+  generator across the loop is what `layout-stress.test.ts` already does for
+  exactly this reason, since only its first tree is cold.
+
+  The property is written on `seeded()` now rather than only here, because it is a
+  fact about that function which its next caller will meet. Which is also the one
+  correction worth recording about this entry: the first version of it said "every
+  grid was 1x1", and the measurement says the _width_ collapsed for every seed
+  while the height did not -- the sharper statement, and the one that explains why
+  no wide cluster was ever written.
+
+  That is the fixture-too-easy failure this file records from the animator and
+  from the decrypt pass, arriving through a new door: not a hand-picked input that
+  missed the branch, but a **generator** whose output distribution was nothing
+  like what the test's shape implied. A sabotage pass cannot find it, because the
+  mutation really does survive -- the suite is a true statement about a corpus
+  that is not there.
+
+- **So the fuzzer counts what it met and refuses to pass without it.** Four
+  counters -- grids that held a surviving wide cluster, composites that painted
+  anything at all, composites a mask withheld a cell from, and composites that
+  landed on a cell of a wide cluster -- with floors under the measured
+  323 / 82 / 37 / 33. The first counts per **grid**, base and layer, so its
+  ceiling is 480 where the other three are per composite and theirs is 240; said
+  as "of 240" in the first version of this entry, which a review round caught.
+  They earned the counting three times over:
+
+  - the 1x1 corpus had **zero** wide clusters in 240 rounds;
+  - the second spelling, with origins uniform over two columns past each edge,
+    **missed the base entirely on 187 of 240 rounds**, so three quarters of the
+    corpus was asserting that nothing composites to nothing. One column and one
+    row past each edge reaches every clipping case and leaves the overlap the
+    common one;
+  - and the fourth counter, added last, said the first three were still not
+    enough. `wide` and `overlapped` between them say a wide cluster was generated
+    and that _something_ overlapped, which is not the same as the overlap having
+    met the cluster -- it had, on **14** of 240 rounds, because `scatter()` wrote
+    left to right and the next column took the continuation and the lead with it
+    two thirds of the time. Stepping past the continuation a wide cluster just
+    left takes it to **33** and takes `wide` from 193 to 323, and a base of whole
+    wide clusters is the realistic one anyway, since that is what text painted
+    into a grid looks like.
+
+  A fuzzer that reports what it covered is the shape to copy. The invariant it
+  checks is worth nothing without it, and nothing in a green suite distinguishes
+  "no counterexample exists" from "no example was generated" -- nor, one step
+  further in, "the example was generated" from "the example reached the branch".
+
+#### The model terminal moved, and the reason is that there are two readers
+
+`test/canvas/fake-terminal.ts` holds `FakeTerminal` and `replay()`, which were
+private to `diff.test.ts`. The composite's claim is the diff's own said one layer
+up -- these bytes turn what is on screen into what should be -- because a
+composite reaches the screen through the diff and through nothing else, so every
+composite case is a replay rather than a read of the grid. Two copies of a model
+terminal is two models to come to disagree about the deferred wrap, which is the
+thing this repository writes down about every rule it says twice.
+
+It is deliberately not `screen.ts`, which is the backend's and is _screen_-
+relative: that one has rows that scroll off the top, a cursor that survives
+between frames, and an alternate buffer to switch to. This one is
+canvas-relative, because every coordinate the diff emits is, and a backend's job
+is the part it assumes away.
+
+What the move buys the composite for nothing is `checkClusters()` and the cursor
+assertion, which is the invariant the whole wide-cluster argument is about: no
+frame may _end_ with half a glyph on screen, and a backend positions itself by
+`DiffResult`'s three fields and cannot see that they are wrong.
+
+The move itself changed no behaviour, and that was checked rather than asserted:
+diffed against `main`, the harness body differs by four type annotations that
+`isolatedDeclarations` requires of an exported `const`, the `Replayed` interface
+it requires of an exported function's object literal, and one paragraph of the
+class doc that belongs on the module now. `diff.test.ts`'s own tests are
+byte-identical. A refactor inside a feature branch is where a test quietly loses
+an assertion, so the diff is the evidence rather than the green suite.
+
+#### What the ticket got wrong, and what it left open
+
+- **"`sweepStyles()` would be silently wrong" was right, and the threshold it
+  named was right too.** 256 entries _and_ a doubling, which seven frames of forty
+  truecolour cells reaches and nothing smaller does.
+- **The composite is not where the cost is, and neither is the wire, quite.** The
+  ticket's estimate -- O(cells) per frame, 1,920 at 80x24, against a frame already
+  at 0.10ms -- holds. What it understates is the **generation**: blue noise at
+  80x24 is 8.4ms, eighty-odd frames' worth, paid once on the frame a transition
+  starts. That is the number worth knowing before reaching for it, and it is why
+  the shuffle ships beside it.
+- **The ticket said "masks are not a layers feature" and was right, and then its
+  own checklist asked only for the two dissolve generators.** The wipe and the iris
+  are what make the claim demonstrable, and they cost a handful of lines each.
+- **It did not say how a caller builds a layer**, and there was no way to: a cell
+  holds a style index and the canvas does not hand its table out. `painter(cells)`
+  is the answer and it was found by writing a test rather than by reading the
+  design.
+- **It did not say what happens into a pipe**, and the answer is the best one
+  available and arrives for free. See the entry above.
+- **The composite walks the layer's own cells rather than the overlap**, so a
+  layer much larger than the canvas pays for cells it cannot show. Clamping the
+  loop bounds to the destination changes no answer -- a cell `put()` would refuse
+  is one the clamp skips, a wide cluster whose lead lands one column off either
+  edge included -- so it would be a guard nothing can observe, which this file
+  deletes rather than keeps. A snapshot is canvas-sized by construction and a
+  sprite is small; a ten-thousand-row layer over a twenty-four-row canvas is a
+  layer to size differently.
+- **Virtualizing the wire is not addressed and is not a gap.** "Scattered
+  single-cell reveals are the worst case for run coalescing" is true and is the
+  diff's own arithmetic rather than this feature's: each revealed cell is its own
+  run plus a four-byte move, so mid-dissolve at 80x24 is a couple of hundred cells
+  and about 1.5 kB a frame. Fine over ssh at 30fps, and not the free lunch "only
+  the cells that changed" suggests. A blue-noise field does not change that number;
+  it changes where the cells are.
+- **What is deliberately out**: an alpha model, for the reason above; a
+  `transition()` helper, because the ramp is a frame loop's; a per-layer
+  `toString()`, which the ticket itself called a separate accessor and which
+  nothing needs, since a caller holding a `Layer` already holds its `cells`; and a
+  mask whose field is regenerated per frame, which is the shimmer the whole design
+  is written against.
+
 ### Input and focus
 
 - **One thing owns stdin, and it is the router.** Every prompt used to set raw
