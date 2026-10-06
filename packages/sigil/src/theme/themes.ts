@@ -99,6 +99,24 @@ export const FOREST = `
 .sigil-info { color: cyan }
 `;
 
+/**
+ * Magenta and cyan, which is what a build log looks like when it is having fun.
+ *
+ * Two accents rather than one: the bracketed labels and timestamps a tool prints
+ * down the left take `heading`, and the things they are *about* -- versions,
+ * file names, URLs -- take `accent`. Modelled on a `dumber`/BrowserSync log, where
+ * that split is what makes a wall of output skimmable.
+ */
+export const NEON = `
+.sigil-accent { color: brightMagenta }
+.sigil-muted { color: gray; dim: false }
+.sigil-heading { color: brightCyan }
+.sigil-success { color: brightGreen }
+.sigil-error { color: brightRed }
+.sigil-warn { color: brightYellow }
+.sigil-info { color: cyan }
+`;
+
 /** Yellow and red, for a surface that reads warm. */
 export const AMBER = `
 .sigil-accent { color: yellow }

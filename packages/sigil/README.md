@@ -1403,6 +1403,7 @@ const cascade = themedCascade({ theme: VIOLET });
 | `VIOLET` | Magenta where the defaults are cyan                        |
 | `FOREST` | Green, with the cooler half of the sixteen behind it       |
 | `AMBER`  | Yellow and red, for a surface that reads warm              |
+| `NEON`   | Magenta and cyan, for a build log that reads at a glance   |
 
 Each is a value for every one of the seven roles — `.sigil-accent`,
 `.sigil-muted`, `.sigil-heading`, `.sigil-success`, `.sigil-error`, `.sigil-warn`,
@@ -1411,12 +1412,12 @@ declarations restyle a surface wearing a dozen component classes.
 
 **Import them by name.** They are separate exports of their own subpath so that a
 bundler drops the ones you did not take, which is measured rather than hoped for:
-an app importing `VIOLET` alone bundles `VIOLET` and shakes the other three out.
+an app importing `VIOLET` alone bundles `VIOLET` and shakes the rest out.
 The subpath is separate from `sigil/theme` for the other half of the same reason —
 `theme` is on the path of every app that draws a built-in, and these are not.
 
 There is deliberately **no map of them**, because an enumeration references every
-theme and so nothing is unreachable: with one, the same app bundled all four. An
+theme and so nothing is unreachable: with one, the same app bundled every one. An
 app offering a `--theme` option writes its own map of the themes it chose to
 offer, which is the honest version anyway.
 

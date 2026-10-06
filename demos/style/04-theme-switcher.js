@@ -20,9 +20,9 @@
  * `.sigil-choice-hint`, `.sigil-help-note` and `.sigil-decrypt-cipher` and writing
  * all six.
  *
- * The four named themes come from `@ttylabs/sigil/themes`, which an app imports by
- * name so that a bundler drops the ones it did not take -- measured: an app
- * importing `VIOLET` alone bundles `VIOLET` and shakes the other three out.
+ * The named themes come from `@ttylabs/sigil/themes`, which an app imports by name
+ * so that a bundler drops the ones it did not take -- measured: an app importing
+ * `VIOLET` alone bundles `VIOLET` and shakes the rest out.
  *
  * Every colour in them is a palette index rather than a hex value, which is what
  * makes a shipped theme safe on a background it cannot see. The tension is
@@ -44,7 +44,7 @@ import { createInput, isAbort } from '@ttylabs/sigil/input';
 import { render } from '@ttylabs/sigil/renderer';
 import { parseStylesheet } from '@ttylabs/sigil/style';
 import { parseTheme, themedCascade } from '@ttylabs/sigil/theme';
-import { AMBER, FOREST, MONO, VIOLET } from '@ttylabs/sigil/themes';
+import { AMBER, FOREST, MONO, NEON, VIOLET } from '@ttylabs/sigil/themes';
 
 /** The seven roles, which is the whole of what a theme is a value for. */
 const ROLES = ['accent', 'muted', 'heading', 'success', 'error', 'warn', 'info'];
@@ -92,6 +92,7 @@ const THEMES = [
 	['violet', VIOLET],
 	['forest', FOREST],
 	['amber', AMBER],
+	['neon', NEON],
 ];
 
 const ROWS = [
