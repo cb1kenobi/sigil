@@ -80,10 +80,10 @@ export const FRAMEWORK_CSS = `
  * is left -- the declarations with exactly one site.
  *
  * Six roles, and which six is the evidence's to say rather than the ticket's. It
- * named `label`, `description` and `hint`: `hint` is de-emphasis, which is
- * `muted`, and the other two carry no declaration anywhere in this sheet -- a
+ * named label, description and hint: hint is de-emphasis, which is
+ * muted, and the other two carry no declaration anywhere in this sheet -- a
  * role nothing sets is the empty rule this file already refuses one line down. It
- * did not name `accent`, which is the most repeated colour there is: the question
+ * did not name accent, which is the most repeated colour there is: the question
  * mark, the spinner's frame, the progress bar's fill, the active choice and the
  * scroll thumb are all cyan because they are all the live part of a frame, and
  * "make my CLI magenta" is the most obvious thing a theme is for.
@@ -126,9 +126,9 @@ export const FRAMEWORK_CSS = `
 /*
  * scroll box
  *
- * The thumb is `.sigil-accent`, with the component class left as the narrower
+ * The thumb is .sigil-accent, with the component class left as the narrower
  * hook; the track is the one grey here that is *not* de-emphasised text, so it
- * is not `.sigil-muted` -- that role is `dim` on a dark terminal, and a dim
+ * is not .sigil-muted -- that role is dim on a dark terminal, and a dim
  * track is not what a track is. Both are palette indices, so neither needs a
  * light half: 8 is the one a light theme has to render text in, so it is dark
  * there and grey here, and cyan is whatever the user chose it to be.
@@ -158,8 +158,8 @@ export const FRAMEWORK_CSS = `
  * It is one rule because de-emphasis is one role. It was six -- a hint, an answer,
  * a placeholder, a choice hint, a cipher cell and a help note, each saying the same
  * thing -- which is a rule said six times and therefore a rule that can be said
- * wrongly, and `TOOLCHAIN_CSS` said it zero times: the toolchain's own location
- * prefixes, entries and notes were `dim` in both schemes, which is grey on white in
+ * wrongly, and TOOLCHAIN_CSS said it zero times: the toolchain's own location
+ * prefixes, entries and notes were dim in both schemes, which is grey on white in
  * the framework's own acceptance test. That is what a role buys over a convention.
  *
  * Conservative on purpose: the states, the accents and the bars are left alone,

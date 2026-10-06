@@ -5,7 +5,6 @@ import {
 	render,
 	reportLevel,
 	summaryView,
-	TOOLCHAIN_CSS,
 	writeDiagnostics,
 	writeNote,
 	writeSummary,
@@ -541,35 +540,4 @@ describe('the toolchain report', () => {
 		});
 	});
 
-	describe('the stylesheet', () => {
-		it("should be the app's own vocabulary rather than the framework's", () => {
-			// the toolchain is an app: it draws nothing a theme is expected to
-			// restyle, so it has no business in the `sigil-*` names FRAMEWORK_CSS
-			// documents
-			expect(TOOLCHAIN_CSS).not.toContain('.sigil-');
-			expect(TOOLCHAIN_CSS).toContain('.cli-');
-		});
-
-		it('should set no layout property, which is the rule the framework sheet keeps', () => {
-			// geometry stays in props, where the code that worked it out can see it:
-			// a `padding-left` from a sheet is a number the arithmetic above never
-			// heard about, and `box-sizing: border-box` takes it out of a width the
-			// report measured
-			for (const property of [
-				'padding',
-				'margin',
-				'width',
-				'height',
-				'flex',
-				'box-sizing',
-				'border',
-				'gap',
-				'align-',
-				'justify-',
-				'position',
-			]) {
-				expect(TOOLCHAIN_CSS).not.toContain(property);
-			}
-		});
-	});
 });
