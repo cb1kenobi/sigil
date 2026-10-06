@@ -3070,6 +3070,63 @@ changed the viewport` over a renderer, plus the shrinking direction and a
   are spelled `is-*` because they are states rather than kinds: `:focus` is the
   cascade's own and is used where it applies, and these are the ones a terminal
   has no pseudo-class for.
+- **Every declaration a built-in shares with another built-in is on a _role_, and
+  the component classes are the narrower hooks beside it.** Seven roles --
+  `.sigil-accent`, `.sigil-muted`, `.sigil-heading`, `.sigil-success`,
+  `.sigil-error`, `.sigil-warn`, `.sigil-info` -- and an element carries its
+  component class and its role together, so `.sigil-muted { color: blue }` reaches
+  a help note, a prompt hint, a placeholder, an answer, a choice hint and a
+  decrypt's cipher cells, which were six rules to find before. A role beats a
+  component rule by **origin** rather than by specificity, which is what lets one
+  `(0,1,0)` role rule override whatever the framework wrote.
+
+  Which seven is the evidence's answer rather than the ticket's, and it differs
+  from the ticket in three places. `label` and `description` are **out**: nothing
+  in the sheet ever set them, and a role nothing sets is the empty rule this file
+  already refuses. `accent` is **in**, unnamed by the ticket and the most repeated
+  colour there is -- the question mark, the spinner's frame, the progress bar's
+  fill, the active choice and the scroll thumb are all cyan because they are all
+  the live part of a frame. And it is `warn` rather than `warning` so that
+  `sigil-${outcome}` lands on a role for all four values of `SpinnerOutcome`,
+  which is the one emission that computes its class.
+
+  `.sigil-caret` and `.sigil-scroll-track` are the two declared exceptions: no
+  role is inversion, and the track is the one grey here that is not de-emphasised
+  _text_, so it must not be `.sigil-muted` -- that role is `dim` on a dark
+  terminal, and a dim track is not a track. `should declare on a role, bar two
+exceptions that say why` is the invariant, and it reads the **parsed** sheet
+  rather than the source, because the comment listing the component classes as
+  hooks would otherwise be mistaken for a rule.
+
+- **The toolchain has no sheet of its own, and deleting it fixed a bug rather than
+  tidying one.** `TOOLCHAIN_CSS` was seven declarations under a `cli-` prefix at
+  origin `app`, on the argument that the toolchain is an app and has no business
+  in the `sigil-*` vocabulary. Four of the seven were a framework role said again
+  under another name -- and the repetition is where it cost something, because
+  three of them were `dim` with **no light half**, which this file records as the
+  one declaration whose legibility depends on which way the background goes. So a
+  report's location prefixes, entries and notes were grey on white: `sigil check`
+  over a broken fixture came out byte for byte identical under
+  `SIGIL_COLOR_SCHEME=light` and `=dark`, in the framework's own acceptance test,
+  while the framework sheet beside it switched `ESC[2m` to `ESC[90m`. It is the
+  roles now, and the fix is visible in the built binary rather than only in a test.
+
+  What that left is the trap worth keeping: every `cli-*` emission names its role
+  as a **literal** except the severity label, which interpolated -- and
+  interpolating the role does not work either, because a `Severity` is `warning`
+  while the role is `.sigil-warn`, so `sigil-${severity}` asks for a class no
+  sheet defines and the label comes out unstyled with nothing to say so. Hence
+  `SEVERITY_ROLE`, a map keyed by the union so that a severity added without a
+  role is a type error rather than a colour nobody notices is missing. The
+  invariant over it reads every file under `packages/cli/src/` rather than
+  `report.ts` alone, because the first version read one file and a sabotage
+  dropping the role from `cli-app` in `_inspect.ts` survived it.
+
+  `render()` reads the colour scheme off `dest.env` for the same reason it reads
+  the width and the colour level there. It always fell back to the process, which
+  is the same object for the CLI, so nothing about a real run moved -- what it
+  buys is that a report's light half is reachable from a test at all.
+
 - **Parsed once, and a cascade built per call.** A `Stylesheet` is frozen and a
   `Cascade` only reads it, so parsing per spinner would be the same work per
   component per process; the cascade differs per call because the sheets do, and
