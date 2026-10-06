@@ -288,13 +288,32 @@ describe('a key spec', () => {
 	 * with nothing to say so.
 	 */
 	it('should accept every name the decoder produces', () => {
-		expect(KEY_NAMES.size).to.be.greaterThan(5);
+		// written out, because asserting only that each entry parses would pass for
+		// a name that has no business being in there: `parseKeys()` reads whatever
+		// the set contains, so the set is what has to be checked. The content is the
+		// values of `SEQUENCES` and `CONTROLS` with the one-character ones dropped,
+		// plus the `escape` `readEscape()` produces inline
+		expect([...KEY_NAMES].sort()).to.deep.equal([
+			'backspace',
+			'delete',
+			'down',
+			'end',
+			'enter',
+			'escape',
+			'home',
+			'left',
+			'pagedown',
+			'pageup',
+			'right',
+			'space',
+			'tab',
+			'up',
+		]);
+
 		for (const name of KEY_NAMES) {
 			expect(parseKeys(name)[0]?.name, name).to.equal(name);
-		}
-		// and nothing of one character is in there, because a one-character name
-		// and a character are the same answer reached two ways
-		for (const name of KEY_NAMES) {
+			// and nothing of one character is in there, because a one-character name
+			// and a character are the same answer reached two ways
 			expect([...name].length, name).to.be.greaterThan(1);
 		}
 	});
@@ -611,6 +630,107 @@ describe('the prefix and exact disambiguation', () => {
 		}
 	});
 
+	/**
+	 * A disposer called while the deadline is running can change what the node it
+	 * was armed for *is*.
+	 *
+	 * The pending state moving is what clears the timer, so the two cannot part --
+	 * the **trie** can, which the comment over that `setTimeout` used to deny. Take
+	 * the handler off and what is left is a pure prefix, which waits with no
+	 * deadline at all; firing an empty handler set there threw the sequence away
+	 * for nothing, so the pending `g` was gone and `g g` needed starting again.
+	 */
+	it('should not throw the sequence away when the deadline lost its binding', () => {
+		vi.useFakeTimers();
+		try {
+			const h = harness();
+			const input = createInput({ paste: false, terminal: h.terminal });
+			const seen: string[] = [];
+
+			const off = input.bind('g', () => seen.push('g'));
+			input.bind('g g', () => seen.push('gg'));
+
+			h.feed('g');
+			expect(vi.getTimerCount()).to.equal(1);
+
+			// `g` stops being a binding while its own deadline is running, so what is
+			// left is the prefix of `g g` and that waits indefinitely
+			off();
+			vi.advanceTimersByTime(SEQUENCE_TIMEOUT * 2);
+			expect(seen).to.deep.equal([]);
+			expect(formatKeys(input.sequence.get()), 'the deadline wiped a live prefix').to.equal('g');
+
+			h.feed('g');
+			expect(seen).to.deep.equal(['gg']);
+			input.stop();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	/**
+	 * And a disposer that unbinds the whole path leaves nothing pending.
+	 *
+	 * The prune detaches the node the pending sequence is sitting on, and
+	 * `sequence.ts` deliberately knows nothing about the router, so it cannot say
+	 * so -- `reaches()` is asked on the next key instead. Without it the status
+	 * line kept showing a sequence that no longer existed, and the Escape that
+	 * followed was swallowed by it.
+	 */
+	it('should treat a pending node whose path was unbound as nothing pending', () => {
+		vi.useFakeTimers();
+		try {
+			const h = harness();
+			const { first, root } = tree();
+			const input = createInput({ paste: false, root, terminal: h.terminal });
+			const seen: string[] = [];
+
+			input.focus.focus(first);
+			first.onKey = (event) => seen.push(`element:${formatKey(event.key)}`);
+			const off = input.bind('g a b', () => seen.push('gab'));
+
+			h.feed('ga');
+			off();
+
+			pressEscape(h);
+			expect(seen, 'a sequence that had been unbound ate the Escape').to.deep.equal([
+				'element:escape',
+			]);
+			expect(input.sequence.get()).to.deep.equal([]);
+			input.stop();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	// node stores a delay as a signed 32-bit integer, so anything past the ceiling
+	// becomes `1` -- the trap `Infinity` is refused for, reached by a finite number
+	it('should clamp a deadline past the longest one setTimeout will hold', () => {
+		vi.useFakeTimers();
+		try {
+			const h = harness();
+			const input = createInput({
+				paste: false,
+				sequenceTimeout: 2_147_483_648,
+				terminal: h.terminal,
+			});
+			const seen: string[] = [];
+
+			input.bind('g', () => seen.push('g'));
+			input.bind('g g', () => seen.push('gg'));
+
+			h.feed('g');
+			vi.advanceTimersByTime(SEQUENCE_TIMEOUT * 10);
+			expect(seen, 'a delay past the ceiling fired at once').to.deep.equal([]);
+
+			vi.advanceTimersByTime(2_147_483_647);
+			expect(seen).to.deep.equal(['g']);
+			input.stop();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it('should take a deadline of its own from the options', () => {
 		vi.useFakeTimers();
 		try {
@@ -729,6 +849,117 @@ describe('a pending sequence', () => {
 		h.feed('g\u0003');
 
 		expect(seen).to.deep.equal(['g ctrl+c']);
+		input.stop();
+	});
+
+	/**
+	 * A key that reached the trie and did not continue the sequence **answers**
+	 * the question the deadline was waiting on.
+	 *
+	 * `g` bound and `g g` bound, `g` then `x`, means `g` -- which is what vim does
+	 * and the only reading that does not silently lose a keystroke the user
+	 * deliberately made. The first version of this discarded the pending `g`, so a
+	 * bound `g` fired only if nothing at all was pressed for half a second: the
+	 * deadline became the *only* way to reach it rather than the fallback for when
+	 * nothing follows. Found by following a review finding about unbinding mid-wait
+	 * to the far commoner case underneath it.
+	 */
+	it('should commit the shorter binding for a key that answered the question', () => {
+		vi.useFakeTimers();
+		try {
+			const h = harness();
+			const { first, root } = tree();
+			const input = createInput({ paste: false, root, terminal: h.terminal });
+			const seen: string[] = [];
+
+			input.focus.focus(first);
+			first.onKey = (event) => seen.push(`element:${formatKey(event.key)}`);
+			input.bind('g', () => seen.push('g'));
+			input.bind('g g', () => seen.push('gg'));
+
+			h.feed('g');
+			h.feed('x');
+
+			// the `g` the user pressed, and then the `x` they pressed after it
+			expect(seen).to.deep.equal(['g', 'element:x']);
+			expect(vi.getTimerCount(), 'the deadline outlived its answer').to.equal(0);
+
+			vi.advanceTimersByTime(SEQUENCE_TIMEOUT * 2);
+			expect(seen, 'and it fired twice').to.deep.equal(['g', 'element:x']);
+			input.stop();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	// at the node reached and no further: committing an ancestor would mean saying
+	// what becomes of the keys after it, which is a typeahead replay rather than a
+	// rule
+	it('should commit nothing where the node it reached is not a binding', () => {
+		const h = harness();
+		const { first, root } = tree();
+		const input = createInput({ paste: false, root, terminal: h.terminal });
+		const seen: string[] = [];
+
+		input.focus.focus(first);
+		first.onKey = (event) => seen.push(`element:${formatKey(event.key)}`);
+		input.bind('g', () => seen.push('g'));
+		input.bind('g a b', () => seen.push('gab'));
+
+		h.feed('ga');
+		h.feed('x');
+
+		expect(seen).to.deep.equal(['element:x']);
+		input.stop();
+	});
+
+	// and Escape and Backspace are above that rule rather than below it, which is
+	// the whole distinction: those are the user saying "forget it", where a key is
+	// the user saying which of the two they meant
+	it('should commit nothing for the Escape and Backspace that cancel', () => {
+		vi.useFakeTimers();
+		try {
+			const h = harness();
+			const input = createInput({ paste: false, terminal: h.terminal });
+			const seen: string[] = [];
+
+			input.bind('g', () => seen.push('g'));
+			input.bind('g g', () => seen.push('gg'));
+
+			h.feed('g');
+			pressEscape(h);
+			expect(seen, 'Escape committed the shorter binding').to.deep.equal([]);
+
+			h.feed('g');
+			h.feed('\u007f');
+			expect(seen, 'Backspace committed the shorter binding').to.deep.equal([]);
+			input.stop();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	// a key a binding *stopped* never reached the trie, so the question is still
+	// open -- and something else has claimed that keystroke, so running a second
+	// binding in the same breath is not what anybody asked for
+	it('should commit nothing for a key a binding stopped', () => {
+		const h = harness();
+		const input = createInput({ paste: false, terminal: h.terminal });
+		const seen: string[] = [];
+
+		input.bind((event) => {
+			if (event.key.ctrl && event.key.name === 'c') {
+				seen.push('quit');
+				event.stop();
+			}
+		});
+		input.bind('g', () => seen.push('g'));
+		input.bind('g g', () => seen.push('gg'));
+
+		h.feed('g');
+		h.feed('\u0003');
+
+		expect(seen).to.deep.equal(['quit']);
 		input.stop();
 	});
 
@@ -937,6 +1168,33 @@ describe('a pending sequence', () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	/**
+	 * Tab is claimed by a continuation the app bound on it, and the focus does not
+	 * move.
+	 *
+	 * The trie is consulted before the tree and the Tab default is after both, so
+	 * this is the answer "a component that wants Tab keeps it by stopping the
+	 * event" already gives, one layer along.
+	 */
+	it('should let a sequence claim Tab without the focus moving', () => {
+		const h = harness();
+		const { first, root } = tree();
+		const input = createInput({ paste: false, root, terminal: h.terminal });
+		const seen: string[] = [];
+
+		input.focus.focus(first);
+		input.bind('g tab', (keys) => seen.push(formatKeys(keys)));
+
+		h.feed('g\t');
+		expect(seen).to.deep.equal(['g tab']);
+		expect(input.focus.current.get(), 'the Tab default ran as well').to.equal(first);
+
+		// and with nothing pending it moves the focus the way it always did
+		h.feed('\t');
+		expect(input.focus.current.get()).to.not.equal(first);
+		input.stop();
 	});
 
 	it('should let a continuation the app bound beat the Backspace default', () => {
@@ -1165,6 +1423,45 @@ describe('a focus change', () => {
 		input.stop();
 	});
 
+	/**
+	 * A key offered from the **root** starts a trail of its own, whatever a
+	 * handler did in between.
+	 *
+	 * The commit above it runs the caller's code, and that code can start a
+	 * sequence by calling `feed()` -- so `take()` is handed its trail rather than
+	 * reading one off the pending state. Measured on the ambient version: `g`
+	 * committed, its handler fed a `d`, and the outer `d` was then taken with the
+	 * inner one still in place, so **one keystroke left a pending `d d`** and the
+	 * `d d` binding fired with three keys. Found by re-reading the commit path
+	 * rather than by a review.
+	 */
+	it('should offer a key from the root with a trail of its own', () => {
+		const h = harness();
+		const input = createInput({ paste: false, terminal: h.terminal });
+		const seen: string[] = [];
+		let fed = false;
+
+		input.bind('g', () => {
+			seen.push('g');
+			if (!fed) {
+				fed = true;
+				input.feed('d');
+			}
+		});
+		input.bind('g g', () => seen.push('gg'));
+		input.bind('d d', (keys) => seen.push(`dd:${formatKeys(keys)}`));
+
+		// `g` pends, `d` does not continue it so `g` commits, the handler feeds a
+		// `d` which begins `d d`, and then the outer `d` is offered from the root
+		h.feed('gd');
+		expect(seen).to.deep.equal(['g']);
+		expect(formatKeys(input.sequence.get()), 'one keystroke, two keys').to.equal('d');
+
+		h.feed('d');
+		expect(seen).to.deep.equal(['g', 'dd:d d']);
+		input.stop();
+	});
+
 	// and a handler that feeds more keys starts from a clean pending state rather
 	// than from the one its own completion left behind
 	it('should let a handler that feeds more keys start a fresh sequence', () => {
@@ -1375,6 +1672,73 @@ describe('the two pending states', () => {
 	});
 
 	/**
+	 * A handler that feeds bytes mid-chunk does not leave a second key deadline
+	 * behind.
+	 *
+	 * `keys()` is re-entered by that `feed()`, and the inner call leaves **its
+	 * own** remainder in `held` while the outer call goes on to arm from its own
+	 * `joined`. Measured before it was guarded: two timers where one is correct.
+	 * Reachable from an ordinary `bind()` handler with no sequence involved, which
+	 * is why the first of these uses one -- the second is the same defect reached
+	 * by this ticket's own new code.
+	 *
+	 * The wasted timer is the lesser half. The half that matters is that where the
+	 * inner remainder is a control string and the outer chunk's was not, the second
+	 * timer is the key deadline over a held reply, which is the one thing
+	 * `armExpiry()` exists to refuse.
+	 */
+	it('should not arm a second key deadline for a handler that fed mid-chunk', () => {
+		vi.useFakeTimers();
+		try {
+			const h = harness();
+			const input = createInput({ paste: false, terminal: h.terminal });
+			const seen: string[] = [];
+			let fed = false;
+
+			input.bind((event) => {
+				seen.push(event.key.name);
+				if (event.key.name === 'a' && !fed) {
+					fed = true;
+					// a trailing ESC, which is held and arms the key deadline
+					input.feed(ESC);
+				}
+			});
+
+			h.feed('ab');
+			expect(vi.getTimerCount(), 'two deadlines for one held tail').to.equal(1);
+
+			vi.advanceTimersByTime(ESCAPE_TIMEOUT);
+			expect(seen).to.deep.equal(['a', 'b', 'escape']);
+			expect(vi.getTimerCount()).to.equal(0);
+			input.stop();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('should not arm one for a sequence handler that fed mid-chunk either', () => {
+		vi.useFakeTimers();
+		try {
+			const h = harness();
+			const input = createInput({ paste: false, terminal: h.terminal });
+			const seen: string[] = [];
+
+			input.bind((event) => seen.push(event.key.name));
+			input.bind('g g', () => void input.feed(ESC));
+
+			h.feed('ggz');
+			expect(vi.getTimerCount()).to.equal(1);
+
+			vi.advanceTimersByTime(ESCAPE_TIMEOUT);
+			expect(seen).to.deep.equal(['g', 'g', 'z', 'escape']);
+			expect(vi.getTimerCount()).to.equal(0);
+			input.stop();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	/**
 	 * Both deadlines can be armed at once, and the shorter one is the key's.
 	 *
 	 * Fifty milliseconds against five hundred, so a held partial always becomes a
@@ -1402,14 +1766,16 @@ describe('the two pending states', () => {
 			expect(formatKeys(input.sequence.get()), 'held bytes are not yet a key').to.equal('g');
 
 			// the key deadline is the shorter, so what it flushes arrives as a real
-			// key and cancels the sequence rather than the sequence committing `g`
+			// key -- and a key that reached the trie and did not continue the
+			// sequence answers the question the sequence deadline was waiting on, so
+			// `g` commits now rather than waiting out its own deadline
 			vi.advanceTimersByTime(ESCAPE_TIMEOUT);
-			expect(seen, 'the sequence committed over a key that had arrived').to.deep.equal([]);
+			expect(seen).to.deep.equal(['g']);
 			expect(input.sequence.get()).to.deep.equal([]);
-			expect(vi.getTimerCount(), 'the sequence deadline survived the cancel').to.equal(0);
+			expect(vi.getTimerCount(), 'the sequence deadline outlived its answer').to.equal(0);
 
 			vi.advanceTimersByTime(SEQUENCE_TIMEOUT * 2);
-			expect(seen).to.deep.equal([]);
+			expect(seen, 'it fired twice').to.deep.equal(['g']);
 			input.stop();
 		} finally {
 			vi.useRealTimers();
@@ -1550,6 +1916,42 @@ describe('a leader key', () => {
 		expect(() => input.leader('nope')).toThrow(KeySpecError);
 		input.stop();
 	});
+
+	/**
+	 * An empty continuation is refused rather than binding the leader by itself.
+	 *
+	 * The patterns are joined rather than the strings, which is what makes that
+	 * true: a spec built by interpolation is `"space "`, whose blank token
+	 * `parseKeys()` drops -- so one key is left and the "names no key" error that
+	 * `parseKeys('')` raises never happens. What shipped for a round was a leader
+	 * that fired its own binding the moment Space was pressed.
+	 */
+	it('should refuse an empty continuation rather than binding the leader alone', () => {
+		const h = harness();
+		const { first, root } = tree();
+		const input = createInput({ paste: false, root, terminal: h.terminal });
+		const seen: string[] = [];
+
+		input.focus.focus(first);
+		first.onKey = (event) => seen.push(`element:${formatKey(event.key)}`);
+
+		const leader = input.leader('space');
+		expect(() => leader.bind('', () => seen.push('leader itself'))).toThrow(KeySpecError);
+		expect(() => leader.bind('   ', () => seen.push('leader itself'))).toThrow(KeySpecError);
+
+		h.feed(' ');
+		expect(seen).to.deep.equal(['element:space']);
+		input.stop();
+	});
+
+	it('should refuse a continuation with no handler', () => {
+		const h = harness();
+		const input = createInput({ paste: false, terminal: h.terminal });
+		const leader = input.leader(',');
+
+		expect(() => (leader.bind as unknown as (k: string) => unknown)('f')).toThrow(TypeError);
+		input.stop();
+	});
 });
 
 describe('stopping the router', () => {
@@ -1582,9 +1984,16 @@ describe('stopping the router', () => {
 		}
 	});
 
-	// the bindings themselves are deliberately kept, which is what `stop()`
-	// already does with a function binding
-	it('should keep the bindings, and read nothing after it', () => {
+	/**
+	 * Nothing is read afterwards, by either door.
+	 *
+	 * Named for what it can check rather than for the rule it comes from: the
+	 * bindings themselves are deliberately **kept**, which is what `stop()`
+	 * already does with a function binding -- and that half is not observable
+	 * through the public API, because the only way to ask is to feed a key and
+	 * `consume()` returns at once. An earlier name claimed both.
+	 */
+	it('should read nothing after it, fed either way', () => {
 		const h = harness();
 		const input = createInput({ paste: false, terminal: h.terminal });
 		const seen: string[] = [];
@@ -1599,16 +2008,38 @@ describe('stopping the router', () => {
 });
 
 describe('the router surface', () => {
-	// the overload is what makes a sequence and a function binding one method,
-	// and a type error at the call site is what the two signatures buy
+	/**
+	 * Both spellings are on the one method, and each one's disposer removes its
+	 * own.
+	 *
+	 * Half of this is a *type* assertion -- the `InputRouter` annotation is what
+	 * makes `tsc` check the overload, and nothing at run time can see that -- so
+	 * the other half asserts what is observable, because a test that only called
+	 * the two would pass with either of them doing nothing at all.
+	 */
 	it('should offer both spellings of bind on the one interface', () => {
 		const h = harness();
 		const input: InputRouter = createInput({ paste: false, terminal: h.terminal });
+		const seen: string[] = [];
 
-		const offFunction = input.bind(() => {});
-		const offSequence = input.bind('g g', () => {});
+		const offFunction = input.bind((event) => seen.push(`fn:${formatKey(event.key)}`));
+		const offSequence = input.bind('g g', () => seen.push('gg'));
+
+		h.feed('gg');
+		expect(seen).to.deep.equal(['fn:g', 'fn:g', 'gg']);
+
 		offFunction();
+		h.feed('gg');
+		expect(seen).to.deep.equal(['fn:g', 'fn:g', 'gg', 'gg']);
+
 		offSequence();
+		h.feed('gg');
+		expect(seen, 'a disposer left its own binding in place').to.deep.equal([
+			'fn:g',
+			'fn:g',
+			'gg',
+			'gg',
+		]);
 		input.stop();
 	});
 });

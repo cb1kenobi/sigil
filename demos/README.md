@@ -362,7 +362,9 @@ node demos/element/10-sequences.js  # g g, g, Space f, Ctrl-X Ctrl-S, q
 side by side, and the thing to watch is which of them waits. `g` and `g g` are
 both bound, so a lone `g` has to find out which: the status line shows `g` and
 half a second later `g` fires on its own, while a second `g` inside that window
-fires the pair instead. `Space` is the leader and nothing else, so it waits with
+fires the pair instead -- and anything _else_ inside the window fires `g` at
+once, because a key that does not continue the sequence has answered the question
+the deadline was waiting on. `Space` is the leader and nothing else, so it waits with
 **no deadline at all** -- press it and leave it, and the `space` sits there,
 because there is nothing to disambiguate and any key that does not continue it
 already cancels it. And Ctrl-C quits from inside a half-entered sequence, because

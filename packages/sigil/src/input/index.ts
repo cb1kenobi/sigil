@@ -177,6 +177,18 @@ export const ESCAPE_TIMEOUT: number = 50;
  */
 export const SEQUENCE_TIMEOUT: number = 500;
 
+/**
+ * The longest delay `setTimeout` will hold.
+ *
+ * Node stores one as a signed 32-bit integer, so anything past this becomes
+ * `1` -- which is the trap `Infinity` is already refused for, reached by a
+ * finite number instead. A value past it is clamped rather than thrown away: a
+ * caller who wrote one meant "as long as possible", and the longest delay there
+ * is the nearest answer, where falling back to the default would be *shorter*
+ * than what they asked for.
+ */
+const MAX_DELAY = 2_147_483_647;
+
 /** Raised when there is nobody to read keys from. */
 export class InputError extends Error {
 	constructor(message: string) {
@@ -682,14 +694,34 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 	 *
 	 * A value that is not a finite number at or above zero falls back, which is
 	 * the typewriter's own rule: `Infinity >= 0` is true and node reads a delay
-	 * past 2^31-1 as 1, so honouring one asks for "never" and gets "at once".
+	 * past 2^31-1 as 1, so honouring one asks for "never" and gets "at once". And
+	 * a *finite* number past that ceiling is the same trap one step along, so it
+	 * is clamped rather than honoured -- `MAX_DELAY` has which way round and why.
 	 */
 	const waitFor =
 		typeof opts.sequenceTimeout === 'number' &&
 		Number.isFinite(opts.sequenceTimeout) &&
 		opts.sequenceTimeout >= 0
-			? opts.sequenceTimeout
+			? Math.min(opts.sequenceTimeout, MAX_DELAY)
 			: SEQUENCE_TIMEOUT;
+
+	/**
+	 * Whether a node is still hanging off the trie.
+	 *
+	 * `parent` is never cleared by a prune -- only the parent's entry for the
+	 * child is -- so a walk up the links reaches the root from a node that was
+	 * unbound. What says it is still there is the parent still naming it.
+	 */
+	function reaches(from: SequenceNode): boolean {
+		let at: SequenceNode = from;
+		while (at.parent) {
+			if (at.parent.children.get(at.spec) !== at) {
+				return false;
+			}
+			at = at.parent;
+		}
+		return at === trie;
+	}
 
 	function clearSeqTimer(): void {
 		if (seqTimer !== undefined) {
@@ -746,10 +778,19 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 	 * deadline at all -- there is nothing to decide between, and any key that does
 	 * not continue it already cancels it. A node with both is the ambiguous case
 	 * `SEQUENCE_TIMEOUT` is for.
+	 *
+	 * `from` is passed rather than read off `entered`, which is what makes this a
+	 * function of its arguments: the second call site offers a key from the
+	 * **root**, where the trail has to be empty whatever `entered` holds -- and a
+	 * handler reached from the commit just above it can have started a sequence of
+	 * its own by calling `feed()`. Measured on the ambient version: `g` committed,
+	 * its handler fed a `d`, and the outer `d` was then taken with the inner one
+	 * already in `entered` -- so one keystroke left a pending `d d` and the `d d`
+	 * binding fired with **three** keys.
 	 */
-	function take(key: Key, next: SequenceNode): void {
+	function take(key: Key, next: SequenceNode, from: readonly Key[]): void {
 		clearSeqTimer();
-		const keys: readonly Key[] = Object.freeze([...entered, key]);
+		const keys: readonly Key[] = Object.freeze([...from, key]);
 
 		if (next.children.size === 0) {
 			clearSequence();
@@ -762,15 +803,22 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 		sequence.set(keys);
 
 		if (next.handlers.size > 0) {
-			// the node and the keys are captured rather than read back when it fires,
-			// so the timer answers for the state it was armed for -- and since the
-			// state moving is what clears the timer, the two cannot part. Not
-			// unref'd, which matches the key timeout beside it: the router holds
-			// stdin resumed for as long as it runs, so it is never the timer keeping
-			// the process alive, and a key part way through a sequence is a user mid
-			// action rather than a probe nobody is awaiting
+			// the node and the keys are captured rather than read back, because the
+			// pending state moving is what clears this timer -- so those two cannot
+			// part. The **trie** can, which is a thing this comment used to deny: a
+			// disposer called while the deadline is running can take the handler off
+			// the very node it was armed for, and what is left is a pure prefix, which
+			// waits with no deadline at all. So the handlers are asked again on the
+			// way out, and firing an empty set there would have thrown the sequence
+			// away for nothing. Not unref'd, which matches the key timeout beside it:
+			// the router holds stdin resumed for as long as it runs, so it is never
+			// the timer keeping the process alive, and a key part way through a
+			// sequence is a user mid action rather than a probe nobody is awaiting
 			seqTimer = setTimeout(() => {
 				seqTimer = undefined;
+				if (next.handlers.size === 0) {
+					return;
+				}
 				clearSequence();
 				fire(next, keys);
 			}, waitFor);
@@ -816,17 +864,25 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 	 * @returns Whether the sequence machinery claimed it.
 	 */
 	function sequenceStep(key: Key): boolean {
+		// a pending node whose path was unbound while the sequence was part way
+		// through is nothing pending, and the disposer cannot say so: `sequence.ts`
+		// knows nothing about the router on purpose. Asked here instead, which is a
+		// walk of two or three links and only while something is pending
+		if (node && !reaches(node)) {
+			clearSequence();
+		}
+
 		const spec = formatKey(key);
 
 		if (node) {
 			const next = node.children.get(spec);
 			if (next) {
-				take(key, next);
+				take(key, next, entered);
 				return true;
 			}
 
 			// a modifier makes it a different key, so Alt-Escape is not Escape and
-			// `ctrl+h` is not Backspace -- those fall through to the cancel below
+			// `ctrl+h` is not Backspace -- those fall through to the commit below
 			if (!key.ctrl && !key.meta && key.name === 'escape') {
 				clearSequence();
 				return true;
@@ -836,7 +892,30 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 				return true;
 			}
 
+			// the sequence is over, and a key that reached the trie and did not
+			// continue it has **answered** the question the deadline was waiting on:
+			// `g` bound and `g g` bound, `g` then `x`, means `g` -- which is what vim
+			// does and the only reading that does not silently lose a keystroke the
+			// user deliberately made. The first version discarded it, so a bound `g`
+			// fired only if nothing was pressed for half a second.
+			//
+			// At the node reached and no further. Committing an *ancestor* would mean
+			// deciding that the keys after it were spent on nothing and then saying
+			// what becomes of them, which is a typeahead replay rather than a rule --
+			// so a node with no handler cancels, exactly as before.
+			//
+			// And Escape and Backspace are above this rather than below it, which is
+			// the whole distinction: those are the user saying "forget it", where a
+			// key is the user saying which of the two they meant
+			const reached = node;
+			const keys = entered;
 			clearSequence();
+			if (reached.handlers.size > 0) {
+				fire(reached, keys);
+				if (stopped) {
+					return true;
+				}
+			}
 		}
 
 		// and then from the root, because a key that ended one sequence may start
@@ -844,7 +923,10 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 		// than being spent on cancelling
 		const start = trie.children.get(spec);
 		if (start) {
-			take(key, start);
+			// from the root, so the trail is empty -- and `entered` is deliberately
+			// not what says so: a handler the commit above just ran may have started
+			// a sequence of its own
+			take(key, start, NO_KEYS);
 			return true;
 		}
 
@@ -1523,7 +1605,8 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 		const joined = held + input;
 		const length = pendingLength(joined, opts);
 		const ready = length === 0 ? joined : joined.slice(0, joined.length - length);
-		held = length === 0 ? '' : joined.slice(joined.length - length);
+		const tail = length === 0 ? '' : joined.slice(joined.length - length);
+		held = tail;
 
 		for (const key of decodeKeys(ready, opts)) {
 			// asked between keys as well as at the entry, because one of them may be
@@ -1535,7 +1618,19 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 			route(key);
 		}
 
-		if (held !== '') {
+		// and `held` has to still be the tail *this* call computed. A handler reached
+		// from the routing above can call `feed()`, which runs this whole function
+		// again and leaves its own remainder behind -- so arming from `joined` there
+		// arms a second timer over bytes this call never saw. Measured, before any of
+		// it was true on purpose: a binding that feeds a trailing `ESC` mid-chunk
+		// left **two** timers armed where one is correct, which is what the comment
+		// in `armExpiry()` called unreachable. The wasted timer is the lesser half.
+		// The one that matters is a held control *string*: where the inner remainder
+		// is one and this chunk's was not, `pendingIsString(joined)` is false and the
+		// second timer is the key deadline over a held reply, which is the one thing
+		// `armExpiry()` exists to refuse. Where the two differ the inner call has
+		// already armed for what is really held, or correctly declined to
+		if (held !== '' && held === tail) {
 			armExpiry(joined, opts);
 		}
 		settleSatisfied();
@@ -1558,10 +1653,14 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 	 * *key* is untouched, which is what keeps that Ctrl-C at fifty milliseconds.
 	 */
 	function armExpiry(joined: string, opts: DecodeOptions): void {
-		// there is never a timer already armed to clear here, and that is the deferred
-		// settle's doing rather than luck: `keys()` clears on the way in, a query
-		// satisfied during the routing waits for `settleSatisfied()` afterwards, and
-		// `settle()` arms only where nothing is armed. A `clearTimeout()` was written
+		// there is never a timer already armed to clear here, and the three things
+		// that make that true are the deferred settle, `keys()` clearing on the way
+		// in, and `settle()` arming only where nothing is armed. The fourth was a
+		// **false** claim until it was measured: this comment said nothing at all
+		// could arm one before this runs, and a handler that calls `feed()` from
+		// inside the routing does -- so the guard for that is in `keys()`, which
+		// declines to arm where `held` is no longer the tail it computed, and its
+		// comment has what that cost. A `clearTimeout()` was written
 		// here first, for the order this had before -- settling inside the routing
 		// armed a timer that this one then assigned over, orphaning it -- and it is
 		// gone because nothing can reach it, which is a thing to know before somebody
@@ -1850,14 +1949,23 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 				);
 			}
 
+			const first = patterns[0] as KeyPattern;
 			// the canonical spelling, so that the leader a status line prints and the
 			// one the trie is keyed by are one string
-			const spec = formatKey(patterns[0] as KeyPattern);
+			const spec = formatKey(first);
 			const offs = new Set<() => void>();
 
 			return {
 				bind(keys: string, handler: SequenceHandler): () => void {
-					const off = router.bind(`${spec} ${keys}`, handler);
+					if (typeof handler !== 'function') {
+						throw new TypeError(`A key-sequence binding needs a handler: bind("${keys}", fn)`);
+					}
+
+					// the **patterns** are joined rather than the strings, which is what
+					// stops `bind('')` binding the leader by itself: `parseKeys('')`
+					// refuses an empty spec, and `"space "` does not reach that refusal
+					// because the blank token is dropped and one key is left
+					const off = addBinding(trie, [first, ...parseKeys(keys)], handler);
 					const remove = (): void => {
 						offs.delete(remove);
 						off();

@@ -14,7 +14,10 @@
  * `g` is bound **and** `g g` is bound, so a lone `g` has to wait to find out
  * which: press it and the status line shows `g`, and half a second later `g`
  * fires on its own. Press the second one inside that window and the pair fires
- * instead. That is `SEQUENCE_TIMEOUT`, and it is the only thing here that waits.
+ * instead. That is `SEQUENCE_TIMEOUT`, and it is the only thing here that waits
+ * -- press anything *else* inside the window and `g` fires at once, because a key
+ * that does not continue the sequence has answered the question the deadline was
+ * waiting on.
  *
  * `Space` is the leader and nothing else, so it waits with **no deadline at
  * all** -- there is nothing to disambiguate, and any key that does not continue
@@ -79,7 +82,7 @@ function App() {
 	return box(
 		{ class: 'app' },
 		text('Key sequences', { class: 'title' }),
-		text('g g, g, Space f, Space w q, Ctrl-X Ctrl-S', { class: 'hint' }),
+		text('g g, g, Space f, Space w w, Ctrl-X Ctrl-S', { class: 'hint' }),
 		text('Escape clears, Backspace pops one, Ctrl-C always quits', { class: 'hint' }),
 		log,
 		box({ class: 'pending' }, text('pending:', { class: 'label' }), keys, note),
@@ -104,14 +107,21 @@ input.bind((event) => {
 });
 
 // `g` and `g g` are both bound, which is the only shape that waits
-input.bind('g', () => last.set('g -- the shorter one, on its deadline'));
+// and the message names neither route, because there are two: the deadline, and
+// a key that answered the question before it
+input.bind('g', () => last.set('g -- the shorter one'));
 input.bind('g g', () => last.set('g g -- the pair, inside the window'));
 input.bind('ctrl+x ctrl+s', () => last.set('ctrl+x ctrl+s -- saved'));
 
 // and the leader, declared once so that moving it off Space is one edit
 const leader = input.leader('space');
 leader.bind('f', (keys) => last.set(`${formatKeys(keys)} -- find`));
-leader.bind('w q', (keys) => last.set(`${formatKeys(keys)} -- write and quit`));
+// `w w` rather than vim's `w q`, and the reason is this demo's own point: the
+// quit binding above is a *function* binding, so it sees every key before the
+// trie is consulted -- which means a sequence ending in `q` could never fire
+// here, and a demo advertising a binding that cannot fire is worse than one that
+// does not advertise it. That is the Ctrl-C guarantee read from the other side
+leader.bind('w w', (keys) => last.set(`${formatKeys(keys)} -- write`));
 
 // the pending state is a signal, so the status line follows the *deadline*
 // firing as well as every key -- which a redraw-on-keypress could not do, since
