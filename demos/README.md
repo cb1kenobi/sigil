@@ -127,7 +127,7 @@ same property; the last section is what the parser refuses and what it says
 about it. Edit a sheet in the file and re-run it — that is what it is for.
 
 `04-theme-switcher.js` is the vocabulary rather than the mechanism, and what ships
-with it: the four named themes come from `@ttylabs/sigil/themes`, which an app
+with it: the five named themes come from `@ttylabs/sigil/themes`, which an app
 imports by name so a bundler drops the ones it did not take. Every
 declaration the framework shares between two built-ins is on a **role** —
 `.sigil-accent`, `.sigil-muted`, `.sigil-heading`, `.sigil-success`,
@@ -135,15 +135,15 @@ declaration the framework shares between two built-ins is on a **role** —
 component class and its role together. So the panel wears a dozen component
 classes and each theme sets exactly seven things.
 
-On a terminal, `1`-`5` swap the theme under a live frame and `q` quits — the
-panel prints its own key map, derived from the theme list so it cannot name four
-of five. A switch is a sheet added to the cascade and a `touchSheets()` to say
+On a terminal, `1`-`6` swap the theme under a live frame and `q` quits — the
+panel prints its own key map, derived from the theme list so it cannot name five
+of six. A switch is a sheet added to the cascade and a `touchSheets()` to say
 every rule it matched is stale. Piped, it
 renders each theme one after another instead, including a real `table()`, which
 is what shows the roles reaching a built-in rather than only the hand-built panel.
 
 ```sh
-node demos/style/04-theme-switcher.js        # 1-5 switch, q quits
+node demos/style/04-theme-switcher.js        # 1-6 switch, q quits
 node demos/style/04-theme-switcher.js | cat  # every theme, one after another
 SIGIL_COLOR_SCHEME=light node demos/style/04-theme-switcher.js
 NO_COLOR=1 node demos/style/04-theme-switcher.js
@@ -159,7 +159,17 @@ a colour on `.sigil-muted` inherits the framework's `dim: true` and comes out di
 that de-emphasises with `dim` at all — which is what `SIGIL_COLOR_SCHEME=light` is
 there to show. It is named for what ships rather than `framework`, because that
 name is taken: `framework` is the _origin_ the real defaults sit at, while this is
-an ordinary theme at origin `theme` like the other four.
+an ordinary theme at origin `theme` like the other five.
+
+The last row of the panel is a real hyperlink, and it is the one row a `text`
+could not be: `link` is a **canvas** style property rather than a cascade one, so
+no stylesheet can say it and no theme can reach it. A `raw` paints its own cells,
+which is the trapdoor that node type exists to be — and it still takes its colour
+from the `.sigil-accent` it wears, so the link moves with every switch while only
+the OSC 8 is the raw's own. Nothing degrades it: `NO_COLOR=1` drops the colour and
+the underline and leaves the row clickable, because a hyperlink is neither a colour
+nor an attribute, and a terminal that has never heard of OSC 8 shows the label and
+ignores the sequence.
 
 `03-animation.js` needs a terminal, because it moves. Space widens a bar, `c`
 changes two colours at once, and Tab moves a focus ring that fades rather than

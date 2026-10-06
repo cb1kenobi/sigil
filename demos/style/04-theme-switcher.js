@@ -36,15 +36,30 @@
  * `NO_COLOR=1` drops every colour *and* every attribute, so run it that way to see
  * the panel with the roles doing nothing at all. It still has to read, which is why
  * no line here depends on colour to say what it is -- the marks carry that.
+ *
+ * The last row is a real hyperlink, and it is the one thing here a `text` cannot be:
+ * `link` is a *canvas* style property rather than a cascade one, so no stylesheet can
+ * say it and no theme can reach it. `hyperlink()` below is the `raw` that paints one,
+ * and it still takes its colour from the role it wears.
  */
 import { supportsColor } from '@ttylabs/sigil/ansi';
 import { table, tableView } from '@ttylabs/sigil/components';
-import { box, renderToString, text } from '@ttylabs/sigil/element';
+import { box, cellStyle, raw, renderToString, text } from '@ttylabs/sigil/element';
 import { createInput, isAbort } from '@ttylabs/sigil/input';
 import { render } from '@ttylabs/sigil/renderer';
 import { parseStylesheet } from '@ttylabs/sigil/style';
 import { parseTheme, themedCascade } from '@ttylabs/sigil/theme';
 import { AMBER, MONO, NEON, PHOSPHOR, VIOLET } from '@ttylabs/sigil/themes';
+import { stringWidth } from '@ttylabs/sigil/width';
+
+/**
+ * Where the link points.
+ *
+ * The clone URL rather than the page, because it is the one a reader of a terminal
+ * actually wants out of a framework's demo -- and a browser handed it redirects to
+ * the repository anyway, so it costs the click nothing.
+ */
+const REPO = 'https://github.com/cb1kenobi/sigil.git';
 
 /** The seven roles, which is the whole of what a theme is a value for. */
 const ROLES = ['accent', 'muted', 'heading', 'success', 'error', 'warn', 'info'];
@@ -114,10 +129,81 @@ const ROWS = [
 const layout = parseStylesheet(`
 	.panel { flex-direction: column; width: 54; border: round; padding: 1 }
 	.row { flex-direction: row; column-gap: 1 }
+
+	/*
+	 * Underline is what says "link" where the colour is the theme's to decide, and
+	 * it has to be said at origin app rather than in a theme. RESET below turns
+	 * text-decoration off on every role so that a switch cannot leak one, and the
+	 * link row wears .sigil-accent -- so the two are a real contest at equal
+	 * specificity, and app is the later origin.
+	 *
+	 * Which is not the same as source order, and the live branch is what says so:
+	 * it adds each theme to the cascade this sheet is already in, so within one
+	 * origin the reset arrives last and takes the underline with it. Measured --
+	 * the same sheet parsed at origin theme comes out underlined piped, where the
+	 * layout sheet is pushed after the theme, and plain the moment a key is
+	 * pressed. An origin cannot be reordered by who added a sheet when.
+	 *
+	 * A stylesheet is a template literal here, so it holds no backtick: one ends
+	 * the sheet, and what tsc then reports is a syntax error a long way below the
+	 * character that caused it.
+	 */
+	.link { text-decoration: underline }
 `);
 
 /** A theme as the switcher applies it: complete, whatever was applied before it. */
 const sheetFor = (css) => parseTheme(`${RESET}\n${css}`);
+
+/**
+ * A hyperlinked label, which is the one row in the panel a `text` cannot be.
+ *
+ * `link` is a **canvas** style property rather than a cascade one. OSC 8 is
+ * terminal state that applies to everything written after it until it changes,
+ * which is what a cell `Style` already models -- so a link is interned, compared
+ * and diffed by the machinery that does all three for a colour, and a cell still
+ * holds one integer. What it is *not* is something a stylesheet can say: there is
+ * no `link` in the property table, so no `text` can carry one and no theme can
+ * reach it. A `raw` paints its own cells, which is exactly the trapdoor that node
+ * type exists to be -- a thing the layout engine cannot express.
+ *
+ * It still takes its **colour** from the cascade, because `cellStyle()` is the
+ * same conversion `paintText()` makes: the element wears `sigil-accent` and
+ * `.link`, so the colour is whatever the current theme's accent is and the
+ * underline is this demo's, with only the one `link` field the raw's own. Press a
+ * number and it moves with everything else.
+ *
+ * `drawsText: true` rather than `selectable: true`, which would be an *answer*
+ * and would beat a `selectable={false}` on anything above it. These cells are a
+ * URL somebody may want to paste rather than a wall of block characters, so they
+ * want exactly what a `text` gets.
+ *
+ * Nothing degrades the link, and that is right rather than an oversight.
+ * `NO_COLOR` drops every colour and every attribute, and a hyperlink is neither
+ * -- so run this with it set and the row comes out plain, undecorated, and still
+ * clickable. A terminal that has never heard of OSC 8 shows the label and ignores
+ * the sequence, which is the whole reason the escape is shaped the way it is.
+ *
+ * @param label - What is on screen.
+ * @param url - Where it points.
+ * @param props - The element's own props, which is how it gets its classes.
+ * @returns A one-line `raw`.
+ */
+function hyperlink(label, url, props) {
+	const width = stringWidth(label);
+
+	return raw(
+		{
+			drawsText: true,
+			// one line at its own width, whatever room it is offered: half a URL is not
+			// a URL, so there is nothing for wrapping or a `min-width` to buy here
+			measure: () => ({ height: 1, minHeight: 1, minWidth: width, width }),
+			paint: (painter, area, element) => {
+				painter.text(area.x, area.y, label, { ...cellStyle(element.style), link: url });
+			},
+		},
+		props
+	);
+}
 
 /**
  * The panel, wearing the classes the built-ins really emit.
@@ -199,6 +285,17 @@ function panel(name, keys) {
 			text('warning:', { class: 'sigil-warn' }),
 			text('no baseDir', {})
 		),
+		text('', {}),
+
+		// a real hyperlink, wearing the accent role like everything else live on the
+		// panel -- so the theme colours it and only the OSC 8 is the raw's own
+		box(
+			ROW,
+			text('↗', { class: 'sigil-symbol sigil-accent' }),
+			hyperlink(REPO, REPO, { class: 'link sigil-accent' })
+		),
+		text('', {}),
+
 		text('(seven declarations, everything above)', { class: 'sigil-help-note sigil-muted' }),
 		// the keys, where there are keys to press. Wrapping `text`s rather than a row
 		// of them, so that adding a theme cannot push the line off the panel
