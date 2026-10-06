@@ -860,7 +860,7 @@ describe('multiline()', () => {
 				expect(await answer).to.equal('aaaa! bbbb cccc dddd eeee ffff gggg hhhh');
 			});
 
-			it('should land on the ends of the value past the first and last rows', async () => {
+			it('should land on the start of the value past the first row', async () => {
 				const ui = screenSetup();
 				const answer = multiline({
 					ansi: ui.ansi,
@@ -1599,7 +1599,10 @@ describe('fieldLayers()', () => {
 		return { layout, top: 0, visible: Math.max(1, Math.min(layout.rows.length, rows)) };
 	}
 
-	it('should draw the rows and mark the caret', () => {
+	it('should draw the rows of the frame it was handed', () => {
+		// the field layer's claim and not the caret's: the caret repaints a cell the
+		// field already drew, so a stripped picture is the same either way. Where the
+		// caret is drawn is the window tests' and `caretAt()`'s
 		const { caret, field } = fieldLayers(() => frameOf('ab\ncd', 1, 20));
 		const host = box({ position: 'relative' }, field, caret);
 
@@ -1623,9 +1626,14 @@ describe('fieldLayers()', () => {
 		expect(caret.selectable, 'the caret answers rather than inheriting').to.equal(undefined);
 	});
 
-	it('should put every cell of the field in the mask, the caret cell included', () => {
+	it('should put every cell of the field in the mask', () => {
 		// a `raw` that draws no text is above it, which is both the shape `selectable`
-		// exists for and a mask these layers must not widen
+		// exists for and a mask these layers must not widen.
+		//
+		// The two layers cannot be told apart here, because the caret repaints a cell
+		// the field already marked -- which is two guards covering for each other
+		// rather than one claim, so each layer's own `drawsText` is asserted directly
+		// above instead
 		const sparkline = raw({
 			measure: () => ({ height: 1, width: 2 }),
 			paint: (painter, area) => painter.text(area.x, area.y, '\u2807\u2807'),
