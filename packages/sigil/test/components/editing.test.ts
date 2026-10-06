@@ -99,6 +99,10 @@ describe('deleteBefore()', () => {
 	it('should change nothing at the start', () => {
 		expect(deleteBefore('ab', 0)).to.deep.equal({ cursor: 0, value: 'ab' });
 	});
+
+	it('should leave the cursor on a boundary where the splice merged two clusters', () => {
+		expect(deleteBefore('e\t\u0301', 2)).to.deep.equal({ cursor: 2, value: 'e\u0301' });
+	});
 });
 
 describe('deleteAfter()', () => {
@@ -108,6 +112,10 @@ describe('deleteAfter()', () => {
 
 	it('should change nothing at the end', () => {
 		expect(deleteAfter('ab', 2)).to.deep.equal({ cursor: 2, value: 'ab' });
+	});
+
+	it('should move the cursor where the two clusters either side turned out to be one', () => {
+		expect(deleteAfter('e\t\u0301', 1)).to.deep.equal({ cursor: 2, value: 'e\u0301' });
 	});
 });
 
@@ -126,6 +134,24 @@ describe('deleteRange()', () => {
 
 	it('should clamp to the value', () => {
 		expect(deleteRange('ab', -4, 9)).to.deep.equal({ cursor: 0, value: '' });
+	});
+
+	it('should leave the cursor on a boundary when the splice merged two clusters', () => {
+		// both ends are boundaries of the *old* value, and splicing puts two
+		// characters next to each other that were not. `e`, a tab and a combining
+		// acute are three clusters; take the tab out and they are one, with offset 1
+		// inside it
+		expect(deleteRange('e\t\u0301', 1, 2)).to.deep.equal({ cursor: 2, value: 'e\u0301' });
+	});
+
+	it('should do the same where no control character is involved at all', () => {
+		// a pair of regional indicators is one cluster, so taking the `x` out of
+		// `AxBC` re-pairs the flags -- which is this reachable from a single-line
+		// field, where it drew half a flag either side of the caret
+		expect(deleteRange('\u{1F1E6}x\u{1F1E7}\u{1F1E8}', 2, 3)).to.deep.equal({
+			cursor: 4,
+			value: '\u{1F1E6}\u{1F1E7}\u{1F1E8}',
+		});
 	});
 });
 
@@ -302,5 +328,110 @@ describe('pastedBlock()', () => {
 		// field's value is a fixed point of it
 		const once = pastedBlock('a\r\n\tb\u0001c');
 		expect(pastedBlock(once)).to.equal(once);
+	});
+});
+
+describe('the cursor invariant', () => {
+	/** The offsets `graphemes()` agrees are boundaries, including the end. */
+	function boundaries(value: string): Set<number> {
+		const out = new Set([0]);
+		let offset = 0;
+		for (const cluster of new Intl.Segmenter().segment(value)) {
+			offset += cluster.segment.length;
+			out.add(offset);
+		}
+		return out;
+	}
+
+	/**
+	 * The values worth walking, which is the point of the list rather than its
+	 * length: an astral pair, a combining mark that can be split off, a lone
+	 * combining mark with nothing to attach to, a tab and a newline (which break a
+	 * cluster either side of them and are therefore what lets a splice merge two),
+	 * a ZWJ family, a flag, and three regional indicators -- which re-pair when
+	 * something between them goes and need no control character to do it.
+	 */
+	const VALUES = [
+		'',
+		'abc',
+		'a\u{1f600}b',
+		'e\u0301x',
+		'\u0301ab',
+		'e\t\u0301',
+		'e\n\u0301',
+		'a\u{1f468}\u200d\u{1f469}\u200d\u{1f467}b',
+		'\u{1F1E6}\u{1F1E7}',
+		'\u{1F1E6}x\u{1F1E7}\u{1F1E8}',
+		'one two\nthree  four',
+		'\u65e5\u672c\u8a9e',
+	];
+
+	/**
+	 * Every function that answers with a cursor answers with a boundary of the
+	 * value it answers with.
+	 *
+	 * The rule the single-line field settled and the one a multiline field is most
+	 * likely to break, so it is asserted as a property over every path rather than
+	 * at the offsets a report came in on.
+	 *
+	 * **Inductively**, which is the shape of the claim rather than a convenience:
+	 * the cursor starts at a boundary, every path takes a boundary to a boundary,
+	 * so it is always at one. Walked over the boundaries alone for that reason --
+	 * these functions take a cursor that is on one, which is a precondition every
+	 * caller in this package keeps because this is what says it may. Handed one
+	 * that is not, a delete really does splice inside a surrogate pair: that is
+	 * what `boundary()`'s own doc records and it is byte for byte what the
+	 * single-line field did before any of this was extracted.
+	 */
+	it('should answer with a boundary from every path', () => {
+		for (const value of VALUES) {
+			for (const at of boundaries(value)) {
+				const where = `${JSON.stringify(value)} at ${at}`;
+
+				// the movements answer about the value they were handed
+				const here = boundaries(value);
+				expect(here, `boundary(-1) ${where}`).to.include(boundary(value, at, -1));
+				expect(here, `boundary(+1) ${where}`).to.include(boundary(value, at, 1));
+				expect(here, `snap ${where}`).to.include(snap(value, at));
+				expect(here, `wordBefore ${where}`).to.include(wordBefore(value, at));
+				expect(here, `wordAfter ${where}`).to.include(wordAfter(value, at));
+
+				// and the edits about the value they produced
+				for (const [name, edit] of [
+					['insert a', insertAt(value, at, 'a')],
+					['insert a combining mark', insertAt(value, at, '\u0301')],
+					['insert an emoji', insertAt(value, at, '\u{1f600}')],
+					['insert a newline', insertAt(value, at, '\n')],
+					['backspace', deleteBefore(value, at)],
+					['delete', deleteAfter(value, at)],
+					['kill a word back', deleteRange(value, wordBefore(value, at), at)],
+					['kill a word forward', deleteRange(value, at, wordAfter(value, at))],
+					['kill to the start', deleteRange(value, 0, at)],
+					['kill to the end', deleteRange(value, at, value.length)],
+				] as const) {
+					expect(boundaries(edit.value), `${name} ${where}`).to.include(edit.cursor);
+				}
+			}
+		}
+	});
+
+	it('should never leave a lone surrogate in the value', () => {
+		// the damage the invariant is written for, asserted on the values rather than
+		// on the cursors: an unpaired surrogate is a string no terminal can draw, and
+		// a cursor that is still a boundary of a corrupt string says nothing
+		const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u;
+		for (const value of VALUES) {
+			for (const at of boundaries(value)) {
+				for (const edit of [
+					deleteBefore(value, at),
+					deleteAfter(value, at),
+					deleteRange(value, wordBefore(value, at), at),
+					deleteRange(value, at, wordAfter(value, at)),
+					insertAt(value, at, '\u{1f600}'),
+				]) {
+					expect(lone.test(edit.value), `${JSON.stringify(value)} at ${at}`).to.equal(false);
+				}
+			}
+		}
 	});
 });

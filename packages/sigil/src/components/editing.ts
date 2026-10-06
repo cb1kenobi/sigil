@@ -168,33 +168,23 @@ export function insertAt(value: string, cursor: number, input: string): Edit {
 }
 
 /**
- * Takes the cluster before the cursor out, which is backspace.
+ * Takes out a range and leaves the cursor at the earlier end, on a boundary.
  *
- * @param value - What has been typed.
- * @param cursor - Where the caret is.
- * @returns The value and the cursor after it.
- */
-export function deleteBefore(value: string, cursor: number): Edit {
-	const start = boundary(value, cursor, -1);
-	if (start >= cursor) {
-		return { cursor, value };
-	}
-	return { cursor: start, value: value.slice(0, start) + value.slice(cursor) };
-}
-
-/**
- * Takes the cluster after the cursor out, which is the delete key.
+ * **A delete can leave the cursor inside a cluster, and the snap is what keeps
+ * the invariant total.** Both ends of the range are boundaries of the *old*
+ * value, and splicing puts two characters next to each other that were not --
+ * so they may be one cluster now. Measured rather than reasoned about: `e` and
+ * a combining acute with a tab between them is `["e", "\t", "\u0301"]`, and
+ * deleting the tab leaves `"e\u0301"` with the cursor one code unit into it.
+ * A pair of regional indicators does it with no control character at all --
+ * deleting the `x` out of `🇦x🇧🇨` re-pairs the flags and leaves the cursor
+ * inside the first one -- so this is reachable from a single-line field too,
+ * where it drew half a flag before and after the caret.
  *
- * @param value - What has been typed.
- * @param cursor - Where the caret is.
- * @returns The value and the cursor after it, which does not move.
- */
-export function deleteAfter(value: string, cursor: number): Edit {
-	return { cursor, value: value.slice(0, cursor) + value.slice(boundary(value, cursor, 1)) };
-}
-
-/**
- * Takes out everything between two offsets, leaving the cursor at the earlier.
+ * It cannot leave a *lone surrogate*, which is the damage the invariant is
+ * written for: every offset here is a cluster boundary and a cluster never
+ * starts inside a code point. What it can leave is a cursor the next edit then
+ * works from, which is one cluster off what the person pointed at.
  *
  * @param value - What has been typed.
  * @param from - One end.
@@ -207,7 +197,31 @@ export function deleteRange(value: string, from: number, to: number): Edit {
 	if (start >= end) {
 		return { cursor: start, value };
 	}
-	return { cursor: start, value: value.slice(0, start) + value.slice(end) };
+	const next = value.slice(0, start) + value.slice(end);
+	return { cursor: snap(next, start), value: next };
+}
+
+/**
+ * Takes the cluster before the cursor out, which is backspace.
+ *
+ * @param value - What has been typed.
+ * @param cursor - Where the caret is.
+ * @returns The value and the cursor after it.
+ */
+export function deleteBefore(value: string, cursor: number): Edit {
+	return deleteRange(value, boundary(value, cursor, -1), cursor);
+}
+
+/**
+ * Takes the cluster after the cursor out, which is the delete key.
+ *
+ * @param value - What has been typed.
+ * @param cursor - Where the caret is.
+ * @returns The value and the cursor after it, which does not move unless the
+ *   two clusters either side of what went turned out to be one.
+ */
+export function deleteAfter(value: string, cursor: number): Edit {
+	return deleteRange(value, cursor, boundary(value, cursor, 1));
 }
 
 /**
@@ -303,7 +317,11 @@ export function wordAfter(value: string, at: number): number {
  * `tab` for a `\t`. Space is named, and is still a character.
  *
  * **What is inserted is the sequence rather than the name**, so that the two can
- * never disagree.
+ * never disagree -- which is a rule about the *condition* rather than about the
+ * read below it, and reading one in place of the other fails no test for that
+ * reason: past the guard the two are the same string, because `name === sequence`
+ * is what the guard tests. What the rule buys is the guard, and a key the guard
+ * lets through that it should not -- Up, Tab, Enter -- is caught.
  *
  * @param k - The key.
  * @returns What to insert, or `undefined`.

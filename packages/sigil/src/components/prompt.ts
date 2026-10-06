@@ -778,6 +778,15 @@ export interface FieldLayout {
 	width: number;
 }
 
+/** What the two layers of a field read: the rows, the window, and the caret. */
+export interface FieldFrame {
+	layout: FieldLayout;
+	/** The first row on screen, when the value is taller than the field. */
+	top: number;
+	/** How many of its rows are on screen. */
+	visible: number;
+}
+
 /** A cluster of the value, with where it is. */
 interface Cluster {
 	at: number;
@@ -800,6 +809,13 @@ interface ClusterRun {
  * reads, which is what makes a tab one space here as well -- the grid models no
  * tab stops, and a field that disagreed with every other text in the library
  * about what a tab is would be a column out per tab.
+ *
+ * The newline branch fails its own sabotage and is kept, because the sabotage is
+ * **equivalent** rather than the branch dead: `cellWidth('\n')` is zero --
+ * measured, along with every other control character -- so the cell comes out
+ * unpaintable either way. What it buys is that nothing can ever hand a raw `\n`
+ * to `CellBuffer.put()`, which *throws* on one. Dropping the mapping altogether
+ * is the sharper sabotage and is caught.
  *
  * @param cluster - One grapheme cluster of the value.
  * @returns What to paint, which is empty for anything with no cell.
@@ -1039,9 +1055,16 @@ export function offsetIn(layout: FieldLayout, length: number, row: number, colum
 	const index = Math.max(0, Math.min(row, layout.rows.length - 1));
 	const target = layout.rows[index];
 
-	// the position past the last cluster, which only the last row has: every
-	// other row's end is the next row's start, and belongs to that row
-	if (index === layout.rows.length - 1 && column >= target.width) {
+	// the position past the last cluster, which only the last row has: every other
+	// row's end is the next row's start, and belongs to that row.
+	//
+	// Aimed at the column the caret would be *drawn* in rather than at the row's
+	// own extent, because the two part company exactly where the whitespace clamp
+	// bit: a row ending in a run of spaces is `limit + 1` wide while the caret past
+	// it is drawn at `limit`, so a goal column -- which can never exceed the edge --
+	// could not reach the end of the value at all. `layoutField()` computes that
+	// column the same way, which is what keeps the two agreeing
+	if (index === layout.rows.length - 1 && column >= Math.min(layout.width - 1, target.width)) {
 		return length;
 	}
 
@@ -1097,6 +1120,121 @@ export function lineStart(value: string, at: number): number {
 export function lineEnd(value: string, at: number): number {
 	const found = value.indexOf('\n', Math.max(0, at));
 	return found === -1 ? value.length : found;
+}
+
+/**
+ * The field and its caret, as two `raw` elements over one rectangle.
+ *
+ * **Two elements because one cannot resolve two styles**, which is the scroll
+ * bar's own shape and the decrypt's: the caret carries `.sigil-caret` and is
+ * therefore `inverse` through the ordinary cascade, so a theme reaches it where
+ * it reaches everything else. At colour level 0 the seven attributes go, so no
+ * caret is drawn there at all -- which is the rule the single-line field's caret
+ * already follows and is right: a reverse-video caret would be the one sequence
+ * `NO_COLOR` could not switch off.
+ *
+ * **The caret paints at the field's box rather than at its own.** Its insets
+ * resolve against the host's padding box, so a `padding` an app writes on the
+ * host would otherwise put every caret a column away from the character it
+ * marks. Reading the box of the frame it is in is what a `raw` is for.
+ *
+ * **`drawsText` on both, rather than `selectable: true`.** A `raw` is not
+ * selectable unless something says so, which is right for a sparkline and wrong
+ * for a field whose cells *are* the text; `drawsText` changes the **default**, so
+ * a `selectable={false}` on a pane still reaches the field the way it reaches
+ * the texts inside it, where an answer would have beaten it. On the caret layer
+ * too, and that is not decoration: it repaints the cluster under the caret, so
+ * without it that one cell would be the one character of the field a selection
+ * could not copy.
+ *
+ * A function of a frame rather than part of `multiline()`, so that what it draws
+ * is testable with no terminal and no keystrokes -- which is the rule the layout
+ * engine and the selector engine already keep, and is the only way to ask what a
+ * cell's `selectable` came out as.
+ *
+ * @param read - The frame to draw: the rows, the window, and the caret.
+ * @returns The two elements, the field named first because it is the one in flow.
+ */
+export function fieldLayers(read: () => FieldFrame): { caret: Element; field: Element } {
+	const field = raw(
+		{
+			drawsText: true,
+			// the frame's own width rather than the one it was offered, because the
+			// layout was taken at a room the component already knew
+			measure: () => {
+				const { layout, visible } = read();
+				return {
+					height: visible,
+					minHeight: visible,
+					minWidth: layout.width,
+					width: layout.width,
+				};
+			},
+			paint: (painter, area, element) => {
+				const { layout, top, visible } = read();
+				const style = cellStyle(element.style);
+
+				// the window rather than the box, and a `Math.min` of the two was written
+				// here and taken out again for failing its sabotage: the measure asks for
+				// exactly `visible` rows, so the box's own height is that number -- and
+				// where a parent gave it more, drawing the rows that were not asked for
+				// would be drawing outside the window rather than inside the box
+				for (let row = 0; row < visible && top + row < layout.rows.length; row++) {
+					for (const cell of layout.rows[top + row].cells) {
+						// a cluster with no cell is not painted, and the guard is a tripwire
+						// rather than a saving: `CellBuffer.put()` *throws* on a control
+						// character rather than dropping it, and a throw from inside paint
+						// takes the frame and the renderer with it. `clusterText()` already
+						// gives one no text, so nothing the field itself produces reaches
+						// this -- what does is a `FieldCell` somebody else built
+						if (cell.width > 0) {
+							painter.text(area.x + cell.x, area.y + row, cell.text, style);
+						}
+					}
+				}
+			},
+		},
+		{ class: 'sigil-prompt-field' }
+	);
+
+	const caret = raw(
+		{
+			drawsText: true,
+			// never asked, because a box given both insets on an axis is as wide as
+			// they say
+			measure: () => ({ height: 0, width: 0 }),
+			paint: (painter, _area, element) => {
+				const { layout, top, visible } = read();
+				const area = field.content ?? field.box;
+				const row = layout.caret.row - top;
+				// the window rather than the box, which is the same number: the measure
+				// asked for `visible` rows and nothing in this tree squeezes the cross
+				// axis below what a line's largest item reported. A second bound on
+				// `area.height` was written here and taken out again for failing its
+				// sabotage -- the grid refuses a cell outside itself, so what it was
+				// standing against was a box this component cannot produce
+				if (!area || row < 0 || row >= visible) {
+					return;
+				}
+				painter.text(
+					area.x + layout.caret.x,
+					area.y + row,
+					layout.caret.text,
+					cellStyle(element.style)
+				);
+			},
+		},
+		{
+			bottom: 0,
+			class: 'sigil-caret',
+			left: 0,
+			position: 'absolute',
+			right: 0,
+			top: 0,
+		}
+	);
+
+	return { caret, field };
 }
 
 /** `ctrl-d`, as a reader would type it. */
@@ -1183,82 +1321,7 @@ export function multiline(opts: MultilineOptions): Promise<string> {
 		/** How many of its rows are on screen. */
 		let visible = 1;
 
-		// `drawsText` rather than `selectable: true`: these cells *are* the text, so
-		// they want what a `text` gets -- copyable unless something above said
-		// otherwise. An answer here would beat a pane that marked itself
-		// `selectable={false}`, which is the loss the flag closes
-		const field = raw(
-			{
-				drawsText: true,
-				// the stored layout rather than the width it was offered, for the reason
-				// the layout is computed where it is
-				measure: () => ({
-					height: visible,
-					minHeight: visible,
-					minWidth: layout.width,
-					width: layout.width,
-				}),
-				paint: (painter, area, element) => {
-					const style = cellStyle(element.style);
-					const rows = Math.min(area.height, visible);
-					for (let row = 0; row < rows && top + row < layout.rows.length; row++) {
-						for (const cell of layout.rows[top + row].cells) {
-							// a cluster with no cell is not painted: the grid refuses a
-							// control character rather than dropping it, and a throw from
-							// inside paint takes the frame and the renderer with it
-							if (cell.width > 0) {
-								painter.text(area.x + cell.x, area.y + row, cell.text, style);
-							}
-						}
-					}
-				},
-			},
-			{ class: 'sigil-prompt-field' }
-		);
-
-		/**
-		 * The caret, as a second `raw` over the same rectangle.
-		 *
-		 * Two elements because one cannot resolve two styles, which is the scroll
-		 * bar's own shape and the decrypt's: the caret carries `.sigil-caret` and is
-		 * therefore `inverse` through the ordinary cascade, so a theme reaches it
-		 * where it reaches everything else. It paints at the **field's** box rather
-		 * than its own, so that a padding an app writes cannot put the caret a column
-		 * away from the character it marks.
-		 *
-		 * `drawsText: true` here too, and it is not decoration: this layer repaints
-		 * the cluster under the caret, so without it that one cell would be the one
-		 * character of the field a selection could not copy.
-		 */
-		const caretLayer = raw(
-			{
-				drawsText: true,
-				// never asked, because a box given both insets on an axis is as wide as
-				// they say
-				measure: () => ({ height: 0, width: 0 }),
-				paint: (painter, _area, element) => {
-					const area = field.content ?? field.box;
-					const row = layout.caret.row - top;
-					if (!area || row < 0 || row >= visible) {
-						return;
-					}
-					painter.text(
-						area.x + layout.caret.x,
-						area.y + row,
-						layout.caret.text,
-						cellStyle(element.style)
-					);
-				},
-			},
-			{
-				bottom: 0,
-				class: 'sigil-caret',
-				left: 0,
-				position: 'absolute',
-				right: 0,
-				top: 0,
-			}
-		);
+		const { caret: caretLayer, field } = fieldLayers(() => ({ layout, top, visible }));
 
 		const view = box(
 			{ class: 'sigil-prompt', 'flex-direction': 'column' },
@@ -1300,6 +1363,14 @@ export function multiline(opts: MultilineOptions): Promise<string> {
 		 * Through `snap()` and clamped, so that an offset worked out from a row of
 		 * the *placeholder* -- which is what the rows describe while the value is
 		 * empty -- can never be stored as a cursor into the value.
+		 *
+		 * **Declared rather than claimed**: it cannot change an answer today and it
+		 * fails its own sabotage, because the one way an offset from the wrong
+		 * string gets here is with a value of `''` -- the placeholder shows only
+		 * then -- and every rule below answers the same for any offset into that.
+		 * What it buys is that this is the one place a cursor is written, so the
+		 * invariant every rule below reads is asserted here rather than assumed of
+		 * each of them.
 		 *
 		 * @param to - Where to put it.
 		 */

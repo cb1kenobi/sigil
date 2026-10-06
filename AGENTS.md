@@ -12588,6 +12588,15 @@ constraint is worth recording because it shaped every edit.
   split `rowWindow()` and `thumbExtent()` already keep for the scroll box. Not
   barrel-exported because only the barrel is published: `FieldLayout` is a shape
   this module owes nobody, and a type in the public API is a promise.
+- **`fieldLayers()` is there for the same reason and was forced by a sabotage.**
+  The two `raw` elements were built inside `multiline()`'s closure, and the only
+  way to a cell's `selectable` is `selectableAt()` over an arranged tree -- so
+  `drawsText` on either layer was a claim nothing could see, and both survived
+  being deleted. As a function of a `FieldFrame` the drawing is testable with no
+  terminal and no keystrokes, which is the rule the layout engine and the
+  selector engine already keep: it takes the rows, the window and the caret, and
+  a test hands it a literal where the component hands it a closure over its own
+  state.
 - **`test/canvas/screen.ts` learnt about reverse video**, which is the one piece
   of styling it keeps. A prompt's caret _is_ styling, so a model holding
   characters alone cannot see it at all; the alternative is a second cursor
@@ -12598,6 +12607,83 @@ constraint is worth recording because it shaped every edit.
   whole SGR string, for the reason `report.test.ts` already records: a transition
   combines what it closes with what it opens, so a test for the string would be
   pinning one spelling of it.
+
+##### What the sabotage pass found
+
+Forty mutations, one at a time with the component suite run after each. **All
+forty are caught** bar three, and the three are each declared where they live.
+The interesting half is not the count: twelve survived the first pass, and what
+each of those twelve turned out to be is the finding.
+
+- **Four were a guard with a missing test, and each got the input that makes it
+  matter.** `lineStart()`'s guard at zero, which `lastIndexOf` needs because it
+  reads a negative `fromIndex` as _zero_ rather than as nowhere -- so a value
+  that **starts** with a newline answered 1 for a cursor at 0, and the test for
+  it used `'ab\ncd'`, which has no newline there to find. `offsetIn()`'s trailing
+  column, below. The break test counting the gap, where the fixture happened to
+  break at the same place either way -- `'aa bb'` in five columns is the input
+  where it does not. And Ctrl-C being unclaimable, which needs a field that
+  _would_ claim it: with any other submit key `claims()` says no to Ctrl-C by
+  itself, so the refusal in `run()` was covered by the one thing it is not about.
+- **Two were a fixture that could not reach the branch it was named for.** The
+  paste giving the goal column up pressed Home first -- and Home clears the goal
+  itself, so the paste's own clear was never the thing being asked about. And
+  `move()`'s clamp, whose test walked a placeholder short enough to fit on one
+  row, so the vertical move it was meant to provoke never called `offsetIn()` at
+  all.
+- **Two were `drawsText`, which nothing could see** -- and closing that is what
+  `fieldLayers()` is. The two `raw` layers were built inside `multiline()`'s
+  closure, so the only way to the elements was through a mounted prompt and the
+  only way to a cell's `selectable` is `selectableAt()` over an arranged tree.
+  As a function of a `FieldFrame` they are testable with no terminal and no
+  keystrokes, which is the rule the layout engine and the selector engine
+  already keep. Three claims came with it: both layers say `drawsText`, neither
+  writes a `selectable` of its own, and a pane that excludes itself excludes the
+  field -- which is the half an answer could not do and is the whole reason the
+  flag exists.
+- **Two were guards that were genuinely inert and are gone.** A `Math.min` of
+  the window and the box's own height in the field's paint: the measure asks for
+  exactly `visible` rows, so the two are the same number, and where a parent
+  gives it more, drawing the extra rows would be drawing outside the _window_
+  rather than inside the box -- so the window is the one bound. And a second
+  bound on `area.height` and `area.width` in the caret's paint, written for a box
+  squeezed below what the measure asked for, which this component cannot produce.
+  The caret's **window** bound is real and took something _around_ the field to
+  see: a caret painted outside the window lands on whatever the layout put there,
+  and with nothing there the grid refuses the cell and the guard reads as inert.
+  The fixture is the field between two rows that are not its, in both directions.
+- **One was a `raw` painting a cluster the grid refuses**, and it is a tripwire
+  rather than a case anybody has: `clusterText()` gives a control character no
+  text, so nothing the field produces reaches it. What does is a `FieldCell`
+  somebody else built, which is what the test hands it -- and `put()` _throws_ on
+  a control character rather than dropping it, so what the guard is standing
+  against is a frame and a renderer taken down from inside paint.
+- **And three are declared.** `move()`'s snap and clamp cannot change an answer,
+  because the one way an offset from the wrong string gets there is with a value
+  of `''` and every rule below answers the same for any offset into that; what
+  it buys is that the invariant is asserted where a cursor is written rather than
+  assumed of each reader. The other two are **equivalent** sabotages rather than
+  dead code, which is the shape this file already records from the FIGlet pass:
+  `clusterText()`'s newline branch, because `cellWidth('\n')` is zero -- measured
+  -- so the cell is unpaintable either way and what the branch buys is that no
+  raw `\n` can reach `put()`; and `typedText()` reading the sequence rather than
+  the name, because past its own guard the two **are** the same string, so the
+  rule is about the condition and the condition is caught.
+
+Two findings came from writing the property tests rather than from the pass, and
+both are about the delete paths. The cursor invariant is **inductive** -- it
+starts at a boundary and every path takes a boundary to a boundary -- and a
+delete can break it: both ends of the range are boundaries of the _old_ value,
+and splicing puts two characters next to each other that were not. `e`, a tab and
+a combining acute is three clusters; take the tab out and it is one, with the
+cursor one code unit inside it. A pair of regional indicators does it with **no
+control character at all**, so it is reachable from a single-line field too, where
+it drew half a flag either side of the caret. `deleteRange()` snaps, which makes
+the invariant total; and the property test had to be narrowed to the boundaries,
+because walking every offset asserts something the functions do not claim and
+cannot -- handed a cursor inside a surrogate pair, a delete splices inside it,
+which is what `boundary()`'s own doc records and is byte for byte what the
+single-line field did before any of this was extracted.
 
 ##### What is deliberately out
 

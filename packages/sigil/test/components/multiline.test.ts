@@ -1,4 +1,7 @@
+import { strip } from '../../src/ansi/strip.js';
 import {
+	type FieldFrame,
+	fieldLayers,
 	layoutField,
 	lineEnd,
 	lineStart,
@@ -7,6 +10,16 @@ import {
 	PromptError,
 	text,
 } from '../../src/components/prompt.js';
+import {
+	arrange,
+	box,
+	raw,
+	renderToString,
+	resolveStyles,
+	selectableAt,
+	text as textNode,
+} from '../../src/element/index.js';
+import { themedCascade } from '../../src/theme/index.js';
 import { type ScreenHarness, screenSetup, tick } from './helpers.js';
 import { describe, expect, it } from 'vitest';
 
@@ -182,6 +195,26 @@ describe('multiline()', () => {
 		it('should still abort on ctrl-c, which no field may claim', async () => {
 			const ui = screenSetup();
 			const answer = settle(multiline({ ansi: ui.ansi, message: 'Why?', terminal: ui.terminal }));
+
+			await type(ui.stdin, 'x', CTRL_C);
+
+			expect((await answer).error?.aborted).to.equal(true);
+		});
+
+		it('should refuse the claim for ctrl-c, whatever the field asked for', async () => {
+			// the one key no field may have: an app that cannot be quit because a field
+			// swallowed it is the failure the binding order exists to prevent. A caller
+			// naming it as the submit key is what makes the refusal observable at all --
+			// with any other key `claims()` says no to Ctrl-C by itself
+			const ui = screenSetup();
+			const answer = settle(
+				multiline({
+					ansi: ui.ansi,
+					message: 'Why?',
+					submit: { ctrl: true, name: 'c' },
+					terminal: ui.terminal,
+				})
+			);
 
 			await type(ui.stdin, 'x', CTRL_C);
 
@@ -1064,11 +1097,14 @@ describe('multiline()', () => {
 				terminal: ui.terminal,
 			});
 
-			// Up carries a goal of 6; the paste moves the caret to column 1 of the
-			// short line, and the Up after it has to aim there rather than at 6
-			await type(ui.stdin, UP, HOME, `${PASTE_START}z${PASTE_END}`, UP, '!', CTRL_D);
+			// Up carries a goal of 6 and lands on the short line's newline at column 2;
+			// the paste puts the caret at column 3, and the Up after it has to aim there
+			// rather than at the 6 the first Up was still carrying. No Home in between,
+			// which is what the first version of this had -- Home clears the goal itself,
+			// so the paste's own clear was never the thing being asked about
+			await type(ui.stdin, UP, `${PASTE_START}z${PASTE_END}`, UP, '!', CTRL_D);
 
-			expect(await answer).to.equal('a!bcdef\nzxy\nghijkl');
+			expect(await answer).to.equal('abc!def\nxyz\nghijkl');
 		});
 	});
 
@@ -1210,6 +1246,13 @@ describe('layoutField()', () => {
 		expect(layoutField('aaa bbb ccc', 11, 10).caret).to.deep.equal({ row: 1, text: ' ', x: 3 });
 	});
 
+	it('should count the gap when deciding where to break', () => {
+		// five columns of room is four of text: `aa` and `bb` are two each, so they
+		// fit only if the space between them does not count -- and a row that holds
+		// them both is a row one column wider than the field
+		expect(drawn('aa bb', 0, 5)).to.deep.equal(['aa ', 'bb']);
+	});
+
 	it('should break a word too long for a row of its own', () => {
 		expect(drawn('abcdefghijkl', 0, 10)).to.deep.equal(['abcdefghi', 'jkl']);
 	});
@@ -1309,6 +1352,18 @@ describe('layoutField()', () => {
 		]);
 	});
 
+	it('should snap a cursor that is not a boundary rather than losing the caret', () => {
+		// the function is exported and takes any offset, and the fallthrough below the
+		// cell search is "past the last cluster" -- so an offset inside a surrogate
+		// pair would send the caret to the end of the field rather than onto the
+		// cluster it fell inside
+		expect(layoutField('\u{1f600}a', 1, 20).caret).to.deep.equal({
+			row: 0,
+			text: 'a',
+			x: 2,
+		});
+	});
+
 	it('should mark a cluster with no cell as a blank', () => {
 		expect(layoutField('a\u0001b', 1, 20).caret).to.deep.equal({ row: 0, text: ' ', x: 1 });
 	});
@@ -1360,6 +1415,16 @@ describe('offsetIn()', () => {
 		expect(offsetIn(layout, 4, 1, 5)).to.equal(2);
 	});
 
+	it('should reach the end of a row whose whitespace was clamped to the edge', () => {
+		// the row is `limit + 1` wide while the caret past it is drawn at `limit`, so
+		// a goal column -- which can never exceed the edge -- could not reach the end
+		// of the value at all if this compared against the row's own extent
+		const layout = layoutField('ab      ', 0, 6);
+		expect(layout.rows[0].width).to.equal(6);
+		expect(layout.width).to.equal(6);
+		expect(offsetIn(layout, 8, 0, 5)).to.equal(8);
+	});
+
 	it('should clamp a row outside the layout', () => {
 		const layout = layoutField('ab', 0, 40);
 		expect(offsetIn(layout, 2, -3, 0)).to.equal(0);
@@ -1391,6 +1456,14 @@ describe('the ends of a logical line', () => {
 		expect(lineEnd(value, 2)).to.equal(2);
 	});
 
+	it('should answer zero at the start of a value that starts with a break', () => {
+		// `lastIndexOf` reads a negative `fromIndex` as zero rather than as "nowhere",
+		// so without the guard an offset of zero finds the newline *at* zero and
+		// answers one -- the start of the second line, for a cursor on the first
+		expect(lineStart('\nab', 0)).to.equal(0);
+		expect(lineStart('\nab', 1)).to.equal(1);
+	});
+
 	it('should answer zero and the length at the ends', () => {
 		expect(lineStart('ab\ncd', 0)).to.equal(0);
 		expect(lineEnd('ab\ncd', 5)).to.equal(5);
@@ -1402,5 +1475,148 @@ describe('the ends of a logical line', () => {
 	it('should answer an empty line between two breaks', () => {
 		expect(lineStart('a\n\nb', 2)).to.equal(2);
 		expect(lineEnd('a\n\nb', 2)).to.equal(2);
+	});
+});
+
+describe('fieldLayers()', () => {
+	/** A frame over a value, as `draw()` would have worked one out. */
+	function frameOf(value: string, cursor: number, room: number, rows = 10): FieldFrame {
+		const layout = layoutField(value, cursor, room);
+		return { layout, top: 0, visible: Math.max(1, Math.min(layout.rows.length, rows)) };
+	}
+
+	it('should draw the rows and mark the caret', () => {
+		const { caret, field } = fieldLayers(() => frameOf('ab\ncd', 1, 20));
+		const host = box({ position: 'relative' }, field, caret);
+
+		// stripped, because the caret is styling and this claim is about the cells
+		expect(
+			strip(renderToString(host, { cascade: themedCascade(), colorLevel: 1, width: 20 }))
+		).to.equal('ab\ncd');
+	});
+
+	it('should say what it draws, and leave `selectable` to an ancestor', () => {
+		// `drawsText` rather than `selectable: true`: these cells *are* the text, so
+		// they want what a `text` gets. Both layers have to say it -- the caret layer
+		// repaints the cluster under the caret, so without it that one cell would be
+		// the one character of the field a selection could not copy -- and neither may
+		// write a `selectable` of its own, which is what the test below rests on
+		const { caret, field } = fieldLayers(() => frameOf('ab', 1, 20));
+
+		expect(field.drawsText, 'the field does not say').to.equal(true);
+		expect(caret.drawsText, 'the caret layer does not say').to.equal(true);
+		expect(field.selectable, 'the field answers rather than inheriting').to.equal(undefined);
+		expect(caret.selectable, 'the caret answers rather than inheriting').to.equal(undefined);
+	});
+
+	it('should put every cell of the field in the mask, the caret cell included', () => {
+		// a `raw` that draws no text is above it, which is both the shape `selectable`
+		// exists for and a mask these layers must not widen
+		const sparkline = raw({
+			measure: () => ({ height: 1, width: 2 }),
+			paint: (painter, area) => painter.text(area.x, area.y, '\u2807\u2807'),
+		});
+		const { caret, field } = fieldLayers(() => frameOf('ab', 1, 20));
+		const host = box({ position: 'relative' }, field, caret);
+		const root = box({ 'flex-direction': 'column' }, sparkline, host);
+
+		resolveStyles(root);
+		arrange(root, { height: 2, width: 4 });
+		const selectable = selectableAt(root, 4, 2);
+
+		expect(selectable, 'nothing was excluded at all').to.not.equal(undefined);
+		expect(selectable?.(0, 1), 'the first cell of the field').to.equal(true);
+		expect(selectable?.(1, 1), 'the cell the caret repainted').to.equal(true);
+		// and the rule it is an exception to is still the rule, above it
+		expect(selectable?.(0, 0), 'a raw that draws no text can be copied').to.equal(false);
+	});
+
+	it('should let a pane that excludes itself exclude the field, which an answer could not', () => {
+		// the other half of `drawsText` being a *default*: a `selectable={false}` on a
+		// pane reaches the field the way it reaches the texts inside it, where a
+		// `selectable: true` on the layers would have beaten it
+		const { caret, field } = fieldLayers(() => frameOf('ab', 1, 20));
+		const pane = box({ position: 'relative', selectable: false }, field, caret);
+
+		resolveStyles(pane);
+		arrange(pane, { height: 1, width: 4 });
+		const selectable = selectableAt(pane, 4, 1);
+
+		expect(selectable?.(0, 0), 'the field was copied out of a pane that said not to').to.equal(
+			false
+		);
+	});
+
+	it('should draw no cell for a cluster the grid would refuse', () => {
+		// a tripwire rather than a case anybody has: `CellBuffer.put()` *throws* on a
+		// control character rather than dropping it, and a throw from inside paint
+		// takes the frame and the renderer with it. `clusterText()` gives one no text,
+		// so the only way one reaches the paint is a `FieldCell` built elsewhere --
+		// which is what this hands it
+		const frame: FieldFrame = {
+			layout: {
+				// the caret repaints the cluster under it, which here is the `a`
+				caret: { row: 0, text: 'a', x: 0 },
+				rows: [
+					{
+						cells: [
+							{ at: 0, text: 'a', width: 1, x: 0 },
+							// a raw control character, and a tab, which the grid refuses outright
+							{ at: 1, text: '\u0007', width: 0, x: 1 },
+							{ at: 2, text: '\t', width: 0, x: 1 },
+							{ at: 3, text: 'b', width: 1, x: 1 },
+						],
+						start: 0,
+						width: 2,
+					},
+				],
+				width: 3,
+			},
+			top: 0,
+			visible: 1,
+		};
+		const { caret, field } = fieldLayers(() => frame);
+		const host = box({ position: 'relative' }, field, caret);
+
+		expect(() => renderToString(host, { cascade: themedCascade(), width: 20 })).to.not.throw();
+		expect(strip(renderToString(host, { cascade: themedCascade(), width: 20 }))).to.equal('ab');
+	});
+
+	it('should draw only the window, and nothing below it', () => {
+		const layout = layoutField('1\n2\n3\n4', 0, 20);
+		const { caret, field } = fieldLayers(() => ({ layout, top: 1, visible: 2 }));
+		const host = box({ position: 'relative' }, field, caret);
+
+		expect(renderToString(host, { cascade: themedCascade(), width: 20 })).to.equal('2\n3');
+	});
+
+	it('should draw no caret for a row outside the window, above or below', () => {
+		// the one bound the caret has, and it takes something *around* the field to
+		// see: a caret painted outside the window lands on whatever the layout put
+		// there, and with nothing there the grid refuses the cell and the guard reads
+		// as inert. So the field goes between two rows that are not its
+		for (const [top, cursor, drawn] of [
+			[2, 0, 'AA\nBB\n3\nCC\nDD'],
+			[0, 4, 'AA\nBB\n1\nCC\nDD'],
+		] as const) {
+			// with `top: 2` the caret's row 0 is two rows above the window; with `top: 0`
+			// and a window of one, the caret on row 2 is two rows below it
+			const layout = layoutField('1\n2\n3', cursor, 20);
+			const { caret, field } = fieldLayers(() => ({ layout, top, visible: 1 }));
+			const host = box({ position: 'relative' }, field, caret);
+			const root = box(
+				{ 'flex-direction': 'column' },
+				textNode('AA'),
+				textNode('BB'),
+				host,
+				textNode('CC'),
+				textNode('DD')
+			);
+
+			const out = renderToString(root, { cascade: themedCascade(), colorLevel: 1, width: 20 });
+			expect(layout.rows, 'the value stopped wrapping into three rows').to.have.length(3);
+			expect(out, `a caret was drawn outside the window (top ${top})`).to.not.contain('\u001b[7m');
+			expect(strip(out), `a cell outside the window was written (top ${top})`).to.equal(drawn);
+		}
 	});
 });
