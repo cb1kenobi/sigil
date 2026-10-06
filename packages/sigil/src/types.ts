@@ -142,7 +142,6 @@ export interface Command<
 	[key: string]: unknown; // custom data
 	alias?: string | string[];
 	args?: A;
-	choices?: readonly unknown[];
 	/**
 	 * This command's subcommands, in every shape `Schema.commands` takes -- a
 	 * path, a list, or a map -- because a command's subcommands are declared the

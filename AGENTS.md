@@ -823,6 +823,43 @@ false` rethrows instead; a function replaces the handler.
   interface for custom data, so `{ file: './build.js' }` type-checked,
   registered a command with no module and no handler, and then did nothing when
   dispatched. It is gone.
+- **And `Command.choices` went the same way, because a command has no value for a
+  list of allowed ones to constrain.** `choices` vets a value against a list, and
+  the two places it means something are an `Option` and an `Argument`, each of
+  which has one. A command is matched by _name_, so there is nothing on it to vet
+  -- which makes this not an unimplemented feature but a property with no coherent
+  meaning to implement, and that is the distinction worth keeping: `inSelection()`
+  is kept with no caller in `src/` because the question it answers has one right
+  answer, and this had no question.
+
+  Measured rather than read, because `[key: string]: unknown` makes the type say
+  nothing either way. Nothing in either package read it: every `.choices` in `src/`
+  is `opt.choices`, `arg.choices`, or a prompt's own unrelated one, and `infer.ts`
+  reads it only off an option or an argument declaration. Nothing validated it
+  either, where `initOption()` throws `Expected option choices to be an array` --
+  `{ choices: 'not-an-array' }`, `42` and `{ a: 1 }` on a command were each
+  accepted, copied onto the internal command by `copyDeclaration()`'s generic array
+  pass, and reached `run()` as `cmd.choices` having done nothing. It was not in the
+  README's command-property table either, which is the worse half of a dead
+  property: a reader meets it in the type through completion and there is no
+  documentation to tell them it does nothing.
+
+  Deleting it is **not** a breaking change, which is why it could simply go: the
+  index signature is still there, so `{ choices: [...] }` on a command type-checks
+  exactly as before and still arrives at `cmd.choices` -- as the custom data it
+  always was. Verified after the deletion rather than assumed. What differs is that
+  reading it back is `unknown` rather than `readonly unknown[]`, which is the type
+  telling the truth.
+
+  `Schema` never had one, and that asymmetry is suggestive rather than decisive:
+  `Command` declares nine properties `Schema` does not -- `alias`, `default`,
+  `desc`, `examples`, `hidden`, `load`, `path`, `run` and this -- and the other
+  eight are each about a command being matched and dispatched, which the root is
+  not. The deciding evidence is the reader count rather than the shape, and the
+  near miss is `routeInfo`: that one has no _producer_ left in the tree and is read
+  in `init-command.ts` on every placeholder, so it is live API that looks dead. A
+  property with no reader is dead; a property with no producer is a contract.
+
 - **A path nobody named is a directory _of_ commands; a path somebody named is
   one command.** `commands: './commands'` means every route inside becomes a
   sibling, which is the one place a single path produces more than one command,
