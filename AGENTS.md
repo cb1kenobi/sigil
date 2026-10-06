@@ -6147,12 +6147,15 @@ in` is what fails for it.
   worse than the binding not existing -- and the overload refuses it at the call
   site, which is the better half of that.
 
-- **Thirty-nine sabotages, thirty-nine caught, and five of them needed a test
-  written for them.** Twenty-nine over the first version and ten more over the
-  guards the review rounds and the re-read added, every one of which was caught
-  first time -- which is what arriving with a test does, since each of those ten
-  came with the one that found its defect. The harness reported two patterns as
-  **stale** on the way through, which is the guard this file records it for
+- **Forty-two sabotages, forty-two caught, and five of them needed a test written
+  for them.** Thirty-nine deletions -- twenty-nine over the first version and ten
+  more over the guards the review rounds and the re-read added -- plus the three
+  **reorderings** round two's own list named, which a pass built out of deletions
+  could not express: firing before the reset in each of the two places the
+  caller's code runs, and a re-arm after a pop, which is a line _added_ rather
+  than removed. Every one of the ten and all three of those were caught first
+  time, which is what arriving with a test does. The harness reported two patterns
+  as **stale** on the way through, which is the guard this file records it for
   earning its keep a third time: both went stale when `take()` grew a parameter,
   and a pattern that silently matches nothing is a green suite reading as "the
   guard is not load bearing". Every one of the five was a guard whose _fixture_ could not
@@ -6166,6 +6169,39 @@ in` is what fails for it.
   guard was **deleted** rather than tested, which is the `unknown` entry above, and
   one condition was simplified for the same reason -- `plus <= 0`'s zero half,
   whose answer the modifier lookup already gives.
+
+- **And the second round found prose and fixtures, which is what pointing it at
+  the skipped files is for.** It was told not to re-attack round one's premises
+  and to go at round one's own "not examined" list first, and every finding came
+  from there. **Three were sentences**: the demo and the `demos/README.md` both
+  said that with `g` and `g g` bound, _anything_ else inside the window fires `g`
+  -- which is false of the three keys that are the whole of the exception, Escape,
+  Backspace and a key a function binding stopped; `sequenceStep()`'s own docblock
+  still said "anything else **cancels** the sequence", describing the version
+  before the commit landed; and the sequence timer's comment justified not
+  unref'ing it with "the router holds stdin resumed for as long as it runs", which
+  stops being true between the stream ending and a `stop()` that never came. The
+  first and second are the exact hazard this file keeps naming -- a body aligned to
+  that docblock is the discarded-keystroke defect put back -- so that paragraph now
+  says it is load bearing.
+
+  **And four fixtures that could not reach the branch they were named for**, each
+  verified by running the sabotage round two said would survive. The paste test
+  stopped the paste in its handler, and a stopped paste returns before any key is
+  dispatched, so deleting the `!paste` on the advance left it green -- nobody
+  taking the paste whole is what puts the keys through the dispatch. The
+  focus-handler test asserted the keys the handler was **handed**, which are
+  captured either way, so firing before the reset passed; what bites is a handler
+  that reads the **signal**. The deeper-pop test bound no ambiguous leftover, so a
+  re-arm written as "only where there is a handler" survived it. And the
+  stopped-key test asserted only the absence of a commit, not that the sequence was
+  cleared. All five of those sabotages now fail a named test.
+
+  One of round two's claims was **wrong** and is worth recording as the cost of a
+  round: it read a pending `ctrl+x` as a binding and a prefix "via `ctrl+x
+ctrl+s`". Being the prefix of a binding does not make a node a binding, which is
+  the distinction the three shapes are about -- so the demo's note was right and
+  only its comment overclaimed.
 
 - **What two review rounds found, which the sabotage pass could not.** The first
   round produced three confirmed findings and a coverage list, and every one of

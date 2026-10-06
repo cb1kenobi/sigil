@@ -280,13 +280,48 @@ describe('a key spec', () => {
 	});
 
 	/**
-	 * The vocabulary is derived from the decoder's own tables, so a name it
-	 * produces is a name a spec can write.
+	 * Every name in the vocabulary is one the decoder really produces.
 	 *
-	 * The sabotage this is for is a hand-written list: a name added to
-	 * `SEQUENCES` without being added to a second copy is a key no spec can bind,
-	 * with nothing to say so.
+	 * Which is the half of "derived from the decoder's own tables" that can be
+	 * checked from outside: a name in the set that nothing produces is a spec that
+	 * parses and can never fire. The other half -- a hand-written copy of the same
+	 * fourteen -- is **not** observable here, because the tables are not exported
+	 * and an identical list behaves identically. Said rather than left as an
+	 * impression: what the snapshot below catches is the set drifting, and what
+	 * this catches is an entry being wrong; replacing the derivation with a copy of
+	 * exactly these names passes both, and the day a name is added to `SEQUENCES`
+	 * the snapshot is what fails.
 	 */
+	it('should name only keys the decoder really produces', () => {
+		const sent: Record<string, string> = {
+			backspace: '\u007f',
+			delete: `${ESC}[3~`,
+			down: `${ESC}[B`,
+			end: `${ESC}[F`,
+			enter: '\r',
+			escape: ESC,
+			home: `${ESC}[H`,
+			left: `${ESC}[D`,
+			pagedown: `${ESC}[6~`,
+			pageup: `${ESC}[5~`,
+			right: `${ESC}[C`,
+			space: ' ',
+			tab: '\t',
+			up: `${ESC}[A`,
+		};
+
+		// every name, so a name added to the set without a sequence that produces
+		// it fails here rather than becoming an unfirable spec
+		expect(Object.keys(sent).sort()).to.deep.equal([...KEY_NAMES].sort());
+
+		for (const [name, bytes] of Object.entries(sent)) {
+			const keys = decodeKeys(bytes);
+			expect(keys.length, name).to.equal(1);
+			expect((keys[0] as Key).name, name).to.equal(name);
+			expect(formatKey(parseKeys(name)[0] as Key), name).to.equal(name);
+		}
+	});
+
 	it('should accept every name the decoder produces', () => {
 		// written out, because asserting only that each entry parses would pass for
 		// a name that has no business being in there: `parseKeys()` reads whatever
@@ -960,6 +995,10 @@ describe('a pending sequence', () => {
 		h.feed('\u0003');
 
 		expect(seen).to.deep.equal(['quit']);
+		// and the sequence is over, which this test is as much about as the absence
+		// above: without it the clear on the stopped path could go and nothing here
+		// would say so
+		expect(input.sequence.get()).to.deep.equal([]);
 		input.stop();
 	});
 
@@ -1248,7 +1287,46 @@ describe('a pending sequence', () => {
 		}
 	});
 
-	it('should not re-arm a deadline when a deeper pop leaves a binding behind', () => {
+	/**
+	 * And a pop back onto a node that is a binding **as well as** a prefix does
+	 * not re-arm either, which is the fixture that makes the rule a claim.
+	 *
+	 * The first version bound `g a` and `g a b` only, so what a pop left was a
+	 * node with children and no handler -- and a re-arm written as "only where
+	 * there is a handler" survived it, because there was none to find. Binding `g`
+	 * too is what makes the leftover ambiguous, which is the one state a deadline
+	 * is for.
+	 */
+	it('should not re-arm when a pop lands back on a binding that is also a prefix', () => {
+		vi.useFakeTimers();
+		try {
+			const h = harness();
+			const input = createInput({ paste: false, terminal: h.terminal });
+			const seen: string[] = [];
+
+			input.bind('g', () => seen.push('g'));
+			input.bind('g a', () => seen.push('ga'));
+			input.bind('g a b', () => seen.push('gab'));
+
+			h.feed('g');
+			expect(vi.getTimerCount(), 'g is a binding and a prefix').to.equal(1);
+			h.feed('a');
+			expect(vi.getTimerCount(), 'and so is g a').to.equal(1);
+
+			h.feed('\u007f');
+			expect(formatKeys(input.sequence.get())).to.equal('g');
+			expect(vi.getTimerCount(), 'the pop re-armed a deadline').to.equal(0);
+
+			vi.advanceTimersByTime(SEQUENCE_TIMEOUT * 2);
+			expect(seen, 'and it committed the shorter binding').to.deep.equal([]);
+			expect(formatKeys(input.sequence.get()), 'and threw the sequence away').to.equal('g');
+			input.stop();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('should not re-arm one when a deeper pop leaves a pure prefix behind', () => {
 		vi.useFakeTimers();
 		try {
 			const h = harness();
@@ -1261,12 +1339,6 @@ describe('a pending sequence', () => {
 			h.feed('ga');
 			expect(vi.getTimerCount(), 'g a is a binding and a prefix').to.equal(1);
 
-			h.feed('b');
-			expect(seen).to.deep.equal(['gab']);
-
-			h.feed('gab');
-			seen.length = 0;
-			h.feed('ga');
 			h.feed('\u007f');
 			expect(formatKeys(input.sequence.get())).to.equal('g');
 
@@ -1396,15 +1468,17 @@ describe('a focus change', () => {
 	});
 
 	/**
-	 * A focus change *caused by* a completing sequence costs nothing.
+	 * The pending state is already clear by the time a handler runs, so a focus
+	 * change *caused by* a completing sequence costs nothing.
 	 *
-	 * `fire()` is handed the keys and the pending state is already clear by the
-	 * time the handler can move anything, so the handler's own focus move has
-	 * nothing left to invalidate. The sabotage this is for is firing before the
-	 * reset: the handler's `focus()` would then clear the state the completion was
-	 * reading, and the keys it was handed with it.
+	 * The assertion has to be **inside** the handler, which is what the first
+	 * version of this test got wrong: it asserted the keys the handler was handed
+	 * and the empty state afterwards, and both hold with the reset moved after the
+	 * fire -- the `keys` argument is captured either way, and the handler's own
+	 * `focus()` clears the state before the outer assertion can see it. So what
+	 * bites is a handler that reads the **signal**.
 	 */
-	it('should not break a sequence whose own handler moves the focus', () => {
+	it('should clear the pending state before a handler can read it', () => {
 		const h = harness();
 		const { first, root, second } = tree();
 		const input = createInput({ paste: false, root, terminal: h.terminal });
@@ -1412,14 +1486,31 @@ describe('a focus change', () => {
 
 		input.focus.focus(first);
 		input.bind('g g', (keys) => {
+			seen.push(`handed:${formatKeys(keys)}`);
+			seen.push(`pending:${formatKeys(input.sequence.get())}`);
 			input.focus.focus(second);
-			seen.push(formatKeys(keys));
+			seen.push(`after-focus:${formatKeys(input.sequence.get())}`);
 		});
 
 		h.feed('gg');
-		expect(seen).to.deep.equal(['g g']);
+		expect(seen).to.deep.equal(['handed:g g', 'pending:', 'after-focus:']);
 		expect(input.focus.current.get()).to.equal(second);
 		expect(input.sequence.get()).to.deep.equal([]);
+		input.stop();
+	});
+
+	// and the same for a sequence the *commit* path fires, which is the other
+	// place the caller's code runs with a pending state behind it
+	it('should clear it before a handler the commit path runs can read it', () => {
+		const h = harness();
+		const input = createInput({ paste: false, terminal: h.terminal });
+		const seen: string[] = [];
+
+		input.bind('g', () => seen.push(`pending:${formatKeys(input.sequence.get())}`));
+		input.bind('g g', () => seen.push('gg'));
+
+		h.feed('gx');
+		expect(seen).to.deep.equal(['pending:']);
 		input.stop();
 	});
 
@@ -1568,7 +1659,34 @@ describe('a paste', () => {
 	 * capability reply inside a paste already follows -- so content cannot drive a
 	 * binding in either direction.
 	 */
-	it('should not fire a sequence binding', () => {
+	/**
+	 * Typed in, which is where a pasted key reaches `dispatch()` at all.
+	 *
+	 * The first version of this stopped the paste in its handler, which made it
+	 * vacuous for the guard it is named for: a stopped paste returns before any key
+	 * is dispatched, so deleting the `!paste` on the advance left it green. Nobody
+	 * taking the paste whole is what puts the keys through the dispatch, which is
+	 * the only arrangement that can see the guard.
+	 */
+	it('should not fire a sequence binding with keys that were typed in', () => {
+		const h = harness();
+		const { first, root } = tree();
+		const input = createInput({ root, terminal: h.terminal });
+		const seen: string[] = [];
+
+		input.focus.focus(first);
+		first.onKey = (event) => seen.push(`element:${formatKey(event.key)}`);
+		input.bind('g g', () => seen.push('gg'));
+
+		h.feed('\u001b[200~gg\u001b[201~');
+		expect(seen, 'a pasted gg fired the binding').to.deep.equal(['element:g', 'element:g']);
+		expect(input.sequence.get()).to.deep.equal([]);
+		input.stop();
+	});
+
+	// and a handler that takes it whole is the ordinary case, where no key is
+	// dispatched at all
+	it('should hand a paste to its handler rather than to the trie', () => {
 		const h = harness();
 		const { first, root } = tree();
 		const input = createInput({ root, terminal: h.terminal });
@@ -1883,6 +2001,48 @@ describe('a leader key', () => {
 
 		// and a second dispose is not an error
 		leader.dispose();
+		input.stop();
+	});
+
+	// two leaders on one key share the trie node, and each `dispose()` removes
+	// only its own handlers -- which is what a `Set` per node means, and what an
+	// app assembling its bindings from two modules relies on
+	it('should let two leaders share a key without disposing each other', () => {
+		const h = harness();
+		const input = createInput({ paste: false, terminal: h.terminal });
+		const seen: string[] = [];
+
+		const one = input.leader(',');
+		const two = input.leader(',');
+		one.bind('f', () => seen.push('one:f'));
+		two.bind('g', () => seen.push('two:g'));
+
+		one.dispose();
+
+		h.feed(',g');
+		expect(seen, 'disposing one leader took the other with it').to.deep.equal(['two:g']);
+
+		h.feed(',f');
+		expect(seen).to.deep.equal(['two:g']);
+		two.dispose();
+	});
+
+	// and a disposer called after `dispose()` already removed its binding is a
+	// no-op rather than reaching into whatever replaced it
+	it('should ignore a disposer called after dispose', () => {
+		const h = harness();
+		const input = createInput({ paste: false, terminal: h.terminal });
+		const seen: string[] = [];
+
+		const leader = input.leader(',');
+		const off = leader.bind('f', () => seen.push('old'));
+		leader.dispose();
+
+		leader.bind('f', () => seen.push('new'));
+		off();
+
+		h.feed(',f');
+		expect(seen, 'a stale disposer removed the rebinding').to.deep.equal(['new']);
 		input.stop();
 	});
 

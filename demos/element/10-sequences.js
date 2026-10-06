@@ -15,9 +15,11 @@
  * which: press it and the status line shows `g`, and half a second later `g`
  * fires on its own. Press the second one inside that window and the pair fires
  * instead. That is `SEQUENCE_TIMEOUT`, and it is the only thing here that waits
- * -- press anything *else* inside the window and `g` fires at once, because a key
- * that does not continue the sequence has answered the question the deadline was
- * waiting on.
+ * -- press an ordinary key inside the window, `x` say, and `g` fires at once,
+ * because a key that does not continue the sequence has answered the question the
+ * deadline was waiting on. Escape and Backspace are the three exceptions along
+ * with Ctrl-C: those two are the user saying "forget it" rather than answering,
+ * so they commit nothing, and Ctrl-C never reaches the trie at all.
  *
  * `Space` is the leader and nothing else, so it waits with **no deadline at
  * all** -- there is nothing to disambiguate, and any key that does not continue
@@ -66,7 +68,17 @@ const last = new State('nothing yet');
 /** The pending sequence, read off the router rather than tracked here. */
 const pending = new State('');
 
-/** Whether that pending node is a binding too, which is the only case that waits. */
+/**
+ * Whether a deadline is running, which this demo knows rather than asks.
+ *
+ * `g` is the one binding here that is also a prefix, so it is the one that waits
+ * -- `ctrl+x` and `space` are prefixes and nothing else, so neither arms
+ * anything. There is no API for asking whether a deadline is up: the router
+ * publishes the pending *keys*, and an app that wanted this would be asking for
+ * a second signal that no caller has yet. So the demo hard-codes what it knows
+ * about its own bindings, which is honest for a demo and would not be for a
+ * component.
+ */
 const waiting = new State(false);
 
 function App() {

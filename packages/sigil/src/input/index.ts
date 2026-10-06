@@ -812,8 +812,14 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 			// way out, and firing an empty set there would have thrown the sequence
 			// away for nothing. Not unref'd, which matches the key timeout beside it:
 			// the router holds stdin resumed for as long as it runs, so it is never
-			// the timer keeping the process alive, and a key part way through a
-			// sequence is a user mid action rather than a probe nobody is awaiting
+			// the timer keeping the process alive while the router is running, and a
+			// key part way through a sequence is a user mid action rather than a probe
+			// nobody is awaiting. While it *is* running, which is the clause this
+			// used to leave off: `ended()` deliberately leaves both pending states
+			// where they are, so between the stream ending and a `stop()` that never
+			// came this can hold the loop for up to one deadline. Bounded, once, and
+			// the price of the commit `ended()` keeps -- where unref'ing would drop
+			// that commit in exactly the process that was about to exit anyway
 			seqTimer = setTimeout(() => {
 				seqTimer = undefined;
 				if (next.handlers.size === 0) {
@@ -850,14 +856,25 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 	 *
 	 * **The rule, which is the Ctrl-C guarantee stated positively: a pending
 	 * sequence claims a key only where the app bound a continuation on it.**
-	 * Anything else cancels the sequence and is then offered from the root, so it
+	 * Anything else ends the sequence and is then offered from the root, so it
 	 * reaches the focused element and the Tab default exactly as it would have.
 	 * Nothing is swallowed that the app did not itself name.
 	 *
-	 * Escape clears and Backspace pops, and both sit *under* that rule rather than
-	 * over it -- a continuation the app explicitly bound on either wins, which is
-	 * the same call Tab already gets, where a component that wants it keeps it by
-	 * stopping the event. Nothing is stuck either way, because a key that does not
+	 * Ending it is not discarding it. A key that reached the trie and did not
+	 * continue the sequence has **answered** the question the deadline was waiting
+	 * on, so the exact match at the node reached fires on the way past -- `g` bound
+	 * and `g g` bound, `g` then `x`, means `g`. At the node reached and no further,
+	 * because committing an ancestor means saying what becomes of the keys after
+	 * it, which is a typeahead replay rather than a rule. **This paragraph is load
+	 * bearing**: it was the sentence above on its own for one version, and a body
+	 * aligned to that sentence is the discarded-keystroke defect back.
+	 *
+	 * Escape clears and Backspace pops, and both sit *above* the commit and *under*
+	 * the claims-a-continuation rule -- a continuation the app explicitly bound on
+	 * either wins, which is the same call Tab already gets, where a component that
+	 * wants it keeps it by stopping the event. Above the commit because those two
+	 * are the user saying "forget it", where a key is the user saying which of the
+	 * two they meant. Nothing is stuck either way, because a key that does not
 	 * continue the sequence has already ended it.
 	 *
 	 * @param key - The key.
