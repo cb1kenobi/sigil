@@ -12412,7 +12412,10 @@ rather than past the last` is what pins it.
   character is the entry above. `should keep every offset of the value on
 exactly one row` is the property the caret derivation rests on, walked over
   nine values at six widths; `should keep the caret inside the box it reports,
-at every offset` is the other half, at every cursor of every one of them.
+at every offset` is the other half, over seven values at six widths and at every
+  cursor of each -- a different corpus rather than the same one, because the two
+  properties are about different inputs: that one wants the values whose _caret_
+  is awkward, which is a trailing whitespace run and an over-long word.
 
 - **The caret is never painted on the far half of a wide cluster, and that is
   not about how it looks.** `CellBuffer` carries a write on either half of a wide
