@@ -72,7 +72,12 @@
  * default. The width is the same question and gets the same answer.
  */
 
-import { type Diagnostic, diagnosticLocation, formatDiagnostic } from './build/index.ts';
+import {
+	type Diagnostic,
+	diagnosticLocation,
+	formatDiagnostic,
+	type Severity,
+} from './build/index.ts';
 import { type ColorLevel, supportsColor } from '@ttylabs/sigil/ansi';
 import {
 	box,
@@ -82,7 +87,7 @@ import {
 	type TextRun,
 	toDisplayText,
 } from '@ttylabs/sigil/element';
-import { parseStylesheet, type Stylesheet } from '@ttylabs/sigil/style';
+import { schemeFromEnv } from '@ttylabs/sigil/style';
 import { themedCascade } from '@ttylabs/sigil/theme';
 import { stringWidth } from '@ttylabs/sigil/width';
 import { terminalWidth } from '@ttylabs/sigil/wrap';
@@ -194,7 +199,12 @@ export function render(build: (width: number) => Element, to: Destination | Repo
 	const width = Math.max(1, Math.floor(terminalWidth({ env: dest.env, stream: dest.stream })));
 
 	return renderToString(build(width), {
-		cascade: themedCascade(),
+		// the scheme comes off the destination's own environment, like the width and
+		// the colour level above it rather than unlike them. `themedCascade()` falls
+		// back to the process when this is undefined, which is what it always read --
+		// so this changes nothing for the CLI, where they are the same object, and is
+		// what makes a report's light half reachable from a test at all
+		cascade: themedCascade({ colorScheme: schemeFromEnv(dest.env) }),
 		colorLevel: reportLevel(dest),
 		width,
 	});
@@ -265,6 +275,24 @@ export function diagnosticsView(
 }
 
 /**
+ * The framework role each severity is drawn in.
+ *
+ * A map rather than `sigil-${severity}`, because the two vocabularies do not line
+ * up: a `Severity` is `warning` and the role is `.sigil-warn`, so interpolating
+ * would ask for a class no sheet defines and the label would come out unstyled
+ * with nothing to say so. Which is not hypothetical -- it is how this line was
+ * broken when the toolchain's own sheet went away, since every other `cli-*`
+ * emission names its role as a literal and only this one was computed.
+ *
+ * Keyed by the union rather than by `string`, so a severity added without a role
+ * is a type error here rather than an uncoloured label on somebody's screen.
+ */
+const SEVERITY_ROLE: Record<Severity, string> = {
+	error: 'sigil-error',
+	warning: 'sigil-warn',
+};
+
+/**
  * One diagnostic: where it is, how much it means, and what to do about it.
  *
  * `file:line:column: severity: message` is what an editor, a terminal and a CI
@@ -313,7 +341,10 @@ function diagnosticRow(diagnostic: Diagnostic, opts: { width: number }): Element
 	const label = oneLine(`${severity}: `);
 	const prefix: Element[] = [
 		textNode(location, { class: 'cli-location sigil-muted', 'white-space': 'nowrap' }),
-		textNode(label, { class: `cli-${severity}`, 'white-space': 'nowrap' }),
+		textNode(label, {
+			class: `cli-${severity} ${SEVERITY_ROLE[severity]}`,
+			'white-space': 'nowrap',
+		}),
 	];
 
 	// measured as it will be *drawn*, which is the rule a table cell already

@@ -182,8 +182,11 @@ describe('what the environment says', () => {
 });
 
 describe('the framework sheet', () => {
+	// the classes the help screen really emits: de-emphasis is the .sigil-muted
+	// role now, which is the one place the light half lives rather than one rule
+	// per component that wanted it
 	const noteAt = (scheme: ColorScheme) => {
-		const node = text('x', { class: 'sigil-help-note' });
+		const node = text('x', { class: 'sigil-help-note sigil-muted' });
 		resolveStyles(node, new Restyler(themedCascade({ colorScheme: scheme })));
 		return node.style;
 	};
@@ -209,7 +212,7 @@ describe('the framework sheet', () => {
 
 	it('should leave a palette colour alone in both', () => {
 		for (const scheme of ['dark', 'light'] as const) {
-			const node = text('!', { class: 'sigil-symbol is-error' });
+			const node = text('!', { class: 'sigil-symbol is-error sigil-error' });
 			resolveStyles(node, new Restyler(themedCascade({ colorScheme: scheme })));
 			expect(node.style.color, scheme).toBe(1);
 		}
@@ -303,7 +306,7 @@ describe('the light half and the dark half', () => {
 	// an app's own sheet -- no `!important` and no specificity contest, which is the
 	// promise the whole theme origin exists to keep
 	it('should be overridable by an app with an ordinary rule', () => {
-		const node = text('x', { class: 'sigil-help-note' });
+		const node = text('x', { class: 'sigil-help-note sigil-muted' });
 		resolveStyles(
 			node,
 			new Restyler(
@@ -315,7 +318,7 @@ describe('the light half and the dark half', () => {
 
 	// and a theme sits between the two, so it beats the light half and loses to the app
 	it('should be overridable by a theme', () => {
-		const node = text('x', { class: 'sigil-help-note' });
+		const node = text('x', { class: 'sigil-help-note sigil-muted' });
 		resolveStyles(
 			node,
 			new Restyler(

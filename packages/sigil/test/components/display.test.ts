@@ -468,7 +468,7 @@ describe('a built-in and the background it is drawn against', () => {
 	it('should keep a scheme a caller handed to mountLive', () => {
 		for (const scheme of ['dark', 'light'] as const) {
 			const h = setup();
-			const label = text('x', { class: 'sigil-prompt-hint' });
+			const label = text('x', { class: 'sigil-prompt-hint sigil-muted' });
 			const mounted = mountLive(() => box({}, label), {
 				colorLevel: 2,
 				colorScheme: scheme,

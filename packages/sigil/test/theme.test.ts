@@ -35,8 +35,49 @@ describe('the framework sheet', () => {
 	// a prop beats a sheet per property, so a colour written into a template is
 	// one a theme cannot reach without `!important`
 	it('should be the only place a built-in names a colour', () => {
-		expect(FRAMEWORK_CSS).to.contain('.sigil-symbol');
-		expect(FRAMEWORK_CSS).to.contain('.sigil-help-heading');
+		// the roles, which is where the colours are. The component classes are in
+		// here too, in the comment that lists them as hooks, so asserting one of
+		// those would pass off a line of prose as a rule
+		expect(FRAMEWORK_CSS).to.contain('.sigil-accent');
+		expect(FRAMEWORK_CSS).to.contain('.sigil-muted');
+	});
+
+	/**
+	 * The role layer, as an invariant rather than as a list of examples.
+	 *
+	 * Every declaration a built-in shares with another built-in is on a role, so
+	 * an app restyles its whole surface with one rule instead of finding the six
+	 * component classes that each said `dim`. What makes that worth a test rather
+	 * than a comment is that the regression is silent and gradual: one
+	 * `.sigil-prompt-hint { dim: true }` added back here is a declaration the
+	 * light half does not cover, and it looks like every other rule in the file.
+	 *
+	 * The two exceptions are declared rather than discovered. `.sigil-caret` is
+	 * `inverse` and no role is inversion. `.sigil-scroll-track` is the one grey
+	 * here that is not de-emphasised *text*, so it must not be `.sigil-muted` --
+	 * that role is `dim` on a dark terminal, and a dim track is not a track.
+	 */
+	it('should declare on a role, bar two exceptions that say why', () => {
+		const ROLES = [
+			'.sigil-accent',
+			'.sigil-muted',
+			'.sigil-heading',
+			'.sigil-success',
+			'.sigil-error',
+			'.sigil-warn',
+			'.sigil-info',
+		];
+		const EXCEPTIONS = ['.sigil-caret', '.sigil-scroll-track'];
+
+		// the selectors that carry a declaration, read off the parsed sheet rather
+		// than off the source, so a comment cannot be mistaken for a rule
+		const declaring = new Set(
+			frameworkSheet()
+				.rules.filter((rule) => rule.declarations.length > 0)
+				.flatMap((rule) => rule.selectors.map((selector) => selector.source))
+		);
+
+		expect([...declaring].sort()).to.deep.equal([...ROLES, ...EXCEPTIONS].sort());
 	});
 });
 
@@ -48,7 +89,10 @@ describe('parseTheme()', () => {
 
 describe('themedCascade()', () => {
 	const styled = (css: string | undefined, sheets?: (string | ReturnType<typeof parseTheme>)[]) =>
-		renderToString(text('x', { class: 'sigil-symbol' }), {
+		// the classes a component really emits: a role carries the colour and the
+		// component class is the narrower hook beside it, so a node wearing only one
+		// of the two is a node no built-in builds
+		renderToString(text('x', { class: 'sigil-symbol sigil-accent' }), {
 			cascade: themedCascade({ sheets, theme: css }),
 			colorLevel: 1,
 			width: 5,

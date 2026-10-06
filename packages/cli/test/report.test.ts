@@ -1,4 +1,4 @@
-import type { Diagnostic } from '../src/build/diagnostic.js';
+import type { Diagnostic, Severity } from '../src/build/diagnostic.js';
 import { formatDiagnostic } from '../src/build/diagnostic.js';
 import {
 	diagnosticsView,
@@ -12,6 +12,8 @@ import {
 import { ESC, hasAnsi, strip } from '@ttylabs/sigil/ansi';
 import { stringWidth } from '@ttylabs/sigil/width';
 import { MAX_WIDTH } from '@ttylabs/sigil/wrap';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 /**
@@ -526,18 +528,93 @@ describe('the toolchain report', () => {
 				(width) =>
 					summaryView(
 						[
-							{ class: 'cli-app', text: 'myapp' },
-							{ class: 'cli-ok', text: 'no problems found' },
+							// the pairs the toolchain really emits: a framework role carries the
+							// colour and the `cli-*` class is the narrower hook beside it
+							{ class: 'cli-app sigil-heading', text: 'myapp' },
+							{ class: 'cli-ok sigil-success', text: 'no problems found' },
 						],
 						width
 					),
 				WIDE
 			);
 
-			expect(sgr(out)).toContain(1); // bold, from .cli-app
-			expect(sgr(out)).toContain(32); // green, from .cli-ok
+			expect(sgr(out)).toContain(1); // bold, from .sigil-heading
+			expect(sgr(out)).toContain(32); // green, from .sigil-success
 			expect(strip(out)).toBe('myapp no problems found');
 		});
 	});
 
+	describe('the roles it draws with', () => {
+		/**
+		 * The toolchain has no stylesheet of its own: a report draws itself with the
+		 * framework's roles and keeps its `cli-*` classes as the narrower hooks they
+		 * always were.
+		 *
+		 * What that bought is why it is worth testing. Three of the seven declarations
+		 * the old sheet carried were `dim` with no light half -- and the framework's
+		 * de-emphasis has one deliberately, because SGR 2 blends the foreground
+		 * towards the background and is therefore grey on white. So a report was
+		 * unreadable on a light terminal, in the framework's own acceptance test, and
+		 * neither the defect nor the fix had a test until this one.
+		 */
+		const scheme = (colorScheme: 'dark' | 'light') =>
+			sgr(
+				render((width) => diagnosticsView([diagnostic()], { width }), {
+					env: { FORCE_COLOR: '3', SIGIL_COLOR_SCHEME: colorScheme },
+					stream: { columns: 100, isTTY: true },
+				})
+			);
+
+		it('should de-emphasise with an attribute on dark and a colour on light', () => {
+			// 2 is SGR dim; 90 is bright black, which is palette index 8 -- the one a
+			// light theme has to render text in, so it is dark there
+			expect(scheme('dark')).toContain(2);
+			expect(scheme('dark')).not.toContain(90);
+			expect(scheme('light')).toContain(90);
+			expect(scheme('light')).not.toContain(2);
+		});
+
+		it('should colour a diagnostic for every severity there is', () => {
+			// a walk rather than two examples, because the class is *computed* from the
+			// severity -- which is exactly how this broke: every other `cli-*` emission
+			// names its role as a literal, this one interpolated, and `sigil-warning` is
+			// not a role, so a warning's label came out unstyled with nothing to say so
+			const severities: Severity[] = ['error', 'warning'];
+
+			for (const severity of severities) {
+				const out = render((width) => diagnosticsView([diagnostic({ severity })], { width }), WIDE);
+
+				expect(hasAnsi(out), severity).toBe(true);
+				expect(strip(out), severity).toContain(`${severity}:`);
+			}
+		});
+
+		it('should name a role beside every cli- class the toolchain emits', () => {
+			// the invariant the test above is one instance of. A `cli-*` class carries no
+			// declaration any more, so a run wearing one and no role is a run nothing
+			// styles -- and that is silent, because the text is still there.
+			//
+			// Every file rather than `report.ts`: the emissions are spread over the
+			// commands as well, and a sabotage that dropped the role from `cli-app` in
+			// `_inspect.ts` survived a version of this that read one file
+			const root = new URL('../src/', import.meta.url);
+			const files = readdirSync(root, { recursive: true, withFileTypes: true })
+				.filter((e) => e.isFile() && e.name.endsWith('.ts'))
+				.map((e) => join(e.parentPath, e.name));
+
+			const emitted = files.flatMap((file) => [
+				...readFileSync(file, 'utf8').matchAll(/class: [`']([^`']*\bcli-[^`']*)[`']/gu),
+			]);
+
+			// the guard against the walk going quiet: these are known to exist, and a
+			// glob that matches nothing would otherwise pass this test for ever
+			expect(emitted.length).toBeGreaterThanOrEqual(8);
+
+			for (const [, classes] of emitted) {
+				// a literal role, or an interpolated lookup -- which is what the computed
+				// one has to be, since the two vocabularies do not line up
+				expect(classes, classes).toMatch(/sigil-[a-z]+|\$\{[A-Z_]+\[/u);
+			}
+		});
+	});
 });
