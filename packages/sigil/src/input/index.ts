@@ -79,8 +79,32 @@ import {
 	parseMouseReport,
 	type WheelDirection,
 } from './mouse.js';
+// `sequence.js` imports nothing but the decoder's own name table, for the reason
+// `hit.js` and `scroll.js` are imported directly: a grammar and a trie are real
+// code, and reaching them through a barrel would put something else behind them
+import {
+	addBinding,
+	createTrie,
+	formatKey,
+	type KeyPattern,
+	KeySpecError,
+	parseKeys,
+	type SequenceHandler,
+	type SequenceNode,
+} from './sequence.js';
 
-export { isAbort, type Key } from '../components/keys.js';
+export { isAbort, type Key, KEY_NAMES } from '../components/keys.js';
+export {
+	addBinding,
+	createTrie,
+	formatKey,
+	formatKeys,
+	type KeyPattern,
+	KeySpecError,
+	parseKeys,
+	type SequenceHandler,
+	type SequenceNode,
+} from './sequence.js';
 export {
 	type MouseButton,
 	type MouseEventKind,
@@ -127,6 +151,43 @@ export {
  * too long makes Escape feel late.
  */
 export const ESCAPE_TIMEOUT: number = 50;
+
+/**
+ * How long a key that is both a binding and a prefix waits to find out which.
+ *
+ * The same shape as `ESCAPE_TIMEOUT` and **ten times the number**, because the
+ * asymmetry points the other way. That one waits for *bytes from a terminal*,
+ * which arrive in microseconds unless the link is slow, and its failures are
+ * "too short types a stray character into somebody's answer, too long makes
+ * Escape feel late". This waits for *a human finger*, which is two orders of
+ * magnitude slower, and its failures are: too short and a deliberate `g g` fires
+ * `g` twice -- the silent wrong action, which is the half that one is written to
+ * protect against -- while too long makes a bound `g` feel broken, which is the
+ * annoyance half. Fifty milliseconds would fire `g` twice for essentially
+ * everybody, so the trade is taken in the direction that does not act wrongly.
+ *
+ * Five hundred rather than a number fitted to anything: vim's `timeoutlen` is
+ * documented at 1000ms and Emacs waits indefinitely, so those are the two poles,
+ * and this sits between them. It only ever arises where an app bound **both** a
+ * key and a sequence starting with it, which is the app choosing the ambiguity
+ * -- so `InputOptions.sequenceTimeout` is how an app that knows its own bindings
+ * picks. A node that is a prefix and *not* a binding waits with no deadline at
+ * all, which is Emacs' answer and the right one: there is nothing to disambiguate
+ * and any key that does not continue the sequence already cancels it.
+ */
+export const SEQUENCE_TIMEOUT: number = 500;
+
+/**
+ * The longest delay `setTimeout` will hold.
+ *
+ * Node stores one as a signed 32-bit integer, so anything past this becomes
+ * `1` -- which is the trap `Infinity` is already refused for, reached by a
+ * finite number instead. A value past it is clamped rather than thrown away: a
+ * caller who wrote one meant "as long as possible", and the longest delay there
+ * is the nearest answer, where falling back to the default would be *shorter*
+ * than what they asked for.
+ */
+const MAX_DELAY = 2_147_483_647;
 
 /** Raised when there is nobody to read keys from. */
 export class InputError extends Error {
@@ -304,14 +365,70 @@ export interface FocusRing {
 	ring(): readonly Element[];
 }
 
+/**
+ * Sequences bound under one leading key, and the way to take them all off.
+ *
+ * The one sequence shape everybody wants, and what the helper buys over writing
+ * `` input.bind(`${leader} f`, …) `` is that the leader is declared once: an app
+ * that moves it from Space to Comma edits one line rather than every binding,
+ * and the spec is checked as a single key where it is named rather than as the
+ * first token of each sequence.
+ */
+export interface LeaderBindings {
+	/**
+	 * Binds a sequence under the leader.
+	 *
+	 * @param keys - What follows it, as a spec.
+	 * @param handler - What to run.
+	 * @returns Removes that one binding.
+	 */
+	bind(keys: string, handler: SequenceHandler): () => void;
+	/**
+	 * Removes every binding made through this.
+	 *
+	 * "Put back what you attached" -- the rule the `EPIPE` guard and every entry
+	 * on the restore list already follow, which is worth having here because the
+	 * point of a leader is that one object holds many bindings.
+	 */
+	dispose(): void;
+	/** The leader, canonically spelled, which is what a status line prints. */
+	readonly key: string;
+}
+
 export interface InputRouter {
 	/**
 	 * Adds an app-level binding, which sees every key before anything focused.
+	 *
+	 * A **function** binding sees every key, full stop: before the sequence trie,
+	 * before the focused element, before the Tab default, and before any pending
+	 * sequence has a chance to claim it. That is where Ctrl-C belongs and it is
+	 * why there are two spellings of this method rather than one -- an app that
+	 * cannot be quit is the failure this ordering exists to prevent, and a
+	 * half-entered sequence is a second route to it.
 	 *
 	 * @param handler - What to do with it.
 	 * @returns Removes the binding.
 	 */
 	bind(handler: KeyHandler): () => void;
+	/**
+	 * Adds a key-sequence binding.
+	 *
+	 * `'ctrl+s'` is one key, `'g g'` and `'ctrl+x ctrl+s'` are two; keys are
+	 * separated by whitespace and modifiers by `+`. The spec is parsed here, so a
+	 * spelling that cannot be a key throws rather than becoming a binding that
+	 * never fires.
+	 *
+	 * A sequence is consulted **after** every function binding and before the
+	 * focused element. While one is part way through, the next key is claimed only
+	 * where the app bound a continuation on it -- anything else cancels the
+	 * pending sequence and is dispatched from the top, so nothing is swallowed
+	 * that the app did not itself name as a continuation.
+	 *
+	 * @param keys - The sequence, as a spec.
+	 * @param handler - What to run once all of it has been pressed.
+	 * @returns Removes the binding.
+	 */
+	bind(keys: string, handler: SequenceHandler): () => void;
 	readonly focus: FocusRing;
 	/** Feeds bytes as though the terminal had sent them. */
 	feed(chunk: string): void;
@@ -325,6 +442,13 @@ export interface InputRouter {
 	 * asks for a frame.
 	 */
 	readonly hovered: Element | undefined;
+	/**
+	 * Declares a leader key, under which sequences are bound.
+	 *
+	 * @param key - One key, as a spec.
+	 * @returns The binder, and the way to take all of it off.
+	 */
+	leader(key: string): LeaderBindings;
 	/**
 	 * Adds a paste handler, which sees pasted text before it is typed in.
 	 *
@@ -401,6 +525,23 @@ export interface InputRouter {
 	 * @returns Every reply that arrived, in order.
 	 */
 	query(opts: QueryOptions): Promise<CapabilityReply[]>;
+	/**
+	 * The keys of a sequence part way through being entered.
+	 *
+	 * Empty whenever nothing is pending. A signal rather than a getter because an
+	 * app wants to *show* it -- the `g` sitting in the corner of the status line is
+	 * how a vim-like UI stays usable -- and nothing else here would ask for the
+	 * frame that renders it: `hovered` is a plain getter precisely because the
+	 * `hover` state it writes already marks the tree, and a pending sequence writes
+	 * no element state at all.
+	 *
+	 * `formatKeys()` is what turns it into the string to print, which is the same
+	 * function a spec parses through, so the two cannot disagree about what a key
+	 * is called. Clearing an already-empty sequence writes nothing, because the
+	 * empty value is one shared frozen array and `State.set()` compares with
+	 * `Object.is` -- a key that cancels nothing does not ask for a frame.
+	 */
+	readonly sequence: State<readonly Key[]>;
 	/** Gives stdin back and puts raw mode and the paste markers back. */
 	stop(): void;
 }
@@ -425,6 +566,16 @@ export interface InputOptions {
 	paste?: boolean;
 	/** The tree keys are dispatched through, and the focus ring is built from. */
 	root?: Element;
+	/**
+	 * How long a key that is both a binding and a prefix waits, in milliseconds.
+	 *
+	 * Defaults to `SEQUENCE_TIMEOUT`, whose entry has the trade. A value that is
+	 * not a finite number at or above zero falls back to it rather than being
+	 * honoured, which is the rule the typewriter's own interval keeps and for its
+	 * reason: `Infinity >= 0` is true and node reads a delay past 2^31-1 as 1, so
+	 * an unchecked `Infinity` asks for "never" and gets "at once".
+	 */
+	sequenceTimeout?: number;
 	/** Where keys come from. Defaults to the terminal's own input. */
 	stdin?: InputStream;
 	terminal?: Terminal;
@@ -511,6 +662,294 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 	/** Where the focused element sat in the ring, for when it is unmounted. */
 	let lastIndex = 0;
 
+	// -- key sequences --------------------------------------------------------
+
+	const trie = createTrie();
+
+	/**
+	 * The empty sequence, shared so that clearing one that is already clear is not
+	 * a write.
+	 *
+	 * `State.set()` compares with `Object.is`, so a fresh `[]` each time would be a
+	 * change each time -- and every key that cancels nothing would ask for a frame
+	 * to redraw a status line that has not moved. Frozen for the reason every
+	 * initial value in the property table is: `readonly` is a TypeScript fiction at
+	 * run time, and one caller splicing what the signal published rewrites what
+	 * every reader of it sees.
+	 */
+	const NO_KEYS: readonly Key[] = Object.freeze([]);
+
+	const sequence = new State<readonly Key[]>(NO_KEYS);
+
+	/** The node a pending sequence has reached, or nothing pending. */
+	let node: SequenceNode | undefined;
+
+	/** The keys that got it there, which is what the signal publishes. */
+	let entered: readonly Key[] = NO_KEYS;
+
+	let seqTimer: ReturnType<typeof setTimeout> | undefined;
+
+	/**
+	 * How long an exact match that is also a prefix waits.
+	 *
+	 * A value that is not a finite number at or above zero falls back, which is
+	 * the typewriter's own rule: `Infinity >= 0` is true and node reads a delay
+	 * past 2^31-1 as 1, so honouring one asks for "never" and gets "at once". And
+	 * a *finite* number past that ceiling is the same trap one step along, so it
+	 * is clamped rather than honoured -- `MAX_DELAY` has which way round and why.
+	 */
+	const waitFor =
+		typeof opts.sequenceTimeout === 'number' &&
+		Number.isFinite(opts.sequenceTimeout) &&
+		opts.sequenceTimeout >= 0
+			? Math.min(opts.sequenceTimeout, MAX_DELAY)
+			: SEQUENCE_TIMEOUT;
+
+	/**
+	 * Whether a node is still hanging off the trie.
+	 *
+	 * `parent` is never cleared by a prune -- only the parent's entry for the
+	 * child is -- so a walk up the links reaches the root from a node that was
+	 * unbound. What says it is still there is the parent still naming it.
+	 */
+	function reaches(from: SequenceNode): boolean {
+		let at: SequenceNode = from;
+		while (at.parent) {
+			if (at.parent.children.get(at.spec) !== at) {
+				return false;
+			}
+			at = at.parent;
+		}
+		return at === trie;
+	}
+
+	function clearSeqTimer(): void {
+		if (seqTimer !== undefined) {
+			clearTimeout(seqTimer);
+			seqTimer = undefined;
+		}
+	}
+
+	/** Throws the pending sequence away, timer and all. */
+	function clearSequence(): void {
+		clearSeqTimer();
+		node = undefined;
+		entered = NO_KEYS;
+		sequence.set(NO_KEYS);
+	}
+
+	/**
+	 * Runs the bindings a completed sequence reached.
+	 *
+	 * The pending state is reset by the caller **before** this runs, which is the
+	 * order `Show` already keeps for a different reason: a handler that moves the
+	 * focus -- and moving the focus is what invalidates a pending sequence -- must
+	 * not be clearing state the sequence it completed had already left behind, and
+	 * a handler that feeds more keys has to start from a clean one.
+	 *
+	 * Over a copy and a membership check, which is the rule every handler set here
+	 * follows: a sequence whose handler rebinds the same sequence does not hand it
+	 * that very completion, and one that unbinds itself is not called twice.
+	 *
+	 * @param target - The node that was reached.
+	 * @param keys - What was pressed to reach it.
+	 */
+	function fire(target: SequenceNode, keys: readonly Key[]): void {
+		// eslint-disable-next-line unicorn/no-useless-spread
+		for (const handler of [...target.handlers]) {
+			if (!target.handlers.has(handler)) {
+				continue;
+			}
+			handler(keys);
+			// the fourth place this is asked, and the ordinary way to reach it is a
+			// sequence bound twice whose first handler quits
+			if (stopped) {
+				return;
+			}
+		}
+	}
+
+	/**
+	 * Takes a key the trie has a child for.
+	 *
+	 * Three shapes, and the third is the only one that waits. A node with no
+	 * children is an exact match with nothing to disambiguate, so it fires at
+	 * once. A node with children and no handler is a prefix, which waits with no
+	 * deadline at all -- there is nothing to decide between, and any key that does
+	 * not continue it already cancels it. A node with both is the ambiguous case
+	 * `SEQUENCE_TIMEOUT` is for.
+	 *
+	 * `from` is passed rather than read off `entered`, which is what makes this a
+	 * function of its arguments: the second call site offers a key from the
+	 * **root**, where the trail has to be empty whatever `entered` holds -- and a
+	 * handler reached from the commit just above it can have started a sequence of
+	 * its own by calling `feed()`. Measured on the ambient version: `g` committed,
+	 * its handler fed a `d`, and the outer `d` was then taken with the inner one
+	 * already in `entered` -- so one keystroke left a pending `d d` and the `d d`
+	 * binding fired with **three** keys.
+	 */
+	function take(key: Key, next: SequenceNode, from: readonly Key[]): void {
+		clearSeqTimer();
+		const keys: readonly Key[] = Object.freeze([...from, key]);
+
+		if (next.children.size === 0) {
+			clearSequence();
+			fire(next, keys);
+			return;
+		}
+
+		node = next;
+		entered = keys;
+		sequence.set(keys);
+
+		if (next.handlers.size > 0) {
+			// the node and the keys are captured rather than read back, because the
+			// pending state moving is what clears this timer -- so those two cannot
+			// part. The **trie** can, which is a thing this comment used to deny: a
+			// disposer called while the deadline is running can take the handler off
+			// the very node it was armed for, and what is left is a pure prefix, which
+			// waits with no deadline at all. So the handlers are asked again on the
+			// way out, and firing an empty set there would have thrown the sequence
+			// away for nothing. Not unref'd, which matches the key timeout beside it:
+			// the router holds stdin resumed for as long as it runs, so it is never
+			// the timer keeping the process alive while the router is running, and a
+			// key part way through a sequence is a user mid action rather than a probe
+			// nobody is awaiting. While it *is* running, which is the clause this
+			// used to leave off: `ended()` deliberately leaves both pending states
+			// where they are, so between the stream ending and a `stop()` that never
+			// came this can hold the loop for up to one deadline. Bounded, once, and
+			// the price of the commit `ended()` keeps -- where unref'ing would drop
+			// that commit in exactly the process that was about to exit anyway
+			seqTimer = setTimeout(() => {
+				seqTimer = undefined;
+				if (next.handlers.size === 0) {
+					return;
+				}
+				clearSequence();
+				fire(next, keys);
+			}, waitFor);
+		}
+	}
+
+	/**
+	 * Drops the last key of the pending sequence.
+	 *
+	 * Deliberately **not** re-armed even where what is left is a binding as well
+	 * as a prefix: Backspace is the user editing the sequence, and committing the
+	 * shorter binding on a deadline after an explicit undo is the opposite of what
+	 * they asked for.
+	 */
+	function pop(current: SequenceNode): void {
+		clearSeqTimer();
+		if (entered.length <= 1) {
+			clearSequence();
+			return;
+		}
+		// a real node rather than the root, because more than one key got here
+		node = current.parent;
+		entered = Object.freeze(entered.slice(0, -1));
+		sequence.set(entered);
+	}
+
+	/**
+	 * Offers a key to the trie, after every function binding has seen it.
+	 *
+	 * **The rule, which is the Ctrl-C guarantee stated positively: a pending
+	 * sequence claims a key only where the app bound a continuation on it.**
+	 * Anything else ends the sequence and is then offered from the root, so it
+	 * reaches the focused element and the Tab default exactly as it would have.
+	 * Nothing is swallowed that the app did not itself name.
+	 *
+	 * Ending it is not discarding it. A key that reached the trie and did not
+	 * continue the sequence has **answered** the question the deadline was waiting
+	 * on, so the exact match at the node reached fires on the way past -- `g` bound
+	 * and `g g` bound, `g` then `x`, means `g`. At the node reached and no further,
+	 * because committing an ancestor means saying what becomes of the keys after
+	 * it, which is a typeahead replay rather than a rule. **This paragraph is load
+	 * bearing**: it was the sentence above on its own for one version, and a body
+	 * aligned to that sentence is the discarded-keystroke defect back.
+	 *
+	 * Escape clears and Backspace pops, and both sit *above* the commit and *under*
+	 * the claims-a-continuation rule -- a continuation the app explicitly bound on
+	 * either wins, which is the same call Tab already gets, where a component that
+	 * wants it keeps it by stopping the event. Above the commit because those two
+	 * are the user saying "forget it", where a key is the user saying which of the
+	 * two they meant. Nothing is stuck either way, because a key that does not
+	 * continue the sequence has already ended it.
+	 *
+	 * @param key - The key.
+	 * @returns Whether the sequence machinery claimed it.
+	 */
+	function sequenceStep(key: Key): boolean {
+		// a pending node whose path was unbound while the sequence was part way
+		// through is nothing pending, and the disposer cannot say so: `sequence.ts`
+		// knows nothing about the router on purpose. Asked here instead, which is a
+		// walk of two or three links and only while something is pending
+		if (node && !reaches(node)) {
+			clearSequence();
+		}
+
+		const spec = formatKey(key);
+
+		if (node) {
+			const next = node.children.get(spec);
+			if (next) {
+				take(key, next, entered);
+				return true;
+			}
+
+			// a modifier makes it a different key, so Alt-Escape is not Escape and
+			// `ctrl+h` is not Backspace -- those fall through to the commit below
+			if (!key.ctrl && !key.meta && key.name === 'escape') {
+				clearSequence();
+				return true;
+			}
+			if (!key.ctrl && !key.meta && key.name === 'backspace') {
+				pop(node);
+				return true;
+			}
+
+			// the sequence is over, and a key that reached the trie and did not
+			// continue it has **answered** the question the deadline was waiting on:
+			// `g` bound and `g g` bound, `g` then `x`, means `g` -- which is what vim
+			// does and the only reading that does not silently lose a keystroke the
+			// user deliberately made. The first version discarded it, so a bound `g`
+			// fired only if nothing was pressed for half a second.
+			//
+			// At the node reached and no further. Committing an *ancestor* would mean
+			// deciding that the keys after it were spent on nothing and then saying
+			// what becomes of them, which is a typeahead replay rather than a rule --
+			// so a node with no handler cancels, exactly as before.
+			//
+			// And Escape and Backspace are above this rather than below it, which is
+			// the whole distinction: those are the user saying "forget it", where a
+			// key is the user saying which of the two they meant
+			const reached = node;
+			const keys = entered;
+			clearSequence();
+			if (reached.handlers.size > 0) {
+				fire(reached, keys);
+				if (stopped) {
+					return true;
+				}
+			}
+		}
+
+		// and then from the root, because a key that ended one sequence may start
+		// another: `g` pending with `d d` bound means `d` begins that one rather
+		// than being spent on cancelling
+		const start = trie.children.get(spec);
+		if (start) {
+			// from the root, so the trail is empty -- and `entered` is deliberately
+			// not what says so: a handler the commit above just ran may have started
+			// a sequence of its own
+			take(key, start, NO_KEYS);
+			return true;
+		}
+
+		return false;
+	}
+
 	const focus: FocusRing = {
 		current,
 
@@ -519,6 +958,15 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 			if (previous === element) {
 				return;
 			}
+
+			// and a half-entered sequence does not survive the move: one entered into
+			// a log pane must not complete in the editor beside it, because the
+			// second key was typed at something else. Before the states move rather
+			// than after, so that an effect woken by `:focus` already reads the
+			// pending sequence as gone. A focus change *caused by* a completing
+			// sequence costs nothing here -- `fire()` is handed the keys and the
+			// state is already clear by the time the handler can move anything
+			clearSequence();
 
 			// the state is what `:focus` matches, so moving focus restyles both ends
 			// of the move and nothing else
@@ -628,8 +1076,33 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 			}
 			binding(event);
 			if (stopped) {
+				// and a pending sequence is over, because something else acted on the
+				// key: the user typed `g`, then a key a binding claimed, and a `g`
+				// after that must not complete `g g` across it. Only where the
+				// binding *stopped* the event -- a binding that merely watched every
+				// key has observed rather than acted, and cancelling there would make
+				// a sequence unenterable in any app that logs its keystrokes
+				if (!paste) {
+					clearSequence();
+				}
 				return true;
 			}
+		}
+
+		// the sequence trie, after every function binding and before anything
+		// focused. That order is the whole Ctrl-C guarantee: a function binding sees
+		// every key, so no keystroke whatsoever can make one unreachable -- which is
+		// the sentence this module already carries about a focused input, and a
+		// half-entered sequence is the second route to the same failure.
+		//
+		// A **pasted** key is skipped outright, both halves of it: it neither
+		// advances a sequence nor cancels one. What is between the paste markers is
+		// content by definition -- the rule a capability reply inside a paste
+		// already follows -- so a pasted `gg` must not fire a `g g` binding, and a
+		// paste arriving mid-sequence must not be able to cancel one either.
+		// Content cannot drive a binding in either direction
+		if (!paste && sequenceStep(key)) {
+			return true;
 		}
 
 		while (at) {
@@ -1149,7 +1622,8 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 		const joined = held + input;
 		const length = pendingLength(joined, opts);
 		const ready = length === 0 ? joined : joined.slice(0, joined.length - length);
-		held = length === 0 ? '' : joined.slice(joined.length - length);
+		const tail = length === 0 ? '' : joined.slice(joined.length - length);
+		held = tail;
 
 		for (const key of decodeKeys(ready, opts)) {
 			// asked between keys as well as at the entry, because one of them may be
@@ -1161,7 +1635,19 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 			route(key);
 		}
 
-		if (held !== '') {
+		// and `held` has to still be the tail *this* call computed. A handler reached
+		// from the routing above can call `feed()`, which runs this whole function
+		// again and leaves its own remainder behind -- so arming from `joined` there
+		// arms a second timer over bytes this call never saw. Measured, before any of
+		// it was true on purpose: a binding that feeds a trailing `ESC` mid-chunk
+		// left **two** timers armed where one is correct, which is what the comment
+		// in `armExpiry()` called unreachable. The wasted timer is the lesser half.
+		// The one that matters is a held control *string*: where the inner remainder
+		// is one and this chunk's was not, `pendingIsString(joined)` is false and the
+		// second timer is the key deadline over a held reply, which is the one thing
+		// `armExpiry()` exists to refuse. Where the two differ the inner call has
+		// already armed for what is really held, or correctly declined to
+		if (held !== '' && held === tail) {
 			armExpiry(joined, opts);
 		}
 		settleSatisfied();
@@ -1184,10 +1670,14 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 	 * *key* is untouched, which is what keeps that Ctrl-C at fifty milliseconds.
 	 */
 	function armExpiry(joined: string, opts: DecodeOptions): void {
-		// there is never a timer already armed to clear here, and that is the deferred
-		// settle's doing rather than luck: `keys()` clears on the way in, a query
-		// satisfied during the routing waits for `settleSatisfied()` afterwards, and
-		// `settle()` arms only where nothing is armed. A `clearTimeout()` was written
+		// there is never a timer already armed to clear here, and the three things
+		// that make that true are the deferred settle, `keys()` clearing on the way
+		// in, and `settle()` arming only where nothing is armed. The fourth was a
+		// **false** claim until it was measured: this comment said nothing at all
+		// could arm one before this runs, and a handler that calls `feed()` from
+		// inside the routing does -- so the guard for that is in `keys()`, which
+		// declines to arm where `held` is no longer the tail it computed, and its
+		// comment has what that cost. A `clearTimeout()` was written
 		// here first, for the order this had before -- settling inside the routing
 		// armed a timer that this one then assigned over, orphaning it -- and it is
 		// gone because nothing can reach it, which is a thing to know before somebody
@@ -1442,9 +1932,20 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 	let stopped = false;
 
 	const router: InputRouter = {
-		bind(handler: KeyHandler): () => void {
-			bindings.add(handler);
-			return () => void bindings.delete(handler);
+		bind(first: KeyHandler | string, second?: SequenceHandler): () => void {
+			if (typeof first !== 'string') {
+				bindings.add(first);
+				return () => void bindings.delete(first);
+			}
+
+			// a `bind('ctrl+s')` with the handler forgotten would otherwise register
+			// a sequence that consumes the key and does nothing with it, which is
+			// strictly worse than the binding not existing
+			if (typeof second !== 'function') {
+				throw new TypeError(`A key-sequence binding needs a handler: bind("${first}", fn)`);
+			}
+
+			return addBinding(trie, parseKeys(first), second);
 		},
 
 		feed(chunk: string): void {
@@ -1455,6 +1956,51 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 
 		get hovered() {
 			return hovering[0];
+		},
+
+		leader(key: string): LeaderBindings {
+			const patterns = parseKeys(key);
+			if (patterns.length !== 1) {
+				throw new KeySpecError(
+					`A leader is one key: "${key}" is ${patterns.length}. Bind the whole sequence instead`
+				);
+			}
+
+			const first = patterns[0] as KeyPattern;
+			// the canonical spelling, so that the leader a status line prints and the
+			// one the trie is keyed by are one string
+			const spec = formatKey(first);
+			const offs = new Set<() => void>();
+
+			return {
+				bind(keys: string, handler: SequenceHandler): () => void {
+					if (typeof handler !== 'function') {
+						throw new TypeError(`A key-sequence binding needs a handler: bind("${keys}", fn)`);
+					}
+
+					// the **patterns** are joined rather than the strings, which is what
+					// stops `bind('')` binding the leader by itself: `parseKeys('')`
+					// refuses an empty spec, and `"space "` does not reach that refusal
+					// because the blank token is dropped and one key is left
+					const off = addBinding(trie, [first, ...parseKeys(keys)], handler);
+					const remove = (): void => {
+						offs.delete(remove);
+						off();
+					};
+					offs.add(remove);
+					return remove;
+				},
+
+				dispose(): void {
+					// a copy, because each `remove` takes itself out of the set
+					// eslint-disable-next-line unicorn/no-useless-spread
+					for (const remove of [...offs]) {
+						remove();
+					}
+				},
+
+				key: spec,
+			};
 		},
 
 		onMouse(handler: MouseHandler): () => void {
@@ -1546,6 +2092,8 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 			});
 		},
 
+		sequence,
+
 		stop(): void {
 			if (stopped) {
 				return;
@@ -1571,6 +2119,16 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 			timer = undefined;
 			held = '';
 			pasting = undefined;
+
+			// and the pending sequence goes the way the hover states do, and for its
+			// reason: nothing will ever clear it otherwise -- the keys have stopped --
+			// so the `g` in the corner of a status line would outlive the router that
+			// put it there. Which is also the answer to whether there is a fourth
+			// place to ask `stopped`: there is not, because the one timer this added
+			// is cleared here the way the key timeout is, so it cannot fire into a
+			// router with no listeners left. The bindings themselves are deliberately
+			// kept, which is what `stop()` already does with a function binding
+			clearSequence();
 
 			// left as it was found: paused, undestroyed, and readable by whatever
 			// reads it next

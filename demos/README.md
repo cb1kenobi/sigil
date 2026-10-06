@@ -333,6 +333,7 @@ the package.
 | [`element/07-selection.js`](element/07-selection.js) | Selecting cells, and OSC 52 to the clipboard       |
 | [`element/08-scroll.js`](element/08-scroll.js)       | Ten thousand rows, a scrollbar, and paint culling  |
 | [`element/09-virtual.js`](element/09-virtual.js)     | The same list windowed: 49 elements, not 10,008    |
+| [`element/10-sequences.js`](element/10-sequences.js) | `g g`, a leader key, and the pending state         |
 
 The whole stack in one file, and the point of it is what it prints at the end: a
 mutation says exactly what it implies and nothing else.
@@ -341,7 +342,7 @@ mutation says exactly what it implies and nothing else.
 node demos/element/01-tree.js
 ```
 
-The last six need a terminal on both sides, because they read what you press. In
+The last eight need a terminal on both sides, because they read what you press. In
 `04-mouse.js` the highlight is zero lines of component code for the same reason
 the focus ring's is: the hit test sets a state and the stylesheet matches it with
 `:hover`.
@@ -354,7 +355,25 @@ node demos/element/06-panes.js   # hover, scroll a pane, click a row, q
 node demos/element/07-selection.js  # drag, alt-drag, ctrl-y to copy, q
 node demos/element/08-scroll.js  # arrows, wheel, drag the thumb, tab, q
 node demos/element/09-virtual.js # the same list, windowed
+node demos/element/10-sequences.js  # g g, g, Space f, Ctrl-X Ctrl-S, q
 ```
+
+**`10-sequences.js`** is the one place the three shapes of a pending sequence are
+side by side, and the thing to watch is which of them waits. `g` and `g g` are
+both bound, so a lone `g` has to find out which: the status line shows `g` and
+half a second later `g` fires on its own, while a second `g` inside that window
+fires the pair instead -- and an ordinary key inside the window, `x` say, fires
+`g` at once, because a key that does not continue the sequence has answered the
+question the deadline was waiting on. Escape and Backspace do not, and nor does
+Ctrl-C: the first two are the user saying "forget it" rather than answering, and
+Ctrl-C never reaches the trie. `Space` is the leader and nothing else, so it waits with
+**no deadline at all** -- press it and leave it, and the `space` sits there,
+because there is nothing to disambiguate and any key that does not continue it
+already cancels it. And Ctrl-C quits from inside a half-entered sequence, because
+a function binding sees every key before the trie is consulted at all. The
+pending keys are a signal rather than a getter for the reason the status line
+shows: a sequence committing on a deadline is not a key, so a redraw-on-keypress
+could not follow it.
 
 **`08-scroll.js`** is ten thousand rows in a twenty-row window, and the number is
 the point: a frame paints the twenty rows on screen rather than the ten thousand

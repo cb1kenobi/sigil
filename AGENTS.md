@@ -5785,6 +5785,437 @@ an assertion, so the diff is the evidence rather than the green suite.
   the explicit ground that the selector engine must not assume it never will -- and
   both held. The Kitty protocol is the same shape of answer, opt-in by query, and
   worth having the day something needs a key the legacy encoding cannot spell.
+- **A binding is a key or a sequence of them, and the order between the two is
+  the Ctrl-C guarantee.** `bind(fn)` sees every key before anything else does;
+  `bind('g g', fn)` is consulted after every one of those and before the focused
+  element. "Key sequences" below has the trie, the pending state, the two
+  deadlines and why the alternatives to that ordering are worse.
+
+### Key sequences
+
+A binding was one key, so `g g`, `Ctrl-X Ctrl-S` and a leader key were all
+unexpressible. `src/input/sequence.ts` is the grammar and the trie,
+`InputRouter.sequence` is the pending state, and the whole of the router's half
+is one step inside `dispatch()` between the function bindings and the tree.
+
+SIG-112 was two halves and is now one: the **command palette** went to SIG-134,
+because sequences were fully specified and are a prerequisite for a palette
+anyway, while the palette had an unresolved packaging question -- runtime or
+`sigil add` -- that deserved deciding on its own terms. Which is also why there
+is no description and no group on a binding: whether bindings are _listable_ is
+the same question about the same registry as the palette's, and deciding it twice
+is how the two come to disagree.
+
+- **A function binding sees every key, and that is the Ctrl-C rule.** The order
+  is function bindings, then the trie, then the focused element, then the Tab
+  default -- so **no keystroke whatsoever can make a function binding
+  unreachable**, which is the sentence this file already carries about a focused
+  input said again about a half-entered sequence. It is the ordering that
+  guarantees it rather than anything about Ctrl-C, which is what makes it
+  checkable: `should not eat ctrl-c, which a binding sees before any of it` feeds
+  a `g` that really is pending and then the abort.
+
+  The two alternatives were both considered and both are worse. **Excluding
+  Ctrl-C from sequence consumption** fixes the named instance and not the class:
+  it is a special case for one key, it leaves `q`, Ctrl-D, Ctrl-Q and Escape --
+  which are how most apps are actually quit -- exactly as swallowable, and it
+  makes `ctrl+c ctrl+c` unbindable for an app that wanted a confirm-to-quit.
+  **Any bound key winning over a pending prefix** is worse still: `g` bound and
+  `g g` bound means the lone `g` would win every time, so the disambiguation the
+  ticket is about would be deleted to protect one key, and `<leader> f` would be
+  unenterable in any app that also binds `f`. That is the feature being removed
+  rather than guarded.
+
+  What the trie guarantees instead, stated positively: **a pending sequence
+  claims a key only where the app bound a continuation on it.** Anything else
+  ends the sequence and is then offered from the root, so it reaches the
+  focused element and the Tab default exactly as it would have. So nothing is
+  swallowed that the app did not itself name -- and the one case that _is_
+  swallowed, `g ctrl+c`, is the app having written Ctrl-C as the second key of a
+  sequence, which it chose. `should claim ctrl-c only where the app bound it as a
+continuation` pins that rather than leaving it to be discovered.
+
+- **And a key that reached the trie and did not continue the sequence _answers_
+  the question the deadline was waiting on, rather than throwing it away.** `g`
+  bound and `g g` bound, `g` then `x`, means `g` -- which is what vim does and
+  the only reading that does not silently lose a keystroke the user deliberately
+  made. The first version discarded the pending `g`, so the deadline became the
+  **only** way to reach a bound `g` rather than the fallback for when nothing
+  follows: pressing anything at all inside half a second lost it. Found by
+  following a review finding about unbinding mid-wait down to the commoner case
+  underneath it, which is the shape worth recording -- the reviewer's own case
+  needs a disposer called mid-sequence, and this one needs two ordinary keys.
+
+  At the node reached and no further. Committing an **ancestor** would mean
+  deciding that the keys after it were spent on nothing and then saying what
+  becomes of them, which is a typeahead replay rather than a rule -- so `g` bound
+  and `g a b` bound, pressed `g a x`, commits nothing, exactly as before. Escape
+  and Backspace sit **above** this rather than below it, which is the whole
+  distinction: those are the user saying "forget it", where a key is the user
+  saying which of the two they meant. So does a key a function binding
+  **stopped**, for a second reason as well as that one -- it never reached the
+  trie, so the question is still open, and something else has claimed that
+  keystroke, so running a binding of ours in the same breath is not what anybody
+  asked for. All four are pinned.
+
+- **A key a function binding _stopped_ ends the pending sequence, and only a
+  stopped one.** Something else acted on that key, so a `g` after it must not
+  complete `g g` across it -- the user typed `g`, then a key that did something,
+  then `g`. Found by the first run of the tests rather than by reasoning: the
+  Ctrl-C test asserted the sequence was gone and it was not, because a stopped
+  event returns before the trie is reached. Only where the binding _stopped_ it,
+  because a binding that merely watches every key -- which is what a keystroke log
+  or a redraw-on-keypress is -- has observed rather than acted, and cancelling
+  there would make a sequence unenterable in any app that has one.
+
+- **The deadline is ten times `ESCAPE_TIMEOUT`, because the asymmetry points the
+  other way.** That one waits for _bytes from a terminal_, which arrive in
+  microseconds unless the link is slow, and its failures are "too short types a
+  stray character into somebody's answer, too long makes Escape feel late". This
+  waits for _a human finger_, two orders of magnitude slower, and its failures
+  are: too short and a deliberate `g g` fires `g` twice, which is the silent wrong
+  action and the half that entry is written to protect against, while too long
+  makes a bound `g` feel broken, which is the annoyance half. Fifty milliseconds
+  would fire `g` twice for essentially everybody, so the trade is taken in the
+  direction that does not act wrongly.
+
+  Five hundred rather than a number fitted to anything: vim's `timeoutlen` is
+  documented at 1000ms and Emacs waits indefinitely, so those are the two poles
+  and this sits between them. It arises only where an app bound **both** a key and
+  a sequence starting with it, which is the app choosing the ambiguity, so
+  `InputOptions.sequenceTimeout` is how one that knows its own bindings picks.
+
+  A value that is not a finite number at or above zero falls back, which is the
+  typewriter's own rule, and a **finite** one past 2^31-1 is _clamped_ -- the same
+  trap one step along, since node stores a delay as a signed 32-bit integer and
+  reads anything larger as `1`. So `sequenceTimeout: 2147483648` asked for 24 days
+  and fired in a millisecond. Clamped rather than thrown away, because a caller
+  who wrote one meant "as long as possible" and the ceiling is the nearest answer
+  there is, where the default would be _shorter_ than what they asked for. Found
+  by review.
+
+- **A node that is a prefix and _not_ a binding waits with no deadline at all.**
+  Emacs' answer, and the right one for the same reason: there is nothing to
+  disambiguate, and any key that does not continue the sequence has already
+  cancelled it -- so a deadline there would throw a half-entered sequence away
+  while the user was still reaching for the second key. Which means a leader key,
+  the shape everybody wants, costs no timer: `should wait indefinitely where there
+is nothing to disambiguate` asserts the timer count rather than the behaviour,
+  because the behaviour is the same either way until the clock moves.
+
+  So `take()` has three shapes and only the third waits: no children is an exact
+  match with nothing to decide and fires at once, children and no handler is a
+  pure prefix, and both is the ambiguous case. Firing the unambiguous case on a
+  deadline instead would make `bind('ctrl+s', save)` -- a one-key sequence, which
+  is the ordinary ergonomic use of this -- half a second late.
+
+- **Which shape a node is gets asked again when the deadline fires, because the
+  _trie_ can move under it.** The node and the keys are captured rather than read
+  back, on the ground that the pending state moving is what clears the timer --
+  and that comment denied something it should not have: a **disposer** called
+  while the deadline is running edits the trie, and taking the handler off the
+  very node the timer was armed for leaves a pure prefix, which waits with no
+  deadline at all. Firing an empty handler set there threw the pending sequence
+  away for nothing, so `g` with `g g` still bound needed starting again. Found by
+  review. The pending state and the timer still cannot part, which is why only
+  the handlers are re-read.
+
+- **`take()` is handed its trail rather than reading one off the pending state,
+  and the ambient version was measurably wrong.** The second call site offers a
+  key from the **root**, where the trail has to be empty whatever `entered` holds
+  -- and the commit just above it runs the caller's code, which can start a
+  sequence by calling `feed()`. Measured: `g` committed, its handler fed a `d`,
+  and the outer `d` was then taken with the inner one still in `entered`, so **one
+  keystroke left a pending `d d`** and the `d d` binding fired with three keys.
+  Found by re-reading the commit path rather than by a review round, and it is the
+  shape this file keeps deleting -- two readers of one ambient variable, where
+  passing it makes the function answer for its arguments.
+
+- **A pending node whose path was unbound is nothing pending, and the disposer
+  cannot say so.** `sequence.ts` knows nothing about the router on purpose, so
+  `reaches()` is asked on the next key instead -- a walk of two or three `parent`
+  links, and only while something is pending. It has to ask whether each parent
+  still **names** the child rather than whether the walk reaches the root, because
+  a prune clears the parent's entry and never the `parent` link. Left out, the
+  status line went on showing a sequence that no longer existed and the Escape
+  after it was swallowed by the ghost. Also found by review.
+
+- **Escape clears and Backspace pops, and both sit _under_ the rule rather than
+  over it.** A continuation the app explicitly bound on either one wins, which is
+  the same call Tab already gets: a component that wants it keeps it by stopping
+  the event. Nothing is stuck either way, which is what makes that safe -- a key
+  that does not continue the sequence has already ended it, so there is no state
+  to be trapped in and Escape is a convenience for the pending display rather than
+  an escape from a trap. Both are consumed when they act, because cancelling was
+  the job; a modifier makes it a different key, so Alt-Escape is not the cancel and
+  Alt-Backspace is not the pop, which is "delete the word" in a text field.
+
+  A pop is deliberately **not** re-armed even where what is left is a binding as
+  well as a prefix: Backspace is the user editing the sequence, and committing the
+  shorter binding on a deadline after an explicit undo is the opposite of what they
+  asked for.
+
+- **A focus change invalidates, and one caused by a completing sequence costs
+  nothing.** A sequence half-entered into a log pane must not complete in the
+  editor beside it, because the second key was typed at something else. Cleared in
+  `focus.focus()` before the `:focus` states move, so an effect woken by one
+  already reads the pending sequence as gone -- and `reconcileFocus()` goes through
+  the same call, so a pane unmounting under a half-entered sequence invalidates it
+  too. The completing-sequence case is free rather than special: `fire()` is handed
+  the keys and the pending state is already clear before a handler can move
+  anything, which is `Show`'s own order -- commit, then run the caller's code --
+  and it is also what lets a handler that _feeds more keys_ start from a clean
+  state.
+
+- **A pasted key neither advances a sequence nor cancels one.** What is between
+  the markers is content by definition, which is the rule a capability reply inside
+  a paste already follows -- so a pasted `gg` must not fire a `g g` binding, and a
+  paste arriving mid-sequence must not be able to cancel one either. Both halves,
+  because a guard on the advance alone would let content end a sequence, and content
+  must not drive a binding in either direction. The second half is the one a
+  careless `!paste` gets wrong and `should not cancel a pending sequence, even typed
+in` is what fails for it.
+
+- **Two pending states, two deadlines, and no byte both could claim.** `held` in
+  `keys()` holds **bytes that have not become a key yet** and is owned by
+  `ESCAPE_TIMEOUT`, or by a query's deadline for a control string; the pending
+  sequence holds **keys that have already been decoded** and is owned by
+  `SEQUENCE_TIMEOUT`. A byte is in exactly one of the two and it moves from the
+  first to the second by being decoded, so the ownership is structural rather than
+  careful -- `ESC [` sitting as half an arrow key is not a key the sequence can be
+  offered, and the sequence's own keys are long past the decoder.
+
+  Both deadlines can be armed at once and they are independent, which the tests
+  assert as a timer count. What follows from the two **numbers** rather than from
+  anything written down is that the key deadline is the shorter, so a held partial
+  always becomes a key before a sequence commits -- and the key it becomes is then
+  offered to the sequence like any other. That is the right way round: the
+  sequence's deadline exists to guess what the user meant, and a key that has
+  actually arrived is not a guess. Both orders are pinned, the second by an app
+  that chose a shorter `sequenceTimeout`.
+
+  The consequence worth knowing is that a bare Escape costs `ESCAPE_TIMEOUT`
+  before it can cancel anything, because a chunk ending in `ESC` is held whatever
+  else is true -- a terminal sends Alt-x as `ESC` then `x` in one write. That is
+  the existing asymmetry rather than a new one, and it is why every test about
+  Escape here needs a clock.
+
+- **The stream _ending_ leaves the pending sequence alone, and `held` is the
+  precedent.** `ended()` deliberately does not tear the router down -- `onEnd()`
+  exists so the app decides, and the ordinary thing it decides is `stop()`, which
+  clears -- and it leaves the half-arrived **key** and its deadline exactly where
+  they are too. So a pending sequence is treated the same way: an exact match that
+  is also a prefix still commits on its deadline, which is right, because the
+  deadline means "nothing followed" and nothing ever will. What is left over is a
+  pure prefix held by an app that was told the stream ended and did not stop the
+  router, which is one state class rather than a second mechanism for the router
+  to decide on the app's behalf.
+
+- **Tab is claimed by a continuation the app bound on it, which is the Tab rule
+  one layer along.** `g tab` bound means `g` then Tab fires that binding and the
+  focus does **not** move, because the trie is consulted before the tree and the
+  Tab default is after both -- which is the same answer "a component that wants it
+  keeps it by stopping the event" already gives. With no such binding, Tab ends
+  the sequence like any other key and then moves the focus, and the focus move
+  finds nothing left to invalidate.
+
+- **There is no fourth place to ask whether the router stopped.** The question is
+  asked at `consume()`'s entry, in its paste loop, and between the keys of a chunk,
+  and the one timer this added is cleared by `stop()` the way the key timeout is --
+  so it cannot fire into a router with no listeners left, which is asserted as a
+  timer count of zero. What _did_ need asking is inside `fire()`, where a sequence
+  bound twice whose first handler quits must not reach the second; and a completing
+  sequence that stops the router stops the chunk it was in, through the check
+  `keys()` already makes between keys.
+
+- **The pending state is a signal, and `hovered` is a getter for the reason it
+  is not.** That one is a plain getter because the `hover` state it writes already
+  marks the tree and asks for a frame; a pending sequence writes no element state at
+  all, so nothing else here would ask for the frame that redraws the status line.
+  And it has to be a signal rather than a redraw-on-keypress, because **a sequence
+  committing on a deadline is not a key** -- which `10-sequences.js` shows: press
+  `g`, wait, and the status line clears itself with nothing having been typed.
+
+  The empty value is one shared frozen array, so clearing a sequence that is
+  already clear is not a write: `State.set()` compares with `Object.is`, so a fresh
+  `[]` would make every focus move ask for a frame to redraw a line that has not
+  moved. Frozen for the reason every initial value in the property table is --
+  `readonly` is a TypeScript fiction at run time, and one caller splicing what the
+  signal published rewrites what every reader sees.
+
+- **One canonical spelling does both jobs, which is what makes the trie a
+  `Map`.** `formatKey()` is what a spec parses _to_ and what a decoded key is
+  looked up _by_, so a lookup is a string hash rather than a scan over patterns --
+  and a status line showing `ctrl+x` and a trie keyed by `ctrl-x` is two
+  vocabularies whose parting is a binding that reads correctly and matches nothing.
+  Asserted against the **decoder** rather than against literals: what has to hold
+  is that `formatKey()` of what the terminal sent equals `formatKey()` of what the
+  app wrote, and a pair of literals could agree while both were wrong about the
+  bytes. `Key.sequence` is deliberately not part of it, because `ESC [ A` and
+  `ESC O A` are the same Up.
+
+- **The modifiers are stripped as prefixes rather than split on `+`.**
+  `'ctrl++'.split('+')` is three pieces and two of them are blank, so a splitter
+  has to decide which blank is the key; stripping has nothing to decide, so
+  `ctrl++` is the `+` key held with Ctrl and `ctrl+-` is the `-` key. The loop ends
+  on `indexOf` answering `-1` specifically rather than on `plus < 1`: the second
+  reading asks whether the token minus its last character is a modifier, and for
+  `ctrlX` it is -- which strips nothing and goes round again. The
+  repeated-modifier check happens to turn that into the wrong _error_ rather than a
+  hang, which is the masking this file records elsewhere, so the test asserts the
+  **message**. A `+` at position zero needs no test of its own, because the lookup
+  answers for the empty string.
+
+- **A spec that cannot be a key throws where it is written.** The rule a `...`
+  hint on an option and a keyword the layout engine ignores already follow, and two
+  of the refusals are the ones somebody will actually type. `shift+a` is refused
+  **naming what to write instead**, because the legacy encoding never reports shift
+  for a plain character -- Shift-A arrives as `A` with the flag clear -- so it is a
+  binding that can never fire; `shift+tab` is kept, because that is the one place a
+  terminal really does report it. And `ctrl+X` is **normalized** to `ctrl+x` rather
+  than refused, because the byte is the same one either way and `readOne()` names it
+  from `code + 0x60`: the two spellings are one key press, so normalizing is what
+  they mean rather than a rewrite of what was asked for.
+
+  What it cannot check is whether a terminal can _send_ what a spec names.
+  `ctrl+space` is NUL on most terminals, which the decoder reads as
+  Ctrl-backtick, and the legacy encoding has no spelling at all for a great many
+  pairs -- that is the limit the Kitty keyboard protocol exists to lift rather than
+  something this grammar can enumerate, so it is written down rather than
+  pretended about.
+
+- **`KEY_NAMES` is derived from the decoder's own two tables.** The rule
+  `COLOR_PROPERTIES` and `INHERITED` already follow: a hand-written list beside
+  `SEQUENCES` and `CONTROLS` is a second list to keep in agreement, and a name
+  added to one without the other is a key no spec can bind with nothing to say so.
+  Filtered to the names of more than one character, because `CONTROLS` maps
+  Ctrl-C's byte to `'c'`, which is the letter rather than a name -- a one-character
+  name and a character are the same answer reached two ways. A single token is a
+  **character** by code point rather than by code unit, so an emoji is one key and
+  not two halves of one, which is `readOne()`'s own rule.
+
+  A guard refusing `unknown` by name was written and **deleted for being
+  unreachable**: it is produced inline rather than out of either table, so it is
+  not in `KEY_NAMES` and the name check already refuses it. The property is
+  asserted instead, so the day somebody puts it in a table it fails rather than
+  going quiet.
+
+- **The disposer prunes, which is not tidiness.** A node left behind with no
+  handler and no children is still a child of its parent, so it is still a prefix
+  -- and a prefix is what holds a key back, so unbinding `g g` would leave `g`
+  waiting for a second key for the life of the process. Asserted through the
+  _timing_: with `g g` gone, `g` fires at once rather than after a deadline. A
+  second call does nothing, and the fixture that shows why is the one where the
+  path is **partly** pruned and then rebuilt -- with `g a` and `g b` bound,
+  removing `g a` leaves the `g` node alive for `b`, so rebinding `g a` hangs a new
+  node off that same live parent and a stale disposer called again would delete the
+  rebinding. The obvious bind-off-off fixture cannot see it, because there the whole
+  path is pruned and the stale node's parent is detached from the trie.
+
+- **A leader is one key, declared once, and it joins _patterns_ rather than
+  strings.** What the helper buys over writing ``bind(`${leader} f`, …)`` is that
+  an app moving it from Space to Comma edits one line rather than every binding,
+  and that the spec is checked as a single key where it is named rather than as the
+  first token of each sequence. `dispose()` is "put back what you attached", which
+  is worth having because the point of a leader is that one object holds many
+  bindings.
+
+  Joining the patterns is what makes `leader.bind('', fn)` an error rather than a
+  binding on the leader **by itself**, which is what shipped for a round: built by
+  interpolation the spec is `"space "`, whose blank token `parseKeys()` drops, so
+  one key is left and the "names no key" error that `parseKeys('')` raises never
+  happens -- and pressing Space fired the handler at once. Found by review, and the
+  fix removes the re-parse rather than guarding it, which is the shape to prefer:
+  there is no longer a string for a token to vanish out of.
+
+- **A sequence handler is handed the keys and nothing else.** A value rather than
+  a stoppable event, which is what `onResize()` and `onEnd()` already take: there is
+  nothing for it to stop, because the key that completed the sequence was consumed
+  by the sequence and the tree never sees it, and a second binding of the same
+  sequence is a second thing the app asked for rather than something to cancel. It
+  is still dispatched over a copy **and** a membership check, which is the rule
+  every handler set in this module follows -- a sequence whose handler rebinds the
+  same sequence is exactly the case that rule exists for, and both halves are
+  pinned.
+
+- **`bind()` is one method with two signatures rather than two methods.** The
+  function form is the one that must stay ahead of everything, and putting the
+  sequence form on the same name is what makes that order readable at the call site:
+  an app writes `bind(fn)` for the key it must never lose and `bind('g g', fn)` for
+  the rest. A spec with the handler forgotten throws a `TypeError`, because
+  registering a sequence that consumes the key and does nothing with it is strictly
+  worse than the binding not existing -- and the overload refuses it at the call
+  site, which is the better half of that.
+
+- **Forty-two sabotages, forty-two caught, and five of them needed a test written
+  for them.** Thirty-nine deletions -- twenty-nine over the first version and ten
+  more over the guards the review rounds and the re-read added -- plus the three
+  **reorderings** round two's own list named, which a pass built out of deletions
+  could not express: firing before the reset in each of the two places the
+  caller's code runs, and a re-arm after a pop, which is a line _added_ rather
+  than removed. Every one of the ten and all three of those were caught first
+  time, which is what arriving with a test does. The harness reported two patterns
+  as **stale** on the way through, which is the guard this file records it for
+  earning its keep a third time: both went stale when `take()` grew a parameter,
+  and a pattern that silently matches nothing is a green suite reading as "the
+  guard is not load bearing". Every one of the five was a guard whose _fixture_ could not
+  reach the branch it was named for, which is the shape this file keeps recording:
+  the loop's `-1`, the second removal, the deadline taken off when a key extends a
+  sequence, a modified Backspace, and a pop of the only key leaving nothing pending
+  rather than leaving the root as the node. That last pair is the subtlest, because
+  the two readings publish the same empty list and look up the next key in the same
+  place -- they differ only in whether the Escape and Backspace defaults still
+  apply, so an Escape after the pop is swallowed by a sequence that had ended. One
+  guard was **deleted** rather than tested, which is the `unknown` entry above, and
+  one condition was simplified for the same reason -- `plus <= 0`'s zero half,
+  whose answer the modifier lookup already gives.
+
+- **And the second round found prose and fixtures, which is what pointing it at
+  the skipped files is for.** It was told not to re-attack round one's premises
+  and to go at round one's own "not examined" list first, and every finding came
+  from there. **Three were sentences**: the demo and the `demos/README.md` both
+  said that with `g` and `g g` bound, _anything_ else inside the window fires `g`
+  -- which is false of the three keys that are the whole of the exception, Escape,
+  Backspace and a key a function binding stopped; `sequenceStep()`'s own docblock
+  still said "anything else **cancels** the sequence", describing the version
+  before the commit landed; and the sequence timer's comment justified not
+  unref'ing it with "the router holds stdin resumed for as long as it runs", which
+  stops being true between the stream ending and a `stop()` that never came. The
+  first and second are the exact hazard this file keeps naming -- a body aligned to
+  that docblock is the discarded-keystroke defect put back -- so that paragraph now
+  says it is load bearing.
+
+  **And four fixtures that could not reach the branch they were named for**, each
+  verified by running the sabotage round two said would survive. The paste test
+  stopped the paste in its handler, and a stopped paste returns before any key is
+  dispatched, so deleting the `!paste` on the advance left it green -- nobody
+  taking the paste whole is what puts the keys through the dispatch. The
+  focus-handler test asserted the keys the handler was **handed**, which are
+  captured either way, so firing before the reset passed; what bites is a handler
+  that reads the **signal**. The deeper-pop test bound no ambiguous leftover, so a
+  re-arm written as "only where there is a handler" survived it. And the
+  stopped-key test asserted only the absence of a commit, not that the sequence was
+  cleared. All five of those sabotages now fail a named test.
+
+  One of round two's claims was **wrong** and is worth recording as the cost of a
+  round: it read a pending `ctrl+x` as a binding and a prefix "via `ctrl+x
+ctrl+s`". Being the prefix of a binding does not make a node a binding, which is
+  the distinction the three shapes are about -- so the demo's note was right and
+  only its comment overclaimed.
+
+- **What two review rounds found, which the sabotage pass could not.** The first
+  round produced three confirmed findings and a coverage list, and every one of
+  the three is a shape a pass built out of deletions is blind to by construction:
+  a comment that **denied** something true -- the timer's "the two cannot part",
+  where the trie can -- a guard whose **ceiling** was wrong rather than absent,
+  and a validation that was **bypassed** by the one caller that built its spec by
+  interpolation. None is a deletion of a line that is there, which is the boundary
+  this file records from the selection work and the windowing work both.
+  Following the first of them down found the worse case underneath it, which is
+  the commit-on-cancel entry above, and that one was a defect in the **behaviour**
+  rather than in a guard. The pre-existing re-entrancy finding is the entry under
+  "Asking the terminal what it is", since it is reachable from a bare `bind()`
+  handler and has nothing to do with sequences.
 
 ### The mouse
 
@@ -7071,6 +7502,23 @@ a probe`. What the longer hold costs is worth stating precisely: a key typed
   settling inside the routing armed a key timer that `armExpiry()` then assigned
   over, orphaning it, and with the settle deferred nothing can arm one before
   `armExpiry()` runs.
+- **Except a handler that calls `feed()` can, which made that last clause false
+  until SIG-112 measured it.** `keys()` is re-entered by a `feed()` from inside
+  the routing -- an ordinary `bind()` handler is enough and no sequence is
+  involved, so this was reachable from the day `feed()` existed -- and the inner
+  call leaves **its own** remainder in `held` while the outer call goes on to arm
+  from its own `joined`. Measured: a binding that feeds a trailing `ESC` mid-chunk
+  left **two** timers armed where one is correct. The wasted timer is the lesser
+  half of it, since the second `expire()` finds `held` empty and routes nothing.
+  The half that matters is a held control **string**: where the inner remainder is
+  one and the outer chunk's was not, `pendingIsString(joined)` is false, so the
+  second timer is the key deadline over a held reply -- which is the one thing
+  `armExpiry()` exists to refuse, and whose cost is
+  `11;rgb:1111/2222/3333` in somebody's answer. So `keys()` keeps the tail it
+  computed and arms only while `held` is still that tail: where the two differ the
+  inner call has already armed for what is really held, or correctly declined to.
+  A `clearTimeout()` in `armExpiry()` would close the orphan and not the string,
+  which is why the guard is where the two values can be compared.
 - **A key that stops the router stops the chunk it was in.** `keys()` asks
   `stopped` between decoded keys as well as at the entry to `consume()`, because
   `feed('\x03hello')` with a Ctrl-C binding that calls `stop()` went on routing

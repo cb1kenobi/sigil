@@ -72,6 +72,28 @@ const CONTROLS: Record<string, string> = {
 	' ': 'space',
 };
 
+/**
+ * Every name this decoder gives a key that is not a character.
+ *
+ * Derived from the two tables above rather than written out, which is the rule
+ * `COLOR_PROPERTIES` and `INHERITED` already follow: a hand-written list beside
+ * the tables is a second list to keep in agreement, and a name added to one of
+ * them without the other is a key no spec can name. The read is what a binding
+ * grammar needs -- `up` is a name and `u` is a character, and only this knows
+ * which strings are which.
+ *
+ * Filtered to the names of more than one character, because `CONTROLS` maps
+ * Ctrl-C's byte to `'c'`, which is the letter rather than a name -- a one
+ * character name and a character are the same answer reached two ways.
+ * `escape` is written out because `readEscape()` produces it inline rather
+ * than from a table.
+ */
+export const KEY_NAMES: ReadonlySet<string> = new Set(
+	[...Object.values(SEQUENCES), ...Object.values(CONTROLS), 'escape'].filter(
+		(name) => [...name].length > 1
+	)
+);
+
 function key(partial: Partial<Key> & { name: string; sequence: string }): Key {
 	return { ctrl: false, meta: false, shift: false, ...partial };
 }
