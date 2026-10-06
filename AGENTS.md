@@ -3070,6 +3070,134 @@ changed the viewport` over a renderer, plus the shrinking direction and a
   are spelled `is-*` because they are states rather than kinds: `:focus` is the
   cascade's own and is used where it applies, and these are the ones a terminal
   has no pseudo-class for.
+- **Every declaration a built-in shares with another built-in is on a _role_, and
+  the component classes are the narrower hooks beside it.** Seven roles --
+  `.sigil-accent`, `.sigil-muted`, `.sigil-heading`, `.sigil-success`,
+  `.sigil-error`, `.sigil-warn`, `.sigil-info` -- and an element carries its
+  component class and its role together, so `.sigil-muted { color: blue }` reaches
+  a help note, a prompt hint, a placeholder, an answer, a choice hint and a
+  decrypt's cipher cells, which were six rules to find before. A role beats a
+  component rule by **origin** rather than by specificity, which is what lets one
+  `(0,1,0)` role rule override whatever the framework wrote.
+
+  Which seven is the evidence's answer rather than the ticket's, and it differs
+  from the ticket in three places. `label` and `description` are **out**: nothing
+  in the sheet ever set them, and a role nothing sets is the empty rule this file
+  already refuses. `accent` is **in**, unnamed by the ticket and the most repeated
+  colour there is -- the question mark, the spinner's frame, the progress bar's
+  fill, the active choice and the scroll thumb are all cyan because they are all
+  the live part of a frame. And it is `warn` rather than `warning` so that
+  `sigil-${outcome}` lands on a role for all four values of `SpinnerOutcome`,
+  which is the one emission that computes its class.
+
+  `.sigil-caret` and `.sigil-scroll-track` are the two declared exceptions: no
+  role is inversion, and the track is the one grey here that is not de-emphasised
+  _text_, so it must not be `.sigil-muted` -- that role is `dim` on a dark
+  terminal, and a dim track is not a track. `should declare on a role, bar two
+exceptions that say why` is the invariant, and it reads the **parsed** sheet
+  rather than the source, because the comment listing the component classes as
+  hooks would otherwise be mistaken for a rule.
+
+- **The toolchain has no sheet of its own, and deleting it fixed a bug rather than
+  tidying one.** `TOOLCHAIN_CSS` was seven declarations under a `cli-` prefix at
+  origin `app`, on the argument that the toolchain is an app and has no business
+  in the `sigil-*` vocabulary. Four of the seven were a framework role said again
+  under another name -- and the repetition is where it cost something, because
+  three of them were `dim` with **no light half**, which this file records as the
+  one declaration whose legibility depends on which way the background goes. So a
+  report's location prefixes, entries and notes were grey on white: `sigil check`
+  over a broken fixture came out byte for byte identical under
+  `SIGIL_COLOR_SCHEME=light` and `=dark`, in the framework's own acceptance test,
+  while the framework sheet beside it switched `ESC[2m` to `ESC[90m`. It is the
+  roles now, and the fix is visible in the built binary rather than only in a test.
+
+  What that left is the trap worth keeping: every `cli-*` emission names its role
+  as a **literal** except the severity label, which interpolated -- and
+  interpolating the role does not work either, because a `Severity` is `warning`
+  while the role is `.sigil-warn`, so `sigil-${severity}` asks for a class no
+  sheet defines and the label comes out unstyled with nothing to say so. Hence
+  `SEVERITY_ROLE`, a map keyed by the union so that a severity added without a
+  role is a type error rather than a colour nobody notices is missing. The
+  invariant over it reads every file under `packages/cli/src/` rather than
+  `report.ts` alone, because the first version read one file and a sabotage
+  dropping the role from `cli-app` in `_inspect.ts` survived it.
+
+  `render()` reads the colour scheme off `dest.env` for the same reason it reads
+  the width and the colour level there. It always fell back to the process, which
+  is the same object for the CLI, so nothing about a real run moved -- what it
+  buys is that a report's light half is reachable from a test at all.
+
+- **The themes sigil ships are their own subpath, and every colour in them is a
+  palette index.** `@ttylabs/sigil/themes` holds `MONO`, `VIOLET`, `PHOSPHOR`,
+  `AMBER` and `NEON` as CSS string constants, each a value for all seven roles. Two
+  measurements shaped it and both were taken rather than assumed.
+
+  **A separate subpath, because `./theme` is on everyone's path.**
+  `components.mjs` and `help` both import it -- it is where `themedCascade()` is,
+  which is the one place every built-in's cascade comes from -- so putting the
+  themes there taxes every unbundled app for themes most of them never name. On
+  their own subpath they cost nothing unless imported: `themes.mjs` is **4,062
+  bytes** of string constants and **imports nothing at all**, so an app that names
+  one drags in no module behind it. The figure here used to read 1.26 kB, which was
+  four themes with a base half each and went stale when the second palette and
+  `NEON` landed.
+
+  **Named exports rather than a subpath each, because that is what shakes.** An
+  app importing `VIOLET` alone bundles `VIOLET` and drops the other **four**,
+  verified by bundling a fixture and grepping the chunks for a marker unique to
+  each -- re-measured when the fifth theme landed: a one-import entry comes out at
+  **938 bytes** with four of the five markers absent, against 3,966 bytes of CSS in
+  the module. So `sigil/themes/violet` would buy nothing a named export does not --
+  which is worth knowing, because a subpath per theme is the obvious shape to
+  reach for.
+
+  **And there is deliberately no map of them.** The first version shipped a frozen
+  `Record` of all four beside them, which defeated the whole point: the map
+  references each one, so nothing is unreachable and the same app bundled all four.
+  Caught by measuring, not by reading. An app offering a `--theme` option writes its
+  own map of the themes it chose to offer, which is the honest version anyway, since
+  which themes an app offers is the app's decision.
+
+- **A shipped theme names palette indices because there is no hex value that is
+  safe on an unknown background.** The tension is arithmetic rather than
+  aesthetic: a colour bright enough to read on black is usually too light to read
+  on white. Measured with WCAG contrast against both `#000` and `#fff` over the
+  obvious candidates, **every** truecolor palette has entries below 3:1 on one side
+  -- `#ffd166` is 1.44:1 on white and `#1a1a1a` is 1.21:1 on black. The sixteen are
+  not colours but indices the user's own terminal theme resolves, so the choice goes
+  to the only actor that knows the background. That is not a guarantee, since yellow
+  on white is hard for any theme, and it is strictly better than this package
+  guessing. An **app's** theme may use truecolor freely and owes the other scheme a
+  light half when it does.
+
+  Found by shipping the defect first: a demo theme picked for a light terminal had
+  a near-black heading, which on the dark default was text nobody could see. The
+  guards are in `test/themes.test.ts` -- every role set in the base half, no hex,
+  `rgb(` or `palette(n > 15)` in it, a light half wherever a theme sets `dim`, every
+  role saying _something_ in both schemes, and a richer half that resolves to
+  something outside the sixteen where one exists.
+
+  **Two of those are written against the source rather than against a resolved
+  style, and a sabotage is what said they had to be.** Degradation happens at
+  _resolve_ time, so asking the cascade at level 1 hands back an index whatever was
+  written -- `#ff00ff` resolves to 13 there -- and a guard built on that can never
+  fail. The same pass found the role check passing on a role set **only** inside the
+  richer half, which is a role absent everywhere a sixteen-colour terminal looks.
+  Both read `withoutRichHalf()` now. The one deliberate survivor is a richer half
+  that drops a role: the base rule still applies at level 2, so it falls back rather
+  than going quiet, and there is nothing to catch.
+
+- **Switching a theme at runtime needs a reset prelude, and an app picking one does
+  not.** A `Cascade` has `add` and no `remove`, so a switch layers a sheet over the
+  last one and a property the new theme does not mention keeps whatever the old one
+  said. Measured: going from `MONO` to `VIOLET` left MONO's `underline` on the
+  heading, its `inverse` on the error and its `italic` on the info line, because a
+  colour theme has no reason to mention any of them. A switcher prepends a rule
+  turning every role's properties off, which is what
+  `demos/style/04-theme-switcher.js` does; it is also why the demo restates the
+  framework's own defaults as a theme rather than removing a sheet to get back to
+  them. This is a switcher's problem alone -- an app picks one theme at startup and
+  never meets it.
 - **Parsed once, and a cascade built per call.** A `Stylesheet` is frozen and a
   `Cascade` only reads it, so parsing per spinner would be the same work per
   component per process; the cascade differs per call because the sheets do, and
@@ -3267,8 +3395,7 @@ is proved.
   cascade's own answer stands -- which for `themedCascade()` is what the environment
   knew and for a bare `Cascade` is the frozen dark -- and the context is put back
   exactly as it was found, which is the rule that path already keeps.
-- **The framework sheet's light half is five declarations, and its size is the
-  finding.** Every colour in that sheet is a palette index, and the basic sixteen
+- **The framework sheet's light half is one rule, and its size is the finding.** Every colour in that sheet is a palette index, and the basic sixteen
   are whatever the user's terminal theme says they are -- so there is nothing in
   them to fix conditionally, which is the rule working rather than a gap, and it is
   also exactly why an _app_ or a _theme_ needs this: a `#666` somebody wants for
@@ -3282,6 +3409,15 @@ is proved.
   and it is still legible. Conservative deliberately: the states, the symbols and
   the bars are left alone, because a palette colour is already right for them and
   changing one would be inventing a problem.
+
+  It is **one** rule rather than the five declarations this entry used to record,
+  and the role vocabulary is what collapsed it: `dim` is `.sigil-muted`'s now, so
+  the one place a light terminal needs a different answer is the one rule that says
+  it -- where before it was `.sigil-help-note`, `.sigil-prompt-hint`,
+  `.sigil-prompt-answer`, `.sigil-choice-hint` and `.sigil-decrypt-cipher` each
+  saying it separately, which is five chances to leave one out. That is the
+  argument for the roles stated as a number.
+
 - **`FRAMEWORK_CSS` is a template literal, so it holds no backtick and no
   `${`.** Written down because the failure is not local: a backtick in a comment
   inside that string ends the sheet, and what `tsc` then reports is a syntax error

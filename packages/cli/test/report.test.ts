@@ -1,18 +1,21 @@
-import type { Diagnostic } from '../src/build/diagnostic.js';
+import type { Diagnostic, Severity } from '../src/build/diagnostic.js';
 import { formatDiagnostic } from '../src/build/diagnostic.js';
 import {
 	diagnosticsView,
 	render,
 	reportLevel,
 	summaryView,
-	TOOLCHAIN_CSS,
 	writeDiagnostics,
+	SEVERITY_ROLE,
 	writeNote,
 	writeSummary,
 } from '../src/report.js';
 import { ESC, hasAnsi, strip } from '@ttylabs/sigil/ansi';
+import { FRAMEWORK_CSS } from '@ttylabs/sigil/theme';
 import { stringWidth } from '@ttylabs/sigil/width';
 import { MAX_WIDTH } from '@ttylabs/sigil/wrap';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 /**
@@ -527,48 +530,147 @@ describe('the toolchain report', () => {
 				(width) =>
 					summaryView(
 						[
-							{ class: 'cli-app', text: 'myapp' },
-							{ class: 'cli-ok', text: 'no problems found' },
+							// the pairs the toolchain really emits: a framework role carries the
+							// colour and the `cli-*` class is the narrower hook beside it
+							{ class: 'cli-app sigil-heading', text: 'myapp' },
+							{ class: 'cli-ok sigil-success', text: 'no problems found' },
 						],
 						width
 					),
 				WIDE
 			);
 
-			expect(sgr(out)).toContain(1); // bold, from .cli-app
-			expect(sgr(out)).toContain(32); // green, from .cli-ok
+			expect(sgr(out)).toContain(1); // bold, from .sigil-heading
+			expect(sgr(out)).toContain(32); // green, from .sigil-success
 			expect(strip(out)).toBe('myapp no problems found');
 		});
 	});
 
-	describe('the stylesheet', () => {
-		it("should be the app's own vocabulary rather than the framework's", () => {
-			// the toolchain is an app: it draws nothing a theme is expected to
-			// restyle, so it has no business in the `sigil-*` names FRAMEWORK_CSS
-			// documents
-			expect(TOOLCHAIN_CSS).not.toContain('.sigil-');
-			expect(TOOLCHAIN_CSS).toContain('.cli-');
+	describe('the roles it draws with', () => {
+		/**
+		 * The toolchain has no stylesheet of its own: a report draws itself with the
+		 * framework's roles and keeps its `cli-*` classes as the narrower hooks they
+		 * always were.
+		 *
+		 * What that bought is why it is worth testing. Three of the seven declarations
+		 * the old sheet carried were `dim` with no light half -- and the framework's
+		 * de-emphasis has one deliberately, because SGR 2 blends the foreground
+		 * towards the background and is therefore grey on white. So a report was
+		 * unreadable on a light terminal, in the framework's own acceptance test, and
+		 * neither the defect nor the fix had a test until this one.
+		 */
+		const scheme = (colorScheme: 'dark' | 'light') =>
+			sgr(
+				render((width) => diagnosticsView([diagnostic()], { width }), {
+					env: { FORCE_COLOR: '3', SIGIL_COLOR_SCHEME: colorScheme },
+					stream: { columns: 100, isTTY: true },
+				})
+			);
+
+		it('should de-emphasise with an attribute on dark and a colour on light', () => {
+			// 2 is SGR dim; 90 is bright black, which is palette index 8 -- the one a
+			// light theme has to render text in, so it is dark there
+			expect(scheme('dark')).toContain(2);
+			expect(scheme('dark')).not.toContain(90);
+			expect(scheme('light')).toContain(90);
+			expect(scheme('light')).not.toContain(2);
 		});
 
-		it('should set no layout property, which is the rule the framework sheet keeps', () => {
-			// geometry stays in props, where the code that worked it out can see it:
-			// a `padding-left` from a sheet is a number the arithmetic above never
-			// heard about, and `box-sizing: border-box` takes it out of a width the
-			// report measured
-			for (const property of [
-				'padding',
-				'margin',
-				'width',
-				'height',
-				'flex',
-				'box-sizing',
-				'border',
-				'gap',
-				'align-',
-				'justify-',
-				'position',
+		it('should colour a diagnostic for every severity there is', () => {
+			// a walk rather than two examples, because the class is *computed* from the
+			// severity -- which is exactly how this broke: every other `cli-*` emission
+			// names its role as a literal, this one interpolated, and `sigil-warning` is
+			// not a role, so a warning's label came out unstyled with nothing to say so.
+			//
+			// The colour the role resolves to rather than `hasAnsi`, which was the first
+			// version of this and said nothing: the location prefix beside the label is
+			// `cli-location sigil-muted`, so it emits SGR 2 and the row holds a sequence
+			// whatever happened to the label. Pointing `SEVERITY_ROLE.warning` at a class
+			// no sheet defines left this green, which is a guard claiming more than it
+			// checks. 31 is red and 33 is yellow, and neither is reachable from anything
+			// else on the row
+			const expected: Record<Severity, number> = { error: 31, warning: 33 };
+
+			for (const severity of ['error', 'warning'] as Severity[]) {
+				const out = render((width) => diagnosticsView([diagnostic({ severity })], { width }), WIDE);
+
+				expect(sgr(out), severity).toContain(expected[severity]);
+				expect(strip(out), severity).toContain(`${severity}:`);
+			}
+		});
+
+		it('should map every severity onto a role the framework sheet sets', () => {
+			// the other half of the walk above, and the half a render cannot make: a
+			// severity added to the union without a role is a type error, and one added
+			// *with* a role the sheet does not declare is a label nothing styles. There
+			// are two severities today and the map is keyed by the union, so this is
+			// exhaustive by construction
+			for (const [severity, role] of Object.entries(SEVERITY_ROLE)) {
+				expect(FRAMEWORK_CSS, severity).toContain(`.${role} {`);
+			}
+		});
+
+		it('should name a role beside every cli- class the toolchain emits', () => {
+			// the invariant the test above is one instance of. A `cli-*` class carries no
+			// declaration any more, so a run wearing one and no role is a run nothing
+			// styles -- and that is silent, because the text is still there.
+			//
+			// Every file rather than `report.ts`: the emissions are spread over the
+			// commands as well, and a sabotage that dropped the role from `cli-app` in
+			// `_inspect.ts` survived a version of this that read one file
+			const root = new URL('../src/', import.meta.url);
+			const files = readdirSync(root, { recursive: true, withFileTypes: true })
+				.filter((e) => e.isFile() && e.name.endsWith('.ts'))
+				.map((e) => join(e.parentPath, e.name));
+
+			const emitted = files.flatMap((file) => [
+				...readFileSync(file, 'utf8').matchAll(/class: [`']([^`']*\bcli-[^`']*)[`']/gu),
+			]);
+
+			/*
+			 * The guard against the walk going quiet, and it names the sites rather than
+			 * counting them.
+			 *
+			 * A floor was the first version -- `>= 8` against the nine that exist -- and
+			 * deleting an emission outright left it green, which is the slack a count
+			 * always has. A set cannot: every name here is one somebody would have to
+			 * delete on purpose, and a tenth emission added later does not fail it.
+			 */
+			const names = new Set(
+				emitted.flatMap(([, classes]) => [...classes.matchAll(/\bcli-[a-z$]+/gu)].map(([m]) => m))
+			);
+
+			for (const name of [
+				'cli-app',
+				'cli-entry',
+				'cli-location',
+				'cli-note',
+				'cli-ok',
+				'cli-warning',
 			]) {
-				expect(TOOLCHAIN_CSS).not.toContain(property);
+				expect([...names], name).toContain(name);
+			}
+
+			// and the computed one, which is `cli-${severity}` in the source
+			expect([...names]).toContain('cli-$');
+
+			for (const [, classes] of emitted) {
+				/*
+				 * The role has to be one the framework sheet really declares, not merely
+				 * something role-shaped. The old assertion was
+				 * `/sigil-[a-z]+|\$\{[A-Z_]+\[/`, which the interpolated emission
+				 * satisfies by its *spelling* -- so `SEVERITY_ROLE.warning` could point at
+				 * `sigil-warning`, a class no sheet defines, and this stayed green while
+				 * the label came out unstyled.
+				 */
+				const roles = [...classes.matchAll(/\bsigil-[a-z-]+/gu)].map(([m]) => m);
+				const computed = /\$\{SEVERITY_ROLE\[/u.test(classes) ? Object.values(SEVERITY_ROLE) : [];
+				const named = [...roles, ...computed];
+
+				expect(named, classes).not.toHaveLength(0);
+				for (const role of named) {
+					expect(FRAMEWORK_CSS, `${classes} -> ${role}`).toContain(`.${role} {`);
+				}
 			}
 		});
 	});

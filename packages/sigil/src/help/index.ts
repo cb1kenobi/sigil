@@ -488,13 +488,13 @@ function describe(
 
 	if (Array.isArray(choices) && choices.length > 0) {
 		parts.push({
-			class: 'sigil-help-note',
+			class: 'sigil-help-note sigil-muted',
 			text: `(choices: ${choices.map(format).join(', ')})`,
 		});
 	}
 
 	if (dflt !== undefined) {
-		parts.push({ class: 'sigil-help-note', text: `(default: ${format(dflt)})` });
+		parts.push({ class: 'sigil-help-note sigil-muted', text: `(default: ${format(dflt)})` });
 	}
 
 	return parts;

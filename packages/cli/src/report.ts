@@ -72,7 +72,12 @@
  * default. The width is the same question and gets the same answer.
  */
 
-import { type Diagnostic, diagnosticLocation, formatDiagnostic } from './build/index.ts';
+import {
+	type Diagnostic,
+	diagnosticLocation,
+	formatDiagnostic,
+	type Severity,
+} from './build/index.ts';
 import { type ColorLevel, supportsColor } from '@ttylabs/sigil/ansi';
 import {
 	box,
@@ -82,56 +87,36 @@ import {
 	type TextRun,
 	toDisplayText,
 } from '@ttylabs/sigil/element';
-import { parseStylesheet, type Stylesheet } from '@ttylabs/sigil/style';
+import { schemeFromEnv } from '@ttylabs/sigil/style';
 import { themedCascade } from '@ttylabs/sigil/theme';
 import { stringWidth } from '@ttylabs/sigil/width';
 import { terminalWidth } from '@ttylabs/sigil/wrap';
 
 /**
- * The toolchain's own classes, at origin `app`.
+ * The toolchain has no stylesheet of its own, and that is the finding rather than
+ * an omission.
  *
- * Its own rather than the framework's, because the toolchain is an *app*: it
- * draws nothing a theme is expected to restyle, so it has no business in the
- * `sigil-*` vocabulary `FRAMEWORK_CSS` documents. The prefix is `cli-` for the
- * same reason, and the sheet is parsed at origin `app` -- which is the later
- * origin, so these beat the framework's defaults with an ordinary rule and no
- * `!important`. That an app sheet can do that is the thing worth proving here.
+ * It had one: seven declarations under a `cli-` prefix, at origin `app`, on the
+ * argument that the toolchain is an app and has no business in the `sigil-*`
+ * vocabulary `FRAMEWORK_CSS` documents. Four of the seven were a framework role
+ * said again under another name -- red, yellow, green, and `dim` three times over
+ * -- and the fourth repetition is where it cost something: the framework's
+ * de-emphasis carries a light half and these did not, so a report's location
+ * prefixes, entries and notes were `dim` in *both* schemes, which is grey on
+ * white. Measured rather than reasoned: `sigil check` over a broken fixture was
+ * byte for byte identical under `SIGIL_COLOR_SCHEME=light` and `=dark`, in the
+ * framework's own acceptance test, while the framework sheet beside it switched
+ * `ESC[2m` to `ESC[90m`.
  *
- * Colours and attributes only, which is the rule the framework sheet keeps for
- * itself: the geometry is in props, where the code that worked it out can see
- * it.
+ * So a report draws itself with the framework's roles -- `.sigil-error`,
+ * `.sigil-warn`, `.sigil-success`, `.sigil-heading`, `.sigil-muted` -- and keeps
+ * its own `cli-*` classes as the narrower hooks they always were, with no
+ * declaration behind them. An app that says nothing about colour and comes out
+ * right in both schemes is a better statement about the role layer than a sheet
+ * that proves an app can beat it, and that second claim did not need a sheet to
+ * stand up: it has a test of its own now, which is what an incidental proof
+ * should have had all along.
  */
-export const TOOLCHAIN_CSS = `
-.cli-error { color: red }
-.cli-warning { color: yellow }
-.cli-location { dim: true }
-.cli-app { font-weight: bold }
-.cli-entry { dim: true }
-.cli-note { dim: true }
-.cli-ok { color: green }
-`;
-
-/**
- * The toolchain's sheet, parsed once.
- *
- * Once for the reason `frameworkSheet()` is: a `Stylesheet` is frozen and a
- * `Cascade` only reads it, so parsing it per report would be the same work twice
- * a run with nothing about it that can differ between two callers. It is also
- * where a typo in the sheet surfaces -- an unknown property is an error rather
- * than a skipped declaration -- so the first report of a run is what raises it,
- * which is why the tests render.
- */
-let sheet: Stylesheet | undefined;
-
-/**
- * The stylesheet a report is drawn with.
- *
- * @returns The sheet, at origin `app`.
- */
-function toolchainSheet(): Stylesheet {
-	sheet ??= parseStylesheet(TOOLCHAIN_CSS);
-	return sheet;
-}
 
 /**
  * The narrowest a message column may be before a diagnostic gives up on two
@@ -214,7 +199,12 @@ export function render(build: (width: number) => Element, to: Destination | Repo
 	const width = Math.max(1, Math.floor(terminalWidth({ env: dest.env, stream: dest.stream })));
 
 	return renderToString(build(width), {
-		cascade: themedCascade({ sheets: [toolchainSheet()] }),
+		// the scheme comes off the destination's own environment, like the width and
+		// the colour level above it rather than unlike them. `themedCascade()` falls
+		// back to the process when this is undefined, which is what it always read --
+		// so this changes nothing for the CLI, where they are the same object, and is
+		// what makes a report's light half reachable from a test at all
+		cascade: themedCascade({ colorScheme: schemeFromEnv(dest.env) }),
 		colorLevel: reportLevel(dest),
 		width,
 	});
@@ -285,6 +275,30 @@ export function diagnosticsView(
 }
 
 /**
+ * The framework role each severity is drawn in.
+ *
+ * A map rather than `sigil-${severity}`, because the two vocabularies do not line
+ * up: a `Severity` is `warning` and the role is `.sigil-warn`, so interpolating
+ * would ask for a class no sheet defines and the label would come out unstyled
+ * with nothing to say so. Which is not hypothetical -- it is how this line was
+ * broken when the toolchain's own sheet went away, since every other `cli-*`
+ * emission names its role as a literal and only this one was computed.
+ *
+ * Keyed by the union rather than by `string`, so a severity added without a role
+ * is a type error here rather than an uncoloured label on somebody's screen.
+ *
+ * Exported for the reason `rawJsxIn()` is: this is the one `cli-*` emission whose
+ * role is *computed*, so the invariant that every one of them names a role the
+ * framework sheet really sets cannot be read off the source the way the other
+ * eight can. Nothing outside this package can see it -- the toolchain publishes a
+ * bin and nothing else -- so it costs no API to make the claim checkable.
+ */
+export const SEVERITY_ROLE: Record<Severity, string> = {
+	error: 'sigil-error',
+	warning: 'sigil-warn',
+};
+
+/**
  * One diagnostic: where it is, how much it means, and what to do about it.
  *
  * `file:line:column: severity: message` is what an editor, a terminal and a CI
@@ -332,8 +346,11 @@ function diagnosticRow(diagnostic: Diagnostic, opts: { width: number }): Element
 	const location = oneLine(`${diagnosticLocation(diagnostic)}: `);
 	const label = oneLine(`${severity}: `);
 	const prefix: Element[] = [
-		textNode(location, { class: 'cli-location', 'white-space': 'nowrap' }),
-		textNode(label, { class: `cli-${severity}`, 'white-space': 'nowrap' }),
+		textNode(location, { class: 'cli-location sigil-muted', 'white-space': 'nowrap' }),
+		textNode(label, {
+			class: `cli-${severity} ${SEVERITY_ROLE[severity]}`,
+			'white-space': 'nowrap',
+		}),
 	];
 
 	// measured as it will be *drawn*, which is the rule a table cell already

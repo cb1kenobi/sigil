@@ -228,7 +228,10 @@ export function reportDiagnostics(found: Inspection): {
 		// a note rather than a diagnostic: nothing is wrong with an app that has no
 		// tsconfig, and it goes through the same writer the verdict does because it
 		// is the same shape of line
-		writeSummary([{ class: 'cli-note', text: `Not type-checked: ${types.skipped}` }], stream);
+		writeSummary(
+			[{ class: 'cli-note sigil-muted', text: `Not type-checked: ${types.skipped}` }],
+			stream
+		);
 	}
 
 	const errors = diagnostics.filter((d) => d.severity === 'error').length;
@@ -274,9 +277,9 @@ export function failure(found: Inspection, counts: { errors: number; warnings: n
  */
 export function appRuns(app: DiscoveredApp): TextRun[] {
 	return [
-		{ class: 'cli-app', text: app.manifest.name ?? app.root },
+		{ class: 'cli-app sigil-heading', text: app.manifest.name ?? app.root },
 		{
-			class: 'cli-entry',
+			class: 'cli-entry sigil-muted',
 			text: `(${displayPath(relative(app.root, app.entry) || app.entry)}):`,
 		},
 	];

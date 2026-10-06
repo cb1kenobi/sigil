@@ -272,7 +272,7 @@ export function section(title: string, items: readonly Definition[], opts: ListO
  * @returns The heading.
  */
 export function heading(title: string): Element {
-	return paragraph([{ class: 'sigil-help-heading', text: `${title}:` }]);
+	return paragraph([{ class: 'sigil-help-heading sigil-heading', text: `${title}:` }]);
 }
 
 /**
@@ -295,7 +295,11 @@ export function hanging(
 ): Element {
 	return box(
 		{ 'column-gap': 1, 'flex-direction': 'row' },
-		textNode(label, { class: 'sigil-help-heading', 'flex-shrink': 0, 'white-space': 'nowrap' }),
+		textNode(label, {
+			class: 'sigil-help-heading sigil-heading',
+			'flex-shrink': 0,
+			'white-space': 'nowrap',
+		}),
 		paragraph(runs, {
 			'flex-shrink': 0,
 			width: Math.max(1, width - stringWidth(label) - 1),

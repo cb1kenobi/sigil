@@ -63,85 +63,83 @@ import {
  */
 export const FRAMEWORK_CSS = `
 /*
+ * The roles. Every declaration a built-in shares with another built-in is here
+ * and nowhere else, so an app restyles its whole surface once rather than per
+ * component: .sigil-muted { color: blue } reaches a help note, a prompt hint, a
+ * placeholder, an answer, a choice hint and a decrypt's cipher cells, which were
+ * six rules to find and write before. A role is a single class, so a theme or an
+ * app beats it with a single class -- and beats it by *origin* rather than by
+ * specificity, which is what makes that enough: every rule in this sheet is
+ * (0,1,0) now, so a one-class theme rule meets a one-class default and the origin
+ * is the only axis left to decide it. The compound (0,2,0) colour rules this used
+ * to say it beat -- .sigil-symbol.is-success and its siblings -- are gone, because
+ * the role is where that colour went.
+ *
+ * An element carries its component class and its role class together, and a
+ * property is set by one or the other and never by both: two rules of equal
+ * specificity in one origin are decided by source order, which is not a thing to
+ * make a built-in's colour depend on. So the role rules below are the whole of
+ * what the framework says about them, and the component rules under them are what
+ * is left -- the declarations with exactly one site.
+ *
+ * Seven roles, and which seven is the evidence's to say rather than the ticket's.
+ * It named label, description and hint: hint is de-emphasis, which is
+ * muted, and the other two carry no declaration anywhere in this sheet -- a
+ * role nothing sets is the empty rule this file already refuses one line down. It
+ * did not name accent, which is the most repeated colour there is: the question
+ * mark, the spinner's frame, the progress bar's fill, the active choice and the
+ * scroll thumb are all cyan because they are all the live part of a frame, and
+ * "make my CLI magenta" is the most obvious thing a theme is for.
+ */
+.sigil-accent { color: cyan }
+.sigil-muted { dim: true }
+.sigil-heading { font-weight: bold }
+.sigil-success { color: green }
+.sigil-error { color: red }
+.sigil-warn { color: yellow }
+.sigil-info { color: blue }
+
+/*
  * The classes that carry no default and are here to be written against:
+ *   .sigil-symbol
  *   .sigil-spinner  .sigil-spinner-text
  *   .sigil-progress  .sigil-progress-label  .sigil-progress-percent
- *   .sigil-table  .sigil-table-row  .sigil-table-cell
+ *   .sigil-table  .sigil-table-row  .sigil-table-cell  .sigil-table-head
  *   .sigil-prompt  .sigil-prompt-line  .sigil-prompt-field
+ *   .sigil-prompt-message  .sigil-prompt-hint  .sigil-prompt-answer
+ *   .sigil-prompt-placeholder  .sigil-prompt-error
  *   .sigil-choice  .sigil-choice-pointer  .sigil-choice-mark  .sigil-choice-hint
+ *   .sigil-spinner-frame  .sigil-progress-bar  .sigil-scroll-thumb
  *   .sigil-scroll  .sigil-scroll-row  .sigil-scroll-viewport  .sigil-scroll-content
  *   .sigil-scroll-bar  .sigil-scroll-slot  .sigil-scroll-spacer
  *   .sigil-typewriter  .sigil-typewriter-text
  *   .sigil-large-text  .sigil-large-text-body
- *   .sigil-decrypt  .sigil-decrypt-plain
- *   .sigil-help
+ *   .sigil-decrypt  .sigil-decrypt-plain  .sigil-decrypt-cipher
+ *   .sigil-help  .sigil-help-heading  .sigil-help-note
  * A class with no rule is still a hook; giving it an empty rule would be a
- * declaration that says nothing and a line for somebody to wonder about.
+ * declaration that says nothing and a line for somebody to wonder about. Most of
+ * them are here because a role carries what they used to say, which is the point
+ * -- they stay as the narrower hook, for a theme that wants one site rather than
+ * every site of a role.
  */
 
-/* the mark a prompt or a settled spinner leads with */
-.sigil-symbol { color: cyan }
-.sigil-symbol.is-success { color: green }
-.sigil-symbol.is-error { color: red }
-.sigil-symbol.is-warn { color: yellow }
-.sigil-symbol.is-info { color: blue }
-
-/* spinner */
-.sigil-spinner-frame { color: cyan }
-
-/* progress */
-.sigil-progress-bar { color: cyan }
-
-/* table */
-.sigil-table-head { font-weight: bold }
-
-/* prompts */
-.sigil-prompt-message { font-weight: bold }
-.sigil-prompt-hint { dim: true }
-.sigil-prompt-answer { dim: true }
-.sigil-prompt-placeholder { dim: true }
-.sigil-prompt-error { color: red }
+/* prompts: the one declaration with a single site and no role to belong to */
 .sigil-caret { inverse: true }
-.sigil-choice.is-active { color: cyan }
-.sigil-choice-mark.is-on { color: green }
-.sigil-choice-hint { dim: true }
 
 /*
  * scroll box
  *
- * Two classes rather than one, because the track and the thumb are two elements
- * stacked over one rectangle and each resolves its own style -- which is the
- * whole reason the bar is built that way. Both are palette indices, so neither
- * needs a light half: 8 is the one a light theme has to render text in, so it is
- * dark there and grey here, and cyan is whatever the user chose it to be.
+ * The thumb is .sigil-accent, with the component class left as the narrower
+ * hook; the track is the one grey here that is *not* de-emphasised text, so it
+ * is not .sigil-muted -- that role is dim on a dark terminal, and a dim
+ * track is not what a track is. Both are palette indices, so neither needs a
+ * light half: 8 is the one a light theme has to render text in, so it is dark
+ * there and grey here, and cyan is whatever the user chose it to be.
  */
 .sigil-scroll-track { color: gray }
-.sigil-scroll-thumb { color: cyan }
 
 /*
- * decrypt
- *
- * Two classes rather than one, for the reason the scroll bar has two: the cells
- * still hiding something and the cells that have resolved are two elements over
- * one rectangle, and each resolves its own style -- so a cipher cell is
- * de-emphasised while a resolved one is drawn at full strength the moment it
- * lands. That is the component's reveal beat expressed in the cascade, per
- * character rather than per block, and the plain half carries no default for the
- * same reason the spinner's text does not: what it resolves to is the terminal's
- * own foreground unless somebody says otherwise.
- *
- * Nothing is drawn differently at colour level 0, deliberately: the attributes go
- * there along with the colour, so what is left is the characters changing, which
- * is the whole effect. A decrypt asked for plain text gets plain text.
- */
-.sigil-decrypt-cipher { dim: true }
-
-/* help */
-.sigil-help-heading { font-weight: bold }
-.sigil-help-note { dim: true }
-
-/*
- * And the light half, which is smaller than it looks and is the honest size.
+ * And the light half, which is one declaration now and was six.
  *
  * Nearly nothing above needs one: every colour in this sheet is a palette index,
  * and the basic sixteen are whatever the user's terminal theme says they are -- so
@@ -160,7 +158,14 @@ export const FRAMEWORK_CSS = `
  * and it is still legible: gray is index 8, which a light theme renders dark
  * because it has to render *text* in it.
  *
- * Conservative on purpose: the states, the symbols and the bars are left alone,
+ * It is one rule because de-emphasis is one role. It was six -- a hint, an answer,
+ * a placeholder, a choice hint, a cipher cell and a help note, each saying the same
+ * thing -- which is a rule said six times and therefore a rule that can be said
+ * wrongly, and TOOLCHAIN_CSS said it zero times: the toolchain's own location
+ * prefixes, entries and notes were dim in both schemes, which is grey on white in
+ * the framework's own acceptance test. That is what a role buys over a convention.
+ *
+ * Conservative on purpose: the states, the accents and the bars are left alone,
  * because a palette colour is already the right answer for them and changing one
  * here would be inventing a problem to solve.
  *
@@ -169,13 +174,9 @@ export const FRAMEWORK_CSS = `
  * lines further down than the character that caused it.
  */
 @media (prefers-color-scheme: light) {
-	.sigil-prompt-hint { dim: false; color: gray }
-	.sigil-prompt-answer { dim: false; color: gray }
-	.sigil-prompt-placeholder { dim: false; color: gray }
-	.sigil-choice-hint { dim: false; color: gray }
-	.sigil-decrypt-cipher { dim: false; color: gray }
-	.sigil-help-note { dim: false; color: gray }
+	.sigil-muted { dim: false; color: gray }
 }
+
 `;
 
 /**

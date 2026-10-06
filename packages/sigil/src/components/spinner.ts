@@ -102,13 +102,13 @@ export function spinnerView(state: SpinnerState, frames: readonly string[] = DOT
 
 		if (outcome) {
 			lead.setText(OUTCOMES[outcome]);
-			lead.setProps({ class: `sigil-symbol is-${outcome}`, display: 'flex' });
+			lead.setProps({ class: `sigil-symbol is-${outcome} sigil-${outcome}`, display: 'flex' });
 		} else if (frame === undefined) {
 			lead.setText('');
-			lead.setProps({ class: 'sigil-spinner-frame', display: 'none' });
+			lead.setProps({ class: 'sigil-spinner-frame sigil-accent', display: 'none' });
 		} else {
 			lead.setText(frames[frame % frames.length]);
-			lead.setProps({ class: 'sigil-spinner-frame', display: 'flex' });
+			lead.setProps({ class: 'sigil-spinner-frame sigil-accent', display: 'flex' });
 		}
 	});
 

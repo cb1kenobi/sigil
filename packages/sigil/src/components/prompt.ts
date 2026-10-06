@@ -518,13 +518,13 @@ function promptHead(
 	width: number,
 	...rest: Element[]
 ): { line: Element; mark: Element } {
-	const mark = textNode(SYMBOL.question, { class: 'sigil-symbol', 'margin-right': 1 });
+	const mark = textNode(SYMBOL.question, { class: 'sigil-symbol sigil-accent', 'margin-right': 1 });
 	return {
 		line: box(
 			{ class: 'sigil-prompt-line' },
 			mark,
 			textNode(message, {
-				class: 'sigil-prompt-message',
+				class: 'sigil-prompt-message sigil-heading',
 				'flex-shrink': 0,
 				'margin-right': 1,
 				width,
@@ -537,7 +537,7 @@ function promptHead(
 
 /** Marks the head as answered, which is the only thing every prompt settles. */
 function answered(mark: Element): void {
-	mark.setProps({ class: 'sigil-symbol is-success' });
+	mark.setProps({ class: 'sigil-symbol is-success sigil-success' });
 }
 
 /** A line that is shown only when it has something to say. */
@@ -575,7 +575,7 @@ export function text(opts: TextOptions): Promise<string> {
 		const field = box({ class: 'sigil-prompt-field' }, before, caret, after);
 		const head = headWidths(opts.message, Math.max(1, terminal.width));
 		const { line, mark } = promptHead(opts.message, head.message, field);
-		const complaint = note('sigil-prompt-error');
+		const complaint = note('sigil-prompt-error sigil-error');
 		const view = box(
 			{ class: 'sigil-prompt', 'flex-direction': 'column' },
 			line,
@@ -618,7 +618,7 @@ export function text(opts: TextOptions): Promise<string> {
 				// rather than as the place the next character goes
 				caret.setText(hint.slice(0, end) || ' ');
 				after.setText(hint.slice(end));
-				after.setProps({ class: 'sigil-prompt-placeholder' });
+				after.setProps({ class: 'sigil-prompt-placeholder sigil-muted' });
 				return;
 			}
 
@@ -715,7 +715,7 @@ export function text(opts: TextOptions): Promise<string> {
 				caret.setText('');
 				caret.setProps({ class: '' });
 				after.setText(opts.mask === undefined ? answer : opts.mask.repeat(stringWidth(answer)));
-				after.setProps({ class: 'sigil-prompt-answer' });
+				after.setProps({ class: 'sigil-prompt-answer sigil-muted' });
 				setNote(complaint, undefined);
 			},
 
@@ -744,7 +744,9 @@ export function confirm(opts: ConfirmOptions): Promise<boolean> {
 	const fallback = opts.default ?? true;
 
 	return run<boolean>(opts, () => {
-		const tail = textNode(`(${fallback ? 'Y/n' : 'y/N'})`, { class: 'sigil-prompt-hint' });
+		const tail = textNode(`(${fallback ? 'Y/n' : 'y/N'})`, {
+			class: 'sigil-prompt-hint sigil-muted',
+		});
 		const { line, mark } = promptHead(
 			opts.message,
 			headWidths(opts.message, Math.max(1, (opts.terminal ?? defaultTerminal).width)).message,
@@ -768,7 +770,7 @@ export function confirm(opts: ConfirmOptions): Promise<boolean> {
 			settle(answer: boolean): void {
 				answered(mark);
 				tail.setText(answer ? 'yes' : 'no');
-				tail.setProps({ class: 'sigil-prompt-answer' });
+				tail.setProps({ class: 'sigil-prompt-answer sigil-muted' });
 			},
 
 			view: line,
@@ -807,7 +809,7 @@ function choiceRows<T>(
 		const mark = textNode(SYMBOL.off, { class: 'sigil-choice-mark', 'margin-right': 1 });
 		const label = textNode(choice.label);
 		const hint = textNode(choice.hint ?? '', {
-			class: 'sigil-choice-hint',
+			class: 'sigil-choice-hint sigil-muted',
 			display: choice.hint ? 'flex' : 'none',
 			'margin-left': 1,
 		});
@@ -889,13 +891,15 @@ function paintChoices(
 			visibility: here ? 'visible' : 'hidden',
 		});
 		row.row.setProps({
-			class: here ? 'sigil-choice is-active' : 'sigil-choice',
+			class: here ? 'sigil-choice is-active sigil-accent' : 'sigil-choice',
 			display: i >= start && i < start + visible ? 'flex' : 'none',
 		});
 		if (ticked) {
 			const on = ticked.has(i);
 			row.mark.setText(on ? SYMBOL.on : SYMBOL.off);
-			row.mark.setProps({ class: on ? 'sigil-choice-mark is-on' : 'sigil-choice-mark' });
+			row.mark.setProps({
+				class: on ? 'sigil-choice-mark is-on sigil-success' : 'sigil-choice-mark',
+			});
 		}
 	}
 }
@@ -918,7 +922,7 @@ export function select<T = string>(opts: SelectOptions<T>): Promise<T> {
 	const terminal = opts.terminal ?? defaultTerminal;
 
 	return run<T>(opts, () => {
-		const answer = textNode('', { class: 'sigil-prompt-answer', display: 'none' });
+		const answer = textNode('', { class: 'sigil-prompt-answer sigil-muted', display: 'none' });
 		const head = headWidths(opts.message, Math.max(1, terminal.width));
 		const { line, mark } = promptHead(opts.message, head.message, answer);
 		const { list, rows } = choiceRows(choices, false);
@@ -993,11 +997,13 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
 	}
 
 	return run<T[]>(opts, () => {
-		const hint = textNode('(space to select, enter to confirm)', { class: 'sigil-prompt-hint' });
+		const hint = textNode('(space to select, enter to confirm)', {
+			class: 'sigil-prompt-hint sigil-muted',
+		});
 		const head = headWidths(opts.message, Math.max(1, terminal.width));
 		const { line, mark } = promptHead(opts.message, head.message, hint);
 		const { list, rows } = choiceRows(choices, true);
-		const complaint = note('sigil-prompt-error');
+		const complaint = note('sigil-prompt-error sigil-error');
 		const view = box(
 			{ class: 'sigil-prompt', 'flex-direction': 'column' },
 			line,
@@ -1064,7 +1070,7 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
 								.join(', ')
 						: 'none'
 				);
-				hint.setProps({ class: 'sigil-prompt-answer' });
+				hint.setProps({ class: 'sigil-prompt-answer sigil-muted' });
 				list.setProps({ display: 'none' });
 				setNote(complaint, undefined);
 			},

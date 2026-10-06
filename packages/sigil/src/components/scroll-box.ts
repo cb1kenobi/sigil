@@ -815,7 +815,7 @@ function scrollbar(axis: 'horizontal' | 'vertical', viewport: Element, corner: b
 		}
 	});
 
-	const thumb = cells('sigil-scroll-thumb', (painter, area, element) => {
+	const thumb = cells('sigil-scroll-thumb sigil-accent', (painter, area, element) => {
 		const style = cellStyle(element.style);
 		const { size, start } = geometry(area);
 		for (let i = 0; i < size; i++) {
