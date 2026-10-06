@@ -6,28 +6,33 @@
  * two built-ins share on a role, so seven declarations restyle a surface wearing a
  * dozen component classes.
  *
- * ## Why these are palette colours rather than hex
+ * ## Two palettes per theme, picked by the terminal rather than by the app
  *
- * A shipped theme cannot know what it is drawn against, and the tension is
- * arithmetic rather than aesthetic: a colour bright enough to read on black is
- * usually too light to read on white. Measured over the obvious candidates, with
- * WCAG contrast against both `#000` and `#fff`, every truecolor palette anybody
- * would reach for has entries below 3:1 on one side -- `#ffd166` is 1.44:1 on
- * white and `#1a1a1a` is 1.21:1 on black. There is no single hex value that is
- * safe on an unknown background.
+ * Each theme names the basic sixteen first and then a richer set inside
+ * `@media (min-color-level: 2)`, per scheme. So a 16-colour terminal gets the
+ * user's own palette, a 256-colour one gets the shade the theme actually wanted,
+ * and a light background gets a value picked for white -- with no `if` anywhere in
+ * the app, because the cascade already answers all three questions.
+ *
+ * That is why there is no `VIOLET_256` beside `VIOLET`. A pair of exports makes
+ * the app choose, which means reading `ansi.level` and the scheme at startup and
+ * getting it wrong on a terminal it did not anticipate; one theme carrying both
+ * cannot be chosen wrongly. It also costs nothing extra to ship, since the two
+ * halves are one string.
+ *
+ * ## Why the base half is palette indices
+ *
+ * At sixteen colours a shipped theme cannot know what it is drawn against, and the
+ * tension is arithmetic rather than aesthetic: a colour bright enough to read on
+ * black is usually too light to read on white. Measured with WCAG contrast against
+ * both `#000` and `#fff`, every truecolor palette anybody reaches for has entries
+ * below 3:1 on one side -- `#ffd166` is 1.44:1 on white and `#1a1a1a` is 1.21:1 on
+ * black.
  *
  * The basic sixteen are not colours, which is what gets round it: they are indices
  * the user's own terminal theme resolves, so the choice is delegated to the only
- * actor that knows what the background is. That is not a guarantee -- yellow on
- * white is hard for any theme -- but it is strictly better than this module
- * guessing, and it is the rule `FRAMEWORK_CSS` already keeps: every colour in it is
- * an index, which is why it needs no light half for anything except `dim`.
- *
- * So a theme that ships names indices. An **app's own** theme may use truecolor
- * freely: it knows its audience, and `@ttylabs/sigil/ansi` downsamples for a
- * terminal that cannot do better. What it owes in exchange is a
- * `@media (prefers-color-scheme: light)` half, because a hex value picked against
- * one background is a bet on that background.
+ * actor that knows the background. The richer half can name a value precisely
+ * *because* it is written per scheme -- it knows which background it is for.
  *
  * ## What each of these sets
  *
@@ -45,8 +50,8 @@
  *
  * An enumeration would be convenient for an app offering a `--theme` option, and
  * it is refused because it defeats the one thing this module is shaped for.
- * Measured: with a frozen `Record` of all four beside them, an app importing
- * `VIOLET` alone bundled **all four**, because the map references each one and so
+ * Measured: with a frozen `Record` of all of them beside them, an app importing
+ * `VIOLET` alone bundled **every one**, because the map references each and so
  * nothing is unreachable. With it gone, the same app bundles `VIOLET` and drops
  * the rest.
  *
@@ -59,9 +64,9 @@
  * No colour at all: the seven roles told apart by attribute.
  *
  * For an app that wants a restrained surface rather than a different palette, and
- * the one theme here that is unchanged by a terminal's own colours. At colour
- * level 0 it collapses to plain text like everything else -- the attributes go
- * too -- which is why no built-in relies on one to say what a line is.
+ * the one theme here that is unchanged by a terminal's own colours -- so it has no
+ * richer half, because there is no richer version of "not coloured". At colour
+ * level 0 it collapses to plain text like everything else.
  */
 export const MONO = `
 .sigil-accent { color: initial; font-weight: bold }
@@ -77,7 +82,45 @@ export const MONO = `
 }
 `;
 
-/** Magenta where the defaults are cyan. */
+/**
+ * Green on black, the way a monochrome monitor did it.
+ *
+ * Named for the coating rather than the colour: P1 phosphor is what made those
+ * screens green, and `AMBER` below is the other one they came in.
+ */
+export const PHOSPHOR = `
+.sigil-accent { color: green }
+.sigil-muted { color: gray; dim: false }
+.sigil-heading { color: brightGreen }
+.sigil-success { color: brightGreen }
+.sigil-error { color: red }
+.sigil-warn { color: yellow }
+.sigil-info { color: cyan }
+
+@media (min-color-level: 2) {
+	.sigil-accent { color: palette(46) }
+	.sigil-muted { color: palette(243) }
+	.sigil-heading { color: palette(83) }
+	.sigil-success { color: palette(46) }
+	.sigil-error { color: palette(203) }
+	.sigil-warn { color: palette(227) }
+	.sigil-info { color: palette(51) }
+}
+
+@media (min-color-level: 2) and (prefers-color-scheme: light) {
+	.sigil-accent { color: palette(28) }
+	.sigil-muted { color: palette(241) }
+	.sigil-heading { color: palette(22) }
+	.sigil-success { color: palette(28) }
+	.sigil-error { color: palette(160) }
+	.sigil-warn { color: palette(130) }
+	.sigil-info { color: palette(30) }
+}
+`;
+
+/**
+ * Magenta where the defaults are cyan.
+ */
 export const VIOLET = `
 .sigil-accent { color: magenta }
 .sigil-muted { color: gray; dim: false }
@@ -86,26 +129,69 @@ export const VIOLET = `
 .sigil-error { color: red }
 .sigil-warn { color: yellow }
 .sigil-info { color: blue }
+
+@media (min-color-level: 2) {
+	.sigil-accent { color: palette(171) }
+	.sigil-muted { color: palette(243) }
+	.sigil-heading { color: palette(183) }
+	.sigil-success { color: palette(120) }
+	.sigil-error { color: palette(203) }
+	.sigil-warn { color: palette(221) }
+	.sigil-info { color: palette(111) }
+}
+
+@media (min-color-level: 2) and (prefers-color-scheme: light) {
+	.sigil-accent { color: palette(127) }
+	.sigil-muted { color: palette(241) }
+	.sigil-heading { color: palette(90) }
+	.sigil-success { color: palette(28) }
+	.sigil-error { color: palette(160) }
+	.sigil-warn { color: palette(130) }
+	.sigil-info { color: palette(26) }
+}
 `;
 
-/** Green, with the cooler half of the sixteen behind it. */
-export const FOREST = `
-.sigil-accent { color: green }
+/**
+ * Amber on black, the other colour a monochrome monitor came in -- with the rest
+ * of the roles warmed to match.
+ */
+export const AMBER = `
+.sigil-accent { color: yellow }
 .sigil-muted { color: gray; dim: false }
-.sigil-heading { color: brightGreen }
-.sigil-success { color: brightGreen }
-.sigil-error { color: red }
-.sigil-warn { color: yellow }
-.sigil-info { color: cyan }
+.sigil-heading { color: brightYellow }
+.sigil-success { color: green }
+.sigil-error { color: brightRed }
+.sigil-warn { color: brightYellow }
+.sigil-info { color: magenta }
+
+@media (min-color-level: 2) {
+	.sigil-accent { color: palette(214) }
+	.sigil-muted { color: palette(243) }
+	.sigil-heading { color: palette(222) }
+	.sigil-success { color: palette(148) }
+	.sigil-error { color: palette(203) }
+	.sigil-warn { color: palette(220) }
+	.sigil-info { color: palette(176) }
+}
+
+@media (min-color-level: 2) and (prefers-color-scheme: light) {
+	.sigil-accent { color: palette(166) }
+	.sigil-muted { color: palette(241) }
+	.sigil-heading { color: palette(130) }
+	.sigil-success { color: palette(28) }
+	.sigil-error { color: palette(160) }
+	.sigil-warn { color: palette(94) }
+	.sigil-info { color: palette(97) }
+}
 `;
 
 /**
  * Magenta and cyan, which is what a build log looks like when it is having fun.
  *
  * Two accents rather than one: the bracketed labels and timestamps a tool prints
- * down the left take `heading`, and the things they are *about* -- versions,
- * file names, URLs -- take `accent`. Modelled on a `dumber`/BrowserSync log, where
- * that split is what makes a wall of output skimmable.
+ * down the left take `heading`, and the things they are *about* -- versions, file
+ * names, URLs -- take `accent`. Modelled on a dumber/BrowserSync log, where that
+ * split is what makes a wall of output skimmable.
  */
 export const NEON = `
 .sigil-accent { color: brightMagenta }
@@ -115,15 +201,24 @@ export const NEON = `
 .sigil-error { color: brightRed }
 .sigil-warn { color: brightYellow }
 .sigil-info { color: cyan }
-`;
 
-/** Yellow and red, for a surface that reads warm. */
-export const AMBER = `
-.sigil-accent { color: yellow }
-.sigil-muted { color: gray; dim: false }
-.sigil-heading { color: brightYellow }
-.sigil-success { color: green }
-.sigil-error { color: brightRed }
-.sigil-warn { color: brightYellow }
-.sigil-info { color: magenta }
+@media (min-color-level: 2) {
+	.sigil-accent { color: palette(201) }
+	.sigil-muted { color: palette(243) }
+	.sigil-heading { color: palette(51) }
+	.sigil-success { color: palette(118) }
+	.sigil-error { color: palette(203) }
+	.sigil-warn { color: palette(227) }
+	.sigil-info { color: palette(45) }
+}
+
+@media (min-color-level: 2) and (prefers-color-scheme: light) {
+	.sigil-accent { color: palette(162) }
+	.sigil-muted { color: palette(241) }
+	.sigil-heading { color: palette(31) }
+	.sigil-success { color: palette(28) }
+	.sigil-error { color: palette(160) }
+	.sigil-warn { color: palette(130) }
+	.sigil-info { color: palette(24) }
+}
 `;

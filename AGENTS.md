@@ -3128,8 +3128,8 @@ exceptions that say why` is the invariant, and it reads the **parsed** sheet
   buys is that a report's light half is reachable from a test at all.
 
 - **The themes sigil ships are their own subpath, and every colour in them is a
-  palette index.** `@ttylabs/sigil/themes` holds `MONO`, `VIOLET`, `FOREST` and
-  `AMBER` as CSS string constants, each a value for all seven roles. Two
+  palette index.** `@ttylabs/sigil/themes` holds `MONO`, `VIOLET`, `PHOSPHOR`,
+  `AMBER` and `NEON` as CSS string constants, each a value for all seven roles. Two
   measurements shaped it and both were taken rather than assumed.
 
   **A separate subpath, because `./theme` is on everyone's path.**
@@ -3166,10 +3166,20 @@ exceptions that say why` is the invariant, and it reads the **parsed** sheet
 
   Found by shipping the defect first: a demo theme picked for a light terminal had
   a near-black heading, which on the dark default was text nobody could see. The
-  guards are in `test/themes.test.ts` -- every role set, no hex or `rgb(`, every
-  resolved colour an index in 0-15, a light half wherever a theme sets `dim`, and
-  every role saying _something_ in both schemes, which is the one the near-black
-  heading would have failed.
+  guards are in `test/themes.test.ts` -- every role set in the base half, no hex,
+  `rgb(` or `palette(n > 15)` in it, a light half wherever a theme sets `dim`, every
+  role saying _something_ in both schemes, and a richer half that resolves to
+  something outside the sixteen where one exists.
+
+  **Two of those are written against the source rather than against a resolved
+  style, and a sabotage is what said they had to be.** Degradation happens at
+  _resolve_ time, so asking the cascade at level 1 hands back an index whatever was
+  written -- `#ff00ff` resolves to 13 there -- and a guard built on that can never
+  fail. The same pass found the role check passing on a role set **only** inside the
+  richer half, which is a role absent everywhere a sixteen-colour terminal looks.
+  Both read `withoutRichHalf()` now. The one deliberate survivor is a richer half
+  that drops a role: the base rule still applies at level 2, so it falls back rather
+  than going quiet, and there is nothing to catch.
 
 - **Switching a theme at runtime needs a reset prelude, and an app picking one does
   not.** A `Cascade` has `add` and no `remove`, so a switch layers a sheet over the

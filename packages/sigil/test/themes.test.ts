@@ -19,9 +19,53 @@ const ROLES = ['accent', 'muted', 'heading', 'success', 'error', 'warn', 'info']
 /** Every exported theme, by the name it is exported under. */
 const SHIPPED = Object.entries(themes).filter(([, css]) => typeof css === 'string');
 
-function styleOf(css: string, role: string, colorScheme: 'dark' | 'light') {
+/**
+ * A theme with its `@media (min-color-level: ...)` blocks taken out.
+ *
+ * Brace-counted rather than matched with a pattern, because a nested block would
+ * end the match early and leave half a rule behind -- which would read as the base
+ * half naming a colour it does not name.
+ */
+function withoutRichHalf(css: string): string {
+	let out = '';
+	let at = 0;
+
+	for (;;) {
+		const found = css.indexOf('@media', at);
+
+		if (found === -1) {
+			return out + css.slice(at);
+		}
+
+		const open = css.indexOf('{', found);
+		let depth = 0;
+		let end = open;
+
+		for (; end < css.length; end++) {
+			if (css[end] === '{') depth++;
+			else if (css[end] === '}' && --depth === 0) break;
+		}
+
+		// only the richer half is removed: a `prefers-color-scheme` block is part of
+		// what the base half says, and dropping it would excuse a hex value in one
+		const query = css.slice(found, open);
+
+		out +=
+			css.slice(at, found) + (query.includes('min-color-level') ? '' : css.slice(found, end + 1));
+		at = end + 1;
+	}
+}
+
+function styleOf(css: string, role: string, colorScheme: 'dark' | 'light', colorLevel = 1) {
+	const cascade = themedCascade({ colorScheme, theme: css });
+
+	// the level is set on the cascade rather than passed to it, because that is
+	// what a renderer does: `colorLevel` is a media field, and the richer half of
+	// each theme is a `@media (min-color-level: 2)` block keyed on it
+	cascade.media = { ...cascade.media, colorLevel };
+
 	const node = text('x', { class: `sigil-${role}` });
-	resolveStyles(node, new Restyler(themedCascade({ colorScheme, theme: css })));
+	resolveStyles(node, new Restyler(cascade));
 	return node.style;
 }
 
@@ -34,32 +78,63 @@ describe('the themes sigil ships', () => {
 
 	for (const [name, css] of SHIPPED) {
 		describe(name, () => {
-			it('should set every role', () => {
+			it('should set every role in its base half', () => {
 				// all seven, every time: switching themes *adds* a sheet rather than
 				// replacing one, because a `Cascade` has `add` and no `remove` -- so a
-				// role a theme leaves out silently keeps the previous theme's value
+				// role a theme leaves out silently keeps the previous theme's value.
+				//
+				// The *base* half, because that is what a sixteen-colour terminal gets
+				// and the richer one is an override on top. Asserted against the whole
+				// string, a role set only inside `@media (min-color-level: 2)` passed
+				// this while being absent everywhere it matters -- which a sabotage said
+				// rather than a reading of it
+				const base = withoutRichHalf(css);
+
 				for (const role of ROLES) {
-					expect(css, role).toContain(`.sigil-${role}`);
+					expect(base, role).toContain(`.sigil-${role}`);
 				}
 			});
 
-			it('should name only palette colours, never a value of its own', () => {
-				// the property that makes it safe on a background it cannot see. A hex
-				// value is a bet on one: measured with WCAG contrast against both #000
-				// and #fff, every truecolor palette anybody reaches for has entries
-				// below 3:1 on one side, so there is no single value that is safe
-				expect(css).not.toMatch(/#[0-9a-f]{3,8}\b/iu);
-				expect(css).not.toMatch(/\brgb\(/iu);
+			it('should name only the basic sixteen in its base half', () => {
+				// the property that makes it safe on a background it cannot see: at
+				// sixteen colours a theme cannot know what it is drawn against, and
+				// measured with WCAG contrast against both #000 and #fff, every
+				// truecolor palette anybody reaches for has entries below 3:1 on one
+				// side. An index is not a colour -- it is the user's own terminal theme
+				// answering, which is the only thing that knows the background.
+				//
+				// Asserted on the *source* rather than on a resolved style, and that is
+				// the whole reason this test is written this way: degradation happens at
+				// resolve time, so asking the cascade at level 1 hands back an index
+				// whatever was written -- `#ff00ff` resolves to 13 there. A guard built
+				// on that can never fail, which is what a sabotage said about the first
+				// version of it
+				const base = withoutRichHalf(css);
 
-				for (const role of ROLES) {
-					const { color } = styleOf(css, role, 'dark');
+				expect(base).not.toMatch(/#[0-9a-f]{3,8}\b/iu);
+				expect(base).not.toMatch(/\brgb\(/iu);
 
-					// -1 is no colour at all, which is what a theme drawing in attributes
-					// alone resolves to and is not a palette value to check
-					if (color !== -1) {
-						expect(color, role).toBeGreaterThanOrEqual(0);
-						expect(color, role).toBeLessThanOrEqual(15);
-					}
+				for (const [, index] of base.matchAll(/\bpalette\((\d+)\)/gu)) {
+					expect(Number(index), `palette(${index})`).toBeLessThanOrEqual(15);
+				}
+			});
+
+			it('should mean something by a richer half, where it has one', () => {
+				// a `@media (min-color-level: 2)` block that resolves to nothing outside
+				// the basic sixteen is a block doing no work, which is a thing to delete
+				// rather than ship. `MONO` has none, because there is no richer version
+				// of "not coloured"
+				if (!css.includes('min-color-level')) {
+					return;
+				}
+
+				for (const scheme of ['dark', 'light'] as const) {
+					const rich = ROLES.map((role) => styleOf(css, role, scheme, 2).color);
+
+					expect(
+						rich.some((color) => color > 15),
+						scheme
+					).toBe(true);
 				}
 			});
 

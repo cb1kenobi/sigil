@@ -38,13 +38,13 @@
  * no line here depends on colour to say what it is -- the marks carry that.
  */
 import { supportsColor } from '@ttylabs/sigil/ansi';
-import { table } from '@ttylabs/sigil/components';
+import { table, tableView } from '@ttylabs/sigil/components';
 import { box, renderToString, text } from '@ttylabs/sigil/element';
 import { createInput, isAbort } from '@ttylabs/sigil/input';
 import { render } from '@ttylabs/sigil/renderer';
 import { parseStylesheet } from '@ttylabs/sigil/style';
 import { parseTheme, themedCascade } from '@ttylabs/sigil/theme';
-import { AMBER, FOREST, MONO, NEON, VIOLET } from '@ttylabs/sigil/themes';
+import { AMBER, MONO, NEON, PHOSPHOR, VIOLET } from '@ttylabs/sigil/themes';
 
 /** The seven roles, which is the whole of what a theme is a value for. */
 const ROLES = ['accent', 'muted', 'heading', 'success', 'error', 'warn', 'info'];
@@ -90,7 +90,7 @@ const THEMES = [
 	['sigil', SIGIL],
 	['mono', MONO],
 	['violet', VIOLET],
-	['forest', FOREST],
+	['phosphor', PHOSPHOR],
 	['amber', AMBER],
 	['neon', NEON],
 ];
@@ -112,7 +112,7 @@ const ROWS = [
  * never reaches the terminal branch below.
  */
 const layout = parseStylesheet(`
-	.panel { flex-direction: column; width: 48; border: round; padding: 1 }
+	.panel { flex-direction: column; width: 54; border: round; padding: 1 }
 	.row { flex-direction: row; column-gap: 1 }
 `);
 
@@ -127,6 +127,8 @@ const sheetFor = (css) => parseTheme(`${RESET}\n${css}`);
  * position rather than a reference, which is a thing that moves the moment
  * anything is added above it.
  */
+const ROW = { 'column-gap': 1, 'flex-direction': 'row' };
+
 function panel(name, keys) {
 	const line = (mark, markClass, label, labelClass) =>
 		box(
@@ -137,20 +139,67 @@ function panel(name, keys) {
 
 	const heading = text(`theme: ${name}`, { class: 'sigil-prompt-message sigil-heading' });
 
+	/** One row of a choice list, as `select()` builds it. */
+	const choice = (on, label, hint) =>
+		box(
+			{ class: on ? 'sigil-choice is-active sigil-accent' : 'sigil-choice', ...ROW },
+			text(on ? '❯' : ' ', { class: on ? 'sigil-symbol sigil-accent' : '' }),
+			text(on ? '◉' : '◯', {
+				class: on ? 'sigil-choice-mark is-on sigil-success' : 'sigil-choice-mark',
+			}),
+			text(label, {}),
+			text(hint, { class: 'sigil-choice-hint sigil-muted' })
+		);
+
 	const view = box(
 		{ class: 'panel' },
 		heading,
 		text('', {}),
+
+		// a prompt, answered and unanswered
 		line('?', 'sigil-symbol sigil-accent', 'what is your name?', 'sigil-prompt-message'),
 		line(' ', '', 'press enter to accept', 'sigil-prompt-hint sigil-muted'),
+		line('✔', 'sigil-symbol is-success sigil-success', 'name', 'sigil-prompt-message'),
+		line(' ', '', 'ada', 'sigil-prompt-answer sigil-muted'),
 		text('', {}),
+
+		// a choice list, which is where the accent and the success mark meet
+		choice(true, 'build', 'the default'),
+		choice(false, 'watch', 'rebuild on change'),
+		choice(false, 'clean', ''),
+		text('', {}),
+
+		// the four outcomes a spinner settles on
 		line('✔', 'sigil-symbol is-success sigil-success', 'built in 1.2s'),
 		line('✖', 'sigil-symbol is-error sigil-error', 'two type errors'),
 		line('▲', 'sigil-symbol is-warn sigil-warn', 'no baseDir declared'),
 		line('ℹ', 'sigil-symbol is-info sigil-info', 'cached from a previous run'),
 		text('', {}),
-		text('████████████░░░░░░░░░░░░', { class: 'sigil-progress-bar sigil-accent' }),
-		text('(seven declarations, a dozen classes)', { class: 'sigil-help-note sigil-muted' }),
+
+		// a progress bar with its label and percentage, and a spinner mid-spin
+		box(
+			ROW,
+			text('bundling', { class: 'sigil-progress-label' }),
+			text('████████████░░░░░░░░░░', { class: 'sigil-progress-bar sigil-accent' }),
+			text('55%', { class: 'sigil-progress-percent sigil-muted' })
+		),
+		line('⠹', 'sigil-spinner-frame sigil-accent', 'resolving dependencies', 'sigil-spinner-text'),
+		text('', {}),
+
+		// a real built-in rather than a hand-built row: `tableView()` emits
+		// `sigil-table-head sigil-heading`, so a theme reaches it without this demo
+		// having to know it exists
+		tableView(ROWS, { gap: 2 }).element,
+		text('', {}),
+
+		// a diagnostic, which is what the toolchain's own reports look like
+		box(
+			ROW,
+			text('index.ts:1:35:', { class: 'cli-location sigil-muted' }),
+			text('warning:', { class: 'sigil-warn' }),
+			text('no baseDir', {})
+		),
+		text('(seven declarations, everything above)', { class: 'sigil-help-note sigil-muted' }),
 		// the keys, where there are keys to press. Wrapping `text`s rather than a row
 		// of them, so that adding a theme cannot push the line off the panel
 		...(keys === undefined
@@ -217,7 +266,7 @@ function piped() {
 	for (const [name, css] of THEMES) {
 		const cascade = themedCascade({ sheets: [layout], theme: `${RESET}\n${css}` });
 
-		console.log(renderToString(panel(name).view, { cascade, colorLevel, width: 50 }));
+		console.log(renderToString(panel(name).view, { cascade, colorLevel, width: 58 }));
 		console.log(table(ROWS, { colorLevel, indent: 2, sheets: [layout], theme: css }));
 		console.log();
 	}
