@@ -35,17 +35,17 @@ node demos/parser/06-lazy-commands.js --help  # commands listed by name alone
 
 ## Components
 
-|                                                                    |                                               |
-| ------------------------------------------------------------------ | --------------------------------------------- |
-| [`components/01-spinner.js`](components/01-spinner.js)             | Work whose length is not known                |
-| [`components/02-progress.js`](components/02-progress.js)           | Work whose length is                          |
-| [`components/03-table.js`](components/03-table.js)                 | Columns that line up, whatever is in them     |
-| [`components/04-prompts.js`](components/04-prompts.js)             | Text, password, select, multiselect, confirm  |
-| [`components/05-live-region.js`](components/05-live-region.js)     | A string frame repainted in place, on its own |
-| [`components/06-ansi-and-wrap.js`](components/06-ansi-and-wrap.js) | Styling, wrapping, and display width          |
-| [`components/07-typewriter.js`](components/07-typewriter.js)       | Text that arrives rather than appears         |
-| [`components/08-large-text.js`](components/08-large-text.js)       | Banner text, and the `.flf` format behind it  |
-| [`components/09-decrypt.js`](components/09-decrypt.js)             | Text that jumbles, then resolves into itself  |
+|                                                                    |                                                         |
+| ------------------------------------------------------------------ | ------------------------------------------------------- |
+| [`components/01-spinner.js`](components/01-spinner.js)             | Work whose length is not known                          |
+| [`components/02-progress.js`](components/02-progress.js)           | Work whose length is                                    |
+| [`components/03-table.js`](components/03-table.js)                 | Columns that line up, whatever is in them               |
+| [`components/04-prompts.js`](components/04-prompts.js)             | Text, password, select, multiselect, confirm, multiline |
+| [`components/05-live-region.js`](components/05-live-region.js)     | A string frame repainted in place, on its own           |
+| [`components/06-ansi-and-wrap.js`](components/06-ansi-and-wrap.js) | Styling, wrapping, and display width                    |
+| [`components/07-typewriter.js`](components/07-typewriter.js)       | Text that arrives rather than appears                   |
+| [`components/08-large-text.js`](components/08-large-text.js)       | Banner text, and the `.flf` format behind it            |
+| [`components/09-decrypt.js`](components/09-decrypt.js)             | Text that jumbles, then resolves into itself            |
 
 ### Try them without a terminal
 

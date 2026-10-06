@@ -469,3 +469,82 @@ describe('translating a screen coordinate', () => {
 		expect(backend.origin).toBeUndefined();
 	});
 });
+
+describe('the screen model itself', () => {
+	/**
+	 * Reverse video is the one piece of styling this model keeps, for the reason
+	 * its own doc gives: a prompt's caret *is* styling, so a model holding
+	 * characters alone cannot see it at all. These are its reader's own claims.
+	 */
+	describe('reverse video', () => {
+		function after(...chunks: string[]): { column: number; row: number } | undefined {
+			const screen = new Screen(10, 2);
+			for (const chunk of chunks) {
+				screen.write(chunk);
+			}
+			return screen.lastInverse;
+		}
+
+		it('should record the cell a reverse-video write landed in', () => {
+			expect(after('ab\u001b[7mc')).to.deep.equal({ column: 2, row: 0 });
+		});
+
+		it('should record nothing where none was written', () => {
+			expect(after('abc')).to.equal(undefined);
+		});
+
+		it('should forget a cell it recorded once something plain is written over it', () => {
+			// a cell cannot be both, and the field says it is where the caret is *now*
+			expect(after('\u001b[7mx\r\u001b[0my')).to.equal(undefined);
+			// and a write to a different cell leaves the record where it is
+			expect(after('\u001b[7mx\u001b[0my')).to.deep.equal({ column: 0, row: 0 });
+		});
+
+		it('should keep the last one through a frame that drew no caret at all', () => {
+			// declared rather than fixed: this model has no notion of a frame to hang a
+			// reset on, so a test asking whether a caret went away reads the bytes
+			// a second frame that writes somewhere else entirely, which is what a frame
+			// with the caret hidden is
+			expect(after('\u001b[7mx', '\n\u001b[0mz')).to.deep.equal({ column: 0, row: 0 });
+		});
+
+		it('should read a transition parameter by parameter', () => {
+			// a transition combines what it closes with what it opens, so matching the
+			// whole string would be pinning one spelling of it
+			expect(after('\u001b[0;7ma')).to.deep.equal({ column: 0, row: 0 });
+			expect(after('\u001b[7ma\u001b[27;32mb')).to.deep.equal({ column: 0, row: 0 });
+		});
+
+		it('should read a bare reset as turning it off', () => {
+			expect(after('\u001b[7ma\u001b[mb')).to.deep.equal({ column: 0, row: 0 });
+		});
+
+		it('should not read an extended colour channel as reverse video', () => {
+			// the bug AGENTS.md records twice, made a third time by a naive walk: the
+			// canvas emits `38;2;7;7;7` for an `rgb(7, 7, 7)`, and a reader that does not
+			// skip an extended colour's own parameters latches on a *channel* -- after
+			// which every cell is recorded as the caret
+			expect(after('\u001b[38;2;7;7;7mabc'), 'a truecolor channel').to.equal(undefined);
+			expect(after('\u001b[38;5;7mabc'), 'a 256-colour index').to.equal(undefined);
+			expect(after('\u001b[48;2;0;7;0mabc'), 'a background channel').to.equal(undefined);
+			expect(after('\u001b[58;5;7mabc'), 'an underline colour').to.equal(undefined);
+			// six parameters rather than five, which only an *empty* colour space says
+			expect(after('\u001b[38;2;;7;7;7mabc'), 'the long spelling').to.equal(undefined);
+			// and a non-empty colour space is as plausible a red channel, so five it is:
+			// `38;2;1;7;0;0` is a colour and a trailing `0`, which is a reset
+			expect(after('\u001b[7ma\u001b[38;2;1;7;0;0mb'), 'a colour space that is set').to.deep.equal({
+				column: 0,
+				row: 0,
+			});
+		});
+
+		it('should still see an attribute written beside an extended colour', () => {
+			// the skip must not swallow what came before it
+			expect(after('\u001b[7;38;2;7;7;7ma')).to.deep.equal({ column: 0, row: 0 });
+		});
+
+		it('should leave a colon-form colour alone, which carries no parameters after it', () => {
+			expect(after('\u001b[38:2::7:7:7mabc')).to.equal(undefined);
+		});
+	});
+});

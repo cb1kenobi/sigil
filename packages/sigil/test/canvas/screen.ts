@@ -59,6 +59,28 @@ export class Screen {
 	 * honours it.
 	 */
 	clipboard: { selection: string; text: string }[] = [];
+	/**
+	 * The cell of the most recent write made with reverse video in effect.
+	 *
+	 * The one piece of styling this model keeps, and it is kept because one thing
+	 * on screen *is* styling and nothing else: a prompt's caret is reverse video
+	 * over a cluster, so a model that holds characters alone cannot see it at all
+	 * -- the cell under the caret holds the same character either way. The
+	 * alternative is a second cursor tracker written inside a test, which is a
+	 * second model of the thing this one is for.
+	 *
+	 * The *most recent* rather than a list, because what a test asks is where the
+	 * caret is now: a frame repaints, and the caret is the last thing painted in
+	 * the one tree that draws one. A plain write to the recorded cell clears it,
+	 * since a cell cannot be both -- but a frame that draws **no** caret anywhere
+	 * leaves the last one in place, because this model has no notion of a frame to
+	 * hang a reset on. A test asking whether a caret went away reads the bytes for
+	 * `ESC[7m` instead, which is what `should go once the prompt is answered` does.
+	 */
+	lastInverse: { column: number; row: number } | undefined;
+
+	/** Whether reverse video is in effect, which is what `lastInverse` is recorded on. */
+	#inverse = false;
 
 	#main: Buffer;
 	#alt: Buffer;
@@ -274,7 +296,37 @@ export class Screen {
 						break;
 					}
 					case 'm': {
-						// styling, which a screen model has no opinion about
+						// styling, which a screen model has no opinion about -- bar the one
+						// attribute something on screen is made of rather than merely wearing.
+						// Read parameter by parameter, because a transition combines what it
+						// closes with what it opens: green after inverse is `27;32`, so a test
+						// matching the whole string would be pinning one spelling of it.
+						//
+						// And an extended colour's own parameters are skipped, which is the bug
+						// AGENTS.md records twice and this made a third time: the canvas emits
+						// `38;2;7;7;7` for an `rgb(7, 7, 7)`, so a naive walk reads a *channel*
+						// as reverse video and every cell after it is recorded as the caret.
+						// Only the semicolon form skips, because the colon form carries the
+						// whole colour inside one parameter; six parameters rather than five
+						// only where the colour space is *empty*, since a non-empty one is as
+						// plausible a red channel
+						const parts = params.split(';');
+						for (let at = 0; at < parts.length; at++) {
+							const part = parts[at];
+							if (part === '38' || part === '48' || part === '58') {
+								if (parts[at + 1] === '5') {
+									at += 2;
+								} else if (parts[at + 1] === '2') {
+									at += parts[at + 2] === '' ? 5 : 4;
+								}
+								continue;
+							}
+							if (part === '7') {
+								this.#inverse = true;
+							} else if (part === '27' || part === '0' || part === '') {
+								this.#inverse = false;
+							}
+						}
 						break;
 					}
 					case 'n': {
@@ -300,6 +352,12 @@ export class Screen {
 			}
 
 			this.#buffer.rows[this.row][this.column] = ch;
+			if (this.#inverse) {
+				this.lastInverse = { column: this.column, row: this.row };
+			} else if (this.lastInverse?.column === this.column && this.lastInverse.row === this.row) {
+				// a cell cannot be both, and the recorded one has just been painted over
+				this.lastInverse = undefined;
+			}
 
 			if (this.column === this.width - 1) {
 				this.wrapPending = true;

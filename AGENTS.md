@@ -12345,6 +12345,517 @@ for`.
   about paint order -- the order really is inert here, since the two layers draw
   **disjoint** cells and neither can overpaint the other.
 
+#### A multiline field, and the `raw` node that makes it possible
+
+SIG-94 and the component rewrite settled every editing rule a text field needs,
+and SIG-111 is those rules over a list of lines. `src/components/editing.ts` is
+the rules, `multiline()` in `src/components/prompt.ts` is the field, and the one
+genuinely new thing is a `raw`-backed field with a goal column over it.
+
+- **The field is a `raw` node, and that is the whole of why this ticket existed
+  rather than being a loop over the single-line field.** AGENTS.md already
+  records why the one-line prompt scrolls sideways instead of wrapping: "there
+  is no inline layout, so the three pieces the caret splits the value into are
+  three flex items, and a wrapped first item leaves the other two beside its
+  _box_ rather than after its last line." A soft-wrapping textarea is that
+  problem at every line rather than at one, and three flex items cannot express
+  "text, caret, text" flowing across wrapped rows. So the field is the third
+  host type -- the one designed in for what the layout engine cannot express:
+  it measures like a text, it paints its own cells, the value is wrapped once,
+  and the caret is a cell coordinate derived from an offset.
+
+  The **second** caller inside the framework that is not a picture, and the
+  decrypt block is the first -- which is worth being right about rather than
+  claiming a first, because that block is this one's precedent in three separate
+  places: two `raw` layers over one rectangle, `drawsText` rather than
+  `selectable: true`, and a component wrapping its own cells because a cell is
+  not a cluster. The scroll bar's thumb is a picture; a decrypt cell is a
+  character, exactly as a field's is.
+
+- **The caret marks the cluster at the cursor, which is the one rule that
+  answers "end of this row or start of the next" without a second rule.** It is
+  the single-line field's own rule -- reverse video over a whole grapheme
+  cluster -- read as a coordinate: a cursor at a soft break is drawn at the
+  start of the next row because that is where the cluster it names was placed.
+  Past the last cluster there is nothing to mark, so the caret is a column of
+  its own, and it is the **last** row's because every other row's end is the
+  next row's start. The alternative is a rule about rows, which then needs a
+  second rule for a hard-broken over-long word (where there _is_ no column
+  after the row's last character) and a third for a newline. There is one rule
+  and no cases, and `should place a soft break at the start of the next row
+rather than past the last` is what pins it.
+- **It wraps at one column less than the room**, which is the single-line
+  field's own arithmetic said again -- "the caret always takes a column, whether
+  it is on a character or past the last one" -- and the alternative is a caret
+  at column `width`, which has to be drawn on a row below the one it belongs to.
+  That costs a phantom row whose existence depends on where the **cursor** is,
+  so pressing End on a full row makes the field a row taller and reflows
+  everything under it. One column of display against a layout that moves when
+  nothing was edited.
+- **Every cluster is placed, including the whitespace a break throws away, and
+  that is one declared divergence from `wrap()`.** `wrap()` drops the trailing
+  whitespace of a line and is right to: a terminal draws nothing for it. A field
+  cannot, because a space is an offset the caret has to be able to sit on -- so
+  the gap stays on the row it ended. Whitespace that would then land past the
+  wrap column is placed **at** it, so a run of several spaces at a break shares
+  one column. They are all blanks, so nothing on screen says so.
+
+  **A single space is never the case this is for**, which is worth stating
+  because the first version of this entry got it wrong in both directions. The
+  clamp can only bite past the wrap column, a row's content ends at or before
+  it, and the box is a column wider -- so one space always has a column of its
+  own. What needs the clamp is a **run**: a double space after a full stop, or
+  trailing spaces somebody typed. Measured, because the first write-up claimed a
+  frequency it had not counted: over a paragraph of this file's own prose at 38,
+  60 and 78 columns, a gap landed past the wrap column in **0 of 36 rows**.
+
+  Two alternatives, and the one that is nearly equivalent is the one the
+  corrected measurement is about. Letting the row overflow and clipping the
+  drawing puts the caret outside the box, which is a caret nobody can see.
+  Breaking the gap like a word is total and injective, and it agrees with this
+  everywhere a single space is involved -- what it does differently is spread a
+  **run** across the break, so five trailing spaces at a break indent the next
+  row by four and push the word after them along. The clamp collapses them into
+  the last column, where they are blanks. And a phantom row for an invisible
+  character is the entry above. `should keep every offset of the value on
+exactly one row` is the property the caret derivation rests on, walked over
+  nine values at six widths; `should keep the caret inside the box it reports,
+at every offset` is the other half, over seven values at six widths and at every
+  cursor of each -- a different corpus rather than the same one, because the two
+  properties are about different inputs: that one wants the values whose _caret_
+  is awkward, which is a trailing whitespace run and an over-long word.
+
+- **The caret is never painted on the far half of a wide cluster, and that is
+  not about how it looks.** `CellBuffer` carries a write on either half of a wide
+  cluster to the other, so a space on the continuation blanks the lead and the
+  character is **gone** -- measured, `漢` in a two-column grid with a space at
+  column one comes back as two blanks. Found by review rather than by a test, and
+  the review had to name the input: a field two columns wide.
+
+  Two columns are the only place it can happen and both routes are reachable. A
+  cluster wider than the wrap limit is placed at column zero anyway, because the
+  break guard asks `x > 0` and there is nowhere else to put it -- so a field of
+  one or two columns holds a row two columns wide, the reported width is the room
+  rather than the content plus a caret, and the clamp under `edge` lands on column
+  one. And a zero-width cell is clamped to the wrap column by `place()`, so a
+  newline after such a cluster is **already** there: `漢\nmore` with End pressed
+  on the first line is the same cell, reached without any clamp at all.
+
+  So `caretOn()` is where a caret's column and its text are settled together, and
+  it is one rule rather than a guard: the caret takes the cluster that occupies
+  the column it ended up in, and a blank only where no cluster does. A wide
+  cluster therefore gets **marked** rather than blanked, which is this field's own
+  rule -- the caret marks a cluster -- applied to the only cluster there is room
+  for. It is wrong about where the next character goes, and in a two-column field
+  holding a wide character there is no column that is right about that; it is the
+  only answer that keeps the character on screen.
+
+  The uniform rule turned out to be the better answer away from the degenerate
+  case too, which is why it is not written as a special case. A control character
+  draws nothing, so the column `place()` gave it belongs to the cluster after it
+  -- and marking that one says the truer thing, because the next character really
+  does go in front of it. Two cursor positions then share a column, which is
+  inherent rather than chosen: one of them takes none.
+
+  The first spelling of the fix claimed a positive-width cell's own column is
+  never past `edge` and skipped the check for one. That is false at a room of
+  one, where `limit` is `max(1, 0)` and therefore **larger** than `edge`: a space
+  clamped to the wrap column sits at column one of a one-column field, and
+  `should keep the caret inside the box it reports, at every offset` is what said
+  so. The property test is what caught the fix to the review's finding, which is
+  the argument for having written it as a property.
+
+- **Soft wrap only, and a hard-wrap mode is deliberately out.** A mode that
+  inserted real newlines at a column changes what the value _is_, which every
+  caller can see -- so it is a decision about the return type of the prompt
+  rather than about how the field draws. Left out, it can be added later without
+  changing the meaning of a value anybody already depends on; shipped now, every
+  caller has to know which mode produced the string it was handed. `should soft
+wrap a line too wide for the field without touching the value` asserts the
+  divergence between what is drawn and what comes back.
+- **The goal column is a display column rather than an offset.** That is the
+  thing every editor gets right and every from-scratch textarea gets wrong: a
+  remembered offset drifts left through a short row, and an offset and a column
+  stop being the same number the moment a row holds a wide character. So
+  Up-Up-Down comes back where it started through a short line **and** through a
+  line of CJK, which are two tests rather than one -- a fixture with no wide
+  cluster in it cannot tell an offset from a column. Aiming at the far half of a
+  wide cluster lands on the cluster rather than between its halves, because
+  there is no caret position between them.
+- **The goal is kept across a run of vertical moves and given up by everything
+  else**, which is the whole of what a goal column is. Cleared _after_ the move,
+  because `vertical()` is what reads it; and a paste clears it too, since a
+  paste moves the caret without going through the vertical path. Pinned by a
+  fixture where the two answers differ -- Up, Left, Up has to aim at the column
+  Left left it in, and with the goal kept it aims at the one the first Up
+  carried.
+- **Home, End, Ctrl-A, Ctrl-E, Ctrl-U and Ctrl-K are the logical line; Up, Down
+  and the page keys are the row on screen.** The split looks inconsistent and is
+  not: vertical movement is about what the person can see, and a line's ends are
+  about what readline means. Three reasons, and the third decided it. Ctrl-A and
+  Ctrl-E _are_ readline's names for the ends of a line, so making them mean
+  something else is the surprise rather than the consistency; nano, vim and
+  emacs all answer the logical line for Home. And the visual reading has a wart
+  it cannot avoid -- the last caret position on a soft-wrapped row is **on** its
+  last cluster rather than after it, because there is no column after it, which
+  is the whole reason the row broke -- so a visual End leaves the caret one
+  character short of where "end" reads, and Ctrl-K then leaves that character
+  behind. A browser textarea answers visually and has a pixel to put the caret
+  in; a cell grid has not. Ctrl-Home and Ctrl-End are the whole value, which is
+  the one place a modifier means something here.
+- **A pasted block keeps its line breaks, which is the deliberate inverse of
+  what `text()` does with one.** The single-line field flattens every run of
+  whitespace to one space, on the recorded ground that obeying a break there is
+  what makes a paste submit half an address. Here the opposite is true, because
+  keeping the breaks is the entire point of having more than one line.
+  `pastedLine()` and `pastedBlock()` therefore sit next to each other in
+  `editing.ts`, so that the inversion is visible rather than discovered, and the
+  test asserts it **as an inversion**: the same bytes through the two fields,
+  two answers. CRLF and a lone CR are normalized to `\n`, so the value holds one
+  spelling of a line break and every rule above can split on it.
+- **A tab is kept in the value and drawn as a space.** Dropping it with the
+  other control characters takes the indentation out of pasted code altogether,
+  which is worse than one column of it; keeping it and drawing it as anything
+  else makes the field the one text in this library that disagrees about what a
+  tab is. So the value is faithful and `toDisplayText()` is what the field draws
+  through, which is the rule the grid already states: it models no tab stops, so
+  a tab that measured one width and painted another would take a column off
+  every cell to its right. A **typed** Tab still inserts nothing, which is what
+  the single-line field does and is why: a key that put one column of
+  indentation in reads as a key that did nothing.
+- **An `initial` value goes through the same normalizer a paste does**, so the
+  answer cannot hold something no key and no paste could have put there -- and
+  `pastedBlock()` is a fixed point, which is what makes normalizing twice safe
+  and is asserted. What that buys the paint is that a control character cannot
+  reach the field from any route, which matters because `CellBuffer.put()`
+  **throws** on one rather than dropping it and a throw from inside paint takes
+  the frame and the renderer with it. The guard is kept anyway -- `clusterText()`
+  gives a control character no cell and the paint skips a cell of no width --
+  because a **lone combining mark** is zero columns, is not a control character,
+  and really does reach the value: the grid refuses one a cell, so placing it
+  without painting it is what keeps the characters after it in the right column.
+- **`drawsText: true` on both layers rather than `selectable: true`.** A `raw`
+  is not selectable unless something says so, which is right for a sparkline and
+  wrong for a field whose cells _are_ the text. `drawsText` changes the
+  **default**, so a `selectable={false}` on a pane still reaches the field the
+  way it reaches the texts inside it; an answer would have beaten it, which is
+  the loss the flag closes. The decrypt is the precedent and this is the second
+  caller. It is on the **caret layer** too, and that is not decoration: the caret
+  repaints the cluster under it, so without it that one cell would be the one
+  character of the field a selection could not copy.
+- **The caret is a second `raw` over the same rectangle, because one element
+  cannot resolve two styles.** The scroll bar's shape and the decrypt's: the
+  caret carries `.sigil-caret` and is therefore `inverse` through the ordinary
+  cascade, so a theme reaches it where it reaches everything else. It paints at
+  the **field's** box rather than its own, so that a padding an app writes cannot
+  put the caret a column away from the character it marks. At colour level 0 the
+  seven attributes go, so no caret is drawn there at all -- which is the rule the
+  single-line field's caret already follows and is asserted beside the claim that
+  the field is still editable.
+- **The layout is computed at a room the component already knows rather than at
+  the width the box was given.** That is the rule the single-line field keeps --
+  `windowOf()` is handed `head.rest` -- and it is what makes the measure and the
+  paint one answer rather than two that have to be kept in agreement. The `raw`
+  reports the stored layout's width, which is `min(room, widest + 1)`: the `+ 1`
+  is the caret's own column, and it is what makes the caret clamp a no-op
+  anywhere but a one-column field, where `limit` cannot be zero and a cell really
+  can land on the column the box ends at.
+- **`rows` is enumerated rather than clamped, and a submit key nothing can press
+  is refused.** Two degenerate inputs, found by walking the options rather than
+  by a report, which is the rule the typewriter's own interval already records.
+  `Math.min(NaN, anything)` is `NaN`, so a `rows` of `NaN` reached the measure as
+  a height of `NaN` and the layout engine was handed a box no arithmetic can
+  place -- and a fraction reached it as a fractional height, which is the thing a
+  declaration is refused for.
+
+  `Infinity` **passes through**, unlike the typewriter's interval, and the
+  difference is what the value means: there it is a wait with no end, and here it
+  is a field with no cap of its own, which the terminal's own `Math.min` then
+  bounds. Said precisely because the first version of this entry said it and the
+  code did the opposite -- a `Number.isFinite()` beside the `>= 1` refused
+  `Infinity` while both this entry and the function's own comment claimed the
+  `Math.min` was what limited it. `rows >= 1` is the whole of what refuses `NaN`,
+  since every comparison against it is false, so the second guard was buying
+  nothing and costing the one value the prose named. Found by the second review
+  round, pointed at the prose rather than at the code -- which is this file's own
+  recorded experience about where a second round's findings come from. A `submit.name` of `''` is a key `decodeKeys()` never
+  produces, so the field has no way out at all: it is refused the way a choice
+  list with nothing to offer is, rather than by quietly putting the default back
+  -- which would be a prompt answered by a key its own hint does not name. Both
+  halves are the hang `PromptError` exists for, and the sabotage for the second
+  one takes the whole ten-second timeout to be caught, which is what the hang
+  looks like.
+
+- **The field grows into its row cap rather than starting there.** A field that
+  reserved ten rows for a one-line answer would hold nine blank rows of the
+  user's scrollback open for the life of the prompt, which is the auto-height
+  canvas's own argument. Past the cap it scrolls, through the same
+  `windowStart()` the choice list uses -- the only thing that has to be true is
+  that the caret's row is on screen, and recomputing it from the caret means
+  nothing to keep in agreement. The cap is the smaller of what the caller asked
+  for and what the terminal has left under the question, with the error line
+  reserved either way so that showing one does not push the last row off the
+  screen.
+
+  Asserted as that property rather than at the end of one sequence, because
+  nothing else in the field would notice if it stopped holding: `should keep the
+caret on screen after every key there is` checks it after each of twenty-one
+  keys, which is every key the field reads. Bounded by the row cap rather than by
+  what the log holds, because a row whose only cell is the caret is a row of
+  spaces -- the harness trims it, and the row is still on screen.
+
+- **Submitting is Ctrl-D, and `run()` grew a `claims()` hook because `isAbort()`
+  would otherwise take it first.** Ctrl-C and Ctrl-D are both aborts, checked in
+  `run()` before any handler sees a key -- which is right for the four prompts
+  that have no use for Ctrl-D and wrong for the one whose submit key it is. So a
+  handler may say it wants a key the abort rule would take, and **Ctrl-C is
+  refused**: an app that cannot be quit because a field swallowed it is the
+  failure the binding order exists to prevent, and a field is not entitled to
+  that one. The hook is absent for the other four, so the path they take is the
+  path they always took -- which `should leave ctrl-d an abort for the
+single-line field beside it` is what holds.
+- **Ctrl-D submits an empty field rather than meaning end of input there.** A
+  submit key that means two things depending on invisible state is the trap
+  Ctrl-C-as-copy is written down for: somebody who wants to submit an empty
+  description would find the prompt cancelling instead, with nothing on screen
+  to say why. Ctrl-C is the abort and is the one every CLI user knows. And the
+  claim is `claims()`'s rather than the key's, so a caller who named another
+  submit key gets Ctrl-D back as an abort -- a field that said yes to Ctrl-D
+  whatever its submit key was would be answering for a key nothing in it reads.
+- **`submit` is a key spec rather than a predicate**, because the hint the field
+  draws has to say which key it is. A `(k: Key) => boolean` is more flexible and
+  needs a second option beside it for the label, and two options that can
+  disagree about one key is how a prompt comes to tell the reader to press
+  something that does nothing. `{ meta: true, name: 'enter' }` is Alt-Enter,
+  which is also what Escape-then-Enter arrives as when the two are pressed
+  inside `ESCAPE_TIMEOUT` of each other -- so the sequence the ticket asked
+  about is reachable without the field holding a mode nothing on screen could
+  show.
+- **Word movement crosses a line break, because a break is whitespace.** That is
+  what readline and emacs both do in a buffer with newlines in it, and the
+  alternative -- stopping at the start of the line -- is a second rule that Home
+  already keeps. Which made the whitespace test a cluster question rather than a
+  character one: `graphemes()` keeps `\r\n` together, so `^\s$` read a CRLF as a
+  **word** character and word movement walked straight over a line break.
+  `^\s+$` is the fix and it has a test of its own, because the field normalizes
+  its own line endings -- so that pair reaches the rule only from a value a
+  caller handed in, which is exactly the input a guard like this is for.
+- **There is no `default`, and that is not an omission.** `text()` has one
+  because Enter alone is the common gesture there; here Enter is a newline, so a
+  field meant to come up with something in it comes up with it **visible and
+  editable**, which is `initial` and is the better answer anyway.
+- **One line in the log, which is the house style rather than this field's
+  invention.** `select()` leaves its label and `multiselect()` leaves a comma
+  list, so a multiline answer leaves its first line and `(+N more lines)`. The
+  whole of what was written is the caller's return value; a log holding a
+  fifty-line paste per prompt is a log nobody reads. An empty answer says
+  `(empty)` rather than nothing, because a prompt that answered and left a blank
+  line reads as one that did not.
+
+##### The extraction, and what it was allowed to touch
+
+The ticket's second open question was whether to reimplement the single-line
+field on top of the multiline one. It was decided the other way, and the
+constraint is worth recording because it shaped every edit.
+
+- **The rules are shared; the single-line field's structure is not touched.**
+  `boundary()`, `snap()`, the insertion rule and the two delete rules moved into
+  `editing.ts` verbatim and `text()` calls them; everything else about `text()`
+  is where it was. Reimplementing it on this field is the cleaner end state and
+  it risks regressing a component with a great deal of hard-won behaviour in it,
+  which is not a trade worth taking inside a ticket about a second field.
+- **`test/components/prompt.test.ts` is the regression suite for it, and it was
+  not edited.** All seventy-five of its tests pass unchanged. That is the whole
+  check: an extraction that needed a test moved is an extraction that changed
+  behaviour, and the test moving is how that gets agreed to rather than noticed.
+- **What else moved into `editing.ts` is what both fields read**, and the two
+  paste rules, which read each other. `typedText()` is the printable-key rule --
+  a character arrives with its name and its sequence the same string, and what
+  is inserted is the sequence rather than the name -- and extracting it turned
+  the single-line field's last `else if` into an `else`, which is the same
+  answer for every key: a key `typedText()` declines inserts nothing, which is
+  what the guarded branch did. `wordBefore()` and `wordAfter()` are there with
+  one caller, because the question they answer has one right answer and a second
+  copy is how two fields come to disagree about where a word starts.
+- **The field arithmetic is exported from `prompt.ts` and deliberately not from
+  the barrel.** What a multiline field claims is a coordinate, and the screen
+  model a component test reads holds characters rather than styling -- the cell
+  under the caret holds the same character whether or not a caret was drawn
+  there. So `layoutField()`, `offsetIn()`, `lineStart()` and `lineEnd()` are
+  asserted directly and the field is asserted through the screen, which is the
+  split `rowWindow()` and `thumbExtent()` already keep for the scroll box. Not
+  barrel-exported because only the barrel is published: `FieldLayout` is a shape
+  this module owes nobody, and a type in the public API is a promise.
+- **`fieldLayers()` is there for the same reason and was forced by a sabotage.**
+  The two `raw` elements were built inside `multiline()`'s closure, and the only
+  way to a cell's `selectable` is `selectableAt()` over an arranged tree -- so
+  `drawsText` on either layer was a claim nothing could see, and both survived
+  being deleted. As a function of a `FieldFrame` the drawing is testable with no
+  terminal and no keystrokes, which is the rule the layout engine and the
+  selector engine already keep: it takes the rows, the window and the caret, and
+  a test hands it a literal where the component hands it a closure over its own
+  state.
+- **`test/canvas/screen.ts` advances one column per character, so a _picture_ over
+  a row holding a wide cluster is not to be trusted.** Pre-existing, surfaced by
+  driving this field by hand, and worth writing down because it reads exactly like
+  a bug in whatever is being tested: a CJK row came back as `日本語 is ihree` after
+  an Up, with the `t` apparently replaced by an `i`. The bytes say otherwise --
+  `ESC[9C ESC[7m i` moves to **real** column 9, which is where that `i` already is,
+  so the frame changed a style and nothing else -- and the model, which writes one
+  cell and does `column++` whatever the character's width, had put the same `i` in
+  model column 9, where its own row holds the `t`. `diff.test.ts`'s `FakeTerminal`
+  models a continuation and this one does not, which is the difference.
+
+  Not fixed here, because it is a shared harness this ticket merely met, and what
+  it costs is bounded: `lastInverse` is read off the cursor the diff moved, so a
+  caret _coordinate_ is a real column and is sound, and none of this field's wide-
+  cluster tests asserts a row's text. A picture over a wide row is the one thing to
+  avoid, and `renderToString()` -- which paints one full frame rather than a diff --
+  is where a wide row can be asserted as cells.
+
+- **`test/canvas/screen.ts` learnt about reverse video**, which is the one piece
+  of styling it keeps. A prompt's caret _is_ styling, so a model holding
+  characters alone cannot see it at all; the alternative is a second cursor
+  tracker written inside a test, which is a second model of the thing that one is
+  for. It records the cell of the **most recent** inverse write, because what a
+  test asks is where the caret is now -- a frame repaints, and the caret is the
+  last thing painted. Read parameter by parameter rather than by matching the
+  whole SGR string, for the reason `report.test.ts` already records: a transition
+  combines what it closes with what it opens, so a test for the string would be
+  pinning one spelling of it.
+
+  **And it skips an extended colour's own parameters**, which is the bug this
+  file records twice and which the first version of this reader made a third
+  time: the canvas emits `38;2;7;7;7` for an `rgb(7, 7, 7)` -- verified against
+  the diff's own output rather than assumed -- so a naive walk latches reverse
+  video on a **channel**, and every cell after it is then recorded as the caret.
+  Only the semicolon form skips, because the colon form carries the whole colour
+  inside one parameter; six parameters rather than five only where the colour
+  space is _empty_, since a non-empty one is as plausible a red channel. A third
+  table rather than a shared one, which is the split `reopen()` and
+  `sgr-state.ts` already keep deliberately -- and this one says it the same way,
+  which is the point. Found by checking the reader against the bytes the canvas
+  emits rather than by a test failing, and pinned by `should not read an extended
+colour channel as reverse video` -- which is in `backend.test.ts`, because the
+  model is that suite's.
+
+##### What the sabotage pass found
+
+Sixty-one mutations, one at a time with the component suite -- and the screen
+model's own tests -- run after each. **All sixty-one are caught** bar seven, and
+the seven are each declared where they live. The interesting half is not the
+count: twelve survived the first pass, and what each of those twelve turned out
+to be is the finding.
+
+- **Four were a guard with a missing test, and each got the input that makes it
+  matter.** `lineStart()`'s guard at zero, which `lastIndexOf` needs because it
+  reads a negative `fromIndex` as _zero_ rather than as nowhere -- so a value
+  that **starts** with a newline answered 1 for a cursor at 0, and the test for
+  it used `'ab\ncd'`, which has no newline there to find. `offsetIn()`'s trailing
+  column, below. The break test counting the gap, where the fixture happened to
+  break at the same place either way -- `'aa bb'` in five columns is the input
+  where it does not. And Ctrl-C being unclaimable, which needs a field that
+  _would_ claim it: with any other submit key `claims()` says no to Ctrl-C by
+  itself, so the refusal in `run()` was covered by the one thing it is not about.
+- **Two were a fixture that could not reach the branch it was named for.** The
+  paste giving the goal column up pressed Home first -- and Home clears the goal
+  itself, so the paste's own clear was never the thing being asked about. And
+  `move()`'s clamp, whose test walked a placeholder short enough to fit on one
+  row, so the vertical move it was meant to provoke never called `offsetIn()` at
+  all.
+- **Two were `drawsText`, which nothing could see** -- and closing that is what
+  `fieldLayers()` is. The two `raw` layers were built inside `multiline()`'s
+  closure, so the only way to the elements was through a mounted prompt and the
+  only way to a cell's `selectable` is `selectableAt()` over an arranged tree.
+  As a function of a `FieldFrame` they are testable with no terminal and no
+  keystrokes, which is the rule the layout engine and the selector engine
+  already keep. Three claims came with it: both layers say `drawsText`, neither
+  writes a `selectable` of its own, and a pane that excludes itself excludes the
+  field -- which is the half an answer could not do and is the whole reason the
+  flag exists.
+- **Two were guards that were genuinely inert and are gone.** A `Math.min` of
+  the window and the box's own height in the field's paint: the measure asks for
+  exactly `visible` rows, so the two are the same number, and where a parent
+  gives it more, drawing the extra rows would be drawing outside the _window_
+  rather than inside the box -- so the window is the one bound. And a second
+  bound on `area.height` and `area.width` in the caret's paint, written for a box
+  squeezed below what the measure asked for, which this component cannot produce.
+  The caret's **window** bound is real and took something _around_ the field to
+  see: a caret painted outside the window lands on whatever the layout put there,
+  and with nothing there the grid refuses the cell and the guard reads as inert.
+  The fixture is the field between two rows that are not its, in both directions.
+- **One was a `raw` painting a cluster the grid refuses**, and it is a tripwire
+  rather than a case anybody has: `clusterText()` gives a control character no
+  text, so nothing the field produces reaches it. What does is a `FieldCell`
+  somebody else built, which is what the test hands it -- and `put()` _throws_ on
+  a control character rather than dropping it, so what the guard is standing
+  against is a frame and a renderer taken down from inside paint.
+- **And seven are declared, five of them because the sabotage is _equivalent_
+  rather than the code dead.** That is the shape this file already records from
+  the FIGlet pass, and it is most of what is left once the real guards have
+  tests: `clusterText()`'s newline branch, because `cellWidth('\n')` is zero --
+  measured -- so the cell is unpaintable either way and what the branch buys is
+  that no raw `\n` can reach `put()`; `typedText()` reading the sequence rather
+  than the name, and refusing a key with a modifier held, because past its own
+  `name === sequence` guard the two **are** the same string and a modified key's
+  sequence is never its name; and the empty-input and empty-range fast paths in
+  `insertAt()` and `deleteRange()`, where the slicing and the snap answer the
+  same for a boundary cursor. `wordAfter()`'s clamp is the fifth: a negative
+  offset is already past every cluster's start, so it behaves as zero. Its twin
+  in `wordBefore()` is **not** equivalent and has a test -- the loop breaks at
+  once there, so the fallback hands a negative offset straight back -- which is
+  the pair worth knowing about, because the two functions look symmetrical and
+  are not.
+- **And `move()`'s snap and clamp are the sixth, declared for a different
+  reason.** It cannot change an answer,
+  because the one way an offset from the wrong string gets there is with a value
+  of `''` and every rule below answers the same for any offset into that; what
+  it buys is that the invariant is asserted where a cursor is written rather than
+  assumed of each reader.
+
+**And the harness reported a survivor it should have reported as its own
+failure**, which is the third time this file has had to record that a sabotage
+pass needs guarding as much as the code does. The replacement for the screen
+model's clearing branch removed the `}` that closed the `if` above it, so what it
+left behind was unbalanced -- and the run came back with no failures and no
+harness complaint, which reads exactly like a guard that is not load bearing. The
+balanced replacement fails the test named for it. So a harness that checks the
+pattern matched once and that the replacement differs is checking two of the
+three things: the third is that what it wrote is still the language.
+
+Two findings came from writing the property tests rather than from the pass, and
+both are about the delete paths. The cursor invariant is **inductive** -- it
+starts at a boundary and every path takes a boundary to a boundary -- and a
+delete can break it: both ends of the range are boundaries of the _old_ value,
+and splicing puts two characters next to each other that were not. `e`, a tab and
+a combining acute is three clusters; take the tab out and it is one, with the
+cursor one code unit inside it. A pair of regional indicators does it with **no
+control character at all**, so it is reachable from a single-line field too, where
+it drew half a flag either side of the caret. `deleteRange()` snaps, which makes
+the invariant total; and the property test had to be narrowed to the boundaries,
+because walking every offset asserts something the functions do not claim and
+cannot -- handed a cursor inside a surrogate pair, a delete splices inside it,
+which is what `boundary()`'s own doc records and is byte for byte what the
+single-line field did before any of this was extracted.
+
+##### What is deliberately out
+
+- **A hard-wrap mode**, with its reason above: it changes what the value is, and
+  it can be added later without changing the meaning of a value anybody already
+  depends on.
+- **Reimplementing `text()` on this field**, with its reason above.
+- **A visual Home and End**, with its reason above -- the wart a cell grid cannot
+  avoid.
+- **A Tab that inserts one**, for the reason the tab entry gives.
+- **Escape-then-Enter as a mode.** It needs the field to remember that Escape
+  was pressed, with nothing on screen to say so and a state that fights
+  `ESCAPE_TIMEOUT`. `submit: { meta: true, name: 'enter' }` is the same gesture
+  through the one mechanism there already is.
+- **A `default` for an empty answer**, replaced by `initial`.
+- **A kill ring.** Ctrl-W, Ctrl-U and Ctrl-K delete rather than cut, because a
+  ring needs a yank key and a rotation and nothing has asked for either. What
+  they do is what every one-line prompt in this library already does.
+
 ### Prompts and keys
 
 - **A text prompt inserts the key that named itself, and it moves over grapheme
