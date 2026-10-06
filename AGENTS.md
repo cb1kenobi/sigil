@@ -12695,11 +12695,26 @@ constraint is worth recording because it shaped every edit.
   combines what it closes with what it opens, so a test for the string would be
   pinning one spelling of it.
 
+  **And it skips an extended colour's own parameters**, which is the bug this
+  file records twice and which the first version of this reader made a third
+  time: the canvas emits `38;2;7;7;7` for an `rgb(7, 7, 7)` -- verified against
+  the diff's own output rather than assumed -- so a naive walk latches reverse
+  video on a **channel**, and every cell after it is then recorded as the caret.
+  Only the semicolon form skips, because the colon form carries the whole colour
+  inside one parameter; six parameters rather than five only where the colour
+  space is _empty_, since a non-empty one is as plausible a red channel. A third
+  table rather than a shared one, which is the split `reopen()` and
+  `sgr-state.ts` already keep deliberately -- and this one says it the same way,
+  which is the point. Found by checking the reader against the bytes the canvas
+  emits rather than by a test failing, and pinned by `should not read an extended
+colour channel as reverse video` -- which is in `backend.test.ts`, because the
+  model is that suite's.
+
 ##### What the sabotage pass found
 
-Forty-five mutations, one at a time with the component suite run after each.
-**All forty-five are caught** bar three, and the three are each declared where
-they live. The interesting half is not the count: twelve survived the first pass,
+Forty-nine mutations, one at a time with the component suite -- and the screen
+model's own tests -- run after each. **All forty-nine are caught** bar three, and
+the three are each declared where they live. The interesting half is not the count: twelve survived the first pass,
 and what each of those twelve turned out to be is the finding.
 
 - **Four were a guard with a missing test, and each got the input that makes it

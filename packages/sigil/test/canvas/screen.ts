@@ -296,8 +296,27 @@ export class Screen {
 						// attribute something on screen is made of rather than merely wearing.
 						// Read parameter by parameter, because a transition combines what it
 						// closes with what it opens: green after inverse is `27;32`, so a test
-						// matching the whole string would be pinning one spelling of it
-						for (const part of params.split(';')) {
+						// matching the whole string would be pinning one spelling of it.
+						//
+						// And an extended colour's own parameters are skipped, which is the bug
+						// AGENTS.md records twice and this made a third time: the canvas emits
+						// `38;2;7;7;7` for an `rgb(7, 7, 7)`, so a naive walk reads a *channel*
+						// as reverse video and every cell after it is recorded as the caret.
+						// Only the semicolon form skips, because the colon form carries the
+						// whole colour inside one parameter; six parameters rather than five
+						// only where the colour space is *empty*, since a non-empty one is as
+						// plausible a red channel
+						const parts = params.split(';');
+						for (let at = 0; at < parts.length; at++) {
+							const part = parts[at];
+							if (part === '38' || part === '48' || part === '58') {
+								if (parts[at + 1] === '5') {
+									at += 2;
+								} else if (parts[at + 1] === '2') {
+									at += parts[at + 2] === '' ? 5 : 4;
+								}
+								continue;
+							}
 							if (part === '7') {
 								this.#inverse = true;
 							} else if (part === '27' || part === '0' || part === '') {
