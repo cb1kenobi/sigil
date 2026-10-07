@@ -265,34 +265,61 @@ function fromEnv(envs: Set<string>, env: Record<string, string | undefined> | un
 /**
  * The values a command needs before it can be run.
  *
- * Every argument it declares, in declaration order, required or not -- an
- * optional one is a value somebody may want to give, and the palette's own
- * prompting stops at the first one left empty.
+ * Every argument the command itself declares, in declaration order, required or
+ * not -- an optional one is a value somebody may want to give, and the palette's
+ * own prompting stops at the first one left empty. Its own arguments and no
+ * ancestor's, because `processArgs()` reads the positional values against
+ * `contexts[0]` alone: an ancestor's arguments are never read once a subcommand
+ * is dispatched, which this file records from the other side.
  *
- * Then every **required option** that nothing else answers for. That is not in
- * the ticket's scope and it closes a real divergence: a required option is a
- * value the command needs exactly as an argument is, so a palette that listed
- * such a command and did not ask for it would hand the parser an argv the parser
- * refuses -- `Missing required option`, from a list whose job is to offer things
- * that work. A required option with a `default`, or with an environment variable
- * that has a value, is already answered and is not asked for, which is the same
- * precedence the parse applies: argv, then the environment, then the default.
+ * Then every **required option** across the **chain** that nothing else answers
+ * for. That is not in the ticket's scope and it closes a real divergence: a
+ * required option is a value the command needs exactly as an argument is, so a
+ * palette that listed such a command and did not ask for it would hand the
+ * parser an argv the parser refuses -- `Missing required options`, from a list
+ * whose job is to offer things that work.
  *
- * A **negated** flag is never among them: a flag always has a value, so the
- * parser gives it an implied default and it is never required.
+ * The chain and not the command, which is the half the first version got wrong:
+ * `validateOptions()` flattens **every** context's options and reports a required
+ * one with no value, so a root-level `'--config <file>'` with no default is
+ * enforced when a subcommand runs -- and the palette asked for none of it. Found
+ * by a review round pointed at `parse.ts` rather than at the diff.
  *
- * @param cmd - The command.
+ * What counts as answered is `processOptions()`'s own precedence read back: an
+ * option answers for its destination when it has an environment value, or a
+ * `default` the parser will apply -- which is not the same as having one, because
+ * `skipDefault` is how a negated twin gives the destination up to its valued
+ * twin, and `parserOwned` suppresses both. A destination a nearer declaration
+ * already fills is not asked for twice, because what `validateOptions()` reads is
+ * the **destination** rather than the option.
+ *
+ * A **negated** flag is never among the questions: a flag always has a value, so
+ * the parser gives it an implied default and it is never required.
+ *
+ * @param chain - The command, then its ancestors, ending at the schema's root --
+ *   which is the shape `ParseState.contexts` has.
  * @param env - The environment, if there is one to read.
- * @returns The slots, arguments first.
+ * @returns The slots, arguments first and then the options innermost first.
  */
 export function slotsFor(
-	cmd: InternalCommand,
+	chain: readonly InternalCommand[],
 	env?: Record<string, string | undefined>
 ): PaletteSlot[] {
-	const internal = cmd[Internal];
-	const slots: PaletteSlot[] = [];
+	const cmd = chain[0];
 
-	for (const arg of internal.args) {
+	if (!cmd) {
+		throw new TypeError('Expected a command chain to read slots from');
+	}
+
+	const slots: PaletteSlot[] = [];
+	/** Destinations something will fill without being asked. */
+	const answered = new Set<string>();
+	/** Destinations a slot above will fill. */
+	const asked = new Set<string>();
+
+	for (const arg of cmd[Internal].args) {
+		const { dest, envs } = arg[Internal];
+
 		slots.push({
 			choices: Array.isArray(arg.choices) ? arg.choices : undefined,
 			desc: typeof arg.desc === 'string' ? arg.desc : undefined,
@@ -301,32 +328,47 @@ export function slotsFor(
 			required: !!arg.required,
 			type: arg.type,
 		});
+
+		// a *required* argument always comes back with a value, and an optional one
+		// only where its own fallback fills the slot it was skipped at. An optional
+		// argument with neither is deliberately not counted, because over-skipping
+		// is the direction that puts the defect back
+		if (arg.required || arg.default !== undefined || fromEnv(envs, env)) {
+			answered.add(dest);
+		}
 	}
 
-	for (const opt of internal.options.values()) {
-		const { envs } = opt[Internal];
+	const options = chain.flatMap((ctx) => [...ctx[Internal].options.values()]);
+
+	// what the parse will fill on its own, read before anything is asked: a
+	// nearer option's default answers for an outer option of the same destination
+	// whichever order the two are seen in
+	for (const opt of options) {
+		const { dest, envs, parserOwned, skipDefault } = opt[Internal];
+
+		if (parserOwned) {
+			continue;
+		}
+		if (fromEnv(envs, env) || (!skipDefault && opt.default !== undefined)) {
+			answered.add(dest);
+		}
+	}
+
+	for (const opt of options) {
+		const { dest } = opt[Internal];
 		const spelling = spellingOf(opt);
 
-		// `parserOwned` was a fourth condition here and is gone: `--help` is the
-		// only option the parser adds, it is a flag, and a flag is never
-		// `required` -- so the first condition already answered for it and a
-		// sabotage of the fourth failed nothing.
-		//
 		// `spelling === undefined` is the narrowing rather than a guard: every
 		// initialized option has at least one spelling, because `initOption()`
 		// refuses a declaration that names none and gives a bare name a `--name`,
 		// so this cannot fire. It is what lets the slot carry a `string` without a
 		// cast -- and it used to be reachable, through the `no-` filter above,
 		// which is what made this comment false rather than merely optimistic
-		if (
-			!opt.required ||
-			opt.default !== undefined ||
-			fromEnv(envs, env) ||
-			spelling === undefined
-		) {
+		if (!opt.required || answered.has(dest) || asked.has(dest) || spelling === undefined) {
 			continue;
 		}
 
+		asked.add(dest);
 		slots.push({
 			choices: Array.isArray(opt.choices) ? opt.choices : undefined,
 			desc: typeof opt.desc === 'string' ? opt.desc : undefined,
@@ -411,8 +453,12 @@ export function commandCatalog(target: CatalogTarget, opts: CatalogOptions = {})
 	 *
 	 * @param cmd - The command whose registry to read.
 	 * @param path - The argv path that reaches it, from the root.
+	 * @param above - `cmd`'s own ancestors, innermost first, so that a child's
+	 *   chain is the one `parse()` would build for it -- which is what
+	 *   `slotsFor()` has to read, since a required option on an ancestor is
+	 *   enforced when a subcommand runs.
 	 */
-	function walk(cmd: InternalCommand, path: string[]): void {
+	function walk(cmd: InternalCommand, path: string[], above: InternalCommand[]): void {
 		if (seen.has(cmd)) {
 			return;
 		}
@@ -450,7 +496,7 @@ export function commandCatalog(target: CatalogTarget, opts: CatalogOptions = {})
 					label: key,
 					path: here,
 					search: aliases.length > 0 ? `${key} ${aliases.join(' ')}` : key,
-					slots: slotsFor(child, env),
+					slots: slotsFor([child, cmd, ...above], env),
 				});
 			}
 
@@ -459,7 +505,7 @@ export function commandCatalog(target: CatalogTarget, opts: CatalogOptions = {})
 			// inline, and those are real. There was a `!deferred` guard here and a
 			// sabotage said it could not change an answer in the first case and hid
 			// real commands in the second
-			walk(child, here);
+			walk(child, here, [cmd, ...above]);
 		}
 	}
 
@@ -471,7 +517,8 @@ export function commandCatalog(target: CatalogTarget, opts: CatalogOptions = {})
 			contexts
 				.slice(depth, -1)
 				.map((c) => c.name)
-				.reverse()
+				.reverse(),
+			contexts.slice(depth + 1)
 		);
 	}
 

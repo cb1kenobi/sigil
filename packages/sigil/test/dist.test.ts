@@ -196,7 +196,7 @@ describe('what importing the package costs', () => {
 		// coerces a value with `transformValue()`, which is `src/util/transform.ts`
 		// and is 1.8 kB. Neither is in `src/parser/` -- so `parse-*.mjs` (18.5 kB)
 		// and `option-registry-*.mjs` (7.2 kB) are both absent from the graph, and
-		// the components entry grew by 10,623 B rather than by 26 kB.
+		// the components entry grew by 11,008 B rather than by 26 kB.
 		//
 		// Asserted as an absence by two string literals, which survive
 		// minification where a name that is only ever called does not -- the first
@@ -227,7 +227,7 @@ describe('what importing the package costs', () => {
 	});
 
 	it('should keep the components entry worth importing for one component', () => {
-		// 224,272 B over 23 modules today, of which the palette is 10,623: 8,511 of
+		// 224,657 B over 23 modules today, of which the palette is 11,008: 8,896 of
 		// its own code, the 1,778 B `transform` chunk, the 154 B `types` chunk and
 		// 180 B of class names in `FRAMEWORK_CSS`, which ships because the
 		// vocabulary comment is inside the template literal.

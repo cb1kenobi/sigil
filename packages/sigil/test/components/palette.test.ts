@@ -1,6 +1,7 @@
 import { type PaletteSlot, slotsFor } from '../../src/components/catalog.js';
 import { checkSlotValue, commandPalette } from '../../src/components/palette.js';
 import { ESCAPE_TIMEOUT, PromptError } from '../../src/components/prompt.js';
+import { stateFromError } from '../../src/error-hooks.js';
 import { parse } from '../../src/parser/parse.js';
 import {
 	type AnyCommand,
@@ -50,8 +51,15 @@ function settle<T>(promise: Promise<T>): Promise<{ error?: PromptError; value?: 
 }
 
 /** The state a parse ends in, which is what the palette reads. */
-function appState(schema: Schema, argv: string[] = []): Promise<ParseState> {
-	return parse({ argv, env: {}, schema: { help: false, name: 'mycli', ...schema } });
+async function appState(schema: Schema, argv: string[] = []): Promise<ParseState> {
+	try {
+		return await parse({ argv, env: {}, schema: { help: false, name: 'mycli', ...schema } });
+	} catch (err) {
+		// a schema declaring a required option with no value is refused by its own
+		// parse, which is the fixture the ancestor-option test below is about. The
+		// state the error carries holds the chain, which is all the catalog reads
+		return stateFromError(err) as ParseState;
+	}
 }
 
 /** A palette over a screen, with no theme and no colour. */
@@ -62,8 +70,9 @@ function open(ui: ScreenHarness, target: ParseState, opts: Record<string, unknow
 /** The slots one command declares, for the pure checks below. */
 async function slotOf(cmd: Record<string, unknown>, which = 0): Promise<PaletteSlot> {
 	const parsed = await appState({ commands: { build: { run(): void {}, ...cmd } } });
-	const build = parsed.contexts[0]?.[Internal].commands.get('build') as InternalCommand;
-	return slotsFor(build)[which] as PaletteSlot;
+	const root = parsed.contexts[0] as InternalCommand;
+	const build = root[Internal].commands.get('build') as InternalCommand;
+	return slotsFor([build, root])[which] as PaletteSlot;
 }
 
 describe('checkSlotValue()', () => {
@@ -604,6 +613,31 @@ describe('commandPalette()', () => {
 
 		expect(parsed.cmd?.name).toBe('build');
 		expect(parsed.argv).toMatchObject({ entry: 'src', port: 80 });
+	});
+
+	it("should produce an argv the parser takes with an ancestor's required option", async () => {
+		// the end-to-end form of the review's own finding: `validateOptions()`
+		// enforces a root-level required option when a subcommand runs, so a
+		// palette that asked only about the command's own options handed over an
+		// argv the parse refused with `Missing required options`
+		const ui = screenSetup({ columns: 60, rows: 12 });
+		const schema: Schema = {
+			commands: { build: { run(): void {} } },
+			help: false,
+			name: 'mycli',
+			options: { '--config <file>': {} },
+		};
+		const answer = settle(open(ui, await appState(schema)));
+
+		await type(ui.stdin, ENTER);
+		await type(ui.stdin, 'a', '.', 'j', 's', 'o', 'n', ENTER);
+
+		const { argv } = (await answer).value as { argv: string[] };
+		expect(argv).toEqual(['build', '--config=a.json']);
+
+		const parsed = await parse({ argv, env: {}, schema });
+		expect(parsed.cmd?.name).toBe('build');
+		expect(parsed.argv).toMatchObject({ config: 'a.json' });
 	});
 
 	it('should ask for nothing with `prompt: false`', async () => {

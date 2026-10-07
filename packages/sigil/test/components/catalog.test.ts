@@ -5,6 +5,7 @@ import {
 	slotsFor,
 	slotTokens,
 } from '../../src/components/catalog.js';
+import { stateFromError } from '../../src/error-hooks.js';
 import { parse } from '../../src/parser/parse.js';
 import { Internal, type InternalCommand, type ParseState, type Schema } from '../../src/types.js';
 import { describe, expect, it } from 'vitest';
@@ -25,8 +26,17 @@ import { describe, expect, it } from 'vitest';
  * @param argv - What was typed.
  * @returns The parse state.
  */
-function state(schema: Schema, argv: string[] = []): Promise<ParseState> {
-	return parse({ argv, env: {}, schema: { help: false, name: 'mycli', ...schema } });
+async function state(schema: Schema, argv: string[] = []): Promise<ParseState> {
+	try {
+		return await parse({ argv, env: {}, schema: { help: false, name: 'mycli', ...schema } });
+	} catch (err) {
+		// a parse that threw still carries the state it died with, which is where
+		// the context chain comes from -- the same thing `help.test.ts` does, and
+		// it is needed here for a sharper reason: a schema declaring a required
+		// option with no value is exactly the fixture the ancestor-option tests
+		// below are about, so `parse({ argv: [] })` of it refuses by construction
+		return stateFromError(err) as ParseState;
+	}
 }
 
 /** The labels a catalog lists, in order. */
@@ -214,6 +224,45 @@ describe('commandCatalog()', () => {
 		expect(entries[1]?.deferred).toBe(false);
 	});
 
+	it("should carry every ancestor's options down a tree two deep", async () => {
+		// one level cannot see the chain being carried: `[child, cmd, ...above]`
+		// with `above` empty is already the right answer there. A grandchild is
+		// where the ancestors have to have been passed down the walk
+		const entries = commandCatalog(
+			await state({
+				commands: {
+					db: {
+						commands: { migrate: { run(): void {} } },
+						options: { '--conn <url>': {} },
+					},
+				},
+				options: { '--config <file>': {} },
+			})
+		);
+
+		const migrate = entries.find(({ label }) => label === 'db migrate');
+		expect(migrate?.slots.map(({ label }) => label)).toEqual(['--conn <url>', '--config <file>']);
+	});
+
+	it('should carry the chain above the context argv landed in', async () => {
+		// `contexts.slice(depth + 1)` is what the top of the walk starts with, and
+		// a chain of one -- argv that named no command -- cannot see it, because
+		// the slice is empty either way. Argv that named `db` is where the root has
+		// to have been carried in
+		const entries = commandCatalog(
+			await state(
+				{
+					commands: { db: { commands: { migrate: { run(): void {} } }, run(): void {} } },
+					options: { '--config <file>': {} },
+				},
+				['db']
+			)
+		);
+
+		const migrate = entries.find(({ label }) => label === 'db migrate');
+		expect(migrate?.slots.map(({ label }) => label)).toEqual(['--config <file>']);
+	});
+
 	it('should read a path from the root through a chain three deep', async () => {
 		// the chain is innermost-first and ends at the root, so the path to a
 		// context is that slice *reversed*. One level deep cannot see it -- a
@@ -323,11 +372,22 @@ describe('commandCatalog()', () => {
 });
 
 describe('slotsFor()', () => {
-	/** The slots a command declares, through a real parse. */
-	async function slots(cmd: Record<string, unknown>, env?: Record<string, string>) {
-		const parsed = await state({ commands: { build: { run(): void {}, ...cmd } } });
-		const build = parsed.contexts[0]?.[Internal].commands.get('build') as InternalCommand;
-		return slotsFor(build, env);
+	/**
+	 * The slots a command declares, through a real parse.
+	 *
+	 * The chain is the command and the schema's root, which is what `parse()`
+	 * builds for `mycli build` -- and is what `slotsFor()` has to be handed,
+	 * since a required option on an ancestor is enforced when a subcommand runs.
+	 */
+	async function slots(
+		cmd: Record<string, unknown>,
+		env?: Record<string, string>,
+		schema: Schema = {}
+	) {
+		const parsed = await state({ ...schema, commands: { build: { run(): void {}, ...cmd } } });
+		const root = parsed.contexts[0] as InternalCommand;
+		const build = root[Internal].commands.get('build') as InternalCommand;
+		return slotsFor([build, root], env);
 	}
 
 	it('should list every argument in declaration order', async () => {
@@ -404,8 +464,73 @@ describe('slotsFor()', () => {
 			env: {},
 			schema: { commands: { build: { run(): void {} } } },
 		});
-		const build = parsed.contexts[0]?.[Internal].commands.get('build') as InternalCommand;
-		expect(slotsFor(build)).toEqual([]);
+		const root = parsed.contexts[0] as InternalCommand;
+		const build = root[Internal].commands.get('build') as InternalCommand;
+		expect(slotsFor([build, root])).toEqual([]);
+	});
+
+	it("should ask for an ancestor's required option", async () => {
+		// `validateOptions()` flattens every context's options, so a root-level
+		// required option with no default is enforced when a subcommand runs -- and
+		// the first version read the command's own registry alone and asked for
+		// none of it. Found by review
+		const found = await slots({}, undefined, { options: { '--config <file>': {} } });
+		expect(found.map(({ label }) => label)).toEqual(['--config <file>']);
+	});
+
+	it("should not ask for an ancestor's option a default answers for", async () => {
+		expect(
+			await slots({}, undefined, { options: { '--config <file>': { default: 'a.json' } } })
+		).toEqual([]);
+	});
+
+	it("should not ask for an ancestor's option the environment answers for", async () => {
+		expect(
+			await slots({}, { CONFIG: 'a.json' }, { options: { '--config <file>': { env: 'CONFIG' } } })
+		).toEqual([]);
+	});
+
+	it('should ask once for a destination two contexts both declare', async () => {
+		// the parser resolves an option innermost first and `validateOptions()`
+		// reads the *destination*, so the nearer declaration answers for both --
+		// and the nearer one is what argv reaches, so it is the one to ask under
+		const found = await slots({ options: { '--config <near>': {} } }, undefined, {
+			options: { '--config <far>': {} },
+		});
+		expect(found.map(({ label }) => label)).toEqual(['--config <near>']);
+	});
+
+	it("should let a nearer default answer for an ancestor's required option", async () => {
+		// whichever order the two are seen in, which is why what the parse fills
+		// is read in a pass of its own
+		expect(
+			await slots({ options: { '--config [near]': { default: 'a.json' } } }, undefined, {
+				options: { '--config <far>': {} },
+			})
+		).toEqual([]);
+	});
+
+	it('should not ask for a negated twin, which gives its default up', async () => {
+		// `skipDefault` is how the negated flag hands the destination to its valued
+		// twin, so having a `default` is not the same as the parse applying one --
+		// the valued twin is still the question
+		const found = await slots({
+			options: { '--cheese <type>': {}, '--no-cheese': {} },
+		});
+		expect(found.map(({ label }) => label)).toEqual(['--cheese <type>']);
+	});
+
+	it('should let a positional argument answer for an option of its name', async () => {
+		// a destination can have more than one writer, and an option and a
+		// positional of the same name is one of the pairs this repository records.
+		// `processArgs()` fills the destination, so `validateOptions()` sees a value
+		// and the option is not a question
+		const found = await slots({ args: ['<entry>'], options: { '--entry <v>': {} } });
+		expect(found.map(({ label }) => label)).toEqual(['<entry>']);
+	});
+
+	it('should refuse an empty chain', () => {
+		expect(() => slotsFor([])).toThrow(/command chain/);
 	});
 
 	it('should put the arguments before the options', async () => {

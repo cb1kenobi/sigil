@@ -13445,15 +13445,15 @@ read the description off the registry rather than off the declaration` sets a
   |                                                      | bytes       | modules |
   | ---------------------------------------------------- | ----------- | ------- |
   | `components.mjs` on `main`                           | 213,649     | 21      |
-  | `components.mjs` with the palette in the barrel      | **224,272** | 23      |
+  | `components.mjs` with the palette in the barrel      | **224,657** | 23      |
   | `components.mjs` with it on `@ttylabs/sigil/palette` | 214,833     | 22      |
-  | `palette.mjs`, that subpath's own graph              | 196,597     | 24      |
+  | `palette.mjs`, that subpath's own graph              | 196,981     | 24      |
 
-  So the palette costs the barrel **10,623 B**, and it is fully accounted for:
-  8,511 of its own code in `components.mjs`, the 1,778 B `transform` chunk, the
+  So the palette costs the barrel **11,008 B**, and it is fully accounted for:
+  8,896 of its own code in `components.mjs`, the 1,778 B `transform` chunk, the
   154 B `types` chunk, and **180 B of class names in `FRAMEWORK_CSS`**, which
   ships because the vocabulary comment is inside the template literal. A subpath
-  would give an app that never opens one **9,439 B** of that back, and it is
+  would give an app that never opens one **9,824 B** of that back, and it is
   refused by the standard this file already set when it measured a subpath _per
   component_ at about 15 kB of 124 and kept the barrel. A bundled app pays
   nothing: a rolldown of an entry importing only `createSpinner` comes to
@@ -13461,10 +13461,11 @@ read the description off the registry rather than off the declaration` sets a
 match`, so what a bundled app keeps is the 180 B of sheet comment and nothing
   else.
 
-  Every figure here was taken again after the first review round's fixes, because
-  the code grew: the first version of this table read 223,912 / 214,804 / 196,257
-  and a delta of 10,263, and a number nobody re-derives is the stale snapshot this
-  file warns about one section along.
+  Every figure here was taken again after each review round, because each one
+  grew the code: the table read 223,912 / 214,804 / 196,257 before the first and
+  224,272 / 214,833 / 196,597 before the second, with deltas of 10,263 and 10,623.
+  A number nobody re-derives is the stale snapshot this file warns about one
+  section along, and three versions of one table is what that costs.
 
 - **It does not import the parser, which is the finding rather than the
   worry.** Nothing in `src/components/` had ever imported `src/parser/`, and the
@@ -13482,9 +13483,18 @@ match`, so what a bundled app keeps is the 180 B of sheet comment and nothing
 
 - **It is deliberately not ejectable, and the reason is structural rather than a
   preference.** `sigil add` rewrites a component's relative imports to the
-  published subpath that answers for each, and `src/util/transform.ts` has none
-  -- `generate-registry.mjs` refuses a deeper specifier by name, so adding the
-  palette to `ENTRIES` fails the build. What that refusal is pointing at is the
+  published subpath that answers for each, and `generate-registry.mjs` refuses a
+  deeper specifier **by name**, so adding the palette to `ENTRIES` fails the
+  build. Measured by doing it, which is how the honest version of this sentence
+  was arrived at: the first specifier it refuses is `../types.js`, with
+  `"../types.js" resolves to src/types.ts, which no published subpath answers
+for` -- and that one is the **generator's own map** rather than a statement about
+  the API, because the root barrel does `export * from './types.js'` and so does
+  publish `Internal`. The refusal that is about the API is the next relative
+  import, `../util/transform.js`: the map is built from the tsdown entry list,
+  which has no `src/util/` path at all, so nothing published answers for it. The
+  second review round found the first version of this sentence naming the second
+  miss. What that refusal is pointing at is the
   real reason: the one thing the palette must share with the parser is the
   function that says what a valid value is, so an ejected copy would either
   import something unpublished or carry a **second** reader of the coercion rule.
@@ -13544,17 +13554,44 @@ match`, so what a bundled app keeps is the 180 B of sheet comment and nothing
   with an `=`, so `--port=--weird` is fine: the parser splits on the first `=`
   and takes the value exactly as typed.
 
-- **A required option is a slot too, and that is outside the ticket's scope on
-  purpose.** A required option is a value the command needs exactly as an
-  argument is, so a palette that listed such a command and did not ask would hand
-  the parser an argv it refuses -- `Missing required option`, out of a list whose
-  job is to offer things that work. One with a `default`, or with an environment
-  variable that has a value, is already answered and is not asked for, which is
-  the parse's own precedence: argv, then the environment, then the default. An
-  empty variable is read as unset, which is `envValue()`'s rule said again.
+- **A required option is a slot too, and it is the whole **chain**'s options
+  rather than the command's own.** A required option is a value the command needs
+  exactly as an argument is, so a palette that listed such a command and did not
+  ask would hand the parser an argv it refuses -- `Missing required options`, out
+  of a list whose job is to offer things that work. That is outside the ticket's
+  scope on purpose.
 
-  A **negated** flag is never among them and needs no guard: a flag always has an
-  implied default, so the `default !== undefined` test already answers for it.
+  The chain is the half that shipped wrong. `validateOptions()` flattens **every**
+  context's options and reports a required one with no value, so a root-level
+  `'--config <file>'` with no default is enforced when a subcommand runs -- and
+  `slotsFor()` read `cmd[Internal].options` alone and asked for none of it. The
+  second review round found it, pointed at `parse.ts` rather than at the diff, and
+  it is the one defect either round found that the whole design was already
+  written against. Pinned end to end: the palette's argv for a `build` under such
+  a root parses.
+
+  Arguments are the other way round and are the command's **own**:
+  `processArgs()` reads the positional values against `contexts[0]` alone, which
+  this file already records as "an ancestor's arguments are never read once a
+  subcommand is dispatched, so they own nothing".
+
+  What counts as answered is `processOptions()`'s precedence read back, which is
+  sharper than "has a default": an option answers for its destination when it has
+  an environment value, or a `default` **the parser will apply** -- and
+  `skipDefault` is how a negated twin gives the destination up to its valued twin,
+  so the twin's implied default answers for nothing. A destination a nearer
+  declaration already fills is not asked for twice, because what
+  `validateOptions()` reads is the destination rather than the option -- so two
+  contexts both declaring `--config` is one question, asked under the nearer
+  spelling, which is also the one argv reaches. A **required argument**, or an
+  optional one with a fallback of its own, answers for its destination too, which
+  is the "an option and a positional argument of the same name" pair this file
+  already records. An optional argument with neither is deliberately not counted,
+  because over-skipping is the direction that puts the defect back.
+
+  A **negated** flag is never among the questions and needs no guard: a flag
+  always has an implied default, and `validateOptions()` reads the destination the
+  valued twin fills.
 
 - **A slot is a projection rather than the declaration, and the two kinds are one
   shape.** An argument and a required option differ in how a value reaches argv
@@ -13926,6 +13963,37 @@ invariant its comment states. The `seen` guard's path-insensitivity is already
 written down. And `fromEnv()` reads the same truthiness `envValue()` does, so
 `""` is unset while `"0"` and `" "` are values. It did **not** verify the byte
 figures, because it was told not to build.
+
+##### What the second review round found, and it was one defect and one sentence
+
+Round 2 was told not to re-attack round 1's premises and to work from round 1's
+own "not examined" list first, which is the shape this file already records:
+measured over ten rounds on this repository, a premise-attacking round confirms
+and finds nothing new, while the findings come from the files nobody opened. Both
+of its findings came from that list, and it confirmed every one of round 1's
+fixes against the code.
+
+- **A required option on an **ancestor** was never asked for**, which is the
+  entry above. It came from reading `parse.ts` rather than the diff --
+  `validateOptions()` flattens every context's options -- and it is the one defect
+  either round found that the whole design was already written against: the
+  palette's own rule is that a command it listed and could not run is worse than
+  one it did not list, and this was that rule applied to the chain the parser
+  already walks. Nine mutations over the fix, nine caught, and four of those
+  needed a tree **two deep** or an argv that **named a command**: at one level
+  `[child, cmd, ...above]` with an empty `above` is already the right answer, so a
+  one-level fixture cannot see the chain being carried at all.
+- **And one sentence named the wrong refusal**, which is the ejectable entry
+  above. Adding the palette to `ENTRIES` does fail the build; the first specifier
+  the generator refuses is `../types.js` rather than `../util/transform.js`, and
+  only the second of those is a statement about the public API.
+
+It also found the harness's own summary regex, twice over. The first spelling
+required a `passed` count, which a run where **every** suite failed does not
+print -- so it answered `HARNESS BROKEN` for eight mutations in a row rather than
+`caught`, which is the right way for a harness to be wrong and is exactly what
+the three verdict guards are for. The total in parentheses is the one number the
+line always has.
 
 ##### Bindings are not listable, and that is SIG-134's to decide
 
