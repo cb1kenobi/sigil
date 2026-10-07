@@ -1342,15 +1342,7 @@ export function qrLines(code: QrCode, opts: QrLinesOptions = {}): string[] {
 	}
 
 	// one half-row of pad where the count is odd, so that no cell holds half a
-	// module, and it goes **above** the grid rather than below.
-	//
-	// Which end it goes is visible rather than a detail. The pad is not a module,
-	// so it takes no glyph -- and above the grid that puts the top quiet row in a
-	// cell's *lower* half and the bottom quiet row in a cell's lower half too, so
-	// the light border is a half cell on both edges and the first line is one
-	// uniform strip. Below the grid the bottom quiet row shares its cell with the
-	// pad, and a reader sees a border that is twice as thick at the bottom as at
-	// the top.
+	// module.
 	//
 	// It is **always** odd, which is worth knowing and is not obvious: a symbol is
 	// `4 * version + 17` modules on a side, which is odd for every version, and a
@@ -1361,11 +1353,33 @@ export function qrLines(code: QrCode, opts: QrLinesOptions = {}): string[] {
 	// a checked fact rather than a claim in a comment. Found by review
 	const pad = span % 2;
 
+	// and it goes to the edge where it cannot be seen, which is the one place the
+	// polarity reaches the geometry rather than only the glyphs.
+	//
+	// The pad is not a module, so it takes no glyph -- and what an undrawn half
+	// cell *is* differs by polarity. Inverted it is the terminal's own background,
+	// which is the page: invisible at either end, so it goes above, which puts the
+	// light border in a cell's lower half at both edges and makes the first line
+	// one uniform strip hugging the symbol. Painted it is the body's own
+	// `background-color: white`, which is indistinguishable from quiet zone -- so
+	// wherever it goes it *adds* a module of border, and the span being odd means
+	// the painted form always has two modules on one edge and one on the other.
+	// Below the grid is where that belongs: a thicker bottom border reads as the
+	// gap before whatever is printed next, where a thicker top one is the first
+	// thing a reader sees and was reported as exactly that.
+	//
+	// There is no arrangement with one module on both edges of the painted form.
+	// A cell carries one style, so the pad half cannot be painted the page's
+	// colour; and an even span needs an odd *total* vertical quiet zone -- `1` and
+	// `2` -- which puts a full cell on one edge again and costs the inverted form
+	// the symmetry it has here
+	const above = invert ? pad : 0;
+
 	return Array.from({ length: (span + pad) / 2 }, (_, cell) => {
 		let line = '';
 		for (let x = 0; x < span; x++) {
-			const upper = drawn(x, cell * 2 - pad);
-			const lower = drawn(x, cell * 2 + 1 - pad);
+			const upper = drawn(x, cell * 2 - above);
+			const lower = drawn(x, cell * 2 + 1 - above);
 			line += upper ? (lower ? BOTH : UPPER) : lower ? LOWER : NEITHER;
 		}
 		return line;

@@ -453,12 +453,10 @@ describe('the quiet zone', () => {
 
 		expect(compact[0].length).to.equal(code.size + 2);
 		expect(large[0].length).to.equal((code.size + 2) * 2);
-		// the first compact row is the pad half-row over the one quiet module
-		// row, and neither is drawn un-inverted
-		expect(compact[0]).to.equal(' '.repeat(code.size + 2));
-
-		// and at the spec's four it is the pad plus the first quiet row, then a
-		// whole cell of quiet rows -- the same four modules counted the same way
+		// un-inverted the pad is below the grid, so the first compact row is the
+		// one quiet module row over the symbol's first -- and at the spec's four
+		// the first two rows are quiet zone, which is the same four modules
+		// counted the same way
 		const wide = qrLines(code, { form: 'compact', quietZone: 4 });
 		expect(wide[0]).to.equal(' '.repeat(code.size + 8));
 		expect(wide[1]).to.equal(' '.repeat(code.size + 8));
@@ -477,7 +475,7 @@ describe('the quiet zone', () => {
 		expect(() => qrLines(code, { quietZone: Number.NaN })).to.throw(/whole number of modules/);
 	});
 
-	it('should pad an odd module-row count above the grid, and give the pad no glyph', () => {
+	it('should pad an odd module-row count at the edge the pad cannot be seen on', () => {
 		// version 1 with the default quiet zone is 23 module rows, which is odd:
 		// without the pad the last cell holds one module and half of nothing
 		const code = encodeQr('x');
@@ -486,27 +484,88 @@ describe('the quiet zone', () => {
 		const lines = qrLines(code);
 		expect(lines.length).to.equal(12);
 
-		// the pad is the *upper* half of the first cell, and it is not a module,
-		// so it takes no glyph whatever the polarity. Inverted is where both of
-		// those are visible: the first line is the one quiet row sitting in a
-		// cell's lower half, so a uniform strip -- and the last line is the
-		// symbol's last row over the bottom quiet row rather than the solid row
-		// of full blocks that a pad below the grid, drawn as light, produced.
-		// A border twice as thick at the bottom as at the top is what that was
+		// inverted, the pad is above the grid and is the page: the first line is
+		// the one quiet row sitting in a cell's lower half, so a uniform strip,
+		// and the last line is the symbol's last row over the bottom quiet row
+		// rather than the solid row of full blocks that a pad drawn as light
+		// produced
 		const inverted = qrLines(code, { invert: true });
 		expect(inverted[0]).to.equal('▄'.repeat(code.size + 2));
 		expect(inverted.at(-1)).to.not.equal('█'.repeat(code.size + 2));
 		expect(new Set(inverted.at(-1)!).size).to.be.greaterThan(1);
 
-		// un-inverted the pad and the quiet row are both undrawn, so the first
-		// line is blank rather than a row of upper halves
-		expect(lines[0]).to.equal(' '.repeat(code.size + 2));
+		// painted, the pad is below the grid, because there it is the body's own
+		// white rather than the page -- so the first line is the quiet row over
+		// the symbol's first row and the *last* is the one that is all pad
+		expect(lines[0]).to.not.equal(' '.repeat(code.size + 2));
+		expect(lines.at(-1)).to.equal(' '.repeat(code.size + 2));
 
 		// the row count, over several quiet zones, as the formula rather than by
 		// hand
 		for (let quiet = 0; quiet <= 6; quiet++) {
 			const span = code.size + quiet * 2;
 			expect(qrLines(code, { quietZone: quiet }).length).to.equal((span + (span % 2)) / 2);
+		}
+	});
+
+	it('should keep the border one module at the top in both polarities', () => {
+		// the complaint this is for, as a measurement: with the pad above the grid
+		// in *both* polarities the painted form came out with **two** modules of
+		// border at the top and one at the bottom, because an undrawn pad is the
+		// body's own `background-color: white` there rather than the page -- a
+		// first row twice as thick as the last, reported from a terminal and
+		// invisible to every other assertion in this file, which reads glyphs.
+		//
+		// Read back off the rendered glyphs rather than off the implementation,
+		// because the implementation is what is in question: each grid row is
+		// reconstructed from the half of the cell it landed in, and a row is
+		// border when every module in it is light
+		const border = (code: QrCode, invert: boolean) => {
+			const span = code.size + 2;
+			const pad = span % 2;
+			const above = invert ? pad : 0;
+			const lines = qrLines(code, { invert });
+
+			const light: boolean[] = [];
+			for (let y = 0; y < span; y++) {
+				const glyphs = [...lines[Math.floor((y + above) / 2)]];
+				const upper = (y + above) % 2 === 0;
+				light.push(
+					glyphs.every((glyph) => {
+						const drawn = glyph === '█' || glyph === (upper ? '▀' : '▄');
+						// inverted, a drawn half is the light one
+						return invert ? drawn : !drawn;
+					})
+				);
+			}
+
+			// the pad is a module of border painted, where it is white, and none
+			// inverted, where it is the page
+			const padBorder = invert ? 0 : pad;
+			let top = 0;
+			for (const row of light) {
+				if (!row) break;
+				top++;
+			}
+			let bottom = padBorder;
+			for (const row of [...light].reverse()) {
+				if (!row) break;
+				bottom++;
+			}
+			return { top, bottom };
+		};
+
+		for (const payload of ['x', 'https://github.com/cb1kenobi/sigil', 'a'.repeat(300)]) {
+			const code = encodeQr(payload);
+			const where = `v${code.version}`;
+
+			// painted: one at the top, and the odd span's extra on the bottom edge
+			// where it reads as the gap before whatever is printed next
+			expect(border(code, false), `${where} painted`).to.deep.equal({ top: 1, bottom: 2 });
+
+			// inverted: the pad is the page, so both edges are the one module asked
+			// for -- which is the frame the ticket's own sample has
+			expect(border(code, true), `${where} inverted`).to.deep.equal({ top: 1, bottom: 1 });
 		}
 	});
 
@@ -561,14 +620,13 @@ describe('the two forms', () => {
 		const compact = qrLines(code, { form: 'compact' });
 		const large = qrLines(code, { form: 'large' });
 
-		// the pad is above the grid, so grid row `y` is half `y + pad` of a cell
-		const pad = span % 2;
-
+		// un-inverted the pad is below the grid, so grid row `y` is half `y` of a
+		// cell. `the border` below is what pins the other half of that
 		for (let y = 0; y < span; y++) {
 			for (let x = 0; x < span; x++) {
-				const cell = compact[Math.floor((y + pad) / 2)][x];
+				const cell = compact[Math.floor(y / 2)][x];
 				const fromCompact =
-					(y + pad) % 2 === 0 ? cell === '▀' || cell === '█' : cell === '▄' || cell === '█';
+					y % 2 === 0 ? cell === '▀' || cell === '█' : cell === '▄' || cell === '█';
 				const fromLarge = large[y][x * 2] === '█';
 				expect(fromLarge, `${x},${y}`).to.equal(fromCompact);
 
@@ -642,9 +700,9 @@ describe('the polarity', () => {
 			expect(drawn.join('\n'), `level ${level}`).to.not.equal(inverted);
 		}
 
-		// the top-left cell is two quiet-zone rows, which are light, so an
-		// un-inverted code starts with nothing drawn
-		expect(plain[0]).to.equal('');
+		// the pad is below the grid when painted, so the *last* cell row is two
+		// light rows and an un-inverted code ends with nothing drawn
+		expect(plain.at(-1)).to.equal('');
 	});
 
 	it('should draw the light modules at level 0 on a dark terminal', () => {
@@ -664,8 +722,9 @@ describe('the polarity', () => {
 		const first = dark.split('\n')[0];
 		expect(new Set(first).size).to.equal(1);
 		expect(first.startsWith('▄▄▄▄')).to.equal(true);
-		// and not inverted: the quiet zone is the terminal's own background
-		expect(light.split('\n')[0].trim()).to.equal('');
+		// and not inverted: the quiet zone is the terminal's own background, and
+		// the pad is below the grid, so the *last* line is the blank one
+		expect(light.split('\n').at(-1)?.trim()).to.equal('');
 	});
 
 	it('should let an explicit invert beat the level and the scheme', () => {

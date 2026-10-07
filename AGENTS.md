@@ -13537,26 +13537,53 @@ spec's four where asked`, so neither the default nor the knob can move without
   whose surroundings are already light has a real case. The demo prints one next
   to a wider one so the difference is a thing to try rather than a claim.
 
-- **An odd module-row count gets one pad half-row, it goes _above_ the grid, and
-  it is not a module.** A symbol is `4 * version + 17` modules on a side, which is
-  odd for every version, and a quiet zone is added twice -- so the span is always
-  odd and a half block per cell needs an even number. The alternative is a last
-  cell holding one module and half of nothing.
+- **An odd module-row count gets one pad half-row, it is not a module, and it
+  goes to the edge where it cannot be seen -- which is the one place the polarity
+  reaches the geometry rather than only the glyphs.** A symbol is
+  `4 * version + 17` modules on a side, which is odd for every version, and a
+  quiet zone is added twice -- so the span is always odd and a half block per cell
+  needs an even number. The alternative is a last cell holding one module and half
+  of nothing.
 
-  Which end it goes, and whether it is drawn, are both visible rather than
-  details. The pad takes no glyph whatever the polarity, so above the grid it puts
-  the top quiet row in a cell's _lower_ half and the bottom quiet row in a cell's
-  lower half as well: the light border is a half cell on both edges and the first
-  line is one uniform strip of lower halves. Below the grid instead, the bottom
-  quiet row shares its cell with the pad -- so the border comes out **twice as
-  thick at the bottom as at the top**, and inverted, where the pad was drawn as
-  light, every compact code's last line was a solid row of full blocks. That was
-  the shipped behaviour and it is what reading the output against a hand-made
-  sample found; `dark !== invert` answers `invert` for a position with no module,
-  which is how reading past the grid came to draw the pad. Asserted arithmetically
-  over quiet zones 0 to 6 rather than at one value, because the parity depends on
-  both the version and the quiet zone and a single case cannot see that -- and
-  asserted inverted as well, because that is the polarity the asymmetry showed in.
+  The pad takes no glyph, and **what an undrawn half cell _is_ differs by
+  polarity**, which is the whole of it. Inverted it is the terminal's own
+  background, which is the page: invisible at either end, so it goes _above_, and
+  that puts the light border in a cell's lower half at both edges and makes the
+  first line one uniform strip hugging the symbol. Painted it is the body's own
+  `background-color: white`, which is indistinguishable from quiet zone -- so
+  wherever it goes it _adds_ a module of border, and the odd span means the
+  painted form always has two modules on one edge and one on the other. _Below_
+  the grid is where that belongs: a thicker bottom border reads as the gap before
+  whatever is printed next, where a thicker top one is the first thing a reader
+  sees.
+
+  Both halves were reported from a terminal rather than found by a test, one after
+  the other, and each was invisible to every assertion in the file because they
+  all read **glyphs** while the complaint is about **colour**. First, `drawn()`
+  answered `invert` for a position with no module, so reading past the grid _drew_
+  the pad -- which inverted made the last line of every compact symbol a solid row
+  of full blocks. Then, with the pad above the grid for both polarities, the
+  painted form came out with **two modules of border at the top and one at the
+  bottom**: a first row twice as thick as the last, which is what "the first row is
+  too thick" was.
+
+  There is no arrangement with one module on both edges of the painted form, and
+  that is worth writing down because it is the obvious next fix. A cell carries one
+  style, so the pad half cannot be painted the page's colour; and an even span
+  needs an odd _total_ vertical quiet zone -- `1` and `2` -- which puts a full cell
+  on one edge again and costs the inverted form the symmetry it has here. Measured,
+  the answer is `top: 1, bottom: 2` painted and `1, 1` inverted.
+
+  `should keep the border one module at the top in both polarities` is what makes
+  that a check rather than a sentence, and it reads the border back **off the
+  rendered glyphs** rather than off the implementation, because the implementation
+  is what was in question: each grid row is reconstructed from the half of the cell
+  it landed in, a row is border when every module in it is light, and the pad
+  counts as a module of border painted and as none inverted. Putting the pad above
+  the grid for both polarities fails it, and so does putting it below for both. The
+  parity itself is asserted arithmetically over quiet zones 0 to 6 rather than at
+  one value, because it depends on both the version and the quiet zone and a single
+  case cannot see that.
 
 - **A QR code at colour level 0 draws the _other_ modules, which is the one
   expression this whole decision comes to.** A scanner expects dark modules on a
