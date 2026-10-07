@@ -13593,7 +13593,10 @@ so a theme can reach it` walks the props of both nodes for anything matching
   the second case. The first version of this entry said instead that the split was
   "an optimisation problem whose answer nobody can check by looking at it", which
   is a weak reason for a thing that has a reference to check it against -- the
-  numbers replaced it.
+  numbers replaced it, and a review round then caught the docblock still saying
+  "26 of 28" after three vectors moved it to 29 of 31 -- which is a measurement
+  the test beside it already falsified, and is the exact shape this file keeps
+  warning about.
 
   It is also what the reference comparison had to be corrected for. The first run
   disagreed with the reference on exactly one of 22 vectors, the otpauth URI, and
@@ -13682,9 +13685,12 @@ correctness no test in this package can state, which is the position
 
 ##### What the sabotage pass found, and what it got wrong about itself
 
-Thirty-seven mutations, one at a time with the component's and the theme's suites
-run after each. **Thirty-six are caught and one is declared.** The interesting
-half is not the count.
+Forty-one mutations, one at a time with the component's and the theme's suites
+run after each. **Forty are caught and one is declared.** Thirty-seven of them
+were applied before the first review round and four more over the guards that
+round produced; the figure above is one run against the shipped tree rather than
+a sum across rounds, which is what makes it re-derivable. The interesting half is
+not the count.
 
 - **The harness's first run was vacuous and the harness said so was a pass.**
   `registry.test.ts` was in the suite list, and it compares the shipped registry
@@ -13744,6 +13750,18 @@ half is not the count.
   dropping it picks mask 2. Each of those three vectors is caught by exactly one
   named test, which is what says the search found the right input rather than a
   bigger hammer.
+- **Two of the four mutations the review round's fixes earned were equivalent,
+  and the reviewer predicted one of them.** The overflow message's
+  `COUNT_BITS[mode][2]` replaced with a flat `14` changes no figure: measured over
+  all twelve combinations of level and mode, the three band-2 widths floor to the
+  same held capacity as a flat 14, because a difference of a bit or two cannot
+  cross a 10-, 11- or 8-bit group boundary at version 40's sizes. Band 0's widths
+  do differ, by one character in eleven of the twelve, so the mutation is band 0
+  now and is caught. It is also the finding that bought a free cross-check: those
+  twelve figures are the spec's own version 40 capacities, so `should name the
+published capacity in the message, for every mode and level` is a **second** path
+  to a number the encoding test already reaches by encoding -- a capacity
+  derivation that drifted would have to drift in both to stay quiet.
 - **The one declared survivor is the terminator at capacity, and it is an
   equivalence rather than a fast path.** The spec shortens or omits the four-bit
   terminator for a payload that exactly fills its version, and dropping the
@@ -13753,6 +13771,93 @@ half is not the count.
   is shortened at capacity" rather than "a typed array is tolerant of an
   overflow" -- and the day the buffer stops being one is the day the difference is
   a wrong codeword.
+
+##### What the first review round found, and it was almost all prose
+
+Thirteen findings, **every one confirmed**, and the shape is the one this file
+already records: a round pointed at a diff finds sentences. The encoder's
+arithmetic was checked against the spec by hand -- the degree-7 generator
+expanded coefficient by coefficient against the published polynomial, the format
+bits for L mask 0 as `0x77C4`, the version bits for 7, version 32's alignment
+centres, all eight masks, the four penalty weights, both finder windows, and
+spot-checks of the two capacity tables -- and **nothing in it was wrong**. Of the
+thirteen findings, nine were a comment or a sentence that was false about the code
+beside it, two were a vacuous test, one was a misleading error message, and one
+was a gap in a file that is not in this diff at all.
+
+- **`generator()`'s own doc comment had the coefficient order backwards**, which
+  is the most dangerous finding of the thirteen. It said "highest-degree-last"
+  and the array is highest-degree-**first** -- `[0]` is the coefficient of
+  `x^(degree-1)`, which is the order `remainder()` reads, since that takes
+  `result[0]` as the high coefficient before the shift. Verified by expanding
+  degree 7: `[127, 122, 154, 164, 11, 68, 117]` is `alpha^87` through `alpha^21`,
+  the spec's own polynomial read left to right. Somebody reversing the array to
+  match the comment would emit a wrong ECC codeword for every block there is,
+  which is the failure the comment-aligns-the-code hazard describes exactly.
+- **The zigzag's direction comment claimed a flip that does not happen.** It said
+  the timing-column shift "flips it for everything left of the timing pattern",
+  and `(right + 1) & 2` is the same bit for 6 and 5, for 4 and 3, and for 2 and 1
+  -- measured over all six. What the assignment changes is which columns are
+  visited and nothing else, which the comment above it already said. Compensating
+  for the flip would reverse every pair left of column 6.
+- **The module-row count is always odd, so the padding's even branch is
+  unreachable -- and the test's own comment named an odd number as the even
+  case.** A symbol is `4 * version + 17` modules on a side, which is odd for
+  every version, and a quiet zone is added twice, which is even. The test had
+  gone looking for an even span and offered "a quiet zone of 3 on version 2,
+  which is 31" as one; 31 is odd, and so is every other span there is, checked
+  over 40 versions and nine quiet zones. The expression stays written as a parity,
+  because the parity is the _reason_ it adds one rather than a case it handles,
+  and `should be an odd number of module rows for every version` is what makes
+  that a checked fact instead of a sentence.
+- **Two tests were vacuous about the thing they are named for.** `should draw the
+dark modules wherever it can paint its own colours` looped the levels and then
+  drew with `invert: false` **itself**, so the level never reached `polarity()`
+  and deleting the `level > 0` branch left it green -- the branch was pinned by
+  its neighbours, which is not the same as being pinned by its own test. It
+  compares the drawn output at each level against the un-inverted drawing now, and
+  against a level-0 dark terminal, which must differ. And the overflow-message
+  test asserted only that the level is named, which survived the message's real
+  defect.
+- **The overflow message named a capacity that was not the mode's.** It computed
+  the held figure from a fourteen-bit count indicator whatever the mode and
+  labelled it "bytes" for all three, so a numeric payload over capacity was told a
+  number it was nowhere near -- 2,331 against the 5,596 digits version 40-M
+  actually holds. It names the mode and that mode's own capacity now, and the
+  three figures the test asserts -- 5,596, 3,391 and 2,331 -- are the published
+  version 40-M capacities, so the arithmetic is cross-checked rather than
+  self-consistent.
+- **A `form` that is neither of the two was drawn as compact.** TypeScript refuses
+  it and a JavaScript caller is not typed, so `form: 'Large'` drew the wrong code
+  and said nothing -- which is the parses-and-does-nothing shape, and is refused
+  now the way an unknown error-correction level already was.
+- **`test/dist.test.ts`'s `IMPLEMENTATIONS` had no entry for this component**,
+  which is the gap that file's own comment is written about: "a component added
+  without a name here is one whose absence from the root entry is pinned by
+  nothing it can be renamed out of", after `ScrollBox` and `createTypewriter` had
+  each been missing. A third instance, found by a round that read a file outside
+  the diff.
+- **The probe drew three of the four form-and-polarity combinations while the
+  module doc claimed four.** The large form was never shown inverted, which is
+  what a `| cat` of a large code looks like. The step was added rather than the
+  claim weakened, because the claim is the useful one.
+- **Three more sentences were simply false about their neighbours**: the demo said
+  level H is two versions larger than L for its payload, where it is one (L and M
+  are version 3, Q and H are version 4); the sheet comment and the probe heading
+  said level 0 is the inverted form without the scheme qualification, where
+  `polarity()` reads both and a pipe with `SIGIL_COLOR_SCHEME=light` is not
+  inverted; and the `café naïve` vector's `why` said "the character count is
+  the byte count" of a string that is ten characters and twelve bytes, which is
+  the opposite of the thing it is in the list for.
+- **One finding was found twice, independently and within the hour.** The demo and
+  the probe printed a code's size with `String.length`, which above colour level 0
+  counts the SGR that paints the two colours -- so a 37-column code was reported
+  as 49 on a colour terminal and correctly at level 0, where there is no sequence
+  to count. Both now measure through `strip()` and `stringWidth()`, which is what
+  every other size in this repository is measured through and for the table's own
+  reason. Worth recording as a near-miss about the method rather than about the
+  bug: it was found by printing the number and reading it, which is the one check
+  no test in the suite makes, because a vitest worker's stdout has no colour.
 
 ##### What is deliberately out
 

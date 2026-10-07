@@ -138,6 +138,7 @@ describe('what importing the package costs', () => {
 		'ScrollBox',
 		'tableView',
 		'enableDebugOverlay',
+		'qrcodeView',
 	];
 
 	/** The bundles in a graph that define any of them. */

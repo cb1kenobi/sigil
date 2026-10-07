@@ -1243,6 +1243,8 @@ function key() {
  */
 async function qrcodeProbe() {
 	const { qrcode, encodeQr } = await import('../dist/components.mjs');
+	const { strip } = await import('../dist/ansi.mjs');
+	const { stringWidth } = await import('../dist/width.mjs');
 
 	let step = 0;
 	/**
@@ -1287,9 +1289,11 @@ async function qrcodeProbe() {
 			'the two half blocks a pixel short of each other'
 	);
 	const compact = show(url);
-	write(
-		`\r\n    ${compact.split('\n')[0].length} columns by ${compact.split('\n').length} lines\r\n`
-	);
+	// measured through `strip()` and `stringWidth()` rather than with
+	// `String.length`, because every line above colour level 0 carries the SGR that
+	// paints the two colours -- so a 29-column code has a 41-character line
+	const drawnLines = compact.split('\n');
+	write(`\r\n    ${stringWidth(strip(drawnLines[0]))} columns by ${drawnLines.length} lines\r\n`);
 	if (!(await next())) {
 		return;
 	}
@@ -1310,13 +1314,27 @@ async function qrcodeProbe() {
 	// ------------------------------------------------------------------ polarity
 	write(CLEAR + HOME);
 	heading(
-		'the inverted form, which is what a pipe and NO_COLOR get',
+		'the inverted form, which is what a pipe and NO_COLOR get on a DARK terminal',
 		'it scans too. At colour level 0 there is nothing to paint the two colours ' +
 			'with, so the light modules are the drawn ones and the terminal supplies ' +
 			'the dark -- a scanner that reads the painted codes and not this one is ' +
 			'why the polarity is worked out rather than fixed'
 	);
 	show(url, { colorLevel: 0, colorScheme: 'dark' });
+	if (!(await next())) {
+		return;
+	}
+
+	// ------------------------------------------------- the fourth of the four
+	write(CLEAR + HOME);
+	heading(
+		'the large form, inverted: what a pipe gets at the bigger size',
+		'it scans. This is the fourth of the four -- two forms times two ' +
+			'polarities -- and it is here because the module doc claims both forms at ' +
+			'both polarities and for one commit the probe drew three of them. A ' +
+			'review round found the sentence rather than the gap'
+	);
+	show(url, { colorLevel: 0, colorScheme: 'dark', form: 'large' });
 	if (!(await next())) {
 		return;
 	}

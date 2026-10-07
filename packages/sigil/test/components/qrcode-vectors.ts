@@ -372,7 +372,7 @@ export const QR_VECTORS: readonly QrVector[] = [
 		],
 		text: 'café naïve',
 		version: 1,
-		why: 'multi-byte UTF-8, where the character count is the byte count',
+		why: 'multi-byte UTF-8: ten characters and twelve bytes, and the count indicator counts the bytes',
 	},
 	{
 		ecc: 'Q',
@@ -1496,7 +1496,7 @@ export const QR_SEGMENTS: readonly QrSegmentCost[] = [
 		mixed: 1,
 		single: 1,
 		text: 'café naïve',
-		why: 'multi-byte UTF-8, where the character count is the byte count',
+		why: 'multi-byte UTF-8: ten characters and twelve bytes, and the count indicator counts the bytes',
 	},
 	{
 		ecc: 'Q',

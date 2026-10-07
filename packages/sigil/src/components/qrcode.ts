@@ -139,8 +139,8 @@
  * contiguous half block, whether your colours have the contrast a camera needs,
  * and whether your scanner reads the result. That is
  * `scripts/terminal-probe.mjs --qrcode`, which prints both forms at both
- * polarities and says in as many words that the check is to scan them with a
- * phone.
+ * polarities -- four codes, plus the two that are expected to be harder -- and
+ * says in as many words that the check is to scan them with a phone.
  *
  * ## What is deliberately out
  *
@@ -319,8 +319,15 @@ function multiply(a: number, b: number): number {
  * The Reed-Solomon generator polynomial for a number of ECC codewords.
  *
  * The product of `(x - 2^i)` for `i` from zero, which the spec writes out per
- * block size and which is one line of arithmetic instead. Returned
- * highest-degree-last, so `[i]` lines up with the divisor loop below.
+ * block size and which is one line of arithmetic instead.
+ *
+ * Returned **highest degree first**, with the leading 1 omitted: `[0]` is the
+ * coefficient of `x^(degree-1)` and the last entry is the constant term, which
+ * for degree 7 is `[alpha^87 ... alpha^21]` -- the spec's own published
+ * polynomial read left to right. That is the order `remainder()` reads, since it
+ * takes `result[0]` as the high coefficient before the shift, and the comment
+ * here said the opposite for a commit: reversing the array to match it would emit
+ * a wrong ECC codeword for every block there is. Found by review.
  *
  * @param degree - How many ECC codewords.
  * @returns The coefficients, without the leading 1.
@@ -878,9 +885,12 @@ function drawCodewords(grid: Grid, codewords: Uint8Array): void {
 			for (let j = 0; j < 2; j++) {
 				const x = right - j;
 				// which way this pair runs: the pairs alternate, counted from the
-				// right-hand edge, so the shift above flips it for everything left
-				// of the timing pattern -- which is the spec's layout and not a
-				// consequence of the shift being written this way
+				// right-hand edge. The shift above does **not** change it -- `(6+1)&2`
+				// and `(5+1)&2` are the same bit, as are 4 and 3 and 2 and 1 -- so
+				// what the assignment changes is which columns are visited and
+				// nothing else. The comment here claimed a flip for a commit, which
+				// is worse than no comment: compensating for it would reverse every
+				// pair left of the timing pattern. Found by review
 				const upward = ((right + 1) & 2) === 0;
 				const y = upward ? size - 1 - step : step;
 
@@ -1074,7 +1084,7 @@ export interface QrEncodeOptions {
  * than argued.** A payload split into a numeric run and a byte run can be a
  * version smaller than one segment of either, and `QR_SEGMENTS` in
  * `test/components/qrcode-vectors.ts` is the same payloads through a reference
- * encoder's own segment optimiser: 26 of 28 come out the same version either way,
+ * encoder's own segment optimiser: 29 of 31 come out the same version either way,
  * including an https URL, an otpauth URI, a vCard and a network credential.
  * `tel:+15551234567` is one version larger here, and a label followed by a
  * hundred and twenty digits -- which is the worst case this shape has -- is four.
@@ -1128,11 +1138,33 @@ export function encodeQr(value: string, opts: QrEncodeOptions = {}): QrCode {
 		version++;
 	}
 	if (version > MAX_VERSION) {
-		const held = Math.floor((dataCodewords(MAX_VERSION, ecc) * 8 - 4 - 14) / 8);
+		// what the largest version holds **in this mode**, which is the number the
+		// caller can act on. The message used to print a byte figure labelled as
+		// characters for every mode, so a numeric payload over capacity was told
+		// 2,331 where version 40-M holds 5,596 digits -- what is load bearing here
+		// is the per-mode unit, which `should say what a payload that does not fit
+		// would need, in its own mode` pins against the published figures.
+		//
+		// `COUNT_BITS[mode][2]` rather than the literal 14 is **equivalent**, which
+		// is declared rather than discovered: measured over all twelve combinations
+		// of level and mode, the three band-2 widths -- 14, 13 and 16 -- floor to the
+		// same held figure as a flat 14, because a difference of a bit or two cannot
+		// cross a 10-, 11- or 8-bit group boundary at version 40's sizes. Band 0's
+		// widths do differ, by one character in eleven of the twelve. It stays
+		// written as the mode's own indicator because that is the number the
+		// arithmetic means
+		const bits = dataCodewords(MAX_VERSION, ecc) * 8 - 4 - COUNT_BITS[mode][2];
+		const held =
+			mode === 'numeric'
+				? Math.floor(bits / 10) * 3 + (bits % 10 >= 7 ? 2 : bits % 10 >= 4 ? 1 : 0)
+				: mode === 'alphanumeric'
+					? Math.floor(bits / 11) * 2 + (bits % 11 >= 6 ? 1 : 0)
+					: Math.floor(bits / 8);
+		const unit = mode === 'byte' ? 'bytes' : 'characters';
 		throw new Error(
 			`This payload needs more than a version ${MAX_VERSION} QR code holds at level ${ecc}: ` +
-				`${mode === 'byte' ? bytes.length : value.length} characters against about ${held} ` +
-				`bytes. A lower error-correction level holds more.`
+				`${charCount(value, mode, bytes)} ${unit} in ${mode} mode against ${held}. ` +
+				`A lower error-correction level holds more.`
 		);
 	}
 
@@ -1246,6 +1278,14 @@ export function qrLines(code: QrCode, opts: QrLinesOptions = {}): string[] {
 	}
 
 	const form = opts.form ?? 'compact';
+	// refused rather than read as `compact`, which is the rule a key spec that
+	// cannot be a key already follows: `form: 'Large'` from a JavaScript caller
+	// would otherwise draw the compact code and say nothing, which is the
+	// parses-and-does-nothing shape this repository refuses
+	if (form !== 'compact' && form !== 'large') {
+		throw new Error(`Unknown QR form "${form}": expected "compact" or "large"`);
+	}
+
 	const invert = opts.invert ?? false;
 	const span = code.size + quiet * 2;
 
@@ -1269,7 +1309,15 @@ export function qrLines(code: QrCode, opts: QrLinesOptions = {}): string[] {
 
 	// one more light row where the count is odd, so that no cell holds half a
 	// module. Reading past the grid is what `drawn()` already answers for, so the
-	// extra row needs no case of its own -- only the row count does
+	// extra row needs no case of its own -- only the row count does.
+	//
+	// It is **always** odd, which is worth knowing and is not obvious: a symbol is
+	// `4 * version + 17` modules on a side, which is odd for every version, and a
+	// quiet zone is added twice, which is even -- so the padding fires for every
+	// code there has ever been and the even branch is unreachable. Written as the
+	// parity rather than as `+ 1` because the parity is the *reason* it adds one,
+	// and `should be an odd number of module rows for every version` is what keeps
+	// that a checked fact rather than a claim in a comment. Found by review
 	const rows = span + (span % 2);
 
 	return Array.from({ length: rows / 2 }, (_, cell) => {

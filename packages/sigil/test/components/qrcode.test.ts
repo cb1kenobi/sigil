@@ -62,6 +62,33 @@ describe('the published capacities', () => {
 		Q: { alnum: 2420, bytes: 1663, digits: 3993 },
 	};
 
+	// the capacity the *error message* names, against the same published table.
+	// Two paths to one number: one encodes a payload of that length and asserts
+	// the version, and this reads the figure the message computes -- so a
+	// capacity derivation that drifted would have to drift in both to stay quiet.
+	// All twelve are the spec's own version 40 figures
+	it('should name the published capacity in the message, for every mode and level', () => {
+		const PUBLISHED: Readonly<Record<QrEcc, readonly [number, number, number]>> = {
+			H: [3057, 1852, 1273],
+			L: [7089, 4296, 2953],
+			M: [5596, 3391, 2331],
+			Q: [3993, 2420, 1663],
+		};
+
+		for (const ecc of LEVELS) {
+			const [digits, alnum, bytes] = PUBLISHED[ecc];
+			expect(() => encodeQr('7'.repeat(digits + 1), { ecc }), `${ecc} numeric`).to.throw(
+				new RegExp(`in numeric mode against ${digits}\\.`)
+			);
+			expect(() => encodeQr('Z'.repeat(alnum + 1), { ecc }), `${ecc} alnum`).to.throw(
+				new RegExp(`in alphanumeric mode against ${alnum}\\.`)
+			);
+			expect(() => encodeQr('b'.repeat(bytes + 1), { ecc }), `${ecc} byte`).to.throw(
+				new RegExp(`in byte mode against ${bytes}\\.`)
+			);
+		}
+	});
+
 	for (const ecc of LEVELS) {
 		it(`should hold exactly what the spec says version 40-${ecc} holds`, () => {
 			const { alnum, bytes, digits } = MAX[ecc];
@@ -219,11 +246,22 @@ describe('the options', () => {
 		expect(() => encodeQr('x', { mask: Number.NaN })).to.throw(/from 0 to 7/);
 	});
 
-	it('should say what a payload that does not fit would need', () => {
+	it('should say what a payload that does not fit would need, in its own mode', () => {
 		// the message is what somebody acts on, so it names the level and says
-		// that a lower one holds more -- which is the one thing they can change
+		// that a lower one holds more -- which is the one thing they can change.
+		// And the capacity it names is the **mode's** own: it used to be computed
+		// from a 14-bit count indicator whatever the mode and labelled "bytes" for
+		// all three, so a numeric payload was told a number it was nowhere near.
+		// Found by review
 		expect(() => encodeQr('b'.repeat(3000))).to.throw(/level M/);
 		expect(() => encodeQr('b'.repeat(3000))).to.throw(/lower error-correction level holds more/);
+		expect(() => encodeQr('b'.repeat(3000))).to.throw(/3000 bytes in byte mode against 2331/);
+		expect(() => encodeQr('7'.repeat(6000))).to.throw(
+			/6000 characters in numeric mode against 5596/
+		);
+		expect(() => encodeQr('Z'.repeat(4000))).to.throw(
+			/4000 characters in alphanumeric mode against 3391/
+		);
 	});
 });
 
@@ -271,6 +309,10 @@ describe('the quiet zone', () => {
 		expect(qrLines(code, { form: 'large', quietZone: 0 })[0].length).to.equal(code.size * 2);
 		expect(qrLines(code, { form: 'large', quietZone: 8 })[0].length).to.equal((code.size + 16) * 2);
 		expect(() => qrLines(code, { quietZone: -1 })).to.throw(/whole number of modules/);
+		// and a form that is not one of the two, refused rather than drawn as
+		// compact: `form: 'Large'` from a JavaScript caller would otherwise draw
+		// the wrong code and say nothing
+		expect(() => qrLines(code, { form: 'Large' as 'large' })).to.throw(/Unknown QR form/);
 		expect(() => qrLines(code, { quietZone: 1.5 })).to.throw(/whole number of modules/);
 		expect(() => qrLines(code, { quietZone: Number.NaN })).to.throw(/whole number of modules/);
 	});
@@ -290,13 +332,28 @@ describe('the quiet zone', () => {
 			expect([' ', '▀']).to.contain(cell);
 		}
 
-		// and an even count needs no padding: a quiet zone of 5 is 31 rows, 4 is
-		// 29, so 3 is 27 -- also odd -- and 4 with version 2 is 33. The even one
-		// to hand is a quiet zone of 3 on version 2, which is 31. So: pick one
-		// arithmetically rather than by hand
+		// the row count, over several quiet zones, as the formula rather than by
+		// hand
 		for (let quiet = 0; quiet <= 6; quiet++) {
 			const span = code.size + quiet * 2;
 			expect(qrLines(code, { quietZone: quiet }).length).to.equal((span + (span % 2)) / 2);
+		}
+	});
+
+	// and the fact under it, which the first version of the test above got
+	// backwards -- it named a quiet zone of 3 on version 2 as the *even* case and
+	// 31 is odd. There is no even case: a symbol is `4 * version + 17` modules on
+	// a side, which is odd for every version, and a quiet zone is added twice,
+	// which is even. So the padding fires for every code there has ever been, and
+	// the even branch of `span + (span % 2)` is unreachable. Asserted rather than
+	// left in a comment, because the expression is written as a parity on the
+	// strength of it. Found by review
+	it('should be an odd number of module rows for every version', () => {
+		for (let version = 1; version <= 40; version++) {
+			expect((version * 4 + 17) % 2, `v${version}`).to.equal(1);
+			for (let quiet = 0; quiet <= 8; quiet++) {
+				expect((version * 4 + 17 + quiet * 2) % 2, `v${version} q${quiet}`).to.equal(1);
+			}
 		}
 	});
 });
@@ -386,14 +443,28 @@ describe('the two forms', () => {
 
 describe('the polarity', () => {
 	it('should draw the dark modules wherever it can paint its own colours', () => {
+		// through the component rather than through `qrLines()` with the answer
+		// handed to it, which is what the first version of this did: it looped the
+		// levels and then drew with `invert: false` itself, so the level never
+		// reached `polarity()` at all and deleting the `level > 0` branch left it
+		// green. Found by review. What makes it say something is comparing the
+		// *drawn output* at each level against the un-inverted drawing, and
+		// against a level-0 dark terminal, which must differ
+		const plain = qrLines(encodeQr('x'), { invert: false }).map((line) => line.replace(/ +$/, ''));
+		const inverted = qrcode('x', { colorLevel: 0, colorScheme: 'dark' });
+
 		for (const level of [1, 2, 3] as const) {
-			const lines = qrLines(encodeQr('x'), { invert: false });
-			const view = qrcodeView('x', { colorLevel: level });
-			expect(qrLines(view.code, { invert: false }), `level ${level}`).to.deep.equal(lines);
-			// the top-left cell is two quiet-zone rows, which are light, so an
-			// un-inverted code starts with nothing drawn
-			expect(lines[0][0]).to.equal(' ');
+			const drawn = strip(qrcode('x', { colorLevel: level })).split('\n');
+			expect(
+				drawn.map((line) => line.replace(/ +$/, '')),
+				`level ${level}`
+			).to.deep.equal(plain);
+			expect(drawn.join('\n'), `level ${level}`).to.not.equal(inverted);
 		}
+
+		// the top-left cell is two quiet-zone rows, which are light, so an
+		// un-inverted code starts with nothing drawn
+		expect(plain[0]).to.equal('');
 	});
 
 	it('should draw the light modules at level 0 on a dark terminal', () => {

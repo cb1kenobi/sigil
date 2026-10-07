@@ -1,4 +1,6 @@
+import { strip } from '@ttylabs/sigil/ansi';
 import { encodeQr, qrcode } from '@ttylabs/sigil/components';
+import { stringWidth } from '@ttylabs/sigil/width';
 
 /**
  * A QR code: the encoder, and the two ways to draw one in cells.
@@ -28,6 +30,24 @@ import { encodeQr, qrcode } from '@ttylabs/sigil/components';
 
 const url = 'https://github.com/cb1kenobi/sigil';
 
+/**
+ * How big a drawn code is, in cells.
+ *
+ * `String.length` is the wrong answer and is the obvious one: above colour level
+ * 0 every line carries the SGR that paints the two colours, so a 29-column code
+ * has a 41-character first line -- and this demo printed that number for a round.
+ * Stripping and then measuring display columns is what every other size in this
+ * repository is measured through, for the same reason the table's own column
+ * widths are.
+ *
+ * @param {string} drawn - What `qrcode()` answered.
+ * @returns {string} The size, as columns by lines.
+ */
+function sizeOf(drawn) {
+	const lines = drawn.split('\n');
+	return `${stringWidth(strip(lines[0]))} columns by ${lines.length} lines`;
+}
+
 console.log(`
   Scan these. That is the only check that matters, and it is the one
   nothing in the test suite can make.
@@ -40,18 +60,14 @@ console.log(`
 // column by half a cell -- which on a terminal whose cells are about twice as
 // tall as they are wide is about square
 const compact = qrcode(url);
-console.log(
-	`  compact -- ${compact.split('\n')[0].length} columns by ${compact.split('\n').length} lines\n`
-);
+console.log(`  compact -- ${sizeOf(compact)}\n`);
 console.log(compact);
 
 // and the large one, which is two columns per module and one row: the same
 // symbol, about square again, and twice the size on both axes. What to reach for
 // when a scanner is struggling or the font is small
 const large = qrcode(url, { form: 'large' });
-console.log(
-	`\n  large -- ${large.split('\n')[0].length} columns by ${large.split('\n').length} lines\n`
-);
+console.log(`\n  large -- ${sizeOf(large)}\n`);
 console.log(large);
 
 // what the encoder chose, which is most of what there is to get wrong
@@ -65,8 +81,10 @@ console.log(`
 
 // the four levels, so that what error correction costs in size is a thing on
 // screen rather than a number in a table. H recovers about thirty per cent of a
-// damaged symbol and is two versions larger here; a screen is not damaged, which
-// is why the default is M
+// damaged symbol and is one version larger than L for this payload -- a screen is
+// not damaged, which is why the default is M. The loop prints the real versions
+// rather than a number in this comment, which is what the comment said wrongly
+// for a commit
 console.log('  what each error-correction level costs, for this payload:\n');
 for (const ecc of ['L', 'M', 'Q', 'H']) {
 	const one = encodeQr(url, { ecc });
@@ -74,16 +92,16 @@ for (const ecc of ['L', 'M', 'Q', 'H']) {
 	console.log(
 		`    ${ecc}  version ${String(one.version).padStart(2)}, ` +
 			`${String(one.size).padStart(3)} modules square, ` +
-			`${drawn.split('\n')[0].length} by ${drawn.split('\n').length} cells`
+			sizeOf(drawn)
 	);
 }
 
 // the quiet zone, which is the thing most hand-rolled terminal QR renderers lose.
 // Four light modules on every side is what a scanner locates the symbol against,
 // and a code drawn flush against a text run is frequently unscannable -- so it is
-// in the matrix rather than in padding, where a theme cannot take it away. This
-// one is drawn with none, and the point of printing it is that it is the one above
-// that scans
+// in the matrix rather than in padding, where a theme cannot take it away. The one
+// below is drawn with **none**, and it is here to be the harder scan: the codes
+// above have their quiet zone and this one does not
 console.log(`
   and the same code with no quiet zone, which is the thing to try scanning
   second: a scanner that reads the one above and not this one is the quiet

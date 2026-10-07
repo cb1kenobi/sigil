@@ -188,10 +188,12 @@ export const FRAMEWORK_CSS = `
  *
  * It needs no light half, because the two colours are not read against the
  * terminal's background at all -- the background *is* one of them. And it has no
- * answer at level 0, where the colours are dropped: the component draws the other
- * modules there instead, so that whichever colour the terminal's foreground
- * already is becomes the dark half of the code. That is the component's decision
- * rather than this sheet's, because which glyph is drawn is content.
+ * answer at level 0, where the colours are dropped: the component draws whichever
+ * modules match the terminal's own foreground there instead, which on a dark
+ * terminal is the light ones and on a light terminal is the dark ones -- so the
+ * scheme is read along with the level and a pipe is not unconditionally inverted.
+ * That is the component's decision rather than this sheet's, because which glyph
+ * is drawn is content.
  */
 .sigil-qrcode-body { color: black; background-color: white }
 
