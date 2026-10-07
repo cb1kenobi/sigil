@@ -13941,6 +13941,15 @@ bar three exceptions that say why` -- a test title that no longer exists, since
   rather than anything either mode does. Shared behaviour rather than something
   this change introduced, which is why it is written down rather than fixed inside
   a ticket about a QR code.
+- **The eject was run rather than assumed, and it needs nothing of the
+  scaffold.** `sigil add qrcode` into a bare app copies one file whose four
+  imports are all rewritten to published subpaths, and the ejected copy
+  **type-checks clean** -- with `lib: ["esnext"]` and `types: ["node"]`, which is
+  what `sigil new` writes, and also with the **default** lib, which is the half
+  worth knowing: `spinner.ts` needs those two lines, because `lib.dom` declares
+  `setInterval(): number` and shadows `NodeJS.Timeout`, and this component holds
+  no timer and no DOM-shadowed global, so it adds no constraint of its own.
+  Checked both ways rather than inferred from the spinner's entry.
 - **The rest of the worklist is clean, and saying which is the point of having
   one.** `--qrcode` needs no `finally`, because `key()` puts raw mode back itself
   after every key and the mode sets no mode and queries nothing -- which is
