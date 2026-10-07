@@ -13794,6 +13794,26 @@ correctness no test in this package can state, which is the position
   otherwise make the answer depend on the machine. Flipping one row's expected
   polarity fails 56 of the 168.
 
+- **The exhaustive walk names its mask, which is faster _and_ better coverage.**
+  `should produce a well-formed symbol for all 160 combinations` took **4.7s**
+  against this package's 10s `testTimeout`, and 87% of it was choosing a mask:
+  3,989ms against 472ms for the same 160 encodes, because choosing scores all eight
+  over the whole symbol and version 40 is 177x177 read four times per mask. Two
+  seconds of headroom is a test decided by what else the machine is doing, which is
+  the shape `should cap the acceleration` is already written down for -- and this
+  one was **reported failing** rather than caught here, because 18 vitest workers
+  on a busy machine is a load a quiet local run does not reproduce.
+
+  Choosing is not what the walk is for: it is the per-version tables, and mask
+  _selection_ is pinned by the 24 reference symbols, each of which asserts
+  `code.mask` against another encoder's. So the mask is named -- and **cycled**,
+  `version % 8`, which is what makes it the better answer rather than only the
+  cheaper one: `checkStructure()` reads the mask back out of the format
+  information, so what the mask varies is the format BCH, and the penalty score
+  over `'x'` reaches **seven** of the eight masks and never 5, where cycling
+  reaches all eight twenty times each. Measured: **815ms**, with the next slowest
+  test in the file at 201ms.
+
   The script is **committed**, as `scripts/verify-qrcode-decode.mjs`, for
   `benchmark-paint-cull.mjs`'s reason read one layer along: a number in a pull
   request is a claim the next reader has to trust, and a script they can run is

@@ -293,7 +293,26 @@ describe('every version, at every level', () => {
 	it('should produce a well-formed symbol for all 160 combinations', () => {
 		for (let version = 1; version <= 40; version++) {
 			for (const ecc of LEVELS) {
-				const code = encodeQr('x', { ecc, version });
+				// the mask is **named** rather than chosen, which is faster and is also
+				// better coverage -- both halves measured rather than assumed.
+				//
+				// Choosing one scores all eight over the whole symbol, which at version
+				// 40 is 177x177 read four times per mask, and it is **87% of this
+				// test**: 3,989ms against 472ms for the same 160 encodes. At 4.7s
+				// against this package's 10s `testTimeout` that is a test decided by
+				// what else the machine is doing, which is the shape `should cap the
+				// acceleration` is already written down for -- and it was reported
+				// failing. Choosing is not what this walk is for either: it is the
+				// per-version tables, and mask *selection* is pinned by the 24
+				// reference symbols, each of which asserts `code.mask` against another
+				// encoder's.
+				//
+				// Cycling the version is what makes it the better answer rather than
+				// only the cheaper one. `checkStructure()` reads the mask back out of
+				// the format information, so what the mask varies is the format BCH --
+				// and the penalty score over `'x'` reaches **seven** of the eight,
+				// never 5, while `version % 8` reaches all eight twenty times each
+				const code = encodeQr('x', { ecc, version, mask: version % 8 });
 				const size = version * 4 + 17;
 
 				expect(code.version, `v${version} ${ecc}`).to.equal(version);
