@@ -46,6 +46,7 @@ node demos/parser/06-lazy-commands.js --help  # commands listed by name alone
 | [`components/07-typewriter.js`](components/07-typewriter.js)       | Text that arrives rather than appears                   |
 | [`components/08-large-text.js`](components/08-large-text.js)       | Banner text, and the `.flf` format behind it            |
 | [`components/09-decrypt.js`](components/09-decrypt.js)             | Text that jumbles, then resolves into itself            |
+| [`components/10-qrcode.js`](components/10-qrcode.js)               | A QR code, in half blocks and in full cells             |
 
 ### Try them without a terminal
 
@@ -73,6 +74,23 @@ because the cipher cells and the resolved ones are two elements over one
 rectangle and each resolves its own style. The sixth is `text-overflow` on a path
 too long for its box: a decrypt is cut and marked the way any other text is, in
 `ellipsis-middle`, which keeps the project at one end and the file at the other.
+
+`10-qrcode.js` is the one where a pipe and a terminal get the **same bytes**. A
+scanner wants dark modules on a light background and a terminal already has a light
+colour and a dark one, so the component borrows them rather than painting any: the
+drawn modules are whichever ones the terminal's foreground already is, which puts
+dark modules on dark and light on light on either scheme. So every run is block
+characters with not one escape sequence in it, at any colour level, and
+`SIGIL_COLOR_SCHEME=light` flips which modules are drawn. `paint: true` paints
+black on white instead, for a terminal whose own two colours lack the contrast a
+camera needs, and it costs an uneven border — a painted code is a white rectangle
+of whole cells around an odd number of module rows, so its vertical border is odd
+and splits one module and two. It reads no keys, so there is nothing in it that
+needs a terminal on both sides.
+
+What it cannot tell you is whether the code **scans**, which is the only thing
+about a QR code that matters and is the one claim nothing in a process can make.
+`node packages/sigil/scripts/terminal-probe.mjs --qrcode` is that, with a camera.
 
 `08-large-text.js` is the one where the answer is that nothing changes: a banner
 is static text, so there is no cursor to move and a pipe gets byte for byte what

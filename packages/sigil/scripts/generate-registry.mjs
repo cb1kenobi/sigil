@@ -98,6 +98,10 @@ const ENTRIES = [
 		desc: 'A debug overlay: captured console output and frame stats, inside the app',
 		name: 'debug-overlay',
 	},
+	{
+		desc: 'A QR code, encoded here and drawn in half blocks or in full cells',
+		name: 'qrcode',
+	},
 ];
 
 /** `./src/element/index.ts` -> `element`, read off the build's own entry list. */
