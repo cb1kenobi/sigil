@@ -1318,15 +1318,15 @@ async function qrcodeProbe() {
 	// ------------------------------------------------------------------ polarity
 	write(CLEAR + HOME);
 	heading(
-		'the inverted form, which is what a pipe and NO_COLOR get on a DARK terminal',
-		'it scans too, and it is correctly polarised rather than merely readable: ' +
-			'at colour level 0 there is nothing to paint the two colours with, so the ' +
-			'light modules are the drawn ones and the terminal supplies the dark, ' +
-			'which puts dark modules on dark and light on light exactly as the painted ' +
-			'codes do. A scanner that reads those and refuses this one is telling you ' +
-			"about your terminal's own contrast rather than about the polarity"
+		'the painted form, which is the opt-in rather than the default',
+		'`paint: true` draws black on its own white instead of borrowing your ' +
+			"terminal's two colours. It is what to reach for when the codes above do " +
+			'not scan, because it does not depend on your own contrast -- and it ' +
+			'costs an uneven border, one module on one edge and two on the other, ' +
+			'which is parity rather than a bug: a painted code is a white rectangle ' +
+			'of whole cells around an odd number of module rows'
 	);
-	show(url, { colorLevel: 0, colorScheme: 'dark' });
+	show(url, { paint: true });
 	if (!(await next())) {
 		return;
 	}

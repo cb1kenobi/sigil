@@ -17,13 +17,18 @@ import { stringWidth } from '@ttylabs/sigil/width';
  * the contrast a camera needs, and whether your scanner reads the result. That
  * one needs a camera.
  *
- * Without a terminal it is the same component and a *different drawing*, which is
- * the one thing in this file worth knowing before running it. At colour level 0
- * -- a pipe, or NO_COLOR -- there is nothing to paint the two colours with, so the
- * component draws the other modules: whichever colour the terminal's foreground
- * already is becomes the dark half of the code. So a piped run is block
- * characters with not one escape sequence in it, correctly polarised for a dark
- * terminal, and `SIGIL_COLOR_SCHEME=light` flips it back.
+ * A pipe and a terminal get the **same bytes**, which is the one thing in this
+ * file worth knowing before running it: the component borrows the terminal's own
+ * two colours rather than painting any, so the drawn modules are whichever ones
+ * its foreground already is and there is not one escape sequence in the output at
+ * any colour level. `SIGIL_COLOR_SCHEME=light` flips which modules are drawn.
+ *
+ * `paint: true` is the opt-in that paints black on white instead, for a terminal
+ * whose own two colours lack the contrast a camera needs. It costs an uneven
+ * border: a painted code is a white rectangle of whole cells and a symbol is an
+ * odd number of module rows, so the vertical border is odd and comes out one
+ * module on one edge and two on the other, where borrowing leaves the odd
+ * half-cell as the page and the border is the quiet zone and nothing else.
  *
  * It reads no keys, so there is nothing here that needs a terminal on both sides.
  */

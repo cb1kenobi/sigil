@@ -1282,6 +1282,35 @@ export interface QrLinesOptions {
 	quietZone?: number;
 }
 
+export interface QrPaintOptions {
+	/**
+	 * Whether to paint the code's own two colours rather than borrow the
+	 * terminal's. Defaults to false.
+	 *
+	 * **Painting guarantees the polarity and the contrast and costs an uneven
+	 * border, and the border is why it is not the default.** A painted code is a
+	 * white rectangle of whole cells, a symbol is an odd number of module rows,
+	 * and a half block per cell pairs them two at a time -- so the vertical white
+	 * border is `2 * cells - size`, which is odd for every version and every
+	 * quiet zone there is. An odd total cannot split evenly, so a painted border
+	 * is one module on one edge and two on the other and can never be one and
+	 * one. Measured at versions 1, 3, 10 and 40 and quiet zones 1 to 4: 3, 5, 7
+	 * and 9 half-rows, never even.
+	 *
+	 * Unpainted there is no rectangle: the drawn modules are whichever ones match
+	 * the terminal's foreground, the rest is its background, and the half-cell an
+	 * odd span leaves over is the page -- so the border is the quiet zone and
+	 * nothing else, on every edge. That is the polarity `colorLevel: 0` has
+	 * always used, it is what every other terminal QR renderer draws, and it is
+	 * one of the three destinations `scripts/verify-qrcode-decode.mjs` decodes.
+	 *
+	 * What painting buys is a code that does not depend on the terminal's own two
+	 * colours having the contrast a camera needs, which is the case to reach for
+	 * it in.
+	 */
+	paint?: boolean;
+}
+
 /**
  * Draws a symbol as lines of cells.
  *
@@ -1386,7 +1415,8 @@ export function qrLines(code: QrCode, opts: QrLinesOptions = {}): string[] {
 	});
 }
 
-export interface QrViewOptions extends StyledOptions, QrEncodeOptions, QrLinesOptions {}
+export interface QrViewOptions
+	extends StyledOptions, QrEncodeOptions, QrLinesOptions, QrPaintOptions {}
 
 /**
  * Whether the light modules are the ones to draw.
@@ -1407,9 +1437,15 @@ function polarity(opts: QrViewOptions): boolean {
 		return opts.invert;
 	}
 
-	const level = opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level;
-	if (level > 0) {
-		return false;
+	// painting is the one case with two colours of its own to draw with, and it
+	// draws the dark modules on its own white. Everything else borrows the
+	// terminal's two, so the drawn modules have to be the ones whose colour the
+	// foreground already is
+	if (opts.paint === true) {
+		const level = opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level;
+		if (level > 0) {
+			return false;
+		}
 	}
 
 	const scheme: ColorScheme = opts.colorScheme ?? schemeFromEnv() ?? DEFAULT_MEDIA.colorScheme;
@@ -1420,14 +1456,16 @@ function polarity(opts: QrViewOptions): boolean {
  * The code, as an element tree.
  *
  * One `nowrap` `text` of the lines, inside a box that carries the component
- * class. The colours are the sheet's: `.sigil-qrcode-body` is black on white,
- * which is what makes the light modules light rather than "whatever was behind
- * the code", and it is on the body rather than on the box because
- * `background-color` does not inherit.
+ * class. By default it carries no colour at all: the drawn modules are whichever
+ * ones match the terminal's own foreground, which is what keeps the border the
+ * quiet zone and nothing else -- see `QrPaintOptions.paint` for the parity that
+ * decides. `paint: true` adds `.sigil-qrcode-paint`, which is black on white, and
+ * it is on the body rather than on the box because `background-color` does not
+ * inherit.
  *
- * A caller putting this in a tree of their own has to pass the colour level their
- * renderer is at, because the level is what decides which modules are drawn and
- * this is not a mounted component with a media context to read.
+ * A caller putting this in a tree of their own has to pass the colour scheme
+ * their destination is against, because the scheme is what decides which modules
+ * are drawn and this is not a mounted component with a media context to read.
  *
  * @param value - The payload.
  * @param opts - The encoding, the form, and the theme.
@@ -1445,7 +1483,12 @@ export function qrcodeView(
 		element: box(
 			{ class: 'sigil-qrcode' },
 			textNode(lines.join('\n'), {
-				class: 'sigil-qrcode-body',
+				// the paint class is what carries the two colours, so it is added
+				// rather than written into the body's: a code that borrows the
+				// terminal's two has no colour of its own to name, and a prop beats
+				// a sheet per property, so a colour here is one a theme could not
+				// reach
+				class: opts.paint === true ? 'sigil-qrcode-body sigil-qrcode-paint' : 'sigil-qrcode-body',
 				'white-space': 'nowrap',
 			})
 		),

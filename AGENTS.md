@@ -3127,7 +3127,7 @@ changed the viewport` over a renderer, plus the shrinking direction and a
   `sigil-${outcome}` lands on a role for all four values of `SpinnerOutcome`,
   which is the one emission that computes its class.
 
-  `.sigil-caret`, `.sigil-scroll-track`, `.sigil-debug` and `.sigil-qrcode-body`
+  `.sigil-caret`, `.sigil-scroll-track`, `.sigil-debug` and `.sigil-qrcode-paint`
   are the four declared exceptions: no role is inversion; the track is the one
   grey here that is not de-emphasised _text_, so it must not be `.sigil-muted` --
   that role is `dim` on a dark terminal, and a dim track is not a track;
@@ -13567,12 +13567,16 @@ spec's four where asked`, so neither the default nor the knob can move without
   bottom**: a first row twice as thick as the last, which is what "the first row is
   too thick" was.
 
-  There is no arrangement with one module on both edges of the painted form, and
-  that is worth writing down because it is the obvious next fix. A cell carries one
-  style, so the pad half cannot be painted the page's colour; and an even span
-  needs an odd _total_ vertical quiet zone -- `1` and `2` -- which puts a full cell
-  on one edge again and costs the inverted form the symmetry it has here. Measured,
-  the answer is `top: 1, bottom: 2` painted and `1, 1` inverted.
+  **And there is no arrangement with one module on both edges of the painted form,
+  which is what made painting stop being the default.** The border is
+  `2 * cells - size` half-rows, `size` is odd for every version, so the total is
+  odd -- measured at versions 1, 3, 10 and 40 and quiet zones 1 to 4, it is 3, 5, 7
+  and 9 and never even. An odd total cannot split evenly. A cell carries one style,
+  so the pad half cannot be painted the page's colour; and an even span needs an
+  odd _total_ vertical quiet zone -- `1` and `2` -- which puts a full cell on one
+  edge again. So painted is `1, 2` and nothing else is available to it, where
+  unpainted is `1, 1` because the leftover half-cell is the page. The entry below
+  is what follows from that.
 
   `should keep the border one module at the top in both polarities` is what makes
   that a check rather than a sentence, and it reads the border back **off the
@@ -13585,19 +13589,31 @@ spec's four where asked`, so neither the default nor the knob can move without
   one value, because it depends on both the version and the quiet zone and a single
   case cannot see that.
 
-- **A QR code at colour level 0 draws the _other_ modules, which is the one
-  expression this whole decision comes to.** A scanner expects dark modules on a
-  light background and a terminal is usually light-on-dark, so painting "dark
-  module = the terminal's foreground" produces an inverted code -- which most
-  modern readers take and some do not. Above level 0 the component paints its own
-  two colours and draws the dark modules. At level 0 every colour and attribute is
-  dropped -- a pipe and `NO_COLOR` are the two ways there -- so painting is not
-  available and the only two colours left are the terminal's own: the answer is to
+- **A QR code draws whichever modules match the terminal's own foreground, and
+  painting its own two colours is the opt-in.** A scanner expects dark modules on a
+  light background, and a terminal already has a light colour and a dark one: on a
+  dark terminal the light modules are the foreground and the dark ones are the
+  background, and on a light terminal it is the other way round. So the rule is to
   draw whichever module colour _matches the foreground_, which is
-  `colorLevel === 0 && scheme === 'dark'` and nothing else. So a piped code is
-  correctly polarised block characters with not one escape sequence in it, and the
-  quiet zone comes out as a border of drawn blocks there, which is what makes it
-  light on screen.
+  `scheme === 'dark'` and nothing else -- and the result is correctly polarised
+  block characters with not one escape sequence in them, at **every** colour level,
+  with the quiet zone coming out as a border of drawn blocks on a dark terminal and
+  as the page itself on a light one.
+
+  It was the other way round for three commits, painting `color: black;
+background-color: white` above level 0 so that the two colours were known rather
+  than borrowed. What that costs is the parity above: a painted code is a white
+  rectangle of whole cells and its border can never be even. Reported three times
+  from a terminal -- the quiet zone too wide, then the first row too thick, then
+  the last -- and the third report is the one that could not be answered by moving
+  anything, because `1, 2` is the whole of what painting can do. `paint: true`
+  keeps it, for a terminal whose own two colours do not have the contrast a camera
+  needs, which is the case it is actually for.
+
+  The polarity rule is `polarity()` either way, and painting is the only branch
+  that reads the **level**: it is the one destination with two colours of its own,
+  so it draws the dark modules, and at level 0 even that is gone and it falls back
+  to the terminal's. Everything else reads the scheme alone.
 
   It cannot be a cascade answer, which is worth saying because it looks like one:
   which **glyph** is drawn is content rather than style, and `inverse` is an
@@ -13612,15 +13628,17 @@ spec's four where asked`, so neither the default nor the knob can move without
   halves of that are different mechanisms.** `renderToString()` drops a trailing
   run of blanks that _show nothing_, and a blank with a background shows
   something -- measured, `ESC[30;47mab   ESC[0m` against `ab` for the same text
-  without one. So above level 0 the light column on the right is painted
-  spaces and is kept; at level 0 the inverted form ends every line in drawn
-  blocks, so there is nothing to drop; and at level 0 on a _light_ terminal the
-  trailing spaces really are dropped and the terminal's own background is the
-  quiet zone, which is the one case where the right answer costs nothing. Every
-  line's width is asserted at both levels.
+  without one. So a **painted** code's light column on the right is painted spaces
+  and is kept; on a dark terminal the drawn form ends every line in drawn blocks,
+  so there is nothing to drop; and on a _light_ terminal the trailing spaces really
+  are dropped and the terminal's own background is the quiet zone, which is the one
+  case where the right answer costs nothing. Each line's width is asserted painted
+  and unpainted.
 
 - **The sheet's fourth declared exception, and the only one that is a pair.**
-  `.sigil-qrcode-body { color: black; background-color: white }`. Neither of them
+  `.sigil-qrcode-paint { color: black; background-color: white }`, which is on the
+  class `paint: true` adds rather than on the body, so a code that borrows the
+  terminal's own two colours carries no colour at all. Neither of them
   is de-emphasis, a state or an accent, so no role could carry them -- which is
   the same shape `.sigil-caret`, `.sigil-scroll-track` and `.sigil-debug` are
   already written down as, and `should declare on a role, bar four exceptions that
@@ -13760,11 +13778,21 @@ correctness no test in this package can state, which is the position
   is turned back into the pixels a terminal would paint -- a half block becomes one
   column by two pixel rows, a large module two columns by one -- and handed to
   `jsqr`, which is a locate-and-decode pipeline that knows nothing about this
-  encoder. **168 of 168 decoded**, over seven payloads, four levels, both forms and
-  all three polarity combinations, each one required to come back as the exact
-  string that went in. That is as close as software gets to the phone check, and it
-  is the thing that makes the polarity decision and the glyph table claims rather
-  than hopes.
+  encoder. **168 of 168 decoded**, over seven payloads, four error-correction
+  levels, both forms and all three destinations -- unpainted against either scheme
+  and painted -- each one required to come back as the exact string that went in.
+  That is as close as software gets to the phone check, and it is the thing that
+  makes the polarity decision and the glyph table claims rather than hopes.
+
+  It decodes with `inversionAttempts: 'dontInvert'`, and that is what makes it a
+  check of the **polarity** rather than only of the modules. jsqr attempts both by
+  default, so a component drawing the opposite modules builds a negative image it
+  reads anyway -- measured, the level-3 row went on passing after painting stopped
+  being the default and its expected polarity had gone stale, which is the
+  fixture-cannot-reach-the-branch shape arriving in a by-hand script. Each
+  destination now names the scheme explicitly too, since `schemeFromEnv()` would
+  otherwise make the answer depend on the machine. Flipping one row's expected
+  polarity fails 56 of the 168.
 
   The script is **committed**, as `scripts/verify-qrcode-decode.mjs`, for
   `benchmark-paint-cull.mjs`'s reason read one layer along: a number in a pull

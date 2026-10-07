@@ -75,15 +75,18 @@ rectangle and each resolves its own style. The sixth is `text-overflow` on a pat
 too long for its box: a decrypt is cut and marked the way any other text is, in
 `ellipsis-middle`, which keeps the project at one end and the file at the other.
 
-`10-qrcode.js` is the one where a pipe gets a **different drawing**, deliberately.
-A scanner wants dark modules on a light background and a terminal is usually the
-other way round, so above colour level 0 the component paints its own two colours
-and draws the dark modules. At level 0 -- a pipe, or `NO_COLOR` -- there is nothing
-to paint with, so it draws the _other_ modules instead: whichever colour the
-terminal's foreground already is becomes the dark half of the code. So a piped run
-is block characters with not one escape sequence in it, correctly polarised for a
-dark terminal, and `SIGIL_COLOR_SCHEME=light` flips it back. It reads no keys, so
-there is nothing in it that needs a terminal on both sides.
+`10-qrcode.js` is the one where a pipe and a terminal get the **same bytes**. A
+scanner wants dark modules on a light background and a terminal already has a light
+colour and a dark one, so the component borrows them rather than painting any: the
+drawn modules are whichever ones the terminal's foreground already is, which puts
+dark modules on dark and light on light on either scheme. So every run is block
+characters with not one escape sequence in it, at any colour level, and
+`SIGIL_COLOR_SCHEME=light` flips which modules are drawn. `paint: true` paints
+black on white instead, for a terminal whose own two colours lack the contrast a
+camera needs, and it costs an uneven border — a painted code is a white rectangle
+of whole cells around an odd number of module rows, so its vertical border is odd
+and splits one module and two. It reads no keys, so there is nothing in it that
+needs a terminal on both sides.
 
 What it cannot tell you is whether the code **scans**, which is the only thing
 about a QR code that matters and is the one claim nothing in a process can make.

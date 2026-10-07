@@ -680,24 +680,31 @@ describe('the two forms', () => {
 });
 
 describe('the polarity', () => {
-	it('should draw the dark modules wherever it can paint its own colours', () => {
+	it('should draw the dark modules only where it paints its own colours', () => {
 		// through the component rather than through `qrLines()` with the answer
 		// handed to it, which is what the first version of this did: it looped the
 		// levels and then drew with `invert: false` itself, so the level never
-		// reached `polarity()` at all and deleting the `level > 0` branch left it
-		// green. Found by review. What makes it say something is comparing the
-		// *drawn output* at each level against the un-inverted drawing, and
-		// against a level-0 dark terminal, which must differ
+		// reached `polarity()` at all and deleting the branch left it green. Found
+		// by review. What makes it say something is comparing the *drawn output*
+		// at each level against the un-inverted drawing
 		const plain = qrLines(encodeQr('x'), { invert: false }).map((line) => line.replace(/ +$/, ''));
 		const inverted = qrcode('x', { colorLevel: 0, colorScheme: 'dark' });
 
 		for (const level of [1, 2, 3] as const) {
-			const drawn = strip(qrcode('x', { colorLevel: level })).split('\n');
+			const painted = strip(qrcode('x', { colorLevel: level, paint: true })).split('\n');
 			expect(
-				drawn.map((line) => line.replace(/ +$/, '')),
+				painted.map((line) => line.replace(/ +$/, '')),
 				`level ${level}`
 			).to.deep.equal(plain);
-			expect(drawn.join('\n'), `level ${level}`).to.not.equal(inverted);
+			expect(painted.join('\n'), `level ${level}`).to.not.equal(inverted);
+
+			// and *un*painted at the same level it borrows the terminal's two
+			// colours instead, so a dark terminal gets the same bytes it gets at
+			// level 0 -- which is the whole of what the default change is
+			expect(
+				qrcode('x', { colorLevel: level, colorScheme: 'dark' }),
+				`level ${level} unpainted`
+			).to.equal(inverted);
 		}
 
 		// the pad is below the grid when painted, so the *last* cell row is two
@@ -745,10 +752,16 @@ describe('the drawing', () => {
 		// a scanner wants dark modules on a light background and a terminal is
 		// usually the other way round, so the body carries the two colours
 		// rather than borrowing the terminal's
-		const out = qrcode('x', { colorLevel: 3 });
+		const out = qrcode('x', { colorLevel: 3, paint: true });
 		// 30 is black and 47 is a white background, which is the sheet's
 		// `color: black; background-color: white` resolved at a palette index
 		expect(out).to.contain('\u001b[30;47m');
+
+		// and without it there is no colour at all, at any level: the drawn
+		// modules are whichever ones the terminal's own foreground already is
+		for (const level of [0, 1, 2, 3] as const) {
+			expect(qrcode('x', { colorLevel: level }), `level ${level}`).to.not.contain('\u001b');
+		}
 	});
 
 	it('should keep the right-hand quiet zone, which a background is what buys', () => {

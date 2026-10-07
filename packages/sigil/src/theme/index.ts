@@ -115,7 +115,7 @@ export const FRAMEWORK_CSS = `
  *   .sigil-typewriter  .sigil-typewriter-text
  *   .sigil-large-text  .sigil-large-text-body
  *   .sigil-decrypt  .sigil-decrypt-plain  .sigil-decrypt-cipher
- *   .sigil-qrcode
+ *   .sigil-qrcode  .sigil-qrcode-body
  *   .sigil-help  .sigil-help-heading  .sigil-help-note
  *   .sigil-debug-head  .sigil-debug-title  .sigil-debug-stats
  *   .sigil-debug-log  .sigil-debug-list  .sigil-debug-entry
@@ -195,7 +195,7 @@ export const FRAMEWORK_CSS = `
  * That is the component's decision rather than this sheet's, because which glyph
  * is drawn is content.
  */
-.sigil-qrcode-body { color: black; background-color: white }
+.sigil-qrcode-paint { color: black; background-color: white }
 
 /*
  * And the light half, which is two rules now and was six declarations.

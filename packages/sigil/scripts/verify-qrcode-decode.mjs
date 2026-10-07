@@ -141,7 +141,14 @@ function reads(text, opts, form, invert, surround) {
 	const width = Math.max(...lines.map((line) => [...line].length));
 	const padded = lines.map((line) => line + ' '.repeat(width - [...line].length));
 	const image = rgba(pixels(padded, form, invert), surround);
-	const read = jsQR(image.data, image.width, image.height);
+	// `dontInvert` rather than jsqr's default of attempting both, which is what
+	// makes this a check of the **polarity** rather than only of the modules: the
+	// `invert` argument says which modules the component is expected to have
+	// drawn, and with both attempted a component drawing the opposite ones builds
+	// a negative image that jsqr reads anyway. Measured -- with the default, the
+	// level-3 row went on passing after painting stopped being the default and
+	// its `invert` flag had gone stale
+	const read = jsQR(image.data, image.width, image.height, { inversionAttempts: 'dontInvert' });
 	return read !== null && read.data === text;
 }
 
@@ -155,11 +162,19 @@ const PAYLOADS = [
 	'z'.repeat(900),
 ];
 
-/** The three a destination can be: painted, and level 0 against either scheme. */
+/**
+ * The three a destination can be, with the modules each is expected to draw.
+ *
+ * Unpainted against either scheme is the default and is the same at every colour
+ * level, so the level is left out of those two deliberately -- a row naming one
+ * would be asserting something about a knob this no longer reads. The scheme is
+ * explicit in all three, because `schemeFromEnv()` would otherwise make the
+ * answer depend on the machine this is run on.
+ */
 const DESTINATIONS = [
-	[{ colorLevel: 3 }, false],
-	[{ colorLevel: 0, colorScheme: 'dark' }, true],
-	[{ colorLevel: 0, colorScheme: 'light' }, false],
+	[{ colorScheme: 'dark' }, true],
+	[{ colorScheme: 'light' }, false],
+	[{ paint: true, colorLevel: 3, colorScheme: 'dark' }, false],
 ];
 
 let pass = 0;
@@ -188,8 +203,11 @@ process.stdout.write(`\ndecoded ${pass} of ${pass + fail}\n`);
 process.stdout.write('\nwhat the quiet zone buys, against a field of dark cells:\n');
 const url = PAYLOADS[0];
 for (const quietZone of [0, 1, 2, 3, 4]) {
-	const light = reads(url, { colorLevel: 3, quietZone }, 'large', false, false);
-	const dark = reads(url, { colorLevel: 3, quietZone }, 'large', false, true);
+	// the unpainted dark form, which is the case the claim is about: a painted
+	// code brings its own white and is never against the field at all
+	const opts = { colorScheme: 'dark', quietZone };
+	const light = reads(url, opts, 'large', true, false);
+	const dark = reads(url, opts, 'large', true, true);
 	process.stdout.write(
 		`  ${quietZone}: surrounded by light ${light ? 'decoded' : 'NOT decoded'}, ` +
 			`by dark ${dark ? 'decoded' : 'NOT decoded'}\n`

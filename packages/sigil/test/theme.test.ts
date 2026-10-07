@@ -59,7 +59,7 @@ describe('the framework sheet', () => {
 	 * `.sigil-debug` is a **background** rather than a foreground: no role is one,
 	 * and the debug pane is the one built-in drawn over the app's own content, so
 	 * without it the app shows through between its words. And
-	 * `.sigil-qrcode-body` is a *pair* -- a foreground and a background together --
+	 * `.sigil-qrcode-paint` is a *pair* -- a foreground and a background together --
 	 * because a scanner expects dark modules on a light one and a terminal is
 	 * usually the other way round, so the code paints both of its colours rather
 	 * than borrowing either: neither of them is de-emphasis, a state or an accent,
@@ -78,7 +78,7 @@ describe('the framework sheet', () => {
 		const EXCEPTIONS = [
 			'.sigil-caret',
 			'.sigil-debug',
-			'.sigil-qrcode-body',
+			'.sigil-qrcode-paint',
 			'.sigil-scroll-track',
 		];
 
