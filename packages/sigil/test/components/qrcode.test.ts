@@ -18,6 +18,146 @@ function rowsOf(code: QrCode): string[] {
 	return code.modules.map((row) => row.map((dark) => (dark ? '#' : '.')).join(''));
 }
 
+/**
+ * Asserts the function patterns and the information areas of a symbol.
+ *
+ * Written from the spec's rules rather than read off the encoder, and applied to
+ * **two** subjects: every reference matrix in the fixture, and the encoder's own
+ * output for all 160 version-and-level combinations. The duplication is the
+ * point, which is the reference fixture's own argument one layer along -- a check
+ * that asked the encoder where its finders go would answer yes whatever they were.
+ *
+ * It is what cross-checks the **fixture**, which is otherwise 160 kB of data that
+ * nothing in this repository reads: a mangled row, or metadata transcribed onto
+ * the wrong matrix, would make every agreement with it worthless. The format and
+ * version information are the sharp part, because they tie the stated `ecc`,
+ * `mask` and `version` to the modules.
+ *
+ * @param rows - The symbol, `#` for dark.
+ * @param version - 1 to 40.
+ * @param ecc - The level.
+ * @param mask - 0 to 7.
+ * @param tag - What to name in a failure.
+ */
+function checkStructure(
+	rows: readonly string[],
+	version: number,
+	ecc: QrEcc,
+	mask: number,
+	tag: string
+): void {
+	const size = version * 4 + 17;
+	const dark = (y: number, x: number) => rows[y][x] === '#';
+
+	expect(rows.length, `${tag} rows`).to.equal(size);
+	for (const [i, row] of rows.entries()) {
+		expect(row.length, `${tag} row ${i}`).to.equal(size);
+	}
+
+	// the three finders with their one-module light separators, read as the ring
+	// distance from each centre so that the corners fall out rather than being
+	// enumerated
+	for (const [ox, oy] of [
+		[0, 0],
+		[size - 7, 0],
+		[0, size - 7],
+	]) {
+		for (let dy = -1; dy <= 7; dy++) {
+			for (let dx = -1; dx <= 7; dx++) {
+				const x = ox + dx;
+				const y = oy + dy;
+				if (x < 0 || y < 0 || x >= size || y >= size) {
+					continue;
+				}
+				const inside = dx >= 0 && dy >= 0 && dx < 7 && dy < 7;
+				const want = inside && Math.max(Math.abs(dx - 3), Math.abs(dy - 3)) !== 2;
+				expect(dark(y, x), `${tag} finder ${ox},${oy} at ${x},${y}`).to.equal(want);
+			}
+		}
+	}
+
+	// the timing patterns, between the finders
+	for (let i = 8; i < size - 8; i++) {
+		expect(dark(6, i), `${tag} timing row ${i}`).to.equal(i % 2 === 0);
+		expect(dark(i, 6), `${tag} timing column ${i}`).to.equal(i % 2 === 0);
+	}
+
+	// the dark module, which is the one module that is always dark
+	expect(dark(size - 8, 8), `${tag} dark module`).to.equal(true);
+
+	// the alignment patterns, from the spec's own rule. Version 1 has none at all,
+	// which the fill below does not know -- the first version of this check built
+	// centres for it and reported 107 problems in a matrix with nothing wrong
+	const centres: number[] = [];
+	if (version > 1) {
+		const count = Math.floor(version / 7) + 2;
+		const step = version === 32 ? 26 : Math.ceil((version * 4 + 4) / (count * 2 - 2)) * 2;
+		centres.push(6);
+		for (let pos = version * 4 + 10; centres.length < count; pos -= step) {
+			centres.splice(1, 0, pos);
+		}
+	}
+	for (const [i, cy] of centres.entries()) {
+		for (const [j, cx] of centres.entries()) {
+			const corner =
+				(i === 0 && j === 0) ||
+				(i === 0 && j === centres.length - 1) ||
+				(i === centres.length - 1 && j === 0);
+			if (corner) {
+				continue;
+			}
+			for (let dy = -2; dy <= 2; dy++) {
+				for (let dx = -2; dx <= 2; dx++) {
+					const want = Math.max(Math.abs(dx), Math.abs(dy)) !== 1;
+					expect(dark(cy + dy, cx + dx), `${tag} alignment ${cx},${cy}`).to.equal(want);
+				}
+			}
+		}
+	}
+
+	// the format information, both copies, BCH(15,5) over 0x537 and XOR 0x5412
+	const ECC_BITS: Readonly<Record<QrEcc, number>> = { H: 2, L: 1, M: 0, Q: 3 };
+	const data = (ECC_BITS[ecc] << 3) | mask;
+	let rem = data;
+	for (let i = 0; i < 10; i++) {
+		rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
+	}
+	const format = ((data << 10) | rem) ^ 0x5412;
+	const bit = (i: number) => ((format >>> i) & 1) === 1;
+
+	for (let i = 0; i <= 5; i++) {
+		expect(dark(i, 8), `${tag} format A ${i}`).to.equal(bit(i));
+	}
+	expect(dark(7, 8), `${tag} format A 6`).to.equal(bit(6));
+	expect(dark(8, 8), `${tag} format A 7`).to.equal(bit(7));
+	expect(dark(8, 7), `${tag} format A 8`).to.equal(bit(8));
+	for (let i = 9; i < 15; i++) {
+		expect(dark(8, 14 - i), `${tag} format A ${i}`).to.equal(bit(i));
+	}
+	for (let i = 0; i < 8; i++) {
+		expect(dark(8, size - 1 - i), `${tag} format B ${i}`).to.equal(bit(i));
+	}
+	for (let i = 8; i < 15; i++) {
+		expect(dark(size - 15 + i, 8), `${tag} format B ${i}`).to.equal(bit(i));
+	}
+
+	// and the version information, both copies, BCH(18,6) over 0x1f25 with no XOR
+	if (version >= 7) {
+		let vrem = version;
+		for (let i = 0; i < 12; i++) {
+			vrem = (vrem << 1) ^ ((vrem >>> 11) * 0x1f25);
+		}
+		const vbits = (version << 12) | vrem;
+		for (let i = 0; i < 18; i++) {
+			const want = ((vbits >>> i) & 1) === 1;
+			const a = Math.floor(i / 3);
+			const b = (i % 3) + size - 11;
+			expect(dark(a, b), `${tag} version A ${i}`).to.equal(want);
+			expect(dark(b, a), `${tag} version B ${i}`).to.equal(want);
+		}
+	}
+}
+
 /** The four levels, so that nothing below has to be written out four times. */
 const LEVELS: readonly QrEcc[] = ['L', 'M', 'Q', 'H'];
 
@@ -37,6 +177,24 @@ describe('the encoder, against an encoder that is not this one', () => {
 			expect(rowsOf(code)).to.deep.equal([...vector.rows]);
 		});
 	}
+
+	// and the other direction: the fixture itself, checked against the spec's own
+	// function patterns and information areas. It is 160 kB of data nothing else
+	// in this repository reads, so a mangled row or metadata transcribed onto the
+	// wrong matrix would make every agreement above worthless. Round 2 of the
+	// review was pointed at these matrix bodies; this is that question asked by a
+	// test rather than once by hand
+	it('should be a fixture whose own matrices are well-formed symbols', () => {
+		for (const vector of QR_VECTORS) {
+			checkStructure(
+				vector.rows,
+				vector.version,
+				vector.ecc,
+				vector.mask,
+				`${JSON.stringify(vector.text).slice(0, 20)} v${vector.version}-${vector.ecc}`
+			);
+		}
+	});
 
 	// the two largest payloads whose matrices are not kept, for the reason the
 	// fixture records. The version is still worth asserting, because it is what
@@ -140,34 +298,13 @@ describe('every version, at every level', () => {
 
 				expect(code.version, `v${version} ${ecc}`).to.equal(version);
 				expect(code.size, `v${version} ${ecc}`).to.equal(size);
-				expect(code.modules.length, `v${version} ${ecc}`).to.equal(size);
-				for (const row of code.modules) {
-					expect(row.length).to.equal(size);
-				}
 
-				// the three finders, which are the one thing in a symbol whose
-				// position and contents are the same for every version
-				for (const [ox, oy] of [
-					[0, 0],
-					[size - 7, 0],
-					[0, size - 7],
-				]) {
-					for (let dy = 0; dy < 7; dy++) {
-						for (let dx = 0; dx < 7; dx++) {
-							const ring = Math.max(Math.abs(dx - 3), Math.abs(dy - 3));
-							expect(code.modules[oy + dy][ox + dx], `v${version} finder`).to.equal(ring !== 2);
-						}
-					}
-				}
-
-				// the timing patterns, which run between the finders
-				for (let i = 8; i < size - 8; i++) {
-					expect(code.modules[6][i], `v${version} timing row`).to.equal(i % 2 === 0);
-					expect(code.modules[i][6], `v${version} timing column`).to.equal(i % 2 === 0);
-				}
-
-				// and the dark module, which is the one module that is always dark
-				expect(code.modules[size - 8][8], `v${version} dark module`).to.equal(true);
+				// through the same helper the fixture is checked with, which is what
+				// makes the alignment patterns and both information areas covered for
+				// every version rather than only the eight the vectors reach -- the
+				// first version of this checked the finders, the timing patterns and
+				// the dark module and nothing else
+				checkStructure(rowsOf(code), version, ecc, code.mask, `v${version}-${ecc}`);
 			}
 		}
 	});

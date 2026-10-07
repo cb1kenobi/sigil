@@ -3127,14 +3127,20 @@ changed the viewport` over a renderer, plus the shrinking direction and a
   `sigil-${outcome}` lands on a role for all four values of `SpinnerOutcome`,
   which is the one emission that computes its class.
 
-  `.sigil-caret`, `.sigil-scroll-track` and `.sigil-debug` are the three declared
-  exceptions: no role is inversion, the track is the one grey here that is not
-  de-emphasised _text_, so it must not be `.sigil-muted` -- that role is `dim` on a
-  dark terminal, and a dim track is not a track -- and `.sigil-debug` is a
-  **background** rather than a foreground, which no role is either. `should declare
-on a role, bar three exceptions that say why` is the invariant, and it reads the
-  **parsed** sheet rather than the source, because the comment listing the
-  component classes as hooks would otherwise be mistaken for a rule.
+  `.sigil-caret`, `.sigil-scroll-track`, `.sigil-debug` and `.sigil-qrcode-body`
+  are the four declared exceptions: no role is inversion; the track is the one
+  grey here that is not de-emphasised _text_, so it must not be `.sigil-muted` --
+  that role is `dim` on a dark terminal, and a dim track is not a track;
+  `.sigil-debug` is a **background** rather than a foreground, which no role is
+  either; and the QR code's is a foreground and a background _together_, because a
+  scanner wants dark modules on a light one and a terminal is usually the other
+  way round, so neither of the two is de-emphasis, a state or an accent. `should
+declare on a role, bar four exceptions that say why` is the invariant, and it
+  reads the **parsed** sheet rather than the source, because the comment listing
+  the component classes as hooks would otherwise be mistaken for a rule. It was
+  three until SIG-136, and the sentence here still said three for a commit after
+  the test had been renamed -- which a review round pointed at by asking what
+  counts elsewhere in this file the change had made false.
 
 - **The toolchain has no sheet of its own, and deleting it fixed a bug rather than
   tidying one.** `TOOLCHAIN_CSS` was seven declarations under a `cli-` prefix at
@@ -13634,6 +13640,34 @@ Three layers, and only the third needs a camera. This is the component whose
 correctness no test in this package can state, which is the position
 `--clipboard` is already in one layer along.
 
+- **And the fixture itself, against the spec rather than against the encoder.**
+  The reference matrices are 160 kB of data that nothing in this repository read:
+  a mangled row, or metadata transcribed onto the wrong matrix, would make every
+  agreement with them worthless. `checkStructure()` is written from the spec's own
+  rules -- the three finders with their separators, both timing patterns, the dark
+  module, the alignment centres, both copies of the format information computed as
+  BCH(15,5) over `0x537` XOR `0x5412`, and both copies of the version information
+  as BCH(18,6) over `0x1f25` -- and is applied to **two** subjects: every reference
+  matrix, and the encoder's own output for all 160 version-and-level combinations.
+  The duplication is the point, which is the reference fixture's argument one layer
+  along: a check that asked the encoder where its finders go would answer yes
+  whatever they were.
+
+  It came out of the second review round's **worklist** rather than from a finding,
+  and it strengthened the encoder's side as much as the fixture's: the
+  160-combination test used to check the finders, the timing patterns and the dark
+  module, so the alignment patterns and both information areas were covered only
+  for the eight versions the vectors happen to reach. Three mutations were added
+  for it and all three are caught -- an alignment pattern drawn in the corners a
+  finder owns, an alignment pattern with a solid inner ring, and the centres
+  starting one module in from the far edge.
+
+  The first version of the check reported **107 problems in a fixture with nothing
+  wrong with it**, because it built alignment centres for version 1, which has
+  none. Worth recording because the failure mode of a checker is to be wrong about
+  the thing it is checking, and the only reason it was not believed is that every
+  failure was the same version and the same pattern.
+
 - **The matrix, against an encoder that is not this one.** Twenty-four reference
   symbols in `test/components/qrcode-vectors.ts`, generated with `qrcode@1.5.4` --
   the most widely used JavaScript QR encoder -- and compared **module for
@@ -13685,10 +13719,11 @@ correctness no test in this package can state, which is the position
 
 ##### What the sabotage pass found, and what it got wrong about itself
 
-Forty-one mutations, one at a time with the component's and the theme's suites
-run after each. **Forty are caught and one is declared.** Thirty-seven of them
-were applied before the first review round and four more over the guards that
-round produced; the figure above is one run against the shipped tree rather than
+Forty-four mutations, one at a time with the component's and the theme's suites
+run after each. **Forty-three are caught and one is declared.** Thirty-seven of
+them were applied before the first review round, four more over the guards that
+round produced, and three over the function-pattern coverage the second round's
+worklist bought; the figure above is one run against the shipped tree rather than
 a sum across rounds, which is what makes it re-derivable. The interesting half is
 not the count.
 
