@@ -200,6 +200,9 @@ for (const quietZone of [0, 1, 2, 3, 4]) {
 // discrete dots with a gap about as wide as the dot, which is what does not tile
 process.stdout.write('\nand the refused braille form, which is expected NOT to decode:\n');
 const code = encodeQr(url);
+// the spec's four rather than this component's default of one, deliberately: a
+// wider quiet zone is the favourable case for the form being refused, so a
+// braille code nothing finds at four is nothing found at one either
 const quiet = 4;
 const span = code.size + quiet * 2;
 const DOT = 3;

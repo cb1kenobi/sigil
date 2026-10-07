@@ -86,23 +86,28 @@
  * colour per half, which is the compact form with the per-half colour this does
  * not need.
  *
- * ## The quiet zone is in the matrix, not in padding
+ * ## The quiet zone is in the matrix, not in padding -- and it is one module
  *
- * The spec's four light modules on every side are what a scanner locates the
- * symbol against, and a code drawn flush against a text run is frequently
- * unscannable. They are emitted as rows and columns of light modules rather than
- * as CSS padding, and that is structural rather than tidy: padding is in *cells*,
- * and in the compact form one cell is two modules vertically and one
- * horizontally, so four modules of quiet zone is two cells of padding on one axis
- * and four on the other -- a per-form asymmetry that a theme writing
- * `.sigil-qrcode { padding: 1 }` would silently change, which is the number this
- * file already records a theme must never be able to move. In the matrix it
- * cannot be lost: a theme's padding can only add to it.
+ * A light border is what a scanner locates the symbol against, and a code drawn
+ * flush against a text run is frequently unscannable. It is emitted as rows and
+ * columns of light modules rather than as CSS padding, and that is structural
+ * rather than tidy: padding is in *cells*, and in the compact form one cell is
+ * two modules vertically and one horizontally, so a quiet zone counted in cells
+ * is one count on one axis and another on the other -- a per-form asymmetry that
+ * a theme writing `.sigil-qrcode { padding: 1 }` would silently change, which is
+ * the number this file already records a theme must never be able to move. In the
+ * matrix it cannot be lost: a theme's padding can only add to it.
  *
- * The compact form pads an odd row count by one more light row, which is the
- * bottom quiet zone going from four modules to five. Four is a minimum in the
- * spec, so that is legal; the alternative is a last cell whose lower half is
- * neither light nor dark.
+ * It is **one** module where the spec asks four; `QUIET` is where that divergence
+ * is argued and measured.
+ *
+ * The compact form pads an odd row count with one half-row, and it goes *above*
+ * the grid. The pad is not a module, so it takes no glyph -- which puts the light
+ * border at a half cell on both edges and makes the first line one uniform strip.
+ * Below the grid instead, the bottom quiet row shares a cell with the pad and the
+ * border comes out twice as thick at the bottom as at the top; inverted, that
+ * last line is a solid row of full blocks. The alternative to padding at all is a
+ * last cell whose lower half is neither light nor dark.
  *
  * ## Which colour is which, and what a QR code is at colour level 0
  *
@@ -1234,8 +1239,26 @@ const LOWER = '▄';
 const BOTH = '█';
 const NEITHER = ' ';
 
-/** The spec's quiet zone, in modules, on every side. */
-const QUIET = 4;
+/**
+ * The quiet zone, in modules, on every side.
+ *
+ * **One, where the spec asks four, and that is a deliberate divergence with a
+ * measurement on each side of it.** What four buys is a camera reading a printed
+ * symbol at an angle through a blur, which is the medium the spec is written for.
+ * A terminal is not that medium: the symbol is already crisp, axis-aligned and
+ * rendered at exact cell boundaries, and what a scanner is pointed at is a
+ * screen. Measured through an independent decoder, a symbol against a field of
+ * *dark* cells -- a dark terminal, which is the hostile case -- is **not found**
+ * at `0` and is found at `1`, so one module is where it starts working rather
+ * than a guess under it.
+ *
+ * What it costs at four is eight cells on each axis, which for version 1 is a
+ * 29x15 block where the symbol is 21 modules: more than a third of the width
+ * spent on margin, in a medium where the surrounding page is already blank.
+ * `quietZone: 4` is the knob, and widening it is the first thing to reach for
+ * when a scanner struggles -- the `large` form is the second.
+ */
+const QUIET = 1;
 
 export interface QrLinesOptions {
 	/** How many cells a module gets. Defaults to `compact`. */
@@ -1248,12 +1271,13 @@ export interface QrLinesOptions {
 	 */
 	invert?: boolean;
 	/**
-	 * How many light modules on every side. Defaults to the spec's four.
+	 * How many light modules on every side. Defaults to one.
 	 *
-	 * A number of **modules** rather than of cells, so it is the same four on
-	 * every side in both forms. Widening it is what to do when a scanner is
-	 * struggling; `0` is for a caller whose surroundings are already light, and
-	 * what it costs is the thing the quiet zone is for.
+	 * A number of **modules** rather than of cells, so it is the same count on
+	 * every side in both forms. `QUIET` is where the default is and why it is not
+	 * the spec's four; widening it to four is what to do when a scanner is
+	 * struggling, and `0` is for a caller whose surroundings are already light --
+	 * what that costs is the thing the quiet zone is for, and it is measured.
 	 */
 	quietZone?: number;
 }
@@ -1291,6 +1315,16 @@ export function qrLines(code: QrCode, opts: QrLinesOptions = {}): string[] {
 
 	/** Whether the module at a grid position is the one that gets a glyph. */
 	const drawn = (x: number, y: number): boolean => {
+		// a position off the grid is not a module at all, so it takes no glyph
+		// whatever the polarity -- which is what the pad half-row below is, and
+		// is the difference between a light border that is a half cell on both
+		// edges and one that is a half cell on top and a *full* cell underneath.
+		// `dark !== invert` answers `invert` for a position with no module, so
+		// reading past the grid used to draw the pad: inverted, the last line of
+		// every compact code was a solid row of full blocks
+		if (x < 0 || y < 0 || x >= span || y >= span) {
+			return false;
+		}
 		const inside = x >= quiet && y >= quiet && x < quiet + code.size && y < quiet + code.size;
 		// outside the symbol is the quiet zone, which is light
 		const dark = inside && code.modules[y - quiet][x - quiet];
@@ -1307,24 +1341,31 @@ export function qrLines(code: QrCode, opts: QrLinesOptions = {}): string[] {
 		});
 	}
 
-	// one more light row where the count is odd, so that no cell holds half a
-	// module. Reading past the grid is what `drawn()` already answers for, so the
-	// extra row needs no case of its own -- only the row count does.
+	// one half-row of pad where the count is odd, so that no cell holds half a
+	// module, and it goes **above** the grid rather than below.
+	//
+	// Which end it goes is visible rather than a detail. The pad is not a module,
+	// so it takes no glyph -- and above the grid that puts the top quiet row in a
+	// cell's *lower* half and the bottom quiet row in a cell's lower half too, so
+	// the light border is a half cell on both edges and the first line is one
+	// uniform strip. Below the grid the bottom quiet row shares its cell with the
+	// pad, and a reader sees a border that is twice as thick at the bottom as at
+	// the top.
 	//
 	// It is **always** odd, which is worth knowing and is not obvious: a symbol is
 	// `4 * version + 17` modules on a side, which is odd for every version, and a
-	// quiet zone is added twice, which is even -- so the padding fires for every
-	// code there has ever been and the even branch is unreachable. Written as the
-	// parity rather than as `+ 1` because the parity is the *reason* it adds one,
-	// and `should be an odd number of module rows for every version` is what keeps
-	// that a checked fact rather than a claim in a comment. Found by review
-	const rows = span + (span % 2);
+	// quiet zone is added twice, which is even -- so the pad fires for every code
+	// there has ever been and the even branch is unreachable. Written as the parity
+	// rather than as `+ 1` because the parity is the *reason* it adds one, and
+	// `should be an odd number of module rows for every version` is what keeps that
+	// a checked fact rather than a claim in a comment. Found by review
+	const pad = span % 2;
 
-	return Array.from({ length: rows / 2 }, (_, cell) => {
+	return Array.from({ length: (span + pad) / 2 }, (_, cell) => {
 		let line = '';
 		for (let x = 0; x < span; x++) {
-			const upper = drawn(x, cell * 2);
-			const lower = drawn(x, cell * 2 + 1);
+			const upper = drawn(x, cell * 2 - pad);
+			const lower = drawn(x, cell * 2 + 1 - pad);
 			line += upper ? (lower ? BOTH : UPPER) : lower ? LOWER : NEITHER;
 		}
 		return line;

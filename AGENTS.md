@@ -13450,21 +13450,25 @@ whole of it: the encoder, `qrLines()`, `qrcodeView()` and the facade.
   module drawn as one cell is a module stretched 1:2 and a scanner locating a
   21-module symbol in it is being asked for something it was not designed for. So
   **`compact`** is a half block per cell -- one column by half a cell, which is the
-  form the ticket describes, and a version 1 symbol with its quiet zone is 29
-  columns by 15 rows -- and **`large`** is two columns by one row, the same symbol
-  at 58 by 29, twice the size on both axes. Those ratios are asserted rather than
+  form the ticket describes, and a version 1 symbol with its quiet zone is 23
+  columns by 12 rows -- and **`large`** is two columns by one row, the same symbol
+  at 46 by 23, twice the size on both axes. Those ratios are asserted rather than
   described: `should draw a module about square in both` divides the cell counts by
-  the module span.
+  the module span, and asserts the row count as `2 * cells - span === 1` rather
+  than as a tolerance, because the pad below is a known half-row rather than
+  noise -- a tolerance wide enough for it at version 1 is wide enough to hide a
+  lost row.
 
-  The ticket's "like 36 by 18" is version 3 with its quiet zone read
-  approximately, which is 37 by 19 -- worth noting only because the arithmetic
-  above is what it comes from.
+  The ticket's "like 36 by 18" is version 4 with a one-module quiet zone, which is
+  35 by 18 -- the shape this now produces, and the arithmetic above is where it
+  comes from.
 
 - **One column by one row is the squashed third form and is not offered.
   Braille is the interesting refusal, and it is falsifiable rather than
   asserted.** A `Dots` cell is 2x4, so a module would be half a column by a
-  quarter of a cell -- square on both axes and four times smaller again, which is
-  19 columns by 10 rows against the compact form's 37 by 19. It does not work,
+  quarter of a cell -- square on both axes and four times smaller again, which for
+  version 3 is 16 columns by 8 rows against the compact form's 31 by 16. It does
+  not work,
   because a braille cell does not **tile**: the dots are discrete with gaps about
   as wide as the dots, so a dark region is a dotted texture rather than a module
   and a camera samples the gap as often as the dot. `Dots` is monochrome besides,
@@ -13473,7 +13477,11 @@ whole of it: the encoder, `qrLines()`, `qrcodeView()` and the facade.
   from a real symbol and handed to an independent decoder, **is not found at
   all**, where every form this component does offer is --
   `scripts/verify-qrcode-decode.mjs` prints that beside the other two
-  measurements. The probe draws one anyway
+  measurements. Both it and the probe draw the braille form with the spec's
+  **four**-module quiet zone rather than this component's one, and that is
+  deliberate rather than stale: a wider quiet zone is the _favourable_ case for
+  the form being refused, so a braille code nothing finds at four is nothing
+  found at one either. The probe draws one anyway
   -- labelled as the form expected _not_ to scan -- because a refusal nobody can
   check is worth less than one somebody can.
 - **One `text` element, and no `raw`, and the glyph set is the whole reason.**
@@ -13496,33 +13504,59 @@ whole of it: the encoder, `qrLines()`, `qrcodeView()` and the facade.
   there is no `raw` to say it on.
 
 - **The quiet zone is in the matrix, and that is structural rather than tidy.**
-  The spec's four light modules on every side are what a scanner locates the
-  symbol against. They are emitted as rows and columns of light modules rather
-  than as CSS padding because padding is in **cells**: in the compact form one
-  cell is two modules vertically and one horizontally, so four modules of quiet
-  zone is two cells of padding on one axis and four on the other -- a per-form
-  asymmetry a theme writing `.sigil-qrcode { padding: 1 }` would silently change,
-  which is the number this file already records a theme must never be able to
-  move. In the matrix a theme's padding can only _add_ to it.
+  A light border on every side is what a scanner locates the symbol against. It is
+  emitted as rows and columns of light modules rather than as CSS padding because
+  padding is in **cells**: in the compact form one cell is two modules vertically
+  and one horizontally, so a quiet zone counted in cells is one count on one axis
+  and another on the other -- a per-form asymmetry a theme writing
+  `.sigil-qrcode { padding: 1 }` would silently change, which is the number this
+  file already records a theme must never be able to move. In the matrix a theme's
+  padding can only _add_ to it.
 
-  It earns its place, measured, and the measurement says where the failure
-  actually is. Handed to an independent decoder as a clean bitmap, a code with
-  **no** quiet zone decodes perfectly -- so a bitmap's own edge is not what a
-  quiet zone is for. Put the same code in a field of **dark** cells, which is what
-  a dark terminal is, and `quietZone: 0` is **not found at all** while one module
-  of it is enough. The spec asks for four because a camera at an angle through a
-  blur needs more than a software decoder does. `quietZone: 0` is still allowed,
-  because a caller whose surroundings are already light has a real case; what it
-  costs is the thing the entry is about, and the demo prints one next to a
-  four-module one so that the difference is a thing to try rather than a claim.
+- **It is one module, where the spec asks four, and the divergence is measured on
+  both sides.** What four buys is a camera reading a _printed_ symbol at an angle
+  through a blur, which is the medium the spec is written for. A terminal is not
+  that medium: the symbol is crisp, axis-aligned, rendered at exact cell
+  boundaries, and what a scanner is pointed at is a screen. Handed to an
+  independent decoder as a clean bitmap, a code with **no** quiet zone decodes
+  perfectly -- so a bitmap's own edge is not what a quiet zone is for. Put the
+  same code in a field of **dark** cells, which is what a dark terminal is, and
+  `quietZone: 0` is **not found at all** while **one module is enough**. So one is
+  where it starts working rather than a guess under it.
 
-- **An odd module-row count gets one more light row, which is the bottom quiet
-  zone going from four to five.** Version 1 with the spec's quiet zone is 29
-  module rows, and a half block per cell needs an even number -- so the
-  alternative is a last cell holding one module and half of nothing. Four is a
-  _minimum_ in the spec, so a fifth row is legal. Asserted arithmetically over
-  quiet zones 0 to 6 rather than at one value, because the parity depends on both
-  the version and the quiet zone and a single case cannot see that.
+  What four costs is eight cells on each axis: version 1 came out 29 by 15 around
+  a 21-module symbol, which is more than a third of the width spent on margin in
+  a medium whose surrounding page is already blank. At one it is 23 by 12. Both
+  halves are asserted by `should put one light module on every side, and the
+spec's four where asked`, so neither the default nor the knob can move without
+  the other being read -- and the 168-of-168 decode was **re-derived** at the new
+  default rather than inherited from the measurement that chose four.
+
+  `quietZone: 4` is the first thing to reach for when a scanner struggles and the
+  `large` form is the second; `quietZone: 0` is still allowed, because a caller
+  whose surroundings are already light has a real case. The demo prints one next
+  to a wider one so the difference is a thing to try rather than a claim.
+
+- **An odd module-row count gets one pad half-row, it goes _above_ the grid, and
+  it is not a module.** A symbol is `4 * version + 17` modules on a side, which is
+  odd for every version, and a quiet zone is added twice -- so the span is always
+  odd and a half block per cell needs an even number. The alternative is a last
+  cell holding one module and half of nothing.
+
+  Which end it goes, and whether it is drawn, are both visible rather than
+  details. The pad takes no glyph whatever the polarity, so above the grid it puts
+  the top quiet row in a cell's _lower_ half and the bottom quiet row in a cell's
+  lower half as well: the light border is a half cell on both edges and the first
+  line is one uniform strip of lower halves. Below the grid instead, the bottom
+  quiet row shares its cell with the pad -- so the border comes out **twice as
+  thick at the bottom as at the top**, and inverted, where the pad was drawn as
+  light, every compact code's last line was a solid row of full blocks. That was
+  the shipped behaviour and it is what reading the output against a hand-made
+  sample found; `dark !== invert` answers `invert` for a position with no module,
+  which is how reading past the grid came to draw the pad. Asserted arithmetically
+  over quiet zones 0 to 6 rather than at one value, because the parity depends on
+  both the version and the quiet zone and a single case cannot see that -- and
+  asserted inverted as well, because that is the polarity the asymmetry showed in.
 
 - **A QR code at colour level 0 draws the _other_ modules, which is the one
   expression this whole decision comes to.** A scanner expects dark modules on a
@@ -13551,8 +13585,8 @@ whole of it: the encoder, `qrLines()`, `qrcodeView()` and the facade.
   halves of that are different mechanisms.** `renderToString()` drops a trailing
   run of blanks that _show nothing_, and a blank with a background shows
   something -- measured, `ESC[30;47mab   ESC[0m` against `ab` for the same text
-  without one. So above level 0 the four light columns on the right are painted
-  spaces and are kept; at level 0 the inverted form ends every line in drawn
+  without one. So above level 0 the light column on the right is painted
+  spaces and is kept; at level 0 the inverted form ends every line in drawn
   blocks, so there is nothing to drop; and at level 0 on a _light_ terminal the
   trailing spaces really are dropped and the terminal's own background is the
   quiet zone, which is the one case where the right answer costs nothing. Every

@@ -1233,10 +1233,13 @@ function key() {
  *   failure the compact form has that the large form does not.
  * - whether your **colours** have the contrast a camera needs. The code is drawn
  *   at palette index 0 on index 7, which is whatever your theme renders those as.
- * - whether the **quiet zone** earns its place where you are. Measured against a
- *   software decoder, a code with no quiet zone against a dark background is not
- *   found at all while one module of it is enough; the spec asks for four because
- *   a camera at an angle through a blur needs more than a clean bitmap does.
+ * - whether **one module** of quiet zone is enough for your camera, which is the
+ *   sharpest question here now that one is the default. A software decoder finds
+ *   nothing against a dark background with none and finds it with one, and that
+ *   is as far as software goes: the spec asks four because a camera at an angle
+ *   through a blur needs more than a clean bitmap does, so if a step scans at
+ *   `quietZone: 4` and not at the default, that is the measurement that would
+ *   move the default back.
  *
  * Nothing here is a mode and nothing is queried, so there is nothing to put back
  * -- which is `--clipboard`'s position rather than `--mouse`'s.
@@ -1290,8 +1293,9 @@ async function qrcodeProbe() {
 	);
 	const compact = show(url);
 	// measured through `strip()` and `stringWidth()` rather than with
-	// `String.length`, because every line above colour level 0 carries the SGR that
-	// paints the two colours -- so a 29-column code has a 41-character line
+	// `String.length`, because every line above colour level 0 carries the SGR
+	// that paints the two colours -- so a code's line is a dozen characters longer
+	// than it is columns wide, and `String.length` reports the sequences
 	const drawnLines = compact.split('\n');
 	write(`\r\n    ${stringWidth(strip(drawnLines[0]))} columns by ${drawnLines.length} lines\r\n`);
 	if (!(await next())) {
@@ -1344,11 +1348,12 @@ async function qrcodeProbe() {
 	// ---------------------------------------------------------------- quiet zone
 	write(CLEAR + HOME);
 	heading(
-		'no quiet zone at all',
+		'no quiet zone at all, against the one module that is the default',
 		'this is the one that is expected to be HARDER to scan, or to fail. The ' +
 			'dark modules at the edge touch the terminal background, which is what a ' +
 			'quiet zone exists to stop -- a software decoder finds nothing here and ' +
-			'finds a code with one module of quiet zone'
+			'finds the one-module default every step above it drew. If this one ' +
+			'scans as readily as those did, your surroundings are already light'
 	);
 	show(url, { quietZone: 0 });
 	if (!(await next('try to scan it, then press a key'))) {
@@ -1409,6 +1414,9 @@ async function qrcodeProbe() {
  * @returns {string} The code, in braille.
  */
 function braille(code) {
+	// the spec's four rather than this component's default of one, deliberately:
+	// a wider quiet zone is the favourable case for the form being refused, so a
+	// braille code nothing finds at four is nothing found at one either
 	const quiet = 4;
 	const span = code.size + quiet * 2;
 	const dark = (x, y) =>

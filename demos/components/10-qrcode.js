@@ -34,8 +34,9 @@ const url = 'https://github.com/cb1kenobi/sigil';
  * How big a drawn code is, in cells.
  *
  * `String.length` is the wrong answer and is the obvious one: above colour level
- * 0 every line carries the SGR that paints the two colours, so a 29-column code
- * has a 41-character first line -- and this demo printed that number for a round.
+ * 0 every line carries the SGR that paints the two colours, so a code's first
+ * line is a dozen characters longer than it is columns wide -- and this demo
+ * printed the character count for a round.
  * Stripping and then measuring display columns is what every other size in this
  * repository is measured through, for the same reason the table's own column
  * widths are.

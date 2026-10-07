@@ -403,23 +403,41 @@ describe('the options', () => {
 });
 
 describe('the quiet zone', () => {
-	it('should put four light modules on every side', () => {
+	it("should put one light module on every side, and the spec's four where asked", () => {
+		// one rather than four, which `QUIET` is where the divergence is argued
+		// and measured: a terminal symbol is crisp, axis-aligned and on a screen,
+		// and one module is where an independent decoder starts finding it
+		// against a field of dark cells. **Both** halves are asserted, so that
+		// neither the default nor the knob can move without the other being read
 		const code = encodeQr('x');
 		const lines = qrLines(code, { form: 'large' });
 
-		// large is one row per module, so the grid is the symbol plus eight
-		expect(lines.length).to.equal(code.size + 8);
+		// large is one row per module, so the grid is the symbol plus two
+		expect(lines.length).to.equal(code.size + 2);
 		for (const line of lines) {
-			expect(line.length).to.equal((code.size + 8) * 2);
+			expect(line.length).to.equal((code.size + 2) * 2);
 		}
 
-		// the four rows and four columns at each edge, which is the thing a
-		// scanner locates the symbol against
-		const light = ' '.repeat((code.size + 8) * 2);
-		for (const row of [0, 1, 2, 3, code.size + 4, code.size + 5, code.size + 6, code.size + 7]) {
+		// the row and column at each edge, which is the thing a scanner locates
+		// the symbol against
+		const light = ' '.repeat((code.size + 2) * 2);
+		for (const row of [0, code.size + 1]) {
 			expect(lines[row], `row ${row}`).to.equal(light);
 		}
 		for (const line of lines) {
+			expect(line.slice(0, 2)).to.equal('  ');
+			expect(line.slice(-2)).to.equal('  ');
+		}
+
+		// and the spec's four where a caller asks for it, which is the first
+		// thing to reach for when a scanner struggles
+		const wide = qrLines(code, { form: 'large', quietZone: 4 });
+		expect(wide.length).to.equal(code.size + 8);
+		const wideLight = ' '.repeat((code.size + 8) * 2);
+		for (const row of [0, 1, 2, 3, code.size + 4, code.size + 5, code.size + 6, code.size + 7]) {
+			expect(wide[row], `row ${row}`).to.equal(wideLight);
+		}
+		for (const line of wide) {
 			expect(line.slice(0, 8)).to.equal('        ');
 			expect(line.slice(-8)).to.equal('        ');
 		}
@@ -433,12 +451,17 @@ describe('the quiet zone', () => {
 		const compact = qrLines(code, { form: 'compact' });
 		const large = qrLines(code, { form: 'large' });
 
-		expect(compact[0].length).to.equal(code.size + 8);
-		expect(large[0].length).to.equal((code.size + 8) * 2);
-		// and the first two compact rows are the first four module rows, which
-		// are all quiet zone
-		expect(compact[0]).to.equal(' '.repeat(code.size + 8));
-		expect(compact[1]).to.equal(' '.repeat(code.size + 8));
+		expect(compact[0].length).to.equal(code.size + 2);
+		expect(large[0].length).to.equal((code.size + 2) * 2);
+		// the first compact row is the pad half-row over the one quiet module
+		// row, and neither is drawn un-inverted
+		expect(compact[0]).to.equal(' '.repeat(code.size + 2));
+
+		// and at the spec's four it is the pad plus the first quiet row, then a
+		// whole cell of quiet rows -- the same four modules counted the same way
+		const wide = qrLines(code, { form: 'compact', quietZone: 4 });
+		expect(wide[0]).to.equal(' '.repeat(code.size + 8));
+		expect(wide[1]).to.equal(' '.repeat(code.size + 8));
 	});
 
 	it('should widen and narrow where it is asked, and refuse what is not a count', () => {
@@ -454,20 +477,30 @@ describe('the quiet zone', () => {
 		expect(() => qrLines(code, { quietZone: Number.NaN })).to.throw(/whole number of modules/);
 	});
 
-	it('should pad an odd module-row count with one more light row', () => {
-		// version 1 with the spec's quiet zone is 29 module rows, which is odd:
-		// without the extra row the last cell holds one module and half of
-		// nothing, and the spec's four is a minimum so a fifth row is legal
+	it('should pad an odd module-row count above the grid, and give the pad no glyph', () => {
+		// version 1 with the default quiet zone is 23 module rows, which is odd:
+		// without the pad the last cell holds one module and half of nothing
 		const code = encodeQr('x');
-		expect(code.size + 8).to.equal(29);
+		expect(code.size + 2).to.equal(23);
 
 		const lines = qrLines(code);
-		expect(lines.length).to.equal(15);
-		// the last cell is the 29th module row over a row that is not there, so
-		// it is an upper half or nothing and never a lower half or a full block
-		for (const cell of lines[14]) {
-			expect([' ', '▀']).to.contain(cell);
-		}
+		expect(lines.length).to.equal(12);
+
+		// the pad is the *upper* half of the first cell, and it is not a module,
+		// so it takes no glyph whatever the polarity. Inverted is where both of
+		// those are visible: the first line is the one quiet row sitting in a
+		// cell's lower half, so a uniform strip -- and the last line is the
+		// symbol's last row over the bottom quiet row rather than the solid row
+		// of full blocks that a pad below the grid, drawn as light, produced.
+		// A border twice as thick at the bottom as at the top is what that was
+		const inverted = qrLines(code, { invert: true });
+		expect(inverted[0]).to.equal('▄'.repeat(code.size + 2));
+		expect(inverted.at(-1)).to.not.equal('█'.repeat(code.size + 2));
+		expect(new Set(inverted.at(-1)!).size).to.be.greaterThan(1);
+
+		// un-inverted the pad and the quiet row are both undrawn, so the first
+		// line is blank rather than a row of upper halves
+		expect(lines[0]).to.equal(' '.repeat(code.size + 2));
 
 		// the row count, over several quiet zones, as the formula rather than by
 		// hand
@@ -501,11 +534,15 @@ describe('the two forms', () => {
 		// module is one column by half a cell in one form and two columns by one
 		// cell in the other -- which is this arithmetic and nothing else
 		const code = encodeQr('x');
-		const span = code.size + 8;
+		const span = code.size + 2;
 
 		const compact = qrLines(code, { form: 'compact' });
 		expect(compact[0].length / span).to.equal(1);
-		expect(compact.length / span).to.be.closeTo(0.5, 0.02);
+		// two module rows per cell, plus the one pad half-row an odd span always
+		// has. Exact rather than a tolerance, because the pad is a known one
+		// rather than noise -- a tolerance wide enough for it at version 1 is
+		// wide enough to hide a lost row
+		expect(compact.length * 2 - span).to.equal(1);
 
 		const large = qrLines(code, { form: 'large' });
 		expect(large[0].length / span).to.equal(2);
@@ -517,15 +554,21 @@ describe('the two forms', () => {
 		// and required to agree. A form that lost a row or doubled a column
 		// would otherwise look perfectly plausible
 		const code = encodeQr('https://example.com', { ecc: 'Q' });
-		const span = code.size + 8;
+		// the default quiet zone, stated once here and derived from below -- the
+		// test named for the default is what pins the number itself
+		const quiet = 1;
+		const span = code.size + quiet * 2;
 		const compact = qrLines(code, { form: 'compact' });
 		const large = qrLines(code, { form: 'large' });
 
+		// the pad is above the grid, so grid row `y` is half `y + pad` of a cell
+		const pad = span % 2;
+
 		for (let y = 0; y < span; y++) {
 			for (let x = 0; x < span; x++) {
-				const cell = compact[Math.floor(y / 2)][x];
+				const cell = compact[Math.floor((y + pad) / 2)][x];
 				const fromCompact =
-					y % 2 === 0 ? cell === '▀' || cell === '█' : cell === '▄' || cell === '█';
+					(y + pad) % 2 === 0 ? cell === '▀' || cell === '█' : cell === '▄' || cell === '█';
 				const fromLarge = large[y][x * 2] === '█';
 				expect(fromLarge, `${x},${y}`).to.equal(fromCompact);
 
@@ -533,8 +576,8 @@ describe('the two forms', () => {
 				expect(large[y][x * 2 + 1]).to.equal(large[y][x * 2]);
 
 				// which is what the symbol says, with the quiet zone around it
-				const inside = x >= 4 && y >= 4 && x < code.size + 4 && y < code.size + 4;
-				expect(fromLarge).to.equal(inside ? code.modules[y - 4][x - 4] : false);
+				const inside = x >= quiet && y >= quiet && x < code.size + quiet && y < code.size + quiet;
+				expect(fromLarge).to.equal(inside ? code.modules[y - quiet][x - quiet] : false);
 			}
 		}
 	});
@@ -614,9 +657,13 @@ describe('the polarity', () => {
 		expect(dark).to.not.contain('\u001b');
 		expect(light).to.not.contain('\u001b');
 
-		// inverted: the quiet zone is drawn, so every line begins with four
-		// blocks and that is what makes it light on screen
-		expect(dark.split('\n')[0].startsWith('████')).to.equal(true);
+		// inverted: the quiet zone is drawn, which is what makes it light on
+		// screen. With the one-module default that is the whole first line --
+		// the pad above takes no glyph, so the quiet row is a cell's lower half
+		// and the strip is uniform
+		const first = dark.split('\n')[0];
+		expect(new Set(first).size).to.equal(1);
+		expect(first.startsWith('▄▄▄▄')).to.equal(true);
 		// and not inverted: the quiet zone is the terminal's own background
 		expect(light.split('\n')[0].trim()).to.equal('');
 	});
@@ -625,7 +672,7 @@ describe('the polarity', () => {
 		const forced = qrcode('x', { colorLevel: 3, invert: true });
 		const natural = qrcode('x', { colorLevel: 3, invert: false });
 		expect(forced).to.not.equal(natural);
-		expect(strip(forced.split('\n')[0]).startsWith('████')).to.equal(true);
+		expect(strip(forced.split('\n')[0]).startsWith('▄▄▄▄')).to.equal(true);
 
 		// and in the other direction, which is the half a default could hide
 		expect(qrcode('x', { colorLevel: 0, colorScheme: 'dark', invert: false })).to.equal(
@@ -648,17 +695,17 @@ describe('the drawing', () => {
 	it('should keep the right-hand quiet zone, which a background is what buys', () => {
 		// a trailing run of blanks that show nothing is dropped by the string
 		// renderer, and a blank with a background shows something -- so the
-		// background is what keeps the four light columns on the right. At level
-		// 0 the terminal's own background provides them instead, which is why the
+		// background is what keeps the light column on the right. At level 0 the
+		// terminal's own background provides it instead, which is why the
 		// inverted form is the one that needs no spaces
 		const painted = qrcode('x', { colorLevel: 3 });
 		for (const line of painted.split('\n')) {
-			expect(stringWidth(strip(line))).to.equal(29);
+			expect(stringWidth(strip(line))).to.equal(23);
 		}
 
 		const plain = qrcode('x', { colorLevel: 0, colorScheme: 'dark' });
 		for (const line of plain.split('\n')) {
-			expect(stringWidth(line)).to.equal(29);
+			expect(stringWidth(line)).to.equal(23);
 		}
 	});
 
@@ -688,7 +735,7 @@ describe('the drawing', () => {
 		const { element, width } = qrcodeView('x', { colorLevel: 3 });
 		const body = element.children[0];
 		expect(body?.props['white-space']).to.equal('nowrap');
-		expect(width).to.equal(29);
+		expect(width).to.equal(23);
 		expect(body?.classes).to.deep.equal(['sigil-qrcode-body']);
 		expect(element.classes).to.deep.equal(['sigil-qrcode']);
 	});
@@ -724,10 +771,10 @@ describe('the facade', () => {
 		const compact = qrcode('x', { colorLevel: 3 }).split('\n');
 		const large = qrcode('x', { colorLevel: 3, form: 'large' }).split('\n');
 
-		expect(large.length).to.equal(29);
-		expect(compact.length).to.equal(15);
-		expect(stringWidth(strip(large[0]))).to.equal(58);
-		expect(stringWidth(strip(compact[0]))).to.equal(29);
+		expect(large.length).to.equal(23);
+		expect(compact.length).to.equal(12);
+		expect(stringWidth(strip(large[0]))).to.equal(46);
+		expect(stringWidth(strip(compact[0]))).to.equal(23);
 	});
 
 	it('should throw rather than draw nothing for an empty payload', () => {
