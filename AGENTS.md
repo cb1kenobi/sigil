@@ -13867,13 +13867,31 @@ class a built-in draws with` reads every `sigil-*` class out of
 
 ##### What the sabotage pass found, and what the harness had to guard
 
-Sixty mutations, one at a time with the six affected suites run after each,
-**fifty-five caught**. The harness reports a pattern that matched nothing, a
+Sixty mutations, one at a time with the six affected suites run after each.
+**Fifty-four caught by an assertion, one by the worker dying, five declared** --
+and the review rounds added sixteen more over their own fixes, seven and nine,
+all caught by exactly the test named for each. Seventy-six in all.
+
+The one that kills the worker is the **cycle guard**: without it the walk
+recurses forever, vitest's worker exits during `started` state, and there is no
+summary line to read. The harness reports that as `HARNESS BROKEN: no vitest
+summary` rather than as a pass, which is the guard doing its job on a verdict it
+genuinely cannot form -- and the behaviour is the strongest catch there is.
+
+Which is what the harness is for. It reports a pattern that matched nothing, a
 pattern that matched more than once, and a replacement equal to its original as
-their own verdicts rather than as passes -- none fired this time -- and it
-refuses to answer at all unless vitest reported the right number of suites,
-because a `vitest run` whose paths miss exits non-zero and reads exactly like
-every mutation being caught. A green control runs first.
+their own verdicts rather than as passes, and it refuses to answer at all unless
+vitest reported the right number of suites, because a `vitest run` whose paths
+miss exits non-zero and reads exactly like every mutation being caught. A green
+control runs first.
+
+All three of those earned it on this branch. Six patterns went **stale** when the
+formatter reflowed a line and the review fixes moved three others, and reported
+`PATTERN MISSED` rather than five more guards looking dead. And the summary regex
+itself was wrong twice over: it required a `passed` count, which a run where
+**every** suite failed does not print, so a single-suite re-run answered
+`HARNESS BROKEN` eight times in a row. The total in parentheses is the one number
+that line always has.
 
 What the pass found is worth more than the count.
 
@@ -13884,14 +13902,21 @@ What the pass found is worth more than the count.
   answered. Its test is kept and renamed to the claim it really makes, that the one
   option every schema gets for free is not asked for.
 
-- **One guard was deleted and one reframed, both in `fuzzy.ts`.** The empty-label
-  early return in `highlightRuns()` is gone, because `graphemes('')` yields
-  nothing and the loop answers `[]` on its own. And the `--no-` skip in
-  `spellingOf()` turned out to be a **preference** rather than a guard: a negated
-  flag always has an implied default, so `slotsFor()` never asks for one, and the
-  shape that is left -- `'--no-color, --colour <v>'` -- resolves under either name.
-  What it decides is the label a prompt is asked under, where `--no-color <v>`
-  reads as a negation it is not, and that is pinned.
+- **One guard was deleted.** The empty-label early return in `highlightRuns()`
+  is gone, because `graphemes('')` yields nothing and the loop answers `[]` on its
+  own.
+
+- **And one was reframed, wrongly, which is the pass's own boundary showing.**
+  The `--no-` skip in `spellingOf()` was called a **preference** rather than a
+  guard, on the argument that a negated flag always has an implied default so
+  `slotsFor()` never asks for one. That argument is sound and the conclusion was
+  not: the skip was a **filter**, and the first review round found the shape it
+  dropped -- a valued `'--no-color <when>'`, which keeps one long spelling because
+  `initOption()` rewrites a `no-` name only for a flag. A sabotage of it was
+  _caught_, by a test over the dual spelling, so the pass said the line was load
+  bearing and said nothing about what it was load bearing for. A deletion asks
+  whether code that is there matters; it never asks whether the thing that matters
+  is the thing you wrote down.
 
 - **Nine survivors were missing tests, and each got the input that makes it
   matter** -- reasoned backwards from "what would make this guard load bearing"
