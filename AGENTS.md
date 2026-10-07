@@ -13471,7 +13471,9 @@ whole of it: the encoder, `qrLines()`, `qrcodeView()` and the facade.
   which is one foreground for a cell that may hold eight modules of two colours.
   Measured rather than argued: a dot grid with a gap the size of the dot, built
   from a real symbol and handed to an independent decoder, **is not found at
-  all**, where every form this component does offer is. The probe draws one anyway
+  all**, where every form this component does offer is --
+  `scripts/verify-qrcode-decode.mjs` prints that beside the other two
+  measurements. The probe draws one anyway
   -- labelled as the form expected _not_ to scan -- because a refusal nobody can
   check is worth less than one somebody can.
 - **One `text` element, and no `raw`, and the glyph set is the whole reason.**
@@ -13701,8 +13703,18 @@ correctness no test in this package can state, which is the position
   all three polarity combinations, each one required to come back as the exact
   string that went in. That is as close as software gets to the phone check, and it
   is the thing that makes the polarity decision and the glyph table claims rather
-  than hopes. `jsqr` is not a dependency of anything and the script lives outside
-  the repository; the method is written down here so it can be redone.
+  than hopes.
+
+  The script is **committed**, as `scripts/verify-qrcode-decode.mjs`, for
+  `benchmark-paint-cull.mjs`'s reason read one layer along: a number in a pull
+  request is a claim the next reader has to trust, and a script they can run is
+  one they can check. `jsqr` is **not a dependency** of anything -- it is installed
+  by hand into a directory outside this repository and passed in, which is how the
+  fixture says to regenerate itself and for the same reason: zero production
+  dependencies is a hard constraint, and a devDependency taken for a by-hand
+  script is still a dependency somebody has to explain. It reproduces all three of
+  the numbers this section rests on -- the 168, the quiet zone's boundary and the
+  braille refusal -- so none of them is a figure only this branch could produce.
 
 - **The phone, which is `scripts/terminal-probe.mjs --qrcode`.** Six steps, each
   with its own `the claim:` line, and the whole mode says in as many words that
