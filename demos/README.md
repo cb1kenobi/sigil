@@ -46,6 +46,7 @@ node demos/parser/06-lazy-commands.js --help  # commands listed by name alone
 | [`components/07-typewriter.js`](components/07-typewriter.js)       | Text that arrives rather than appears                   |
 | [`components/08-large-text.js`](components/08-large-text.js)       | Banner text, and the `.flf` format behind it            |
 | [`components/09-decrypt.js`](components/09-decrypt.js)             | Text that jumbles, then resolves into itself            |
+| [`components/10-qrcode.js`](components/10-qrcode.js)               | A QR code, in half blocks and in full cells             |
 
 ### Try them without a terminal
 
@@ -73,6 +74,20 @@ because the cipher cells and the resolved ones are two elements over one
 rectangle and each resolves its own style. The sixth is `text-overflow` on a path
 too long for its box: a decrypt is cut and marked the way any other text is, in
 `ellipsis-middle`, which keeps the project at one end and the file at the other.
+
+`10-qrcode.js` is the one where a pipe gets a **different drawing**, deliberately.
+A scanner wants dark modules on a light background and a terminal is usually the
+other way round, so above colour level 0 the component paints its own two colours
+and draws the dark modules. At level 0 -- a pipe, or `NO_COLOR` -- there is nothing
+to paint with, so it draws the _other_ modules instead: whichever colour the
+terminal's foreground already is becomes the dark half of the code. So a piped run
+is block characters with not one escape sequence in it, correctly polarised for a
+dark terminal, and `SIGIL_COLOR_SCHEME=light` flips it back. It reads no keys, so
+there is nothing in it that needs a terminal on both sides.
+
+What it cannot tell you is whether the code **scans**, which is the only thing
+about a QR code that matters and is the one claim nothing in a process can make.
+`node packages/sigil/scripts/terminal-probe.mjs --qrcode` is that, with a camera.
 
 `08-large-text.js` is the one where the answer is that nothing changes: a banner
 is static text, so there is no cursor to move and a pipe gets byte for byte what

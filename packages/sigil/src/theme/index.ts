@@ -115,6 +115,7 @@ export const FRAMEWORK_CSS = `
  *   .sigil-typewriter  .sigil-typewriter-text
  *   .sigil-large-text  .sigil-large-text-body
  *   .sigil-decrypt  .sigil-decrypt-plain  .sigil-decrypt-cipher
+ *   .sigil-qrcode
  *   .sigil-help  .sigil-help-heading  .sigil-help-note
  *   .sigil-debug-head  .sigil-debug-title  .sigil-debug-stats
  *   .sigil-debug-log  .sigil-debug-list  .sigil-debug-entry
@@ -170,6 +171,29 @@ export const FRAMEWORK_CSS = `
  * no overlay to toggle, and a user who asked for no colour.
  */
 .sigil-debug { background-color: black }
+
+/*
+ * a QR code
+ *
+ * The fourth declared exception to the role rule, and the only one in this sheet
+ * that is a *pair*: a scanner expects dark modules on a light background, and a
+ * terminal is usually light-on-dark, so a code drawn in the terminal's own
+ * foreground is an inverted one -- which most modern readers take and some do
+ * not. So the body paints both of its colours rather than borrowing either, and
+ * neither of them is de-emphasis, a state or an accent, so no role could carry
+ * them. Both are palette indices, which is the rule every colour here follows:
+ * the basic sixteen are whatever the user's terminal theme says they are, and a
+ * theme has to render text in black and in white, so whatever it renders them as
+ * has the contrast a camera needs.
+ *
+ * It needs no light half, because the two colours are not read against the
+ * terminal's background at all -- the background *is* one of them. And it has no
+ * answer at level 0, where the colours are dropped: the component draws the other
+ * modules there instead, so that whichever colour the terminal's foreground
+ * already is becomes the dark half of the code. That is the component's decision
+ * rather than this sheet's, because which glyph is drawn is content.
+ */
+.sigil-qrcode-body { color: black; background-color: white }
 
 /*
  * And the light half, which is two rules now and was six declarations.
