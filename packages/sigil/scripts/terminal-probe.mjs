@@ -1315,10 +1315,12 @@ async function qrcodeProbe() {
 	write(CLEAR + HOME);
 	heading(
 		'the inverted form, which is what a pipe and NO_COLOR get on a DARK terminal',
-		'it scans too. At colour level 0 there is nothing to paint the two colours ' +
-			'with, so the light modules are the drawn ones and the terminal supplies ' +
-			'the dark -- a scanner that reads the painted codes and not this one is ' +
-			'why the polarity is worked out rather than fixed'
+		'it scans too, and it is correctly polarised rather than merely readable: ' +
+			'at colour level 0 there is nothing to paint the two colours with, so the ' +
+			'light modules are the drawn ones and the terminal supplies the dark, ' +
+			'which puts dark modules on dark and light on light exactly as the painted ' +
+			'codes do. A scanner that reads those and refuses this one is telling you ' +
+			"about your terminal's own contrast rather than about the polarity"
 	);
 	show(url, { colorLevel: 0, colorScheme: 'dark' });
 	if (!(await next())) {

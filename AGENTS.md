@@ -13894,6 +13894,65 @@ dark modules wherever it can paint its own colours` looped the levels and then
   bug: it was found by printing the number and reading it, which is the one check
   no test in the suite makes, because a vitest worker's stdout has no colour.
 
+##### What the second review round found, and what it could not
+
+The round was pointed at the files round 1 listed as skipped, which is the half
+this file records as the one that pays -- measured over ten rounds, a round that
+re-attacks the previous round's premises confirms them and finds nothing new,
+while the only findings of the last round come from a file no round had opened.
+It is the shortest entry here because **the reviewer looped**: three attempts, two
+of them with the eight-item worklist and one with a short single-focus prompt, and
+each came back `Agent Looping Detected` rather than a review. So the worklist was
+done by hand, and what follows is what that turned up rather than what a reviewer
+said. Recorded as a limitation rather than glossed: the regions below were read by
+the same person who wrote them, which is weaker evidence than the first round's
+and is the reason this entry says what it checked rather than only what it found.
+
+- **The fixture had nothing checking it, which is the worklist's own first item
+  and is the biggest thing this round bought.** It is up under "How the codes
+  were established to be scannable", because what it produced belongs with the
+  other two layers rather than in a round's notes: one helper over two subjects,
+  and three more mutations, all caught.
+- **One existing count elsewhere in AGENTS.md had become false.** The Themes
+  section said `.sigil-caret`, `.sigil-scroll-track` and `.sigil-debug` are "the
+  three declared exceptions" and named the invariant as `should declare on a role,
+bar three exceptions that say why` -- a test title that no longer exists, since
+  the test was renamed to four in this change and the sentence was not. Found by
+  asking the question the worklist asks rather than by reading the diff, which is
+  the only way to find it: the stale sentence is four hundred lines from anything
+  the diff touches. The other counts were checked and hold -- seven roles, the
+  light half's two rules, and the themes' "all seven roles".
+- **One `the claim:` line was imprecise, which matters because those are promises
+  to somebody holding a camera.** The inverted step said a scanner that reads the
+  painted codes and not that one "is why the polarity is worked out rather than
+  fixed", which conflates two things: the inverted code **is** correctly polarised
+  -- dark modules on dark, light on light, exactly as the painted ones -- so a
+  scanner that refuses it is reporting its terminal's own contrast rather than a
+  polarity it cannot read. It says that now.
+- **The probe had never been run, and running it is what says the mode works.**
+  Driven through a faked terminal on both streams, with a key fed per prompt: all
+  seven steps draw, all seven `the claim:` lines print, 5,455 full blocks and 190
+  braille cells reach the stream. Worth doing because every other claim about that
+  mode is a claim about a file nothing executes -- `demos.test.ts` spawns the demos
+  and nothing spawns the probe.
+- **Neither `--qrcode` nor `--clipboard` exits on its own once its steps are
+  done**, measured over a piped stdin that stays open: both are still running
+  after twelve seconds, which is the pipe keeping node's stdin handle referenced
+  rather than anything either mode does. Shared behaviour rather than something
+  this change introduced, which is why it is written down rather than fixed inside
+  a ticket about a QR code.
+- **The rest of the worklist is clean, and saying which is the point of having
+  one.** `--qrcode` needs no `finally`, because `key()` puts raw mode back itself
+  after every key and the mode sets no mode and queries nothing -- which is
+  `--clipboard`'s position and not `--mouse`'s. The barrel exports all twelve
+  public names and no name it does not declare, checked by reading both sides
+  rather than by eye. The registry entry resolves every import to a published
+  subpath, which the generator refuses by name otherwise. The demos table row is
+  the same 128 characters as its eight neighbours. And no new file holds a raw
+  control character, a byte order mark or a zero-width joiner, which is the half
+  `test/sources.test.ts` checks for `src/` and nothing checks for `demos/` or
+  `scripts/`.
+
 ##### What is deliberately out
 
 - **Mixed segments**, with the 31-payload measurement above and the shape of the
