@@ -13445,21 +13445,26 @@ read the description off the registry rather than off the declaration` sets a
   |                                                      | bytes       | modules |
   | ---------------------------------------------------- | ----------- | ------- |
   | `components.mjs` on `main`                           | 213,649     | 21      |
-  | `components.mjs` with the palette in the barrel      | **223,912** | 23      |
-  | `components.mjs` with it on `@ttylabs/sigil/palette` | 214,804     | 22      |
-  | `palette.mjs`, that subpath's own graph              | 196,257     | 24      |
+  | `components.mjs` with the palette in the barrel      | **224,272** | 23      |
+  | `components.mjs` with it on `@ttylabs/sigil/palette` | 214,833     | 22      |
+  | `palette.mjs`, that subpath's own graph              | 196,597     | 24      |
 
-  So the palette costs the barrel **10,263 B**, and it is fully accounted for:
-  8,151 of its own code in `components.mjs`, the 1,778 B `transform` chunk, the
+  So the palette costs the barrel **10,623 B**, and it is fully accounted for:
+  8,511 of its own code in `components.mjs`, the 1,778 B `transform` chunk, the
   154 B `types` chunk, and **180 B of class names in `FRAMEWORK_CSS`**, which
   ships because the vocabulary comment is inside the template literal. A subpath
-  would give an app that never opens one **9,108 B** of that back, and it is
+  would give an app that never opens one **9,439 B** of that back, and it is
   refused by the standard this file already set when it measured a subpath _per
   component_ at about 15 kB of 124 and kept the barrel. A bundled app pays
   nothing: a rolldown of an entry importing only `createSpinner` comes to
   125,080 B and holds neither `commandCatalog` nor the palette's own `No commands
 match`, so what a bundled app keeps is the 180 B of sheet comment and nothing
   else.
+
+  Every figure here was taken again after the first review round's fixes, because
+  the code grew: the first version of this table read 223,912 / 214,804 / 196,257
+  and a delta of 10,263, and a number nobody re-derives is the stale snapshot this
+  file warns about one section along.
 
 - **It does not import the parser, which is the finding rather than the
   worry.** Nothing in `src/components/` had ever imported `src/parser/`, and the
@@ -13468,7 +13473,7 @@ match`, so what a bundled app keeps is the 180 B of sheet comment and nothing
   and a **154 B** chunk, and it coerces a value with `transformValue()`, which is
   `src/util/transform.ts` and a **1,778 B** chunk. Neither is in `src/parser/`.
   Measured from the other side as well -- importing `parse` itself takes the
-  graph to **253,201 B**, +29,289, and fails the test written for it.
+  graph to **253,201 B**, about 29 kB more, and fails the test written for it.
 
   `src/help/` is the precedent and it reaches further: it imports
   `OptionRegistry` as a _value_, which is a 7,206 B chunk on its graph. So a
@@ -13511,9 +13516,23 @@ match`, so what a bundled app keeps is the 180 B of sheet comment and nothing
   only producer. The messages are the parser's own words, asserted as such:
   `Invalid integer: eight`, `Invalid date: "2024-02-30"`.
 
-  It inherits the parser's oddities on purpose. A `date` with `choices` can never
-  match, because `includes()` compares `Date` objects by identity -- true of a
-  command line too, and being wrong in the same way is the point.
+  Every value goes through it, **including a declared choice**, and for one commit
+  it did not: the choices branch spelled a choice with `tokenOf()` and offered it
+  unchecked, so a `yesno` argument declaring `choices: [true, false]` was offered
+  as `true` and `transformValue('true', 'yesno')` throws -- the palette agreeing
+  to a value the parse then refused, which is the one divergence the whole design
+  is written against. Found by review, and it made the sentence above false of
+  exactly the path a reader would not check.
+
+  Two things came out of that. `tokenOf()` is **type-aware** -- a `yesno` boolean
+  is `yes`/`no`, because that is the vocabulary the type takes -- and
+  `offeredChoices()` leaves out a choice the check refuses rather than offering
+  it. Hiding one is the smaller loss; where it hides them all, `select()` rejects
+  by name, which is the right answer for a declaration with no value argv can
+  reach. A `date` or a `json` declaration with `choices` is exactly that, because
+  `assertChoices()` compares a `Date` and an object by **identity** -- which is
+  true of a command line too, and is one of the parser's oddities this inherits on
+  purpose rather than papers over.
 
 - **A positional value the parser would read as an option is refused, and that is
   the parser's property surfaced rather than a rule this invents.**
@@ -13550,6 +13569,16 @@ match`, so what a bundled app keeps is the 180 B of sheet comment and nothing
   `'-p <n>'` is _named_ `p` and has no long spelling, so `--p=5` resolves to
   nothing while `-p=5` does.
 
+  Preferring a long name that is not a `no-` form is a **preference with a
+  fallback**, and it shipped as a _filter_ -- which dropped a required option on
+  the floor. `initOption()` rewrites a `no-` name only for a flag, so a valued
+  `{ format: '--no-color <when>' }` keeps `--no-color` as its only spelling: the
+  filter answered nothing, `slotsFor()` skipped the slot, and the palette emitted
+  an argv the parse refused with `Missing required options`. Found by review, and
+  it falsified two comments at once -- the preference's own, which said both
+  spellings resolve, and `spelling === undefined`'s, which said it cannot fire.
+  Both spellings do resolve; the filter was what made the second one reachable.
+
 - **An optional slot always gets a prompt that can be left empty, which is one
   sentence where there were four cases.** `confirm()` always answers, so it is
   used only for a **required** `bool` or `yesno` -- an optional one is a text
@@ -13562,8 +13591,22 @@ match`, so what a bundled app keeps is the 180 B of sheet comment and nothing
 - **A variadic slot is a `multiline()` field, one value per line.** Splitting one
   answer on whitespace was the alternative and cannot express a value with a space
   in it; a line each can. What this cannot express is a value containing a
-  newline, which is the smaller loss. A required one that comes back with nothing
-  is asked again, which is `text()`'s own validate loop one level up.
+  newline, which is the smaller loss.
+
+  It is asked again until every line is one the parser takes, which is `text()`'s
+  own validate loop one level up -- and that is two halves the first version had
+  neither of. A multiline field has no `validate`, so the complaint goes in the
+  **message** and what was typed comes back as the **`initial` value** to be
+  fixed; the loop used to discard the parser's own message and reopen an empty
+  field, which is a field that refuses an answer without saying why. Found by
+  review.
+
+  A line is a value and an empty line is not a line, and the lines are **not
+  trimmed**: `processArgs()` does not trim a positional value, so trimming would
+  make the palette hand over something other than what was typed -- the one thing
+  it promises not to do -- and would drop a line of spaces, which is a value
+  somebody can write on a command line. Also found by review, and pinned by
+  `should not trim a variadic value, which the parser does not`.
 
 - **Positional arguments stop at the first one left empty.** A positional slot
   cannot be skipped _over_, and `initArgs()` already promotes an optional argument
@@ -13722,6 +13765,21 @@ placeholder's inline subcommands, which are real` is the pin, and it needs both
   obvious description test could not see, because `/build\s+build the app/` matches
   the doubled row starting at the second `build`.
 
+- **`rows` goes through the multiline field's own cap rather than a second
+  rule.** `promptRowCap()` is `rows >= 1 ? Math.floor(rows) : fallback`, which is
+  what refuses `NaN` -- every comparison against it is false -- and what floors a
+  fraction. This read `Math.max(1, opts.rows ?? ...)`, and `Math.max(1, NaN)` is
+  `NaN`: `rank >= NaN` is false for every row, so the list went **blank** while
+  `shown.length > 0` kept the empty message hidden, and Page Up put `active` on
+  `NaN` so Enter stopped answering. `rows: 2.5` was the smaller cousin and showed
+  three rows. Found by review, and it is the degenerate-input class this file
+  records for the typewriter's interval and for `multiline()`'s own `rows`.
+
+  It is bounded by what the terminal has left either way, so `rows: Infinity` is
+  "as many as there is room for" rather than a canvas taller than the screen --
+  which is what the field's cap already means. `rowCap()` grew a `fallback`
+  parameter so the two share one reader; `multiline()`'s call site did not move.
+
 - **Escape dismisses and resolves with nothing; Ctrl-C is still the abort.** A
   palette is a thing you dismiss, so Escape is not an error. Ctrl-C stays the abort
   every prompt takes, because an app that cannot be quit because a filter field
@@ -13830,6 +13888,45 @@ What the pass found is worth more than the count.
   asserting its absence from the graph, which is the rule the component list in that
   file already keeps.
 
+##### What the first review round found, and it was four wrong argvs
+
+The round was pointed at the three new files, the parser functions they share,
+the tests, and the prose, and it was told not to run anything. It reported the
+three passes of `fuzzyMatch()`, `highlightRuns()`, the `run` export and the
+`Object.freeze` as holding, and then found **four places that hand the parser an
+argv it refuses** plus one degenerate input and five stale sentences. Every one
+was confirmed against the code before anything was changed, and each fix is
+pinned by a test the sabotage of that fix fails -- seven mutations, seven caught,
+each by exactly the test named for it.
+
+- **The `--no-` preference was a filter, and it dropped a required option.** The
+  entry under `spelling` has it. The shape is
+  `{ format: '--no-color <when>' }`, which `initOption()` leaves with one long
+  spelling because it rewrites a `no-` name only for a flag.
+- **A declared choice was offered unchecked.** The entry under
+  `checkSlotValue()` has it, and the sharp input is a `yesno` argument with
+  `choices: [true, false]`.
+- **A variadic line was trimmed, and a refused one was discarded in silence.**
+  Two findings about one loop; the entry under the variadic slot has both.
+- **`rows: NaN` blanked the list.** Its own entry above.
+- **And five sentences were false about the code beside them**, which is the
+  finding this file keeps calling the dangerous one: the `--no-` comment's "both
+  spellings resolve", `spelling === undefined`'s "cannot fire", the module doc's
+  and `checkSlotValue()`'s "the one place a value is asked about", the variadic
+  loop's "the same shape as the one `text()` already has", and `demos/README.md`
+  on `--steps`. That last one is the smallest and the most instructive: the README
+  said `--steps` is absent "because it has a default" and the demo declared it
+  `'--steps [n]'`, so it was absent because it is **optional** and the default
+  never came into it. Corrected by changing the demo to `'--steps <n>'`, which is
+  the shape the sentence describes and the one worth demonstrating.
+
+Three things it confirmed are worth recording, because they are the claims a
+reader would doubt. The third pass of `fuzzyMatch()` stays in range, by the
+invariant its comment states. The `seen` guard's path-insensitivity is already
+written down. And `fromEnv()` reads the same truthiness `envValue()` does, so
+`""` is unset while `"0"` and `" "` are values. It did **not** verify the byte
+figures, because it was told not to build.
+
 ##### Bindings are not listable, and that is SIG-134's to decide
 
 SIG-112 left it here in as many words: "whether bindings are _listable_ is the
@@ -13858,7 +13955,7 @@ how the two come to disagree." It is decided, and the answer is no.
 
 - **Ejecting it**, with the reason above: the one thing it must share with the
   parser is not published, so an ejected copy could not be the same palette.
-- **A `@ttylabs/sigil/palette` subpath**, refused on the 9,108 B the measurement
+- **A `@ttylabs/sigil/palette` subpath**, refused on the 9,439 B the measurement
   above puts on it against the standard this file already set for a subpath per
   component.
 - **Importing a command module to fill in a list.** Not importing is the whole of

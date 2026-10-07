@@ -29,6 +29,7 @@
 
 import { box, type Element, text as textNode, toDisplayText } from '../element/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
+import type { OptionDataType } from '../types.js';
 import { transformValue } from '../util/transform.js';
 import {
 	type CatalogOptions,
@@ -51,6 +52,7 @@ import {
 	promptHeadLine,
 	promptHeadWidths,
 	type PromptOptions,
+	promptRowCap,
 	promptWindow,
 	runPrompt,
 	select,
@@ -89,28 +91,65 @@ export interface PaletteResult {
 const SKIP = '(skip)';
 
 /**
- * How a value is spelled as an argv token.
+ * How a declared choice is spelled as an argv token.
  *
  * A `choices` list holds whatever the declaration wrote, which may not be a
- * string -- and what reaches argv always is. A primitive goes through `String()`
- * and an object through `JSON.stringify()`, which is what makes an object choice
- * on a `json` declaration round-trip. Whether it round-trips at all is the app's
- * to get right and not this function's to second-guess: a `string` declaration
- * with `choices: [1]` rejects `--level=1` from a command line too, because the
- * parser compares the *coerced* value, and the palette types what you would have
- * typed.
+ * string -- and what reaches argv always is. So the token is the **type's own**
+ * spelling of the value, which for all but one type is `String()`: an `int`
+ * choice of `1` is `--level=1`, a `bool` choice of `true` is `true`, and an
+ * object on a `json` declaration is its JSON.
+ *
+ * `yesno` is the exception and is the one this got wrong: its vocabulary is
+ * `yes`/`no`, so `transformValue('true', 'yesno')` **throws** -- and a `yesno`
+ * argument declaring `choices: [true, false]` was offered as `true` and then
+ * refused by the parse. Found by review, and it is the same sharp edge the
+ * confirm path already carried a comment about.
+ *
+ * Whether a token round-trips at all is still not this function's to invent an
+ * answer for, which is what `offeredChoices()` is: a `Date` choice has no argv
+ * spelling the parser will match, because `assertChoices()` compares a `Date` by
+ * identity, and that is a declaration a command line cannot satisfy either.
  *
  * @param value - A declared choice.
+ * @param type - The declared data type, which the slot carries.
  * @returns The token.
  */
-function tokenOf(value: unknown): string {
+function tokenOf(value: unknown, type: OptionDataType): string {
 	if (typeof value === 'string') {
 		return value;
+	}
+	if (type === 'yesno' && typeof value === 'boolean') {
+		return value ? 'yes' : 'no';
 	}
 	if (value !== null && typeof value === 'object') {
 		return JSON.stringify(value) ?? String(value);
 	}
 	return String(value);
+}
+
+/**
+ * The choices a prompt may offer, which are the ones argv can express.
+ *
+ * Every choice is spelled as a token and then put through `checkSlotValue()` --
+ * the same check a typed value gets -- and one the parser would refuse is left
+ * out rather than offered. Offering it is the failure this closes: the palette
+ * accepted it, built the argv, and the parse refused what the palette had just
+ * agreed to, which is the one divergence the whole design is written against.
+ *
+ * Hiding a choice is the smaller loss, and where it hides **every** choice the
+ * list is empty and `select()` rejects by name -- which is the right answer for
+ * a declaration with no value argv can reach. A `date` or a `json` declaration
+ * with `choices` is exactly that: `assertChoices()` compares a `Date` and an
+ * object by identity, so no token can match one, which this file already records
+ * as true of a command line too.
+ *
+ * @param slot - What is being asked for.
+ * @returns The tokens, in declaration order.
+ */
+function offeredChoices(slot: PaletteSlot): string[] {
+	return (slot.choices ?? [])
+		.map((choice) => tokenOf(choice, slot.type))
+		.filter((token) => checkSlotValue(slot, token) === undefined);
 }
 
 /** A token `optionLikeRE` would read as an option rather than as a value. */
@@ -205,10 +244,10 @@ async function askSlot(slot: PaletteSlot, opts: PaletteOptions): Promise<string[
 	const shared = { ...opts, message };
 
 	if (slot.choices) {
-		const offered: Choice<string | undefined>[] = slot.choices.map((choice) => {
-			const token = tokenOf(choice);
-			return { label: token, value: token };
-		});
+		const offered: Choice<string | undefined>[] = offeredChoices(slot).map((token) => ({
+			label: token,
+			value: token,
+		}));
 
 		if (slot.multiple) {
 			const picked = await multiselect<string | undefined>({
@@ -227,27 +266,48 @@ async function askSlot(slot: PaletteSlot, opts: PaletteOptions): Promise<string[
 	}
 
 	if (slot.multiple) {
-		// a required variadic slot is asked again when it comes back with nothing,
+		// a variadic slot is asked again until every line is one the parser takes,
 		// which is `text()`'s own validate loop one level up: a multiline field has
-		// no `validate`, and a loop a person ends by answering properly is the same
-		// shape as the one `text()` already has
+		// no `validate`, so the complaint goes in the message and what was typed
+		// comes back as the `initial` value to be fixed. Both halves were missing
+		// and a review round found them: the loop discarded the parser's own
+		// message and reopened an empty field, which is a field that refuses an
+		// answer without saying why
+		let initial: string | undefined;
+		let complaint: string | undefined;
+
 		for (;;) {
-			const block = await multiline({ ...shared, message: `${message} (one per line)` });
-			const values = block
-				.split('\n')
-				.map((line) => line.trim())
-				.filter((line) => line !== '');
+			const block = await multiline({
+				...shared,
+				initial,
+				message: complaint
+					? `${message} (one per line) -- ${complaint}`
+					: `${message} (one per line)`,
+			});
+			// a line is a value and an empty line is not a line, which is the whole
+			// of the splitting rule. **Not trimmed**: `processArgs()` does not trim a
+			// positional value, so trimming here would make the palette hand over
+			// something other than what was typed -- the one thing it promises not to
+			// do -- and would drop a line of spaces, which is a value somebody can
+			// write on a command line
+			const values = block.split('\n').filter((line) => line !== '');
 
 			if (values.length === 0) {
 				if (!slot.required) {
 					return [];
 				}
+				initial = block;
+				complaint = `${slot.label} needs a value`;
 				continue;
 			}
 
-			if (!values.some((value) => checkSlotValue(slot, value) !== undefined)) {
+			const bad = values.map((value) => checkSlotValue(slot, value)).find((c) => c !== undefined);
+			if (bad === undefined) {
 				return values;
 			}
+
+			initial = block;
+			complaint = bad;
 		}
 	}
 
@@ -478,8 +538,23 @@ function runList(
 		/** What the query ranked to, rebuilt whenever anything moves. */
 		let shown: Ranked<PaletteEntry>[] = [];
 
-		/** The rows the list has, once the question has taken its own. */
-		const room = (): number => Math.max(1, opts.rows ?? Math.max(1, terminal.height) - head.lines);
+		/**
+		 * The rows the list has, once the question has taken its own.
+		 *
+		 * `promptRowCap()` is the multiline field's own rule rather than a second
+		 * one: `rows >= 1` is what refuses `NaN`, and a fraction is floored. This
+		 * read `Math.max(1, opts.rows ?? ...)`, and `Math.max(1, NaN)` is `NaN` --
+		 * which blanked the list while keeping the empty message hidden, because
+		 * `rank >= NaN` is false for every row. Found by review.
+		 *
+		 * Bounded by what the terminal has left either way, so `rows: Infinity` is
+		 * "as many as there is room for" rather than a canvas taller than the
+		 * screen -- which is what the field's own cap already means.
+		 */
+		const room = (): number => {
+			const avail = Math.max(1, Math.max(1, terminal.height) - head.lines);
+			return Math.max(1, Math.min(promptRowCap(opts.rows, avail), avail));
+		};
 
 		function draw(): void {
 			shown = rankBy(value, entries, (entry) => entry.search);

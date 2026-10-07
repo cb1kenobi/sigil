@@ -47,6 +47,7 @@ export {
 	promptHeadLine,
 	promptHeadWidths,
 	promptNote,
+	promptRowCap,
 	type PromptSymbols,
 	promptWindow,
 	type PromptWindow,

@@ -49,7 +49,10 @@ const schema = {
 				'migrate, m, up': {
 					desc: 'Run migrations',
 					args: [{ choices: ['up', 'down'], desc: 'Which way', name: '<direction>' }],
-					options: { '--steps [n]': { default: 1, desc: 'How many', type: 'int' } },
+					// required *and* defaulted, which is the shape the palette skips:
+					// the parse fills it from the default, so asking would be asking
+					// for something already answered
+					options: { '--steps <n>': { default: 1, desc: 'How many', type: 'int' } },
 					run: ({ argv }) => console.log('migrate', argv.direction, 'steps', argv.steps),
 				},
 				seed: {

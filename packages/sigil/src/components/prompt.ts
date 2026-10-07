@@ -1308,11 +1308,17 @@ export function fieldLayers(read: () => FieldFrame): { caret: Element; field: El
  * @param rows - What the caller asked for.
  * @returns A whole number of rows, or the default.
  */
-function rowCap(rows: number | undefined): number {
+function rowCap(rows: number | undefined, fallback = 10): number {
 	// `rows >= 1` is what refuses `NaN`, since every comparison against it is
 	// false -- so `Number.isFinite()` beside it was refusing `Infinity` as well,
 	// which is the one value the comment above says passes through
-	return rows !== undefined && rows >= 1 ? Math.floor(rows) : 10;
+	//
+	// `fallback` is the palette's: its default is what the terminal has left
+	// under the question rather than ten, and the rule about what a `rows` may be
+	// is this one said once. Without it the palette had its own, and `Math.max(1,
+	// NaN)` is `NaN` -- which blanked the list while keeping the empty message
+	// hidden, because `rank >= NaN` is false for every row
+	return rows !== undefined && rows >= 1 ? Math.floor(rows) : fallback;
 }
 
 /** `ctrl-d`, as a reader would type it. */
@@ -1974,6 +1980,7 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
  */
 export {
 	answered as promptAnswered,
+	rowCap as promptRowCap,
 	headWidths as promptHeadWidths,
 	note as promptNote,
 	promptHead as promptHeadLine,

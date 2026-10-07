@@ -196,7 +196,7 @@ describe('what importing the package costs', () => {
 		// coerces a value with `transformValue()`, which is `src/util/transform.ts`
 		// and is 1.8 kB. Neither is in `src/parser/` -- so `parse-*.mjs` (18.5 kB)
 		// and `option-registry-*.mjs` (7.2 kB) are both absent from the graph, and
-		// the components entry grew by 10,263 B rather than by 26 kB.
+		// the components entry grew by 10,623 B rather than by 26 kB.
 		//
 		// Asserted as an absence by two string literals, which survive
 		// minification where a name that is only ever called does not -- the first
@@ -207,7 +207,7 @@ describe('what importing the package costs', () => {
 		// `src/parser/`, which a sabotage established: importing `initArg` from
 		// there leaves the graph where it was, because that module is a leaf
 		// rolldown puts in this chunk. Importing `parse` itself fails this and
-		// takes the graph from 223,912 B to 253,201 -- which is the 29 kB the
+		// takes the graph to 253,201 B, about 29 kB more -- which is what the
 		// palette does not cost
 		const graph = staticGraph('components.mjs');
 		const shipped = new Set(readdirSync(dist).filter((name) => name.endsWith('.mjs')));
@@ -227,7 +227,7 @@ describe('what importing the package costs', () => {
 	});
 
 	it('should keep the components entry worth importing for one component', () => {
-		// 223,912 B over 23 modules today, of which the palette is 10,263: 8,151 of
+		// 224,272 B over 23 modules today, of which the palette is 10,623: 8,511 of
 		// its own code, the 1,778 B `transform` chunk, the 154 B `types` chunk and
 		// 180 B of class names in `FRAMEWORK_CSS`, which ships because the
 		// vocabulary comment is inside the template literal.

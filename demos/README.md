@@ -48,8 +48,9 @@ node demos/parser/10-palette.js | cat
 
 Every line of that came out of the registry the parser built. `db` is absent
 because it is a namespace with nothing to run, `internal` and the palette itself
-because they are hidden, and `--steps` because it has a default — three rules the
-palette did not have to invent.
+because they are hidden, `--verbose` because it is optional, and `--steps`
+because it is required and has a default, so the parse already answers for it —
+four rules the palette did not have to invent.
 
 ## Components
 

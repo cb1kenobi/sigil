@@ -772,6 +772,133 @@ describe('commandPalette()', () => {
 		await answer;
 	});
 
+	it("should spell a yesno choice in that type's own vocabulary", async () => {
+		// `transformValue('true', 'yesno')` throws, so offering a `yesno` choice of
+		// `true` as `true` is the palette agreeing to a value the parse then
+		// refuses. Found by review
+		const ui = screenSetup({ columns: 60, rows: 12 });
+		const schema: Schema = {
+			commands: {
+				build: {
+					args: [{ choices: [true, false], name: '<ok>', type: 'yesno' }],
+					run(): void {},
+				},
+			},
+			help: false,
+			name: 'mycli',
+		};
+		const answer = settle(open(ui, await appState(schema)));
+
+		await type(ui.stdin, ENTER);
+		expect(ui.log.join('\n')).toMatch(/\byes\b/);
+		await type(ui.stdin, ENTER);
+
+		const { argv } = (await answer).value as { argv: string[] };
+		expect(argv).toEqual(['build', 'yes']);
+
+		// and the whole point of it: the parse takes what the palette agreed to
+		const parsed = await parse({ argv, env: {}, schema });
+		expect(parsed.argv).toMatchObject({ ok: true });
+	});
+
+	it('should offer no choice the parser would refuse', async () => {
+		// a `date` declaration with `choices` has no argv spelling the parser will
+		// match, because `assertChoices()` compares a `Date` by identity -- so
+		// every choice is left out and `select()` rejects by name rather than the
+		// palette agreeing to a token that fails
+		const ui = screenSetup({ columns: 60, rows: 12 });
+		const answer = settle(
+			open(
+				ui,
+				await appState({
+					commands: {
+						build: {
+							args: [{ choices: [new Date('2024-01-01')], name: '<when>', type: 'date' }],
+							run(): void {},
+						},
+					},
+				})
+			)
+		);
+
+		await type(ui.stdin, ENTER);
+
+		expect((await answer).error?.message).toMatch(/no choices to offer/);
+	});
+
+	it('should not trim a variadic value, which the parser does not', async () => {
+		// the palette types what you would have typed, and `processArgs()` does not
+		// trim a positional value -- so a line of spaces is a value and leading
+		// space is kept. Found by review
+		const ui = screenSetup({ columns: 60, rows: 12 });
+		const answer = settle(
+			open(ui, await appState({ commands: { build: { args: ['<files...>'], run(): void {} } } }))
+		);
+
+		await type(ui.stdin, ENTER);
+		await type(ui.stdin, ' a.ts', ENTER, ' ', '\u0004');
+
+		expect((await answer).value?.argv).toEqual(['build', ' a.ts', ' ']);
+	});
+
+	it('should say why a variadic line was refused, and keep what was typed', async () => {
+		// the loop discarded the parser's own message and reopened an empty field,
+		// which is a field that refuses an answer without saying why. Found by
+		// review
+		const ui = screenSetup({ columns: 60, rows: 12 });
+		const answer = settle(
+			open(
+				ui,
+				await appState({
+					commands: { build: { args: [{ name: '<n...>', type: 'int' }], run(): void {} } },
+				})
+			)
+		);
+
+		await type(ui.stdin, ENTER);
+		await type(ui.stdin, 'eight', '\u0004');
+		// the complaint is the parser's own, and `eight` is still in the field
+		expect(ui.frame + ui.log.join('\n')).toMatch(/Invalid integer: eight/);
+		expect(ui.frame).toMatch(/eight/);
+
+		// fixing it in place, which is what `initial` is for
+		await type(ui.stdin, BACKSPACE, BACKSPACE, BACKSPACE, BACKSPACE, BACKSPACE, '8', '\u0004');
+		expect((await answer).value?.argv).toEqual(['build', '8']);
+	});
+
+	it('should not blank the list for a `rows` that is not a row count', async () => {
+		// `Math.max(1, NaN)` is `NaN` and `rank >= NaN` is false for every row, so
+		// the list went blank while the empty message stayed hidden.
+		// `promptRowCap()` is the multiline field's own rule. Found by review
+		for (const rows of [Number.NaN, 0, -1, 2.5, Number.POSITIVE_INFINITY]) {
+			const ui = screenSetup({ columns: 40, rows: 12 });
+			const answer = settle(
+				open(ui, await appState({ commands: { build: { run(): void {} } } }), { rows })
+			);
+
+			await tick();
+			expect(ui.log.join('\n'), `rows: ${rows}`).toMatch(/build/);
+
+			await type(ui.stdin, ENTER);
+			expect((await answer).value?.argv, `rows: ${rows}`).toEqual(['build']);
+		}
+	});
+
+	it('should show whole rows for a fractional `rows`', async () => {
+		const ui = screenSetup({ columns: 40, rows: 12 });
+		const commands: Record<string, AnyCommand> = {};
+		for (let i = 0; i < 8; i++) {
+			commands[`cmd${i}`] = { run(): void {} };
+		}
+		const answer = settle(open(ui, await appState({ commands }), { rows: 2.5 }));
+
+		await tick();
+		expect(ui.log.filter((line) => line.includes('cmd'))).toHaveLength(2);
+
+		await type(ui.stdin, ENTER);
+		await answer;
+	});
+
 	it('should take the message the caller gave', async () => {
 		const ui = screenSetup({ columns: 60, rows: 12 });
 		const answer = settle(

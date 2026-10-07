@@ -180,24 +180,37 @@ export function slotTokens(slot: PaletteSlot, values: readonly string[]): string
  * `-p=5` resolves -- the parser splits either on the first `=` and then looks
  * the name half up.
  *
- * Skipping a `no-` form is a **preference** rather than a guard, which a
- * sabotage established: a *negated* flag always has an implied default, so
- * `slotsFor()` never asks for one, and the shape that is left -- a valued
- * option spelled `'--no-color, --colour <v>'` -- resolves under either name. So
- * what the skip decides is the label a prompt is asked under, where `--no-color
- * <v>` reads as a negation it is not.
+ * Preferring a long name that is not a `no-` form is a **preference with a
+ * fallback**, and it was written as a filter -- which dropped a required option
+ * on the floor. `initOption()` rewrites a `no-` name only for a *flag*, so a
+ * valued `{ format: '--no-color <when>' }` keeps `--no-color` as its only
+ * spelling: the filter answered `undefined`, `slotsFor()` skipped the slot, and
+ * the palette emitted an argv the parse then refused with `Missing required
+ * options`. Found by review. A *negated* flag never reaches any of this,
+ * because a flag has an implied default and the default test already skips it.
+ *
+ * So what the preference decides is the label a prompt is asked under -- where
+ * `--no-color <v>` reads as a negation it is not -- and the fallback is what
+ * keeps it a label decision rather than a dropped value. Both spellings resolve
+ * either way: `OptionRegistry` keys its lookup on every long name an option
+ * declares.
  *
  * @param opt - The option.
  * @returns The spelling, or `undefined` for an option nothing can type.
  */
 function spellingOf(opt: InternalOption): string | undefined {
-	for (const long of opt[Internal].long) {
-		if (!long.startsWith('--no-')) {
-			return long;
+	const { long, short } = opt[Internal];
+
+	for (const name of long) {
+		if (!name.startsWith('--no-')) {
+			return name;
 		}
 	}
-	for (const short of opt[Internal].short) {
-		return short;
+	for (const name of long) {
+		return name;
+	}
+	for (const name of short) {
+		return name;
 	}
 }
 
@@ -301,8 +314,10 @@ export function slotsFor(
 		//
 		// `spelling === undefined` is the narrowing rather than a guard: every
 		// initialized option has at least one spelling, because `initOption()`
-		// refuses a declaration that names none, so this cannot fire. It is what
-		// lets the slot carry a `string` without a cast
+		// refuses a declaration that names none and gives a bare name a `--name`,
+		// so this cannot fire. It is what lets the slot carry a `string` without a
+		// cast -- and it used to be reachable, through the `no-` filter above,
+		// which is what made this comment false rather than merely optimistic
 		if (
 			!opt.required ||
 			opt.default !== undefined ||

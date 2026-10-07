@@ -424,11 +424,24 @@ describe('slotsFor()', () => {
 		expect(slot?.spelling).toBe('-p');
 	});
 
-	it('should prefer a spelling that is not a negation', async () => {
+	it('should prefer a spelling that is not a negation where there is one', async () => {
 		// both spellings resolve, so what this decides is the label the prompt is
-		// asked under: `--no-color <v>` reads as a negation it is not
+		// asked under: `--no-color <v>` reads as a negation it is not. A preference
+		// with a fallback rather than a filter, which is the test above
 		const [slot] = await slots({ options: { '--no-color, --colour <v>': {} } });
 		expect(slot?.spelling).toBe('--colour');
+	});
+
+	it('should ask for a required option whose only spelling is a negation', async () => {
+		// `initOption()` rewrites a `no-` name only for a *flag*, so a valued
+		// `'--no-color <when>'` keeps `--no-color` as its only long spelling and
+		// has no short -- which the first version of `spellingOf()` filtered away,
+		// so `slotsFor()` dropped the slot and the palette emitted an argv the
+		// parse refused with `Missing required options`. Found by review
+		const [slot] = await slots({ options: { '--no-color <when>': {} } });
+		expect(slot?.label).toBe('--no-color <when>');
+		expect(slot?.spelling).toBe('--no-color');
+		expect(slotTokens(slot as PaletteSlot, ['never'])).toEqual(['--no-color=never']);
 	});
 
 	it('should ignore a `choices` that is not a list, as the parser does', async () => {
