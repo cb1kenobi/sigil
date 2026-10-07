@@ -5811,7 +5811,9 @@ anyway, while the palette had an unresolved packaging question -- runtime or
 `sigil add` -- that deserved deciding on its own terms. Which is also why there
 is no description and no group on a binding: whether bindings are _listable_ is
 the same question about the same registry as the palette's, and deciding it twice
-is how the two come to disagree.
+is how the two come to disagree. SIG-134 decided it and **refused** it, under
+"Bindings are not listable" below -- so the absence here is settled rather than
+pending.
 
 - **A function binding sees every key, and that is the Ctrl-C rule.** The order
   is function bindings, then the trie, then the focused element, then the Tab
@@ -13409,6 +13411,469 @@ single-line field did before any of this was extracted.
 - **A kill ring.** Ctrl-W, Ctrl-U and Ctrl-K delete rather than cut, because a
   ring needs a yank key and a rotation and nothing has asked for either. What
   they do is what every one-line prompt in this library already does.
+
+#### A command palette: the registry read as a list
+
+SIG-112 split this out because it had one unresolved question -- runtime or
+`sigil add` -- and the answer is measured rather than argued. The feature is
+three layers with a seam between each: `src/components/fuzzy.ts` is the ranking,
+`src/components/catalog.ts` is the catalog, and `src/components/palette.ts` is
+the UI over both plus the prompts that collect what the chosen command needs.
+
+- **There is no second catalog, and that is the whole claim.** Names, aliases,
+  descriptions, `hidden`, arguments and required options are all things the app
+  already told the **parser**, so `commandCatalog()` reads the initialized
+  registries back -- at `cmd[Internal]`, which is the shape the parser matches
+  against -- exactly as help reads the context chain rather than a separate list
+  of what a command inherits. It is checkable rather than a sentence: `should
+read the description off the registry rather than off the declaration` sets a
+  `desc` from an `init` hook and the entry carries the hook's, which a palette
+  reading a declaration could not do.
+
+  That is the thing neither Ink nor OpenTUI can do cheaply, because neither owns
+  an argument parser, and it is why this was worth building for its own sake
+  rather than for the feature.
+
+- **The packaging answer is `@ttylabs/sigil/components`, and the measurement is
+  what decided it.** The question is what it costs an _unbundled_ app that
+  imports the components barrel for a spinner and never opens a palette, so what
+  was measured is the transitive static import byte weight of each entry's own
+  graph -- the method `test/dist.test.ts`'s `what importing the package costs`
+  already uses, and the one the `seeded()` move and `ScrollBox`'s 3.4 kB were
+  measured with.
+
+  |                                                      | bytes       | modules |
+  | ---------------------------------------------------- | ----------- | ------- |
+  | `components.mjs` on `main`                           | 213,649     | 21      |
+  | `components.mjs` with the palette in the barrel      | **223,912** | 23      |
+  | `components.mjs` with it on `@ttylabs/sigil/palette` | 214,804     | 22      |
+  | `palette.mjs`, that subpath's own graph              | 196,257     | 24      |
+
+  So the palette costs the barrel **10,263 B**, and it is fully accounted for:
+  8,151 of its own code in `components.mjs`, the 1,778 B `transform` chunk, the
+  154 B `types` chunk, and **180 B of class names in `FRAMEWORK_CSS`**, which
+  ships because the vocabulary comment is inside the template literal. A subpath
+  would give an app that never opens one **9,108 B** of that back, and it is
+  refused by the standard this file already set when it measured a subpath _per
+  component_ at about 15 kB of 124 and kept the barrel. A bundled app pays
+  nothing: a rolldown of an entry importing only `createSpinner` comes to
+  125,080 B and holds neither `commandCatalog` nor the palette's own `No commands
+match`, so what a bundled app keeps is the 180 B of sheet comment and nothing
+  else.
+
+- **It does not import the parser, which is the finding rather than the
+  worry.** Nothing in `src/components/` had ever imported `src/parser/`, and the
+  obvious reading of "a palette reads the command registry" is that it must. It
+  does not: it reads them through the `Internal` symbol, which is `src/types.ts`
+  and a **154 B** chunk, and it coerces a value with `transformValue()`, which is
+  `src/util/transform.ts` and a **1,778 B** chunk. Neither is in `src/parser/`.
+  Measured from the other side as well -- importing `parse` itself takes the
+  graph to **253,201 B**, +29,289, and fails the test written for it.
+
+  `src/help/` is the precedent and it reaches further: it imports
+  `OptionRegistry` as a _value_, which is a 7,206 B chunk on its graph. So a
+  component reading what the parser built is a direction of dependency this
+  repository already has, one layer along.
+
+- **It is deliberately not ejectable, and the reason is structural rather than a
+  preference.** `sigil add` rewrites a component's relative imports to the
+  published subpath that answers for each, and `src/util/transform.ts` has none
+  -- `generate-registry.mjs` refuses a deeper specifier by name, so adding the
+  palette to `ENTRIES` fails the build. What that refusal is pointing at is the
+  real reason: the one thing the palette must share with the parser is the
+  function that says what a valid value is, so an ejected copy would either
+  import something unpublished or carry a **second** reader of the coercion rule.
+  "No second catalog" and "no second validator" are the same claim, and an
+  ejected palette cannot keep the second half of it.
+
+  Publishing `transformValue()` was the obvious way round it and is refused:
+  that is a new permanent public surface -- "turn a string into a value of a
+  declared type, the way the parser does" -- taken inside a palette ticket, which
+  is the shape this file refuses repeatedly. What an app that wants to own the
+  palette's _appearance_ has instead is the ladder this file already records:
+  restyle a class, override a prop, or build its own tree over
+  `commandCatalog()`, `rankBy()` and `highlightRuns()`, which are all exported.
+
+- **The palette answers with an argv and runs nothing.** Running a selection is
+  dispatching a command, which `main()` already does, so `commandPalette()`
+  resolves with the argv a person would have typed and the caller passes it to
+  `main({ argv })`. That framing is what settles every value question below:
+  **the palette types what you would have typed**, so a `choices` list an app
+  declared wrongly is refused by the parser here exactly as it is from a shell,
+  and nothing in the palette is a second opinion about what a value means.
+
+- **`checkSlotValue()` is the one place a value is asked about, and it asks
+  `transformValue()`.** The same function the parser coerces with, so there is one
+  answer to "is this valid" rather than a validator that drifts from the parser;
+  `choices` is compared against the **coerced** value, which is what
+  `assertChoices()` does. What it does _not_ do is keep the coerced value -- the
+  string goes into argv and the parser coerces it again, so the parser stays the
+  only producer. The messages are the parser's own words, asserted as such:
+  `Invalid integer: eight`, `Invalid date: "2024-02-30"`.
+
+  It inherits the parser's oddities on purpose. A `date` with `choices` can never
+  match, because `includes()` compares `Date` objects by identity -- true of a
+  command line too, and being wrong in the same way is the point.
+
+- **A positional value the parser would read as an option is refused, and that is
+  the parser's property surfaced rather than a rule this invents.**
+  `optionLikeRE` is `/^--?\w/`, so `-5` and `-foo` arrive as options whatever slot
+  they were meant for, and a command line cannot express them either -- `--`
+  makes what follows it an _extra_ argument rather than a positional one.
+  Accepting one would hand the parser an argv it misroutes, which is the
+  divergence the design is written against. An **option's** value is attached
+  with an `=`, so `--port=--weird` is fine: the parser splits on the first `=`
+  and takes the value exactly as typed.
+
+- **A required option is a slot too, and that is outside the ticket's scope on
+  purpose.** A required option is a value the command needs exactly as an
+  argument is, so a palette that listed such a command and did not ask would hand
+  the parser an argv it refuses -- `Missing required option`, out of a list whose
+  job is to offer things that work. One with a `default`, or with an environment
+  variable that has a value, is already answered and is not asked for, which is
+  the parse's own precedence: argv, then the environment, then the default. An
+  empty variable is read as unset, which is `envValue()`'s rule said again.
+
+  A **negated** flag is never among them and needs no guard: a flag always has an
+  implied default, so the `default !== undefined` test already answers for it.
+
+- **A slot is a projection rather than the declaration, and the two kinds are one
+  shape.** An argument and a required option differ in how a value reaches argv
+  and in nothing else a prompt cares about, so `PaletteSlot` carries `choices`,
+  `desc`, `label`, `multiple`, `required`, `spelling` and `type` and there is one
+  prompt builder rather than two that have to agree. Plain data, so a test writes
+  one. `type` is `OptionDataType` rather than `ArgDataType` because it is the
+  wider of the two -- an option may be a `count` and an argument may not.
+
+- **`spelling` is a dashed spelling and not the bare name**, because
+  `OptionRegistry` keys its lookup on what gets typed: an option declared
+  `'-p <n>'` is _named_ `p` and has no long spelling, so `--p=5` resolves to
+  nothing while `-p=5` does.
+
+- **An optional slot always gets a prompt that can be left empty, which is one
+  sentence where there were four cases.** `confirm()` always answers, so it is
+  used only for a **required** `bool` or `yesno` -- an optional one is a text
+  field, or the declaration's own default would be unreachable. A `choices` list
+  has no way to say "none of them", so an optional one gets a `(skip)` entry in
+  front of it. And the token words are each type's own: `true`/`false` for `bool`
+  and `yes`/`no` for `yesno`, because `transformValue('true', 'yesno')` **throws**
+  -- which is the sharp edge of sharing one function, and is pinned.
+
+- **A variadic slot is a `multiline()` field, one value per line.** Splitting one
+  answer on whitespace was the alternative and cannot express a value with a space
+  in it; a line each can. What this cannot express is a value containing a
+  newline, which is the smaller loss. A required one that comes back with nothing
+  is asked again, which is `text()`'s own validate loop one level up.
+
+- **Positional arguments stop at the first one left empty.** A positional slot
+  cannot be skipped _over_, and `initArgs()` already promotes an optional argument
+  sitting before a required one -- so once one is left out every argument after it
+  is optional too and leaving them out is the only coherent reading. The option
+  slots are not positional and are asked for either way.
+
+- **`deferred` is the question a palette has, and `loaded` was the wrong one.**
+  `cmd[Internal].loaded` says whether `loadCommand()` has _finished_, and it
+  starts `false` and is only ever flipped by a dispatch -- so an ordinary inline
+  command that argv never named reads as unloaded. Reading it that way stopped the
+  walk at the first level and listed every namespace as a command that might have
+  a `run`; measured on the demo, `db` was listed and `db migrate` and `db seed`
+  were not. What a palette has to know is whether anything is still outstanding,
+  which is `loaded` **or there never was a module** -- a `path`, a `load` or a
+  `dir`. Found by running the demo, which is the argument for having written one.
+
+- **Nothing is imported to fill in a list.** A command whose module has not been
+  read is listed by name alone with no description, which is exactly what help
+  does and is the whole of what the deferral buys: a routed tree of sixty commands
+  costs one `readdir` per level argv named, and a palette that imported every
+  module to draw one frame would spend the saving. Such an entry still **runs**,
+  because `parse()` loads the command when argv names it. Asserted by counting the
+  loader's calls rather than by reading the list.
+
+  What it costs is that an unread branch lists one level deep, which is help's own
+  limitation. An `expand` option that awaited `loadCommand()` is refused for the
+  reason the measurement is here at all.
+
+- **A namespace is a command that _holds others_ and runs nothing, which is not
+  the same as one with no `run`.** The first gate was "has a `run`", and it left
+  **`help`** out of the list -- the one command every schema gets for free, which
+  the parser dispatches by setting `state.help` rather than through a handler. So
+  a leaf with no `run` is listed and a container is not, and `namespaces: true`
+  offers the containers too, because selecting one prints its help and that is a
+  coherent thing to do.
+
+- **A `hidden` command takes its subtree with it, and a hidden _context_ does
+  not.** `hidden` means "not listed", and a list that named a hidden command's
+  children would have named the branch anyway -- one `!` prefix hiding a subtree is
+  what somebody writing one means. The exception falls out rather than being
+  arranged: a context is in the chain because argv named it, so its subcommands are
+  listed from there. A command you are already running is not hidden from you, and
+  the alternative is an empty palette at the level you are standing on.
+
+- **The path is from the root, and the chain is walked outward.** `contexts` is
+  innermost-first and ends at the root, so the path to a context is that slice
+  **reversed** -- which one level of nesting cannot see, since a one-element list
+  reverses to itself, and is why the test for it is three deep. Nearer context
+  first is help's rule for `Global options` and for the same reason. The path
+  matters because commands resolve against the innermost context _only_ -- `mycli
+db build` does not reach the root's `build` -- while dispatching `['build']`
+  from the start does.
+
+- **The cycle guard is what bounds the walk, and a second path-keyed dedup could
+  never fire.** A registry holds initialized commands and `initCommand()` hands
+  one straight back, so a declaration naming a command already in its own subtree
+  builds a cycle rather than a copy. There _was_ a `paths` set beside it and a
+  sabotage said it was dead: every parent is walked at most once, so a path and a
+  child name cannot be produced twice. It is gone. What the surviving guard costs
+  is that it is path-**insensitive**: one command registered under two parents is
+  listed under both and its own subtree is listed under whichever path the walk
+  reached first. Written down rather than fixed, because a path-keyed guard would
+  be unbounded on a cycle again.
+
+- **The walk descends unconditionally, which the sabotage pass also found.**
+  There was a `!deferred` guard on the recursion, and it changes no answer for a
+  directory nobody has walked -- the registry is empty -- while for a placeholder
+  that declares subcommands **inline** it hid commands that are real:
+  AGENTS.md already records that a placeholder's subcommands are handed over
+  already built. So the registry is read whatever it holds, and `deferred` is left
+  deciding the entry's own field and the namespace gate. `should list a
+placeholder's inline subcommands, which are real` is the pin, and it needs both
+  halves -- without the deferred test the parent is read as a namespace and left
+  out.
+
+- **Ranking is a subsequence match with three bonuses, and it is fzf's
+  `FuzzyMatchV1` in miniature.** A forward greedy pass to find where the match
+  ends, a backward pass from there to find the tightest start, and a third to
+  produce the indices -- because greedy alone gets the common case wrong: `ate`
+  against `allocate` matches `a` at 0, `t` at 5 and `e` at 7, where the
+  consecutive run at the end is what anybody means. A full dynamic program would
+  be exact and is not worth it over a few dozen commands. The third pass needs no
+  bound and must not be given one, because the backward pass placed every query
+  character inside the span it walks.
+
+  The bonuses are a **prefix** hit, a **word boundary** -- after anything that is
+  not a letter or a number, and at a lower-to-upper transition, so `migrate` in
+  `db migrate` and `Db` in `runDb` are both one -- and a **consecutive** run. The
+  order is pinned as a relation rather than as three numbers: a prefix beats a
+  boundary beats neither.
+
+- **The table of orderings is the ticket's own ask, and two of its rows are
+  filters.** `dbm` over `['db migrate', 'dumb', 'db seed']` is one row, because
+  `dumb` holds d, b and m and not in that order -- so the ranking is the filter as
+  well as the order. The ties are the length tie-break: `d` over
+  `['build', 'deploy', 'db']` is `db`, `deploy`, `build`, where the first two score
+  identically and the shorter one wins.
+
+- **An empty query returns the list unsorted, which is not an optimization.**
+  Every candidate scores zero, so the length tie-break would put `db` ahead of
+  `db migrate` and reorder a list nobody had filtered -- and a catalog is already
+  in an order somebody decided. Pinned both ways.
+
+- **The query is taken exactly as typed and is never trimmed or split.** A space
+  in it matches a space in the candidate, so `db mig` finds `db migrate` and a
+  query of one space ranks everything with a space in it and nothing else.
+  Tokenizing would be a second grammar for a reader to hold, and "the whole query
+  is a subsequence" is the version nobody has to be told.
+
+- **Matching is per code point and highlighting is per grapheme cluster, and the
+  split is forced.** Code points are the unit every fuzzy matcher uses and the one
+  that cannot match half a surrogate pair; clusters would be the wrong unit for
+  matching, because a query of `e` would then not match a decomposed `é`. But a
+  **run** has to be a cluster, because a lone combining mark in a `text` of its own
+  measures zero columns and the grid refuses it a cell -- the mark would simply not
+  be drawn and the highlight would have eaten a character. So `highlightRuns()`
+  marks a cluster when any of its code points matched, and the two are pinned
+  together end to end.
+
+  The code-point walk inside it is the one guard a sabotage found untested: with
+  `cluster.length` in place of `[...cluster].length` the cursor drifts by one per
+  astral character, and the input that sees it is an index **after** a surrogate
+  pair -- `highlightRuns('😀ab', [1])`, where the broken reading highlights the
+  emoji and not the `a`. The obvious fixture, with the index _inside_ the pair,
+  agrees in both readings.
+
+- **Case folding is `toLowerCase()` and never the locale variant**, for the reason
+  `camelCase()` already records: the locale one reads the process locale, and in
+  Turkish and Azeri `i` cases to `İ` -- so a query of `i` would stop matching an
+  `I` on a machine set to `tr-TR` and nowhere else. The result may be longer than
+  one code point, which is why it is only ever compared and never used to index.
+
+- **An alias ranks a command without being shown.** `PaletteEntry.search` is the
+  label and then the aliases, and `highlightRuns()` ignores an index past the end
+  of what it is given -- so a hit in the alias tail highlights nothing and the
+  command is still found. What it costs is the one `rankBy()` records: a command
+  with aliases loses a score **tie** to one without, which decides nothing but the
+  order of two equally good matches. The description is shown and **not** matched,
+  because matching prose makes a ranking unpredictable and the label is what gets
+  typed.
+
+- **The rows are kept and reordered with `order`, not rebuilt.** One element per
+  catalog entry, for `For`'s own reason: a row that is still in the list is the
+  same row, so keeping it keeps its resolved style and its text measurement, both
+  of which are keyed on the style object and are worth nothing to a fresh element.
+  `order` changes where a child is **placed** and not where it lives, so
+  `result.children[i]` still answers for `node.children[i]` and nothing above has
+  to match a box back to a row that moved. The one input that sees it is a query
+  whose ranking disagrees with the registry's alphabetical order -- `z` over
+  `['az', 'zz']`.
+
+  Every row is turned off before the ranked ones are drawn, or a row the query no
+  longer matches keeps the place it had. And the label box is **emptied** before
+  its runs are rebuilt, or two draws over one row read as `buildbuild` -- which the
+  obvious description test could not see, because `/build\s+build the app/` matches
+  the doubled row starting at the second `build`.
+
+- **Escape dismisses and resolves with nothing; Ctrl-C is still the abort.** A
+  palette is a thing you dismiss, so Escape is not an error. Ctrl-C stays the abort
+  every prompt takes, because an app that cannot be quit because a filter field
+  swallowed it is the failure the binding order exists to prevent -- and `run()`
+  refuses to let any prompt claim it.
+
+- **The prompt plumbing is exported rather than copied, and the surface is the
+  same either way.** A palette is a filter field over a list, which is a prompt by
+  every structural measure -- a canvas, the one input router, a question, an answer,
+  and everything put back whichever way it ends -- and is not one of the six, so it
+  lives in its own module and borrows `runPrompt()`. A second reading of that
+  function is a second set of answers about the settled/detach ordering, the throw
+  that happens on the first frame before there is a handle to tear down, and the
+  one-key-at-a-time queue.
+
+  Moving it into a `runner.ts` of its own was the tidier shape and buys **nothing**
+  in surface terms, which is why it was not done: an ejected `prompt.ts` has to
+  reach the plumbing through the published `exports` map either way, so the same
+  nine symbols become public whichever file they sit in. What a move would have
+  cost is a refactor of the most delicate component in the repository inside a
+  palette ticket. Nothing moved: the bodies are where they were and one export
+  block was added, and the only edit to `test/components/prompt.test.ts` is one
+  added assertion about the surface that block creates -- no existing test moved,
+  which is the check an extraction gets.
+
+  `PROMPT_SYMBOLS` is frozen because it is exported, which is the trap every
+  initial value in the property table is frozen against, and is asserted.
+
+- **Two classes carry no new declaration, which is the sheet's own rule.** Eight
+  `sigil-palette-*` classes join the vocabulary comment and none of them gets a
+  rule: the matched runs carry `.sigil-palette-match` **and** the role
+  `.sigil-heading`, because `font-weight: bold` already has sites and every
+  declaration a built-in shares with another is on a role. The active row is
+  `.sigil-accent` the way a choice row is, the description is `.sigil-muted`, and
+  the pointer is reserved on every row with `visibility` rather than with a blank
+  -- a text of one space measures nothing at all, since `white-space: normal`
+  collapses a run of them, and every inactive label would sit one column left.
+
+- **The sheet _is_ the vocabulary, and nothing had been asserting it.** Its own
+  doc says to read it as the list of names a theme may restyle, and most of those
+  names carry no rule -- they are in the comment. A built-in drawing with a class
+  the comment does not name is a hook nobody can find, and nothing in a build
+  catches it, because a class is a string in a props object. `should name every
+class a built-in draws with` reads every `sigil-*` class out of
+  `src/components/` and `src/help/` -- 67 of them, all present -- which is the same
+  read `generate-registry.mjs` already makes, asked as an invariant. Found by a
+  sabotage of the palette's own four lines of comment, which failed nothing.
+
+##### What the sabotage pass found, and what the harness had to guard
+
+Sixty mutations, one at a time with the six affected suites run after each,
+**fifty-five caught**. The harness reports a pattern that matched nothing, a
+pattern that matched more than once, and a replacement equal to its original as
+their own verdicts rather than as passes -- none fired this time -- and it
+refuses to answer at all unless vitest reported the right number of suites,
+because a `vitest run` whose paths miss exits non-zero and reads exactly like
+every mutation being caught. A green control runs first.
+
+What the pass found is worth more than the count.
+
+- **Three guards were deleted for being unable to fire.** The `paths` dedup
+  beside the cycle guard, and the `!deferred` test on the walk, both above. And
+  `parserOwned` in `slotsFor()`: `--help` is the only option the parser adds, it
+  is a flag, and a flag is never `required` -- so the condition before it already
+  answered. Its test is kept and renamed to the claim it really makes, that the one
+  option every schema gets for free is not asked for.
+
+- **One guard was deleted and one reframed, both in `fuzzy.ts`.** The empty-label
+  early return in `highlightRuns()` is gone, because `graphemes('')` yields
+  nothing and the loop answers `[]` on its own. And the `--no-` skip in
+  `spellingOf()` turned out to be a **preference** rather than a guard: a negated
+  flag always has an implied default, so `slotsFor()` never asks for one, and the
+  shape that is left -- `'--no-color, --colour <v>'` -- resolves under either name.
+  What it decides is the label a prompt is asked under, where `--no-color <v>`
+  reads as a negation it is not, and that is pinned.
+
+- **Nine survivors were missing tests, and each got the input that makes it
+  matter** -- reasoned backwards from "what would make this guard load bearing"
+  rather than forwards from "no test failed". The code-point walk in
+  `highlightRuns()`; the deferred-placeholder-with-subcommands case, which is one
+  input for two guards; the three-deep path reversal; a non-array `choices` on an
+  **argument**, which `initArg()` does not validate and `assertChoices()` ignores,
+  so projecting one through would refuse every value for a declaration the parse is
+  happy with; an optional `bool`; a required variadic answered with nothing; the
+  `order` property; the row reset; and the label rebuild.
+
+- **Five survivors stay and are declared where they live.** Two are fast paths in
+  `fuzzy.ts` -- the empty-query early answer and the length guard, both of which
+  the three passes below them answer the same way. One is a **narrowing** rather
+  than a guard: `spelling === undefined` in `slotsFor()` cannot fire, because
+  `initOption()` refuses a declaration that names no spelling, and it is what lets
+  the slot carry a `string` without a cast. One is a fast path in the draw: a row
+  that is `display: none` is neither measured nor painted, so rewriting its runs
+  changes no answer. And one is unreachable today with a reason: the `positional &&`
+  on the stop condition, because an option slot is always required and a required
+  slot is never answered empty -- it is written because the rule is about positions,
+  and "any empty answer stops the rest" is a different rule that happens to agree.
+
+- **And the packaging test's own sabotage sharpened what it claims.** Importing
+  `initArg` from `src/parser/` leaves the graph where it was, because that module is
+  a leaf rolldown puts in this chunk -- so the test pins `parse.ts` specifically
+  rather than everything under `src/parser/`. Importing `parse` itself fails it and
+  takes the graph to 253,201 B. Its first spelling looked for `parseArgv`, which the
+  minifier renames, so the marker was in no bundle at all and the assertion said
+  nothing; it asserts the marker's **presence** somewhere in `dist/` before
+  asserting its absence from the graph, which is the rule the component list in that
+  file already keeps.
+
+##### Bindings are not listable, and that is SIG-134's to decide
+
+SIG-112 left it here in as many words: "whether bindings are _listable_ is the
+same question about the same registry as the palette's, and deciding it twice is
+how the two come to disagree." It is decided, and the answer is no.
+
+- **There is no registry to read, which is the whole asymmetry.** The palette is
+  cheap because the command registry is a declaration the app already wrote for
+  the parser; a palette adds nothing to declare. `InputRouter.bind()` holds
+  function bindings in a `Set` and sequences in a trie keyed by canonical key
+  spellings, and neither carries anything a screen could show -- so "listable
+  bindings" is not reading something that exists, it is adding a `desc` and a
+  `group` to every binding, a listing API, a screen, and then a decision about
+  what a **function** binding is listed as. That half of the registry has no key
+  at all.
+- **It is also the one place the palette's own argument does not transfer.** The
+  reason only sigil can do a palette cheaply is that it owns an argument parser.
+  There is no such asymmetry for key bindings: Ink and OpenTUI could list bindings
+  exactly as well, because a binding list is a thing an app declares either way.
+- **What a caller wants today, they already have in three lines.** The keys an app
+  binds are in its own source in one place, so `select({ choices })` over that list
+  is the whole screen -- and it is the honest version, because which bindings are
+  worth showing is the app's decision rather than the framework's.
+
+##### What is deliberately out
+
+- **Ejecting it**, with the reason above: the one thing it must share with the
+  parser is not published, so an ejected copy could not be the same palette.
+- **A `@ttylabs/sigil/palette` subpath**, refused on the 9,108 B the measurement
+  above puts on it against the standard this file already set for a subpath per
+  component.
+- **Importing a command module to fill in a list.** Not importing is the whole of
+  what the deferral buys, and a palette over an unread branch has exactly help's
+  limitation.
+- **Matching the description.** It is shown and not matched, because matching
+  prose makes a ranking unpredictable and the label is what gets typed.
+- **Options as palette entries.** The ticket is about commands, and an option is
+  reached through the slot prompts once a command has been chosen. A palette over
+  every option of every command is a different screen with a different question.
+- **A hard-wrap rule for a variadic answer**, and a value containing a newline
+  with it, for the reason the `multiline()` entry gives.
+- **A key binding that opens it.** A component reachable with no router is worth
+  more than one that requires one, and which key opens a palette is the app's: the
+  demo makes it a `default` command, which needs no binding at all.
 
 ### Prompts and keys
 

@@ -25,6 +25,7 @@ arguments and yours are used instead.
 | [`parser/07-help.js`](parser/07-help.js)                       | Groups, contributed sections, and writing your own                |
 | [`parser/08-hooks.js`](parser/08-hooks.js)                     | Watching a parse, adding an option mid-parse, rewriting an error  |
 | [`parser/09-errors.js`](parser/09-errors.js)                   | The default handler, your own, and catching it yourself           |
+| [`parser/10-palette.js`](parser/10-palette.js)                 | A command palette generated from the command registry             |
 
 Two worth running with `--help` to see what the screen does:
 
@@ -32,6 +33,23 @@ Two worth running with `--help` to see what the screen does:
 node demos/parser/07-help.js build --help     # groups and a contributed section
 node demos/parser/06-lazy-commands.js --help  # commands listed by name alone
 ```
+
+The palette is a `default` command whose `run()` opens it, which is how one is
+reached idiomatically: the context chain a `run()` is handed is what the palette
+is scoped to, and `main()` already dispatches whatever argv it answers with.
+Type to filter, Enter to run, Escape to dismiss — and try `up`, which is
+`migrate`'s alias and ranks it without being shown. It needs a terminal on
+**both** sides, because the query is read off stdin and drawn to the terminal's
+output; piped it prints the catalog it would have offered and exits 0:
+
+```sh
+node demos/parser/10-palette.js | cat
+```
+
+Every line of that came out of the registry the parser built. `db` is absent
+because it is a namespace with nothing to run, `internal` and the palette itself
+because they are hidden, and `--steps` because it has a default — three rules the
+palette did not have to invent.
 
 ## Components
 
