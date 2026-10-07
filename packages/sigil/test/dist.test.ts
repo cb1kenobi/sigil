@@ -137,6 +137,7 @@ describe('what importing the package costs', () => {
 		'renderBar',
 		'ScrollBox',
 		'tableView',
+		'enableDebugOverlay',
 	];
 
 	/** The bundles in a graph that define any of them. */

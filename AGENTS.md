@@ -3127,13 +3127,14 @@ changed the viewport` over a renderer, plus the shrinking direction and a
   `sigil-${outcome}` lands on a role for all four values of `SpinnerOutcome`,
   which is the one emission that computes its class.
 
-  `.sigil-caret` and `.sigil-scroll-track` are the two declared exceptions: no
-  role is inversion, and the track is the one grey here that is not de-emphasised
-  _text_, so it must not be `.sigil-muted` -- that role is `dim` on a dark
-  terminal, and a dim track is not a track. `should declare on a role, bar two
-exceptions that say why` is the invariant, and it reads the **parsed** sheet
-  rather than the source, because the comment listing the component classes as
-  hooks would otherwise be mistaken for a rule.
+  `.sigil-caret`, `.sigil-scroll-track` and `.sigil-debug` are the three declared
+  exceptions: no role is inversion, the track is the one grey here that is not
+  de-emphasised _text_, so it must not be `.sigil-muted` -- that role is `dim` on a
+  dark terminal, and a dim track is not a track -- and `.sigil-debug` is a
+  **background** rather than a foreground, which no role is either. `should declare
+on a role, bar three exceptions that say why` is the invariant, and it reads the
+  **parsed** sheet rather than the source, because the comment listing the
+  component classes as hooks would otherwise be mistaken for a rule.
 
 - **The toolchain has no sheet of its own, and deleting it fixed a bug rather than
   tidying one.** `TOOLCHAIN_CSS` was seven declarations under a `cli-` prefix at
@@ -3432,7 +3433,7 @@ is proved.
   cascade's own answer stands -- which for `themedCascade()` is what the environment
   knew and for a bare `Cascade` is the frozen dark -- and the context is put back
   exactly as it was found, which is the rule that path already keeps.
-- **The framework sheet's light half is one rule, and its size is the finding.** Every colour in that sheet is a palette index, and the basic sixteen
+- **The framework sheet's light half is two rules, and its size is the finding.** Every colour in that sheet is a palette index, and the basic sixteen
   are whatever the user's terminal theme says they are -- so there is nothing in
   them to fix conditionally, which is the rule working rather than a gap, and it is
   also exactly why an _app_ or a _theme_ needs this: a `#666` somebody wants for
@@ -3447,13 +3448,19 @@ is proved.
   the bars are left alone, because a palette colour is already right for them and
   changing one would be inventing a problem.
 
-  It is **one** rule rather than the five declarations this entry used to record,
-  and the role vocabulary is what collapsed it: `dim` is `.sigil-muted`'s now, so
-  the one place a light terminal needs a different answer is the one rule that says
-  it -- where before it was `.sigil-help-note`, `.sigil-prompt-hint`,
-  `.sigil-prompt-answer`, `.sigil-choice-hint` and `.sigil-decrypt-cipher` each
-  saying it separately, which is five chances to leave one out. That is the
-  argument for the roles stated as a number.
+  It is **one** rule for the de-emphasis rather than the five declarations this
+  entry used to record, and the role vocabulary is what collapsed it: `dim` is
+  `.sigil-muted`'s now, so the one place a light terminal needs a different answer
+  is the one rule that says it -- where before it was `.sigil-help-note`,
+  `.sigil-prompt-hint`, `.sigil-prompt-answer`, `.sigil-choice-hint` and
+  `.sigil-decrypt-cipher` each saying it separately, which is five chances to leave
+  one out. That is the argument for the roles stated as a number.
+
+  The second rule is the debug overlay's **background**, which is the one thing in
+  this sheet that is not a foreground: index 0 on a dark terminal and index 7 on a
+  light one, because the text in that pane is the terminal's own default foreground
+  and what it needs behind it is whichever background that foreground was chosen to
+  be legible against. Still a palette index, so it is still the user's own colour.
 
 - **`FRAMEWORK_CSS` is a template literal, so it holds no backtick and no
   `${`.** Written down because the failure is not local: a backtick in a comment
@@ -8078,6 +8085,553 @@ needs in order to know what to re-ask.
   README had nothing, and that is now the cheapest thing left to improve before
   SIG-31 asks the question properly.
 
+### A debug overlay: captured console output and frame stats
+
+Debugging a full-screen app means not being able to print anything. The
+full-screen backend holds what is written to it and flushes it on the way out,
+and that is right for the reason recorded there -- there is no "above the region"
+on a screen with no scrollback, and a log line the app thought it had written is
+worse than one that arrives late -- but _after the app exits_ is not when you
+need to read it. A `console.log` in an effect that fires thirty times a second is
+invisible until the process ends and then arrives as a wall.
+`src/components/debug-overlay.ts` is the whole of the feature: a ring, a console
+patch, a pane, and three additions to the renderer that the pane needs.
+
+- **The overlay is part of the tree it reports on, so every obvious shape of it
+  is a loop or a lie.** That is the finding rather than the framing, and it is why
+  the three guards below are structural rather than careful: a stat that counts
+  the overlay's own rows is a measurement of the instrument, and a log line
+  written by the render path lands somewhere whose change asks for another frame.
+  Each of the three has a test named after it and each of those tests fails when
+  the guard is deleted -- which is how the sabotage pass found a fourth thing
+  nothing was asserting.
+
+- **The ring is plain data with a version counter, and it is deliberately not a
+  signal -- which is the ticket's own wording overruled with a reason.** SIG-113
+  asked for "a ring buffer signal", and a signal cannot be one here: a write
+  notifies its watchers, a notification reaches the renderer's scheduler, and the
+  scheduler asks for a frame. So `console.log()` inside an effect would ask for
+  the frame that runs the effect that logged. The ring therefore has nothing it
+  _could_ ask with, which makes the first hazard unreachable rather than guarded
+  -- and what reads it is `Renderer.onFrame()`, which is a frame that was already
+  happening. The second half of the ticket's own paragraph is what settles it:
+  "writes into the ring do not mark anything dirty on their own".
+
+  The consequence is the honest one and the demo is written around it: in an app
+  with nothing else going on, a line logged after the last frame does not appear
+  until something else asks for one -- a keystroke, a resize, a signal write.
+  There is no loop-free alternative, because showing a line means changing the
+  tree and changing the tree means a frame.
+
+- **A ring rather than the unbounded buffer the backend keeps, and the reasoning
+  inverts rather than being inconsistent.** That one is unbounded because "a cap
+  that silently drops the start of a log is its own trap" -- that log is for
+  _keeping_, and it is flushed to the main screen where its reader is. This is for
+  _watching_: the last few hundred lines are the ones anybody reads off a pane,
+  and an unbounded one behind a live overlay is a leak for the life of the
+  process. Five hundred by default.
+
+- **`version` counts changes and each entry carries a `seq`, because one counter
+  cannot answer both questions.** A reader compares `version` to find out whether
+  it has anything to do, so a `clear()` has to move it -- and the pane's own fast
+  path is `log.version === seen`, so a counter that meant "lines ever pushed"
+  would leave the rows showing a cleared ring for ever. The sequence numbers are
+  what the rows are matched by, and they are carried on the entry rather than
+  derived from a position precisely so that a `clear()` leaves the positions
+  meaning something different while they go on meaning what they did.
+
+- **A write becomes a line per newline.** The pane draws one row per entry, so a
+  write holding a newline would be one row with two lines in it. One _trailing_
+  newline goes, because that is the one `console.log` would have added itself; a
+  blank line in the middle is a line somebody printed and is kept. Either line
+  ending, because what reaches here is whatever somebody passed to `console.log`
+  and a string read off a file on Windows carries CRLF.
+
+- **The capacity is checked for being a number rather than floored, and `NaN` is
+  why.** `Math.max(1, NaN)` is `NaN`: a ring of `NaN` slots holds `size < NaN`,
+  which is false, so the first push wraps into slot `NaN % NaN` and every line
+  after it is dropped while `size` stays at zero -- a log that silently captures
+  nothing, which is the one failure mode nobody would look for here. The same trap
+  `readInt()` and the typewriter's interval already carry an entry for, found by
+  the test for the floor rather than by review.
+
+- **Node's own `format()` does the formatting, because the one thing the capture
+  must not change is what a message _says_.** A hand-rolled formatter reads
+  `console.log('%s items', 3)` as the literal text with the argument after it,
+  which is a divergence somebody would hit on their first `%s`. It is a builtin
+  rather than a dependency, which the zero-dependency rule already admits
+  -- `node:fs`, `node:path` and `node:console` are all in `src/` -- and the
+  registry generator leaves a non-relative specifier alone, so the ejected copy
+  spells it the same way.
+
+- **Nothing is forwarded to the console it replaced, and that is the feature.**
+  Forwarding into a full-screen backend's held buffer is exactly the failure this
+  exists for, and forwarding past it to the raw stream would write into the
+  alternate screen the renderer is diffing. The ring is the destination.
+
+- **`trace` is left alone.** It prints a stack rather than a line, and replacing
+  it with a formatted line would throw the stack away -- which is the whole of
+  what anybody calls it for. Five methods: `debug`, `error`, `info`, `log`, `warn`.
+
+- **The console patch follows "put back what you attached", and reports whether
+  this call was the one that changed it.** The rule `hideCursor()`,
+  `setRawMode()` and `enableBracketedPaste()` already keep, and it is a _global_
+  being guarded, so the latch is module scope: two captures racing over
+  `console.log` would each record the other's patch as the original, and whichever
+  restored second would put the first one's patch back for ever. A second capture
+  is a no-op reporting `installed: false` whose `restore()` returns `false`,
+  rather than an error -- two live overlays in one process can happen and is not a
+  failure.
+
+- **A method whose current value is no longer ours is left alone, which is that
+  rule taken literally.** Somebody else's patch over ours is holding ours as its
+  original, so removing theirs would break their restore and assigning our
+  original over it would take their patch off without their asking. So the restore
+  asks `target[level] === patched[level]` first.
+
+  What that leaves is an **orphan**, and it is inherent rather than a hole: when
+  they restore, they put _our_ patch back, and the real method is then held by
+  nobody -- so `console.log` goes on pushing into a ring that may be the one nobody
+  is reading. Both answers lose one of the two patches, because the two installs
+  were not nested, and the one that loses ours is the one that does not break
+  somebody else's teardown. So what this does about it is **say so**:
+  `restore()` reports whether it put the console back rather than whether it was
+  the call that changed something, and a restore that found a method it could not
+  put back returns `false`. Reported by the first review round, which is also where
+  the alternative was weighed -- holding the latch would make one foreign patch
+  refuse every later capture for the life of the process, so the latch is freed
+  either way.
+
+- **A throw mid-install unwinds, because half a patched console with nothing
+  holding the originals is worse than none of one.** Reachable rather than
+  defensive: a property assignment on a frozen console, or on one whose methods
+  are accessors, throws -- so the install records what it replaced as it goes and
+  the catch puts back exactly the ones it had got to. The latch is left free, so a
+  later capture installs.
+
+- **What it costs the bundle is 3,694 bytes of `components.mjs`, measured by
+  taking it back out of the barrel and rebuilding.** 36,524 bytes with it against
+  32,830 without, which is the same way `ScrollBox`'s own 3.4 kB was measured and
+  is about the same size. Re-measured after both review rounds, because the first
+  figure read 3,552 and the fixes moved it -- a number in this file that only a
+  re-run can confirm is a number that goes stale quietly. `node:util` lands in that chunk and in no other, which
+  is the one builtin the components bundle now imports -- a builtin rather than a
+  dependency, so the zero-dependency rule is untouched and what it adds to a
+  bundle is nothing.
+
+- **`Renderer.onFrame()` fires at the top of a frame, before the effects run, and
+  the ordering is the whole of what it is for.** What a handler writes there is
+  settled, laid out and painted by the **same** frame that called it, so a pane
+  reading some non-reactive source picks its changes up on a frame that was
+  already happening rather than asking for one of its own. A handler that ran
+  after the paint would be a frame late and would have to ask for another.
+
+  Dispatched over a copy **and** a membership check, which are two rules and not
+  one -- the rule the router's bindings, its paste handlers and
+  `Terminal.onResize()` already keep. `teardown()` clears the set, and the
+  exclusions with it: a handler nothing will ever call and an excluded element
+  nothing will ever walk are both references the renderer has no further use for,
+  and nothing else can drop them -- `view.dispose()` without `overlay.dispose()`
+  is a thing an app does. Cleared rather than replaced, so an unsubscribe a caller
+  still holds stays callable. A handler that throws is reported to
+  `onError` and the frame carries on, because a frame callback is an observer and
+  a failing observer must not take the screen down: that is `onMount`'s rule, and
+  raising instead would reach `runFrame()`'s catch, which is `fail()`.
+
+- **It is handed the stats of the frame before it, because a frame cannot report
+  on itself.** The numbers are not known until it has finished, and a tree built
+  from them would be built after the layout and the paint it is describing. So
+  `Renderer.stats` is the last completed frame's and a pane showing it is always
+  one frame behind -- which is the honest answer rather than a limitation, since
+  the alternative is a stat that reports on the instrument reading it.
+
+- **`gatherStats` is off by default, and a frame nobody asked pays nothing.**
+  Every number in a `FrameStats` is one the frame already had in hand: the
+  restyler answers with how many elements it re-resolved, the settle knows whether
+  it laid out and whether it painted, and the canvas was handed the diff's own
+  count of the cells it drew. What turning it on adds is **one walk of the tree
+  per frame**, which is what `elements` and `changed` cost, because both leave out
+  the subtrees `excludeFromStats()` named and that is a question only a walk
+  answers. A flag rather than always-on for the reason the style sweep's growth
+  factor is a comparison rather than a walk: an app that never reads the numbers
+  should not pay `O(elements)` a frame to produce them.
+
+- **One walk answers both numbers, because two readers of "is this excluded" is
+  how the two come to disagree.** `countTree()` asks the question once per
+  element, at the top of the walk, and an excluded element's descendants are
+  simply never reached -- so the count and the filter cannot come apart. The
+  alternative was a walk for the count and an ancestor test for the filter, which
+  is the shape that drifts. It allocates nothing per element: the stack is reused
+  rather than a set of included elements being built, which is the difference
+  between `O(elements)` of work and `O(elements)` of garbage on a frame of a
+  ten-thousand-row list.
+
+- **Two of the numbers are the tree's and five are not, and saying which is the
+  honest half of the exclusion.** `elements` and `changed` leave out every subtree
+  `excludeFromStats()` named, which is what keeps an overlay out of what it
+  reports. `resolved` cannot: the restyler answers with a **count** rather than
+  with the elements it visited, so there is no set to filter -- and it is kept
+  anyway, because it is the number the recorded invalidation measurement is about.
+  `bytes`, `cells`, `styles` and `sweeps` cannot either, and for a sharper reason:
+  **a cell count cannot be attributed to part of an element tree.** The diff is
+  over a grid, and by the time it runs there is no tree left to ask which element
+  painted a cell. So an overlay reporting those is reporting on itself along with
+  everything else, and that is said in the type rather than left to be discovered.
+
+- **`cells` and `bytes` are zero for a frame that painted nothing, rather than
+  what the last one that did cost.** The canvas's numbers describe its last
+  `present()`, which for a frame that found nothing to paint is some earlier
+  frame -- so reading them straight through reported every quiet frame as having
+  cost whatever the last busy one did. Found by the test for a second frame,
+  which is the cheapest shape that could have caught it.
+
+- **`DiffResult.cells` is counted in the loop that already walks the cells.** A
+  second count over the same grid would be a second answer to one question, and a
+  count derived from the output would have to parse it back -- `output.length` is
+  bytes and counts the cursor moves and the SGR transitions along with the glyphs.
+  A wide cluster is **one** cell, because one glyph was written; the continuation
+  beside it is drawn by its lead and is never written on its own -- which a _first_
+  frame cannot show, since that one is a full repaint and draws every cell of the
+  grid. `Canvas.stats` is a fresh object per read rather than a live one, so a
+  caller that keeps a snapshot keeps the numbers it read.
+
+  A **resize** zeroes the last frame's cost, because it takes the grid that frame
+  was drawn on: `styles` and `sweeps` are read as of now while `bytes` and `cells`
+  described the last `present()`, so a read between a resize and the next frame
+  reported a pre-resize frame's cells beside a post-resize style table -- two
+  frames in one object. Reported by the first review round. It changes nothing
+  about a `FrameStats`, which already zeroes those two for a frame that painted
+  nothing, and nothing about a real frame either, since the resize happens inside
+  the layout and the paint's own present comes after it.
+
+- **`duration` is measured from after the frame handlers, because the overlay is
+  one of them.** A handler that spends two milliseconds rebuilding its rows would
+  otherwise make every frame read two milliseconds slower -- the instrument
+  measuring itself, in the one direction somebody turns the pane on to look at. So
+  what the number is, is the work the frame did; `at` is still the top of the
+  frame, because that is when it ran. Pinned with the injected clock, which is the
+  only way to say how long anything took without timing it.
+
+  It is the renderer's own clock, which is `Date.now` by default, so a frame under
+  a millisecond reads as `0` or `1`. An app that wants better passes `now`, which
+  is the one clock the pacing, the transitions and the frame skip all read -- a
+  second clock here would be a fourth reader with its own idea of what time it is.
+
+- **The pane is appended to the root, which is sound rather than a liberty.** It
+  is `position: fixed`, so it is taken out of flow, takes no space, and does not
+  size the parent it was added to -- `measureUncached()` filters out-of-flow
+  children out of what a box measures, so an auto-height canvas does not grow for
+  it either. The app's layout is what it was, which is what makes
+  `enableDebugOverlay(view, opts)` possible at all: the stats, the exclusion and
+  the frame callback are all the renderer's, and the renderer does not exist while
+  the component body is running. The same shape `enableSelection()` already has.
+
+- **`bottom` with a declared height rather than `top` and `bottom` together.** The
+  engine's rule is "two insets, else a declaration": `left` and `right` say how
+  wide the pane is, and `bottom` plus `height` say where its bottom edge sits --
+  which is the caller's number rather than something to derive from the canvas.
+
+- **`display` is what hides it, not `visibility`.** A `display: none` subtree is
+  not laid out at all, where `visibility: hidden` would lay out every row to draw
+  none of them -- and the focus ring skips the first and not the second, which for
+  a pane full of log lines is the answer that costs nothing while it is closed.
+
+- **`min-height: 0` on the log is the one declaration that is not obvious, and it
+  was wrong until a sabotage pointed at it sideways.** A box's automatic minimum
+  is content-based, so the log's is its content's -- five hundred rows -- and a
+  `flex-basis: 0; flex-grow: 1` cannot shrink below it. Measured: the pane came
+  out **forty rows tall inside a box drawn for six**, with the rows painted
+  straight through its own bottom border and over whatever the app had drawn under
+  it. It is CSS's own idiom for a scrolling pane inside a flex column, and it is
+  pinned as the box **and** as the picture, because the box is the mechanism and
+  the border is what somebody would have reported.
+
+- **Every line draws in a _role_, apart from an ordinary one, which is why this
+  component adds no colour declaration of its own to the sheet.** A line's level is
+  de-emphasis, a warning, an error or a note, and each of those already has exactly
+  one site in the framework's role vocabulary -- so `.sigil-error { color: magenta }`
+  restyles an error here along with everything else. Keyed by the union so that a
+  level added without a role is a type error rather than a class no sheet defines,
+  which is the rule `SEVERITY_ROLE` already keeps in the toolchain.
+
+  `log` draws in **no** role, because the ordinary case is the default foreground
+  -- so an ordinary `console.log` line is the one part of the pane a role rule does
+  not reach, and `.sigil-debug-entry` is the hook for it. That is the honest half
+  and three comments overclaimed it, each saying "every line draws in a role":
+  the module docblock, `LEVEL_ROLE`'s own, and the sheet's. Reported by the second
+  review round, which is where every finding of that round came from -- and the
+  test named for the rule asserted that the four roles carried a _declaration_,
+  which is a claim about `FRAMEWORK_CSS` that would hold with the pane drawing
+  every level in nothing at all. It reads the resolved colour off a rendered line
+  now, both halves, which is what a theme can actually reach.
+
+- **The background is the sheet's and not a prop, and it was a prop for a
+  commit.** A prop beats a sheet per property, so `background-color: black`
+  written into the host beat the light half of `.sigil-debug` **and** beat a theme
+  rule on the same class -- which is the rule this file already records as "no
+  built-in carries a colour in its props", broken by the one component that needed
+  a colour badly enough to reach for props. What made it invisible is that the
+  prop and the sheet agreed on a dark terminal: the pane looked right everywhere
+  anybody was looking, and a light terminal got index 0 behind its own dark
+  default foreground. Found by self-review and by the first review round in the
+  same hour, and pinned in both schemes and against a theme rule -- the earlier
+  test asserted the title and an entry, which the prop did not touch.
+
+- **The one declaration the pane does carry is a _background_, and it is the
+  sheet's third declared exception to the role rule.** No role is a background, and
+  the pane is the one built-in drawn over the app's own content: a box with no
+  background paints nothing in its empty cells, so without it the app shows
+  through between the pane's words and the pane is unreadable. Index 0 with a
+  light half of index 7, which is the narrowest pair that works on both -- the
+  text in the pane is the terminal's own default foreground, so black behind it on
+  a dark terminal and white behind it on a light one is in both cases the
+  background that foreground was chosen to be legible against. No hex, for the
+  reason every colour in that sheet is an index.
+
+  It is **transparent at colour level 0**, which is degradation working rather
+  than a gap: the same thing `06-panes.js` already records, where an overlay whose
+  only opacity is a background has none there. What is left is the pane's border,
+  which is box-drawing characters and survives, with the app's content showing
+  between the lines. The two ways to reach level 0 are a pipe, which has no
+  overlay to toggle, and a user who asked for no colour.
+
+- **The geometry is in props and the colour is in the sheet, which is the rule
+  that sheet keeps for every built-in.** `box-sizing` starts at `border-box`, so a
+  `padding-left` from a theme would be taken _out of_ a width the pane worked out
+  -- the same thing a themed table cell already records. Six new classes, all of
+  them hooks with no rule: `.sigil-debug-head`, `.sigil-debug-title`,
+  `.sigil-debug-stats`, `.sigil-debug-log`, `.sigil-debug-list` and
+  `.sigil-debug-entry`, beside `.sigil-debug` itself.
+
+- **The rows are kept rather than rebuilt, which is `For`'s own reason.** A row
+  still in the ring is the same row, so keeping its element keeps its resolved
+  style and its text measurement -- both of which are keyed on the style object
+  and are worth nothing to a fresh element. A ring that wrapped once per frame
+  would otherwise rebuild five hundred rows to move one. Matched by sequence rather
+  than by counting, so a `clear()` followed by a push cannot be mistaken for the
+  same lines arriving again.
+
+- **The pane's own writes are not what asks for the next frame, and that is the
+  one hazard that does not terminate by itself.** The rows do: a sync that finds
+  the ring unmoved writes nothing. The _stats_ line holds the frame number and the
+  frame's duration, so it differs on every frame -- and `setText()` marks layout
+  and asks for a frame, so writing it unconditionally is a **thirty-a-second spin
+  for the life of the process** in which every number shown is a measurement of
+  the instrument. So the line skips exactly the frame its own last write asked
+  for, which is what makes it stop: that frame finds nothing to do and sets no
+  other timer. What it costs is that a steadily animating app updates the line
+  every other frame rather than every frame, which is the right trade -- the
+  alternative is an app that cannot stop because something is watching it.
+
+- **The follow is `scrollIntoView()` on the last row, and what it waits for is
+  that row's _box_ rather than a frame.** Arithmetic of the pane's own would be a
+  second answer to "where is that row", and the one function that already knows is
+  the one the focus ring calls. What it needs is a row the layout has placed: a row
+  with no box is one `scrollIntoView()` returns from without doing anything, which
+  is indistinguishable from one that was already visible.
+
+  It was written as "wait one frame", which is right for a row the sync just
+  appended and **wrong** for a row appended while the pane was closed -- a hidden
+  subtree is not laid out at all, so those rows have no box however many frames
+  pass, and the flag was consumed on exactly the frame that could not act.
+  Measured: a pane left closed while forty lines arrived opened on **line 0**
+  rather than line 39, and so did every later open after a hide. Reported by the
+  first review round. Asking about the box is what makes the wait as long as it
+  has to be, and it subsumes the one-frame case rather than sitting beside it.
+
+  It also has to be able to ask for the frame that comes after that layout, which
+  is one `view.invalidate()` and is bounded at one per pending follow -- a visible
+  pane's next layout gives every row a box, so one is enough, and a tree where it
+  somehow never does leaves the pane unscrolled rather than asking for a frame per
+  frame for ever. The half that needs it is `stats: false`: with the stats line on,
+  its own write is what asks for that frame, which is why the first test for this
+  passed with the retry deleted.
+
+  The deferral survived the whole first sabotage pass, because not one test had
+  asserted that the newest line is the one on screen; it has four now -- `follow`,
+  `follow: false`, an open after a hidden fill, and the same with no stats line.
+
+  Unconditional rather than "only when it was already at the bottom", which is
+  `tail -f` and is what a pane you toggled on to watch something wants: a line
+  arriving while you are reading history pulls you back, and reading history is
+  what pausing the app is for. `follow: false` is the opt-out.
+
+- **Which key it is, is a predicate rather than a name, and that is a correction
+  the demo forced.** The first version took a `Key.name` and its own documentation
+  recommended `f12` -- a name **this decoder never produces**: the named sequences
+  are the arrows, the paging keys and the editing keys, and everything else comes
+  through as a key whose name is its own escape sequence. So the one documented
+  value of the option matched nothing, and no unit test could have seen it,
+  because every one of them wrote the name it was asserting. Found by driving the
+  demo, which is the argument for having written one.
+
+  A predicate also has no chord grammar to invent, which is the other half of it:
+  a key name and a modifier set are two things, and a third spelling of a chord
+  beside `Key`'s own fields would be a grammar with one caller. What an app writes
+  is `(key) => key.ctrl && key.name === 'g'`. A binding sees **every** key before
+  the focused element does, so a bare letter is a letter a text field can no
+  longer type -- the handle's `toggle()` is there for an app that wants a guard of
+  its own, which is what `03-focus.js` does with its `q`.
+
+- **The key goes quiet once the renderer has gone, which is the half `dispose()`
+  cannot cover.** `view.dispose()` without `overlay.dispose()` is a thing an app
+  does, and toggling a pane nothing will paint is harmless -- **stopping the key**
+  is not. A binding sees every key before the focused element does, so a dead
+  overlay would go on swallowing its key on a router the app still owns. One
+  condition, and it makes the failure benign; the pairing is still the app's, which
+  is the contract `enableSelection()` already has. Reported by the first review
+  round.
+
+- **`dispose()` puts back what was attached, in reverse.** The frame handler
+  first, so that nothing reads a pane being dismantled, then the key, then the
+  stats exclusion, then the element. Pinned as a **count** rather than as a
+  picture: the pane is detached, so whatever it builds afterwards is invisible
+  either way -- what a disposed overlay still reading frames would do is go on
+  appending rows to a subtree nobody can see, for the life of the process.
+  Deleting the unsubscribe survived every other test here.
+
+#### What the sabotage pass found, and what it got wrong
+
+Thirty mutations, one at a time with the three affected test files run after
+each. **All thirty are caught**, and what the passes found is worth more than the
+count -- two defects, two guards that could not change an answer, and two
+fixtures too easy to reach the branch they were named for.
+
+- **A real defect: the pane overflowed its own box.** Found sideways, by a
+  sabotage of the _follow_ whose test did not exist yet -- the `min-height: 0`
+  entry above has the measurement. Forty rows inside a box drawn for six, painted
+  through its own bottom border.
+
+- **A real defect the second pass found, and the sabotaged version was
+  _better_.** The console restore had a single `restored` latch, and deleting it
+  meant the loop ran again on a second call -- which for the one sequence that
+  matters, a foreign patch over ours that is later restored, **closes the orphan**
+  rather than leaving it. A guard whose removal improves an answer is not a fast
+  path, so what replaced it is a per-level record and a retry: the entry above has
+  what that comes to.
+
+- **Two guards that could not change an answer, deleted rather than commented.**
+  A `done.has(level)` check in front of the retry, which `restoreOne()`'s own
+  refusal already answers -- a level already put back is one whose patch is no
+  longer ours. And the pane's unchanged-ring fast path is the one survivor that
+  **stays**, declared where it lives: without it the two loops run and find
+  nothing to do, so no answer changes, and what it buys is not walking five
+  hundred rows on every frame of an app whose log is quiet.
+
+- **Two fixtures that could not reach the branch they were named for**, which is
+  the shape this file keeps rediscovering. `should follow with no stats line to
+ask for the frame` filled the ring while the pane was **open**, where the sync's
+  own append marks the tree and the frame after it comes for free -- so the retry
+  it was named for was never reached. It fills the ring while closed now. And
+  `should drop its handlers and its exclusions on dispose` asserted that a second
+  renderer over the same tree saw it whole, which it does whether or not the first
+  cleared anything, because it has sets of its own: that one was **deleted**, and
+  the clear is declared where it lives instead.
+
+- **One guard that is declared rather than pinned**, for the reason above:
+  `teardown()` clearing its handler and exclusion sets is a reference drop with no
+  observable answer -- no frame runs after it, `stats` is not recomputed, and a
+  second renderer has sets of its own. It is the category `Restyler.forget()` is
+  in, and a test that looked like it pinned it was worse than none.
+
+- **And the harness reported three stale patterns rather than passing over
+  them**, which is the guard this file records twice and the third time it has
+  earned its keep: every one of them went stale when the follow and the restore
+  were rewritten, and a pattern that silently matches nothing is a green suite
+  reading as "the guard is not load bearing".
+
+#### What the second review round found, and it was all prose
+
+Eight findings, and **six of them were a comment or a line of documentation
+contradicting the code** -- which is the shape this file already records as the
+one a documented codebase is _more_ prone to, because the written rule is what
+stops the next reader checking the call site. The other two were tests too easy
+to fail. Not one was a runtime defect in the five fixes the first round produced,
+and the round was pointed at the files the first round had listed as **skipped**,
+which is why it found a different kind of thing.
+
+- **The module docblock's own example passed `key: 'f12'`**, a string, to an
+  option that had become a predicate in the same commit -- so copying the example
+  is a type error and, past that, a `TypeError` out of the router's dispatch. The
+  option's own comment two hundred lines below says in as many words that `f12` is
+  not a name this decoder produces. The one place somebody copies from was the one
+  place not updated.
+
+- **Three comments said "every line draws in a role"**, which is false of `log`.
+  The entry above has it.
+
+- **The sheet's own comment said its light half was "one declaration"**, which the
+  overlay's background made two. The AGENTS.md entry for it was already correct and
+  the sheet was not, which is the direction that catches somebody aligning the code
+  with the comment: deleting the second rule leaves a light terminal with index 0
+  behind its own dark default foreground.
+
+- **The demo and `demos/README.md` both said "the three fields after `el` are the
+  canvas's"**, and there are four, of which the first is `resolved` -- a count the
+  cascade hands back rather than a canvas measurement. Two different reasons for
+  the same "includes the pane", described as one.
+
+- **And `demos/README.md` said all three renderer demos print one line without a
+  terminal**, where this one prints two. A sentence that was true of its two
+  neighbours and was extended to cover a third without being re-read.
+
+- **Two tests could not fail.** The role test is the entry above. And the dispose
+  test's `stats.elements === 2` was called the exclusion going back, where it is
+  only the detachment: `countTree()` walks from the root, so a detached pane is
+  uncounted whether or not it is still in the set. What tells the two apart is
+  putting the pane **back** in the tree after `dispose()` and finding it counted,
+  which is a real statement besides -- a disposed pane is an ordinary element
+  again.
+
+- **And the sheet's backtick trap bit while the fix for it was being written.**
+  `FRAMEWORK_CSS` is a template literal, so this file already records that it holds
+  no backtick -- and a comment added to it holding `` `console.log` `` ended the
+  sheet, with the parse error reported twenty lines further down than the character
+  that caused it, exactly as that entry predicts. The comment now says so where it
+  sits, because the next person to write prose in that string will reach for one.
+
+#### What is deliberately out
+
+- **No file redirect**, which is the first of SIG-113's two open questions and the
+  ticket carries its own answer: it is "a different feature wearing the same hat --
+  `DEBUG` already writes somewhere", and `src/debug/` is that somewhere. What a
+  redirect would be is a second destination with its own rotation, its own
+  formatting and its own question about what happens when the file cannot be
+  written -- none of which the pane needs, and all of which an app gets today by
+  calling its own logger instead of `console.log`. `log.entries()` is there for an
+  app that wants to write the ring out itself, which is what the demo does on the
+  way out.
+
+- **Full screen only**, which is the second. The inline backend has `write()`,
+  which puts a line _above_ the region and re-anchors -- so an inline app can
+  already print, and an overlay there would be a second answer to a question that
+  has one. Nothing stops `enableDebugOverlay()` being used over an inline canvas
+  and nothing about it would break; it simply is not what it is for, and the
+  asymmetry is the backends' rather than the overlay's.
+
+- **No `onfinish`-shaped observation of the stats.** `Renderer.stats` is a read
+  and `onFrame` is the subscription, which is the two things a pane needs; an
+  event per stat would need a delivery point inside the frame, which is the
+  re-entrancy `runFrame()` already refuses.
+
+- **The overlay does not capture the console itself.** `captureConsole()` is a
+  separate call, because the patch is a global and the overlay is not: an app with
+  two renderers has one console, and an overlay that installed one would be an
+  overlay whose teardown order decides whether `console.log` still works. The app
+  owns the pairing, which is what makes `installed` a statement it can act on.
+
+- **The pane does not re-sync a windowed `ScrollBox`.** It holds the ring's rows
+  as ordinary children rather than as `rows`, because what a windowed list cannot
+  do today is exactly this: "a list that has to grow while nobody is scrolling is
+  left for a later tier -- it needs a way to ask for a re-sync, which is a second
+  mechanism beside `onScroll` and has no caller yet". This is that caller, and
+  adding the mechanism is a change to `ScrollBox`'s contract taken inside a ticket
+  about a debug pane. At five hundred rows the cost is an arrange of five hundred
+  one-cell texts while the pane is **open**, which measured against the recorded
+  10,000-row figures is a couple of milliseconds; closed it is `display: none` and
+  is not laid out at all. The day somebody wants a ten-thousand-line ring is the
+  day to add the re-sync and pass `rows`.
+
 ### Templates
 
 - **The toolchain is proved by a spawned `tsc` and a spawned node, not from
@@ -11724,7 +12278,7 @@ undone by a step that was already in flight` advanced a hundred milliseconds and
   _mounted_ built-in reaches it. Both have tests now, and the second one closes a
   gap for every component rather than only this one.
 
-##### What is deliberately out
+#### What is deliberately out
 
 - **A blinking cursor**, for the reason under the cursor above: a second timer
   running after the reveal has finished.

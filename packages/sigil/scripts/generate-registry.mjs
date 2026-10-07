@@ -94,6 +94,10 @@ const ENTRIES = [
 		desc: 'A decrypt effect: text that jumbles and then resolves into itself',
 		name: 'decrypt',
 	},
+	{
+		desc: 'A debug overlay: captured console output and frame stats, inside the app',
+		name: 'debug-overlay',
+	},
 ];
 
 /** `./src/element/index.ts` -> `element`, read off the build's own entry list. */

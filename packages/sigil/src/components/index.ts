@@ -48,6 +48,19 @@ export {
 } from './spinner.js';
 export { decodeKeys, isAbort, type Key, pendingLength } from './keys.js';
 export {
+	captureConsole,
+	type CaptureOptions,
+	type ConsoleCapture,
+	createLogRing,
+	type DebugOverlayHandle,
+	type DebugOverlayOptions,
+	enableDebugOverlay,
+	type LogEntry,
+	type LogLevel,
+	type LogRing,
+	type LogRingOptions,
+} from './debug-overlay.js';
+export {
 	boundary,
 	deleteAfter,
 	deleteBefore,

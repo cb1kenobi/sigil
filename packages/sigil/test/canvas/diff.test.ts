@@ -646,3 +646,73 @@ describe('a selection overlay, replayed', () => {
 		expect(reversed(off.terminal.styles, styles, 0)).toBe('...........');
 	});
 });
+
+describe('Canvas.stats', () => {
+	/**
+	 * What the diff drew, counted in the loop that already walks the cells.
+	 *
+	 * `output.length` is bytes and counts the cursor moves and the SGR transitions
+	 * along with the glyphs, so it cannot stand in for this -- and a wide cluster
+	 * is **one** cell, because one glyph was written and the continuation beside it
+	 * is drawn by its lead.
+	 */
+	it('should count the cells the diff drew, a wide cluster once', () => {
+		const canvas = createCanvas({ height: 1, width: 10 });
+
+		// the first present is a full repaint, so it draws every cell of the grid:
+		// ten columns, of which `a漢b` is three glyphs over four of them and the
+		// six after it are blanks
+		canvas.paint((painter) => painter.text(0, 0, 'a漢b'));
+		const first = canvas.present();
+		expect(first.cells).toBe(9);
+		expect(canvas.stats.cells).toBe(9);
+		expect(canvas.stats.bytes).toBe(first.output.length);
+
+		// and nothing for a frame that is the frame before it
+		canvas.paint((painter) => painter.text(0, 0, 'a漢b'));
+		expect(canvas.present().cells).toBe(0);
+		expect(canvas.stats.cells).toBe(0);
+		expect(canvas.stats.bytes).toBe(0);
+
+		// the wide cluster counted once, which a full repaint cannot show: one glyph
+		// moved, and the continuation beside it is drawn by its lead
+		canvas.paint((painter) => painter.text(0, 0, 'a漢c'));
+		expect(canvas.present().cells).toBe(1);
+	});
+
+	/**
+	 * A resize takes the last frame's cost with it, because it takes the grid.
+	 *
+	 * Reported by review: `sweeps` and `styles` are read as of now while `bytes`
+	 * and `cells` described the last `present()`, so a `stats` read between a
+	 * resize and the next frame reported a pre-resize frame's cells beside a
+	 * post-resize style table -- two frames in one object.
+	 */
+	it('should not report a pre-resize frame beside a post-resize table', () => {
+		const canvas = createCanvas({ height: 1, width: 10 });
+		canvas.paint((painter) => painter.text(0, 0, 'hello'));
+		canvas.present();
+		expect(canvas.stats.cells).toBe(10);
+
+		const before = canvas.stats.sweeps;
+		canvas.resize(20, 2);
+
+		expect(canvas.stats.cells).toBe(0);
+		expect(canvas.stats.bytes).toBe(0);
+		// the resize is the one sweep that needs no walk, and it still counts
+		expect(canvas.stats.sweeps).toBe(before + 1);
+	});
+
+	it('should hand back a snapshot rather than a view of the next frame', () => {
+		const canvas = createCanvas({ height: 1, width: 10 });
+		canvas.paint((painter) => painter.text(0, 0, 'hello'));
+		canvas.present();
+
+		const kept = canvas.stats;
+		canvas.paint((painter) => painter.text(0, 0, 'hi   '));
+		canvas.present();
+
+		expect(kept.cells).toBe(10);
+		expect(canvas.stats.cells).not.toBe(10);
+	});
+});
