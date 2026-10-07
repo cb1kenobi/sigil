@@ -69,7 +69,7 @@ function pixels(lines, form, invert) {
 	const columns = [...lines[0]].length;
 	const rows = form === 'large' ? lines.length : lines.length * 2;
 	const wide = form === 'large' ? columns / 2 : columns;
-	const grid = Array.from({ length: rows }, () => new Array(wide).fill(false));
+	const grid = Array.from({ length: rows }, () => Array.from({ length: wide }, () => false));
 
 	for (const [y, line] of lines.entries()) {
 		const cells = [...line];
