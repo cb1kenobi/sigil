@@ -12,6 +12,45 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
+  # `pnpm check` is type-check, lint and *format*, and the format half ran
+  # nowhere until an oxfmt bump reformatted markdown and `pnpm check` started
+  # failing on clean `main` -- the matrix below had `pnpm lint` and
+  # `pnpm type-check` as steps and never `pnpm fmt:check`, so the drift was
+  # invisible to all nine jobs. It is one job rather than a tenth step in each,
+  # for two reasons: what it checks is a property of the committed *bytes*, so
+  # nine answers to it are the same answer, and `oxfmt --check` refuses CRLF --
+  # `.gitattributes` says `* text=auto` with `eol=lf` on `*.js` alone, so `.ts`,
+  # `.md` and `.yml` check out CRLF on Windows and the check would fail there on
+  # every run. Giving every text file `eol=lf` is the other way round it and is
+  # a change to what every contributor's working tree looks like, which is not a
+  # thing to take inside a CI fix.
+  #
+  # It runs the whole of `pnpm check` rather than `pnpm fmt:check` alone so that
+  # what CI gates on is the one command a contributor runs locally and the
+  # pre-commit hook already runs; the lint and type-check it repeats are seconds
+  # against the matrix beside it.
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Use Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Type check, lint and format check
+        run: pnpm check
+
   test:
     name: Test on node ${{ matrix.node }} and ${{ matrix.os }}
     runs-on: ${{ matrix.os }}

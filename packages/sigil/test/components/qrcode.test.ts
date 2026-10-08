@@ -290,9 +290,24 @@ describe('every version, at every level', () => {
 	// count or an ECC length that is wrong for one version is a symbol whose
 	// codewords do not fill it, and nothing about a handful of hand-picked
 	// payloads would say which version
-	it('should produce a well-formed symbol for all 160 combinations', () => {
-		for (let version = 1; version <= 40; version++) {
-			for (const ecc of LEVELS) {
+	// One test per level rather than one body over all 160, because the deadline
+	// is **per test** and a 10s one is calibrated on a quiet machine. Measured on
+	// the macOS runner that reported this: the whole suite took 100.52s against
+	// about 8s locally and this file 34,890ms against 2,670ms, so the runner is
+	// ~13x slower -- and 814ms of walk times 12.5 is 10.2s, which is how one job
+	// of nine failed on a tree the other eight passed. Splitting is the answer
+	// `should cap the acceleration` already records, and it is the one that costs
+	// nothing: the same 160 combinations run, each body is about 200ms, and a
+	// per-test deadline that was 12x the work is now 50x. Raising `testTimeout`
+	// was the other option and it hides the quadratic blowup the deadline is for.
+	//
+	// By level because the cost is even that way -- the symbol size is a function
+	// of the version alone, so each level is a quarter of the walk, measured at
+	// 207/207/208/208ms -- and because each one still cycles `version % 8` across
+	// all 40 versions, so every test reaches all eight masks five times.
+	for (const ecc of LEVELS) {
+		it(`should produce a well-formed symbol for every version at ${ecc}`, () => {
+			for (let version = 1; version <= 40; version++) {
 				// the mask is **named** rather than chosen, which is faster and is also
 				// better coverage -- both halves measured rather than assumed.
 				//
@@ -325,8 +340,8 @@ describe('every version, at every level', () => {
 				// the dark module and nothing else
 				checkStructure(rowsOf(code), version, ecc, code.mask, `v${version}-${ecc}`);
 			}
-		}
-	});
+		});
+	}
 });
 
 describe('the mode', () => {

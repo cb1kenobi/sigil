@@ -13836,7 +13836,8 @@ correctness no test in this package can state, which is the position
   polarity fails 56 of the 168.
 
 - **The exhaustive walk names its mask, which is faster _and_ better coverage.**
-  `should produce a well-formed symbol for all 160 combinations` took **4.7s**
+  `should produce a well-formed symbol for every version at <level>` took **4.7s**
+  as one body over all 160 combinations
   against this package's 10s `testTimeout`, and 87% of it was choosing a mask:
   3,989ms against 472ms for the same 160 encodes, because choosing scores all eight
   over the whole symbol and version 40 is 177x177 read four times per mask. Two
@@ -13854,6 +13855,35 @@ correctness no test in this package can state, which is the position
   over `'x'` reaches **seven** of the eight masks and never 5, where cycling
   reaches all eight twenty times each. Measured: **815ms**, with the next slowest
   test in the file at 201ms.
+
+  **And then it is four tests, one per level, because a deadline is per test and
+  a 10s one is calibrated on a quiet machine.** 815ms was a 12x margin and it was
+  not enough: the walk timed out on **one job of nine** -- node 26 on macOS --
+  over a tree the other eight passed and that had passed 9/9 as a pull request,
+  which is the signature of a machine rather than a regression. The runner's own
+  log is what says so, and it is worth quoting because the ratio is the whole
+  finding: the suite took **100.52s** against about 8s locally and this file
+  **34,890ms** against 2,670ms, so it ran ~13x slow -- and 814ms times 12.5 is
+  10.2s, just past the line.
+
+  So the fix is the one `should cap the acceleration` already records -- make the
+  body cheap rather than move the deadline -- and here it costs **nothing at all**,
+  which is what makes it the right one: the same 160 combinations run, each body
+  is about 200ms, and the margin goes from 12x to 50x. Raising `testTimeout`
+  was the other option and it is refused for the reason the deadline exists: it
+  hides the quadratic blowup, and a suite whose slowest test is 200ms wants a
+  deadline it cannot reach rather than one calibrated against the worst runner
+  anybody has met.
+
+  By **level** for two measured reasons. The cost is even that way, because the
+  symbol size is a function of the version alone -- 207/207/208/208ms, which is
+  the walk in quarters -- where splitting by version band would put most of it in
+  27-40, since cost grows with the square. And each test still cycles
+  `version % 8` across all 40 versions, so every one of the four reaches all
+  eight masks five times and the twenty above is still the walk's total. All
+  three `alignmentCentres()` sabotages are still caught after the split, run one
+  at a time: the centres off by one, the count formula, and the version 32 step
+  that no other version can reach.
 
   The script is **committed**, as `scripts/verify-qrcode-decode.mjs`, for
   `benchmark-paint-cull.mjs`'s reason read one layer along: a number in a pull
