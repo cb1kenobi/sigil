@@ -14176,7 +14176,9 @@ read the description off the registry rather than off the declaration` sets a
   and a **154 B** chunk, and it coerces a value with `transformValue()`, which is
   `src/util/transform.ts` and a **1,778 B** chunk. Neither is in `src/parser/`.
   Measured from the other side as well -- importing `parse` itself takes the
-  graph to **253,201 B**, about 29 kB more, and fails the test written for it.
+  graph to **253,201 B**, about 18 kB more than the barrel that holds the palette
+  -- the 29 kB this said is that figure against the _without-palette_ row, which
+  is the wrong baseline for it -- and fails the test written for it.
 
   `src/help/` is the precedent and it reaches further: it imports
   `OptionRegistry` as a _value_, which is a 7,206 B chunk on its graph. So a
@@ -14228,13 +14230,23 @@ for` -- and that one is the **generator's own map** rather than a statement abou
   only producer. The messages are the parser's own words, asserted as such:
   `Invalid integer: eight`, `Invalid date: "2024-02-30"`.
 
-  Every value goes through it, **including a declared choice**, and for one commit
+  Every value a **field** collects goes through it, **including a declared
+  choice**, and for one commit
   it did not: the choices branch spelled a choice with `tokenOf()` and offered it
   unchecked, so a `yesno` argument declaring `choices: [true, false]` was offered
   as `true` and `transformValue('true', 'yesno')` throws -- the palette agreeing
   to a value the parse then refused, which is the one divergence the whole design
   is written against. Found by review, and it made the sentence above false of
   exactly the path a reader would not check.
+
+  The **one** value that does not go through it is a required `bool` or `yesno`,
+  which `confirm()` answers and which returns its token straight -- and that is
+  safe by construction rather than by checking, because the token is built from
+  the type: `yes`/`no` for a `yesno` and `true`/`false` for a `bool`, which is
+  exactly the vocabulary each one takes. This entry said "every value" for three
+  rounds and a third review round caught it, which is the shape worth noting --
+  a universal claim about a function with four callers, falsified by reading the
+  fourth.
 
   Two things came out of that. `tokenOf()` is **type-aware** -- a `yesno` boolean
   is `yes`/`no`, because that is the vocabulary the type takes -- and
@@ -14537,7 +14549,7 @@ placeholder's inline subcommands, which are real` is the pin, and it needs both
   Moving it into a `runner.ts` of its own was the tidier shape and buys **nothing**
   in surface terms, which is why it was not done: an ejected `prompt.ts` has to
   reach the plumbing through the published `exports` map either way, so the same
-  nine symbols become public whichever file they sit in. What a move would have
+  ten symbols and two types become public whichever file they sit in. What a move would have
   cost is a refactor of the most delicate component in the repository inside a
   palette ticket. Nothing moved: the bodies are where they were and one export
   block was added, and the only edit to `test/components/prompt.test.ts` is one
@@ -14547,9 +14559,11 @@ placeholder's inline subcommands, which are real` is the pin, and it needs both
   `PROMPT_SYMBOLS` is frozen because it is exported, which is the trap every
   initial value in the property table is frozen against, and is asserted.
 
-- **Two classes carry no new declaration, which is the sheet's own rule.** Eight
-  `sigil-palette-*` classes join the vocabulary comment and none of them gets a
-  rule: the matched runs carry `.sigil-palette-match` **and** the role
+- **The palette's classes carry no new declaration, which is the sheet's own
+  rule.** Eight class tokens join the vocabulary comment, on three lines, and
+  none of them gets a rule -- seven `sigil-palette-*` names and the bare
+  `.sigil-palette` the host is drawn with, which is the eighth and is not one of
+  the starred seven: the matched runs carry `.sigil-palette-match` **and** the role
   `.sigil-heading`, because `font-weight: bold` already has sites and every
   declaration a built-in shares with another is on a role. The active row is
   `.sigil-accent` the way a choice row is, the description is `.sigil-muted`, and
@@ -14563,9 +14577,15 @@ placeholder's inline subcommands, which are real` is the pin, and it needs both
   the comment does not name is a hook nobody can find, and nothing in a build
   catches it, because a class is a string in a props object. `should name every
 class a built-in draws with` reads every `sigil-*` class out of
-  `src/components/` and `src/help/` -- 67 of them, all present -- which is the same
-  read `generate-registry.mjs` already makes, asked as an invariant. Found by a
-  sabotage of the palette's own four lines of comment, which failed nothing.
+  `src/components/` and `src/help/` -- **70** of them, all present -- which is the
+  same read `generate-registry.mjs` already makes, asked as an invariant. 67 is
+  the count under `src/components/` alone, which is what this entry said; the
+  other three are `sigil-help`, `sigil-help-heading` and `sigil-help-note`, and
+  the test asserts `found.size > 40` rather than any of the three, so none of them
+  can go stale. Found by a sabotage of the palette's own three lines of comment,
+  which failed nothing -- and which failed nothing for a second reason the fix had
+  to close: the invariant matched _substrings_, so the sheet naming only
+  `.sigil-palette-list` satisfied a search for `sigil-palette`.
 
 ##### What the sabotage pass found, and what the harness had to guard
 
@@ -14757,7 +14777,7 @@ how the two come to disagree." It is decided, and the answer is no.
 
 - **Ejecting it**, with the reason above: the one thing it must share with the
   parser is not published, so an ejected copy could not be the same palette.
-- **A `@ttylabs/sigil/palette` subpath**, refused on the 9,439 B the measurement
+- **A `@ttylabs/sigil/palette` subpath**, refused on the 20,079 B the measurement
   above puts on it against the standard this file already set for a subpath per
   component.
 - **Importing a command module to fill in a list.** Not importing is the whole of

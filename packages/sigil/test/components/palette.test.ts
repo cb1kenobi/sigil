@@ -22,6 +22,9 @@ const UP = '\u001b[A';
 const DOWN = '\u001b[B';
 const LEFT = '\u001b[D';
 const HOME = '\u001b[H';
+const END = '\u001b[F';
+const PAGEUP = '\u001b[5~';
+const PAGEDOWN = '\u001b[6~';
 /** A CSI nothing names, for asserting that an unnamed key does nothing. */
 const UNNAMED = '\u001b[202~';
 
@@ -280,6 +283,73 @@ describe('commandPalette()', () => {
 		await type(ui.stdin, UP, ENTER);
 
 		expect((await answer).value?.argv).toEqual(['beta']);
+	});
+
+	it('should wrap the highlight going down as well as up', async () => {
+		// the other half of the wrap, and it had none: the test above presses Up
+		// from the top and nothing pressed Down from the bottom, so replacing the
+		// wrap with a clamp left the whole file green
+		const ui = screenSetup({ rows: 12 });
+		const answer = settle(
+			open(
+				ui,
+				await appState({ commands: { alpha: { run(): void {} }, beta: { run(): void {} } } })
+			)
+		);
+
+		// two commands, so Down twice wraps back to the first while a clamp stops on
+		// the second -- and it has to be an EVEN count, which the first version of
+		// this got wrong: at three, both readings land on the second and the test
+		// passed with the wrap replaced by a clamp
+		await type(ui.stdin, DOWN, DOWN, ENTER);
+
+		expect((await answer).value?.argv).toEqual(['alpha']);
+	});
+
+	it('should move the highlight by a page, and clamp at both ends', async () => {
+		// `pageup` and `pagedown` were each a no-op away from passing every test in
+		// this file. A list longer than the window is what makes a page differ from
+		// a step, and pressing more pages than there are rows is what pins the clamp
+		// rather than the arithmetic
+		const commands: Record<string, { run(): void }> = {};
+		for (const n of ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']) {
+			commands[n] = { run(): void {} };
+		}
+
+		const down = screenSetup({ rows: 8 });
+		const first = settle(open(down, await appState({ commands })));
+
+		// past the end, so the clamp decides: the last command whatever the window
+		await type(down.stdin, PAGEDOWN, PAGEDOWN, PAGEDOWN, PAGEDOWN, ENTER);
+		expect((await first).value?.argv).toEqual(['h']);
+
+		const up = screenSetup({ rows: 8 });
+		const back = settle(open(up, await appState({ commands })));
+
+		// and down past the end then up past the start is the first
+		await type(up.stdin, PAGEDOWN, PAGEDOWN, PAGEDOWN, PAGEUP, PAGEUP, PAGEUP, ENTER);
+		expect((await back).value?.argv).toEqual(['a']);
+	});
+
+	it('should move the cursor to the end with end and ctrl-e', async () => {
+		// `home`/`ctrl+a` is reached by the field-keys test below; its twin was not,
+		// so that branch was a no-op away from green. Both spellings, because the
+		// branch answers for either and a test of one pins half of it
+		for (const toEnd of [END, '\u0005']) {
+			const ui = screenSetup({ rows: 12 });
+			const answer = settle(
+				open(
+					ui,
+					await appState({ commands: { build: { run(): void {} }, deploy: { run(): void {} } } })
+				)
+			);
+
+			// type `epx`, go home, then to the end and backspace the `x` off --
+			// which leaves `ep` and matches `deploy` only if the cursor really moved
+			await type(ui.stdin, 'e', 'p', 'x', HOME, toEnd, BACKSPACE, ENTER);
+
+			expect((await answer).value?.argv, JSON.stringify(toEnd)).toEqual(['deploy']);
+		}
 	});
 
 	it('should edit the query with the field keys', async () => {
