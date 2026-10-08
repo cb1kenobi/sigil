@@ -22,6 +22,7 @@ import {
 	type InternalCommand,
 	type InternalOption,
 	type OptionDataType,
+	type ParsedValue,
 	type Schema,
 } from '../types.js';
 
@@ -34,6 +35,13 @@ import {
  * required option a variable already answers for is not a question to ask.
  */
 export interface CatalogTarget {
+	/**
+	 * What the parse matched, which is where the name argv reached each context
+	 * by comes from. Optional, because a caller may hand over a chain and
+	 * nothing else; without it a context contributes its own `name`, which is
+	 * right for every command but one whose module renamed it.
+	 */
+	$?: readonly ParsedValue[];
 	/** The command chain, innermost first, ending at the schema's root. */
 	contexts: InternalCommand[];
 	/** The environment, as the parse read it. */
@@ -232,6 +240,34 @@ function isDeferred(cmd: InternalCommand): boolean {
 }
 
 /** `<name>` or `[name...]`, which is how an argument is spelled where it is typed. */
+/**
+ * The name argv reached a command by, which is not always the command's own.
+ *
+ * A loaded module's `name` wins over the placeholder's, and the registry is
+ * keyed by the placeholder's -- so a `{ path }` whose module declares a
+ * different `name` is matched as one thing and calls itself another, and only
+ * the placeholder's name routes. Measured: such a command in the chain made the
+ * catalog emit a path the parser refuses with `Unexpected argument`, which is a
+ * palette offering something it cannot run.
+ *
+ * Matched by identity against what the parse recorded rather than by walking the
+ * chain's registries, because the loaded command is a *copy* -- the registry
+ * still holds the placeholder, so an identity lookup there finds nothing, and
+ * nothing on the loaded command remembers the name it was reached by: its own
+ * `name`, its internal `label` and its aliases are all the module's.
+ *
+ * A command argv never named has no entry, which is exactly a `default` one, and
+ * its own `name` is both the fallback and the right answer -- there is no token
+ * to prefer, and a default is dispatched by being the only one marked so.
+ *
+ * @param cmd - A context.
+ * @param named - What the parse matched, by command.
+ * @returns The token that reaches it.
+ */
+function matchedName(cmd: InternalCommand, named: Map<InternalCommand, string>): string {
+	return named.get(cmd) ?? cmd.name;
+}
+
 function argLabel(arg: InternalArgument): string {
 	const name = `${arg.name}${arg.multiple ? '...' : ''}`;
 	return arg.required ? `<${name}>` : `[${name}]`;
@@ -429,6 +465,15 @@ export function commandCatalog(target: CatalogTarget, opts: CatalogOptions = {})
 
 	const env = opts.env ?? target.env;
 	const entries: PaletteEntry[] = [];
+
+	// the token argv reached each matched command by, which is what routes
+	const named = new Map<InternalCommand, string>();
+	for (const value of target.$ ?? []) {
+		if (value.type === 'Command' && typeof value.inputs[0] === 'string') {
+			named.set(value.cmd, value.inputs[0]);
+		}
+	}
+
 	/**
 	 * The commands whose registries have been read.
 	 *
@@ -458,7 +503,12 @@ export function commandCatalog(target: CatalogTarget, opts: CatalogOptions = {})
 	 *   `slotsFor()` has to read, since a required option on an ancestor is
 	 *   enforced when a subcommand runs.
 	 */
-	function walk(cmd: InternalCommand, path: string[], above: InternalCommand[]): void {
+	function walk(
+		cmd: InternalCommand,
+		path: string[],
+		argv: string[],
+		above: InternalCommand[]
+	): void {
 		if (seen.has(cmd)) {
 			return;
 		}
@@ -474,6 +524,11 @@ export function commandCatalog(target: CatalogTarget, opts: CatalogOptions = {})
 			}
 
 			const here = [...path, child.name];
+			// what is *shown* is the canonical name and what is *dispatched* is the
+			// name argv reaches the command by, and the two part company above a
+			// renamed context -- see `matchedName()`. For a child they agree, since
+			// a registry is keyed by `cmd.name` and nothing has renamed one yet
+			const reach = [...argv, child.name];
 			const key = here.join(' ');
 			const internal = child[Internal];
 			const deferred = isDeferred(child);
@@ -494,7 +549,7 @@ export function commandCatalog(target: CatalogTarget, opts: CatalogOptions = {})
 					deferred,
 					desc: typeof child.desc === 'string' ? child.desc : undefined,
 					label: key,
-					path: here,
+					path: reach,
 					search: aliases.length > 0 ? `${key} ${aliases.join(' ')}` : key,
 					slots: slotsFor([child, cmd, ...above], env),
 				});
@@ -505,19 +560,19 @@ export function commandCatalog(target: CatalogTarget, opts: CatalogOptions = {})
 			// inline, and those are real. There was a `!deferred` guard here and a
 			// sabotage said it could not change an answer in the first case and hid
 			// real commands in the second
-			walk(child, here, [cmd, ...above]);
+			walk(child, here, reach, [cmd, ...above]);
 		}
 	}
 
 	for (const [depth, ctx] of contexts.entries()) {
 		// the path to this context: the chain is innermost-first and ends at the
 		// root, whose name is the schema's and is not part of argv
+		const chain = contexts.slice(depth, -1).reverse();
+
 		walk(
 			ctx,
-			contexts
-				.slice(depth, -1)
-				.map((c) => c.name)
-				.reverse(),
+			chain.map((c) => c.name),
+			chain.map((c) => matchedName(c, named)),
 			contexts.slice(depth + 1)
 		);
 	}
