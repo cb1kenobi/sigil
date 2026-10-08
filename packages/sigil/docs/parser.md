@@ -493,7 +493,7 @@ attached value if that matters.
 > Protection only covers options that are already known when the token is read.
 > A subcommand's option used _before_ its subcommand is not yet declared, so an
 > earlier option takes it: given `--target` on `build`, `--name --target x
-build` reads as `name: '--target'` and leaves `x` stranded. Putting the
+> build` reads as `name: '--target'` and leaves `x` stranded. Putting the
 > subcommand first works. This falls out of the multi-pass design — options are
 > bound as they are read, which is also what lets `--name build` treat a
 > command name as a plain value.

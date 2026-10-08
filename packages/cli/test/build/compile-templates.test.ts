@@ -338,14 +338,57 @@ export const broken = () => ui\`<raw measure="nope" paint="nope" />\`;
 			// `compileTemplates()` can parse are two things that have to agree, and
 			// the gap between them is a template nobody compiles and nobody is told
 			// about. `.tsx` and `.jsx` were exactly that gap
+			//
+			// Each extension is given source it can legally hold, which is what one
+			// ESM fixture for all eight got wrong: a `.cjs` and a `.cts` are
+			// CommonJS, so an `import` statement in either is a file Node refuses to
+			// load -- checked with `node` rather than assumed. oxc-parser took it
+			// until 0.153 and refuses the `.cjs` now, which is the stricter and the
+			// correct reading; it still reads a `.cts` as a module, so this does not
+			// rest on which of the two it happens to refuse today.
+			const esm = `import { ui } from '@ttylabs/sigil/template';
+export const view = () => ui\`<text>x</text>\`;
+`;
+			const cjs = `const { ui } = require('@ttylabs/sigil/template');
+module.exports.view = () => ui\`<text>x</text>\`;
+`;
+
+			for (const ext of ['ts', 'mts', 'js', 'mjs', 'tsx', 'jsx']) {
+				expect(compileTemplates(`/app/view.${ext}`, esm)?.count, ext).toBe(1);
+				expect(MODULE_RE.test(`/app/view.${ext}`), ext).toBe(true);
+			}
+
+			// a CommonJS module has no static import for the tag to be a binding of,
+			// so there is no `ui` to find and nothing is claimed. That is the
+			// recorded limitation rather than the gap above -- a template reached
+			// through `require()` stays interpreted, which is correct output at the
+			// cost of the parser staying in the bundle -- and what has to hold here
+			// is that it *parses*: a throw would be the plugin failing a build over
+			// a file rolldown handed it.
+			for (const ext of ['cjs', 'cts']) {
+				expect(() => compileTemplates(`/app/view.${ext}`, cjs), ext).not.toThrow();
+				expect(compileTemplates(`/app/view.${ext}`, cjs)?.count, ext).toBeUndefined();
+				expect(MODULE_RE.test(`/app/view.${ext}`), ext).toBe(true);
+			}
+		});
+
+		it('should refuse a CommonJS module written as an ES module, as Node does', () => {
+			// a `.cjs` holding an `import` statement is a file Node will not load, so
+			// compiling a template in one would be the build reporting success over a
+			// module that cannot run -- the failure this repo refuses everywhere
+			// else. A parse failure is loud, which is the right half of the trade: a
+			// template nobody compiles is the silent one.
+			//
+			// The assertion is on `parseModule()`'s own message rather than on oxc's
+			// wording, so a reword does not fail it and oxc going back to taking this
+			// does.
 			const source = `import { ui } from '@ttylabs/sigil/template';
 export const view = () => ui\`<text>x</text>\`;
 `;
 
-			for (const ext of ['ts', 'mts', 'cts', 'js', 'mjs', 'cjs', 'tsx', 'jsx']) {
-				expect(compileTemplates(`/app/view.${ext}`, source)?.count, ext).toBe(1);
-				expect(MODULE_RE.test(`/app/view.${ext}`), ext).toBe(true);
-			}
+			expect(() => compileTemplates('/app/view.cjs', source)).toThrow(
+				/Failed to parse [^:]*view\.cjs/
+			);
 		});
 
 		it('should not admit an extension that does not exist', () => {

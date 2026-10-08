@@ -677,7 +677,7 @@ These look like bugs and are not. Each is intentional and covered by tests.
   the message, never a stack — `process.exitCode` is set, and `main()`
   resolves with `undefined`. Its caller is a bin script, so an unhandled
   rejection dumping a stack is the wrong default. `settings.errorHandler:
-false` rethrows instead; a function replaces the handler.
+  false` rethrows instead; a function replaces the handler.
 - **Every hook is one function, not a list of them.** `beforeParse`,
   `afterParse`, `beforeError`, `init`, `parse` and `help` all take a function,
   which is what `transform` and `settings.errorHandler` already take -- so the
@@ -930,7 +930,7 @@ false` rethrows instead; a function replaces the handler.
 - **A directory is walked one level at a time, when something asks.** The walk
   is `loadCommand()`'s rather than the discovery's, which is the same deferral a
   module's import already gets and the reason a tree is worth having: `mycli db
-migrate up` reads `commands/`, `commands/db/` and `commands/db/migrate/` and
+  migrate up` reads `commands/`, `commands/db/` and `commands/db/migrate/` and
   nothing else, so sixty commands cost one `readdir` per level argv actually
   names and one `import`. Walking eagerly would read the whole tree on every
   invocation including `--help` and including a mistyped command -- paid by the
@@ -1147,7 +1147,7 @@ migrate up` reads `commands/`, `commands/db/` and `commands/db/migrate/` and
   -- `flex-shrink` defaults to 1 -- and it is the trap anyone laying a fixed row
   out walks into, because it looks right until one cell's text gets longer. Found
   by `05-drag.js`, reported as a rendering bug: its slider row asked for `9 + 30 +
-6` in a 40-column content box, the `nowrap` track could not shrink below its own
+  6` in a 40-column content box, the `nowrap` track could not shrink below its own
   width, so the label and the value absorbed all five columns -- and when the
   value's _automatic minimum_ grew from three characters to four, at exactly
   `100%` and nowhere else, the extra column came out of the label and shifted the
@@ -1296,7 +1296,7 @@ migrate up` reads `commands/`, `commands/db/` and `commands/db/migrate/` and
 - **`max-width` is _not_ part of that, and it is asserted so that nobody adds it.**
   It is the obvious third divergence and it is unreachable on the main axis:
   `measureUncached()` lays a child's content out at `clamp(declared ?? available, min,
-max)`, so a box child's measured width is already a sum taken inside its own limit --
+  max)`, so a box child's measured width is already a sum taken inside its own limit --
   and where the content cannot shrink that far, a long word, `clamp()` applies max
   before min so `min` wins, which is CSS. `max-width: 10` around `aa bb cc dd ee ff gg`
   measures 8 and is placed at 8; around a nowrap `supercalifragilistic` it measures 20
@@ -1333,7 +1333,7 @@ max)`, so a box child's measured width is already a sum taken inside its own lim
   child's own `max-height`. A floor therefore measured a row six rows tall around
   a box the placement puts at one, which is the disagreement being fixed, pointing
   the other way. `should honour a max-height the placement honours rather than
-measuring past it` is the guard, and it fails if the `Math.max` comes back.
+  measuring past it` is the guard, and it fails if the `Math.max` comes back.
 - **And the reported _minimum_ comes from the same pass, because it is the same
   question with `minHeight` in place of `height`.** `crossMax >= minCrossMax` used to
   hold by construction and with the cross size replaced it does not, so the minimum
@@ -1456,7 +1456,7 @@ measuring past it` is the guard, and it fails if the `Math.max` comes back.
   column comes out as tall as the four rows the text needs there. One round of the
   iteration this entry said was needed, taken where the width stops being a guess.
   Pinned by `should lay a percentage-limited text out at the width it is placed
-at`.
+  at`.
 - **A container that wraps is measured as the lines it wraps into, and there is
   one function that decides what those lines are.** `flex-wrap` was honoured when
   a line was packed and ignored when the box was sized, which is the same defect a
@@ -1992,7 +1992,7 @@ culling is two lines in passes that already existed.
   cascade and the canvas behind `@ttylabs/sigil/input` -- measured at **34.1 kB**
   of static import graph with this module in it, against the 33.0 kB that entry
   already carried and the 100 kB ceiling `should not drag the drawing stack in to
-import the key router` holds. `flex.ts` keeps its own `clips()` and that is the
+  import the key router` holds. `flex.ts` keeps its own `clips()` and that is the
   boundary rather than drift: the layout engine takes a `LayoutNode` and may not
   import the element tree, which is the whole reason it is testable with a literal.
   `ScrollBox` itself is **3.4 kB** of the components bundle, measured by taking it
@@ -2041,7 +2041,7 @@ import the key router` holds. `flex.ts` keeps its own `clips()` and that is the
   `scrollRange()` is only ever asked of one. That is a contract the field's own
   doc states, so the answer is to assert it rather than to delete the condition or
   to leave the doc on a reader's goodwill: `should give a box that does not clip no
-region at all` is the pin, and the condition fails it.
+  region at all` is the pin, and the condition fails it.
 
 - **There is no `margin` prop, and one shipped for a review round.** It was
   clamped, put on the `Axes` the keys and the wheel are gated on, and read by
@@ -2220,7 +2220,7 @@ not building it addresses the 72ms." This is not building it.
   because a handler built it is never shown to the animator at all: it is in the
   second settle's `Update.paint` and in no other, and the next frame has no mark for
   it, since it now has a cached style and nothing touched it. So `animation: pulse 1s
-infinite` on a row a **resize** revealed never started, while the same row revealed
+  infinite` on a row a **resize** revealed never started, while the same row revealed
   by a wheel notch did -- `scrollTo()` runs the handler before the frame, so that one
   is in the first settle's set. Found by review, and the asymmetry is what makes it a
   defect rather than a limitation: two rows of one list behaving differently according
@@ -2649,7 +2649,7 @@ infinite` on a row a **resize** revealed never started, while the same row revea
 - **The window arithmetic is walked exhaustively rather than sampled.**
   `rowWindow()` is four numbers in and two out, which is where every off-by-one
   a windowed list can have lives -- so `should hold every row a viewport can
-see, at every offset` asserts the _property_, over four row heights, four
+  see, at every offset` asserts the _property_, over four row heights, four
   viewport heights and every offset from zero to past the end: about ten
   thousand windows, each checked against every row in the list. The cases beside
   it are the ones worth naming, and the one that is easy to get backwards is the
@@ -2673,8 +2673,8 @@ see, at every offset` asserts the _property_, over four row heights, four
   needed**, so thirty rows of the viewport were blank until the next scroll,
   because a resize writes no offset and `onScroll` never fired. Pinned now in both
   frames: `should rebuild the window when the viewport grew, which writes no
-offset` over `renderToString()` and `should rebuild the window when a resize
-changed the viewport` over a renderer, plus the shrinking direction and a
+  offset` over `renderToString()` and `should rebuild the window when a resize
+  changed the viewport` over a renderer, plus the shrinking direction and a
   coloured differential against a list that declared its height at five offsets.
 
   The **first frame of a flex-sized list** was the merely-slow one, and it needed
@@ -3135,7 +3135,7 @@ changed the viewport` over a renderer, plus the shrinking direction and a
   either; and the QR code's is a foreground and a background _together_, because a
   scanner wants dark modules on a light one and a terminal is usually the other
   way round, so neither of the two is de-emphasis, a state or an accent. `should
-declare on a role, bar four exceptions that say why` is the invariant, and it
+  declare on a role, bar four exceptions that say why` is the invariant, and it
   reads the **parsed** sheet rather than the source, because the comment listing
   the component classes as hooks would otherwise be mistaken for a rule. It was
   three until SIG-136, and the sentence here still said three for a commit after
@@ -3615,7 +3615,7 @@ is proved.
   `declare({ constructor: 'red' })` was a `TypeError` from somewhere inside
   rather than an error anybody could act on.
 - **A CSS property that maps onto two longhands resets both.** `font-weight:
-normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
+  normal` did and `font-weight: bold` did not, so a `bold` left an earlier `dim`
   standing. Same rule as `border` and `flex-flow`, and the same bug in a third
   place.
 - **`none` parses only where "no limit" is a thing to say.** Accepting it on all
@@ -4434,7 +4434,7 @@ renderer's `settle()`.
   writes reachable, the second because `touchMedia()` is a reader that does not
   tick. When the fix is "this is now impossible", the thing to do is enumerate the
   defaults and the callers. So `should present a finite value for every defaulted
-and degenerate input` walks the two values that can be left out against five
+  and degenerate input` walks the two values that can be left out against five
   iteration counts, every fill mode and direction, three keyframe bodies and both
   motion settings, and asserts a finite presented value at six moments of each --
   about fifteen hundred assertions in place of a sentence. `easing.test.ts` and
@@ -4566,7 +4566,7 @@ what decided it.
   so every spinner would parse a stylesheet of its own -- which means plumbing a
   `sheets` option through `mountLive()` and `themedCascade()` for one component.
 - **The frames would have to be padded to a common width.** `frames[frame %
-frames.length]` handles any frame content today; a reel with a uniform step offset
+  frames.length]` handles any frame content today; a reel with a uniform step offset
   does not, so a caller passing frames of differing widths gets half a glyph.
 
 Against that, what the port deletes is the `setInterval`, its `unref()` and its
@@ -5072,7 +5072,7 @@ style sweep had to grow.
   It is the shape of bug that ships, which the ticket called correctly: it fires
   only once the table has passed `SWEEP_MIN` **and** doubled, so a demo painting a
   dozen styles never reaches it. `should keep a persistent layer's styles meaning
-what they meant` grows the table to 281 entries over seven frames of forty
+  what they meant` grows the table to 281 entries over seven frames of forty
   distinct truecolour cells, which is the first frame that qualifies -- and
   `should actually have swept, which is what the test above rests on` is beside it,
   because without that one the first is vacuous: every index still means what it
@@ -5430,7 +5430,7 @@ that pattern.
   against the grid, and both sides read whatever style the composite wrote, so a
   composite that carried the style one cell along passes. The loop was deleted
   again for being a guard that cannot fire, and `should carry each cell its own
-style, not a neighbour's` replaced it -- three styles side by side against
+  style, not a neighbour's` replaced it -- three styles side by side against
   **expected** values, which is the only shape that can see it. A differential is
   blind to an error both of its sides share.
 
@@ -5848,7 +5848,7 @@ pending.
   swallowed that the app did not itself name -- and the one case that _is_
   swallowed, `g ctrl+c`, is the app having written Ctrl-C as the second key of a
   sequence, which it chose. `should claim ctrl-c only where the app bound it as a
-continuation` pins that rather than leaving it to be discovered.
+  continuation` pins that rather than leaving it to be discovered.
 
 - **And a key that reached the trie and did not continue the sequence _answers_
   the question the deadline was waiting on, rather than throwing it away.** `g`
@@ -5915,7 +5915,7 @@ continuation` pins that rather than leaving it to be discovered.
   cancelled it -- so a deadline there would throw a half-entered sequence away
   while the user was still reaching for the second key. Which means a leader key,
   the shape everybody wants, costs no timer: `should wait indefinitely where there
-is nothing to disambiguate` asserts the timer count rather than the behaviour,
+  is nothing to disambiguate` asserts the timer count rather than the behaviour,
   because the behaviour is the same either way until the clock moves.
 
   So `take()` has three shapes and only the third waits: no children is an exact
@@ -5989,7 +5989,7 @@ is nothing to disambiguate` asserts the timer count rather than the behaviour,
   because a guard on the advance alone would let content end a sequence, and content
   must not drive a binding in either direction. The second half is the one a
   careless `!paste` gets wrong and `should not cancel a pending sequence, even typed
-in` is what fails for it.
+  in` is what fails for it.
 
 - **Two pending states, two deadlines, and no byte both could claim.** `held` in
   `keys()` holds **bytes that have not become a key yet** and is owned by
@@ -6214,7 +6214,7 @@ in` is what fails for it.
 
   One of round two's claims was **wrong** and is worth recording as the cost of a
   round: it read a pending `ctrl+x` as a binding and a prefix "via `ctrl+x
-ctrl+s`". Being the prefix of a binding does not make a node a binding, which is
+  ctrl+s`". Being the prefix of a binding does not make a node a binding, which is
   the distinction the three shapes are about -- so the demo's note was right and
   only its comment overclaimed.
 
@@ -6315,7 +6315,7 @@ mode, and the routing is the router's.
   mouse itself. The import therefore points from paint to hit rather than the other
   way round, which reads backwards and is the lighter module winning. One
   implementation either way, which is the part that matters. `should not drag the
-drawing stack in to import the key router` is the ceiling, at about 3x, with the
+  drawing stack in to import the key router` is the ceiling, at about 3x, with the
   markers chosen for what survives minification -- an exported name and a string
   literal, never a name that is only ever called.
 - **The hit test is reverse paint order, and `paintOrder()` is exported for it.**
@@ -6382,7 +6382,7 @@ drawing stack in to import the key router` is the ceiling, at about 3x, with the
   nothing to point at, since the two spellings look identical from outside. A
   component that wants neither stops both, which is discoverable in a way the other
   way round is not. `should follow a release that something stopped, because they are
-two events` is the guard, and its sibling asserts the click is still stoppable
+  two events` is the guard, and its sibling asserts the click is still stoppable
   itself.
 - **A click lands on the nearest box containing both ends.** A press on the text
   inside a button and a release on the button's padding is a click on the button,
@@ -6555,12 +6555,12 @@ two events` is the guard, and its sibling asserts the click is still stoppable
   - `detectTurdsForReportData:type:` (`PTYSession.m:14258`) reduces the report to
     its **printable residue**: drop the `ESC` and the two bytes after it --
     `if (c == 27) { // Shells generally swallow esc and two characters after it,
-then echo the rest. ignoreCount = 3; }` -- then every byte under 32, keep the
+    then echo the rest. ignoreCount = 3; }` -- then every byte under 32, keep the
     last 32 of what survives, accumulating onto the previous detector's residue
     while that is under 100ms old. For `ESC [ < 0 ; 41 ; 13 M` the residue is
     `0;41;13M`.
   - `if (string.length > 6)` it arms `[_expect expectRegularExpression:[string
-it_escapedForRegex] ... deadline:[NSDate dateWithTimeIntervalSinceNow:0.1]]`
+    it_escapedForRegex] ... deadline:[NSDate dateWithTimeIntervalSinceNow:0.1]]`
     (`PTYSession.m:14300-14312`).
   - Expectations are matched by
     `-[PTYTriggerEvaluator reallyCheckTriggersOnPartialLine:...]`
@@ -6590,7 +6590,7 @@ it_escapedForRegex] ... deadline:[NSDate dateWithTimeIntervalSinceNow:0.1]]`
   caller entitled to print a report was the one caller that must not. It prints
   `"ESC [ < 0 ; 41 ; 13 M"` now, which is how this file spells a sequence anyway.
   `should not be printed verbatim by the probe, which iTerm2 reads as a stuck
-mouse` in `packages/cli/test/mouse-echo.test.ts` is the guard, and it
+  mouse` in `packages/cli/test/mouse-echo.test.ts` is the guard, and it
   **transcribes** the residue rule rather than hard-coding it -- with both sides
   of each boundary asserted, which the first version was not: it had length 6
   false and length 8 true and nothing at 7, so `> 6` could have become `>= 8`
@@ -6660,7 +6660,7 @@ mouse` in `packages/cli/test/mouse-echo.test.ts` is the guard, and it
   shell integration reports a **host change** with tracking still on -- the
   genuinely stuck case the wording is written for. It is gated on
   `previousHostName && ![previousHostName isEqualToString:host.hostname] &&
-!viaSSHIntegration && !bothLocalhost` (`PTYSession.m:18226-18229`), so a local run
+  !viaSSHIntegration && !bothLocalhost` (`PTYSession.m:18226-18229`), so a local run
   never reaches it. Worth writing down because it is why the wording mentions ssh
   at all, and because it means a sigil app that really does leave tracking on after
   dying over ssh gets told -- which is the restore list working from the far side.
@@ -6875,7 +6875,7 @@ may be copied, `src/terminal/clipboard.ts` is OSC 52, and
   neither an anchor nor a selection to fall back to, so the next shift-arrow calls
   `begin(0, 0)` rather than reading a cell of the old grid -- which is the half that
   is guaranteed and is pinned by `should begin fresh rather than from a stale anchor
-when extend follows a resize`. The other half is an app doing it to itself, and is
+  when extend follows a resize`. The other half is an app doing it to itself, and is
   recorded rather than guarded: the alternative is clearing the renderer's half from
   the driver as well, which is exactly the second mechanism the paragraph above
   refuses.
@@ -7101,7 +7101,7 @@ when extend follows a resize`. The other half is an app doing it to itself, and 
   always on the grid, and the first counterexample above is exactly an on-grid
   anchor with an off-grid focus. Three links, each already pinned or documented: a
   captured move is dispatched while `!inside`, which `should report a captured
-position even where it is off the canvas` asserts; `toCanvas()` is a subtraction
+  position even where it is off the canvas` asserts; `toCanvas()` is a subtraction
   with no clamp, so an inline canvas anchored at row 10 reads a report at screen
   row 3 as `y = -8`; and a drag is deliberately unclamped where a keyboard
   extension is not. What is **not** claimed is that any of it was user-visible --
@@ -7348,7 +7348,7 @@ is the vocabulary and the probe, the framing that makes a reply recognisable is
   -- where it is re-read with `strings` off and the `ESC ]` becomes the Alt-] it
   always was. A held _key_ is untouched, which is what keeps that Ctrl-C at fifty
   milliseconds, and a test asserts it: `should not make a half-arrived key wait on
-a probe`. What the longer hold costs is worth stating precisely: a key typed
+  a probe`. What the longer hold costs is worth stating precisely: a key typed
   _after_ a held introducer joins the held string, so it is delayed by up to the
   query's deadline rather than lost -- and reaching that at all needs a read to end
   on exactly `ESC ]` or `ESC P` while a probe is open.
@@ -8528,7 +8528,7 @@ fixtures too easy to reach the branch they were named for.
 
 - **Two fixtures that could not reach the branch they were named for**, which is
   the shape this file keeps rediscovering. `should follow with no stats line to
-ask for the frame` filled the ring while the pane was **open**, where the sync's
+  ask for the frame` filled the ring while the pane was **open**, where the sync's
   own append marks the tree and the frame after it comes for free -- so the retry
   it was named for was never reached. It fills the ring while closed now. And
   `should drop its handlers and its exclusions on dispose` asserted that a second
@@ -9083,7 +9083,7 @@ makes it testable with a fixture directory and no bundler at all.
   subcommands a flag it could not have declared for them in advance.
 - **The schema _is_ the root command, so there is one mechanism rather than
   two.** `parse()` builds `contexts[0]` from `initCommand({ ...schema, name:
-schema.name ?? 'global' })` and `initCommand()` copies `hooks`, so a
+  schema.name ?? 'global' })` and `initCommand()` copies `hooks`, so a
   `subcommandLoaded` declared on the schema is already the root command's and
   fires for every top-level command with no special case anywhere. That is what
   collapsed the ticket's "whose hook is it" question: the answer is "the parent's"
@@ -9188,7 +9188,7 @@ schema.name ?? 'global' })` and `initCommand()` copies `hooks`, so a
   ends `export default add`. A lift that stopped at the reference reported "help
   will list this command by name alone" about all four of its own commands,
   which is the acceptance test earning its keep on the first run. `export { cmd
-as default }` resolves the same way, since it is the same statement spelled
+  as default }` resolves the same way, since it is the same statement spelled
   differently. Only a module-scope `const`: a `let` can be reassigned between
   the declaration and the export, so what the binding held when the file was
   read is not what it holds when the module runs, and a lift that guessed there
@@ -9608,7 +9608,7 @@ as default }` resolves the same way, since it is the same statement spelled
 - **JSX compiles against `@ttylabs/sigil`, because rolldown's default is
   `react`.** A `.tsx` holding one JSX element built, reported success, and died
   the first time the command was run: `Cannot find package 'react' imported from
-<out>/chunks/show-….mjs`. That is the shape `--external` is written for one
+  <out>/chunks/show-….mjs`. That is the shape `--external` is written for one
   entry along -- a build that reported success and an executable that dies the
   first time it is used -- and it hit the syntax this file calls _canonical_. It
   was not the template work that caused it: with `MODULE_RE` at its old
@@ -9877,10 +9877,10 @@ as default }` resolves the same way, since it is the same statement spelled
   failing in the one place the stage-0 escape hatch exists for.
 - **The zero-dependency claim is asserted by parsing the output, not by grepping
   it.** The naive pattern matched `Error(\`...command name from "${e}"\`)`-- the
-word "from" inside a message followed by a quoted template -- and a test that
-reports a dependency an app does not have is worse than no test. The module
-record also tells a *computed* dynamic import from a literal one, which
-matters:`import(pathToFileURL(path).href)` survives into every bundle from
+  word "from" inside a message followed by a quoted template -- and a test that
+  reports a dependency an app does not have is worse than no test. The module
+  record also tells a *computed* dynamic import from a literal one, which
+  matters:`import(pathToFileURL(path).href)` survives into every bundle from
   the runtime's own path loader, and it is code choosing a module rather than a
   package the app must have installed.
 - **A bundled app cannot read files relative to `import.meta.url`, and that is
@@ -9943,7 +9943,7 @@ matters:`import(pathToFileURL(path).href)` survives into every bundle from
 
 - **The end-to-end test writes the tree out, imports it, and parses against
   it.** Everything else in `test/build/` reads source or prints it; `a generated
-tree at run time` is the only place that asserts what the output _does_, which
+  tree at run time` is the only place that asserts what the output _does_, which
   is the claim the whole thing rests on -- a generated tree routes the way the
   directory it came from did, and help has every description without importing
   anything. It asserts that last part by reading `loaded` back off every
@@ -10047,7 +10047,7 @@ block and the imports at the top. A rolldown `transform` runs it on the way in.
   follows by parsing every declaration it generates on the way out.
 - **The count is reported, because "no parser shipped" and "no templates" look
   identical from outside.** `sigil build` says `1 command and 1 template into
-...`, and omits the clause entirely at zero rather than saying "0 templates" --
+  ...`, and omits the clause entirely at zero rather than saying "0 templates" --
   the toolchain's own build is the case that reads, since it has none. A build
   that silently compiled none when the author wrote twelve is the failure worth
   being able to see. What it cannot see is a template nothing _claimed_: a shape
@@ -10075,6 +10075,45 @@ block and the imports at the top. A rolldown `transform` runs it on the way in.
   supporting the first of those made sharper, and with the list of shapes that
   stay unreachable because one parse of one module cannot answer them: a barrel
   re-export, a destructuring, `(t).ui`, an escaped specifier, and the rest.
+- **A `.cjs` and a `.cts` are CommonJS, so each of the eight extensions is given
+  source it can legally hold -- and one ESM fixture for all eight was asserting
+  something about a file that cannot exist.** `should admit every extension the
+  compiler can actually read` fed one `import { ui } from ...` module to every
+  extension in the list, which passed only because oxc-parser took it. **0.153
+  refuses it for a `.cjs`** where 0.152 did not -- measured in an isolated
+  install of each, 0 errors against 2 -- so a dependency bump failed exactly one
+  test in 5,268 and the failing test was the one in the wrong.
+
+  oxc is **right**, which is what decided the fix. Node refuses ESM syntax in
+  both a `.cjs` and a `.cts` and takes `require()` in both, checked by running
+  all four rather than inferred from the stripping rule this file already
+  records -- so compiling a template in such a module would be the build
+  reporting success over a module that cannot load, which is the failure class
+  refused under `--external`, under the JSX gate and under the unresolved-import
+  gate. The alternative was `parseSync(file, source, { sourceType: 'module' })`,
+  which restores the old answer by making `parseModule()` read a file as
+  something Node will not, and `should refuse a CommonJS module written as an ES
+  module, as Node does` is what fails when somebody reaches for it -- the one
+  test in 750 that does, so nothing else here rested on the leniency.
+
+  So the module extensions carry a static import and the two CommonJS ones carry
+  a `require`, and what all eight have to do is **parse**. A CommonJS module has
+  no static import for the tag to be a binding of, so there is no `ui` to find
+  and nothing is claimed: that is the recorded limitation rather than the gap
+  this entry's sibling is about -- a template reached through `require()` stays
+  interpreted, which is correct output at the cost of the parser staying in the
+  bundle, and is the same answer a barrel re-export already gets.
+
+  It does not rest on which of the two oxc refuses today, which is the half worth
+  keeping: **0.153 still reads a `.cts` as a module**, so an ESM `.cts` parses
+  there and does not in Node. Giving both the `require` fixture is what makes the
+  test survive that inconsistency being fixed, and pinning the oxc-only answer
+  would have been pinning the bug. The refusal is asserted against
+  `parseModule()`'s own `Failed to parse <file>` rather than against oxc's
+  wording, so a reword does not fail it and oxc going back to taking this does.
+  All three `MODULE_RE` sabotages are still caught after the rewrite -- the
+  original `.tsx`/`.jsx` gap, the lazy `x?`, and dropping the CommonJS pair.
+
 - **A whole-module `compile()` failure is attributed by re-compiling each
   template alone.** `compile()` takes a module's templates at once, so what it
   throws names none of them, and the first template's position was the answer for
@@ -10179,7 +10218,7 @@ other is refused with numbers.
 
   The rendered output is byte for byte what the unshaken build produces and what
   the app produces run from source, which is what `should render what the
-unshaken sheet does` asserts three ways.
+  unshaken sheet does` asserts three ways.
 
 - **The analysis is evidence, not proof, and the direction it falls is the whole
   design.** A class reaches the cascade as a string, so the question is which
@@ -10483,7 +10522,7 @@ unshaken sheet does` asserts three ways.
   `baseDir` SIG-75 added, which is the same declaration `sigil new` scaffolds
   and the same one `sigil build` reads -- so the toolchain is now an ordinary
   app as far as its own passes are concerned. `should read this toolchain's own
-schema as a routed directory` in `test/build/discover.test.ts` is that said
+  schema as a routed directory` in `test/build/discover.test.ts` is that said
   from the other side.
 - **Which immediately cost it its own `--help`, and that is the finding rather
   than a snag.** A filesystem route keeps its description inside the module, so
@@ -10756,7 +10795,7 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
 - **That fast path is the whole of argv, not the flag appearing in it.** Every
   other spelling is a question with a second half that the parser already
   answers, and each answer is a decision written down somewhere: `--help
---version` is help, because help outranks everything; `check --version` runs
+  --version` is help, because help outranks everything; `check --version` runs
   `check`; `--version extra` is an error about `extra`. A scan that fired
   wherever it saw the flag would have to reproduce all three to avoid changing
   them, and a second parser that disagrees with the first is worth a great deal
@@ -11116,7 +11155,7 @@ schema as a routed directory` in `test/build/discover.test.ts` is that said
   so `FORCE_COLOR=3 sigil check --tree | cat` is a coloured table on stdout and
   plain one-line diagnostics on stderr. Measured: two escapes on stdout, none on
   stderr -- and pinned now by `should colour the tree and not the diagnostics
-under FORCE_COLOR`, because an entry saying "do not fix this" is worth less than
+  under FORCE_COLOR`, because an entry saying "do not fix this" is worth less than
   a test that fails when somebody does. It is what `main` did too, since the diagnostics carried no colour at
   all there and the table has always read the process styler, so nothing
   regressed -- and the obvious tidy-up is the one that must not be taken. Keying
@@ -11302,7 +11341,7 @@ people's software and will move.
   `types: ["node"]` are load-bearing: without them `lib.dom` is included, which
   declares `setInterval(): number` and shadows node's `NodeJS.Timeout`, so an
   ejected spinner fails to compile with `Property 'unref' does not exist on type
-'number'` -- on a component whose source already writes `timer.unref?.()`.
+  'number'` -- on a component whose source already writes `timer.unref?.()`.
   Nothing about the component is wrong and nothing about it can fix it. Found by
   ejecting into a bare app and type-checking it.
 - **`jsx` and `jsxImportSource` are the same kind of line, and they were
@@ -11974,7 +12013,7 @@ it.
   is moved forward to the end of the step it fell inside the moment anything puts it
   there. The first version gave up on such a position instead, and stalled the reveal
   for the rest of the process; `should not stall when a chunk boundary stops being
-one` is the guard.
+  one` is the guard.
 - **And the snap is to any step rather than to the first, because a swap can leave
   the position mid-cluster anywhere.** It was written as a special case for the first
   step, which is where the combining mark puts it, and a review round found the other
@@ -12087,7 +12126,7 @@ one` is the guard.
   cannot know the language or the content: a pause after `.` is wrong for `3.14`,
   for `index.ts`, for a file path and for an ellipsis, so a built-in rule is wrong
   for the text the caller actually has -- and `pace: (c) => (c.endsWith('.') ? 400 :
-40)` is the whole feature in the caller's hands. And jitter needs randomness,
+  40)` is the whole feature in the caller's hands. And jitter needs randomness,
   which makes the component non-deterministic: a test that depends on
   `Math.random()` is the same flakiness an injectable clock exists to prevent, and
   a caller who wants jitter supplies a seeded generator.
@@ -12130,7 +12169,7 @@ one` is the guard.
   Nobody writes that on purpose, and it is the general shape that matters: read, run
   the caller's code, write the stale value. The write moved above the delay loop, so
   the caller is the last word rather than the first, and `should let a pace that
-moves the position have the last word` fails if the two swap back. Found by review.
+  moves the position have the last word` fails if the two swap back. Found by review.
 - **An interval has to be a number `setTimeout` can wait for, and `Infinity` is
   not.** `Infinity >= 0` is true, and node reads a delay past 2^31-1 as 1 -- so
   `interval: Infinity` asked for "never" and got "as fast as possible", while `NaN`
@@ -12222,7 +12261,7 @@ moves the position have the last word` fails if the two swap back. Found by revi
   met again: the sabotage was sound and the fixture could not reach the state that
   makes the guard matter.
 - **And the other half of the same clamp really is dead.** `Math.min(value.length,
-at)` changes nothing, because `slice` clamps an end past the string and so the
+  at)` changes nothing, because `slice` clamps an end past the string and so the
   length of what comes back is clamped too -- which is the whole of what the cursor
   gate asks about. Deleted, after its own sabotage survived.
 
@@ -12252,7 +12291,7 @@ under them, and a pattern that silently matches nothing is a green suite reading
   an `append('')`, a second `start()`, and a write of a position that did not move
   were each a guard that could not fire. All three are gone and the properties they
   were standing for are asserted instead -- which is what `should change nothing on
-an append of nothing` and `should change nothing on a second start()` are for.
+  an append of nothing` and `should change nothing on a second start()` are for.
   Worth knowing because the spinner keeps the same `if (!spinning)` guard and is
   right to: there is a `state.outcome.set(undefined)` inside it, and here there was
   nothing.
@@ -12271,7 +12310,7 @@ an append of nothing` and `should change nothing on a second start()` are for.
   be is an unreachable `steps[-1]` and a crash, and the comment says which half
   fires.
 - **One test was vacuous in the way this file keeps rediscovering.** `should not be
-undone by a step that was already in flight` advanced a hundred milliseconds and
+  undone by a step that was already in flight` advanced a hundred milliseconds and
   asserted the final position, so a step that had captured where it was going wrote
   a position behind the skip, rescheduled, and **caught back up** before the
   assertion ran -- green, with the text having come off the screen and gone on
@@ -12443,7 +12482,7 @@ it is a component rather than the frame effect SIG-103 is.
   `toDisplayText()` -- in that order, because stripping second would leave an ESC's
   parameters behind as text, which is the failure the styled-input decision above
   exists for -- and the plan holds a space of width one. `should say what an ordinary
-text says` pins the pairing against the function rather than against a literal, so
+  text says` pins the pairing against the function rather than against a literal, so
   the two cannot drift. What this costs is that the final frame is what the text
   _says_ rather than the argument it was handed, which the plan's own `strip()` had
   already made true for a sequence; `should end at exactly what it says` is that
@@ -12514,7 +12553,7 @@ text says` pins the pairing against the function rather than against a literal, 
   It keeps `wrap()`'s rules anyway, because a block that broke somewhere else from
   the rest of the library is a surprise nobody asked for, and it is a
   **differential** rather than a rule said twice: `should wrap where the wrapper
-does` renders seven texts at nine widths and compares against `wrap()` itself,
+  does` renders seven texts at nine widths and compares against `wrap()` itself,
   with each line's trailing blanks dropped because the renderer drops them -- which
   is the one place the two legitimately differ, since `wrap()` leaves an indent on
   a line of its own where the word after it could not fit and a row of spaces and
@@ -12533,7 +12572,7 @@ does` renders seven texts at nine widths and compares against `wrap()` itself,
   written not to do. Measured over a 1,672-render differential against the
   one-element view: **zero** differences besides the tab above and this, which is
   the whole of what two layers changed about what is drawn. `should not reflow as
-it decrypts` is the guard, over four texts, eight widths, three alphabets and a
+  it decrypts` is the guard, over four texts, eight widths, three alphabets and a
   forty-step sweep.
 
 - **A control character is refused, and a cell of no column is skipped, and only
@@ -12588,7 +12627,7 @@ it decrypts` is the guard, over four texts, eight widths, three alphabets and a
   the gap _inside_ the line, and the two draw the same text two ways. With the
   pieces compacted, a frame with nothing hidden has a cell per cluster and the two
   answer **the same string for every mode and every width**, which `should cut where
-the truncator does` holds them to over four texts, four modes and nine widths. A
+  the truncator does` holds them to over four texts, four modes and nine widths. A
   differential rather than a rule written twice, and it is what caught two of the
   five sabotages below.
 
@@ -12698,7 +12737,7 @@ the truncator does` holds them to over four texts, four modes and nine widths. A
   is nothing ref'd left for the loop to do, so node exits instead of settling.
   Reported from a real terminal and reproduced exactly:
   `node demos/components/09-decrypt.js` exited **13** with `Detected unsettled
-top-level await` at the first `await`, having drawn nothing, while the identical
+  top-level await` at the first `await`, having drawn nothing, while the identical
   run **piped** was fine -- because the piped path writes the text once and
   schedules no timer at all, which is why every test, every CI run and a full
   review pass missed it. So `DecryptRevealOptions.hold` refs the timer and the
@@ -12827,7 +12866,7 @@ top-level await` at the first `await`, having drawn nothing, while the identical
   Two more survive the _test_ file and are caught by the **build**, which is the
   honest place for them: the two barrel imports above. Checked by reverting each and
   running `generate-registry.mjs`, which answers `which no published subpath answers
-for`.
+  for`.
 
   What the pass found that no review round had is worth the tally. Six fixtures could
   not reach the branch they were named for -- `running` off in `cancel()` (nothing
@@ -12945,7 +12984,7 @@ genuinely new thing is a `raw`-backed field with a goal column over it.
   second rule for a hard-broken over-long word (where there _is_ no column
   after the row's last character) and a third for a newline. There is one rule
   and no cases, and `should place a soft break at the start of the next row
-rather than past the last` is what pins it.
+  rather than past the last` is what pins it.
 - **It wraps at one column less than the room**, which is the single-line
   field's own arithmetic said again -- "the caret always takes a column, whether
   it is on a character or past the last one" -- and the alternative is a caret
@@ -12980,9 +13019,9 @@ rather than past the last` is what pins it.
   row by four and push the word after them along. The clamp collapses them into
   the last column, where they are blanks. And a phantom row for an invisible
   character is the entry above. `should keep every offset of the value on
-exactly one row` is the property the caret derivation rests on, walked over
+  exactly one row` is the property the caret derivation rests on, walked over
   nine values at six widths; `should keep the caret inside the box it reports,
-at every offset` is the other half, over seven values at six widths and at every
+  at every offset` is the other half, over seven values at six widths and at every
   cursor of each -- a different corpus rather than the same one, because the two
   properties are about different inputs: that one wants the values whose _caret_
   is awkward, which is a trailing whitespace run and an over-long word.
@@ -13033,7 +13072,7 @@ at every offset` is the other half, over seven values at six widths and at every
   rather than about how the field draws. Left out, it can be added later without
   changing the meaning of a value anybody already depends on; shipped now, every
   caller has to know which mode produced the string it was handed. `should soft
-wrap a line too wide for the field without touching the value` asserts the
+  wrap a line too wide for the field without touching the value` asserts the
   divergence between what is drawn and what comes back.
 - **The goal column is a display column rather than an offset.** That is the
   thing every editor gets right and every from-scratch textarea gets wrong: a
@@ -13161,7 +13200,7 @@ wrap a line too wide for the field without touching the value` asserts the
 
   Asserted as that property rather than at the end of one sequence, because
   nothing else in the field would notice if it stopped holding: `should keep the
-caret on screen after every key there is` checks it after each of twenty-one
+  caret on screen after every key there is` checks it after each of twenty-one
   keys, which is every key the field reads. Bounded by the row cap rather than by
   what the log holds, because a row whose only cell is the caret is a row of
   spaces -- the harness trims it, and the row is still on screen.
@@ -13175,7 +13214,7 @@ caret on screen after every key there is` checks it after each of twenty-one
   failure the binding order exists to prevent, and a field is not entitled to
   that one. The hook is absent for the other four, so the path they take is the
   path they always took -- which `should leave ctrl-d an abort for the
-single-line field beside it` is what holds.
+  single-line field beside it` is what holds.
 - **Ctrl-D submits an empty field rather than meaning end of input there.** A
   submit key that means two things depending on invisible state is the trap
   Ctrl-C-as-copy is written down for: somebody who wants to submit an empty
@@ -13298,7 +13337,7 @@ constraint is worth recording because it shaped every edit.
   `sgr-state.ts` already keep deliberately -- and this one says it the same way,
   which is the point. Found by checking the reader against the bytes the canvas
   emits rather than by a test failing, and pinned by `should not read an extended
-colour channel as reverse video` -- which is in `backend.test.ts`, because the
+  colour channel as reverse video` -- which is in `backend.test.ts`, because the
   model is that suite's.
 
 ##### What the sabotage pass found
@@ -13530,7 +13569,7 @@ whole of it: the encoder, `qrLines()`, `qrcodeView()` and the facade.
   a 21-module symbol, which is more than a third of the width spent on margin in
   a medium whose surrounding page is already blank. At one it is 23 by 12. Both
   halves are asserted by `should put one light module on every side, and the
-spec's four where asked`, so neither the default nor the knob can move without
+  spec's four where asked`, so neither the default nor the knob can move without
   the other being read -- and the 168-of-168 decode was **re-derived** at the new
   default rather than inherited from the measurement that chose four.
 
@@ -13603,7 +13642,7 @@ spec's four where asked`, so neither the default nor the knob can move without
   as the page itself on a light one.
 
   It was the other way round for three commits, painting `color: black;
-background-color: white` above level 0 so that the two colours were known rather
+  background-color: white` above level 0 so that the two colours were known rather
   than borrowed. What that costs is the parity above: a painted code is a white
   rectangle of whole cells and its border can never be even. Reported three times
   from a terminal -- the quiet zone too wide, then the first row too thick, then
@@ -13644,7 +13683,7 @@ background-color: white` above level 0 so that the two colours were known rather
   is de-emphasis, a state or an accent, so no role could carry them -- which is
   the same shape `.sigil-caret`, `.sigil-scroll-track` and `.sigil-debug` are
   already written down as, and `should declare on a role, bar four exceptions that
-say why` moved from three to four with the reason. Palette indices rather than
+  say why` moved from three to four with the reason. Palette indices rather than
   hex, which is the rule every colour in that sheet follows: the basic sixteen are
   whatever the user's terminal theme says they are, and a theme has to render text
   in black and in white, so whatever it renders them as has the contrast a camera
@@ -13654,7 +13693,7 @@ say why` moved from three to four with the reason. Palette indices rather than
 - **No colour in its props, which is a test rather than a convention here.** A
   prop beats a sheet per property, so a colour written into the tree is one a
   theme cannot reach without `!important`. `should carry no colour in its props,
-so a theme can reach it` walks the props of both nodes for anything matching
+  so a theme can reach it` walks the props of both nodes for anything matching
   `/colou?r/i` -- and asserts the class is there, so the absence is a statement
   about a reachable element rather than about an empty object.
 
@@ -13917,7 +13956,7 @@ not the count.
   do differ, by one character in eleven of the twelve, so the mutation is band 0
   now and is caught. It is also the finding that bought a free cross-check: those
   twelve figures are the spec's own version 40 capacities, so `should name the
-published capacity in the message, for every mode and level` is a **second** path
+  published capacity in the message, for every mode and level` is a **second** path
   to a number the encoding test already reaches by encoding -- a capacity
   derivation that drifted would have to drift in both to stay quiet.
 - **The one declared survivor is the terminator at capacity, and it is an
@@ -13969,7 +14008,7 @@ was a gap in a file that is not in this diff at all.
   and `should be an odd number of module rows for every version` is what makes
   that a checked fact instead of a sentence.
 - **Two tests were vacuous about the thing they are named for.** `should draw the
-dark modules wherever it can paint its own colours` looped the levels and then
+  dark modules wherever it can paint its own colours` looped the levels and then
   drew with `invert: false` **itself**, so the level never reached `polarity()`
   and deleting the `level > 0` branch left it green -- the branch was pinned by
   its neighbours, which is not the same as being pinned by its own test. It
@@ -14039,7 +14078,7 @@ and is the reason this entry says what it checked rather than only what it found
 - **One existing count elsewhere in AGENTS.md had become false.** The Themes
   section said `.sigil-caret`, `.sigil-scroll-track` and `.sigil-debug` are "the
   three declared exceptions" and named the invariant as `should declare on a role,
-bar three exceptions that say why` -- a test title that no longer exists, since
+  bar three exceptions that say why` -- a test title that no longer exists, since
   the test was renamed to four in this change and the sentence was not. Found by
   asking the question the worklist asks rather than by reading the diff, which is
   the only way to find it: the stale sentence is four hundred lines from anything
@@ -14120,7 +14159,7 @@ the UI over both plus the prompts that collect what the chosen command needs.
   registries back -- at `cmd[Internal]`, which is the shape the parser matches
   against -- exactly as help reads the context chain rather than a separate list
   of what a command inherits. It is checkable rather than a sentence: `should
-read the description off the registry rather than off the declaration` sets a
+  read the description off the registry rather than off the declaration` sets a
   `desc` from an `init` hook and the entry carries the hook's, which a palette
   reading a declaration could not do.
 
@@ -14192,7 +14231,7 @@ read the description off the registry rather than off the declaration` sets a
   build. Measured by doing it, which is how the honest version of this sentence
   was arrived at: the first specifier it refuses is `../types.js`, with
   `"../types.js" resolves to src/types.ts, which no published subpath answers
-for` -- and that one is the **generator's own map** rather than a statement about
+  for` -- and that one is the **generator's own map** rather than a statement about
   the API, because the root barrel does `export * from './types.js'` and so does
   publish `Internal`. The refusal that is about the API is the next relative
   import, `../util/transform.js`: the map is built from the tsdown entry list,
@@ -14409,7 +14448,7 @@ for` -- and that one is the **generator's own map** rather than a statement abou
   reverses to itself, and is why the test for it is three deep. Nearer context
   first is help's rule for `Global options` and for the same reason. The path
   matters because commands resolve against the innermost context _only_ -- `mycli
-db build` does not reach the root's `build` -- while dispatching `['build']`
+  db build` does not reach the root's `build` -- while dispatching `['build']`
   from the start does.
 
 - **The cycle guard is what bounds the walk, and a second path-keyed dedup could
@@ -14430,7 +14469,7 @@ db build` does not reach the root's `build` -- while dispatching `['build']`
   AGENTS.md already records that a placeholder's subcommands are handed over
   already built. So the registry is read whatever it holds, and `deferred` is left
   deciding the entry's own field and the namespace gate. `should list a
-placeholder's inline subcommands, which are real` is the pin, and it needs both
+  placeholder's inline subcommands, which are real` is the pin, and it needs both
   halves -- without the deferred test the parent is read as a namespace and left
   out.
 
@@ -14576,7 +14615,7 @@ placeholder's inline subcommands, which are real` is the pin, and it needs both
   names carry no rule -- they are in the comment. A built-in drawing with a class
   the comment does not name is a hook nobody can find, and nothing in a build
   catches it, because a class is a string in a props object. `should name every
-class a built-in draws with` reads every `sigil-*` class out of
+  class a built-in draws with` reads every `sigil-*` class out of
   `src/components/` and `src/help/` -- **70** of them, all present -- which is the
   same read `generate-registry.mjs` already makes, asked as an invariant. 67 is
   the count under `src/components/` alone, which is what this entry said; the
@@ -15155,7 +15194,7 @@ how the two come to disagree." It is decided, and the answer is no.
   startup. This is the entry about a bundled app not reading files relative to
   `import.meta.url`, met from the inside and answered rather than warned about.
 - **Help outranks it, which is the rule help already had.** `mycli --help
---version` prints help: being asked what a program does and answering with a
+  --version` prints help: being asked what a program does and answering with a
   version string is not an answer. `detectHelp()` is asked first and
   `detectVersion()` only when it found nothing, so the ordering is one line
   rather than a precedence table.
@@ -15306,7 +15345,7 @@ how the two come to disagree." It is decided, and the answer is no.
 - **The default help stylesheet is a framework origin.** That settles the other
   question the ticket left open, and it is the same answer themes get: an app that
   wants its command list in a different colour writes `.sigil-help-heading {
-color: magenta }` and beats the default with an ordinary rule, which is only true
+  color: magenta }` and beats the default with an ordinary rule, which is only true
   because the default is an earlier origin rather than a rule in the same one.
 
 ### Sharing options between commands
