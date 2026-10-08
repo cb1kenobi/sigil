@@ -66,7 +66,7 @@ const schema = {
 	commands: {
 		clean,
 
-		build: {
+		'build, b': {
 			desc: 'Build the app',
 			args: ['[target]'],
 			options: { '--minify': 'Compress the output' },
@@ -102,21 +102,29 @@ const schema = {
  * whoever knows what the step was for. Measured: the outer call saw `undefined`
  * and an `exitCode` of 1, which is a failure a caller has to go looking for.
  *
+ * The schema is `state.schema` rather than the module-level one, and that is
+ * worth knowing because it is what keeps a dispatch from needing any setup at
+ * all: a `run()` is handed the schema its own parse used -- measured,
+ * `state.schema === schema` is `true` -- so a command can re-enter the parser
+ * without closing over anything, and this whole function is one `main()` call
+ * that an app only writes down because the forwarding and the error policy are
+ * its own decisions rather than the framework's.
+ *
+ * @param {import('@ttylabs/sigil').ParseState} state - The calling command's.
  * @param {string[]} argv - The tokens, exactly as they would have been typed.
- * @param {Record<string, unknown>} outer - The calling command's own `argv`.
  * @returns {Promise<unknown>} Whatever the command returned.
  */
-function run(argv, outer) {
+function run(state, argv) {
 	// the root's options are re-read from *this* argv rather than inherited, so a
 	// nested dispatch that wants them has to forward them. Measured: an outer
 	// `--verbose` came back `false` inside the nested call, because the nested
 	// argv never mentioned it
-	const forwarded = outer.verbose === true ? ['--verbose', ...argv] : argv;
-	return main({ argv: forwarded, schema, settings: { errorHandler: false } });
+	const forwarded = state.argv.verbose === true ? ['--verbose', ...argv] : argv;
+	return main({ argv: forwarded, schema: state.schema, settings: { errorHandler: false } });
 }
 
 /** Executing: three commands as three steps of one piece of work. */
-async function release({ argv }) {
+async function release(state) {
 	console.log(`
   Executing: each step is a token list through a full parse, so each one
   gets its own defaults, its own coercion and its own validation -- and
@@ -130,7 +138,7 @@ async function release({ argv }) {
 		['deploy', 'prod'],
 	]) {
 		console.log(`  $ rel ${step.join(' ')}`);
-		await run(step, argv);
+		await run(state, step);
 	}
 
 	// and the half that is worth seeing fail: `choices` is enforced here exactly
@@ -138,15 +146,15 @@ async function release({ argv }) {
 	// the interface
 	console.log('\n  $ rel clean --mode sideways');
 	try {
-		await run(['clean', '--mode', 'sideways'], argv);
+		await run(state, ['clean', '--mode', 'sideways']);
 	} catch (err) {
 		console.log(`    refused: ${err.message}`);
 	}
 }
 
 /** Re-routing: this command decides another should have the request. */
-async function ship({ argv }) {
-	const to = argv.dryRun === true ? ['build', 'dist'] : ['release'];
+async function ship(state) {
+	const to = state.argv.dryRun === true ? ['build', 'dist'] : ['release'];
 
 	console.log(`
   Re-routing: "ship" does no work of its own. It looks at what it was
@@ -157,7 +165,7 @@ async function ship({ argv }) {
   $ rel ${to.join(' ')}
 `);
 
-	return run(to, argv);
+	return run(state, to);
 }
 
 /**
@@ -171,10 +179,20 @@ async function ship({ argv }) {
 async function shortcut(state) {
 	const root = state.contexts[state.contexts.length - 1];
 	const registry = root[Internal].commands;
+	// `find()` rather than `get()`: the registry is a `Map` of canonical names with
+	// an alias table beside it, so `get()` is the raw `Map.get` and answers
+	// `undefined` for an alias while `find()` resolves one -- which the line below
+	// prints rather than claims. So `find()` is what takes a name anybody typed or
+	// wrote, and `get()` only a name already known to be canonical, which is what
+	// `values()` hands out
 	const sibling = registry.find('clean');
 
 	console.log(`
   Every sibling is reachable: ${[...registry.keys()].join(', ')}
+
+  "b" is build's alias, which is the whole of find() against get():
+      find("b") -> ${JSON.stringify(registry.find('b')?.name)}
+      get("b")  -> ${JSON.stringify(registry.get('b')?.name)}
 
   (a) sibling.run(state) -- the state this command was handed
 `);
@@ -196,7 +214,7 @@ async function shortcut(state) {
 
   (c) main({ argv: ['clean', '--force'], schema })
 `);
-	await run(['clean', '--force'], state.argv);
+	await run(state, ['clean', '--force']);
 	console.log(`      everything: the default, the coercion, the inherited option,
       and the command knowing which command it is.`);
 
