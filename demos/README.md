@@ -26,6 +26,7 @@ arguments and yours are used instead.
 | [`parser/08-hooks.js`](parser/08-hooks.js)                     | Watching a parse, adding an option mid-parse, rewriting an error  |
 | [`parser/09-errors.js`](parser/09-errors.js)                   | The default handler, your own, and catching it yourself           |
 | [`parser/10-palette.js`](parser/10-palette.js)                 | A command palette generated from the command registry             |
+| [`parser/11-dispatch.js`](parser/11-dispatch.js)               | Re-routing and executing one command from another                 |
 
 Two worth running with `--help` to see what the screen does:
 
@@ -51,6 +52,26 @@ because it is a namespace with nothing to run, `internal` and the palette itself
 because they are hidden, `--verbose` because it is optional, and `--steps`
 because it is required and has a default, so the parse already answers for it —
 four rules the palette did not have to invent.
+
+`11-dispatch.js` is the other half of that, and the one a palette inside a
+long-running app actually needs: one command **re-routing** to another, and one
+**executing** another as a step of its own work. Both are a list of tokens and a
+`main()` call, which is the interface on purpose — it is the one path that
+applies defaults, coercion, `choices`, `transform`, the hooks and a lazy load.
+You never touch `process.argv` and you never build a string.
+
+```sh
+node demos/parser/11-dispatch.js shortcut
+```
+
+That one is worth running. It reaches a sibling through the registry and calls
+its `run()` directly, which is the obvious shortcut and is silently wrong twice
+over: handed the caller's own state, the sibling sees none of its own options
+and does not know which command it is; handed a patched one, the declared
+default is never applied and `choices` is never consulted. Then `deploy`, which
+is deferred, settles it — the registry holds a placeholder with no `run` at all,
+so for a lazily loaded command the shortcut is not wrong but impossible, and a
+parse is what loads it.
 
 ## Components
 
