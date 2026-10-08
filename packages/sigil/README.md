@@ -448,9 +448,12 @@ const argv = state.argv.verbose === true ? ['--verbose', ...step] : step;
 ```
 
 There is **no recursion guard**: two commands that re-route to each other are an
-infinite loop, and nothing reports it. A command that routes conditionally
-cannot loop; a tree where two of them might route to each other needs a depth
-or a visited set of its own.
+infinite loop, and nothing reports it. **A condition does not make a route
+finite** — two commands that each route to the other on a condition that stays
+true recurse exactly as an unconditional pair does. What makes a route finite is
+that whatever it routes _to_ does no routing of its own; a tree where two of them
+might route to each other needs a depth or a visited set, and that is the app's
+to carry.
 
 ### Reading the command registry
 
@@ -471,8 +474,11 @@ registry.get('b'); // → undefined; the raw `Map.get`
 registry.default; // the `default` command, if one is declared
 ```
 
-Use **`find()`** for a name anybody typed or wrote, and `get()` only for one
-already known to be canonical — which is what `values()` hands out.
+`values()` yields the commands themselves and `keys()` their canonical names, so
+iterating needs no lookup at all. For a lookup, use **`find()`** for a name
+anybody typed or wrote, and `get()` only for one already known to be canonical —
+it is `Map.get`, so it misses an alias, and passing it a command rather than a
+name misses too.
 
 **Calling a command's `run()` off the registry is a trap**, and a quiet one: it
 runs, it simply runs over the wrong values.
@@ -488,9 +494,11 @@ In **(a)** the sibling is handed _your_ values, so none of its own options exist
 and it does not know which command it is. In **(b)** the value you asked for
 arrives, the declared `default` never does, inherited options are gone, and
 `choices` is never consulted. And for a **lazily loaded** command it is not
-merely wrong but impossible — the registry holds a placeholder with no `run` and
-no `desc` until a parse loads it, which filesystem routing makes the common
-case.
+merely wrong but impossible — the registry holds a placeholder with **no `run`**
+until a parse loads it, which filesystem routing makes the common case. What the
+declaration itself gave is there, so a `{ path, desc }` has its `desc` on the
+placeholder and that is what help shows before the module is read; it is `run`
+that nothing but a load can supply.
 
 `demos/parser/11-dispatch.js` prints all of it side by side.
 
