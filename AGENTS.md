@@ -3127,14 +3127,20 @@ changed the viewport` over a renderer, plus the shrinking direction and a
   `sigil-${outcome}` lands on a role for all four values of `SpinnerOutcome`,
   which is the one emission that computes its class.
 
-  `.sigil-caret`, `.sigil-scroll-track` and `.sigil-debug` are the three declared
-  exceptions: no role is inversion, the track is the one grey here that is not
-  de-emphasised _text_, so it must not be `.sigil-muted` -- that role is `dim` on a
-  dark terminal, and a dim track is not a track -- and `.sigil-debug` is a
-  **background** rather than a foreground, which no role is either. `should declare
-on a role, bar three exceptions that say why` is the invariant, and it reads the
-  **parsed** sheet rather than the source, because the comment listing the
-  component classes as hooks would otherwise be mistaken for a rule.
+  `.sigil-caret`, `.sigil-scroll-track`, `.sigil-debug` and `.sigil-qrcode-paint`
+  are the four declared exceptions: no role is inversion; the track is the one
+  grey here that is not de-emphasised _text_, so it must not be `.sigil-muted` --
+  that role is `dim` on a dark terminal, and a dim track is not a track;
+  `.sigil-debug` is a **background** rather than a foreground, which no role is
+  either; and the QR code's is a foreground and a background _together_, because a
+  scanner wants dark modules on a light one and a terminal is usually the other
+  way round, so neither of the two is de-emphasis, a state or an accent. `should
+declare on a role, bar four exceptions that say why` is the invariant, and it
+  reads the **parsed** sheet rather than the source, because the comment listing
+  the component classes as hooks would otherwise be mistaken for a rule. It was
+  three until SIG-136, and the sentence here still said three for a commit after
+  the test had been renamed -- which a review round pointed at by asking what
+  counts elsewhere in this file the change had made false.
 
 - **The toolchain has no sheet of its own, and deleting it fixed a bug rather than
   tidying one.** `TOOLCHAIN_CSS` was seven declarations under a `cli-` prefix at
@@ -13412,6 +13418,694 @@ single-line field did before any of this was extracted.
   ring needs a yank key and a rotation and nothing has asked for either. What
   they do is what every one-line prompt in this library already does.
 
+#### A QR code: the encoder, and the two forms a module can be square in
+
+The ticket was two sentences -- "Compact version is like 36 characters by 18
+lines. Can we offer a large version too?" -- and the second one is a yes with a
+measurement behind it rather than a preference. `src/components/qrcode.ts` is the
+whole of it: the encoder, `qrLines()`, `qrcodeView()` and the facade.
+
+- **The encoder is written here, and that is the hard constraint rather than a
+  choice.** Zero production dependencies in `@ttylabs/sigil` means `qrcode` and
+  every package like it is out, so mode selection, the bit stream, Reed-Solomon
+  over GF(256), version and error-correction selection, the function patterns, the
+  eight data masks with the penalty score that picks one, and the BCH-coded format
+  and version information are all here -- the same answer ANSI handling, text
+  wrapping, `which`, dotenv, the East Asian Width table and the `.flf` parser each
+  got. It is **8,446 bytes** of `components.mjs`, measured the way `ScrollBox`'s
+  3.4 kB and the debug overlay's 3,694 were: taken back out of the barrel and
+  rebuilt, 51,556 against 43,110. The root entry is **unchanged at 1,718 bytes**,
+  because the components barrel is not on it.
+- **Two tables of forty numbers, and everything else derived.** The capacity data
+  a QR encoder needs is usually written as a 160-entry table of characters per
+  version per level; what is here is the ECC codewords per block and the block
+  count per version per level, with the raw module count, the alignment-pattern
+  centres and therefore every capacity computed from the symbol's own geometry.
+  The reason is this file's own rule about a second list: a tabulated module count
+  is a restatement of `alignmentCentres()` that can disagree with it, and the
+  disagreement would be a symbol whose codewords do not fill it. The derivation is
+  checked against the spec's published figures at both ends -- version 1 and
+  version 40, all four levels, all three modes, the capacity and one character
+  past it -- which is the other independent source there is.
+- **A module has to come out roughly square, and that is what decides the forms
+  rather than taste.** A terminal cell is about twice as tall as it is wide, so a
+  module drawn as one cell is a module stretched 1:2 and a scanner locating a
+  21-module symbol in it is being asked for something it was not designed for. So
+  **`compact`** is a half block per cell -- one column by half a cell, which is the
+  form the ticket describes, and a version 1 symbol with its quiet zone is 23
+  columns by 12 rows -- and **`large`** is two columns by one row, the same symbol
+  at 46 by 23, twice the size on both axes. Those ratios are asserted rather than
+  described: `should draw a module about square in both` divides the cell counts by
+  the module span, and asserts the row count as `2 * cells - span === 1` rather
+  than as a tolerance, because the pad below is a known half-row rather than
+  noise -- a tolerance wide enough for it at version 1 is wide enough to hide a
+  lost row.
+
+  The ticket's "like 36 by 18" is version 4 with a one-module quiet zone, which is
+  35 by 18 -- the shape this now produces, and the arithmetic above is where it
+  comes from.
+
+- **One column by one row is the squashed third form and is not offered.
+  Braille is the interesting refusal, and it is falsifiable rather than
+  asserted.** A `Dots` cell is 2x4, so a module would be half a column by a
+  quarter of a cell -- square on both axes and four times smaller again, which for
+  version 3 is 16 columns by 8 rows against the compact form's 31 by 16. It does
+  not work,
+  because a braille cell does not **tile**: the dots are discrete with gaps about
+  as wide as the dots, so a dark region is a dotted texture rather than a module
+  and a camera samples the gap as often as the dot. `Dots` is monochrome besides,
+  which is one foreground for a cell that may hold eight modules of two colours.
+  Measured rather than argued: a dot grid with a gap the size of the dot, built
+  from a real symbol and handed to an independent decoder, **is not found at
+  all**, where every form this component does offer is --
+  `scripts/verify-qrcode-decode.mjs` prints that beside the other two
+  measurements. Both it and the probe draw the braille form with the spec's
+  **four**-module quiet zone rather than this component's one, and that is
+  deliberate rather than stale: a wider quiet zone is the _favourable_ case for
+  the form being refused, so a braille code nothing finds at four is nothing
+  found at one either. The probe draws one anyway
+  -- labelled as the form expected _not_ to scan -- because a refusal nobody can
+  check is worth less than one somebody can.
+- **One `text` element, and no `raw`, and the glyph set is the whole reason.**
+  `▀` fills its upper half with the **foreground** and its lower half with
+  the **background**, so `█ ▀ ▄` and a space spell all four
+  combinations of two modules out of _one_ foreground and one background -- which
+  the cascade supplies once for the whole code. A QR has two colours in it, not
+  one per cell, so what a `raw` would buy is a colour per half-cell that nothing
+  here needs. `largeTextView()` is the precedent and it is the right one: a
+  `nowrap` text is one line per newline whatever room it was offered, so the
+  intrinsic size falls out, the measurement is cached per resolved style, and
+  there is no second implementation of what a string measures to. `Pixels` is the
+  same answer one layer down -- it _is_ 1x2 half blocks with a colour per half,
+  which is the compact form plus the per-half colour this does not want.
+
+  What it buys on top is that the code is **copyable**: `selectable` defaults to
+  false on a `raw`, which is right for a sparkline and wrong for a code somebody
+  wants to paste into a chat window. So `drawsText` -- which the decrypt block and
+  the multiline field are the two existing callers of -- never comes up, because
+  there is no `raw` to say it on.
+
+- **The quiet zone is in the matrix, and that is structural rather than tidy.**
+  A light border on every side is what a scanner locates the symbol against. It is
+  emitted as rows and columns of light modules rather than as CSS padding because
+  padding is in **cells**: in the compact form one cell is two modules vertically
+  and one horizontally, so a quiet zone counted in cells is one count on one axis
+  and another on the other -- a per-form asymmetry a theme writing
+  `.sigil-qrcode { padding: 1 }` would silently change, which is the number this
+  file already records a theme must never be able to move. In the matrix a theme's
+  padding can only _add_ to it.
+
+- **It is one module, where the spec asks four, and the divergence is measured on
+  both sides.** What four buys is a camera reading a _printed_ symbol at an angle
+  through a blur, which is the medium the spec is written for. A terminal is not
+  that medium: the symbol is crisp, axis-aligned, rendered at exact cell
+  boundaries, and what a scanner is pointed at is a screen. Handed to an
+  independent decoder as a clean bitmap, a code with **no** quiet zone decodes
+  perfectly -- so a bitmap's own edge is not what a quiet zone is for. Put the
+  same code in a field of **dark** cells, which is what a dark terminal is, and
+  `quietZone: 0` is **not found at all** while **one module is enough**. So one is
+  where it starts working rather than a guess under it.
+
+  What four costs is eight cells on each axis: version 1 came out 29 by 15 around
+  a 21-module symbol, which is more than a third of the width spent on margin in
+  a medium whose surrounding page is already blank. At one it is 23 by 12. Both
+  halves are asserted by `should put one light module on every side, and the
+spec's four where asked`, so neither the default nor the knob can move without
+  the other being read -- and the 168-of-168 decode was **re-derived** at the new
+  default rather than inherited from the measurement that chose four.
+
+  `quietZone: 4` is the first thing to reach for when a scanner struggles and the
+  `large` form is the second; `quietZone: 0` is still allowed, because a caller
+  whose surroundings are already light has a real case. The demo prints one next
+  to a wider one so the difference is a thing to try rather than a claim.
+
+- **An odd module-row count gets one pad half-row, it is not a module, and it
+  goes to the edge where it cannot be seen -- which is the one place the polarity
+  reaches the geometry rather than only the glyphs.** A symbol is
+  `4 * version + 17` modules on a side, which is odd for every version, and a
+  quiet zone is added twice -- so the span is always odd and a half block per cell
+  needs an even number. The alternative is a last cell holding one module and half
+  of nothing.
+
+  The pad takes no glyph, and **what an undrawn half cell _is_ differs by
+  polarity**, which is the whole of it. Inverted it is the terminal's own
+  background, which is the page: invisible at either end, so it goes _above_, and
+  that puts the light border in a cell's lower half at both edges and makes the
+  first line one uniform strip hugging the symbol. Painted it is the body's own
+  `background-color: white`, which is indistinguishable from quiet zone -- so
+  wherever it goes it _adds_ a module of border, and the odd span means the
+  painted form always has two modules on one edge and one on the other. _Below_
+  the grid is where that belongs: a thicker bottom border reads as the gap before
+  whatever is printed next, where a thicker top one is the first thing a reader
+  sees.
+
+  Both halves were reported from a terminal rather than found by a test, one after
+  the other, and each was invisible to every assertion in the file because they
+  all read **glyphs** while the complaint is about **colour**. First, `drawn()`
+  answered `invert` for a position with no module, so reading past the grid _drew_
+  the pad -- which inverted made the last line of every compact symbol a solid row
+  of full blocks. Then, with the pad above the grid for both polarities, the
+  painted form came out with **two modules of border at the top and one at the
+  bottom**: a first row twice as thick as the last, which is what "the first row is
+  too thick" was.
+
+  **And there is no arrangement with one module on both edges of the painted form,
+  which is what made painting stop being the default.** The border is
+  `2 * cells - size` half-rows, `size` is odd for every version, so the total is
+  odd -- measured at versions 1, 3, 10 and 40 and quiet zones 1 to 4, it is 3, 5, 7
+  and 9 and never even. An odd total cannot split evenly. A cell carries one style,
+  so the pad half cannot be painted the page's colour; and an even span needs an
+  odd _total_ vertical quiet zone -- `1` and `2` -- which puts a full cell on one
+  edge again. So painted is `1, 2` and nothing else is available to it, where
+  unpainted is `1, 1` because the leftover half-cell is the page. The entry below
+  is what follows from that.
+
+  `should keep the border one module at the top in both polarities` is what makes
+  that a check rather than a sentence, and it reads the border back **off the
+  rendered glyphs** rather than off the implementation, because the implementation
+  is what was in question: each grid row is reconstructed from the half of the cell
+  it landed in, a row is border when every module in it is light, and the pad
+  counts as a module of border painted and as none inverted. Putting the pad above
+  the grid for both polarities fails it, and so does putting it below for both. The
+  parity itself is asserted arithmetically over quiet zones 0 to 6 rather than at
+  one value, because it depends on both the version and the quiet zone and a single
+  case cannot see that.
+
+- **A QR code draws whichever modules match the terminal's own foreground, and
+  painting its own two colours is the opt-in.** A scanner expects dark modules on a
+  light background, and a terminal already has a light colour and a dark one: on a
+  dark terminal the light modules are the foreground and the dark ones are the
+  background, and on a light terminal it is the other way round. So the rule is to
+  draw whichever module colour _matches the foreground_, which is
+  `scheme === 'dark'` and nothing else -- and the result is correctly polarised
+  block characters with not one escape sequence in them, at **every** colour level,
+  with the quiet zone coming out as a border of drawn blocks on a dark terminal and
+  as the page itself on a light one.
+
+  It was the other way round for three commits, painting `color: black;
+background-color: white` above level 0 so that the two colours were known rather
+  than borrowed. What that costs is the parity above: a painted code is a white
+  rectangle of whole cells and its border can never be even. Reported three times
+  from a terminal -- the quiet zone too wide, then the first row too thick, then
+  the last -- and the third report is the one that could not be answered by moving
+  anything, because `1, 2` is the whole of what painting can do. `paint: true`
+  keeps it, for a terminal whose own two colours do not have the contrast a camera
+  needs, which is the case it is actually for.
+
+  The polarity rule is `polarity()` either way, and painting is the only branch
+  that reads the **level**: it is the one destination with two colours of its own,
+  so it draws the dark modules, and at level 0 even that is gone and it falls back
+  to the terminal's. Everything else reads the scheme alone.
+
+  It cannot be a cascade answer, which is worth saying because it looks like one:
+  which **glyph** is drawn is content rather than style, and `inverse` is an
+  attribute level 0 drops along with everything else. So the component reads the
+  level and the scheme, which is what `table()` and `largeText()` already do --
+  and the scheme defaults through `schemeFromEnv()`, the same function
+  `themedCascade()` defaults it through, so the two cannot come to disagree about
+  the same destination. `invert` overrides both, for a caller who knows something
+  the level and the scheme do not say.
+
+- **The right-hand quiet zone survives because of the background, and the two
+  halves of that are different mechanisms.** `renderToString()` drops a trailing
+  run of blanks that _show nothing_, and a blank with a background shows
+  something -- measured, `ESC[30;47mab   ESC[0m` against `ab` for the same text
+  without one. So a **painted** code's light column on the right is painted spaces
+  and is kept; on a dark terminal the drawn form ends every line in drawn blocks,
+  so there is nothing to drop; and on a _light_ terminal the trailing spaces really
+  are dropped and the terminal's own background is the quiet zone, which is the one
+  case where the right answer costs nothing. Each line's width is asserted painted
+  and unpainted.
+
+- **The sheet's fourth declared exception, and the only one that is a pair.**
+  `.sigil-qrcode-paint { color: black; background-color: white }`, which is on the
+  class `paint: true` adds rather than on the body, so a code that borrows the
+  terminal's own two colours carries no colour at all. Neither of them
+  is de-emphasis, a state or an accent, so no role could carry them -- which is
+  the same shape `.sigil-caret`, `.sigil-scroll-track` and `.sigil-debug` are
+  already written down as, and `should declare on a role, bar four exceptions that
+say why` moved from three to four with the reason. Palette indices rather than
+  hex, which is the rule every colour in that sheet follows: the basic sixteen are
+  whatever the user's terminal theme says they are, and a theme has to render text
+  in black and in white, so whatever it renders them as has the contrast a camera
+  needs. No light half, because the two colours are not read against the
+  terminal's background at all -- the background _is_ one of them.
+
+- **No colour in its props, which is a test rather than a convention here.** A
+  prop beats a sheet per property, so a colour written into the tree is one a
+  theme cannot reach without `!important`. `should carry no colour in its props,
+so a theme can reach it` walks the props of both nodes for anything matching
+  `/colou?r/i` -- and asserts the class is there, so the absence is a statement
+  about a reachable element rather than about an empty object.
+
+- **There is no `@ttylabs/sigil/qrcode` subpath, for `parseFlf()`'s reason.** It
+  would be permanent API surface whose only consumer is the component beside it,
+  and the property that makes the encoder testable is that it is a pure function
+  rather than that it sits behind a module boundary. One file is also one
+  `sigil add` entry, so ejecting the component takes the encoder with it -- which
+  is what somebody ejecting it wants. The masks under `@ttylabs/sigil/canvas` are
+  the same call made the other way and for the same reason: a mask is used _with_
+  a canvas, and an encoder is used with the component that draws it.
+
+- **Segments are deliberately not mixed, and what that costs is 31 measured
+  payloads rather than an argument.** A payload split into a numeric run and a
+  byte run can be a version smaller than one segment of either. `QR_SEGMENTS` in
+  the fixture is the same payloads through a reference encoder's own segment
+  optimiser and through one segment: **29 of 31 are the same version either way**,
+  including an https URL, an otpauth URI, a vCard and a WIFI credential.
+  `tel:+15551234567` is one version larger here, and `id ` followed by a hundred
+  and twenty digits -- the worst case the shape has -- is **version 8 against
+  version 4**. So the decision is free for what a CLI draws and is not free for a
+  payload that is mostly one long run of a narrower mode. The shape of the fix is
+  a dynamic program over the three modes per version, iterated over the versions
+  because the count indicator widens at 10 and 27; it wants a caller who has met
+  the second case. The first version of this entry said instead that the split was
+  "an optimisation problem whose answer nobody can check by looking at it", which
+  is a weak reason for a thing that has a reference to check it against -- the
+  numbers replaced it, and a review round then caught the docblock still saying
+  "26 of 28" after three vectors moved it to 29 of 31 -- which is a measurement
+  the test beside it already falsified, and is the exact shape this file keeps
+  warning about.
+
+  It is also what the reference comparison had to be corrected for. The first run
+  disagreed with the reference on exactly one of 22 vectors, the otpauth URI, and
+  the obvious diagnosis -- that `qrcode`'s penalty rule 4 is `|ceil(pct/5) - 10|`
+  where the spec's is `floor(|pct - 50| / 5)`, which really do differ on the
+  dark-heavy side -- was **wrong**: computed per mask over that symbol, both
+  formulas pick mask 6. What differed was the _bit stream_, because the reference
+  had split the payload and this encoder had not. So the fixture asks the
+  reference for **one segment in the mode this encoder picks**, which is a
+  like-for-like comparison, and the optimiser's answer is kept beside it as the
+  cost above. The lesson is the one this file keeps recording: the first
+  plausible mechanism for a disagreement is a hypothesis to measure rather than a
+  conclusion, and here the measurement took one script and the wrong conclusion
+  would have shipped a rule-4 formula copied off another encoder's bug.
+
+- **Kanji mode, ECI and structured append are out.** Kanji encodes a Shift-JIS
+  double byte in 13 bits, which is a second character-encoding table for a mode
+  that only pays for text that is entirely Japanese -- and the reference encoder
+  does not use it either for a `日本語` payload, which is what says byte mode with
+  UTF-8 is what readers expect. An ECI header declaring UTF-8 is legal, ignored by
+  some readers and refused by a few. Structured append needs a way to draw several
+  codes and a reader that reassembles them, and nothing has asked.
+
+- **An empty payload is refused rather than drawn.** `renderFiglet('')` answers
+  `[]` and `table([])` answers `''`, so the house precedent for "nothing to draw"
+  is to draw nothing -- and a QR is different, because an empty string encodes
+  perfectly well into a _valid symbol that scans to nothing_. A caller
+  interpolating a value that turned out to be empty gets told where, rather than a
+  code somebody photographs twice. That is the `PromptError` rule: a thing with
+  nobody to answer it fails loudly.
+
+##### How the codes were established to be scannable
+
+Three layers, and only the third needs a camera. This is the component whose
+correctness no test in this package can state, which is the position
+`--clipboard` is already in one layer along.
+
+- **And the fixture itself, against the spec rather than against the encoder.**
+  The reference matrices are 160 kB of data that nothing in this repository read:
+  a mangled row, or metadata transcribed onto the wrong matrix, would make every
+  agreement with them worthless. `checkStructure()` is written from the spec's own
+  rules -- the three finders with their separators, both timing patterns, the dark
+  module, the alignment centres, both copies of the format information computed as
+  BCH(15,5) over `0x537` XOR `0x5412`, and both copies of the version information
+  as BCH(18,6) over `0x1f25` -- and is applied to **two** subjects: every reference
+  matrix, and the encoder's own output for all 160 version-and-level combinations.
+  The duplication is the point, which is the reference fixture's argument one layer
+  along: a check that asked the encoder where its finders go would answer yes
+  whatever they were.
+
+  It came out of the second review round's **worklist** rather than from a finding,
+  and it strengthened the encoder's side as much as the fixture's: the
+  160-combination test used to check the finders, the timing patterns and the dark
+  module, so the alignment patterns and both information areas were covered only
+  for the eight versions the vectors happen to reach. Three mutations were added
+  for it and all three are caught -- an alignment pattern drawn in the corners a
+  finder owns, an alignment pattern with a solid inner ring, and the centres
+  starting one module in from the far edge.
+
+  The first version of the check reported **107 problems in a fixture with nothing
+  wrong with it**, because it built alignment centres for version 1, which has
+  none. Worth recording because the failure mode of a checker is to be wrong about
+  the thing it is checking, and the only reason it was not believed is that every
+  failure was the same version and the same pattern.
+
+- **The matrix, against an encoder that is not this one.** Twenty-four reference
+  symbols in `test/components/qrcode-vectors.ts`, generated with `qrcode@1.5.4` --
+  the most widely used JavaScript QR encoder -- and compared **module for
+  module**, with the version, the mask and the mode. A decoder written beside the
+  encoder from the same mental model passes green forever on an assumption wrong
+  in both, which is the failure this file already records for the canvas diff's
+  model terminal; a matrix that is byte-identical to somebody else's also implies
+  every property such a decoder would have checked, which is why a round-trip
+  reader was written, read, and **deleted** rather than kept: it duplicated two of
+  the encoder's own 40-entry tables inside the test file, which is the drift this
+  file warns about, for a claim the comparison already makes.
+
+  The twenty-four are not a sample, and two more payloads sit beside them whose
+  _version_ is asserted without their matrices, for the size reason the fixture
+  records. They are the spec's Annex I example; the
+  alphanumeric example every tutorial publishes; an ordinary URL; one character at
+  L and at H; a numeric tail of one digit; lower case where the upper case would
+  be alphanumeric; every alphanumeric punctuation mark; multi-byte UTF-8; astral
+  characters; Japanese in byte mode; a real otpauth URI; one digit; one space; the
+  punctuation alone; exactly what version 1-L holds and one digit past it; version
+  7, the first that carries version information; version 22, which is many blocks
+  of two sizes in band 1; version 40 twice, for the 14-bit count indicator and the
+  81-block interleave at H; and three the sabotage pass asked for, below.
+
+- **The drawn glyphs, through an independent decoder.** The reference above checks
+  the matrix and says nothing about the _drawing_. So the component's own output
+  is turned back into the pixels a terminal would paint -- a half block becomes one
+  column by two pixel rows, a large module two columns by one -- and handed to
+  `jsqr`, which is a locate-and-decode pipeline that knows nothing about this
+  encoder. **168 of 168 decoded**, over seven payloads, four error-correction
+  levels, both forms and all three destinations -- unpainted against either scheme
+  and painted -- each one required to come back as the exact string that went in.
+  That is as close as software gets to the phone check, and it is the thing that
+  makes the polarity decision and the glyph table claims rather than hopes.
+
+  It decodes with `inversionAttempts: 'dontInvert'`, and that is what makes it a
+  check of the **polarity** rather than only of the modules. jsqr attempts both by
+  default, so a component drawing the opposite modules builds a negative image it
+  reads anyway -- measured, the level-3 row went on passing after painting stopped
+  being the default and its expected polarity had gone stale, which is the
+  fixture-cannot-reach-the-branch shape arriving in a by-hand script. Each
+  destination now names the scheme explicitly too, since `schemeFromEnv()` would
+  otherwise make the answer depend on the machine. Flipping one row's expected
+  polarity fails 56 of the 168.
+
+- **The exhaustive walk names its mask, which is faster _and_ better coverage.**
+  `should produce a well-formed symbol for all 160 combinations` took **4.7s**
+  against this package's 10s `testTimeout`, and 87% of it was choosing a mask:
+  3,989ms against 472ms for the same 160 encodes, because choosing scores all eight
+  over the whole symbol and version 40 is 177x177 read four times per mask. Two
+  seconds of headroom is a test decided by what else the machine is doing, which is
+  the shape `should cap the acceleration` is already written down for -- and this
+  one was **reported failing** rather than caught here, because 18 vitest workers
+  on a busy machine is a load a quiet local run does not reproduce.
+
+  Choosing is not what the walk is for: it is the per-version tables, and mask
+  _selection_ is pinned by the 24 reference symbols, each of which asserts
+  `code.mask` against another encoder's. So the mask is named -- and **cycled**,
+  `version % 8`, which is what makes it the better answer rather than only the
+  cheaper one: `checkStructure()` reads the mask back out of the format
+  information, so what the mask varies is the format BCH, and the penalty score
+  over `'x'` reaches **seven** of the eight masks and never 5, where cycling
+  reaches all eight twenty times each. Measured: **815ms**, with the next slowest
+  test in the file at 201ms.
+
+  The script is **committed**, as `scripts/verify-qrcode-decode.mjs`, for
+  `benchmark-paint-cull.mjs`'s reason read one layer along: a number in a pull
+  request is a claim the next reader has to trust, and a script they can run is
+  one they can check. `jsqr` is **not a dependency** of anything -- it is installed
+  by hand into a directory outside this repository and passed in, which is how the
+  fixture says to regenerate itself and for the same reason: zero production
+  dependencies is a hard constraint, and a devDependency taken for a by-hand
+  script is still a dependency somebody has to explain. It reproduces all three of
+  the numbers this section rests on -- the 168, the quiet zone's boundary and the
+  braille refusal -- so none of them is a figure only this branch could produce.
+
+- **The phone, which is `scripts/terminal-probe.mjs --qrcode`.** Six steps, each
+  with its own `the claim:` line, and the whole mode says in as many words that
+  the check is to scan them. What is genuinely left for a camera is three things
+  and they are named: whether your **font** draws a contiguous half block --
+  `▀` and `▄` have to meet exactly and several draw them a pixel short
+  at small sizes, which is a light seam through every second module row and is the
+  one failure the compact form has that the large form does not; whether your
+  **colours** have the contrast a camera needs, since the code is drawn at palette
+  index 0 on index 7 and those are your theme's; and whether the quiet zone earns
+  its place where you are. Two steps are expected to be _harder_ or to fail -- the
+  code with no quiet zone, and the braille form -- which is what makes the mode
+  falsifiable rather than a demonstration.
+
+##### What the sabotage pass found, and what it got wrong about itself
+
+Forty-four mutations, one at a time with the component's and the theme's suites
+run after each. **Forty-three are caught and one is declared.** Thirty-seven of
+them were applied before the first review round, four more over the guards that
+round produced, and three over the function-pattern coverage the second round's
+worklist bought; the figure above is one run against the shipped tree rather than
+a sum across rounds, which is what makes it re-derivable. The interesting half is
+not the count.
+
+- **The harness's first run was vacuous and the harness said so was a pass.**
+  `registry.test.ts` was in the suite list, and it compares the shipped registry
+  entry against the source byte for byte -- so it fails on **any** edit to
+  `qrcode.ts`. Two real survivors were therefore reported as "caught by 1: the
+  registry", which is a universal catcher rather than a statement about a guard.
+  Found by reading what caught each mutation rather than the count, which is the
+  fifth distinct way this repository has had a sabotage round turn out to be
+  saying nothing -- after a stale pattern, an apostrophe spelled as an escape, a
+  `perl` substitution that matched nothing, and a `vitest run` whose paths were
+  relative to the wrong directory. The harness already reported a pattern that
+  missed, one that matched more than once, and a replacement equal to its original
+  as their own verdicts; it now also refuses a run that found fewer tests than the
+  control, and the control itself is a run of the untouched tree.
+- **One mutation was caught by the formatter rather than by a test**, which is the
+  stale-pattern guard earning its keep a sixth time: `pnpm fmt` had reflowed
+  penalty rule four onto one less tab than the pattern quoted, so the round
+  reported `PATTERN MISSED` instead of a pass.
+- **A real defect, found by the reference vectors on their first run: the
+  zigzag's timing-column shift did not carry.** The data placement walks column
+  pairs from the right, and the pair that would straddle the vertical timing
+  pattern is shifted one left -- and the shift has to _carry_, so the pairs after
+  it are 3-2 and 1-0. Written as a local computed from the loop variable rather
+  than as an assignment to it, column 4 is visited twice and **column 0 never**,
+  which is a symbol that differs from every other encoder's in its last four
+  columns and in nothing else. Twenty-one of twenty-two vectors failed on exactly
+  those four columns of four rows, which is what made it diagnosable in one read.
+  This is the argument for a reference fixture in one sentence: the structural
+  checks -- finders, timing patterns, the dark module, 160 version-and-level
+  combinations -- all passed throughout.
+- **One guard was dead and is deleted.** `EXP[255] = EXP[0]`, which every
+  implementation of this field writes. `multiply()` indexes
+  `EXP[(LOG[a] + LOG[b]) % 255]`, so the index is 0 to 254 and 255 is never read;
+  the table is 255 long now, which makes the property structural rather than a
+  comment.
+- **Three survivors were the harness being blunt rather than the code being
+  unguarded**, which is the boundary this file records from the FIGlet pass. The
+  generator's carry term replaced with `result[j + 1] ?? 0` is _equivalent_, since
+  `undefined ?? 0` XORs nothing; the short blocks' missing column replaced with
+  `column < block.length` is equivalent, because that is what the two block sizes
+  come to; and dropping the `inside` test in favour of optional chaining is
+  equivalent, because a negative array index answers `undefined`. Each has a
+  sharper mutation now -- a wrapping read, `if (true)`, and `(inside || true)` --
+  and all three are caught.
+- **Three survivors were a fixture that could not reach the branch, and each got
+  the input that makes it matter -- found by searching for that input rather than
+  by reasoning forwards from the survival.** Version 32's alignment step, which
+  the spec puts at 26 where the formula comes to 28, so no symbol but version 32
+  can see it and no vector was one: `q`.repeat(791) at H is version 32, and it
+  catches that mutation and **only** that one. The mask tie-break, `here < score`
+  rather than `<=`, which needs two masks with _identical_ penalties: found by
+  searching six thousand random payloads, `5s3e-_wdt:43:bcd1x` at Q scores 464 on
+  both mask 3 and mask 6, and the reference encoder agrees the lower-numbered one
+  wins. And penalty rule four's weight of ten, which for most payloads is zero on
+  every mask because the dark proportion sits inside one 5% step: the same search
+  found `_y-6uj9oyvu_dg4otl-gw25:aziy` at L, where the weight picks mask 7 and
+  dropping it picks mask 2. Each of those three vectors is caught by exactly one
+  named test, which is what says the search found the right input rather than a
+  bigger hammer.
+- **Two of the four mutations the review round's fixes earned were equivalent,
+  and the reviewer predicted one of them.** The overflow message's
+  `COUNT_BITS[mode][2]` replaced with a flat `14` changes no figure: measured over
+  all twelve combinations of level and mode, the three band-2 widths floor to the
+  same held capacity as a flat 14, because a difference of a bit or two cannot
+  cross a 10-, 11- or 8-bit group boundary at version 40's sizes. Band 0's widths
+  do differ, by one character in eleven of the twelve, so the mutation is band 0
+  now and is caught. It is also the finding that bought a free cross-check: those
+  twelve figures are the spec's own version 40 capacities, so `should name the
+published capacity in the message, for every mode and level` is a **second** path
+  to a number the encoding test already reaches by encoding -- a capacity
+  derivation that drifted would have to drift in both to stay quiet.
+- **The one declared survivor is the terminator at capacity, and it is an
+  equivalence rather than a fast path.** The spec shortens or omits the four-bit
+  terminator for a payload that exactly fills its version, and dropping the
+  capacity condition changes no byte: the extra bits are zeros, and the loop that
+  writes them writes past the end of a `Uint8Array`, which drops them. It stays,
+  and says so where it lives, because what the function means is "the terminator
+  is shortened at capacity" rather than "a typed array is tolerant of an
+  overflow" -- and the day the buffer stops being one is the day the difference is
+  a wrong codeword.
+
+##### What the first review round found, and it was almost all prose
+
+Thirteen findings, **every one confirmed**, and the shape is the one this file
+already records: a round pointed at a diff finds sentences. The encoder's
+arithmetic was checked against the spec by hand -- the degree-7 generator
+expanded coefficient by coefficient against the published polynomial, the format
+bits for L mask 0 as `0x77C4`, the version bits for 7, version 32's alignment
+centres, all eight masks, the four penalty weights, both finder windows, and
+spot-checks of the two capacity tables -- and **nothing in it was wrong**. Of the
+thirteen findings, nine were a comment or a sentence that was false about the code
+beside it, two were a vacuous test, one was a misleading error message, and one
+was a gap in a file that is not in this diff at all.
+
+- **`generator()`'s own doc comment had the coefficient order backwards**, which
+  is the most dangerous finding of the thirteen. It said "highest-degree-last"
+  and the array is highest-degree-**first** -- `[0]` is the coefficient of
+  `x^(degree-1)`, which is the order `remainder()` reads, since that takes
+  `result[0]` as the high coefficient before the shift. Verified by expanding
+  degree 7: `[127, 122, 154, 164, 11, 68, 117]` is `alpha^87` through `alpha^21`,
+  the spec's own polynomial read left to right. Somebody reversing the array to
+  match the comment would emit a wrong ECC codeword for every block there is,
+  which is the failure the comment-aligns-the-code hazard describes exactly.
+- **The zigzag's direction comment claimed a flip that does not happen.** It said
+  the timing-column shift "flips it for everything left of the timing pattern",
+  and `(right + 1) & 2` is the same bit for 6 and 5, for 4 and 3, and for 2 and 1
+  -- measured over all six. What the assignment changes is which columns are
+  visited and nothing else, which the comment above it already said. Compensating
+  for the flip would reverse every pair left of column 6.
+- **The module-row count is always odd, so the padding's even branch is
+  unreachable -- and the test's own comment named an odd number as the even
+  case.** A symbol is `4 * version + 17` modules on a side, which is odd for
+  every version, and a quiet zone is added twice, which is even. The test had
+  gone looking for an even span and offered "a quiet zone of 3 on version 2,
+  which is 31" as one; 31 is odd, and so is every other span there is, checked
+  over 40 versions and nine quiet zones. The expression stays written as a parity,
+  because the parity is the _reason_ it adds one rather than a case it handles,
+  and `should be an odd number of module rows for every version` is what makes
+  that a checked fact instead of a sentence.
+- **Two tests were vacuous about the thing they are named for.** `should draw the
+dark modules wherever it can paint its own colours` looped the levels and then
+  drew with `invert: false` **itself**, so the level never reached `polarity()`
+  and deleting the `level > 0` branch left it green -- the branch was pinned by
+  its neighbours, which is not the same as being pinned by its own test. It
+  compares the drawn output at each level against the un-inverted drawing now, and
+  against a level-0 dark terminal, which must differ. And the overflow-message
+  test asserted only that the level is named, which survived the message's real
+  defect.
+- **The overflow message named a capacity that was not the mode's.** It computed
+  the held figure from a fourteen-bit count indicator whatever the mode and
+  labelled it "bytes" for all three, so a numeric payload over capacity was told a
+  number it was nowhere near -- 2,331 against the 5,596 digits version 40-M
+  actually holds. It names the mode and that mode's own capacity now, and the
+  three figures the test asserts -- 5,596, 3,391 and 2,331 -- are the published
+  version 40-M capacities, so the arithmetic is cross-checked rather than
+  self-consistent.
+- **A `form` that is neither of the two was drawn as compact.** TypeScript refuses
+  it and a JavaScript caller is not typed, so `form: 'Large'` drew the wrong code
+  and said nothing -- which is the parses-and-does-nothing shape, and is refused
+  now the way an unknown error-correction level already was.
+- **`test/dist.test.ts`'s `IMPLEMENTATIONS` had no entry for this component**,
+  which is the gap that file's own comment is written about: "a component added
+  without a name here is one whose absence from the root entry is pinned by
+  nothing it can be renamed out of", after `ScrollBox` and `createTypewriter` had
+  each been missing. A third instance, found by a round that read a file outside
+  the diff.
+- **The probe drew three of the four form-and-polarity combinations while the
+  module doc claimed four.** The large form was never shown inverted, which is
+  what a `| cat` of a large code looks like. The step was added rather than the
+  claim weakened, because the claim is the useful one.
+- **Three more sentences were simply false about their neighbours**: the demo said
+  level H is two versions larger than L for its payload, where it is one (L and M
+  are version 3, Q and H are version 4); the sheet comment and the probe heading
+  said level 0 is the inverted form without the scheme qualification, where
+  `polarity()` reads both and a pipe with `SIGIL_COLOR_SCHEME=light` is not
+  inverted; and the `café naïve` vector's `why` said "the character count is
+  the byte count" of a string that is ten characters and twelve bytes, which is
+  the opposite of the thing it is in the list for.
+- **One finding was found twice, independently and within the hour.** The demo and
+  the probe printed a code's size with `String.length`, which above colour level 0
+  counts the SGR that paints the two colours -- so a 37-column code was reported
+  as 49 on a colour terminal and correctly at level 0, where there is no sequence
+  to count. Both now measure through `strip()` and `stringWidth()`, which is what
+  every other size in this repository is measured through and for the table's own
+  reason. Worth recording as a near-miss about the method rather than about the
+  bug: it was found by printing the number and reading it, which is the one check
+  no test in the suite makes, because a vitest worker's stdout has no colour.
+
+##### What the second review round found, and what it could not
+
+The round was pointed at the files round 1 listed as skipped, which is the half
+this file records as the one that pays -- measured over ten rounds, a round that
+re-attacks the previous round's premises confirms them and finds nothing new,
+while the only findings of the last round come from a file no round had opened.
+It is the shortest entry here because **the reviewer looped**: three attempts, two
+of them with the eight-item worklist and one with a short single-focus prompt, and
+each came back `Agent Looping Detected` rather than a review. So the worklist was
+done by hand, and what follows is what that turned up rather than what a reviewer
+said. Recorded as a limitation rather than glossed: the regions below were read by
+the same person who wrote them, which is weaker evidence than the first round's
+and is the reason this entry says what it checked rather than only what it found.
+
+- **The fixture had nothing checking it, which is the worklist's own first item
+  and is the biggest thing this round bought.** It is up under "How the codes
+  were established to be scannable", because what it produced belongs with the
+  other two layers rather than in a round's notes: one helper over two subjects,
+  and three more mutations, all caught.
+- **One existing count elsewhere in AGENTS.md had become false.** The Themes
+  section said `.sigil-caret`, `.sigil-scroll-track` and `.sigil-debug` are "the
+  three declared exceptions" and named the invariant as `should declare on a role,
+bar three exceptions that say why` -- a test title that no longer exists, since
+  the test was renamed to four in this change and the sentence was not. Found by
+  asking the question the worklist asks rather than by reading the diff, which is
+  the only way to find it: the stale sentence is four hundred lines from anything
+  the diff touches. The other counts were checked and hold -- seven roles, the
+  light half's two rules, and the themes' "all seven roles".
+- **One `the claim:` line was imprecise, which matters because those are promises
+  to somebody holding a camera.** The inverted step said a scanner that reads the
+  painted codes and not that one "is why the polarity is worked out rather than
+  fixed", which conflates two things: the inverted code **is** correctly polarised
+  -- dark modules on dark, light on light, exactly as the painted ones -- so a
+  scanner that refuses it is reporting its terminal's own contrast rather than a
+  polarity it cannot read. It says that now.
+- **The probe had never been run, and running it is what says the mode works.**
+  Driven through a faked terminal on both streams, with a key fed per prompt: all
+  seven steps draw, all seven `the claim:` lines print, 5,455 full blocks and 190
+  braille cells reach the stream. Worth doing because every other claim about that
+  mode is a claim about a file nothing executes -- `demos.test.ts` spawns the demos
+  and nothing spawns the probe.
+- **Neither `--qrcode` nor `--clipboard` exits on its own once its steps are
+  done**, measured over a piped stdin that stays open: both are still running
+  after twelve seconds, which is the pipe keeping node's stdin handle referenced
+  rather than anything either mode does. Shared behaviour rather than something
+  this change introduced, which is why it is written down rather than fixed inside
+  a ticket about a QR code.
+- **The eject was run rather than assumed, and it needs nothing of the
+  scaffold.** `sigil add qrcode` into a bare app copies one file whose four
+  imports are all rewritten to published subpaths, and the ejected copy
+  **type-checks clean** -- with `lib: ["esnext"]` and `types: ["node"]`, which is
+  what `sigil new` writes, and also with the **default** lib, which is the half
+  worth knowing: `spinner.ts` needs those two lines, because `lib.dom` declares
+  `setInterval(): number` and shadows `NodeJS.Timeout`, and this component holds
+  no timer and no DOM-shadowed global, so it adds no constraint of its own.
+  Checked both ways rather than inferred from the spinner's entry.
+- **The rest of the worklist is clean, and saying which is the point of having
+  one.** `--qrcode` needs no `finally`, because `key()` puts raw mode back itself
+  after every key and the mode sets no mode and queries nothing -- which is
+  `--clipboard`'s position and not `--mouse`'s. The barrel exports all twelve
+  public names and no name it does not declare, checked by reading both sides
+  rather than by eye. The registry entry resolves every import to a published
+  subpath, which the generator refuses by name otherwise. The demos table row is
+  the same 128 characters as its eight neighbours. And no new file holds a raw
+  control character, a byte order mark or a zero-width joiner, which is the half
+  `test/sources.test.ts` checks for `src/` and nothing checks for `demos/` or
+  `scripts/`.
+
+##### What is deliberately out
+
+- **Mixed segments**, with the 31-payload measurement above and the shape of the
+  fix named.
+- **Kanji mode, ECI and structured append**, each with its reason above.
+- **A braille form**, with the measurement above -- and drawn in the probe so the
+  refusal is checkable.
+- **A one-cell-per-module form**, which is the squashed one.
+- **A mounted form.** A QR code does not animate: it is a thing printed into a
+  log beside everything else, which is why the facade is a string the way
+  `table()` and `largeText()` are and why there is no `createQrcode()`.
+- **A capacity function.** `qrCapacity(version, ecc, mode)` is genuinely useful
+  to a caller deciding whether a payload fits before encoding, and nothing has
+  asked -- which is the rule `which` waited eighteen months on. The error a
+  payload that does not fit gets names the level and says a lower one holds more,
+  which is the thing a caller can act on.
+- **Pre-split segments as an escape hatch.** `encodeQr([{ data, mode }, ...])`
+  would be the honest way out of the single-segment decision and is API surface
+  with no caller; the day somebody has the `tel:` case is the day to add the
+  dynamic program instead, which needs no new surface at all.
+
 #### A command palette: the registry read as a list
 
 SIG-112 split this out because it had one unresolved question -- runtime or
@@ -13444,28 +14138,36 @@ read the description off the registry rather than off the declaration` sets a
 
   |                                                      | bytes       | modules |
   | ---------------------------------------------------- | ----------- | ------- |
-  | `components.mjs` on `main`                           | 213,649     | 21      |
-  | `components.mjs` with the palette in the barrel      | **224,657** | 23      |
+  | `components.mjs` without the palette                 | 224,288     | 21      |
+  | `components.mjs` with the palette in the barrel      | **234,912** | 23      |
   | `components.mjs` with it on `@ttylabs/sigil/palette` | 214,833     | 22      |
   | `palette.mjs`, that subpath's own graph              | 196,981     | 24      |
 
-  So the palette costs the barrel **11,008 B**, and it is fully accounted for:
-  8,896 of its own code in `components.mjs`, the 1,778 B `transform` chunk, the
-  154 B `types` chunk, and **180 B of class names in `FRAMEWORK_CSS`**, which
-  ships because the vocabulary comment is inside the template literal. A subpath
-  would give an app that never opens one **9,824 B** of that back, and it is
-  refused by the standard this file already set when it measured a subpath _per
-  component_ at about 15 kB of 124 and kept the barrel. A bundled app pays
-  nothing: a rolldown of an entry importing only `createSpinner` comes to
-  125,080 B and holds neither `commandCatalog` nor the palette's own `No commands
-match`, so what a bundled app keeps is the 180 B of sheet comment and nothing
-  else.
+  So the palette costs the barrel **10,624 B**, and it is accounted for: its own
+  code in `components.mjs`, the 1,778 B `transform` chunk, the 154 B `types`
+  chunk, and **180 B of class names in `FRAMEWORK_CSS`**, which ships because the
+  vocabulary comment is inside the template literal. A subpath would give an app
+  that never opens one most of that back, and it is refused by the standard this
+  file already set when it measured a subpath _per component_ at about 15 kB of
+  124 and kept the barrel. A bundled app pays nothing: a rolldown of an entry
+  importing only `createSpinner` comes to **126,679 B** and holds neither
+  `commandCatalog` nor the palette's own `No commands match` -- nor, re-measured
+  after the merge, `encodeQr` or `qrcodeView` -- so what a bundled app keeps is the
+  180 B of sheet comment and nothing else.
 
-  Every figure here was taken again after each review round, because each one
-  grew the code: the table read 223,912 / 214,804 / 196,257 before the first and
-  224,272 / 214,833 / 196,597 before the second, with deltas of 10,263 and 10,623.
-  A number nobody re-derives is the stale snapshot this file warns about one
-  section along, and three versions of one table is what that costs.
+  **Every figure here has been taken again after every change that moved it, and
+  the merge with the QR code is the fourth.** The table read 223,912 / 214,804 /
+  196,257 before the first review round, 224,272 / 214,833 / 196,597 before the
+  second and 213,649 / 224,657 / 214,833 / 196,981 on the branch -- and the
+  baseline then moved **again** when SIG-136 landed, because a QR encoder in the
+  same barrel is 10,255 B of it. The two rows measured against the old baseline
+  are kept above for what they are, which is why the first row is now named for
+  what it is rather than for `main`: a figure that could only be re-derived by
+  checking out a commit nobody has is the stale snapshot this file warns about,
+  and the delta is the part that survives a moving baseline. It moved too --
+  10,263, then 10,623, then 11,008, now 10,624 -- because what the barrel chunks
+  shared code into moves with what else is in it, which is the reason to re-run
+  the measurement rather than to carry the number.
 
 - **It does not import the parser, which is the finding rather than the
   worry.** Nothing in `src/components/` had ever imported `src/parser/`, and the

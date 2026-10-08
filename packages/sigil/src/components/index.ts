@@ -86,6 +86,20 @@ export {
 } from './spinner.js';
 export { decodeKeys, isAbort, type Key, pendingLength } from './keys.js';
 export {
+	encodeQr,
+	type QrCode,
+	type QrEcc,
+	type QrEncodeOptions,
+	type QrForm,
+	type QrLinesOptions,
+	type QrMode,
+	type QrViewOptions,
+	qrcode,
+	type QrcodeOptions,
+	qrcodeView,
+	qrLines,
+} from './qrcode.js';
+export {
 	captureConsole,
 	type CaptureOptions,
 	type ConsoleCapture,

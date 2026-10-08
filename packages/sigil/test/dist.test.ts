@@ -138,6 +138,7 @@ describe('what importing the package costs', () => {
 		'ScrollBox',
 		'tableView',
 		'enableDebugOverlay',
+		'qrcodeView',
 		'commandPalette',
 	];
 
@@ -227,10 +228,11 @@ describe('what importing the package costs', () => {
 	});
 
 	it('should keep the components entry worth importing for one component', () => {
-		// 224,657 B over 23 modules today, of which the palette is 11,008: 8,896 of
-		// its own code, the 1,778 B `transform` chunk, the 154 B `types` chunk and
-		// 180 B of class names in `FRAMEWORK_CSS`, which ships because the
-		// vocabulary comment is inside the template literal.
+		// 234,912 B over 23 modules today, of which the palette is 10,624: its own
+		// code, the 1,778 B `transform` chunk, the 154 B `types` chunk and 180 B of
+		// class names in `FRAMEWORK_CSS`, which ships because the vocabulary comment
+		// is inside the template literal. The QR encoder is another 10,255 of it,
+		// which is what moved this figure when SIG-136 merged.
 		//
 		// A ceiling rather than a measurement, at about 1.4x, so ordinary growth
 		// never touches it and a second runtime stack does

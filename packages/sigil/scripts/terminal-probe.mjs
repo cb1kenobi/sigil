@@ -5,6 +5,7 @@
  *   pnpm build && node packages/sigil/scripts/terminal-probe.mjs --detect
  *   pnpm build && node packages/sigil/scripts/terminal-probe.mjs --mouse
  *   pnpm build && node packages/sigil/scripts/terminal-probe.mjs --clipboard
+ *   pnpm build && node packages/sigil/scripts/terminal-probe.mjs --qrcode
  *
  * `test/canvas/diff.test.ts` replays the diff's output against `FakeTerminal`,
  * a model written in this repo. That is the right way to test a diff -- it pins
@@ -1207,6 +1208,258 @@ function key() {
 	});
 }
 
+/**
+ * A QR code, against a real terminal and a real camera.
+ *
+ *   pnpm build && node packages/sigil/scripts/terminal-probe.mjs --qrcode
+ *
+ * **The check is to scan these with a phone.** That sentence is the whole of why
+ * this mode exists, and it is a sharper version of `--clipboard`'s argument: there
+ * the answer lives in somebody's paste buffer, and here it lives in a camera's
+ * locate-and-decode pipeline, which is not a thing any process can ask about.
+ *
+ * What *is* already settled without a camera, so that nobody re-establishes it
+ * here: every matrix this component produces is compared module for module
+ * against a reference encoder's in `test/components/qrcode.test.ts`, and the
+ * drawn glyphs have been turned back into pixels and decoded by an independent
+ * decoder -- 168 of 168, over seven payloads, four levels, both forms and all
+ * three polarities. So the encoder is not what this mode is about.
+ *
+ * What it is about is the three things that need your terminal and your phone:
+ *
+ * - whether your **font** draws a contiguous half block. `▀` and `▄`
+ *   have to meet exactly, and several fonts draw them a pixel short at small
+ *   sizes -- which is a light seam through every second module row and is the one
+ *   failure the compact form has that the large form does not.
+ * - whether your **colours** have the contrast a camera needs. The code is drawn
+ *   at palette index 0 on index 7, which is whatever your theme renders those as.
+ * - whether **one module** of quiet zone is enough for your camera, which is the
+ *   sharpest question here now that one is the default. A software decoder finds
+ *   nothing against a dark background with none and finds it with one, and that
+ *   is as far as software goes: the spec asks four because a camera at an angle
+ *   through a blur needs more than a clean bitmap does, so if a step scans at
+ *   `quietZone: 4` and not at the default, that is the measurement that would
+ *   move the default back.
+ *
+ * Nothing here is a mode and nothing is queried, so there is nothing to put back
+ * -- which is `--clipboard`'s position rather than `--mouse`'s.
+ */
+async function qrcodeProbe() {
+	const { qrcode, encodeQr } = await import('../dist/components.mjs');
+	const { strip } = await import('../dist/ansi.mjs');
+	const { stringWidth } = await import('../dist/width.mjs');
+
+	let step = 0;
+	/**
+	 * @param {string} title
+	 * @param {string} claim - What a terminal and a scanner that agree show.
+	 */
+	const heading = (title, claim) => {
+		step++;
+		write(`\r\n[${step}] ${title}\r\n`);
+		write(`    the claim: ${claim}\r\n\r\n`);
+	};
+
+	/** Writes a code, with every newline turned into a CRLF for raw mode. */
+	const show = (text, opts) => {
+		const out = qrcode(text, opts);
+		write(`${out.replaceAll('\n', '\r\n')}\r\n`);
+		return out;
+	};
+
+	const next = async (prompt = 'scan it, then press a key') => {
+		write(`\r\n    ${prompt} `);
+		const pressed = await key();
+		write('\r\n');
+		return pressed !== '\u0003';
+	};
+
+	write(CLEAR + HOME + SHOW_CURSOR);
+	write('QR codes, against this terminal and your phone. Ctrl-C stops.\r\n');
+
+	const url = 'https://github.com/cb1kenobi/sigil';
+	const code = encodeQr(url);
+	write(
+		`\r\nthe payload is ${url}\r\n` +
+			`mode ${code.mode}, version ${code.version} (${code.size} modules square), ` +
+			`level ${code.ecc}, mask ${code.mask}\r\n`
+	);
+
+	// ------------------------------------------------------------------- compact
+	heading(
+		'the compact form: a half block per cell',
+		'it scans, and no light seam runs through it -- a seam is your font drawing ' +
+			'the two half blocks a pixel short of each other'
+	);
+	const compact = show(url);
+	// measured through `strip()` and `stringWidth()` rather than with
+	// `String.length`, because every line above colour level 0 carries the SGR
+	// that paints the two colours -- so a code's line is a dozen characters longer
+	// than it is columns wide, and `String.length` reports the sequences
+	const drawnLines = compact.split('\n');
+	write(`\r\n    ${stringWidth(strip(drawnLines[0]))} columns by ${drawnLines.length} lines\r\n`);
+	if (!(await next())) {
+		return;
+	}
+
+	// --------------------------------------------------------------------- large
+	write(CLEAR + HOME);
+	heading(
+		'the large form: two columns per module',
+		'it scans, and it has no half blocks in it at all -- so a terminal where ' +
+			'this one scans and the one before it does not is a font problem rather ' +
+			'than a code problem'
+	);
+	show(url, { form: 'large' });
+	if (!(await next())) {
+		return;
+	}
+
+	// ------------------------------------------------------------------ polarity
+	write(CLEAR + HOME);
+	heading(
+		'the painted form, which is the opt-in rather than the default',
+		'`paint: true` draws black on its own white instead of borrowing your ' +
+			"terminal's two colours. It is what to reach for when the codes above do " +
+			'not scan, because it does not depend on your own contrast -- and it ' +
+			'costs an uneven border, one module on one edge and two on the other, ' +
+			'which is parity rather than a bug: a painted code is a white rectangle ' +
+			'of whole cells around an odd number of module rows'
+	);
+	show(url, { paint: true });
+	if (!(await next())) {
+		return;
+	}
+
+	// ------------------------------------------------- the fourth of the four
+	write(CLEAR + HOME);
+	heading(
+		'the large form, inverted: what a pipe gets at the bigger size',
+		'it scans. This is the fourth of the four -- two forms times two ' +
+			'polarities -- and it is here because the module doc claims both forms at ' +
+			'both polarities and for one commit the probe drew three of them. A ' +
+			'review round found the sentence rather than the gap'
+	);
+	show(url, { colorLevel: 0, colorScheme: 'dark', form: 'large' });
+	if (!(await next())) {
+		return;
+	}
+
+	// ---------------------------------------------------------------- quiet zone
+	write(CLEAR + HOME);
+	heading(
+		'no quiet zone at all, against the one module that is the default',
+		'this is the one that is expected to be HARDER to scan, or to fail. The ' +
+			'dark modules at the edge touch the terminal background, which is what a ' +
+			'quiet zone exists to stop -- a software decoder finds nothing here and ' +
+			'finds the one-module default every step above it drew. If this one ' +
+			'scans as readily as those did, your surroundings are already light'
+	);
+	show(url, { quietZone: 0 });
+	if (!(await next('try to scan it, then press a key'))) {
+		return;
+	}
+
+	// --------------------------------------------------------------------- level
+	write(CLEAR + HOME);
+	heading(
+		'the smallest and the largest error correction',
+		'both scan. L is the smaller code and H is the one that survives a thumb ' +
+			'over the corner, which is damage a screen does not have -- so M is the ' +
+			'default and this is what the two ends cost'
+	);
+	for (const ecc of ['L', 'H']) {
+		const one = encodeQr(url, { ecc });
+		write(`    level ${ecc}: version ${one.version}, ${one.size} modules square\r\n\r\n`);
+		show(url, { ecc });
+		write('\r\n');
+	}
+	if (!(await next())) {
+		return;
+	}
+
+	// ------------------------------------------------------------------- braille
+	write(CLEAR + HOME);
+	heading(
+		'braille, which is the form this component refuses to offer',
+		'this is expected NOT to scan. A Dots cell is 2x4, so a module would be ' +
+			'half a column by a quarter of a cell -- square, and four times smaller ' +
+			'again -- and a braille cell does not tile: the dots are discrete, with ' +
+			'gaps about as wide as the dots, so a dark region is a dotted texture ' +
+			'rather than a module. A software decoder finds nothing in it. If your ' +
+			'phone reads this, say so, because it is the measurement that would ' +
+			'reopen the decision'
+	);
+	write(braille(code).replaceAll('\n', '\r\n'));
+	write('\r\n');
+	await next('try to scan it, then press a key');
+
+	write(
+		'\r\nIf every step but the last two scanned, this component works on this ' +
+			'terminal.\r\nIf the compact form seamed and the large form did not, it is ' +
+			'the font.\r\n'
+	);
+}
+
+/**
+ * The refused braille form, drawn here so that the refusal is falsifiable.
+ *
+ * Eight modules per cell, two across and four down, which is the geometry the
+ * component's own notes work out and reject. It is in the probe rather than in
+ * the component because an API that promises something unscannable is worse than
+ * one that leaves it out -- and a refusal nobody can check is worth less than one
+ * somebody can.
+ *
+ * @param {{ modules: readonly (readonly boolean[])[], size: number }} code
+ * @returns {string} The code, in braille.
+ */
+function braille(code) {
+	// the spec's four rather than this component's default of one, deliberately:
+	// a wider quiet zone is the favourable case for the form being refused, so a
+	// braille code nothing finds at four is nothing found at one either
+	const quiet = 4;
+	const span = code.size + quiet * 2;
+	const dark = (x, y) =>
+		x >= quiet &&
+		y >= quiet &&
+		x < quiet + code.size &&
+		y < quiet + code.size &&
+		code.modules[y - quiet][x - quiet];
+
+	// the dot order inside a braille cell, which is the one thing about the
+	// encoding that is not a straight bit index: the eighth and seventh dots were
+	// added after the first six, so the low six bits go down the two columns and
+	// the high two are the bottom row
+	const BITS = [
+		[0, 3],
+		[1, 4],
+		[2, 5],
+		[6, 7],
+	];
+
+	const lines = [];
+	for (let cy = 0; cy < Math.ceil(span / 4); cy++) {
+		let line = '';
+		for (let cx = 0; cx < Math.ceil(span / 2); cx++) {
+			let bits = 0;
+			for (let dy = 0; dy < 4; dy++) {
+				for (let dx = 0; dx < 2; dx++) {
+					// inverted, for the reason the component inverts at level 0: a
+					// braille dot is drawn in the foreground, which on a dark
+					// terminal is the light colour
+					if (!dark(cx * 2 + dx, cy * 4 + dy)) {
+						bits |= 1 << BITS[dy][dx];
+					}
+				}
+			}
+			line += String.fromCodePoint(0x2800 + bits);
+		}
+		lines.push(line);
+	}
+
+	return `${lines.join('\n')}\n`;
+}
+
 const write = (s) => process.stdout.write(s);
 
 async function main() {
@@ -1238,6 +1491,13 @@ async function main() {
 	// layer where nothing at all can be verified from inside the process
 	if (process.argv.includes('--clipboard')) {
 		await clipboard();
+		return;
+	}
+
+	// and a QR code is text plus a human with a camera, which is the one claim
+	// here that not even a second process could settle
+	if (process.argv.includes('--qrcode')) {
+		await qrcodeProbe();
 		return;
 	}
 
