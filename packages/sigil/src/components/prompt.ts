@@ -116,12 +116,31 @@ export interface MultiselectOptions<T> extends SelectOptions<T> {
 	required?: boolean;
 }
 
-const SYMBOL = {
+/**
+ * The glyphs the prompts draw, as one object rather than four literals.
+ *
+ * Frozen, because it is exported: a shared mutable object one caller can write
+ * to is the trap every initial value in the property table is frozen against,
+ * and a pointer that changed under `select()` because something else reached
+ * for the same glyph is that trap with a frame on it.
+ */
+export interface PromptSymbols {
+	/** The pointer on the active row of a list. */
+	readonly cursor: string;
+	/** An unticked box, for a multiselect. */
+	readonly off: string;
+	/** A ticked box. */
+	readonly on: string;
+	/** The mark in front of a question. */
+	readonly question: string;
+}
+
+const SYMBOL: PromptSymbols = Object.freeze({
 	cursor: '❯',
 	off: '◯',
 	on: '◉',
 	question: '?',
-};
+});
 
 function toChoice<T>(choice: Choice<T> | string): Choice<T> {
 	return typeof choice === 'string' ? { label: choice, value: choice as T } : choice;
@@ -1289,11 +1308,17 @@ export function fieldLayers(read: () => FieldFrame): { caret: Element; field: El
  * @param rows - What the caller asked for.
  * @returns A whole number of rows, or the default.
  */
-function rowCap(rows: number | undefined): number {
+function rowCap(rows: number | undefined, fallback = 10): number {
 	// `rows >= 1` is what refuses `NaN`, since every comparison against it is
 	// false -- so `Number.isFinite()` beside it was refusing `Infinity` as well,
 	// which is the one value the comment above says passes through
-	return rows !== undefined && rows >= 1 ? Math.floor(rows) : 10;
+	//
+	// `fallback` is the palette's: its default is what the terminal has left
+	// under the question rather than ten, and the rule about what a `rows` may be
+	// is this one said once. Without it the palette had its own, and `Math.max(1,
+	// NaN)` is `NaN` -- which blanked the list while keeping the empty message
+	// hidden, because `rank >= NaN` is false for every row
+	return rows !== undefined && rows >= 1 ? Math.floor(rows) : fallback;
 }
 
 /** `ctrl-d`, as a reader would type it. */
@@ -1929,3 +1954,40 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
 		};
 	});
 }
+
+/**
+ * The prompt plumbing, for a component that is prompt-shaped and is not one of
+ * the six.
+ *
+ * A palette is a filter field over a list, which is a prompt by every structural
+ * measure -- a canvas, the one input router, a question, an answer, and
+ * everything put back whichever way it ends -- and is not a *prompt* in the
+ * sense this file is about: it reads the command registry rather than asking for
+ * a value. So it borrows the machinery and lives in its own module.
+ *
+ * Exported rather than copied, because `run()` is the delicate half of a prompt
+ * and a second reading of it is a second set of answers about the settled/detach
+ * ordering, the throw that happens on the first frame before there is a handle to
+ * tear down, and the one-key-at-a-time queue. The drawing helpers come with it
+ * for the same reason the arithmetic does: `windowStart()` and `windowOf()` are
+ * the two windows a list and a one-line field need, and both are the kind of
+ * pure function this repository already publishes for its own testability.
+ *
+ * Nothing here moved. The bodies are where they were, and the only edit to
+ * `test/components/prompt.test.ts` is one added assertion about the surface this
+ * block creates -- no existing test moved, which is the check an extraction
+ * gets: a test that had to move is a behaviour that changed.
+ */
+export {
+	answered as promptAnswered,
+	rowCap as promptRowCap,
+	headWidths as promptHeadWidths,
+	note as promptNote,
+	promptHead as promptHeadLine,
+	run as runPrompt,
+	setNote as setPromptNote,
+	SYMBOL as PROMPT_SYMBOLS,
+	windowOf as promptWindow,
+	windowStart as listWindow,
+};
+export type { Handlers as PromptHandlers, Window as PromptWindow };

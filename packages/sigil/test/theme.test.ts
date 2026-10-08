@@ -2,6 +2,9 @@ import { table } from '../src/components/index.js';
 import { box, renderToString, text } from '../src/element/index.js';
 import { Cascade, parseStylesheet, type Stylesheet } from '../src/style/index.js';
 import { frameworkSheet, FRAMEWORK_CSS, parseTheme, themedCascade } from '../src/theme/index.js';
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -91,6 +94,49 @@ describe('the framework sheet', () => {
 		);
 
 		expect([...declaring].sort()).to.deep.equal([...ROLES, ...EXCEPTIONS].sort());
+	});
+
+	/**
+	 * The sheet is the vocabulary, asserted rather than promised.
+	 *
+	 * Its own doc says to "read it as the list of names a theme may restyle", and
+	 * most of those names carry no rule -- they are in the comment that lists them
+	 * as hooks. A class with no rule is still a hook, and a built-in that draws
+	 * with one the comment does not name is a hook nobody can find: nothing in a
+	 * build catches it, because a class is a string in a props object.
+	 *
+	 * Over `src/components/` and `src/help/` together, which is every built-in.
+	 * The registry generator already extracts a component's classes the same way,
+	 * so this is the same read asked as an invariant. Found by a sabotage of the
+	 * palette's own entry in the comment, which failed nothing.
+	 */
+	it('should name every class a built-in draws with', () => {
+		const here = dirname(fileURLToPath(import.meta.url));
+		const found = new Set<string>();
+
+		/** Every `sigil-*` class a source under `dir` mentions. */
+		function walk(dir: string): void {
+			for (const entry of readdirSync(dir, { withFileTypes: true })) {
+				const path = join(dir, entry.name);
+				if (entry.isDirectory()) {
+					walk(path);
+				} else if (entry.name.endsWith('.ts')) {
+					for (const [cls] of readFileSync(path, 'utf8').matchAll(/sigil-[a-z-]+[a-z]/g)) {
+						found.add(cls);
+					}
+				}
+			}
+		}
+
+		for (const dir of ['components', 'help']) {
+			walk(join(here, '..', 'src', dir));
+		}
+
+		// a glob that matches nothing passes every assertion under it
+		expect(found.size).toBeGreaterThan(40);
+
+		const missing = [...found].filter((cls) => !FRAMEWORK_CSS.includes(cls)).sort();
+		expect(missing, 'classes a built-in draws with and the sheet does not name').to.deep.equal([]);
 	});
 });
 

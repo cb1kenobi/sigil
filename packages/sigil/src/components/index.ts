@@ -1,4 +1,27 @@
 export {
+	type CatalogOptions,
+	type CatalogTarget,
+	commandCatalog,
+	type PaletteEntry,
+	type PaletteSlot,
+	slotsFor,
+	slotTokens,
+} from './catalog.js';
+export {
+	type FuzzyMatch,
+	fuzzyMatch,
+	type HighlightRun,
+	highlightRuns,
+	type Ranked,
+	rankBy,
+} from './fuzzy.js';
+export {
+	checkSlotValue,
+	commandPalette,
+	type PaletteOptions,
+	type PaletteResult,
+} from './palette.js';
+export {
 	type Choice,
 	confirm,
 	type ConfirmOptions,
@@ -15,6 +38,21 @@ export {
 	type SubmitKey,
 	text,
 	type TextOptions,
+} from './prompt.js';
+export {
+	listWindow,
+	PROMPT_SYMBOLS,
+	promptAnswered,
+	type PromptHandlers,
+	promptHeadLine,
+	promptHeadWidths,
+	promptNote,
+	promptRowCap,
+	type PromptSymbols,
+	promptWindow,
+	type PromptWindow,
+	runPrompt,
+	setPromptNote,
 } from './prompt.js';
 export { type Mounted, type MountOptions, mountLive } from './mount.js';
 export {

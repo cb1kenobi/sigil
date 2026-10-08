@@ -1,6 +1,7 @@
 import {
 	confirm,
 	ESCAPE_TIMEOUT,
+	PROMPT_SYMBOLS,
 	multiselect,
 	password,
 	PromptError,
@@ -77,6 +78,15 @@ const PASTE_START = '\u001b[200~';
 const PASTE_END = '\u001b[201~';
 /** A CSI nothing names, for asserting that an unnamed key types nothing. */
 const UNNAMED = '\u001b[202~';
+
+describe('the prompt plumbing a second component borrows', () => {
+	it('should hand over the glyphs frozen', () => {
+		// it is one object and it is exported, so a caller that wrote to it would
+		// rewrite what every prompt in the process draws -- which is the trap
+		// every initial value in the property table is frozen against
+		expect(Object.isFrozen(PROMPT_SYMBOLS)).toBe(true);
+	});
+});
 
 describe('text()', () => {
 	it('should return what was typed', async () => {

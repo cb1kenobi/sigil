@@ -139,6 +139,7 @@ describe('what importing the package costs', () => {
 		'tableView',
 		'enableDebugOverlay',
 		'qrcodeView',
+		'commandPalette',
 	];
 
 	/** The bundles in a graph that define any of them. */
@@ -187,6 +188,58 @@ describe('what importing the package costs', () => {
 		const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
 
 		expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(100 * 1024);
+	});
+
+	it('should not drag the parser in to import the components', () => {
+		// the worry the palette was written against, and the measurement says it
+		// does not happen: a palette reads the command registries through the
+		// `Internal` symbol, which is `src/types.ts` and is a 154 B chunk, and
+		// coerces a value with `transformValue()`, which is `src/util/transform.ts`
+		// and is 1.8 kB. Neither is in `src/parser/` -- so `parse-*.mjs` (18.5 kB)
+		// and `option-registry-*.mjs` (7.2 kB) are both absent from the graph, and
+		// the components entry grew by 11,008 B rather than by 26 kB.
+		//
+		// Asserted as an absence by two string literals, which survive
+		// minification where a name that is only ever called does not -- the first
+		// spelling of this looked for `parseArgv` and the minifier renames it, so
+		// it was in no bundle at all and the test said nothing.
+		//
+		// What it pins is `parse.ts` specifically rather than everything under
+		// `src/parser/`, which a sabotage established: importing `initArg` from
+		// there leaves the graph where it was, because that module is a leaf
+		// rolldown puts in this chunk. Importing `parse` itself fails this and
+		// takes the graph to 253,201 B, about 29 kB more -- which is what the
+		// palette does not cost
+		const graph = staticGraph('components.mjs');
+		const shipped = new Set(readdirSync(dist).filter((name) => name.endsWith('.mjs')));
+
+		for (const marker of ['Extra arguments are not allowed', 'Missing required arguments']) {
+			// the presence half first, because an absence alone passes forever the
+			// day the marker stops being in the output -- `parseArgv` was the first
+			// spelling of this and the minifier renames a function nothing exports,
+			// so it was in no bundle at all and the test said nothing
+			expect(carriers(shipped, marker), marker).not.toEqual([]);
+			expect(carriers(graph, marker), marker).toEqual([]);
+		}
+
+		// and the other side of it: the coercion really is the parser's own, in the
+		// bytes rather than in the source
+		expect(carriers(graph, 'Invalid boolean')).not.toEqual([]);
+	});
+
+	it('should keep the components entry worth importing for one component', () => {
+		// 234,912 B over 23 modules today, of which the palette is 10,624: its own
+		// code, the 1,778 B `transform` chunk, the 154 B `types` chunk and 180 B of
+		// class names in `FRAMEWORK_CSS`, which ships because the vocabulary comment
+		// is inside the template literal. The QR encoder is another 10,255 of it,
+		// which is what moved this figure when SIG-136 merged.
+		//
+		// A ceiling rather than a measurement, at about 1.4x, so ordinary growth
+		// never touches it and a second runtime stack does
+		const graph = staticGraph('components.mjs');
+		const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
+
+		expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(320 * 1024);
 	});
 
 	// `mouseenter` and the mode sequence rather than `hitTest` and `enableMouse`: a
