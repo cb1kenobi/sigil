@@ -138,7 +138,15 @@ async function release(state) {
 		['deploy', 'prod'],
 	]) {
 		console.log(`  $ rel ${step.join(' ')}`);
-		await run(state, step);
+		// caught, because `errorHandler: false` is asking this command to handle
+		// it: a step's failure is one `release` knows the meaning of and the outer
+		// handler does not. There is a reason past tidiness, under "Known bugs" --
+		// an error that escapes a nested `main()` fires `beforeError` twice
+		try {
+			await run(state, step);
+		} catch (err) {
+			throw new Error(`step \`${step.join(' ')}\` failed: ${err.message}`);
+		}
 	}
 
 	// and the half that is worth seeing fail: `choices` is enforced here exactly
@@ -183,8 +191,8 @@ async function shortcut(state) {
 	// an alias table beside it, so `get()` is the raw `Map.get` and answers
 	// `undefined` for an alias while `find()` resolves one -- which the line below
 	// prints rather than claims. So `find()` is what takes a name anybody typed or
-	// wrote, and `get()` only a name already known to be canonical, which is what
-	// `values()` hands out
+	// wrote, and `get()` only a name already known to be canonical. `values()` is
+	// not that: it yields the commands themselves, where `keys()` yields the names
 	const sibling = registry.find('clean');
 
 	console.log(`
@@ -228,8 +236,12 @@ async function shortcut(state) {
       desc     ${JSON.stringify(deferred.desc)}
       loaded   ${deferred[Internal].loaded}
 
-  There is nothing to call. (a) and (b) are not wrong for a lazily loaded
-  command, they are impossible -- and filesystem routing makes that the
+  There is nothing to call. The desc is undefined only because this
+  declaration gave none -- one written { path, desc } carries its own
+  onto the placeholder, and run is the one thing no declaration supplies.
+
+  So (a) and (b) are not wrong for a lazily loaded command, they are
+  impossible -- and filesystem routing makes that the
   common case rather than the exotic one. A parse is what loads it, so
   (c) is the only one of the three that works at all.
 `);

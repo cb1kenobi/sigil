@@ -8,6 +8,7 @@ import {
 import { stateFromError } from '../../src/error-hooks.js';
 import { parse } from '../../src/parser/parse.js';
 import { Internal, type InternalCommand, type ParseState, type Schema } from '../../src/types.js';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -455,10 +456,12 @@ describe('slotsFor()', () => {
 		expect((await slots(declared)).map(({ label }) => label)).toEqual(['--port <n>']);
 	});
 
-	it('should not ask for the help flag the parser adds', async () => {
-		// which the `required` test above already answers for -- `--help` is a flag
-		// and a flag is never required -- and is asserted here because it is the
-		// one option every schema gets whether or not it asked for one
+	it('should not ask for the flags the parser adds', async () => {
+		// `--help` and `--version` are the two, and the `required` test above
+		// already answers for both -- a flag is never required. Asserted anyway
+		// because they are the options every schema gets whether or not it asked,
+		// so a reader meets them here first; what this does *not* pin is the
+		// `parserOwned` guard, which a sabotage says the whole suite cannot see
 		const parsed = await parse({
 			argv: [],
 			env: {},
@@ -619,5 +622,82 @@ describe('slotTokens()', () => {
 	it('should answer nothing for a slot that was skipped', () => {
 		expect(slotTokens(arg, [])).toEqual([]);
 		expect(slotTokens(opt, [])).toEqual([]);
+	});
+	describe('a command its module renamed', () => {
+		const schema: Schema = {
+			commands: {
+				ns: { path: join(import.meta.dirname, '..', 'fixtures', 'rename', 'ns.mjs') },
+			},
+		};
+
+		it('should dispatch the name argv reaches it by, not the one it calls itself', async () => {
+			// a loaded module's `name` wins over the placeholder's and the registry
+			// stays keyed by the placeholder's, so only `ns` routes. Built from
+			// `cmd.name`, the path was `['renamed-ns', 'inner']`, which the parser
+			// refuses with `Unexpected argument` -- a palette offering what it
+			// cannot run, which is the failure this whole component is written
+			// against
+			const parsed = await state(schema, ['ns', 'inner']);
+			const entry = commandCatalog(parsed).find((e) => e.label.endsWith('inner'));
+
+			expect(parsed.contexts[1]?.name).toBe('renamed-ns');
+			expect(entry?.path).toEqual(['ns', 'inner']);
+		});
+
+		it('should still show the name the command calls itself', async () => {
+			// the display name and the dispatch name are two answers: what is shown
+			// is what help shows, and what is run is what argv reaches
+			const parsed = await state(schema, ['ns', 'inner']);
+			const entry = commandCatalog(parsed).find((e) => e.path.join(' ') === 'ns inner');
+
+			expect(entry?.label).toBe('renamed-ns inner');
+		});
+
+		it('should dispatch what it offers, through the real parser', async () => {
+			// the end-to-end form, which is the only one that can say the argv
+			// routes rather than merely looking right
+			const parsed = await state(schema, ['ns', 'inner']);
+			const entry = commandCatalog(parsed).find((e) => e.path.join(' ') === 'ns inner');
+			const again = await state(schema, [...(entry?.path ?? [])]);
+
+			expect(again.cmd?.name).toBe('inner');
+		});
+
+		it('should fall back to a command argv never named, which is a default', async () => {
+			// a `default` command has no matched token, and its own name is both the
+			// fallback and the right answer -- there is nothing argv said to prefer.
+			//
+			// It needs the default to have a CHILD to be reached at all, which a
+			// sabotage had to say: a childless default emits nothing under itself,
+			// so every entry comes from the root's own walk, where the prefix is
+			// empty and the name comes from the child. With one, the default *is*
+			// the prefix, and dropping the fallback makes that prefix an empty
+			// string
+			const parsed = await state({
+				commands: {
+					build: { run: () => undefined },
+					pal: { default: true, commands: { sub: { run: () => undefined } } },
+				},
+			});
+
+			expect(
+				commandCatalog(parsed, { namespaces: true })
+					.map((e) => e.path.join(' '))
+					.sort()
+			).toEqual(['build', 'pal', 'pal sub']);
+		});
+
+		it('should use the alias argv typed, which is what routes', async () => {
+			// an alias resolves, so either spelling runs -- and what was typed is
+			// what "the argv you would have typed" means
+			const parsed = await state(
+				{ commands: { 'deep, d': { commands: { x: { run: () => undefined } } } } },
+				['d', 'x']
+			);
+			const entry = commandCatalog(parsed).find((e) => e.label.endsWith('x'));
+
+			expect(entry?.path).toEqual(['d', 'x']);
+			expect(entry?.label).toBe('deep x');
+		});
 	});
 });

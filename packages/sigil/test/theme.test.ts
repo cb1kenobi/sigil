@@ -135,7 +135,15 @@ describe('the framework sheet', () => {
 		// a glob that matches nothing passes every assertion under it
 		expect(found.size).toBeGreaterThan(40);
 
-		const missing = [...found].filter((cls) => !FRAMEWORK_CSS.includes(cls)).sort();
+		// the sheet's own names as whole tokens rather than as substrings, which a
+		// sabotage had to say: `FRAMEWORK_CSS.includes('sigil-palette')` is true of
+		// a sheet naming only `.sigil-palette-list`, because the short name is a
+		// prefix of every longer one beside it -- so taking the host's own class
+		// out of the vocabulary comment left this green. Read with the same pattern
+		// the walk uses, so the two cannot disagree about what a class name is
+		const named = new Set([...FRAMEWORK_CSS.matchAll(/sigil-[a-z-]+[a-z]/g)].map(([cls]) => cls));
+
+		const missing = [...found].filter((cls) => !named.has(cls)).sort();
 		expect(missing, 'classes a built-in draws with and the sheet does not name').to.deep.equal([]);
 	});
 });

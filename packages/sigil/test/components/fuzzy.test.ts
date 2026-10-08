@@ -26,10 +26,14 @@ describe('fuzzyMatch()', () => {
 		expect(hit('db', 'DB migrate')).toEqual([0, 1]);
 	});
 
-	it('should not read the process locale, which decides `i` in Turkish', () => {
-		// `toLocaleLowerCase()` maps `I` to a dotless `ı` under `tr-TR`, so a query
-		// of `i` would stop matching an `I` on that machine and nowhere else --
-		// which is the trap `camelCase()` already records, met in a matcher
+	it('should fold the one pair a locale would disagree about', () => {
+		// `i` and `I` are the pair `tr-TR` cases differently, so they are the pair
+		// worth pinning -- and this does *not* assert that the fold ignores the
+		// process locale, which is what it used to be named for and what no test
+		// can see: measured, `'I'.toLocaleLowerCase()` is `'i'` even under
+		// `LC_ALL=tr_TR.UTF-8`, so only the explicit-argument form differs and a
+		// sabotage swapping the call survives. `lower()`'s own doc is where that
+		// guard is recorded, because the source is the only place it exists
 		expect(hit('i', 'Install')).toEqual([0]);
 		expect(hit('I', 'install')).toEqual([0]);
 	});
@@ -149,6 +153,11 @@ describe('the ranking', () => {
 	});
 
 	it('should keep the order it was given where the scores and the lengths tie', () => {
+		// what this pins is the *sort's* stability rather than a tie-break of our
+		// own: there was a third comparison on the source index and a sabotage
+		// said it could not change an answer, because `index` is that position and
+		// a stable sort has already kept it. So this is the property, and it fails
+		// if the sort is ever replaced with one that is not stable
 		expect(order('a', ['ax', 'ay', 'az'])).toEqual(['ax', 'ay', 'az']);
 	});
 

@@ -416,7 +416,11 @@ call with a list of tokens:
 async run(state) {
   // executing: three commands as three steps of one piece of work
   for (const step of [['clean', '--force'], ['build', 'dist'], ['deploy', 'prod']]) {
-    await main({ argv: step, schema: state.schema, settings: { errorHandler: false } });
+    try {
+      await main({ argv: step, schema: state.schema, settings: { errorHandler: false } });
+    } catch (err) {
+      throw new Error(`step \`${step.join(' ')}\` failed: ${err.message}`);
+    }
   }
 }
 ```
@@ -439,6 +443,15 @@ resolves `undefined` — so a failed step looks like it succeeded, the caller
 carries on, and the message is printed by the inner call rather than by whoever
 knows what the step was for.
 
+**And `catch` it**, which is what `errorHandler: false` is asking you to do: the
+caller knows what the step was for and the outer handler does not. There is a
+reason past tidiness — an error that escapes a nested `main()` reaches the outer
+one with nothing on it to say the hooks already ran, so a schema `beforeError`
+hook sees **the same error twice**. Catching and re-throwing your own, as above,
+still fires twice, but for two _different_ errors, which is one per error and is
+the rule rather than the bug; catching and handling fires once. See "Known bugs"
+in `AGENTS.md`.
+
 **A nested dispatch does not inherit the outer invocation's root options.** They
 are re-read from the argv you pass, so an outer `--verbose` is `false` inside
 unless you forward it:
@@ -448,9 +461,12 @@ const argv = state.argv.verbose === true ? ['--verbose', ...step] : step;
 ```
 
 There is **no recursion guard**: two commands that re-route to each other are an
-infinite loop, and nothing reports it. A command that routes conditionally
-cannot loop; a tree where two of them might route to each other needs a depth
-or a visited set of its own.
+infinite loop, and nothing reports it. **A condition does not make a route
+finite** — two commands that each route to the other on a condition that stays
+true recurse exactly as an unconditional pair does. What makes a route finite is
+that whatever it routes _to_ does no routing of its own; a tree where two of them
+might route to each other needs a depth or a visited set, and that is the app's
+to carry.
 
 ### Reading the command registry
 
@@ -471,8 +487,11 @@ registry.get('b'); // → undefined; the raw `Map.get`
 registry.default; // the `default` command, if one is declared
 ```
 
-Use **`find()`** for a name anybody typed or wrote, and `get()` only for one
-already known to be canonical — which is what `values()` hands out.
+`values()` yields the commands themselves and `keys()` their canonical names, so
+iterating needs no lookup at all. For a lookup, use **`find()`** for a name
+anybody typed or wrote, and `get()` only for one already known to be canonical —
+it is `Map.get`, so it misses an alias, and passing it a command rather than a
+name misses too.
 
 **Calling a command's `run()` off the registry is a trap**, and a quiet one: it
 runs, it simply runs over the wrong values.
@@ -488,9 +507,11 @@ In **(a)** the sibling is handed _your_ values, so none of its own options exist
 and it does not know which command it is. In **(b)** the value you asked for
 arrives, the declared `default` never does, inherited options are gone, and
 `choices` is never consulted. And for a **lazily loaded** command it is not
-merely wrong but impossible — the registry holds a placeholder with no `run` and
-no `desc` until a parse loads it, which filesystem routing makes the common
-case.
+merely wrong but impossible — the registry holds a placeholder with **no `run`**
+until a parse loads it, which filesystem routing makes the common case. What the
+declaration itself gave is there, so a `{ path, desc }` has its `desc` on the
+placeholder and that is what help shows before the module is read; it is `run`
+that nothing but a load can supply.
 
 `demos/parser/11-dispatch.js` prints all of it side by side.
 

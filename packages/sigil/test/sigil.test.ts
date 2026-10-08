@@ -539,4 +539,169 @@ describe('sigil', () => {
 			expect(process.exitCode).toBe(1);
 		});
 	});
+
+	/**
+	 * What the package README documents under "Running one command from
+	 * another", which until now nothing held: an app re-routing or executing a
+	 * command from inside a `run()` reads these four as promises, and a
+	 * documented rule is exactly what stops the next reader checking.
+	 */
+	describe('dispatching one command from another', () => {
+		it('should re-enter the parser from inside a run()', async () => {
+			const ran: string[] = [];
+			const schema = {
+				commands: {
+					clean: { run: () => void ran.push('clean') },
+					build: {
+						run: async (state: ParseState) => {
+							ran.push('build');
+							await main({ argv: ['clean'], schema: state.schema });
+						},
+					},
+				},
+			};
+
+			await main({ argv: ['build'], schema });
+
+			expect(ran).toEqual(['build', 'clean']);
+		});
+
+		it('should hand a run() the schema its own parse used', async () => {
+			// what makes a dispatch need nothing closed over: without this, a
+			// command re-entering the parser has to reach for the module scope
+			let seen: unknown;
+			const schema = {
+				commands: { build: { run: (state: ParseState) => void (seen = state.schema) } },
+			};
+
+			await main({ argv: ['build'], schema });
+
+			expect(seen).toBe(schema);
+		});
+
+		it('should apply the declared default to a nested dispatch', async () => {
+			// the whole argument for the argv list being the interface: a nested
+			// call goes through coercion and the fallbacks rather than around them
+			let mode: unknown;
+			const schema = {
+				commands: {
+					clean: {
+						options: { '--mode <mode>': { default: 'soft', choices: ['soft', 'hard'] } },
+						run: (state: ParseState) => void (mode = state.argv.mode),
+					},
+					build: {
+						run: (state: ParseState) => main({ argv: ['clean'], schema: state.schema }),
+					},
+				},
+			};
+
+			await main({ argv: ['build'], schema });
+
+			expect(mode).toBe('soft');
+		});
+
+		it('should refuse a value the schema refuses, nested as from a shell', async () => {
+			const schema = {
+				commands: {
+					clean: { options: { '--mode <mode>': { choices: ['soft'] } }, run: () => undefined },
+					build: {
+						run: (state: ParseState) =>
+							main({
+								argv: ['clean', '--mode', 'sideways'],
+								schema: state.schema,
+								settings: { errorHandler: false },
+							}),
+					},
+				},
+			};
+
+			// through the *outer* handler, because the inner call rethrows
+			const stderr = captureStderr();
+			await main({ argv: ['build'], schema });
+			stderr.restore();
+
+			expect(stderr.text).toBe('Error: Invalid value "sideways" for option --mode\n');
+		});
+
+		it('should not inherit the outer invocation\u2019s root options', async () => {
+			// they are re-read from the argv passed, so a caller that wants them
+			// forwards them -- which is the one thing a composing command has to
+			// remember, and the reason it is written down
+			const seen: unknown[] = [];
+			const schema = {
+				options: { '-v, --verbose': 'Say more' },
+				commands: {
+					clean: { run: (state: ParseState) => void seen.push(state.argv.verbose) },
+					build: {
+						run: async (state: ParseState) => {
+							await main({ argv: ['clean'], schema: state.schema });
+							await main({ argv: ['--verbose', 'clean'], schema: state.schema });
+						},
+					},
+				},
+			};
+
+			await main({ argv: ['build', '--verbose'], schema });
+
+			expect(seen).toEqual([false, true]);
+		});
+
+		it('should let a nested failure reach the caller only with errorHandler false', async () => {
+			// the default renders the error, sets the exit code and resolves
+			// `undefined`, so a failed step looks like it succeeded -- which is
+			// why a composing command passes `errorHandler: false`
+			const outcomes: string[] = [];
+			const schema = {
+				commands: {
+					boom: {
+						run: () => {
+							throw new Error('step failed');
+						},
+					},
+					build: {
+						run: async (state: ParseState) => {
+							const handled = await main({ argv: ['boom'], schema: state.schema });
+							outcomes.push(`default resolved ${handled === undefined ? 'undefined' : 'a value'}`);
+
+							try {
+								await main({
+									argv: ['boom'],
+									schema: state.schema,
+									settings: { errorHandler: false },
+								});
+								outcomes.push('rethrow resolved');
+							} catch (err) {
+								outcomes.push(`rethrow threw ${(err as Error).message}`);
+							}
+						},
+					},
+				},
+			};
+
+			const stderr = captureStderr();
+			await main({ argv: ['build'], schema });
+			stderr.restore();
+
+			expect(outcomes).toEqual(['default resolved undefined', 'rethrow threw step failed']);
+			// and the half that makes it a trap: the inner call printed it
+			expect(stderr.text).toBe('Error: step failed\n');
+		});
+
+		it('should load a deferred command a nested dispatch names', async () => {
+			// (a) and (b) in the README are not merely wrong for one of these,
+			// they are impossible: the registry holds a placeholder with no `run`
+			// until a parse loads it
+			const schema = {
+				commands: {
+					deploy: { load: () => Promise.resolve({ default: { run: () => 'deployed' } }) },
+					build: {
+						run: (state: ParseState) =>
+							main({ argv: ['deploy'], schema: state.schema, settings: { errorHandler: false } }),
+					},
+				},
+			};
+
+			expect(await main({ argv: ['build'], schema })).toBe('deployed');
+		});
+	});
 });
