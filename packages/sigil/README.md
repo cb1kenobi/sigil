@@ -51,7 +51,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [The root entry](#the-root-entry) — `main()`, `command()`, `options()`, errors
 - [Declaring options](#declaring-options)
 - [Declaring arguments](#declaring-arguments)
-- [Declaring commands](#declaring-commands)
+- [Declaring commands](#declaring-commands) — nesting, lazy loading, running one from another
 - [Settings](#settings)
 - [Hooks](#hooks)
 - [Help](#help)
@@ -401,6 +401,98 @@ hook already are that moment.
 | `load`                        | that module as a function -- `() => import('./build.js')` -- for a bundled app   |
 | `routeInfo`                   | descriptions a build lifted out of the modules a `commands` path points at       |
 | `examples`                    | `{ label, text }` pairs for help                                                 |
+
+### Running one command from another
+
+Two things an app wants from its own command tree, and both are one `main()`
+call with a list of tokens:
+
+|                |                                                        |
+| -------------- | ------------------------------------------------------ |
+| **re-routing** | this command decides another should handle the request |
+| **executing**  | this command runs another as one step of its own work  |
+
+```js
+async run(state) {
+  // executing: three commands as three steps of one piece of work
+  for (const step of [['clean', '--force'], ['build', 'dist'], ['deploy', 'prod']]) {
+    await main({ argv: step, schema: state.schema, settings: { errorHandler: false } });
+  }
+}
+```
+
+`state.schema` is the schema the parse used, so a command re-enters the parser
+without closing over anything.
+
+**The argv list is the interface, and that is deliberate.** It is the one path
+that applies coercion, defaults, `env` fallback, `choices`, `transform`, the
+hooks _and_ a lazy load — so what gets dispatched is what you would have typed,
+and a value the schema refuses is refused here exactly as it would be from a
+shell. You never touch `process.argv` and you never build a _string_; you build
+a list of tokens and the parser does the rest.
+
+Two things to know before composing them:
+
+**`errorHandler: false` is what makes a nested call composable.** Left at the
+default, a nested `main()` _renders_ the error, sets `process.exitCode` and
+resolves `undefined` — so a failed step looks like it succeeded, the caller
+carries on, and the message is printed by the inner call rather than by whoever
+knows what the step was for.
+
+**A nested dispatch does not inherit the outer invocation's root options.** They
+are re-read from the argv you pass, so an outer `--verbose` is `false` inside
+unless you forward it:
+
+```js
+const argv = state.argv.verbose === true ? ['--verbose', ...step] : step;
+```
+
+There is **no recursion guard**: two commands that re-route to each other are an
+infinite loop, and nothing reports it. A command that routes conditionally
+cannot loop; a tree where two of them might route to each other needs a depth
+or a visited set of its own.
+
+### Reading the command registry
+
+A `run()` is handed `state.contexts` — the chain, innermost first, ending at the
+root — and each command carries its registry under the exported `Internal`
+symbol. That is what help reads, and what a command palette or a `did you mean`
+would read:
+
+```js
+import { Internal } from '@ttylabs/sigil';
+
+const root = state.contexts[state.contexts.length - 1];
+const registry = root[Internal].commands;
+
+[...registry.values()]; // every sibling
+registry.find('b'); // → the `build` command; resolves aliases
+registry.get('b'); // → undefined; the raw `Map.get`
+registry.default; // the `default` command, if one is declared
+```
+
+Use **`find()`** for a name anybody typed or wrote, and `get()` only for one
+already known to be canonical — which is what `values()` hands out.
+
+**Calling a command's `run()` off the registry is a trap**, and a quiet one: it
+runs, it simply runs over the wrong values.
+
+```js
+const clean = registry.find('clean');
+
+await clean.run(state); // (a)
+await clean.run({ ...state, cmd: clean, argv: { force: true } }); // (b)
+```
+
+In **(a)** the sibling is handed _your_ values, so none of its own options exist
+and it does not know which command it is. In **(b)** the value you asked for
+arrives, the declared `default` never does, inherited options are gone, and
+`choices` is never consulted. And for a **lazily loaded** command it is not
+merely wrong but impossible — the registry holds a placeholder with no `run` and
+no `desc` until a parse loads it, which filesystem routing makes the common
+case.
+
+`demos/parser/11-dispatch.js` prints all of it side by side.
 
 ---
 
