@@ -10075,6 +10075,45 @@ block and the imports at the top. A rolldown `transform` runs it on the way in.
   supporting the first of those made sharper, and with the list of shapes that
   stay unreachable because one parse of one module cannot answer them: a barrel
   re-export, a destructuring, `(t).ui`, an escaped specifier, and the rest.
+- **A `.cjs` and a `.cts` are CommonJS, so each of the eight extensions is given
+  source it can legally hold -- and one ESM fixture for all eight was asserting
+  something about a file that cannot exist.** `should admit every extension the
+  compiler can actually read` fed one `import { ui } from ...` module to every
+  extension in the list, which passed only because oxc-parser took it. **0.153
+  refuses it for a `.cjs`** where 0.152 did not -- measured in an isolated
+  install of each, 0 errors against 2 -- so a dependency bump failed exactly one
+  test in 5,268 and the failing test was the one in the wrong.
+
+  oxc is **right**, which is what decided the fix. Node refuses ESM syntax in
+  both a `.cjs` and a `.cts` and takes `require()` in both, checked by running
+  all four rather than inferred from the stripping rule this file already
+  records -- so compiling a template in such a module would be the build
+  reporting success over a module that cannot load, which is the failure class
+  refused under `--external`, under the JSX gate and under the unresolved-import
+  gate. The alternative was `parseSync(file, source, { sourceType: 'module' })`,
+  which restores the old answer by making `parseModule()` read a file as
+  something Node will not, and `should refuse a CommonJS module written as an ES
+  module, as Node does` is what fails when somebody reaches for it -- the one
+  test in 750 that does, so nothing else here rested on the leniency.
+
+  So the module extensions carry a static import and the two CommonJS ones carry
+  a `require`, and what all eight have to do is **parse**. A CommonJS module has
+  no static import for the tag to be a binding of, so there is no `ui` to find
+  and nothing is claimed: that is the recorded limitation rather than the gap
+  this entry's sibling is about -- a template reached through `require()` stays
+  interpreted, which is correct output at the cost of the parser staying in the
+  bundle, and is the same answer a barrel re-export already gets.
+
+  It does not rest on which of the two oxc refuses today, which is the half worth
+  keeping: **0.153 still reads a `.cts` as a module**, so an ESM `.cts` parses
+  there and does not in Node. Giving both the `require` fixture is what makes the
+  test survive that inconsistency being fixed, and pinning the oxc-only answer
+  would have been pinning the bug. The refusal is asserted against
+  `parseModule()`'s own `Failed to parse <file>` rather than against oxc's
+  wording, so a reword does not fail it and oxc going back to taking this does.
+  All three `MODULE_RE` sabotages are still caught after the rewrite -- the
+  original `.tsx`/`.jsx` gap, the lazy `x?`, and dropping the CommonJS pair.
+
 - **A whole-module `compile()` failure is attributed by re-compiling each
   template alone.** `compile()` takes a module's templates at once, so what it
   throws names none of them, and the first template's position was the answer for
