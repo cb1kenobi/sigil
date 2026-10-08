@@ -138,7 +138,15 @@ async function release(state) {
 		['deploy', 'prod'],
 	]) {
 		console.log(`  $ rel ${step.join(' ')}`);
-		await run(state, step);
+		// caught, because `errorHandler: false` is asking this command to handle
+		// it: a step's failure is one `release` knows the meaning of and the outer
+		// handler does not. There is a reason past tidiness, under "Known bugs" --
+		// an error that escapes a nested `main()` fires `beforeError` twice
+		try {
+			await run(state, step);
+		} catch (err) {
+			throw new Error(`step \`${step.join(' ')}\` failed: ${err.message}`);
+		}
 	}
 
 	// and the half that is worth seeing fail: `choices` is enforced here exactly

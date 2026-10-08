@@ -14597,12 +14597,19 @@ that line always has.
 
 What the pass found is worth more than the count.
 
-- **Three guards were deleted for being unable to fire.** The `paths` dedup
-  beside the cycle guard, and the `!deferred` test on the walk, both above. And
-  `parserOwned` in `slotsFor()`: `--help` is the only option the parser adds, it
-  is a flag, and a flag is never `required` -- so the condition before it already
-  answered. Its test is kept and renamed to the claim it really makes, that the one
-  option every schema gets for free is not asked for.
+- **Two guards were deleted for being unable to fire**: the `paths` dedup beside
+  the cycle guard, and the `!deferred` test on the walk, both above. This entry
+  said three and named `parserOwned` in `slotsFor()` as the third, and that was
+  **false in two ways** -- caught by a later review round reading the file the
+  sabotage pass had reported on. The guard was never deleted and is still there;
+  and `--help` is not "the only option the parser adds", since `version.ts` marks
+  `--version` the same way. What is true is that it is **inert**, measured: with
+  the `continue` removed the whole suite passes. It is kept rather than deleted
+  because what makes deleting it safe is two steps rather than one impossibility
+  -- a flag carries a `false` default, so its destination would join `answered`,
+  which is harmless only because the ask pass skips a flag for not being
+  `required`. It says that where it lives now. Its test is renamed to the claim
+  it really makes, that the options every schema gets for free are not asked for.
 
 - **One guard was deleted.** The empty-label early return in `highlightRuns()`
   is gone, because `graphemes('')` yields nothing and the loop answers `[]` on its
@@ -15554,6 +15561,35 @@ color: magenta }` and beats the default with an ordinary rule, which is only tru
   since it joins the chain only after argv has been walked. See the warning in
   `docs/parser.md` and the pinned tests in
   `test/parser/default-command.test.ts`.
+
+- **A nested `main()` whose error escapes fires `beforeError` twice**, so a
+  schema hook sees **the same error object** two times. Measured over the three
+  shapes a composing command can take, which is the distinction that matters: not
+  caught is **2 fires of the identical message**, caught and handled is **1**, and
+  caught and re-wrapped is **2 of two different errors** -- which is one per error
+  and is the documented rule rather than the defect. Twice for a nested _parse_
+  failure and twice for a nested `run()` throw, equally. `main()` records `hooksFired` only for its own `parse()`
+  (`src/index.ts`), so the error reaching the outer `handleError` has nothing on
+  it to say the hooks already ran -- and `collectHooks()` dedupes by hook
+  identity _within_ one call, which a second `main()` is not. Found by review
+  round 2 of SIG-134, and pre-existing: a nested `main()` has always been
+  possible, and what the palette work changed is that the package README now
+  documents it as how to compose commands.
+
+  The shape of a fix is the dedupe one step out -- record on the error which
+  hooks have fired, the way the state is already carried on it under
+  `ErrorState`, so the outer call skips the ones it shares and still fires a
+  _different_ schema's. It is not taken here, because error-handling semantics
+  for every app is not a thing to change inside a ticket about a palette, which
+  is the same refusal the toolchain's type-check narrowing already records. What
+  is done instead is that the README's own pipeline **catches**, which is what a
+  composing command should do anyway: `errorHandler: false` means the caller
+  handles it, so a caller that lets it through is asking for the outer handler to
+  report a failure it knows more about than the outer handler does. Worth being
+  exact about what that buys, because the first write-up of this implied more:
+  catching does not take the second fire away, it makes the second fire be
+  **about a different error**. Which is the whole of the complaint -- what is
+  wrong is one error reported twice, not two errors reported once each.
 
 ## Conventions
 

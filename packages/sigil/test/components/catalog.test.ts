@@ -456,10 +456,12 @@ describe('slotsFor()', () => {
 		expect((await slots(declared)).map(({ label }) => label)).toEqual(['--port <n>']);
 	});
 
-	it('should not ask for the help flag the parser adds', async () => {
-		// which the `required` test above already answers for -- `--help` is a flag
-		// and a flag is never required -- and is asserted here because it is the
-		// one option every schema gets whether or not it asked for one
+	it('should not ask for the flags the parser adds', async () => {
+		// `--help` and `--version` are the two, and the `required` test above
+		// already answers for both -- a flag is never required. Asserted anyway
+		// because they are the options every schema gets whether or not it asked,
+		// so a reader meets them here first; what this does *not* pin is the
+		// `parserOwned` guard, which a sabotage says the whole suite cannot see
 		const parsed = await parse({
 			argv: [],
 			env: {},

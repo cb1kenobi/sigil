@@ -416,7 +416,11 @@ call with a list of tokens:
 async run(state) {
   // executing: three commands as three steps of one piece of work
   for (const step of [['clean', '--force'], ['build', 'dist'], ['deploy', 'prod']]) {
-    await main({ argv: step, schema: state.schema, settings: { errorHandler: false } });
+    try {
+      await main({ argv: step, schema: state.schema, settings: { errorHandler: false } });
+    } catch (err) {
+      throw new Error(`step \`${step.join(' ')}\` failed: ${err.message}`);
+    }
   }
 }
 ```
@@ -438,6 +442,15 @@ default, a nested `main()` _renders_ the error, sets `process.exitCode` and
 resolves `undefined` — so a failed step looks like it succeeded, the caller
 carries on, and the message is printed by the inner call rather than by whoever
 knows what the step was for.
+
+**And `catch` it**, which is what `errorHandler: false` is asking you to do: the
+caller knows what the step was for and the outer handler does not. There is a
+reason past tidiness — an error that escapes a nested `main()` reaches the outer
+one with nothing on it to say the hooks already ran, so a schema `beforeError`
+hook sees **the same error twice**. Catching and re-throwing your own, as above,
+still fires twice, but for two _different_ errors, which is one per error and is
+the rule rather than the bug; catching and handling fires once. See "Known bugs"
+in `AGENTS.md`.
 
 **A nested dispatch does not inherit the outer invocation's root options.** They
 are re-read from the argv you pass, so an outer `--verbose` is `false` inside

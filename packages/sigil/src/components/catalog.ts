@@ -382,6 +382,13 @@ export function slotsFor(
 	for (const opt of options) {
 		const { dest, envs, parserOwned, skipDefault } = opt[Internal];
 
+		// the parser's own flags answer for nothing, and this is a declared
+		// statement rather than a guard a test can see: deleting it passes all
+		// 5,264 of them. It is kept because what makes it safe to delete is two
+		// steps rather than an impossibility -- a flag carries a `false` default,
+		// so without this their destinations would join `answered`, which is then
+		// harmless only because the ask pass below skips a flag for not being
+		// `required`. There are two of them, `--help` and `--version`
 		if (parserOwned) {
 			continue;
 		}

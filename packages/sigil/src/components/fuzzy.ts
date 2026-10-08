@@ -61,6 +61,18 @@ function startsWord(prev: string, here: string): boolean {
  * why this is only ever *compared* and never used to index: the indices stay
  * those of the unfolded code point array.
  *
+ * **Never the locale variant, and no test can see that.** `toLocaleLowerCase('tr')`
+ * maps `I` to a dotless `ı` and `toLocaleUpperCase('tr')` maps `i` to `İ`, so a
+ * query of `i` would stop matching an `I` -- which is the trap `camelCase()`
+ * already records. What a test cannot reach is the *no-argument* form: measured
+ * on node 26 with full ICU, `'I'.toLocaleLowerCase()` is `'i'` even under
+ * `LC_ALL=tr_TR.UTF-8` with `Intl` resolving the locale as `tr-TR`, so swapping
+ * this call for the no-argument locale form changes no answer anywhere and a
+ * sabotage of it survives every test there is. The guard is therefore that this
+ * takes **no locale argument**, which is a property of the source rather than of
+ * any behaviour, and it is written down here because that is the only place it
+ * can be.
+ *
  * @param s - One code point.
  * @returns It, folded.
  */
@@ -238,11 +250,13 @@ export function rankBy<T>(
 	}
 
 	if ([...query].length > 0) {
+		// no tie-break past the length: `Array.prototype.sort` is stable, and
+		// `index` *is* the source position, so a third comparison on it can only
+		// ever agree with the order the sort has already kept. There was one, and a
+		// sabotage said so -- replacing it with `0` changed no answer in 38 tests,
+		// which is the state this file deletes a guard in rather than keeping
 		ranked.sort(
-			(a, b) =>
-				b.match.score - a.match.score ||
-				[...a.candidate].length - [...b.candidate].length ||
-				a.index - b.index
+			(a, b) => b.match.score - a.match.score || [...a.candidate].length - [...b.candidate].length
 		);
 	}
 
