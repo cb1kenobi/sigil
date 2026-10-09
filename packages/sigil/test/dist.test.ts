@@ -167,7 +167,7 @@ describe('what importing the package costs', () => {
 		const graph = staticGraph('index.mjs');
 		const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
 
-		// a ceiling rather than a measurement -- it sits about 3x over the 6.8 KB
+		// a ceiling rather than a measurement -- it sits about 2.7x over the 7.5 KB
 		// this is today, so ordinary growth never touches it and pulling a
 		// rendering path onto the entry blows straight through it.
 		//

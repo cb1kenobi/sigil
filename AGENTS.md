@@ -15762,7 +15762,8 @@ and the check, and `src/i18n/keys.ts` is generated.
   module `main()` imports only when the schema declares `locales` would give
   about 1.5 kB of that back, and is not done: nothing measures a 1.5 kB module,
   and it would cost an internal/public split of one barrel. The ceiling in
-  `test/dist.test.ts` is 20 kB and its comment now names 6.8 rather than 4.1.
+  `test/dist.test.ts` is 20 kB and its comment now names 6.8 rather than 4.1. It
+  is **7.5 kB** since SIG-135, for the 648 bytes the section below measures.
 
 - **`literals.ts` gained `outermostWith()` and `loaderSpecifier()`, and both are
   shared rather than copied.** The catalog reader asks "which object literal is
@@ -15978,7 +15979,16 @@ the two width defects it turned up were already wrong in English.
   has the logger -- `prompt.ts` is a `sigil add` entry and may import only what
   the package publishes, and `src/debug/` has no subpath. Exported from the barrel
   rather than written onto the root entry's path, so an app that answers
-  `--version` shakes it out.
+  `--version` shakes it out -- and _that last clause was false_, which is the shape
+  this file keeps warning about: a sentence asserting a property nothing checks.
+  `dist/index.mjs` imports `./i18n.mjs` for `__`, and an **entry chunk is not
+  shaken per importer**, so everything this barrel exports is on the graph an app
+  that answers `--version` loads. Measured: **6,825 bytes to 7,473**, which is 648
+  for `confirmKeys()` and its three helpers, against the 20 kB ceiling
+  `test/dist.test.ts` holds. Paid rather than avoided, because the alternative is a
+  published subpath of its own -- permanent API surface for one consumer -- and
+  `prompt.ts` has to reach it through a published subpath whichever module it is in.
+  Found by checking the claim rather than by a review.
 
   `ENGLISH_PAIR` is the same string in two roles rather than one copy too many: at
   the call site it is the key, because the English _is_ the key, and in `i18n` it

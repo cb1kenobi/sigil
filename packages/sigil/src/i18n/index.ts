@@ -470,9 +470,16 @@ function capitalize(half: string): string {
  * that for an entry of the wrong shape, through the same logger. `prompt.ts`
  * could not, being a `sigil add` entry that may import only what the package
  * publishes -- `src/debug/` has no subpath, so a parse living there could not
- * say when it had refused an entry. Exported from this barrel rather than
- * written into the root entry's path, so an app that answers `--version` shakes
- * it out.
+ * say when it had refused an entry.
+ *
+ * What that costs is **648 bytes on the root entry's path**, measured rather than
+ * waved at: `dist/index.mjs` imports `./i18n.mjs` for `__`, and an entry chunk is
+ * not shaken per importer, so everything this barrel exports is on the graph an
+ * app that answers `--version` loads -- 6,825 bytes to 7,473, against the 20 kB
+ * ceiling `test/dist.test.ts` holds. Paid rather than avoided, because the
+ * alternative is a published subpath of its own, which is permanent API surface
+ * for one consumer, and `prompt.ts` has to reach it through a published subpath
+ * whichever module it is in.
  *
  * What is **not** translatable is the punctuation and the order: a locale that
  * shows no first, or wants fullwidth parens, cannot say so. Making those
