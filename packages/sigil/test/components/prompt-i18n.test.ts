@@ -179,6 +179,8 @@ describe('a translated multiline field', () => {
 			[{ ctrl: true, name: 'd' }, '(Strg+d zum Absenden)'],
 			[{ meta: true, name: 'enter' }, '(Alt+enter zum Absenden)'],
 			[{ ctrl: true, meta: true, name: 's' }, '(Strg+Alt+s zum Absenden)'],
+			// a bare name is its own label and no lookup, which `keyLabel()`'s own
+			// comment records as true by construction rather than by this assertion
 			[{ name: 'f2' }, '(f2 zum Absenden)'],
 		] as const) {
 			const ui = screenSetup({ columns: 60, rows: 10 });

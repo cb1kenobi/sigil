@@ -1367,7 +1367,11 @@ function keyLabel(key: SubmitKey): string {
 	// keyboard says `Strg`, so `ctrl-d` names a key that is not there. The letter
 	// on the key, and `enter` or `tab`, are printed the same on essentially every
 	// keyboard sold, so translating those would be inventing a vocabulary rather
-	// than matching one.
+	// than matching one -- and could not be done through `__` anyway, which is
+	// worth knowing before anybody tries: the tag's key comes from its *literal*
+	// parts, so `__`${name}`` keys on `{0}` rather than on `f2`. A key name is a
+	// value, and a value is never a key. Which is also why there is no test for
+	// it: an assertion that a bare name is not looked up cannot fail.
 	//
 	// Each combination is a whole key rather than two translatable fragments, so
 	// that a translator sees `ctrl-{0}` and writes `Strg+{0}` -- which also lets
