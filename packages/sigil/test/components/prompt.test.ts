@@ -609,6 +609,33 @@ describe('confirm()', () => {
 		expect(await no).to.equal(false);
 	});
 
+	it('should not read a modified key as an answer', async () => {
+		// a modifier makes it a different key, which is the rule the key sequences
+		// already keep: the hint says `Y`, not `ctrl-Y`.
+		//
+		// Here rather than in `prompt-i18n.test.ts`, where it was first written: it
+		// never loads a catalog, so it would survive deleting every `__` in the
+		// prompts -- the one case in that file that did not depend on the feature the
+		// file is for. Found by review
+		const ui = screenSetup({ columns: 40 });
+		let done = false;
+		const answer = settle(
+			confirm({ ansi: ui.ansi, message: 'Continue?', terminal: ui.terminal })
+		).then((r) => {
+			done = true;
+			return r;
+		});
+
+		// Ctrl-Y, which `k.name` reports as `y`
+		await type(ui.stdin, '\u0019');
+		await tick();
+		expect(done, 'ctrl-y answered the prompt').to.equal(false);
+
+		// and the unmodified key still does
+		await type(ui.stdin, 'y');
+		expect((await answer).value).to.equal(true);
+	});
+
 	it('should take the default on enter', async () => {
 		const ui = screenSetup();
 		const answer = confirm({

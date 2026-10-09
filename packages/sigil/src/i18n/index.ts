@@ -376,15 +376,25 @@ function keyOfHalf(half: string): string {
 		return '';
 	}
 
-	// and a mark on the *second* code point is the same lie one step along, because
-	// then the first thing drawn is a grapheme cluster and the key is only part of
-	// it: a decomposed `e\u0301/n` has a key of `e` and draws `(É/n)`, so a reader
-	// pressing the É key sends the precomposed `é` and nothing matches. Making the
-	// key the whole cluster is not the fix either -- `readOne()` decodes a keystroke
-	// by code point, so a two-code-point key could never match anything. So the
-	// half is refused and English stands, which is why a catalog writes its pair in
-	// the form the keyboard produces
-	return points[1] !== undefined && /\p{M}/u.test(points[1]) ? '' : first;
+	// and a first glyph with a shorter **precomposed** form is the same lie one step
+	// along, because the precomposed form is what a keyboard sends: a decomposed
+	// `e\u0301/n` has a key of `e` and draws `(É/n)`, so a reader pressing the É key
+	// sends the single code point `é` and nothing matches. Making the key the whole
+	// cluster is not the fix either -- `readOne()` decodes a keystroke by code
+	// point, so a two-code-point key could never match anything. So the half is
+	// refused and English stands, which is why a catalog writes its pair in the form
+	// the keyboard produces.
+	//
+	// Asked as `NFC` rather than as "is the next code point a mark", which is the
+	// approximation this started as and is too broad by two cases that are *not*
+	// lies: an emoji with a variation selector draws the same glyph its base code
+	// point is the key for, and a flag's two regional indicators have no
+	// precomposed form at all, so pressing one sends the first indicator -- which is
+	// the key. Both are accepted, and only a half that really has a one-code-point
+	// spelling is refused
+	const glyph = first + (points[1] ?? '');
+
+	return [...glyph.normalize('NFC')].length < [...glyph].length ? '' : first;
 }
 
 /**
@@ -473,8 +483,10 @@ function capitalize(half: string): string {
  * and the capital are this function's. Which settles the thing a hint and a
  * pair of key literals would otherwise get wrong in opposite directions: there
  * is **one** entry rather than three, so a translator has no second place to
- * disagree with themselves, and the hint is built from the keys rather than
- * read back out of a sentence.
+ * disagree with themselves, and the hint is built here rather than read back out
+ * of a sentence. Built from the **halves** rather than from the keys, which
+ * `pairKeys()` is exact about and this sentence used to be loose about -- being
+ * loose about it is what hid the decomposed case.
  *
  * The *lookup* is the caller's -- `confirmKeys(__`y/n`, fallback)` -- for two
  * reasons that both point the same way. It is where every other `__` in this

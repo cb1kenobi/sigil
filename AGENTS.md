@@ -15762,8 +15762,10 @@ and the check, and `src/i18n/keys.ts` is generated.
   module `main()` imports only when the schema declares `locales` would give
   about 1.5 kB of that back, and is not done: nothing measures a 1.5 kB module,
   and it would cost an internal/public split of one barrel. The ceiling in
-  `test/dist.test.ts` is 20 kB and its comment now names 6.8 rather than 4.1. It
-  is **7.5 kB** since SIG-135, for the ~700 bytes the section below measures.
+  `test/dist.test.ts` is 20 kB and its comment named 6.8 rather than 4.1. It names
+  **7.5 kB** since SIG-135, for the ~700 bytes the section below measures -- and
+  the two halves of this sentence contradicted each other for a commit, the first
+  describing a comment the same diff had already changed.
 
 - **`literals.ts` gained `outermostWith()` and `loaderSpecifier()`, and both are
   shared rather than copied.** The catalog reader asks "which object literal is
@@ -15942,16 +15944,20 @@ the two width defects it turned up were already wrong in English.
   stops the two disagreeing.** The entry is `y/n` -- the two keys and nothing
   else -- and the parens and the capital are `confirmKeys()`'s. So there is one
   entry rather than three, a translator has no second place to contradict
-  themselves, and the hint is **rendered from** the keys rather than parsed back
-  out of a sentence. `(Y/n)` in English is byte for byte what it was, derived.
+  themselves, and the hint is built there rather than parsed back out of a
+  sentence -- from the **halves** rather than from the keys, which is the
+  distinction the review round below is about. `(Y/n)` in English is byte for byte
+  what it was, derived.
 
   The key for each half is its **first code point**, so `j/n` gives `j`/`n` and
   `ja/nein` gives the same keys while drawing `(Ja/nein)`. A one-character half is
   the degenerate case of that rule rather than a second rule. By code point
   because half a surrogate pair is a key no terminal can send, which is the rule
   `highlightRuns()` already keeps, and `toLowerCase()` rather than the locale
-  variant for `camelCase()`'s reason -- the locale one cases `i` to `İ` in
-  Turkish, so a key would stop matching on somebody's machine and nowhere else.
+  variant for `camelCase()`'s reason read in this function's own direction -- the
+  locale one lowercases `I` to the dotless `ı` in Turkish, so an entry of `I/n`
+  would have a key of `ı` there while the reader pressing that key sends `i`, and
+  it would stop matching on that machine and nowhere else.
 
 - **The hint is authoritative and English is additive.** `y` and `n` are accepted
   on top of whatever the entry named, and each is dropped where it would
@@ -16174,8 +16180,8 @@ broken in both directions, neither caused by translation.
 
 ##### What the sabotage pass found
 
-Forty mutations, one at a time with the four affected suites run after each,
-against a green control. **All forty are caught**, after two survivors that
+Forty-one mutations, one at a time with the four affected suites run after each,
+against a green control. **All forty-one are caught**, after two survivors that
 were each a fixture too easy to reach the branch it was named for -- which is the
 shape this file keeps recording, and both were found by the pass rather than by
 review.
@@ -16202,6 +16208,77 @@ where the message has to wrap for it`, and reserving the tail in full fails
 `should not flatten the question to reserve a long hint`. So the cap is pinned
 from both sides rather than only against the defect it was written for.
 
+##### What the second review round found, and it was all prose but one
+
+Pointed at what round 1's brief did not name -- the tests, the prose, the prompts
+that were _not_ the subject, the public surface and the toolchain. It confirmed
+every one of those regions clean: `text()`, `password()` and `select()` read back
+to the old `avail - 1` formulas with `tail = ''`, the public surface is the right
+subpath with nothing extra exported, the extractor needs no special case, and the
+twelve/three/three/55/2/13 figures all check out. Which is the pattern this file
+already records: a round aimed where nobody looked finds **six** things, and five
+of them are sentences.
+
+- **Round 1's own fix was applied in one place and not the other.** `pairKeys()`
+  was corrected to say the hint is built from the **halves**; `confirmKeys()`
+  still said "built from the keys", and so did this section. That is the sentence
+  that hid the decomposed case, so leaving a copy of it is leaving the thing that
+  would put the defect back.
+
+- **And the Turkish direction was fixed in the code and not here.** The comment on
+  `keyOfHalf()` names `I` to the dotless `ı`, which is the hazard a function that
+  _lowercases_ has; this section still named `i` to `İ`, which is the uppercase
+  one. The section is what a later change gets aligned to, so the file being the
+  wrong one is the worse way round.
+
+- **Two consecutive sentences about one comment contradicted each other.** "its
+  comment now names 6.8 rather than 4.1" sat directly above "It is **7.5 kB**
+  since SIG-135" -- and the same diff had already changed that comment to 7.5. The
+  first half was false in the commit that updated it.
+
+- **`keyLabel()` claimed there is no test for a bare name**, and the modifier test
+  has an `f2` case whose own comment cites the claim. "Cannot fail" is fair about
+  the assertion that is missing; "no test" invites deleting the case that is there.
+
+- **And one of the new tests was in the wrong file.** `should not read a modified
+  key as an answer` never loads a catalog, so it would survive deleting every `__`
+  in the prompts -- the one case in `prompt-i18n.test.ts` that did not depend on
+  the feature that file is for. It is beside `confirm()` in `prompt.test.ts` now.
+
+- **The one that is not prose: `sigil check` cannot see a malformed `y/n`.** It
+  compares key _sets_, so `"y/n": "ja oder nein"` is a present key -- the runtime
+  refuses it and draws English, and the build says nothing. `y/n` is the **first
+  key whose value has a grammar**, which is why this is new rather than the
+  already-recorded silence about a wrong-shaped value.
+
+  Recorded rather than fixed, because checking it well needs the runtime to _say_
+  it refused -- a field on `ConfirmKeys`, or a predicate beside it -- and every
+  cheaper test is unsound: comparing the result against English cannot tell a
+  refusal from an entry that really is `y/n`, and looking for the entry's halves in
+  the hint passes a decomposed `é/n`, whose fallback hint contains `n`. A field on
+  a published type, or a second reader of the grammar, is a change to what
+  `sigil check` promises taken inside a prompts ticket -- the same call this file
+  records for narrowing the toolchain's type check inside a caching ticket. What it
+  costs is a `DEBUG=sigil:i18n` line instead of a build warning.
+
+##### And the harness left a mutation in the tree, which is a trap of its own
+
+Four of this feature's patterns went stale as the code under them moved, each
+reported as `PATTERN MISSED` rather than as a pass, which is the guard this file
+already records working. The new one is worse and is about **killing** the pass:
+the restore is in a `finally`, and a `SIGTERM` does not run one -- so a
+`pkill -f sabotage.py` left `keyLabel()`'s `ctrl-alt` mutation sitting in the
+working tree. Two ways that costs something, and the second is the dangerous one:
+it reads as a real defect to whoever looks next, and it poisons the **control**
+of the following run, which then reports `FAILING ALREADY` about a tree nothing
+is wrong with. Caught here only because `git status` was read before anything
+else was believed.
+
+So a harness that mutates a checkout restores on a signal as well as on an
+exception, and the first thing to do after one is interrupted is `git status`.
+Writing it down because the lesson is about the _tool_ rather than about the
+code, which is the category this file keeps finding things in.
+
 ##### What the first review round found, and the one thing it got wrong
 
 Pointed at `confirmKeys()`'s hostile inputs, the additive logic, `headWidths()`'s
@@ -16220,6 +16297,16 @@ wrong, which is the ratio worth recording rather than the count.
   writing its pair in the form the keyboard produces, promoted from a recorded
   limitation to a guard, because the _hint_ was the half that was wrong rather
   than the keystroke.
+
+  The rule is asked as **`NFC`** rather than as "is the next code point a mark",
+  which is the approximation it started as and is too broad by two cases that are
+  not lies: an emoji with a variation selector draws the same glyph its base code
+  point is the key for, and a flag's two regional indicators have no precomposed
+  form at all, so pressing one sends the first indicator -- which is the key. Both
+  are accepted and pinned, and only a half whose first glyph really has a
+  one-code-point spelling is refused. Which is also the rule said exactly rather
+  than approximately: what makes the É case a lie is that the precomposed form is
+  the one a keyboard sends.
 
 - **A comment that was false about the line beside it**, and it is the one that
   made the defect above look impossible: `pairKeys()` said the hint is "rendered

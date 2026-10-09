@@ -313,7 +313,14 @@ describe('the keys a yes-or-no prompt accepts', () => {
 		expect(confirmKeys('\u00E9/n', true).yes).to.deep.equal(['\u00E9', 'y']);
 		expect(confirmKeys('\u00E9/n', true).hint).to.equal('(\u00C9/n)');
 		// and an ordinary multi-letter half still works
-		expect(confirmKeys('ja/nein', true).yes).to.deep.equal(['j', 'y']);
+		expect(confirmKeys('ja/nein', true).yes, 'ja/nein').to.deep.equal(['j', 'y']);
+
+		// the two cases a "is the next code point a mark" rule refused and should
+		// not: an emoji with a variation selector draws the glyph its base code
+		// point is the key for, and a flag's regional indicators have no
+		// precomposed form, so pressing one sends the first indicator -- the key
+		expect(confirmKeys('\u263A\uFE0F/n', true).yes).to.deep.equal(['\u263A', 'y']);
+		expect(confirmKeys('\u{1F1E9}\u{1F1EA}/n', true).yes).to.deep.equal(['\u{1F1E9}', 'y']);
 	});
 
 	it('should refuse a half whose first character is not a key', () => {
