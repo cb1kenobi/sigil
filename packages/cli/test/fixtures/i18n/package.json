@@ -1,0 +1,7 @@
+{
+  "name": "fixture-i18n",
+  "type": "module",
+  "dependencies": {
+    "@ttylabs/sigil": "*"
+  }
+}

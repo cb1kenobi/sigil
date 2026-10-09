@@ -50,6 +50,14 @@
       "types": "./dist/help.d.mts",
       "default": "./dist/help.mjs"
     },
+    "./i18n": {
+      "types": "./dist/i18n.d.mts",
+      "default": "./dist/i18n.mjs"
+    },
+    "./i18n-keys": {
+      "types": "./dist/i18n-keys.d.mts",
+      "default": "./dist/i18n-keys.mjs"
+    },
     "./input": {
       "types": "./dist/input.d.mts",
       "default": "./dist/input.mjs"

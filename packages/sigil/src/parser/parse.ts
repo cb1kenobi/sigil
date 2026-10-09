@@ -1,5 +1,6 @@
 import debug from '../debug/index.js';
 import { attachState, fireBeforeError } from '../error-hooks.js';
+import { __ } from '../i18n/index.js';
 import {
 	Internal,
 	InternalArgument,
@@ -549,7 +550,7 @@ function assertChoices(
 
 	for (const v of Array.isArray(value) ? value : [value]) {
 		if (!choices.includes(v)) {
-			throw new Error(`Invalid value "${v}" for ${label}`);
+			throw new Error(__`Invalid value "${v}" for ${label}`);
 		}
 	}
 }
@@ -723,7 +724,7 @@ async function parseArgv(state: ParseState): Promise<void> {
 					// must appear, `[value]` means it need not -- and neither says the
 					// value may be left out. `--port=` is the way to give an empty one,
 					// and then the data type decides whether empty is a value it has
-					throw new Error(`Missing value for option ${label}`);
+					throw new Error(__`Missing value for option ${label}`);
 				}
 			}
 
@@ -789,7 +790,7 @@ function parseUnknownOptions(state: ParseState): void {
 		}
 
 		if (!allowed) {
-			throw new Error(`Unknown option "${subject}"`);
+			throw new Error(__`Unknown option "${subject}"`);
 		}
 
 		log(`Found unknown option "${subject}"`);
@@ -847,7 +848,7 @@ export async function processArgs(state: ParseState): Promise<void> {
 			const arg = internal.args[argIdx++];
 
 			if (!state.settings?.allowUnexpectedArguments && !arg) {
-				throw new Error(`Unexpected argument "${inputs[0]}"`);
+				throw new Error(__`Unexpected argument "${inputs[0]}"`);
 			}
 
 			if (arg) {
@@ -888,7 +889,7 @@ export async function processArgs(state: ParseState): Promise<void> {
 			if (state.settings?.allowExtraArguments) {
 				state._.push(...inputs);
 			} else {
-				throw new Error(`Extra arguments are not allowed: ${inputs.join(' ')}`);
+				throw new Error(__`Extra arguments are not allowed: ${inputs.join(' ')}`);
 			}
 		} else if (parsedType === 'Option') {
 			const { option, value } = parsed as ParsedOption;
@@ -987,7 +988,7 @@ export function validateArgs(state: ParseState): void {
 	}
 
 	if (missingArguments.length && !state.help) {
-		throw new Error(`Missing required arguments: ${missingArguments.join(' ')}`);
+		throw new Error(__`Missing required arguments: ${missingArguments.join(' ')}`);
 	}
 
 	// only what this argument produced: an option can share the destination, and its
@@ -996,7 +997,7 @@ export function validateArgs(state: ParseState): void {
 
 	for (const arg of internal.args) {
 		if (validates(state, arg, live)) {
-			assertChoices(arg.choices, resolved(state, arg[Internal].dest), `argument <${arg.name}>`);
+			assertChoices(arg.choices, resolved(state, arg[Internal].dest), __`argument <${arg.name}>`);
 		}
 	}
 }
@@ -1052,11 +1053,11 @@ export function validateOptions(state: ParseState): void {
 		// nearer context's option of the same destination -- and each of them has
 		// its own `choices`, so a value belongs to whichever one wrote it
 		if (validates(state, opt, live)) {
-			assertChoices(choices, value, `option ${label}`);
+			assertChoices(choices, value, __`option ${label}`);
 		}
 	}
 
 	if (missingOptions.length && !state.help) {
-		throw new Error(`Missing required options: ${missingOptions.join(' ')}`);
+		throw new Error(__`Missing required options: ${missingOptions.join(' ')}`);
 	}
 }

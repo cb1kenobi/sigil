@@ -10,6 +10,7 @@ import {
 } from '../../types.js';
 import { copyDeclaration } from '../../util/copy-declaration.js';
 import { lockDerived } from '../../util/lock-derived.js';
+import { resolveDesc } from '../../util/resolve-desc.js';
 import { initArgs } from '../argument/init-args.js';
 import { OptionRegistry } from '../option/option-registry.js';
 import { CommandRegistry } from './command-registry.js';
@@ -245,7 +246,10 @@ export async function initCommand(
 		for (const [format, params] of Object.entries(decl.options)) {
 			if (params === undefined || params === null) {
 				await options.add({ format });
-			} else if (typeof params === 'string') {
+			} else if (typeof params === 'string' || typeof params === 'function') {
+				// a string or a thunk is the shorthand for the description, and the two
+				// are the same statement written two ways -- `initOption()` resolves
+				// either, so this does not have to know which it was handed
 				await options.add({ desc: params, format });
 			} else if (typeof params === 'object') {
 				// the format key fills in for a missing `format`, but folding it in
@@ -334,6 +338,19 @@ function cloneDeclaration(decl: Command, parsed: ParsedName, argDecls: Command['
 	// hides the command. An explicit `hidden: false` does not un-hide a `!`
 	// prefixed name; drop the `!` to make the command visible.
 	cmd.hidden = parsed.hidden || decl.hidden === true;
+
+	// a description may have been written as a thunk, which is what lets a
+	// command module's own `desc` be translated and lifted at the same time; see
+	// `DescThunk`. Resolved here rather than in `initCommand()`'s body because
+	// this is the one place the declaration becomes the library's own copy, and
+	// resolved rather than left lazy so that `InternalCommand.desc` is a string
+	//
+	// guarded for the reason `initOption()` guards it: normalizing must not add a
+	// key the declaration never carried, which is what the line above is the one
+	// declared exception to
+	if (decl.desc !== undefined) {
+		cmd.desc = resolveDesc(decl.desc, `the "${parsed.name}" command`);
+	}
 
 	if (argDecls !== undefined) {
 		cmd.args = Array.isArray(argDecls) ? [...argDecls] : argDecls;

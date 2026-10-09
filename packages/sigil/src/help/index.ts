@@ -6,6 +6,7 @@ import {
 	text as textNode,
 	type TextRun,
 } from '../element/index.js';
+import { __, __n } from '../i18n/index.js';
 import type { OptionRegistry } from '../parser/option/option-registry.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import {
@@ -199,25 +200,25 @@ export function helpView(target: HelpTarget, opts: HelpOptions = {}): Element {
 	// the root context is the schema, and its aliases are nobody's business: what
 	// would be aliased is the program, and the program is not what it declares
 	if (aliases.length > 0 && contexts.length > 1) {
-		blocks.push(hanging(aliases.length === 1 ? 'Alias:' : 'Aliases:', [aliases.join(', ')], width));
+		blocks.push(hanging(__n(aliases.length, 'Alias:', 'Aliases:'), [aliases.join(', ')], width));
 	}
 
 	if (commands.length > 0) {
-		blocks.push(section('Commands', commands.map(commandRow), list));
+		blocks.push(section(__`Commands:`, commands.map(commandRow), list));
 	}
 
 	if (args.length > 0) {
-		blocks.push(section('Arguments', args.map(argRow), list));
+		blocks.push(section(__`Arguments:`, args.map(argRow), list));
 	}
 
 	if (ungrouped.length > 0) {
-		blocks.push(section('Options', ungrouped.map(optionRow), list));
+		blocks.push(section(__`Options:`, ungrouped.map(optionRow), list));
 	}
 
 	// the command's own groups, then the sections its hooks contributed: both are
 	// the command's, and both come before what it inherited
 	for (const group of groups) {
-		blocks.push(section(`${group.title} options`, group.options.map(optionRow), list));
+		blocks.push(section(__`${group.title} options:`, group.options.map(optionRow), list));
 	}
 
 	for (const section_ of contributed) {
@@ -225,7 +226,7 @@ export function helpView(target: HelpTarget, opts: HelpOptions = {}): Element {
 	}
 
 	if (inherited.length > 0) {
-		blocks.push(section('Global options', inherited.map(optionRow), list));
+		blocks.push(section(__`Global options:`, inherited.map(optionRow), list));
 	}
 
 	const examples = exampleList(cmd.examples);
@@ -285,11 +286,11 @@ function contributedBlocks(
 	const { args, options } = section_;
 
 	if (args.length > 0) {
-		blocks.push(section(`${section_.title} arguments`, args.map(argRow), list));
+		blocks.push(section(__`${section_.title} arguments:`, args.map(argRow), list));
 	}
 
 	if (options.length > 0) {
-		blocks.push(section(`${section_.title} options`, options.map(optionRow), list));
+		blocks.push(section(__`${section_.title} options:`, options.map(optionRow), list));
 	}
 
 	return blocks;
@@ -342,18 +343,20 @@ function usageLine(parts: UsageParts): Element {
 	const line = [parts.name, ...parts.path];
 
 	if (parts.options) {
-		line.push('[options]');
+		// metasyntax rather than an option name: nobody types the word, so unlike
+		// the `<entry>` beside it there is nothing here that has to stay English
+		line.push(__`[options]`);
 	}
 
 	if (parts.commands) {
-		line.push(parts.defaulted ? '[command]' : '<command>');
+		line.push(parts.defaulted ? __`[command]` : __`<command>`);
 	}
 
 	for (const arg of parts.args) {
 		line.push(argSpelling(arg));
 	}
 
-	return hanging('Usage:', [line.join(' ')], parts.width);
+	return hanging(__`Usage:`, [line.join(' ')], parts.width);
 }
 
 /**
@@ -489,12 +492,12 @@ function describe(
 	if (Array.isArray(choices) && choices.length > 0) {
 		parts.push({
 			class: 'sigil-help-note sigil-muted',
-			text: `(choices: ${choices.map(format).join(', ')})`,
+			text: __`(choices: ${choices.map(format).join(', ')})`,
 		});
 	}
 
 	if (dflt !== undefined) {
-		parts.push({ class: 'sigil-help-note sigil-muted', text: `(default: ${format(dflt)})` });
+		parts.push({ class: 'sigil-help-note sigil-muted', text: __`(default: ${format(dflt)})` });
 	}
 
 	return parts;
@@ -557,7 +560,7 @@ function exampleList(examples: CommandExample | CommandExample[] | undefined): C
 function exampleSection(examples: CommandExample[], list: ListOptions): Element {
 	return box(
 		{ 'flex-direction': 'column' },
-		heading('Examples'),
+		heading(__`Examples:`),
 		// a blank line between two examples and none inside one, which is what a
 		// `row-gap` over a box per example says
 		box(

@@ -47,9 +47,21 @@
  * `desc` or `hidden` the extractor could not read is simply absent, which
  * leaves the command exactly where an unbundled one is: described once its
  * module loads.
+ *
+ * ## A translated description is emitted as a thunk
+ *
+ * A `` desc: __`Build the app` `` is lifted as its catalog *key*, and what is
+ * printed here is `` desc: () => __`Build the app` `` over an import of the
+ * tag. The thunk is what `Command.desc` takes for exactly this: a value in an
+ * object literal is evaluated when the module is imported, which for the tree
+ * this prints is before `main()` has loaded a catalog, so the string form would
+ * bake the English in. The import is emitted only when something in the tree
+ * needs it, since a tree with no translated description should not name a
+ * module it never reads.
  */
 
 import { RUNTIME } from './discover.ts';
+import { TAG_EXPORT } from './i18n.ts';
 import type { ResolvedCommand, ResolvedTree } from './tree.ts';
 import { relative, sep } from 'node:path';
 
@@ -77,10 +89,24 @@ export interface GenerateOptions {
 	 * `schema: { commands }`.
 	 */
 	readonly name?: string;
+	/**
+	 * Where the runtime comes from, for the `__` import a translated
+	 * description needs. `@ttylabs/sigil` by default, which is the only thing an
+	 * app depends on; `generateBin()` passes whatever it was told.
+	 */
+	readonly runtime?: string;
 }
 
 /** One tab, since the repo's formatter uses them. */
 const INDENT = '\t';
+
+/**
+ * The tag a translated description is printed over.
+ *
+ * Read from `i18n.ts` rather than spelled again, so the name the lift matched
+ * and the name the emitter prints cannot come apart.
+ */
+const TAG = TAG_EXPORT;
 
 /**
  * Prints a resolved tree as a module.
@@ -93,7 +119,28 @@ export function generateCommands(tree: ResolvedTree, options: GenerateOptions): 
 	const name = options.name ?? 'commands';
 	const keyword = options.declare ?? 'export const';
 
-	return `${keyword} ${name} = ${printCommands(tree.commands, options.from, 0)};\n`;
+	// the tag, when and only when a description in the tree is a catalog key.
+	// Emitted here rather than left to the caller, because this is what knows
+	// whether the literal it just printed names `__` -- a caller deciding would
+	// be a second reading of the same tree, and the one that got it wrong would
+	// print a module with an undefined tag in it
+	const tag = translated(tree.commands)
+		? `import { ${TAG} } from ${quote(`${options.runtime ?? RUNTIME}/i18n`)};\n`
+		: '';
+
+	return `${tag}${keyword} ${name} = ${printCommands(tree.commands, options.from, 0)};\n`;
+}
+
+/**
+ * Whether anything in a tree carries a catalog key rather than a description.
+ *
+ * @param commands - The level to look at, and everything under it.
+ * @returns Whether the `__` import is needed.
+ */
+function translated(commands: readonly ResolvedCommand[]): boolean {
+	return commands.some(
+		(command) => command.descTranslated === true || translated(command.commands)
+	);
 }
 
 /**
@@ -133,7 +180,12 @@ function printCommand(command: ResolvedCommand, from: string, depth: number): st
 	// to get it, then what is under it -- so a nested tree reads top-down rather
 	// than opening with a subtree and mentioning the command afterwards
 	if (command.desc !== undefined) {
-		fields.push(`${pad}desc: ${quote(command.desc)},`);
+		// a key is printed as a thunk over the tag rather than as the string,
+		// because the catalog is loaded after this module is evaluated
+		const desc = command.descTranslated
+			? `() => ${TAG}${backtick(command.desc)}`
+			: quote(command.desc);
+		fields.push(`${pad}desc: ${desc},`);
 	}
 
 	if (command.hidden !== undefined) {
@@ -204,6 +256,35 @@ function quote(value: string): string {
 }
 
 /**
+ * A catalog key as the template literal a `__` tag reads.
+ *
+ * It has to be a template literal rather than a quoted string, because `__` is
+ * a tag and there is no call form of it -- and the key it looks up is built
+ * from the *cooked* quasis, so what is emitted has to cook back to exactly the
+ * key that was lifted. Hence the escapes: a backtick would end the template, a
+ * `${` would open an interpolation, and a backslash would consume whatever came
+ * after it. The newlines are escaped for legibility rather than for
+ * correctness, since a raw one in a template literal cooks to itself.
+ *
+ * The backslash goes first, or every escape this adds is then escaped again.
+ *
+ * @param value - The key.
+ * @returns Its source, backticks included.
+ */
+function backtick(value: string): string {
+	const escaped = value
+		.replaceAll('\\', '\\\\')
+		.replaceAll('`', '\\`')
+		.replaceAll('${', '\\${')
+		.replaceAll('\r', '\\r')
+		.replaceAll('\n', '\\n')
+		.replaceAll('\u2028', '\\u2028')
+		.replaceAll('\u2029', '\\u2029');
+
+	return `\`${escaped}\``;
+}
+
+/**
  * Prints the executable a built app runs, which the app does not write.
  *
  * The Next.js answer to "where is the app's entry": there is not one. Routes
@@ -229,7 +310,7 @@ function quote(value: string): string {
  * @returns The module's source, newline-terminated.
  */
 export function generateBin(options: GenerateBinOptions): string {
-	const { from, runtime = RUNTIME, schemaModule, tree, version } = options;
+	const { defaultLocale, from, runtime = RUNTIME, schemaModule, tree, version } = options;
 
 	// baked, because a bundle has no `package.json` beside it: an app reading
 	// its own version off `import.meta.url` is reading a path that points
@@ -238,12 +319,20 @@ export function generateBin(options: GenerateBinOptions): string {
 	// the same way the tree replaces `commands`
 	const bakedVersion = version === undefined ? '' : `\n\tversion: ${quote(version)},`;
 
+	// baked for the reason the version is: the runtime cannot read `sigil.json`,
+	// because reading a file at startup is what `locales` being a map rather than
+	// a directory convention exists to avoid. It is the *bottom* of the locale
+	// chain, so this says what the app ships in and every environment variable
+	// still beats it
+	const bakedLocale =
+		defaultLocale === undefined ? '' : `\n\tdefaultLocale: ${quote(defaultLocale)},`;
+
 	return `#!/usr/bin/env node
 // Generated by sigil build. Do not edit.
 import { main } from ${quote(runtime)};
 import * as app from ${quote(specifier(from, schemaModule))};
 
-${generateCommands(tree, { declare: 'const', from, name: 'commands' })}
+${generateCommands(tree, { declare: 'const', from, name: 'commands', runtime })}
 // spread rather than \`app.default ?? app.schema\`, which is a *static*
 // reference to a named export the module need not have -- a bundler resolves
 // that at build time and warns that it will always be undefined. Copying the
@@ -256,13 +345,21 @@ const schema = typeof declared === 'function' ? declared() : declared;
 // better than the app does -- everything else is the app's own
 await main({ schema: {
 	...schema,
-	commands,${bakedVersion}
+	commands,${bakedVersion}${bakedLocale}
 } });
 `;
 }
 
 /** How to print the generated executable. */
 export interface GenerateBinOptions {
+	/**
+	 * The locale to fall back on, from `"locale"` in `sigil.json`.
+	 *
+	 * Written beside the version and the baked tree, and absent when the config
+	 * names none -- which leaves whatever the app's own schema said, the way the
+	 * version does.
+	 */
+	readonly defaultLocale?: string;
 	/**
 	 * The app's version, read from its manifest at build time.
 	 *

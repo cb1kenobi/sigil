@@ -54,6 +54,106 @@ describe('extracting a command module', () => {
 		});
 	});
 
+	describe('a translated description', () => {
+		/** A module that imports the tag and describes itself with it. */
+		const mod = (body: string, importer = `import { __ } from '@ttylabs/sigil/i18n';`) =>
+			`${importer}\nexport default { ${body} };`;
+
+		it('should lift the catalog key and say that it is one', () => {
+			// a tagged template is not a string literal, so this was reported as
+			// computed and the command was listed by name alone -- with the key
+			// sitting right there in the source. What the generated tree then
+			// carries is `() => __\`...\``, so the built app renders it through its
+			// own catalog rather than baking the English in
+			const { diagnostics, facts } = extractCommand(
+				'build.js',
+				mod('desc: __`build the app`, run: () => {}')
+			);
+			expect(facts).to.deep.equal({ desc: 'build the app', descTranslated: true });
+			expect(diagnostics).to.deep.equal([]);
+		});
+
+		it('should lift it under whatever name the import was given', () => {
+			const { facts } = extractCommand(
+				'build.js',
+				mod('desc: L`build the app`', `import { __ as L } from '@ttylabs/sigil/i18n';`)
+			);
+			expect(facts).to.deep.equal({ desc: 'build the app', descTranslated: true });
+		});
+
+		it('should lift it through a namespace import', () => {
+			const { facts } = extractCommand(
+				'build.js',
+				mod('desc: t.__`build the app`', `import * as t from '@ttylabs/sigil/i18n';`)
+			);
+			expect(facts).to.deep.equal({ desc: 'build the app', descTranslated: true });
+		});
+
+		it('should lift it through parentheses around the tag', () => {
+			// `(__)` is a `ParenthesizedExpression` where the tag goes, which is the
+			// shape `bindingName()` unwraps
+			const { facts } = extractCommand('build.js', mod('desc: (__)`build the app`'));
+			expect(facts).to.deep.equal({ desc: 'build the app', descTranslated: true });
+		});
+
+		it('should lift it through parentheses around the whole tagged template', () => {
+			// and this is the other one: here the *value* is the
+			// `ParenthesizedExpression`, so it is `translatedKey()`'s own unwrap that
+			// reaches it. Two shapes rather than one, because a test that used only
+			// the first passed with the second unwrap deleted
+			const { facts } = extractCommand('build.js', mod('desc: (__`build the app`)'));
+			expect(facts).to.deep.equal({ desc: 'build the app', descTranslated: true });
+		});
+
+		it('should report an interpolated one as the interpolation rather than as computed', () => {
+			// said separately on purpose: "computed rather than a string literal"
+			// about a `__` tag whose neighbour lifted perfectly well names nothing
+			// the author can act on
+			const { diagnostics, facts } = extractCommand('build.js', mod('desc: __`build ${target}`'));
+			expect(facts.desc).to.equal(undefined);
+			expect(diagnostics).to.have.lengthOf(1);
+			expect(diagnostics[0]!.message).to.contain('translated string with a value interpolated');
+		});
+
+		it('should leave a tag the module did not import alone', () => {
+			// a local `__` is not the import, which is the rule `findTemplates()`
+			// already keeps: the binding is the question, not the spelling
+			const { diagnostics, facts } = extractCommand(
+				'build.js',
+				'const __ = (s) => s.raw[0];\nexport default { desc: __`build the app` };'
+			);
+			expect(facts.desc).to.equal(undefined);
+			expect(diagnostics[0]!.message).to.contain('"desc" is computed');
+		});
+
+		it('should leave a tag imported from somewhere else alone', () => {
+			const { facts, diagnostics } = extractCommand(
+				'build.js',
+				mod('desc: __`build the app`', `import { __ } from 'some-other-i18n';`)
+			);
+			expect(facts.desc).to.equal(undefined);
+			expect(diagnostics[0]!.message).to.contain('"desc" is computed');
+		});
+
+		it('should leave a name the module rebinds alone', () => {
+			// `reboundNames()` is module-wide, which is the whole reason the tag is
+			// called `__` rather than `t`
+			const { facts, diagnostics } = extractCommand(
+				'build.js',
+				`import { __ } from '@ttylabs/sigil/i18n';
+				function f(__) { return __; }
+				export default { desc: __\`build the app\` };`
+			);
+			expect(facts.desc).to.equal(undefined);
+			expect(diagnostics[0]!.message).to.contain('"desc" is computed');
+		});
+
+		it('should not mark a plain string as translated', () => {
+			const { facts } = extractCommand('build.js', mod(`desc: 'build the app'`));
+			expect(facts).to.deep.equal({ desc: 'build the app' });
+		});
+	});
+
 	describe('the wrappers that change nothing', () => {
 		it('should look through command()', () => {
 			// `command()` is documented as the identity function and exists only so

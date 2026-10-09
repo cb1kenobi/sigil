@@ -10,6 +10,7 @@
     "./test/fixtures/template",
     "./test/fixtures/typecheck",
     "./test/fixtures/discover",
+    "./test/fixtures/i18n",
     "./test/fixtures/jsx",
     "./test/fixtures/jsx-preserve",
     "./test/fixtures/jsx-dev",

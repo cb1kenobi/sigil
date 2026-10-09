@@ -1,4 +1,4 @@
-import { generateCommands, specifier } from '../../src/build/generate.js';
+import { generateBin, generateCommands, specifier } from '../../src/build/generate.js';
 import { resolveCommandTree, walkTree, type ResolvedCommand } from '../../src/build/tree.js';
 import { Internal, main, type AnyCommand, type ParseState } from '@ttylabs/sigil';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -275,6 +275,193 @@ describe('generating a command tree', () => {
 		expect(commands.db.commands.migrate.commands.up.desc).to.equal('migrate up');
 		expect(commands.secret.hidden).to.equal(true);
 		expect(typeof commands.build.load).to.equal('function');
+	});
+});
+
+/** A backtick, named rather than written, since this file is full of templates. */
+const BACKTICK = String.fromCharCode(96);
+
+describe('a translated description', () => {
+	/** A one-command tree whose description is whatever is handed in. */
+	const treeWith = (desc: string, descTranslated?: boolean) => ({
+		commands: [
+			{
+				commands: [],
+				desc,
+				descTranslated,
+				kind: 'module' as const,
+				module: '/app/commands/a.js',
+				name: 'a',
+			},
+		],
+		diagnostics: [],
+	});
+
+	it('should print a thunk over the tag rather than the string', () => {
+		// the catalog is loaded after this module is evaluated, so a string here
+		// would bake the English in -- which is the whole of why `Command.desc`
+		// takes a function
+		const source = generateCommands(treeWith('build the app', true), { from: '/app' });
+
+		expect(source).to.contain('desc: () => __`build the app`');
+		expect(source).to.contain('import { __ } from "@ttylabs/sigil/i18n";');
+	});
+
+	it('should import the tag from wherever the runtime is', () => {
+		const source = generateCommands(treeWith('build the app', true), {
+			from: '/app',
+			runtime: '@scope/runtime',
+		});
+
+		expect(source).to.contain('import { __ } from "@scope/runtime/i18n";');
+	});
+
+	it('should import nothing when no description in the tree is a key', () => {
+		// a tree that names no tag should not name a module it never reads
+		const source = generateCommands(treeWith('build the app'), { from: '/app' });
+
+		expect(source).to.contain('desc: "build the app"');
+		expect(source).to.not.contain('i18n');
+	});
+
+	it('should import the tag for a key nested any distance down', () => {
+		const source = generateCommands(
+			{
+				commands: [
+					{
+						commands: [
+							{
+								commands: [],
+								desc: 'migrate up',
+								descTranslated: true,
+								kind: 'module',
+								module: '/app/commands/db/up.js',
+								name: 'up',
+							},
+						],
+						kind: 'directory',
+						name: 'db',
+					},
+				],
+				diagnostics: [],
+			},
+			{ from: '/app' }
+		);
+
+		expect(source).to.contain('import { __ } from "@ttylabs/sigil/i18n";');
+	});
+
+	it('should emit a key that cooks back to the key it was lifted from', () => {
+		// the property rather than a spelling, because what matters is exactness:
+		// the tag looks the *cooked* string up, so a key that did not round trip
+		// through the emitter would be a key no catalog has. A backtick would end
+		// the template, a `${` would open an interpolation, and a backslash would
+		// consume whatever came after it
+		const keys = [
+			'plain',
+			'a ' + BACKTICK + ' tick',
+			'a ${slot}',
+			'a \\ slash',
+			'two\nlines',
+			'a {0} brace',
+			'a \r carriage return',
+			'a \u2028 line separator',
+		];
+
+		for (const key of keys) {
+			const source = generateCommands(treeWith(key, true), { from: '/app' });
+
+			// the import is dropped rather than resolved, because `new Function`
+			// cannot have one -- and the tag is handed in, so what is measured is
+			// what the emitted template cooks to
+			const body = source.replace(/^import .*\n/, '').replace('export const', 'const');
+			// eslint-disable-next-line no-new-func
+			const cooked = new Function('__', `${body}\nreturn commands.a.desc();`)(
+				(parts: readonly string[]) => parts.join('')
+			) as string;
+
+			expect(cooked, JSON.stringify(key)).to.equal(key);
+		}
+	});
+
+	it('should not leave a raw backtick in the template it printed', () => {
+		// the round trip above is the claim; this is the one spelling worth
+		// pinning, because an unescaped backtick is a syntax error rather than a
+		// wrong string and `new Function` would report it as one either way
+		const source = generateCommands(treeWith('a ' + BACKTICK + ' tick', true), { from: '/app' });
+
+		expect(source).to.contain('\\' + BACKTICK);
+	});
+});
+
+describe('the generated executable', () => {
+	/** A one-command tree, so the entry has something to bake. */
+	const tree = {
+		commands: [{ commands: [], kind: 'module' as const, module: '/app/commands/a.js', name: 'a' }],
+		diagnostics: [],
+	};
+
+	it('should bake the locale the config named as the bottom of the chain', () => {
+		// the runtime cannot read `sigil.json` -- reading a file at startup is what
+		// `Schema.locales` being a map rather than a directory convention exists to
+		// avoid -- so the build is the only thing that can carry it across
+		const source = generateBin({
+			defaultLocale: 'de',
+			from: '/app/out',
+			schemaModule: '/app/src/index.ts',
+			tree,
+		});
+
+		expect(source).to.contain('defaultLocale: "de"');
+	});
+
+	it('should import the tag from the runtime it imports `main` from', () => {
+		// the entry names one runtime, so the tag has to come from the same place:
+		// a tree printed against the default would import `@ttylabs/sigil/i18n`
+		// into a module whose `main` came from somewhere else
+		const source = generateBin({
+			from: '/app/out',
+			runtime: '@scope/runtime',
+			schemaModule: '/app/src/index.ts',
+			tree: {
+				commands: [
+					{
+						commands: [],
+						desc: 'build the app',
+						descTranslated: true,
+						kind: 'module',
+						module: '/app/commands/a.js',
+						name: 'a',
+					},
+				],
+				diagnostics: [],
+			},
+		});
+
+		expect(source).to.contain('import { main } from "@scope/runtime";');
+		expect(source).to.contain('import { __ } from "@scope/runtime/i18n";');
+	});
+
+	it('should bake no locale when the config named none', () => {
+		const source = generateBin({ from: '/app/out', schemaModule: '/app/src/index.ts', tree });
+
+		expect(source).to.not.contain('defaultLocale');
+	});
+
+	it('should bake it after `commands`, so the app`s own schema does not win', () => {
+		// `commands` is last because the baked tree is the one property the build
+		// knows better than the app; the locale and the version are the other two
+		const source = generateBin({
+			defaultLocale: 'de',
+			from: '/app/out',
+			schemaModule: '/app/src/index.ts',
+			tree,
+			version: '1.2.3',
+		});
+
+		expect(source).to.match(
+			/\.\.\.schema,\n\tcommands,\n\tversion: "1\.2\.3",\n\tdefaultLocale: "de",/
+		);
 	});
 });
 

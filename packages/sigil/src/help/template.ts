@@ -256,7 +256,7 @@ export function labelLines(label: string, width: number, indent: number): string
 /**
  * A titled list.
  *
- * @param title - The heading.
+ * @param title - The heading, punctuation included.
  * @param items - The rows.
  * @param opts - Where the columns are.
  * @returns The block.
@@ -268,11 +268,19 @@ export function section(title: string, items: readonly Definition[], opts: ListO
 /**
  * A heading, which is a paragraph so that a long one wraps like anything else.
  *
- * @param title - The heading, without its colon.
+ * The punctuation is the caller's rather than this function's, which is a
+ * change `heading()` made for the catalog: it used to append the colon while
+ * `hanging()` was handed one, so the two disagreed about whose the punctuation
+ * was -- and the colon is not a constant across languages. French wants a
+ * narrow space in front of it and Japanese wants the fullwidth one, neither of
+ * which is expressible by a caller that cannot reach the character. So the
+ * whole heading including its punctuation is one translatable string.
+ *
+ * @param title - The heading, punctuation included.
  * @returns The heading.
  */
 export function heading(title: string): Element {
-	return paragraph([{ class: 'sigil-help-heading sigil-heading', text: `${title}:` }]);
+	return paragraph([{ class: 'sigil-help-heading sigil-heading', text: title }]);
 }
 
 /**

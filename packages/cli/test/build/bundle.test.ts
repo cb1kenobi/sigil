@@ -2,6 +2,7 @@ import { bundleApp, rawJsxIn, undo } from '../../src/build/bundle.js';
 import { discoverApp, readAppCommands } from '../../src/build/discover.js';
 import { parseModule } from '../../src/build/parse-module.js';
 import { resolveCommandTree } from '../../src/build/tree.js';
+import { readSigilConfig } from '../../src/config.js';
 import { spawnSync } from 'node:child_process';
 import {
 	cpSync,
@@ -556,6 +557,92 @@ describe('an app whose output is JSX', () => {
 		});
 
 		expect(result.stdout).toContain('Hello again, sigil!');
+	});
+});
+
+describe('a translated app', () => {
+	/**
+	 * A command description that is both lifted and translated, which before the
+	 * thunk was a choice between two.
+	 *
+	 * A tagged template is not a string literal, so `` desc: __`Build the app` ``
+	 * was reported as computed and the command was listed by name alone --
+	 * meaning an app could have the static lift or a translated description and
+	 * not both. The lift reads the key and the emitter prints
+	 * `` () => __`Build the app` ``, so the built app renders it through its own
+	 * catalog.
+	 *
+	 * The locale is the other half: `"locale": "de"` in the fixture's
+	 * `sigil.json` is baked as `defaultLocale`, which the runtime cannot read for
+	 * itself, and it sits at the bottom of the chain -- so the environment is
+	 * cleared here rather than relied on.
+	 */
+	let i18nOut: string;
+	let i18nBin: string;
+
+	beforeAll(async () => {
+		i18nOut = mkdtempSync(join(tmpdir(), 'sigil-i18n-'));
+
+		const i18nApp = resolve(__dirname, '../fixtures/i18n');
+		const found = discoverApp(i18nApp);
+		const tree = resolveCommandTree(join(i18nApp, 'commands'));
+
+		const result = await bundleApp({
+			app: found,
+			binName: 'i18n',
+			defaultLocale: readSigilConfig(i18nApp).locale,
+			out: i18nOut,
+			tree,
+		});
+		i18nBin = result.bin;
+	}, 60_000);
+
+	afterAll(() => {
+		rmSync(i18nOut, { force: true, recursive: true });
+	});
+
+	/** Runs the built binary with every locale variable cleared. */
+	function run(...argv: string[]) {
+		return spawnSync(process.execPath, [i18nBin, ...argv], {
+			cwd: tmpdir(),
+			encoding: 'utf-8',
+			env: {
+				...process.env,
+				LANG: undefined,
+				LC_ALL: undefined,
+				LC_MESSAGES: undefined,
+				SIGIL_LOCALE: undefined,
+			},
+		});
+	}
+
+	it('should describe a command in the locale the config named, without importing it', () => {
+		const result = run('--help');
+
+		expect(result.status).toBe(0);
+		// lifted, so it is on the root screen at all...
+		expect(result.stdout).toContain('build');
+		// ...and translated, which is the half a baked string could not be
+		expect(result.stdout).toContain('Die App bauen');
+		expect(result.stdout).not.toContain('Build the app');
+	});
+
+	it('should render the framework`s own chrome in it too', () => {
+		expect(run('--help').stdout).toContain('Verwendung:');
+	});
+
+	it('should let the environment beat the config`s locale', () => {
+		// `defaultLocale` is the bottom of the chain, which is what makes it a
+		// default rather than a second `AppOptions.locale`
+		const result = spawnSync(process.execPath, [i18nBin, '--help'], {
+			cwd: tmpdir(),
+			encoding: 'utf-8',
+			env: { ...process.env, SIGIL_LOCALE: 'en' },
+		});
+
+		expect(result.status).toBe(0);
+		expect(result.stdout).toContain('Build the app');
+		expect(result.stdout).toContain('Usage:');
 	});
 });
 

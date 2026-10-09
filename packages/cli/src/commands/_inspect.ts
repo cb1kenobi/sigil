@@ -15,9 +15,12 @@
  */
 
 import {
+	appKeys,
+	checkCatalogs,
 	discoverApp,
 	displayPath,
 	isFatal,
+	readAppCatalogs,
 	readAppCommands,
 	resolveCommandTree,
 	typeCheck,
@@ -30,6 +33,7 @@ import {
 import { reportLevel, writeDiagnostics, writeSummary } from '../report.ts';
 import { table } from '@ttylabs/sigil/components';
 import type { TextRun } from '@ttylabs/sigil/element';
+import { SIGIL_KEYS } from '@ttylabs/sigil/i18n-keys';
 import { existsSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 
@@ -77,7 +81,50 @@ export function inspect(options: InspectOptions): Inspection {
 
 	const commands = findCommands(app, options.commands, diagnostics);
 
+	diagnostics.push(...checkTranslations(app, diagnostics));
+
 	return { app, commands, diagnostics, types };
+}
+
+/**
+ * What the app's catalogs do and do not cover.
+ *
+ * Nothing at all for an app that declares no `locales`, which is most of them
+ * -- the entry is parsed either way by the command reader, so what this costs
+ * such an app is one walk for a property that is not there.
+ *
+ * The check is here rather than at run time for the reason the runtime falls
+ * back silently: a missing key renders a correct English sentence, so a German
+ * build with seven English messages in it is still better than an English one,
+ * and loud-at-runtime would make a partial catalog -- the normal state of a
+ * translation -- worse than no catalog. What is actually wrong is a key that
+ * falls back *forever* with nobody told, and that is a thing only a build can
+ * see.
+ *
+ * @param app - The app.
+ * @param found - The diagnostics so far, so a catalog that could not be read is
+ * not then reported as empty.
+ * @returns One diagnostic per missing key and per orphan key.
+ */
+function checkTranslations(app: DiscoveredApp, found: Diagnostic[]): readonly Diagnostic[] {
+	const read = readAppCatalogs(app);
+
+	if (!read.declared) {
+		return [];
+	}
+
+	found.push(...read.diagnostics);
+
+	if (!read.catalogs.length) {
+		return [];
+	}
+
+	return checkCatalogs({
+		catalogs: read.catalogs,
+		file: app.entry,
+		framework: SIGIL_KEYS,
+		keys: appKeys(app.root),
+	});
 }
 
 /**

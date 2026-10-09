@@ -11,7 +11,8 @@
  * the caller decides whether that is worth reporting. Nothing here guesses.
  */
 
-import type { Expression, ObjectExpression, ObjectProperty } from 'oxc-parser';
+import { walk } from './walk.ts';
+import type { Expression, Node, ObjectExpression, ObjectProperty } from 'oxc-parser';
 
 /**
  * Looks through the wrappers that do not change what a value is.
@@ -168,4 +169,65 @@ export function literalBoolean(node: Expression): boolean | undefined {
 	const value = unwrapShallow(node);
 
 	return value.type === 'Literal' && typeof value.value === 'boolean' ? value.value : undefined;
+}
+
+/**
+ * Every object literal in a module that declares a property, with the ones
+ * nested inside another such object left out.
+ *
+ * A schema's `commands` holds commands, and a command may hold `commands` of
+ * its own -- so the outermost is the schema and everything under it is a
+ * subcommand whoever asked will reach anyway. The same is true of any property
+ * a schema and a command both have.
+ *
+ * One walk for two readers: `readAppCommands()` asks about `commands` and
+ * `readAppCatalogs()` asks about `locales`, and two implementations of
+ * "which object is the schema" is two answers to one question.
+ *
+ * @param program - The module's tree.
+ * @param name - The property to look for.
+ * @returns The outermost such objects, in source order.
+ */
+export function outermostWith(program: Node, name: string): ObjectExpression[] {
+	const found: ObjectExpression[] = [];
+
+	walk(program, (node) => {
+		if (node.type !== 'ObjectExpression') {
+			return true;
+		}
+
+		const object = node as unknown as ObjectExpression;
+		if (!plainProperty(object, name)) {
+			return true;
+		}
+
+		found.push(object);
+
+		// claimed: everything below is this object's own
+		return false;
+	});
+
+	return found;
+}
+
+/**
+ * The literal specifier of a loader: `() => import('./x.js')`.
+ *
+ * The one shape a bundler can see, follow and split on, which is why both
+ * `Command.load` and `Schema.locales` are written this way -- and two readers
+ * of it, the command tree and the catalog check, so there is one answer about
+ * which arrow bodies count.
+ *
+ * @param node - The loader expression.
+ * @returns The specifier, or `undefined` for anything this cannot read.
+ */
+export function loaderSpecifier(node: Expression): string | undefined {
+	let body = unwrapShallow(node);
+
+	if (body.type === 'ArrowFunctionExpression') {
+		const inner = body.body;
+		body = unwrapShallow((inner.type === 'BlockStatement' ? undefined : inner) ?? body);
+	}
+
+	return body.type === 'ImportExpression' ? literalString(body.source) : undefined;
 }

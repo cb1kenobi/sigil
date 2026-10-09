@@ -2,6 +2,7 @@ import { Argument, InternalState, Internal, InternalArgument } from '../../types
 import { camelCase } from '../../util/camel-case.js';
 import { copyDeclaration } from '../../util/copy-declaration.js';
 import { lockDerived } from '../../util/lock-derived.js';
+import { resolveDesc } from '../../util/resolve-desc.js';
 
 // foo         optional
 // <foo>       required
@@ -78,6 +79,12 @@ export function initArg(it: string | Argument | InternalArgument): InternalArgum
 
 	if (arg.transform && typeof arg.transform !== 'function') {
 		throw new TypeError('Expected argument transform function to be a function');
+	}
+
+	// a description may have been written as a thunk; see `DescThunk`. Guarded
+	// for the reason `initOption()` guards it: normalizing adds no key
+	if (arg.desc !== undefined) {
+		arg.desc = resolveDesc(arg.desc, `the "${arg.name}" argument`);
 	}
 
 	arg.multiple ||= !!(m[2] || m[4] || m[6]);

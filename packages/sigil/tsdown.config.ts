@@ -67,6 +67,8 @@ const config: UserConfig = defineConfig({
 		element: './src/element/index.ts',
 		'error-handler': './src/error-handler.ts',
 		help: './src/help/index.ts',
+		i18n: './src/i18n/index.ts',
+		'i18n-keys': './src/i18n/keys.ts',
 		input: './src/input/index.ts',
 		'jsx-dev-runtime': './src/template/dev-runtime.ts',
 		'jsx-runtime': './src/template/runtime.ts',

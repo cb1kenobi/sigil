@@ -88,6 +88,22 @@ describe('refusing what it cannot mean', () => {
 		expect(() => withConfig({ build: [] })).toThrow(/must be an object/);
 	});
 
+	it('should read a default locale', () => {
+		// top level rather than under `build`, because it is a fact about the app
+		// rather than a bundler knob: the build writes it into the schema it
+		// generates, and the runtime cannot read this file for itself
+		expect(withConfig({ locale: 'de' }).locale).to.equal('de');
+	});
+
+	it('should refuse a locale that is not a non-empty string', () => {
+		expect(() => withConfig({ locale: 42 })).toThrow(/"locale" must be a non-empty string/);
+		expect(() => withConfig({ locale: '' })).toThrow(/"locale" must be a non-empty string/);
+	});
+
+	it('should leave a locale it was not given undefined', () => {
+		expect(withConfig({ build: {} }).locale).to.equal(undefined);
+	});
+
 	it('should say which file failed to parse', () => {
 		writeFileSync(join(root, CONFIG_FILE), '{ nope');
 		expect(() => readSigilConfig(root)).toThrow(/Failed to parse sigil\.json/);

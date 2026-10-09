@@ -1,3 +1,4 @@
+import { __ } from '../i18n/index.js';
 import type { DataType } from '../types.js';
 
 const boolFalseRE = /^(false|f|no|n|off|0)$/i;
@@ -94,7 +95,7 @@ export function transformValue(
 		if (boolFalseRE.test(value)) {
 			return false;
 		}
-		throw new Error(`Invalid boolean: "${value}"`);
+		throw new Error(__`Invalid boolean: "${value}"`);
 	}
 
 	if (type === 'date') {
@@ -113,7 +114,7 @@ export function transformValue(
 		}
 
 		if (!date) {
-			throw new Error(`Invalid date: "${value}"`);
+			throw new Error(__`Invalid date: "${value}"`);
 		}
 
 		return date;
@@ -139,7 +140,12 @@ export function transformValue(
 
 		let num;
 		if ((!hexRE.test(value) && !intRE.test(value)) || isNaN((num = Number(value)))) {
-			throw new Error(`Invalid ${type === 'count' ? 'count' : 'integer'}: ${value}`);
+			// two keys rather than a noun interpolated into one: `Invalid {0}: {1}`
+			// would put the English word `count` through a slot, where what a
+			// translator needs is the whole sentence
+			throw new Error(
+				type === 'count' ? __`Invalid count: ${value}` : __`Invalid integer: ${value}`
+			);
 		}
 
 		// past 2^53-1 a `number` is not the integer that was written -- `Number` maps
@@ -149,7 +155,9 @@ export function transformValue(
 		// a caller cannot detect
 		if (!Number.isSafeInteger(num)) {
 			throw new Error(
-				`${type === 'count' ? 'Count' : 'Integer'} is too large to be exact: ${value}`
+				type === 'count'
+					? __`Count is too large to be exact: ${value}`
+					: __`Integer is too large to be exact: ${value}`
 			);
 		}
 
@@ -161,7 +169,7 @@ export function transformValue(
 			return JSON.parse(value);
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		} catch (e: any) {
-			throw new Error(`Invalid JSON: ${e.message}`);
+			throw new Error(__`Invalid JSON: ${e.message}`);
 		}
 	}
 
@@ -170,12 +178,12 @@ export function transformValue(
 		// blank value parse as zero where every other valued type rejects it. Neither
 		// is a number somebody wrote
 		if (!value.trim()) {
-			throw new Error(`Invalid number: ${value}`);
+			throw new Error(__`Invalid number: ${value}`);
 		}
 
 		const num = Number(value);
 		if (isNaN(num)) {
-			throw new Error(`Invalid number: ${value}`);
+			throw new Error(__`Invalid number: ${value}`);
 		}
 		return num;
 	}
@@ -187,7 +195,7 @@ export function transformValue(
 		if (noRE.test(value)) {
 			return false;
 		}
-		throw new Error('Value must be "yes" or "no"');
+		throw new Error(__`Value must be "yes" or "no"`);
 	}
 
 	if (type === 'auto' && typeof value === 'string') {
