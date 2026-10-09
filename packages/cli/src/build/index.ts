@@ -51,6 +51,18 @@ export {
 } from './bundle.ts';
 export { bindingName, importBindings, reachable, unwrap, type ImportBindings } from './bindings.ts';
 export {
+	appKeys,
+	checkCatalogs,
+	findKeys,
+	keysIn,
+	readAppCatalogs,
+	type AppCatalogs,
+	type CatalogCheck,
+	type FoundCatalog,
+	type FoundKey,
+	type KeysOptions,
+} from './i18n.ts';
+export {
 	discoverApp,
 	readAppCommands,
 	readManifest,

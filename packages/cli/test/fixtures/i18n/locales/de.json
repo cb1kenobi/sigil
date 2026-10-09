@@ -1,0 +1,13 @@
+{
+  "A sentence that was reworded": "Ein umformulierter Satz",
+  "Building...": "Baue...",
+  "Commands:": "Befehle:",
+  "Hello, {0}!": "Hallo, {0}!",
+  "Options:": "Optionen:",
+  "Usage:": "Verwendung:",
+  "Where to put it": "Wohin damit",
+  "{0} file changed": {
+    "one": "{0} Datei geändert",
+    "other": "{0} Dateien geändert"
+  }
+}

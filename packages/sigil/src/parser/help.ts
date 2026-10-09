@@ -1,3 +1,4 @@
+import { __ } from '../i18n/index.js';
 import {
 	type HelpRequest,
 	Internal,
@@ -55,7 +56,7 @@ export async function registerHelp(root: InternalCommand, schema: Schema): Promi
 		// something else, and taking it from an app that wants it would be worse
 		// than not having it
 		const format = internal.options.find('-h') ? '--help' : '-h, --help';
-		await internal.options.add({ desc: 'Show help for a command', format });
+		await internal.options.add({ desc: __`Show help for a command`, format });
 		handles.option = internal.options.find('--help');
 
 		if (handles.option) {
@@ -68,8 +69,10 @@ export async function registerHelp(root: InternalCommand, schema: Schema): Promi
 	if (!internal.commands.find('help')) {
 		internal.commands.add(
 			await initCommand({
-				args: [{ desc: 'The command to describe', name: '[command...]' }],
-				desc: 'Show help for a command',
+				args: [{ desc: __`The command to describe`, name: '[command...]' }],
+				// the same sentence as the option's, so it is the same key -- which is
+				// the merge keying on the English buys
+				desc: __`Show help for a command`,
 				name: 'help',
 			})
 		);
@@ -200,7 +203,7 @@ async function resolve(state: ParseState, names: string[]): Promise<InternalComm
 		const found = parent[Internal].commands.find(name);
 
 		if (!found) {
-			throw new Error(`Unknown command "${name}"`);
+			throw new Error(__`Unknown command "${name}"`);
 		}
 
 		// a lazily declared command has its description and its own subcommands in

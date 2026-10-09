@@ -23,6 +23,7 @@
  * `detectHelp()` is already called first to keep.
  */
 
+import { __ } from '../i18n/index.js';
 import { Internal, type InternalCommand, type InternalOption, type ParseState } from '../types.js';
 
 /**
@@ -71,7 +72,7 @@ export async function registerVersion(
 	}
 
 	const format = internal.options.find('-v') ? '--version' : '-v, --version';
-	await internal.options.add({ desc: 'Print the version', format });
+	await internal.options.add({ desc: __`Print the version`, format });
 	handles.option = internal.options.find('--version');
 
 	if (handles.option) {

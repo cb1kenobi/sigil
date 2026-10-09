@@ -55,8 +55,9 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Settings](#settings)
 - [Hooks](#hooks)
 - [Help](#help)
+- [Translating](#translating) — `__`, `__n`, catalogs, `SIGIL_LOCALE`
 - [Typed argv](#typed-argv)
-- [Subpath modules](#subpath-modules) — `ansi`, `wrap`, `width`, `help`, `terminal`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `which`, `updates`
+- [Subpath modules](#subpath-modules) — `ansi`, `wrap`, `width`, `help`, `i18n`, `terminal`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `which`, `updates`
 
 ---
 
@@ -687,6 +688,132 @@ Writing your own screen for one command:
 
 ---
 
+## Translating
+
+The English sentence is the key. There is nothing to invent and nothing to look
+up:
+
+```js
+import { __, __n } from '@ttylabs/sigil/i18n';
+
+throw new Error(__`Unknown option "${name}"`); // key: Unknown option "{0}"
+__n(files.length, '{0} file changed', '{0} files changed'); // key: {0} file changed
+```
+
+A catalog is a flat JSON object keyed by those sentences, with `{0}`, `{1}` where
+the values go. The slots are numbered rather than named because `${v}` hands the
+tag the value and not the name — and numbered slots still **reorder**, which is
+the whole reason interpolation beats concatenation:
+
+```json
+{
+  "Unknown option \"{0}\"": "Unbekannte Option \"{0}\"",
+  "Invalid value \"{0}\" for {1}": "Für {1} ist \"{0}\" ungültig",
+  "{0} file changed": { "one": "{0} Datei geändert", "other": "{0} Dateien geändert" }
+}
+```
+
+A plural entry is an object of CLDR categories, selected with
+`Intl.PluralRules` — so Polish's four and Arabic's six work without a grammar
+written for them. A plain string is taken too, for a language with one form for
+every count.
+
+A literal `{0}` in a string with values beside it is escaped `{{0}}`. With no
+values it needs no escape.
+
+### Declaring a locale
+
+A locale is a loader on the schema, the shape `Command.load` already is:
+
+```js
+export default {
+  name: 'mycli',
+  locales: {
+    de: () => import('./locales/de.json', { with: { type: 'json' } }),
+    ja: () => import('./locales/ja.json', { with: { type: 'json' } }),
+  },
+};
+```
+
+A literal specifier inside a dynamic import is the one shape a bundler can see,
+follow and split on, so `sigil build` gives each locale a chunk of its own: an
+app shipping twelve ships twelve and loads one. A loader is a function and may
+do anything, but this is the body to write — it costs about 0.1 ms, where
+`node:fs` plus a read and a parse costs about 1.25 ms.
+
+Leave `locales` out and nothing is loaded and no locale is resolved. **English
+is not a catalog**: it is the literal already at the call site, so an app with no
+translations reads nothing, calls nothing and constructs no `Intl`.
+
+### Which locale
+
+`AppOptions.locale`, then `SIGIL_LOCALE`, then `LC_ALL`, then `LC_MESSAGES`,
+then `LANG`, then English. `C`, `POSIX` and absent all mean English and read no
+catalog.
+
+POSIX spellings are taken everywhere a tag is: `de_DE.UTF-8`, `pt_BR` and
+`de_DE@euro` all resolve, which `Intl` itself refuses for all three. The
+fallback chain truncates at `-`, so `de-DE` is served by a `de` catalog and
+`zh-Hans-CN` by `zh-Hans` or `zh`.
+
+There is no `--locale` flag, and that is a refusal rather than an omission: a
+parse can fail _before_ an option is read, so `mycli --porx --locale=de` throws
+about `--porx` while argv is still being walked — and that message is exactly the
+one that needed the locale. An app that wants a flag declares it and passes what
+it read as `AppOptions.locale`.
+
+### Changing it later
+
+```js
+import { setLocale } from '@ttylabs/sigil/i18n';
+
+await setLocale(config.language); // after the app has read its config
+```
+
+A string is translated **where it is built**, so a locale set here does not
+reach one already rendered. In practice that means a parse error and `--help`
+are always in the environment's locale, because both happen before a command
+runs — which is the right answer rather than a gap: an app whose parse failed
+never got to read its config.
+
+For the same reason, a `__` in the **schema's own object literal** is evaluated
+when that module is imported, which is before `main()` is called at all — so a
+root option's `desc` written that way stays English. A command module's strings
+are fine, because the module is imported during the parse. See AGENTS.md.
+
+### A missing translation
+
+It renders the English sentence it was keyed on, silently. That is deliberate: a
+partial catalog is the normal state of a translation, and a German build with
+seven English messages in it is better than an English one — where printing
+`[missing: …]` would replace a working message with a broken one, on the error
+path, where the user is already being told something went wrong.
+
+What is loud is the **build**. `sigil check` compares every declared key against
+every catalog, both ways, so a key that falls back _forever_ is reported — and a
+reworded English sentence shows up as one missing key and one orphan, which is
+exactly the "this string changed" signal. `DEBUG=sigil:i18n` logs every miss at
+run time.
+
+`SIGIL_KEYS` from `@ttylabs/sigil/i18n-keys` is the list of sigil's own
+messages, for a catalog that wants to cover them.
+
+### What is not here
+
+Number, date, currency and list formatting, and locale-aware sorting. Each
+`Intl` constructor that needs ICU costs 4–7 ms in a cold process — a quarter of
+a whole `--version` run — and the framework has no number to format: every
+number in its own messages is a value the user typed, which has to be echoed
+verbatim. `Invalid integer: 9007199254740993` must say that integer and not
+`9.007.199.254.740.993`. An app that wants one constructs its own, lazily, and
+pays the cost where it can see it.
+
+Also not here: ICU MessageFormat or any mini-syntax, right-to-left layout, and
+the prompts' affordances (which are their own ticket, because the real question
+there is the input vocabulary rather than the translation).
+
+---
+
 ## Typed argv
 
 `command()` and `options()` are identity functions that exist for the types.
@@ -799,6 +926,21 @@ renderHelp(state, { width: 100 }); // renders a context chain directly
 
 `HelpOptions` takes `ansi`, `gap`, `indent`, `maxLabel`, `name`, `sections`,
 and `width`.
+
+### `sigil/i18n`
+
+```js
+import { __, __n, setLocale, locale } from '@ttylabs/sigil/i18n';
+
+__`Unknown option "${name}"`;
+__n(n, '{0} file', '{0} files');
+await setLocale('de');
+locale(); // 'de', or undefined for English
+```
+
+See [Translating](#translating). Also `loadCatalog()`, `resolveLocale()`,
+`normalizeLocale()`, `localeChain()` and `templateKey()`, and
+`SIGIL_KEYS` from `@ttylabs/sigil/i18n-keys`.
 
 ### `sigil/terminal`
 

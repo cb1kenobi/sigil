@@ -1,9 +1,29 @@
+import type { Locales } from './i18n/index.js';
 import type { InferArgv } from './infer.js';
 import { CommandRegistry } from './parser/command/command-registry.js';
 import { OptionRegistry } from './parser/option/option-registry.js';
 
 export type AppOptions = {
 	argv?: string[];
+	/**
+	 * The locale to render the framework's own messages in, which outranks
+	 * every environment variable.
+	 *
+	 * The app is on top of that chain because a named locale is a statement
+	 * about what this program's output *is*, where `LANG` is a guess at what
+	 * the user would prefer. Anything `normalizeLocale()` takes is taken here,
+	 * so `'de'`, `'de-DE'` and `'de_DE.UTF-8'` all mean the same thing.
+	 *
+	 * There is deliberately no `--locale` flag for this. The parse can fail
+	 * *before* an option is read -- `mycli --porx --locale=de` throws about
+	 * `--porx` while argv is still being walked, and that message is exactly
+	 * the one that needed the locale -- so making a flag work means a second
+	 * scan of argv ahead of `parse()`, and a second parser that disagrees with
+	 * the first is worth a great deal more than a flag whose job the
+	 * environment already does. An app that wants one declares it and passes
+	 * what it read here.
+	 */
+	locale?: string;
 	schema?: Schema;
 	settings?: Settings;
 };
@@ -596,6 +616,33 @@ export interface Schema {
 		 */
 		subcommandLoaded?: SubcommandLoadedHook;
 	};
+	/**
+	 * A catalog loader per locale, for translating the framework's own messages
+	 * and the app's own `__` strings.
+	 *
+	 * The shape `Command.load` already is, and for its reason: a literal
+	 * specifier inside a dynamic import is the one thing a bundler can see,
+	 * follow and split on, so `sigil build` gives each locale a chunk of its
+	 * own and an app shipping twelve ships twelve and loads one.
+	 *
+	 * ```js
+	 * export default {
+	 *   name: 'mycli',
+	 *   locales: {
+	 *     de: () => import('./locales/de.json', { with: { type: 'json' } }),
+	 *     ja: () => import('./locales/ja.json', { with: { type: 'json' } }),
+	 *   },
+	 * };
+	 * ```
+	 *
+	 * Left out, nothing is loaded and nothing is resolved -- `main()` does not
+	 * so much as ask `Intl` whether `LANG` names a language, because an app
+	 * with no catalogs has no question to answer.
+	 *
+	 * English is not a catalog: it is the literal already at the call site, so a
+	 * key no catalog carries renders the English sentence it was keyed on.
+	 */
+	locales?: Locales;
 	name?: string;
 	options?: OptionDeclarations;
 	/**

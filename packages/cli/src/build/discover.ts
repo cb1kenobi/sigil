@@ -43,16 +43,17 @@ import { factsOf } from './extract.ts';
 import {
 	literalBoolean,
 	literalString,
+	loaderSpecifier,
 	objectLiteral,
+	outermostWith,
 	plainProperty,
 	propertyKey,
 } from './literals.ts';
 import { parseModule, position, type ParsedModule } from './parse-module.ts';
 import type { ResolvedCommand } from './tree.ts';
-import { walk } from './walk.ts';
 import { readFileSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
-import type { Expression, ObjectExpression, Node } from 'oxc-parser';
+import type { Expression, ObjectExpression } from 'oxc-parser';
 
 /**
  * What makes a directory an app this can check.
@@ -378,7 +379,7 @@ export function readAppCommands(app: DiscoveredApp): {
 	const parsed = parseModule(app.entry, readFileSync(app.entry, 'utf-8'));
 	const diagnostics: Diagnostic[] = [];
 
-	const schemas = outermostWithCommands(parsed.program as never);
+	const schemas = outermostWith(parsed.program as never, 'commands');
 
 	if (!schemas.length) {
 		return { diagnostics, found: false };
@@ -445,39 +446,6 @@ export function readAppCommands(app: DiscoveredApp): {
 		diagnostics,
 		found: true,
 	};
-}
-
-/**
- * Every object literal in a module that declares `commands`, with the ones
- * nested inside another such object left out.
- *
- * A schema's `commands` holds commands, and a command may hold `commands` of
- * its own -- so the outermost is the schema and everything under it is a
- * subcommand this walk will reach anyway.
- *
- * @param program - The module's tree.
- * @returns The outermost schemas, in source order.
- */
-function outermostWithCommands(program: Node): ObjectExpression[] {
-	const found: ObjectExpression[] = [];
-
-	walk(program, (node) => {
-		if (node.type !== 'ObjectExpression') {
-			return true;
-		}
-
-		const object = node as unknown as ObjectExpression;
-		if (!plainProperty(object, 'commands')) {
-			return true;
-		}
-
-		found.push(object);
-
-		// claimed: everything below is this schema's own commands
-		return false;
-	});
-
-	return found;
 }
 
 /**
@@ -622,14 +590,9 @@ function moduleSpecifier(object: ObjectExpression): string | undefined {
 	}
 
 	// the one shape a bundler can see and this can read: an arrow whose body is
-	// a dynamic import of a literal
-	let body = load.value;
-	if (body.type === 'ArrowFunctionExpression') {
-		const inner = body.body;
-		body = (inner.type === 'BlockStatement' ? undefined : inner) ?? body;
-	}
-
-	return body.type === 'ImportExpression' ? literalString(body.source) : undefined;
+	// a dynamic import of a literal. Shared with the catalog check, which reads
+	// `Schema.locales` the same way
+	return loaderSpecifier(load.value);
 }
 
 /**

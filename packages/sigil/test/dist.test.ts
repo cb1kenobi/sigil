@@ -167,9 +167,17 @@ describe('what importing the package costs', () => {
 		const graph = staticGraph('index.mjs');
 		const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
 
-		// a ceiling rather than a measurement -- it sits about 5x over the 4.1 KB
+		// a ceiling rather than a measurement -- it sits about 3x over the 6.8 KB
 		// this is today, so ordinary growth never touches it and pulling a
-		// rendering path onto the entry blows straight through it
+		// rendering path onto the entry blows straight through it.
+		//
+		// 4.1 KB of that was the entry before i18n; the 2.2 KB `i18n.mjs` is the
+		// tag, the plural and the locale resolution, and it is here because
+		// `main()` resolves a locale before `parse()` can throw. Splitting the
+		// resolution into a module `main()` imports only when the schema declares
+		// `locales` would give about 1.5 KB of it back, and is not done: nothing
+		// measures a 1.5 KB module, and it would cost an internal/public split of
+		// one barrel. That is the shape to reach for if this ever gets tight.
 		expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(20 * 1024);
 	});
 

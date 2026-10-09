@@ -1,6 +1,7 @@
 import debug from './debug/index.js';
 import { errorHandler } from './error-handler.js';
 import { fireBeforeError, stateFromError } from './error-hooks.js';
+import { loadCatalog } from './i18n/index.js';
 import { type AppOptions, type ParseState, type Schema, type Settings } from './types.js';
 
 export * from './types.js';
@@ -43,6 +44,14 @@ export async function main(opts: AppOptions = {}): Promise<ParseState | unknown>
 		if (opts?.settings?.assertCwd !== false) {
 			assertCwd();
 		}
+
+		// before `parse()`, because `__` renders where it is called and a parse
+		// error is the first thing that can be printed. It follows that a locale
+		// set later -- by `setLocale()`, once the app has read its config -- cannot
+		// reach a message already rendered, so a parse error and `--help` are
+		// always in the environment's locale. That is the right answer rather than
+		// a gap: an app whose parse failed never got to read its config.
+		await loadCatalog(opts.schema?.locales, process.env, opts.locale);
 
 		const { parse } = await import('./parser/parse.js');
 

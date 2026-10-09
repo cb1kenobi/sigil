@@ -1,4 +1,5 @@
 import debug from './debug/index.js';
+import { __ } from './i18n/index.js';
 import type { ErrorContext, ErrorHandlerOptions } from './types.js';
 import { safeLog as safeLogTo } from './util/safe-log.js';
 
@@ -102,7 +103,7 @@ function errorMessage(err: unknown): string {
  * @returns The text to write to stderr.
  */
 export function renderError(err: unknown): string {
-	return `Error: ${errorMessage(err)}`;
+	return __`Error: ${errorMessage(err)}`;
 }
 
 /**
