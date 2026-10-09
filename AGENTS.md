@@ -9207,6 +9207,17 @@ makes it testable with a fixture directory and no bundler at all.
   `export { cmd as default }` is a warning rather than an error for the same
   reason read backwards: the runtime takes it, so what is wrong is what this pass
   can read rather than the module.
+- **A `__` tag is read, because its key is in the source.** `` desc: __`Build
+  the app` `` is as readable as a template literal with no substitutions and was
+  reported as computed for a while, which made the lift and a translated
+  description a choice between two -- see "Translating: the English is the key"
+  for what the generated tree then carries. Whether the tag is the `__` imported
+  from `@ttylabs/sigil/i18n` is asked through `bindings.ts` rather than by
+  spelling, so the shapes that count are the ones `findTemplates()` already
+  counts and a local `__` is not one. An **interpolated** tag gets a message of
+  its own rather than the generic computed one, because the value really is the
+  running app's and "computed rather than a string literal" about a tag whose
+  neighbour lifted fine names nothing the author can act on.
 - **A spread is the case that looks harmless.** `export default { ...base, hidden: true }`
   may well carry a `desc` inside `base` and nothing here can see it, so an absent
   `desc` beside a spread is _reported_ rather than taken as "there is none" --
@@ -15496,19 +15507,60 @@ and the check, and `src/i18n/keys.ts` is generated.
   answers nothing, which is the right answer when English is what is in effect.
 
 - **The chain is `AppOptions.locale`, `SIGIL_LOCALE`, `LC_ALL`, `LC_MESSAGES`,
-  `LANG`, English.** `SIGIL_COLOR_SCHEME`'s chain with its reasons: each step
-  down is less specific knowledge about the same question, the app is on top
-  because a named locale is a statement about its output rather than a guess, and
-  the user is next because what they are correcting is the detection. `LC_ALL`
-  over `LC_MESSAGES` over `LANG` is POSIX's own order. Namespaced because there
-  is no cross-tool convention for forcing a CLI's message locale the way
-  `NO_COLOR` is one for colour.
+  `LANG`, `Schema.defaultLocale`, English.** `SIGIL_COLOR_SCHEME`'s chain with
+  its reasons: each step down is less specific knowledge about the same question,
+  the app is on top because a named locale is a statement about its output rather
+  than a guess, and the user is next because what they are correcting is the
+  detection. `LC_ALL` over `LC_MESSAGES` over `LANG` is POSIX's own order.
+  Namespaced because there is no cross-tool convention for forcing a CLI's
+  message locale the way `NO_COLOR` is one for colour.
 
   `C` and `POSIX` mean English and read no catalog, which is this feature's
   `NO_COLOR` -- `LANG=C.UTF-8` is what CI generally holds and English is the
   right answer for a CI log. A variable that is **set and blank** falls through
   to the next, the way an empty environment variable already does in the parser,
   while `LC_ALL=C` is a decision and stops the walk.
+
+- **`Schema.defaultLocale` is the bottom of that chain, and it is a second
+  property rather than a second writer of `AppOptions.locale`.** Two
+  precedences, so two names: `AppOptions.locale` is the app saying "this
+  program's output _is_ German" and outranks the environment, while
+  `defaultLocale` is the app saying "ship in German unless the machine asks
+  otherwise" and the environment outranks it. One name meaning both is how a
+  default comes to override the user, which is the trap. It is what
+  `"locale": "de"` in `sigil.json` reaches, through the build.
+
+  It does **not** open the no-catalogs fast path: an app that names a default and
+  ships no `locales` still resolves nothing, because a default is not a catalog
+  and there is nothing to load. And it is a tag rather than a catalog, so it goes
+  through the same normalization and the same fallback chain as `LANG` -- `de`
+  serves Austria from one `de` catalog, and a tag no loader is keyed by reads as
+  English.
+
+- **`sigil.json` gains a `locale`, which is the first key in that file that
+  changes what the app says at run time -- so it is top level rather than under
+  `build`.** Everything else in there is a toolchain setting: `components` is
+  where `sigil add` ejects and `build.*` are bundler knobs, none of which the
+  running app can observe. `build.locale` would read as _baking_ a language in,
+  which is a different thing and is deliberately not done; `locale` reads as a
+  fact about the app, which is what it is. `sigil build` writes it into the
+  schema it generates as `defaultLocale`, beside the version and the baked tree.
+
+  The runtime cannot read that file, and that is the whole reason the build has
+  to carry it: reading one at startup is what `Schema.locales` being a map rather
+  than a directory convention exists to avoid. It is not validated as a BCP 47
+  tag in the toolchain either, because the runtime normalizes it and a tag no
+  catalog is keyed by already reads as English -- a second grammar for BCP 47
+  here would be one that disagrees with `Intl`.
+
+  What it costs is an asymmetry worth stating rather than hiding: the key reaches
+  the **built** app only, so an app whose `sigil.json` says `de` and whose schema
+  says nothing is German built and English unbundled. That is `version`'s own
+  shape -- the manifest's version is baked while the app's own function is the
+  unbundled answer -- and the answer is the same: an app that wants its
+  unbundled runs to match writes `defaultLocale` in its schema too, in which
+  case the build writes the same value over the top. Not closed with a mechanism,
+  because the only one available is a file read at startup.
 
 - **The POSIX forms are normalized by hand, because `Intl` refuses all of
   them.** `en_US.UTF-8`, `pt_BR`, `zh_Hans_CN`, `de_DE@euro`, `C` and `C.UTF-8`
@@ -15616,37 +15668,83 @@ and the check, and `src/i18n/keys.ts` is generated.
   which reads `COLUMNS`; `settings.help` is not a knob, which the first version
   of that test assumed and so measured the same screen five times.
 
-- **The one surface that does not translate is the schema's own object
-  literal**, and it is a real limitation rather than a bug. A `__` there is
-  evaluated when the module holding it is imported, which is before `main()` is
-  called at all -- so a root option's `desc` written that way stays English.
-  Measured end to end on a built app: `Verwendung:` and `Optionen:` translate and
-  `--where [w]  Where to put it` does not.
+- **A `desc` is a string or a thunk, and the thunk is what makes a description
+  translatable at all.** The limitation this closes was measured before it was
+  fixed: a `__` in an object literal is evaluated when the module holding it is
+  imported, which for the schema is before `main()` is called -- so on a built
+  app `Verwendung:` and `Optionen:` translated and
+  `--where [w]  Where to put it` did not. `Argument`, `Option`, `Command` and
+  `Schema` all take `string | DescThunk` now, and `initArg()`, `initOption()` and
+  `initCommand()` resolve it through one `resolveDesc()`, because three readings
+  of "a description may be a function" is three answers to one question.
 
-  A **command module's** strings do translate, because `loadCommand()` imports
-  the module during the parse, after the catalog has loaded -- measured, a
-  `` desc: __`Build the app` `` in one renders `Die App bauen`. And that is where
-  the interesting half is: it **costs the static `desc` lift**, because a tagged
-  template is not a string literal, so `sigil build` reports `"desc" is computed
-  rather than a string literal` and the root help lists that command by name
-  alone. So **the lift and translation are mutually exclusive for a command's
-  description**, and an app has to pick which one it wants.
+  The shape `Schema.version` already had, which is what makes it the obvious one
+  rather than an invention: a value in a literal is evaluated too early and a
+  function is called when the answer is known. Resolved **once**, at init, rather
+  than through a getter -- a lazy one would answer differently after a
+  `setLocale()`, which is the rule `err.message` already follows, and it is why
+  `InternalCommand.desc` narrows back to a `string` so no reader past `init*()`
+  meets a function.
 
-  Both halves want one fix and it is the same fix: `desc` accepting a thunk the
-  framework resolves inside `initCommand()`, with the lift reading
-  `` __`…` `` and emitting `` () => __`…` `` into the generated tree. That is a
-  change to what `Command.desc` means, reaching help, the lift, the generated
-  tree and inference, and it is not taken inside this ticket -- the same refusal
-  this file records for narrowing the toolchain's type check inside a caching
-  ticket. Written down rather than discovered.
+  It is **guarded** rather than assigned unconditionally, and the tests are what
+  said so: normalizing must not _add_ a key the declaration never wrote, because
+  the copies echo the declaration -- twelve `deep.equal` assertions in
+  `options.test.ts` fail over a `desc: undefined`. `hidden` always reading back a
+  boolean is the one declared exception.
+
+  A thunk that answers something that is not a string **throws**, naming the
+  declaration, because a description is measured and wrapped: before this,
+  `desc: () => 42` was `r.split is not a function` out of the wrapper with nothing
+  named. `Schema.version` is lenient about the same shape and is entitled to be,
+  since what it answers is interpolated into a string and coerces.
+
+  `Schema.desc` is **declared** while this was being done, because help has
+  always printed it -- `Command`'s index signature let it through -- and a
+  property help reads should be a property the types name.
+
+  An option's **shorthand** takes a thunk too, and leaving it out was the one
+  real gap a self-review found: `'--where': 'a description'` is a `desc` written
+  in a shorthand, so `'--where': () => __`...`` is the same statement the other
+  way -- and before this it was `Expected option to be an object`, which names
+  nothing. A thunk working in `{ desc: () => ... }` and not three characters to
+  the left is the asymmetry this file keeps recording as a defect.
+
+- **And the static lift reads a `__` tag, so the lift and translation stopped
+  being a choice between two.** That was the half worth fixing: a tagged template
+  is not a string literal, so `` desc: __`Build the app` `` in a command module
+  was reported as `"desc" is computed` and the root help listed that command by
+  name alone -- while the key was sitting in the source the whole time.
+  `translatedKey()` reads it, through `bindings.ts` rather than by spelling, so
+  which shapes of the tag count is the answer `findTemplates()` already gets; and
+  `generate.ts` prints `` desc: () => __`Build the app` `` over an import of the
+  tag, so the built app renders it through its own catalog rather than baking the
+  English in.
+
+  The import is emitted only when something in the tree needs it, and by
+  `generateCommands()` rather than by its caller -- a caller deciding would be a
+  second reading of the same tree, and the one that got it wrong would print a
+  module with an undefined tag in it. It is printed as a **template literal**
+  rather than a quoted string because `__` is a tag and there is no call form of
+  it, which costs the escapes: the key is built from the _cooked_ quasis, so what
+  is emitted has to cook back to exactly what was lifted. Pinned as a round trip
+  over eight keys rather than as a spelling.
+
+  An **interpolated** tag -- `` desc: __`build ${target}` `` -- is reported with
+  a message of its own rather than as plain computed, because "computed rather
+  than a string literal" about a `__` tag whose neighbour lifted perfectly well
+  names nothing the author can act on.
+
+  Measured end to end on a real build: `build  Die App bauen` on the root screen
+  of an app whose command module was never imported.
 
 - **Baking a single pinned locale is deferred, and its helper went with it.** The
   design pass measured it at +0.07 ms at 34 keys, and said the form is the object
   literal rather than the `JSON.parse`-of-a-string-literal trick everybody
   reaches for first -- which loses until about a thousand keys. A `printCatalog()`
   was written and tested and then **removed**, because the baking is not wired and
-  this repo does not ship an export with no caller. `sigil.json` gains no
-  `locale` key for the same reason.
+  this repo does not ship an export with no caller. What `sigil.json` gained
+  instead is a `locale` **default** rather than a baked catalog, which is the
+  entry below: it decides which catalog is loaded and bakes none of it.
 
 - **One module instance across two entries, which is the hazard the design pass
   did not name.** An app imports `__` from `@ttylabs/sigil/i18n` while the
@@ -15732,6 +15830,35 @@ and the check, and `src/i18n/keys.ts` is generated.
   mutation that bites. The one declared survivor is the English fast path in
   `__()`, which changes no answer -- without it the key is built, the lookup
   misses and the branch below answers with the same `zip()`.
+
+- **The thunk and the default locale added forty more, and all forty are
+  caught.** Seventeen over the runtime and twenty-three over the toolchain,
+  counted against the shipped tree in one run each rather than summed across
+  rounds. Four survived first time and every one was the same shape -- a guard
+  whose _reader_ nothing exercised:
+
+  `main()` reading `Schema.defaultLocale` was the sharpest, because that one
+  argument is the whole of what makes `"locale": "de"` reach a screen and
+  nothing in 355 tests touched it. `generateBin()` passing the runtime down to
+  the tree survived because the two defaults agree, so it needed an app whose
+  runtime is **not** `@ttylabs/sigil` -- and the claim is real: the entry names
+  one runtime, so the tag has to come from the same place. The `sigil build`
+  command's one line getting the locale out of the config survived because the
+  end-to-end test called `bundleApp()` with it already read, so it needed a run
+  through the command itself. And `unwrap()` in `translatedKey()` survived
+  because the test for it used the **wrong parenthesis shape**: measured,
+  `` (__)`x` `` keeps the parens on the _tag_, which `bindingName()` unwraps,
+  while ``(__`x`)`` keeps them on the _value_, which is the only shape this
+  unwrap reaches -- so the two are pinned separately now.
+
+  The harness reported six patterns as `PATTERN MISSED` rather than as passes,
+  which is the guard this file records it for earning its keep again: three went
+  stale when the formatter reflowed `backtick()`'s escape chain onto one line
+  each, and the three replacements were generated **from the file** rather than
+  written by hand, because hand-escaping a `replaceAll('\\\\', ...)` through a
+  JSON cases file is how a pattern comes to match nothing. It also refused a run
+  whose reporter did not exist -- `--reporter=basic` is not a vitest 5 reporter,
+  so every mutation would otherwise have read as caught.
 
 - **What is deliberately out.** **Number, date, currency and list formatting**,
   on the design pass's measurement: each ICU-backed `Intl` constructor is 4-7 ms

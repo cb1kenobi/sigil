@@ -3,6 +3,7 @@ import { assertSectionTitle } from '../../util/assert-label.js';
 import { camelCase } from '../../util/camel-case.js';
 import { copyDeclaration } from '../../util/copy-declaration.js';
 import { lockDerived } from '../../util/lock-derived.js';
+import { resolveDesc } from '../../util/resolve-desc.js';
 
 /**
  * "all"
@@ -115,6 +116,17 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
 
 	if (opt.type && !optionTypesRE.test(opt.type)) {
 		throw new Error(`Option "${opt.name}" has unsupported data type "${opt.type}"`);
+	}
+
+	// a description may have been written as a thunk, which is what makes one
+	// translatable: see `DescThunk`. Resolved here, so that `InternalOption.desc`
+	// is a string and help -- the only reader -- meets no function
+	//
+	// only where the declaration had one, because normalizing must not *add* a
+	// key the caller never wrote: the copy echoes the declaration, and `hidden`
+	// always reading back a boolean is a declared exception rather than the rule
+	if (opt.desc !== undefined) {
+		opt.desc = resolveDesc(opt.desc, `the "${opt.name}" option`);
 	}
 
 	// parse negate

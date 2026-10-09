@@ -51,7 +51,7 @@ export async function main(opts: AppOptions = {}): Promise<ParseState | unknown>
 		// reach a message already rendered, so a parse error and `--help` are
 		// always in the environment's locale. That is the right answer rather than
 		// a gap: an app whose parse failed never got to read its config.
-		await loadCatalog(opts.schema?.locales, process.env, opts.locale);
+		await loadCatalog(opts.schema?.locales, process.env, opts.locale, opts.schema?.defaultLocale);
 
 		const { parse } = await import('./parser/parse.js');
 

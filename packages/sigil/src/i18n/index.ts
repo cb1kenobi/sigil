@@ -368,12 +368,21 @@ export function normalizeLocale(raw: string | undefined): string | undefined {
  * Resolves the locale from an app's own answer and the environment.
  *
  * `AppOptions.locale`, then `SIGIL_LOCALE`, then `LC_ALL`, then `LC_MESSAGES`,
- * then `LANG`, then English -- `SIGIL_COLOR_SCHEME`'s chain, with its reasons.
- * Each step down is less specific knowledge about the same question. The app is
- * on top because a named locale is a statement about its output rather than a
- * guess at the terminal, and the user is next because what they are correcting
- * is the detection. `LC_ALL` over `LC_MESSAGES` over `LANG` is POSIX's own
- * order, and messages are what this is about.
+ * then `LANG`, then `Schema.defaultLocale`, then English --
+ * `SIGIL_COLOR_SCHEME`'s chain, with its reasons. Each step down is less
+ * specific knowledge about the same question. The app is on top because a named
+ * locale is a statement about its output rather than a guess at the terminal,
+ * and the user is next because what they are correcting is the detection.
+ * `LC_ALL` over `LC_MESSAGES` over `LANG` is POSIX's own order, and messages are
+ * what this is about.
+ *
+ * `Schema.defaultLocale` is at the **bottom**, under every environment variable
+ * and above English, which is the one place a fallback can go: an app saying
+ * "ship in German unless the machine asks otherwise" is a weaker statement than
+ * the machine's own `LANG`, and a stronger one than the English in the source.
+ * That is also why it is a second property rather than a second writer of
+ * `AppOptions.locale` -- two precedences under one name is how a default comes
+ * to override the user.
  *
  * `SIGIL_LOCALE` sits above `LC_ALL` because it is the user correcting *this
  * tool* where `LC_ALL` is the system's general answer -- the same place
@@ -388,13 +397,15 @@ export function normalizeLocale(raw: string | undefined): string | undefined {
  *
  * @param env - The environment to read.
  * @param explicit - What the app named, which outranks all of it.
+ * @param fallback - The app's default, which only answers when nothing else did.
  * @returns A canonical tag, or nothing for English.
  */
 export function resolveLocale(
 	env: Record<string, string | undefined> = {},
-	explicit?: string
+	explicit?: string,
+	fallback?: string
 ): string | undefined {
-	for (const raw of [explicit, env.SIGIL_LOCALE, env.LC_ALL, env.LC_MESSAGES, env.LANG]) {
+	for (const raw of [explicit, env.SIGIL_LOCALE, env.LC_ALL, env.LC_MESSAGES, env.LANG, fallback]) {
 		if (raw?.trim()) {
 			return normalizeLocale(raw);
 		}
@@ -536,12 +547,14 @@ async function use(tag: string | undefined): Promise<void> {
  *
  * @param locales - The loader map, kept for `setLocale()`.
  * @param env - The environment to resolve from.
- * @param explicit - What the app named.
+ * @param explicit - What the app named, which outranks the environment.
+ * @param fallback - `Schema.defaultLocale`, which the environment outranks.
  */
 export async function loadCatalog(
 	locales: Locales | undefined,
 	env: Record<string, string | undefined> = {},
-	explicit?: string
+	explicit?: string,
+	fallback?: string
 ): Promise<void> {
 	registered = locales;
 
@@ -551,7 +564,10 @@ export async function loadCatalog(
 	// `use(undefined)` is what it skips to, and the only thing it changes is
 	// that `locale()` answers nothing, which is the right answer when English is
 	// what is in effect
-	await use(locales ? resolveLocale(env, explicit) : undefined);
+	//
+	// a `defaultLocale` is not a catalog, so it does not open this gate: an app
+	// that names one and ships none has nothing to load either
+	await use(locales ? resolveLocale(env, explicit, fallback) : undefined);
 }
 
 /**

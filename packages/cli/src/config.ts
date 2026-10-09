@@ -71,6 +71,26 @@ export interface SigilConfig {
 	readonly build?: BuildConfig;
 	/** Where ejected components land, relative to the app. */
 	readonly components?: string;
+	/**
+	 * The locale the app falls back on when nothing else named one.
+	 *
+	 * Top level rather than under `build`, because it is a fact about the app
+	 * rather than a bundler knob: `"build": { "locale": ... }` would read as
+	 * *baking* a language in, which is a different thing that is deliberately
+	 * not done. What `sigil build` does with it is write `defaultLocale` into
+	 * the schema it generates, beside the version, because the runtime cannot
+	 * read this file -- reading one at startup is what `Schema.locales` being a
+	 * map rather than a directory convention exists to avoid.
+	 *
+	 * It is the bottom of the locale chain: `AppOptions.locale`, `SIGIL_LOCALE`,
+	 * `LC_ALL`, `LC_MESSAGES` and `LANG` all beat it, and it beats English. So
+	 * it says what the app ships in rather than overriding the user.
+	 *
+	 * Not validated as a locale tag here, because the runtime normalizes it and
+	 * a tag no catalog is keyed by already reads as English -- a second grammar
+	 * for BCP 47 in the toolchain would be one that disagrees with `Intl`.
+	 */
+	readonly locale?: string;
 }
 
 /** Whether a path is a file, answering `false` for anything unreadable. */
@@ -107,7 +127,11 @@ export function readSigilConfig(root: string): SigilConfig {
 		throw new Error(`Failed to parse ${CONFIG_FILE}: ${(e as Error).message}`);
 	}
 
-	return { build: readBuild(json.build), components: readComponents(json.components) };
+	return {
+		build: readBuild(json.build),
+		components: readComponents(json.components),
+		locale: readString(json.locale, 'locale'),
+	};
 }
 
 /** The `components` field, which predates the rest of the file. */

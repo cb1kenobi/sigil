@@ -30,6 +30,7 @@ command-line flag beats the file:
 ```json
 {
   "components": "src/components",
+  "locale": "de",
   "build": {
     "external": ["some-native-package"],
     "name": "mycli",
@@ -49,6 +50,15 @@ so when it finishes.
 
 `name` is only needed when your `package.json` publishes more than one `bin`;
 otherwise the executable is named after the one it publishes.
+
+`locale` is the locale your app falls back on, written into the schema the build
+generates. It sits at the **bottom** of the locale chain — `SIGIL_LOCALE`,
+`LC_ALL`, `LC_MESSAGES` and `LANG` all beat it — so it says what the app ships in
+rather than overriding the user. It is here rather than under `build` because it
+is a fact about the app rather than a bundler knob, and the build is simply the
+only thing that can carry it: the runtime does not read a config file at
+startup. It reaches the **built** app only, so an app whose unbundled runs
+should match writes `defaultLocale` in its schema too.
 
 `shake` decides whether the utility stylesheet is cut down to the classes your
 source can actually name. It is on by default, it only affects an app that

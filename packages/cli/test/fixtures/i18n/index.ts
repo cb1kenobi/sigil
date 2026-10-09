@@ -11,7 +11,10 @@ export default {
 	},
 	name: 'fixture-i18n',
 	options: {
-		'--where [w]': { desc: __`Where to put it` },
+		// a thunk, because this literal is evaluated when the module is imported
+		// -- which is before `main()` has loaded a catalog, so a value here would
+		// always be English
+		'--where [w]': { desc: () => __`Where to put it` },
 	},
 };
 

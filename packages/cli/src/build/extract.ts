@@ -58,6 +58,7 @@
  */
 
 import type { Diagnostic } from './diagnostic.ts';
+import { translatedKey } from './i18n.ts';
 import { literalBoolean, literalString, objectLiteral, propertyKey } from './literals.ts';
 import { parseModule, position, type ParsedModule } from './parse-module.ts';
 import type { ObjectExpression } from 'oxc-parser';
@@ -72,6 +73,17 @@ export interface CommandFacts {
 	 * wrote one this cannot read.
 	 */
 	readonly desc?: string;
+	/**
+	 * Whether `desc` is a catalog key rather than the description itself.
+	 *
+	 * Set for a `` desc: __`Build the app` ``, which a build reads exactly as it
+	 * reads a template literal with no substitutions -- so the generated tree
+	 * carries `` () => __`Build the app` `` and the built app renders it through
+	 * its own catalog. Without it the lift would bake the English, and a
+	 * translated app's command list would be the one part of help that is not
+	 * translated.
+	 */
+	readonly descTranslated?: boolean;
 	/** Whether it hides itself, when the module wrote a boolean literal. */
 	readonly hidden?: boolean;
 }
@@ -118,7 +130,7 @@ export function factsOf(parsed: ParsedModule): Extracted {
 		return { diagnostics, facts: {} };
 	}
 
-	const facts: { desc?: string; hidden?: boolean } = {};
+	const facts: { desc?: string; descTranslated?: boolean; hidden?: boolean } = {};
 	let spread: number | undefined;
 
 	for (const property of object.properties) {
@@ -147,16 +159,32 @@ export function factsOf(parsed: ParsedModule): Extracted {
 
 		if (key === 'desc') {
 			const text = literalString(value);
-			if (text === undefined) {
-				diagnostics.push({
-					...at(value.start),
-					message:
-						'"desc" is computed rather than a string literal, so it cannot be read at build time; help will list this command by name alone',
-					severity: 'warning',
-				});
+			if (text !== undefined) {
+				facts.desc = text;
 				continue;
 			}
-			facts.desc = text;
+
+			// a `__` tag is a description written to be translated, and its key is
+			// in the source -- so it is readable for exactly the reason a template
+			// literal with no substitutions is. What is lifted is the key; see
+			// `translatedKey()` for what the generated tree then carries
+			const translated = translatedKey(parsed, value);
+			if (translated?.key !== undefined) {
+				facts.desc = translated.key;
+				facts.descTranslated = true;
+				continue;
+			}
+
+			// said separately, because "computed rather than a string literal" about
+			// a `__` tag whose neighbour lifted perfectly well names nothing the
+			// author can act on
+			diagnostics.push({
+				...at(value.start),
+				message: translated
+					? '"desc" is a translated string with a value interpolated into it, so it cannot be read at build time; help will list this command by name alone until its module loads'
+					: '"desc" is computed rather than a string literal, so it cannot be read at build time; help will list this command by name alone',
+				severity: 'warning',
+			});
 			continue;
 		}
 

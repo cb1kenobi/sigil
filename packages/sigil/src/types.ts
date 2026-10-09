@@ -104,12 +104,38 @@ export type ArgDataType = DataType;
 
 export type Transformer = <T>(value: T, state: ParseState) => Promise<T | unknown>;
 
+/**
+ * A description written as a function, resolved while the declaration is
+ * initialized.
+ *
+ * The shape `Schema.version` already is, and the reason is that one read a
+ * layer in: a value in an object literal is evaluated when the module holding
+ * it is imported, and for the schema that is before `main()` has loaded a
+ * catalog -- so `` desc: __`Build the app` `` is a description that is always
+ * English however well the app is translated. A thunk moves the evaluation to
+ * `initCommand()`, `initOption()` and `initArg()`, every one of which runs
+ * during the parse and therefore after the catalog.
+ *
+ * Resolved **once**, there, rather than read lazily through a getter: a getter
+ * would answer differently after `setLocale()`, which is the rule `err.message`
+ * already follows -- the string is rendered where it is built, so one
+ * declaration has one description however many times it is asked. Which is why
+ * the internal side narrows `desc` back to a `string`: past `init*()` there is
+ * no thunk left for a reader to know about.
+ *
+ * It costs the static lift nothing, because `sigil build` reads a `__` tag with
+ * no interpolations and emits `` () => __`...` `` into the tree it bakes -- so a
+ * command module's description is both lifted into help and translated, where
+ * before it was one or the other.
+ */
+export type DescThunk = () => string;
+
 export interface Argument {
 	[key: string]: unknown; // custom data
 	choices?: readonly unknown[];
 	default?: unknown;
-	/** What the argument is for, as help prints it. */
-	desc?: string;
+	/** What the argument is for, as help prints it. See {@link DescThunk}. */
+	desc?: string | DescThunk;
 	env?: string | string[];
 	multiple?: boolean;
 	name: string;
@@ -120,6 +146,8 @@ export interface Argument {
 
 export interface InternalArgument extends Argument {
 	[Internal]: InternalArgumentBase;
+	/** Resolved by `initArg()`, so no reader past it meets a thunk. */
+	desc?: string;
 	type: ArgDataType;
 }
 
@@ -176,7 +204,8 @@ export interface Command<
 	 */
 	commands?: string | (string | AnyCommand)[] | Record<string, string | AnyCommand>;
 	default?: boolean;
-	desc?: string;
+	/** What the command is for, as help prints it. See {@link DescThunk}. */
+	desc?: string | DescThunk;
 	/**
 	 * Descriptions a build lifted out of the modules this command's own
 	 * directory holds, so help can name them without importing them. Only
@@ -227,6 +256,8 @@ export interface Command<
 
 export interface InternalCommand extends AnyCommand {
 	[Internal]: InternalCommandBase;
+	/** Resolved by `initCommand()`, so no reader past it meets a thunk. */
+	desc?: string;
 	name: string;
 }
 
@@ -418,7 +449,16 @@ export type OptionDataType = DataType | 'count';
  * description. The same shape wherever options are declared -- a schema, a
  * command, a help section, and an `options()` group.
  */
-export type OptionDeclarations = Record<string, string | Option | undefined | null>;
+/**
+ * The options a schema or a command declares, keyed by format string.
+ *
+ * The value is the whole declaration, or a shorthand for its description --
+ * which may be a thunk for the reason a `desc` property may be one. A string
+ * and a function in that position are the same statement written two ways, so a
+ * thunk working in `{ desc: () => ... }` and not here would be the asymmetry
+ * this file keeps recording as a defect.
+ */
+export type OptionDeclarations = Record<string, string | DescThunk | Option | undefined | null>;
 
 /**
  * All properties are optional because most of them can be populated by the
@@ -429,7 +469,8 @@ export interface Option {
 	alias?: string | string[];
 	choices?: readonly unknown[];
 	default?: unknown;
-	desc?: string;
+	/** What the option is for, as help prints it. See {@link DescThunk}. */
+	desc?: string | DescThunk;
 	env?: string | string[];
 	format?: string;
 	/**
@@ -453,6 +494,8 @@ export interface Option {
 
 export interface InternalOption extends Option {
 	[Internal]: InternalOptionBase;
+	/** Resolved by `initOption()`, so no reader past it meets a thunk. */
+	desc?: string;
 	name: string;
 	type: OptionDataType;
 }
@@ -590,6 +633,35 @@ export interface Schema {
 	 */
 	baseDir?: string;
 	commands?: string | (string | AnyCommand)[] | Record<string, string | AnyCommand>;
+	/**
+	 * The locale to fall back on when nothing else named one.
+	 *
+	 * The bottom of the chain rather than the top: `AppOptions.locale`,
+	 * `SIGIL_LOCALE`, `LC_ALL`, `LC_MESSAGES` and `LANG` all beat it, and it
+	 * beats English. So it is the app saying "ship in German unless the machine
+	 * asks for something else", which is a different statement from
+	 * `AppOptions.locale`'s "this program's output *is* German" -- two
+	 * precedences, so two names, because one name meaning both is the trap.
+	 *
+	 * This is what `sigil build` writes from `"locale"` in `sigil.json`, beside
+	 * the version and the baked tree: the runtime cannot read that file, because
+	 * reading one at startup is what `locales` being a map rather than a
+	 * directory convention exists to avoid. An unbundled app writes it here
+	 * itself.
+	 *
+	 * It is a tag rather than a catalog, so it goes through the same
+	 * normalization and the same fallback chain: `'de'` serves Austria from one
+	 * `de` catalog, and a tag no loader is keyed by reads as English.
+	 */
+	defaultLocale?: string;
+	/**
+	 * What the program is for, printed above the usage line.
+	 *
+	 * Declared here because help has always printed it -- `Command`'s index
+	 * signature let it through the types -- and a property help reads should be
+	 * a property the types name. See {@link DescThunk}.
+	 */
+	desc?: string | DescThunk;
 	/**
 	 * Whether to add `--help` and a `help` command. On unless set to `false`; an
 	 * app that declares either of them keeps its own either way.

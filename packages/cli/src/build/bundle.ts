@@ -85,6 +85,14 @@ export interface BundleOptions {
 	readonly app: DiscoveredApp;
 	/** What the built executable is called, without an extension. */
 	readonly binName: string;
+	/**
+	 * The locale the built app falls back on, from `"locale"` in `sigil.json`.
+	 *
+	 * Written into the generated schema as `defaultLocale`, beside the version,
+	 * because the runtime has no way to read a config file at startup. Absent
+	 * leaves whatever the app's own schema said.
+	 */
+	readonly defaultLocale?: string;
 	/** An executable of the app's own, bundled instead of a generated one. */
 	readonly bin?: string;
 	/**
@@ -232,6 +240,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 		app,
 		bin,
 		binName,
+		defaultLocale,
 		external = [],
 		out,
 		safelist,
@@ -502,7 +511,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 	// earlier, because it is `rolldown()`'s `input`; see `writeEntry()`.
 	try {
 		if (generated) {
-			writeEntry(generated, app, tree);
+			writeEntry(generated, app, tree, defaultLocale);
 		}
 
 		const written = await bundle.write({
@@ -1162,13 +1171,25 @@ function entryLocation(app: DiscoveredApp, out: string): GeneratedEntry {
  * @param at - Where the entry goes.
  * @param app - The app.
  * @param tree - The tree to bake in.
+ * @param defaultLocale - The locale to bake as the bottom of the chain.
  */
-function writeEntry(at: GeneratedEntry, app: DiscoveredApp, tree: ResolvedTree): void {
+function writeEntry(
+	at: GeneratedEntry,
+	app: DiscoveredApp,
+	tree: ResolvedTree,
+	defaultLocale: string | undefined
+): void {
 	mkdirSync(at.dir, { recursive: true });
 
 	writeFileSync(
 		at.file,
-		generateBin({ from: at.dir, schemaModule: app.entry, tree, version: app.manifest.version }),
+		generateBin({
+			defaultLocale,
+			from: at.dir,
+			schemaModule: app.entry,
+			tree,
+			version: app.manifest.version,
+		}),
 		'utf-8'
 	);
 }

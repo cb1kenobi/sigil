@@ -132,7 +132,8 @@ const build: AnyCommand = command({
 		// either flag is offered for. Telling the two apart means re-reading argv
 		// for a spelling, which is a second parser disagreeing with the first over
 		// a case nobody has. `--sourcemap` is the same and always was.
-		const config = readSigilConfig(found.app.root).build ?? {};
+		const sigilConfig = readSigilConfig(found.app.root);
+		const config = sigilConfig.build ?? {};
 		const out = resolveOut(
 			found.app.root,
 			String(argv.out === DEFAULT_OUT ? (config.out ?? DEFAULT_OUT) : argv.out)
@@ -144,6 +145,7 @@ const build: AnyCommand = command({
 			app: found.app,
 			bin,
 			binName: binName(found, (argv.name as string | undefined) ?? config.name),
+			defaultLocale: sigilConfig.locale,
 			external: (argv.external as string[] | undefined) ?? config.external ?? [],
 			out,
 			safelist: config.safelist,

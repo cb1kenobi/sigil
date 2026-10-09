@@ -441,4 +441,31 @@ describe('sigil build', () => {
 		// still a file, so nothing was written over it
 		expect(statSync(file).isFile()).toBe(true);
 	}, 60_000);
+
+	it('should bake the locale `sigil.json` named into the app it builds', async () => {
+		// the wiring the command owns: `bundle.test.ts` calls `bundleApp()` with
+		// the locale already read, so without this the one line that gets it out of
+		// the config and into the build is pinned by nothing
+		const { err } = await sigil('build', join(fixtures, 'i18n'), '--out', out, '--no-sourcemap');
+
+		expect(err).not.toContain('Error');
+
+		const built = spawnSync(process.execPath, [join(out, 'fixture-i18n.mjs'), '--help'], {
+			cwd: tmpdir(),
+			encoding: 'utf-8',
+			// the locale is the *bottom* of the chain, so the environment has to say
+			// nothing for the config's answer to be the one that is read
+			env: {
+				...process.env,
+				LANG: undefined,
+				LC_ALL: undefined,
+				LC_MESSAGES: undefined,
+				SIGIL_LOCALE: undefined,
+			},
+		});
+
+		expect(built.status).toBe(0);
+		expect(built.stdout).toContain('Verwendung:');
+		expect(built.stdout).toContain('Die App bauen');
+	}, 60_000);
 });

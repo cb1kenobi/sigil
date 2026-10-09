@@ -21,7 +21,7 @@
  * a string that is not there.
  */
 
-import { bindingName, importBindings, reachable } from './bindings.ts';
+import { bindingName, importBindings, reachable, unwrap } from './bindings.ts';
 import type { Diagnostic } from './diagnostic.ts';
 import { displayPath } from './diagnostic.ts';
 import type { DiscoveredApp } from './discover.ts';
@@ -40,10 +40,10 @@ import { dirname, join, resolve } from 'node:path';
 import type { Expression, TaggedTemplateExpression } from 'oxc-parser';
 
 /** The module the tag and the plural are imported from. */
-const KEY_MODULE = '@ttylabs/sigil/i18n';
+export const KEY_MODULE = '@ttylabs/sigil/i18n';
 
 /** The tag's export name. */
-const TAG_EXPORT = '__';
+export const TAG_EXPORT = '__';
 
 /** The plural's export name. */
 const PLURAL_EXPORT = '__n';
@@ -117,6 +117,72 @@ function fromTag(parsed: ParsedModule, node: TaggedTemplateExpression): FoundKey
 		),
 		kind: 'string',
 		line,
+	};
+}
+
+/** What a value written as a `__` tag came to, for the static lift. */
+export interface TranslatedKey {
+	/**
+	 * The catalog key the tag declares.
+	 *
+	 * Absent when the tag carried an interpolation, which a build cannot read
+	 * for the reason it cannot read `desc: greeting()`: the value is the running
+	 * app's. The caller reports that rather than guessing, and a reader told
+	 * only "computed rather than a string literal" about a `__` tag whose
+	 * neighbour lifted fine would have no idea which half was the problem.
+	 */
+	readonly key?: string;
+}
+
+/**
+ * The key a value written as a `__` tag declares, when it is one.
+ *
+ * This is what makes the static lift and a translated description stop being a
+ * choice between two. A tagged template is not a string literal, so
+ * `` desc: __`Build the app` `` was reported as computed and the command was
+ * listed by name alone -- and the key is right there in the source, so there
+ * was never anything to compute. What the lift carries is the key; what
+ * `generateBin()` emits is `` () => __`key` ``, so the built app renders it
+ * through its own catalog rather than baking one language in.
+ *
+ * The bindings are read per call rather than once per module because
+ * `importBindings()` walks the tree for the names the module rebinds, and the
+ * overwhelmingly common `desc` is a plain string literal that never reaches
+ * here. Which shapes of the tag count, and which are silently missed, is
+ * `bindings.ts`'s -- the same answer `findTemplates()` gets.
+ *
+ * @param parsed - The module.
+ * @param node - The value a property held.
+ * @returns What it came to, or `undefined` when it is not the tag at all.
+ */
+export function translatedKey(parsed: ParsedModule, node: Expression): TranslatedKey | undefined {
+	const expression = unwrap(node);
+
+	if (expression.type !== 'TaggedTemplateExpression') {
+		return undefined;
+	}
+
+	const tags = importBindings(parsed, KEY_MODULE, TAG_EXPORT);
+
+	if (!reachable(tags) || bindingName(expression.tag, tags) === undefined) {
+		return undefined;
+	}
+
+	if (expression.quasi.expressions.length) {
+		return {};
+	}
+
+	// `templateKey()` rather than the one quasi read off directly, which for a
+	// template with no interpolations is the same string: one reader of the key
+	// rule, because two that agree today is how the lift comes to bake a key the
+	// tag does not look up
+	const quasis = expression.quasi.quasis;
+
+	return {
+		key: templateKey(
+			quasis.map((element) => element.value.cooked ?? undefined),
+			quasis.map((element) => element.value.raw)
+		),
 	};
 }
 

@@ -51,6 +51,11 @@ export interface ResolvedCommand {
 	readonly commands: readonly ResolvedCommand[];
 	/** What it does, lifted from its module or read from its manifest. */
 	readonly desc?: string;
+	/**
+	 * Whether `desc` is a catalog key rather than the description itself. Never
+	 * set for a package, whose description is prose out of a manifest.
+	 */
+	readonly descTranslated?: boolean;
 	/** Whether it hides itself, lifted from its module. */
 	readonly hidden?: boolean;
 	/**

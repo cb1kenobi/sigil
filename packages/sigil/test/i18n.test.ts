@@ -242,6 +242,28 @@ describe('resolving a locale', () => {
 		expect(resolveLocale({})).toBeUndefined();
 		expect(resolveLocale()).toBeUndefined();
 	});
+
+	it('should fall back to the app`s default when nothing else named one', () => {
+		expect(resolveLocale({}, undefined, 'de_DE.UTF-8')).toBe('de-DE');
+	});
+
+	it('should let every environment variable beat the app`s default', () => {
+		// the whole of what makes `defaultLocale` a *default* rather than a second
+		// `AppOptions.locale`: it is the bottom of the chain, so it says what the
+		// app ships in without overriding the user
+		expect(resolveLocale({ LANG: 'fr_FR' }, undefined, 'de')).toBe('fr-FR');
+		expect(resolveLocale({ LC_MESSAGES: 'fr_FR' }, undefined, 'de')).toBe('fr-FR');
+		expect(resolveLocale({ LC_ALL: 'fr_FR' }, undefined, 'de')).toBe('fr-FR');
+		expect(resolveLocale({ SIGIL_LOCALE: 'fr_FR' }, undefined, 'de')).toBe('fr-FR');
+		expect(resolveLocale({}, 'fr_FR', 'de')).toBe('fr-FR');
+	});
+
+	it('should let `LC_ALL=C` beat the app`s default, which a blank one does not', () => {
+		// `C` is a decision and says English, so it stops the walk before the
+		// default is reached; a variable that is merely blank falls through to it
+		expect(resolveLocale({ LC_ALL: 'C' }, undefined, 'de')).toBeUndefined();
+		expect(resolveLocale({ LC_ALL: '' }, undefined, 'de')).toBe('de');
+	});
 });
 
 describe('the fallback chain', () => {
@@ -355,6 +377,25 @@ describe('loading a catalog', () => {
 		);
 
 		expect(__`Options`).toBe('FIRST');
+	});
+
+	it('should load the app`s default when the environment named none', async () => {
+		await loadCatalog({ de: async () => de }, {}, undefined, 'de');
+
+		expect(locale()).toBe('de');
+		expect(__`Unknown option "${'--porx'}"`).toBe('Unbekannte Option "--porx"');
+	});
+
+	it('should load nothing for an app that named a default and ships no catalogs', async () => {
+		// a `defaultLocale` is not a catalog, so it does not open the gate the
+		// loader map opens: an app with nothing to load has nothing to resolve a
+		// locale *for*
+		const loader = vi.fn();
+
+		await loadCatalog(undefined, {}, undefined, 'de');
+
+		expect(loader).not.toHaveBeenCalled();
+		expect(locale()).toBeUndefined();
 	});
 
 	it('should resolve no locale at all for an app that declares none', async () => {
@@ -710,10 +751,12 @@ describe('through main()', () => {
 describe('a command module`s own strings', () => {
 	it('should translate, because the module is imported after the catalog loads', async () => {
 		// a command module is reached by `loadCommand()` during `parse()`, which is
-		// after `main()` has resolved the locale -- so a `__` in one is translated
-		// where the *root* schema's own literal is not: that one is evaluated when
-		// the module holding it is imported, which is before `main()` is called at
-		// all. The asymmetry is real and is written down in AGENTS.md.
+		// after `main()` has resolved the locale -- so a `__` written as a *value*
+		// in one is translated. The same spelling in the root schema's own literal
+		// is not, because that one is evaluated when the module holding it is
+		// imported, which is before `main()` is called at all; a thunk is what
+		// closes that, and `a description written as a thunk` below is where it is
+		// pinned.
 		const { main } = await import('../src/index.js');
 		const lines: string[] = [];
 		const write = vi
@@ -748,6 +791,221 @@ describe('a command module`s own strings', () => {
 		}
 
 		expect(lines.join('')).toContain('Die App bauen');
+	});
+});
+
+describe('a default locale the app declared', () => {
+	/** A schema with a catalog and a declared default. */
+	const schema = (defaultLocale?: string) => ({
+		defaultLocale,
+		locales: { de: async () => ({ 'Unknown option "{0}"': 'UNBEKANNT "{0}"' }) },
+		name: 'mycli',
+	});
+
+	/**
+	 * Runs `main()` over a provoked parse error, with stderr captured.
+	 *
+	 * The error path rather than help, because that is the surface the chain has
+	 * to reach first: a parse can fail before any of the app's own code runs.
+	 *
+	 * @param defaultLocale - What the schema declares, if anything.
+	 * @returns What `errorHandler()` wrote.
+	 */
+	async function failingRun(defaultLocale?: string): Promise<string> {
+		const { main } = await import('../src/index.js');
+		const lines: string[] = [];
+		const write = vi
+			.spyOn(process.stderr, 'write')
+			.mockImplementation(((text: string) => (lines.push(text), true)) as never);
+
+		try {
+			await main({
+				argv: ['--porx'],
+				schema: schema(defaultLocale),
+				settings: { allowUnknownOptions: false, assertCwd: false },
+			});
+		} finally {
+			write.mockRestore();
+		}
+
+		return lines.join('');
+	}
+
+	it('should render in it when the environment named none', async () => {
+		// `sigil build` writes `defaultLocale` into the schema from `"locale"` in
+		// `sigil.json`, because the runtime cannot read that file -- so this one
+		// argument is the whole of what makes that feature reach the screen
+		vi.stubEnv('LANG', undefined);
+		vi.stubEnv('LC_ALL', undefined);
+		vi.stubEnv('LC_MESSAGES', undefined);
+		vi.stubEnv('SIGIL_LOCALE', undefined);
+
+		expect(await failingRun('de')).toContain('UNBEKANNT "--porx"');
+	});
+
+	it('should render in English when the schema declared none', async () => {
+		vi.stubEnv('LANG', undefined);
+		vi.stubEnv('LC_ALL', undefined);
+		vi.stubEnv('LC_MESSAGES', undefined);
+		vi.stubEnv('SIGIL_LOCALE', undefined);
+
+		expect(await failingRun()).toContain('Unknown option "--porx"');
+	});
+
+	it('should let the environment beat it', async () => {
+		vi.stubEnv('LANG', undefined);
+		vi.stubEnv('LC_ALL', undefined);
+		vi.stubEnv('LC_MESSAGES', undefined);
+		vi.stubEnv('SIGIL_LOCALE', 'en');
+
+		expect(await failingRun('de')).toContain('Unknown option "--porx"');
+	});
+});
+
+describe('a description written as a thunk', () => {
+	/**
+	 * Drives `main()` with stdout captured, which is what a help screen has to be
+	 * read off.
+	 *
+	 * @param options - The schema and what argv said.
+	 * @returns Everything that was written.
+	 */
+	async function help(options: {
+		argv?: string[];
+		locale?: string;
+		schema: Record<string, unknown>;
+	}): Promise<string> {
+		const { main } = await import('../src/index.js');
+		const lines: string[] = [];
+		const write = vi
+			.spyOn(process.stdout, 'write')
+			.mockImplementation(((text: string) => (lines.push(text), true)) as never);
+
+		try {
+			await main({
+				argv: options.argv ?? ['--help'],
+				locale: options.locale,
+				schema: options.schema,
+				settings: { assertCwd: false },
+			});
+		} finally {
+			write.mockRestore();
+		}
+
+		return lines.join('');
+	}
+
+	/** What the thunks below look up. */
+	const screen: Catalog = {
+		'a tool for testing': 'ein Werkzeug zum Testen',
+		'build the app': 'die App bauen',
+		'the entry file': 'die Eintragsdatei',
+		'where to put it': 'wohin damit',
+	};
+
+	/** A schema whose every description is a thunk over the tag. */
+	const thunked = () => ({
+		commands: { build: { args: [{ desc: () => __`the entry file`, name: '<entry>' }], run() {} } },
+		desc: () => __`a tool for testing`,
+		locales: { de: async () => screen },
+		name: 'mycli',
+		options: { '--where [w]': { desc: () => __`where to put it` } },
+	});
+
+	it('should translate the schema`s own description, which a string cannot', async () => {
+		// the limitation this closes: a `__` written as a *value* in the schema's
+		// object literal is evaluated when the module holding it is imported,
+		// which is before `main()` has loaded anything -- so it is always English
+		// however well the app is translated
+		expect(await help({ locale: 'de', schema: thunked() })).toContain('ein Werkzeug zum Testen');
+	});
+
+	it('should translate a root option`s description', async () => {
+		expect(await help({ locale: 'de', schema: thunked() })).toContain('wohin damit');
+	});
+
+	it('should take a thunk as the option shorthand, which a string already was', async () => {
+		// `'--where [w]': 'a description'` is a `desc` in a shorthand, so a thunk
+		// there is the same statement written the other way -- and before this it
+		// was `Expected option to be an object`, which names nothing
+		const screenText = await help({
+			locale: 'de',
+			schema: {
+				locales: { de: async () => screen },
+				name: 'mycli',
+				options: { '--where [w]': () => __`where to put it` },
+			},
+		});
+
+		expect(screenText).toContain('wohin damit');
+	});
+
+	it('should translate an argument`s description', async () => {
+		expect(await help({ argv: ['help', 'build'], locale: 'de', schema: thunked() })).toContain(
+			'die Eintragsdatei'
+		);
+	});
+
+	it('should answer the English it was keyed on with no catalog in effect', async () => {
+		const screenText = await help({ schema: thunked() });
+
+		expect(screenText).toContain('a tool for testing');
+		expect(screenText).toContain('where to put it');
+	});
+
+	it('should read a command`s description as the string the thunk answered', async () => {
+		const { initCommand } = await import('../src/parser/command/init-command.js');
+		const cmd = await initCommand({ desc: () => 'built once', name: 'build' });
+
+		expect(cmd.desc).toBe('built once');
+	});
+
+	it('should resolve it once rather than on every read', async () => {
+		// resolved at init rather than through a getter, which is the rule
+		// `err.message` already follows: a declaration has one description however
+		// many times it is asked, and a lazy one would answer differently after a
+		// `setLocale()`
+		const { initCommand } = await import('../src/parser/command/init-command.js');
+		const thunk = vi.fn(() => 'built once');
+		const cmd = await initCommand({ desc: thunk, name: 'build' });
+
+		expect(cmd.desc).toBe('built once');
+		expect(cmd.desc).toBe('built once');
+		expect(thunk).toHaveBeenCalledTimes(1);
+	});
+
+	it('should add no desc key to a declaration that wrote none', async () => {
+		// normalizing must not *add* a property the caller never wrote: the copies
+		// echo the declaration, and `hidden` always reading back a boolean is the
+		// one declared exception
+		const { initCommand } = await import('../src/parser/command/init-command.js');
+		const { initOption } = await import('../src/parser/option/init-option.js');
+		const { initArg } = await import('../src/parser/argument/init-arg.js');
+
+		expect(Object.hasOwn(await initCommand({ name: 'build' }), 'desc')).toBe(false);
+		expect(Object.hasOwn(await initOption({ format: '--where' }), 'desc')).toBe(false);
+		expect(Object.hasOwn(initArg({ name: '<entry>' }), 'desc')).toBe(false);
+	});
+
+	it('should refuse a desc that is neither a string nor a function', async () => {
+		// cast because the types already refuse it, which is the point: the runtime
+		// guard is for the JavaScript app the types never see
+		const { initCommand } = await import('../src/parser/command/init-command.js');
+
+		await expect(initCommand({ desc: 42 as any, name: 'build' })).rejects.toThrow(
+			/Expected desc for the "build" command to be a string or a function/
+		);
+	});
+
+	it('should refuse a thunk that answers something that is not a string', async () => {
+		// a description is measured and wrapped, so a non-string one reaches
+		// `stringWidth()` several layers from the mistake: before this,
+		// `desc: () => 42` was `r.split is not a function` out of the wrapper
+		const { initOption } = await import('../src/parser/option/init-option.js');
+
+		await expect(initOption({ desc: (() => 42) as any, format: '--where [w]' })).rejects.toThrow(
+			/Expected desc for the "where" option to return a string/
+		);
 	});
 });
 

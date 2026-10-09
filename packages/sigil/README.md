@@ -179,7 +179,7 @@ The format string carries the name, the aliases, and whether a value is taken:
 | `multiple`                        | repeated uses collect into an array                                                                     |
 | `required`                        | written out, wins over what `<>`/`[]` implied                                                           |
 | `transform`                       | `(value, state) => newValue`, run before type coercion, argv values only                                |
-| `desc`                            | what help prints                                                                                        |
+| `desc`                            | what help prints; a function for a translated one, see [Translating](#translating)                      |
 | `group`                           | puts the option under its own `<group> options:` heading in help                                        |
 | `hidden`                          | keep it out of help; it still parses                                                                    |
 | `negate`                          | `false` opts a `no-`-named option out of being read as negation                                         |
@@ -391,7 +391,7 @@ hook already are that moment.
 | Property                      | Purpose                                                                          |
 | ----------------------------- | -------------------------------------------------------------------------------- |
 | `run`                         | `(state) => any`; the handler                                                    |
-| `desc`                        | what help prints                                                                 |
+| `desc`                        | what help prints; a function for a translated one                                |
 | `args`, `options`, `commands` | as above                                                                         |
 | `default`                     | dispatch when argv named no command                                              |
 | `alias`                       | extra names that stay out of the help label                                      |
@@ -748,8 +748,23 @@ translations reads nothing, calls nothing and constructs no `Intl`.
 ### Which locale
 
 `AppOptions.locale`, then `SIGIL_LOCALE`, then `LC_ALL`, then `LC_MESSAGES`,
-then `LANG`, then English. `C`, `POSIX` and absent all mean English and read no
-catalog.
+then `LANG`, then `Schema.defaultLocale`, then English. `C`, `POSIX` and absent
+all mean English and read no catalog.
+
+`defaultLocale` is the **bottom** of that chain, which is what makes it a
+default rather than a second `AppOptions.locale`: it says what the app ships in,
+and every environment variable still beats it. `sigil build` writes it from
+`"locale"` in `sigil.json`, so an app configures it once:
+
+```json
+{ "locale": "de" }
+```
+
+The runtime cannot read that file — reading one at startup is what `locales`
+being a map rather than a directory convention exists to avoid — so the build is
+what carries it across, beside the version and the baked tree. An app that wants
+its **unbundled** runs to match writes `defaultLocale` in its schema as well,
+which is the same asymmetry `version` already has.
 
 POSIX spellings are taken everywhere a tag is: `de_DE.UTF-8`, `pt_BR` and
 `de_DE@euro` all resolve, which `Intl` itself refuses for all three. The
@@ -776,10 +791,45 @@ are always in the environment's locale, because both happen before a command
 runs — which is the right answer rather than a gap: an app whose parse failed
 never got to read its config.
 
-For the same reason, a `__` in the **schema's own object literal** is evaluated
-when that module is imported, which is before `main()` is called at all — so a
-root option's `desc` written that way stays English. A command module's strings
-are fine, because the module is imported during the parse. See AGENTS.md.
+### A description is a thunk
+
+A `__` in the **schema's own object literal** is evaluated when that module is
+imported, which is before `main()` is called at all — so a `desc` written as a
+value there is always English, however well the app is translated. A `desc` may
+be a **function** for exactly this, and it is resolved while the declaration is
+initialized, which happens during the parse:
+
+```js
+import { __ } from '@ttylabs/sigil/i18n';
+
+export default {
+  name: 'mycli',
+  desc: () => __`a tool for testing`,
+  options: {
+    '--where [w]': { desc: () => __`where to put it` },
+  },
+  args: [{ name: '<entry>', desc: () => __`the entry file` }],
+};
+```
+
+The same shape `Schema.version` already takes, and for the same reason. It is
+resolved **once**, not through a getter, so one declaration has one description
+however many times help asks — a lazy one would answer differently after a
+`setLocale()`.
+
+An option's shorthand takes one too, since a string there _is_ a `desc`:
+
+```js
+options: { '--where [w]': () => __`where to put it` },
+```
+
+A **command module** may write either form: its own module is imported during
+the parse, so a value there is translated too. The thunk is what lets `sigil
+build` do both at once — it reads the key out of a `` desc: __`Build the app` ``
+and emits `` () => __`Build the app` `` into the tree it bakes, so the command is
+listed in root help **and** described in the user's language. Written as a value
+it is still translated at run time, and `sigil build` reports it as computed and
+lists the command by name alone.
 
 ### A missing translation
 
