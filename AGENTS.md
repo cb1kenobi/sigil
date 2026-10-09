@@ -16079,6 +16079,13 @@ broken in both directions, neither caused by translation.
   closing paren is clipped, and the _vocabulary_ is still on screen, which is the
   residual rather than a fix: at 12 columns nothing is good.
 
+  Both halves clamp with `Math.max(1, ...)`, so at an `avail` of 1 or less they
+  sum to more than there is and the row over-commits -- which the canvas clips.
+  What has to hold there is only that it is neither an exception nor a loop, and
+  that `wrap()` is never handed a width below 1. Round 1 read that correctly off
+  the code; it is checked down to **one column** now, an `avail` of -2, and pinned
+  rather than reasoned about.
+
 - **And `lines` counts the taller of the two halves, not the message.** It counted
   the message alone, so a hint that wrapped made the head taller than the choice
   window believed and the row reserved for the error line absorbed it -- measured,

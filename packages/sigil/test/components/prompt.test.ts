@@ -541,6 +541,42 @@ describe('an affordance in a narrow terminal', () => {
 		await answer;
 	});
 
+	it('should not throw or hang at a width nothing can be drawn in', async () => {
+		// `headWidths()` clamps both halves with `Math.max(1, ...)`, so at `avail` of
+		// 1 or less they sum to more than there is and the row over-commits -- which
+		// the canvas clips. Nothing below the 13-column floor is *useful*; what has to
+		// hold is that it is not an exception or a loop, and `wrap()` is never handed
+		// a width below 1. Checked down to one column, which is `room - fixed` of -2
+		for (const columns of [1, 2, 3, 4, 5, 6]) {
+			const ui = screenSetup({ columns, rows: 6 });
+			const answer = settle(
+				confirm({ ansi: ui.ansi, message: 'Overwrite', terminal: ui.terminal })
+			);
+
+			expect(ui.log.length, `confirm at ${columns}`).to.be.greaterThan(0);
+
+			await type(ui.stdin, '\u0003');
+			await answer;
+		}
+
+		for (const columns of [1, 3, 5]) {
+			const ui = screenSetup({ columns, rows: 8 });
+			const answer = settle(
+				multiselect({
+					ansi: ui.ansi,
+					choices: ['a', 'b'],
+					message: 'Pick',
+					terminal: ui.terminal,
+				})
+			);
+
+			expect(ui.log.length, `multiselect at ${columns}`).to.be.greaterThan(0);
+
+			await type(ui.stdin, '\u0003');
+			await answer;
+		}
+	});
+
 	it('should keep the submit hint readable rather than one column wide', async () => {
 		// measured at 40 columns before this: `(ctrl-d to submit)` came out as `(`,
 		// `t`, `s` down the right-hand side, one character per row
