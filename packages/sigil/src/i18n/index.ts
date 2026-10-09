@@ -491,11 +491,12 @@ function capitalize(half: string): string {
  * publishes -- `src/debug/` has no subpath, so a parse living there could not
  * say when it had refused an entry.
  *
- * What that costs is **648 bytes on the root entry's path**, measured rather than
- * waved at: `dist/index.mjs` imports `./i18n.mjs` for `__`, and an entry chunk is
- * not shaken per importer, so everything this barrel exports is on the graph an
- * app that answers `--version` loads -- 6,825 bytes to 7,473, against the 20 kB
- * ceiling `test/dist.test.ts` holds. Paid rather than avoided, because the
+ * What that costs is **about 700 bytes on the root entry's path**, measured rather
+ * than waved at: `dist/index.mjs` imports `./i18n.mjs` for `__`, and an entry
+ * chunk is not shaken per importer, so everything this barrel exports is on the
+ * graph an app that answers `--version` loads -- 6,825 bytes to 7,513 at the
+ * commit that measured it, against the 20 kB ceiling `test/dist.test.ts` holds,
+ * which is the number to trust rather than this one. Paid rather than avoided, because the
  * alternative is a published subpath of its own, which is permanent API surface
  * for one consumer, and `prompt.ts` has to reach it through a published subpath
  * whichever module it is in.

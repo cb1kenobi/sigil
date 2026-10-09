@@ -15763,7 +15763,7 @@ and the check, and `src/i18n/keys.ts` is generated.
   about 1.5 kB of that back, and is not done: nothing measures a 1.5 kB module,
   and it would cost an internal/public split of one barrel. The ceiling in
   `test/dist.test.ts` is 20 kB and its comment now names 6.8 rather than 4.1. It
-  is **7.5 kB** since SIG-135, for the 648 bytes the section below measures.
+  is **7.5 kB** since SIG-135, for the ~700 bytes the section below measures.
 
 - **`literals.ts` gained `outermostWith()` and `loaderSpecifier()`, and both are
   shared rather than copied.** The catalog reader asks "which object literal is
@@ -15983,9 +15983,11 @@ the two width defects it turned up were already wrong in English.
   this file keeps warning about: a sentence asserting a property nothing checks.
   `dist/index.mjs` imports `./i18n.mjs` for `__`, and an **entry chunk is not
   shaken per importer**, so everything this barrel exports is on the graph an app
-  that answers `--version` loads. Measured: **6,825 bytes to 7,473**, which is 648
-  for `confirmKeys()` and its three helpers, against the 20 kB ceiling
-  `test/dist.test.ts` holds. Paid rather than avoided, because the alternative is a
+  that answers `--version` loads. Measured: **6,825 bytes to 7,513**, which is
+  about 700 for `confirmKeys()` and its helpers, against the 20 kB ceiling
+  `test/dist.test.ts` holds -- and the first version of that figure read 648 and
+  went stale by 40 bytes within the hour, when the decomposed guard landed, so
+  read the ceiling rather than this. Paid rather than avoided, because the alternative is a
   published subpath of its own -- permanent API surface for one consumer -- and
   `prompt.ts` has to reach it through a published subpath whichever module it is in.
   Found by checking the claim rather than by a review.
