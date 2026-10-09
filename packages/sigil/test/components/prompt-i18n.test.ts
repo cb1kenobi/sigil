@@ -1,5 +1,8 @@
+import { commandPalette } from '../../src/components/palette.js';
 import { confirm, multiline, multiselect, text } from '../../src/components/prompt.js';
 import { type Catalog, loadCatalog } from '../../src/i18n/index.js';
+import { parse } from '../../src/parser/parse.js';
+import type { ParseState, Schema } from '../../src/types.js';
 import { screenSetup, tick } from './helpers.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -330,5 +333,63 @@ describe('a translated prompt that cannot be answered', () => {
 		await type(ui.stdin, '\u0003');
 
 		expect(((await answer).error as Error).message).to.equal('Abgebrochen');
+	});
+});
+
+describe('a translated command palette', () => {
+	// the palette is not one of the six prompts, so the ticket's inventory missed
+	// it -- and it borrows `runPrompt()` and draws affordances, so leaving it is
+	// the English-in-the-middle-of-German the whole feature is about
+	async function appState(schema: Schema): Promise<ParseState> {
+		return parse({ argv: [], env: {}, schema: { help: false, name: 'mycli', ...schema } });
+	}
+
+	it('should translate the default message and the empty-list line', async () => {
+		await translated({
+			'No commands match': 'Kein Befehl passt',
+			'Run a command': 'Befehl ausfuehren',
+		});
+		const ui = screenSetup({ columns: 60, rows: 10 });
+		const answer = settle(
+			commandPalette(await appState({ commands: { build: { run(): void {} } } }), {
+				ansi: ui.ansi,
+				terminal: ui.terminal,
+			})
+		);
+
+		await tick();
+		expect(ui.log.join('\n')).to.include('Befehl ausfuehren');
+
+		// a query nothing ranks to, which is what the empty line is for
+		await type(ui.stdin, 'zzzz');
+		expect(ui.log.join('\n')).to.include('Kein Befehl passt');
+
+		await type(ui.stdin, '\u0003');
+		await answer;
+	});
+
+	it('should translate the entry an optional slot offers in place of a value', async () => {
+		// built per call rather than at module scope, because a `const` there is
+		// evaluated when the module is imported -- before `main()` loaded a catalog
+		await translated({ '(skip)': '(ueberspringen)' });
+		const ui = screenSetup({ columns: 60, rows: 12 });
+		const answer = settle(
+			commandPalette(
+				await appState({
+					commands: {
+						build: { args: [{ choices: ['a', 'b'], name: '[mode]' }], run(): void {} },
+					},
+				}),
+				{ ansi: ui.ansi, terminal: ui.terminal }
+			)
+		);
+
+		await tick();
+		await type(ui.stdin, '\r');
+
+		expect(ui.log.join('\n')).to.include('(ueberspringen)');
+
+		await type(ui.stdin, '\u0003');
+		await answer;
 	});
 });

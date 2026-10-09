@@ -15643,7 +15643,7 @@ and the check, and `src/i18n/keys.ts` is generated.
   confirmation: it counted 37 without the three merges this gained
   (`Invalid number`, `{0} options:`, `Show help for a command`) and without the
   three metasyntax keys it gained (`[options]`, `[command]`, `<command>`). It is
-  **52** now, and 2 plural: the prompts are the section below, and no figure
+  **55** now, and 2 plural: the prompts are the section below, and no figure
   anywhere should be read as the current count -- `SIGIL_KEYS.length` is.
 
 - **`[options]`, `[command]` and `<command>` are translated and `<entry>` is
@@ -16093,10 +16093,24 @@ broken in both directions, neither caused by translation.
   `j/n`, `(Tak/nie)` from `tak/nie` with the key still `t`, `(はい/いいえ)` with
   the key `は`, and Polish naming `n` once rather than twice.
 
+- **And the palette had three affordances the inventory missed, because the
+  inventory read `prompt.ts`.** `commandPalette()` is not one of the six prompts
+  and it borrows `runPrompt()` and draws its own: `Run a command`, `No commands
+  match`, and the `(skip)` entry an optional `choices` list offers in place of a
+  value -- which is a _prompt_ affordance, since the palette passes it to
+  `select()`. Leaving them is the English-in-the-middle-of-German this whole
+  feature is about, so they are three more keys and the count is **55**.
+
+  `(skip)` was a module-scope `const` and is a function now, which is the thunk
+  rule met one layer along: a `const` there is evaluated when the module is
+  imported, which for a component is before `main()` has loaded a catalog. The
+  sabotage that makes it eager again is caught, so the per-call lookup is load
+  bearing rather than tidy.
+
 ##### What the sabotage pass found
 
-Thirty-two mutations, one at a time with the four affected suites run after each,
-against a green control. **All thirty-two are caught**, after two survivors that
+Thirty-six mutations, one at a time with the four affected suites run after each,
+against a green control. **All thirty-six are caught**, after two survivors that
 were each a fixture too easy to reach the branch it was named for -- which is the
 shape this file keeps recording, and both were found by the pass rather than by
 review.

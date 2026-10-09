@@ -834,8 +834,9 @@ lists the command by name alone.
 ### The prompts, and what a translated `confirm` accepts
 
 The affordances translate like everything else — the submit hint, the
-multiselect hint, the settled answers, `Choose at least one` — and `confirm` is
-the one with a twist, because its hint names the keys it reads. Translating the
+multiselect hint, the settled answers, `Choose at least one`, and the command
+palette's own `Run a command`, `No commands match` and `(skip)` — and `confirm`
+is the one with a twist, because its hint names the keys it reads. Translating the
 hint on its own would give a prompt that displays `(J/n)` and ignores `j`.
 
 So there is **one** catalog entry, `y/n`, and it is both:

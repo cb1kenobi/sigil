@@ -28,6 +28,7 @@
  */
 
 import { box, type Element, text as textNode, toDisplayText } from '../element/index.js';
+import { __ } from '../i18n/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import type { OptionDataType } from '../types.js';
 import { transformValue } from '../util/transform.js';
@@ -87,8 +88,17 @@ export interface PaletteResult {
 	readonly values: readonly (readonly string[])[];
 }
 
-/** What an optional list of allowed values offers in place of none of them. */
-const SKIP = '(skip)';
+/**
+ * What an optional list of allowed values offers in place of none of them.
+ *
+ * Read per call rather than once at module scope, because a translated string is
+ * built where it is used: a `const` here is evaluated when the module is
+ * imported, which for a component is before `main()` has loaded a catalog -- the
+ * same trap a `desc` written as a value rather than a thunk falls into.
+ */
+function skipLabel(): string {
+	return __`(skip)`;
+}
 
 /**
  * How a declared choice is spelled as an argv token.
@@ -260,7 +270,7 @@ async function askSlot(slot: PaletteSlot, opts: PaletteOptions): Promise<string[
 
 		const picked = await select<string | undefined>({
 			...shared,
-			choices: slot.required ? offered : [{ label: SKIP, value: undefined }, ...offered],
+			choices: slot.required ? offered : [{ label: skipLabel(), value: undefined }, ...offered],
 		});
 		return picked === undefined ? [] : [picked];
 	}
@@ -486,7 +496,7 @@ export async function commandPalette(
 	opts: PaletteOptions = {}
 ): Promise<PaletteResult | undefined> {
 	const entries = commandCatalog(target, opts);
-	const message = opts.message ?? 'Run a command';
+	const message = opts.message ?? __`Run a command`;
 	const entry = await runList(entries, { ...opts, message });
 
 	if (!entry) {
@@ -528,7 +538,7 @@ function runList(
 		const head = promptHeadWidths(opts.message, Math.max(1, terminal.width));
 		const { line, mark } = promptHeadLine(opts.message, head.message, field, answer);
 		const { list, rows } = paletteRows(entries);
-		const empty = textNode('No commands match', {
+		const empty = textNode(__`No commands match`, {
 			class: 'sigil-palette-empty sigil-muted',
 			display: 'none',
 			'padding-left': 2,
