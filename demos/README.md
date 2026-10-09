@@ -75,9 +75,9 @@ parse is what loads it.
 
 ## Translating
 
-|                                                    |                                                               |
-| -------------------------------------------------- | ------------------------------------------------------------- |
-| [`i18n/01-translating.js`](i18n/01-translating.js) | A translated string, plurals, and the locale changing mid-run |
+|                                                    |                                                                                      |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| [`i18n/01-translating.js`](i18n/01-translating.js) | A translated string, plurals, a prompt's vocabulary, and the locale changing mid-run |
 
 The English sentence _is_ the catalog key, so there is nothing to invent and
 nothing to look up:
@@ -88,7 +88,7 @@ LANG=de_DE.UTF-8 node demos/i18n/01-translating.js
 SIGIL_LOCALE=pl node demos/i18n/01-translating.js   # four plural forms
 ```
 
-Three things in one screen. `__` is a tagged template whose key is the English
+Four things in one screen. `__` is a tagged template whose key is the English
 with its slots numbered, and the German **reorders** them — `Copied {0} to {1}`
 becomes `Nach {1} wurde {0} kopiert`, which is the whole reason numbered slots
 beat `%s`. `__n` takes two forms and selects with `Intl.PluralRules`, so Polish
@@ -96,6 +96,25 @@ gets four categories with no grammar written for it, German two, and Japanese
 one — which is why a plural entry may be a plain string rather than an object.
 And `setLocale()` runs four times, which is what an app does once it has read
 its config.
+
+The fourth is a prompt's own vocabulary, printed rather than prompted so that
+this demo still needs no terminal. A yes-or-no hint **is** the keys it reads, so
+one entry decides both and there is no second place for a translator to
+contradict themselves:
+
+```
+en            confirm draws (Y/n)          yes: y      no: n
+de  j/n       confirm draws (J/n)          yes: j y    no: n
+pl  tak/nie   confirm draws (Tak/nie)      yes: t y    no: n
+ja  はい/いいえ   confirm draws (はい/いいえ)   yes: は y   no: い n
+```
+
+The key is each half's first **code point**, so a half may be a whole word and
+the key is still one character of it. `y` and `n` keep working on top of
+whatever the entry named — and are named once rather than twice where the entry
+already used them, which is why Polish has one `n`. What does _not_ move is
+`argv`: `type: 'yesno'` accepts `y`/`yes`/`n`/`no` in every locale, because a
+value in a shell script must not mean something different under another `LANG`.
 
 The thing to notice is what does **not** happen: nothing already printed
 changes. A string is translated where it is built, so each line is in the locale

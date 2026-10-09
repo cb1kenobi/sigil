@@ -16066,10 +16066,37 @@ broken in both directions, neither caused by translation.
   there is that the complaint is the parser's own, so the fixture is a width that
   can show one.
 
+##### What walking the hostile inputs found, which no test had
+
+- **The capital is applied only where pressing what is shown sends the key**, and
+  two mappings fail that. A one-to-many uppercase -- `ß` is `SS`, `ﬁ` is `FI` --
+  would draw `(SS/n)` over a key of `ß`, so a reader presses `s` and nothing
+  happens. And the Turkish dotless `ı` upper-cases to `I`, which is **one code
+  point** and still the wrong one, because `I` lowercases to `i`: the glyph on
+  screen sends a key the prompt does not read. So the guard is a _round trip_
+  rather than a length check, which is the half that catches the second. Both
+  leave the half as written, which marks nothing and lies about nothing -- the
+  lesser of the two, and the one this file's rule about a hint that lies picks.
+
+- **And two comments were false about the code beside them.** `keyOfHalf()` gave
+  the Turkish _uppercase_ hazard, `i` to `İ`, for a function that **lowercases**
+  -- where the hazard is `I` to the dotless `ı`, which is what a reader checking
+  the comment would have found backwards. And the width comment said the hint
+  survives to 14 columns where the measurement and the test both say 13. Neither
+  was reachable by a sabotage, which is the boundary this file already records:
+  a pass built out of deletions cannot read prose.
+
+- **The demo prints the vocabulary rather than prompting for it**, so the one
+  mechanism is demonstrable in a demo that still needs no terminal and that
+  `demos.test.ts` drives -- `confirmKeys()` is a function of a catalog entry.
+  `demos/i18n/01-translating.js` shows all four rules at once: `(J/n)` from
+  `j/n`, `(Tak/nie)` from `tak/nie` with the key still `t`, `(はい/いいえ)` with
+  the key `は`, and Polish naming `n` once rather than twice.
+
 ##### What the sabotage pass found
 
-Thirty-one mutations, one at a time with the four affected suites run after each,
-against a green control. **All thirty-one are caught**, after two survivors that
+Thirty-two mutations, one at a time with the four affected suites run after each,
+against a green control. **All thirty-two are caught**, after two survivors that
 were each a fixture too easy to reach the branch it was named for -- which is the
 shape this file keeps recording, and both were found by the pass rather than by
 review.

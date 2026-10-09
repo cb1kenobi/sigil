@@ -487,7 +487,7 @@ function headWidths(
 	// columns, so at 40 it left the question four columns and `Pick some things`
 	// came out as seven rows of two letters.
 	//
-	// So a short affordance is always whole -- `(Y/n)` down to 14 columns -- and a
+	// So a short affordance is always whole -- `(Y/n)` down to 13 columns -- and a
 	// long one wraps, with `lines` below counting what that came to
 	const forTail = Math.min(
 		Math.max(1, stringWidth(toDisplayText(tail))),

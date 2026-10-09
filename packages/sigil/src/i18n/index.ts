@@ -351,11 +351,14 @@ export interface ConfirmKeys {
  *
  * By code point rather than by code unit, so an astral character is one key
  * rather than half a surrogate pair -- the rule `highlightRuns()` already keeps.
- * `toLowerCase()` rather than the locale variant, because the locale one reads
- * the process locale and in Turkish and Azeri `i` cases to `İ`: a key is
- * compared and never used to index, so a result longer than one code point is
- * harmless where a locale-dependent one is a key that stops matching on
- * somebody's machine and nowhere else.
+ * `toLowerCase()` rather than the locale variant, for `camelCase()`'s reason read
+ * in this function's own direction: the locale one reads the *process* locale, and
+ * in Turkish and Azeri `I` lowercases to the dotless `ı`. So an entry of `I/n`
+ * would have a key of `ı` on a machine set to `tr-TR` while the reader pressing
+ * that key sends `i` -- `confirm()` compares against `k.name.toLowerCase()`, which
+ * is not locale-sensitive -- and the key would stop matching there and nowhere
+ * else. A result longer than one code point is harmless by contrast, because a key
+ * here is only ever compared and never used to index.
  *
  * @param half - One side of the pair.
  * @returns The key, or an empty string.
@@ -408,16 +411,32 @@ function pairKeys(yesHalf: string, noHalf: string, fallback: boolean): ConfirmKe
  * The first code point of a string upper-cased, which is how the default shows.
  *
  * By code point for `keyOfHalf()`'s reason, and `toUpperCase()` for its other
- * one. A mapping that answers more than one character -- `ß` is `SS` -- is a
- * display label rather than a key, so it is let through.
+ * one. The capital is only *applied* where pressing what is shown would send the
+ * key, which is what keeps the mark from being a lie: `keyOfHalf()` reads the
+ * half as written and lowercases it, so the glyph on screen has to lowercase back
+ * to that same key.
+ *
+ * Two mappings fail that and both are reachable. A one-to-many mapping -- `ß` is
+ * `SS`, `ﬁ` is `FI` -- would draw `(SS/n)` over a key of `ß`, so a reader presses
+ * `s` and nothing happens. And the Turkish dotless `ı` upper-cases to `I`, which
+ * is one code point and still the *wrong* one: `I` lowercases to `i`, so pressing
+ * the glyph shown sends a key the prompt does not read. Both leave the half as
+ * written, which marks nothing and lies about nothing -- the lesser of the two,
+ * and the one this file's rule about a hint that parses and lies picks.
  *
  * @param half - One side of the pair.
- * @returns The half with its first character upper-cased.
+ * @returns The half with its first character upper-cased, where that is safe.
  */
 function capitalize(half: string): string {
 	const [first, ...rest] = [...half];
 
-	return first === undefined ? half : first.toUpperCase() + rest.join('');
+	if (first === undefined) {
+		return half;
+	}
+
+	const upper = first.toUpperCase();
+
+	return upper.toLowerCase() === first ? upper + rest.join('') : half;
 }
 
 /**

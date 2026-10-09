@@ -231,6 +231,24 @@ describe('the keys a yes-or-no prompt accepts', () => {
 		expect(confirmKeys('ja/nein', false).hint).to.equal('(ja/Nein)');
 	});
 
+	it('should leave the half alone where the capital would not be the key', () => {
+		// the capital marks the default, and marking it with a glyph that is not the
+		// key is the hint lying -- so it is applied only where pressing what is shown
+		// sends the key. A one-to-many mapping would draw `(SS/n)` over a key of `ß`,
+		// and the Turkish dotless `ı` upper-cases to `I`, which is one code point and
+		// still the wrong one, since `I` lowercases to `i`
+		for (const [half, key] of [
+			['\u00DF', '\u00DF'],
+			['\uFB01', '\uFB01'],
+			['\u0131', '\u0131'],
+		] as const) {
+			const keys = confirmKeys(`${half}/n`, true);
+
+			expect(keys.hint, half).to.equal(`(${half}/n)`);
+			expect(keys.yes, half).to.deep.equal([key, 'y']);
+		}
+	});
+
 	it('should capitalize by code point too, which emoji cannot show', () => {
 		// an astral *emoji* has no uppercase mapping, so reading its first code unit
 		// instead answers the same string and the guard looks inert. Deseret has one:
