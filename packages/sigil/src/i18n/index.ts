@@ -321,6 +321,168 @@ export function __n(count: number, one: string, other: string, ...values: unknow
 }
 
 /**
+ * The keys a yes-or-no prompt accepts, and the hint they are drawn as.
+ *
+ * Both halves of one answer, because the whole point is that they cannot come
+ * apart: a hint translated on its own gives a prompt that displays `(J/n)` and
+ * ignores `j`, which is a hint that parses and lies.
+ */
+/**
+ * The pair English falls back to, which is also the catalog key for it.
+ *
+ * The same string in two roles rather than one copy too many: at the call site
+ * it is the key -- the English *is* the key -- and here it is the floor a
+ * malformed entry lands on. A refusal has to name some vocabulary, and this is
+ * the one every user of every locale can rely on.
+ */
+const ENGLISH_PAIR = 'y/n';
+
+export interface ConfirmKeys {
+	/** The hint, `(Y/n)` in English, with the default's half capitalized. */
+	hint: string;
+	/** Every key that means no, lowercased. */
+	no: readonly string[];
+	/** Every key that means yes, lowercased. */
+	yes: readonly string[];
+}
+
+/**
+ * The first code point of a string, lowercased, or nothing for an empty one.
+ *
+ * By code point rather than by code unit, so an astral character is one key
+ * rather than half a surrogate pair -- the rule `highlightRuns()` already keeps.
+ * `toLowerCase()` rather than the locale variant, because the locale one reads
+ * the process locale and in Turkish and Azeri `i` cases to `İ`: a key is
+ * compared and never used to index, so a result longer than one code point is
+ * harmless where a locale-dependent one is a key that stops matching on
+ * somebody's machine and nowhere else.
+ *
+ * @param half - One side of the pair.
+ * @returns The key, or an empty string.
+ */
+function keyOfHalf(half: string): string {
+	return ([...half][0] ?? '').toLowerCase();
+}
+
+/**
+ * Builds the hint and the accepted keys from the two halves of a pair.
+ *
+ * One builder rather than one per path, so that the English fallback and a
+ * translated entry cannot produce differently-shaped hints -- and so that the
+ * hint is *rendered from* the keys rather than parsed back out of a string,
+ * which is what makes "the hint is the keys" true by construction rather than
+ * by agreement.
+ *
+ * **The hint is authoritative and English is additive.** `y` and `n` are
+ * accepted on top of whatever the entry named, and each is dropped where it
+ * would contradict the entry: a romanized `n/a` has `n` meaning *yes*, as the
+ * user was told, so English `n` is refused rather than giving one keypress two
+ * meanings. That precedence is forced by the hint being the thing on screen.
+ *
+ * @param yesHalf - The half that means yes, as written.
+ * @param noHalf - The half that means no, as written.
+ * @param fallback - Whether yes is the default, which is the half capitalized.
+ * @returns The hint and the keys.
+ */
+function pairKeys(yesHalf: string, noHalf: string, fallback: boolean): ConfirmKeys {
+	const yes = keyOfHalf(yesHalf);
+	const no = keyOfHalf(noHalf);
+	const yesKeys = [yes];
+	const noKeys = [no];
+
+	if (yes !== 'y' && no !== 'y') {
+		yesKeys.push('y');
+	}
+	if (no !== 'n' && yes !== 'n') {
+		noKeys.push('n');
+	}
+
+	return {
+		hint: `(${fallback ? capitalize(yesHalf) : yesHalf}/${fallback ? noHalf : capitalize(noHalf)})`,
+		no: noKeys,
+		yes: yesKeys,
+	};
+}
+
+/**
+ * The first code point of a string upper-cased, which is how the default shows.
+ *
+ * By code point for `keyOfHalf()`'s reason, and `toUpperCase()` for its other
+ * one. A mapping that answers more than one character -- `ß` is `SS` -- is a
+ * display label rather than a key, so it is let through.
+ *
+ * @param half - One side of the pair.
+ * @returns The half with its first character upper-cased.
+ */
+function capitalize(half: string): string {
+	const [first, ...rest] = [...half];
+
+	return first === undefined ? half : first.toUpperCase() + rest.join('');
+}
+
+/**
+ * The accepted keys and the hint for a yes-or-no prompt, read out of a pair.
+ *
+ * The catalog entry is `y/n` -- the two keys and nothing else -- and the parens
+ * and the capital are this function's. Which settles the thing a hint and a
+ * pair of key literals would otherwise get wrong in opposite directions: there
+ * is **one** entry rather than three, so a translator has no second place to
+ * disagree with themselves, and the hint is built from the keys rather than
+ * read back out of a sentence.
+ *
+ * The *lookup* is the caller's -- `confirmKeys(__`y/n`, fallback)` -- for two
+ * reasons that both point the same way. It is where every other `__` in this
+ * repository is, which is what "it renders at the call site" means; and the key
+ * generator deliberately skips this module, because the `__` here is a local
+ * declaration rather than an import binding and `importBindings()` has nothing
+ * to match -- so a tag written here is a key `SIGIL_KEYS` would not carry and
+ * `sigil check` would report an app's own translation of it as an orphan.
+ *
+ * The *parsing* is here, because this is the module that already decides whether
+ * a catalog entry is usable and falls back when it is not: `__()` does exactly
+ * that for an entry of the wrong shape, through the same logger. `prompt.ts`
+ * could not, being a `sigil add` entry that may import only what the package
+ * publishes -- `src/debug/` has no subpath, so a parse living there could not
+ * say when it had refused an entry. Exported from this barrel rather than
+ * written into the root entry's path, so an app that answers `--version` shakes
+ * it out.
+ *
+ * What is **not** translatable is the punctuation and the order: a locale that
+ * shows no first, or wants fullwidth parens, cannot say so. Making those
+ * translatable means parsing a sentence to find the keys again, which is the
+ * thing this shape exists to avoid.
+ *
+ * @param pair - The entry, which is `__`y/n`` at the call site.
+ * @param fallback - Whether yes is the default, which is the half capitalized.
+ * @returns The hint and the keys.
+ */
+export function confirmKeys(pair: string, fallback: boolean): ConfirmKeys {
+	const halves = pair.split('/').map((half) => half.trim());
+	const [yesHalf = '', noHalf = ''] = halves;
+
+	// refused rather than guessed at, which is the rule a data type already
+	// follows: two halves or it is not a pair, each has to name a key, and the
+	// two keys have to differ or one keypress means both answers. English stands
+	// and says so, because a hint nobody can read is worse than an English one
+	if (
+		halves.length !== 2 ||
+		keyOfHalf(yesHalf) === '' ||
+		keyOfHalf(noHalf) === '' ||
+		keyOfHalf(yesHalf) === keyOfHalf(noHalf)
+	) {
+		if (active !== undefined) {
+			log(
+				`expected two distinct keys for ${JSON.stringify(ENGLISH_PAIR)}, got ${JSON.stringify(pair)}`
+			);
+		}
+
+		return pairKeys(...(ENGLISH_PAIR.split('/') as [string, string]), fallback);
+	}
+
+	return pairKeys(yesHalf, noHalf, fallback);
+}
+
+/**
  * Turns whatever is in the environment into a BCP 47 tag, or nothing.
  *
  * `Intl` refuses every POSIX form there is -- `en_US.UTF-8`, `pt_BR`,

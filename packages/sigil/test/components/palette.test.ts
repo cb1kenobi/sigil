@@ -948,8 +948,14 @@ describe('commandPalette()', () => {
 	it('should say why a variadic line was refused, and keep what was typed', async () => {
 		// the loop discarded the parser's own message and reopened an empty field,
 		// which is a field that refuses an answer without saying why. Found by
-		// review
-		const ui = screenSetup({ columns: 60, rows: 12 });
+		// review.
+		//
+		// Wide enough that the composed complaint fits on one row: the head reserves
+		// the submit hint's columns now, so at 60 the message wrapped and the hint
+		// sat *between* its two halves on screen -- which no row-major read can
+		// reassemble, whatever it does to the whitespace. The claim here is that the
+		// complaint is the parser's own, so the fixture is a width that can show one
+		const ui = screenSetup({ columns: 80, rows: 12 });
 		const answer = settle(
 			open(
 				ui,

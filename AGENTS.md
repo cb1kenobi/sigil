@@ -15602,8 +15602,8 @@ and the check, and `src/i18n/keys.ts` is generated.
 
 - **A missing key is silent at run time and loud at build time.** Loud at
   runtime is refused on the case that decides it: a partial catalog is the
-  **normal** state of a translation, so a `de.json` with 30 of 37 keys is a
-  German build with seven English sentences in it, and `[missing: …]` would make
+  **normal** state of a translation, so a `de.json` with 30 of the keys is a
+  German build with the rest in English, and `[missing: …]` would make
   that build _worse_ than the English one -- on the error path, where the user is
   already being told something went wrong. A key that falls back **forever** is
   the real failure, and only a build can see that.
@@ -15642,7 +15642,9 @@ and the check, and `src/i18n/keys.ts` is generated.
   any of this was written -- and that is a coincidence rather than a
   confirmation: it counted 37 without the three merges this gained
   (`Invalid number`, `{0} options:`, `Show help for a command`) and without the
-  three metasyntax keys it gained (`[options]`, `[command]`, `<command>`).
+  three metasyntax keys it gained (`[options]`, `[command]`, `<command>`). It is
+  **52** now, and 2 plural: the prompts are the section below, and no figure
+  anywhere should be read as the current count -- `SIGIL_KEYS.length` is.
 
 - **`[options]`, `[command]` and `<command>` are translated and `<entry>` is
   not.** The asymmetry is right: those three are _metasyntax_ a user never
@@ -15901,10 +15903,198 @@ and the check, and `src/i18n/keys.ts` is generated.
   locale would answer differently when read twice. **Shipping any locale**, which
   the repo owner decided: no `de.json` anywhere, because nobody here can review a
   Korean catalog and shipping N locales signs the project up to maintain them
-  across every release that adds a key. And **the prompts**, which are SIG-135,
-  because the real question there is the input vocabulary rather than the
-  translation -- the confirm prompt draws `(Y/n)` and reads `ch === 'y'`, so
-  translating the hint alone produces a hint that lies.
+  across every release that adds a key. The **prompts** were on this list and are
+  the section below: the real question there was the input vocabulary rather than
+  the translation, and `argv is API and a keystroke is not` is what settled it.
+
+#### The prompts: the hint is the keys, and argv does not move
+
+SIG-53 left the prompts out and said why -- the real question is the **input
+vocabulary** rather than the translation. `src/components/prompt.ts` is where the
+strings are, `confirmKeys()` in `src/i18n/index.ts` is the one new mechanism, and
+the two width defects it turned up were already wrong in English.
+
+- **argv is API and stays English; a keystroke at an interactive prompt is
+  not.** That one line settles the three options SIG-135 offered.
+  `transformValue()`'s `yesno` vocabulary reaches a _value in a shell script_, so
+  translating the keys "with one deferring to the other" either breaks
+  `--force=y` in somebody's CI or makes the accepted set depend on `LANG` -- a
+  script whose meaning is a function of the environment. So the parser's
+  vocabulary does not move at all and only the prompt's keys gain anything.
+
+  The objection to accepting both -- that the hint becomes an incomplete
+  statement of what works -- is the **safe** direction of incompleteness. A hint
+  naming a subset is not a lie: `bool` accepts six spellings of true and no hint
+  names them. The rule this file keeps is about a hint naming something that does
+  **not** work.
+
+- **SIG-53 had already shipped that defect one layer along, and it was the only
+  key with the shape.** `Value must be "yes" or "no"` was in the key set, so a
+  German catalog says `… "ja" oder "nein" …` and `yesRE` then refuses the `ja`
+  the message just asked for. A translator handed that key has nothing telling
+  them the quoted words are a vocabulary rather than prose. The quoted literals
+  are **slots** now -- the key is `Value must be "{0}" or "{1}"` with `yes`/`no`
+  interpolated -- so the quotes stay structural and what is inside them arrives
+  as data. The audit for other keys of that shape found none.
+
+- **One catalog entry decides what is drawn _and_ what is accepted, which is what
+  stops the two disagreeing.** The entry is `y/n` -- the two keys and nothing
+  else -- and the parens and the capital are `confirmKeys()`'s. So there is one
+  entry rather than three, a translator has no second place to contradict
+  themselves, and the hint is **rendered from** the keys rather than parsed back
+  out of a sentence. `(Y/n)` in English is byte for byte what it was, derived.
+
+  The key for each half is its **first code point**, so `j/n` gives `j`/`n` and
+  `ja/nein` gives the same keys while drawing `(Ja/nein)`. A one-character half is
+  the degenerate case of that rule rather than a second rule. By code point
+  because half a surrogate pair is a key no terminal can send, which is the rule
+  `highlightRuns()` already keeps, and `toLowerCase()` rather than the locale
+  variant for `camelCase()`'s reason -- the locale one cases `i` to `İ` in
+  Turkish, so a key would stop matching on somebody's machine and nowhere else.
+
+- **The hint is authoritative and English is additive.** `y` and `n` are accepted
+  on top of whatever the entry named, and each is dropped where it would
+  contradict the entry. A romanized `n/a` has `n` meaning _yes_, as the reader was
+  told, so English `n` is refused rather than giving one keypress both answers --
+  and the mirror holds, `t/y` refuses English `y`. That precedence is forced by
+  the hint being the thing on screen rather than chosen: what a reader was told is
+  what has to be true.
+
+- **An entry that is not two halves naming two distinct keys is refused
+  outright.** Empty, no slash, three halves, or two halves whose first characters
+  are equal: English stands and it says so through `sigil:i18n`, which is the rule
+  `__()` already follows for an entry of the wrong shape. Refused rather than
+  guessed at, because a hint nobody can read is worse than an English one.
+
+- **The lookup is at the call site and the parsing is in `i18n`, and the split is
+  forced from both ends.** `confirmKeys(__`y/n`, fallback)` -- the tag is in
+  `prompt.ts` because the key generator deliberately **skips** the i18n module:
+  `__` there is a local declaration rather than an import binding, so
+  `importBindings()` has nothing to match and a tag written there is a key
+  `SIGIL_KEYS` would not carry. Measured: written inside i18n it came out at 51
+  keys with `y/n` missing, so `sigil check` would have reported an app's own
+  translation of it as an **orphan**. The parsing is in i18n because that is the
+  module which already decides whether a catalog entry is usable, and because it
+  has the logger -- `prompt.ts` is a `sigil add` entry and may import only what
+  the package publishes, and `src/debug/` has no subpath. Exported from the barrel
+  rather than written onto the root entry's path, so an app that answers
+  `--version` shakes it out.
+
+  `ENGLISH_PAIR` is the same string in two roles rather than one copy too many: at
+  the call site it is the key, because the English _is_ the key, and in `i18n` it
+  is the floor a malformed entry lands on. A refusal has to name some vocabulary.
+
+- **What is _not_ translatable is the punctuation and the order.** A locale that
+  shows no first, or wants fullwidth parens, cannot say so. Making either
+  translatable means parsing a sentence to find the keys again, which is the thing
+  this shape exists to avoid.
+
+- **A modified key is not an answer.** `k.name` for Ctrl-Y is `y`, so `ch === 'y'`
+  read it as yes -- and the hint says `Y` rather than `ctrl-Y`, so that is the
+  hint being wrong about what it accepts. Pre-existing, and fixed here because it
+  is the same sentence this whole section is about. The rule the key sequences
+  already keep: a modifier makes it a different key.
+
+- **A modifier is translated and a key name is not.** `keyLabel()` builds
+  `ctrl-d`, and a German keyboard labels that key `Strg` -- so a hint saying
+  `ctrl` names a key that is not there. The letter on the cap, and `enter` and
+  `tab`, are printed the same on essentially every keyboard sold, so translating
+  those would be inventing a vocabulary rather than matching one. Each combination
+  is a **whole** key -- `ctrl-{0}`, `alt-{0}`, `ctrl-alt-{0}` -- rather than two
+  translatable fragments, so a translator sees the shape and picks the separator
+  too, which is `+` in German and `-` here. A key with no modifier is its own name
+  and no lookup.
+
+- **`select()` has no hint and keeps none.** Only `multiselect()` does, because
+  tick boxes need telling and arrow keys are discoverable. Worth writing down
+  because the inventory reads as though one is missing.
+
+- **The inventory was about double what the ticket said**, because SIG-111 landed
+  `multiline()` the same day it was filed: twelve keys rather than seven, the
+  multiline four and `Choose at least one` and `none` among them, and
+  `(+{0} more line)` is the **second plural** the framework has after `Alias:`.
+  Three of the five `PromptError` messages are translated and two are not --
+  `Cannot prompt for "{0}" …`, `Input ended …` and `Cancelled` are what a _user_
+  sees through `errorHandler()`'s own translated `Error: {0}` frame, so a German
+  app that cancelled a prompt printed `Fehler: Cancelled`, which is half a
+  sentence. A prompt declared with no choices or no submit key is a bug in the
+  app, like the 139 developer errors SIG-53 left alone.
+
+##### Reserving the tail's columns, which was two defects in English
+
+The ticket flagged the width question as unmeasured. Measuring it found the head
+broken in both directions, neither caused by translation.
+
+- **Reserving nothing clipped the affordance away.** A hint is a flex item beside
+  a message with `flex-shrink: 0`, and `headWidths()` reserved exactly **one**
+  column for whatever followed -- so a message that took every column left
+  squeezed the hint into one and the canvas, capped at the terminal's width,
+  clipped the rest. Measured, `? Overwrite the file`: 26 columns drew `(Y/n)`, 24
+  drew `(Y/`, 22 drew `(`, and from about 18 to 24 a yes-or-no question had **no
+  readable affordance at all**. `(ctrl-d to submit)` was worse -- at 40 columns it
+  came out as `(`, `t`, `s` down the right-hand side, one character per row.
+
+- **Reserving the tail in full was the overcorrection.** The multiselect hint is
+  35 columns, so at 40 it left `Pick some things` four columns and seven rows of
+  two letters. Found by measuring the fix rather than by a test.
+
+- **So neither half of the head gives up more than half the line.** The tail's own
+  width is reserved, capped at `floor(avail / 2)`. A short affordance is then
+  always whole -- `(Y/n)` down to **13** columns, which the arithmetic predicts and
+  a sweep confirms -- and a long one wraps with the message intact. Below 13 the
+  closing paren is clipped, and the _vocabulary_ is still on screen, which is the
+  residual rather than a fix: at 12 columns nothing is good.
+
+- **And `lines` counts the taller of the two halves, not the message.** It counted
+  the message alone, so a hint that wrapped made the head taller than the choice
+  window believed and the row reserved for the error line absorbed it -- measured,
+  the multiselect head goes 1 to 4 rows at 30 columns while `lines` answered 1.
+  With the tail reserved it does not normally wrap and the message decides; where
+  it does, the tail is what decides. One expression rather than a second
+  mechanism, and it is the same change that fixed the clipping.
+
+- **Nothing about `text()`, `password()` or `select()` moved**, by construction:
+  each passes no tail, `Math.max(1, 0)` is the `- 1` that was there, and `rest` is
+  the same number it was. The 76 cases in `prompt.test.ts` pass unchanged, which
+  is the check an extraction gets.
+
+- **What it cost was one fixture, and the reason is worth keeping.** A palette
+  case asserted `/Invalid integer: eight/` against a 60-column frame; the message
+  wraps for the submit hint now, and the hint sits _between_ its two halves on
+  screen -- which no row-major read can reassemble, whatever it does to the
+  whitespace. Collapsing whitespace was tried first and does not work. The claim
+  there is that the complaint is the parser's own, so the fixture is a width that
+  can show one.
+
+##### What the sabotage pass found
+
+Thirty-one mutations, one at a time with the four affected suites run after each,
+against a green control. **All thirty-one are caught**, after two survivors that
+were each a fixture too easy to reach the branch it was named for -- which is the
+shape this file keeps recording, and both were found by the pass rather than by
+review.
+
+- **An astral _emoji_ cannot show that `capitalize()` reads a code point.** It has
+  no uppercase mapping, so upper-casing its leading surrogate and rejoining gives
+  the original string back and both readings agree. Deseret has one: `\u{10428}`
+  upper-cases to `\u{10400}` by code point and to itself by code unit. The
+  consequence is cosmetic -- a hint that fails to mark its default, with the _key_
+  unaffected, since `keyOfHalf()` is separate and separately pinned -- and it is
+  pinned anyway, because the guard is there.
+
+- **Three choices on a ten-row screen cannot show that `lines` counts the tail.**
+  There is slack either way, so nothing overflows and the window being one row too
+  generous changes no picture. Eight choices at 30 columns is where it bites:
+  measured, **eight drawn where seven fit**, filling the screen edge to edge so an
+  error would have had nowhere to go. The assertion is `head + shown < rows` --
+  the row kept back for the error line is still there -- with `head > 1` beside
+  it, or the fixture is not reaching a wrapped hint at all.
+
+Two of the thirty-one are the width decision's own two directions, and each fails
+exactly the test named for it: reserving nothing fails `should keep the hint whole
+where the message has to wrap for it`, and reserving the tail in full fails
+`should not flatten the question to reserve a long hint`. So the cap is pinned
+from both sides rather than only against the defect it was written for.
 
 ### Sharing options between commands
 

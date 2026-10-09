@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 37 keys, which is what a catalog has to carry to translate sigil's own
+ * 52 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -19,17 +19,25 @@
  * English, so there is nothing else for this to be.
  */
 export const SIGIL_KEYS: readonly string[] = [
+	'(+{0} more line)',
 	'(choices: {0})',
 	'(default: {0})',
+	'(empty)',
+	'(space to select, enter to confirm)',
+	'({0} to submit)',
 	'<command>',
 	'Alias:',
 	'Arguments:',
+	'Cancelled',
+	'Cannot prompt for "{0}" because the input is not a terminal',
+	'Choose at least one',
 	'Commands:',
 	'Count is too large to be exact: {0}',
 	'Error: {0}',
 	'Examples:',
 	'Extra arguments are not allowed: {0}',
 	'Global options:',
+	'Input ended before the prompt was answered',
 	'Integer is too large to be exact: {0}',
 	'Invalid JSON: {0}',
 	'Invalid boolean: "{0}"',
@@ -49,17 +57,24 @@ export const SIGIL_KEYS: readonly string[] = [
 	'Unknown command "{0}"',
 	'Unknown option "{0}"',
 	'Usage:',
-	'Value must be "yes" or "no"',
+	'Value must be "{0}" or "{1}"',
 	'[command]',
 	'[options]',
+	'alt-{0}',
 	'argument <{0}>',
+	'ctrl-alt-{0}',
+	'ctrl-{0}',
+	'no',
+	'none',
 	'option {0}',
+	'y/n',
+	'yes',
 	'{0} arguments:',
 	'{0} options:',
 ];
 
 /**
- * The 1 of those whose catalog entry is an object of plural categories
+ * The 2 of those whose catalog entry is an object of plural categories
  * rather than a string.
  *
  * A catalog may answer either -- a plain string is taken for a language with
@@ -67,4 +82,4 @@ export const SIGIL_KEYS: readonly string[] = [
  * so this is what a catalog author needs to know rather than something the
  * lookup enforces.
  */
-export const SIGIL_PLURAL_KEYS: readonly string[] = ['Alias:'];
+export const SIGIL_PLURAL_KEYS: readonly string[] = ['(+{0} more line)', 'Alias:'];

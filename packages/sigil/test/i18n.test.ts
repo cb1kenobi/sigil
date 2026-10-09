@@ -2,6 +2,7 @@ import {
 	__,
 	__n,
 	type Catalog,
+	confirmKeys,
 	loadCatalog,
 	locale,
 	localeChain,
@@ -175,6 +176,107 @@ describe('the plural', () => {
 		await useGerman();
 
 		expect(__n(2, 'Argument:', 'Arguments:')).toBe('Arguments:');
+	});
+});
+
+describe('the keys a yes-or-no prompt accepts', () => {
+	// one catalog entry decides what is drawn *and* what is accepted, so a hint
+	// translated on its own cannot end up naming a key nothing reads. Asserted
+	// here rather than through a prompt because it is a function of a string and a
+	// boolean, which is the split `rowWindow()` and `thumbExtent()` already keep
+	it('should draw the English pair with the default capitalized', () => {
+		expect(confirmKeys('y/n', true)).to.deep.equal({ hint: '(Y/n)', no: ['n'], yes: ['y'] });
+		expect(confirmKeys('y/n', false)).to.deep.equal({ hint: '(y/N)', no: ['n'], yes: ['y'] });
+	});
+
+	it('should accept the key a translated pair names, and keep English beside it', () => {
+		const keys = confirmKeys('j/n', true);
+
+		expect(keys.hint).to.equal('(J/n)');
+		expect(keys.yes).to.deep.equal(['j', 'y']);
+		// `n` means no in both, so there is nothing to add and nothing to refuse
+		expect(keys.no).to.deep.equal(['n']);
+	});
+
+	it('should refuse an English key the pair gave the other meaning', () => {
+		// the hint is what is on screen, so it is authoritative and English is
+		// additive: a romanized `n/a` has `n` meaning *yes*, as the reader was told,
+		// and accepting English `n` as no would give one keypress both answers
+		const keys = confirmKeys('n/a', true);
+
+		expect(keys.hint).to.equal('(N/a)');
+		expect(keys.yes).to.deep.equal(['n', 'y']);
+		expect(keys.no).to.deep.equal(['a']);
+		expect(keys.no).to.not.include('n');
+	});
+
+	it('should refuse English y where the pair made it the no key', () => {
+		// the mirror of the case above, which a fixture that only moved the yes half
+		// would not reach
+		const keys = confirmKeys('t/y', true);
+
+		expect(keys.yes).to.deep.equal(['t']);
+		expect(keys.no).to.deep.equal(['y', 'n']);
+		expect(keys.yes).to.not.include('y');
+	});
+
+	it('should take the first character of a word, not the word', () => {
+		// a single character is the degenerate case of that rule rather than a second
+		// rule, so a locale that spells the words out gets `(Ja/nein)` and `j`/`n`
+		const keys = confirmKeys('ja/nein', true);
+
+		expect(keys.hint).to.equal('(Ja/nein)');
+		expect(keys.yes).to.deep.equal(['j', 'y']);
+		expect(keys.no).to.deep.equal(['n']);
+		expect(confirmKeys('ja/nein', false).hint).to.equal('(ja/Nein)');
+	});
+
+	it('should capitalize by code point too, which emoji cannot show', () => {
+		// an astral *emoji* has no uppercase mapping, so reading its first code unit
+		// instead answers the same string and the guard looks inert. Deseret has one:
+		// `\u{10428}` upper-cases to `\u{10400}`, while upper-casing its leading
+		// surrogate is a no-op and rejoining gives the original back. Found by a
+		// sabotage that survived a fixture built out of thumbs
+		expect(confirmKeys('\u{10428}/n', true).hint).to.equal('(\u{10400}/n)');
+		expect(confirmKeys('\u{10428}/n', true).yes).to.deep.equal(['\u{10428}', 'y']);
+	});
+
+	it('should read a character by code point rather than by code unit', () => {
+		// an astral character is one key rather than half a surrogate pair, which is
+		// the rule `highlightRuns()` already keeps -- and a key that is half a pair
+		// is one no terminal can send and no comparison can match
+		const keys = confirmKeys('\u{1F44D}/\u{1F44E}', true);
+
+		expect(keys.yes).to.deep.equal(['\u{1F44D}', 'y']);
+		expect(keys.no).to.deep.equal(['\u{1F44E}', 'n']);
+		expect(keys.hint).to.equal('(\u{1F44D}/\u{1F44E})');
+	});
+
+	it('should lowercase the key it reads, so the capital is presentational', () => {
+		// a translator writing the default in capitals is saying which is the
+		// default, not naming a different key
+		expect(confirmKeys('J/N', true).yes).to.deep.equal(['j', 'y']);
+		expect(confirmKeys('J/N', true).no).to.deep.equal(['n']);
+	});
+
+	it('should trim each half', () => {
+		const keys = confirmKeys(' ja / nein ', true);
+
+		expect(keys.hint).to.equal('(Ja/nein)');
+		expect(keys.yes).to.deep.equal(['j', 'y']);
+	});
+
+	it('should fall back to English for an entry it cannot read', () => {
+		// refused rather than guessed at, which is the rule a data type already
+		// follows: English stands, because a hint nobody can read is worse than an
+		// English one. Every shape that is not two halves naming two distinct keys
+		for (const pair of ['', 'ja oder nein', 'j/', '/n', 'j/n/m', 'ja/jein', ' / ']) {
+			expect(confirmKeys(pair, true), pair).to.deep.equal({
+				hint: '(Y/n)',
+				no: ['n'],
+				yes: ['y'],
+			});
+		}
 	});
 });
 
@@ -485,7 +587,7 @@ describe('through main()', () => {
 		'Unexpected argument "{0}"': 'UNERWARTET "{0}"',
 		'Unknown command "{0}"': 'UNBEKANNTER-BEFEHL "{0}"',
 		'Unknown option "{0}"': 'UNBEKANNTE-OPTION "{0}"',
-		'Value must be "yes" or "no"': 'JA-ODER-NEIN',
+		'Value must be "{0}" or "{1}"': 'JA-ODER-NEIN "{0}"/"{1}"',
 		'argument <{0}>': 'ARGUMENT <{0}>',
 		'option {0}': 'OPTION {0}',
 	};
@@ -589,7 +691,15 @@ describe('through main()', () => {
 			'BOOL-UNGÜLTIG "maybe"',
 		],
 		['bad number', ['--num', 'abc', '--req', 'r'], 'Invalid number: abc', 'ZAHL-UNGÜLTIG abc'],
-		['bad yes/no', ['--ok', 'maybe', '--req', 'r'], 'Value must be "yes" or "no"', 'JA-ODER-NEIN'],
+		// the quoted words are *slots*, so a translator cannot translate the
+		// vocabulary out from under `yesRE` -- the German below says the sentence
+		// and still names `yes`/`no`, which is what argv accepts
+		[
+			'bad yes/no',
+			['--ok', 'maybe', '--req', 'r'],
+			'Value must be "yes" or "no"',
+			'JA-ODER-NEIN "yes"/"no"',
+		],
 		// the hard one: the slots reorder *and* the noun is a nested translation
 		[
 			'bad option choice',

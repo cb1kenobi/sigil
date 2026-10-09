@@ -2,6 +2,7 @@ import {
 	confirm,
 	ESCAPE_TIMEOUT,
 	PROMPT_SYMBOLS,
+	multiline,
 	multiselect,
 	password,
 	PromptError,
@@ -461,6 +462,101 @@ describe('password()', () => {
 		expect(await answer).to.equal('hunter2');
 		expect(ui.output).to.not.contain('hunter2');
 		expect(ui.log.join('\n')).to.contain('•••••••');
+	});
+});
+
+describe('an affordance in a narrow terminal', () => {
+	// the head reserves the tail's columns, capped at half the line. Both halves
+	// of that were measured in English, and both were wrong before it: reserving
+	// nothing clipped the hint away, and reserving the lot flattened the question
+	it('should keep the hint whole where the message has to wrap for it', async () => {
+		// a hint is a flex item beside a message with `flex-shrink: 0`, so a message
+		// that took every column left squeezed the hint into one and the canvas --
+		// capped at the terminal's width -- clipped the rest. Measured: 24 columns
+		// drew `(Y/`, 22 drew `(`, and from 18 to 24 a yes-or-no question had no
+		// readable affordance at all
+		for (const columns of [80, 40, 26, 24, 22, 20, 18, 14, 13]) {
+			const ui = screenSetup({ columns, rows: 8 });
+			const answer = settle(
+				confirm({ ansi: ui.ansi, message: 'Overwrite the file', terminal: ui.terminal })
+			);
+
+			expect(ui.log.join('\n'), `at ${columns} columns`).to.include('(Y/n)');
+
+			await type(ui.stdin, '\u0003');
+			await answer;
+		}
+	});
+
+	it('should not flatten the question to reserve a long hint', async () => {
+		// the overcorrection: the multiselect hint is 35 columns, so reserving it in
+		// full left `Pick some things` four columns and seven rows of two letters.
+		// Neither half gives up more than half the line
+		const ui = screenSetup({ columns: 40, rows: 12 });
+		const answer = settle(
+			multiselect({
+				ansi: ui.ansi,
+				choices: ['one', 'two'],
+				message: 'Pick some things',
+				terminal: ui.terminal,
+			})
+		);
+
+		expect(ui.log[0]).to.include('Pick some things');
+
+		await type(ui.stdin, '\u0003');
+		await answer;
+	});
+
+	it('should window the list against the head it drew, not the message alone', async () => {
+		// `headWidths().lines` counted the message alone, so a hint that wrapped made
+		// the head taller than the choice window believed and the row reserved for
+		// the error line absorbed it. Measured at 30 columns with eight choices on a
+		// ten-row screen: eight were drawn where seven fit, filling the screen edge
+		// to edge, so an error would have had nowhere to go.
+		//
+		// Enough choices that the slack is gone, which is what the first fixture here
+		// lacked -- with three choices on ten rows nothing overflows either way and
+		// the sabotage survived
+		const ui = screenSetup({ columns: 30, rows: 10 });
+		const answer = settle(
+			multiselect({
+				ansi: ui.ansi,
+				choices: ['a1', 'b2', 'c3', 'd4', 'e5', 'f6', 'g7', 'h8'],
+				message: 'Pick',
+				terminal: ui.terminal,
+			})
+		);
+
+		const drawn = ui.log;
+		const head = drawn.findIndex((row) => row.includes(PROMPT_SYMBOLS.off));
+		const shown = drawn.filter((row) => row.includes(PROMPT_SYMBOLS.off)).length;
+
+		// the head really is taller than its message, or this asserts nothing
+		expect(head).to.be.greaterThan(1);
+		// and the row kept back for the error line is still there
+		expect(head + shown).to.be.lessThan(10);
+
+		await type(ui.stdin, '\u0003');
+		await answer;
+	});
+
+	it('should keep the submit hint readable rather than one column wide', async () => {
+		// measured at 40 columns before this: `(ctrl-d to submit)` came out as `(`,
+		// `t`, `s` down the right-hand side, one character per row
+		const ui = screenSetup({ columns: 40, rows: 10 });
+		const answer = settle(
+			multiline({
+				ansi: ui.ansi,
+				message: 'Describe the change in your own words',
+				terminal: ui.terminal,
+			})
+		);
+
+		expect(ui.log.join('\n')).to.include('(ctrl-d to submit)');
+
+		await type(ui.stdin, '\u0003');
+		await answer;
 	});
 });
 

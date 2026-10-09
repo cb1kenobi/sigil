@@ -831,6 +831,48 @@ listed in root help **and** described in the user's language. Written as a value
 it is still translated at run time, and `sigil build` reports it as computed and
 lists the command by name alone.
 
+### The prompts, and what a translated `confirm` accepts
+
+The affordances translate like everything else — the submit hint, the
+multiselect hint, the settled answers, `Choose at least one` — and `confirm` is
+the one with a twist, because its hint names the keys it reads. Translating the
+hint on its own would give a prompt that displays `(J/n)` and ignores `j`.
+
+So there is **one** catalog entry, `y/n`, and it is both:
+
+```json
+{ "y/n": "j/n" }
+```
+
+That draws `(J/n)` — the parens and the capital are the framework's, and the
+capital follows `default` — and it accepts `j` for yes. A half may be a whole
+word: `"ja/nein"` draws `(Ja/nein)` and the key is still `j`, because the key is
+the half's first character.
+
+Two rules worth knowing:
+
+- **`y` and `n` keep working**, on top of whatever the entry named. A hint that
+  names a subset is not a lie — `bool` accepts six spellings of true and no hint
+  names them — and what gets refused is a hint naming something that does not
+  work.
+- **The entry wins where the two collide.** A romanized `"n/a"` makes `n` mean
+  _yes_, as the reader was told, so English `n` is refused rather than giving one
+  keypress both answers.
+
+An entry that is not two halves naming two distinct keys is refused outright:
+English stands, and `DEBUG=sigil:i18n` says so.
+
+What does **not** move is `argv`. `--force=y` and `type: 'yesno'` accept
+`y`/`yes`/`n`/`no` in every locale, because a value in a shell script must not
+mean something different under another `LANG`. A keystroke at an interactive
+prompt is the other case, which is why only the prompt's keys gain anything.
+
+Key names are English and modifiers are not: `ctrl-{0}`, `alt-{0}` and
+`ctrl-alt-{0}` are keys, so a German catalog writes `Strg+{0}` and the hint reads
+`(Strg+d zum Absenden)`. The separator is the catalog's too. The key's own name
+stays English, because the letter on the cap — and `enter`, and `tab` — is
+printed the same on essentially every keyboard sold.
+
 ### A missing translation
 
 It renders the English sentence it was keyed on, silently. That is deliberate: a
@@ -858,9 +900,7 @@ verbatim. `Invalid integer: 9007199254740993` must say that integer and not
 `9.007.199.254.740.993`. An app that wants one constructs its own, lazily, and
 pays the cost where it can see it.
 
-Also not here: ICU MessageFormat or any mini-syntax, right-to-left layout, and
-the prompts' affordances (which are their own ticket, because the real question
-there is the input vocabulary rather than the translation).
+Also not here: ICU MessageFormat or any mini-syntax, and right-to-left layout.
 
 ---
 

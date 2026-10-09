@@ -13,6 +13,24 @@ const noRE = /^no?$/i;
 const yesRE = /^y(es)?$/i;
 
 /**
+ * The two words `yesno` is named for, as values rather than as prose.
+ *
+ * They are interpolated into the message below so that the key is
+ * `Value must be "{0}" or "{1}"` and the quoted words arrive as *data*. A
+ * translator handed `Value must be "yes" or "no"` has nothing telling them the
+ * quoted words are a vocabulary rather than a sentence, so they translate them
+ * -- and `yesRE` then refuses the `ja` the message just asked for, which is a
+ * message that parses and lies.
+ *
+ * Which is the whole of this ticket's rule said at the one place it bites in the
+ * parser: **argv is API and stays English**, because a value in a shell script
+ * must not mean something different under another `LANG`. What a *prompt*
+ * accepts is the other case, and `confirm()` is where that is answered.
+ */
+const YES = 'yes';
+const NO = 'no';
+
+/**
  * The number of days in a month, without asking the local time zone: day 0 of
  * the next month is the last day of this one, and `Date.UTC` keeps the
  * arithmetic out of wherever the process happens to be running.
@@ -195,7 +213,7 @@ export function transformValue(
 		if (noRE.test(value)) {
 			return false;
 		}
-		throw new Error(__`Value must be "yes" or "no"`);
+		throw new Error(__`Value must be "${YES}" or "${NO}"`);
 	}
 
 	if (type === 'auto' && typeof value === 'string') {
