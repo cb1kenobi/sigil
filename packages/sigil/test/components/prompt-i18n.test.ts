@@ -70,8 +70,12 @@ describe('a translated confirm', () => {
 	it('should still accept y and n, which no hint has to name', async () => {
 		// the hint naming a subset is the *safe* direction of incompleteness, and it
 		// is the shape `bool` already has: six spellings of true and no hint names
-		// them. What the rule refuses is a hint naming something that does not work
-		await translated({ 'y/n': 'j/n' });
+		// them. What the rule refuses is a hint naming something that does not work.
+		//
+		// A pair naming *neither* English key, or this claims less than its name: a
+		// `j/n` entry accepts `n` because the entry said so, which has nothing to do
+		// with English being additive
+		await translated({ 'y/n': 'j/k' });
 
 		for (const [key, value] of [
 			['y', true],
@@ -101,14 +105,21 @@ describe('a translated confirm', () => {
 
 	it('should translate the answer it leaves in the log', async () => {
 		await translated({ 'y/n': 'j/n', no: 'nein', yes: 'ja' });
-		const ui = screenSetup({ columns: 40 });
-		const answer = confirm({ ansi: ui.ansi, message: 'Fortfahren?', terminal: ui.terminal });
 
-		await type(ui.stdin, 'j');
-		await answer;
-		await tick();
+		// both branches, or a mutation of one survives on the strength of the other
+		for (const [key, expected] of [
+			['j', 'ja'],
+			['n', 'nein'],
+		] as const) {
+			const ui = screenSetup({ columns: 40 });
+			const answer = confirm({ ansi: ui.ansi, message: 'Fortfahren?', terminal: ui.terminal });
 
-		expect(ui.log.join('\n')).to.include('ja');
+			await type(ui.stdin, key);
+			await answer;
+			await tick();
+
+			expect(ui.log.join('\n'), key).to.include(expected);
+		}
 	});
 
 	it('should not read a modified key as an answer', async () => {
