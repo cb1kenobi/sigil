@@ -16053,10 +16053,23 @@ broken in both directions, neither caused by translation.
   it does, the tail is what decides. One expression rather than a second
   mechanism, and it is the same change that fixed the clipping.
 
-- **Nothing about `text()`, `password()` or `select()` moved**, by construction:
-  each passes no tail, `Math.max(1, 0)` is the `- 1` that was there, and `rest` is
-  the same number it was. The 76 cases in `prompt.test.ts` pass unchanged, which
-  is the check an extraction gets.
+- **Nothing about `text()`, `password()` or `select()` moved**, and that is
+  measured rather than read off the code. By construction each passes no tail,
+  `Math.max(1, 0)` is the `- 1` that was there, and `rest` is the same number it
+  was -- and "by construction" is exactly the kind of claim this file records as
+  unestablishable by tracing the route you had in mind. So the six prompts were
+  rendered at nine widths on `main`'s source and on this one and the frames
+  diffed: **`text`, `password` and `select` are byte-identical at every one of
+  the nine**, and nothing at all changes at 60 or 80 columns. What moves is
+  `confirm` at 30 and below and `multiline` and `multiselect` at 40 and below,
+  which is the defect and nothing else.
+
+  The three changed blocks are each the improvement rather than a different kind
+  of bad. `confirm` at 30 goes from `(` to `(Y/n)`. `multiline` at 40 goes from a
+  hint split over two ragged rows to one whole row with the message wrapping
+  instead. And `multiselect` at 40 gets _shorter_ -- a four-row hint column
+  becomes two, so the head is 2 rows where it was 4. The 76 cases in
+  `prompt.test.ts` pass unchanged besides, which is the check an extraction gets.
 
 - **What it cost was one fixture, and the reason is worth keeping.** A palette
   case asserted `/Invalid integer: eight/` against a 60-column frame; the message
