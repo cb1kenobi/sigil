@@ -335,7 +335,7 @@ export function __n(count: number, one: string, other: string, ...values: unknow
  * malformed entry lands on. A refusal has to name some vocabulary, and this is
  * the one every user of every locale can rely on.
  */
-const ENGLISH_PAIR = 'y/n';
+const ENGLISH_PAIR = ['y', 'n'] as const;
 
 export interface ConfirmKeys {
 	/** The hint, `(Y/n)` in English, with the default's half capitalized. */
@@ -364,7 +364,15 @@ export interface ConfirmKeys {
  * @returns The key, or an empty string.
  */
 function keyOfHalf(half: string): string {
-	return ([...half][0] ?? '').toLowerCase();
+	const first = ([...half][0] ?? '').toLowerCase();
+
+	// a combining mark and a control or format character are each a code point
+	// that is not a *key*: a terminal sends no keystroke a reader could match them
+	// with, and the mark would attach itself to the `(` the hint opens with -- so
+	// `´a/n` drew a hint of `(́a/n)` whose first half advertised `a`, which is not
+	// the key. Which is this file's own rule said about the one thing a catalog can
+	// put here that nobody can type, so the half is refused and English stands
+	return /[\p{C}\p{M}]/u.test(first) ? '' : first;
 }
 
 /**
@@ -491,11 +499,12 @@ export function confirmKeys(pair: string, fallback: boolean): ConfirmKeys {
 	) {
 		if (active !== undefined) {
 			log(
-				`expected two distinct keys for ${JSON.stringify(ENGLISH_PAIR)}, got ${JSON.stringify(pair)}`
+				`expected two distinct keys for ${JSON.stringify(ENGLISH_PAIR.join('/'))}, ` +
+					`got ${JSON.stringify(pair)}`
 			);
 		}
 
-		return pairKeys(...(ENGLISH_PAIR.split('/') as [string, string]), fallback);
+		return pairKeys(...ENGLISH_PAIR, fallback);
 	}
 
 	return pairKeys(yesHalf, noHalf, fallback);

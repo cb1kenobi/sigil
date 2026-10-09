@@ -284,6 +284,25 @@ describe('the keys a yes-or-no prompt accepts', () => {
 		expect(keys.yes).to.deep.equal(['j', 'y']);
 	});
 
+	it('should refuse a half whose first character is not a key', () => {
+		// a combining mark and a control or format character are code points a
+		// terminal sends no keystroke for, and the mark attaches itself to the `(`
+		// the hint opens with -- so `\u0301a/n` drew `(\u0301a/n)`, whose first half
+		// advertises `a`, which is not the key. English stands instead
+		for (const pair of ['\u0301a/n', 'y/\u0301b', '\u200Dy/n', '\u0007/n']) {
+			expect(confirmKeys(pair, true), JSON.stringify(pair)).to.deep.equal({
+				hint: '(Y/n)',
+				no: ['n'],
+				yes: ['y'],
+			});
+		}
+
+		// and a real key is not refused by that guard, or it refuses everything
+		expect(confirmKeys('\u{1F44D}/\u{1F44E}', true).yes[0]).to.equal('\u{1F44D}');
+		expect(confirmKeys('\u00DF/n', true).yes[0]).to.equal('\u00DF');
+		expect(confirmKeys('\u306F\u3044/\u3044\u3044\u3048', true).yes[0]).to.equal('\u306F');
+	});
+
 	it('should fall back to English for an entry it cannot read', () => {
 		// refused rather than guessed at, which is the rule a data type already
 		// follows: English stands, because a hint nobody can read is worse than an

@@ -16103,6 +16103,17 @@ broken in both directions, neither caused by translation.
 
 ##### What walking the hostile inputs found, which no test had
 
+- **A half's first code point has to be a key somebody can press**, which is one
+  input class the "names two distinct keys" rule did not cover. A combining mark
+  and a control or format character are each a code point a terminal sends no
+  keystroke for -- and the mark is worse than useless, because it attaches itself
+  to the `(` the hint opens with: `´a/n` drew `(́a/n)`, whose first half
+  advertises `a`, which is not the key. `/[\p{C}\p{M}]/u` on the key refuses both
+  and English stands. Measured to separate cleanly from every real key there is:
+  `y`, `は`, `👍` and `ß` all pass it, which the second of that guard's two
+  sabotages pins -- a version that refused letters as well would refuse
+  everything, and asserting only the refusal would not see it.
+
 - **The capital is applied only where pressing what is shown sends the key**, and
   two mappings fail that. A one-to-many uppercase -- `ß` is `SS`, `ﬁ` is `FI` --
   would draw `(SS/n)` over a key of `ß`, so a reader presses `s` and nothing
@@ -16144,8 +16155,9 @@ broken in both directions, neither caused by translation.
 
 ##### What the sabotage pass found
 
-Thirty-six mutations, one at a time with the four affected suites run after each,
-against a green control. **All thirty-six are caught**, after two survivors that
+Thirty-eight mutations, one at a time with the four affected suites run after
+each, against a green control. **All thirty-eight are caught**, after two
+survivors that
 were each a fixture too easy to reach the branch it was named for -- which is the
 shape this file keeps recording, and both were found by the pass rather than by
 review.
