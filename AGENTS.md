@@ -16020,6 +16020,28 @@ the two width defects it turned up were already wrong in English.
   sentence. A prompt declared with no choices or no submit key is a bug in the
   app, like the 139 developer errors SIG-53 left alone.
 
+- **What is deliberately left English, after an exhaustive sweep.** Every string
+  literal reaching a `text`, `textNode` or `textElement` under `src/components/`
+  and `src/help/` was read, and after the palette's three there is exactly
+  **one** left: the debug overlay's `debug` pane title. It stays, by the rule
+  SIG-53 already applied to `@ttylabs/cli`'s own output -- its reader is a
+  developer, so a translated one is a bug report in a language the maintainer
+  cannot read. Everything else in those components is caller-supplied text or a
+  `TypeError` about a programming mistake, which is the 139 developer errors
+  SIG-53 left alone. Written down so that the next sweep finds a decision rather
+  than an omission.
+
+- **And the keystroke a translated key needs may not be one the keyboard
+  sends.** `keyOfHalf()` reads a _code point_, and a decomposed `é` typed as one
+  keystroke arrives as two keys -- `readOne()` splits by code point -- so the
+  first is the bare `e`. An entry written with a precomposed `é` therefore names
+  a key that input method never sends, and normalizing the entry would not fix
+  it, because what is decomposed is the keystroke rather than the catalog. A
+  catalog writes the pair in the form the keyboard produces, which for a yes-or-no
+  key is a plain letter in essentially every language. Recorded rather than
+  guarded: the machinery would be a normalization pass over something it cannot
+  reach.
+
 ##### Reserving the tail's columns, which was two defects in English
 
 The ticket flagged the width question as unmeasured. Measuring it found the head
