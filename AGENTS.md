@@ -16165,9 +16165,8 @@ broken in both directions, neither caused by translation.
 
 ##### What the sabotage pass found
 
-Thirty-eight mutations, one at a time with the four affected suites run after
-each, against a green control. **All thirty-eight are caught**, after two
-survivors that
+Forty mutations, one at a time with the four affected suites run after each,
+against a green control. **All forty are caught**, after two survivors that
 were each a fixture too easy to reach the branch it was named for -- which is the
 shape this file keeps recording, and both were found by the pass rather than by
 review.
@@ -16193,6 +16192,56 @@ exactly the test named for it: reserving nothing fails `should keep the hint who
 where the message has to wrap for it`, and reserving the tail in full fails
 `should not flatten the question to reserve a long hint`. So the cap is pinned
 from both sides rather than only against the defect it was written for.
+
+##### What the first review round found, and the one thing it got wrong
+
+Pointed at `confirmKeys()`'s hostile inputs, the additive logic, `headWidths()`'s
+arithmetic, the comments and the tests. It confirmed the collision logic across
+all four combinations, the `ß`/`ı`/`ﬁ` refusals, the fallback table and the
+`avail <= 2` clamps -- and found **three** real things plus one claim that was
+wrong, which is the ratio worth recording rather than the count.
+
+- **A half whose first _glyph_ is more than its key**, which the lossy-capital
+  guard did not reach because the round trip it checks is on the first code
+  point. A decomposed `e\u0301/n` has a key of `e` and draws `(É/n)`, so a reader
+  pressing the É key sends the precomposed `é` and nothing matches. Making the
+  key the whole cluster is not the fix and could not be: `readOne()` decodes a
+  keystroke by code point, so a two-code-point key could never match anything. So
+  the half is refused and English stands -- the entry above about a catalog
+  writing its pair in the form the keyboard produces, promoted from a recorded
+  limitation to a guard, because the _hint_ was the half that was wrong rather
+  than the keystroke.
+
+- **A comment that was false about the line beside it**, and it is the one that
+  made the defect above look impossible: `pairKeys()` said the hint is "rendered
+  from the keys rather than parsed back out of a string, which is what makes 'the
+  hint is the keys' true by construction". It is rendered from the **halves** --
+  `(Ja/nein)` draws a whole word and the key is `j` -- so what holds by
+  construction is narrower, and saying it loosely is what hid the É case. Which is
+  this file's own warning met exactly: the written rule is what stops the reader
+  checking.
+
+- **An orphaned JSDoc.** `ENGLISH_PAIR` and its doc were inserted _between_
+  `ConfirmKeys`' doc comment and `ConfirmKeys`, so the interface had no
+  documentation and the const had two. An editing slip, invisible to every test.
+
+- **And an integration case that did not pin its own name.** `should still accept
+  y and n, which no hint has to name` had been fixed once already, to a `j/k`
+  catalog so that neither English key is the entry's -- and it still only pressed
+  `y` and `n`, so reverting `confirm()` to a hardcoded `ch === 'y'` passed it. The
+  catalog did no work. It presses `j` and `k` as well now. Twice wrong in the same
+  test, each time caught by somebody reading what it asserts rather than what it
+  is called.
+
+**What it got wrong is worth as much**, because a review is a set of claims to
+check rather than a list of fixes. It reported that `should window the list
+against the head it drew` is half vacuous -- that `head + shown < 10` still holds
+with `lines` ignoring the tail, since 1 + 8 is 9. That conflates `lines` with the
+head the test **measures**: `head` is `findIndex` over the drawn log, which is 2
+rows whatever `lines` answered, so the sum is 10 and the assertion fails. Verified
+by running that one mutation against that one test: caught, `expected 10 to be
+below 10`. It also reported a bare combining mark as accepted, which was true of
+the diff it was given and had been fixed two commits before the review returned.
 
 ### Sharing options between commands
 

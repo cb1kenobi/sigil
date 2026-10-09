@@ -321,13 +321,6 @@ export function __n(count: number, one: string, other: string, ...values: unknow
 }
 
 /**
- * The keys a yes-or-no prompt accepts, and the hint they are drawn as.
- *
- * Both halves of one answer, because the whole point is that they cannot come
- * apart: a hint translated on its own gives a prompt that displays `(J/n)` and
- * ignores `j`, which is a hint that parses and lies.
- */
-/**
  * The pair English falls back to, which is also the catalog key for it.
  *
  * The same string in two roles rather than one copy too many: at the call site
@@ -337,6 +330,13 @@ export function __n(count: number, one: string, other: string, ...values: unknow
  */
 const ENGLISH_PAIR = ['y', 'n'] as const;
 
+/**
+ * The keys a yes-or-no prompt accepts, and the hint they are drawn as.
+ *
+ * Both halves of one answer, because the whole point is that they cannot come
+ * apart: a hint translated on its own gives a prompt that displays `(J/n)` and
+ * ignores `j`, which is a hint that parses and lies.
+ */
 export interface ConfirmKeys {
 	/** The hint, `(Y/n)` in English, with the default's half capitalized. */
 	hint: string;
@@ -364,15 +364,27 @@ export interface ConfirmKeys {
  * @returns The key, or an empty string.
  */
 function keyOfHalf(half: string): string {
-	const first = ([...half][0] ?? '').toLowerCase();
+	const points = [...half];
+	const first = (points[0] ?? '').toLowerCase();
 
 	// a combining mark and a control or format character are each a code point
 	// that is not a *key*: a terminal sends no keystroke a reader could match them
 	// with, and the mark would attach itself to the `(` the hint opens with -- so
 	// `´a/n` drew a hint of `(́a/n)` whose first half advertised `a`, which is not
-	// the key. Which is this file's own rule said about the one thing a catalog can
-	// put here that nobody can type, so the half is refused and English stands
-	return /[\p{C}\p{M}]/u.test(first) ? '' : first;
+	// the key
+	if (/[\p{C}\p{M}]/u.test(first)) {
+		return '';
+	}
+
+	// and a mark on the *second* code point is the same lie one step along, because
+	// then the first thing drawn is a grapheme cluster and the key is only part of
+	// it: a decomposed `e\u0301/n` has a key of `e` and draws `(É/n)`, so a reader
+	// pressing the É key sends the precomposed `é` and nothing matches. Making the
+	// key the whole cluster is not the fix either -- `readOne()` decodes a keystroke
+	// by code point, so a two-code-point key could never match anything. So the
+	// half is refused and English stands, which is why a catalog writes its pair in
+	// the form the keyboard produces
+	return points[1] !== undefined && /\p{M}/u.test(points[1]) ? '' : first;
 }
 
 /**
@@ -380,9 +392,16 @@ function keyOfHalf(half: string): string {
  *
  * One builder rather than one per path, so that the English fallback and a
  * translated entry cannot produce differently-shaped hints -- and so that the
- * hint is *rendered from* the keys rather than parsed back out of a string,
- * which is what makes "the hint is the keys" true by construction rather than
- * by agreement.
+ * hint is built here rather than parsed back out of a string, which is what
+ * keeps one function answering for both.
+ *
+ * It is rendered from the **halves** rather than from the keys, which is worth
+ * being exact about because the loose version of that sentence is what makes the
+ * decomposed case below look impossible: `(Ja/nein)` draws a whole word and the
+ * key is `j`. So what holds by construction is narrower than "the hint is the
+ * keys" -- it is that each key is the first code point of the half drawn, and
+ * `keyOfHalf()` refuses every half where that first code point is not also the
+ * first thing a reader sees.
  *
  * **The hint is authoritative and English is additive.** `y` and `n` are
  * accepted on top of whatever the entry named, and each is dropped where it

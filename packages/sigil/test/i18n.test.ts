@@ -210,6 +210,17 @@ describe('the keys a yes-or-no prompt accepts', () => {
 		expect(keys.no).to.not.include('n');
 	});
 
+	it('should swap both English keys where the pair swapped them', () => {
+		// the fourth combination, which the table was missing: each English letter is
+		// claimed by the opposite half, so neither is added and both mean what the
+		// hint says they mean
+		const keys = confirmKeys('n/y', true);
+
+		expect(keys.hint).to.equal('(N/y)');
+		expect(keys.yes).to.deep.equal(['n']);
+		expect(keys.no).to.deep.equal(['y']);
+	});
+
 	it('should refuse English y where the pair made it the no key', () => {
 		// the mirror of the case above, which a fixture that only moved the yes half
 		// would not reach
@@ -282,6 +293,27 @@ describe('the keys a yes-or-no prompt accepts', () => {
 
 		expect(keys.hint).to.equal('(Ja/nein)');
 		expect(keys.yes).to.deep.equal(['j', 'y']);
+	});
+
+	it('should refuse a half whose first glyph is more than its key', () => {
+		// a decomposed `e\u0301` has a key of `e` and draws as `É`, so a reader
+		// pressing the É key sends the precomposed `é` and nothing matches -- the
+		// same lie the lossy capital is, one step along. Making the key the whole
+		// cluster is not the fix: a keystroke is decoded by code point, so a
+		// two-code-point key could never match. Found by review
+		for (const pair of ['e\u0301/n', 'y/n\u0303', 'n\u0301ee/j']) {
+			expect(confirmKeys(pair, true), JSON.stringify(pair)).to.deep.equal({
+				hint: '(Y/n)',
+				no: ['n'],
+				yes: ['y'],
+			});
+		}
+
+		// a *precomposed* é is one code point and one glyph, so it is a key
+		expect(confirmKeys('\u00E9/n', true).yes).to.deep.equal(['\u00E9', 'y']);
+		expect(confirmKeys('\u00E9/n', true).hint).to.equal('(\u00C9/n)');
+		// and an ordinary multi-letter half still works
+		expect(confirmKeys('ja/nein', true).yes).to.deep.equal(['j', 'y']);
 	});
 
 	it('should refuse a half whose first character is not a key', () => {

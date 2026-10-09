@@ -80,7 +80,12 @@ describe('a translated confirm', () => {
 		// with English being additive
 		await translated({ 'y/n': 'j/k' });
 
+		// the entry's own keys as well as English, or the catalog does no work here:
+		// reverting `confirm()` to a hardcoded `ch === 'y'` would pass a case that
+		// only ever presses `y` and `n`. Found by review
 		for (const [key, value] of [
+			['j', true],
+			['k', false],
 			['y', true],
 			['n', false],
 		] as const) {
