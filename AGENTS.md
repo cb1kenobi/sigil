@@ -15818,6 +15818,22 @@ and the check, and `src/i18n/keys.ts` is generated.
   nothing, resolves nothing and constructs no `Intl`, which is every app that has
   not asked for this.
 
+- **`demos/i18n/01-translating.js` is where the three halves are shown
+  together**, because each one is unconvincing on its own: a reordered slot only
+  reads as a point beside the `%s` it replaces, a plural only earns
+  `Intl.PluralRules` where a language has more than two forms, and `setLocale()`
+  only means anything if you can see what it does _not_ reach. So one screen has
+  the German reordering `Copied {0} to {1}`, Polish taking four categories where
+  Japanese takes a plain string, and four `setLocale()` calls with nothing
+  already printed changing -- which is "translated where it is built" as a thing
+  to look at rather than a sentence. Its catalogs are inline objects, which is
+  the one place this repo writes a loader that is not a JSON import: a loader is
+  a function and may do anything, and a demo that shipped three JSON files would
+  be three files to read before the point arrives. The Japanese chrome is
+  deliberately absent so that `--help` shows a partial catalog falling back
+  whole, and it is drivable by `demos.test.ts` because it needs no terminal at
+  all.
+
 - **Fifteen sabotages, fourteen caught, one declared.** Three of the five that
   survived the first run were real gaps and each got the input that makes it
   matter: the first-spelling-wins rule in the loader map, which needs two

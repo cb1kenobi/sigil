@@ -73,6 +73,50 @@ is deferred, settles it — the registry holds a placeholder with no `run` at al
 so for a lazily loaded command the shortcut is not wrong but impossible, and a
 parse is what loads it.
 
+## Translating
+
+|                                                    |                                                               |
+| -------------------------------------------------- | ------------------------------------------------------------- |
+| [`i18n/01-translating.js`](i18n/01-translating.js) | A translated string, plurals, and the locale changing mid-run |
+
+The English sentence _is_ the catalog key, so there is nothing to invent and
+nothing to look up:
+
+```sh
+node demos/i18n/01-translating.js
+LANG=de_DE.UTF-8 node demos/i18n/01-translating.js
+SIGIL_LOCALE=pl node demos/i18n/01-translating.js   # four plural forms
+```
+
+Three things in one screen. `__` is a tagged template whose key is the English
+with its slots numbered, and the German **reorders** them — `Copied {0} to {1}`
+becomes `Nach {1} wurde {0} kopiert`, which is the whole reason numbered slots
+beat `%s`. `__n` takes two forms and selects with `Intl.PluralRules`, so Polish
+gets four categories with no grammar written for it, German two, and Japanese
+one — which is why a plural entry may be a plain string rather than an object.
+And `setLocale()` runs four times, which is what an app does once it has read
+its config.
+
+The thing to notice is what does **not** happen: nothing already printed
+changes. A string is translated where it is built, so each line is in the locale
+that was in effect when it was written. That is also why a parse error and
+`--help` are always in the environment's locale — both happen before a command
+runs, so an app whose parse failed never got to read its config.
+
+`--help` comes out of the same catalog with no second mechanism, and the
+Japanese one is deliberately partial so you can see what that does:
+
+```sh
+LANG=de_DE.UTF-8 node demos/i18n/01-translating.js --help   # fully German
+SIGIL_LOCALE=ja node demos/i18n/01-translating.js --help    # falls back whole
+```
+
+A missing key renders the English sentence it was keyed on, silently, because a
+partial catalog is the normal state of a translation and `[missing: …]` would
+replace a working message with a broken one. What is loud is `sigil check`,
+which compares the key sets both ways — so a reworded English sentence shows up
+as one missing key and one orphan.
+
 ## Components
 
 |                                                                    |                                                         |
