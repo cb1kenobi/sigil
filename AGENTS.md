@@ -16069,20 +16069,80 @@ command, wired beside `registerHelp()` and `registerVersion()`.
   completes something else. Nothing refuses such a schema, so the registry's own
   answer is the only exact one.
 
-- **`--opt=value` has two shapes in bash and both are handled, because which one
-  arrives is a setting.** `=` is in the default `COMP_WORDBREAKS`, so `--mode=f`
-  normally reaches the function as three words and the option is two back -- and
-  a shell whose owner took `=` out of that variable hands the whole thing over as
-  one word. The second shape needs a branch of its own _and_ a different answer:
-  readline replaces the whole current word, so the candidate has to carry the
-  `--opt=` back with it, which is why `__x_add` takes a prefix. Driven in real
-  bash under both configurations, because neither one can reach the other's
-  branch. zsh has one shape, since it does not break the word there.
+- **bash has two word models and `COMP_WORDBREAKS` governs two different
+  things, and conflating them shipped two wrong insertions.** This is the
+  longest entry here because the first version of it got the mechanism wrong in
+  a way that no hand-fed test could see, and the correction is the whole of what
+  the bash emitter now does differently from the zsh one.
+
+  **Axis one is how the line is split**, and it is a version difference both
+  manuals state. bash 3.2 says `COMP_WORDS` is "split on shell metacharacters
+  as the shell parser would separate them"; bash 4.0 changed it to "split into
+  words as readline would split it, using `COMP_WORDBREAKS`". So `--tag
+  host:port` is **one** word in 3.2 and **five** in 4 and later, and
+  `--mode=fast` is one and three. Measured in a real bash 3.2 through a pty,
+  under `complete -F`, `complete -o default -F` and `-o default -o nospace`
+  alike: `host:port` and `--mode=host:port` each arrive whole, so 3.2 really
+  does not break on either character.
+
+  **Axis two is what readline replaces**, and it is the same in every version:
+  only what follows the **last** character of the word that is in
+  `$COMP_WORDBREAKS`. Measured by reading the bytes readline wrote before
+  inserting -- `--mode=fa` then TAB emits two backspaces, so it is replacing
+  `fa` and not the word.
+
+  The two axes are independent, and the first version of this entry read axis
+  two off axis one: it assumed that a shell which hands the word over whole
+  also replaces the whole word, and built the prefix-carrying branch on that.
+  bash 3.2 is the counterexample and is the commonest bash on a Mac -- it hands
+  the word over whole **and** replaces only the tail. So the shipped script
+  completed `--mode=fa` to **`--mode=--mode=fast`** and `--tag host:po` to
+  **`--tag host:host:port`**, both measured against the generated script in a
+  real bash. The colon half was reported by an independent review as a _missing_
+  completion, which is what it is on bash 4 and later, where the lookup fails
+  instead; on 3.2 it is a wrong line. Neither was reachable from any hand-fed
+  word list, because every one of those had the two axes tied together.
+
+  **One mechanism answers both.** `__x_join` rejoins whatever the shell split --
+  a raw word that is nothing but break characters sat between two words with no
+  space, and so does whatever follows a logical word that now ends in one --
+  which is a no-op on 3.2 and the fix on 4 and later. `__x_keep` then finds how
+  much of the current word readline will keep, by scanning it backwards for the
+  last character in `$COMP_WORDBREAKS`. And `__x_add` filters a candidate by the
+  **whole** word and inserts it with that kept prefix taken off, which is
+  bash-completion's `__ltrim_colon_completions` generalised to every break
+  character rather than to `:`.
+
+  So the `--opt=` prefix is still passed -- a candidate for `--mode=fa` is the
+  word `--mode=fast` and that is what `cur` has to be filtered against -- and
+  what comes back off the front is decided at run time rather than by a branch.
+  A shell whose owner took `=` and `:` out of `COMP_WORDBREAKS` gets the whole
+  `--mode=fast` inserted, which is correct there and is the third regime the
+  test drives. The `prev = '='` branch is **gone**, because a rejoined
+  `--mode=fast` is one word and the `-*=*` branch is the only one left -- one
+  branch where there were two, and it is the one a real bash reaches.
 
   It matches `-*=*` rather than `--*=*`, because a **short** option takes an
-  attached value too -- `-p=5` resolves, which is what `spellingOf()`'s own entry
-  records from the other side -- and zsh's branch had always been the wider one,
-  so bash was the half that disagreed. Both are driven now.
+  attached value too -- `-p=5` resolves, which is what `spellingOf()`'s own
+  entry records from the other side.
+
+  zsh needs none of it, confirmed in a real zsh through a pty rather than taken
+  from the report: `cx go --tag host:po` completes to `host:port` and `cx go
+  --tag` lists `a:b host:port plain`. Its completion system owns the word
+  splitting, `compset -p` is what moves the insertion point, and a colon in a
+  _value_ is escaped `\:` for `_describe` already.
+
+  **What is driven, and what is fed.** bash 3.2 is driven for real -- through a
+  pty for the insertion, which is the only place the backspaces are visible, and
+  through `COMP_WORDS` for the candidate lists. The bash 4 and later half is fed
+  the word list those manuals specify, because **no bash 4 or 5 is installed
+  where this was written**, and the test says so where it lives rather than
+  implying a run that did not happen. That is the same standard fish and
+  PowerShell were refused under, with the difference that the split is a
+  documented behaviour rather than a whole escaping grammar. The driver also
+  asserts that `=` and `:` really are in the default `COMP_WORDBREAKS` of the
+  bash running it, so a bash whose default differs fails there rather than
+  passing quietly.
 
 - **A `default` command's own arguments and options are offered at the level
   above it, and that was measured both ways before anything was written.** A
@@ -16331,7 +16391,18 @@ command, wired beside `registerHelp()` and `registerVersion()`.
   command with no token left. A **bash driver** that does what readline does -- set
   `COMP_WORDS` and `COMP_CWORD`, call the function, read `COMPREPLY` back -- under
   `-u`, because a user's shell may have it and bash 3.2 errors on
-  `"${empty[@]}"`. And a **zsh driver** with the completion system stubbed:
+  `"${empty[@]}"`.
+
+  What that driver cannot see is the **insertion**, which is where two defects
+  lived: a candidate list can be perfectly right and still come out doubled on
+  the line, because what readline replaces is narrower than the word. Seeing it
+  needs a pty and a read of the backspaces readline writes before inserting,
+  which is a by-hand run rather than a test -- so the suite asserts the
+  _candidates_ each word regime has to produce, which is the same claim in the
+  one form a test can hold, and the `COMP_WORDBREAKS` entry has the
+  measurement.
+
+  And a **zsh driver** with the completion system stubbed:
   `compset`, `_describe` and `_files` replaced by functions that print what they
   were handed, so what is asserted is that the function asks the right questions
   with the right data, and those three actually doing their jobs is zsh's claim
@@ -16375,12 +16446,16 @@ command, wired beside `registerHelp()` and `registerVersion()`.
   costs it nothing, which is a thing worth knowing before somebody wonders why
   completion does not need it.
 
-- **Seventy-three sabotages, seventy-two caught and one declared, after twelve
+- **Seventy-six sabotages, seventy-five caught and one declared, after twelve
   survivors and one defect the pass found plus one it could not.** Counted
   against the shipped tree in one run rather than summed across rounds, which is
-  what makes the figure re-derivable: sixty-four before either review round, and
-  nine more over the guards those rounds produced -- all nine caught first time,
-  which is what arriving with a test does. The declared survivor is the `case`
+  what makes the figure re-derivable: sixty-four before any review round, nine
+  over the guards the first two produced, and three over the word-model fix --
+  all twelve of those caught first time, which is what arriving with a test
+  does. Eleven of the bash cases went stale in one run when that fix rewrote the
+  function, and the harness reported each as `PATTERN MISSED` rather than as a
+  pass; they are regenerated from the file by line rather than retyped, which is
+  the technique the escaping already forced once. The declared survivor is the `case`
   subject above, with its measurement. The defect the pass found is the dead
   conditional; the one it could not is `local path`, which no deletion expresses
   and which reading the output as a shell program is what turned up.
@@ -16486,6 +16561,32 @@ command, wired beside `registerHelp()` and `registerVersion()`.
   reads `-1` as an option too and a command line cannot express it either. A
   script that offered it would be offering a value the parse then refuses, which
   is the divergence the whole design is written against.
+
+- **A third review round, independent and pointed at the emitted scripts as
+  programs, found the word-model defect and refuted three things -- two of them
+  because its scope could not see `spec.ts`.** Which is worth recording as a
+  property of _scoping a round_ rather than of the round: told to read the two
+  emitters, it reported inputs that are refused upstream and reported them
+  honestly as what the emitters would do with them.
+
+  Refuted: a newline in the program name injecting through the `#compdef` line
+  and the header recipes -- `APPNAME=$'foo\necho …'` exits 1 with `"…" is not a
+  name a shell can register for`, since `completionSpec()` refuses any program
+  name holding whitespace. A leading-dash program name reaching `complete -o
+  default -F _D '-D'` -- the same guard, the same message, which is the earlier
+  round's own fix holding; adding `--` to those builtins would be defence in
+  depth over an unreachable input. And an empty `case` pattern from empty
+  `tokens` or `spellings` -- the reachable route is a sibling's alias shadowing
+  another command's name, which is the earlier fix, and `spellings: []` is
+  unreachable because `initOption()` refuses an option that names no spelling.
+
+  Confirmed clean by it, with citations, and worth naming so the next round
+  knows what has been read: every quoting of `"`, a backtick, `$`, `\`, `!`,
+  `*`, `[`, `#`, `%`, `:`, a leading dash and non-ASCII inside the single-quote
+  wrapper; the backslash-before-colon ordering in a zsh _value_; `compset -p $((
+  ${#opt} + 1 ))` against the greedy form; the `path` prefixing; the
+  `no_ksh_arrays` setopt and the one-based walk; and bash 3.2 compliance -- no
+  associative arrays, no `mapfile`, no `compopt`, index-append rather than `+=`.
 
 - **Twenty-four test schemas in six files gained `completion: false`, and that is
   the honest churn rather than a reason to narrow the feature.** A free command in

@@ -132,7 +132,7 @@ function subArms(spec: CompletionSpec, pre: string): string {
 	for (const cmd of spec.commands) {
 		if (cmd.subcommands.length > 0) {
 			const names = cmd.subcommands.flatMap((sub) => sub.tokens.map(bashQuote)).join(' ');
-			out += arm(cmd.path, `${pre}_add '' "$2" ${names}`);
+			out += arm(cmd.path, `${pre}_add '' "$2" "$3" ${names}`);
 		}
 	}
 	return out;
@@ -144,7 +144,7 @@ function optArms(spec: CompletionSpec, pre: string): string {
 	for (const cmd of spec.commands) {
 		const spellings = cmd.options.flatMap((opt) => opt.spellings);
 		if (spellings.length > 0) {
-			out += arm(cmd.path, `${pre}_add '' "$2" ${spellings.map(bashQuote).join(' ')}`);
+			out += arm(cmd.path, `${pre}_add '' "$2" "$3" ${spellings.map(bashQuote).join(' ')}`);
 		}
 	}
 	return out;
@@ -155,7 +155,7 @@ function argArms(spec: CompletionSpec, pre: string): string {
 	let out = '';
 	for (const cmd of spec.commands) {
 		if (cmd.argValues.length > 0) {
-			out += arm(cmd.path, `${pre}_add '' "$2" ${cmd.argValues.map(bashQuote).join(' ')}`);
+			out += arm(cmd.path, `${pre}_add '' "$2" "$3" ${cmd.argValues.map(bashQuote).join(' ')}`);
 		}
 	}
 	return out;
@@ -228,13 +228,88 @@ export function bashScript(spec: CompletionSpec): string {
 # a shell somebody configured: readline replaces the whole word, so the
 # candidate has to carry the \`--opt=\` back with it
 ${pre}_add() {
-\tlocal __pre="$1" __cur="$2" __c
-\tshift 2
+\t# \`$1\` is what every candidate sits after inside one word -- \`--opt=\` for an
+\t# attached value, empty otherwise -- so \`$1$c\` is the whole word the shell
+\t# would end up with. \`$2\` is the whole word as typed, which is what a
+\t# candidate is filtered by, and \`$3\` is the part of it readline will *not*
+\t# replace, which is what has to come back off the front of what is inserted
+\tlocal __pre="$1" __cur="$2" __keep="$3" __c __w
+\tshift 3
 \tfor __c in "$@"; do
-\t\tcase "$__c" in
-\t\t\t"$__cur"*) COMPREPLY[\${#COMPREPLY[@]}]="$__pre$__c" ;;
+\t\t__w="$__pre$__c"
+\t\tcase "$__w" in
+\t\t\t"$__cur"*) COMPREPLY[\${#COMPREPLY[@]}]="\${__w#"$__keep"}" ;;
 \t\tesac
 \tdone
+}
+
+# how much of a word readline keeps: everything up to and including the last
+# character of it that is in \`$COMP_WORDBREAKS\`. readline replaces only what
+# follows that, so a candidate carrying any of it is inserted twice --
+# \`--mode=--mode=fast\`, measured in bash 3.2. The membership test quotes the
+# character, so a \`*\` or a \`[\` in \`$COMP_WORDBREAKS\` is matched literally
+${pre}_keep() {
+\t${pre}_pre=''
+\tlocal __w="$1" __i=\${#1} __c
+\twhile [ "$__i" -gt 0 ]; do
+\t\t__c="\${__w:__i-1:1}"
+\t\tcase "$COMP_WORDBREAKS" in
+\t\t\t*"$__c"*) ${pre}_pre="\${__w:0:__i}"; return ;;
+\t\tesac
+\t\t__i=$((__i - 1))
+\tdone
+}
+
+# bash 4 and later split the line \`as readline would split it, using
+# COMP_WORDBREAKS\`, so \`--tag host:port\` arrives as five words and
+# \`--mode=fast\` as three. bash 3.2 splits on shell metacharacters only and
+# hands each over whole -- both are what their own manuals say, and this is the
+# one place the difference has to be absorbed: everything below wants one word
+# per word the user typed. A raw word that is nothing but break characters sat
+# between two words with no space, and so does whatever follows a logical word
+# that now ends in one
+${pre}_join() {
+\t${pre}_w=()
+\t${pre}_c=0
+\tlocal __i=0 __n=\${#COMP_WORDS[@]} __raw __last __j
+\twhile [ "$__i" -lt "$__n" ]; do
+\t\t__raw="\${COMP_WORDS[__i]}"
+\t\t__j=\${#${pre}_w[@]}
+\t\tif [ "$__j" -gt 0 ] && { ${pre}_allbreak "$__raw" || ${pre}_endsbreak "\${${pre}_w[__j-1]}"; }; then
+\t\t\t${pre}_w[__j-1]="\${${pre}_w[__j-1]}$__raw"
+\t\t\tif [ "$__i" -le "$COMP_CWORD" ]; then ${pre}_c=$((__j - 1)); fi
+\t\telse
+\t\t\t${pre}_w[__j]="$__raw"
+\t\t\tif [ "$__i" -le "$COMP_CWORD" ]; then ${pre}_c=$__j; fi
+\t\tfi
+\t\t__i=$((__i + 1))
+\tdone
+}
+
+# whether a word is made only of break characters, and whether one ends in a
+# break character -- the two questions \`_join\` asks per word
+${pre}_allbreak() {
+\tlocal __w="$1" __i=0 __c
+\t[ -n "$__w" ] || return 1
+\twhile [ "$__i" -lt \${#__w} ]; do
+\t\t__c="\${__w:__i:1}"
+\t\tcase "$COMP_WORDBREAKS" in
+\t\t\t*"$__c"*) ;;
+\t\t\t*) return 1 ;;
+\t\tesac
+\t\t__i=$((__i + 1))
+\tdone
+\treturn 0
+}
+
+${pre}_endsbreak() {
+\tlocal __w="$1" __c
+\t[ -n "$__w" ] || return 1
+\t__c="\${__w:\${#__w}-1:1}"
+\tcase "$COMP_WORDBREAKS" in
+\t\t*"$__c"*) return 0 ;;
+\tesac
+\treturn 1
 }
 
 # which path a word takes you to, by its name or by any alias it answers to.
@@ -282,34 +357,37 @@ ${fn}() {
 \t# declared rather than assigned, because \`local x=()\` is not an array
 \t# declaration in every bash this has to run in
 \tlocal -a ${pre}_vals
+\t# the rejoined words, the cursor's index into them, and the kept prefix
+\tlocal -a ${pre}_w
+\tlocal ${pre}_c=0
+\tlocal ${pre}_pre=''
 
 \tCOMPREPLY=()
-\tcur="\${COMP_WORDS[COMP_CWORD]}"
+\t${pre}_join
+\tcur="\${${pre}_w[${pre}_c]}"
 \tprev=''
-\tif [ "$COMP_CWORD" -gt 0 ]; then
-\t\tprev="\${COMP_WORDS[COMP_CWORD-1]}"
+\tif [ "$${pre}_c" -gt 0 ]; then
+\t\tprev="\${${pre}_w[${pre}_c-1]}"
 \tfi
+\t# what readline will keep of the current word, which every candidate has to
+\t# come back off the front of
+\t${pre}_keep "$cur"
 
 \t# the command path, read off the words before the cursor. A word that
 \t# resolves to no command leaves the path where it was -- which is also what
 \t# keeps an option's value from being read as a command
 \tskip=0
 \ti=1
-\twhile [ "$i" -lt "$COMP_CWORD" ]; do
-\t\tword="\${COMP_WORDS[i]}"
+\twhile [ "$i" -lt "$${pre}_c" ]; do
+\t\tword="\${${pre}_w[i]}"
 \t\ti=$((i + 1))
 \t\tif [ "$skip" = 1 ]; then
-\t\t\t# the \`=\` of \`--opt=value\`, which bash breaks out as a word of its own:
-\t\t\t# the value is still to come, so keep skipping
-\t\t\tcase "$word" in
-\t\t\t\t'=') continue ;;
-\t\t\tesac
 \t\t\tskip=0
 \t\t\tcontinue
 \t\tfi
 \t\tcase "$word" in
 \t\t\t'--') return 0 ;;
-\t\t\t'='|'') continue ;;
+\t\t\t'') continue ;;
 \t\t\t-*)
 \t\t\t\t${pre}_optval "$${pre}_path" "$word"
 \t\t\t\tif [ "$${pre}_takes" = 1 ]; then skip=1; fi
@@ -321,24 +399,16 @@ ${fn}() {
 \t\tif [ -n "$${pre}_next" ]; then ${pre}_path="$${pre}_next"; fi
 \tdone
 
-\t# \`--opt=<TAB>\`: the option is two words back, because \`=\` is a word break
-\tif [ "$prev" = '=' ] && [ "$COMP_CWORD" -ge 2 ]; then
-\t\t${pre}_optval "$${pre}_path" "\${COMP_WORDS[COMP_CWORD-2]}"
-\t\tif [ "$${pre}_takes" = 1 ]; then
-\t\t\tif [ \${#${pre}_vals[@]} -gt 0 ]; then ${pre}_add '' "$cur" "\${${pre}_vals[@]}"; fi
-\t\t\treturn 0
-\t\tfi
-\tfi
-
-\t# ...and the same thing where \`=\` is not a word break, so the whole
-\t# \`--opt=value\` arrived as one word: what is inserted replaces that word, so
-\t# every candidate carries the \`--opt=\` back
+\t# \`--opt=<TAB>\`, which is one word now however the shell split it. The
+\t# candidates are values rather than words, so each one is offered as
+\t# \`--opt=\` plus the value -- which is what \`cur\` has to be filtered
+\t# against -- and \`_keep\` decides how much of that comes back off
 \tcase "$cur" in
 \t\t-*=*)
 \t\t\t${pre}_optval "$${pre}_path" "\${cur%%=*}"
 \t\t\tif [ "$${pre}_takes" = 1 ]; then
 \t\t\t\tif [ \${#${pre}_vals[@]} -gt 0 ]; then
-\t\t\t\t\t${pre}_add "\${cur%%=*}=" "\${cur#*=}" "\${${pre}_vals[@]}"
+\t\t\t\t\t${pre}_add "\${cur%%=*}=" "$cur" "$${pre}_pre" "\${${pre}_vals[@]}"
 \t\t\t\tfi
 \t\t\t\treturn 0
 \t\t\tfi
@@ -347,7 +417,7 @@ ${fn}() {
 
 \tcase "$cur" in
 \t\t-*)
-\t\t\t${pre}_opts "$${pre}_path" "$cur"
+\t\t\t${pre}_opts "$${pre}_path" "$cur" "$${pre}_pre"
 \t\t\treturn 0
 \t\t\t;;
 \tesac
@@ -356,14 +426,14 @@ ${fn}() {
 \t\t-*)
 \t\t\t${pre}_optval "$${pre}_path" "$prev"
 \t\t\tif [ "$${pre}_takes" = 1 ]; then
-\t\t\t\tif [ \${#${pre}_vals[@]} -gt 0 ]; then ${pre}_add '' "$cur" "\${${pre}_vals[@]}"; fi
+\t\t\t\tif [ \${#${pre}_vals[@]} -gt 0 ]; then ${pre}_add '' "$cur" "$${pre}_pre" "\${${pre}_vals[@]}"; fi
 \t\t\t\treturn 0
 \t\t\tfi
 \t\t\t;;
 \tesac
 
-\t${pre}_subs "$${pre}_path" "$cur"
-\t${pre}_args "$${pre}_path" "$cur"
+\t${pre}_subs "$${pre}_path" "$cur" "$${pre}_pre"
+\t${pre}_args "$${pre}_path" "$cur" "$${pre}_pre"
 \treturn 0
 }
 

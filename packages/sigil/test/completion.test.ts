@@ -803,6 +803,9 @@ describe('the scripts as shell programs', () => {
 					'-m, --mode [m]': { choices: ['fast', 'slow'], desc: 'how' },
 					'--no-color': 'no colour',
 					'--out <dir>': 'where',
+					// a `:` is in the default `COMP_WORDBREAKS`, and `host:port`,
+					// `pkg:version` and an image tag are ordinary values
+					'--tag <t>': { choices: ['a:b', 'host:port', 'plain'], desc: 'tag' },
 				},
 				run(): void {},
 			},
@@ -842,60 +845,115 @@ describe('the scripts as shell programs', () => {
 		execFileSync(zsh!, ['-n', await write('zsh')]);
 	});
 
-	it.skipIf(!bash)(
-		'should attach a value to its option whether or not `=` breaks a word',
-		async () => {
-			// `=` is in the default `COMP_WORDBREAKS`, so `--mode=f` normally arrives
-			// as three words and the option is two back -- and a shell somebody
-			// configured hands it over whole, where readline replaces the whole word
-			// and the candidate has to carry the `--opt=` back with it. Both branches
-			// exist and this is the one the driven cases above cannot reach
-			const script = await write('bash');
-			const drive = (wordbreaks: boolean, words: string[]): string[] =>
-				execFileSync(
-					bash!,
-					[
-						// `-u` for the reason the driver above takes it: `"${empty[@]}"`
-						// is an error in the bash this has to run in, and this branch has
-						// an empty-array guard of its own
-						'-u',
-						'-c',
-						[
-							wordbreaks ? ':' : 'COMP_WORDBREAKS="${COMP_WORDBREAKS//=}"',
-							`source ${bashQuote(script)}`,
-							`COMP_WORDS=(${words.map(bashQuote).join(' ')})`,
-							`COMP_CWORD=${words.length - 1}`,
-							'COMPREPLY=()',
-							'_mycli',
-							'if [ ${#COMPREPLY[@]} -gt 0 ]; then printf \'%s\\n\' "${COMPREPLY[@]}"; fi',
-						].join('\n'),
-					],
-					{ encoding: 'utf8' }
-				)
-					.split('\n')
-					.filter((line) => line !== '');
+	it.skipIf(!bash)('should insert only what readline is replacing', async () => {
+		// There are **two** word models and the script has to answer both, which is
+		// what makes this three regimes rather than one. bash 3.2's own manual says
+		// `COMP_WORDS` is "split on shell metacharacters as the shell parser would
+		// separate them"; bash 4.0 changed it to "split into words as readline
+		// would split it, using COMP_WORDBREAKS". So `--tag host:port` is **one**
+		// word in 3.2 and **five** in 4 and later, and `--mode=fast` is one and
+		// three. That is axis one.
+		//
+		// Axis two is independent of it and is the one that bites: readline
+		// replaces only what follows the **last** character of the word that is in
+		// `$COMP_WORDBREAKS`, in every version. Measured in bash 3.2 by reading the
+		// backspaces readline wrote before inserting -- `--mode=fa` then TAB erases
+		// two characters -- so a candidate carrying the `--mode=` is inserted twice
+		// and the line comes out `--mode=--mode=fast`. That was shipped, and so was
+		// `host:host:port`; both were found by driving a real bash rather than by
+		// any of the hand-fed cases below, which had the two axes conflated.
+		//
+		// One mechanism answers both: rejoin the words the shell split, filter a
+		// candidate by the whole word, and take the kept prefix back off whatever
+		// is inserted.
+		const script = await write('bash');
 
-			expect(drive(false, ['mycli', 'build', '--mode='])).toEqual(['--mode=fast', '--mode=slow']);
-			expect(drive(false, ['mycli', 'build', '--mode=f'])).toEqual(['--mode=fast']);
-			// a *short* option takes an attached value too -- `-p=5` resolves -- which
-			// is what zsh's own branch has always matched
-			expect(drive(false, ['mycli', 'build', '-m='])).toEqual(['-m=fast', '-m=slow']);
-			// an option whose values nothing declared offers none either way
-			expect(drive(false, ['mycli', 'build', '--out='])).toEqual([]);
-			// and the default configuration, which is the one every unconfigured
-			// shell is in and so the one worth more than a single case. The word
-			// before the cursor is the bare `=`, so the option is two back, and the
-			// candidates carry no prefix because readline is replacing the value
-			// alone
-			expect(drive(true, ['mycli', 'build', '--mode', '=', ''])).toEqual(['fast', 'slow']);
-			expect(drive(true, ['mycli', 'build', '--mode', '=', 'f'])).toEqual(['fast']);
-			expect(drive(true, ['mycli', 'build', '-m', '=', ''])).toEqual(['fast', 'slow']);
-			expect(drive(true, ['mycli', 'build', '--out', '=', ''])).toEqual([]);
-			// the `=` is a word of its own and must not be read as a path component:
-			// what follows it is still `build`'s
-			expect(drive(true, ['mycli', 'build', '--mode', '=', 'fast', ''])).toEqual(['web', 'native']);
-		}
-	);
+		/**
+		 * @param regime - `'bash32'` is the whole word with the default breaks,
+		 *   `'bash5'` is the same line split the way bash 4+ splits it, and
+		 *   `'noBreaks'` is a shell whose `COMP_WORDBREAKS` has neither character.
+		 * @param words - The words that regime hands over.
+		 * @returns What `COMPREPLY` came back as.
+		 */
+		const drive = (regime: 'bash32' | 'bash5' | 'noBreaks', words: string[]): string[] =>
+			execFileSync(
+				bash!,
+				[
+					// `-u` for the reason the driver above takes it: `"${empty[@]}"`
+					// is an error in the bash this has to run in, and this branch has
+					// an empty-array guard of its own
+					'-u',
+					'-c',
+					[
+						regime === 'noBreaks'
+							? 'COMP_WORDBREAKS="${COMP_WORDBREAKS//[=:]}"'
+							: // both other regimes are the default, which really does
+								// hold `=` and `:` -- asserted, so that a bash whose
+								// default differs fails here rather than silently passing
+								'case "$COMP_WORDBREAKS" in *=*) ;; *) echo "no = break" >&2; exit 1 ;; esac\n' +
+								'case "$COMP_WORDBREAKS" in *:*) ;; *) echo "no : break" >&2; exit 1 ;; esac',
+						`source ${bashQuote(script)}`,
+						`COMP_WORDS=(${words.map(bashQuote).join(' ')})`,
+						`COMP_CWORD=${words.length - 1}`,
+						'COMPREPLY=()',
+						'_mycli',
+						'if [ ${#COMPREPLY[@]} -gt 0 ]; then printf \'%s\\n\' "${COMPREPLY[@]}"; fi',
+					].join('\n'),
+				],
+				{ encoding: 'utf8' }
+			)
+				.split('\n')
+				.filter((line) => line !== '');
+
+		// bash 3.2: one word, and the candidate is the part after the break
+		expect(drive('bash32', ['mycli', 'build', '--mode='])).toEqual(['fast', 'slow']);
+		expect(drive('bash32', ['mycli', 'build', '--mode=f'])).toEqual(['fast']);
+		// a *short* option takes an attached value too -- `-p=5` resolves
+		expect(drive('bash32', ['mycli', 'build', '-m='])).toEqual(['fast', 'slow']);
+		// an option whose values nothing declared offers none, in every regime
+		expect(drive('bash32', ['mycli', 'build', '--out='])).toEqual([]);
+		// a `:` in the *value* rather than between an option and its value: the
+		// candidate is filtered by the whole word and inserted from the colon on
+		expect(drive('bash32', ['mycli', 'build', '--tag', ''])).toEqual(['a:b', 'host:port', 'plain']);
+		expect(drive('bash32', ['mycli', 'build', '--tag', 'host:po'])).toEqual(['port']);
+		expect(drive('bash32', ['mycli', 'build', '--tag', 'a:'])).toEqual(['b']);
+		// ...and a value that holds one does not take the walk with it
+		expect(drive('bash32', ['mycli', 'build', '--tag', 'host:port', ''])).toEqual([
+			'web',
+			'native',
+		]);
+
+		// bash 4 and later, where the same lines arrive split
+		expect(drive('bash5', ['mycli', 'build', '--mode', '=', ''])).toEqual(['fast', 'slow']);
+		expect(drive('bash5', ['mycli', 'build', '--mode', '=', 'f'])).toEqual(['fast']);
+		// the line ending on the break itself, which is a word list of its own
+		expect(drive('bash5', ['mycli', 'build', '--mode', '='])).toEqual(['fast', 'slow']);
+		expect(drive('bash5', ['mycli', 'build', '-m', '=', ''])).toEqual(['fast', 'slow']);
+		expect(drive('bash5', ['mycli', 'build', '--out', '=', ''])).toEqual([]);
+		expect(drive('bash5', ['mycli', 'build', '--tag', 'host', ':', 'po'])).toEqual(['port']);
+		expect(drive('bash5', ['mycli', 'build', '--tag', 'a', ':'])).toEqual(['b']);
+		expect(drive('bash5', ['mycli', 'build', '--tag', ''])).toEqual(['a:b', 'host:port', 'plain']);
+		// the `=` is a word of its own and must not be read as a path component:
+		// what follows it is still `build`'s, and so is what follows a split value
+		expect(drive('bash5', ['mycli', 'build', '--mode', '=', 'fast', ''])).toEqual([
+			'web',
+			'native',
+		]);
+		expect(drive('bash5', ['mycli', 'build', '--tag', 'host', ':', 'port', ''])).toEqual([
+			'web',
+			'native',
+		]);
+
+		// and a shell whose `COMP_WORDBREAKS` holds neither, where readline
+		// replaces the whole word and every candidate carries the prefix back
+		expect(drive('noBreaks', ['mycli', 'build', '--mode='])).toEqual([
+			'--mode=fast',
+			'--mode=slow',
+		]);
+		expect(drive('noBreaks', ['mycli', 'build', '--mode=f'])).toEqual(['--mode=fast']);
+		expect(drive('noBreaks', ['mycli', 'build', '-m='])).toEqual(['-m=fast', '-m=slow']);
+		expect(drive('noBreaks', ['mycli', 'build', '--tag', 'host:po'])).toEqual(['host:port']);
+	});
 
 	it.skipIf(!zsh)('should register itself for the program when it is sourced', async () => {
 		// a zsh completion is normally a file on `$fpath` that ends by *calling*
@@ -1183,7 +1241,7 @@ describe('the scripts as shell programs', () => {
 			// which is the order the registry resolves in
 			[
 				['mycli', 'build', '--'],
-				['--mode', '--no-color', '--color', '--out', '--config', '--help', '--version'],
+				['--mode', '--no-color', '--color', '--out', '--tag', '--config', '--help', '--version'],
 			],
 			[
 				['mycli', 'build', '--mode', ''],
