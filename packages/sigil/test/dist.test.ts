@@ -191,6 +191,43 @@ describe('what importing the package costs', () => {
 		expect(carriers(staticGraph('components.mjs'), symbol)).not.toEqual([]);
 	});
 
+	// `runCommand` among them, which the first version left out: it is the export
+	// an app actually imports, and dropping it from the barrel while leaving the
+	// module reachable kept the presence half green. Which is this file's own rule
+	// about an absence-only test, applied to the one name that matters most
+	it.each(['runCommand', 'runOnTerminal', 'createTestTerminal', 'already running'])(
+		'should not load %s to import the package',
+		(symbol) => {
+			// the measurement that decided where the testing helpers live. A subpath
+			// of the runtime rather than a package of its own -- which is the version
+			// skew argument `sigil add` already records, since `runCommand()` has to
+			// run the app's *own* `main()` -- and the cost of that is the question a
+			// subpath raises: it is permanent public surface on the package every app
+			// depends on at run time.
+			//
+			// It is zero. Nothing on the root entry's graph imports it, so the graph
+			// is 7,532 B over the same six modules it was before -- 21 B *less*, which
+			// is a shared chunk boundary moving and is noise. `testing.mjs` is 44,328 B
+			// over fourteen modules and is paid only by a module that asks for it,
+			// which is a test file -- the same figure AGENTS.md records, because two
+			// comments disagreeing about one measurement leave a later reader with no
+			// way to tell which was measured.
+			//
+			// An exported name and a string literal, which survive minification where
+			// a name that is only ever called does not
+			expect(carriers(staticGraph('index.mjs'), symbol)).toEqual([]);
+		}
+	);
+
+	it.each(['runCommand', 'runOnTerminal', 'createTestTerminal', 'already running'])(
+		'should load %s to import the testing helpers',
+		(symbol) => {
+			// the other half, and it is not decoration: a test that only asserts an
+			// absence passes forever the day the symbol is renamed
+			expect(carriers(staticGraph('testing.mjs'), symbol)).not.toEqual([]);
+		}
+	);
+
 	it('should keep the root entry small enough to be worth it', () => {
 		const graph = staticGraph('index.mjs');
 		const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);

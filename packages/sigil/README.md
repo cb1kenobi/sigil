@@ -57,7 +57,8 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Help](#help)
 - [Translating](#translating) — `__`, `__n`, catalogs, `SIGIL_LOCALE`
 - [Typed argv](#typed-argv)
-- [Subpath modules](#subpath-modules) — `ansi`, `wrap`, `width`, `help`, `i18n`, `terminal`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `which`, `updates`
+- [Testing](#testing) — `runCommand()`, `runOnTerminal()`, `createTestTerminal()`, `KEYS`
+- [Subpath modules](#subpath-modules) — `ansi`, `wrap`, `width`, `help`, `i18n`, `terminal`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `which`, `updates`, `testing`
 
 ---
 
@@ -961,6 +962,225 @@ the tree it will be mounted, so **options inherited from a parent are not in its
 types** even though they resolve at runtime. Spreading the group into the
 command's own options — as above — is how you get them typed, at the cost of
 shadowing the parent's and moving those rows out of `Global options`.
+
+---
+
+## Testing
+
+```js
+import { runCommand } from '@ttylabs/sigil/testing';
+
+const ran = await runCommand({ argv: ['build', 'src/index.ts'], schema });
+
+ran.code; // 0
+ran.out; // what it wrote to stdout
+ran.err; // what it wrote to stderr
+ran.argv; // the values the command's run() was handed
+ran.error; // the error, where it failed
+ran.result; // what main() returned, which for a command that returns a value is that
+ran.state; // the parse state
+```
+
+`runCommand()` is **`main()`** — the same function your bin calls and the same
+one `sigil build` generates a call to — with the three things it writes to the
+process read back instead of left there. That matters more than it sounds:
+`main()` prints help, writes `--version`, renders an error and sets
+`process.exitCode`, which is right for a bin script and useless to a test. It is
+deliberately not a reimplementation: a helper that called `parse()` and then
+`run()` itself would have to decide, again, that help outranks a missing required
+option, that `--version` is answered before the command runs, and what a thrown
+value does to the exit code.
+
+Three things to know:
+
+- **Pass `argv`.** Left out, `main()` reads `process.argv`, which under a test
+  runner is the runner's own arguments.
+- **One at a time.** It patches `write` on both of the process's output streams,
+  so two concurrent runs would each capture part of the other's output. A second
+  run while one is in flight throws rather than interleaving silently.
+- **Turn the console intercept off.** vitest replaces the `console` methods so it
+  can attribute output to a test, and a command that writes with `console.log`
+  then reaches the reporter instead of the capture — `ran.out` comes back empty
+  for a command that works perfectly. `sigil new` writes the config for you:
+
+  ```js
+  export default defineConfig({ test: { disableConsoleIntercept: true } });
+  ```
+
+### A test runner's streams are pipes
+
+This is the part worth reading even if you never call the rest of it.
+
+A vitest (or jest, or node:test) worker's stdout and stderr have no `isTTY` and
+no `columns`. So everything that asks about where it is writing gets the same
+answer — not a terminal, no colour, the fallback width — and that is the one case
+that cannot fail. **A suite can be entirely green and say nothing at all about
+what a user's terminal gets**, and you will not notice, because the test you
+wrote passes.
+
+`runOnTerminal()` is how to ask the other question. It spawns your program in a
+child whose streams claim to be a terminal:
+
+```js
+import { runOnTerminal } from '@ttylabs/sigil/testing';
+
+const terminal = await runOnTerminal({ run: './dist/mycli.mjs', argv: ['check'] });
+const piped = await runOnTerminal({ run: './dist/mycli.mjs', argv: ['check'], tty: false });
+```
+
+The two differ only where your program **keys something on `isTTY`** — which is
+what `sigil check` and `sigil build` do with a report, laying it out and
+colouring it for a terminal and writing one line per diagnostic to anything
+else, so that `grep` and `awk -F:` still work. A program that writes the same
+bytes either way gets the same bytes here, which is the right answer and is also
+the thing to check first if a differential surprises you.
+
+| option    | default | what it does                                                           |
+| --------- | ------- | ---------------------------------------------------------------------- |
+| `run`     | —       | a module to run. Exactly one of this and `source`                      |
+| `source`  | —       | an ES module to run inline, via `node --input-type=module -e`          |
+| `argv`    | `[]`    | arguments, after the module                                            |
+| `tty`     | `true`  | which streams claim to be a terminal; `false` is the pipe control      |
+| `columns` | `80`    | `COLUMNS` always, and `stdout.columns` on the streams `tty` names      |
+| `rows`    | `24`    | `LINES` always, and `stdout.rows` on the streams `tty` names           |
+| `color`   | —       | a level to force, or `false` for none. Omitted, it detects from `TERM` |
+| `cwd`     | —       | the working directory                                                  |
+| `env`     | `{}`    | variables on top of a sanitised copy of the parent's                   |
+| `timeout` | `30000` | how long before it is killed                                           |
+
+What it answers: `{ code, out, err, signal }`.
+
+The useful assertion is usually a **differential** rather than either form on its
+own — the two say the same words, and what differs is the wrapping and the
+colour. That is the shape of claim a snapshot cannot make, and a snapshot's
+baseline is whatever was current the last time somebody regenerated it.
+
+Two traps it closes for you, both of which cost this project a debugging session:
+
+- **The environment decides the colour, not the stream.** A stream claiming to be
+  a terminal with no `TERM` behind it still detects level 0 — so a test asserting
+  colour would be asserting the one thing that cannot happen. And in the other
+  direction, a CI runner sets `CI` and `GITHUB_ACTIONS`, either of which decides
+  the level for a destination that claims to be a TTY, so the same test would
+  assert a different colour on a laptop than on CI. Every variable the detection
+  reads is cleared, and `TERM` is set when a stream claims to be one.
+- **Chunks split mid-character.** A `data` event is a `Buffer` of whatever
+  arrived, which for a frame full of multi-byte glyphs can end in the middle of
+  one. The buffers are concatenated and decoded once, which is where a stray
+  `U+FFFD` in an assertion comes from.
+
+There is no pty anywhere in this, because node has no pty and this package has
+no dependencies. What it does not prove is that node reports `isTTY` correctly
+for a real pty, or anything about terminal _modes_ — raw mode, bracketed paste,
+mouse reporting. A claim only a real terminal can falsify belongs in a script you
+run by hand against the terminals you care about.
+
+### Prompts, without a pty
+
+A prompt rejects outright when either end is not a terminal — that is what stops
+a build hanging on a question nobody can answer — so a prompt is not testable
+from a runner at all, and not through `runOnTerminal()` either: a prompt needs
+keys delivered over time and the far end held open, and a child whose stdin is
+written and closed reports that the stream ended.
+
+`createTestTerminal()` is the answer. It is a terminal and a keyboard,
+in-process, with no child and no clock:
+
+```js
+import { select, text } from '@ttylabs/sigil/components';
+import { createTestTerminal, ctrl, KEYS } from '@ttylabs/sigil/testing';
+
+const ui = createTestTerminal({ columns: 40, rows: 8 });
+
+const name = text({ message: 'Name?', terminal: ui.terminal });
+await ui.press('chris', KEYS.enter);
+await name; // 'chris'
+
+const pick = select({ choices: ['one', 'two'], message: 'Pick', terminal: ui.terminal });
+await ui.press(KEYS.down, KEYS.enter);
+await pick; // 'two'
+```
+
+- `press(...chunks)` sends each argument as **one read**, which is the
+  distinction a prompt acts on: a terminal delivers a keystroke as its own read
+  and a paste as one read holding many characters. So `press(KEYS.up, KEYS.enter)`
+  is two keystrokes and `press('chris')` is one read of five characters.
+- `paste(text)` sends a bracketed paste, which is not the same as typing it: a
+  newline inside a paste is content where a typed Enter submits.
+- `KEYS` names the sequences — `up`, `enter`, `backspace`, `pageUp`, `shiftTab`
+  and the rest — because the bytes are not guessable and a wrong one is a test
+  that presses nothing and passes. `ctrl('c')` and `alt('x')` build a chord.
+- `ui.viewport` is **what is showing** and `ui.lines` is the **main** buffer —
+  the same thing until something switches to the alternate screen, after which
+  `lines` is the log behind it. `ui.output` is every byte, for the few claims
+  that really are bytes, and `ui.stdin` is the stream itself for anything
+  `press()` and `paste()` do not cover.
+- `tick()` is exported for those: it lets pending work settle the way `press()`
+  does at the end of each read, which is what makes the next assertion see the
+  frame. It is `setImmediate` rather than a drain of microtasks, and the
+  difference is observable — a prompt queues each key through a promise chain and
+  a `validate` may be async, so a fixed number of microtask turns stops part way
+  through. Reach for it after writing to `ui.stdin` yourself, or after a signal
+  write in a tree of your own.
+
+`createTestTerminal()` takes `columns` (40) and `rows` (8), `env` (none at all,
+so nothing is detected from the real environment), `colorLevel` (0 — raise it
+for a test that reads `ui.output` for a sequence, remembering that `Screen`
+keeps characters rather than colour), `isTTY` (true) and `inputTTY` (follows
+`isTTY`). That last one is how to test the path where there is nobody to answer:
+with `inputTTY: false` a prompt rejects rather than hanging, which is what stops
+a build waiting for ever on a question nothing can answer.
+
+That last one is the other thing worth knowing. A component draws through a
+canvas, and a canvas frame is a **diff against the frame before it** — so the
+last thing written is a handful of changed cells with cursor movements between
+them, and asserting on the bytes says nothing about what anybody is looking at.
+The fixture replays them against a screen model instead, which answers the
+question you meant: after these frames, what does it look like?
+
+```js
+// nothing is drawn until something ticks, which is what `press()` does at the
+// end of each read -- so a read before any key needs a `tick()` of its own.
+// Read before a key is pressed, so the pointer is still on the first row
+await tick();
+
+ui.lines; // ['? Pick', '❯ one', '  two']
+ui.screen.cellAt(0, 1); // '❯'
+ui.output; // every byte, for the few claims that really are bytes
+```
+
+`Screen` is exported for a test that wants to replay bytes itself. It reads
+grapheme clusters: a wide cluster takes two columns and leaves the far half
+addressable as `''`, so `cellAt()` can say which column something starts in. It
+models the sequences the framework emits — cursor moves, erases, the alternate
+screen, the cursor's visibility, OSC 52 — and **throws** on one it does not,
+which is how it says it has no answer rather than quietly getting a row wrong.
+`screenStream(screen)` is the other half of that pair: it wraps a `Screen` as a
+TTY write stream, which is what `createTerminal({ stdout })` takes — so a test
+that needs a terminal built its own way, rather than the one
+`createTestTerminal()` builds, has somewhere to write to. It carries a
+`resize(width, height)` that resizes the screen and tells whoever is listening,
+the way a window change does.
+
+What `Screen` does **not** model is styling, bar reverse video — a prompt's
+caret is reverse video over a cluster, so `screen.lastInverse` is where that is —
+which means a claim about _colour_ belongs in a `runOnTerminal()` run, where a
+real styler writes real sequences.
+
+### Why it is a subpath and not a package
+
+`@ttylabs/sigil/testing` ships inside the runtime rather than as a
+`@ttylabs/test` of its own, for the reason `sigil add` already works that way: an
+app depends on `@ttylabs/sigil` at an exact version, so helpers that ship beside
+it always match the `main()` they run and the `Terminal` they fake. A separate
+package on its own version line could be a release ahead of the runtime under
+test, and for `runCommand()` that would mean running a `main()` that is not your
+app's.
+
+It costs an app that never imports it **nothing** — measured as the transitive
+static import graph of each entry, which is what an unbundled app actually loads:
+importing `@ttylabs/sigil` is the same six modules it always was, and the testing
+module is reached only by a file that asks for it. A bundler drops it either way.
 
 ---
 
@@ -2064,6 +2284,13 @@ expand('~/x'); // '/Users/you/x'
 
 `XDG_*_HOME` and `XDG_*_DIRS` are honored everywhere. Linux and Windows get
 their own tables; other platforms follow the Linux ones.
+
+### `sigil/testing`
+
+`runCommand()`, `runOnTerminal()`, `createTestTerminal()`, `KEYS` and `Screen` —
+see **[Testing](#testing)** above, which is where the argument for each of them
+is. Listed here so that this section is the whole catalogue of subpaths rather
+than most of it.
 
 ### `sigil/which`
 

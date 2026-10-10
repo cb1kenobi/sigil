@@ -4,7 +4,7 @@ import { createInput } from '../../src/input/index.js';
 import { enableSelection, render } from '../../src/renderer/index.js';
 import { Cascade, parseStylesheet } from '../../src/style/index.js';
 import { createTerminal, type Terminal } from '../../src/terminal/index.js';
-import { Screen, screenStream } from '../canvas/screen.js';
+import { Screen, screenStream } from '../../src/testing/screen.js';
 import { describe, expect, it } from 'vitest';
 
 /**

@@ -32,7 +32,7 @@ const OPTIONS: ScaffoldOptions = {
 	linter: 'oxlint',
 	name: 'demo',
 	version: '0.0.1',
-	versions: { '@types/node': '26.6.2', typescript: '7.0.2' },
+	versions: { '@types/node': '26.6.2', typescript: '7.0.2', vitest: '5.0.3' },
 };
 
 /** The scaffold as a map, for asking about one file. */
@@ -66,16 +66,33 @@ describe('the scaffold', () => {
 	it('should name every tool its scripts run', () => {
 		// the defect this is here for, and it was silent: the linter's version was
 		// read off a manifest that did not have it, `JSON.stringify` dropped the
-		// undefined, and the app got a `lint` script for a tool nothing installed
-		for (const linter of ['oxlint', 'eslint', 'biome'] as const) {
+		// undefined, and the app got a `lint` script for a tool nothing installed.
+		//
+		// Every script rather than the `lint` one, which is what it walked: the
+		// `test` script arrived later and named `vitest`, so dropping `vitest` from
+		// the devDependencies while leaving the script was the same defect on a
+		// second script and this stayed green. The tools that are not packages are
+		// an explicit list, so the next one is a decision somebody makes
+		const BUILTIN = new Set(['node', 'sigil', 'tsc']);
+
+		for (const linter of ['oxlint', 'eslint', 'biome', 'none'] as const) {
 			const manifest = json('package.json', { linter });
 			const scripts = manifest.scripts as Record<string, string>;
 			const deps = manifest.devDependencies as Record<string, string>;
 
-			const tool = scripts.lint?.split(' ')[0] as string;
-			const named = Object.keys(deps).some((dep) => dep.includes(tool.replace('biome', 'biome')));
+			for (const [name, script] of Object.entries(scripts)) {
+				const tool = script.split(' ')[0] as string;
+				if (BUILTIN.has(tool)) {
+					continue;
+				}
+				const named = Object.keys(deps).some((dep) => dep.includes(tool));
 
-			expect(named, `${linter}: nothing in devDependencies provides "${tool}"`).toBe(true);
+				expect(
+					named,
+					`${linter}: the "${name}" script runs "${tool}" and nothing installs it`
+				).toBe(true);
+			}
+
 			for (const [dep, spec] of Object.entries(deps)) {
 				expect(spec, `${linter}: ${dep} has no version`).toBeTruthy();
 			}
@@ -146,6 +163,53 @@ describe('the scaffold', () => {
 
 	it('should write a sigil.json so add does not have to guess', () => {
 		expect(json('sigil.json')).toStrictEqual({ components: 'src/components' });
+	});
+
+	it('should write a test that runs the app through the real main()', () => {
+		const test = files().get('test/app.test.ts') as string;
+
+		// `runCommand()` rather than `parse()` and the command's own `run()`: a
+		// reimplementation is a second answer to what a parse means, and the
+		// scaffold is where an author learns which one to reach for
+		expect(test).toContain("from '@ttylabs/sigil/testing'");
+		expect(test).toContain('runCommand(');
+		// relative to `test/`, which is where it lands -- the dev runner is at the
+		// root and its specifier is a different one
+		expect(test).toContain("from '../src/index.ts'");
+	});
+
+	it('should tell the reader that a test runner has no terminal', () => {
+		// the whole reason the subpath exists, and the one thing a test like the
+		// one above cannot demonstrate: a worker's streams are pipes, so every
+		// render comes out at the fallback width with no colour -- the one case
+		// that cannot fail. An author who is never told will not derive it
+		const test = files().get('test/app.test.ts') as string;
+
+		expect(test).toContain('runOnTerminal()');
+		expect(test).toMatch(/pipes/);
+	});
+
+	it('should turn the console intercept off, which the capture depends on', () => {
+		// measured rather than assumed: with vitest's default, a command that
+		// writes with `console.log` has its output taken by the reporter and
+		// `ran.out` comes back empty for a command that works perfectly
+		const config = files().get('vitest.config.ts') as string;
+
+		expect(config).toContain('disableConsoleIntercept: true');
+	});
+
+	it('should name the test file in the paths it type-checks', () => {
+		// `sigil build` type-checks with the app's own tsconfig, so a test left out
+		// of `include` is one the editor checks and the build does not
+		expect(json('tsconfig.json').include).toEqual(['src', 'test', 'dev.ts', 'vitest.config.ts']);
+	});
+
+	it("should write the test and its config in the app's own language", () => {
+		const paths = [...files({ language: 'js' }).keys()];
+
+		expect(paths).toContain('test/app.test.js');
+		expect(paths).toContain('vitest.config.js');
+		expect(paths).not.toContain('test/app.test.ts');
 	});
 });
 

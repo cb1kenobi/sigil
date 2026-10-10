@@ -6,7 +6,7 @@ import {
 	type Terminal,
 } from '../../src/terminal/index.js';
 import { createLiveRegion, type LiveRegion } from '../../src/terminal/live.js';
-import { Screen, screenStream } from '../canvas/screen.js';
+import { Screen, screenStream } from '../../src/testing/screen.js';
 import { PassThrough } from 'node:stream';
 
 /**
