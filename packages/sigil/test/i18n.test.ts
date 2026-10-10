@@ -661,8 +661,14 @@ describe('through main()', () => {
 		'Missing required options: {0}': 'FEHLENDE-OPTIONEN {0}',
 		'Missing value for option {0}': 'FEHLENDER-WERT {0}',
 		'Unexpected argument "{0}"': 'UNERWARTET "{0}"',
+		// the suggesting halves, which reorder their slots: a translator gets the
+		// whole sentence rather than a suffix joined on with an English space,
+		// which is the whole reason there are six keys here rather than four
+		'Unexpected argument "{0}". Did you mean "{1}"?': 'MEINTEN-SIE "{1}" UNERWARTET "{0}"',
 		'Unknown command "{0}"': 'UNBEKANNTER-BEFEHL "{0}"',
+		'Unknown command "{0}". Did you mean "{1}"?': 'MEINTEN-SIE "{1}" BEFEHL "{0}"',
 		'Unknown option "{0}"': 'UNBEKANNTE-OPTION "{0}"',
+		'Unknown option "{0}". Did you mean "{1}"?': 'MEINTEN-SIE "{1}" OPTION "{0}"',
 		'Value must be "{0}" or "{1}"': 'JA-ODER-NEIN "{0}"/"{1}"',
 		'argument <{0}>': 'ARGUMENT <{0}>',
 		'option {0}': 'OPTION {0}',
@@ -719,15 +725,29 @@ describe('through main()', () => {
 	const cases: [string, string[], string, string][] = [
 		[
 			'unknown option',
+			['--zzzz', '--req', 'r'],
+			'Unknown option "--zzzz"',
+			'UNBEKANNTE-OPTION "--zzzz"',
+		],
+		// and the suggesting twin of each, which is a key of its own rather than
+		// a suffix -- `--porx` is one slip from the declared `--port`
+		[
+			'unknown option with a suggestion',
 			['--porx', '--req', 'r'],
-			'Unknown option "--porx"',
-			'UNBEKANNTE-OPTION "--porx"',
+			'Unknown option "--porx". Did you mean "--port"?',
+			'MEINTEN-SIE "--port" OPTION "--porx"',
 		],
 		[
 			'unexpected argument',
 			['nope', '--req', 'r'],
 			'Unexpected argument "nope"',
 			'UNERWARTET "nope"',
+		],
+		[
+			'unexpected argument with a suggestion',
+			['biuld', '--req', 'r'],
+			'Unexpected argument "biuld". Did you mean "build"?',
+			'MEINTEN-SIE "build" UNERWARTET "biuld"',
 		],
 		[
 			'missing option value',
@@ -794,6 +814,12 @@ describe('through main()', () => {
 			['help', 'nosuch'],
 			'Unknown command "nosuch"',
 			'UNBEKANNTER-BEFEHL "nosuch"',
+		],
+		[
+			'unknown command with a suggestion',
+			['help', 'buidl'],
+			'Unknown command "buidl". Did you mean "build"?',
+			'MEINTEN-SIE "build" BEFEHL "buidl"',
 		],
 		// what follows `--` goes through whole, and is refused unless the app
 		// asked for it -- the one site argv reaches only past a terminator
@@ -878,7 +904,7 @@ describe('through main()', () => {
 				settings: { allowUnknownOptions: false, assertCwd: false, errorHandler: false },
 			}).catch((e: unknown) => e);
 
-			expect((err as Error).message).toBe('UNBEKANNTE-OPTION "--porx"');
+			expect((err as Error).message).toBe('MEINTEN-SIE "--port" OPTION "--porx"');
 		} finally {
 			vi.unstubAllEnvs();
 		}
@@ -891,7 +917,7 @@ describe('through main()', () => {
 			},
 		});
 
-		expect(err).toBe('Error: Unknown option "--porx"');
+		expect(err).toBe('Error: Unknown option "--porx". Did you mean "--port"?');
 	});
 
 	it('should translate the help screen`s chrome', async () => {
@@ -981,7 +1007,21 @@ describe('a command module`s own strings', () => {
 });
 
 describe('a default locale the app declared', () => {
-	/** A schema with a catalog and a declared default. */
+	/**
+	 * A schema with a catalog and a declared default.
+	 *
+	 * It declares **no options**, which is what keeps `--porx` on the plain
+	 * `Unknown option` key: there is nothing near it to suggest, so this block is
+	 * about which locale is in effect rather than about which key.
+	 *
+	 * The three below assert the whole line rather than containing part of it, and
+	 * that is what makes the sentence above checkable: the suggesting key *holds*
+	 * the plain one -- `Unknown option "--porx". Did you mean "--port"?` contains
+	 * `Unknown option "--porx"` -- so a `toContain` would have gone on passing for
+	 * the two English cases if an option were added here, and only the German one
+	 * would have failed. Exact equality is the shape the `through main()` cases
+	 * already use, and it sees all three.
+	 */
 	const schema = (defaultLocale?: string) => ({
 		defaultLocale,
 		locales: { de: async () => ({ 'Unknown option "{0}"': 'UNBEKANNT "{0}"' }) },
@@ -1026,7 +1066,7 @@ describe('a default locale the app declared', () => {
 		vi.stubEnv('LC_MESSAGES', undefined);
 		vi.stubEnv('SIGIL_LOCALE', undefined);
 
-		expect(await failingRun('de')).toContain('UNBEKANNT "--porx"');
+		expect(await failingRun('de')).toBe('Error: UNBEKANNT "--porx"\n');
 	});
 
 	it('should render in English when the schema declared none', async () => {
@@ -1035,7 +1075,7 @@ describe('a default locale the app declared', () => {
 		vi.stubEnv('LC_MESSAGES', undefined);
 		vi.stubEnv('SIGIL_LOCALE', undefined);
 
-		expect(await failingRun()).toContain('Unknown option "--porx"');
+		expect(await failingRun()).toBe('Error: Unknown option "--porx"\n');
 	});
 
 	it('should let the environment beat it', async () => {
@@ -1044,7 +1084,7 @@ describe('a default locale the app declared', () => {
 		vi.stubEnv('LC_MESSAGES', undefined);
 		vi.stubEnv('SIGIL_LOCALE', 'en');
 
-		expect(await failingRun('de')).toContain('Unknown option "--porx"');
+		expect(await failingRun('de')).toBe('Error: Unknown option "--porx"\n');
 	});
 });
 

@@ -532,6 +532,28 @@ await main({ schema, settings: { allowExtraArguments: true } });
 | `assertCwd`                | `true`   | fail early if the working directory is gone           |
 | `errorHandler`             | built-in | `false` rethrows; a function replaces it              |
 | `helpExitCode`             | `0`      | the exit code after printing help                     |
+| `suggestions`              | `true`   | offer the nearest command or option a typo missed     |
+
+### "Did you mean"
+
+An error about something that did not resolve offers the nearest thing that
+would have, read off the registries the parse has already built:
+
+```
+$ mycli buidl
+Error: Unexpected argument "buidl". Did you mean "build"?
+
+$ mycli help buidl
+Error: Unknown command "buidl". Did you mean "build"?
+```
+
+A mistyped command reaches `Unexpected argument` rather than `Unknown command`,
+because commands resolve against the innermost context and an unmatched token
+falls through to the positional arguments. `Unknown option` is offered too, where
+`allowUnknownOptions: false` makes one an error at all.
+
+It costs nothing until something is about to throw, and reads no files to do it.
+Set `suggestions: false` where something other than a person parses the output.
 
 ---
 

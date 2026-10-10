@@ -19,6 +19,7 @@ import { transformValue } from '../util/transform.js';
 import { initCommand } from './command/init-command.js';
 import { loadCommand } from './command/load-command.js';
 import { detectHelp, registerHelp } from './help.js';
+import { unexpectedArgument, unknownOption } from './suggest.js';
 import { detectVersion, registerVersion } from './version.js';
 
 const { log } = debug('sigil:parser');
@@ -790,7 +791,7 @@ function parseUnknownOptions(state: ParseState): void {
 		}
 
 		if (!allowed) {
-			throw new Error(__`Unknown option "${subject}"`);
+			throw new Error(unknownOption(subject, state.contexts, state.settings));
 		}
 
 		log(`Found unknown option "${subject}"`);
@@ -848,7 +849,7 @@ export async function processArgs(state: ParseState): Promise<void> {
 			const arg = internal.args[argIdx++];
 
 			if (!state.settings?.allowUnexpectedArguments && !arg) {
-				throw new Error(__`Unexpected argument "${inputs[0]}"`);
+				throw new Error(unexpectedArgument(inputs[0], ctx, state.settings));
 			}
 
 			if (arg) {

@@ -14197,6 +14197,10 @@ SIG-112 split this out because it had one unresolved question -- runtime or
 three layers with a seam between each: `src/components/fuzzy.ts` is the ranking,
 `src/components/catalog.ts` is the catalog, and `src/components/palette.ts` is
 the UI over both plus the prompts that collect what the chosen command needs.
+`fuzzyMatch()` itself has since moved to `src/util/fuzzy.ts`, because the parser
+became its second caller and may not import `src/components/` -- see the SIG-143
+entry; what is left in that file is `rankBy()` and `highlightRuns()`, which is
+the half a list and a highlight need.
 
 - **There is no second catalog, and that is the whole claim.** Names, aliases,
   descriptions, `hidden`, arguments and required options are all things the app
@@ -15392,6 +15396,462 @@ how the two come to disagree." It is decided, and the answer is no.
   wants its command list in a different colour writes `.sigil-help-heading {
   color: magenta }` and beats the default with an ordinary rule, which is only true
   because the default is an earlier origin rather than a rule in the same one.
+
+### "Did you mean": the nearest thing the reader could have typed
+
+`Unknown option "--verbsoe"` tells the reader nothing they did not already know.
+`src/parser/suggest.ts` is the whole of it: an edit distance and a subsequence
+match over the registries the parse has already built, offered at the three sites
+where something did not resolve, and `settings.suggestions: false` is the opt-out.
+
+- **The ticket named the wrong site, and there are three.** It called this "a
+  message change plus a call, in the one place that throws `Unknown command`", and
+  that place is only ever reached by `mycli help buidl`. Measured by running a
+  parse before anything was designed: **a mistyped top-level command does not
+  throw `Unknown command` at all.** Commands resolve against the innermost
+  context, an unmatched token falls through to the positional arguments, and with
+  none left to take it it lands on `Unexpected argument "buidl"` -- which is the
+  commonest case by a long way and the one the ticket's framing misses. So the
+  sites are `parse.ts`'s `Unexpected argument` (a mistyped command, and the only
+  one an ordinary app reaches), `parse.ts`'s `Unknown option` (only where
+  `allowUnknownOptions` is `false`, which it is not by default, so the ticket's
+  headline example is the one nobody sees), and `help.ts`'s `Unknown command`.
+
+  Which is also why `Unexpected argument` offers **commands** rather than
+  arguments: the command pass tries every unmatched token against the innermost
+  context whatever its position, so a position where this throws is a position
+  where a subcommand name would have matched.
+
+- **Two metrics, because they answer two questions, and the measurement is the
+  whole argument.** The ticket's premise was that `rankBy()` is "a better matcher
+  than Levenshtein for what people actually mistype", and over a corpus of fifty
+  real typos the subsequence match answers **13** and an edit distance **44**,
+  where the two together answer **49**. Every transposition is invisible to a
+  subsequence match, because `buidl` simply is not a subsequence of `build` --
+  which is the ticket's own headline, `--verbsoe` against `--verbose`, and
+  twenty-two of the corpus besides. Every abbreviation -- `dpl`, `ver`, `bld` --
+  is past any edit-distance floor worth having, and the subsequence match is
+  what recovers those five. So neither replaces the other and both earn their
+  keep as numbers rather than as a preference.
+
+- **The distance is Damerau rather than Levenshtein, and that is most of the
+  feature rather than a refinement.** A transposition is two edits to plain
+  Levenshtein, and every floor tight enough to be safe refuses two: measured, the
+  same corpus at the same floor answers **44** with the transposition priced at
+  one and **17** without it. `verbsoe`, `buidl`, `tset`, `hlep`, `lgoin` and
+  seventeen others are all exactly that.
+
+- **The floor is a rate rather than a constant: one slip per three characters,
+  with a floor of one, on the shorter of the two.** Swept against the corpus and
+  against thirty-six tokens that must offer nothing: a flat cap of **1** answers
+  44 and misses a double slip in a long word (`insatlll`, `verisno`), a flat cap
+  of **2** answers 46 and offers something for **seven** of the thirty-six --
+  `help` for `hello`, `db` for `q`, and something for the empty string -- while
+  one-per-three answers 46 by itself and refuses every one of those. It is written
+  as a rate because what it states is how often a finger slips, which is a thing
+  that scales with the word.
+
+- **And a suggestion has to have something in common with what was typed**, which
+  is a distance strictly below the shorter string's own length. That is one line
+  and it is load bearing for one reason: a short option is one significant
+  character, so `-x` and `-v` differ by one in a string of one and the rate reads
+  that as an ordinary slip. Without it every short option in the app is offered
+  for every mistyped one, which is the whole feature unusable.
+
+- **A tie is no answer.** Two candidates equally near is one right answer and one
+  wrong one, and choosing between them would choose by registration order -- which
+  for a directory of command modules is whatever the file system felt like, and is
+  what this file refuses everywhere else. So `cat` against `car` and `cab` offers
+  nothing, and `ver` against `verbose` and `version` offers nothing, which is
+  exactly the case where the reader should be reading help.
+
+- **An abbreviation starts with the same character, which is the principled
+  version of a score threshold.** The subsequence half needed a floor and the
+  obvious one is a score or a coverage ratio; what it got is a prefix rule,
+  because that is what an abbreviation _is_. Measured, it is the difference
+  between the subsequence half paying for itself and not: `out` is a subsequence
+  of `logout` and is an ordinary output directory, so without the prefix rule the
+  five hits it adds cost a false positive on a real argument value. Nobody
+  abbreviates `deploy` as `epl`. A one-character query is refused on top, which is
+  what stops `a` offering `add`; a floor of three buys nothing over two, so it is
+  two and `a` is the input that makes it matter.
+
+- **A near miss beats an abbreviation, and the one miss that ordering costs is
+  the honest one.** `inst` is one slip from `init` and an abbreviation of
+  `install`, and the reader whose finger slipped is the likelier of the two. It is
+  in the table as `inst -> init` rather than being left out of it.
+
+- **One false positive survives and no metric can remove it.** `dist` is one
+  character from `list` and is also an ordinary directory name. A token one slip
+  from a command name is indistinguishable from a typo of it -- oclif and git have
+  the same property -- so it is written down and pinned as the declared limit
+  rather than guarded.
+
+- **The candidate set is one level, which is the resolution rule honoured rather
+  than a shortcut.** `commandTokens()` reads the innermost context's own registry
+  and `optionTokens()` reads every context's, and that asymmetry is deliberate on
+  both sides: commands resolve against the innermost context while options resolve
+  across the whole chain, so those are exactly the tokens that would have resolved
+  where the reader typed one. Suggesting a sibling of the context argv ended up in
+  would be offering something that also fails.
+
+  The ticket pointed at `commandCatalog()` instead, whose labels are paths from
+  the **root** -- so `migrate` typed at the root would offer `db migrate`, which is
+  genuinely typeable and is what oclif's flat command ids give. It is refused for
+  two reasons and the first is the one that decides it: a **routed** tree's deeper
+  registries are empty until something walks them, so a multi-level suggestion
+  would work for an inline schema and silently not for the routed one `sigil new`
+  scaffolds -- two apps behaving differently according to how each declared its
+  tree, which is the defect shape this file keeps recording. Walking to fix it is
+  the thing the deferral exists to avoid. And the catalog is a palette projection
+  that builds `slotsFor()` per entry, which a suggestion has no use for.
+
+- **Aliases are candidates and a `hidden` command is not.** An alias is a token
+  somebody can type, and a transposed `sl` for a declared `ls` is exactly the typo
+  this is for. `hidden` means "not listed", and a suggestion is a listing of one.
+  The parser's own `--help` and `--version` are in, because they are typeable and
+  real and `--hepl` is worth answering.
+
+  The candidates are a `Set`, and that is not tidiness: an alias really can be
+  declared on two commands -- the registry keeps the last for routing and both
+  commands keep it in their own alias set -- so without it the shared spelling
+  appears twice, ties with itself, and refuses a suggestion it should have made.
+
+- **An option is compared with its dashes off, on both sides.** With them on,
+  `-x` and `-v` are two characters of which one differs, which is the rate reading
+  a one-character slip into a two-character string; stripped, they are one
+  character each and the "something in common" rule refuses the pair. It is also
+  what makes the one case where the _dash_ is the typo work: `--p` against a
+  declared `-p` strips to `p` on both sides, which is a distance of nothing and
+  the strongest suggestion there is. So an exact match on the stripped names is
+  allowed rather than skipped, and it is reachable rather than dead -- a candidate
+  whose own spelling equals what was typed cannot be in the list, because the
+  parse would have resolved it instead of failing.
+
+- **It is a sentence of its own rather than a suffix, which is three keys instead
+  of one.** `Did you mean "{0}"?` appended with a space is one key and is wrong
+  for the reason this file's i18n section is written for: the joiner and the order
+  are the translator's, and a Japanese catalog wants `。` with no space between the
+  two. So each site has a suggesting twin --
+  `Unexpected argument "{0}". Did you mean "{1}"?` and its two siblings -- which is
+  58 keys where there were 55, each a complete sentence whose slots a translator
+  can reorder. `i18n.test.ts` carries a German translation of all three that puts
+  the suggestion **first**, which is what makes that a check rather than a claim.
+
+- **It is computed inside the `if` that throws, and the cost is zero rather than
+  small.** Every candidate comes from a registry the parse had already populated:
+  the root's level is read while the schema is built, and every deeper level was
+  read by the `loadCommand()` that put that context in the chain. So a suggestion
+  over a **routed** tree is a walk over a `Map` and not one byte of I/O --
+  measured, `mycli build` and `mycli buidl` each read **one** directory, and
+  `db migrate up` and `db migrate pu` each read **three**, with the typo offering
+  `up`. `test/parser/suggest-cost.test.ts` counts `readdirSync` for that and counts
+  every call that crosses the boundary into the module for the other half: a
+  successful parse does not enter it **at all**, over seven argvs including a
+  dispatched subcommand and `--help`.
+
+  What that costs is the deferral's own cost rather than a new one: `pu` typed at
+  the **root** offers nothing, because `db/migrate/` has not been read and `up` is
+  not a token that resolves there anyway. The same answer help gives.
+
+- **`fuzzyMatch()` moved to `src/util/fuzzy.ts`, because `src/parser/` may not
+  import `src/components/`.** That is the move `seeded()` and `Random` already made
+  to `src/util/random.ts`, for the same reason and in the same words -- the
+  dependency already runs the other way, since `src/help/` imports
+  `OptionRegistry` as a value. `rankBy()` and `highlightRuns()` stay where they
+  are, because they are the half that is about a _list_ and about _drawing_, and
+  `highlightRuns()` is the only thing in that file that reaches for `graphemes()`.
+  `@ttylabs/sigil/components` re-exports it, so the public API is exactly what it
+  was.
+
+  The layering argument is enough on its own and the bundle agrees with it, which
+  was worth measuring rather than assuming: importing `components/fuzzy.js` from
+  the parser puts `width`, `strip` and `codes` on the parse chunk's graph and
+  takes it from **38,847 B to 43,461 B** over 12 chunks rather than 9. Rolldown
+  does **not** shake the segmentation back out, which is the thing a reader would
+  guess and which the measurement refutes. `should not drag grapheme segmentation
+  in to suggest a command` is the guard, written as a whole-chunk absence rather
+  than a byte ceiling because what is being pinned is which modules are reachable.
+
+- **The root entry is untouched, byte for byte.** 7,553 B before and 7,553 B
+  after, against the 20 kB ceiling, because `parse()` is behind an
+  `await import()` and none of this is on the path that answers `--version`. The
+  parse chunk goes from **36,381 B to 38,847 B** -- +2,466 B, +6.8% -- on a chunk
+  nobody loads until a parse happens. `components.mjs` moves by **32 bytes**, which
+  is the re-export.
+
+- **The cost is bounded by the candidates rather than by argv, and that took a
+  measurement to notice.** An edit distance is at least the difference in length,
+  so a length pre-filter refuses exactly the pairs the rate would refuse anyway
+  and changes no answer -- what it buys is that nothing walks the matrix per
+  candidate: a 100,000-character token against twenty-eight ten-character commands
+  is **78ms** without it and **5.9ms** with, and an argv token really can be a very
+  long path. The 5.9 is the one fold and the one count of the token itself, which
+  is why it is not nothing. It is linear rather than quadratic, which is why this
+  is a cost guard rather than a hang: the inner loop is over the candidate.
+
+  It must be written `>` rather than `>=`, because a filter tighter than the floor
+  it stands in for changes answers -- `instaalll` is two code points longer than
+  `install` and two edits from it, and the rate at that length allows two.
+  `should offer a candidate at the exact length the rate allows` is the pin, and
+  it took constructing the boundary rather than finding a realistic typo.
+
+#### What the first review round found, and it was two limitations rather than a bug
+
+Pointed at the diff with the ticket's requirements and none of the reasoning, it
+reported the recurrence correct -- brute-forced against a reference OSA over
+about 116,000 pairs, zero differences -- the floors and the ties firing, the
+computation failure-path-only at all three sites, and the registries right. What
+it found is two **properties** worth writing down rather than two defects, and
+each was confirmed against the code before anything was changed.
+
+- **A duplicate candidate ties with itself**, so `nearest('buidl', ['build',
+  'build'])` offers nothing where one `build` offers `build`. That is exactly what
+  the `Set` in the two producers is for, which was already written down from the
+  other side; it is now stated on `nearest()` as a precondition rather than
+  guarded, because those two are the only callers there are and `suggest.ts` is
+  not exported from any barrel.
+- **Nothing normalizes, and the parser is why.** A decomposed `cafe` plus a
+  combining acute is two edits from a composed `café` and so offers nothing, and
+  the reviewer read that as a soft limitation. It is the right answer, and what
+  says so is a measurement rather than an argument: a registry lookup is a plain
+  object key, so the parser does not match across the normalization either -- the
+  decomposed spelling against a command declared composed is
+  `Unexpected argument` naming the decomposed token. Normalizing would offer a
+  name the typed token cannot reach, which is the one thing this must not do.
+  Pinned as both halves in one test, so somebody "fixing" it meets the reason.
+
+  **What that reason does _not_ cover is a mark case folding itself
+  introduced**, which is the entry two below and is the one place this paragraph
+  was too broad: the line is whose mark it is, not whether a normal form would
+  equate the two.
+
+What it also priced is the one shape where the length pre-filter does not help:
+two strings of **equal** length, where the walk is quadratic -- 174ms for a pair
+of five thousand characters. Unreachable, because the other side of every
+comparison is a command or option name.
+
+#### What the second review round found, and it was all claims rather than code
+
+Pointed at the regions round 1 listed as not opened -- the tests, the prose, the
+generated key set, the bundle assertions and the module that was split -- and
+told not to re-derive any of round 1's premises. It found **no runtime defect**
+and five things worth acting on, four of which are the same shape: a sentence
+here stronger than the test beside it.
+
+- **The readdir counts were prose where they could be assertions.** This entry
+  said one directory and three directories and the test said `> 0` and `> 2`,
+  which a regression to five on both sides would have passed. They are
+  `toHaveLength(1)` and `toHaveLength(3)` now, so the numbers above are
+  re-derivable from the suite rather than from a run nobody repeats.
+- **The corpus figures -- 13, 44, 49 -- were a tally nothing checked**, and the
+  fix is to pin the **mechanism** rather than the tally, because the mechanism is
+  the claim: `should leave buidl invisible to a subsequence match and one edit from
+  build` asserts that `fuzzyMatch()` answers _nothing at all_ for each of six
+  transpositions while the distance answers one, and its sibling asserts that
+  each abbreviation is more than one edit away and does start at the front. Those
+  two are why there are two metrics, said as checks.
+- **`--porx` is reused in the `defaultLocale` block where it attracts no
+  suggestion**, which is correct -- that schema declares no options -- and reads
+  as though it were testing this feature. It says so now, including that an option
+  added there would move those three onto the suggesting key.
+- **The byte figures are prose, and that is the house's own practice rather than
+  an oversight**: the root entry is held by a 20 kB ceiling and the parse chunk by
+  a whole-chunk absence, because what is worth pinning is which modules are
+  reachable rather than a number that moves with every chunking decision. Said
+  here so the next reader knows which of the figures above a re-run is the only
+  way to confirm.
+- And it priced the one shape the pre-filter cannot help, which is the paragraph
+  two above.
+
+#### What a third round found: the dotted capital I, and the line that settles it
+
+An independent round -- driven as focused single-file chunks, because
+`cursor-grok-4.6-high` is slow enough to be killed on a whole diff, and because
+`cursor-grok-4.6-high-fast` does not exist at all -- found the one real Unicode
+gap the two rounds here had missed, and it is **fixed** rather than recorded.
+Every measurement below was taken before anything was changed.
+
+`'İ'.toLowerCase()` is **two** code points, `U+0069 U+0307`, and that broke both
+halves. `fuzzyMatch()` walks two arrays of code points and compares their
+elements, so a two-code-point needle equals no element and the forward pass fails
+outright: `fuzzyMatch('İn', 'info')` answered **nothing at all**. And in the
+_candidate_ as well -- `fuzzyMatch('inf', 'İnfo')` is nothing, which is a Turkish
+app's own command names, in the **palette**. `nearMiss()` failed separately,
+because the fold _lengthened_: `İ` against `i` is distance 1 with a shorter length
+of 1, which the "something in common" rule refuses.
+
+- **It is `fuzzyMatch()`'s own invariant being false, which is what makes this a
+  fix rather than a feature.** That function's model is one folded value per
+  unfolded code point -- it is why the indices it reports are indices into the
+  unfolded array, which `highlightRuns()` depends on -- and `U+0130` is the one
+  code point in Unicode that violates it. Worse, the comment there **said so and
+  drew the wrong conclusion**: the fold "may be longer than one code point ...
+  which is why this is only ever _compared_ and never used to index", where
+  comparing is precisely the thing that breaks. The dangerous-prose shape this
+  file keeps recording, in the module it keeps recording it about. Pre-existing
+  since the palette shipped, and inherited rather than introduced here.
+- **Normalizing is not the fix, which is the obvious guess and was the one
+  suggested.** There is no precomposed "i with dot above", so **all four** of NFC,
+  NFD, NFKC and NFKD leave the folded `U+0069 U+0307` exactly as it is. Measured,
+  and pinned, because a reader will reach for it.
+- **What the fix is, is the simple case mapping.** JavaScript gives the **full**
+  mapping from SpecialCasing.txt where a matcher wants the **simple** one from
+  UnicodeData.txt, which for `U+0130` is `U+0069` and is the first code point of
+  the full mapping -- the Turkic locale mapping agrees, which is the corroboration
+  available from inside the process. So `fold()` swaps it for `i` before
+  lowercasing, after which `toLowerCase()` is one-to-one.
+- **The set is a singleton, and that is what makes it safe rather than hopeful.**
+  Of all 1,114,112 code points **exactly one** has a lowercase mapping longer than
+  itself. 102 have a lengthening _uppercase_ mapping -- `ß` to `SS`, `ﬁ` to `FI` --
+  which is why the asymmetry is easy to misjudge and why the count had to be taken
+  rather than assumed. So the change cannot alter any answer for a string with no
+  `U+0130` in it, which is a containment that can be proved rather than tested
+  for. Brute-forced in `fuzzy.test.ts`, one code point at a time, so a later
+  Unicode version that adds a second one fails there rather than going quiet in a
+  matcher -- and idempotence with it, which `nearMiss()` relies on when it folds
+  once for the lengths and hands the folded strings to `distance()`.
+- **And it does not reopen the café decision, because the line is whose mark it
+  is.** This removes a mark **case folding introduced**; it never touches one the
+  **author wrote**. That is sharper than the reason the round-1 entry gave, and it
+  has to be, because the café argument -- a suggestion that looks identical on
+  screen to what was typed is useless -- does not cover `İ`, which looks nothing
+  like `i`. Both are pinned side by side, and `fold()` of a decomposed `cafe` plus
+  a combining acute is asserted to be itself.
+- **A dotless `ı` stays distinct from `i`**, which is the non-Turkic answer and is
+  forced: the locale fold is refused because under `tr-TR` an `I` lowercases to
+  that, so a query of `i` would stop matching an `I` on one machine and nowhere
+  else. Both capital I's fold to `i` and the dotless lowercase is its own letter.
+- **It costs nothing.** Twenty folds of a 100,000-character string are **0.13ms**
+  with the swap and **0.15ms** without, because `replaceAll` over a string that
+  does not contain it is one scan; the long-token suggestion is 6.25ms against the
+  5.9ms recorded above, which is the same number.
+- **It also removed a distinction**, which is the tidy half: `nearMiss()` measured
+  its lengths on the folded strings _because_ the fold could lengthen, and with a
+  one-to-one fold the folded length **is** the raw length. The test that pinned
+  the difference is gone, replaced by the brute force that makes it moot, and the
+  sabotage of it is now an **equivalent** mutation rather than a survivor.
+- **One finding was refuted.** The round reported that `unknownCommand()` lacks
+  the `typeof subject === 'string'` narrowing its two siblings have. True of the
+  source and correctly absent: that signature is `subject: string` and its only
+  caller passes a `string` out of `resolve()`, so a guard there would be the dead
+  code this file deletes rather than keeps.
+
+What it checked and found clean, each boundary from both sides: `limit` at 5 and
+6, the pre-filter's `>`, the commonness `>=`, the rate `>`, `MIN_ABBREVIATION`,
+and the prefix rule.
+
+#### And its second round, which found three assertions that could not fail
+
+Pointed at the files the İ round left alone. **No runtime defect**, and three
+findings of the shape this file keeps rediscovering -- an assertion or a sentence
+that cannot fail. All three are fixed, and the first one's _measurement_ is
+refuted while its _hardening_ stands, which is worth separating.
+
+- **The rate is measured on the shorter of the two, and that is the natural
+  misreading.** The round reported that `limit(6)` is 2 for `deploy` and
+  `limit(7)` is 2 for `version`, so the comment claiming the rate "allows one"
+  was false for two of three rows. It is not: `limit()` is called with
+  `shorter = min(qLength, cLength)`, which for `dpl`, `bld` and `ver` is **3**, so
+  `limit(3)` is 1 for all three and the comment was right. Applying the rate to
+  the _candidate's_ length is the misreading, it has now been made once, and
+  `limit()` says so where it is defined so the next reader does not make it.
+
+  The hardening is real, though, and it is the better assertion anyway: the test
+  wrote the `1` out, which does not track the rate. Measured both ways rather
+  than reasoned about, because the round's own consequence turned out to hold on
+  a different input from the one it gave: at a rate of one-per-one, `bld` against
+  `build` is distance 2 inside a limit of 3 and becomes a **near miss** -- the new
+  assertion fails on it and the old `toBeGreaterThan(1)` passes, so the test had
+  stopped pinning why the subsequence half exists at all. So it asserts `nearMiss()` itself
+  answers nothing, which is the claim with no arithmetic restated in the test at
+  all -- and it makes the pair symmetric, since its twin already asserts
+  `fuzzyMatch()` answers nothing. `nearMiss` is exported for it, which costs no
+  public surface: `suggest.ts` is in no barrel.
+
+- **`toContain` cannot see the suggesting twin, because the twin _holds_ the
+  plain one.** The `defaultLocale` block's comment claimed that an option added
+  to that schema "would move these three onto the suggesting key and fail them",
+  and it would have failed exactly one of the three: `Unknown option "--porx".
+  Did you mean "--port"?` **contains** `Unknown option "--porx"`, so both English
+  cases would have gone on passing and only the German one, which asserts
+  `UNBEKANNT`, would have noticed. All three assert the whole line now --
+  `'Error: ... \n'` -- which is the shape the `through main()` cases already use
+  and is what makes that sentence checkable.
+
+- **A name filter asserted empty is vacuous on a rename, which this file refuses
+  in as many words.** The guard was
+  `[...graph].filter((name) => /^(?:width|strip|codes)-/.test(name))` against
+  `[]`, and line 177 of that same file says it outright: a test that only asserts
+  an absence "passes forever the day the symbol is renamed, and would then be
+  pinning nothing at all". The sharpest of the three, because the entry above
+  claims the import swap is _caught_ by this assertion -- with a stale regex that
+  sabotage becomes a silent pass.
+
+  It is keyed on a **symbol** now, with a presence half: `'grapheme'` is the
+  `granularity` the one `Intl.Segmenter` in the package is constructed with, so
+  it is a string literal the minifier keeps where `graphemes` and `Segmenter` are
+  a local and a global it may rename, and it is named for exactly what is being
+  refused. Absent from the parse chunk's graph, present on `help.mjs`'s, which is
+  where segmentation legitimately is because help draws text. The same pair the
+  component markers already are, and for the reason recorded there.
+
+  Three mutations over it, all three caught and each by the right half. The
+  **import swap** fails the absence, so the claim above holds with the new
+  assertion. A **stale marker** -- which is the rename case -- fails the
+  presence, where under the name filter it was a silent pass. And putting the
+  **name filter back** with stale names fails the presence too, so reverting the
+  shape does not reopen the hole.
+
+#### What the sabotage pass found
+
+Thirty-eight mutations, one at a time with a green control first and the
+suggestion, i18n and fuzzy suites run after each. **Thirty-five caught, three
+declared**, counted against the shipped tree in one run rather than summed across
+rounds; three more over the dist assertion are run by hand because they need a
+rebuild, and are under the round above.
+
+- **Three survivors, and each is declared.** The **length pre-filter**, for the
+  reason above: it cannot change an answer, so nothing can be written that fails
+  when it goes. `fold()` taking **no locale argument**, which is a property of the
+  source rather than of any behaviour -- measured, `'I'.toLocaleLowerCase()` is
+  `'i'` even under `LC_ALL=tr_TR.UTF-8`, so only the explicit-argument form
+  differs. And `nearMiss()`'s **folded** length, which is now an _equivalent_
+  mutation rather than a survivor: with a one-to-one fold the folded length is the
+  raw length, so the two spellings are one expression.
+- **Three survived the first pass and every one was a fixture too easy to reach
+  the branch it was named for**, which is the shape this file keeps recording.
+  Two were the same cause: the option corpus had **two** short options in it, so
+  `-x` is one edit from `-v` and from `-p` alike and the **tie** rule covered for
+  both the "something in common" guard and the dash stripping. One short option is
+  the input that separates them -- and the dash stripping needed a test that goes
+  **through a parse**, because the unit test passed a key of its own and so could
+  not see the module's.
+- The third was the folded length, which only `İ` can see -- it folds to two code
+  points, so it is the one character whose raw and folded lengths differ.
+- **Nothing turned out to be dead.** Every guard written was either caught or is
+  the declared fast path, which for a pass this size is worth saying rather than
+  glossing: the two that looked inert were missing tests.
+
+#### What is deliberately out
+
+- **A list of suggestions**, which is git's answer ("The most similar commands
+  are"). One is an answer and three is a menu, and the floor is what makes one
+  right -- with `--help` one line away for the case where the reader wants the
+  menu. The tie rule is the honest version of "we cannot tell": it says nothing
+  rather than saying three things.
+- **Prompting to run it**, which is oclif's. Prompting from an error path means
+  prompting where the caller may be a script, which is the rule `PromptError` is
+  written for, and the palette is the place for "help me find it".
+- **A suggestion on a bad `choices` value.** `--mode=prduction` against
+  `choices: ['production', 'development']` is the same mechanism and would be the
+  most valuable site of all -- and what is wrong there is that
+  `Invalid value "{0}" for {1}` does not **name the choices**, which it has in
+  hand. Listing them is the better fix and is a different ticket; guessing one of
+  them is the consolation prize for not having listed them.
+- **A multi-level suggestion**, with the routed-tree asymmetry above.
+- **An `Extra arguments` suggestion.** What follows `--` goes through whole, which
+  is a recorded decision, so there is nothing it was meant to be.
 
 ### Translating: the English is the key
 

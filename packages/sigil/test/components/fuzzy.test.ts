@@ -1,4 +1,5 @@
 import { fuzzyMatch, highlightRuns, rankBy } from '../../src/components/fuzzy.js';
+import { fold } from '../../src/util/fuzzy.js';
 import { describe, expect, it } from 'vitest';
 
 /** The labels a query keeps, best first. */
@@ -16,6 +17,73 @@ function score(query: string, candidate: string): number | undefined {
 	return fuzzyMatch(query, candidate)?.score;
 }
 
+describe('fold()', () => {
+	// everything in `fuzzyMatch()` rests on this: the match walks two arrays of
+	// code points and compares their elements, so a folded value of *two* code
+	// points equals no element of the haystack and the forward pass fails
+	// outright. Brute-forced rather than asserted of the one character that used
+	// to break it, so a later Unicode version adding a second one fails here
+	// rather than going quiet in a matcher
+	it('should answer one code point for every code point there is, and be idempotent', () => {
+		const wrong: string[] = [];
+
+		for (let cp = 0; cp <= 0x10ffff; cp++) {
+			// a lone surrogate is not a code point anything can fold
+			if (cp >= 0xd800 && cp <= 0xdfff) {
+				continue;
+			}
+
+			const c = String.fromCodePoint(cp);
+			const once = fold(c);
+
+			// and idempotent with it, which `nearMiss()` relies on: it folds once
+			// for the lengths and hands the folded strings to `distance()`, which
+			// folds its own arguments
+			if ([...once].length !== 1 || fold(once) !== once) {
+				wrong.push(`U+${cp.toString(16).toUpperCase().padStart(4, '0')}`);
+			}
+		}
+
+		expect(wrong).toEqual([]);
+	});
+
+	it('should be the one character JavaScript folds to two, and nothing else', () => {
+		// `U+0130` is it, of all 1,114,112 of them: `toLowerCase()` gives the full
+		// case mapping from SpecialCasing.txt where a matcher wants the simple one
+		expect([...'\u0130'.toLowerCase()]).toHaveLength(2);
+		expect(fold('\u0130')).toBe('i');
+
+		const lengthening: number[] = [];
+		for (let cp = 0; cp <= 0x10ffff; cp++) {
+			if (cp >= 0xd800 && cp <= 0xdfff) {
+				continue;
+			}
+			if ([...String.fromCodePoint(cp).toLowerCase()].length > 1) {
+				lengthening.push(cp);
+			}
+		}
+
+		expect(lengthening).toEqual([0x0130]);
+	});
+
+	it('should not be fixable by normalizing, which is the obvious guess', () => {
+		// there is no precomposed "i with dot above", so every normal form leaves
+		// the folded pair exactly as it is
+		for (const form of ['NFC', 'NFD', 'NFKC', 'NFKD'] as const) {
+			expect([...'\u0130'.toLowerCase().normalize(form)]).toHaveLength(2);
+		}
+	});
+
+	it('should leave a mark the author wrote alone', () => {
+		// it removes one that case folding introduced, and nothing else -- which is
+		// what keeps a decomposed `e` plus a combining acute distinct from a
+		// composed one, a distinction `nearest()` in the parser depends on
+		expect(fold('cafe\u0301')).toBe('cafe\u0301');
+		expect(fold('caf\u00e9')).toBe('caf\u00e9');
+		expect(fold('\u0131')).toBe('\u0131');
+	});
+});
+
 describe('fuzzyMatch()', () => {
 	it('should match a subsequence and say where it landed', () => {
 		expect(hit('dbm', 'db migrate')).toEqual([0, 1, 3]);
@@ -26,13 +94,21 @@ describe('fuzzyMatch()', () => {
 		expect(hit('db', 'DB migrate')).toEqual([0, 1]);
 	});
 
+	it.each([
+		['\u0130n', 'info'],
+		['in', '\u0130nfo'],
+		['\u0130N', '\u0130nfo'],
+	])('should match %s against %s through a dotted capital I', (query, candidate) => {
+		expect(hit(query, candidate)).toEqual([0, 1]);
+	});
+
 	it('should fold the one pair a locale would disagree about', () => {
 		// `i` and `I` are the pair `tr-TR` cases differently, so they are the pair
 		// worth pinning -- and this does *not* assert that the fold ignores the
 		// process locale, which is what it used to be named for and what no test
 		// can see: measured, `'I'.toLocaleLowerCase()` is `'i'` even under
 		// `LC_ALL=tr_TR.UTF-8`, so only the explicit-argument form differs and a
-		// sabotage swapping the call survives. `lower()`'s own doc is where that
+		// sabotage swapping the call survives. `fold()`'s own doc is where that
 		// guard is recorded, because the source is the only place it exists
 		expect(hit('i', 'Install')).toEqual([0]);
 		expect(hit('I', 'install')).toEqual([0]);

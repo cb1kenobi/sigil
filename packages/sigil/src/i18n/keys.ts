@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 55 keys, which is what a catalog has to carry to translate sigil's own
+ * 58 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -57,8 +57,11 @@ export const SIGIL_KEYS: readonly string[] = [
 	'Show help for a command',
 	'The command to describe',
 	'Unexpected argument "{0}"',
+	'Unexpected argument "{0}". Did you mean "{1}"?',
 	'Unknown command "{0}"',
+	'Unknown command "{0}". Did you mean "{1}"?',
 	'Unknown option "{0}"',
+	'Unknown option "{0}". Did you mean "{1}"?',
 	'Usage:',
 	'Value must be "{0}" or "{1}"',
 	'[command]',

@@ -814,6 +814,21 @@ export interface Settings {
 	 * asked what a command does and answering is not a failure.
 	 */
 	helpExitCode?: number;
+	/**
+	 * Whether an error about something that did not resolve may offer the
+	 * nearest thing that would have. Defaults to `true`.
+	 *
+	 * `Unexpected argument "buidl"` becomes `Unexpected argument "buidl". Did
+	 * you mean "build"?`, read off the command and option registries the parse
+	 * has already built. On by default, because a strictly better error message
+	 * should not have to be asked for -- and because a feature nobody turns on
+	 * is a feature nobody has. It is computed only where one of those errors is
+	 * about to be thrown, and reads no files to do it.
+	 *
+	 * Set it to `false` where something other than a person parses the output,
+	 * and a second sentence is a second thing to match.
+	 */
+	suggestions?: boolean;
 }
 
 /**
