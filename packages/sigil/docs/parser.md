@@ -1038,6 +1038,26 @@ The added flag's value does not. A flag always has a value, so an added `--help`
 would put `help: false` on the parsed values of every app that never asked for
 it; the parser reads the flag off `state.$` instead.
 
+### The completion command
+
+A schema also gets a `completion` command, which prints a shell completion
+script for bash or zsh. The same rules apply: an app that declares its own
+`completion` keeps it, and `completion: false` adds nothing.
+
+```
+$ mycli completion bash > ~/.mycli-completion.bash
+```
+
+Nothing is detected for it, unlike `--help` and `--version`: it is an ordinary
+command with an ordinary `run`, so the parse dispatches it the way it dispatches
+any other. A flag is not a command, which is why those two need detecting and
+this does not.
+
+The script is printed from this schema — the tree, every option's spellings, and
+the `choices` a value is checked against — so there is nothing to declare to get
+it. See the [README](../README.md#shell-completion) for what it offers and what
+it deliberately does not.
+
 ## Help wins over what is missing
 
 `parse()` decides whether help was asked for after walking argv and before

@@ -64,6 +64,51 @@ describe('the built toolchain', () => {
 		expect(existsSync(join(dist, 'commands'))).toBe(false);
 	});
 
+	it.runIf(existsSync(dist))('should print a completion script for its own routed tree', () => {
+		// the one end-to-end check of the eager load, and it needs a real routed
+		// app rather than a fixture: `--external` is declared *inside*
+		// `src/commands/build.ts`, which also pulls `oxc-parser` -- a native
+		// binding -- in behind it. Nothing lifts an option, so a script naming it
+		// is a script that imported the module
+		const result = spawnSync(process.execPath, [join(dist, 'sigil.mjs'), 'completion', 'bash'], {
+			encoding: 'utf-8',
+		});
+
+		expect(result.status, result.stderr).toBe(0);
+		expect(result.stdout).toContain("'--external'");
+		for (const name of routes()) {
+			expect(result.stdout, name).toContain(`'${name}'`);
+		}
+	});
+
+	it.runIf(existsSync(dist))('should print the same script from source as from the bundle', () => {
+		// byte for byte, and both shells, which is sharper than the `--help`
+		// comparison below rather than a weaker version of it: the descriptions are
+		// what legitimately differ there, and they do not differ *here* because
+		// generating a completion script imports every command module itself. So
+		// the static lift buys this command nothing and costs it nothing, and
+		// `node src/sigil.ts` and `node dist/sigil.mjs` really are one program.
+		//
+		// It is also what says a generated script parses as the shell it is for:
+		// a syntax error would have to be in both.
+		const src = resolve(root, 'src', 'sigil.ts');
+		const bin = join(dist, 'sigil.mjs');
+
+		for (const shell of ['bash', 'zsh']) {
+			const a = spawnSync(process.execPath, [src, 'completion', shell], {
+				cwd: root,
+				encoding: 'utf-8',
+			});
+			const b = spawnSync(process.execPath, [bin, 'completion', shell], {
+				cwd: root,
+				encoding: 'utf-8',
+			});
+
+			expect(a.status, `${shell}: ${a.stderr}`).toBe(0);
+			expect(b.stdout, shell).toBe(a.stdout);
+		}
+	});
+
 	it.runIf(existsSync(dist))('should behave the way the source does', () => {
 		// the invariant the self-host rests on: `node src/sigil.ts` and
 		// `node dist/sigil.mjs` are the same program. `--version` and a bare

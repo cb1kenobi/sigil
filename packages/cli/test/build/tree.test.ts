@@ -59,7 +59,7 @@ describe('resolving a command tree', () => {
 		const { commands } = resolveCommandTree(commandsDir, { facts: false });
 		const state = (await main({
 			argv: [],
-			schema: { commands: commandsDir, help: false },
+			schema: { commands: commandsDir, completion: false, help: false },
 		})) as ParseState;
 		const runtime = [...state.contexts[0]![Internal].commands.keys()];
 
@@ -68,6 +68,12 @@ describe('resolving a command tree', () => {
 		// renames itself, and two routes claiming one name. Deeper levels go
 		// through the identical `readRoutes()` call, and that they route is what
 		// the end-to-end tests below assert by dispatching through them
+		//
+		// `completion: false` and `help: false` because the two walks answer
+		// different questions about those: the build resolves an app's *routes*,
+		// and `completion` and `help` are commands the parser adds to whatever it
+		// was handed -- so a built app grows them at run time exactly as an
+		// unbundled one does, and comparing the walks means comparing the routes
 		expect(commands.map((command) => command.name).sort()).to.deep.equal(runtime.sort());
 	});
 
@@ -162,12 +168,15 @@ describe('resolving a command tree', () => {
 		// the package, with the modules beside it not being commands at all
 		const state = (await main({
 			argv: [],
-			schema: { commands: root, help: false },
+			schema: { commands: root, completion: false, help: false },
 		})) as ParseState;
 		expect([...state.contexts[0]![Internal].commands.keys()]).to.deep.equal(['everything']);
-		expect(await main({ argv: ['everything'], schema: { commands: root, help: false } })).to.equal(
-			'one'
-		);
+		expect(
+			await main({
+				argv: ['everything'],
+				schema: { commands: root, completion: false, help: false },
+			})
+		).to.equal('one');
 	});
 
 	it('should throw on a directory that is not there', () => {

@@ -18,6 +18,7 @@ import { camelCase } from '../util/camel-case.js';
 import { transformValue } from '../util/transform.js';
 import { initCommand } from './command/init-command.js';
 import { loadCommand } from './command/load-command.js';
+import { registerCompletion } from './completion.js';
 import { detectHelp, registerHelp } from './help.js';
 import { unexpectedArgument, unknownOption } from './suggest.js';
 import { detectVersion, registerVersion } from './version.js';
@@ -106,6 +107,12 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
 
 		const handles = await registerHelp(state.contexts[0], schema);
 		const versionHandles = await registerVersion(state.contexts[0], schema.version);
+		// nothing is detected for it: `completion` is an ordinary command with an
+		// ordinary `run`, so the parse dispatches it the way it dispatches any
+		// other. `--help` and `--version` need detecting because a flag is not a
+		// command and something has to decide that argv asked a question rather
+		// than for work
+		await registerCompletion(state.contexts[0], schema);
 
 		await initArgv(state);
 		await parseArgv(state);

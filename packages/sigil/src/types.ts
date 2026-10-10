@@ -663,6 +663,17 @@ export interface Schema {
 	 */
 	desc?: string | DescThunk;
 	/**
+	 * Whether to add a `completion` command, which prints a shell completion
+	 * script for this app. On unless set to `false`; an app that declares its
+	 * own `completion` keeps it either way.
+	 *
+	 * The script is printed from this schema -- the command tree, every option's
+	 * spellings, and the `choices` a value is checked against -- so there is
+	 * nothing to declare to get it and nothing to keep in agreement with the
+	 * parser. See `src/completion/`.
+	 */
+	completion?: boolean;
+	/**
 	 * Whether to add `--help` and a `help` command. On unless set to `false`; an
 	 * app that declares either of them keeps its own either way.
 	 */

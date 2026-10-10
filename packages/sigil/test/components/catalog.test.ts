@@ -29,7 +29,11 @@ import { describe, expect, it } from 'vitest';
  */
 async function state(schema: Schema, argv: string[] = []): Promise<ParseState> {
 	try {
-		return await parse({ argv, env: {}, schema: { help: false, name: 'mycli', ...schema } });
+		return await parse({
+			argv,
+			env: {},
+			schema: { completion: false, help: false, name: 'mycli', ...schema },
+		});
 	} catch (err) {
 		// a parse that threw still carries the state it died with, which is where
 		// the context chain comes from -- the same thing `help.test.ts` does, and

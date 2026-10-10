@@ -69,11 +69,13 @@ describe('filesystem routing', () => {
 			const result = await parse({ schema: { commands: routes } });
 			const names = [...result.contexts[0][Internal].commands.keys()];
 			expect(names).to.not.contain('.hidden-not-a-route');
-			// `help` is the parser's own, added to the root alongside `--help`, and
-			// `routes-pkg` is `pkg/` under the name its own package.json gives it
+			// `completion` and `help` are the parser's own, added to the root
+			// alongside `--help`, and `routes-pkg` is `pkg/` under the name its own
+			// package.json gives it
 			expect(names.sort()).to.deep.equal([
 				'build',
 				'clash',
+				'completion',
 				'config',
 				'db',
 				'deploy',
@@ -457,7 +459,7 @@ describe('filesystem routing', () => {
 			const result = await parse({ schema: { commands: ts } });
 			const names = [...result.contexts[0][Internal].commands.keys()];
 			expect(names).to.not.contain('deploy.d');
-			expect(names.sort()).to.deep.equal(['deploy', 'help', 'pkg-ts', 'settings']);
+			expect(names.sort()).to.deep.equal(['completion', 'deploy', 'help', 'pkg-ts', 'settings']);
 		});
 
 		it('should refuse a .ts and a .js claiming one name', async () => {

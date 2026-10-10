@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** The help screen for a parse, hooks fired, at a fixed width. */
 async function help(schema: Schema, argv: string[] = [], width = 72) {
-	const state = await parse({ argv, schema: { help: false, ...schema } });
+	const state = await parse({ argv, schema: { completion: false, help: false, ...schema } });
 	return resolveHelp(state, { width });
 }
 
@@ -116,6 +116,7 @@ describe('Option.group', () => {
 	// editable: no heading is better than a broken screen
 	it('should ignore a group mutated into something that cannot be a heading', async () => {
 		const schema: Schema = {
+			completion: false,
 			help: false,
 			name: 'mycli',
 			options: { '--a': { desc: 'A', group: 'Extra' } },
@@ -410,6 +411,7 @@ describe('the help hook', () => {
 
 	it('should say [options] in the usage line for a contributed section alone', async () => {
 		const only: Schema = {
+			completion: false,
 			help: false,
 			name: 'mycli',
 			commands: {
@@ -488,6 +490,7 @@ describe('the help hook', () => {
 
 	it('should not promise options for a section that contributes only arguments', async () => {
 		const argsOnly: Schema = {
+			completion: false,
 			help: false,
 			name: 'mycli',
 			commands: {
@@ -724,6 +727,7 @@ describe('renderHelp() with sections', () => {
 	it('should take built sections without firing any hook', async () => {
 		const fired = vi.fn();
 		const schema: Schema = {
+			completion: false,
 			help: false,
 			name: 'mycli',
 			commands: { build: { desc: 'Build', hooks: { help: fired } } },
@@ -743,6 +747,7 @@ describe('renderHelp() with sections', () => {
 
 	it('should let a caller override what the hooks would have contributed', async () => {
 		const schema: Schema = {
+			completion: false,
 			help: false,
 			name: 'mycli',
 			commands: {
@@ -766,7 +771,12 @@ describe('renderHelp() with sections', () => {
 	});
 
 	it('should change nothing for a command with no hooks', async () => {
-		const schema: Schema = { help: false, name: 'mycli', options: { '--x': 'X' } };
+		const schema: Schema = {
+			completion: false,
+			help: false,
+			name: 'mycli',
+			options: { '--x': 'X' },
+		};
 		const state = await parse({ argv: [], schema });
 		expect(await resolveHelp(state, { width: 72 })).toBe(renderHelp(state, { width: 72 }));
 	});
