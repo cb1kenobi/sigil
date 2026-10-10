@@ -15602,8 +15602,8 @@ and the check, and `src/i18n/keys.ts` is generated.
 
 - **A missing key is silent at run time and loud at build time.** Loud at
   runtime is refused on the case that decides it: a partial catalog is the
-  **normal** state of a translation, so a `de.json` with 30 of 37 keys is a
-  German build with seven English sentences in it, and `[missing: …]` would make
+  **normal** state of a translation, so a `de.json` with 30 of the keys is a
+  German build with the rest in English, and `[missing: …]` would make
   that build _worse_ than the English one -- on the error path, where the user is
   already being told something went wrong. A key that falls back **forever** is
   the real failure, and only a build can see that.
@@ -15642,7 +15642,9 @@ and the check, and `src/i18n/keys.ts` is generated.
   any of this was written -- and that is a coincidence rather than a
   confirmation: it counted 37 without the three merges this gained
   (`Invalid number`, `{0} options:`, `Show help for a command`) and without the
-  three metasyntax keys it gained (`[options]`, `[command]`, `<command>`).
+  three metasyntax keys it gained (`[options]`, `[command]`, `<command>`). It is
+  **55** now, and 2 plural: the prompts are the section below, and no figure
+  anywhere should be read as the current count -- `SIGIL_KEYS.length` is.
 
 - **`[options]`, `[command]` and `<command>` are translated and `<entry>` is
   not.** The asymmetry is right: those three are _metasyntax_ a user never
@@ -15760,7 +15762,10 @@ and the check, and `src/i18n/keys.ts` is generated.
   module `main()` imports only when the schema declares `locales` would give
   about 1.5 kB of that back, and is not done: nothing measures a 1.5 kB module,
   and it would cost an internal/public split of one barrel. The ceiling in
-  `test/dist.test.ts` is 20 kB and its comment now names 6.8 rather than 4.1.
+  `test/dist.test.ts` is 20 kB and its comment named 6.8 rather than 4.1. It names
+  **7.5 kB** since SIG-135, for the ~700 bytes the section below measures -- and
+  the two halves of this sentence contradicted each other for a commit, the first
+  describing a comment the same diff had already changed.
 
 - **`literals.ts` gained `outermostWith()` and `loaderSpecifier()`, and both are
   shared rather than copied.** The catalog reader asks "which object literal is
@@ -15901,10 +15906,438 @@ and the check, and `src/i18n/keys.ts` is generated.
   locale would answer differently when read twice. **Shipping any locale**, which
   the repo owner decided: no `de.json` anywhere, because nobody here can review a
   Korean catalog and shipping N locales signs the project up to maintain them
-  across every release that adds a key. And **the prompts**, which are SIG-135,
-  because the real question there is the input vocabulary rather than the
-  translation -- the confirm prompt draws `(Y/n)` and reads `ch === 'y'`, so
-  translating the hint alone produces a hint that lies.
+  across every release that adds a key. The **prompts** were on this list and are
+  the section below: the real question there was the input vocabulary rather than
+  the translation, and `argv is API and a keystroke is not` is what settled it.
+
+#### The prompts: the hint is the keys, and argv does not move
+
+SIG-53 left the prompts out and said why -- the real question is the **input
+vocabulary** rather than the translation. `src/components/prompt.ts` is where the
+strings are, `confirmKeys()` in `src/i18n/index.ts` is the one new mechanism, and
+the two width defects it turned up were already wrong in English.
+
+- **argv is API and stays English; a keystroke at an interactive prompt is
+  not.** That one line settles the three options SIG-135 offered.
+  `transformValue()`'s `yesno` vocabulary reaches a _value in a shell script_, so
+  translating the keys "with one deferring to the other" either breaks
+  `--force=y` in somebody's CI or makes the accepted set depend on `LANG` -- a
+  script whose meaning is a function of the environment. So the parser's
+  vocabulary does not move at all and only the prompt's keys gain anything.
+
+  The objection to accepting both -- that the hint becomes an incomplete
+  statement of what works -- is the **safe** direction of incompleteness. A hint
+  naming a subset is not a lie: `bool` accepts six spellings of true and no hint
+  names them. The rule this file keeps is about a hint naming something that does
+  **not** work.
+
+- **SIG-53 had already shipped that defect one layer along, and it was the only
+  key with the shape.** `Value must be "yes" or "no"` was in the key set, so a
+  German catalog says `… "ja" oder "nein" …` and `yesRE` then refuses the `ja`
+  the message just asked for. A translator handed that key has nothing telling
+  them the quoted words are a vocabulary rather than prose. The quoted literals
+  are **slots** now -- the key is `Value must be "{0}" or "{1}"` with `yes`/`no`
+  interpolated -- so the quotes stay structural and what is inside them arrives
+  as data. The audit for other keys of that shape found none.
+
+- **One catalog entry decides what is drawn _and_ what is accepted, which is what
+  stops the two disagreeing.** The entry is `y/n` -- the two keys and nothing
+  else -- and the parens and the capital are `confirmKeys()`'s. So there is one
+  entry rather than three, a translator has no second place to contradict
+  themselves, and the hint is built there rather than parsed back out of a
+  sentence -- from the **halves** rather than from the keys, which is the
+  distinction the review round below is about. `(Y/n)` in English is byte for byte
+  what it was, derived.
+
+  The key for each half is its **first code point**, so `j/n` gives `j`/`n` and
+  `ja/nein` gives the same keys while drawing `(Ja/nein)`. A one-character half is
+  the degenerate case of that rule rather than a second rule. By code point
+  because half a surrogate pair is a key no terminal can send, which is the rule
+  `highlightRuns()` already keeps, and `toLowerCase()` rather than the locale
+  variant for `camelCase()`'s reason read in this function's own direction -- the
+  locale one lowercases `I` to the dotless `ı` in Turkish, so an entry of `I/n`
+  would have a key of `ı` there while the reader pressing that key sends `i`, and
+  it would stop matching on that machine and nowhere else.
+
+- **The hint is authoritative and English is additive.** `y` and `n` are accepted
+  on top of whatever the entry named, and each is dropped where it would
+  contradict the entry. A romanized `n/a` has `n` meaning _yes_, as the reader was
+  told, so English `n` is refused rather than giving one keypress both answers --
+  and the mirror holds, `t/y` refuses English `y`. That precedence is forced by
+  the hint being the thing on screen rather than chosen: what a reader was told is
+  what has to be true.
+
+- **An entry that is not two halves naming two distinct keys is refused
+  outright.** Empty, no slash, three halves, or two halves whose first characters
+  are equal: English stands and it says so through `sigil:i18n`, which is the rule
+  `__()` already follows for an entry of the wrong shape. Refused rather than
+  guessed at, because a hint nobody can read is worse than an English one.
+
+- **The lookup is at the call site and the parsing is in `i18n`, and the split is
+  forced from both ends.** `confirmKeys(__`y/n`, fallback)` -- the tag is in
+  `prompt.ts` because the key generator deliberately **skips** the i18n module:
+  `__` there is a local declaration rather than an import binding, so
+  `importBindings()` has nothing to match and a tag written there is a key
+  `SIGIL_KEYS` would not carry. Measured: written inside i18n it came out at 51
+  keys with `y/n` missing, so `sigil check` would have reported an app's own
+  translation of it as an **orphan**. The parsing is in i18n because that is the
+  module which already decides whether a catalog entry is usable, and because it
+  has the logger -- `prompt.ts` is a `sigil add` entry and may import only what
+  the package publishes, and `src/debug/` has no subpath. Exported from the barrel
+  rather than written onto the root entry's path, so an app that answers
+  `--version` shakes it out -- and _that last clause was false_, which is the shape
+  this file keeps warning about: a sentence asserting a property nothing checks.
+  `dist/index.mjs` imports `./i18n.mjs` for `__`, and an **entry chunk is not
+  shaken per importer**, so everything this barrel exports is on the graph an app
+  that answers `--version` loads. Measured: **6,825 bytes to 7,513**, which is
+  about 700 for `confirmKeys()` and its helpers, against the 20 kB ceiling
+  `test/dist.test.ts` holds -- and the first version of that figure read 648 and
+  went stale by 40 bytes within the hour, when the decomposed guard landed, so
+  read the ceiling rather than this. Paid rather than avoided, because the alternative is a
+  published subpath of its own -- permanent API surface for one consumer -- and
+  `prompt.ts` has to reach it through a published subpath whichever module it is in.
+  Found by checking the claim rather than by a review.
+
+  `ENGLISH_PAIR` is the same string in two roles rather than one copy too many: at
+  the call site it is the key, because the English _is_ the key, and in `i18n` it
+  is the floor a malformed entry lands on. A refusal has to name some vocabulary.
+
+- **What is _not_ translatable is the punctuation and the order.** A locale that
+  shows no first, or wants fullwidth parens, cannot say so. Making either
+  translatable means parsing a sentence to find the keys again, which is the thing
+  this shape exists to avoid.
+
+- **A modified key is not an answer.** `k.name` for Ctrl-Y is `y`, so `ch === 'y'`
+  read it as yes -- and the hint says `Y` rather than `ctrl-Y`, so that is the
+  hint being wrong about what it accepts. Pre-existing, and fixed here because it
+  is the same sentence this whole section is about. The rule the key sequences
+  already keep: a modifier makes it a different key.
+
+- **A modifier is translated and a key name is not.** `keyLabel()` builds
+  `ctrl-d`, and a German keyboard labels that key `Strg` -- so a hint saying
+  `ctrl` names a key that is not there. The letter on the cap, and `enter` and
+  `tab`, are printed the same on essentially every keyboard sold, so translating
+  those would be inventing a vocabulary rather than matching one. Each combination
+  is a **whole** key -- `ctrl-{0}`, `alt-{0}`, `ctrl-alt-{0}` -- rather than two
+  translatable fragments, so a translator sees the shape and picks the separator
+  too, which is `+` in German and `-` here. A key with no modifier is its own name
+  and no lookup.
+
+- **`select()` has no hint and keeps none.** Only `multiselect()` does, because
+  tick boxes need telling and arrow keys are discoverable. Worth writing down
+  because the inventory reads as though one is missing.
+
+- **The inventory was about double what the ticket said**, because SIG-111 landed
+  `multiline()` the same day it was filed: twelve keys rather than seven, the
+  multiline four and `Choose at least one` and `none` among them, and
+  `(+{0} more line)` is the **second plural** the framework has after `Alias:`.
+  Three of the five `PromptError` messages are translated and two are not --
+  `Cannot prompt for "{0}" …`, `Input ended …` and `Cancelled` are what a _user_
+  sees through `errorHandler()`'s own translated `Error: {0}` frame, so a German
+  app that cancelled a prompt printed `Fehler: Cancelled`, which is half a
+  sentence. A prompt declared with no choices or no submit key is a bug in the
+  app, like the 139 developer errors SIG-53 left alone.
+
+- **What is deliberately left English, after an exhaustive sweep.** Every string
+  literal reaching a `text`, `textNode` or `textElement` under `src/components/`
+  and `src/help/` was read, and after the palette's three there is exactly
+  **one** left: the debug overlay's `debug` pane title. It stays, by the rule
+  SIG-53 already applied to `@ttylabs/cli`'s own output -- its reader is a
+  developer, so a translated one is a bug report in a language the maintainer
+  cannot read. Everything else in those components is caller-supplied text or a
+  `TypeError` about a programming mistake, which is the 139 developer errors
+  SIG-53 left alone. Written down so that the next sweep finds a decision rather
+  than an omission.
+
+- **And the keystroke a translated key needs may not be one the keyboard
+  sends.** `keyOfHalf()` reads a _code point_, and a decomposed `é` typed as one
+  keystroke arrives as two keys -- `readOne()` splits by code point -- so the
+  first is the bare `e`. An entry written with a precomposed `é` therefore names
+  a key that input method never sends, and normalizing the entry would not fix
+  it, because what is decomposed is the keystroke rather than the catalog. A
+  catalog writes the pair in the form the keyboard produces, which for a yes-or-no
+  key is a plain letter in essentially every language. Recorded rather than
+  guarded: the machinery would be a normalization pass over something it cannot
+  reach.
+
+##### Reserving the tail's columns, which was two defects in English
+
+The ticket flagged the width question as unmeasured. Measuring it found the head
+broken in both directions, neither caused by translation.
+
+- **Reserving nothing clipped the affordance away.** A hint is a flex item beside
+  a message with `flex-shrink: 0`, and `headWidths()` reserved exactly **one**
+  column for whatever followed -- so a message that took every column left
+  squeezed the hint into one and the canvas, capped at the terminal's width,
+  clipped the rest. Measured, `? Overwrite the file`: 26 columns drew `(Y/n)`, 24
+  drew `(Y/`, 22 drew `(`, and from about 18 to 24 a yes-or-no question had **no
+  readable affordance at all**. `(ctrl-d to submit)` was worse -- at 40 columns it
+  came out as `(`, `t`, `s` down the right-hand side, one character per row.
+
+- **Reserving the tail in full was the overcorrection.** The multiselect hint is
+  35 columns, so at 40 it left `Pick some things` four columns and seven rows of
+  two letters. Found by measuring the fix rather than by a test.
+
+- **So neither half of the head gives up more than half the line.** The tail's own
+  width is reserved, capped at `floor(avail / 2)`. A short affordance is then
+  always whole -- `(Y/n)` down to **13** columns, which the arithmetic predicts and
+  a sweep confirms -- and a long one wraps with the message intact. Below 13 the
+  closing paren is clipped, and the _vocabulary_ is still on screen, which is the
+  residual rather than a fix: at 12 columns nothing is good.
+
+  Both halves clamp with `Math.max(1, ...)`, so at an `avail` of 1 or less they
+  sum to more than there is and the row over-commits -- which the canvas clips.
+  What has to hold there is only that it is neither an exception nor a loop, and
+  that `wrap()` is never handed a width below 1. Round 1 read that correctly off
+  the code; it is checked down to **one column** now, an `avail` of -2, and pinned
+  rather than reasoned about.
+
+- **And `lines` counts the taller of the two halves, not the message.** It counted
+  the message alone, so a hint that wrapped made the head taller than the choice
+  window believed and the row reserved for the error line absorbed it -- measured,
+  the multiselect head goes 1 to 4 rows at 30 columns while `lines` answered 1.
+  With the tail reserved it does not normally wrap and the message decides; where
+  it does, the tail is what decides. One expression rather than a second
+  mechanism, and it is the same change that fixed the clipping.
+
+- **Nothing about `text()`, `password()` or `select()` moved**, and that is
+  measured rather than read off the code. By construction each passes no tail,
+  `Math.max(1, 0)` is the `- 1` that was there, and `rest` is the same number it
+  was -- and "by construction" is exactly the kind of claim this file records as
+  unestablishable by tracing the route you had in mind. So the six prompts were
+  rendered at nine widths on `main`'s source and on this one and the frames
+  diffed: **`text`, `password` and `select` are byte-identical at every one of
+  the nine**, and nothing at all changes at 60 or 80 columns. What moves is
+  `confirm` at 30 and below and `multiline` and `multiselect` at 40 and below,
+  which is the defect and nothing else.
+
+  The three changed blocks are each the improvement rather than a different kind
+  of bad. `confirm` at 30 goes from `(` to `(Y/n)`. `multiline` at 40 goes from a
+  hint split over two ragged rows to one whole row with the message wrapping
+  instead. And `multiselect` at 40 gets _shorter_ -- a four-row hint column
+  becomes two, so the head is 2 rows where it was 4. The 76 cases in
+  `prompt.test.ts` pass unchanged besides, which is the check an extraction gets.
+
+- **What it cost was one fixture, and the reason is worth keeping.** A palette
+  case asserted `/Invalid integer: eight/` against a 60-column frame; the message
+  wraps for the submit hint now, and the hint sits _between_ its two halves on
+  screen -- which no row-major read can reassemble, whatever it does to the
+  whitespace. Collapsing whitespace was tried first and does not work. The claim
+  there is that the complaint is the parser's own, so the fixture is a width that
+  can show one.
+
+##### What walking the hostile inputs found, which no test had
+
+- **A half's first code point has to be a key somebody can press**, which is one
+  input class the "names two distinct keys" rule did not cover. A combining mark
+  and a control or format character are each a code point a terminal sends no
+  keystroke for -- and the mark is worse than useless, because it attaches itself
+  to the `(` the hint opens with: `´a/n` drew `(́a/n)`, whose first half
+  advertises `a`, which is not the key. `/[\p{C}\p{M}]/u` on the key refuses both
+  and English stands. Measured to separate cleanly from every real key there is:
+  `y`, `は`, `👍` and `ß` all pass it, which the second of that guard's two
+  sabotages pins -- a version that refused letters as well would refuse
+  everything, and asserting only the refusal would not see it.
+
+- **The capital is applied only where pressing what is shown sends the key**, and
+  two mappings fail that. A one-to-many uppercase -- `ß` is `SS`, `ﬁ` is `FI` --
+  would draw `(SS/n)` over a key of `ß`, so a reader presses `s` and nothing
+  happens. And the Turkish dotless `ı` upper-cases to `I`, which is **one code
+  point** and still the wrong one, because `I` lowercases to `i`: the glyph on
+  screen sends a key the prompt does not read. So the guard is a _round trip_
+  rather than a length check, which is the half that catches the second. Both
+  leave the half as written, which marks nothing and lies about nothing -- the
+  lesser of the two, and the one this file's rule about a hint that lies picks.
+
+- **And two comments were false about the code beside them.** `keyOfHalf()` gave
+  the Turkish _uppercase_ hazard, `i` to `İ`, for a function that **lowercases**
+  -- where the hazard is `I` to the dotless `ı`, which is what a reader checking
+  the comment would have found backwards. And the width comment said the hint
+  survives to 14 columns where the measurement and the test both say 13. Neither
+  was reachable by a sabotage, which is the boundary this file already records:
+  a pass built out of deletions cannot read prose.
+
+- **The demo prints the vocabulary rather than prompting for it**, so the one
+  mechanism is demonstrable in a demo that still needs no terminal and that
+  `demos.test.ts` drives -- `confirmKeys()` is a function of a catalog entry.
+  `demos/i18n/01-translating.js` shows all four rules at once: `(J/n)` from
+  `j/n`, `(Tak/nie)` from `tak/nie` with the key still `t`, `(はい/いいえ)` with
+  the key `は`, and Polish naming `n` once rather than twice.
+
+- **And the palette had three affordances the inventory missed, because the
+  inventory read `prompt.ts`.** `commandPalette()` is not one of the six prompts
+  and it borrows `runPrompt()` and draws its own: `Run a command`, `No commands
+  match`, and the `(skip)` entry an optional `choices` list offers in place of a
+  value -- which is a _prompt_ affordance, since the palette passes it to
+  `select()`. Leaving them is the English-in-the-middle-of-German this whole
+  feature is about, so they are three more keys and the count is **55**.
+
+  `(skip)` was a module-scope `const` and is a function now, which is the thunk
+  rule met one layer along: a `const` there is evaluated when the module is
+  imported, which for a component is before `main()` has loaded a catalog. The
+  sabotage that makes it eager again is caught, so the per-call lookup is load
+  bearing rather than tidy.
+
+##### What the sabotage pass found
+
+Forty-one mutations, one at a time with the four affected suites run after each,
+against a green control. **All forty-one are caught**, after two survivors that
+were each a fixture too easy to reach the branch it was named for -- which is the
+shape this file keeps recording, and both were found by the pass rather than by
+review.
+
+- **An astral _emoji_ cannot show that `capitalize()` reads a code point.** It has
+  no uppercase mapping, so upper-casing its leading surrogate and rejoining gives
+  the original string back and both readings agree. Deseret has one: `\u{10428}`
+  upper-cases to `\u{10400}` by code point and to itself by code unit. The
+  consequence is cosmetic -- a hint that fails to mark its default, with the _key_
+  unaffected, since `keyOfHalf()` is separate and separately pinned -- and it is
+  pinned anyway, because the guard is there.
+
+- **Three choices on a ten-row screen cannot show that `lines` counts the tail.**
+  There is slack either way, so nothing overflows and the window being one row too
+  generous changes no picture. Eight choices at 30 columns is where it bites:
+  measured, **eight drawn where seven fit**, filling the screen edge to edge so an
+  error would have had nowhere to go. The assertion is `head + shown < rows` --
+  the row kept back for the error line is still there -- with `head > 1` beside
+  it, or the fixture is not reaching a wrapped hint at all.
+
+Two of the thirty-one are the width decision's own two directions, and each fails
+exactly the test named for it: reserving nothing fails `should keep the hint whole
+where the message has to wrap for it`, and reserving the tail in full fails
+`should not flatten the question to reserve a long hint`. So the cap is pinned
+from both sides rather than only against the defect it was written for.
+
+##### What the second review round found, and it was all prose but one
+
+Pointed at what round 1's brief did not name -- the tests, the prose, the prompts
+that were _not_ the subject, the public surface and the toolchain. It confirmed
+every one of those regions clean: `text()`, `password()` and `select()` read back
+to the old `avail - 1` formulas with `tail = ''`, the public surface is the right
+subpath with nothing extra exported, the extractor needs no special case, and the
+twelve/three/three/55/2/13 figures all check out. Which is the pattern this file
+already records: a round aimed where nobody looked finds **six** things, and five
+of them are sentences.
+
+- **Round 1's own fix was applied in one place and not the other.** `pairKeys()`
+  was corrected to say the hint is built from the **halves**; `confirmKeys()`
+  still said "built from the keys", and so did this section. That is the sentence
+  that hid the decomposed case, so leaving a copy of it is leaving the thing that
+  would put the defect back.
+
+- **And the Turkish direction was fixed in the code and not here.** The comment on
+  `keyOfHalf()` names `I` to the dotless `ı`, which is the hazard a function that
+  _lowercases_ has; this section still named `i` to `İ`, which is the uppercase
+  one. The section is what a later change gets aligned to, so the file being the
+  wrong one is the worse way round.
+
+- **Two consecutive sentences about one comment contradicted each other.** "its
+  comment now names 6.8 rather than 4.1" sat directly above "It is **7.5 kB**
+  since SIG-135" -- and the same diff had already changed that comment to 7.5. The
+  first half was false in the commit that updated it.
+
+- **`keyLabel()` claimed there is no test for a bare name**, and the modifier test
+  has an `f2` case whose own comment cites the claim. "Cannot fail" is fair about
+  the assertion that is missing; "no test" invites deleting the case that is there.
+
+- **And one of the new tests was in the wrong file.** `should not read a modified
+  key as an answer` never loads a catalog, so it would survive deleting every `__`
+  in the prompts -- the one case in `prompt-i18n.test.ts` that did not depend on
+  the feature that file is for. It is beside `confirm()` in `prompt.test.ts` now.
+
+- **The one that is not prose: `sigil check` cannot see a malformed `y/n`.** It
+  compares key _sets_, so `"y/n": "ja oder nein"` is a present key -- the runtime
+  refuses it and draws English, and the build says nothing. `y/n` is the **first
+  key whose value has a grammar**, which is why this is new rather than the
+  already-recorded silence about a wrong-shaped value.
+
+  Recorded rather than fixed, because checking it well needs the runtime to _say_
+  it refused -- a field on `ConfirmKeys`, or a predicate beside it -- and every
+  cheaper test is unsound: comparing the result against English cannot tell a
+  refusal from an entry that really is `y/n`, and looking for the entry's halves in
+  the hint passes a decomposed `é/n`, whose fallback hint contains `n`. A field on
+  a published type, or a second reader of the grammar, is a change to what
+  `sigil check` promises taken inside a prompts ticket -- the same call this file
+  records for narrowing the toolchain's type check inside a caching ticket. What it
+  costs is a `DEBUG=sigil:i18n` line instead of a build warning.
+
+##### And the harness left a mutation in the tree, which is a trap of its own
+
+Four of this feature's patterns went stale as the code under them moved, each
+reported as `PATTERN MISSED` rather than as a pass, which is the guard this file
+already records working. The new one is worse and is about **killing** the pass:
+the restore is in a `finally`, and a `SIGTERM` does not run one -- so a
+`pkill -f sabotage.py` left `keyLabel()`'s `ctrl-alt` mutation sitting in the
+working tree. Two ways that costs something, and the second is the dangerous one:
+it reads as a real defect to whoever looks next, and it poisons the **control**
+of the following run, which then reports `FAILING ALREADY` about a tree nothing
+is wrong with. Caught here only because `git status` was read before anything
+else was believed.
+
+So a harness that mutates a checkout restores on a signal as well as on an
+exception, and the first thing to do after one is interrupted is `git status`.
+Writing it down because the lesson is about the _tool_ rather than about the
+code, which is the category this file keeps finding things in.
+
+##### What the first review round found, and the one thing it got wrong
+
+Pointed at `confirmKeys()`'s hostile inputs, the additive logic, `headWidths()`'s
+arithmetic, the comments and the tests. It confirmed the collision logic across
+all four combinations, the `ß`/`ı`/`ﬁ` refusals, the fallback table and the
+`avail <= 2` clamps -- and found **three** real things plus one claim that was
+wrong, which is the ratio worth recording rather than the count.
+
+- **A half whose first _glyph_ is more than its key**, which the lossy-capital
+  guard did not reach because the round trip it checks is on the first code
+  point. A decomposed `e\u0301/n` has a key of `e` and draws `(É/n)`, so a reader
+  pressing the É key sends the precomposed `é` and nothing matches. Making the
+  key the whole cluster is not the fix and could not be: `readOne()` decodes a
+  keystroke by code point, so a two-code-point key could never match anything. So
+  the half is refused and English stands -- the entry above about a catalog
+  writing its pair in the form the keyboard produces, promoted from a recorded
+  limitation to a guard, because the _hint_ was the half that was wrong rather
+  than the keystroke.
+
+  The rule is asked as **`NFC`** rather than as "is the next code point a mark",
+  which is the approximation it started as and is too broad by two cases that are
+  not lies: an emoji with a variation selector draws the same glyph its base code
+  point is the key for, and a flag's two regional indicators have no precomposed
+  form at all, so pressing one sends the first indicator -- which is the key. Both
+  are accepted and pinned, and only a half whose first glyph really has a
+  one-code-point spelling is refused. Which is also the rule said exactly rather
+  than approximately: what makes the É case a lie is that the precomposed form is
+  the one a keyboard sends.
+
+- **A comment that was false about the line beside it**, and it is the one that
+  made the defect above look impossible: `pairKeys()` said the hint is "rendered
+  from the keys rather than parsed back out of a string, which is what makes 'the
+  hint is the keys' true by construction". It is rendered from the **halves** --
+  `(Ja/nein)` draws a whole word and the key is `j` -- so what holds by
+  construction is narrower, and saying it loosely is what hid the É case. Which is
+  this file's own warning met exactly: the written rule is what stops the reader
+  checking.
+
+- **An orphaned JSDoc.** `ENGLISH_PAIR` and its doc were inserted _between_
+  `ConfirmKeys`' doc comment and `ConfirmKeys`, so the interface had no
+  documentation and the const had two. An editing slip, invisible to every test.
+
+- **And an integration case that did not pin its own name.** `should still accept
+  y and n, which no hint has to name` had been fixed once already, to a `j/k`
+  catalog so that neither English key is the entry's -- and it still only pressed
+  `y` and `n`, so reverting `confirm()` to a hardcoded `ch === 'y'` passed it. The
+  catalog did no work. It presses `j` and `k` as well now. Twice wrong in the same
+  test, each time caught by somebody reading what it asserts rather than what it
+  is called.
+
+**What it got wrong is worth as much**, because a review is a set of claims to
+check rather than a list of fixes. It reported that `should window the list
+against the head it drew` is half vacuous -- that `head + shown < 10` still holds
+with `lines` ignoring the tail, since 1 + 8 is 9. That conflates `lines` with the
+head the test **measures**: `head` is `findIndex` over the drawn log, which is 2
+rows whatever `lines` answered, so the sum is 10 and the assertion fails. Verified
+by running that one mutation against that one test: caught, `expected 10 to be
+below 10`. It also reported a bare combining mark as accepted, which was true of
+the diff it was given and had been fixed two commits before the review returned.
 
 ### Sharing options between commands
 

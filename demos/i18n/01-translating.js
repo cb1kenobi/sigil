@@ -1,6 +1,6 @@
 /**
- * Translating: the English sentence is the key, plurals, and changing the
- * locale while the app is running.
+ * Translating: the English sentence is the key, plurals, a prompt's own
+ * vocabulary, and changing the locale while the app is running.
  *
  *   node demos/i18n/01-translating.js
  *   LANG=de_DE.UTF-8 node demos/i18n/01-translating.js
@@ -9,7 +9,7 @@
  *   LANG=de_DE.UTF-8 node demos/i18n/01-translating.js --help
  */
 import { main } from '@ttylabs/sigil';
-import { __, __n, locale, setLocale } from '@ttylabs/sigil/i18n';
+import { __, __n, confirmKeys, locale, setLocale } from '@ttylabs/sigil/i18n';
 
 // A catalog is keyed by the English sentence itself, with `{0}` and `{1}` where
 // the values go. There is nothing to invent and nothing to look up: the key is
@@ -24,6 +24,10 @@ const de = {
 	// the slots are **reordered**, which is the whole reason numbered slots beat
 	// `%s`: printf consumes its arguments in order and cannot do this
 	'Copied {0} to {1}': 'Nach {1} wurde {0} kopiert',
+	// a yes-or-no prompt's hint **is** its keys, so this one entry decides both
+	// what `(J/n)` draws and that `j` answers it -- there is no second entry for a
+	// translator to contradict
+	'y/n': 'j/n',
 	'{0} file changed': { one: '{0} Datei geändert', other: '{0} Dateien geändert' },
 	// the framework's own chrome is keyed the same way, so `--help` translates
 	// out of the same catalog with no second mechanism
@@ -40,6 +44,8 @@ const de = {
 
 const pl = {
 	'Copied {0} to {1}': 'Skopiowano {0} do {1}',
+	// `n` already means no in English, so it is named once rather than twice
+	'y/n': 'tak/nie',
 	// Polish has four categories and `Intl.PluralRules` knows them, so this
 	// needs no grammar written for it: 1 is `one`, 2-4 are `few`, 5 and up are
 	// `many`, and a fraction is `other`
@@ -53,6 +59,9 @@ const pl = {
 
 const ja = {
 	'Copied {0} to {1}': '{0} を {1} にコピーしました',
+	// the key is each half's first **code point**, so these are は and い -- a half
+	// may be a whole word and the key is still one character of it
+	'y/n': 'はい/いいえ',
 	// one form for every count, so a plain string is taken rather than an object
 	'{0} file changed': '{0} 個のファイルが変更されました',
 	// ...and every chrome key is deliberately missing, so `--help` shows what a
@@ -69,6 +78,14 @@ function say(label) {
 	for (const n of [1, 2, 5]) {
 		console.log(`    ${__n(n, '{0} file changed', '{0} files changed')}`);
 	}
+
+	// and what a `confirm()` would draw and read in this locale. Printed rather
+	// than prompted on purpose: `confirmKeys()` is a function of the catalog entry,
+	// so it needs no terminal and this demo stays one anybody can pipe
+	const keys = confirmKeys(__`y/n`, true);
+	console.log(
+		`    confirm draws ${keys.hint}  yes: ${keys.yes.join(' ')}  no: ${keys.no.join(' ')}`
+	);
 }
 
 await main({

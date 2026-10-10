@@ -84,7 +84,9 @@ describe('the committed key set', () => {
 		expect(SIGIL_KEYS).toContain('Invalid value "{0}" for {1}');
 		expect(SIGIL_KEYS).toContain('Usage:');
 		expect(SIGIL_KEYS).toContain('option {0}');
-		expect(SIGIL_PLURAL_KEYS).toEqual(['Alias:']);
+		// two, since the multiline field's log line counts lines -- `Alias:` was the
+		// only plural until SIG-135
+		expect(SIGIL_PLURAL_KEYS).toEqual(['(+{0} more line)', 'Alias:']);
 	});
 
 	it('should number a slot per interpolation, never name one', () => {

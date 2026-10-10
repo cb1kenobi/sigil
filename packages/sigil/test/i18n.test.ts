@@ -2,6 +2,7 @@ import {
 	__,
 	__n,
 	type Catalog,
+	confirmKeys,
 	loadCatalog,
 	locale,
 	localeChain,
@@ -175,6 +176,183 @@ describe('the plural', () => {
 		await useGerman();
 
 		expect(__n(2, 'Argument:', 'Arguments:')).toBe('Arguments:');
+	});
+});
+
+describe('the keys a yes-or-no prompt accepts', () => {
+	// one catalog entry decides what is drawn *and* what is accepted, so a hint
+	// translated on its own cannot end up naming a key nothing reads. Asserted
+	// here rather than through a prompt because it is a function of a string and a
+	// boolean, which is the split `rowWindow()` and `thumbExtent()` already keep
+	it('should draw the English pair with the default capitalized', () => {
+		expect(confirmKeys('y/n', true)).to.deep.equal({ hint: '(Y/n)', no: ['n'], yes: ['y'] });
+		expect(confirmKeys('y/n', false)).to.deep.equal({ hint: '(y/N)', no: ['n'], yes: ['y'] });
+	});
+
+	it('should accept the key a translated pair names, and keep English beside it', () => {
+		const keys = confirmKeys('j/n', true);
+
+		expect(keys.hint).to.equal('(J/n)');
+		expect(keys.yes).to.deep.equal(['j', 'y']);
+		// `n` means no in both, so there is nothing to add and nothing to refuse
+		expect(keys.no).to.deep.equal(['n']);
+	});
+
+	it('should refuse an English key the pair gave the other meaning', () => {
+		// the hint is what is on screen, so it is authoritative and English is
+		// additive: a romanized `n/a` has `n` meaning *yes*, as the reader was told,
+		// and accepting English `n` as no would give one keypress both answers
+		const keys = confirmKeys('n/a', true);
+
+		expect(keys.hint).to.equal('(N/a)');
+		expect(keys.yes).to.deep.equal(['n', 'y']);
+		expect(keys.no).to.deep.equal(['a']);
+		expect(keys.no).to.not.include('n');
+	});
+
+	it('should swap both English keys where the pair swapped them', () => {
+		// the fourth combination, which the table was missing: each English letter is
+		// claimed by the opposite half, so neither is added and both mean what the
+		// hint says they mean
+		const keys = confirmKeys('n/y', true);
+
+		expect(keys.hint).to.equal('(N/y)');
+		expect(keys.yes).to.deep.equal(['n']);
+		expect(keys.no).to.deep.equal(['y']);
+	});
+
+	it('should refuse English y where the pair made it the no key', () => {
+		// the mirror of the case above, which a fixture that only moved the yes half
+		// would not reach
+		const keys = confirmKeys('t/y', true);
+
+		expect(keys.yes).to.deep.equal(['t']);
+		expect(keys.no).to.deep.equal(['y', 'n']);
+		expect(keys.yes).to.not.include('y');
+	});
+
+	it('should take the first character of a word, not the word', () => {
+		// a single character is the degenerate case of that rule rather than a second
+		// rule, so a locale that spells the words out gets `(Ja/nein)` and `j`/`n`
+		const keys = confirmKeys('ja/nein', true);
+
+		expect(keys.hint).to.equal('(Ja/nein)');
+		expect(keys.yes).to.deep.equal(['j', 'y']);
+		expect(keys.no).to.deep.equal(['n']);
+		expect(confirmKeys('ja/nein', false).hint).to.equal('(ja/Nein)');
+	});
+
+	it('should leave the half alone where the capital would not be the key', () => {
+		// the capital marks the default, and marking it with a glyph that is not the
+		// key is the hint lying -- so it is applied only where pressing what is shown
+		// sends the key. A one-to-many mapping would draw `(SS/n)` over a key of `ß`,
+		// and the Turkish dotless `ı` upper-cases to `I`, which is one code point and
+		// still the wrong one, since `I` lowercases to `i`
+		for (const [half, key] of [
+			['\u00DF', '\u00DF'],
+			['\uFB01', '\uFB01'],
+			['\u0131', '\u0131'],
+		] as const) {
+			const keys = confirmKeys(`${half}/n`, true);
+
+			expect(keys.hint, half).to.equal(`(${half}/n)`);
+			expect(keys.yes, half).to.deep.equal([key, 'y']);
+		}
+	});
+
+	it('should capitalize by code point too, which emoji cannot show', () => {
+		// an astral *emoji* has no uppercase mapping, so reading its first code unit
+		// instead answers the same string and the guard looks inert. Deseret has one:
+		// `\u{10428}` upper-cases to `\u{10400}`, while upper-casing its leading
+		// surrogate is a no-op and rejoining gives the original back. Found by a
+		// sabotage that survived a fixture built out of thumbs
+		expect(confirmKeys('\u{10428}/n', true).hint).to.equal('(\u{10400}/n)');
+		expect(confirmKeys('\u{10428}/n', true).yes).to.deep.equal(['\u{10428}', 'y']);
+	});
+
+	it('should read a character by code point rather than by code unit', () => {
+		// an astral character is one key rather than half a surrogate pair, which is
+		// the rule `highlightRuns()` already keeps -- and a key that is half a pair
+		// is one no terminal can send and no comparison can match
+		const keys = confirmKeys('\u{1F44D}/\u{1F44E}', true);
+
+		expect(keys.yes).to.deep.equal(['\u{1F44D}', 'y']);
+		expect(keys.no).to.deep.equal(['\u{1F44E}', 'n']);
+		expect(keys.hint).to.equal('(\u{1F44D}/\u{1F44E})');
+	});
+
+	it('should lowercase the key it reads, so the capital is presentational', () => {
+		// a translator writing the default in capitals is saying which is the
+		// default, not naming a different key
+		expect(confirmKeys('J/N', true).yes).to.deep.equal(['j', 'y']);
+		expect(confirmKeys('J/N', true).no).to.deep.equal(['n']);
+	});
+
+	it('should trim each half', () => {
+		const keys = confirmKeys(' ja / nein ', true);
+
+		expect(keys.hint).to.equal('(Ja/nein)');
+		expect(keys.yes).to.deep.equal(['j', 'y']);
+	});
+
+	it('should refuse a half whose first glyph is more than its key', () => {
+		// a decomposed `e\u0301` has a key of `e` and draws as `É`, so a reader
+		// pressing the É key sends the precomposed `é` and nothing matches -- the
+		// same lie the lossy capital is, one step along. Making the key the whole
+		// cluster is not the fix: a keystroke is decoded by code point, so a
+		// two-code-point key could never match. Found by review
+		for (const pair of ['e\u0301/n', 'y/n\u0303', 'n\u0301ee/j']) {
+			expect(confirmKeys(pair, true), JSON.stringify(pair)).to.deep.equal({
+				hint: '(Y/n)',
+				no: ['n'],
+				yes: ['y'],
+			});
+		}
+
+		// a *precomposed* é is one code point and one glyph, so it is a key
+		expect(confirmKeys('\u00E9/n', true).yes).to.deep.equal(['\u00E9', 'y']);
+		expect(confirmKeys('\u00E9/n', true).hint).to.equal('(\u00C9/n)');
+		// and an ordinary multi-letter half still works
+		expect(confirmKeys('ja/nein', true).yes, 'ja/nein').to.deep.equal(['j', 'y']);
+
+		// the two cases a "is the next code point a mark" rule refused and should
+		// not: an emoji with a variation selector draws the glyph its base code
+		// point is the key for, and a flag's regional indicators have no
+		// precomposed form, so pressing one sends the first indicator -- the key
+		expect(confirmKeys('\u263A\uFE0F/n', true).yes).to.deep.equal(['\u263A', 'y']);
+		expect(confirmKeys('\u{1F1E9}\u{1F1EA}/n', true).yes).to.deep.equal(['\u{1F1E9}', 'y']);
+	});
+
+	it('should refuse a half whose first character is not a key', () => {
+		// a combining mark and a control or format character are code points a
+		// terminal sends no keystroke for, and the mark attaches itself to the `(`
+		// the hint opens with -- so `\u0301a/n` drew `(\u0301a/n)`, whose first half
+		// advertises `a`, which is not the key. English stands instead
+		for (const pair of ['\u0301a/n', 'y/\u0301b', '\u200Dy/n', '\u0007/n']) {
+			expect(confirmKeys(pair, true), JSON.stringify(pair)).to.deep.equal({
+				hint: '(Y/n)',
+				no: ['n'],
+				yes: ['y'],
+			});
+		}
+
+		// and a real key is not refused by that guard, or it refuses everything
+		expect(confirmKeys('\u{1F44D}/\u{1F44E}', true).yes[0]).to.equal('\u{1F44D}');
+		expect(confirmKeys('\u00DF/n', true).yes[0]).to.equal('\u00DF');
+		expect(confirmKeys('\u306F\u3044/\u3044\u3044\u3048', true).yes[0]).to.equal('\u306F');
+	});
+
+	it('should fall back to English for an entry it cannot read', () => {
+		// refused rather than guessed at, which is the rule a data type already
+		// follows: English stands, because a hint nobody can read is worse than an
+		// English one. Every shape that is not two halves naming two distinct keys
+		for (const pair of ['', 'ja oder nein', 'j/', '/n', 'j/n/m', 'ja/jein', ' / ']) {
+			expect(confirmKeys(pair, true), pair).to.deep.equal({
+				hint: '(Y/n)',
+				no: ['n'],
+				yes: ['y'],
+			});
+		}
 	});
 });
 
@@ -485,7 +663,7 @@ describe('through main()', () => {
 		'Unexpected argument "{0}"': 'UNERWARTET "{0}"',
 		'Unknown command "{0}"': 'UNBEKANNTER-BEFEHL "{0}"',
 		'Unknown option "{0}"': 'UNBEKANNTE-OPTION "{0}"',
-		'Value must be "yes" or "no"': 'JA-ODER-NEIN',
+		'Value must be "{0}" or "{1}"': 'JA-ODER-NEIN "{0}"/"{1}"',
 		'argument <{0}>': 'ARGUMENT <{0}>',
 		'option {0}': 'OPTION {0}',
 	};
@@ -589,7 +767,15 @@ describe('through main()', () => {
 			'BOOL-UNGÜLTIG "maybe"',
 		],
 		['bad number', ['--num', 'abc', '--req', 'r'], 'Invalid number: abc', 'ZAHL-UNGÜLTIG abc'],
-		['bad yes/no', ['--ok', 'maybe', '--req', 'r'], 'Value must be "yes" or "no"', 'JA-ODER-NEIN'],
+		// the quoted words are *slots*, so a translator cannot translate the
+		// vocabulary out from under `yesRE` -- the German below says the sentence
+		// and still names `yes`/`no`, which is what argv accepts
+		[
+			'bad yes/no',
+			['--ok', 'maybe', '--req', 'r'],
+			'Value must be "yes" or "no"',
+			'JA-ODER-NEIN "yes"/"no"',
+		],
 		// the hard one: the slots reorder *and* the noun is a nested translation
 		[
 			'bad option choice',

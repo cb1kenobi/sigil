@@ -7,6 +7,7 @@ import {
 	text as textNode,
 	toDisplayText,
 } from '../element/index.js';
+import { __, __n, confirmKeys } from '../i18n/index.js';
 import { createInput, type InputRouter, type InputStream, type Key } from '../input/index.js';
 import { isAbort } from '../input/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
@@ -203,7 +204,7 @@ function run<T>(opts: PromptOptions, make: () => Handlers<T>): Promise<T> {
 	// because "no TTY" on its own does not say which question went unanswered
 	if (!terminal.isTTY || !stdin?.isTTY) {
 		return Promise.reject(
-			new PromptError(`Cannot prompt for "${opts.message}" because the input is not a terminal`)
+			new PromptError(__`Cannot prompt for "${opts.message}" because the input is not a terminal`)
 		);
 	}
 
@@ -312,7 +313,7 @@ function run<T>(opts: PromptOptions, make: () => Handlers<T>): Promise<T> {
 
 		const offEnd = router.onEnd((error) => {
 			// the same nobody-is-there problem as the check above, arriving later
-			fail(error ?? new PromptError('Input ended before the prompt was answered'));
+			fail(error ?? new PromptError(__`Input ended before the prompt was answered`));
 		});
 		const offKey = router.bind((event) => {
 			event.stop();
@@ -328,7 +329,7 @@ function run<T>(opts: PromptOptions, make: () => Handlers<T>): Promise<T> {
 			// rule said one layer along. Ctrl-D is the other half of `isAbort()` and is
 			// claimable, for the reason `Handlers.claims` records
 			if (isAbort(key) && !(key.name === 'd' && handlers.claims?.(key))) {
-				fail(new PromptError('Cancelled', true));
+				fail(new PromptError(__`Cancelled`, true));
 				return;
 			}
 
@@ -466,18 +467,53 @@ function windowOf(value: string, cursor: number, width: number): Window {
  */
 function headWidths(
 	message: string,
-	room: number
+	room: number,
+	tail = ''
 ): { lines: number; message: number; rest: number } {
 	// the mark, the mark's margin, and the message's own margin
 	const fixed = stringWidth(SYMBOL.question) + 2;
-	const forMessage = Math.max(1, Math.min(stringWidth(message), room - fixed - 1));
+	const avail = room - fixed;
+	// **Neither half of the head gives up more than half the line.** The tail's own
+	// columns are reserved rather than assumed to be one, and the reservation is
+	// capped at half of what there is.
+	//
+	// Both halves of that were measured, in English. Reserving nothing is what
+	// shipped: a hint is a flex item beside a message with `flex-shrink: 0`, so a
+	// message that took every column left squeezed the hint into one and the canvas
+	// -- capped at the terminal's width -- clipped the rest. `? Overwrite the file`
+	// at 22 columns drew `(` where it should have drawn `(Y/n)`, so between about
+	// 18 and 24 columns a yes-or-no question had no readable affordance at all.
+	// Reserving the tail *in full* is the overcorrection: the multiselect hint is 35
+	// columns, so at 40 it left the question four columns and `Pick some things`
+	// came out as seven rows of two letters.
+	//
+	// So a short affordance is always whole -- `(Y/n)` down to 13 columns -- and a
+	// long one wraps, with `lines` below counting what that came to
+	const forTail = Math.min(
+		Math.max(1, stringWidth(toDisplayText(tail))),
+		Math.max(1, Math.floor(avail / 2))
+	);
+	const forMessage = Math.max(1, Math.min(stringWidth(message), avail - forTail));
+	const rest = Math.max(1, avail - forMessage);
+
 	return {
 		// through the same wrapper the text element draws with, rather than by
 		// dividing one width by another: a word too long to fit is broken, and a
-		// count that guessed would put a choice list over the question
-		lines: wrap(toDisplayText(message), { width: forMessage }).split('\n').length,
+		// count that guessed would put a choice list over the question.
+		//
+		// The *taller* of the two halves, because the head is one flex row. With the
+		// tail reserved above it does not wrap and the message is what decides; at a
+		// width too narrow for even that, the tail is. Counting the message alone is
+		// what let a wrapped hint make the head taller than the choice window
+		// believed -- measured, the multiselect head goes 1 to 4 rows at 30 columns
+		// while this answered 1, and the row reserved for the error line is what
+		// absorbed the first of them
+		lines: Math.max(
+			wrap(toDisplayText(message), { width: forMessage }).split('\n').length,
+			tail === '' ? 1 : wrap(toDisplayText(tail), { width: rest }).split('\n').length
+		),
 		message: forMessage,
-		rest: Math.max(1, room - fixed - forMessage),
+		rest,
 	};
 }
 
@@ -1323,7 +1359,35 @@ function rowCap(rows: number | undefined, fallback = 10): number {
 
 /** `ctrl-d`, as a reader would type it. */
 function keyLabel(key: SubmitKey): string {
-	return `${key.ctrl ? 'ctrl-' : ''}${key.meta ? 'alt-' : ''}${key.name}`;
+	const { name } = key;
+
+	// the *modifier* is translated and the key's own name is not, which is the
+	// line SIG-53 drew one step along: a name the user types stays English, and a
+	// modifier is a word printed on a key cap that really does differ -- a German
+	// keyboard says `Strg`, so `ctrl-d` names a key that is not there. The letter
+	// on the key, and `enter` or `tab`, are printed the same on essentially every
+	// keyboard sold, so translating those would be inventing a vocabulary rather
+	// than matching one -- and could not be done through `__` anyway, which is
+	// worth knowing before anybody tries: the tag's key comes from its *literal*
+	// parts, so `__`${name}`` keys on `{0}` rather than on `f2`. A key name is a
+	// value, and a value is never a key -- so a bare name is covered by the modifier
+	// test's own `f2` case, and the thing that is *not* asserted there is that it
+	// was not looked up, because such an assertion cannot fail.
+	//
+	// Each combination is a whole key rather than two translatable fragments, so
+	// that a translator sees `ctrl-{0}` and writes `Strg+{0}` -- which also lets
+	// them pick the separator, since `+` is the German convention and `-` is ours
+	if (key.ctrl && key.meta) {
+		return __`ctrl-alt-${name}`;
+	}
+	if (key.ctrl) {
+		return __`ctrl-${name}`;
+	}
+	if (key.meta) {
+		return __`alt-${name}`;
+	}
+
+	return name;
 }
 
 /** Whether a key is the one that submits. */
@@ -1381,11 +1445,12 @@ export function multiline(opts: MultilineOptions): Promise<string> {
 	let top = 0;
 
 	return run<string>(opts, () => {
-		const hint = textNode(`(${keyLabel(submit)} to submit)`, {
+		const hintText = __`(${keyLabel(submit)} to submit)`;
+		const hint = textNode(hintText, {
 			class: 'sigil-prompt-hint sigil-muted',
 		});
 		const answer = textNode('', { class: 'sigil-prompt-answer sigil-muted', display: 'none' });
-		const head = headWidths(opts.message, Math.max(1, terminal.width));
+		const head = headWidths(opts.message, Math.max(1, terminal.width), hintText);
 		const { line, mark } = promptHead(opts.message, head.message, hint, answer);
 		const complaint = note('sigil-prompt-error sigil-error');
 
@@ -1593,9 +1658,9 @@ export function multiline(opts: MultilineOptions): Promise<string> {
 				const more = lines.length - 1;
 				answer.setText(
 					written === ''
-						? '(empty)'
+						? __`(empty)`
 						: more > 0
-							? `${lines[0]} (+${more} more ${more === 1 ? 'line' : 'lines'})`
+							? `${lines[0]} ${__n(more, '(+{0} more line)', '(+{0} more lines)')}`
 							: lines[0]
 				);
 				answer.setProps({ display: 'flex' });
@@ -1619,12 +1684,17 @@ export function confirm(opts: ConfirmOptions): Promise<boolean> {
 	const fallback = opts.default ?? true;
 
 	return run<boolean>(opts, () => {
-		const tail = textNode(`(${fallback ? 'Y/n' : 'y/N'})`, {
+		// one catalog entry decides both what is drawn and what is accepted, so the
+		// hint cannot be a false statement about the keys. `confirmKeys()` has why
+		// that is one entry rather than three, and why English stays accepted
+		const keys = confirmKeys(__`y/n`, fallback);
+		const tail = textNode(keys.hint, {
 			class: 'sigil-prompt-hint sigil-muted',
 		});
 		const { line, mark } = promptHead(
 			opts.message,
-			headWidths(opts.message, Math.max(1, (opts.terminal ?? defaultTerminal).width)).message,
+			headWidths(opts.message, Math.max(1, (opts.terminal ?? defaultTerminal).width), keys.hint)
+				.message,
 			tail
 		);
 
@@ -1633,18 +1703,26 @@ export function confirm(opts: ConfirmOptions): Promise<boolean> {
 				if (k.name === 'enter') {
 					return { value: fallback };
 				}
+
+				// a modifier makes it a different key, which is the rule the key
+				// sequences already keep -- the hint says `Y` rather than `ctrl-Y`, so
+				// reading Ctrl-Y as yes is the hint being wrong about what it accepts
+				if (k.ctrl || k.meta) {
+					return;
+				}
+
 				const ch = k.name.toLowerCase();
-				if (ch === 'y') {
+				if (keys.yes.includes(ch)) {
 					return { value: true };
 				}
-				if (ch === 'n') {
+				if (keys.no.includes(ch)) {
 					return { value: false };
 				}
 			},
 
 			settle(answer: boolean): void {
 				answered(mark);
-				tail.setText(answer ? 'yes' : 'no');
+				tail.setText(answer ? __`yes` : __`no`);
 				tail.setProps({ class: 'sigil-prompt-answer sigil-muted' });
 			},
 
@@ -1872,10 +1950,11 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
 	}
 
 	return run<T[]>(opts, () => {
-		const hint = textNode('(space to select, enter to confirm)', {
+		const hintText = __`(space to select, enter to confirm)`;
+		const hint = textNode(hintText, {
 			class: 'sigil-prompt-hint sigil-muted',
 		});
-		const head = headWidths(opts.message, Math.max(1, terminal.width));
+		const head = headWidths(opts.message, Math.max(1, terminal.width), hintText);
 		const { line, mark } = promptHead(opts.message, head.message, hint);
 		const { list, rows } = choiceRows(choices, true);
 		const complaint = note('sigil-prompt-error sigil-error');
@@ -1904,7 +1983,7 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
 
 				if (k.name === 'enter') {
 					if (opts.required && ticked.size === 0) {
-						error = 'Choose at least one';
+						error = __`Choose at least one`;
 						draw();
 						return;
 					}
@@ -1943,7 +2022,7 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
 								.filter((_, i) => ticked.has(i))
 								.map((choice) => choice.label)
 								.join(', ')
-						: 'none'
+						: __`none`
 				);
 				hint.setProps({ class: 'sigil-prompt-answer sigil-muted' });
 				list.setProps({ display: 'none' });

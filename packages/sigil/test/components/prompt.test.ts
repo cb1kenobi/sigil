@@ -2,6 +2,7 @@ import {
 	confirm,
 	ESCAPE_TIMEOUT,
 	PROMPT_SYMBOLS,
+	multiline,
 	multiselect,
 	password,
 	PromptError,
@@ -464,6 +465,137 @@ describe('password()', () => {
 	});
 });
 
+describe('an affordance in a narrow terminal', () => {
+	// the head reserves the tail's columns, capped at half the line. Both halves
+	// of that were measured in English, and both were wrong before it: reserving
+	// nothing clipped the hint away, and reserving the lot flattened the question
+	it('should keep the hint whole where the message has to wrap for it', async () => {
+		// a hint is a flex item beside a message with `flex-shrink: 0`, so a message
+		// that took every column left squeezed the hint into one and the canvas --
+		// capped at the terminal's width -- clipped the rest. Measured: 24 columns
+		// drew `(Y/`, 22 drew `(`, and from 18 to 24 a yes-or-no question had no
+		// readable affordance at all
+		for (const columns of [80, 40, 26, 24, 22, 20, 18, 14, 13]) {
+			const ui = screenSetup({ columns, rows: 8 });
+			const answer = settle(
+				confirm({ ansi: ui.ansi, message: 'Overwrite the file', terminal: ui.terminal })
+			);
+
+			expect(ui.log.join('\n'), `at ${columns} columns`).to.include('(Y/n)');
+
+			await type(ui.stdin, '\u0003');
+			await answer;
+		}
+	});
+
+	it('should not flatten the question to reserve a long hint', async () => {
+		// the overcorrection: the multiselect hint is 35 columns, so reserving it in
+		// full left `Pick some things` four columns and seven rows of two letters.
+		// Neither half gives up more than half the line
+		const ui = screenSetup({ columns: 40, rows: 12 });
+		const answer = settle(
+			multiselect({
+				ansi: ui.ansi,
+				choices: ['one', 'two'],
+				message: 'Pick some things',
+				terminal: ui.terminal,
+			})
+		);
+
+		expect(ui.log[0]).to.include('Pick some things');
+
+		await type(ui.stdin, '\u0003');
+		await answer;
+	});
+
+	it('should window the list against the head it drew, not the message alone', async () => {
+		// `headWidths().lines` counted the message alone, so a hint that wrapped made
+		// the head taller than the choice window believed and the row reserved for
+		// the error line absorbed it. Measured at 30 columns with eight choices on a
+		// ten-row screen: eight were drawn where seven fit, filling the screen edge
+		// to edge, so an error would have had nowhere to go.
+		//
+		// Enough choices that the slack is gone, which is what the first fixture here
+		// lacked -- with three choices on ten rows nothing overflows either way and
+		// the sabotage survived
+		const ui = screenSetup({ columns: 30, rows: 10 });
+		const answer = settle(
+			multiselect({
+				ansi: ui.ansi,
+				choices: ['a1', 'b2', 'c3', 'd4', 'e5', 'f6', 'g7', 'h8'],
+				message: 'Pick',
+				terminal: ui.terminal,
+			})
+		);
+
+		const drawn = ui.log;
+		const head = drawn.findIndex((row) => row.includes(PROMPT_SYMBOLS.off));
+		const shown = drawn.filter((row) => row.includes(PROMPT_SYMBOLS.off)).length;
+
+		// the head really is taller than its message, or this asserts nothing
+		expect(head).to.be.greaterThan(1);
+		// and the row kept back for the error line is still there
+		expect(head + shown).to.be.lessThan(10);
+
+		await type(ui.stdin, '\u0003');
+		await answer;
+	});
+
+	it('should not throw or hang at a width nothing can be drawn in', async () => {
+		// `headWidths()` clamps both halves with `Math.max(1, ...)`, so at `avail` of
+		// 1 or less they sum to more than there is and the row over-commits -- which
+		// the canvas clips. Nothing below the 13-column floor is *useful*; what has to
+		// hold is that it is not an exception or a loop, and `wrap()` is never handed
+		// a width below 1. Checked down to one column, which is `room - fixed` of -2
+		for (const columns of [1, 2, 3, 4, 5, 6]) {
+			const ui = screenSetup({ columns, rows: 6 });
+			const answer = settle(
+				confirm({ ansi: ui.ansi, message: 'Overwrite', terminal: ui.terminal })
+			);
+
+			expect(ui.log.length, `confirm at ${columns}`).to.be.greaterThan(0);
+
+			await type(ui.stdin, '\u0003');
+			await answer;
+		}
+
+		for (const columns of [1, 3, 5]) {
+			const ui = screenSetup({ columns, rows: 8 });
+			const answer = settle(
+				multiselect({
+					ansi: ui.ansi,
+					choices: ['a', 'b'],
+					message: 'Pick',
+					terminal: ui.terminal,
+				})
+			);
+
+			expect(ui.log.length, `multiselect at ${columns}`).to.be.greaterThan(0);
+
+			await type(ui.stdin, '\u0003');
+			await answer;
+		}
+	});
+
+	it('should keep the submit hint readable rather than one column wide', async () => {
+		// measured at 40 columns before this: `(ctrl-d to submit)` came out as `(`,
+		// `t`, `s` down the right-hand side, one character per row
+		const ui = screenSetup({ columns: 40, rows: 10 });
+		const answer = settle(
+			multiline({
+				ansi: ui.ansi,
+				message: 'Describe the change in your own words',
+				terminal: ui.terminal,
+			})
+		);
+
+		expect(ui.log.join('\n')).to.include('(ctrl-d to submit)');
+
+		await type(ui.stdin, '\u0003');
+		await answer;
+	});
+});
+
 describe('confirm()', () => {
 	it('should answer yes and no', async () => {
 		const ui = screenSetup();
@@ -475,6 +607,33 @@ describe('confirm()', () => {
 		const no = confirm({ ansi: two.ansi, message: 'Continue?', terminal: two.terminal });
 		await type(two.stdin, 'n');
 		expect(await no).to.equal(false);
+	});
+
+	it('should not read a modified key as an answer', async () => {
+		// a modifier makes it a different key, which is the rule the key sequences
+		// already keep: the hint says `Y`, not `ctrl-Y`.
+		//
+		// Here rather than in `prompt-i18n.test.ts`, where it was first written: it
+		// never loads a catalog, so it would survive deleting every `__` in the
+		// prompts -- the one case in that file that did not depend on the feature the
+		// file is for. Found by review
+		const ui = screenSetup({ columns: 40 });
+		let done = false;
+		const answer = settle(
+			confirm({ ansi: ui.ansi, message: 'Continue?', terminal: ui.terminal })
+		).then((r) => {
+			done = true;
+			return r;
+		});
+
+		// Ctrl-Y, which `k.name` reports as `y`
+		await type(ui.stdin, '\u0019');
+		await tick();
+		expect(done, 'ctrl-y answered the prompt').to.equal(false);
+
+		// and the unmodified key still does
+		await type(ui.stdin, 'y');
+		expect((await answer).value).to.equal(true);
 	});
 
 	it('should take the default on enter', async () => {
