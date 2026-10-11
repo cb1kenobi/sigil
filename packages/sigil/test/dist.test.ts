@@ -112,6 +112,34 @@ function staticGraph(entry: string): Set<string> {
 	return seen;
 }
 
+/**
+ * What grapheme segmentation looks like in a shipped chunk.
+ *
+ * The `granularity` the one `Intl.Segmenter` in the package is constructed with,
+ * which is a string literal rather than a name -- so the minifier keeps it, where
+ * `graphemes` and `Segmenter` are a local and a global it is free to rename. The
+ * same reason the mouse markers are an exported name and a mode sequence.
+ */
+const SEGMENTATION = 'grapheme';
+
+/**
+ * The chunk `index.mjs` reaches `parse()` through.
+ *
+ * A hashed name rather than an entry, because the parser is behind an
+ * `await import()` -- which is the whole reason it is off the root entry's
+ * graph -- so it has to be read out of the specifier rather than named.
+ *
+ * @returns The chunk's file name.
+ */
+function parseChunk(): string {
+	const source = readFileSync(join(dist, 'index.mjs'), 'utf8');
+	const m = source.match(/import\(`\.\/(parse-[^`]+\.mjs)`\)/);
+
+	expect(m, 'index.mjs no longer reaches parse() through a dynamic import').not.toBeNull();
+
+	return (m as RegExpMatchArray)[1] as string;
+}
+
 describe('what importing the package costs', () => {
 	/**
 	 * Names only a component's implementation defines.
@@ -179,6 +207,32 @@ describe('what importing the package costs', () => {
 		// measures a 1.5 KB module, and it would cost an internal/public split of
 		// one barrel. That is the shape to reach for if this ever gets tight.
 		expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(20 * 1024);
+	});
+
+	it('should not drag grapheme segmentation in to suggest a command', () => {
+		// SIG-143 gave the parser a reason to want `fuzzyMatch()`, which lives
+		// beside `highlightRuns()` -- and that one is the only thing in that file
+		// that reaches for `graphemes()`. Measured both ways: importing
+		// `components/fuzzy.js` from the parser puts `width`, `strip` and `codes`
+		// on the parse chunk's graph and takes it from 38.8 KB to 43.5 KB, because
+		// rolldown does not shake the segmentation back out of a shared chunk. So
+		// `fuzzyMatch()` moved to `src/util/fuzzy.ts`, which is the move `seeded()`
+		// already made to `src/util/random.ts` and for the same reason.
+		//
+		// Keyed on the symbol rather than on the chunk's name, and that is this
+		// file's own rule rather than a preference: a name filter asserted empty
+		// passes forever the day the chunk is renamed, which is what the pair above
+		// is written about. `SEGMENTATION` is the `granularity` the one
+		// `Intl.Segmenter` in the package is built with, so it is a string literal
+		// the minifier keeps and is named for exactly what is being refused
+		expect(carriers(staticGraph(parseChunk()), SEGMENTATION)).toEqual([]);
+	});
+
+	it('should still reach it to draw, which is the half a rename would fail', () => {
+		// the other half, for the reason the component pair gives: an absence on
+		// its own pins nothing once the marker stops existing, and help draws text,
+		// so it is where the segmentation legitimately is
+		expect(carriers(staticGraph('help.mjs'), SEGMENTATION)).not.toEqual([]);
 	});
 
 	it('should not drag the drawing stack in to import the key router', () => {

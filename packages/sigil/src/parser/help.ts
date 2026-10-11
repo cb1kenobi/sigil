@@ -10,6 +10,7 @@ import {
 } from '../types.js';
 import { initCommand } from './command/init-command.js';
 import { loadCommand } from './command/load-command.js';
+import { unknownCommand } from './suggest.js';
 
 /**
  * The `--help` flag and the `help` command a schema gets for free, so that
@@ -203,7 +204,7 @@ async function resolve(state: ParseState, names: string[]): Promise<InternalComm
 		const found = parent[Internal].commands.find(name);
 
 		if (!found) {
-			throw new Error(__`Unknown command "${name}"`);
+			throw new Error(unknownCommand(name, parent, state.settings));
 		}
 
 		// a lazily declared command has its description and its own subcommands in
