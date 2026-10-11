@@ -15510,7 +15510,11 @@ where something did not resolve, and `settings.suggestions: false` is the opt-ou
   somebody can type, and a transposed `sl` for a declared `ls` is exactly the typo
   this is for. `hidden` means "not listed", and a suggestion is a listing of one.
   The parser's own `--help` and `--version` are in, because they are typeable and
-  real and `--hepl` is worth answering.
+  real and `--hepl` is worth answering -- and so are the **commands** it registers,
+  which is `help` and, since shell completion landed, `completion`. The candidate
+  lists in `suggest.test.ts` are written out rather than filtered, so a third
+  parser-owned command is a test somebody has to extend rather than a set that
+  silently grew.
 
   The candidates are a `Set`, and that is not tidiness: an alias really can be
   declared on two commands -- the registry keeps the last for routing and both
