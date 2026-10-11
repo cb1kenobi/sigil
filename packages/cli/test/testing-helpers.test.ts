@@ -105,7 +105,16 @@ describe('the helpers through the published subpath', () => {
 		// in `ctrl-{0}` -- all of them somebody else's prose hundreds of lines
 		// away -- so deleting every mention of the helper left it green. Found by
 		// review, and it is this ticket's own complaint applied to its own guard
-		const readme = readFileSync(join(pkg, '..', 'sigil', 'README.md'), 'utf8');
+		// line endings normalized first, because the checkout's are the
+		// platform's: git converts to CRLF on Windows, so a search embedding a
+		// bare `\n` finds the `\r` and answers -1 -- which is this repo's own
+		// rule that a test never writes a separator, met on the line axis rather
+		// than the path one. Caught by CI on all three Windows jobs and nowhere
+		// else
+		const readme = readFileSync(join(pkg, '..', 'sigil', 'README.md'), 'utf8').replaceAll(
+			'\r\n',
+			'\n'
+		);
 		const start = readme.indexOf('\n## Testing\n');
 		const end = readme.indexOf('\n## ', start + 1);
 
