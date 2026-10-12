@@ -160,11 +160,14 @@ describe('the --help flag', () => {
 	});
 
 	it('should add nothing when help is turned off', async () => {
-		const state = await parse({ argv: [], schema: { help: false, name: 'mycli' } });
+		const state = await parse({
+			argv: [],
+			schema: { completion: false, help: false, name: 'mycli' },
+		});
 		const { commands, options } = state.contexts[0][Internal];
 		expect(options.find('--help')).toBeUndefined();
 		expect(commands.find('help')).toBeUndefined();
-		expect((await run({ help: false, name: 'mycli' }, ['--help'])).out).toBe('');
+		expect((await run({ completion: false, help: false, name: 'mycli' }, ['--help'])).out).toBe('');
 	});
 });
 
@@ -298,6 +301,28 @@ describe('the help command', () => {
 		const { out } = await run(own, ['help']);
 		expect(out).toBe('');
 		expect(run1).toHaveBeenCalled();
+	});
+});
+
+describe('the completion command', () => {
+	it('should be listed in help, which is the whole of how anybody finds it', async () => {
+		// a framework-supplied command nobody can discover is a feature nobody
+		// uses, which is why it is visible rather than hidden -- and why it is a
+		// row on the screen rather than a sentence in a README
+		const { out } = await run({ commands: { build: { desc: 'Build' } }, name: 'mycli' }, [
+			'--help',
+		]);
+
+		expect(out).toContain('completion  Print a shell completion script');
+	});
+
+	it('should say nothing in help for an app that turned it off', async () => {
+		const { out } = await run(
+			{ commands: { build: { desc: 'Build' } }, completion: false, name: 'mycli' },
+			['--help']
+		);
+
+		expect(out).not.toContain('completion');
 	});
 });
 
@@ -442,7 +467,10 @@ describe('Command.help', () => {
 
 describe('resolveHelp()', () => {
 	it('should describe the state as it stands when there is no request', async () => {
-		const state = await parse({ argv: [], schema: { help: false, name: 'mycli' } });
+		const state = await parse({
+			argv: [],
+			schema: { completion: false, help: false, name: 'mycli' },
+		});
 		expect(await resolveHelp(state, { width: 40 })).toBe('Usage: mycli');
 	});
 

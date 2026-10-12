@@ -18,6 +18,7 @@ import { camelCase } from '../util/camel-case.js';
 import { transformValue } from '../util/transform.js';
 import { initCommand } from './command/init-command.js';
 import { loadCommand } from './command/load-command.js';
+import { registerCompletion } from './completion.js';
 import { detectHelp, registerHelp } from './help.js';
 import { unexpectedArgument, unknownOption } from './suggest.js';
 import { detectVersion, registerVersion } from './version.js';
@@ -106,6 +107,14 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
 
 		const handles = await registerHelp(state.contexts[0], schema);
 		const versionHandles = await registerVersion(state.contexts[0], schema.version);
+		// nothing is *detected* for it, because a command needs no detecting:
+		// `--help` and `--version` are flags, and something has to decide that a
+		// flag meant argv was asking a question rather than for work. What
+		// `completion` does need is the other half of what `state.help` buys --
+		// a missing required value is not an error for a command that answers out
+		// of the schema -- and it carries `needsNoValues` for that, which the two
+		// validators below read
+		await registerCompletion(state.contexts[0], schema);
 
 		await initArgv(state);
 		await parseArgv(state);
@@ -966,6 +975,27 @@ export async function processArgs(state: ParseState): Promise<void> {
  *
  * @param state - The parse state.
  */
+/**
+ * Whether argv asked a question rather than for work.
+ *
+ * Both validators ask it and neither asks it twice, because a rule about which
+ * missing values are errors must not be two rules: `state.help` is the flag and
+ * the `help` command, and `needsNoValues` is a parser-added command that
+ * answers out of the schema. What they share is that there is no work for a
+ * missing value to be missing *from* -- which is the ordering this file already
+ * keeps for help, where the detection happens before anything is validated.
+ *
+ * Only the **missing** checks read it. An invalid value still throws either
+ * way, which is the recorded rule and the one that keeps `app completion fish`
+ * an error: it failed on the way in, so there was never a question to answer.
+ *
+ * @param state - The parse state.
+ * @returns Whether a missing required value should be let through.
+ */
+function asked(state: ParseState): boolean {
+	return Boolean(state.help) || state.contexts[0][Internal].needsNoValues === true;
+}
+
 export function validateArgs(state: ParseState): void {
 	const internal = state.contexts[0][Internal];
 	const missingArguments: string[] = [];
@@ -988,7 +1018,7 @@ export function validateArgs(state: ParseState): void {
 		}
 	}
 
-	if (missingArguments.length && !state.help) {
+	if (missingArguments.length && !asked(state)) {
 		throw new Error(__`Missing required arguments: ${missingArguments.join(' ')}`);
 	}
 
@@ -1058,7 +1088,7 @@ export function validateOptions(state: ParseState): void {
 		}
 	}
 
-	if (missingOptions.length && !state.help) {
+	if (missingOptions.length && !asked(state)) {
 		throw new Error(__`Missing required options: ${missingOptions.join(' ')}`);
 	}
 }

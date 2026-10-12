@@ -24,7 +24,7 @@ const ESC = String.fromCharCode(0x1b);
 async function help(schema: Schema, argv: string[] = [], width = 72) {
 	let state;
 	try {
-		state = await parse({ argv, schema: { help: false, ...schema } });
+		state = await parse({ argv, schema: { completion: false, help: false, ...schema } });
 	} catch (err) {
 		state = stateFromError(err);
 	}
@@ -42,7 +42,7 @@ async function help(schema: Schema, argv: string[] = [], width = 72) {
 async function themed(schema: Schema, theme: string, sheets?: string[]) {
 	let state;
 	try {
-		state = await parse({ argv: [], schema: { help: false, ...schema } });
+		state = await parse({ argv: [], schema: { completion: false, help: false, ...schema } });
 	} catch (err) {
 		state = stateFromError(err);
 	}
@@ -79,7 +79,10 @@ describe('the usage line', () => {
 
 	it('should be overridable', async () => {
 		const text = await help({ name: 'mycli' });
-		const state = await parse({ argv: [], schema: { help: false, name: 'mycli' } });
+		const state = await parse({
+			argv: [],
+			schema: { completion: false, help: false, name: 'mycli' },
+		});
 		expect(renderHelp(state, { name: 'other' }).split('\n')[0]).toBe('Usage: other');
 		expect(text).toBeTruthy();
 	});
@@ -97,6 +100,7 @@ describe('the usage line', () => {
 	// naming one is optional
 	it('should make the command optional when one of them is the default', async () => {
 		const schema: Schema = {
+			completion: false,
 			help: false,
 			name: 'mycli',
 			commands: { build: {}, serve: { default: true, run: () => {} } },
@@ -749,7 +753,7 @@ describe('help against a light background', () => {
 			name: 'mycli',
 			options: { '--port <n>': { default: 8080, desc: 'the port', type: 'int' } },
 		};
-		const state = await parse({ argv: [], schema: { help: false, ...schema } });
+		const state = await parse({ argv: [], schema: { completion: false, help: false, ...schema } });
 		const dark = renderHelp(state, { colorLevel: 3, colorScheme: 'dark', width: 60 });
 		const light = renderHelp(state, { colorLevel: 3, colorScheme: 'light', width: 60 });
 

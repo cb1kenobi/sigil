@@ -55,6 +55,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Settings](#settings)
 - [Hooks](#hooks)
 - [Help](#help)
+- [Shell completion](#shell-completion) — `completion bash`, `completion zsh`
 - [Translating](#translating) — `__`, `__n`, catalogs, `SIGIL_LOCALE`
 - [Typed argv](#typed-argv)
 - [Subpath modules](#subpath-modules) — `ansi`, `wrap`, `width`, `help`, `i18n`, `terminal`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `which`, `updates`
@@ -707,6 +708,142 @@ Writing your own screen for one command:
   help: ({ generated }) => `${generated}\n\nDocs: https://example.com/docs`,
 }
 ```
+
+---
+
+## Shell completion
+
+A `completion` command is added to the root, the same way `help` is. Run it with
+no shell and it works out which one you are in and tells you how to install it:
+
+```
+$ mycli completion
+Set up completion for mycli, detected zsh:
+
+  as a file on your $fpath, which compinit autoloads
+    mycli completion zsh > "${fpath[1]}/_mycli"
+
+  or sourced from .zshrc, after compinit
+    echo 'source <(mycli completion zsh)' >> ~/.zshrc
+
+Then restart your shell.
+```
+
+Name the shell and it prints the script instead, which is the form to redirect:
+
+```
+$ mycli completion bash > ~/.mycli-completion.bash
+$ echo 'source ~/.mycli-completion.bash' >> ~/.bashrc
+```
+
+```
+# from zsh, where `fpath` is a real array -- in any other shell it is empty and
+# the redirect lands on /_mycli
+% mycli completion zsh > "${fpath[1]}/_mycli"
+# or, from .zshrc after compinit, which needs no file at all:
+% source <(mycli completion zsh)
+```
+
+The script's own header repeats those recipes, so the file tells you what to do
+with it. `schema.completion: false` adds nothing, and an app that declares its
+own `completion` keeps it.
+
+Nothing is installed for you yet and nothing is written to your dotfiles. Those
+are two separate promises: where a completion script lives is a decision about
+your machine, which is the same answer `gh`, `kubectl`, `rustup` and `deno` all
+give — and the recipes above go to stderr with a non-zero exit, so
+`mycli completion > file` cannot fill the file you wanted a script in.
+
+### What it completes
+
+Everything the schema already said, at every level of the tree:
+
+| At                         | You get                                               |
+| -------------------------- | ----------------------------------------------------- |
+| `mycli <TAB>`              | the commands and every alias                          |
+| `mycli db <TAB>`           | `db`'s subcommands                                    |
+| `mycli build --<TAB>`      | `build`'s options **and** everything above it         |
+| `mycli build --mode <TAB>` | that option's `choices`                               |
+| `mycli --yes <TAB>`        | `true`/`false` for a `bool`, `yes`/`no` for a `yesno` |
+| `mycli completion <TAB>`   | the shells, because they are the argument's `choices` |
+
+**Descriptions** come with them in zsh, which has a menu to put them in. bash's
+`COMPREPLY` is a list of words and nothing else, so a description reaches the
+screen in one of the two shells and is read off the same schema either way.
+
+That `--yes` row is a `bool` that **takes a value** -- `'--yes [v]'` or a
+`choices` list, which implies one. A bare flag takes nothing, so there is no
+value after it to complete and the next tab offers the next thing on the line.
+
+An **alias** is offered beside the name it belongs to, and typing one still
+completes the right subtree: `remove, rm` means `mycli rm --<TAB>` lists
+`remove`'s options. That is the one place this differs from what a palette
+lists -- a palette shows one row per command, and a completion menu is a list of
+tokens, so every token the parser takes is in it.
+
+A `hidden` command is not offered, and neither is anything under it; nor is a
+`hidden` option. `--help` and `--version` are, because they are things a user
+types.
+
+Anything with no declared values falls back to your shell's own file
+completion, which is what `--out <dir>` wants.
+
+### The script is static, and what that costs
+
+Every candidate is baked into the file, so a tab costs no process at all — the
+alternative is a script that runs your app on every keypress, which measured at
+33–38 ms for a small app and grows with the tree rather than with what is being
+completed. What it cannot do is complete a value your
+app would have to **compute**: a git branch, a running container, a row in a
+database. Nothing in a schema declares one of those today, so nothing is
+pretending to.
+
+Regenerate it when the commands, options or `choices` change. The command
+imports every command module to read them, so generating a script runs whatever
+your modules do at import time — once, when you install completion, rather than
+on every tab.
+
+### Which shells
+
+`bash` and `zsh`. bash is written for 3.2, which is what macOS ships, and needs
+no `bash-completion` package. fish and PowerShell are not generated: a
+completion script is quoted correctly or it is a shell injection, and neither
+shell is installed where this was written, so either one would ship as a program
+its author had never run.
+
+### A default command
+
+A `default` command is dispatched when argv names no command, so its own
+arguments and options are typable at the level above it -- and they are offered
+there. `mycli <TAB>` on a default `serve [dir]` offers `dir`'s choices beside the
+commands, and `mycli --<TAB>` offers `serve`'s options beside the root's.
+
+Where both declare one spelling, the **parent's** declaration is the one offered,
+because that is the one that resolves: `mycli --mode <TAB>` takes the root's
+choices and `mycli serve --mode <TAB>` takes `serve`'s. A `hidden` default
+contributes nothing, which is `hidden` taken at its word.
+
+### It is an ordinary command, so a required option is required
+
+`completion` is dispatched like any other command, which means an app with a
+**required** option still wants one:
+
+```
+$ rq completion bash
+Error: Missing required options: --token
+$ rq --token x completion bash          # fine
+```
+
+`--help` and `help` win over a missing required option and this does not. That
+is a decision rather than an oversight: making it win means a field on the parse
+state and a change to what `parse()` validates for every app, which is not a
+thing to add for one command. The failure says exactly what to pass, and
+passing it works.
+
+### What it does not offer
+
+A value your app would have to compute, which is the static script's own trade
+above.
 
 ---
 

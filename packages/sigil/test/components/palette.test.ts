@@ -56,7 +56,11 @@ function settle<T>(promise: Promise<T>): Promise<{ error?: PromptError; value?: 
 /** The state a parse ends in, which is what the palette reads. */
 async function appState(schema: Schema, argv: string[] = []): Promise<ParseState> {
 	try {
-		return await parse({ argv, env: {}, schema: { help: false, name: 'mycli', ...schema } });
+		return await parse({
+			argv,
+			env: {},
+			schema: { completion: false, help: false, name: 'mycli', ...schema },
+		});
 	} catch (err) {
 		// a schema declaring a required option with no value is refused by its own
 		// parse, which is the fixture the ancestor-option test below is about. The
@@ -669,6 +673,7 @@ describe('commandPalette()', () => {
 					run(): void {},
 				},
 			},
+			completion: false,
 			help: false,
 			name: 'mycli',
 		};
@@ -693,6 +698,7 @@ describe('commandPalette()', () => {
 		const ui = screenSetup({ columns: 60, rows: 12 });
 		const schema: Schema = {
 			commands: { build: { run(): void {} } },
+			completion: false,
 			help: false,
 			name: 'mycli',
 			options: { '--config <file>': {} },
@@ -888,6 +894,7 @@ describe('commandPalette()', () => {
 					run(): void {},
 				},
 			},
+			completion: false,
 			help: false,
 			name: 'mycli',
 		};

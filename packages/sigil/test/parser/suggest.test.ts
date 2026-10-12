@@ -349,11 +349,17 @@ describe('the candidate lists', () => {
 			},
 		});
 
-		// `help` is in because the parser registers it as an ordinary subcommand of
-		// the root, and it is as typeable as any other -- `hepl` is a typo worth
-		// answering. `secret` and `!bang` are out, because the app said not to
-		// list them and a suggestion is a listing of one
-		expect([...commandTokens(contexts[0])].sort()).toEqual(['delete', 'help', 'remove', 'rm']);
+		// `help` and `completion` are in because the parser registers each as an
+		// ordinary subcommand of the root, and either is as typeable as any other --
+		// `hepl` is a typo worth answering. `secret` and `!bang` are out, because the
+		// app said not to list them and a suggestion is a listing of one
+		expect([...commandTokens(contexts[0])].sort()).toEqual([
+			'completion',
+			'delete',
+			'help',
+			'remove',
+			'rm',
+		]);
 	});
 
 	it('should offer a shared alias rather than tying it with itself', async () => {
@@ -511,8 +517,8 @@ describe('degenerate inputs', () => {
 
 	it('should answer for a context with an empty registry', async () => {
 		const { contexts } = await parse({ argv: [], schema: { options: { '--x': 'x' } } });
-		// `help` alone, which the parser adds, and nothing is near it
-		expect(commandTokens(contexts[0])).toEqual(['help']);
+		// the two the parser adds, and nothing is near either
+		expect(commandTokens(contexts[0])).toEqual(['help', 'completion']);
 		expect(unexpectedArgument('buidl', contexts[0])).toBe('Unexpected argument "buidl"');
 	});
 
