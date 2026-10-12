@@ -4974,7 +4974,8 @@ reach for.
 - **The backends are replayed against a screen, and it is not `FakeTerminal`.**
   That model is canvas-relative -- every `apply()` starts from the canvas origin,
   which is the only thing the diff's output claims to know about -- and a
-  backend's whole job is the part it assumes away. `test/canvas/screen.ts` has
+  backend's whole job is the part it assumes away. `src/testing/screen.ts` -- which
+  was `test/canvas/screen.ts` until it shipped -- has
   rows that scroll off the top, a cursor that survives between frames, and an
   alternate buffer to switch to, so what a test asserts is what the user would be
   looking at. Two models rather than one shared one, for the reason the styler
@@ -7198,7 +7199,7 @@ may be copied, `src/terminal/clipboard.ts` is OSC 52, and
   truncation over it, the primary selection, and the read that is not implemented.
   It needs no `finally`, which is the restore-list entry above read from the other
   side.
-- **`test/canvas/screen.ts` learnt OSC 52 rather than being worked around.** It
+- **The screen model learnt OSC 52 rather than being worked around.** It
   swallowed every control string, which is right for the ones that change no cell and
   wrong for the one a test has a reason to assert -- so it decodes the payload and
   records it per selection, which is what makes the model say what the _user_ would
@@ -13311,25 +13312,31 @@ constraint is worth recording because it shaped every edit.
   selector engine already keep: it takes the rows, the window and the caret, and
   a test hands it a literal where the component hands it a closure over its own
   state.
-- **`test/canvas/screen.ts` advances one column per character, so a _picture_ over
-  a row holding a wide cluster is not to be trusted.** Pre-existing, surfaced by
-  driving this field by hand, and worth writing down because it reads exactly like
-  a bug in whatever is being tested: a CJK row came back as `日本語 is ihree` after
-  an Up, with the `t` apparently replaced by an `i`. The bytes say otherwise --
-  `ESC[9C ESC[7m i` moves to **real** column 9, which is where that `i` already is,
-  so the frame changed a style and nothing else -- and the model, which writes one
-  cell and does `column++` whatever the character's width, had put the same `i` in
-  model column 9, where its own row holds the `t`. `diff.test.ts`'s `FakeTerminal`
-  models a continuation and this one does not, which is the difference.
+- **The screen model advanced one column per character, so a _picture_ over a row
+  holding a wide cluster was not to be trusted. That is fixed, and this is the
+  report it was found in.** Pre-existing, surfaced by driving this field by hand,
+  and worth keeping because it reads exactly like a bug in whatever is being
+  tested: a CJK row came back as `日本語 is ihree` after an Up, with the `t`
+  apparently replaced by an `i`. The bytes say otherwise -- `ESC[9C ESC[7m i`
+  moves to **real** column 9, which is where that `i` already is, so the frame
+  changed a style and nothing else -- and the model, which wrote one cell and did
+  `column++` whatever the character's width, had put the same `i` in model column
+  9, where its own row holds the `t`. `diff.test.ts`'s `FakeTerminal` modelled a
+  continuation and that one did not, which was the difference.
 
-  Not fixed here, because it is a shared harness this ticket merely met, and what
-  it costs is bounded: `lastInverse` is read off the cursor the diff moved, so a
-  caret _coordinate_ is a real column and is sound, and none of this field's wide-
-  cluster tests asserts a row's text. A picture over a wide row is the one thing to
-  avoid, and `renderToString()` -- which paints one full frame rather than a diff --
-  is where a wide row can be asserted as cells.
+  Not fixed here, because it was a shared harness this ticket merely met, and what
+  it cost was bounded: `lastInverse` is read off the cursor the diff moved, so a
+  caret _coordinate_ was a real column and was sound, and none of this field's
+  wide-cluster tests asserts a row's text. It was fixed by SIG-140, which had to
+  -- the model ships as `@ttylabs/sigil/testing`'s `Screen` now, and shipping a
+  picture that is wrong about any row with one wide character in it is not a thing
+  to hand an app author. See "The screen model's wide-cluster defect is fixed,
+  not documented": clusters rather than code units, a `''` continuation, and
+  `cellAt()` to ask about one. A picture over a wide row is therefore no longer
+  the thing to avoid, and `renderToString()` is still where a wide row is
+  asserted as cells with no diff in the way.
 
-- **`test/canvas/screen.ts` learnt about reverse video**, which is the one piece
+- **The screen model learnt about reverse video**, which is the one piece
   of styling it keeps. A prompt's caret _is_ styling, so a model holding
   characters alone cannot see it at all; the alternative is a second cursor
   tracker written inside a test, which is a second model of the thing that one is
@@ -17904,7 +17911,801 @@ the diff it was given and had been fixed two commits before the review returned.
   siblings in the loop rather than being the one pipe left holding the event loop
   open on a path whose whole point is to hold nothing.
 
+### Testing helpers, and the faked TTY our own suite proves you need
+
+We test ourselves exhaustively and shipped nothing for the person building on
+us. The argument was never that `main()` is hard to call -- it is that this
+suite is the evidence that getting it right is non-obvious, and every bit of
+that knowledge was undiscoverable from outside this repository.
+`src/testing/` is `@ttylabs/sigil/testing`: `runCommand()` over the real
+`main()`, `runOnTerminal()` for the spawned child with faked `isTTY`,
+`createTestTerminal()` plus `KEYS` for a prompt with no pty, and `Screen`.
+
+- **A test runner's streams are pipes, which is the whole feature.** A vitest
+  worker's stdout and stderr have no `isTTY` and no `columns`, so everything
+  that asks about a destination gets the same answer -- not a terminal, no
+  colour, the fallback width -- and that is the one case that cannot fail. **A
+  suite can be entirely green and say nothing at all about what a user's
+  terminal gets.** It is not hypothetical here: `report.ts`'s split between a
+  laid-out form and a one-line form had every test pass while only the piped
+  half had ever been looked at, and a regression in the other half shipped and
+  was written down as verified. An app author will not derive that; they will
+  write a test that passes at 80 columns with no colour and believe it.
+
+- **It is a subpath of the runtime, and the measurement says that costs
+  nothing.** A `@ttylabs/test` on its own version line was the alternative and
+  is refused by the argument the registry already records: an app depends on
+  `@ttylabs/sigil` at an exact version, so helpers that ship beside it always
+  match the `main()` they run and the `Terminal` they fake, while a separate
+  package could be a release ahead of the runtime under test -- which for
+  `runCommand()` means running a `main()` that is **not the app's**. Two more
+  reasons against, each one this file already records elsewhere: `packages/*` is
+  the glob the workspace, turbo, vitest's `projects` and the coverage `include`
+  all read, so a third package joins all four silently; and a second manifest is
+  a second release gate for a thing whose whole job is to agree with the first.
+  The first version of this said "three more" and listed two, which is the kind
+  of count this file keeps finding stale.
+
+  What a subpath costs is that it is permanent public surface on the package
+  every app depends on at **run time**, so the question is the one the palette's
+  packaging was decided on: the transitive static import byte weight of each
+  entry's own graph, which is what an unbundled app actually loads. Measured
+  before and after: the root entry is **7,553 B to 7,532 B** over the same six
+  modules -- 21 B _less_, which is a shared chunk boundary moving and is noise --
+  against a 20 kB ceiling. `testing.mjs` is **44,328 B over fourteen modules**
+  and is reached only by a file that imports it, which is a test file. The
+  components entry moved 238,535 to 238,700 B for the same reason the root one
+  did. So the cost to an app that answers `--version` is zero, and
+  `should not load runOnTerminal to import the package` is what keeps it zero --
+  with the presence half beside it, because a test that only asserts an absence
+  passes forever the day the symbol is renamed.
+
+- **Three of them are asserted through the published subpath as well as through
+  `src/`, which is the half the runtime's own suite cannot check.** Everything in
+  `packages/sigil/test/testing/` reaches these through vite, so it proves the
+  source and says nothing about the `exports` map, the bundle, or whether
+  `runCommand()` still reaches the `main()` that was bundled beside it.
+  `packages/cli/test/testing-helpers.test.ts` imports by name, which is where a
+  test that needs `dist/` belongs -- and it is the file the end-to-end claim is
+  in anyway.
+
+- **`runCommand()` is `main()`, and a reimplementation would be a second answer
+  to what a parse means.** A helper that called `parse()` and then the command's
+  `run()` would have to decide, again, that help outranks a missing required
+  option, that `--version` is answered before the command runs, that a schema
+  which declares commands and was given none prints help, and what a thrown
+  value does to the exit code -- every one of which is a decision `main()` took
+  and that this file carries the argument for. So the tests for it are mostly
+  _that it is `main()`_: they would fail for a reimplementation and they pass for
+  free over the real thing.
+
+  What it adds is the three things `main()` writes to the process rather than
+  returning, which is right for a bin script and useless to a test. Both
+  `write`s, patched and put back in a `finally`. The **exit code**, read and then
+  restored -- left alone, a test for a failing command sets the _test runner's_
+  exit code and a green suite reports a crash, which is why `command.test.ts`
+  has an `afterEach` asserting it for every test in the file. And the **parse state**, which
+  `main()` returns only when the command returned nothing.
+
+- **The state comes off the schema's own hooks, wrapped rather than replaced.**
+  `main()` returns `(await run()) ?? state`, so a command that returns a value
+  hides it and an error before the command ran returns `undefined`. `afterParse`
+  is where it is read, because that fires after `processArgs()` and
+  `processOptions()` have written `state.argv` and before anything judges it --
+  which is the window that hook exists for, and it means a _failing_ parse still
+  reports the values it produced. What is kept is the state **object**, so a
+  write made later is in what this reports. `beforeError` is the second wrap and
+  it is what puts the error object on the result, which is worth having because
+  a message is translated and `instanceof` is not.
+
+  Wrapped is the composition this file documents for a hook that is one function
+  rather than a list -- read what is there and call it first -- and a
+  `beforeError` that returns a replacement still replaces, because its return
+  value is passed straight back: a helper that reported the original would be
+  reporting something the app under test never raised. On a **copy** of the
+  schema, because a schema is an ordinary object an app exports once, so a
+  mutation would leave the wrap behind for every later run in the process.
+
+- **A throw is not swallowed, and `errorHandler: false` is why.** That setting
+  means the caller handles it, so a helper that caught it would be a second
+  answer to what the setting means. What it costs is the captured output on that
+  one path, which is the honest trade: pass no `errorHandler: false` and read
+  `err`, `code` and `error`.
+
+- **Two at once is refused rather than queued.** `process.stdout.write` is
+  process-wide, so two runs would each capture a share of the other's output,
+  which is not a failure anybody would read as one. A queue would make
+  `it.concurrent` _look_ like it worked while doubling the wall clock of a suite
+  whose whole point is that it is fast, and the fix is one word in the test file.
+
+- **`disableConsoleIntercept` is the day-one detail, and it is measured.**
+  vitest replaces the `console` methods so it can attribute output to a test,
+  and a command that writes with `console.log` then reaches the reporter instead
+  of the capture. Measured on the scaffolded app with its command switched to
+  `console.log`: with the option on, two tests pass; with vitest's default,
+  `ran.out` is **empty** and the test fails on a command that works perfectly.
+  `sigil new` writes the config, with the reason in it.
+
+- **`runOnTerminal()` spawns the real program and fakes three fields, because a
+  pty is a dependency taken for a boolean.** What a program reads about its
+  destination is `isTTY`, `columns` and `rows` on a stream, so the child is the
+  real program over real pipes with an `--import` preload defining those with
+  `Object.defineProperty` -- an assignment rather than a definition is a write to
+  a property a piped `process.stdout` never declared, and what that does is not a
+  thing to depend on. A `data:` URL rather than a file, so there is no temporary
+  path to clean up and nothing platform-specific about where it lives.
+
+  Two traps come with it and both are the fixture's to close. **The environment
+  decides the colour, not the stream**: a stream claiming to be a terminal with
+  no `TERM` behind it still detects level 0, so a test asserting colour would be
+  asserting the one thing that cannot happen -- and a CI runner sets `CI` and
+  `GITHUB_ACTIONS`, either of which decides the level for a destination that
+  claims to be a TTY, so the same test would assert a different colour on a
+  laptop than on each of CI's nine combinations. Every variable the detection
+  reads is cleared and `TERM` is set when a stream claims to be one. **Chunks
+  split mid-character**: a `data` event is a `Buffer` of whatever arrived, so the
+  buffers are concatenated and decoded once rather than per chunk, which is where
+  a `U+FFFD` in an assertion comes from -- pinned by 40,000 astral clusters,
+  which is well past any pipe buffer.
+
+  The colour variables are cleared **case-insensitively**, which is a Windows
+  spelling rather than belt-and-braces: `process.env` is case-insensitive there
+  and a spread of it is an ordinary object, so a `Ci` the OS handed over survives
+  `delete env.CI` and the run would be deciding from a variable it meant to
+  clear, on one platform of the three. Over-clearing is the safe direction --
+  nothing reads a lowercase `ci`, and `env` puts back anything a run needs.
+
+- **It writes nothing to the child's stdin, so a prompt is not what to spawn.**
+  A prompt needs keys delivered over time and the far end held open: write and
+  close, and the router reports the stream ended and the prompt rejects with
+  exactly that. An async handle that holds stdin open and writes on demand is a
+  bigger API than this, and `createTestTerminal()` already answers the question
+  in-process, so the surface says no rather than half-yes.
+
+- **`runOnTerminal()` is `async`, so every refusal is a rejection.** A function
+  that returns a promise and _sometimes_ throws synchronously is one a caller has
+  to guard twice, and `.catch()` is the guard they will write. Exactly one of
+  `run` and `source` is refused where it is written, because two answers to "what
+  is being run" have no right one to pick between and a silent preference is a
+  run that ignored half of what it was handed. No `shell`, because a shell means
+  quoting rules that differ per platform over arguments a test wrote as strings.
+
+- **A prompt is drivable in-process, and that is what the `proc` stub is for.**
+  `run()` rejects outright when either end is not a terminal -- which is what
+  stops a build hanging on a question nobody can answer, and is also what makes a
+  prompt untestable from a runner -- and what it reads _from_ a terminal is bytes
+  on an `InputStream`. Both are satisfiable by objects. The one detail nobody
+  guesses is that `createTerminal({ proc })` takes a stub rather than
+  `process`: a terminal installs `exit` and signal handlers and an `EPIPE` guard
+  per stream, and a suite builds a great many terminals -- which is how
+  `live.test.ts` came to leave eleven listeners on the **real** `process.stderr`
+  and trip node's leak warning over streams those tests never meant to touch.
+  Pinned by building twelve and counting the process's own listeners.
+
+- **`press(...chunks)` sends each argument as one read, which is the distinction
+  a prompt acts on.** A terminal delivers a keystroke as its own read and a paste
+  as one read holding many characters, so `press(KEYS.up, KEYS.enter)` is two
+  keystrokes and `press('chris')` is one read of five characters -- one method
+  rather than a `press` and a `type` that differ in a way nobody could guess
+  from the names. `paste()` is genuinely different and is its own method: a
+  newline inside a bracketed paste is content where a typed Enter submits.
+
+- **The surface lost a `frame` and a `written`, and both were traps rather than
+  conveniences.** The harness this grew out of has a `frame` meaning "the last
+  row anything was drawn on", which is the whole of a one-line component -- a
+  spinner, a progress bar -- and is a trap for anything taller: `ui.frame` on a
+  three-row list answers its last row, which nobody would call a frame.
+  `lines.at(-1)` is that, spelled so nobody misreads it. `written` was `output`
+  split into the chunks it arrived in, and a byte claim reads the stream. Both
+  came off while checking that the README's examples were literally true, which
+  is the cheapest review there is: what it caught first was a snippet reading
+  `ui.lines` _after_ an arrow key and printing the pointer on the row it had left.
+
+- **A size is refused and a delay falls back, which is two rules because they are
+  two kinds of value.** `src/testing/numbers.ts` has both and is not re-exported,
+  because a second spelling of "is this a count" beside the runtime's own would be
+  API nobody asked for. A width is the caller's whole statement about the screen,
+  so silently using 80 hides the mistake -- and it is refused by **asking** rather
+  than by comparing, since every comparison against `NaN` is false: a
+  `Screen(NaN, 8)` builds no rows, places a cluster into an array that grows under
+  it, and reports a column nothing is at. A fraction is refused rather than
+  floored, which is the rule a fractional length already follows. A `timeout` is
+  the other kind and takes the rule every timer option here already has: a value
+  that is not a finite number at or above zero is not an instruction, and a
+  **finite** one past 2^31-1 is clamped rather than thrown away, because node
+  stores a delay as a signed 32-bit integer and reads anything larger as `1`. Both
+  reachable from a test file, which is where somebody writes
+  `columns: process.stdout.columns` -- `undefined` under a runner.
+
+- **`KEYS` is a written-out union rather than a `Record<string, string>`.** The
+  bytes are not guessable and getting one wrong is a test that presses nothing
+  and passes -- an unrecognised CSI decodes to a key whose name is its own
+  sequence, and a prompt types nothing for it. With a `Record`, `KEYS.pagedown`
+  is `undefined` and pressing `undefined` is a read of the word; with the union
+  it is a type error. Frozen, because it is exported and a caller that wrote to
+  it would change what every test in the process presses. `ctrl()` is arithmetic
+  rather than a table -- the sixteen a prompt reads are no more special than the
+  ten it does not -- and it refuses anything that is not one ASCII letter,
+  because there is no byte for Ctrl with a digit and answering something would be
+  a key nothing can press. `shiftTab` is the one shifted key, and that is not an
+  omission: the legacy encoding has no spelling for shift with a plain character.
+
+  What pins the bytes is the **decoder**, over every entry rather than four of
+  them: `decodeKeys()` of what `KEYS` sends has to be one key whose
+  `formatKey()` is the name it is filed under. A pair of literals could agree
+  while both were wrong about the bytes, which is the rule the sequence grammar
+  already keeps -- and the expectation is derived from the entry's own name, so
+  `shiftTab` is checked as `shift+tab` without a second table to go stale.
+  All fifteen pass, which is worth knowing: the four that had literals were the
+  four nobody would get wrong.
+
+#### What the sabotage pass found over the helpers
+
+A hundred and five mutations, one at a time, each run with a **rebuild** in front of it --
+which is not tidiness: `packages/cli/test/testing-helpers.test.ts` reads `dist/`,
+so without the rebuild a mutation in `src/` is invisible to it and every verdict
+about the fixture would be about the previous build. **A hundred and four caught, one
+declared.** A green control first, and the harness reports a pattern that matched
+nothing, a pattern that matched more than once, a replacement equal to its
+original, and a run that found fewer suites than the control as their own
+verdicts rather than as passes. It restores on a **signal** as well as on an
+exception, because a `SIGTERM` does not run a `finally` and a mutation left in
+the tree poisons the next control -- which this file already records happening.
+
+Every one of those guards earned its keep, and three of the four verdict guards
+fired while this was being written: two patterns went stale when the formatter
+reflowed the lines they quoted, and one mutation was not type-valid, so the build
+failed and the run would otherwise have read as caught.
+
+The fixture itself is in the set, which is the one the ticket asked for: a
+preload that defines nothing fails **six** tests, two of them in the end-to-end
+file -- including the one that says a terminal sees colour a pipe cannot. So the
+fake is load bearing rather than decoration. Counted by running that one
+mutation and reading the names, because the harness prints the first three and
+the first write-up of this said "five, three of them" from the summary line.
+
+**The one declared survivor is `press()`'s per-chunk loop**, and it is a statement
+about what the method does rather than a claim about what it buys. Joining the
+chunks and ticking once changes no answer for any prompt here, because the router
+joins a held tail with the next read and serialises the keys of one chunk through
+the same queue -- measured, including the frame count, which is seven either way.
+What is **not** inert is the `tick()` inside it, and finding the input that shows
+that is the entry below.
+
+**Two guards were deleted for failing a sabotage**, and one of them was a whole
+function. `isState()` and the fallback that read the state off `main()`'s own
+return are gone: `afterParse` fires for every parse that produced a state and
+`beforeError` reports one for every parse that threw after `state` existed, so
+there is no path where the fallback is the only answer. Reasoning backwards from
+the survival is what found that, rather than forwards from "no test failed" --
+the forward reading would have been a test for a command that returns a
+state-shaped object, which is a fixture invented to keep dead code alive. The
+other was a **dedupe** in `streamsOf()`: `Object.defineProperty` with
+`configurable: true` is idempotent, so a stream named twice is one definition
+written twice. What is left there is the **copy**, which is the point -- what the
+function returns is ours rather than the caller's array.
+
+**Six survivors were a fixture that could not reach the branch**, and each one
+is worth the entry. The `beforeError` wrap reporting the state survived because
+every fixture for it used a **validation** failure, where `afterParse` has
+already reported the same object -- so the input is a parse that throws _before_
+it, which is a value its type rejects: measured, `afterParse` fires **zero**
+times for `--port eight` and the wrap is the only thing that answers. The test
+that had been named for "the values a failing parse still produced" was
+describing that input and asserting neither the values nor the state, so it is
+two tests now, one per kind of failure.
+
+The **resize** cursor adjustment survived because `min(row, height - 1)` is right
+whenever the cursor is at the bottom, which is where the fixture had left it --
+the two readings part only with the cursor further up. And the **alternate
+screen** clearing the caret survived because the only test near it asserted the
+_resize_ clearing one; what it needed was an inverse write, a switch, and a look.
+
+The `proc` stub survived because `attachRestore()` is
+**lazy**: a terminal nothing has asked anything of attaches nothing to either
+process, so the count matched whatever `proc` was -- the test calls
+`hideCursor()` now, and asserts it returned `true`. `tick()`'s `setImmediate`
+survived because a microtask drain is enough for a `PassThrough`, which emits
+`data` synchronously from `write()`; what it is not enough for is everything
+_downstream_ of the key, and an async `validate` is the input -- measured, two
+`await Promise.resolve()`s leave the validator's message off the screen where a
+`setImmediate` puts it there. And the zero-width-cluster skip survived because
+a mark `graphemes()` attached to a base is never a lone cluster: a **lone**
+combining mark is, and without the skip it is written into a cell the cursor
+never leaves, so it comes back inside the row a test reads as a picture.
+
+#### What the first review round found, and what it got wrong
+
+Twelve findings over `command.ts`, `spawn.ts` and `numbers.ts`, pointed at the
+implementation with the ticket's constraints and **not** at the rationale.
+**Nine confirmed and fixed, three refuted.** Every one of the nine is a thing a
+deletion-based pass cannot find, which is the boundary this file keeps
+recording: eight of them are a _missing_ guard rather than a dead one, and the
+ninth is a comment that was false about the code under it.
+
+Two were about agreeing with the runtime, which is the class that matters most
+here, because a helper that disagrees with `main()` is a helper that lies about
+the app.
+
+- **`replaced ?? err` disagreed with `fireBeforeError()`'s own predicate**,
+  which is `result !== undefined`. So a `beforeError` hook returning `null`
+  really does replace the error there, while this reported the original -- one
+  wrap disagreeing with the runtime about the same return value, and the kind of
+  thing nobody would think to test. It is `=== undefined` now, pinned by a hook
+  that returns `null` and by the `Unknown error` the runtime renders for it.
+- **A `Uint8Array` is a shape `Writable.write` accepts and `Buffer.isBuffer`
+  refuses**, so a write of `new Uint8Array([0xc3, 0xa9])` reached a test as
+  `"195,169"`. And an **encoding** is the caller's: `write('c3a9', 'hex')` puts
+  `é` on the stream, so reading the string as it came is reading the wrong text.
+  Both now go through the same buffer path the split-character fix built.
+
+One was the comment this file had already congratulated itself about.
+
+- **The latch fix was half a fix, and the comment claimed the whole of it.** The
+  three reads that save what is about to be replaced sat _outside_ the `try`,
+  under a comment saying "everything past the latch is inside" -- so a
+  `process.stdout.write` somebody redefined as a throwing getter leaves the latch
+  set for the life of the process, which is the same defect the previous commit
+  had closed for the other reachable shape. Everything is inside now and each
+  restore is guarded on having read something, since a throw from the read itself
+  leaves nothing to put back and assigning `undefined` over a stream's `write`
+  would be the fixture breaking the process it was only meant to observe.
+
+Four were hostile inputs the typed signature does not stop, and a test file is
+where untyped JavaScript gets written.
+
+- **`tty` reaches the generated preload as a property _reference_.** A
+  `tty: 'stdout'` is a string, which `.map()` walks a character at a time into
+  `process.s`, and `tty: ['stdout;console.log(1)//']` is arbitrary code in the
+  child. Refused by name now, with `Array.isArray` in front of the spread for the
+  one input the name check cannot reach -- a `tty: 42` is not iterable.
+- **An empty `run` or `source` counted as given.** `''` is not `undefined`, so
+  `run: ''` spawned `node ''` and `source: ''` spawned a module that does nothing
+  and exits zero: a run that looks like it worked.
+- **`opts.columns ?? 80` swallowed a `null`**, which is exactly the value
+  `cells()` exists to name rather than hide -- and `Number.isInteger(1e20)` is
+  true, where a screen of 1e20 columns is an allocation nothing survives. It is
+  `=== undefined` and `isSafeInteger` now, the second being the rule the parser's
+  own `int` type already records.
+- **A watchdog of zero is not a watchdog.** `setTimeout(fn, 0)` fires on the next
+  tick and kills the child before it has written anything, so `timeout: 0` read
+  as "no wait" and did the opposite. The floor is one millisecond, and there is
+  deliberately no way to turn the watchdog off: a fixture that can hang a suite
+  for ever is the thing it is there for.
+
+Two were about what a run is isolated from.
+
+- **The colour _scheme_ and the motion preference leaked.** `COLOUR_ENV` named
+  what `supportsColor()` reads and nothing else, so `SIGIL_COLOR_SCHEME`,
+  `COLORFGBG` and `SIGIL_REDUCED_MOTION` were copied through -- and a child that
+  drew a help screen with the parent's scheme left behind comes out light on a
+  laptop and dark on CI, which is the same failure `CI` and `FORCE_COLOR` are
+  cleared for one property along.
+- **`Object.assign(env, opts.env)` left two casings of one variable** in the
+  block handed to `spawn`, because `process.env` is case-insensitive on Windows:
+  a `Term` over a `TERM` is two keys for one variable and which one the child
+  sees is unspecified. The overlay removes the other casing first, and `env`
+  still goes on top, which is what makes it the escape hatch.
+
+**What it got wrong**, recorded because a reviewer being wrong is ordinary and
+the refutations are as much a part of the read as the fixes:
+
+- **It called the timeout path a leak** -- "kill then reject; child/stdio not
+  reaped", and the timer not `unref`'d. Neither holds. The timer has _fired_ by
+  then, so there is nothing to clear; `SIGKILL` ends the child and node destroys
+  its stdio when it exits, so the `'data'` listeners die with it; and the timer
+  is deliberately not unref'd, because a run in flight is a promise somebody is
+  awaiting and a process that exited under it would be the bug.
+- **It wanted `timeout: '100'` coerced.** A string is not a finite number, and
+  falling back is the rule every timer option in this library already follows --
+  written down for the typewriter's interval and for the sequence deadline. A
+  helper that coerced where the runtime refuses would be the disagreement the
+  first two findings are about, pointing the other way.
+- **It wanted `opts.env` applied _under_ the colour options**, so that `color`
+  could not be overridden. That is backwards: `env` going on top is what makes it
+  the escape hatch for a variable the sanitising cleared, it is documented and
+  asserted, and a caller who sets both `color: false` and
+  `env: { FORCE_COLOR: '3' }` has asked for the conflict. Only the Windows casing
+  half of that finding was real.
+
+#### What the second half of the first round found: the screen model
+
+Pointed at `terminal.ts` and `screen.ts`, which the first half had explicitly
+not read. **Twelve confirmed and fixed**, and the shape of them is worth more
+than the count: almost every one is a sequence or an input the model had simply
+never been asked about, because the only thing that had ever fed it was this
+repository's own canvas writing whole frames. Shipping it is what makes a
+caller's own output the input.
+
+The sharpest is about a sequence this package **publishes**: `ERASE_LINE` is
+`ESC[2K`, and the model blanked _from the cursor_ for it -- so a caller using
+the constant the library hands out would have had the model agree about the
+wrong span. Published rather than written, which is the precise statement:
+nothing in `src/` emits it, only re-exports it, so this is a caller's path
+rather than an in-repo one. The first version of this entry said "reachable from
+inside the library", which is the overclaim this file keeps warning about,
+caught by going and looking for the writers. `ESC[1K` was the same, and two of `J`'s three modes
+cleared **no cell at all**: `ESC[2J` and `ESC[1J` each parsed, disarmed the wrap
+and erased nothing.
+
+Four were the cursor ending up somewhere nothing is, which is the class the
+`ESC[H` clamp was already in.
+
+- **A resize left the cursor at the index it had** while the content moved up
+  from under it: shrinking a four-row screen to two takes two rows off the top,
+  so what the cursor was on is two rows higher or gone -- and
+  `min(row, height - 1)` happens to be right whenever the cursor is at the
+  bottom, which is why the first fixture for it agreed with the defect. The class
+  doc said the viewport "grows or shrinks from the bottom", which is half true:
+  growing pushes, and shrinking takes the top, which is what a terminal does. So
+  what was wrong was the sentence.
+- **A cursor the alternate screen saved was restored unclamped**, so a resize
+  while it was up left `#saved` off the grid and every write after
+  `ESC[?1049l` was dropped for ever -- the `ESC[H` defect by another route.
+- **A mode change disarmed the deferred wrap**, and `enableBracketedPaste()`
+  writes `ESC[?2004h` to stdout: a full-width frame followed by one had its next
+  character overwrite the last column instead of wrapping. A mode change moves no
+  cursor, so there is nothing to disarm.
+- **A sequence split across two `write()` calls threw.** A terminal holds; this
+  refused, and a caller replaying captured output chunks it wherever the pipe
+  did. An incomplete _tail_ is held for the next call now, and a **complete**
+  sequence with no answer here still throws, which is the diagnostic worth
+  keeping rather than guessing past.
+
+Three were `lastInverse`, which is the one thing the model keeps about styling
+and so the one thing a caller trusts it for: it survived a **scroll** naming a
+fresh blank row, survived an **erase** that blanked its own cell, and survived a
+switch to the **alternate screen** pointing at a buffer nobody is looking at.
+The class doc's "a frame that draws no caret leaves the last one in place" is
+about a frame rather than about a write of blanks, which the plain-write rule
+already cleared for.
+
+And four were untyped inputs reaching a shipped helper. **`tick(Infinity)` is a
+loop with no end** in a function a test awaits, and `tick(0)`, `tick(NaN)` and
+`tick(-1)` each settle **nothing** while looking like they settled something --
+which is worse, because the assertion after one fails for a reason nobody would
+guess. `ctrl(undefined)` threw a `TypeError` out of `toLowerCase()` rather than
+the error it documents. `alt(undefined)` produced `ESC` and then the **word**
+`undefined`, which a prompt types in a character at a time. And
+`createTestTerminal({ columns: null })` silently used 40, which is the `??`
+mistake `runOnTerminal()` had in the other half of the round. `press()` and
+`paste()` both refuse a non-string now, as **rejections** rather than
+synchronous throws, which is `runOnTerminal()`'s own rule.
+
+Two documentation findings came with them and both were real. `lines` is the
+**main** buffer, so after `ESC[?1049h` it is the log behind the alternate screen
+rather than what is showing -- and the README called both it and `viewport`
+"what is on screen". And `press()` promised that the next assertion sees the
+frames its reads caused, where a lone `KEYS.escape` is held for
+`ESCAPE_TIMEOUT` and no number of turns of the event loop makes it a key; the
+`alt()` doc already said so and `press()`'s did not.
+
+#### What the second review round found, and it was almost all the tests
+
+Pointed at what round 1's own coverage list said it had skipped -- the tests,
+the prose, the scaffold, the moved harness's existing readers and the packaging
+-- and told not to re-litigate round 1's premises. **Twelve findings, all
+confirmed**, and the distribution is the one this file keeps recording: it found
+**no runtime defect at all** in the four implementation files round 1 had
+examined, and its findings came from the files nobody had opened. Five were a
+test that could not fail for the reason its name gives, five were prose, and two
+were a check whose list was short of the name that matters.
+
+The sharpest is one of my own guards. **`should name every export in the
+README` was a substring search over the whole file**, so `tick` matched
+`bar.tick()` four hundred lines away, `alt` matched `alt-{0}` and `ctrl` matched
+`ctrl-{0}` -- all of them somebody else's prose. Deleting every mention of the
+helper left it green, which is this ticket's own complaint applied to the guard
+written for it. Scoped to the `## Testing` section, it **failed immediately**:
+`tick` really was undocumented, and is now the one export with a bullet of its
+own.
+
+Three more tests were weaker than their names.
+
+- **`should show what is on screen rather than what the last frame changed` had
+  no diffing frame in it.** After one tick the first paint is a _full_ frame, so
+  every byte of the prompt is in the last write and asserting `output` would have
+  passed too -- the claim needs a key **after** the paint, and the discrimination
+  is that `lines` still shows the message where the chunk that caused the move
+  does not.
+- **`should put the streams back, so a later write is not captured` never did
+  the second half.** It compared the identity of `write` and stopped, so a
+  restore that put back a _different_ function that still captured would have
+  passed. It writes afterwards and checks the bytes went to the stream rather
+  than into the capture.
+- **`should name every tool its scripts run` only walked the linters**, which is
+  what it was written for -- and the `test` script arrived later naming `vitest`,
+  so dropping `vitest` from the devDependencies while leaving the script was the
+  same defect on a second script and this stayed green. Verified by running that
+  sabotage: it now fails exactly that test. Every script is walked, with the
+  three that are not packages as an explicit list.
+- **And `should fake only the streams it was named` never asked about the
+  size.** `tty: ['stderr']` asserted which streams claim to be terminals and not
+  that `stdout.columns` stayed the pipe's own -- which is the case the README
+  table overclaimed about, below, and is the shape
+  `testing-helpers.test.ts`'s own terminal run has.
+
+Five were prose, and two of them were sentences I had already written down as
+corrected elsewhere.
+
+- **The README still said `ui.lines` is "what is on screen".** The _type_ doc had
+  been corrected and the README bullet had not, which is the worse half: aligning
+  the getter with that sentence would make `lines` track the alternate buffer.
+- **The `cellAt()` sample does not draw.** It says to read before any key is
+  pressed and has no `tick()`, and nothing is painted until something ticks -- so
+  copying the fragment gets `[]` and `undefined`. Which is the same class as the
+  example read at the wrong moment, one step further on: the fix for that one
+  moved the _comment_ and not the code.
+- **The option table overclaimed `columns` and `rows`.** `COLUMNS` and `LINES`
+  are always set; a stream's own `columns` is faked only where `tty` named it. My
+  own edit to that table introduced the overclaim, in the commit that fixed it
+  silently matching nothing.
+- **The `runOnTerminal()` sample's comments describe `sigil check`**, not any
+  program: a `run` that writes the same bytes either way gets the same bytes
+  here, and the paragraph presented the split as what the helper is _for_.
+- **`## Subpath modules` had no `### sigil/testing`** while the catalogue on line
+  62 listed one, so a reader using that section as the list of subpaths would not
+  find it.
+
+And two were a measurement and a list. **`dist.test.ts` said 41.7 kB where
+AGENTS said 44,328 B** -- one measurement, two comments, and a later reader with
+no way to tell which was measured. And **the import-cost lists did not name
+`runCommand`**, which is the export an app actually imports: dropping it from
+the barrel while leaving the module reachable kept the presence half green. That
+is this file's own rule about an absence-only test, applied to the one name that
+matters most, and AGENTS already cited that test as the thing keeping the cost
+zero "with the presence half beside it".
+
+It also confirmed, against the code, the things most worth doubting: the four
+existing readers changed by an import path and nothing else, `fake-terminal.ts`
+is a second model on purpose rather than a new inconsistency, the generated TS
+and JS tests compile and resolve, the `exports` map and the tsdown entry agree,
+and the single-layout scaffold is a recorded decision rather than a defect.
+
+#### Reading the prose against the code, which is where the rest of it was
+
+Round 2's own discipline, applied to this change's documentation. **Six
+findings, all of them prose or a check that was missing**, which is the ratio
+this file keeps recording for a round aimed at what nobody opened.
+
+- **`screenStream` was exported and documented nowhere**, which is this ticket's
+  own complaint one level in: an export nobody can find. Four **option fields**
+  were the same -- `colorLevel`, `inputTTY`, `stdin` and `result`. Both are
+  pinned now, against the README and read off the **declarations** rather than
+  the barrel source, so a re-export or a field added without a sentence is
+  caught: `should name every export in the README` and the field walk beside it.
+- **The README's examples were read at the wrong moment.** `ui.lines` was shown
+  as `['? Pick', '❯ one', '  two']` in a block that follows a Down keypress,
+  where the pointer has moved to the second row. Found by _running_ the examples
+  rather than by reading them, which is the cheapest review there is -- and it is
+  what turned up the two surface names worth dropping.
+- **The option table's `columns` and `rows` rows were edited with a `replace`
+  that had no assertion behind it**, so the edit silently matched nothing after
+  the formatter had reflowed the table and the table went on describing the old
+  behaviour. That is the failure this file records about its own sabotage
+  harness, met in a documentation edit: assert the edit landed.
+- **A `####` heading collided with the debug overlay's.** Two
+  `What the sabotage pass found` sections in one file is one somebody greps for
+  and reads the wrong one of.
+- **And five counts in this entry were wrong**, each caught by going and
+  measuring rather than by re-reading: "three more reasons" listing two, "five
+  tests, three of them in the end-to-end file" where it is six and two, "three
+  guards deleted" where it is two, "four survivors" where it is six, and a diff
+  described as the cluster work alone after twelve review findings had been added
+  to it. The pattern is worth more than the list: every one of them was written
+  from a summary line or from an earlier draft rather than from the thing itself,
+  and this file already says a figure nobody can re-derive goes stale quietly.
+
+#### Two of the tests were weaker than their names, found by reading them
+
+Which is round 2's own discipline applied to this change's tests rather than to
+its code, and both were the same shape: an assertion that holds for a reason
+other than the one it is named for.
+
+- **`should clear what a CI runner sets` was vacuous on a laptop.** It read
+  `CI`, `GITHUB_ACTIONS` and `COLORTERM` back out of the child and asserted they
+  were absent -- which they are on any development machine, because nothing sets
+  them there. So it pinned the clearing on CI and nothing at all locally. It sets
+  them in the **parent** first now, in a `try`/`finally`. The clearing was pinned
+  anyway, by the case-insensitive test one along, which is the only reason this
+  was a weak test rather than an unguarded line.
+- **The piped-form shape test matched almost any line.** `/^(?:\S.*?: (?:error|warning):|\S)/`
+  has a `|\S` alternative, so it would have passed over a wrapped form entirely.
+  It asks only about the lines that carry a severity -- the note and the summary
+  are not diagnostics -- and requires the whole
+  `file:line:column: severity: message` of each.
+
+#### What re-reading the code found that neither the pass nor a reviewer did
+
+Three, all in `runCommand()`, and all of the shape a deletion-based pass is blind
+to by construction -- code that agrees with itself.
+
+- **The re-entrancy latch was set outside the `try`**, so a throw between setting
+  it and entering the block left it set for the **life of the process** and every
+  later run refused with "already running". Reachable because `wrap()` reads the
+  caller's schema: a property of theirs that throws on the way out is the shape
+  of it. This fix was **half** a fix and the review round below found the rest --
+  the three reads that save what is about to be replaced were still outside, and
+  each restore is guarded on having read something now, because a throw from the
+  read itself leaves nothing to put back.
+- **A command writing one character in two buffers reached a test as two
+  replacement characters.** `process.stdout.write` takes a string or a `Buffer`,
+  and the capture coerced each chunk as it arrived -- which is the same trap
+  `runOnTerminal()` closes on the other side of a pipe, met here because the two
+  take the same two shapes. The chunks are kept as they came and a **run** of
+  buffers is decoded together.
+- **A `beforeError` hook of the caller's that threw cost this the error it was
+  called about.** The framework logs and skips a hook that throws, so ours threw
+  with it and `report.onError` was never reached: a run whose app had a broken
+  hook reported `error: undefined`, which says the run did not fail. The error is
+  reported either way now, and the state is reported _before_ the caller's hook
+  runs rather than after.
+
+#### The screen model's wide-cluster defect is fixed, not documented
+
+`test/canvas/screen.ts` moved to `src/testing/screen.ts`, and the limitation
+this file recorded about it is **gone** rather than written into the public
+docs. What it said was that the model advances one column per character, so a
+picture over a row holding a wide cluster is not to be trusted -- and the
+sentence under "The extraction, and what it was allowed to touch" that said so
+has been corrected.
+
+- **It was worse than one column per character: it was one per code unit.**
+  `output[i]` indexes code units, so `日` took one column where a terminal gives
+  it two, an astral cluster was written as two lone surrogates into two cells,
+  and a combining mark took a cell of its own. Shipping that to an app author as
+  "the model a frame is replayed against" is shipping a picture that is wrong
+  about any row with one wide character in it -- which for a CLI with a Japanese
+  locale is every row.
+
+- **So it reads grapheme clusters, measured with `cellWidth()`, and a wide one
+  leaves a `''` continuation.** The same convention `CellBuffer` and
+  `fake-terminal.ts` already use, for `CellBuffer`'s own reason: without the
+  marker there is no answer to "what is in column 40" for a row holding one wide
+  character, and every read after it is a column out. `cellWidth()` rather than
+  `graphemeWidth()` because the grid and the diff both take two as the most a
+  cluster can occupy -- asking what a cluster _contains_ put `fake-terminal.ts` a
+  column right of where the diff said the cursor was, which is a mistake already
+  made once here. `cellAt()` is the accessor that makes a wide-cluster claim
+  assertable at all, since a row read as a string says what the user sees and
+  cannot say which column anything starts in.
+
+- **Overwriting either half of a cluster takes the other with it**, which is
+  `CellBuffer.#breakCluster()`'s rule one layer up and for the same reason: half
+  a glyph is not a state a screen can be in, and a row that kept the survivor
+  reads a column wider than itself. The erase paths go through the same repair,
+  because writing a space over a continuation and erasing one are the same thing.
+  A resize that truncates a row repairs too, since the continuation can be
+  exactly what `pop()` took.
+
+  Which turned up a second thing the first fix got wrong: the caret record has to
+  go with the cluster it was marking, and the cell that goes is the **lead's** --
+  one column left of the continuation being written over, which is a cell the
+  write itself never touches. So `#put()` clears the record against every cell it
+  changed, the repaired ones included, rather than against the ones it wrote.
+  Found by a test, not by reading.
+
+- **The one place it parts company with the grid is a wide cluster with one
+  column left.** `CellBuffer` **refuses** it and lets a blank take the column,
+  because a grid is a fixed rectangle an app owns; a terminal has a next row and
+  wraps the cluster onto it, so that is what this does. The two models answer
+  different questions and this one is about a screen. On a screen one column wide
+  there is no row it fits on and it is dropped, which is the one answer that
+  leaves no half glyph and does not loop looking for one.
+
+- **The existing suite is the regression suite and it did not move.** Which is
+  the check a refactor of a shared harness gets, and it is stated as a diff
+  rather than as a count, because the counts grew while this was being written
+  and a figure nobody can re-derive is the stale snapshot this file keeps finding:
+  the whole change to the model's four existing readers -- `backend.test.ts`,
+  `components/helpers.ts`, `renderer/mouse.test.ts` and `renderer/renderer.test.ts`
+  -- is **four import lines**, and not one assertion in any of them moved.
+  Checked with `git diff main...HEAD` over those four rather than inferred from a
+  green suite.
+
+  The model's own diff is a larger thing than that, and it grew in two steps: the
+  cluster work plus `cellAt()`, an import path and a `' '` spelled as `BLANK`,
+  and then the twelve the review round found -- `ESC[H`, `K` and `J`'s modes, the
+  held partial sequence, four `lastInverse` cases, the resize cursor, the
+  mode-change wrap, the saved-cursor clamp and the dimension guard. The sentence
+  this replaces listed only the first step and was substantially false by the end
+  of the branch. The text run is segmented up to the next control character rather
+  than asking `graphemes()` for the whole remaining string per cluster, which is
+  the same answer and is linear rather than quadratic in the length of a frame.
+
+- **`ESC[H` was the one cursor move with no clamp, and it lost every frame after
+  it.** Found by walking the hostile inputs rather than by a test: `A`, `B` and
+  `C` all clamp, and this set the row to whatever the parameter said -- so
+  `ESC[99999H` put the cursor on row 99998, every write after it landed on a row
+  that does not exist and was dropped by `#put()`, and the cursor never came
+  back. Silent, and every later frame lost. Pre-existing, and it ships now, which
+  is what made it worth fixing rather than noting.
+
+  Its **column** parameter was ignored with it: `ESC[5;10H` is row 5 column 10
+  and was taken as row 5 column 0. Nothing in this library emits the
+  two-parameter form -- the only `H` it writes is a bare `ESC[H` -- so that half
+  is for a caller pointing the model at their own output, which is what shipping
+  it means.
+
+- **It throws on a sequence it does not model, and the README says so.** That is
+  how it says it has no answer rather than quietly getting a row wrong, and it
+  is the same policy the `default` branch already had. Walking the inputs
+  confirmed the rest: a tab, a `BEL` and a `NUL` each take no cell rather than
+  reaching a row a test reads as a picture; a ZWJ family, a flag and an astral
+  character are each one cluster at their real width; an erase that cuts into a
+  cluster takes both halves; and a huge or absent parameter on `A`, `B` or `C`
+  clamps. A lone surrogate does get a cell, which is the model being faithful to
+  what was written rather than a defect -- a terminal draws something there too.
+
+- **What it still does not model is styling, bar reverse video.** That is a
+  limitation rather than a defect and is documented in the README where a caller
+  meets it: a claim about _colour_ belongs in a `runOnTerminal()` run, where a
+  real styler writes real sequences a test can read. `lastInverse` is the one
+  exception and stays the one exception, because a prompt's caret _is_ styling and
+  the cell under it holds the same character either way. An erase still leaves the
+  record in place, which is what it always did and is why the doc says a test
+  asking whether a caret went away reads the bytes.
+
+#### What is deliberately out, and one finding that is somebody else's ticket
+
+- **No stdin writing in `runOnTerminal()`**, for the reason above.
+- **No rewrite of `output-forms.test.ts` onto the fixture.** It would be the
+  strongest possible proof that the helper is sufficient for the hardest real
+  case here, and it is the regression suite for the two output forms: a refactor
+  that needed a test moved is a refactor that changed behaviour, and that one is
+  nine hundred lines of exactly the claims nobody should risk weakening inside a
+  ticket about helpers. `packages/cli/test/testing-helpers.test.ts` makes the
+  narrower claim instead -- the shipped helper is enough to have caught the
+  regression that shipped -- against the real binary over the real fixture.
+- **No `runRender()` or any helper for `renderToString()`**, which takes its
+  width and its colour level as arguments and is already testable from anywhere.
+  A helper over a function that needs no helper is API for its own sake.
+- **No assertion helpers.** `expect(ran.out).toContain(...)` is the runner's job,
+  and a `expectOutput()` of ours would be a vocabulary to learn that works with
+  one runner.
+- **No demo under `demos/`.** Those are runnable examples of what an app _does_,
+  spawned by `demos.test.ts` and read by somebody looking at a terminal; a
+  testing helper has nothing to show there. What it has instead is the README
+  section, which is most of the value of the ticket, and the scaffold, which puts
+  a working one in front of every new app.
+
+- **A root schema's `run` is never dispatched, so `sigil new --single`
+  scaffolds an app that does nothing -- and that is reported rather than
+  fixed here.** Found while writing `command.test.ts`, whose first fixture put
+  `run` on the schema the way the scaffold does. `main()` runs the command that
+  **matched** and the root is never one, so `main({ schema: { name, args, run } })`
+  parses argv, writes nothing, runs nothing and exits zero. Measured: the
+  as-scaffolded single app answers `demo world` with **no output at all**, while
+  the same app with the `run` moved into a hidden `default` command answers
+  `hello world`. Its `--help` is wrong in a second way besides -- `Usage: demo
+  [options] <command> [who]` names a required `<command>` when the only command
+  is `help`.
+
+  It is consistent with what this file already says -- "a schema that declares
+  none is one being used as a parser" -- so what is wrong is the scaffold using a
+  parser as an app, and both available fixes are a design decision somebody
+  should take on their own terms: `main()` dispatching a root `run` is a change
+  to every app's semantics, and a hidden default command loses `[who]` from the
+  root help screen, which was measured too. Taking either inside a ticket about
+  test helpers is the shape this file refuses repeatedly. So the generated test
+  covers the **multi** layout end to end -- the default, and the one where a
+  command really is dispatched -- and asserts `--help` for the single layout,
+  which does work. A scaffold test that avoided the broken path _silently_ would
+  be the dishonest version; this is the same avoidance with the measurement
+  written down beside it.
+
 ## Known bugs
+
+- **`sigil new --single` scaffolds an app that does nothing.** `main()` runs the
+  command that **matched** and the root is never one, so a schema carrying only a
+  `run` -- which is exactly what that layout writes -- parses argv, writes
+  nothing, runs nothing and exits zero. Measured: the as-scaffolded app answers
+  `demo world` with no output at all. Found while writing SIG-140's own tests,
+  and left alone there because both available fixes are a design decision --
+  `main()` dispatching a root `run` is a change to every app's semantics, and a
+  hidden `default` command loses the argument from the root help screen. The full
+  measurement, including what the `--help` screen says, is under "Testing
+  helpers, and the faked TTY our own suite proves you need".
 
 - A subcommand's option used before its subcommand is not protected from being
   consumed as an earlier option's value, because it is not declared yet on the

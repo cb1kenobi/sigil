@@ -14,7 +14,8 @@
  * disagree about the deferred wrap, which is the thing this repository writes
  * down about every rule it says twice.
  *
- * Not `screen.ts`, which is the backend's and is *screen*-relative: it has rows
+ * Not `src/testing/screen.ts`, which is the backend's and is *screen*-relative:
+ * it has rows
  * that scroll off the top, a cursor that survives between frames, and an
  * alternate buffer to switch to. This one is canvas-relative, because every
  * coordinate the diff emits is, and a backend's job is the part it assumes away.

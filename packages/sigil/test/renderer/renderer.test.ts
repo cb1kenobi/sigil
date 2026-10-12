@@ -22,7 +22,7 @@ import { createEffects } from '../../src/signals/index.js';
 import { State } from '../../src/signals/index.js';
 import { Cascade, parseStylesheet } from '../../src/style/index.js';
 import { createTerminal, type Terminal } from '../../src/terminal/index.js';
-import { Screen, screenStream } from '../canvas/screen.js';
+import { Screen, screenStream } from '../../src/testing/screen.js';
 import { setup } from '../components/helpers.js';
 import { beforeEach, describe, expect, it } from 'vitest';
 

@@ -5,7 +5,7 @@ import {
 	wipeMask,
 } from '../../src/canvas/index.js';
 import { createTerminal, type Terminal } from '../../src/terminal/index.js';
-import { Screen, screenStream } from './screen.js';
+import { Screen, screenStream } from '../../src/testing/screen.js';
 import { describe, expect, it } from 'vitest';
 
 /**

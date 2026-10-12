@@ -123,21 +123,34 @@ function staticGraph(entry: string): Set<string> {
 const SEGMENTATION = 'grapheme';
 
 /**
- * The chunk `index.mjs` reaches `parse()` through.
+ * The chunk the root entry reaches `parse()` through.
  *
  * A hashed name rather than an entry, because the parser is behind an
  * `await import()` -- which is the whole reason it is off the root entry's
  * graph -- so it has to be read out of the specifier rather than named.
  *
+ * The **whole static graph** rather than `index.mjs` alone, because which chunk
+ * holds the `import()` is rolldown's to decide and it moves: a second entry
+ * sharing code with the root one puts `main()` in a shared chunk, so the
+ * specifier went from `index.mjs` to a `src-*.mjs` the day `./testing` landed.
+ * What this has to find is the deferral, and that is a property of the graph
+ * rather than of one file -- the entry staying small is what the size ceiling
+ * below is for, and 18.5 kB of parser joining it blows straight through that.
+ *
  * @returns The chunk's file name.
  */
 function parseChunk(): string {
-	const source = readFileSync(join(dist, 'index.mjs'), 'utf8');
-	const m = source.match(/import\(`\.\/(parse-[^`]+\.mjs)`\)/);
+	for (const name of staticGraph('index.mjs')) {
+		const m = readFileSync(join(dist, name), 'utf8').match(
+			/import\(`?\.\/(parse-[^`")]+\.mjs)`?\)/
+		);
 
-	expect(m, 'index.mjs no longer reaches parse() through a dynamic import').not.toBeNull();
+		if (m) {
+			return m[1] as string;
+		}
+	}
 
-	return (m as RegExpMatchArray)[1] as string;
+	return expect.fail('the root entry no longer reaches parse() through a dynamic import');
 }
 
 describe('what importing the package costs', () => {
@@ -190,6 +203,43 @@ describe('what importing the package costs', () => {
 		// would then be pinning nothing at all
 		expect(carriers(staticGraph('components.mjs'), symbol)).not.toEqual([]);
 	});
+
+	// `runCommand` among them, which the first version left out: it is the export
+	// an app actually imports, and dropping it from the barrel while leaving the
+	// module reachable kept the presence half green. Which is this file's own rule
+	// about an absence-only test, applied to the one name that matters most
+	it.each(['runCommand', 'runOnTerminal', 'createTestTerminal', 'already running'])(
+		'should not load %s to import the package',
+		(symbol) => {
+			// the measurement that decided where the testing helpers live. A subpath
+			// of the runtime rather than a package of its own -- which is the version
+			// skew argument `sigil add` already records, since `runCommand()` has to
+			// run the app's *own* `main()` -- and the cost of that is the question a
+			// subpath raises: it is permanent public surface on the package every app
+			// depends on at run time.
+			//
+			// It is zero. Nothing on the root entry's graph imports it, so the graph
+			// is 7,532 B over the same six modules it was before -- 21 B *less*, which
+			// is a shared chunk boundary moving and is noise. `testing.mjs` is 44,328 B
+			// over fourteen modules and is paid only by a module that asks for it,
+			// which is a test file -- the same figure AGENTS.md records, because two
+			// comments disagreeing about one measurement leave a later reader with no
+			// way to tell which was measured.
+			//
+			// An exported name and a string literal, which survive minification where
+			// a name that is only ever called does not
+			expect(carriers(staticGraph('index.mjs'), symbol)).toEqual([]);
+		}
+	);
+
+	it.each(['runCommand', 'runOnTerminal', 'createTestTerminal', 'already running'])(
+		'should load %s to import the testing helpers',
+		(symbol) => {
+			// the other half, and it is not decoration: a test that only asserts an
+			// absence passes forever the day the symbol is renamed
+			expect(carriers(staticGraph('testing.mjs'), symbol)).not.toEqual([]);
+		}
+	);
 
 	it('should keep the root entry small enough to be worth it', () => {
 		const graph = staticGraph('index.mjs');

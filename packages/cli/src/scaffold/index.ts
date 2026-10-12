@@ -161,7 +161,11 @@ function manifest(opts: ScaffoldOptions): string {
 		dev: `node dev.${ext(language)}`,
 	};
 
-	const devDependencies: Record<string, string> = { '@ttylabs/cli': version };
+	const devDependencies: Record<string, string> = {
+		'@ttylabs/cli': version,
+		vitest: versions.vitest as string,
+	};
+	scripts.test = 'vitest run';
 
 	if (language === 'ts') {
 		devDependencies['@types/node'] = versions['@types/node'] as string;
@@ -245,7 +249,11 @@ function tsconfig(): string {
 				types: ['node'],
 				verbatimModuleSyntax: true,
 			},
-			include: ['src', 'dev.ts'],
+			// `test` and the runner config are in, which is what makes
+			// `tsc --noEmit` -- and therefore `sigil build`, which type-checks with
+			// this file -- see a type error in a test. A build that passes over the
+			// tests is one that disagrees with the editor about what compiles
+			include: ['src', 'test', 'dev.ts', 'vitest.config.ts'],
 		},
 		undefined,
 		2
@@ -383,6 +391,114 @@ export default [
 	return undefined;
 }
 
+/**
+ * The vitest config, whose one option is the one an author hits on day one.
+ *
+ * `disableConsoleIntercept` is not taste. vitest replaces `console.log` and
+ * friends so that it can attribute output to the test that wrote it, and a
+ * command that writes through `console` then reaches the reporter rather than
+ * `runCommand()`'s capture -- so `ran.out` is empty for a command that is
+ * working perfectly, which reads as the helper being broken. Turning it off
+ * means `console.log` goes to `process.stdout.write`, which is what
+ * `runCommand()` patches and what a real run uses.
+ *
+ * @returns The config.
+ */
+function vitestConfig(): string {
+	return `import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+	test: {
+		// \`runCommand()\` captures \`process.stdout.write\`, which is what \`main()\`
+		// and \`console.log\` both go through. vitest replaces the \`console\` methods
+		// by default so it can attribute output to a test, and then a command's
+		// \`console.log\` reaches the reporter instead of the capture -- so
+		// \`ran.out\` comes back empty for a command that works.
+		disableConsoleIntercept: true,
+	},
+});
+`;
+}
+
+/**
+ * The one test a new app starts with.
+ *
+ * It exists because the knowledge in it is not derivable from outside the
+ * framework. Two things in particular:
+ *
+ * - `runCommand()` runs the app through the **real** `main()` and reads back
+ *   what it wrote, what it parsed and how it exited. `main()` writes to the
+ *   process and sets `process.exitCode`, which is right for a bin script and
+ *   useless to a test.
+ * - A test runner's streams are **pipes**: no `isTTY`, no `columns`. So
+ *   everything that asks about a destination gets the same answer -- not a
+ *   terminal, no colour, the fallback width -- and a suite can be green while
+ *   saying nothing about what a user's terminal gets. `runOnTerminal()` is how
+ *   to ask the other question, and the comment here is where somebody finds out
+ *   that they should.
+ *
+ * @param opts - What was chosen.
+ * @returns The file.
+ */
+function appTest(opts: ScaffoldOptions): string {
+	const { language, layout, name } = opts;
+	// relative to `test/`, which is where this lands -- `dev` is at the root and
+	// its specifier is a different one
+	const from = language === 'ts' ? '../src/index.ts' : '../src/index.js';
+
+	const body =
+		layout === 'multi'
+			? `	it('greets', async () => {
+		const ran = await runCommand({ argv: ['hello', 'world'], schema });
+
+		expect(ran.code).toBe(0);
+		expect(ran.out).toBe('hello world\\n');
+	});
+
+	it('parses what the command declared', async () => {
+		const ran = await runCommand({ argv: ['hello', 'everyone'], schema });
+
+		// the values the command's \`run()\` was handed, which is usually what a
+		// test about an option really wants to assert
+		expect(ran.argv.who).toBe('everyone');
+	});
+`
+			: `	it('describes itself', async () => {
+		const ran = await runCommand({ argv: ['--help'], schema });
+
+		expect(ran.code).toBe(0);
+		expect(ran.out).toContain('${name}');
+	});
+`;
+
+	return `// What a new app starts with, and why each piece is here.
+//
+// \`runCommand()\` runs the app through the real \`main()\` -- the same function
+// \`dev\` calls and the same one the built binary calls -- and hands back the exit
+// code, stdout, stderr and the parsed values. \`main()\` writes those to the
+// process rather than returning them, which is right for a bin script and
+// useless here.
+//
+// \`argv\` is worth passing every time: left out, \`main()\` reads
+// \`process.argv\`, which under a test runner is the runner's own arguments.
+//
+// One thing this file cannot tell you, and it is the reason \`@ttylabs/sigil/testing\`
+// exists: **a test runner's streams are pipes.** They have no \`isTTY\` and no
+// \`columns\`, so anything that asks about where it is writing gets the same
+// answer -- not a terminal, no colour, the fallback width. That is the one case
+// that cannot fail, so a suite of these can be entirely green and say nothing at
+// all about what somebody's terminal gets. \`runOnTerminal()\` from the same
+// subpath runs the built binary in a child whose streams claim to be a terminal,
+// which is how to test the other half.
+import { runCommand } from '@ttylabs/sigil/testing';
+import { describe, expect, it } from 'vitest';
+import schema from '${from}';
+
+describe('${name}', () => {
+${body}});
+`;
+}
+
 /** The README, which is the only place the next steps are written down. */
 function readme(opts: ScaffoldOptions): string {
 	const { language, layout, name } = opts;
@@ -453,6 +569,8 @@ export function scaffold(opts: ScaffoldOptions): ScaffoldFile[] {
 		},
 		{ contents: devRunner(opts), executable: true, path: `dev.${e}` },
 		{ contents: entry(opts), path: `src/index.${e}` },
+		{ contents: vitestConfig(), path: `vitest.config.${e}` },
+		{ contents: appTest(opts), path: `test/app.test.${e}` },
 	];
 
 	if (opts.language === 'ts') {
