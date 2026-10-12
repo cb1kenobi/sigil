@@ -15968,14 +15968,66 @@ command, wired beside `registerHelp()` and `registerVersion()`.
   completion API. Either could be written in an afternoon by somebody who could
   run it.
 
-- **The script goes to stdout and nothing is installed.** `app completion bash >
-  …`, with the recipe in the script's own header comment, so the file says what to
-  do with it. An `install` subcommand is friendlier and is a tool writing to a
-  user's dotfiles: it has to know which file, whether it is already in there, what
-  to do when the user has edited around it, and how to take it out -- four
-  decisions that are the user's. It is also what `gh`, `kubectl`, `rustup` and
-  `deno` all do, and it is the conservative half of a choice this repository takes
-  conservatively everywhere else.
+- **A named shell prints to stdout; a missing one says how to install, to
+  stderr.** `app completion bash > …` is unchanged and is what `gh`, `kubectl`,
+  `rustup` and `deno` all do -- both generated headers document that redirect, so
+  the scriptable form stays a printer and the `> file` idiom cannot break.
+
+  What changed is the **bare** form, and the reason is that the old answer was the
+  worst one available: `Missing required arguments: <shell>` names the grammar
+  rather than the thing to do, at a reader who does not necessarily know which
+  shell they are in. So `[shell]` is optional -- omitted, `$SHELL` is read and the
+  routes for that shell are printed, or the shells it can print for are named when
+  it cannot tell. Detection is on the **basename**, because the value is a path and
+  `/bin/zsh`, `/usr/local/bin/bash` and `/opt/homebrew/bin/bash` are two answers; a
+  version suffix is deliberately not read, since guessing there is how `csh` comes
+  back as something it is not. An invalid name is still an error, because `choices`
+  is judged on the way in and the short-circuit below is only over what is
+  _missing_.
+
+  It is stderr and a non-zero exit, which is this being the better **error** rather
+  than an answer: `app completion > file` must not fill the file the reader wanted
+  a script in, and a script that read the exit code still sees that no shell was
+  named. What makes it exit zero is having installed something, which is the
+  installer's.
+
+- **The install routes are one module with two readers, which is what stops them
+  drifting.** They were text inside each emitter's header template, and printing
+  them as instructions would have been a second copy of "a zsh completion is a file
+  called `_app` on `$fpath`" -- the copy that goes stale being whichever one the
+  reader is not looking at. `installHint()` is data, `installComment()` renders it
+  as the script's own `#` block and `instructions()` renders it for a terminal, so
+  the script and the command cannot disagree about where a completion goes. The
+  same rule `readRoutes()` keeps for the two route walks. `should carry the same
+  install routes in the %s script as it prints as instructions` is the guard, and it
+  reads every command out of the hint rather than asserting a spelling.
+
+- **A missing required value is not an error for this command, and the old
+  reading made it unreachable.** `validateOptions()` flattens every context's
+  options, so on an app with a required global option `app completion zsh` threw
+  `Missing required options: --token` -- the one command an app cannot reimplement,
+  refused on exactly the apps that have global options, with a message naming an
+  option that has nothing to do with what was asked. `--help` and `help` escape it
+  because `detectHelp()` runs before anything is validated, which is a recorded
+  ordering; this had nothing.
+
+  It was written down as a decision rather than an oversight -- "making it win
+  means a field on `ParseState` and a change to what `parse()` validates for every
+  app, which is not a thing to add for one command" -- and the cost in that
+  sentence is the thing that was wrong. It is an **internal** `needsNoValues` on
+  the command and one shared `asked()` predicate the two validators call, so there
+  is no public surface and no second rule: `state.help` is the flag and the `help`
+  command, and `needsNoValues` is a parser-added command that answers out of the
+  **schema**, where there is no work for a missing value to be missing from. The
+  `help` command deliberately does not carry it, because `state.help` already says
+  it there and a second marker would be a guard that cannot fire.
+
+  Only the **missing** checks read it, which is what keeps `app completion fish` an
+  error. And a sabotage pass is what found the one thing this made invisible:
+  with the missing check skipped, `<shell>` and `[shell]` behave identically at the
+  throw site, so every test about the no-shell path passed either way -- the
+  spelling is observable in **help**, which is what tells a reader whether they have
+  to name one, and that is where it is pinned.
 
 - **The command is free and visible, with `schema.completion: false` to opt
   out.** The same argument `--version` settled and it lands harder: a completion

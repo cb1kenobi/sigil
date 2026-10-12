@@ -1,7 +1,9 @@
 import { bashQuote, completionScript, SHELL_NAMES, SHELLS } from '../src/completion/index.js';
+import { detectShell, installHint, instructions } from '../src/completion/install.js';
 import { completionSpec, oneLine, type CompletionSpec } from '../src/completion/spec.js';
 import { zshPair, zshQuote } from '../src/completion/zsh.js';
 import { commandCatalog } from '../src/components/catalog.js';
+import { resolveHelp } from '../src/help/index.js';
 import { parse } from '../src/parser/parse.js';
 import { Internal, type ParseState, type Schema } from '../src/types.js';
 import { whichSync } from '../src/which.js';
@@ -696,6 +698,38 @@ async function written(run: () => unknown): Promise<string> {
 	return chunks.join('');
 }
 
+/**
+ * What `run` wrote to stderr, and the exit code it left behind.
+ *
+ * A twin of `written()` rather than a parameter on it, because the two streams
+ * are the whole of what this command decides between: a script goes to stdout
+ * so that `> file` is the documented idiom, and instructions go to stderr so
+ * that the same redirect does not fill that file with prose. A helper that took
+ * the stream would let a test assert the right text on the wrong one.
+ *
+ * @param run - What to run.
+ * @returns What reached stderr, and `process.exitCode` afterwards.
+ */
+async function toStderr(run: () => unknown): Promise<{ code: unknown; text: string }> {
+	const chunks: string[] = [];
+	const write = process.stderr.write;
+	const before = process.exitCode;
+	(process.stderr as { write: unknown }).write = (chunk: string) => {
+		chunks.push(chunk);
+		return true;
+	};
+
+	try {
+		await run();
+		return { code: process.exitCode, text: chunks.join('') };
+	} finally {
+		(process.stderr as { write: unknown }).write = write;
+		// put it back, or one test asserting a failure leaves the whole run
+		// reporting one -- vitest reads this process's own code
+		process.exitCode = before;
+	}
+}
+
 describe('the completion command', () => {
 	it('should be added to every schema', async () => {
 		const parsed = await state({ commands: { build: { run(): void {} } } });
@@ -748,23 +782,174 @@ describe('the completion command', () => {
 		);
 	});
 
-	it('should be an ordinary command, so a required option is still required', async () => {
-		// `--help` and `help` win over a missing required option and this does not,
-		// which is a decision rather than an oversight: making it win means a field
-		// on `ParseState` and a change to what `parse()` validates for every app,
-		// which is not a thing to add for one command
+	it.each([
+		['/bin/zsh', 'zsh'],
+		['/usr/local/bin/bash', 'bash'],
+		['/opt/homebrew/bin/bash', 'bash'],
+		['bash', 'bash'],
+		['C:\\Program Files\\Git\\bin\\bash.exe', undefined],
+		['/bin/bash5', undefined],
+		['/bin/csh', undefined],
+		['/usr/bin/fish', undefined],
+		['', undefined],
+	])('should read %s as %s', (path, shell) => {
+		// the basename of either separator, because the value is a path -- and a
+		// version suffix is deliberately not read, since guessing there is how
+		// `csh` comes back as something it is not. The `.exe` is the same rule
+		// meeting Windows: it is nothing this emits a script for, so it is no
+		// answer rather than a wrong one
+		expect(detectShell({ SHELL: path })).toBe(shell);
+	});
+
+	it('should read no SHELL at all as no shell', () => {
+		expect(detectShell({})).toBeUndefined();
+	});
+
+	it('should say how to install for the shell it found, rather than naming the grammar', async () => {
+		const parsed = await parse({
+			argv: ['completion'],
+			env: {},
+			schema: { commands: { build: { run(): void {} } }, name: 'mycli' },
+		});
+
+		const shell = process.env['SHELL'];
+		process.env['SHELL'] = '/bin/zsh';
+
+		try {
+			const { code, text } = await toStderr(() => parsed.cmd?.run?.(parsed));
+
+			// `Missing required arguments: <shell>` is what this replaced, and the
+			// thing wrong with it is that it names the grammar rather than the
+			// thing to do
+			expect(text).not.toContain('Missing required');
+			expect(text).toContain('detected zsh');
+			expect(text).toContain('mycli completion zsh > "${fpath[1]}/_mycli"');
+			expect(text).toContain('Then restart your shell.');
+
+			// stderr and non-zero, because this is the better *error* rather than
+			// an answer: `mycli completion > file` must not fill the file the
+			// reader wanted a script in, and a script that read the exit code
+			// still sees that no shell was named
+			expect(code).toBe(1);
+		} finally {
+			if (shell === undefined) {
+				delete process.env['SHELL'];
+			} else {
+				process.env['SHELL'] = shell;
+			}
+		}
+	});
+
+	it('should name the shells where it cannot tell which one, rather than guessing', async () => {
+		const parsed = await parse({
+			argv: ['completion'],
+			env: {},
+			schema: { commands: { build: { run(): void {} } }, name: 'mycli' },
+		});
+
+		const shell = process.env['SHELL'];
+		process.env['SHELL'] = '/bin/csh';
+
+		try {
+			const { code, text } = await toStderr(() => parsed.cmd?.run?.(parsed));
+
+			// every shell it can print for, as the command to run. Not a guess at
+			// `bash` because that is the commoner one: a reader in `csh` told to
+			// run the bash recipe is a reader who installs nothing and does not
+			// find out why
+			for (const name of SHELL_NAMES) {
+				expect(text).toContain(`mycli completion ${name}`);
+			}
+
+			expect(text).not.toContain('detected');
+			expect(code).toBe(1);
+		} finally {
+			if (shell === undefined) {
+				delete process.env['SHELL'];
+			} else {
+				process.env['SHELL'] = shell;
+			}
+		}
+	});
+
+	it('should say the shell is optional, which is where that spelling is visible', async () => {
+		// a sabotage pass is what asked for this. `needsNoValues` skips the
+		// *missing* checks, so `<shell>` and `[shell]` behave identically at the
+		// throw site and every test about the no-shell path passed either way --
+		// where the difference is the contract: help is what tells a reader
+		// whether they have to name one, and inference types a required argument
+		// as non-optional
+		const state = await parse({
+			argv: ['completion', '--help'],
+			env: {},
+			schema: { commands: { build: { run(): void {} } }, name: 'mycli' },
+		});
+		const help = await resolveHelp(state, { width: 80 });
+
+		expect(help).toContain('Usage: mycli completion [options] [shell]');
+		expect(help).toMatch(/\[shell\]\s+The shell to generate for/);
+		expect(help).not.toContain('<shell>');
+	});
+
+	it('should still refuse a shell it has no emitter for', async () => {
+		// the half that has to keep working: `[shell]` is optional and its
+		// `choices` are judged on the way in, so a name is still an error. The
+		// short-circuit is only over what is *missing*
 		await expect(
 			parse({
-				argv: ['completion', 'bash'],
+				argv: ['completion', 'fish'],
 				env: {},
-				schema: { name: 'mycli', options: { '--token <t>': 'a token' } },
+				schema: { commands: { build: { run(): void {} } }, name: 'mycli' },
 			})
-		).rejects.toThrow(/Missing required options: --token/);
+		).rejects.toThrow(/Invalid value "fish"/);
+	});
 
-		// ...and it is the whole of what it costs: pass the option and it runs,
-		// which means running it rather than checking that the parse resolved --
-		// the README says `rq --token x completion bash` is fine, so a test that
-		// stopped at the parse was not saying that
+	it.each([...SHELL_NAMES])(
+		'should carry the same install routes in the %s script as it prints as instructions',
+		async (shell) => {
+			// one module, two readers, and this is what says they cannot come apart:
+			// every command the instructions name appears in the generated script's
+			// own header, which is the reason `installHint()` is data rather than
+			// text in two templates
+			const parsed = await parse({
+				argv: ['completion', shell],
+				env: {},
+				schema: { commands: { build: { run(): void {} } }, name: 'mycli' },
+			});
+
+			const script = await written(() => parsed.cmd?.run?.(parsed));
+
+			for (const route of installHint(shell, 'mycli').routes) {
+				for (const command of route.commands) {
+					expect(script).toContain(command);
+					expect(instructions(shell, 'mycli')).toContain(command);
+				}
+			}
+		}
+	);
+
+	it('should print a script without the required options the app declared', async () => {
+		// this used to throw `Missing required options: --token`, on the argument
+		// that making it win meant a field on `ParseState` and a change to what
+		// `parse()` validates for every app. The cost is smaller than that: an
+		// internal `needsNoValues` on the command and one shared predicate, with
+		// no public surface at all -- and what the old reading cost was the only
+		// command an app cannot reimplement being unreachable on every app with a
+		// required global option, which is `rq --token x completion bash` to find
+		// out how to set up tab completion
+		const unasked = await parse({
+			argv: ['completion', 'bash'],
+			env: {},
+			schema: { name: 'mycli', options: { '--token <t>': 'a token' } },
+		});
+
+		expect(await written(() => unasked.cmd?.run?.(unasked))).toContain(
+			'complete -o default -F _mycli'
+		);
+
+		// and passing it still works, which is the half that must not have moved:
+		// what changed is whether a missing value is an *error*, not whether a
+		// value argv carried is read
 		const parsed = await parse({
 			argv: ['--token', 'x', 'completion', 'bash'],
 			env: {},

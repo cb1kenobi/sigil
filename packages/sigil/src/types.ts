@@ -300,6 +300,23 @@ export interface InternalCommandBase extends InternalBase {
 	load?: CommandLoader;
 	options: OptionRegistry;
 	path?: string;
+	/**
+	 * Whether a missing required value is an error for this command.
+	 *
+	 * `undefined` for every command an app declares, and `true` for one the
+	 * parser added whose output is a function of the **schema** rather than of
+	 * argv -- which is `completion`, and is why `app completion zsh` has to work
+	 * on an app with a required global option. Without it `validateOptions()`
+	 * threw `Missing required options` and the script could never be printed, so
+	 * the one command that cannot be reimplemented by the app was unreachable on
+	 * exactly the apps that have global options.
+	 *
+	 * `state.help` already says this for help, which is why the `help` command
+	 * does not carry it: a flag is not a command, so something has to decide that
+	 * argv asked a question, and `detectHelp()` is that something for both
+	 * spellings. A second marker there would be a guard that cannot fire.
+	 */
+	needsNoValues?: boolean;
 }
 
 /**

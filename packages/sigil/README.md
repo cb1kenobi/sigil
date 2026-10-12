@@ -713,8 +713,23 @@ Writing your own screen for one command:
 
 ## Shell completion
 
-A `completion` command is added to the root, the same way `help` is, and it
-prints a script for the shell you name:
+A `completion` command is added to the root, the same way `help` is. Run it with
+no shell and it works out which one you are in and tells you how to install it:
+
+```
+$ mycli completion
+Set up completion for mycli, detected zsh:
+
+  as a file on your $fpath, which compinit autoloads
+    mycli completion zsh > "${fpath[1]}/_mycli"
+
+  or sourced from .zshrc, after compinit
+    echo 'source <(mycli completion zsh)' >> ~/.zshrc
+
+Then restart your shell.
+```
+
+Name the shell and it prints the script instead, which is the form to redirect:
 
 ```
 $ mycli completion bash > ~/.mycli-completion.bash
@@ -733,9 +748,11 @@ The script's own header repeats those recipes, so the file tells you what to do
 with it. `schema.completion: false` adds nothing, and an app that declares its
 own `completion` keeps it.
 
-Nothing is installed for you and nothing is written to your dotfiles: where a
-completion script lives is a decision about your machine, and that is the same
-answer `gh`, `kubectl`, `rustup` and `deno` all give.
+Nothing is installed for you yet and nothing is written to your dotfiles. Those
+are two separate promises: where a completion script lives is a decision about
+your machine, which is the same answer `gh`, `kubectl`, `rustup` and `deno` all
+give — and the recipes above go to stderr with a non-zero exit, so
+`mycli completion > file` cannot fill the file you wanted a script in.
 
 ### What it completes
 

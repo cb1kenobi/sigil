@@ -20,15 +20,27 @@
  * `schema.completion: false` turns it off, for an app that does not want the
  * name taken.
  *
- * ## The script goes to stdout, and nothing is installed
+ * ## A named shell prints; a missing one says how to install
  *
- * `app completion bash > …` and the script's own header says where. An
- * `install` subcommand is friendlier and is a tool writing to a user's
- * dotfiles: it has to know which file, whether it is already in there, what to
- * do when the user has edited around it, and how to take it out again -- four
- * decisions that belong to the user. Printing is what `gh`, `kubectl`,
- * `rustup` and `deno` all do, and it is the conservative half of a choice this
- * repository takes conservatively everywhere else.
+ * `app completion bash > …` is the scriptable form and is what `gh`, `kubectl`,
+ * `rustup` and `deno` all do -- both generated headers document the redirect, so
+ * it stays a printer and nothing about it moved.
+ *
+ * What moved is the **bare** form. `Missing required arguments: <shell>` was the
+ * answer to "set up completion for me", and it names the grammar rather than the
+ * thing to do -- to a reader who does not necessarily know which shell they are
+ * in. So `[shell]` is optional: omitted, it reads `$SHELL` and prints the routes
+ * for what it found, or names the shells it can print for when it cannot tell.
+ * An invalid name is still an error, because `choices` is judged on the way in.
+ *
+ * It goes to stderr and exits non-zero, which is the better *error* rather than
+ * an answer: `app completion > file` must not fill the file the reader wanted a
+ * script in. What makes it exit zero is having actually installed something,
+ * which is the installer's -- and that is a separate ticket because it writes to
+ * a user's home directory, which had four decisions in it that belong to the
+ * user. Three are now taken: write the script file, **print** the rc line rather
+ * than editing a dotfile, and confirm first. What is left to it is the paths, the
+ * idempotency and taking it back out again.
  *
  * ## The emitters are behind a dynamic import
  *
@@ -71,26 +83,60 @@ export async function registerCompletion(root: InternalCommand, schema: Schema):
 		return;
 	}
 
-	internal.commands.add(
-		await initCommand({
-			args: [
-				{
-					choices: SHELL_NAMES,
-					desc: __`The shell to generate for`,
-					name: '<shell>',
-				},
-			],
-			desc: __`Print a shell completion script`,
-			name: 'completion',
-
-			async run(state: ParseState) {
-				const { completionScript } = await import('../completion/index.js');
-
-				// the argument is required and carries `choices`, both of which the
-				// parse has judged by the time any `run` is reached, so this is a
-				// string and it is one of the shells
-				process.stdout.write(await completionScript(state, String(state.argv.shell)));
+	const command = await initCommand({
+		args: [
+			{
+				choices: SHELL_NAMES,
+				desc: __`The shell to generate for`,
+				// optional, because `Missing required arguments: <shell>` is the
+				// worst answer available to "set up completion for me": it names
+				// the grammar rather than the thing to do, and the reader does not
+				// necessarily know which shell they are in. Named, it prints the
+				// script; omitted, it says how to install one for the shell it
+				// found. An invalid name is still an error, because `choices` is
+				// judged on the way in
+				name: '[shell]',
 			},
-		})
-	);
+		],
+		desc: __`Print a shell completion script`,
+		name: 'completion',
+
+		async run(state: ParseState) {
+			const { completionScript } = await import('../completion/index.js');
+			const { detectShell, instructions } = await import('../completion/install.js');
+
+			// `choices` has judged it by the time any `run` is reached, so a string
+			// here is one of the shells
+			const named = state.argv.shell;
+			if (typeof named === 'string') {
+				process.stdout.write(await completionScript(state, named));
+				return;
+			}
+
+			const program = state.schema.name ?? 'app';
+			const shell = detectShell(process.env);
+
+			// stderr and a non-zero exit, because this is the better *error*
+			// rather than an answer: `app completion > file` must not write
+			// instructions into what the reader wanted a script in, and a script
+			// that checked the exit code still sees that no shell was named. What
+			// makes it exit zero is having actually installed something, which is
+			// the installer's to do
+			process.stderr.write(
+				shell
+					? `${__`Set up completion for ${program}, detected ${shell}:`}\n\n${instructions(shell, program)}`
+					: `${__`Name a shell to set up completion for ${program}:`}\n\n${SHELL_NAMES.map(
+							(name) => `    ${program} completion ${name}\n`
+						).join('')}\n`
+			);
+			process.exitCode = 1;
+		},
+	});
+
+	// what makes `app completion zsh` reachable on an app with a required global
+	// option: the script is a function of the schema, so a value argv did not
+	// carry is not missing from anything. See `needsNoValues`
+	command[Internal].needsNoValues = true;
+
+	internal.commands.add(command);
 }
