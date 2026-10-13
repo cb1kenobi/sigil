@@ -11,9 +11,9 @@ import {
 	type WriteOptions,
 } from '../../src/config/index.js';
 import { editJsonc } from '../../src/config/jsonc-write.js';
-import { scanJsonc } from '../../src/config/jsonc.js';
+import { parseJsonc, scanJsonc } from '../../src/config/jsonc.js';
 import { jsonCanHold } from '../../src/config/represent.js';
-import { applyEdits } from '../../src/config/spans.js';
+import { applyEdits, lineAt } from '../../src/config/spans.js';
 import {
 	chmodSync,
 	mkdtempSync,
@@ -104,6 +104,21 @@ describe('the edit applier', () => {
 			])
 		).toThrow(/Overlapping config edits/);
 	});
+	it('should count a line at every terminator, not at a newline alone', () => {
+		// `LINE_END`'s own rule, met by the one function here that was not keeping
+		// it: a `\r`-only file reported every diagnostic "on line 1", so a comment
+		// the scanner correctly ended at a `\r` was named at a line it is not on.
+		// Found by review
+		expect(lineAt('a\rb\rc', 4)).to.equal(3);
+		expect(lineAt('a\u2028b', 2)).to.equal(2);
+		expect(lineAt('a\u2029b', 2)).to.equal(2);
+		// a CRLF is one break rather than two
+		expect(lineAt('a\r\nb', 3)).to.equal(2);
+		expect(lineAt('a\nb', 2)).to.equal(2);
+		// and the message really does come out on that line, which is the claim
+		expect(() => parseJsonc('{\r// a note\r"a":1}', false, 'f')).toThrow(/on line 2/);
+	});
+
 	it('should refuse an inverted span, which is the other half of its one rule', () => {
 		// it threw for overlap and corrupted for this: `end` before `start` leaves the
 		// cursor behind where the slice ended, so the text is duplicated rather than
@@ -1191,6 +1206,25 @@ describe('writing a store directly', () => {
 		// the file, which is the only thing `write(value)` can mean
 		await jsonc(path).write({ items: { 0: 9 } });
 		expect(JSON.parse(readFileSync(path, 'utf8')) as unknown).to.deep.equal({ items: { 0: 9 } });
+	});
+
+	it('should leave an array alone for a claimed delete, where a claimed set throws', async () => {
+		// the asymmetry, and it is the right way round: a delete has nothing to
+		// destroy, so `deletePath()` answers `false` and the file keeps what it had,
+		// where a set in the same place would have to replace the ancestor to
+		// proceed. Which is one rule -- a dotted path addresses object keys -- said
+		// in the two directions rather than two answers to one question. Found by
+		// review, which offered throwing as the other option
+		const path = file('c.jsonc', '{ "items": [1, 2, 3] }\n');
+
+		await jsonc(path).write({}, { paths: ['items.0'] });
+		expect(readFileSync(path, 'utf8')).to.equal('{ "items": [1, 2, 3] }\n');
+
+		// and the set in the same place is the throw, which is what makes this a
+		// pair rather than a gap
+		expect(() => jsonc(path).writeSync({ items: { 0: 9 } }, { paths: ['items.0'] })).toThrow(
+			/is not an object/
+		);
 	});
 
 	it('should create an ancestor the file is silent about, including a null one', async () => {

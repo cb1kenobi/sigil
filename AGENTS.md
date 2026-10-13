@@ -20151,6 +20151,80 @@ comparison against `NaN` is false -- written down rather than guarded, because a
 second tripwire for a value no emitter can produce is a guard the first one
 already stands for.
 
+#### What the fourth review round found, and five of the six were the last two commits' own prose
+
+Pointed at round 3's fixes -- the newest code, which no round had read -- and at
+what round 3 said it skipped. **Six findings, every one confirmed**, and the shape
+is worth as much as the content: **five of them are comments written in the two
+commits immediately before it**, including both of the ones that had just
+corrected a comment a round had found wrong. A round aimed at the previous round's
+output is the sharpest one here, and it is the cheapest to arrange.
+
+- **The null exemption's reasoning was backwards in two places, and the code was
+  right.** `overlay()`'s doc said the condition "is `Config.#assertWritable`'s own
+  rule" and that `null` "reaches here as absent" -- `#assertWritable()` is
+  `at !== undefined && !isPlainObject(at)` with **no** null case, so the two really
+  do differ and the exemption is a divergence rather than the same rule. And the
+  comment on the line said `#staged` overlays "a `copyDocument()` with its nulls
+  already dropped", which is **`copyValue()`**: `copyDocument` passes `nulls: true`
+  and keeps them, which is the whole reason that function exists. So both callers
+  can meet a present `null`, and the exemption is the rule rather than a patch over
+  a disagreement between them.
+
+  What makes the divergence right is **which document each walks**, which is the
+  thing neither sentence said: a layer's own value went through `copyValue()`, so
+  `set()` can never meet a `null` ancestor, and a _document_ went through
+  `copyDocument()`, so the overlay can. Aligning the code with either sentence --
+  dropping the `!== null` -- fails the create the test pins.
+
+- **`writePath()`'s doc has now been wrong three times, and this is the third.**
+  "Both of its callers" became "no caller can reach it", and **one does**: the null
+  exemption lets a present `null` through and `writePath()` is what puts `{}` in
+  its place, which is how the create happens. The enumeration was wrong too -- six
+  functions where there are **eight**, `#settle()` named where `set()` is the
+  caller, `delete()` named where it uses `deletePath()`, and `#spliceEnd()` filed
+  under `#assertWritable()` when it has none and is unreachable for a different
+  reason (it returns early when `readPath()` answers nothing). Which is the same
+  universal-claim failure three times in one docblock, each time by somebody fixing
+  the previous version of it.
+
+- **A claimed delete through an array is silent where a claimed set throws**, and
+  that is the right way round rather than a gap: `deletePath()` has nothing to
+  destroy, so it answers `false` and the file keeps what it had, where a set would
+  have to replace the ancestor to proceed. One rule in two directions -- a dotted
+  path addresses object keys -- and the round offered throwing as the alternative,
+  which is refused because a delete with nothing to delete is a no-op everywhere
+  else here. Documented and pinned as a pair, so the asymmetry is a decision rather
+  than something to tidy.
+
+- **`lineAt()` counted `\n` alone, which `LINE_END` exists to stop.** So a
+  `\r`-only file reported every diagnostic "on line 1" -- a comment the scanner
+  correctly ended at a `\r` was named at a line it is not on. The one function in
+  that module not keeping the module's own rule, and the same class as the `eol`
+  fix two rounds earlier. A CRLF is one break rather than two.
+
+- **`atomic.ts`'s module comment named two declined codes where the set has
+  five**, and aligning the catch with it would start failing saves on `ENOSYS`,
+  `ENOTSUP` and `EOPNOTSUPP`. It points at `declinesFlush()` now rather than
+  listing them, which is the only version that cannot go stale.
+
+- **And `#saved()`'s doc said `get()` and the file "are the same thing"**, which
+  is the sentence the commit two before it had corrected in `save()` and left here.
+  The identical failure in the identical shape: a claim rewritten in one place and
+  left standing in another, where aligning the code with the survivor would be the
+  third read `save()` records as only moving the window.
+
+Its two "Unsure" items were both read and left. An overlay that throws part way
+leaves `into` half-written and nothing persisted -- the store throws in `claim()`
+before `writeAtomic()` and `#staged` mutates a local, so the half-change is
+discarded; no test asserts the ordering, and what would be asserted is an
+in-memory value nobody can see. And the async `writeAtomic()`'s flush codes are
+not walked, which is one `declinesFlush()` shared by both paths rather than a
+second set.
+
+Three sabotages over the two behavioural fixes, all three caught, including both
+directions of the CRLF rule.
+
 #### What the write half costs
 
 - **The config module's graph is 31,425 B over seven modules**, against 20,649 B

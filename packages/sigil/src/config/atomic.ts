@@ -61,10 +61,14 @@ import { dirname } from 'node:path';
  * of the rename itself across a power loss, where what it buys is one fewer
  * disk round trip per save on every filesystem.
  *
- * A flush that fails is **swallowed**, because the filesystems that refuse one
- * refuse it always: `EINVAL` and `EPERM` are what a network mount or a
- * container layer answers, and failing a save over a durability hint the kernel
- * declined is refusing to write a file that would have written perfectly.
+ * A flush the filesystem **declined** is swallowed, because one that refuses the
+ * operation refuses it always: `FLUSH_DECLINED` is the five codes that mean
+ * that, and failing a save over a durability hint the kernel declined is
+ * refusing to write a file that would have written perfectly. A flush that
+ * **failed** is raised, which is the whole point of flushing -- see
+ * `declinesFlush()` for which is which, and read the set there rather than a
+ * list here: this comment named two of the five for a commit, and aligning the
+ * catch with it would start failing saves on the other three.
  */
 
 /** What the target has that the replacement should keep. */

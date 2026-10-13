@@ -628,11 +628,19 @@ export class Config {
 	}
 
 	/**
-	 * Records that a layer was written, and holds what was written.
+	 * Records that a layer was written, and holds what was staged.
 	 *
-	 * The layer takes the merged value rather than keeping what it had, so that
-	 * what `get()` answers and what the file holds are the same thing -- see
-	 * `save()` for why that is the better of the two surprises.
+	 * The layer takes the staged value rather than keeping what it had, so that
+	 * `get()` answers with this process's own changes over the document it read
+	 * rather than with what it held before the save.
+	 *
+	 * That is **not** the same as what the file holds, and this said it was for a
+	 * commit: the file is what the *store* read plus the same changes, so the two
+	 * differ for exactly the keys another process wrote in the window. `save()`
+	 * has the whole of it, including why closing that needs a third read and why a
+	 * third read only moves the window -- and aligning this sentence with itself
+	 * would be re-reading after the write, which is that. Found by review, in the
+	 * commit that corrected the same claim in `save()` and left this one.
 	 */
 	#saved(layer: Layer, hold: Record<string, unknown>): void {
 		layer.value = hold;

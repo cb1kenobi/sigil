@@ -301,7 +301,8 @@ export function deepFreeze<T>(value: T): T {
  * nothing at all; `save()` never passes it.
  *
  * A claimed path whose ancestor in `into` is there and is **not** an object is
- * refused, which is `Config.#assertWritable`'s own rule at the second door. One
+ * refused, which is `Config.#assertWritable`'s rule at the second door **with
+ * one exemption it does not have**. One
  * direct call -- `write({ items: { 0: 9 } }, { paths: ['items.0'] })` over
  * `{ "items": [1, 2, 3] }` -- replaced the array with `{ "0": 9 }` and lost three
  * elements, which is the input `set()` already refuses, reaching a file through a
@@ -315,9 +316,25 @@ export function deepFreeze<T>(value: T): T {
  * claim loses this process's write in silence.
  *
  * An ancestor that is **absent** is created, which is what makes a claim on a key
- * the file says nothing about work at all -- and `null` reaches here as absent,
- * because that is what `null` means everywhere else in this module. So the
- * condition is "there and not an object", which is the one `set()` asks.
+ * the file says nothing about work at all. And a **`null`** one is created too,
+ * which is the exemption and is where this parts from `set()`:
+ * `#assertWritable()` asks `at !== undefined && !isPlainObject(at)` and has no
+ * null case, so the two conditions really are different and saying they are the
+ * same was wrong. What makes that right rather than inconsistent is **which
+ * document each one walks**. A layer's own value went through `copyValue()`,
+ * which drops a key holding `null`, so `set()` can never meet one; a *document*
+ * goes through `copyDocument()`, which **keeps** them, so the overlay can and
+ * does -- and `null` means "not configured", so a claim on `a.b` over a file
+ * that says `"a": null` has to create rather than refuse.
+ *
+ * Which is also the one way the replace in `writePath()` is reachable at all:
+ * the exemption lets a present `null` through and that function then puts `{}`
+ * in its place. Every other caller either refuses first or cannot produce one.
+ *
+ * Both halves of this were written down backwards for a commit, and a review
+ * round caught them: that `copyDocument()` had "its nulls already dropped",
+ * which is `copyValue()`, and that the condition is the one `set()` asks, which
+ * it is not.
  *
  * @param into - The document to write into, which is modified.
  * @param from - The document to read the claimed values out of.
@@ -341,6 +358,18 @@ export function overlay(
 		const mine = readPath(from, parts);
 
 		if (mine === undefined) {
+			// a claimed **delete** whose ancestor is not an object is a no-op rather
+			// than the refusal a claimed set gets, which is an asymmetry and is the
+			// right way round: `deletePath()` has nothing to destroy, so it answers
+			// `false` and the file keeps what it had. A set in the same place would
+			// have to replace the ancestor to proceed, which is what it refuses for.
+			// So `write({}, { paths: ['items.0'] })` over `{ "items": [1,2,3] }`
+			// leaves the array alone while `write({ items: { 0: 9 } }, ...)` throws,
+			// and that is the dotted-paths-address-object-keys rule said twice rather
+			// than two answers to one question. `Config.delete()` is the same no-op
+			// for the same reason. Found by review, which offered throwing as the
+			// other option: it is refused because a delete that has nothing to delete
+			// is a no-op everywhere else here
 			deletePath(into, parts);
 			continue;
 		}
@@ -353,11 +382,13 @@ export function overlay(
 			at = isPlainObject(at) && Object.hasOwn(at, part) ? at[part] : undefined;
 
 			// `null` is absent, because that is what it means everywhere in this
-			// module -- and the two callers would otherwise disagree about it:
-			// `#staged` overlays a `copyDocument()` with its nulls already dropped,
-			// while the store overlays the **parsed** file, where one survives.
-			// Copying there is not the fix: it would drop a `null` the file holds for
-			// a key nobody claimed, and `editJsonc` would then remove it
+			// module -- and **both** callers can see one: `#staged` overlays a
+			// `copyDocument()`, which keeps a key holding `null`, and the store
+			// overlays the parsed file, where one survives too. So this is the rule
+			// rather than a patch over a disagreement between them, which is what the
+			// comment here claimed for a commit. Dropping them in the store is not
+			// the answer either: it would drop a `null` the file holds for a key
+			// nobody claimed, and `editJsonc` would then remove it
 			if (at !== undefined && at !== null && !isPlainObject(at)) {
 				throw new Error(__`"${parts.slice(0, i + 1).join('.')}" in ${where} is not an object`);
 			}

@@ -33,10 +33,12 @@
  *
  * Here: the span and edit types, the applier, and the questions about *text
  * offsets* that no format owns -- which line an offset is on, where that line
- * starts, what it is indented by. `jsonc.ts` reads the last three from here
- * rather than keeping its own, because two definitions of "a line terminator"
- * is how the scanner and the writer come to disagree about where a comment
- * ended.
+ * starts, what it is indented by. The **scanner** reads `LINE_END` and
+ * `lineAt()` and the **writer** reads `LINE_END`, `lineStartAt()` and
+ * `lineIndent()`, rather than either keeping its own, because two definitions of
+ * "a line terminator" is how the two come to disagree about where a comment
+ * ended. Which is three functions across two readers rather than "`jsonc.ts`
+ * reads the last three", as this said for a commit: that file reads two.
  *
  * Not here: the scanner, the serialization of a *new* value, and the insertion
  * mechanics, which are per format. Same call as the two SGR tables and the two
@@ -161,6 +163,12 @@ export function applyEdits(source: string, edits: readonly Edit[]): string {
  * parser already keeps: counting newlines per token makes reading a file with
  * nothing wrong with it quadratic in its own length.
  *
+ * Every line terminator counts, not `\n` alone, which is `LINE_END`'s own rule
+ * met by the one function here that was not keeping it: a `\r`-only file
+ * reported every diagnostic "on line 1", so a comment the scanner correctly
+ * ended at a `\r` was named at a line it is not on. Found by review. A CRLF is
+ * one line rather than two, because the `\n` after a `\r` is the same break.
+ *
  * @param text - The source.
  * @param offset - The offset.
  * @returns The 1-based line.
@@ -168,7 +176,11 @@ export function applyEdits(source: string, edits: readonly Edit[]): string {
 export function lineAt(text: string, offset: number): number {
 	let line = 1;
 	for (let i = 0; i < offset && i < text.length; i++) {
-		if (text[i] === '\n') {
+		if (LINE_END.test(text[i] as string)) {
+			// a CRLF is one break rather than two
+			if (text[i] === '\r' && text[i + 1] === '\n') {
+				i++;
+			}
 			line++;
 		}
 	}
