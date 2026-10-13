@@ -18900,6 +18900,42 @@ written with four tabs where the source has three, so it silently matched nothin
 and the run read as a guard that is not load bearing -- which is the shape this
 file records for its own harness three times over, met a fourth way.
 
+#### Walking the comma shapes, which found the scanner wider than its own rule
+
+A pass over every arrangement of a comma a document can hold, taken while round 3
+was running rather than from a finding. Twenty-two shapes through `scanJsonc()`
+and `parseJsonc()` -- a comma before a comment before a closer, a nested trailing
+comma, `/*` inside a string, a quote inside a block comment, `//` after a
+backslash escape, a lone `/`, each of the four line terminators, a BOM, CRLF, two
+commas, a comma that is not trailing -- and **twenty of the twenty-two were
+right**.
+
+- **The two that were not are `[,]` read as `[]` and `{,}` as `{}`.** A trailing
+  comma is one that **separated** something, and after an opener or another comma
+  there is nothing in front of it -- so those are **elisions**, which this flavour
+  does not have and which VS Code's own parser refuses. The scanner was
+  mis-classifying its own one rule rather than making a format decision: it armed
+  a pending comma unconditionally and blanked it at the closer, which for `[,]`
+  left `[ ]`.
+
+  Not a wrong _value_ -- `[]` is the only reading `[,]` has -- which is why it
+  took walking the shapes rather than a bug report. What it was is a divergence
+  from the one sentence that says what this format is: "the flavour
+  `tsconfig.json` and VS Code's settings are written in".
+
+  Four lines: the last non-trivia character is tracked, and a comma arms only
+  where that character is neither an opener nor another comma. Measured on all
+  nine comma arrangements -- `[1,]` and `[1, /* c */]` still read, `[,1]`,
+  `{,"a":1}`, `[,,]` and `[[,]]` are refused as they were, and the two that were
+  accepted now are not.
+
+- **The 400-seed differential fuzzer agreed throughout**, which is what says the
+  change is narrow: it compares the scan against `JSON.parse` over JSON-valid
+  documents, where no elision can appear. And it is what caught the second
+  sabotage -- dropping `last = c` from the closer branch, which makes `[{},]`
+  read a stale character -- where the hand tests caught the first. Two guards, two
+  different inputs.
+
 #### What the second review round found, and it was twelve tests and sentences
 
 Round 2 was pointed at the eight regions round 1 said it had skipped -- the

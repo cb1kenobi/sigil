@@ -102,6 +102,15 @@ export function scanJsonc(text: string, allow: boolean, what: string): JsoncScan
 	// but trivia in between can go back and blank it. `-1` is "no comma is
 	// pending", which every value, key and brace resets it to
 	let pendingComma = -1;
+
+	// the last character that was not trivia, because a trailing comma is one
+	// that *separated* something: after an opener or another comma there is
+	// nothing in front of it, so `[,]` is an elision rather than a trailing comma
+	// and belongs to `JSON.parse` to refuse. Blanking it read `[,]` as `[]` and
+	// `{,}` as `{}`, which is wider than the flavour this claims to be -- VS
+	// Code's own parser refuses both -- and is the scanner mis-classifying its
+	// one rule rather than a format decision
+	let last = '';
 	let i = 0;
 
 	/** Blanks a run, keeping its newlines so that line numbers survive. */
@@ -144,6 +153,7 @@ export function scanJsonc(text: string, allow: boolean, what: string): JsoncScan
 			i = Math.min(i, source.length);
 			out.push(source.slice(start, i));
 			pendingComma = -1;
+			last = '"';
 			continue;
 		}
 
@@ -185,8 +195,10 @@ export function scanJsonc(text: string, allow: boolean, what: string): JsoncScan
 		}
 
 		if (c === ',') {
-			pendingComma = out.length;
+			// armed only where something precedes it to have been separated
+			pendingComma = last === '' || last === '[' || last === '{' || last === ',' ? -1 : out.length;
 			out.push(c);
+			last = c;
 			i++;
 			continue;
 		}
@@ -203,6 +215,7 @@ export function scanJsonc(text: string, allow: boolean, what: string): JsoncScan
 			}
 			pendingComma = -1;
 			out.push(c);
+			last = c;
 			i++;
 			continue;
 		}
@@ -212,6 +225,7 @@ export function scanJsonc(text: string, allow: boolean, what: string): JsoncScan
 		// separator rather than a trailing one
 		if (c !== ' ' && c !== '\t' && c !== '\n' && c !== '\r') {
 			pendingComma = -1;
+			last = c;
 		}
 
 		out.push(c);

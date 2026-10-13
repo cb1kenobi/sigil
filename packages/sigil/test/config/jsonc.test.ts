@@ -71,6 +71,19 @@ describe('the scan', () => {
 		expect(read('c.jsonc', '{ "a": [1, 2,], }')).to.deep.equal({ a: [1, 2] });
 	});
 
+	it.each(['[,]', '{,}', '[[,]]', '[, /* c */]', '[,1]', '{,"a":1}'])(
+		'should refuse %s, where the comma separated nothing',
+		(text) => {
+			// a trailing comma is one that **separated** something, and after an
+			// opener or another comma there is nothing in front of it -- so `[,]` is
+			// an elision, which this flavour does not have. Blanked, it read as `[]`
+			// and `{,}` as `{}`, which is wider than the flavour this claims to be:
+			// VS Code's own parser refuses both. Found by walking the comma shapes,
+			// and the two it accepted were the only two
+			expect(() => parseJsonc(text, true, 'f')).toThrow(/Failed to parse f/);
+		}
+	);
+
 	it('should read a trailing comma with a comment between it and the brace', () => {
 		// a comment is trivia, so it neither opens nor closes the window a pending
 		// comma is waiting in
