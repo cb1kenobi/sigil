@@ -87,6 +87,18 @@ describe('the scan', () => {
 		expect(read('c.jsonc', '{ "a": 1, "b": 2 }')).to.deep.equal({ a: 1, b: 2 });
 	});
 
+	it('should leave a comma alone that an empty structure follows', () => {
+		// an open brace closes the window a pending comma is waiting in, and it is
+		// the one character where that is not obvious -- `[1, []]` reaches a `]`
+		// with the *outer* comma still pending if it does not, so the separator is
+		// blanked and the document stops parsing. Found by the differential in
+		// fuzz.test.ts, which is the one guard that met it
+		expect(read('c.jsonc', '{ "a": [1, []], "b": [1, {}] }')).to.deep.equal({
+			a: [1, []],
+			b: [1, {}],
+		});
+	});
+
 	it('should blank a byte order mark rather than trimming it', () => {
 		// an editor writes one and `JSON.parse` refuses it, and it is not a
 		// character the document holds -- blanked so that every offset after it
