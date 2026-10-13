@@ -1416,6 +1416,10 @@ statement from a store that cannot be written at all. Both are real: an `/etc`
 file your app reads and must not touch is the first, and a format with no writer
 is the second. `isWritableStore(store)` is the type guard for the second.
 
+So `readOnly: true` on a file layer is redundant today and worth writing anyway:
+it says what you meant, and it is what still holds once the file stores can
+write.
+
 ### There is no `.js` layer
 
 Reading one cannot be done synchronously — `import()` is async and there is no

@@ -18016,9 +18016,14 @@ without destroying it is SIG-154's.
   `dist.test.ts` already gives. Which cost a round: the first markers included
   `mergeLayers`, a name that is only ever _called_ and is therefore in no bundle
   at all, so the absence half passed while saying nothing. The presence half
-  failed immediately, which is what the presence half is for. Sabotaged by
-  appending `export * from './config/index.js'` to `src/index.ts`: **ten**
-  assertions fail.
+  failed immediately, which is what the presence half is for.
+
+  Sabotaged by appending `export * from './config/index.js'` to `src/index.ts`:
+  **five** assertions fail -- the four absence halves, and the root entry's own
+  20 kB ceiling, which 10.7 kB of config walks straight through. The first
+  version of this entry said ten, from a `grep -c` that counted vitest's two
+  lines per failure rather than the failures, which is the stale-figure hazard
+  this file keeps recording arriving in its own measurement.
 
 - **Titanium's `--config-file` pattern works and core is not involved in
   either half.** `titanium-cli`'s `initGlobals()` declares `--config-file [file]`
@@ -18601,7 +18606,8 @@ without destroying it is SIG-154's.
   environment_ can provoke is translated: every JSONC message, the unsafe-key
   refusal, `Failed to read`, `{0} must hold an object`, `Invalid value for "{0}"
   in {1}: {2}`, `Expected a list of values`, the read-only `delete()` message, the
-  `canRepresent()` refusal, and `"{0}" in {1} is not a list`. Anything only the
+  `canRepresent()` refusal, and `"{0}" in {1} is not a list` with its
+  `is not an object` sibling. Anything only the
   _app's own code or a store's own code_ can provoke stays English: a dotted path
   that cannot mean anything, a layer name that is not there, a schema declaration
   that cannot mean anything, `No writable config layer`, a store whose document is
