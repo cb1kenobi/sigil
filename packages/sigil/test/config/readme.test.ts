@@ -1,4 +1,6 @@
 import { createConfig, createConfigSync, json, jsonc, object } from '../../src/config/index.js';
+import type { ConfigDocument, WritableConfigStore } from '../../src/config/index.js';
+import { parse } from '../../src/parser/parse.js';
 import { configHome } from '../../src/paths.js';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -74,6 +76,7 @@ describe("the README's own example", () => {
 			'config.saveSync(); // which is what an exit handler needs',
 			"config.set('server.port', 9090);",
 			'await config.save({ lossy: true }); // this call',
+			"layers: [{ name: 'generated', lossy: true, store: reprinting(path) }]; // this layer",
 			"json('config.jsonc'); // throws: use jsonc() instead",
 			"config.set('server.retries', Infinity);",
 		]) {
@@ -168,6 +171,29 @@ describe("the README's own example", () => {
 		expect(config.saveSync()).to.deep.equal(['user']);
 	});
 
+	it('should claim only the paths the README shows it claiming', async () => {
+		// the README prints the direct-store form of the three-way merge, so the
+		// line it prints is the line that runs -- and what it is *for* is the half a
+		// total write cannot do, which is why the assertion is about the key the
+		// call never names
+		const call = fenced('ts', 'store.write').trim();
+		expect(call).to.equal("await store.write({ port: 9000 }, { paths: ['port'] });");
+
+		const path = join(root, 'config.jsonc');
+		writeFileSync(path, '{\n\t// kept\n\t"port": 8080,\n\t"host": "a"\n}\n');
+		const store = jsonc(path);
+
+		await store.write({ port: 9000 }, { paths: ['port'] });
+
+		expect(readFileSync(path, 'utf8')).to.equal(
+			'{\n\t// kept\n\t"port": 9000,\n\t"host": "a"\n}\n'
+		);
+
+		// `Without it a write is total`, which is the sentence under the block
+		await store.write({ port: 1 });
+		expect(readFileSync(path, 'utf8')).to.equal('{\n\t// kept\n\t"port": 1\n}\n');
+	});
+
 	it('should refuse a lossy write in the words the README prints', () => {
 		// the README shows the message in a fenced block, and a refusal whose
 		// wording has moved is a recipe that is broken if followed -- so the two
@@ -228,16 +254,35 @@ describe("the README's own example", () => {
 	});
 
 	it('should take lossy per layer the way the README spells it', async () => {
-		// `layers: [{ name: 'generated', lossy: true, store: jsonc(path) }]`
-		const path = join(root, 'gen.jsonc');
-		writeFileSync(path, '{"a":1}');
+		// `layers: [{ name: 'generated', lossy: true, store: reprinting(path) }]`
+		//
+		// over a store that really does report a loss, because the two in here never
+		// do: with a `jsonc()` layer the lossless check returns before it ever reads
+		// `layer.lossy`, so this passed with the flag deleted -- which is the README's
+		// own "the file stores in here never trip it" said against the test for it.
+		// Found by review, and the example moved with it
+		const store: WritableConfigStore = {
+			format: 'yamlish',
+			read: (): Promise<ConfigDocument> =>
+				Promise.resolve({ value: { a: 1 }, wouldLose: [{ kind: 'comment', line: 4 }] }),
+			readSync: (): ConfigDocument => ({ value: { a: 1 } }),
+			source: '/etc/app/config.yaml',
+			write: (): Promise<void> => Promise.resolve(),
+			writeSync: (): void => undefined,
+		};
+
 		const config = await createConfig({
-			layers: [{ lossy: true, name: 'generated', store: jsonc(path) }],
+			layers: [{ lossy: true, name: 'generated', store }],
 			env: {},
 		});
 
 		config.set('a', 2);
 		expect(await config.save()).to.deep.equal(['generated']);
+
+		// and without it the same save refuses, which is what says the flag is read
+		const strict = await createConfig({ layers: [{ name: 'generated', store }], env: {} });
+		strict.set('a', 2);
+		await expect(strict.save()).rejects.toThrow(/comment:4 would be lost/);
 	});
 
 	it('should reach a file layer by name, which both file stores now are', async () => {
@@ -254,17 +299,82 @@ describe("the README's own example", () => {
 		expect(config.layers[0]?.dirty).to.equal(true);
 	});
 
-	it('should mix an option with a setting the way the README says', () => {
+	it('should mix an option with a setting the way the README says', async () => {
 		// `options: { '--port [n]': { type: 'int', default: config.get('server.port') } }`
+		//
+		// through a real parse rather than a `get()`, because the claim is about the
+		// *chain*: "argv -> env -> config through the chain that already exists". The
+		// first version of this asserted that a defaulted setting reads back as a
+		// number and built no option at all, so it could not fail if the mixing were
+		// broken. Found by review
 		const config = createConfigSync({
 			schema: { 'server.port': { type: 'int', default: 8080 } },
 			env: {},
 		});
 
-		expect(config.get('server.port')).to.equal(8080);
-		// which is what an app puts in a declaration, so it has to be a value the
-		// parser's own `default` can take
-		expect(typeof config.get('server.port')).to.equal('number');
+		const schema = {
+			name: 'app',
+			options: { '--port [n]': { env: 'PORT', type: 'int', default: config.get('server.port') } },
+		} as const;
+
+		// nothing said, so the config's value is what lands -- which is the whole of
+		// what this spelling buys
+		expect((await parse({ argv: [], env: {}, schema })).argv.port).to.equal(8080);
+		// the environment beats it, and argv beats that, which is the chain the
+		// README names and is the parser's own rather than anything config added
+		expect((await parse({ argv: [], env: { PORT: '2' }, schema })).argv.port).to.equal(2);
+		expect((await parse({ argv: ['--port', '1'], env: { PORT: '2' }, schema })).argv.port).to.equal(
+			1
+		);
+	});
+
+	it('should name every export in the README', () => {
+		// an export nobody can find is an export nobody uses, and six of the types
+		// were in neither the prose nor the catalog -- which a reader writing a
+		// function that takes a `ConfigOptions` has no way past. Found by review, and
+		// the class is closed rather than the instance: read off the **barrel** so a
+		// name added without a sentence fails here
+		const barrel = readFileSync(join(import.meta.dirname, '../../src/config/index.ts'), 'utf8');
+		const names = new Set<string>();
+
+		for (const block of barrel.matchAll(/^export (?:type )?\{([^}]*)\}/gm)) {
+			for (const name of (block[1] as string).split(',')) {
+				if (name.trim()) {
+					names.add(name.trim());
+				}
+			}
+		}
+
+		// more than a couple, or the reader above matched nothing and this is vacuous
+		expect(names.size).toBeGreaterThan(10);
+
+		const from = readme.indexOf('## Config files');
+		const catalog = readme.indexOf('### `sigil/config`');
+		const prose =
+			readme.slice(from, readme.indexOf('## Subpath modules', from)) +
+			readme.slice(catalog, readme.indexOf('\n### ', catalog + 1));
+
+		expect([...names].filter((name) => !prose.includes(name))).to.deep.equal([]);
+	});
+
+	it('should draw WriteOptions whole, since a store is copied from that fence', () => {
+		// the fence says `ConfigStore` is "drawn whole" and named `WriteOptions`
+		// without showing it, so a store copied from it stopped at `lossy` -- and a
+		// store that ignores `paths` has round 1's revert-another-process's-key
+		// defect back. Read off the real type, so a field added without a fence entry
+		// fails here. Found by review
+		const types = readFileSync(join(import.meta.dirname, '../../src/config/types.ts'), 'utf8');
+		const body = types.slice(types.indexOf('export interface WriteOptions {'));
+		const fields = [...body.slice(0, body.indexOf('\n}')).matchAll(/^\t(\w+)\?:/gm)].map(
+			(it) => it[1] as string
+		);
+
+		// two today, and a floor so the reader above cannot go quiet
+		expect(fields).to.have.length.greaterThan(1);
+
+		const fence = fenced('ts', 'interface WritableConfigStore');
+		expect(fence).to.contain('interface WriteOptions {');
+		expect(fields.filter((name) => !fence.includes(`${name}?:`))).to.deep.equal([]);
 	});
 
 	it('should read the store table the way it reads', () => {

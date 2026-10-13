@@ -205,6 +205,9 @@ hole and the more consequential half of it, since it decides whether
 the build wrote, here it restores something the build would not have written.
 
 So `sigil.json` is in `inputs`, beside `tsdown.config.ts`, which is the precedent
+-- and `sigil.jsonc` is beside it since the write half, because either name is
+read and a task's `inputs` has to name both or the one it left out is the hole
+this entry is about, back again
 in both directions -- a package without the file contributes nothing, and a
 package whose build reads one has to say so. The audit that turned up nothing else
 is worth recording, because "the one somebody found is fixed" is a weaker claim,
@@ -9639,7 +9642,7 @@ makes it testable with a fixture directory and no bundler at all.
   app naming `jsxImportSource` always built correctly and the defect was only
   ever rolldown's default; byte for byte, such an app's bundle is what it was
   before this changed. Which is also the argument against the other candidate:
-  a `sigil.json` key, or a `tsconfig` reader of the build's own, would be a
+  a `sigil.jsonc` key, or a `tsconfig` reader of the build's own, would be a
   second place to say a thing the app's editor and its own `tsc` already obey,
   and reading one means JSONC and an `extends` chain rather than a lookup.
 - **`importSource` and nothing else, which is the whole of the decision.**
@@ -10346,7 +10349,7 @@ other is refused with numbers.
 - **A flag beats the file, and for a _flag_ that is only true in one
   direction.** A declared flag always has a value -- `false`, or `true` when
   negated, never `undefined` -- so an explicit `--shake` is indistinguishable
-  from the default and cannot beat a `"shake": false` in `sigil.json`, while
+  from the default and cannot beat a `"shake": false` in `sigil.jsonc`, while
   `--no-shake` over a `"shake": true` works. That is the direction that matters,
   because off is the only thing either flag is offered for, and it is the same
   imprecision `--out` already carries a comment about: what a defaulted option
@@ -11466,7 +11469,7 @@ people's software and will move.
   case and `cd apps/demo` under a `--cwd`. Both go through `displayPath`, which
   is what makes them forward-slashed on Windows -- and is what a test asserting
   a `join()`ed path would get wrong there and nowhere else.
-- **A `sigil.json` is written rather than left to the convention.** A scaffold is
+- **A `sigil.jsonc` is written rather than left to the convention.** A scaffold is
   exactly where a project's conventions should be explicit, and it is what stops
   `sigil add` having to guess -- and then print the guess, which is what it does
   when there is no config.
@@ -16837,7 +16840,7 @@ and the check, and `src/i18n/keys.ts` is generated.
   `defaultLocale` is the app saying "ship in German unless the machine asks
   otherwise" and the environment outranks it. One name meaning both is how a
   default comes to override the user, which is the trap. It is what
-  `"locale": "de"` in `sigil.json` reaches, through the build.
+  `"locale": "de"` in `sigil.jsonc` reaches, through the build.
 
   It does **not** open the no-catalogs fast path: an app that names a default and
   ships no `locales` still resolves nothing, because a default is not a catalog
@@ -16846,7 +16849,7 @@ and the check, and `src/i18n/keys.ts` is generated.
   serves Austria from one `de` catalog, and a tag no loader is keyed by reads as
   English.
 
-- **`sigil.json` gains a `locale`, which is the first key in that file that
+- **`sigil.jsonc` gains a `locale`, which is the first key in that file that
   changes what the app says at run time -- so it is top level rather than under
   `build`.** Everything else in there is a toolchain setting: `components` is
   where `sigil add` ejects and `build.*` are bundler knobs, none of which the
@@ -16863,7 +16866,7 @@ and the check, and `src/i18n/keys.ts` is generated.
   here would be one that disagrees with `Intl`.
 
   What it costs is an asymmetry worth stating rather than hiding: the key reaches
-  the **built** app only, so an app whose `sigil.json` says `de` and whose schema
+  the **built** app only, so an app whose `sigil.jsonc` says `de` and whose schema
   says nothing is German built and English unbundled. That is `version`'s own
   shape -- the manifest's version is baked while the app's own function is the
   unbundled answer -- and the answer is the same: an app that wants its
@@ -17053,7 +17056,7 @@ and the check, and `src/i18n/keys.ts` is generated.
   literal rather than the `JSON.parse`-of-a-string-literal trick everybody
   reaches for first -- which loses until about a thousand keys. A `printCatalog()`
   was written and tested and then **removed**, because the baking is not wired and
-  this repo does not ship an export with no caller. What `sigil.json` gained
+  this repo does not ship an export with no caller. What `sigil.jsonc` gained
   instead is a `locale` **default** rather than a baked catalog, which is the
   entry below: it decides which catalog is loaded and bakes none of it.
 
@@ -18619,10 +18622,11 @@ without destroying it is SIG-154's.
   fires for the one value the module reads as silence.
 
   Worth knowing where each half of a message comes from: the type messages name
-  the **layer**, which the toolchain calls `sigil.json`, while the parse and read
-  messages name the store's **source**, which is the absolute path. So
-  `Invalid value for "build.external" in sigil.json` and
-  `Failed to parse /path/to/sigil.json` sit side by side, and each names the
+  the **layer**, which the toolchain calls after whichever of the two files it
+  found -- `sigil.jsonc` or `sigil.json` -- while the parse and read messages
+  name the store's **source**, which is the absolute path. So
+  `Invalid value for "build.external" in sigil.jsonc` and
+  `Failed to parse /path/to/sigil.jsonc` sit side by side, and each names the
   thing its own reader can act on.
 
 - **A file that is not there and a file holding `{}` are now the same answer.**
@@ -19850,6 +19854,92 @@ Two of the eighteen are inverse pairs, which is what makes the claim two-sided
 rather than one: `paths` claiming _everything_ fails the `apply()` test where
 claiming _nothing_ fails the window tests, and `FLUSH_DECLINED` gaining `EIO`
 fails only the new test where emptying it fails only the old one.
+
+#### What the second review round found, and it was all prose and tests
+
+Pointed at the files round 1 listed as **not examined** and told not to re-derive
+its premises. It found **no runtime defect in the ten regions round 1 had read**,
+and nine findings in the ones nobody had opened: one interface doc that was false
+about the field it documents, two tests that could not fail for the reason their
+names gave, a copyable fence missing the field a store must honour, a README
+example whose flag is inert, and four stale names. Which is the distribution this
+file records three times over -- a premise-attacking round confirms, and the
+findings come from what nobody opened.
+
+Three of the four stale names had been corrected independently while the round
+was running, by sweeping every `sigil.json` in the tree for a present-tense
+claim. Worth recording as corroboration rather than as duplication: two routes to
+one finding is the strongest evidence either produces, and the sweep is what found
+the one the round found too.
+
+- **`Loss`'s own doc said "empty" where the field is absent, which is the fourth
+  copy of that wording.** This section already records fixing it in three places,
+  and missed the one a **store author** reads: a store aligned with that sentence
+  answers `[]`, and then `layer.wouldLose?.length` -- which the README tells every
+  caller to use -- is a lie the other way. `layer.wouldLose.length` is a
+  `TypeError` today, and the doc said it would not be.
+
+- **`should take lossy per layer the way the README spells it` could not fail,
+  and the README example it quotes is why.** Both used a `jsonc()` store, which
+  never reports a loss -- so `#assertLossless()` returns at `losses.length === 0`
+  before it ever reads `layer.declared.lossy`, and deleting the flag left the test
+  green. The README's own prose says it two paragraphs up: "the file stores in here
+  never trip it". So the example names `reprinting(path)` now, with a sentence
+  saying that `lossy` on a `jsonc()` layer is a flag nothing reads, and the test
+  drives a store that really does report one -- asserting the refusal **without**
+  the flag beside the write **with** it, which is what makes the flag the thing
+  under test.
+
+- **`should mix an option with a setting the way the README says` did not mix.**
+  It asserted that a defaulted setting reads back as a number and **built no
+  option at all**, so it could not fail if the mixing were broken -- while the
+  README's claim is about the _chain_: "argv, then env, then config through the
+  chain that already exists". It goes through a real `parse()` now, at all three
+  steps, which is the one shape that can see it.
+
+- **The `ConfigStore` fence says it is "drawn whole" and named `WriteOptions`
+  without showing it.** So a third-party store copied from the block stops at
+  `lossy` and ignores `paths` -- which is round 1's revert-another-process's-key
+  defect reintroduced in somebody else's store, by a reader doing exactly what the
+  README invited. The fence shows it now, and `should draw WriteOptions whole`
+  reads the **real** type's fields so a field added without a fence entry fails
+  rather than going quiet.
+
+- **`WritableConfigStore.write()`'s doc stopped at "the whole value".** True and
+  incomplete after `paths`: a store author who reads only the first sentence
+  ignores the option. It names it and says to read it.
+
+- **Six exported types were in neither the prose nor the catalog** --
+  `ConfigLayer`, `ConfigLayerInfo`, `ConfigMerge`, `ConfigOptions`,
+  `ConfigSchema`, `ConfigSetting`. An exported type is API an app writes into its
+  own signatures, and one nobody can find is one nobody uses. The **class** is
+  closed rather than the instance, which is the testing helpers' own answer:
+  `should name every export in the README` reads the barrel, so a name added
+  without a sentence fails there.
+
+- **`Schema.defaultLocale`'s doc and an i18n test still named `sigil.json`**, and
+  the first is live public API on the runtime package -- the one place a reader
+  meets the toolchain's config file through completion.
+
+- **And the diagnostic sentence in AGENTS.md was wrong rather than stale**, which
+  is the one of the four that is a behaviour claim: it said "the layer, which the
+  toolchain calls `sigil.json`", where `configLayer()` names the layer after
+  **whichever of the two files it found**. Somebody aligning the diagnostics with
+  that sentence reverts the rename on the common path.
+
+Its "Unsure" section was empty, and the one thing it put there instead is worth
+keeping: `cli.test.ts`'s `reads` table lists only `sigil.jsonc` while
+`packages/cli/turbo.json` hashes both, and that is **not** a hole, because
+`should hash every file a build command reads` is presence-only `toContain` --
+omitting `sigil.json` fails nothing. A correct reading of a non-hole is as much
+of a result as a finding.
+
+Six sabotages over the fixes, **all six caught**, each by exactly the test named
+for it -- after two survivors that were the same shape as the findings: the
+per-layer README line was quoted in a **comment** rather than read out of the
+README, and nothing asserted the fence names `WriteOptions` at all. The
+quote-check in that file is an explicit list, which is why a line can be missing
+from it; the list is what the sabotage grew.
 
 #### What the write half costs
 

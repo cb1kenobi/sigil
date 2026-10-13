@@ -1059,7 +1059,7 @@ describe('a default locale the app declared', () => {
 
 	it('should render in it when the environment named none', async () => {
 		// `sigil build` writes `defaultLocale` into the schema from `"locale"` in
-		// `sigil.json`, because the runtime cannot read that file -- so this one
+		// `sigil.jsonc`, because the runtime cannot read that file -- so this one
 		// argument is the whole of what makes that feature reach the screen
 		vi.stubEnv('LANG', undefined);
 		vi.stubEnv('LC_ALL', undefined);

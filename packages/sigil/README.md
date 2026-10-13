@@ -1355,8 +1355,9 @@ config.delete('editor.theme');
 await config.save(); // and `saveSync()` for an exit handler
 ```
 
-`createConfigSync()` is the same thing without awaiting, which is what an exit
-or signal handler needs. Every accessor is synchronous either way: the layers
+`createConfigSync()` is the same thing without awaiting, which is the **read-in**
+half of what an exit or signal handler needs — `saveSync()` above is the write-out
+half, and neither can await. Every accessor is synchronous either way: the layers
 are read once, at construction, so `get()` is a lookup in an object already in
 memory rather than a promise per read.
 
@@ -1724,8 +1725,12 @@ deliberately never global:
 
 ```js
 await config.save({ lossy: true }); // this call
-layers: [{ name: 'generated', lossy: true, store: jsonc(path) }]; // this layer
+layers: [{ name: 'generated', lossy: true, store: reprinting(path) }]; // this layer
 ```
+
+`reprinting(path)` stands for a store that reprints — the two file stores in
+here answer with no loss at all, so `lossy` on a `jsonc()` layer is a flag
+nothing ever reads.
 
 Per layer is the legitimate case — this file is generated, so clobber it freely.
 A global "allow clobbering" is set once in a scaffold and never thought about
@@ -1790,12 +1795,25 @@ interface Loss {
   line?: number;
   detail?: string;
 }
+
+interface WriteOptions {
+  lossy?: boolean;
+  paths?: readonly string[];
+}
 ```
 
 A `write()` is handed the **whole** value the layer should hold rather than a
 list of changes, which is what lets a store choose how to get there: the JSON
 stores diff it against the bytes they already hold and splice, where a store
 with no editing model reprints and says so through `wouldLose`.
+
+`WriteOptions.paths` is what says which of that value is the caller's. A store
+may ignore it and be total, which is a coarser answer rather than a wrong one —
+and a store that honours it leaves every key the caller did not claim exactly as
+it found it, which is the only way a `save()` can re-read the file and not revert
+what another process wrote in the window. `WriteOptions` is in the fence above
+for that reason: a store copied from it that stopped at `lossy` would have that
+defect back.
 
 `Loss.kind` is open rather than a closed union, because a format this package
 has never heard of has trivia this package cannot enumerate.
@@ -2957,6 +2975,13 @@ merge.
 `createConfig()`, `createConfigSync()`, the stores and the `ConfigStore`
 interface — one merged view over an ordered stack of layers. See
 [Config files](#config-files) for the whole of it.
+
+The whole surface, since an exported type is API an app can write into its own
+signatures: `createConfig`, `createConfigSync`, `Config`, `isWritableStore`,
+`object`, `json`, `jsonc`, and the types `ConfigOptions`, `ConfigLayer`,
+`ConfigLayerInfo`, `ConfigSchema`, `ConfigSetting`, `ConfigMerge`,
+`ConfigDocument`, `ConfigStore`, `WritableConfigStore`, `WriteOptions` and
+`Loss`.
 
 ```js
 import { createConfigSync, json, jsonc, object } from '@ttylabs/sigil/config';

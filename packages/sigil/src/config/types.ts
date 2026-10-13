@@ -3,9 +3,16 @@ import type { DataType } from '../types.js';
 /**
  * Trivia a document holds that **this store** could not carry through a write.
  *
- * Empty for a span store even over a comment-rich file, because it edits rather
- * than reprints; populated by a store that reprints what it parsed. What to do
- * about it is the config's, which is the lossless rule.
+ * **Absent** for a span store even over a comment-rich file, because it edits
+ * rather than reprints; populated by a store that reprints what it parsed. The
+ * field is optional, so nothing lost is no field rather than `[]` -- which makes
+ * `layer.wouldLose?.length` the way to read it, and `layer.wouldLose.length` a
+ * `TypeError`. What to do about it is the config's, which is the lossless rule.
+ *
+ * Said as "empty" here for one commit, which is the fourth copy of that wording
+ * this field has had and the one a store author reads: a store aligned with it
+ * would answer `[]`, and then the optional-chain reading every caller is told to
+ * use is a lie the other way. Found by review.
  */
 export interface Loss {
 	/**
@@ -134,9 +141,19 @@ export interface ConfigStore {
  * with no editing model reprints and says so through `wouldLose`.
  */
 export interface WritableConfigStore extends ConfigStore {
-	/** Persists a value. */
+	/**
+	 * Persists a value.
+	 *
+	 * The **whole** value the layer should hold rather than a list of changes,
+	 * which is what lets a store choose how to get there -- and `opts.paths` is
+	 * what says which of it is the caller's. A store may ignore that and be
+	 * total, which is a coarser answer rather than a wrong one; a store that
+	 * honours it is what makes `save()`'s re-read mean something, so read
+	 * `WriteOptions.paths` before deciding this takes a whole document and
+	 * nothing else.
+	 */
 	write(value: unknown, opts?: WriteOptions): Promise<void>;
-	/** Persists a value without awaiting anything. */
+	/** Persists a value without awaiting anything, with `write()`'s contract. */
 	writeSync(value: unknown, opts?: WriteOptions): void;
 }
 
