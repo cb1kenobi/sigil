@@ -1,5 +1,5 @@
 import { CONFIG_FILE, readSigilConfig } from '../src/config.js';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -70,6 +70,29 @@ describe('reading it', () => {
 			sourcemap: true,
 		});
 		expect(withConfig({ build: { out: 'x' } }).build?.out).to.equal('x');
+	});
+
+	it('should keep only the fields build declares', () => {
+		// the merged view holds whatever the *file* holds, so passing it through
+		// would hand back an object with keys `BuildConfig` does not declare -- a
+		// value that lies about its own type, over a key that is almost always a
+		// typo for one of the six. The hand-written reader picked by naming each
+		// one; this picks by a list
+		expect(withConfig({ build: { nope: 1, out: 'x' } }).build).toStrictEqual({ out: 'x' });
+		expect(withConfig({ build: { nope: 1 } }).build).to.equal(undefined);
+	});
+
+	it('should ignore an unknown key beside build, as it always did', () => {
+		expect(withConfig({ locale: 'de', whatever: 1 })).toStrictEqual({ locale: 'de' });
+	});
+
+	it('should report a directory where the file was named', () => {
+		// `isFile()` answered `false` for one and the reader returned `{}`, so an
+		// app pointing at the wrong thing looked like an app with no config.
+		// `EISDIR` is deliberately not read as "there is none"
+		const dir = join(root, CONFIG_FILE);
+		mkdirSync(dir);
+		expect(() => readSigilConfig(root)).toThrow(/Failed to read/);
 	});
 
 	it('should read the shaking fields', () => {

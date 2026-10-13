@@ -18566,6 +18566,33 @@ without destroying it is SIG-154's.
   somebody chose. And "relative to the app" is a fact about what a field is _for_
   rather than about what kind of value it is.
 
+- **The migration was walked check by check against the old reader, which is
+  the only way an acceptance test means anything.** Eleven validations, nine
+  unchanged -- `build` must be an object, every name non-empty, every list a list
+  of non-empty names, `components` relative, `locale` a non-empty string, a
+  parse failure reported, an absent file empty -- and the two that moved are the
+  coercion and the messages, argued above. Two further differences turned up by
+  walking it rather than by reading it:
+
+  An **unknown key under `build`** used to be dropped, because the reader named
+  each field it read; the merged view holds whatever the _file_ holds, so passing
+  it through handed back an object with keys `BuildConfig` does not declare. That
+  is a value that lies about its own type over a key which is almost always a
+  typo for one of the six, so `readSection()` picks by a list. An unknown key
+  _beside_ `build` was and is ignored.
+
+  And a **directory where the file was named** used to answer `{}`, because
+  `isFile()` is false for one -- so an app pointing at the wrong thing looked
+  like an app with no config. It is `Failed to read` now, which is the
+  `EISDIR`-is-not-absence rule arriving at its first real caller.
+
+  Worth knowing where each half of a message comes from: the type messages name
+  the **layer**, which the toolchain calls `sigil.json`, while the parse and read
+  messages name the store's **source**, which is the absolute path. So
+  `Invalid value for "build.external" in sigil.json` and
+  `Failed to parse /path/to/sigil.json` sit side by side, and each names the
+  thing its own reader can act on.
+
 - **A file that is not there and a file holding `{}` are now the same answer.**
   The keys are set only where the file said something, where the hand-written
   reader set every one of them to `undefined` and distinguished the two cases only

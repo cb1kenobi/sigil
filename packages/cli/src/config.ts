@@ -93,6 +93,9 @@ export interface SigilConfig {
 	readonly locale?: string;
 }
 
+/** The fields `build` may hold, as the one list `readSection()` picks by. */
+const FIELDS = ['external', 'name', 'out', 'safelist', 'shake', 'sourcemap'] as const;
+
 /**
  * What the file may hold, in the parser's own type vocabulary.
  *
@@ -195,8 +198,20 @@ function readSection(value: unknown): BuildConfig | undefined {
 		throw new Error(`${CONFIG_FILE}: "build" must be an object`);
 	}
 
-	const build = value as BuildConfig;
-	return Object.keys(build).length > 0 ? readBuild(build) : undefined;
+	// the declared fields and nothing else, which is what the hand-written reader
+	// did by naming each one. The merged view holds whatever the *file* holds, so
+	// passing it through would hand back an object with keys `BuildConfig` does
+	// not declare -- a value that lies about its own type, over a key that is
+	// almost always a typo for one of these six
+	const held = value as Record<string, unknown>;
+	const build: Record<string, unknown> = {};
+	for (const field of FIELDS) {
+		if (Object.hasOwn(held, field)) {
+			build[field] = held[field];
+		}
+	}
+
+	return Object.keys(build).length > 0 ? readBuild(build as BuildConfig) : undefined;
 }
 
 /**
