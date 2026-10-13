@@ -115,7 +115,7 @@ function typeOf(setting: ConfigSetting): string {
  * @param where - The layer, for the message.
  * @throws If the value is not one the setting can hold.
  */
-export function coerceSetting(value: Record<string, unknown>, it: Setting, where: string): void {
+function coerceSetting(value: Record<string, unknown>, it: Setting, where: string): void {
 	const at = readPath(value, it.parts);
 
 	// absent and `null` are both "not configured", which is the file's own
@@ -283,9 +283,4 @@ export function concatPaths(settings: readonly Setting[]): (path: string) => boo
 	}
 
 	return (path: string) => Object.hasOwn(index, path);
-}
-
-/** The setting at a path, if the schema declared one. */
-export function settingAt(settings: readonly Setting[], path: string): Setting | undefined {
-	return settings.find((it) => it.path === path);
 }

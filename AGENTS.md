@@ -18311,6 +18311,35 @@ without destroying it is SIG-154's.
   stack is ordered and the top is what wins, so writing to a lower one means
   `get()` does not change -- a mutation that looks like it did nothing.
 
+- **A mutation validates the whole layer rather than the setting at its own
+  path, and the narrower version was a hole in both directions.** A path can be
+  _inside_ a declared setting or _outside_ one declared under it, and a pass that
+  asked only about `parts.join('.')` missed both. Measured rather than reasoned:
+  with a schema of `{ server: { type: 'string' } }`, `set('server.port', 1)` left
+  `{ server: { port: 1 } }` on the layer, which `createConfig()` over a file
+  holding the same thing refuses outright; and with `{ 'a.b': { type: 'int' } }`,
+  `set('a', { b: 'nope' })` put the string on an `int` setting. Either way a
+  `set()` could leave a layer in a state the load path says is impossible, which
+  is the worst shape a validation hole has -- the next run of the same app over
+  the same file refuses to start.
+
+  So there is **one** validation pass and `apply()` already ran it, which makes
+  this hole-free by construction rather than by a rule about which settings a
+  path touches. What it costs is a path read per declared setting per mutation,
+  which for a config is a handful of lookups. Restoring the one path is enough
+  even though the pass rewrites every setting it validates, because
+  `coerceSetting()` is **idempotent**: a coerced value coerces to itself, and a
+  `null` that was dropped is absent on the second pass -- so a run that threw
+  part way through has changed nothing but the path being put back. Found by
+  self-review, and `settingAt()` went with it, because a function with no reader
+  is dead.
+
+  What that does **not** do is constrain an undeclared parent: `a: [1, 2]` with
+  `a.b` declared leaves the array alone and reads `a.b` as absent, because a
+  config schema has no nested object shapes. Which is why the toolchain keeps its
+  own "build must be an object", and is pinned so that the absence is a decision
+  rather than an accident.
+
 - **A refused mutation puts the layer back, and back to what was there rather
   than to nothing.** The rule `Show` and `For` already keep about a branch that
   threw. Deleting where there was nothing rather than writing `undefined`, because

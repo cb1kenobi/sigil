@@ -936,6 +936,58 @@ describe('the schema', () => {
 		expect(config.get()).to.deep.equal({});
 	});
 
+	// a mutation validates the **whole** layer rather than the setting at its own
+	// path, because a path can be *inside* a declared setting or *outside* one
+	// declared under it -- and a pass that looked at its own path alone missed
+	// both, leaving a layer in a state the load path says is impossible
+	it('should refuse a set into a path inside a declared setting', async () => {
+		const config = await createConfig({
+			schema: { server: { type: 'string' } },
+			layers: [{ name: 'a', store: object({ server: 'x' }) }],
+		});
+
+		// `{ server: { port: 1 } }` is not a string, and `createConfig()` over a
+		// file holding it refuses outright -- so a `set()` that produced it would
+		// mean the next run of the same app over the same file fails to start
+		expect(() => config.set('server.port', 1)).toThrow(/Invalid value for "server"/);
+		expect(config.get('server')).to.equal('x');
+	});
+
+	it('should refuse a set over a path whose children are declared', async () => {
+		const config = await createConfig({
+			schema: { 'a.b': { type: 'int' } },
+			layers: [{ name: 'x', store: object({}) }],
+		});
+
+		expect(() => config.set('a', { b: 'nope' })).toThrow(/Invalid value for "a\.b"/);
+		expect(config.get()).to.deep.equal({});
+	});
+
+	it('should refuse a push into a path inside a declared setting', async () => {
+		const config = await createConfig({
+			schema: { server: { type: 'string' } },
+			layers: [{ name: 'a', store: object({ server: 'x' }) }],
+		});
+
+		expect(() => config.push('server.ports', 1)).toThrow(/Invalid value for "server"/);
+		expect(config.get('server')).to.equal('x');
+	});
+
+	it('should leave a declared setting under an undeclared non-object alone', async () => {
+		// the other half of "a path the schema does not declare is left as it
+		// arrived": `a` is undeclared, so `a: [1, 2]` is a legal undeclared value
+		// and `a.b` is simply absent. Declaring `a.b` does not constrain `a`,
+		// because a config schema has no nested object shapes -- which is why the
+		// toolchain keeps its own "build must be an object" check
+		const config = await createConfig({
+			schema: { 'a.b': { type: 'int' } },
+			layers: [{ name: 'x', store: object({ a: [1, 2] }) }],
+		});
+
+		expect(config.get('a')).to.deep.equal([1, 2]);
+		expect(config.has('a.b')).to.equal(false);
+	});
+
 	it('should coerce what a set wrote', async () => {
 		const config = await createConfig({
 			schema: { port: { type: 'int' } },

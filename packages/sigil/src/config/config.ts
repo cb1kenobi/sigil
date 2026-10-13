@@ -1,16 +1,7 @@
 import { __ } from '../i18n/index.js';
 import { deletePath, isPlainObject, readPath, segments, writePath } from './dotted.js';
 import { copyValue, deepFreeze, mergeLayers } from './merge.js';
-import {
-	coerceLayer,
-	coerceSetting,
-	concatPaths,
-	defaultsOf,
-	envOf,
-	readSchema,
-	settingAt,
-	type Setting,
-} from './schema.js';
+import { coerceLayer, concatPaths, defaultsOf, envOf, readSchema, type Setting } from './schema.js';
 import type {
 	ConfigDocument,
 	ConfigLayer,
@@ -266,25 +257,7 @@ export class Config {
 		const next = copyValue(value, layer.name);
 		writePath(layer.value, parts, next);
 
-		// validated after the write and in place, which is what makes the stored
-		// value the coerced one: `set('server.port', '8080')` leaves `8080` on the
-		// layer rather than a string for the next reader to interpret, exactly as
-		// `applyFallback()` writes a coerced value onto `argv`
-		const it = this.#settingFor(parts);
-		if (it) {
-			try {
-				coerceSetting(layer.value, it, layer.name);
-			} catch (e: unknown) {
-				// the layer is put back before the throw escapes, because a `set()`
-				// that failed must not leave half of itself behind -- the rule `Show`
-				// and `For` already keep about a branch that threw. Back to what was
-				// there rather than to nothing: a refused `set()` over an existing
-				// value must not be a `delete()`
-				this.#restore(layer, parts, before);
-				throw e;
-			}
-		}
-
+		this.#validate(layer, parts, before);
 		this.#recompute();
 	}
 
@@ -366,6 +339,52 @@ export class Config {
 	}
 
 	/**
+	 * Validates the **whole** layer after a mutation, putting the one path back
+	 * if it is refused.
+	 *
+	 * The whole layer rather than the setting at the written path, and that is a
+	 * hole rather than a cost: a path can be *inside* a declared setting or
+	 * *outside* one that is declared under it, and a mutation that looked at its
+	 * own path alone missed both. Measured, with a schema of
+	 * `{ server: { type: 'string' } }`, `set('server.port', 1)` left
+	 * `{ server: { port: 1 } }` on the layer -- which `createConfig()` would have
+	 * refused outright -- and with `{ 'a.b': { type: 'int' } }`,
+	 * `set('a', { b: 'nope' })` put the string on an `int` setting. Either way a
+	 * `set()` could leave a layer in a state the load path says is impossible,
+	 * which is the worst shape a validation hole has: the next run of the same app
+	 * over the same file refuses to start.
+	 *
+	 * So there is one validation pass and `apply()` already ran it, which is what
+	 * makes this hole-free by construction rather than by a rule about which
+	 * settings a path touches. What it costs is a path read per declared setting
+	 * per mutation, which for a config is a handful of lookups.
+	 *
+	 * Restoring one path is enough even though the pass rewrites every setting it
+	 * validates, because `coerceSetting()` is idempotent: a coerced value coerces
+	 * to itself, and a `null` that was dropped is absent on the second pass. So a
+	 * run that threw part way through has changed nothing but the path being put
+	 * back.
+	 *
+	 * @param layer - The layer that was mutated.
+	 * @param parts - The path that was written.
+	 * @param before - What that path held, for the rollback.
+	 * @throws If the layer is no longer one the schema can hold.
+	 */
+	#validate(layer: Layer, parts: readonly string[], before: unknown): void {
+		try {
+			coerceLayer(layer.value, this.#settings, layer.name);
+		} catch (e: unknown) {
+			// the layer is put back before the throw escapes, because a mutation that
+			// failed must not leave half of itself behind -- the rule `Show` and
+			// `For` already keep about a branch that threw. Back to what was there
+			// rather than to nothing: a refused `set()` over an existing value must
+			// not be a `delete()`
+			this.#restore(layer, parts, before);
+			throw e;
+		}
+	}
+
+	/**
 	 * Puts a path back to what it held, which is what a refused mutation owes.
 	 *
 	 * Deleting rather than writing `undefined` where there was nothing, because
@@ -402,11 +421,6 @@ export class Config {
 		return undefined;
 	}
 
-	/** The setting a path belongs to, if the schema declared one. */
-	#settingFor(parts: readonly string[]): Setting | undefined {
-		return settingAt(this.#settings, parts.join('.'));
-	}
-
 	/** `push` and `unshift`, which differ by one method name. */
 	#spliceAdd(
 		path: string,
@@ -439,16 +453,7 @@ export class Config {
 
 		writePath(layer.value, parts, list);
 
-		const it = this.#settingFor(parts);
-		if (it) {
-			try {
-				coerceSetting(layer.value, it, layer.name);
-			} catch (e: unknown) {
-				this.#restore(layer, parts, at);
-				throw e;
-			}
-		}
-
+		this.#validate(layer, parts, at);
 		this.#recompute();
 		return (readPath(layer.value, parts) as unknown[]).length;
 	}
