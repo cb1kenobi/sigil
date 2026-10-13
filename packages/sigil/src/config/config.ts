@@ -107,6 +107,7 @@ export class Config {
 		const declared = opts.layers ?? [];
 		const settings = readSchema(opts.schema);
 		assertLayers(declared);
+		assertEnv(opts.env);
 
 		this.#layers = declared.map((layer, i) => layerOf(layer, docs[i], settings));
 		this.#settings = settings;
@@ -525,6 +526,21 @@ export class Config {
 		what: 'push' | 'unshift'
 	): number {
 		const parts = this.#mutablePath(path, what);
+
+		// `undefined` is not a value anywhere, which is the rule `set()` keeps by
+		// deleting -- and a list has nothing to delete, so appending one is refused
+		// instead. Left alone it was stored, and the first write turns it into
+		// `null`: `config.push('plugins', argv.plugin)` with no `--plugin` put a
+		// hole in somebody's list that reads back as data. A `null` is **not**
+		// refused, because a `null` inside an array is data rather than a format
+		// saying nothing -- which is the one place the two part company.
+		//
+		// Not translated: appending nothing is the app's own mistake, which is the
+		// side `Cannot write` and `No writable config layer` are already on
+		if (value === undefined) {
+			throw new Error(`Cannot ${what} nothing to "${path}"`);
+		}
+
 		const layer = this.#writable(name, path);
 
 		this.#assertRepresentable(layer, path, value);
@@ -662,7 +678,14 @@ function layerOf(
  * @throws If it is there and is not an object.
  */
 function assertEnv(env: ConfigOptions['env']): void {
-	if (env !== undefined && (typeof env !== 'object' || env === null)) {
+	if (env === undefined) {
+		return;
+	}
+	// an array is refused for the same reason a number is, which the first
+	// version let through: `envValue([], ['PORT'])` reads a key off it and
+	// answers `undefined`, so it means "no variable is set anywhere" just as
+	// quietly. `Object.create(null)` is a fine environment and is accepted
+	if (typeof env !== 'object' || env === null || Array.isArray(env)) {
 		throw new Error('A config environment must be an object');
 	}
 }

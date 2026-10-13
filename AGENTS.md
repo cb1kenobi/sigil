@@ -17904,12 +17904,14 @@ without destroying it is SIG-154's.
 
 - **It imports no parser module at all, and that is a test rather than a
   coincidence.** Measured as transitive static import byte weight off `dist/`:
-  **20,489 B over six modules**, of which **9,345 B over five** is what it starts
+  **20,649 B over six modules**, of which **9,355 B over five** is what it starts
   from -- `paths.mjs`, the `transform` chunk, which is `transform`, `i18n` and
   `debug`, and the 66-byte `env-value` chunk the parser shares. So the module
-  itself is about 11.1 kB, and the graph is **2.7x** the root entry's 7,518 B and
-  a **twelfth** of `components.mjs`'s 239,917 B over 26 -- all three measured the
-  same way, which is the only comparison that means anything. The shape the
+  itself is about 11.3 kB, and the graph is **2.7x** the root entry's 7,518 B and
+  a **twelfth** of `components.mjs`'s 239,927 B over 26 -- all three measured the
+  same way, which is the only comparison that means anything. Re-derived after
+  every change that moved it, which is three times now: a figure only a re-run
+  can confirm is the stale snapshot this file warns about. The shape the
   ticket's own projection predicted, even though its figure was the starting point
   rather than the total. `should not reach any parser module to
   import the config module` holds it, keyed on symbols the minifier keeps.
@@ -19057,6 +19059,77 @@ corroboration rather than as duplication.
   It also reached the `null`-as-absent class in the migration **independently**,
   which had already been found here by walking the inputs. Two routes to one
   finding is the strongest evidence either produces.
+
+#### What the third round found, and the review half of it never ran
+
+Round 3 was pointed at the one thing nobody had read: **the guards the first two
+rounds and the input walks added**. Code written in response to a review is code
+no review has seen, which is a gap that grows with every round -- so the regions
+were `copyInto()`'s cycle guard, `assertEnv()`, the file store's path refusal,
+the narrowed `date` branch, the `undefined` rule's entry points, the JSONC
+scanner's comma shapes, and the fuzzer's own corpus.
+
+**The reviewer never answered.** `cursor-grok-4.6-high-fast` failed five times
+across this ticket -- three on round 2's full diff and both of round 3's chunks
+-- with a cursor-side `RetriableError: exceeded max retries` or silently at zero
+bytes. Round 2 landed because it was split into chunks; round 3's chunks died
+too, and a sixth attempt at a single-question prompt produced nothing either. So
+**round 3 is this repository's own work and is labelled as such**, which is
+weaker evidence than a reviewer's and is the honest statement: the findings below
+were reached by probing, and nobody who had not written the code read it.
+
+What that does **not** weaken is the findings themselves, each of which is a
+measurement.
+
+- **The exported `Config` constructor had no `assertEnv()` behind it.** That
+  constructor's own doc says `readSchema()` and `assertLayers()` are called there
+  as well as in the factories "because this has to be correct when called
+  directly" -- and `assertEnv()`, added in the degenerate-input walk, went on the
+  two factories only. So `new Config({ env: 42 }, docs)` accepted it, which is the
+  one public door with no check behind it, through the class the barrel exports.
+  Measured on five values: four refused by the factory and all five accepted by
+  the constructor.
+
+- **An array was an environment.** `envValue([], ['PORT'])` reads a key off it and
+  answers `undefined`, which is exactly the silent "no variable is set anywhere"
+  the guard was written to refuse -- so refusing a number and accepting an array
+  was the guard half-applied. `Object.create(null)` is accepted and is pinned, for
+  the opposite reason: a null-prototype record is a perfectly good environment and
+  the rule is about shape rather than about prototype.
+
+- **`push(undefined)` stored a hole, where `set(undefined)` deletes.** The rule
+  this ticket arrived at is that neither `null` nor `undefined` is a value, and
+  `set()` keeps it by deleting -- but a list has nothing to delete, so appending
+  one was stored: `config.push('plugins', argv.plugin)` with no `--plugin` put an
+  `undefined` in somebody's list, which the first write turns into `null` and
+  which reads back as data. Refused, and a **`null` is not** -- a `null` inside an
+  array is data rather than a format saying nothing, which is the one place the
+  two part company. Both halves are pinned for both methods.
+
+  Checked at every other door at the same time, and the other five were already
+  right: `apply()` of an object holding one drops it, `apply(undefined)` is
+  refused, a schema `default` of `undefined` is not a default, and an environment
+  value of `undefined` is unset.
+
+- **The scanner's trailing-comma rule was wider than the format it claims to
+  be**, which is its own entry above -- `[,]` read as `[]`.
+
+- **And the fuzzer met five shapes and counted two.** Measured over its 400
+  seeds: 181 documents hold a string containing a comment marker or a separator,
+  170 nest, 132 carry a block comment with a newline in it -- and the floors were
+  comments and trailing commas alone. So **one line** made it vacuous: dropping
+  `','`, `'}'`, `'//'` and `'/*'` from `prims` leaves a corpus that never puts a
+  comment marker inside a string, with both counters passing and the differential
+  green. Three more floors, each verified by the generator change that trips it,
+  which is the rule that file's own comment states and did not keep.
+
+- **Eight cycle shapes and twenty-two comma shapes were probed and the rest were
+  right.** A cycle through an array, through an object, a self-referencing array,
+  a three-long cycle, a sibling cycle, a DAG shared at two depths, a
+  two-hundred-deep chain, and a cycle below a `Date` -- which is _not_ walked,
+  because a `Date` is carried by reference, and is the one of the eight where
+  accepting is correct. The `date` boundary was checked at `1e12`, `9999999999999`,
+  `1e13`, a fraction, a negative and `-0`.
 
 #### What is deliberately out
 

@@ -1,4 +1,5 @@
 import {
+	Config,
 	createConfig,
 	createConfigSync,
 	isWritableStore,
@@ -243,6 +244,31 @@ describe('dotted paths', () => {
 
 		expect(config.get('list')).to.deep.equal([1, null, 2]);
 	});
+
+	it.each(['push', 'unshift'] as const)(
+		'should refuse a %s of nothing, which a list has no way to delete',
+		async (what) => {
+			// `undefined` is not a value anywhere, which `set()` keeps by deleting --
+			// and a list has nothing to delete, so appending one is refused. Left
+			// alone it was stored and the first write turns it into `null`:
+			// `config.push('plugins', argv.plugin)` with no `--plugin` put a hole in
+			// somebody's list that reads back as data
+			const config = await createConfig({
+				layers: [{ name: 'a', store: object({ list: [1] }) }],
+			});
+
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			expect(() => config[what]('list', undefined as any)).toThrow(
+				new RegExp(`Cannot ${what} nothing to "list"`)
+			);
+			expect(config.get('list')).to.deep.equal([1]);
+
+			// a `null` is not refused, because a `null` inside an array is data
+			// rather than a format saying nothing -- the one place the two part
+			config[what]('list', null);
+			expect((config.get('list') as unknown[]).length).to.equal(2);
+		}
+	);
 
 	it('should read an undefined the way it reads a null, which is what argv hands it', async () => {
 		// `config.set('x', argv.x)` with no `--x` is the ordinary spelling, and
@@ -1461,16 +1487,44 @@ describe("a setting's env", () => {
 		expect(config.get('server.port')).to.equal(3000);
 	});
 
-	it('should refuse an environment that is not one', async () => {
-		// `envValue()` reads a key off it, and reading one off a number answers
-		// `undefined` without throwing -- so a non-object quietly meant "no
-		// variable is set anywhere", which is a wrong answer rather than an error
-		await expect(
+	it.each([42, 'PORT=1', [], (): void => undefined])(
+		'should refuse %o, which is not an environment',
+		async (env) => {
+			// `envValue()` reads a key off it, and reading one off a number -- or off
+			// an array -- answers `undefined` without throwing, so a non-object
+			// quietly meant "no variable is set anywhere". An array was accepted by
+			// the first version and is the same silent nothing
+			await expect(
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				createConfig({ env: env as any, schema })
+			).rejects.toThrow(/A config environment must be an object/);
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			createConfig({ env: 42 as any, schema })
-		).rejects.toThrow(/A config environment must be an object/);
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		expect(() => createConfigSync({ env: 'PORT=1' as any, schema })).toThrow(/must be an object/);
+			expect(() => createConfigSync({ env: env as any, schema })).toThrow(/must be an object/);
+		}
+	);
+
+	it('should refuse it from the constructor too, which is exported', async () => {
+		// the guard went on the two factories and not on the class the barrel
+		// exports, while the constructor's own doc says `readSchema` and
+		// `assertLayers` are called "once here, because this has to be correct when
+		// called directly" -- so `new Config()` was the one public door with no
+		// check behind it
+		expect(
+			() =>
+				new Config(
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any
+					{ env: 42 as any, schema, layers: [{ name: 'a', store: object({}) }] },
+					[{ value: {} }]
+				)
+		).toThrow(/A config environment must be an object/);
+	});
+
+	it('should take a null-prototype record, which is a fine environment', async () => {
+		const env = Object.create(null) as Record<string, string>;
+		env.PORT = '3000';
+		const config = await createConfig({ env, schema });
+
+		expect(config.get('server.port')).to.equal(3000);
 	});
 
 	it('should read an empty variable as unset, which is the parser´s own rule', async () => {
