@@ -19941,6 +19941,81 @@ README, and nothing asserted the fence names `WriteOptions` at all. The
 quote-check in that file is an explicit list, which is why a line can be missing
 from it; the list is what the sabotage grew.
 
+#### Reading the two rounds' own guards, which nobody had
+
+Code written in response to a review is code no review has seen, and that gap
+grows with every round. This is a pass over it -- the trailing-comma offsets, the
+claimed paths end to end, `statOf`, `declinesFlush`, the hole refusal, the
+three-case `eol` -- plus the test bodies round 2 said it had not read. **It is
+this repository's own work and is labelled so**, which is weaker evidence than a
+reviewer's: nobody who had not written the code read it.
+
+What it found is **three** things, and the first is the sharpest kind there is.
+
+- **The claimed paths falsified a sentence two paragraphs below the one they
+  were documented in.** `save()`'s doc said that a layer coming back holding keys
+  it did not hold before "is the file being right about itself, and the
+  alternative -- a view that disagrees with the bytes just written -- is the worse
+  of the two". With the claim, the view _does_ disagree: the layer is read #1 plus
+  this process's changes and the file is read #2 plus them, so `get('b')` answers
+  `1` over a file that says `99`. Measured, which is how it was found.
+
+  It is the better trade rather than a regression, and that is the part worth
+  keeping: the agreement it gave up was bought by **reverting** that other
+  process's key, which is the defect the claim exists to fix. Closing it needs a
+  third read to re-stage the layer from, and a third read only moves the window.
+  So the honest statement is that a save leaves the layer as stale about somebody
+  else's keys as the read it started from, and the next run is where the file is
+  read again. Pinned, because a reader who "fixed" it would re-read and think they
+  had closed something.
+
+  The shape is the one this file keeps warning about and it happened **inside the
+  fix for a review finding**: the paragraph above it was rewritten and the one
+  below was not re-read.
+
+- **A claimed path replaces a non-object ancestor the file holds, and `set()`
+  refuses one.** `set('a.b', 9)` where this layer's own `a` is a scalar is
+  `"a" in user is not an object`; where the **file**'s `a` became one in the save
+  window, the overlay writes `{ b: 9 }` over it. That asymmetry is right -- at
+  `set()` the caller is there and can fix it, and at save time refusing fails a
+  save over somebody else's edit while dropping the claim loses this process's
+  write in silence -- and it was undocumented, so aligning the two would have
+  looked like tidying. Written down on `overlay()` and pinned both ways in one
+  test.
+
+- **The fuzzer could not see a wrong offset at all.** It is the only exhaustive
+  check on the scanner and it asserts `JSON.parse(scan.json)`, which is the
+  _blanking_ -- so the field round 1 added was checked by three hand-written cases
+  and nothing else, and the span writer is its only reader, which makes a drift
+  there an invalid file rather than a failing test. It asserts the property over
+  all 400 documents now: every reported offset is a comma in the **source** and a
+  space in the **blanked** text.
+
+  Those two are not one assertion, which took a sabotage to establish. `+1` on the
+  offset fails the source half and **passes** the blanked half, because the
+  character after a trailing comma is usually whitespace, which is a space in both
+  -- so with the source check removed the off-by-one survives 400 documents. The
+  first mutation aimed at it was reported SURVIVED and that was the harness being
+  blunt rather than the line being dead, which is the boundary this file records
+  for `FLUSH_DECLINED` and for the iris.
+
+And what it checked and found **right**, which is most of it. Ten degenerate
+`paths` inputs: an empty list, an empty string, a path absent in the value, one
+whose parent in the value is a scalar, an unsafe key, an inner empty segment, an
+array index, and a claim over a file that does not exist -- each either the
+documented answer or a refusal naming the path, and none of them destroying a
+parent. Seven odd shapes for the offsets: a byte order mark, a comma inside a
+string, a comma inside a block comment, a comma inside a line comment, CRLF,
+nesting three deep, and an escaped quote before a comma -- every offset a comma
+in the source and a space in the blanked text, and every emptied result valid.
+The mode claim is asserted over four modes in `write.test.ts`; the `.json`
+strictness and the both-at-once refusal are covered in `packages/cli`; and the
+absence-only assertions in `config.test.ts` are each the claim itself rather than
+a missing positive.
+
+Three sabotages over the three fixes, all three caught once the blunt one was
+sharpened.
+
 #### What the write half costs
 
 - **The config module's graph is 31,237 B over seven modules**, against 20,649 B

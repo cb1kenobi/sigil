@@ -128,6 +128,16 @@ describe('the jsonc scan, differentially', () => {
 			expect(scan.json.split('\n').length, `seed ${seed}: lines`).to.equal(text.split('\n').length);
 			expect(JSON.parse(scan.json), `seed ${seed}: ${text}`).to.deep.equal(v);
 
+			// every reported offset is a comma in the source and a space in the
+			// blanked text, which is the whole of what the field claims -- and the
+			// differential above cannot see it, because it reads `scan.json` and a
+			// wrong offset changes nothing there. The span writer is the only reader,
+			// so a drift here is an invalid file rather than a failing test
+			for (const at of scan.trailing) {
+				expect(text[at], `seed ${seed}: offset ${at} in ${text}`).to.equal(',');
+				expect(scan.json[at], `seed ${seed}: blanked at ${at}`).to.equal(' ');
+			}
+
 			const held = reach(v);
 
 			checked++;

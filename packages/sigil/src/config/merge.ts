@@ -297,6 +297,18 @@ export function deepFreeze<T>(value: T): T {
  * says "the whole layer" -- which is a wholesale write and so reaches no
  * overlay at all.
  *
+ * A claimed path whose ancestor in `into` is **not** an object replaces it, and
+ * that is deliberately the opposite of what `set()` does. `Config.#assertWritable`
+ * refuses `set('a.b', 9)` where this layer's own `a` is a scalar, because the
+ * caller is there and can fix it; here `a` is a scalar because **another
+ * process** made it one between the read and the write, and the alternatives are
+ * worse -- refusing fails a save over somebody else's edit, and dropping the
+ * claim loses this process's write in silence. So the claim wins, which is the
+ * documented last-writer-wins read at the one place the two keys are nested
+ * rather than equal. Aligning this with `set()` would reintroduce the first of
+ * those, which is why the asymmetry is written down rather than left to look
+ * like an oversight.
+ *
  * @param into - The document to write into, which is modified.
  * @param from - The document to read the claimed values out of.
  * @param paths - The dotted paths that are the caller's.

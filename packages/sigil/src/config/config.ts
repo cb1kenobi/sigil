@@ -342,9 +342,22 @@ export class Config {
 	 *
 	 * What follows from that is worth knowing: a layer the save re-read may come
 	 * back holding keys it did not hold before, so `get()` can answer differently
-	 * after a `save()` than before it. That is the file being right about itself,
-	 * and the alternative -- a view that disagrees with the bytes just written --
-	 * is the worse of the two.
+	 * after a `save()` than before it. That is the file being right about itself.
+	 *
+	 * And the layer is what **this** process read plus what it changed, which is
+	 * not quite the bytes: the file is what the *store* read plus the same
+	 * changes, so the two differ for exactly the keys another process wrote in the
+	 * window -- `get('b')` can answer 1 over a file that says 99. The sentence
+	 * here used to claim the opposite, that a view disagreeing with the bytes just
+	 * written is the worse of the two answers, and the claimed paths made it false
+	 * while leaving it in place. Measured, which is how it was found.
+	 *
+	 * It is the better trade rather than a regression: the agreement it gives up
+	 * was bought by **reverting** that other process's key, which is the defect
+	 * the claim exists to fix. Closing it needs a third read to re-stage from, and
+	 * a third read only moves the window -- so the honest statement is that a
+	 * `save()` leaves the layer as stale about somebody else's keys as the read it
+	 * started from, and the next run is where the file is read again.
 	 *
 	 * ## What it skips, and what it refuses
 	 *

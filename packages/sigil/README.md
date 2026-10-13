@@ -1690,6 +1690,13 @@ What follows is worth knowing: a layer the save re-read may come back holding
 keys it did not hold before, so `get()` can answer differently after a `save()`
 than before it. That is the file being right about itself.
 
+The layer is what **you** read plus what you changed, which is not quite the
+bytes: the file is what the store read plus the same changes, so the two differ
+for exactly the keys another process wrote in the window — `get('b')` can answer
+`1` over a file that says `99`. Closing that needs a third read to re-stage from,
+and a third read only moves the window; the next run is where the file is read
+again.
+
 ### There is no `autoSave`
 
 A `set()` that schedules a write is a `set()` that cannot say the write failed,

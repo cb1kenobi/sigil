@@ -712,6 +712,79 @@ describe('save', () => {
 		expect(readFileSync(path, 'utf8')).to.equal('{\n\t"a": 5,\n\t"b": 2\n}\n');
 	});
 
+	it('should leave the layer as stale about another key as the read it staged from', async () => {
+		// the trade the claim buys, said as the thing a caller can see: the layer is
+		// read #1 plus this process's changes and the file is read #2 plus them, so
+		// `get()` answers 1 over a file that says 99. The agreement it gives up was
+		// bought by *reverting* that key, which is the defect the claim fixes -- and
+		// the doc claimed the opposite until this was measured
+		const path = file('c.jsonc', '{"a":1,"b":1}');
+		const store = jsonc(path);
+		let reads = 0;
+		const config = await createConfig({
+			layers: [
+				{
+					name: 'user',
+					store: {
+						...store,
+						async read() {
+							const doc = await store.read();
+							if (reads++ === 1) {
+								writeFileSync(path, '{"a":1,"b":99}');
+							}
+							return doc;
+						},
+					},
+				},
+			],
+			env: {},
+		});
+
+		config.set('a', 2);
+		await config.save();
+
+		expect(readFileSync(path, 'utf8')).to.equal('{"a":2,"b":99}');
+		expect(config.get('b')).to.equal(1);
+	});
+
+	it('should let a claim win over a scalar another process put in its way', async () => {
+		// `set('a.b', 9)` is refused where **this** layer's own `a` is a scalar,
+		// because the caller is there and can fix it. Where the *file*'s `a` became
+		// one in the save window there is nobody to ask, and the two alternatives
+		// are worse: refusing fails a save over somebody else's edit, and dropping
+		// the claim loses this process's write in silence. So the asymmetry is
+		// pinned -- aligning the overlay with `set()` brings the first one back
+		const path = file('c.jsonc', '{\n\t"a": { "b": 1 }\n}\n');
+		const store = jsonc(path);
+		let reads = 0;
+		const config = await createConfig({
+			layers: [
+				{
+					name: 'user',
+					store: {
+						...store,
+						async read() {
+							const doc = await store.read();
+							if (reads++ === 1) {
+								writeFileSync(path, '{\n\t"a": 5\n}\n');
+							}
+							return doc;
+						},
+					},
+				},
+			],
+			env: {},
+		});
+
+		config.set('a.b', 9);
+		await config.save();
+
+		expect(JSON.parse(readFileSync(path, 'utf8')) as unknown).to.deep.equal({ a: { b: 9 } });
+
+		// and the `set()` half, which is the one that refuses
+		expect(() => config.set('a.b.c', 1)).toThrow(/"a\.b" in user is not an object/);
+	});
+
 	it('should claim its paths from saveSync() too, which is a second write path', () => {
 		// two real implementations of one loop, so the claim has to be passed in both
 		// -- and `writeSync()` dropping it survived every test here, because nothing
