@@ -292,11 +292,13 @@ export class Config {
 
 		this.#assertRepresentable(layer, path, value);
 
-		// `null` is "not configured", which is the rule `copyValue()` keeps for a key
-		// inside a document -- so writing one is `delete()` said another way rather
-		// than a value, and the alternative is a `set()` whose result a re-read of
-		// the same file would not reproduce
-		if (value === null) {
+		// `null` and `undefined` are both "not configured", which is the rule
+		// `copyValue()` keeps for a key inside a document -- so writing one is
+		// `delete()` said another way rather than a value, and the alternative is a
+		// `set()` whose result a re-read of the same file would not reproduce.
+		// `undefined` is the one an app reaches by accident:
+		// `config.set('x', argv.x)` with no `--x` is the ordinary spelling
+		if (value === null || value === undefined) {
 			this.delete(path, name);
 			return;
 		}
@@ -649,6 +651,23 @@ function layerOf(
 }
 
 /**
+ * Refuses an environment that is not one.
+ *
+ * `envValue()` reads a key off it, and reading one off a number answers
+ * `undefined` without throwing -- so a non-object quietly meant "no variable is
+ * set anywhere", which is a wrong answer rather than an error. Not translated:
+ * what is passed here is the app's own.
+ *
+ * @param env - What the caller passed.
+ * @throws If it is there and is not an object.
+ */
+function assertEnv(env: ConfigOptions['env']): void {
+	if (env !== undefined && (typeof env !== 'object' || env === null)) {
+		throw new Error('A config environment must be an object');
+	}
+}
+
+/**
  * Refuses a layer declaration that cannot mean anything, before its store is
  * asked for anything.
  *
@@ -702,6 +721,7 @@ function assertLayers(declared: readonly ConfigLayer[]): void {
  */
 export async function createConfig(opts: ConfigOptions = {}): Promise<Config> {
 	const declared = opts.layers ?? [];
+	assertEnv(opts.env);
 
 	// refused before any store is read, which for a remote one is a network call.
 	// The constructor asks again, because it has to be right when called directly
@@ -737,6 +757,7 @@ export async function createConfig(opts: ConfigOptions = {}): Promise<Config> {
  */
 export function createConfigSync(opts: ConfigOptions = {}): Config {
 	const declared = opts.layers ?? [];
+	assertEnv(opts.env);
 
 	readSchema(opts.schema);
 	assertLayers(declared);

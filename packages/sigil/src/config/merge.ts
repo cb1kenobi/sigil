@@ -48,10 +48,12 @@ import { isPlainObject, isUnsafeKey } from './dotted.js';
  * than the thing that catches it -- and the tripwire stays, because "nothing can
  * reach here" is the claim that was just wrong.
  *
- * ## It drops a key whose value is `null`
+ * ## It drops a key whose value is `null` or `undefined`
  *
  * **A key absent and a key set to `null` are both "not configured"; a key set to
- * `""` is an empty string.** The file's own version of `envValue()`'s rule, and
+ * `""` is an empty string.** `undefined` is beside `null` because neither is a
+ * value, and a key holding one is a key `Object.keys()` reports while `has()`
+ * answers `false` for it. The file's own version of `envValue()`'s rule, and
  * it is here rather than per declared setting because a document says nothing
  * the same way whether or not a schema named the key -- which is what it was
  * before, so `{ "x": null }` with no schema answered `null` and `has('x')` was
@@ -68,25 +70,74 @@ import { isPlainObject, isUnsafeKey } from './dotted.js';
  * @throws If any key anywhere in it is unsafe.
  */
 export function copyValue(value: unknown, where: string): unknown {
-	if (Array.isArray(value)) {
-		return value.map((item) => copyValue(item, where));
+	return copyInto(value, where, new WeakSet<object>());
+}
+
+/**
+ * The walk, with the objects it is inside so that a cycle is refused rather
+ * than recursed into.
+ *
+ * A cyclic value is `Maximum call stack size exceeded` out of here, out of
+ * `mergeInto()` and out of `deepFreeze()`, and it is reachable from exactly the
+ * thing an object layer is *for*: a value an app built in code, where a plugin
+ * holding a reference back to its own registry is ordinary. No text format can
+ * produce one, so this is the object layer's own edge.
+ *
+ * Refused rather than carried, because neither the merge nor the freeze has an
+ * answer for one -- what would the merged view be? Not translated, because a
+ * cycle is a fact about an object the **app** built.
+ *
+ * Added and removed around the recursion rather than only added, so that a
+ * value referenced twice is copied twice and only a genuine cycle is refused.
+ *
+ * @param value - The value.
+ * @param where - Where it came from, for the message.
+ * @param seen - The objects this walk is inside.
+ * @returns A copy whose structure is this module's.
+ */
+function copyInto(value: unknown, where: string, seen: WeakSet<object>): unknown {
+	const structure = Array.isArray(value) || isPlainObject(value);
+
+	if (structure) {
+		if (seen.has(value as object)) {
+			throw new Error(`A config value in ${where} refers back to itself`);
+		}
+		seen.add(value as object);
 	}
 
-	if (!isPlainObject(value)) {
-		return value;
-	}
+	try {
+		if (Array.isArray(value)) {
+			// a `null` **inside** an array is data rather than a format saying
+			// nothing, so an element is kept. So is an `undefined`, which no text
+			// format can produce and which a JSON round trip turns into `null` --
+			// the format's business rather than this module's
+			return value.map((item) => copyInto(item, where, seen));
+		}
 
-	const out: Record<string, unknown> = {};
-	for (const key of Object.keys(value)) {
-		if (isUnsafeKey(key)) {
-			throw new Error(__`Unsafe config key "${key}" in ${where}`);
+		if (!isPlainObject(value)) {
+			return value;
 		}
-		if (value[key] === null) {
-			continue;
+
+		const out: Record<string, unknown> = {};
+		for (const key of Object.keys(value)) {
+			if (isUnsafeKey(key)) {
+				throw new Error(__`Unsafe config key "${key}" in ${where}`);
+			}
+			// `undefined` beside `null`, because neither is a value: left in, a key
+			// whose value is `undefined` is one `Object.keys()` reports and `has()`
+			// answers `false` for -- a phantom key, which is what
+			// `config.set('x', argv.x)` with no `--x` used to make
+			if (value[key] === null || value[key] === undefined) {
+				continue;
+			}
+			out[key] = copyInto(value[key], where, seen);
 		}
-		out[key] = copyValue(value[key], where);
+		return out;
+	} finally {
+		if (structure) {
+			seen.delete(value as object);
+		}
 	}
-	return out;
 }
 
 /**

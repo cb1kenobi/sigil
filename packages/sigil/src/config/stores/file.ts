@@ -56,6 +56,15 @@ function isMissing(e: unknown): boolean {
  * @returns The store.
  */
 function fileStore(path: string, jsonc: boolean): ConfigStore {
+	// refused here rather than at the read, because what the read says about it
+	// names the wrong thing: `expand('')` is `'.'`, so an empty path reported
+	// `Failed to read .: EISDIR` -- a message about a directory nobody named --
+	// and a path that is not a string threw out of `expand()` itself. Not
+	// translated: a store's path is the app's own
+	if (typeof path !== 'string' || !path) {
+		throw new Error('A config file store needs a path');
+	}
+
 	const source = expand(path);
 	const format = jsonc ? 'jsonc' : 'json';
 

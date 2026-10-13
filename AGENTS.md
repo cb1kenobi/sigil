@@ -18824,6 +18824,66 @@ set, which the sorted-list assertion in `check-value.test.ts` now pins; and
 every check the pre-migration `readSigilConfig()` had, which is walked under
 the migration entry above.
 
+#### Walking the degenerate inputs, which found four things no guard was aimed at
+
+A pass over what an untyped caller can hand this -- the thing this file records
+for the typewriter's interval and for `multiline()`'s `rows` -- and the yield is
+higher here than usual, because every one of the four is reachable from a shape
+an app writes on purpose rather than by a typo.
+
+- **`undefined` is beside `null`, because neither is a value and a key holding
+  one is neither of the two states this module has.** `config.set('x', argv.x)`
+  with no `--x` is the ordinary spelling, and it made a **phantom key**:
+  `Object.keys(config.get())` reported `x` while `has('x')` answered `false`,
+  which is the one combination the ticket's own rule leaves no room for. So
+  `copyValue()` drops a key whose value is `undefined` alongside one set to
+  `null`, and `set(path, undefined)` deletes the way `set(path, null)` already
+  did -- one rule said in the two places a value arrives rather than a second
+  mechanism. An `undefined` **inside an array** is kept, for the reason a `null`
+  there is kept: an element is data, and what a JSON round trip does to it is the
+  format's business.
+
+- **A value that refers back to itself was `Maximum call stack size exceeded`,
+  out of the copy, the merge and the freeze alike -- and it is reachable from
+  exactly the thing the object layer is for.** That layer exists so an app can
+  hand over a value it built in code, which is where a plugin holding a reference
+  back to its own registry is ordinary; no text format can produce one, so this is
+  the object layer's own edge rather than a shape a file can reach. Refused rather
+  than carried, because neither the merge nor the freeze has an answer for one.
+  The check **removes what it added** on the way out, which is what makes it a
+  cycle check rather than a seen-twice one: a value referenced twice is a DAG and
+  is copied twice, exactly as it was before. Both halves are pinned, and the
+  `seen.delete` has a test of its own -- which is the half a reader would call
+  tidiness.
+
+- **A file store with no path reported a directory nobody named.** `expand('')`
+  is `'.'`, so `json('')` came back `Failed to read .: EISDIR: illegal operation
+  on a directory` -- a true sentence about the wrong thing -- and `json(undefined)`
+  threw a raw `TypeError` out of `expand()` itself. Refused where the store is
+  built rather than at the read, which is the rule a `...` hint on an option
+  already follows.
+
+- **An environment that is not one meant "no variable is set anywhere".**
+  `envValue()` reads a key off it and reading one off a number answers `undefined`
+  without throwing, so `createConfig({ env: 42 })` resolved every `env` setting to
+  nothing and said so to nobody. A wrong answer rather than an error, which is the
+  direction this file refuses.
+
+Three things it checked and left alone, because each is the right answer rather
+than a wart. `object(null)` is an empty layer, because `null` is "not configured"
+and a layer holding nothing is a layer holding nothing -- where `object(42)` and
+`object([])` are both refused by the store's own "not an object". A schema of
+`{}` is a config with no settings, which is what every layer in this repository's
+own `readSigilConfig()` had before the schema existed. And a two-hundred-segment
+path resolves, because `segments()` has no depth limit and nothing about a deep
+path is ambiguous -- a cap would be a number somebody has to justify.
+
+Six sabotages over the four, all six caught, each by the test named for it. The
+harness's own pattern guard earned its keep once: the `seen.delete` removal was
+written with four tabs where the source has three, so it silently matched nothing
+and the run read as a guard that is not load bearing -- which is the shape this
+file records for its own harness three times over, met a fourth way.
+
 #### What is deliberately out
 
 - **`mkdirOwnerSync()` stays internal.** No subpath publishes it, so config using

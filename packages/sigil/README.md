@@ -1513,7 +1513,10 @@ time.
 The file's own version of that rule: **a key absent and a key set to `null` are
 both "not configured"; a key set to `""` is an empty string.** A `null` is
 removed rather than kept, so writing `"theme": null` falls back to the layer
-under it rather than shadowing it to `null`.
+under it rather than shadowing it to `null`. `undefined` goes with it — no
+text format can write one, and `config.set('x', argv.x)` with no `--x` is the
+ordinary way an app reaches it, so `set()` of either is the `delete()` it means.
+A `null` _inside_ an array is data and is kept.
 
 ### Values arrive already typed, and a string is still coerced
 

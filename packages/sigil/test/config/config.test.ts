@@ -209,12 +209,60 @@ describe('dotted paths', () => {
 		expect(config.get('keep')).to.equal('');
 	});
 
+	it('should refuse a value that refers back to itself', async () => {
+		// the object layer's own edge, because it is the thing that layer is for: a
+		// value an app built in code, where a plugin holding a reference back to
+		// its own registry is ordinary. No text format can make one. Left alone it
+		// is `Maximum call stack size exceeded` out of the copy, the merge and the
+		// freeze alike, and neither the merge nor the freeze has an answer for one
+		const cycle: Record<string, unknown> = { name: 'x' };
+		cycle.self = cycle;
+
+		await expect(
+			createConfig({ layers: [{ name: 'app', store: object({ plugin: cycle }) }] })
+		).rejects.toThrow(/A config value in app refers back to itself/);
+	});
+
+	it('should copy a value referenced twice rather than reading it as a cycle', async () => {
+		// which is why the walk removes what it added on the way out: a DAG is not
+		// a cycle, and a guard that only added would refuse an ordinary shared
+		// sub-object
+		const shared = { port: 80 };
+		const config = await createConfig({
+			layers: [{ name: 'app', store: object({ a: shared, b: shared }) }],
+		});
+
+		expect(config.get('a')).to.deep.equal({ port: 80 });
+		expect(config.get('b')).to.deep.equal({ port: 80 });
+	});
+
 	it('should keep a null inside an array, which is data rather than nothing', async () => {
 		const config = await createConfig({
 			layers: [{ name: 'f', store: object({ list: [1, null, 2] }) }],
 		});
 
 		expect(config.get('list')).to.deep.equal([1, null, 2]);
+	});
+
+	it('should read an undefined the way it reads a null, which is what argv hands it', async () => {
+		// `config.set('x', argv.x)` with no `--x` is the ordinary spelling, and
+		// left in, the key is one `Object.keys()` reports while `has()` answers
+		// `false` for it -- a phantom key, which is neither of the two states this
+		// module has. So it is dropped in a document and deletes through `set()`
+		const config = await createConfig({
+			layers: [
+				{ name: 'low', store: object({ a: 1 }) },
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				{ name: 'high', store: object({ b: undefined, c: { d: undefined } } as any) },
+			],
+		});
+
+		expect(Object.keys(config.get() as object)).to.deep.equal(['a', 'c']);
+		expect(config.has('b')).to.equal(false);
+
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		config.set('a', undefined as any);
+		expect(config.get('a')).to.equal(1);
 	});
 
 	it('should read a set of null as the delete it is', async () => {
@@ -840,6 +888,20 @@ describe('a layer declaration', () => {
 		).rejects.toThrow(message);
 	});
 
+	it.each([
+		['', 'json'],
+		['', 'jsonc'],
+		[undefined, 'json'],
+	])('should refuse a %o path to %s', (path, kind) => {
+		// refused where the store is built rather than at the read, because what
+		// the read says names the wrong thing: `expand('')` is `'.'`, so an empty
+		// path reported `EISDIR` about a directory nobody named, and a path that is
+		// not a string threw a `TypeError` out of `expand()` itself
+		const make = kind === 'json' ? json : jsonc;
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		expect(() => make(path as any)).toThrow(/A config file store needs a path/);
+	});
+
 	it('should refuse two layers of one name', async () => {
 		// it makes `set(path, value, name)` ambiguous and every message about one
 		// of them wrong about the other
@@ -1319,6 +1381,18 @@ describe("a setting's env", () => {
 		});
 
 		expect(config.get('server.port')).to.equal(3000);
+	});
+
+	it('should refuse an environment that is not one', async () => {
+		// `envValue()` reads a key off it, and reading one off a number answers
+		// `undefined` without throwing -- so a non-object quietly meant "no
+		// variable is set anywhere", which is a wrong answer rather than an error
+		await expect(
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			createConfig({ env: 42 as any, schema })
+		).rejects.toThrow(/A config environment must be an object/);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		expect(() => createConfigSync({ env: 'PORT=1' as any, schema })).toThrow(/must be an object/);
 	});
 
 	it('should read an empty variable as unset, which is the parser´s own rule', async () => {
