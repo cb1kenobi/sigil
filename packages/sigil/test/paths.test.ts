@@ -1,6 +1,6 @@
 import {
 	cache,
-	config,
+	configHome,
 	configDirs,
 	data,
 	dataDirs,
@@ -101,17 +101,17 @@ describe('paths', () => {
 		});
 	});
 
-	describe('config()', () => {
+	describe('configHome()', () => {
 		it('should get the config directory', () => {
-			expect(config()).toBeTruthy();
+			expect(configHome()).toBeTruthy();
 		});
 
 		it('should get the config directory plus additional paths', () => {
-			let dir = config('foo', 'bar');
+			let dir = configHome('foo', 'bar');
 			expect(dir).toBeTruthy();
 			expect(dir).toContain(join('foo', 'bar'));
 
-			dir = config('foo/', '/bar');
+			dir = configHome('foo/', '/bar');
 			expect(dir).toBeTruthy();
 			expect(dir).toContain(join('foo', 'bar'));
 		});
@@ -248,7 +248,7 @@ describe('paths', () => {
 	describe('~ expansion', () => {
 		it.each([
 			['cache', cache],
-			['config', config],
+			['config', configHome],
 			['data', data],
 			['state', state],
 		])('should return an expanded path from %s()', (_name, fn) => {
@@ -265,15 +265,15 @@ describe('paths', () => {
 		});
 	});
 
-	// `dataDirs()` was copied from `configDirs()` and kept its `config()` call, so
+	// `dataDirs()` was copied from `configDirs()` and kept its `configHome()` call, so
 	// the data search path was headed by the config home
 	describe('dataDirs() head', () => {
 		it('should start at the data directory, not the config directory', () => {
 			const dirs = dataDirs();
 			expect(dirs).toBeTruthy();
 			expect(dirs![0]).to.equal(data());
-			if (data() !== config()) {
-				expect(dirs![0]).to.not.equal(config());
+			if (data() !== configHome()) {
+				expect(dirs![0]).to.not.equal(configHome());
 			}
 		});
 	});
@@ -333,7 +333,7 @@ describe('paths', () => {
 
 		it.each([
 			['XDG_CACHE_HOME', (paths: Paths) => paths.cache()],
-			['XDG_CONFIG_HOME', (paths: Paths) => paths.config()],
+			['XDG_CONFIG_HOME', (paths: Paths) => paths.configHome()],
 			['XDG_DATA_HOME', (paths: Paths) => paths.data()],
 			['XDG_STATE_HOME', (paths: Paths) => paths.state()],
 			['XDG_RUNTIME_DIR', (paths: Paths) => paths.runtime()],
@@ -354,7 +354,7 @@ describe('paths', () => {
 	// `expand('')` is `'.'` and `combinePaths()` skips only falsy entries, so a
 	// list written with a hole in it put the working directory on the search path
 	describe('an empty XDG_*_DIRS segment', () => {
-		const configHome = join(homedir(), '.sigil');
+		const declared = join(homedir(), '.sigil');
 		const etc = normalize('/etc/xdg');
 
 		it.each([
@@ -363,30 +363,29 @@ describe('paths', () => {
 			[`${delimiter}/etc/xdg${delimiter}`],
 			[`/etc/xdg${delimiter}${delimiter}`],
 		])('should be dropped from %s', async (value) => {
-			const dirs = await withPaths(
-				{ XDG_CONFIG_HOME: configHome, XDG_CONFIG_DIRS: value },
-				(paths) => paths.configDirs()
+			const dirs = await withPaths({ XDG_CONFIG_HOME: declared, XDG_CONFIG_DIRS: value }, (paths) =>
+				paths.configDirs()
 			);
-			expect(dirs).to.deep.equal([configHome, etc]);
+			expect(dirs).to.deep.equal([declared, etc]);
 		});
 
 		it.each([[delimiter], [`${delimiter}${delimiter}`]])(
 			'should leave nothing behind when the value is only separators: %s',
 			async (value) => {
 				const dirs = await withPaths(
-					{ XDG_CONFIG_HOME: configHome, XDG_CONFIG_DIRS: value },
+					{ XDG_CONFIG_HOME: declared, XDG_CONFIG_DIRS: value },
 					(paths) => paths.configDirs()
 				);
-				expect(dirs).to.deep.equal([configHome]);
+				expect(dirs).to.deep.equal([declared]);
 			}
 		);
 
 		it('should drop a relative entry and keep the absolute ones', async () => {
 			const dirs = await withPaths(
-				{ XDG_DATA_HOME: configHome, XDG_DATA_DIRS: `etc${delimiter}/etc/xdg` },
+				{ XDG_DATA_HOME: declared, XDG_DATA_DIRS: `etc${delimiter}/etc/xdg` },
 				(paths) => paths.dataDirs()
 			);
-			expect(dirs).to.deep.equal([configHome, etc]);
+			expect(dirs).to.deep.equal([declared, etc]);
 		});
 
 		it('should never answer with the working directory', async () => {
@@ -429,7 +428,7 @@ describe('paths', () => {
 		// the one win32 entry that is a bare string rather than an array, and so
 		// the one that reaches `baseDir()` by the other branch of `resolveTypePath()`
 		it('should expand the ~ of the entry that is not an array', async () => {
-			const dir = await withPaths({}, (paths) => paths.config(), { platform: 'win32' });
+			const dir = await withPaths({}, (paths) => paths.configHome(), { platform: 'win32' });
 			expect(dir).toBeTruthy();
 			expect(dir).to.not.contain('~');
 			expect(dir!.startsWith(homedir())).to.equal(true);
@@ -455,7 +454,7 @@ describe('paths', () => {
 		it('should leave every base directory unanswered rather than relative', async () => {
 			const dirs = await withPaths(
 				{},
-				(paths) => [paths.cache(), paths.config(), paths.data(), paths.state()],
+				(paths) => [paths.cache(), paths.configHome(), paths.data(), paths.state()],
 				{ home: '' }
 			);
 			expect(dirs).to.deep.equal([undefined, undefined, undefined, undefined]);

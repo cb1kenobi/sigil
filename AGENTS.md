@@ -47,6 +47,7 @@ Paths below are inside `packages/sigil/` unless noted.
 | `src/theme/`                   | The framework's own sheet, and what a theme is                  |
 | `src/layout/`                  | The flexbox subset, over whole cells                            |
 | `src/i18n/`                    | The `__` tag, the plural, the locale chain, the catalog         |
+| `src/config/`                  | Config layers, the merged view, the stores, JSONC reading       |
 | `src/infer.ts`                 | `initOption()` and `initArg()`, in the type system              |
 | `src/util/`                    | Shared helpers (type coercion, camelCase, mkdir)                |
 | `src/debug/`                   | `DEBUG`-driven logger; replaces snooplogg                       |
@@ -17849,6 +17850,1306 @@ the diff it was given and had been fixed two commits before the review returned.
   `paths.ts` records for absoluteness: that entry is about _one_ check reading
   the platform differently from the line next to it, and here every reader takes
   it from the same argument in `candidates()`.
+
+### A layered config module: one merged view over an ordered stack
+
+SIG-148 is the **read** half. `src/config/` is the whole of it: the layer stack,
+the merged read, dotted paths, the schema, `.json` and `.jsonc` reading, and the
+`ConfigStore` interface three other tickets are blocked on. Writing a file back
+without destroying it is SIG-154's.
+
+- **This is not oclif parity, which is the thing to know first.**
+  `this.config` in oclif is CLI _metadata_ -- `configDir`, `cacheDir`,
+  `platform`, `plugins`. Its own documentation says oclif "does not provide
+  built-in mechanisms for loading, merging, or saving user configuration files"
+  and demonstrates reading a `config.json` with `fs-extra` in a base class, and
+  the feature request asking for precisely this layered merge is **closed as not
+  planned** (oclif/oclif#136). The ecosystem answer is cosmiconfig, which is a
+  dependency. So this is a differentiator rather than a gap, and a better one
+  than the component runtime in one respect: every CLI with settings wants it,
+  where only some want a TUI.
+
+- **Core does not load config, and does not accept one either -- which reverses
+  an earlier decision taken here.** The first design made config a third source
+  inside `applyFallback()`'s chain -- argv, environment, config layers, the
+  option's `default` -- on the argument that this repository writes every
+  precedence chain out as a single chain. That is withdrawn. **Options and config
+  settings are separate, and the app decides how to mix them.**
+
+  They are not the same kind of thing. An option is something a user types for
+  one run; a config setting is something that persists. Coupling them means every
+  option wants a config key and every config key wants an option, and neither is
+  true -- most config settings have no flag, and most flags have no business
+  being persisted. And the mixing an app actually wants is one line, in either of
+  two spellings, neither of which needs anything from core: `argv.port ??
+  config.get('server.port')` inside `run()`, or `default: config.get(...)` at
+  schema-build time, which gives argv then env then config through the chain that
+  already exists. The second works _because_ core does not load config, so the
+  app has one before it builds its schema.
+
+  What that deletes, none of it missed: discovering a config file, a `--config`
+  in every app's namespace, a naming convention -- `--config <path>` in eslint,
+  prettier, webpack, rollup and vite, `--config-file` in babel, a **directory**
+  in docker, `KEY=VALUE` **or** a path, repeatable, in cargo, a path **or** a
+  JSON blob in jest -- deciding what a `--config` does to the layer stack, and
+  answering what happens when somebody passes both a file and a blob, which once
+  the app owns it is not a conflict at all but two layers. Every one of those was
+  a question only because the framework was going to own the flag. This is the
+  opposite call from `--help`, `--version` and `completion`, and the distinction
+  is sharp: those three the framework can answer identically for every app, and
+  this it cannot.
+
+  What is given up, stated plainly: there is no automatic "this option falls back
+  to this config key."
+
+- **It imports no parser module at all, and that is a test rather than a
+  coincidence.** Measured as transitive static import byte weight off `dist/`:
+  **20,649 B over six modules**, of which **9,355 B over five** is what it starts
+  from -- `paths.mjs`, the `transform` chunk, which is `transform`, `i18n` and
+  `debug`, and the 66-byte `env-value` chunk the parser shares. So the module
+  itself is about 11.3 kB, and the graph is **2.7x** the root entry's 7,518 B and
+  a **twelfth** of `components.mjs`'s 239,927 B over 26 -- all three measured the
+  same way, which is the only comparison that means anything. Re-derived after
+  every change that moved it, which is three times now: a figure only a re-run
+  can confirm is the stale snapshot this file warns about. The shape the
+  ticket's own projection predicted, even though its figure was the starting point
+  rather than the total. `should not reach any parser module to
+  import the config module` holds it, keyed on symbols the minifier keeps.
+
+  The reverse direction is the ticket's own ask in as many words -- "nothing in
+  `main()` or `parse()` loads or accepts a config, and a test that says so" --
+  and it is a pair rather than an absence, for the reason every pair in
+  `dist.test.ts` already gives. Which cost a round: the first markers included
+  `mergeLayers`, a name that is only ever _called_ and is therefore in no bundle
+  at all, so the absence half passed while saying nothing. The presence half
+  failed immediately, which is what the presence half is for.
+
+  Sabotaged by appending `export * from './config/index.js'` to `src/index.ts`:
+  **five** assertions fail -- the four absence halves, and the root entry's own
+  20 kB ceiling, which 10.7 kB of config walks straight through. The first
+  version of this entry said ten, from a `grep -c` that counted vitest's two
+  lines per failure rather than the failures, which is the stale-figure hazard
+  this file keeps recording arriving in its own measurement.
+
+- **Titanium's `--config-file` pattern works and core is not involved in
+  either half.** `titanium-cli`'s `initGlobals()` declares `--config-file [file]`
+  and handles it with Commander's `on('option:config-file')`: `this.config.load(
+  file)` and then `loadCustomCommands()`, which reads `paths.commands` from the
+  **reloaded** config and registers what it finds -- so there, `--config-file`
+  really does change the command tree, which an earlier draft of this analysis
+  asserted was impossible and was wrong about. A sigil app does both: the first
+  load shapes the tree, because the app loads config before building its schema
+  and puts `paths.commands` into `schema.commands`, which is what
+  core-not-loading _buys_ rather than prevents; and the reload is a `parse` hook,
+  which fires inside `parseArgv()` and is handed the registries, so
+  `commands.add(await initCommand(...))` takes effect immediately.
+
+  Two things are true of the reload that are not true of Commander's. It is
+  **positional** -- `mycli --config-file x build` can see the option in
+  `state.$` and `mycli build --config-file x` cannot, which is the same shape as
+  the recorded limitation about a subcommand's option used before its
+  subcommand. And it **does not survive `sigil build`**, which reads `commands`
+  statically off the entry, so an app computing it from config gets the "there is
+  one I cannot read" diagnostic `readAppCommands()` already produces. So
+  config-driven command paths are an unbundled feature, and the build says so
+  rather than silently disagreeing.
+
+#### The store interface, and the two refusals that are two shapes
+
+- **`ConfigStore` is public API rather than an internal seam, which is why it is
+  drawn whole here and not left to fall out of whichever store was written
+  first.** The reason is about **variance** rather than about version numbers.
+  Both packages are at `0.0.1` and `0.y.z` carries no stability guarantee, so
+  nothing here is locked today. What makes an interface the expensive thing to get
+  wrong is which way the obligation points: adding an optional parameter to a
+  function **callers** use is backwards-compatible, while adding a required method
+  to an interface **implementors** write is breaking for every one of them and
+  cannot be softened by a default. So the cost of being wrong is paid by somebody
+  else's package, and it is paid at 1.0. Drawing it whole now is cheap; drawing it
+  twice is not.
+
+- **`read()` and `readSync()` are both required, and that is what dropping the
+  `.js` layer buys.** Two earlier shapes were wrong in opposite directions and
+  both are recorded so neither comes back. The **first** made `read()` required
+  and had a synchronous store write `async read() { return this.readSync(); }` --
+  a store lying about itself to satisfy a signature, which defeats the point of
+  the interface. The **second** made both optional with the presence of
+  `readSync()` as the capability, which moved the lie into a **ternary at every
+  call site**: `store.readSync ? store.readSync() : await store.read()`. Honest,
+  and it leaks into every caller that ever grows one.
+
+  Both existed to accommodate exactly one store kind -- `.js`, where `import()`
+  leaves no choice. With that layer gone and an object layer in its place every
+  store can do both, so both are required and the problem evaporates: no
+  optionality, no union, no ternary, no wrapper. And the two methods are **two
+  real implementations** over one shared parse rather than one wrapping the other,
+  which is what `file.ts` does: two different I/O calls, one `parse()`. A
+  third-party store that genuinely cannot do sync -- a remote one -- throws from
+  `readSync()` with its own message saying so, which is strictly better than the
+  optional shape: the failure is localized to the store that has it and worded by
+  the author who knows why, and **no caller branches**.
+
+- **Will not write is a separate interface; cannot represent this value is a
+  predicate.** A read-only store is a `ConfigStore` and a writable one is a
+  `WritableConfigStore`, so read-only is something TypeScript enforces and
+  `isWritableStore()` narrows, rather than a method that throws at run time.
+  `canRepresent()` is the other refusal and it is **synchronous on purpose**,
+  because `set()` is: a value the format cannot hold is refused at the call that
+  wrote it, naming the layer and the format, rather than discovered by a `save()`
+  in an exit handler. TOML is the case that proves the second is needed -- it has
+  no `null` at all, in 1.0 or in the newly released 1.1, with the question
+  deferred to 1.2 or later -- so "I am read-only" and "I cannot hold that" are two
+  answers, and an interface with only the first makes the second surface as a
+  corrupt file.
+
+- **`ConfigLayer.readOnly` is the _other_ read-only statement, and both are
+  real.** The store's says "this format cannot be written"; the layer's says
+  "this one is not mine to write" -- an `/etc` file an app reads and must not
+  touch, whose store could write perfectly well. One mechanism for each, because
+  they are different sentences, and writability is `!layer.readOnly &&
+  isWritableStore(store)`.
+
+- **`ConfigStore.source` is on the interface because the `delete()` message
+  needs two paths.** The ticket drew the interface with `format` alone, and the
+  message it specifies -- "Set it in ~/.config/app/config.jsonc to override the
+  value, or remove it from /etc/app/config.json" -- names the path to write
+  instead and the path to edit by hand. A layer's _name_ is what the app chose to
+  call it, which is not a file a user can open. An optional readonly property is
+  free for implementors to add later, so this is cheap either way; it is here
+  because drawing it now is cheaper than drawing it twice.
+
+- **`write()` and `writeSync()` are declared here and have no caller, and
+  `wouldLose` has no producer in core.** Both are deliberate and each is the
+  shape this file already records twice: a property with no reader is dead, and a
+  property with no **producer** is a contract -- `Schema.routeInfo`'s own entry.
+  `save()` is SIG-154's, so `write()` is the contract SIG-149 and SIG-152 are
+  blocked on; `wouldLose` is **absent** for a store that edits spans even over a
+  comment-rich file and populated by one that reprints, which is what a YAML or
+  XML store will fill. It is given a **reader** so it cannot go quiet:
+  `config.layers` carries it per layer.
+
+  The file stores are therefore `ConfigStore` rather than `WritableConfigStore`
+  in this ticket, which is the clean line the split falls on. A _reprinting_ JSON
+  writer here would destroy the comments a `.jsonc` file is read for, which is
+  exactly what SIG-154's span writer exists to prevent -- so there is no file
+  write until there is a correct one, and `object()` is what gives `set()`,
+  `delete()` and the array methods a real writable layer to target. An app whose
+  only layers are files gets `No writable config layer`, naming the
+  `object()` layer on top, which is the in-memory override every other answer to
+  that reduces to.
+
+#### The object layer, which is what replaces `.js`
+
+- **A `.js` config is the popular shape and reading one is the only thing in this
+  design that cannot be done synchronously**, because `import()` is async and
+  there is no synchronous ESM loader. One store kind was forcing the entire
+  interface to carry optional methods, so it is dropped and an **object layer**
+  takes its place: a store constructed over a plain value the app already has.
+  **Nothing is lost in capability**, only in convenience -- and what the app gains
+  in exchange is control over _how_ its module is loaded: TypeScript, with
+  arguments, conditionally, or not at all.
+
+  It also moves the ESM module-cache problem to the app, which is the only party
+  that knows whether it cares: a `.js` layer could never be reloaded, because the
+  loader caches a module for the life of the process and a cache-busting query
+  string leaks one per reload. An app that wants to re-import with a buster may;
+  that is its leak and its decision. SIG-153's "`.js` layers are not watchable"
+  rule retires with the layer kind.
+
+- **`object()` with nothing handed in is the in-memory layer**, which is the
+  runtime override: a run that overrides a setting for its own duration and
+  persists nothing. One store rather than an `object()` and a `memory()` that are
+  the same thing under two names, which is the drift this repository refuses
+  everywhere.
+
+- **`apply(layer, value)` replaces a layer's content, and that is the decision
+  rather than a default.** It is the same mechanism as construction after
+  construction, which is what a reload is. A merge _inside_ a layer would be a
+  second merge semantics sitting beside the cross-layer one, and the two would
+  then need to agree about depth and about arrays -- where the cross-layer merge
+  already has an answer. And it is unnecessary, which is the better half of the
+  argument: **two objects that should merge are two layers.** The stack _is_ the
+  merge, it already works, and it already has the array rule. It is allowed on a
+  **read-only** layer, because re-reading one is not writing it -- which is what
+  makes it a reload rather than a write.
+
+#### The one precedence chain
+
+- **A setting's environment variable, then the layers from last to first, then
+  the setting's `default`.** Written out as a single chain, which is the form this
+  repository keeps for every precedence rule it has. The environment is on top
+  because a variable is a statement about one run and a file is a persistent one,
+  which is the same reading argv gets against the environment one layer up; the
+  default is underneath everything because it is what the app ships rather than
+  what anybody configured.
+
+  Both are **materialized into the merge** rather than consulted on a miss, so
+  that `get('server')` holds a defaulted `server.port` and there is one object to
+  read. Making them synthetic _layers_ was the other candidate and was refused
+  over the name collision it creates: the ticket's own example declares an app
+  layer called `defaults`, so a synthetic one would need a reserved spelling and a
+  rule about which names an app may not use.
+
+- **The environment is read once, at construction.** A `get()` that re-read it
+  would be a different answer to the same question at two moments, which is the
+  parser's answer too -- it reads `state.env` at parse time. `ConfigOptions.env`
+  is how a test asks what a variable does without setting one on the process every
+  other test in the worker shares, which is the reason `ParseState.env` is an
+  option.
+
+- **`envValue()` moved to `src/util/env-value.ts`, because there are two readers
+  now.** The parser's rule is `if (state.env[env])`, so `''` is skipped while
+  `'0'` and `' '` are returned -- only the empty string is falsy among the values
+  a variable can hold. Config reads it **from the same place** rather than
+  reimplementing it, because a config setting declaring `env` and an option
+  declaring `env` disagreeing about what `PORT=` means is the two-readers-of-one-
+  question drift this file has half a dozen entries about. `parse.ts` calls
+  `envValue(state.env, envs)` now, and what the function asks is the same
+  comparison it always asked -- only the parameter it reads it off moved.
+
+- **The file's own version of that rule: a key absent and a key set to `null`
+  are both "not configured"; a key set to `""` is an empty string.** Which is the
+  `--port=` side of the same question. A `null` at a setting's path is
+  **removed** rather than validated, and that is not tidiness: left in place it
+  would be a _value_, and a value replaces the layer under it -- so a user writing
+  `"theme": null` would be shadowing the default to `null` rather than falling
+  back to it.
+
+#### The schema is config's own, and shares the parser's types
+
+- **A config setting is declared in the parser's own type vocabulary** --
+  `type`, `choices`, `multiple`, `default`, `env` -- and validated with
+  `transformValue()`, `checkValue()` and `assertChoices()`, which are the most
+  heavily tested code in the repository. Three obvious answers were build a
+  validator, inject one, or drop the feature; this is the fourth and it is better
+  than all of them. What it buys: zero dependencies, which is the hard
+  constraint; no new grammar; and a config setting and an option that happen to
+  cover the same thing **cannot come to disagree about what `on` means**, which
+  is the precise drift the `bool` entry is written about.
+
+  What it does not give is nested object shapes, whole-subtree requiredness or
+  `oneOf`. For CLI config that is probably not missed, and saying so is better
+  than a half-built JSON Schema. The toolchain's own migration is where that line
+  shows: `build.external` is typed by the schema and `build` itself cannot be, so
+  "build must be an object" stays in `packages/cli/src/config.ts`.
+
+- **A path the schema does not declare is left exactly as it arrived.** The call
+  `allowUnknownOptions` already makes for argv: a config file legitimately holds
+  things this app's schema has nothing to say about -- a plugin's own settings, a
+  key a newer version reads -- so the schema is a partial typing over a free-form
+  document rather than a closed shape. What that gives up is a typo being caught,
+  and saying so is better than refusing a file somebody's plugin wrote half of.
+  There is deliberately no `strict` option, because nothing has asked for one.
+
+- **A setting whose path runs through another setting's is refused where the
+  schema is read.** `server` as a `json` object and `server.port` as an `int`
+  would each validate the other's value, so it is refused rather than resolved by
+  a precedence nobody would remember.
+
+- **`checkValue(value, type)` sits beside `transformValue()`, in the same
+  file.** `transformValue()` turns a **string** into a value, which is the wrong
+  function for the only source this module exists for: a JSON or YAML file hands
+  back `true`, `8080` and `{...}` already typed. Measured on the parser's own
+  `default` path, which is the closest existing analogue, on a `--port [n]`
+  declared `type: 'int'`: `'8080'` lands as the number 8080 and `'yes'` throws,
+  while `true` and `{"a":1}` pass through **untouched**. For a `default` that is
+  deliberate and is recorded -- "non-string defaults pass through untouched",
+  because the author wrote it in code in the right type. A user's config file is
+  not that.
+
+  A **string** is handed straight to `transformValue()` rather than being
+  refused, and that is the decision rather than a convenience: it is what makes
+  an all-strings format work at all, since XML has no other scalar kind, and it is
+  what stops `--shake=off`, `SHAKE=off` and `"shake": "off"` meaning three
+  different things. So there is **no flag on `ConfigDocument`** saying which kind
+  of store a value came from, which the ticket's "XML needs `transformValue()`,
+  YAML needs `checkValue()`" framing would otherwise have needed: one function
+  answers both, and the interface the ticket drew stands unchanged.
+
+  What that cost the toolchain's own migration is one strictness: `"sourcemap":
+  "false"` used to be refused and is now coerced. The old reason was that
+  coercion invents a setting nobody chose, and `transformValue()`'s vocabulary is
+  strict and symmetric -- `false/f/no/n/off/0/''` and `true/t/yes/y/on/1`,
+  anything else throws -- so there is no silent wrong answer available. Three
+  readers agreeing is worth more than that refusal.
+
+- **What a `default` does is `applyFallback()`'s behaviour, measured on a real
+  parse rather than read off the code -- and two of the three answers are not
+  what "non-string defaults pass through untouched" predicts.**
+
+  | a `default` of | on an option declared | lands as                       |
+  | -------------- | --------------------- | ------------------------------ |
+  | `'a'`          | `multiple: true`      | `['a']` -- **wrapped**         |
+  | `['a']`        | `multiple: true`      | `['a']`                        |
+  | `'z'`          | `choices: ['a', 'b']` | **throws** `Invalid value "z"` |
+  | `8080.5`       | `type: 'int'`         | `8080.5` -- untouched          |
+
+  All three are kept, and the first version of `defaultsOf()` had two of them
+  wrong: a scalar default on a `multiple` setting was left a scalar, so
+  `get('plugins')` answered `'a'` where a list was declared, and a default
+  outside `choices` was never checked at all. A string is coerced and a
+  non-string is not, which is the recorded rule; a non-array is **wrapped**,
+  because a declaration can only write one value and the wrap is what makes the
+  shape not depend on how many were written; and `choices` is checked, because a
+  `default` is a producer and the rule is that a value is validated by whoever
+  produced it.
+
+  A non-string default is deliberately **not** type-checked, which is the one
+  place this is looser than it could be and is the one of the four that was
+  already right. Diverging would make the two declarations disagree about a value
+  written in code, and the reason it is defensible is the recorded one -- the
+  author wrote it in the right type, and a config schema is as much the app's own
+  source as an option declaration is. Measured rather than assumed, which is how
+  the other two were found.
+
+- **Every refusal `checkValue()` makes is one of the parser's own keys, with the
+  **value** through the slot rather than a word for its kind.** The first version
+  wrote `Expected an integer, got ${describe(value)}`, which puts the English
+  words "a number" through a slot -- and the i18n work already records that as
+  the wrong shape, because a translator needs the whole sentence and `Invalid
+  {0}: {1}` with a noun in the first slot is a sentence they cannot write. So it
+  reuses `Invalid boolean: "{0}"`, `Invalid integer: {0}`, `Invalid date: "{0}"`,
+  `Invalid number: {0}`, `Value must be "{0}" or "{1}"` and both
+  too-large-to-be-exact keys, and costs **one** new key -- `Invalid string: {0}`,
+  new because argv hands over nothing but strings so the parser never had to
+  refuse a non-string for a `string` option.
+
+  `show()` is what makes the slot readable, and the one value kind whose JSON
+  **lies** about it is a `Date`: `Date.prototype.toJSON` answers `null` for an
+  invalid one, so `JSON.stringify(new Date(NaN))` is the string `"null"` -- a
+  message about a date that says nothing about a date. `String()` answers
+  `Invalid Date`, which is the one thing a reader needs to see. Found by a test
+  rather than by reading.
+
+- **`DATA_TYPES` is one list where `init-arg.ts`, `init-option.ts` and a config
+  schema each had their own.** Exact membership rather than a pattern, which is
+  what the anchoring entry was reaching for all along: `/^auto|bool|...|yesno$/`
+  bound the alternation looser than the anchors, so any string merely
+  _containing_ one of the middle names passed. A `Set` cannot be got wrong that
+  way. Two sets because the vocabularies really differ by one -- an option may be
+  a `count` and an argument may not, and neither may a config setting, because a
+  counter is a thing argv increments and a config file has nothing to increment.
+  `should name only types the coercion branches on` is the guard, and its table
+  has to cover the list exactly, so a type added without a probe is the hole
+  again.
+
+- **`assertChoices()` moved out of `parse.ts` for the same reason**, and the
+  oddity it carries is why it is worth sharing rather than copying: membership is
+  `includes()`, which compares a `Date` and an object by **identity**, so a
+  `choices` list of either is a declaration no value can satisfy. That is true of
+  a command line as well, and it is exactly the kind of property a second copy
+  quietly disagrees about.
+
+- **A scalar where a `multiple` setting was declared is refused rather than
+  wrapped, and an environment value is wrapped.** Those are two answers to one
+  question and both are right: the parser wraps an environment value because argv
+  and the environment can only hand over one value at a time, and a _file_ can
+  write a list -- so a scalar there is a mistake worth reporting.
+
+#### Sync accessors, async at load
+
+- **`get()`, `set()`, `has()`, `delete()` and the four array methods are
+  synchronous; `createConfig()` is async and `createConfigSync()` sits beside
+  it.** What could force an async accessor was enumerated rather than assumed:
+  reading a file (no -- `readFileSync` exists and three modules here already use
+  it), parsing (no), loading a store from a sibling package (no -- that is the
+  _app's_ static import, resolved before any of this runs), a store's own
+  `read()` (**yes**, for a remote store somebody else writes), a store's own
+  `write()` (**yes**, which is why `save()` is), creating a layer lazily on first
+  `set()` (refused, below), and watching (a callback, so it does not reach this
+  question). So the async is at load and at save, and **an async `get()` would be
+  a promise per read of data already in memory.**
+
+  An earlier draft leaned hardest on the parser -- `applyFallback()` and
+  `envValue()` are plain synchronous functions and `processOptions()` contains no
+  `await` at all, so config-as-a-fallback-source had no asynchrony available to
+  it. That is still true of `processOptions()` and is now **irrelevant**, because
+  config is not a fallback source. Recorded so it is not cited later as though it
+  still carried weight.
+
+- **Lazy layer creation is the one thing config-kit's async buys, and it is
+  refused.** A `set()` targets a layer that is already **registered**, and
+  registration is `createConfig()`'s -- which is where the async is. The _file_
+  need not exist: `save()` creates it and `mkdirOwnerSync()` creates the
+  directory. So the reason config-kit forces async does not arise here, because
+  this design registers layers up front rather than conjuring one on a write.
+
+- **The two entry points are two real implementations of one loop, and the
+  shape that looked obvious is a bug.** `createConfigSync()` cannot be written in
+  terms of the async one: `then()` runs on a later microtask whatever the promise
+  holds, so a synchronous entry point that awaited an already-settled promise
+  would not be synchronous. The first version did exactly that -- `void
+  buildLayers(...).then((built) => { layers = built })` followed by a check that
+  `layers` was filled -- which **always** threw. One shared `layerOf()` between
+  them is the honest split, which is the same two-real-implementations rule the
+  store interface asks of every store it describes.
+
+- **`createConfigSync()` is withdrawn from an earlier refusal, and the caller is
+  better than a preference.** The earlier draft refused both sync entry points on
+  the rule `which` waited eighteen months on -- real surface for no caller. An
+  exit or signal handler **cannot await**, which is the same reason
+  `Terminal.syncRestore()` exists, and "read the config on the way in and write it
+  on the way out" is that shape exactly. Every core store implements both halves,
+  so all four entry points work and nothing branches. `.js` was the one layer kind
+  that could not, and it is gone.
+
+#### The merge, and what it owns
+
+- **The merged view is structure this module owns, and sharing one sub-object
+  with a layer was a real bug.** `mergeInto()` answered with `over[key]` by
+  reference wherever the base lacked the key -- so the merged view held a layer's
+  own nested object, `deepFreeze()` then froze **the layer**, and the next
+  `set()` on it threw `Cannot delete property 'c' of #<Object>`. Found by a test
+  rather than by reading, which is why it is written down. Everything that comes
+  from `over` is copied now; `base` needs no copy, because it is either the first
+  copy or the result of a previous step.
+
+- **The merged view is deeply frozen, and that is the call every initial value in
+  the property table already gets.** It is a computed value an app holds a live
+  reference to until something recomputes, so mutating it would change what a
+  later `get()` answers while changing no layer -- a value with no writer, which
+  is the parser's own phrase for the same shape. Freezing makes the mistake loud;
+  `structuredClone(config.get('x'))` is the mutable copy.
+
+- **Only the structure is copied and only the structure is frozen.** A `Date`, a
+  class instance, a `Map` and a function are leaves carried by reference, which is
+  what lets an object layer hold a plugin -- the thing a `.js` config was _for_.
+  `structuredClone()` is the obvious alternative for the copy and **throws on a
+  function**, which is exactly the case this has to serve. And freezing a `Date`
+  an app handed in, or a function, would be freezing somebody else's object on the
+  way past.
+
+- **A plain object is one whose prototype is `Object.prototype` or `null`, and
+  everything else is a leaf.** Merging into a class instance makes no sense --
+  what would the result be an instance of -- so the structure this module owns is
+  plain objects and arrays, and `copyValue()`, `mergeInto()` and `deepFreeze()`
+  all ask the same `isPlainObject()`. One definition, because two would be two
+  answers about what the merge and the freeze are each walking.
+
+- **Arrays replace by default and `merge: 'concat'` is opt-in per key.** Replace
+  because it is the less surprising of the two -- a user writing `exclude: [...]`
+  in their own file means "this is my list", not "append mine to whatever
+  shipped" -- and because concat has no ordering or de-duplication story without
+  further decisions, so defaulting to it imports those decisions silently.
+  `concat` is asked **by path** rather than by value, which is what keeps the two
+  array rules one decision the schema makes rather than a guess at what the values
+  look like; it concatenates bottom first and does not de-duplicate.
+
+- **`push` appends to that layer's array rather than to the merged one**, and
+  that is the array rule said once rather than twice: with `merge: 'concat'` it
+  reads as appending to the merged list, and with the default `replace` it appends
+  to that layer's own list, which then replaces what is underneath. Seeding from
+  the merged value would copy a lower layer's values into this one, after which a
+  change to the defaults never reaches the user again.
+
+- **One value per call rather than a variadic list**, so that every mutator has
+  one shape: a path, maybe a value, maybe a layer. A trailing layer name and a
+  trailing string value cannot be told apart, which is what rules the variadic
+  form out -- and one shape for all six is worth more than the convenience.
+
+- **A mutator with no layer named writes to the topmost writable layer.** The
+  stack is ordered and the top is what wins, so writing to a lower one means
+  `get()` does not change -- a mutation that looks like it did nothing.
+
+- **A mutation validates the whole layer rather than the setting at its own
+  path, and the narrower version was a hole in both directions.** A path can be
+  _inside_ a declared setting or _outside_ one declared under it, and a pass that
+  asked only about `parts.join('.')` missed both. Measured rather than reasoned:
+  with a schema of `{ server: { type: 'string' } }`, `set('server.port', 1)` left
+  `{ server: { port: 1 } }` on the layer, which `createConfig()` over a file
+  holding the same thing refuses outright; and with `{ 'a.b': { type: 'int' } }`,
+  `set('a', { b: 'nope' })` put the string on an `int` setting. Either way a
+  `set()` could leave a layer in a state the load path says is impossible, which
+  is the worst shape a validation hole has -- the next run of the same app over
+  the same file refuses to start.
+
+  So there is **one** validation pass and `apply()` already ran it, which makes
+  this hole-free by construction rather than by a rule about which settings a
+  path touches. What it costs is a path read per declared setting per mutation,
+  which for a config is a handful of lookups. Restoring the one path is enough
+  even though the pass rewrites every setting it validates, because
+  `coerceSetting()` is **idempotent**: a coerced value coerces to itself, and a
+  `null` that was dropped is absent on the second pass -- so a run that threw
+  part way through has changed nothing but the path being put back. Found by
+  self-review, and `settingAt()` went with it, because a function with no reader
+  is dead.
+
+  What that does **not** do is constrain an undeclared parent: `a: [1, 2]` with
+  `a.b` declared leaves the array alone and reads `a.b` as absent, because a
+  config schema has no nested object shapes. Which is why the toolchain keeps its
+  own "build must be an object", and is pinned so that the absence is a decision
+  rather than an accident.
+
+- **A refused mutation puts the layer back, and back to what was there rather
+  than to nothing.** The rule `Show` and `For` already keep about a branch that
+  threw. Deleting where there was nothing rather than writing `undefined`, because
+  `deletePath()` prunes the objects the write made on its way down -- without
+  which a refused `set('a.b.c', ...)` leaves `{ a: { b: {} } }` behind, and an
+  empty object is a difference the merged view can see.
+
+#### `delete()` on a key in a read-only layer: throw
+
+- **Not a tombstone.** The fatal objection is that TOML cannot represent one, and
+  there are two more: a tombstone is a new value concept **every** store must
+  support, and it needs a sentinel that can collide with a `null` the user wrote
+  in a file. The useful half already works without it -- `set(path, value)` on a
+  writable layer **shadows** a read-only value -- and what cannot be expressed is
+  shadowing to _absent_, which is the limitation to document rather than to invent
+  a mechanism for.
+
+- **It throws only for a read-only layer, and a `default` or an environment
+  variable still answers after a delete.** Those two have the same confusion --
+  delete it and `get()` still answers -- and including the environment would make
+  `delete()` throw over an unrelated variable, breaking a legitimate "clear this
+  from my config file". A default is not something you delete; it is what you get
+  when nothing is configured.
+
+- **It throws only where the writable layer has nothing at that path.** Where it
+  does have something the delete works, and `get()` then answers from the
+  read-only layer -- which is the merge rather than a surprise.
+
+- **The message is one key, not three.** `Cannot delete "{0}": it is set in {1},
+  which is read-only.\n  Set it in {2} to override the value, or\n  remove it from
+  {3}.` -- a sentence per line would hand a translator three fragments and no way
+  to reorder them, which is what the suggestion work already refuses.
+
+#### A dotted path setter is where prototype pollution lives
+
+- **`__proto__`, `constructor` and `prototype` are refused at both doors.** A
+  path segment, and a key anywhere in a document. Those are the two places a
+  hostile key can **enter**: `set('__proto__.x', 1)` on a plain object goes
+  through `Object.prototype`'s own accessor and changes the target's prototype
+  rather than writing a property, and `set('constructor.prototype.x', 1)` is the
+  same attack two steps along -- with a path that can arrive from a file in a
+  repository somebody cloned. Past the doors nothing internal can be handed one,
+  so the ordinary assignments need no second check, which is the whole reason the
+  guards are at the entrances.
+
+  `prototype` on its own is harmless and is refused anyway, because the set is
+  easier to be sure of than the reasoning about which two of the three are the
+  live ones.
+
+- **A file that holds one is refused rather than carried through.** `JSON.parse`
+  puts `__proto__` on an object as an own property rather than through the
+  accessor, so a file holding one is read without incident -- and then the first
+  `Object.assign({}, config.get('x'))` an app writes triggers the setter. Refused
+  rather than skipped, because a file that holds one is either a mistake or an
+  attack and in both cases the app should not start quietly.
+
+- **An inner empty segment is refused too**, which is a different thing from an
+  empty path: `get()` with nothing is the whole merged view, and `a..b` is a path
+  somebody got wrong rather than a key called `''`.
+
+#### JSONC strips rather than parses
+
+- **The JSON value grammar is `JSON.parse`'s and this scans only for what JSONC
+  adds.** The obvious shape is a JSON parser that happens to allow comments, and
+  it is the wrong one: `JSON.parse` is the reference implementation of that
+  grammar -- `-0`, `1e400`, a surrogate pair written `😀`, the exact set
+  of legal escapes -- and a second one here would be a second grammar to get
+  wrong in a way nobody notices until a number comes back slightly different. So
+  a comment and a trailing comma are each replaced with a **space**, every newline
+  is kept, and what comes out is ordinary JSON at the **same offsets** -- so
+  `JSON.parse`'s own message still points at the character it was about, and
+  SIG-154's span editor works over the original text with this same scan.
+
+- **A `.json` reports a comment rather than letting `JSON.parse` meet it.** That
+  is the one thing this adds over calling it directly: `Comments are not allowed
+  in <path>, on line 2` is a sentence somebody can act on, where `Unexpected token
+  /` is one they have to work out. Same for a trailing comma.
+
+- **A leading byte order mark is blanked rather than trimmed.** An editor writes
+  one and `JSON.parse` refuses it, and it is not a character the document holds --
+  blanked so that every offset after it still means what it meant.
+
+- **Not JSON5, and the list is explicit.** No single-quoted strings, no unquoted
+  keys, no `+1`, no hex, no `NaN`, no bare fractions. This is the flavour
+  `tsconfig.json` and VS Code's settings are written in, which is what people mean
+  by a `.jsonc`, and widening it would be inventing a dialect other tools cannot
+  read.
+
+- **The scan is fuzzed differentially, and the fuzzer is what found the one
+  nesting case.** `fuzz.test.ts` generates a value, re-prints it as JSONC with
+  comments and trailing commas scattered through it, scans that and requires
+  `JSON.parse` of the result to deep-equal the value it started from -- plus the
+  two properties the strip rests on, that the output is the same length and has
+  the same number of lines. 400 seeds, with the corpus counted: a run that never
+  met a comment or a trailing comma is a green test about nothing, which is the
+  rule the composite fuzzer records.
+
+  It earns its keep rather than corroborating. Five sabotages were caught by the
+  hand-written cases and the fuzzer alike -- not skipping strings, not resetting
+  the pending comma on a value, blanking a newline, resetting it on a comment,
+  and blanking the brace instead of the comma -- and a sixth, **not closing the
+  pending-comma window on a `[` or a `{`**, was caught by the fuzzer and by
+  nothing else. `[1, []]` is the shape: without the reset the inner `]` finds the
+  _outer_ comma still pending, blanks a real separator, and the document stops
+  parsing. It has a named test now, because a seed is a worse thing to read than
+  a case -- which is the rule the layout fuzzer's own entries already keep.
+
+- **A document whose root is not an object is refused where it was read.**
+  Merging `42` or `[1, 2]` would make every key of every layer below it vanish, so
+  it is refused rather than discovered as a missing setting later.
+
+- **A file that is not there, and a file holding nothing but whitespace, both
+  read as an empty document.** The first is the ordinary state of a config file --
+  an app ships defaults and the user has written nothing yet -- which is the call
+  `readSigilConfig()` already made. The second is because `JSON.parse('')` is a
+  syntax error, and reporting one over `touch config.json` would be refusing to
+  start over an empty file. **`EISDIR` is deliberately not in that set**: a path
+  naming a directory is an app pointing at the wrong thing, and answering "there
+  is no config" for it is the silence that costs an afternoon.
+
+- **The path is expanded through `paths.expand()` rather than taken literally.**
+  A `~` is the single most likely thing an app writes by hand, and
+  `readFileSync()` of one is an `ENOENT` naming a path with a `~` still in it --
+  which reads as "the file is missing" rather than "the `~` was not expanded". One
+  implementation of that rule, which is the one `paths.ts` already holds; on
+  Windows it expands `%VAR%` too, for the same reason.
+
+#### What is translated and what is not
+
+- **The line is whose mistake it is.** Anything a _user's config file or
+  environment_ can provoke is translated: every JSONC message, the unsafe-key
+  refusal, `Failed to read`, `{0} must hold an object`, `Invalid value for "{0}"
+  in {1}: {2}`, `Expected a list of values`, the read-only `delete()` message, the
+  `canRepresent()` refusal, and `"{0}" in {1} is not a list` with its
+  `is not an object` sibling. Anything only the
+  _app's own code or a store's own code_ can provoke stays English: a dotted path
+  that cannot mean anything, a layer name that is not there, a schema declaration
+  that cannot mean anything, `No writable config layer`, a store whose document is
+  not an object, and `apply()` handed something that is not one. That is the line
+  the i18n work already drew -- a translated `Expected option choices to be an
+  array` is a bug report in a language the maintainer cannot read.
+
+- **`setting "{0}"` is a key, matching `option {0}` and `argument <{0}>`.** It
+  is a label fragment interpolated into `Invalid value "{0}" for {1}`, which is
+  exactly what the parser already does with its own two.
+
+- **The four array methods share one key rather than putting the method name
+  through a slot.** `Cannot {0} to "{1}" in {2}` was the first version, and `push`
+  is an API name a translator sees as prose. `"{0}" in {1} is not a list` is one
+  complete sentence for all four, and what it loses -- which call it was -- is in
+  the stack trace.
+
+- **16 new keys, 78 in total.** `SIGIL_KEYS.length` is the figure and the
+  generator prints the count it wrote; no number here should be read as the
+  current one.
+
+#### `paths.config()` is `paths.configHome()`
+
+- **A prose collision rather than a code one.** `@ttylabs/sigil/config` is a
+  module about config _files_ and `paths.config()` beside it is two things called
+  the same word, one of which is a directory and the other a layered merge.
+  Renamed rather than explained, and renamed to the spelling that makes the pair
+  obvious: this reads `XDG_CONFIG_HOME` and `configDirs()` reads
+  `XDG_CONFIG_DIRS`, so each function is named for its own variable. A breaking
+  change to a published export, taken because the package is at `0.0.1` -- which
+  is the call `heading()` already got.
+
+  The ticket's own example spells it `paths.userConfig()`; `configHome()` was
+  chosen over it because it names the variable the function reads, which is the
+  rule that makes both names obvious rather than one of them explained.
+
+  It cost one shadow in `paths.test.ts`: a local `const configHome` inside the
+  `XDG_*_DIRS` block was fine while the import was called `config` and shadows it
+  now, so the local is `declared`. Which is the kind of thing a rename finds and a
+  type-check does not.
+
+#### `readSigilConfig()` migrated, which is the acceptance test
+
+- **One layer, which is this file.** The stack is what an _app_ reaches for; the
+  toolchain has exactly one place its own settings live, and a second layer would
+  be a second place to look for an answer to one question.
+
+- **What the migration changed is three things.** A file that is not there, one
+  holding nothing, and one holding valid JSON read exactly as before. A **string
+  where a boolean was declared is coerced** rather than refused, which is the
+  shared vocabulary arriving and is argued above. The **type messages are the
+  shared ones** -- `Invalid value for "build.sourcemap" in <path>: Invalid
+  boolean: "42"` rather than a sentence written in the toolchain -- which name the
+  file, the setting and what was wrong. And a **field written `null` reads as
+  absent** rather than throwing, which is the entry below.
+
+- **Three checks the schema's vocabulary cannot say stayed in the toolchain**,
+  and finding them is what the migration was for. `"build": []` is a mistake
+  nothing in the schema would report, because a schema declares settings by dotted
+  path and has no nested object shapes -- and declaring `build` as well is refused
+  by the setting-inside-a-setting rule. An empty `components` or `locale` passes
+  `type: 'string'` and is right to, because a key written `""` is an empty string
+  somebody chose. And "relative to the app" is a fact about what a field is _for_
+  rather than about what kind of value it is.
+
+- **The migration was walked check by check against the old reader, which is
+  the only way an acceptance test means anything.** Eleven validations, nine
+  unchanged -- `build` must be an object, every name non-empty, every list a list
+  of non-empty names, `components` relative, `locale` a non-empty string, a
+  parse failure reported, an absent file empty -- and the two that moved are the
+  coercion and the messages, argued above. Two further differences turned up by
+  walking it rather than by reading it:
+
+  An **unknown key under `build`** used to be dropped, because the reader named
+  each field it read; the merged view holds whatever the _file_ holds, so passing
+  it through handed back an object with keys `BuildConfig` does not declare. That
+  is a value that lies about its own type over a key which is almost always a
+  typo for one of the six, so `readSection()` picks by a list. An unknown key
+  _beside_ `build` was and is ignored.
+
+  And a **directory where the file was named** used to answer `{}`, because
+  `isFile()` is false for one -- so an app pointing at the wrong thing looked
+  like an app with no config. It is `Failed to read` now, which is the
+  `EISDIR`-is-not-absence rule arriving at its first real caller.
+
+  A third turned up the same way, by walking the inputs rather than reading the
+  checks, and it is a **class** rather than one field: **a field written `null`
+  used to throw and now reads as absent.** `{"build": null}` was `"build" must be
+  an object`, because the old reader asked `!value` before it asked about the
+  type; `{"locale": null}` and `{"components": null}` were `must be a non-empty
+  string`; `{"build": {"shake": null}}` was `must be true or false`. All four are
+  `{}` now, because `null` is "not configured" wherever it is written -- the
+  config module's own rule and the ticket's, arriving at its first real caller.
+  Correct rather than dropped: somebody who writes `"shake": null` is saying
+  nothing about shaking, and what nothing means is the default. So "nine
+  unchanged" above is nine for every value but `null`, which is the honest form of
+  it -- a check that still fires for `[]`, for `42` and for `"nope"` and no longer
+  fires for the one value the module reads as silence.
+
+  Worth knowing where each half of a message comes from: the type messages name
+  the **layer**, which the toolchain calls `sigil.json`, while the parse and read
+  messages name the store's **source**, which is the absolute path. So
+  `Invalid value for "build.external" in sigil.json` and
+  `Failed to parse /path/to/sigil.json` sit side by side, and each names the
+  thing its own reader can act on.
+
+- **A file that is not there and a file holding `{}` are now the same answer.**
+  The keys are set only where the file said something, where the hand-written
+  reader set every one of them to `undefined` and distinguished the two cases only
+  by returning early. A reader cannot tell "absent" from "present and undefined"
+  and no longer has to.
+
+#### The public surface, and what the emitted declaration said about it
+
+- **The constructor's parameters are public types, because the published
+  `.d.mts` is where that is visible and nowhere else.** `Config`'s first
+  signature took the built `Layer[]` and the read `Setting[]` -- both this
+  module's own, neither exported -- so the generated declaration held
+  `constructor(layers: Layer[], settings: readonly Setting[], ...)` over two
+  interfaces a consumer could not name: a constructor in the public surface that
+  nobody can call. Found by reading `dist/config.d.mts` rather than the source,
+  which is the only place it appears, and the type-check is perfectly happy with
+  it either way.
+
+  So the reading happens outside and the **building** happens in the
+  constructor, which takes `(opts: ConfigOptions, docs: readonly
+  (ConfigDocument | undefined)[])`. What it costs is that `readSchema()` and
+  `assertLayers()` run twice -- once in the entry point, so that a declaration
+  which cannot mean anything is refused **before** any store is read, which for
+  a remote store is a network call, and once in the constructor, because that has
+  to be correct when called directly. Both are pure. What it buys beyond the
+  declaration is that `new Config(opts, docs)` is a coherent thing to call: build
+  a config from documents somebody already read.
+
+  Exporting the two interfaces was the cheap alternative and is refused for the
+  reason the rest of this section is written: `Layer` is `ConfigLayerInfo` plus
+  the mutable value, and publishing it would be surface nobody should use.
+
+- **`scanJsonc()` and `lineAt()` are not in the barrel, which is the rule
+  `transformValue()` already follows.** They were, and they have no caller
+  outside this package: SIG-154's span editor is in it and imports relatively,
+  the tests import the module directly, and nobody has asked for a JSONC scanner.
+  Real surface for no caller is what `which` waited eighteen months over.
+
+  What the barrel does export is `createConfig`, `createConfigSync`, `Config`,
+  `isWritableStore`, the three stores, and the eleven types -- and `Config` is
+  there for an app's own signatures rather than to be constructed, which the
+  honest constructor above now makes safe to say.
+
+#### Two of these headings collided, and that is how the prose went in the wrong section
+
+The two blocks above were first inserted under `#### What the first review round
+found` -- and there are **two** of those, so a `replace` on the heading landed
+under the canvas layers section a thousand lines away, where the text reads as
+a finding about a composite nobody made. This file already records the rule, from
+the debug overlay: "Two `What the sabotage pass found` sections in one file is one
+somebody greps for and reads the wrong one of." It is one somebody _edits_ the
+wrong one of too, which is the sharper half, and the headings in this section are
+named for what they found so that there is nothing to collide with.
+
+#### What the sabotage pass found, and the one declared survivor
+
+Seventy-eight mutations, one at a time, with the config suites, `dist.test.ts`
+and `options.test.ts` run after each. **Seventy-seven caught and one declared**,
+counted against the shipped tree in one run rather than summed across rounds, so
+the figure is re-derivable. A green control first, and the four verdict guards
+this repository has learned to need: a pattern that matched nothing, a pattern
+that matched more than once, a replacement equal to its original, and a run that
+found fewer test files than the control are each their own verdict rather than a
+pass -- and the tree is restored on `SIGINT` and `SIGTERM` as well as on an
+exception, because a killed pass that left a mutation behind poisons the next
+control.
+
+Two of those guards fired. A pattern went **stale** when the formatter reflowed
+the line it quoted, which is the shape this file records from four earlier
+passes. And one mutation **hung** -- making the unterminated-block-comment check
+unreachable leaves the scan unable to advance -- so the run produced no summary
+and was reported as `HARNESS BROKEN` rather than as a pass; rewritten to swallow
+rather than to loop, it is caught by two tests.
+
+**Six survived the first pass and every one was a test that could not see what it
+was named for**, which is the shape this file keeps rediscovering:
+
+- **The restore after a refused mutation, both halves.** A refusal never
+  recomputes, so the merged view still answers what it answered -- which means
+  every assertion about the _failing_ call passes whether or not the layer was put
+  back. What makes it visible is the **next** mutation: without the restore the
+  layer holds the value that was refused and the recompute that mutation triggers
+  refuses it again. `should not let a refused set poison the next one` is the
+  input, and its sibling covers the restore that _deleted_ where there had been a
+  value.
+- **`readPath()`'s `Object.hasOwn`.** Without it, `at[part]` on a plain object
+  answers for every member the object inherits -- so `config.get('toString')` was
+  `Object.prototype.toString`. `constructor` is refused as a path segment
+  outright, which is why the obvious probe says nothing; `toString`,
+  `hasOwnProperty` and `valueOf` are not, and they are the test.
+- **The `concat` lookup's dotted path.** Built as the merge walks down, so a
+  **top-level** setting cannot tell a correct lookup from one that forgot the
+  parent -- every concat test used one. A `server.tags` fixture is what sees it,
+  with its mirror asserting that a bare `tags` is not that path.
+- **The two coercion-site copies**, which is the subtler pair. The merge's own
+  tripwire catches the same key, so a _construction_ fixture passes either way;
+  what the copies buy is the **message**, which names the setting the value came
+  through where the merge can only name the layer. And the `multiple` branch is a
+  separate branch, so a scalar fixture leaves it unpinned.
+
+**One guard was deleted for being unreachable** rather than tested, which is what
+this repository does with one: `apply()`'s rollback around its recompute.
+`copyValue()` has already run inside `coerceLayer()` by then, so a second walk of
+the same value cannot find an unsafe key -- five lines of machinery for a path
+nothing can take.
+
+**And one survivor is declared**, which is the recompute's **placement** inside
+`#settle()`'s `try` rather than after it. Nothing can reach it today, for the
+reason the deletion above gives; it is one statement's position rather than any
+code, and the failure it is for is unrecoverable -- a throw from the merge with
+the recompute outside leaves the layer holding what it had just written, after
+which every later mutation throws again over a value nobody can see. Kept for the
+reason `clipboardSequence()`'s own unreachable assertion is.
+
+#### What the first review round found, and the third prototype door
+
+Seven findings, every one confirmed against the code before anything was
+changed, and the shape is the one this file keeps recording: a round pointed at
+the diff with the ticket's constraints and **not** the rationale finds the
+guards that are missing rather than the ones that are dead. Five were runtime
+defects, one was a schema check that reported the wrong thing, and two were
+stale names in comments. It also confirmed nine regions clean by reading, which
+is the half worth having written down.
+
+- **A `__proto__` smuggled through `JSON.parse` polluted a merge copy's
+  prototype, and that is the finding of the round.** The prototype guard had two
+  doors -- a path segment and a key in a document -- and `transformValue()` is a
+  **third**: a `type: 'json'` or `type: 'auto'` setting whose value is the
+  _string_ `'{"__proto__":{"polluted":true}}'` enters as a string, which has no
+  keys to refuse, and becomes an object with an own `__proto__` **after** the
+  ingest copy. The merge's own copy then skipped the check -- it was conditional
+  on a `where` the merge did not pass, on the argument that a value the merge
+  copies has already been through a door -- and did `out['__proto__'] = ...` on a
+  fresh `{}`, which sets its prototype.
+
+  Measured on all three routes it is reachable by, which is a file, an
+  environment variable and a schema `default`: `config.get('data').polluted` was
+  `true`, and the value was **not frozen**, because `isPlainObject()` is false
+  for an object whose prototype is neither `Object.prototype` nor `null` -- so
+  `deepFreeze()` walked past it and a later layer at that path replaced rather
+  than merged. Not global `Object.prototype` pollution, and that is the one
+  mitigating thing about it.
+
+  So the check is **unconditional** now: every copy refuses, and the three
+  coercion sites pass a label of their own so the message names where the value
+  came from rather than naming the merge. The merge's own check stays and is
+  declared a tripwire, because "nothing can reach here" is the claim that had
+  just been wrong -- which is the rule this file already records for a negative
+  claim about all callers: it cannot be established by tracing the route you had
+  in mind.
+
+  And the comment in `dotted.ts` was part of the defect rather than beside it:
+  it said that past the two doors "nothing internal can be handed one", which is
+  what made the merge's conditional look safe.
+
+- **`null` was "not configured" only at a _declared_ setting's path.** The rule
+  lived in `coerceSetting()`, which runs per declared setting, so
+  `{ "x": null }` with no schema answered `null` and `has('x')` was `true` --
+  contradicting `has()`'s own doc and the rule as this file states it. A document
+  says nothing the same way whether or not a schema named the key, so the drop
+  moved into `copyValue()`, which is every door a value enters by.
+
+  Two edges came with it and both are stated rather than discovered. A `null`
+  **inside an array** is kept, because there it is data rather than a format
+  saying nothing. And `set(path, null)` is now the `delete()` it means: leaving
+  it as a stored value would be a `set()` whose result a re-read of the same file
+  would not reproduce, which is the round trip SIG-154 would hit.
+
+- **`writePath()` replaced an array with an object, which is silent data
+  loss.** `set('items.0', 9)` over `{ items: [1, 2, 3] }` left `{ "0": 9 }` and
+  the list was gone -- measured. The comment there argued _for_ replacing, on the
+  ground that refusing "would make a `set()` fail over what some other layer
+  happens to hold", and that reasoning was wrong twice over: `writePath()` writes
+  into **one** layer, so no other layer is involved, and an array carries more
+  than a scalar does.
+
+  Refused now, for any non-plain-object on the way down rather than for an array
+  specially, because the two halves disagree either way: `readPath()` does not
+  walk an array, so `get('items.0')` is `undefined` until a `set()` has already
+  destroyed the list, and `push`/`pop` treat the same path as a list. A dotted
+  path addresses object keys and the array methods are how a list is changed. The
+  message names the **ancestor** that is not an object rather than the whole
+  path, since that is the part somebody has to fix.
+
+- **A line comment ended at `\n` alone, so a `\r`-only file lost every key after
+  the first comment.** `{ "a": 1 // c\r "b": 2 }` ran the comment to the end of
+  the document, `"b"` was blanked, and `JSON.parse` succeeded over the remains --
+  a key dropped with **no error at all**, which is the worst way for a scan to be
+  wrong. It ends at any of the four line terminators JavaScript has now.
+
+  ` ` and ` ` are the interesting half: neither is JSON whitespace, so
+  a document holding one outside a string was never valid JSON -- and ending the
+  comment there turns a silent truncation into a **refusal**, which is the better
+  of the two answers available. Pinned as that rather than as a parse, because
+  the parse cannot succeed either way.
+
+- **A non-string `env` in a schema threw `TypeError: env is not iterable` from
+  `envOf()`** -- an error about the wrong thing, naming nothing. `readSchema()`
+  refuses it where the declaration was written, with the empty name beside it,
+  because `envValue()` would look one up and a variable has a name.
+
+- **And two comments named functions this commit does not have**:
+  `assertSafeValue()`, which is `copyValue()`, and `save()` without saying it is
+  SIG-154's. The first is the dangerous one, for the reason above.
+
+What it confirmed clean, by reading, is worth recording because each is
+something a later reader would doubt: `deletePath()`'s pruning indices,
+`createConfigSync()` really not awaiting, the `concat` path built for nested
+keys, the setting-inside-a-setting check, the `set`/`push` rollback, the
+`#writable` and `#readOnlyOwner` walks, `#spliceAdd`/`#spliceEnd`, the
+pending-comma tracking in every nesting case, and `checkValue()` against
+`transformValue()` type by type. It also confirmed the whole-layer validation
+fix found by self-review in the same pass, and said in as many words not to
+treat it as open.
+
+Two things it said it had **not** verified, and both were checked afterwards:
+that the old `init-arg`/`init-option` regexes named exactly the `DATA_TYPES`
+set, which the sorted-list assertion in `check-value.test.ts` now pins; and
+every check the pre-migration `readSigilConfig()` had, which is walked under
+the migration entry above.
+
+#### Walking the degenerate inputs, which found four things no guard was aimed at
+
+A pass over what an untyped caller can hand this -- the thing this file records
+for the typewriter's interval and for `multiline()`'s `rows` -- and the yield is
+higher here than usual, because every one of the four is reachable from a shape
+an app writes on purpose rather than by a typo.
+
+- **`undefined` is beside `null`, because neither is a value and a key holding
+  one is neither of the two states this module has.** `config.set('x', argv.x)`
+  with no `--x` is the ordinary spelling, and it made a **phantom key**:
+  `Object.keys(config.get())` reported `x` while `has('x')` answered `false`,
+  which is the one combination the ticket's own rule leaves no room for. So
+  `copyValue()` drops a key whose value is `undefined` alongside one set to
+  `null`, and `set(path, undefined)` deletes the way `set(path, null)` already
+  did -- one rule said in the two places a value arrives rather than a second
+  mechanism. An `undefined` **inside an array** is kept, for the reason a `null`
+  there is kept: an element is data, and what a JSON round trip does to it is the
+  format's business.
+
+- **A value that refers back to itself was `Maximum call stack size exceeded`,
+  out of the copy, the merge and the freeze alike -- and it is reachable from
+  exactly the thing the object layer is for.** That layer exists so an app can
+  hand over a value it built in code, which is where a plugin holding a reference
+  back to its own registry is ordinary; no text format can produce one, so this is
+  the object layer's own edge rather than a shape a file can reach. Refused rather
+  than carried, because neither the merge nor the freeze has an answer for one.
+  The check **removes what it added** on the way out, which is what makes it a
+  cycle check rather than a seen-twice one: a value referenced twice is a DAG and
+  is copied twice, exactly as it was before. Both halves are pinned, and the
+  `seen.delete` has a test of its own -- which is the half a reader would call
+  tidiness.
+
+- **A file store with no path reported a directory nobody named.** `expand('')`
+  is `'.'`, so `json('')` came back `Failed to read .: EISDIR: illegal operation
+  on a directory` -- a true sentence about the wrong thing -- and `json(undefined)`
+  threw a raw `TypeError` out of `expand()` itself. Refused where the store is
+  built rather than at the read, which is the rule a `...` hint on an option
+  already follows.
+
+- **An environment that is not one meant "no variable is set anywhere".**
+  `envValue()` reads a key off it and reading one off a number answers `undefined`
+  without throwing, so `createConfig({ env: 42 })` resolved every `env` setting to
+  nothing and said so to nobody. A wrong answer rather than an error, which is the
+  direction this file refuses.
+
+Three things it checked and left alone, because each is the right answer rather
+than a wart. `object(null)` is an empty layer, because `null` is "not configured"
+and a layer holding nothing is a layer holding nothing -- where `object(42)` and
+`object([])` are both refused by the store's own "not an object". A schema of
+`{}` is a config with no settings, which is what every layer in this repository's
+own `readSigilConfig()` had before the schema existed. And a two-hundred-segment
+path resolves, because `segments()` has no depth limit and nothing about a deep
+path is ambiguous -- a cap would be a number somebody has to justify.
+
+Six sabotages over the four, all six caught, each by the test named for it. The
+harness's own pattern guard earned its keep once: the `seen.delete` removal was
+written with four tabs where the source has three, so it silently matched nothing
+and the run read as a guard that is not load bearing -- which is the shape this
+file records for its own harness three times over, met a fourth way.
+
+#### Walking the comma shapes, which found the scanner wider than its own rule
+
+A pass over every arrangement of a comma a document can hold, taken while round 3
+was running rather than from a finding. Twenty-two shapes through `scanJsonc()`
+and `parseJsonc()` -- a comma before a comment before a closer, a nested trailing
+comma, `/*` inside a string, a quote inside a block comment, `//` after a
+backslash escape, a lone `/`, each of the four line terminators, a BOM, CRLF, two
+commas, a comma that is not trailing -- and **twenty of the twenty-two were
+right**.
+
+- **The two that were not are `[,]` read as `[]` and `{,}` as `{}`.** A trailing
+  comma is one that **separated** something, and after an opener or another comma
+  there is nothing in front of it -- so those are **elisions**, which this flavour
+  does not have and which VS Code's own parser refuses. The scanner was
+  mis-classifying its own one rule rather than making a format decision: it armed
+  a pending comma unconditionally and blanked it at the closer, which for `[,]`
+  left `[ ]`.
+
+  Not a wrong _value_ -- `[]` is the only reading `[,]` has -- which is why it
+  took walking the shapes rather than a bug report. What it was is a divergence
+  from the one sentence that says what this format is: "the flavour
+  `tsconfig.json` and VS Code's settings are written in".
+
+  Four lines: the last non-trivia character is tracked, and a comma arms only
+  where that character is neither an opener nor another comma. Measured on all
+  nine comma arrangements -- `[1,]` and `[1, /* c */]` still read, `[,1]`,
+  `{,"a":1}`, `[,,]` and `[[,]]` are refused as they were, and the two that were
+  accepted now are not.
+
+- **The 400-seed differential fuzzer agreed throughout**, which is what says the
+  change is narrow: it compares the scan against `JSON.parse` over JSON-valid
+  documents, where no elision can appear. And it is what caught the second
+  sabotage -- dropping `last = c` from the closer branch, which makes `[{},]`
+  read a stale character -- where the hand tests caught the first. Two guards, two
+  different inputs.
+
+#### What the second review round found, and it was twelve tests and sentences
+
+Round 2 was pointed at the eight regions round 1 said it had skipped -- the
+tests, the prose, the demo as a program, the public surface, the migration check
+by check, `transform.ts`, the `paths` rename and i18n -- and told not to
+re-derive round 1's premises. It found **no runtime defect in the five files
+round 1 had read**, and twelve findings in the regions nobody had opened: six
+tests that cannot fail for the reason their names give, five sentences that are
+false about the code beside them, and one divergence between two functions whose
+comment says they agree. Which is the distribution this file already records
+twice over, arriving a third time.
+
+It had to be driven as **three focused chunks plus the whole-scope prompt**,
+because `cursor-grok-4.6-high-fast` died three times on the full diff -- twice
+with a cursor-side `RetriableError` and once silently with zero bytes. That is
+the technique the sequence work already records for the same model, and the
+chunks are what landed first; the whole-scope relaunch finished later and
+independently found three of the same six tests, which is worth knowing as
+corroboration rather than as duplication.
+
+- **Six tests could not fail for the reason their names give, and every one was
+  confirmed by running the sabotage the reviewer named.** The sharpest is `should
+  name the writable layer by its source where it has one`, which is named for a
+  branch **no core store can reach**: `here` is `target.store.source ?? name` on
+  the _writable_ layer, and the only writable core store is `object()`, which has
+  no source -- so the test pinned the right-hand side and its own comment admitted
+  it. It is two tests now, one named for the fallback and one that reaches the
+  source through a writable store of the caller's own, which is what `ConfigStore`
+  is a public interface for and what SIG-154's file store will be.
+
+  `should refuse a set into a path inside a declared setting` wrote `other.port`
+  over a declared `other.port`, which is an ordinary **exact-path** refusal -- so
+  a pass coercing only the setting at the path it was handed survived it, which is
+  the whole thing the whole-layer walk is for. The fixture is `set('server.port',
+  1)` against a declared `server` now, and that sabotage fails two tests.
+
+  `should throw, naming the layer and both ways out` asserted the owner and `to
+  override the value` and never the **destination**, which is the other of the two
+  ways out -- and carried an `expect(user).to.be.a('string')` over an unused
+  fixture, which is the tell. `should refuse a string where a list of classes was
+  meant` matched any complaint about that field, so an `Invalid string` -- the
+  opposite diagnosis -- satisfied it. And `should leave no polluted prototype on
+  anything it handed out` had a payload with no `__proto__` in it at all.
+
+- **That last one was a sentence as well as a weak test, and the sentence was
+  simply false.** It claimed "nothing `get()` answers with may have a prototype
+  that is not `Object.prototype`", and a `Date`, a class instance and a `Map` all
+  come back with their own prototype **and unfrozen** -- which is the documented
+  behaviour and the thing that makes an object layer able to hold a plugin.
+  Measured on all three. The claim is about what this module **built**, and the
+  test asserts both halves now: a plain object nested two deep from the json
+  coercion and from the document alike is `Object.prototype` and frozen, and the
+  app's own object comes back by identity.
+
+- **The dist parser-reach test was absence-only over markers that are in no
+  bundle at all.** `parseArgv` and `initOption` are names the minifier renames --
+  `grep -l` over every `dist/*.mjs` finds neither -- so two of its four absence
+  halves could never fail. That is the `mergeLayers` disease this file records one
+  block up, in the test written immediately after it. All four markers are string
+  literals now, each with a **presence** half.
+
+  And the markers alone are not enough, which is the part that needed measuring:
+  `export { initArg } from '../parser/argument/init-arg.js'` in the config barrel
+  adds an `init-arg-*.mjs` chunk and pulls the parse chunk in **not at all**, so
+  no fixed marker set keyed on `parse`'s own literals can see it. So the module
+  **count** is asserted too -- six, which is the list the byte figure is over, so
+  the two cannot come apart. That sabotage fails two tests where it used to
+  survive entirely.
+
+- **`checkValue()` and `transformValue()` disagreed about a number as a `date`,
+  under a comment saying they agree.** `dateIntRE` is `/^\d{13}$/`, and the check
+  was `isFinite(value) && value > 0` -- so `8080` was a date in 1969 where
+  `"8080"` throws, and `1.5` was one too, truncated to the epoch, which is a value
+  no spelling of this type accepts. A file holding `"when": 8080` is a port
+  somebody put on the wrong line, and the whole reason `checkValue()` exists is
+  that a file and an option cannot come to disagree. Narrowed to a 13-digit
+  integer, and pinned as a **differential** over thirteen numbers rather than as a
+  sentence -- `checkValue(n)` and `transformValue(String(n))` must answer the same
+  thing -- so widening it back fails.
+
+- **The README's own `set()` example threw as published, and the test written to
+  catch that said it had been fixed.** `config.set('editor.theme', 'dark',
+  'user')` names a `jsonc()` layer, which this ticket does not make writable. It
+  was found once already -- `readme.test.ts` runs with `'runtime'` and asserts
+  `'user'` throws -- and the **README was not changed**, while that test's comment
+  claimed it had been. So the published line stayed broken for another commit
+  behind a test that reads as covering it, which is worse than no test.
+
+  Fixed, and the **class** is closed rather than the instance:
+  `readme.test.ts` now reads `README.md` and asserts that every line it quotes in
+  a comment is a line the README has. A comment quoting a file is a copy of that
+  file, and a copy nothing compares is one that drifts -- which is this
+  repository's own warning about prose, met inside the test written to check
+  prose. Putting the published spelling back fails it.
+
+- **Four more sentences, each false about the code beside it.** The barrel's
+  opening lists the boilerplate every CLI writes -- "read it, merge it, write it
+  back without truncating it" -- with nothing saying which half this is, so it
+  reads as a feature list and contradicts the README two sections along; it now
+  says the write half is SIG-154's and why. `wouldLose` was documented as "empty"
+  in three places and the field is **absent** where nothing is lost, so
+  `wouldLose.length` is a `TypeError` and `?.length` is the way to read it. The
+  README's "about 20 kB over six modules" listed **five**, missing the
+  `env-value` chunk the parser shares -- and the dist comment's claim that the
+  figure is "here and in AGENTS.md and nowhere else" was false while it did, so
+  that now says the measured figure is in two places and the README carries a
+  rounded one. And the toolchain's leftover-check inventory named one check where
+  there are four.
+
+- **What it confirmed clean is worth recording, because it is most of the
+  surface.** The `(opts, docs)` constructor, the eleven exported types, the
+  `exports` map against the tsdown entry, `scanJsonc`/`lineAt`/`Setting` staying
+  unexported, the `DATA_TYPES`/`OPTION_DATA_TYPES` membership against the old
+  regexes name for name, the whole `paths.config()` sweep -- every remaining
+  mention is the rename being explained -- and the translated-versus-English split
+  message by message, with none found on the wrong side. The demo's comments
+  match the lines under them.
+
+  It also reached the `null`-as-absent class in the migration **independently**,
+  which had already been found here by walking the inputs. Two routes to one
+  finding is the strongest evidence either produces.
+
+#### What the third round found, and the review half of it never ran
+
+Round 3 was pointed at the one thing nobody had read: **the guards the first two
+rounds and the input walks added**. Code written in response to a review is code
+no review has seen, which is a gap that grows with every round -- so the regions
+were `copyInto()`'s cycle guard, `assertEnv()`, the file store's path refusal,
+the narrowed `date` branch, the `undefined` rule's entry points, the JSONC
+scanner's comma shapes, and the fuzzer's own corpus.
+
+**The reviewer almost never answered.** `cursor-grok-4.6-high-fast` failed five
+times across this ticket -- three on round 2's full diff and both of round 3's
+chunks -- with a cursor-side `RetriableError: exceeded max retries` or silently
+at zero bytes. Round 2 landed because it was split into chunks; round 3's chunks
+died, and a sixth attempt at a single-question prompt about the fuzzer did come
+back: "the test is sound". Which is **not** corroboration of anything below, and
+saying so is the point -- it read the file after the three counters had been
+added, so it confirms the fix and is no evidence at all about the hole the fix
+closed. A reviewer that arrives late reviews what it finds.
+
+So **round 3 is this repository's own work and is labelled as such**, which is
+weaker evidence than a reviewer's and is the honest statement: the findings below
+were reached by probing, and nobody who had not written the code read them.
+
+What that does **not** weaken is the findings themselves, each of which is a
+measurement.
+
+- **The exported `Config` constructor had no `assertEnv()` behind it.** That
+  constructor's own doc says `readSchema()` and `assertLayers()` are called there
+  as well as in the factories "because this has to be correct when called
+  directly" -- and `assertEnv()`, added in the degenerate-input walk, went on the
+  two factories only. So `new Config({ env: 42 }, docs)` accepted it, which is the
+  one public door with no check behind it, through the class the barrel exports.
+  Measured on five values: four refused by the factory and all five accepted by
+  the constructor.
+
+- **An array was an environment.** `envValue([], ['PORT'])` reads a key off it and
+  answers `undefined`, which is exactly the silent "no variable is set anywhere"
+  the guard was written to refuse -- so refusing a number and accepting an array
+  was the guard half-applied. `Object.create(null)` is accepted and is pinned, for
+  the opposite reason: a null-prototype record is a perfectly good environment and
+  the rule is about shape rather than about prototype.
+
+- **`push(undefined)` stored a hole, where `set(undefined)` deletes.** The rule
+  this ticket arrived at is that neither `null` nor `undefined` is a value, and
+  `set()` keeps it by deleting -- but a list has nothing to delete, so appending
+  one was stored: `config.push('plugins', argv.plugin)` with no `--plugin` put an
+  `undefined` in somebody's list, which the first write turns into `null` and
+  which reads back as data. Refused, and a **`null` is not** -- a `null` inside an
+  array is data rather than a format saying nothing, which is the one place the
+  two part company. Both halves are pinned for both methods.
+
+  Checked at every other door at the same time, and the other five were already
+  right: `apply()` of an object holding one drops it, `apply(undefined)` is
+  refused, a schema `default` of `undefined` is not a default, and an environment
+  value of `undefined` is unset.
+
+- **The scanner's trailing-comma rule was wider than the format it claims to
+  be**, which is its own entry above -- `[,]` read as `[]`.
+
+- **And the fuzzer met five shapes and counted two.** Measured over its 400
+  seeds: 181 documents hold a string containing a comment marker or a separator,
+  170 nest, 132 carry a block comment with a newline in it -- and the floors were
+  comments and trailing commas alone. So **one line** made it vacuous: dropping
+  `','`, `'}'`, `'//'` and `'/*'` from `prims` leaves a corpus that never puts a
+  comment marker inside a string, with both counters passing and the differential
+  green. Three more floors, each verified by the generator change that trips it,
+  which is the rule that file's own comment states and did not keep.
+
+- **Eight cycle shapes and twenty-two comma shapes were probed and the rest were
+  right.** A cycle through an array, through an object, a self-referencing array,
+  a three-long cycle, a sibling cycle, a DAG shared at two depths, a
+  two-hundred-deep chain, and a cycle below a `Date` -- which is _not_ walked,
+  because a `Date` is carried by reference, and is the one of the eight where
+  accepting is correct. The `date` boundary was checked at `1e12`, `9999999999999`,
+  `1e13`, a fraction, a negative and `-0`.
+
+#### What is deliberately out
+
+- **`mkdirOwnerSync()` stays internal.** No subpath publishes it, so config using
+  it in-package is fine and a third-party store cannot reach it -- and writes its
+  own directory creation. Decided rather than discovered: publishing it is
+  permanent surface for a function whose one caller is a write path that does not
+  exist yet.
+- **No `strict` schema option**, for the reason the unknown-key entry gives.
+- **No `memory()` beside `object()`**, which would be two names for one store.
+- **No file writing at all**, which is the clean line the read/write split falls
+  on and is SIG-154's: `save()`, atomic temp-plus-rename, the span writer, the
+  lossless rule and `lossy: true`.
+- **No discovery, no `--config`, no naming convention**, for the reason core does
+  not load config.
 
 ### Updates
 

@@ -59,7 +59,8 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Translating](#translating) — `__`, `__n`, catalogs, `SIGIL_LOCALE`
 - [Typed argv](#typed-argv)
 - [Testing](#testing) — `runCommand()`, `runOnTerminal()`, `createTestTerminal()`, `KEYS`
-- [Subpath modules](#subpath-modules) — `ansi`, `wrap`, `width`, `help`, `i18n`, `terminal`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `which`, `updates`, `testing`
+- [Config files](#config-files) — `createConfig()`, layers, a schema, dotted paths
+- [Subpath modules](#subpath-modules) — `ansi`, `wrap`, `width`, `help`, `i18n`, `terminal`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `config`, `which`, `updates`, `testing`
 
 ---
 
@@ -1321,6 +1322,355 @@ module is reached only by a file that asks for it. A bundler drops it either way
 
 ---
 
+## Config files
+
+`@ttylabs/sigil/config` presents **one merged view over an ordered stack of
+layers**. `get()` reads the merged view; `set()` and `delete()` mutate one
+layer, because a merged value has no single home to write to.
+
+```js
+import { createConfig, json, jsonc, object } from '@ttylabs/sigil/config';
+import { configHome } from '@ttylabs/sigil/paths';
+
+const config = await createConfig({
+  schema: {
+    'server.port': { type: 'int', default: 8080, env: 'PORT' },
+    'editor.theme': { type: 'string', choices: ['light', 'dark'] },
+    plugins: { type: 'string', multiple: true, merge: 'concat' },
+  },
+  layers: [
+    { name: 'system', readOnly: true, store: json('/etc/myapp/config.json') },
+    { name: 'user', store: jsonc(configHome('myapp', 'config.jsonc')) },
+    { name: 'runtime', store: object() },
+  ],
+});
+
+config.get('server.port'); // 8080, unless a layer or PORT said otherwise
+config.get('server'); // { port: 8080 } — the merged subtree
+config.has('editor.theme'); // false where nothing configured it
+config.set('editor.theme', 'dark'); // into 'runtime', the topmost writable layer
+config.set('editor.theme', 'dark', 'runtime'); // or into a named one
+config.push('plugins', 'mine');
+config.delete('editor.theme');
+```
+
+`createConfigSync()` is the same thing without awaiting, which is what an exit
+or signal handler needs. Every accessor is synchronous either way: the layers
+are read once, at construction, so `get()` is a lookup in an object already in
+memory rather than a promise per read.
+
+Writing a file back is not here yet. The file stores read; `object()` is
+writable and holds its value in memory.
+
+### Core does not load config, and does not accept one either
+
+Nothing in `main()` or `parse()` calls any of this or takes one. **Options and
+config settings are separate, and your app decides how to mix them** — an option
+is something a user types for one run, and a config setting is something that
+persists, so coupling them means every option wants a config key and every
+config key wants an option. Neither is true.
+
+The mixing is one line, in either of two spellings:
+
+```js
+// in run(), the explicit version
+const port = argv.port ?? config.get('server.port');
+
+// or at schema-build time, which gives argv → env → config through the chain
+// that already exists
+options: { '--port [n]': { type: 'int', default: config.get('server.port') } }
+```
+
+The second works because you load config before you build your schema. What
+that gives up, plainly: there is no automatic "this option falls back to this
+config key."
+
+It also means there is no `--config` flag in your namespace, and no convention
+for what it would be called — the ecosystem does not agree either (`--config` in
+eslint, prettier, webpack, rollup and vite; `--config-file` in babel; a
+_directory_ in docker; a path **or** a JSON blob in jest). Declare whichever one
+your app wants and hand it in as a layer. A file and an inline blob are then not
+a conflict at all but two layers, with the inline one on top for the same reason
+argv beats the environment.
+
+### The layers
+
+Array order, bottom first, so **later layers win** — the last entry is on top.
+
+A layer is a name, a store, and optionally `readOnly`:
+
+| store           | what it is                                                                        |
+| --------------- | --------------------------------------------------------------------------------- |
+| `json(path)`    | strict JSON, with comments and trailing commas reported rather than accepted      |
+| `jsonc(path)`   | JSON plus `//` and `/* */` comments and trailing commas                           |
+| `object(value)` | a value your app already has                                                      |
+| `object()`      | the in-memory override layer: a run that overrides a setting for its own duration |
+
+A file that is not there reads as an empty layer, which is the ordinary state of
+a config file. A file that holds nothing but whitespace reads the same way.
+Every other reason a read can fail — a directory where a file was named, a
+permission error — is reported.
+
+`readOnly: true` says _this one is not mine to write_, which is a different
+statement from a store that cannot be written at all. Both are real: an `/etc`
+file your app reads and must not touch is the first, and a format with no writer
+is the second. `isWritableStore(store)` is the type guard for the second.
+
+So `readOnly: true` on a file layer is redundant today and worth writing anyway:
+it says what you meant, and it is what still holds once the file stores can
+write.
+
+### There is no `.js` layer
+
+Reading one cannot be done synchronously — `import()` is async and there is no
+synchronous ESM loader — and one store kind like that forces the whole interface
+to carry optional methods and every caller to branch on which half a store
+speaks. So an **object layer** takes its place:
+
+```js
+const mod = await import('./app.config.js');
+
+const config = await createConfig({
+  schema,
+  layers: [
+    { name: 'defaults', store: object(mod.default) },
+    { name: 'user', store: jsonc(configHome('myapp', 'config.jsonc')) },
+  ],
+});
+```
+
+Nothing is lost in capability, only in convenience — and what you gain is control
+over _how_ your module is loaded: TypeScript, with arguments, conditionally, or
+not at all. It also puts the ESM module cache where the only party that knows
+whether it matters can see it: a `.js` layer could never be reloaded, because the
+loader caches a module for the life of the process and a cache-busting query
+string leaks one per reload. Re-import with a buster if you want to; that is your
+leak and your decision.
+
+### `apply()` is how a reload works
+
+```js
+config.apply('user', await readMyConfigAgain());
+```
+
+**Replace, not merge.** A merge _inside_ a layer would be a second merge
+semantics sitting beside the cross-layer one, and the two would then have to
+agree about depth and about arrays. Two objects that should merge are two
+layers: the stack _is_ the merge.
+
+It works on a read-only layer, because re-reading one is not writing it.
+
+### The schema
+
+Config's own schema, declared by dotted path, in the parser's own type
+vocabulary:
+
+```js
+{
+  'server.port': { type: 'int', default: 8080, env: 'PORT' },
+  'editor.theme': { type: 'string', choices: ['light', 'dark'] },
+  plugins: { type: 'string', multiple: true, merge: 'concat' },
+}
+```
+
+| property   | what it does                                                                                     |
+| ---------- | ------------------------------------------------------------------------------------------------ |
+| `type`     | one of `auto`, `bool`, `date`, `int`, `json`, `number`, `string`, `yesno`. `string` when omitted |
+| `choices`  | the values this setting accepts                                                                  |
+| `default`  | what `get()` answers when no layer and no variable did                                           |
+| `desc`     | a one-line description, for an app that lists its own settings                                   |
+| `env`      | environment variables that fill it, tried in order                                               |
+| `merge`    | `'replace'` (the default) or `'concat'`                                                          |
+| `multiple` | whether it holds a list                                                                          |
+
+Both declarations mean the same thing by `int`, by `bool` and by a `choices`
+list, because both go through the same `transformValue()` and `assertChoices()`
+the parser uses. So a config setting and an option that happen to cover the same
+thing cannot come to disagree about what `on` means.
+
+What it does not give is nested object shapes, whole-subtree requiredness or
+`oneOf`. For CLI config that is probably not missed, and saying so is better than
+a half-built JSON Schema. A path the schema does not declare is readable and
+untouched — a config file legitimately holds things your schema has nothing to
+say about, so the schema is a partial typing over a free-form document.
+
+### The one precedence chain
+
+**A setting's environment variable, then the layers from last to first, then the
+setting's `default`.**
+
+The environment is on top because a variable is a statement about one run and a
+file is a persistent one. The default is underneath everything because it is what
+your app ships rather than what anybody configured. Both are materialized into
+the merge, so `get('server')` holds a defaulted `server.port`.
+
+A variable is read by the same rule an option's `env` is: `PORT=` is **unset**,
+while `PORT=0` and `PORT=' '` are values, because only the empty string is falsy
+among the values a variable can hold. A `multiple` setting's variable is wrapped
+into a one-element list, because a variable can only hand over one value at a
+time.
+
+The file's own version of that rule: **a key absent and a key set to `null` are
+both "not configured"; a key set to `""` is an empty string.** A `null` is
+removed rather than kept, so writing `"theme": null` falls back to the layer
+under it rather than shadowing it to `null`. `undefined` goes with it — no
+text format can write one, and `config.set('x', argv.x)` with no `--x` is the
+ordinary way an app reaches it, so `set()` of either is the `delete()` it means.
+A `null` _inside_ an array is data and is kept.
+
+### Values arrive already typed, and a string is still coerced
+
+A JSON or YAML file hands back `true`, `8080` and `{...}` already typed, so
+`transformValue()` — which turns a _string_ into a value — is the wrong function
+for it. `checkValue(value, type)` sits beside it and reads the same vocabulary:
+a string goes straight to `transformValue()`, and anything else is validated
+against the type.
+
+Coercing the string is what makes a format with no scalar kind but a string work
+at all, and it is what stops `--shake=off`, `SHAKE=off` and `"shake": "off"`
+meaning three different things. The vocabulary is strict and symmetric, so
+`"nope"` throws rather than becoming a setting nobody chose.
+
+### Arrays
+
+**Replace by default.** A user writing `exclude: [...]` in their own file means
+"this is my list", not "append mine to whatever shipped". And `concat` has no
+ordering or de-duplication story without further decisions, so defaulting to it
+would import those decisions silently.
+
+`merge: 'concat'` is opt-in per key and concatenates in stack order, bottom
+first, without de-duplicating.
+
+`push`, `pop`, `unshift` and `shift` exist because `get('x')` hands back a
+_merged_ array: mutating it in place would be writing to a computed value rather
+than to a store — and the merged view is frozen, so the attempt is loud rather
+than silent.
+
+```js
+config.push('plugins', 'mine'); // into the topmost writable layer
+config.push('plugins', 'mine', 'user'); // or a named one
+config.pop('plugins'); // the value removed
+```
+
+They append to **that layer's** array rather than to the merged one. With
+`merge: 'concat'` that reads as appending to the merged list; with the default
+`replace` it appends to that layer's own list, which then replaces what is
+underneath. Seeding from the merged value instead would copy a lower layer's
+values into this one, after which a change to your defaults never reaches the
+user again.
+
+One value per call, so that every mutator has one shape — a path, maybe a value,
+maybe a layer. A trailing layer name and a trailing string value cannot be told
+apart.
+
+### What `get()` hands back is frozen
+
+It is a computed value you hold a live reference to, so mutating it would change
+what a later `get()` answers while changing no layer. `structuredClone()` is how
+to take a mutable copy.
+
+Only the structure is frozen, and only the structure is copied on the way in: a
+`Date`, a class instance, a `Map` and a function are carried by reference, which
+is what lets an object layer hold a plugin.
+
+### Deleting a value that lives in a read-only layer
+
+It throws, and the message names the layer and both ways out:
+
+```
+Cannot delete "editor.theme": it is set in <system defaults>, which is read-only.
+  Set it in ~/.config/app/config.jsonc to override the value, or
+  remove it from /etc/app/config.json.
+```
+
+Not a tombstone. TOML cannot represent one, it is a new value concept every store
+must support, and it needs a sentinel that can collide with a `null` the user
+wrote. The useful half already works without it: `set()` on a writable layer
+**shadows** a read-only value. What cannot be expressed is shadowing to _absent_.
+
+### Dotted paths and prototype pollution
+
+`__proto__`, `constructor` and `prototype` are refused as path segments and as
+keys anywhere in a document. A dotted path is a _string_, and a string can arrive
+from a file in a repository somebody cloned — `set('__proto__.x', 1)` on a plain
+object goes through `Object.prototype`'s own accessor and changes the target's
+prototype rather than writing a property.
+
+`JSON.parse` puts `__proto__` on an object as an own property rather than through
+the accessor, so a file holding one is read without incident — and then the first
+`Object.assign({}, config.get('x'))` triggers the setter. A file that holds one is
+either a mistake or an attack, and in both cases your app should not start
+quietly.
+
+### Writing your own store
+
+`ConfigStore` is public API rather than an internal seam, which is why it is
+drawn whole:
+
+```ts
+interface ConfigStore {
+  readonly format: string;
+  readonly source?: string;
+  read(): Promise<ConfigDocument>;
+  readSync(): ConfigDocument;
+  canRepresent?(value: unknown, path: string): true | string;
+}
+
+interface WritableConfigStore extends ConfigStore {
+  write(value: unknown, opts?: WriteOptions): Promise<void>;
+  writeSync(value: unknown, opts?: WriteOptions): void;
+}
+
+interface ConfigDocument {
+  value: unknown;
+  wouldLose?: readonly Loss[];
+}
+```
+
+Both read halves are **required**, and they are two real implementations over one
+shared parse rather than one wrapping the other:
+
+```ts
+async read() { return this.#parse(await readFile(this.#path, 'utf8')); }
+readSync()   { return this.#parse(readFileSync(this.#path, 'utf8')); }
+```
+
+A store that genuinely cannot do sync — a remote one — throws from `readSync()`
+with its own message saying so. That is strictly better than an optional method:
+the failure is localized to the store that has it and worded by the author who
+knows why, and no caller branches.
+
+A store has **two refusals and they are different shapes**. _Will not write_ is
+the separate interface, so TypeScript enforces it and a type guard narrows.
+_Cannot represent this value_ is `canRepresent()`, and it is synchronous because
+`set()` is — so a value the format cannot hold is refused at the call that wrote
+it rather than discovered by a `save()` in an exit handler. TOML and `null` is
+the case it exists for.
+
+`wouldLose` is what this store could not carry through a write. It is **absent**
+where nothing would be lost — the field is optional, so a store that edits spans
+omits it even over a comment-rich file rather than answering `[]` — and populated
+by one that reprints. So read it as `layer.wouldLose?.length`, not
+`layer.wouldLose.length`. It reads back on `config.layers`.
+
+### JSONC, and what it is not
+
+`//` and `/* */` comments and trailing commas. The flavour `tsconfig.json` and
+VS Code's settings are written in, which is what people mean by a `.jsonc`.
+
+Not JSON5: no single-quoted strings, no unquoted keys, no `+1`, no hex, no `NaN`.
+Widening it would be inventing a dialect other tools cannot read.
+
+It strips rather than parses — each comment and trailing comma is replaced with a
+space, every newline is kept, and the result goes to `JSON.parse`. So the JSON
+value grammar is the reference implementation's rather than a second one here,
+and a parse error still points at the character it was about.
+
+A `.json` holding a comment is _reported_ as a comment, naming the line, rather
+than reaching `JSON.parse` as `Unexpected token /`.
+
+---
+
 ## Subpath modules
 
 Each is independently importable and has no dependencies.
@@ -2401,7 +2751,7 @@ XDG base directories, per-platform, with `~` expanded.
 ```js
 import {
   cache,
-  config,
+  configHome,
   data,
   state,
   home,
@@ -2413,7 +2763,7 @@ import {
 
 cache(); // '/Users/you/Library/Caches'   (darwin)
 cache('mycli'); // '/Users/you/Library/Caches/mycli'
-config(); // '/Users/you/Library/Preferences'
+configHome(); // '/Users/you/Library/Preferences'
 data(); // '/Users/you/Library/Application Support'
 configDirs(); // search path, XDG_CONFIG_DIRS included
 expand('~/x'); // '/Users/you/x'
@@ -2421,6 +2771,28 @@ expand('~/x'); // '/Users/you/x'
 
 `XDG_*_HOME` and `XDG_*_DIRS` are honored everywhere. Linux and Windows get
 their own tables; other platforms follow the Linux ones.
+
+`configHome()` reads `XDG_CONFIG_HOME` and `configDirs()` reads
+`XDG_CONFIG_DIRS`, so each is named for its own variable. It was called
+`config()`, which collided in prose with [`sigil/config`](#sigilconfig) — two
+things called the same word, one of which is a directory and the other a layered
+merge.
+
+### `sigil/config`
+
+`createConfig()`, `createConfigSync()`, the stores and the `ConfigStore`
+interface — one merged view over an ordered stack of layers. See
+[Config files](#config-files) for the whole of it.
+
+```js
+import { createConfigSync, json, jsonc, object } from '@ttylabs/sigil/config';
+```
+
+It imports no parser module at all, which makes it usable from an app that does
+not use sigil's parser. The subpath is about 20 kB over six modules — `paths`,
+the type coercion, i18n, the debug logger, the environment-variable rule the
+parser shares, and the module itself — which is a module rather than anything
+like `sigil/components`.
 
 ### `sigil/testing`
 
