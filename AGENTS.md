@@ -20125,6 +20125,32 @@ layer under it. A scalar meeting an object is the merge's own rule, the asymmetr
 is the precedence chain working, and neither is this branch's: `schema.ts` is
 untouched by it.
 
+#### And the applier enforced half of its own one rule
+
+`applyEdits()`'s rule is "ordered and non-overlapping", and it threw for the
+first half and **corrupted silently** for the second: an edit whose `end` is
+before its `start` leaves the cursor behind where the slice ended, so `[2, 1)`
+over `abc` came out `abXbc` -- the text duplicated rather than replaced. Found by
+walking the function's degenerate inputs rather than by a round.
+
+A tripwire rather than a reachable defect, exactly as its sibling is: round 1
+recorded that no input reaches the overlap throw either, and both are kept on the
+same footing -- the day an emitter produces one, it is a bug report in English
+rather than a config file with a line written twice. Both directions are
+sabotage-checked, and the second is what says the comparison is `<` rather than
+`<=`: an **insertion** is `start === end`, which is the shape every new key is
+spliced in by, so refusing it fails twenty-seven tests.
+
+Three other things in `spans.ts` were walked and left alone. `lineStartAt()` of a
+negative offset answers that offset, which its own doc declares -- "every caller
+hands over a span of this text", and a sabotage of the clamp changed no answer.
+`lineAt()` past the end answers the last line, and of a negative offset the first.
+And an edit whose offsets are `NaN` prepends, which is unreachable for the same
+reason the inverted one is and which the guard above does not catch, since every
+comparison against `NaN` is false -- written down rather than guarded, because a
+second tripwire for a value no emitter can produce is a guard the first one
+already stands for.
+
 #### What the write half costs
 
 - **The config module's graph is 31,425 B over seven modules**, against 20,649 B

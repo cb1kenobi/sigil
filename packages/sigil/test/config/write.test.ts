@@ -104,6 +104,17 @@ describe('the edit applier', () => {
 			])
 		).toThrow(/Overlapping config edits/);
 	});
+	it('should refuse an inverted span, which is the other half of its one rule', () => {
+		// it threw for overlap and corrupted for this: `end` before `start` leaves the
+		// cursor behind where the slice ended, so the text is duplicated rather than
+		// replaced. A tripwire like its sibling -- no emitter here produces one
+		expect(() => applyEdits('abc', [{ end: 1, start: 2, text: 'X' }])).toThrow(
+			/Inverted config edit: \[2, 1\)/
+		);
+		// the shape it used to produce, so the refusal is pinned against what was
+		// wrong rather than against the message alone
+		expect(applyEdits('abc', [{ end: 2, start: 1, text: 'X' }])).to.equal('aXc');
+	});
 });
 
 describe('the JSONC writer', () => {

@@ -101,15 +101,18 @@ export interface Edit {
  * `Array.prototype.sort` is specified stable, which is what makes the second
  * rule one line.
  *
- * Overlap is a **throw** rather than a resolution, and it is not translated: an
- * overlapping pair is a bug in whichever emitter produced it rather than
- * anything a user's file can provoke, so it is a bug report in English like
- * every other invariant in this module.
+ * Overlap is a **throw** rather than a resolution, and so is an **inverted**
+ * span -- the two halves of "ordered and non-overlapping", and the second was
+ * missing: `[2, 1)` over `abc` came out `abXbc`, with the text duplicated rather
+ * than replaced, because the cursor ends up behind where the slice did. Neither
+ * is translated: a malformed pair is a bug in whichever emitter produced it
+ * rather than anything a user's file can provoke, so both are bug reports in
+ * English like every other invariant in this module.
  *
  * @param source - The text.
  * @param edits - The edits, in any order.
  * @returns The edited text.
- * @throws If two edits overlap.
+ * @throws If two edits overlap, or one ends before it starts.
  */
 export function applyEdits(source: string, edits: readonly Edit[]): string {
 	if (edits.length === 0) {
@@ -128,6 +131,16 @@ export function applyEdits(source: string, edits: readonly Edit[]): string {
 	let at = 0;
 
 	for (const edit of sorted) {
+		// an inverted span is the other half of "ordered and non-overlapping", and
+		// it was the half that corrupted silently rather than throwing: `end` before
+		// `start` leaves the cursor behind where the slice ended, so `[2, 1)` over
+		// `abc` came out `abXbc` -- the text duplicated rather than replaced. A
+		// tripwire like its sibling, since no emitter here produces one; what it
+		// buys is that the day one does, it is a bug report rather than a file
+		if (edit.end < edit.start) {
+			throw new Error(`Inverted config edit: [${edit.start}, ${edit.end}) ends before it starts`);
+		}
+
 		if (edit.start < at) {
 			throw new Error(
 				`Overlapping config edits: [${edit.start}, ${edit.end}) starts inside what has already been written to ${at}`
