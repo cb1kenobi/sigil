@@ -144,6 +144,25 @@ describe('refusing what it cannot mean', () => {
 		expect(() => withConfig({ build: { sourcemap: 42 } })).toThrow(/Invalid boolean/);
 	});
 
+	it('should read a field written null as absent rather than refusing it', () => {
+		// the one class the old reader and this one disagree about, found by walking
+		// the inputs rather than by reading the checks: `"build": null` was `"build"
+		// must be an object`, because that reader asked `!value` before it asked
+		// about the type, and `"shake": null` was `must be true or false`. `null` is
+		// "not configured" wherever it is written, which is the config module's own
+		// rule -- somebody writing `"shake": null` is saying nothing about shaking,
+		// and what nothing means is the default
+		expect(withConfig({ build: null })).toStrictEqual({});
+		expect(withConfig({ locale: null })).toStrictEqual({});
+		expect(withConfig({ components: null })).toStrictEqual({});
+		expect(withConfig({ build: { shake: null } })).toStrictEqual({});
+
+		// and the check still fires for every value that is not `null`, which is
+		// what makes this a rule about silence rather than a dropped validation
+		expect(() => withConfig({ build: [] })).toThrow(/"build" must be an object/);
+		expect(() => withConfig({ build: { shake: 'nope' } })).toThrow(/Invalid boolean/);
+	});
+
 	it('should refuse a build section that is not an object', () => {
 		// a config schema declares settings by dotted path and has no nested
 		// object shapes, so `build.external` is typed and `build` itself is not --

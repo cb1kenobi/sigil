@@ -17904,13 +17904,14 @@ without destroying it is SIG-154's.
 
 - **It imports no parser module at all, and that is a test rather than a
   coincidence.** Measured as transitive static import byte weight off `dist/`:
-  **20,075 B over six modules**, of which **9,345 B over five** is what it starts
+  **20,489 B over six modules**, of which **9,345 B over five** is what it starts
   from -- `paths.mjs`, the `transform` chunk, which is `transform`, `i18n` and
   `debug`, and the 66-byte `env-value` chunk the parser shares. So the module
-  itself is about 10.7 kB: **2.7x** the root entry's 7,518 B and a **twelfth** of
-  `components.mjs`'s 239,917 B over 26, which is the shape the ticket's own
-  projection predicted even though its figure was the starting point rather than
-  the total. `should not reach any parser module to
+  itself is about 11.1 kB, and the graph is **2.7x** the root entry's 7,518 B and
+  a **twelfth** of `components.mjs`'s 239,917 B over 26 -- all three measured the
+  same way, which is the only comparison that means anything. The shape the
+  ticket's own projection predicted, even though its figure was the starting point
+  rather than the total. `should not reach any parser module to
   import the config module` holds it, keyed on symbols the minifier keeps.
 
   The reverse direction is the ticket's own ask in as many words -- "nothing in
@@ -18559,13 +18560,14 @@ without destroying it is SIG-154's.
   toolchain has exactly one place its own settings live, and a second layer would
   be a second place to look for an answer to one question.
 
-- **What the migration changed is two things and nothing else.** A file that is
-  not there, one holding nothing, and one holding valid JSON read exactly as
-  before. A **string where a boolean was declared is coerced** rather than
-  refused, which is the shared vocabulary arriving and is argued above. And the
-  **type messages are the shared ones** -- `Invalid value for "build.sourcemap" in
-  <path>: Invalid boolean: "42"` rather than a sentence written in the toolchain --
-  which name the file, the setting and what was wrong.
+- **What the migration changed is three things.** A file that is not there, one
+  holding nothing, and one holding valid JSON read exactly as before. A **string
+  where a boolean was declared is coerced** rather than refused, which is the
+  shared vocabulary arriving and is argued above. The **type messages are the
+  shared ones** -- `Invalid value for "build.sourcemap" in <path>: Invalid
+  boolean: "42"` rather than a sentence written in the toolchain -- which name the
+  file, the setting and what was wrong. And a **field written `null` reads as
+  absent** rather than throwing, which is the entry below.
 
 - **Three checks the schema's vocabulary cannot say stayed in the toolchain**,
   and finding them is what the migration was for. `"build": []` is a mistake
@@ -18595,6 +18597,20 @@ without destroying it is SIG-154's.
   `isFile()` is false for one -- so an app pointing at the wrong thing looked
   like an app with no config. It is `Failed to read` now, which is the
   `EISDIR`-is-not-absence rule arriving at its first real caller.
+
+  A third turned up the same way, by walking the inputs rather than reading the
+  checks, and it is a **class** rather than one field: **a field written `null`
+  used to throw and now reads as absent.** `{"build": null}` was `"build" must be
+  an object`, because the old reader asked `!value` before it asked about the
+  type; `{"locale": null}` and `{"components": null}` were `must be a non-empty
+  string`; `{"build": {"shake": null}}` was `must be true or false`. All four are
+  `{}` now, because `null` is "not configured" wherever it is written -- the
+  config module's own rule and the ticket's, arriving at its first real caller.
+  Correct rather than dropped: somebody who writes `"shake": null` is saying
+  nothing about shaking, and what nothing means is the default. So "nine
+  unchanged" above is nine for every value but `null`, which is the honest form of
+  it -- a check that still fires for `[]`, for `42` and for `"nope"` and no longer
+  fires for the one value the module reads as silence.
 
   Worth knowing where each half of a message comes from: the type messages name
   the **layer**, which the toolchain calls `sigil.json`, while the parse and read

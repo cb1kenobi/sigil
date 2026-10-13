@@ -331,7 +331,7 @@ describe('the prototype guard', () => {
 
 	it('should not pollute Object.prototype through a set', async () => {
 		const config = await createConfig({ layers: [{ name: 'a', store: object() }] });
-		expect(() => config.set('__proto__.polluted', 'yes')).toThrow();
+		expect(() => config.set('__proto__.polluted', 'yes')).toThrow(/not a safe key/);
 		expect(({} as Record<string, unknown>).polluted).to.equal(undefined);
 	});
 
@@ -1209,7 +1209,7 @@ describe('the schema', () => {
 			layers: [{ name: 'a', store: object({ port: 80 }) }],
 		});
 
-		expect(() => config.set('port', 8080.5)).toThrow();
+		expect(() => config.set('port', 8080.5)).toThrow(/Invalid integer/);
 		config.set('other', 1);
 		expect(config.get('port')).to.equal(80);
 	});
@@ -1254,7 +1254,7 @@ describe('the schema', () => {
 			layers: [{ name: 'x', store: object({}) }],
 		});
 
-		expect(() => config.set('a.b', 'nope')).toThrow();
+		expect(() => config.set('a.b', 'nope')).toThrow(/Invalid integer/);
 		expect(config.get()).to.deep.equal({});
 	});
 
@@ -1363,7 +1363,7 @@ describe('the schema', () => {
 			layers: [{ name: 'a', store: object({}) }],
 		});
 
-		expect(() => config.push('ports', 'nope')).toThrow();
+		expect(() => config.push('ports', 'nope')).toThrow(/Invalid integer/);
 		expect(config.get()).to.deep.equal({});
 	});
 });

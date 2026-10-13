@@ -30,8 +30,9 @@ writeFileSync(
 	})
 );
 
-// a `.jsonc` holds comments and trailing commas. The store reads them and the
-// span writer SIG-154 gives it keeps them, which is why `wouldLose` is empty
+// a `.jsonc` holds comments and trailing commas. The store reads them, and the
+// span writer SIG-154 gives it will keep them -- which is why a `.jsonc` is read
+// rather than reprinted
 writeFileSync(
 	user,
 	`{
@@ -117,10 +118,12 @@ try {
 	const view = config.get('editor');
 	try {
 		view.theme = 'mauve';
-		console.log(`  assignment did nothing: ${JSON.stringify(view.theme)}`);
 	} catch (e) {
 		console.log(`  ${e.constructor.name}: ${e.message}`);
 	}
+	// printed either way, because the throw is strict mode's rather than this
+	// module's: what the module promises is that the value did not move
+	console.log(`  still ${JSON.stringify(config.get('editor.theme'))}`);
 	console.log();
 
 	// both file layers read as read-only, and that is this ticket rather than the

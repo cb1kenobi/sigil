@@ -13,8 +13,8 @@
  * reading: the app's entry is parsed rather than imported precisely so that an
  * app which opens a connection at module scope does not do it during a build.
  * Running app-adjacent code would be a new surface, and none of the options
- * here needs computing -- they are four literals. The day one of them does is
- * the day to revisit it, which is the rule `which` waited on.
+ * here needs computing -- every one of them is a literal. The day one of them
+ * does is the day to revisit it, which is the rule `which` waited on.
  *
  * ## A flag beats the file
  *
