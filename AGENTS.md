@@ -5329,103 +5329,6 @@ style sweep had to grow.
   that makes all four one mechanism on screen. That is the rule `which` waited
   eighteen months on, satisfied rather than waived.
 
-#### The public surface, and what the emitted declaration said about it
-
-- **The constructor's parameters are public types, because the published
-  `.d.mts` is where that is visible and nowhere else.** `Config`'s first
-  signature took the built `Layer[]` and the read `Setting[]` -- both this
-  module's own, neither exported -- so the generated declaration held
-  `constructor(layers: Layer[], settings: readonly Setting[], ...)` over two
-  interfaces a consumer could not name: a constructor in the public surface that
-  nobody can call. Found by reading `dist/config.d.mts` rather than the source,
-  which is the only place it appears, and the type-check is perfectly happy with
-  it either way.
-
-  So the reading happens outside and the **building** happens in the
-  constructor, which takes `(opts: ConfigOptions, docs: readonly
-  (ConfigDocument | undefined)[])`. What it costs is that `readSchema()` and
-  `assertLayers()` run twice -- once in the entry point, so that a declaration
-  which cannot mean anything is refused **before** any store is read, which for
-  a remote store is a network call, and once in the constructor, because that has
-  to be correct when called directly. Both are pure. What it buys beyond the
-  declaration is that `new Config(opts, docs)` is a coherent thing to call: build
-  a config from documents somebody already read.
-
-  Exporting the two interfaces was the cheap alternative and is refused for the
-  reason the rest of this section is written: `Layer` is `ConfigLayerInfo` plus
-  the mutable value, and publishing it would be surface nobody should use.
-
-- **`scanJsonc()` and `lineAt()` are not in the barrel, which is the rule
-  `transformValue()` already follows.** They were, and they have no caller
-  outside this package: SIG-154's span editor is in it and imports relatively,
-  the tests import the module directly, and nobody has asked for a JSONC scanner.
-  Real surface for no caller is what `which` waited eighteen months over.
-
-  What the barrel does export is `createConfig`, `createConfigSync`, `Config`,
-  `isWritableStore`, the three stores, and the eleven types -- and `Config` is
-  there for an app's own signatures rather than to be constructed, which the
-  honest constructor above now makes safe to say.
-
-#### What the sabotage pass found
-
-Seventy-eight mutations, one at a time, with the config suites, `dist.test.ts`
-and `options.test.ts` run after each. **Seventy-seven caught and one declared**,
-counted against the shipped tree in one run rather than summed across rounds, so
-the figure is re-derivable. A green control first, and the four verdict guards
-this repository has learned to need: a pattern that matched nothing, a pattern
-that matched more than once, a replacement equal to its original, and a run that
-found fewer test files than the control are each their own verdict rather than a
-pass -- and the tree is restored on `SIGINT` and `SIGTERM` as well as on an
-exception, because a killed pass that left a mutation behind poisons the next
-control.
-
-Two of those guards fired. A pattern went **stale** when the formatter reflowed
-the line it quoted, which is the shape this file records from four earlier
-passes. And one mutation **hung** -- making the unterminated-block-comment check
-unreachable leaves the scan unable to advance -- so the run produced no summary
-and was reported as `HARNESS BROKEN` rather than as a pass; rewritten to swallow
-rather than to loop, it is caught by two tests.
-
-**Six survived the first pass and every one was a test that could not see what it
-was named for**, which is the shape this file keeps rediscovering:
-
-- **The restore after a refused mutation, both halves.** A refusal never
-  recomputes, so the merged view still answers what it answered -- which means
-  every assertion about the _failing_ call passes whether or not the layer was put
-  back. What makes it visible is the **next** mutation: without the restore the
-  layer holds the value that was refused and the recompute that mutation triggers
-  refuses it again. `should not let a refused set poison the next one` is the
-  input, and its sibling covers the restore that _deleted_ where there had been a
-  value.
-- **`readPath()`'s `Object.hasOwn`.** Without it, `at[part]` on a plain object
-  answers for every member the object inherits -- so `config.get('toString')` was
-  `Object.prototype.toString`. `constructor` is refused as a path segment
-  outright, which is why the obvious probe says nothing; `toString`,
-  `hasOwnProperty` and `valueOf` are not, and they are the test.
-- **The `concat` lookup's dotted path.** Built as the merge walks down, so a
-  **top-level** setting cannot tell a correct lookup from one that forgot the
-  parent -- every concat test used one. A `server.tags` fixture is what sees it,
-  with its mirror asserting that a bare `tags` is not that path.
-- **The two coercion-site copies**, which is the subtler pair. The merge's own
-  tripwire catches the same key, so a _construction_ fixture passes either way;
-  what the copies buy is the **message**, which names the setting the value came
-  through where the merge can only name the layer. And the `multiple` branch is a
-  separate branch, so a scalar fixture leaves it unpinned.
-
-**One guard was deleted for being unreachable** rather than tested, which is what
-this repository does with one: `apply()`'s rollback around its recompute.
-`copyValue()` has already run inside `coerceLayer()` by then, so a second walk of
-the same value cannot find an unsafe key -- five lines of machinery for a path
-nothing can take.
-
-**And one survivor is declared**, which is the recompute's **placement** inside
-`#settle()`'s `try` rather than after it. Nothing can reach it today, for the
-reason the deletion above gives; it is one statement's position rather than any
-code, and the failure it is for is unrecoverable -- a throw from the merge with
-the recompute outside leaves the layer holding what it had just written, after
-which every later mutation throws again over a value nobody can see. Kept for the
-reason the `assertLink()` tripwire is.
-
 #### What the first review round found
 
 Two concrete wrong grids, both confirmed and both fixed. The round was pointed at
@@ -18198,7 +18101,8 @@ without destroying it is SIG-154's.
   reimplementing it, because a config setting declaring `env` and an option
   declaring `env` disagreeing about what `PORT=` means is the two-readers-of-one-
   question drift this file has half a dozen entries about. `parse.ts` calls
-  `envValue(state.env, envs)` now; the body did not change.
+  `envValue(state.env, envs)` now, and what the function asks is the same
+  comparison it always asked -- only the parameter it reads it off moved.
 
 - **The file's own version of that rule: a key absent and a key set to `null`
   are both "not configured"; a key set to `""` is an empty string.** Which is the
@@ -18705,7 +18609,115 @@ without destroying it is SIG-154's.
   by returning early. A reader cannot tell "absent" from "present and undefined"
   and no longer has to.
 
-#### What the first review round found
+#### The public surface, and what the emitted declaration said about it
+
+- **The constructor's parameters are public types, because the published
+  `.d.mts` is where that is visible and nowhere else.** `Config`'s first
+  signature took the built `Layer[]` and the read `Setting[]` -- both this
+  module's own, neither exported -- so the generated declaration held
+  `constructor(layers: Layer[], settings: readonly Setting[], ...)` over two
+  interfaces a consumer could not name: a constructor in the public surface that
+  nobody can call. Found by reading `dist/config.d.mts` rather than the source,
+  which is the only place it appears, and the type-check is perfectly happy with
+  it either way.
+
+  So the reading happens outside and the **building** happens in the
+  constructor, which takes `(opts: ConfigOptions, docs: readonly
+  (ConfigDocument | undefined)[])`. What it costs is that `readSchema()` and
+  `assertLayers()` run twice -- once in the entry point, so that a declaration
+  which cannot mean anything is refused **before** any store is read, which for
+  a remote store is a network call, and once in the constructor, because that has
+  to be correct when called directly. Both are pure. What it buys beyond the
+  declaration is that `new Config(opts, docs)` is a coherent thing to call: build
+  a config from documents somebody already read.
+
+  Exporting the two interfaces was the cheap alternative and is refused for the
+  reason the rest of this section is written: `Layer` is `ConfigLayerInfo` plus
+  the mutable value, and publishing it would be surface nobody should use.
+
+- **`scanJsonc()` and `lineAt()` are not in the barrel, which is the rule
+  `transformValue()` already follows.** They were, and they have no caller
+  outside this package: SIG-154's span editor is in it and imports relatively,
+  the tests import the module directly, and nobody has asked for a JSONC scanner.
+  Real surface for no caller is what `which` waited eighteen months over.
+
+  What the barrel does export is `createConfig`, `createConfigSync`, `Config`,
+  `isWritableStore`, the three stores, and the eleven types -- and `Config` is
+  there for an app's own signatures rather than to be constructed, which the
+  honest constructor above now makes safe to say.
+
+#### Two of these headings collided, and that is how the prose went in the wrong section
+
+The two blocks above were first inserted under `#### What the first review round
+found` -- and there are **two** of those, so a `replace` on the heading landed
+under the canvas layers section a thousand lines away, where the text reads as
+a finding about a composite nobody made. This file already records the rule, from
+the debug overlay: "Two `What the sabotage pass found` sections in one file is one
+somebody greps for and reads the wrong one of." It is one somebody _edits_ the
+wrong one of too, which is the sharper half, and the headings in this section are
+named for what they found so that there is nothing to collide with.
+
+#### What the sabotage pass found, and the one declared survivor
+
+Seventy-eight mutations, one at a time, with the config suites, `dist.test.ts`
+and `options.test.ts` run after each. **Seventy-seven caught and one declared**,
+counted against the shipped tree in one run rather than summed across rounds, so
+the figure is re-derivable. A green control first, and the four verdict guards
+this repository has learned to need: a pattern that matched nothing, a pattern
+that matched more than once, a replacement equal to its original, and a run that
+found fewer test files than the control are each their own verdict rather than a
+pass -- and the tree is restored on `SIGINT` and `SIGTERM` as well as on an
+exception, because a killed pass that left a mutation behind poisons the next
+control.
+
+Two of those guards fired. A pattern went **stale** when the formatter reflowed
+the line it quoted, which is the shape this file records from four earlier
+passes. And one mutation **hung** -- making the unterminated-block-comment check
+unreachable leaves the scan unable to advance -- so the run produced no summary
+and was reported as `HARNESS BROKEN` rather than as a pass; rewritten to swallow
+rather than to loop, it is caught by two tests.
+
+**Six survived the first pass and every one was a test that could not see what it
+was named for**, which is the shape this file keeps rediscovering:
+
+- **The restore after a refused mutation, both halves.** A refusal never
+  recomputes, so the merged view still answers what it answered -- which means
+  every assertion about the _failing_ call passes whether or not the layer was put
+  back. What makes it visible is the **next** mutation: without the restore the
+  layer holds the value that was refused and the recompute that mutation triggers
+  refuses it again. `should not let a refused set poison the next one` is the
+  input, and its sibling covers the restore that _deleted_ where there had been a
+  value.
+- **`readPath()`'s `Object.hasOwn`.** Without it, `at[part]` on a plain object
+  answers for every member the object inherits -- so `config.get('toString')` was
+  `Object.prototype.toString`. `constructor` is refused as a path segment
+  outright, which is why the obvious probe says nothing; `toString`,
+  `hasOwnProperty` and `valueOf` are not, and they are the test.
+- **The `concat` lookup's dotted path.** Built as the merge walks down, so a
+  **top-level** setting cannot tell a correct lookup from one that forgot the
+  parent -- every concat test used one. A `server.tags` fixture is what sees it,
+  with its mirror asserting that a bare `tags` is not that path.
+- **The two coercion-site copies**, which is the subtler pair. The merge's own
+  tripwire catches the same key, so a _construction_ fixture passes either way;
+  what the copies buy is the **message**, which names the setting the value came
+  through where the merge can only name the layer. And the `multiple` branch is a
+  separate branch, so a scalar fixture leaves it unpinned.
+
+**One guard was deleted for being unreachable** rather than tested, which is what
+this repository does with one: `apply()`'s rollback around its recompute.
+`copyValue()` has already run inside `coerceLayer()` by then, so a second walk of
+the same value cannot find an unsafe key -- five lines of machinery for a path
+nothing can take.
+
+**And one survivor is declared**, which is the recompute's **placement** inside
+`#settle()`'s `try` rather than after it. Nothing can reach it today, for the
+reason the deletion above gives; it is one statement's position rather than any
+code, and the failure it is for is unrecoverable -- a throw from the merge with
+the recompute outside leaves the layer holding what it had just written, after
+which every later mutation throws again over a value nobody can see. Kept for the
+reason `clipboardSequence()`'s own unreachable assertion is.
+
+#### What the first review round found, and the third prototype door
 
 Seven findings, every one confirmed against the code before anything was
 changed, and the shape is the one this file keeps recording: a round pointed at

@@ -452,8 +452,8 @@ export class Config {
 			// can, a throw with the recompute outside leaves the layer holding what
 			// it had just written, after which every later mutation throws again
 			// over a value nobody can see. A declared survivor of the sabotage pass,
-			// kept for the reason the `assertLink()` tripwire is: it costs nothing
-			// and the failure it is for is unrecoverable
+			// kept for the reason `clipboardSequence()`'s own tripwire is: it costs
+			// nothing and the failure it is for is unrecoverable
 			this.#recompute();
 		} catch (e: unknown) {
 			// the layer is put back before the throw escapes, because a mutation that
