@@ -75,9 +75,10 @@ parse is what loads it.
 
 ## Translating
 
-|                                                    |                                                                                      |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| [`i18n/01-translating.js`](i18n/01-translating.js) | A translated string, plurals, a prompt's vocabulary, and the locale changing mid-run |
+|                                                    |                                                                                                        |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| [`i18n/01-translating.js`](i18n/01-translating.js) | A translated string, plurals, a prompt's vocabulary, and the locale changing mid-run                   |
+| [`config/01-layers.js`](config/01-layers.js)       | The layer stack, the merged read, a schema, the environment on top, and what `set()` does to one layer |
 
 The English sentence _is_ the catalog key, so there is nothing to invent and
 nothing to look up:

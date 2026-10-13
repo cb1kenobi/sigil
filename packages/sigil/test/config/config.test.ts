@@ -164,6 +164,45 @@ describe('dotted paths', () => {
 		expect(config.has('nope')).to.equal(false);
 	});
 
+	it('should read a null as not configured at an undeclared path too', async () => {
+		// the rule used to live where a setting was validated, so it was **only**
+		// true of a declared one: `{ "x": null }` with no schema answered `null`
+		// and `has('x')` was `true`, which this module's own rule contradicts.
+		// Found by review
+		const config = await createConfig({
+			layers: [{ name: 'f', store: object({ x: null, y: { z: null }, keep: '' }) }],
+		});
+
+		expect(config.has('x')).to.equal(false);
+		expect(config.get('x')).to.equal(undefined);
+		expect(config.get('y')).to.deep.equal({});
+		// `""` is still an empty string somebody chose
+		expect(config.get('keep')).to.equal('');
+	});
+
+	it('should keep a null inside an array, which is data rather than nothing', async () => {
+		const config = await createConfig({
+			layers: [{ name: 'f', store: object({ list: [1, null, 2] }) }],
+		});
+
+		expect(config.get('list')).to.deep.equal([1, null, 2]);
+	});
+
+	it('should read a set of null as the delete it is', async () => {
+		// `null` means "not configured" wherever it is written, so writing one is
+		// `delete()` said another way -- and the alternative is a `set()` whose
+		// result a re-read of the same file would not reproduce
+		const config = await createConfig({
+			layers: [
+				{ name: 'low', store: object({ a: 1 }) },
+				{ name: 'high', store: object({ a: 2 }) },
+			],
+		});
+
+		config.set('a', null);
+		expect(config.get('a')).to.equal(1);
+	});
+
 	it('should read a key absent and a key set to null as both not configured', async () => {
 		const config = await createConfig({
 			schema: { 'editor.theme': { type: 'string', default: 'dark' } },
@@ -228,6 +267,59 @@ describe('the prototype guard', () => {
 				layers: [{ name: 'a', store: object(JSON.parse('{"__proto__":{"x":1}}')) }],
 			})
 		).rejects.toThrow(/Unsafe config key/);
+	});
+
+	// the **third** door, and the one the first version missed: a `type: 'json'`
+	// or `type: 'auto'` value enters as a *string*, which has no keys to refuse,
+	// and becomes an object with an own `__proto__` after the ingest copy. The
+	// merge's own copy then did `out['__proto__'] = ...` on a fresh `{}` and set
+	// its prototype, so `config.get('data').polluted` was `true` and the value was
+	// not even frozen. Found by review
+	it.each([['json'], ['auto']])(
+		'should refuse an unsafe key a %s string parses into',
+		async (type) => {
+			const payload = '{"__proto__":{"polluted":true}}';
+			await expect(
+				createConfig({
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any
+					schema: { data: { type: type as any } },
+					layers: [{ name: 'user', store: object({ data: payload }) }],
+				})
+			).rejects.toThrow(/Unsafe config key "__proto__" in user/);
+		}
+	);
+
+	it('should refuse an unsafe key an environment variable parses into', async () => {
+		await expect(
+			createConfig({
+				env: { DATA: '{"__proto__":{"polluted":true}}' },
+				schema: { data: { env: 'DATA', type: 'json' } },
+			})
+		).rejects.toThrow(/Unsafe config key "__proto__" in setting "data"/);
+	});
+
+	it('should refuse an unsafe key in a schema default', async () => {
+		await expect(
+			createConfig({
+				schema: {
+					data: { default: JSON.parse('{"__proto__":{"polluted":true}}') as object, type: 'json' },
+				},
+			})
+		).rejects.toThrow(/Unsafe config key "__proto__" in setting "data"/);
+	});
+
+	it('should leave no polluted prototype on anything it handed out', async () => {
+		// the property rather than the refusal: whatever the doors do, nothing
+		// `get()` answers with may have a prototype that is not `Object.prototype`
+		const config = await createConfig({
+			schema: { data: { type: 'json' } },
+			layers: [{ name: 'user', store: object({ data: '{"a":1}' }) }],
+		});
+
+		const got = config.get('data') as Record<string, unknown>;
+		expect(Object.getPrototypeOf(got)).to.equal(Object.prototype);
+		expect(got.polluted).to.equal(undefined);
+		expect(Object.isFrozen(got)).to.equal(true);
 	});
 
 	it('should refuse an unsafe setting path in a schema', async () => {
@@ -939,6 +1031,13 @@ describe('the schema', () => {
 		[{ x: { type: 'count' } }, /unsupported data type "count"/],
 		[{ x: { choices: 'light' } }, /choices must be an array/],
 		[{ x: { merge: 'append' } }, /merge must be "concat" or "replace"/],
+		// `envNames()` spreads it, so a non-iterable reached `envOf()` as a
+		// `TypeError: env is not iterable` -- an error about the wrong thing,
+		// naming nothing. Found by review
+		[{ x: { env: 42 } }, /env must be a variable name or an array of them/],
+		[{ x: { env: {} } }, /env must be a variable name/],
+		[{ x: { env: '' } }, /env must be a variable name/],
+		[{ x: { env: ['OK', ''] } }, /env must be a variable name/],
 		[{ x: 'nope' }, /must be an object/],
 		[{ '': {} }, /must name a path/],
 		[{ a: {}, 'a.b': {} }, /Setting "a\.b" is inside setting "a"/],
@@ -975,16 +1074,43 @@ describe('the schema', () => {
 	// declared under it -- and a pass that looked at its own path alone missed
 	// both, leaving a layer in a state the load path says is impossible
 	it('should refuse a set into a path inside a declared setting', async () => {
+		// the path runs through an *object*, so the write guard has nothing to say
+		// and the schema is what refuses: `{ server: { port: 1 } }` is not a
+		// string, and `createConfig()` over a file holding it refuses outright --
+		// so a `set()` that produced it would mean the next run of the same app
+		// over the same file fails to start
 		const config = await createConfig({
-			schema: { server: { type: 'string' } },
-			layers: [{ name: 'a', store: object({ server: 'x' }) }],
+			schema: { server: { type: 'json' }, 'other.port': { type: 'int' } },
+			layers: [{ name: 'a', store: object({ other: { port: 1 } }) }],
 		});
 
-		// `{ server: { port: 1 } }` is not a string, and `createConfig()` over a
-		// file holding it refuses outright -- so a `set()` that produced it would
-		// mean the next run of the same app over the same file fails to start
-		expect(() => config.set('server.port', 1)).toThrow(/Invalid value for "server"/);
-		expect(config.get('server')).to.equal('x');
+		expect(() => config.set('other.port', 'nope')).toThrow(/Invalid value for "other\.port"/);
+		expect(config.get('other.port')).to.equal(1);
+	});
+
+	it('should refuse a write whose way down is not an object', async () => {
+		// `writePath()` used to **replace** it, which for an array is silent data
+		// loss: `set('items.0', 9)` over `[1, 2, 3]` left `{ "0": 9 }` and the list
+		// was gone. Refused rather than special-cased for arrays, because
+		// `readPath()` does not walk one either -- so `get('items.0')` is
+		// `undefined` until a `set()` has already destroyed the list
+		const config = await createConfig({
+			layers: [{ name: 'a', store: object({ items: [1, 2, 3], server: 'off' }) }],
+		});
+
+		expect(() => config.set('items.0', 9)).toThrow(/"items" in a is not an object/);
+		expect(() => config.set('server.port', 1)).toThrow(/"server" in a is not an object/);
+		expect(() => config.push('items.0', 9)).toThrow(/"items" in a is not an object/);
+		expect(config.get('items')).to.deep.equal([1, 2, 3]);
+		expect(config.get('server')).to.equal('off');
+	});
+
+	it('should name the ancestor that is not an object, not the whole path', async () => {
+		const config = await createConfig({
+			layers: [{ name: 'a', store: object({ a: { b: 'scalar' } }) }],
+		});
+
+		expect(() => config.set('a.b.c.d', 1)).toThrow(/"a\.b" in a is not an object/);
 	});
 
 	it('should refuse a set over a path whose children are declared', async () => {
@@ -997,14 +1123,14 @@ describe('the schema', () => {
 		expect(config.get()).to.deep.equal({});
 	});
 
-	it('should refuse a push into a path inside a declared setting', async () => {
+	it('should refuse a push the whole-layer pass catches', async () => {
 		const config = await createConfig({
-			schema: { server: { type: 'string' } },
-			layers: [{ name: 'a', store: object({ server: 'x' }) }],
+			schema: { 'a.list': { multiple: true, type: 'int' } },
+			layers: [{ name: 'x', store: object({ a: {} }) }],
 		});
 
-		expect(() => config.push('server.ports', 1)).toThrow(/Invalid value for "server"/);
-		expect(config.get('server')).to.equal('x');
+		expect(() => config.push('a.list', 'nope')).toThrow(/Invalid value for "a\.list"/);
+		expect(config.get()).to.deep.equal({ a: {} });
 	});
 
 	it('should leave a declared setting under an undeclared non-object alone', async () => {

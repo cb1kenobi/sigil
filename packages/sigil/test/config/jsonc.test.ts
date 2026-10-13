@@ -78,6 +78,36 @@ describe('the scan', () => {
 		expect(read('c.jsonc', '{ "a": 1,\n// note\n}')).to.deep.equal({ a: 1 });
 	});
 
+	it('should end a line comment at a lone carriage return', () => {
+		// `\n` alone ran the comment to the end of the document, so a classic-Mac
+		// file blanked every key after the first comment and `JSON.parse` succeeded
+		// over what was left -- a key dropped with no error at all. Found by review
+		expect(JSON.parse(scanJsonc('{ "a": 1 // c\r , "b": 2 }', true, 'f').json)).to.deep.equal({
+			a: 1,
+			b: 2,
+		});
+	});
+
+	it.each([
+		['\u2028', 'a line separator'],
+		['\u2029', 'a paragraph separator'],
+	])('should refuse rather than truncate at %j (%s)', (nl) => {
+		// the other two JavaScript line terminators end a comment too, and what
+		// follows is then a **syntax error** -- because neither is JSON whitespace,
+		// so a document holding one outside a string was never valid JSON. Which is
+		// the point: ending the comment there turns a silent truncation into a
+		// refusal, and the refusal is the better of the two answers available
+		expect(() => parseJsonc(`{ "a": 1 // c${nl} , "b": 2 }`, true, 'f')).toThrow(
+			/Failed to parse f/
+		);
+
+		// and what the comment blanked is the comment, which is the half that
+		// matters: `"b"` is still in the scanned output rather than blanked away,
+		// where with `\n` alone it was gone and `JSON.parse` was perfectly happy
+		// with the remains
+		expect(scanJsonc(`{ "a": 1 // c${nl} , "b": 2 }`, true, 'f').json).to.contain('"b": 2');
+	});
+
 	it('should report that it found a trailing comma', () => {
 		expect(scanJsonc('{"a":1,}', true, 'f').trailingCommas).to.equal(true);
 		expect(scanJsonc('{"a":1}', true, 'f').trailingCommas).to.equal(false);

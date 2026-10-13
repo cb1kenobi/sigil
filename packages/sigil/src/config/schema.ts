@@ -1,7 +1,8 @@
 import { __ } from '../i18n/index.js';
 import { envValue } from '../util/env-value.js';
 import { assertChoices, checkValue, DATA_TYPES, transformValue } from '../util/transform.js';
-import { deletePath, readPath, segments, writePath } from './dotted.js';
+import { readPath, segments, writePath } from './dotted.js';
+import { copyValue } from './merge.js';
 import type { ConfigSchema, ConfigSetting } from './types.js';
 
 /** One setting, with its path and its parsed segments kept together. */
@@ -68,6 +69,17 @@ export function readSchema(schema: ConfigSchema | undefined): Setting[] {
 			throw new Error(`Setting "${path}" merge must be "concat" or "replace"`);
 		}
 
+		// `envNames()` spreads it, so a non-iterable reached `envOf()` as a
+		// `TypeError: env is not iterable` -- an error about the wrong thing,
+		// naming nothing. An empty name is refused with it, because `envValue()`
+		// would look one up and a variable has a name
+		if (setting.env !== undefined) {
+			const names = typeof setting.env === 'string' ? [setting.env] : setting.env;
+			if (!Array.isArray(names) || names.some((name) => typeof name !== 'string' || !name)) {
+				throw new Error(`Setting "${path}" env must be a variable name or an array of them`);
+			}
+		}
+
 		out.push({ parts, path, setting });
 	}
 
@@ -118,18 +130,11 @@ function typeOf(setting: ConfigSetting): string {
 function coerceSetting(value: Record<string, unknown>, it: Setting, where: string): void {
 	const at = readPath(value, it.parts);
 
-	// absent and `null` are both "not configured", which is the file's own
-	// version of `envValue()`'s rule: a key left out and a key written `null` are
-	// the two ways a format says nothing, while `""` is an empty string somebody
-	// chose. A `null` is therefore *removed* rather than validated -- left in
-	// place it would be a value, and a value replaces the layer under it, so a
-	// user writing `"theme": null` would be shadowing the default to `null`
-	// rather than falling back to it
-	if (at === null) {
-		deletePath(value, it.parts);
-		return;
-	}
-
+	// a `null` cannot reach here: `copyValue()` drops a key whose value is one,
+	// at every door a value enters by, because a document says nothing the same
+	// way whether or not a schema named the key. That rule used to live here and
+	// was therefore **only** true of a declared setting -- so `{ "x": null }`
+	// with no schema answered `null` and `has('x')` was `true`
 	if (at === undefined) {
 		return;
 	}
@@ -146,15 +151,19 @@ function coerceSetting(value: Record<string, unknown>, it: Setting, where: strin
 			if (!Array.isArray(at)) {
 				throw new Error(__`Expected a list of values`);
 			}
+			// through `copyValue()` because a coercion is the **third** door of the
+			// prototype guard: `type: 'json'` turns a string into an object, and an
+			// own `__proto__` in it entered as a string with no keys to refuse. See
+			// `copyValue()` for what that came to
 			const items = at.map((item) => checkValue(item, type));
 			assertChoices(it.setting.choices, items, __`setting "${it.path}"`);
-			writePath(value, it.parts, items);
+			writePath(value, it.parts, copyValue(items, where));
 			return;
 		}
 
 		const one = checkValue(at, type);
 		assertChoices(it.setting.choices, one, __`setting "${it.path}"`);
-		writePath(value, it.parts, one);
+		writePath(value, it.parts, copyValue(one, where));
 	} catch (e: unknown) {
 		throw new Error(__`Invalid value for "${it.path}" in ${where}: ${(e as Error).message}`);
 	}
@@ -234,7 +243,9 @@ export function defaultsOf(settings: readonly Setting[]): Record<string, unknown
 		const value = it.setting.multiple && !Array.isArray(coerced) ? [coerced] : coerced;
 
 		assertChoices(it.setting.choices, value, __`setting "${it.path}"`);
-		writePath(out, it.parts, value);
+		// and again: a `default` is the app's own object, which may have come out of
+		// a `JSON.parse` of something it read
+		writePath(out, it.parts, copyValue(value, __`setting "${it.path}"`));
 	}
 
 	return out;
@@ -279,7 +290,9 @@ export function envOf(
 		const value = transformValue(raw, type);
 		const one = it.setting.multiple ? [value] : value;
 		assertChoices(it.setting.choices, one, __`setting "${it.path}"`);
-		writePath(out, it.parts, one);
+		// the same third door: `DATA='{"__proto__":{...}}'` on a `json` setting is
+		// a string that becomes an object here
+		writePath(out, it.parts, copyValue(one, __`setting "${it.path}"`));
 	}
 
 	return out;

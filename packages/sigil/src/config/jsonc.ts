@@ -43,7 +43,16 @@ export interface JsoncScan {
 }
 
 /** The byte order mark, which `JSON.parse` refuses and an editor writes. */
-const BOM = '﻿';
+const BOM = '\uFEFF';
+
+/**
+ * What ends a line comment.
+ *
+ * The four JavaScript calls line terminators rather than `\n` alone: a
+ * `\r`-only file is rare and the failure is **silent**, which is the
+ * combination worth spending four characters on.
+ */
+const LINE_END = /[\n\r\u2028\u2029]/;
 
 /**
  * Counts the line a 0-based offset is on.
@@ -150,8 +159,17 @@ export function scanJsonc(text: string, allow: boolean, what: string): JsoncScan
 				}
 				end = close + 2;
 			} else {
-				const nl = source.indexOf('\n', i + 2);
-				end = nl === -1 ? source.length : nl;
+				// a line comment ends at **any** line terminator, not at `\n` alone.
+				// A classic-Mac `\r`-only file ran the comment to the end of the
+				// document, so `{ "a": 1 // c\r "b": 2 }` blanked a real key and
+				// `JSON.parse` succeeded as `{ "a": 1 }` -- a key dropped with no
+				// error at all. Found by review. `\u2028` and `\u2029` are line
+				// terminators to JavaScript and to every JSONC reader worth agreeing
+				// with, so they end one too
+				end = i + 2;
+				while (end < source.length && !LINE_END.test(source[end] as string)) {
+					end++;
+				}
 			}
 
 			if (!allow) {

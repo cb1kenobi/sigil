@@ -18572,6 +18572,113 @@ without destroying it is SIG-154's.
   by returning early. A reader cannot tell "absent" from "present and undefined"
   and no longer has to.
 
+#### What the first review round found
+
+Seven findings, every one confirmed against the code before anything was
+changed, and the shape is the one this file keeps recording: a round pointed at
+the diff with the ticket's constraints and **not** the rationale finds the
+guards that are missing rather than the ones that are dead. Five were runtime
+defects, one was a schema check that reported the wrong thing, and two were
+stale names in comments. It also confirmed nine regions clean by reading, which
+is the half worth having written down.
+
+- **A `__proto__` smuggled through `JSON.parse` polluted a merge copy's
+  prototype, and that is the finding of the round.** The prototype guard had two
+  doors -- a path segment and a key in a document -- and `transformValue()` is a
+  **third**: a `type: 'json'` or `type: 'auto'` setting whose value is the
+  _string_ `'{"__proto__":{"polluted":true}}'` enters as a string, which has no
+  keys to refuse, and becomes an object with an own `__proto__` **after** the
+  ingest copy. The merge's own copy then skipped the check -- it was conditional
+  on a `where` the merge did not pass, on the argument that a value the merge
+  copies has already been through a door -- and did `out['__proto__'] = ...` on a
+  fresh `{}`, which sets its prototype.
+
+  Measured on all three routes it is reachable by, which is a file, an
+  environment variable and a schema `default`: `config.get('data').polluted` was
+  `true`, and the value was **not frozen**, because `isPlainObject()` is false
+  for an object whose prototype is neither `Object.prototype` nor `null` -- so
+  `deepFreeze()` walked past it and a later layer at that path replaced rather
+  than merged. Not global `Object.prototype` pollution, and that is the one
+  mitigating thing about it.
+
+  So the check is **unconditional** now: every copy refuses, and the three
+  coercion sites pass a label of their own so the message names where the value
+  came from rather than naming the merge. The merge's own check stays and is
+  declared a tripwire, because "nothing can reach here" is the claim that had
+  just been wrong -- which is the rule this file already records for a negative
+  claim about all callers: it cannot be established by tracing the route you had
+  in mind.
+
+  And the comment in `dotted.ts` was part of the defect rather than beside it:
+  it said that past the two doors "nothing internal can be handed one", which is
+  what made the merge's conditional look safe.
+
+- **`null` was "not configured" only at a _declared_ setting's path.** The rule
+  lived in `coerceSetting()`, which runs per declared setting, so
+  `{ "x": null }` with no schema answered `null` and `has('x')` was `true` --
+  contradicting `has()`'s own doc and the rule as this file states it. A document
+  says nothing the same way whether or not a schema named the key, so the drop
+  moved into `copyValue()`, which is every door a value enters by.
+
+  Two edges came with it and both are stated rather than discovered. A `null`
+  **inside an array** is kept, because there it is data rather than a format
+  saying nothing. And `set(path, null)` is now the `delete()` it means: leaving
+  it as a stored value would be a `set()` whose result a re-read of the same file
+  would not reproduce, which is the round trip SIG-154 would hit.
+
+- **`writePath()` replaced an array with an object, which is silent data
+  loss.** `set('items.0', 9)` over `{ items: [1, 2, 3] }` left `{ "0": 9 }` and
+  the list was gone -- measured. The comment there argued _for_ replacing, on the
+  ground that refusing "would make a `set()` fail over what some other layer
+  happens to hold", and that reasoning was wrong twice over: `writePath()` writes
+  into **one** layer, so no other layer is involved, and an array carries more
+  than a scalar does.
+
+  Refused now, for any non-plain-object on the way down rather than for an array
+  specially, because the two halves disagree either way: `readPath()` does not
+  walk an array, so `get('items.0')` is `undefined` until a `set()` has already
+  destroyed the list, and `push`/`pop` treat the same path as a list. A dotted
+  path addresses object keys and the array methods are how a list is changed. The
+  message names the **ancestor** that is not an object rather than the whole
+  path, since that is the part somebody has to fix.
+
+- **A line comment ended at `\n` alone, so a `\r`-only file lost every key after
+  the first comment.** `{ "a": 1 // c\r "b": 2 }` ran the comment to the end of
+  the document, `"b"` was blanked, and `JSON.parse` succeeded over the remains --
+  a key dropped with **no error at all**, which is the worst way for a scan to be
+  wrong. It ends at any of the four line terminators JavaScript has now.
+
+  ` ` and ` ` are the interesting half: neither is JSON whitespace, so
+  a document holding one outside a string was never valid JSON -- and ending the
+  comment there turns a silent truncation into a **refusal**, which is the better
+  of the two answers available. Pinned as that rather than as a parse, because
+  the parse cannot succeed either way.
+
+- **A non-string `env` in a schema threw `TypeError: env is not iterable` from
+  `envOf()`** -- an error about the wrong thing, naming nothing. `readSchema()`
+  refuses it where the declaration was written, with the empty name beside it,
+  because `envValue()` would look one up and a variable has a name.
+
+- **And two comments named functions this commit does not have**:
+  `assertSafeValue()`, which is `copyValue()`, and `save()` without saying it is
+  SIG-154's. The first is the dangerous one, for the reason above.
+
+What it confirmed clean, by reading, is worth recording because each is
+something a later reader would doubt: `deletePath()`'s pruning indices,
+`createConfigSync()` really not awaiting, the `concat` path built for nested
+keys, the setting-inside-a-setting check, the `set`/`push` rollback, the
+`#writable` and `#readOnlyOwner` walks, `#spliceAdd`/`#spliceEnd`, the
+pending-comma tracking in every nesting case, and `checkValue()` against
+`transformValue()` type by type. It also confirmed the whole-layer validation
+fix found by self-review in the same pass, and said in as many words not to
+treat it as open.
+
+Two things it said it had **not** verified, and both were checked afterwards:
+that the old `init-arg`/`init-option` regexes named exactly the `DATA_TYPES`
+set, which the sorted-list assertion in `check-value.test.ts` now pins; and
+every check the pre-migration `readSigilConfig()` had, which is walked under
+the migration entry above.
+
 #### What is deliberately out
 
 - **`mkdirOwnerSync()` stays internal.** No subpath publishes it, so config using

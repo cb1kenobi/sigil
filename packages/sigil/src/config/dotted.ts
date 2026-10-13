@@ -24,11 +24,12 @@
  * easier to be sure of than the reasoning about which two of the three are the
  * live ones.
  *
- * Refused at both doors rather than guarded in the middle: a mutator refuses a
- * path segment, and `assertSafeValue()` refuses a key in a document, because
- * those are the two places a hostile key can enter. Past them nothing internal
- * can be handed one, so the ordinary assignments below need no second check --
- * which is the whole reason the guards are at the entrances.
+ * A mutator refuses a path segment and `copyValue()` refuses a key in a value,
+ * which are the two halves of the guard. The second is where it is because a
+ * *key* can arrive from a file; the first because a *path* can. `copyValue()`
+ * runs on every copy rather than only at the ingest, which is a review round's
+ * finding rather than caution -- `transformValue()` is a third door, and its
+ * entry has the measurement.
  */
 const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 

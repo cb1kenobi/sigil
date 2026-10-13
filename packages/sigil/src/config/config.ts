@@ -13,6 +13,16 @@ import type {
 } from './types.js';
 
 /**
+ * What the schema's defaults and the environment are called in a message.
+ *
+ * They are merged like a layer and are not one, so they need a name for the
+ * one message the merge can produce -- the unsafe-key tripwire. Angle brackets
+ * because an app names its own layers and these are not its to name.
+ */
+const DEFAULTS = '<schema defaults>';
+const ENVIRONMENT = '<environment>';
+
+/**
  * Whether a store will write.
  *
  * The type guard the two-interface split exists for: read-only is a *type* here
@@ -253,7 +263,17 @@ export class Config {
 
 		this.#assertRepresentable(layer, path, value);
 
+		// `null` is "not configured", which is the rule `copyValue()` keeps for a key
+		// inside a document -- so writing one is `delete()` said another way rather
+		// than a value, and the alternative is a `set()` whose result a re-read of
+		// the same file would not reproduce
+		if (value === null) {
+			this.delete(path, name);
+			return;
+		}
+
 		const before = readPath(layer.value, parts);
+		this.#assertWritable(layer, parts);
 		const next = copyValue(value, layer.name);
 		writePath(layer.value, parts, next);
 
@@ -339,6 +359,37 @@ export class Config {
 	}
 
 	/**
+	 * Refuses a write whose way down runs through something that is not an
+	 * object.
+	 *
+	 * `writePath()` **replaces** such a thing, which for a scalar is defensible
+	 * -- a layer whose `server` is `"off"` has no `server.port` to set -- and for
+	 * an array is silent data loss: `set('items.0', 9)` over `[1, 2, 3]` left
+	 * `{ "0": 9 }` and the list was gone. Measured, and found by review.
+	 *
+	 * Refused rather than special-cased for arrays, because one rule is easier to
+	 * be sure of than two and because the two halves disagree either way:
+	 * `readPath()` does not walk an array, so `get('items.0')` is `undefined`
+	 * until a `set()` has already destroyed the list, and `push`/`pop` treat the
+	 * same path as a list. A dotted path addresses object keys, and the array
+	 * methods are how a list is changed.
+	 *
+	 * @param layer - The layer being written.
+	 * @param parts - The path.
+	 * @throws If an ancestor of the path is not an object.
+	 */
+	#assertWritable(layer: Layer, parts: readonly string[]): void {
+		let at: unknown = layer.value;
+
+		for (const [i, part] of parts.slice(0, -1).entries()) {
+			at = isPlainObject(at) && Object.hasOwn(at, part) ? at[part] : undefined;
+			if (at !== undefined && !isPlainObject(at)) {
+				throw new Error(__`"${parts.slice(0, i + 1).join('.')}" in ${layer.name} is not an object`);
+			}
+		}
+	}
+
+	/**
 	 * Validates the **whole** layer after a mutation, putting the one path back
 	 * if it is refused.
 	 *
@@ -404,7 +455,11 @@ export class Config {
 	#recompute(): void {
 		this.#merged = deepFreeze(
 			mergeLayers(
-				[this.#defaults, ...this.#layers.map((layer) => layer.value), this.#env],
+				[
+					{ label: DEFAULTS, value: this.#defaults },
+					...this.#layers.map((layer) => ({ label: layer.name, value: layer.value })),
+					{ label: ENVIRONMENT, value: this.#env },
+				],
 				this.#concat
 			)
 		);
@@ -442,6 +497,8 @@ export class Config {
 		if (at !== undefined && !Array.isArray(at)) {
 			throw new Error(__`"${path}" in ${layer.name} is not a list`);
 		}
+
+		this.#assertWritable(layer, parts);
 
 		const list = at === undefined ? [] : [...(at as unknown[])];
 		const next = copyValue(value, layer.name);
@@ -598,8 +655,9 @@ function assertLayers(declared: readonly ConfigLayer[]): void {
  *
  * Lazy layer creation is the one thing an async `set()` would buy and it is
  * refused: a `set()` targets a layer that is already registered, and
- * registration is this function's. The *file* need not exist -- `save()` creates
- * it -- so the reason config-kit forces async does not arise here.
+ * registration is this function's. The *file* need not exist -- `save()`, which
+ * is SIG-154's and is not in this ticket, creates it -- so the reason config-kit
+ * forces async does not arise here.
  *
  * @param opts - The schema, the layers, and the environment to read.
  * @returns The config.
