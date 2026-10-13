@@ -19674,6 +19674,25 @@ control and reads as a real defect to whoever looks next.
   is kept because a scan that walks to a limit should say what the limit is
   rather than leave a reader to notice that a brace happens to stop it.
 
+- **And a finding about the README test rather than about the code, which is the
+  one the sabotage pass could not have produced.** The README shows the file a
+  `set('server.port', 9090)` leaves behind, and the test read that block **out of
+  the README** -- which is the right direction, since a block quoted in a comment
+  is a copy nothing compares. It then derived the _input_ from it by putting the
+  port back, which made the whole thing a tautology: any change to the block
+  moved both sides together. Measured over five sabotages of the README's own
+  block, **four of five survived** -- a reflowed port line, a dropped trailing
+  comma, a comment moved onto its own line, and the leading comment deleted --
+  and only "the port was not written" was caught.
+
+  The one arrangement that says something is the **expectation** read out of the
+  README and the **input** written in the test: the input is a copy of nothing,
+  so it has nothing to drift from, and the README's block is then a claim about
+  what the writer produces rather than about itself. All five are caught that
+  way. Which generalises past this file: reading an expectation out of the
+  document under test is sound, and deriving the input from the same place is
+  how that becomes a test of nothing.
+
 - **And one hazard the harness itself met, which is worth the entry because it
   is about the tool.** A `pnpm fmt` run in another terminal while the pass was
   mid-mutation reformatted a mutated file, six tests failed over a mutation
