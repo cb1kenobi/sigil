@@ -18162,6 +18162,35 @@ without destroying it is SIG-154's.
   anything else throws -- so there is no silent wrong answer available. Three
   readers agreeing is worth more than that refusal.
 
+- **What a `default` does is `applyFallback()`'s behaviour, measured on a real
+  parse rather than read off the code -- and two of the three answers are not
+  what "non-string defaults pass through untouched" predicts.**
+
+  | a `default` of | on an option declared | lands as                       |
+  | -------------- | --------------------- | ------------------------------ |
+  | `'a'`          | `multiple: true`      | `['a']` -- **wrapped**         |
+  | `['a']`        | `multiple: true`      | `['a']`                        |
+  | `'z'`          | `choices: ['a', 'b']` | **throws** `Invalid value "z"` |
+  | `8080.5`       | `type: 'int'`         | `8080.5` -- untouched          |
+
+  All three are kept, and the first version of `defaultsOf()` had two of them
+  wrong: a scalar default on a `multiple` setting was left a scalar, so
+  `get('plugins')` answered `'a'` where a list was declared, and a default
+  outside `choices` was never checked at all. A string is coerced and a
+  non-string is not, which is the recorded rule; a non-array is **wrapped**,
+  because a declaration can only write one value and the wrap is what makes the
+  shape not depend on how many were written; and `choices` is checked, because a
+  `default` is a producer and the rule is that a value is validated by whoever
+  produced it.
+
+  A non-string default is deliberately **not** type-checked, which is the one
+  place this is looser than it could be and is the one of the four that was
+  already right. Diverging would make the two declarations disagree about a value
+  written in code, and the reason it is defensible is the recorded one -- the
+  author wrote it in the right type, and a config schema is as much the app's own
+  source as an option declaration is. Measured rather than assumed, which is how
+  the other two were found.
+
 - **Every refusal `checkValue()` makes is one of the parser's own keys, with the
   **value** through the slot rather than a word for its kind.** The first version
   wrote `Expected an integer, got ${describe(value)}`, which puts the English

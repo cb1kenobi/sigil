@@ -192,27 +192,49 @@ export function coerceLayer(value: unknown, settings: readonly Setting[], where:
  * defaulted `server.port` and there is one merged object to read rather than a
  * merge with a fallback chain bolted beside it.
  *
- * A `default` is **not** coerced, which is the parser's own call said again:
- * "non-string defaults pass through untouched", because the author wrote it in
- * code in the right type. A string `default` is coerced, for the same reason
- * the parser coerces one.
+ * What happens to one here is `applyFallback()`'s behaviour, measured on a real
+ * parse rather than read off the code, because the three answers are not what a
+ * reading of "non-string defaults pass through untouched" predicts:
+ *
+ * | a `default` of | on an option declared | lands as |
+ * | -- | -- | -- |
+ * | `'a'` | `multiple: true` | `['a']` -- **wrapped** |
+ * | `['a']` | `multiple: true` | `['a']` |
+ * | `'z'` | `choices: ['a', 'b']` | **throws** `Invalid value "z"` |
+ * | `8080.5` | `type: 'int'` | `8080.5` -- untouched |
+ *
+ * So all three are kept. A **string** is coerced and a non-string is not, which
+ * is the recorded rule; a non-array is **wrapped** for a `multiple` setting,
+ * because a declaration can only write one value and the wrap is what makes the
+ * shape not depend on how many were written; and `choices` is checked, because a
+ * `default` is a producer and the rule is that a value is validated by whoever
+ * produced it.
+ *
+ * And a non-string default is deliberately **not** type-checked, which is the
+ * one place this is looser than it could be: the parser hands `8080.5` to an
+ * `int` option untouched, and diverging here would make the two declarations
+ * disagree about a value written in code. The reason that is defensible is the
+ * recorded one -- the author wrote it in the right type -- and a config schema is
+ * as much the app's own source as an option declaration is.
  *
  * @param settings - The schema.
  * @returns The defaults, as a nested object.
+ * @throws If a default is outside the setting's `choices`.
  */
 export function defaultsOf(settings: readonly Setting[]): Record<string, unknown> {
 	const out: Record<string, unknown> = {};
 
 	for (const it of settings) {
-		const value = it.setting.default;
-		if (value === undefined) {
+		const raw = it.setting.default;
+		if (raw === undefined) {
 			continue;
 		}
-		writePath(
-			out,
-			it.parts,
-			typeof value === 'string' ? transformValue(value, typeOf(it.setting)) : value
-		);
+
+		const coerced = typeof raw === 'string' ? transformValue(raw, typeOf(it.setting)) : raw;
+		const value = it.setting.multiple && !Array.isArray(coerced) ? [coerced] : coerced;
+
+		assertChoices(it.setting.choices, value, __`setting "${it.path}"`);
+		writePath(out, it.parts, value);
 	}
 
 	return out;

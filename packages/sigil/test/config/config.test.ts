@@ -900,6 +900,40 @@ describe('the schema', () => {
 		expect(config.get('bare')).to.deep.equal({ nested: 1 });
 	});
 
+	// what a `default` does is `applyFallback()`'s behaviour, measured on a real
+	// parse rather than read off the code -- because two of the three answers are
+	// not what a reading of "non-string defaults pass through untouched" predicts
+	it('should wrap a scalar default for a multiple setting, as the parser does', async () => {
+		// a declaration can only write one value, and the wrap is what makes the
+		// shape not depend on how many were written
+		const config = await createConfig({
+			schema: {
+				one: { default: 'a', multiple: true },
+				many: { default: ['a', 'b'], multiple: true },
+			},
+		});
+
+		expect(config.get('one')).to.deep.equal(['a']);
+		expect(config.get('many')).to.deep.equal(['a', 'b']);
+	});
+
+	it('should refuse a default outside its choices, as the parser does', async () => {
+		// a `default` is a producer, and the rule is that a value is validated by
+		// whoever produced it
+		await expect(
+			createConfig({ schema: { mode: { choices: ['a', 'b'], default: 'z' } } })
+		).rejects.toThrow(/Invalid value "z" for setting "mode"/);
+	});
+
+	it('should leave a non-string default the type cannot hold alone, as the parser does', async () => {
+		// the one place this is looser than it could be, and diverging would make
+		// the two declarations disagree about a value written in code: the parser
+		// hands `8080.5` to an `int` option untouched, because the author wrote it
+		// in the right type
+		const config = await createConfig({ schema: { port: { default: 8080.5, type: 'int' } } });
+		expect(config.get('port')).to.equal(8080.5);
+	});
+
 	it.each([
 		[{ x: { type: 'nope' } }, /unsupported data type "nope"/],
 		[{ x: { type: 'count' } }, /unsupported data type "count"/],
