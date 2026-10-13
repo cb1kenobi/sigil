@@ -23,7 +23,7 @@
  * `"sourcemap": true` in the file, and the file wins over the built-in default.
  */
 
-import { readFileSync, statSync } from 'node:fs';
+import { createConfigSync, json, type ConfigSchema } from '@ttylabs/sigil/config';
 import { isAbsolute, join } from 'node:path';
 
 /** The name of the config file, which is the shadcn answer to the same question. */
@@ -93,127 +93,177 @@ export interface SigilConfig {
 	readonly locale?: string;
 }
 
-/** Whether a path is a file, answering `false` for anything unreadable. */
-function isFile(path: string): boolean {
-	try {
-		return statSync(path).isFile();
-	} catch {
-		return false;
-	}
-}
+/**
+ * What the file may hold, in the parser's own type vocabulary.
+ *
+ * The acceptance test for `@ttylabs/sigil/config`, which is why it is a schema
+ * rather than the hand-written reader it replaces: the types, the coercion and
+ * the choices are the same ones an option declaration gets, so `"shake": "off"`
+ * and `--no-shake` and `SHAKE=off` cannot come to mean three different things.
+ *
+ * What stays here is what the schema's vocabulary cannot say -- that
+ * `components` is relative to the app -- which is the honest split: the schema
+ * does types, and the semantic checks are this tool's own.
+ */
+const SCHEMA: ConfigSchema = {
+	'build.external': { multiple: true, type: 'string' },
+	'build.name': { type: 'string' },
+	'build.out': { type: 'string' },
+	'build.safelist': { multiple: true, type: 'string' },
+	'build.shake': { type: 'bool' },
+	'build.sourcemap': { type: 'bool' },
+	components: { type: 'string' },
+	locale: { type: 'string' },
+};
 
 /**
  * Reads an app's `sigil.json`, if it has one.
  *
- * Validated on the way out rather than trusted: a config file is source the
- * app wrote, and a `"external": "rolldown"` where an array was meant should say
- * so here rather than reach rolldown as a string and mean something else.
+ * Validated on the way out rather than trusted: a config file is source the app
+ * wrote, and an `"external": "rolldown"` where an array was meant should say so
+ * here rather than reach rolldown as a string and mean something else.
+ *
+ * ## What the migration changed, and what it did not
+ *
+ * A file that is not there, one holding nothing, and one holding valid JSON
+ * read exactly as before. Two things moved, and both are the shared vocabulary
+ * arriving:
+ *
+ * A **string where a boolean was declared is now coerced** rather than refused.
+ * The old reader's reason was that `"false"` is not `false` and coercing a typo
+ * invents a setting nobody chose -- and `transformValue()`'s boolean vocabulary
+ * is strict and symmetric, so `"nope"` still throws and there is no silent wrong
+ * answer available. What is left is `"off"`, `"0"` and `"yes"` meaning in this
+ * file what they already mean to `--shake=off` and to `SHAKE=off`, which is one
+ * answer where there were two.
+ *
+ * And the **messages are the shared ones**, which is what sharing a validator
+ * costs: `Invalid value for "build.sourcemap" in sigil.json: Invalid boolean`
+ * rather than a sentence written here. They name the file, the setting and what
+ * was wrong, which is what a message has to do.
  *
  * @param root - The app root.
  * @returns What the file said, or an empty config when there is none.
  * @throws If the file is not readable as the shape it claims.
  */
 export function readSigilConfig(root: string): SigilConfig {
-	const path = join(root, CONFIG_FILE);
+	// one layer, which is this file. The stack is what an *app* reaches for; the
+	// toolchain has exactly one place its own settings live, and a second layer
+	// would be a second place to look for an answer to one question
+	const config = createConfigSync({
+		layers: [{ name: CONFIG_FILE, store: json(join(root, CONFIG_FILE)) }],
+		schema: SCHEMA,
+	});
 
-	if (!isFile(path)) {
-		return {};
-	}
+	const section = config.get('build');
+	const build = readSection(section);
+	const components = readName(config.get('components'), 'components');
+	const locale = readName(config.get('locale'), 'locale');
 
-	let json: Record<string, unknown>;
-	try {
-		json = JSON.parse(readFileSync(path, 'utf-8')) as Record<string, unknown>;
-	} catch (e: unknown) {
-		throw new Error(`Failed to parse ${CONFIG_FILE}: ${(e as Error).message}`);
-	}
-
+	// the keys are set only where the file said something, so that a directory
+	// with no file in it and a file holding `{}` are the same answer -- which they
+	// are, and which the old reader distinguished only by returning early
 	return {
-		build: readBuild(json.build),
-		components: readComponents(json.components),
-		locale: readString(json.locale, 'locale'),
+		...(build && { build }),
+		...(components !== undefined && { components: readRelative(components) }),
+		...(locale !== undefined && { locale }),
 	};
 }
 
-/** The `components` field, which predates the rest of the file. */
-function readComponents(value: unknown): string | undefined {
+/**
+ * The `build` section, which the schema's vocabulary cannot shape.
+ *
+ * A config schema declares settings by dotted path and deliberately has no
+ * nested object shapes, so `build.external` is typed and `build` itself is not
+ * -- which leaves `"build": []` as a mistake nothing would report. Declaring
+ * `build` as well is not the way out: a setting whose path runs through another
+ * setting's is refused where the schema is read, because the two would each
+ * validate the other's value.
+ *
+ * So this is the same split `components` already takes: the schema does types,
+ * and a check the vocabulary cannot say stays here.
+ *
+ * @param value - What the merged view holds at `build`.
+ * @returns The section, or `undefined` where the file said nothing.
+ * @throws If it is there and is not an object.
+ */
+function readSection(value: unknown): BuildConfig | undefined {
 	if (value === undefined) {
 		return undefined;
 	}
-	if (typeof value !== 'string' || value.length === 0) {
-		throw new Error(`${CONFIG_FILE}: "components" must be a non-empty string`);
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+		throw new Error(`${CONFIG_FILE}: "build" must be an object`);
 	}
+
+	const build = value as BuildConfig;
+	return Object.keys(build).length > 0 ? readBuild(build) : undefined;
+}
+
+/**
+ * A field the schema typed as a string and that may not be empty.
+ *
+ * `""` passes `type: 'string'` and is right to: the recorded rule is that a key
+ * written `""` is an empty string somebody chose, where absent and `null` are
+ * both not configured. What the data type cannot know is that none of these
+ * fields has a use for one -- an empty `components` is not a directory and an
+ * empty `locale` is not a tag.
+ *
+ * @param value - The value.
+ * @param field - The field, for the message.
+ * @returns The value, or `undefined` where the file said nothing.
+ * @throws If it is there and empty.
+ */
+function readName(value: unknown, field: string): string | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+	if (!value) {
+		throw new Error(`${CONFIG_FILE}: "${field}" must be a non-empty string`);
+	}
+	return value as string;
+}
+
+/**
+ * The `components` field, which predates the rest of the file.
+ *
+ * Relative to the app, which is the other thing a data type cannot say: it is a
+ * fact about what the field is *for* rather than about what kind of value it
+ * is.
+ *
+ * @param value - The non-empty name.
+ * @returns It, unchanged.
+ * @throws If it is absolute.
+ */
+function readRelative(value: string): string {
 	if (isAbsolute(value)) {
 		throw new Error(`${CONFIG_FILE}: "components" must be relative to the app`);
 	}
 	return value;
 }
 
-/** The `build` section. */
-function readBuild(value: unknown): BuildConfig | undefined {
-	if (value === undefined) {
-		return undefined;
-	}
-	if (!value || typeof value !== 'object' || Array.isArray(value)) {
-		throw new Error(`${CONFIG_FILE}: "build" must be an object`);
-	}
-
-	const build = value as Record<string, unknown>;
-
-	return {
-		external: readExternal(build.external),
-		name: readString(build.name, 'build.name'),
-		out: readString(build.out, 'build.out'),
-		safelist: readNames(build.safelist, 'build.safelist', 'class names'),
-		shake: readBoolean(build.shake, 'build.shake'),
-		sourcemap: readBoolean(build.sourcemap, 'build.sourcemap'),
-	};
-}
-
-/** A list of package names, which is the one field that is easy to write as a string. */
-function readExternal(value: unknown): readonly string[] | undefined {
-	return readNames(value, 'build.external', 'package names');
-}
-
 /**
- * A list of non-empty strings.
+ * The `build` section, with the one field that has a rule of its own.
  *
- * Both lists this file reads are that, and a single string where an array was
- * meant is the mistake worth catching rather than passing on -- `"external":
- * "rolldown"` reaching rolldown as a string means something else entirely.
+ * Every type in here is the schema's now, so what is left is the same
+ * non-emptiness the `components` field needs: a `""` passes `type: 'string'`
+ * and is not a name anything can use.
  *
- * @param value - What the file held.
- * @param field - The field, for the message.
- * @param what - What the names are, for the message.
- * @returns The list, or `undefined` when the field was absent.
+ * @param build - What the merged view holds at `build`.
+ * @returns The section.
+ * @throws If a name in it is empty.
  */
-function readNames(value: unknown, field: string, what: string): readonly string[] | undefined {
-	if (value === undefined) {
-		return undefined;
-	}
-	if (!Array.isArray(value) || value.some((name) => typeof name !== 'string' || !name)) {
-		throw new Error(`${CONFIG_FILE}: "${field}" must be an array of ${what}`);
-	}
-	return value as string[];
-}
+function readBuild(build: BuildConfig): BuildConfig {
+	readName(build.name, 'build.name');
+	readName(build.out, 'build.out');
 
-/** A non-empty string field. */
-function readString(value: unknown, field: string): string | undefined {
-	if (value === undefined) {
-		return undefined;
+	for (const [field, names, what] of [
+		['build.external', build.external, 'package names'],
+		['build.safelist', build.safelist, 'class names'],
+	] as const) {
+		if (names?.some((name) => !name)) {
+			throw new Error(`${CONFIG_FILE}: "${field}" must be an array of ${what}`);
+		}
 	}
-	if (typeof value !== 'string' || value.length === 0) {
-		throw new Error(`${CONFIG_FILE}: "${field}" must be a non-empty string`);
-	}
-	return value;
-}
 
-/** A boolean field, refused rather than coerced: `"false"` is not `false`. */
-function readBoolean(value: unknown, field: string): boolean | undefined {
-	if (value === undefined) {
-		return undefined;
-	}
-	if (typeof value !== 'boolean') {
-		throw new Error(`${CONFIG_FILE}: "${field}" must be true or false`);
-	}
-	return value;
+	return build;
 }

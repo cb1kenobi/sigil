@@ -40,7 +40,19 @@ export function cache(...paths: string[]): string | undefined {
 	return _cache && paths ? join(_cache, ...paths) : _cache;
 }
 
-export function config(...paths: string[]): string | undefined {
+/**
+ * The user's config directory: `XDG_CONFIG_HOME`, or the platform's own.
+ *
+ * Named for the variable it reads rather than called `config()`, which is what
+ * it was. `@ttylabs/sigil/config` is a module about config *files*, and
+ * `paths.config()` beside it is a prose collision rather than a code one -- two
+ * things called the same word, one of which is a directory and the other a
+ * layered merge. Renamed rather than explained, and renamed to the spelling
+ * that makes the pair below obvious: this reads `XDG_CONFIG_HOME` and
+ * `configDirs()` reads `XDG_CONFIG_DIRS`, so each function is named for its own
+ * variable.
+ */
+export function configHome(...paths: string[]): string | undefined {
 	if (!_config) {
 		_config = resolvePath('XDG_CONFIG_HOME', 'config');
 	}
@@ -49,7 +61,7 @@ export function config(...paths: string[]): string | undefined {
 
 export function configDirs(): string[] | undefined {
 	if (!_configDirs) {
-		_configDirs = combinePaths(config(), splitDirs(process.env.XDG_CONFIG_DIRS));
+		_configDirs = combinePaths(configHome(), splitDirs(process.env.XDG_CONFIG_DIRS));
 	}
 	return _configDirs;
 }
@@ -64,7 +76,7 @@ export function data(...paths: string[]): string | undefined {
 export function dataDirs(): string[] | undefined {
 	if (!_dataDirs) {
 		_dataDirs = combinePaths(
-			// `data()`, not `config()`: copied from `configDirs()` above, this put
+			// `data()`, not `configHome()`: copied from `configDirs()` above, this put
 			// the config home at the head of the data search path
 			data(),
 			splitDirs(process.env.XDG_DATA_DIRS)

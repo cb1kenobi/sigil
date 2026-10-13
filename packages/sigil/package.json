@@ -38,6 +38,10 @@
       "types": "./dist/components.d.mts",
       "default": "./dist/components.mjs"
     },
+    "./config": {
+      "types": "./dist/config.d.mts",
+      "default": "./dist/config.mjs"
+    },
     "./element": {
       "types": "./dist/element.d.mts",
       "default": "./dist/element.mjs"

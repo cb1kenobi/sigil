@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 62 keys, which is what a catalog has to carry to translate sigil's own
+ * 77 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -19,6 +19,7 @@
  * English, so there is nothing else for this to be.
  */
 export const SIGIL_KEYS: readonly string[] = [
+	'"{0}" in {1} is not a list',
 	'(+{0} more line)',
 	'(choices: {0})',
 	'(default: {0})',
@@ -30,13 +31,18 @@ export const SIGIL_KEYS: readonly string[] = [
 	'Alias:',
 	'Arguments:',
 	'Cancelled',
+	'Cannot delete "{0}": it is set in {1}, which is read-only.\n  Set it in {2} to override the value, or\n  remove it from {3}.',
 	'Cannot prompt for "{0}" because the input is not a terminal',
 	'Choose at least one',
 	'Commands:',
+	'Comments are not allowed in {0}, on line {1}',
 	'Count is too large to be exact: {0}',
 	'Error: {0}',
 	'Examples:',
+	'Expected a list of values',
 	'Extra arguments are not allowed: {0}',
+	'Failed to parse {0}: {1}',
+	'Failed to read {0}: {1}',
 	'Global options:',
 	'Input ended before the prompt was answered',
 	'Integer is too large to be exact: {0}',
@@ -46,7 +52,9 @@ export const SIGIL_KEYS: readonly string[] = [
 	'Invalid date: "{0}"',
 	'Invalid integer: {0}',
 	'Invalid number: {0}',
+	'Invalid string: {0}',
 	'Invalid value "{0}" for {1}',
+	'Invalid value for "{0}" in {1}: {2}',
 	'Missing required arguments: {0}',
 	'Missing required options: {0}',
 	'Missing value for option {0}',
@@ -60,12 +68,16 @@ export const SIGIL_KEYS: readonly string[] = [
 	'Show help for a command',
 	'The command to describe',
 	'The shell to generate for',
+	'Trailing commas are not allowed in {0}, on line {1}',
 	'Unexpected argument "{0}"',
 	'Unexpected argument "{0}". Did you mean "{1}"?',
 	'Unknown command "{0}"',
 	'Unknown command "{0}". Did you mean "{1}"?',
 	'Unknown option "{0}"',
 	'Unknown option "{0}". Did you mean "{1}"?',
+	'Unsafe config key "{0}" in {1}',
+	'Unterminated comment in {0} on line {1}',
+	'Unterminated string in {0} on line {1}',
 	'Usage:',
 	'Value must be "{0}" or "{1}"',
 	'[command]',
@@ -77,9 +89,12 @@ export const SIGIL_KEYS: readonly string[] = [
 	'no',
 	'none',
 	'option {0}',
+	'setting "{0}"',
 	'y/n',
 	'yes',
 	'{0} arguments:',
+	'{0} cannot hold the value at "{1}": {2}',
+	'{0} must hold an object',
 	'{0} options:',
 ];
 

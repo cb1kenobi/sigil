@@ -241,6 +241,67 @@ describe('what importing the package costs', () => {
 		}
 	);
 
+	// Two exported names and two string literals, which is this file's own rule
+	// rather than a preference: a name that is only ever *called* is one the
+	// minifier renames, so it is in no bundle at all and the absence half passes
+	// while saying nothing. `mergeLayers` was the first spelling and is exactly
+	// that -- it failed the presence half immediately, which is what the presence
+	// half is for.
+	//
+	// The pair is the one SIG-148 asked for in as many words: "nothing in
+	// `main()` or `parse()` loads or accepts a config, and a test that says so"
+	const CONFIG_MARKERS = [
+		'createConfigSync',
+		'isWritableStore',
+		'Unsafe config key',
+		'No writable config layer',
+	];
+
+	it.each(CONFIG_MARKERS)('should not load %s to import the package', (symbol) => {
+		// **Core does not load config, and does not accept one either.** Options
+		// and config settings are separate and the app decides how to mix them,
+		// which is the opposite call from `--help`, `--version` and `completion`:
+		// those three the framework can answer identically for every app, and
+		// this it cannot -- the ecosystem does not even agree on what the flag is
+		// called.
+		expect(carriers(staticGraph('index.mjs'), symbol)).toEqual([]);
+	});
+
+	it.each(CONFIG_MARKERS)('should load %s to import the config module', (symbol) => {
+		// the other half, for the reason every pair above gives
+		expect(carriers(staticGraph('config.mjs'), symbol)).not.toEqual([]);
+	});
+
+	it('should not reach any parser module to import the config module', () => {
+		// which the packaging measurement assumed and is now a property rather
+		// than a coincidence: a config module usable by an app that does not use
+		// sigil's parser is a better module than one wired into it. Keyed on
+		// symbols the minifier keeps -- an exported name and a string literal --
+		// rather than on a chunk's name, for the reason the pair above gives
+		const graph = staticGraph('config.mjs');
+		for (const symbol of ['parseArgv', 'initOption', 'Unknown option', 'Usage:']) {
+			expect(carriers(graph, symbol), symbol).toEqual([]);
+		}
+	});
+
+	it('should cost about what the root entry does', () => {
+		const graph = staticGraph('config.mjs');
+		const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
+
+		// 19,482 B over six modules, of which 9,279 B over four is what it starts
+		// from: `paths.mjs` plus the `transform` chunk, which is `transform`,
+		// `i18n` and `debug`. So the module itself is about 10 KB and the subpath
+		// costs roughly what the root entry does rather than anything like a
+		// component -- `components.mjs` is 239,917 B over 26.
+		//
+		// A ceiling rather than a measurement, about 2.4x over what it is, so that
+		// ordinary growth never touches it and pulling the parser or the renderer
+		// onto it does. The figure is here and in AGENTS.md and nowhere else, for
+		// the reason the root entry's is: two comments disagreeing about one
+		// measurement leave a later reader with no way to tell which was measured
+		expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(48 * 1024);
+	});
+
 	it('should keep the root entry small enough to be worth it', () => {
 		const graph = staticGraph('index.mjs');
 		const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);

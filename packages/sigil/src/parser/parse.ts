@@ -15,7 +15,8 @@ import {
 	Schema,
 } from '../types.js';
 import { camelCase } from '../util/camel-case.js';
-import { transformValue } from '../util/transform.js';
+import { envValue } from '../util/env-value.js';
+import { assertChoices, transformValue } from '../util/transform.js';
 import { initCommand } from './command/init-command.js';
 import { loadCommand } from './command/load-command.js';
 import { registerCompletion } from './completion.js';
@@ -469,27 +470,6 @@ function validates(
 }
 
 /**
- * Reads the first environment variable of a list that is set.
- *
- * @param state - The parse state.
- * @param envs - Environment variable names to look for.
- * @returns The value of the first one that is defined, if any.
- */
-function envValue(state: ParseState, envs: Set<string>): string | undefined {
-	for (const env of envs) {
-		// an empty variable is read as unset rather than as an empty value.
-		// `PORT=` in a shell or a `.env` file is how a variable gets left blank,
-		// and almost always means "not configured" -- while an empty value is one
-		// most data types reject, so honoring it literally would fail the parse
-		// over a variable nobody meant to set. `--port=` is still the way to give
-		// an empty value deliberately, and that one is not second-guessed
-		if (state.env[env]) {
-			return state.env[env];
-		}
-	}
-}
-
-/**
  * Applies a fallback to a destination argv did not fill, coercing strings to
  * the declared data type exactly as a value parsed from argv would be.
  *
@@ -540,29 +520,6 @@ function applyFallback(
 	// `multiple` stays editable after init, so a hook could otherwise put it back
 	state.argv[dest] = multiple && type !== 'count' && one ? [value] : value;
 	produced(state, dest, it);
-}
-
-/**
- * Validates a value against a list of allowed choices.
- *
- * @param choices - The allowed values, if the definition declared any.
- * @param value - The resolved value.
- * @param label - The option or argument label used in the error message.
- */
-function assertChoices(
-	choices: readonly unknown[] | undefined,
-	value: unknown,
-	label: string
-): void {
-	if (!Array.isArray(choices) || value === undefined) {
-		return;
-	}
-
-	for (const v of Array.isArray(value) ? value : [value]) {
-		if (!choices.includes(v)) {
-			throw new Error(__`Invalid value "${v}" for ${label}`);
-		}
-	}
 }
 
 /**
@@ -961,7 +918,7 @@ export async function processArgs(state: ParseState): Promise<void> {
 	for (let i = internal.args.length - 1; i >= argIdx; i--) {
 		const arg = internal.args[i];
 		const { envs } = arg[Internal];
-		applyFallback(state, arg, envValue(state, envs) ?? arg.default);
+		applyFallback(state, arg, envValue(state.env, envs) ?? arg.default);
 	}
 }
 
@@ -1044,7 +1001,7 @@ export async function processOptions(state: ParseState): Promise<void> {
 	for (const opt of all) {
 		const { envs, parserOwned } = opt[Internal];
 		if (!parserOwned) {
-			applyFallback(state, opt, envValue(state, envs));
+			applyFallback(state, opt, envValue(state.env, envs));
 		}
 	}
 
