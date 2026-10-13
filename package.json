@@ -28,13 +28,13 @@
     "type-check": "turbo run type-check"
   },
   "devDependencies": {
-    "@types/node": "26.6.4",
+    "@types/node": "26.6.5",
     "@vitest/coverage-v8": "5.0.3",
     "lefthook": "2.2.1",
     "oxfmt": "0.72.0",
     "oxlint": "1.87.0",
     "rimraf": "6.1.3",
-    "tsdown": "0.23.0",
+    "tsdown": "0.23.1",
     "turbo": "2.11.7",
     "typescript": "7.0.2",
     "vitest": "5.0.3"
@@ -42,5 +42,5 @@
   "engines": {
     "node": ">=22.19.0"
   },
-  "packageManager": "pnpm@12.10.1"
+  "packageManager": "pnpm@12.11.2"
 }
