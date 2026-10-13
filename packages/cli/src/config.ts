@@ -183,7 +183,10 @@ function configLayer(root: string): ConfigLayer {
 	const name = found[0] ?? CONFIG_FILE;
 	const path = join(root, name);
 
-	return { name, store: name.endsWith('c') ? jsonc(path) : json(path) };
+	// the extension decides which reader, which is what makes it mean what it
+	// says: `endsWith('.jsonc')` rather than `endsWith('c')`, because the second
+	// is right about these two names and is a trick rather than the rule
+	return { name, store: name.endsWith('.jsonc') ? jsonc(path) : json(path) };
 }
 
 /**
