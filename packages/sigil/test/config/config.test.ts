@@ -554,8 +554,10 @@ describe('deleting a value that lives in a read-only layer', () => {
 	// the user wrote. The useful half already works -- `set()` shadows -- and what
 	// cannot be expressed is shadowing to *absent*
 	it('should throw, naming the layer and both ways out', async () => {
+		// no `user.json`: the writable layer is an `object()`, and a file written
+		// here and never used as a store was only ever there to be asserted a
+		// string, which is the dead-fixture tell a review round pointed at
 		const system = file('system.json', '{"editor":{"theme":"light"}}');
-		const user = file('user.json', '{}');
 
 		const config = await createConfig({
 			layers: [
