@@ -35,6 +35,10 @@ vi.mock('node:fs', async (importOriginal) => {
 
 	return {
 		...real,
+		chownSync(path: string, uid: number, gid: number): void {
+			calls.push(`chown ${path}`);
+			real.chownSync(path, uid, gid);
+		},
 		closeSync(fd: number): void {
 			real.closeSync(fd);
 			if (fail === 'close') {
@@ -136,6 +140,21 @@ describe('where the temp file goes', () => {
 
 		expect(() => writeAtomicSync(path, 'new')).toThrow(/close refused/);
 		expect(readdirSync(root)).to.deep.equal([]);
+	});
+
+	it('should attempt no chown where the process is not root', () => {
+		// the owner is the target's or the directory's **under sudo** only, because
+		// a non-root process cannot hand a file to anybody and a `chown` it tries
+		// anyway is a failure over a file it was going to write correctly. The root
+		// half -- that `sudo mycli config set` leaves a config its owner can still
+		// edit -- is a claim no non-root test can make, so it is declared in
+		// AGENTS.md rather than asserted here
+		const path = join(root, 'c.jsonc');
+		writeFileSync(path, 'old');
+		writeAtomicSync(path, 'new');
+
+		expect(process.getuid?.()).to.not.equal(0);
+		expect(calls.filter((it) => it.startsWith('chown '))).to.deep.equal([]);
 	});
 
 	it('should write anyway where the filesystem declined to flush', () => {

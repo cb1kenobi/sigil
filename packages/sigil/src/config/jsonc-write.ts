@@ -222,33 +222,30 @@ function bareEnd(text: string, from: number): number {
 }
 
 /**
- * Whether two values are the same as far as a JSON document is concerned.
+ * Whether two values are the same as far as a JSON document is concerned, which
+ * is **identity and nothing else**.
  *
- * Deliberately narrow: `false` for anything that is not a primitive, a plain
- * object or an array, so two equal `Date`s compare unequal and have their span
- * replaced with the bytes that were already there. A no-op edit is harmless --
- * the write is skipped when the text did not change -- where a `true` that was
- * wrong would leave a stale value in the file.
+ * A structural comparison was written here first and every branch of it was
+ * dead, which a sabotage said and this proves: `node.kind` and `current` agree
+ * by construction, because the node was scanned out of the same text
+ * `JSON.parse` produced the value from. So `diffNode()` reaches this only where
+ * the two *kinds* differ -- an object where the file has a scalar, a scalar
+ * where it has an array -- and two values of different kinds are never the same
+ * whatever the comparison does. Two plain objects or two arrays go to
+ * `diffObject()` and `diffArray()` and never arrive here at all.
  *
- * @param a - One value.
- * @param b - The other.
+ * Which also makes it the safe direction to be narrow in: this is what decides
+ * "no edit", so a comparison that could answer `true` for two different
+ * structures is the one answer that silently keeps a stale value in the file. A
+ * `false` where they really were equal costs a no-op edit, and the write is
+ * skipped when the text did not change.
+ *
+ * @param a - What the file holds.
+ * @param b - What it should hold.
  * @returns Whether an edit can be skipped.
  */
 function same(a: unknown, b: unknown): boolean {
-	if (a === b) {
-		return true;
-	}
-	if (Array.isArray(a) && Array.isArray(b)) {
-		return a.length === b.length && a.every((it, i) => same(it, b[i]));
-	}
-	if (isPlainObject(a) && isPlainObject(b)) {
-		const keys = Object.keys(a);
-		return (
-			keys.length === Object.keys(b).length &&
-			keys.every((key) => Object.hasOwn(b, key) && same(a[key], b[key]))
-		);
-	}
-	return false;
+	return a === b;
 }
 
 /**
@@ -337,6 +334,12 @@ function lineTriviaEnd(ctx: Ctx, from: number, limit: number): number {
 	let i = from;
 
 	for (;;) {
+		// the bound said rather than relied upon: deleting it changes no answer,
+		// because the character at `limit` is the closing brace and the fallthrough
+		// at the bottom returns `from` for one anyway. A declared survivor of the
+		// sabotage pass, kept because a scan that walks to a limit should say what
+		// the limit is rather than leave it to a reader to notice that a brace
+		// happens to stop it
 		if (i >= limit) {
 			return from;
 		}
@@ -425,15 +428,17 @@ function insertIndent(ctx: Ctx, node: Node): string {
 }
 
 /**
- * Splices new entries into a container, in one edit plus at most a comma.
+ * Splices new entries into a container, in one edit plus a separating comma.
  *
  * All of them in one edit rather than one each, which is the comma rule rather
- * than a saving: two insertions that each asked "does a comma already follow
- * the last entry" would each answer no and each add one.
+ * than a saving: two calls would each add a separating comma after the same
+ * value, so `{ "a": 1 }` grown by two keys would come out `{ "a": 1,, ... }`.
  *
  * @param ctx - The texts and the edits.
  * @param node - The container.
  * @param blobs - The entries, already serialized.
+ * @param drop - The indices being removed, which are the ones this may not
+ * anchor on.
  */
 function insertInto(
 	ctx: Ctx,
@@ -446,10 +451,9 @@ function insertInto(
 	const close = node.close as number;
 	const lines = multiline(ctx, node);
 	const indent = entryIndent(ctx, node);
-	// the last entry that is **staying**, because the comma question is about
-	// what the file will hold rather than about what it holds: anchoring on an
-	// entry that is being removed puts the separator inside the removal, which
-	// is a dangling comma and invalid JSON
+	// the last entry that is **staying**, because the anchor has to be an offset
+	// the file will still have: anchoring on an entry that is being removed puts
+	// the separator inside the removal, which is a dangling comma and invalid JSON
 	const kept = entries.filter((_, i) => !drop.has(i));
 
 	if (kept.length === 0) {
@@ -479,27 +483,26 @@ function insertInto(
 	}
 
 	const last = kept[kept.length - 1] as Entry;
-	// everything after the last surviving entry is being removed by definition,
-	// and the comma between them goes with it -- so there is none to reuse
-	const comma = last === entries[entries.length - 1] ? commaAfter(ctx, last.span.end, close) : -1;
-	const from = comma === -1 ? last.span.end : comma + 1;
-	const at = lines ? lineTriviaEnd(ctx, from, close) : from;
+	const at = lines ? lineTriviaEnd(ctx, last.span.end, close) : last.span.end;
 	const sep = lines ? ctx.eol + indent : ' ';
 
-	if (comma === -1) {
-		// the separator the last entry never needed, which goes directly after it
-		// rather than at the insertion point: with a line comment in between, a
-		// comma written after the comment would be *inside* it
-		ctx.edits.push({ end: last.span.end, start: last.span.end, text: ',' });
-	}
+	// the separator the last entry never needed, which goes directly after it
+	// rather than at the insertion point: with a line comment in between, a comma
+	// written after the comment would be *inside* it.
+	//
+	// Unconditionally, and that is the whole of the trailing-comma story. A
+	// branch for "a comma already follows the last entry" was written here and a
+	// sabotage proved it dead, which `commaAfter()` explains: it reads the
+	// **blanked** text, where a trailing comma has been blanked out, and a comma
+	// after the *last* entry is trailing by definition -- so the only comma that
+	// could be found is one that is not there. Which means the user's trailing
+	// comma survives by construction rather than by being put back: it is still
+	// in the source, after the offset this inserts at, so what used to be the
+	// trailing comma becomes the trailing comma again with the new member in
+	// front of it
+	ctx.edits.push({ end: last.span.end, start: last.span.end, text: ',' });
 
-	// a trailing comma is put back where there was one, because the user's
-	// trailing-comma style is one more thing this is not being asked to change
-	ctx.edits.push({
-		end: at,
-		start: at,
-		text: blobs.map((blob) => sep + blob).join(',') + (comma === -1 ? '' : ','),
-	});
+	ctx.edits.push({ end: at, start: at, text: blobs.map((blob) => sep + blob).join(',') });
 }
 
 /**

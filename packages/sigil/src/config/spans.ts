@@ -170,7 +170,10 @@ export function lineAt(text: string, offset: number): number {
  * @returns The offset of the first character of that line.
  */
 export function lineStartAt(text: string, offset: number): number {
-	let i = Math.min(offset, text.length);
+	// no clamp on `offset`, because every caller hands over a span of this text
+	// -- a sabotage of one changed no answer, and a bounds guard that cannot fire
+	// is one this repository deletes rather than keeps
+	let i = offset;
 	while (i > 0 && !LINE_END.test(text[i - 1] as string)) {
 		i--;
 	}

@@ -14,8 +14,8 @@ import { LINE_END, lineAt } from './spans.js';
  * different. So this scans only for what JSONC *adds*: a comment and a trailing
  * comma. Each is replaced with a space, every newline is kept, and what comes
  * out is ordinary JSON at the **same offsets** -- so `JSON.parse`'s own message
- * still points at the character it was about, and SIG-154's span editor works
- * over the original text with this same scan.
+ * still points at the character it was about, and `jsonc-write.ts` reads the
+ * structure out of this blanked text, where its offsets are the source's.
  *
  * ## What it is not
  *

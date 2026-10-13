@@ -179,12 +179,15 @@ export class Config {
 		const next = copyValue(value, name) as Record<string, unknown>;
 		coerceLayer(next, this.#settings, name);
 		layer.value = next;
-		// the whole layer, and the paths that were touched before go with it: what
-		// `save()` writes is the applied value wholesale, which is `apply()`'s own
+		// the whole layer, which is what `save()` writes wholesale -- `apply()`'s own
 		// replace-not-merge rule read from the write side. A reload is the same
-		// statement and costs nothing -- re-applying what was just read diffs to no
-		// bytes at all, so the write is skipped
-		layer.touched.clear();
+		// statement and costs nothing: re-applying what was just read diffs to no
+		// bytes at all, so the write is skipped.
+		//
+		// The paths touched before are left in rather than cleared, because
+		// clearing them changed no answer -- said by a sabotage and true by
+		// construction: with `''` in the set the value written *is* this layer's,
+		// so applying any path of it over itself is a copy of an equal subtree
 		layer.touched.add('');
 		this.#recompute();
 	}
@@ -343,6 +346,17 @@ export class Config {
 	 * is reading. A read-only layer is skipped where no name was given and
 	 * **refused** where one was, because naming it is the app asking for
 	 * something it cannot have.
+	 *
+	 * ## It is not atomic across layers
+	 *
+	 * Each layer's write is atomic in itself -- temp file plus rename -- and a
+	 * `save()` over two dirty layers that fails on the second leaves the first
+	 * written, with what it returns naming nothing. That is documented rather
+	 * than guarded, for the reason the same-key race is: making it one
+	 * transaction means a rollback over somebody else's filesystem, and the
+	 * layers are separate files that separate processes may be reading. A
+	 * `save(name)` per layer is how an app that needs to know takes it one at a
+	 * time.
 	 *
 	 * @param name - The layer, or nothing for every dirty one. May be the options
 	 * instead, which is the spelling `save({ lossy: true })` wants.
@@ -1080,9 +1094,8 @@ function assertLayers(declared: readonly ConfigLayer[]): void {
  *
  * Lazy layer creation is the one thing an async `set()` would buy and it is
  * refused: a `set()` targets a layer that is already registered, and
- * registration is this function's. The *file* need not exist -- `save()`, which
- * is SIG-154's and is not in this ticket, creates it -- so the reason config-kit
- * forces async does not arise here.
+ * registration is this function's. The *file* need not exist -- `save()` creates
+ * it -- so the reason config-kit forces async does not arise here.
  *
  * @param opts - The schema, the layers, and the environment to read.
  * @returns The config.

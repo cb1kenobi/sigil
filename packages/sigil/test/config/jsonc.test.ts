@@ -34,8 +34,8 @@ function read(name: string, contents: string, strict = false): unknown {
 describe('the scan', () => {
 	it('should leave the source at its own offsets', () => {
 		// the whole reason this strips rather than parses: `JSON.parse`'s own
-		// message still points at the character it was about, and SIG-154's span
-		// editor works over the original text with this same scan
+		// message still points at the character it was about, and the span writer
+		// reads the structure out of this text, where its offsets are the source's
 		const source = '{\n\t// hi\n\t"a": 1,\n}';
 		const { json: out } = scanJsonc(source, true, 'f');
 
@@ -287,7 +287,8 @@ describe('both halves of a file store', () => {
 
 	it('should say nothing about losing anything, because it edits rather than reprints', () => {
 		// empty even over a comment-rich file, which is the contract rather than an
-		// omission: this is the store SIG-154 gives a span writer to
+		// omission: this store edits spans rather than reprinting, so a comment
+		// survives a write because the bytes holding it are never rewritten
 		const path = file('c.jsonc', '{\n// a note\n"a": 1\n}');
 		expect(jsonc(path).readSync().wouldLose).to.equal(undefined);
 	});

@@ -218,6 +218,43 @@ describe('the JSONC writer', () => {
 		});
 	});
 
+	it('should not reuse a comma that is being removed with the entry after it', () => {
+		// the insertion anchors on the last entry that is **staying**, and the comma
+		// after it has gone with the tail -- so there is none to reuse. Reusing it
+		// splices at an offset inside the removal, which is an overlapping edit
+		expect(edit('{\n\t"a": 1,\n\t"b": 2\n}', { a: 1, c: 3 })).to.equal('{\n\t"a": 1,\n\t"c": 3\n}');
+		expect(edit('{\n\t"a": 1,\n\t"b": 2,\n\t"c": 3\n}', { a: 1, d: 4 })).to.equal(
+			'{\n\t"a": 1,\n\t"d": 4\n}'
+		);
+		expect(edit('{ "a": 1, "b": 2 }', { a: 1, c: 3 })).to.equal('{ "a": 1, "c": 3 }');
+	});
+
+	it('should keep a comment that sits between a value and its own comma', () => {
+		// the comma is found over the **blanked** text, where the comment is
+		// whitespace, and then removed on its own because the gap is not whitespace
+		// in the source. Both halves are one input: reading the source for the
+		// comma finds none and leaves a dangling one, and swallowing the gap eats
+		// the comment
+		const out = edit('{\n\t"a": 1 /* x */,\n\t"b": 2\n}', { b: 2 });
+		expect(out).to.contain('/* x */');
+		expect(JSON.parse(out.replace(/\/\*[^]*?\*\//g, ''))).to.deep.equal({ b: 2 });
+	});
+
+	it('should insert after the value where the closing brace is on its line', () => {
+		// there is no line to end, so a scan for the next line terminator would run
+		// past the brace and splice at it
+		expect(edit('{\n\t"a": 1 }', { a: 1, b: 2 })).to.equal('{\n\t"a": 1,\n\t"b": 2 }');
+	});
+
+	it('should read an escaped quote inside a string as content', () => {
+		// `\\` escapes whatever follows, which is the only rule the scan needs --
+		// without it the string ends at the escaped quote and the `}` after it
+		// closes the object
+		const source = '{\n\t"a": "x\\"}y",\n\t"b": 1\n}';
+		expect(JSON.parse(source) as unknown).to.deep.equal({ a: 'x"}y', b: 1 });
+		expect(edit(source, { a: 'x"}y', b: 2 })).to.equal('{\n\t"a": "x\\"}y",\n\t"b": 2\n}');
+	});
+
 	it('should keep a comment that sits between a comma and the key it precedes', () => {
 		// the comma is removed on its own where the gap is not whitespace, which is
 		// what keeps the comment -- at the cost of the whitespace around it
@@ -389,17 +426,36 @@ describe('the atomic write', () => {
 		expect(readdirSync(root)).to.deep.equal(['c.jsonc']);
 	});
 
-	it('should keep the mode the file already had', async () => {
-		// or a 600 config comes back 644, which hands its contents to every user
-		// on the machine
+	it.each([0o600, 0o640, 0o660, 0o666])(
+		'should keep the mode %s the file already had',
+		async (mode) => {
+			// or a 600 config comes back 644, which hands its contents to every user
+			// on the machine. Several modes rather than one, because the mode the
+			// `open` asks for goes through the **umask** and the `chmod` after the
+			// close is the one that does not: at 0o600 under the usual 022 the open
+			// already gets it right, so a test of that alone says nothing about the
+			// chmod
+			const path = file('c.jsonc', '{}');
+			chmodSync(path, mode);
+
+			await writeAtomic(path, 'a');
+			expect(statSync(path).mode & 0o777).to.equal(mode);
+
+			writeAtomicSync(path, 'b');
+			expect(statSync(path).mode & 0o777).to.equal(mode);
+		}
+	);
+
+	it('should not carry the setuid, setgid or sticky bits over', () => {
+		// re-creating one on a file this just wrote is a privilege decision a
+		// config writer has no business making, so the permission bits are copied
+		// exactly and these are not
 		const path = file('c.jsonc', '{}');
-		chmodSync(path, 0o600);
+		chmodSync(path, 0o1600);
+		expect(statSync(path).mode & 0o7777).to.equal(0o1600);
 
-		await writeAtomic(path, 'a');
-		expect(statSync(path).mode & 0o777).to.equal(0o600);
-
-		writeAtomicSync(path, 'b');
-		expect(statSync(path).mode & 0o777).to.equal(0o600);
+		writeAtomicSync(path, 'a');
+		expect(statSync(path).mode & 0o7777).to.equal(0o600);
 	});
 
 	it('should report a failure the file system refused rather than swallowing it', () => {
@@ -549,6 +605,19 @@ describe('save', () => {
 		config.push('plugins', 'b');
 		await config.save();
 		expect(readFileSync(path, 'utf8')).to.equal('{\n\t"plugins": ["a", "b"]\n}\n');
+	});
+
+	it('should persist a pop out of a list', async () => {
+		const path = file('c.jsonc', '{\n\t"plugins": ["a", "b"]\n}\n');
+		const config = await createConfig({
+			layers: [{ name: 'user', store: jsonc(path) }],
+			schema,
+			env: {},
+		});
+
+		expect(config.pop('plugins')).to.equal('b');
+		expect(await config.save()).to.deep.equal(['user']);
+		expect(readFileSync(path, 'utf8')).to.equal('{\n\t"plugins": ["a"]\n}\n');
 	});
 
 	it('should keep a null the file holds and nobody touched', async () => {

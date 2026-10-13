@@ -17904,13 +17904,16 @@ without destroying it is SIG-154's.
 
 - **It imports no parser module at all, and that is a test rather than a
   coincidence.** Measured as transitive static import byte weight off `dist/`:
-  **20,649 B over six modules**, of which **9,355 B over five** is what it starts
+  **30,884 B over seven modules**, of which **9,880 B over six** is what it starts
   from -- `paths.mjs`, the `transform` chunk, which is `transform`, `i18n` and
-  `debug`, and the 66-byte `env-value` chunk the parser shares. So the module
-  itself is about 11.3 kB, and the graph is **2.7x** the root entry's 7,518 B and
-  a **twelfth** of `components.mjs`'s 239,927 B over 26 -- all three measured the
-  same way, which is the only comparison that means anything. Re-derived after
-  every change that moved it, which is three times now: a figure only a re-run
+  `debug`, the 66-byte `env-value` chunk the parser shares, and the 525-byte
+  `mkdir-owner-sync` one the update cache shares. So the module itself is
+  21,004 B, and the graph is **4.1x** the root entry's 7,518 B and an **eighth**
+  of `components.mjs`'s 239,927 B over 26 -- all three measured the
+  same way, which is the only comparison that means anything. It was
+  **20,649 B over six** before SIG-154, which is the write half costing about
+  10.2 kB. Re-derived after
+  every change that moved it, which is four times now: a figure only a re-run
   can confirm is the stale snapshot this file warns about. The shape the
   ticket's own projection predicted, even though its figure was the starting point
   rather than the total. `should not reach any parser module to
@@ -18028,8 +18031,9 @@ without destroying it is SIG-154's.
   XML store will fill. It is given a **reader** so it cannot go quiet:
   `config.layers` carries it per layer.
 
-  The file stores are therefore `ConfigStore` rather than `WritableConfigStore`
-  in this ticket, which is the clean line the split falls on. A _reprinting_ JSON
+  The file stores were therefore `ConfigStore` rather than `WritableConfigStore`
+  in that ticket, which is the clean line the split falls on; they are
+  `WritableConfigStore` since SIG-154, and `write()` has a caller. A _reprinting_ JSON
   writer here would destroy the comments a `.jsonc` file is read for, which is
   exactly what SIG-154's span writer exists to prevent -- so there is no file
   write until there is a correct one, and `object()` is what gives `set()`,
@@ -19587,6 +19591,97 @@ hold, and `Config.save()` is the one caller of all four.
 - **`inputs` names both file names in both turbo configs**, because `inputs`
   replaces rather than extends and a build that reads `sigil.jsonc` and does not
   hash it is the stale-`dist/` hole the `registry/**` incident is written about.
+
+#### What the sabotage pass found, and the two declared survivors
+
+Fifty-six mutations, one at a time with the config suites, the toolchain's own
+config tests and `dist.test.ts` run after each. **Fifty-four caught and two
+declared**, counted against the shipped tree in one run rather than summed
+across rounds, with a green control first and the four verdict guards this
+repository has learned to need -- a pattern that matched nothing, one that
+matched more than once, a replacement equal to its original, and a run that
+found fewer test files than the control, each its own verdict rather than a
+pass. The tree is restored on `SIGINT` and `SIGTERM` as well as on an
+exception, because a killed pass that left a mutation behind poisons the next
+control and reads as a real defect to whoever looks next.
+
+- **Three guards were deleted for being unable to change an answer**, and the
+  third is the interesting one. `lineStartAt()`'s `Math.min(offset,
+  text.length)` cannot fire, because every caller hands it a span of the text it
+  was given. `apply()`'s `touched.clear()` before it adds the whole-layer marker
+  cannot either, and that is provable rather than measured: with `''` in the set
+  the value `save()` writes **is** that layer's, so applying any path of it over
+  itself is a copy of an equal subtree. And `same()`'s structural comparison --
+  the array walk and the plain-object walk -- was dead in **every** branch,
+  because `node.kind` and `current` agree by construction: the node was scanned
+  out of the same text `JSON.parse` produced the value from, so two plain
+  objects or two arrays go to `diffObject()` and `diffArray()` and never arrive
+  there. What is left is `a === b`, which is also the safe direction to be narrow
+  in: this is what decides "no edit", so a comparison that could answer `true`
+  for two different structures is the one answer that silently keeps a stale
+  value.
+
+- **And a fourth was deleted after the sabotage explained why it was dead, which
+  is the finding of the pass.** The insertion had a branch for "a comma already
+  follows the last entry", which put the new member after that comma and
+  appended a trailing comma of its own so the user's style survived. It is
+  unreachable: `commaAfter()` reads the **blanked** text, where a trailing comma
+  has been blanked out, and a comma after the _last_ entry is trailing by
+  definition -- so the only comma that branch could find is one that is not
+  there. Measured, with and without it, over a multi-line object, a single-line
+  one and an array: byte for byte identical.
+
+  What it was standing in for is better than what it claimed. The user's
+  trailing comma survives **by construction**: it is still in the source, after
+  the offset the insertion anchors at, so what used to be the trailing comma
+  becomes the trailing comma again with the new member in front of it. Three
+  expressions collapsed to none, and the property is stronger for being
+  structural rather than branched.
+
+- **Eight survivors were a test that could not reach the branch it was named
+  for**, and each got the input that makes it matter. The sharpest is the
+  insertion anchor: `should take a removed key off with its own line` and
+  `should take one comma per removal` are all removals with no addition, and
+  `should write valid JSON where every key is replaced` drops _every_ key -- so
+  the one shape that reaches "a kept entry, a dropped tail, **and** a new key"
+  was missing, which is exactly the overlapping edit the anchor rule exists for.
+  Then: a comment between a value and its **own** comma, which is one input for
+  two guards -- reading the source for the comma finds none and leaves a
+  dangling one, and swallowing the gap eats the comment. A closing brace on the
+  last value's line. An escaped **quote** inside a string, where the escaped
+  `\n` the suite already had agrees in both readings because neither is a
+  quote. A `pop()` persisted. And the file mode, which needed **four** modes
+  rather than one: the mode the `open` asks for goes through the umask and the
+  `chmod` after the close is the one that does not, so at `0o600` under the
+  usual `022` the open already gets it right and a test of that alone says
+  nothing about the chmod.
+
+- **One guard is root-only and is declared rather than tested**, with the half a
+  test can see pinned instead. `sudo mycli config set` leaving a config its
+  owner can still edit is a claim no non-root run can make -- a `chown` to your
+  own uid succeeds and changes nothing, so the mutation is invisible either way.
+  What `atomic-temp.test.ts` asserts is the other direction: a non-root save
+  attempts **no** `chown` at all, which is the half that would otherwise fail
+  over a file it was going to write correctly.
+
+- **The two declared survivors are both bounds rather than behaviour.**
+  `serialize()`'s refusal of a value `JSON.stringify` answers `undefined` for is
+  a tripwire `canRepresent()` reaches first, kept for the reason
+  `clipboardSequence()`'s own unreachable assertion is. And `lineTriviaEnd()`'s
+  `i >= limit` is an **equivalent** guard rather than a dead one: the character
+  at `limit` is the closing brace, and the fallthrough at the bottom of that
+  loop returns `from` for one anyway -- so deleting it changes no answer, and it
+  is kept because a scan that walks to a limit should say what the limit is
+  rather than leave a reader to notice that a brace happens to stop it.
+
+- **And one hazard the harness itself met, which is worth the entry because it
+  is about the tool.** A `pnpm fmt` run in another terminal while the pass was
+  mid-mutation reformatted a mutated file, six tests failed over a mutation
+  rather than over the code, and `git status` showed a file modified that
+  nothing had been written to. Nothing was lost, because the restore is in a
+  `finally` and ran; what it cost was five minutes of reading a failure that was
+  the harness's. **Nothing else touches the tree while a sabotage pass is
+  live**, which is the same rule two writers on one output file already have.
 
 #### What the write half costs
 
