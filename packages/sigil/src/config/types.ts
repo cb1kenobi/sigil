@@ -120,10 +120,18 @@ export interface ConfigStore {
  *
  * The first of a store's two refusals is **a separate interface** rather than a
  * method that throws: a read-only store is not one, so read-only is something
- * TypeScript enforces and a type guard narrows. `write()` and `writeSync()` are
- * declared here and are nobody's caller yet -- `save()` is SIG-154's -- and they
- * are declared now because an interface that grows a required method later is
- * one every existing implementor has to be rewritten for.
+ * TypeScript enforces and a type guard narrows.
+ *
+ * Both halves again, for the reason `read()` and `readSync()` are both
+ * required: `Config.save()` is async because a remote store's write is, and
+ * `Config.saveSync()` exists because an exit or signal handler cannot await --
+ * which is "read the config on the way in and write it on the way out", the
+ * shape `Terminal.syncRestore()` is already written for.
+ *
+ * A `write()` is handed the **whole** value the layer should hold rather than a
+ * list of changes, which is what lets a store choose how to get there: the JSON
+ * stores diff it against the bytes they already hold and splice, where a store
+ * with no editing model reprints and says so through `wouldLose`.
  */
 export interface WritableConfigStore extends ConfigStore {
 	/** Persists a value. */
@@ -132,13 +140,29 @@ export interface WritableConfigStore extends ConfigStore {
 	writeSync(value: unknown, opts?: WriteOptions): void;
 }
 
-/** How to write. The lossless rule and `lossy` are SIG-154's. */
+/**
+ * How to write.
+ *
+ * `Config.save()` takes the same shape, because what it does with `lossy` is
+ * decide whether to call `write()` at all and then hand it straight on -- so a
+ * second type would be the same field under a second name.
+ */
 export interface WriteOptions {
 	/**
 	 * Whether to write even where this store reported it would lose something.
 	 *
-	 * Declared with the interface it belongs to and read by `save()`, which is
-	 * SIG-154's.
+	 * The opt-in half of the lossless rule, which is
+	 * `clipboardSequence()`'s one subsystem along: over the cap that refuses by
+	 * default and truncates only when asked, because sending and hoping is the
+	 * one answer that cannot be observed. A config file quietly stripped of its
+	 * comments is the same failure with a slower fuse -- the user finds out next
+	 * time they open the file -- so the refusal is visible and this is the
+	 * deliberate other half, exactly as `truncate: true` is there.
+	 *
+	 * Read by `save()`, which asks it of the **document** rather than of the
+	 * store: a store that reprints and a file with no trivia in it lose nothing
+	 * between them, and refusing that write would be a guard firing on correct
+	 * code.
 	 */
 	lossy?: boolean;
 }
@@ -213,12 +237,36 @@ export interface ConfigLayer {
 	 * expressible.
 	 */
 	readOnly?: boolean;
+	/**
+	 * Whether a write to this layer may lose what its store cannot carry.
+	 *
+	 * The per-**layer** half of the lossless rule, for the legitimate case: this
+	 * file is generated, so clobber it freely. Per **call** is
+	 * `save(name, { lossy: true })`, which is the escape hatch and is where
+	 * `truncate` already sits on the clipboard rather than on a config object.
+	 *
+	 * There is deliberately no global setting, because a global "allow
+	 * clobbering" is set once in a scaffold and never thought about again, which
+	 * defeats it.
+	 */
+	lossy?: boolean;
 	/** The backing store. */
 	store: ConfigStore;
 }
 
 /** What a layer looks like from outside, for diagnostics. */
 export interface ConfigLayerInfo {
+	/**
+	 * Whether this layer has changes `save()` has not written.
+	 *
+	 * The set-then-exit hazard made observable rather than only documented: a
+	 * `set()` mutates its layer in memory and `save()` persists, so an app that
+	 * sets and exits loses the write -- and an app that wants to warn about one,
+	 * or to ask before discarding, needs this to ask. It is also what makes the
+	 * tracking testable without reaching into a private field, which is the
+	 * decider: a mechanism with no observable is one a test cannot pin.
+	 */
+	readonly dirty: boolean;
 	/** The store's format. */
 	readonly format: string;
 	/** The layer's name. */

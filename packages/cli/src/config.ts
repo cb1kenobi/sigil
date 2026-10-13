@@ -1,5 +1,5 @@
 /**
- * `sigil.json`: the one file the toolchain configures itself from.
+ * `sigil.jsonc`: the one file the toolchain configures itself from.
  *
  * ## Why one file, and why not a `.ts` one
  *
@@ -7,6 +7,12 @@
  * components land, and `sigil new` writes it -- so the question a build option
  * raised was never "config file or flags" but "this file or a second one". Two
  * files answering for one tool is worse than a long script line.
+ *
+ * It is `sigil.jsonc` now and `sigil.jsonc` is still read, for the reason
+ * `CONFIG_FILES` gives: the extension is what tells an editor that comments are
+ * allowed, and a config file is exactly the file people want to annotate. This
+ * repository's own is a commented `.jsonc`, which is what makes the span writer
+ * dogfood rather than a feature with a test.
  *
  * A `next.config.ts`-shaped config was the other candidate and was left alone
  * for now. It has to be *executed*, and everything else this build does is
@@ -23,11 +29,35 @@
  * `"sourcemap": true` in the file, and the file wins over the built-in default.
  */
 
-import { createConfigSync, json, type ConfigSchema } from '@ttylabs/sigil/config';
+import {
+	createConfigSync,
+	json,
+	jsonc,
+	type ConfigLayer,
+	type ConfigSchema,
+} from '@ttylabs/sigil/config';
+import { existsSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 
-/** The name of the config file, which is the shadcn answer to the same question. */
-export const CONFIG_FILE = 'sigil.json';
+/**
+ * The config file, which is `sigil.jsonc` and may still be `sigil.jsonc`.
+ *
+ * `.jsonc` first and `sigil new` writes that one, because the extension is what
+ * tells an editor to allow comments -- a `.json` holding one is something VS
+ * Code complains about until somebody sets `files.associations`, and a config
+ * file is exactly the file people want to annotate. `.json` is still read, so
+ * nothing already scaffolded has to be renamed.
+ *
+ * Each extension means what it says: the `.jsonc` one is read with comments
+ * allowed and the `.json` one strictly, which is what makes the rename a thing
+ * somebody does on purpose rather than a filename that stopped meaning
+ * anything. A `.json` holding a comment gets `Comments are not allowed`, naming
+ * the line.
+ */
+export const CONFIG_FILES = ['sigil.jsonc', 'sigil.json'] as const;
+
+/** What `sigil new` writes and what every message names where there is no file. */
+export const CONFIG_FILE: string = CONFIG_FILES[0];
 
 /** What `sigil build` reads from the config. */
 export interface BuildConfig {
@@ -66,7 +96,7 @@ export interface BuildConfig {
 	readonly sourcemap?: boolean;
 }
 
-/** `sigil.json`, as it is on disk. */
+/** `sigil.jsonc`, as it is on disk. */
 export interface SigilConfig {
 	readonly build?: BuildConfig;
 	/** Where ejected components land, relative to the app. */
@@ -99,6 +129,10 @@ const FIELDS = ['external', 'name', 'out', 'safelist', 'shake', 'sourcemap'] as 
 /**
  * What the file may hold, in the parser's own type vocabulary.
  *
+ * Exported so that the write half can be tested against **this** declaration
+ * rather than a copy of it: a round-trip test that re-declared the settings
+ * would be asserting that the writer preserves a file nothing here reads.
+ *
  * The acceptance test for `@ttylabs/sigil/config`, which is why it is a schema
  * rather than the hand-written reader it replaces: the types, the coercion and
  * the choices are the same ones an option declaration gets, so `"shake": "off"`
@@ -114,7 +148,7 @@ const FIELDS = ['external', 'name', 'out', 'safelist', 'shake', 'sourcemap'] as 
  * with keys the type does not declare. The honest split: the schema does types,
  * and the semantic checks are this tool's own.
  */
-const SCHEMA: ConfigSchema = {
+export const CONFIG_SCHEMA: ConfigSchema = {
 	'build.external': { multiple: true, type: 'string' },
 	'build.name': { type: 'string' },
 	'build.out': { type: 'string' },
@@ -126,7 +160,34 @@ const SCHEMA: ConfigSchema = {
 };
 
 /**
- * Reads an app's `sigil.json`, if it has one.
+ * The one layer this file is, named after whichever of the two it found.
+ *
+ * Two names and only one of them may exist, which is the two-routes-one-name
+ * rule said about a config file: with both there, picking one picks it by the
+ * order this array happens to be written in and the other silently does
+ * nothing. So it is refused, naming both.
+ *
+ * @param root - The app root.
+ * @returns The layer.
+ * @throws If both files are there.
+ */
+function configLayer(root: string): ConfigLayer {
+	const found = CONFIG_FILES.filter((name) => existsSync(join(root, name)));
+
+	if (found.length > 1) {
+		throw new Error(`${root} has both ${found.join(' and ')}; keep one.`);
+	}
+
+	// the `.jsonc` one when there is neither, because that is the one `sigil new`
+	// writes and the one a message should name
+	const name = found[0] ?? CONFIG_FILE;
+	const path = join(root, name);
+
+	return { name, store: name.endsWith('c') ? jsonc(path) : json(path) };
+}
+
+/**
+ * Reads an app's `sigil.jsonc`, if it has one.
  *
  * Validated on the way out rather than trusted: a config file is source the app
  * wrote, and an `"external": "rolldown"` where an array was meant should say so
@@ -147,7 +208,7 @@ const SCHEMA: ConfigSchema = {
  * answer where there were two.
  *
  * And the **messages are the shared ones**, which is what sharing a validator
- * costs: `Invalid value for "build.sourcemap" in sigil.json: Invalid boolean`
+ * costs: `Invalid value for "build.sourcemap" in sigil.jsonc: Invalid boolean`
  * rather than a sentence written here. They name the file, the setting and what
  * was wrong, which is what a message has to do.
  *
@@ -159,10 +220,7 @@ export function readSigilConfig(root: string): SigilConfig {
 	// one layer, which is this file. The stack is what an *app* reaches for; the
 	// toolchain has exactly one place its own settings live, and a second layer
 	// would be a second place to look for an answer to one question
-	const config = createConfigSync({
-		layers: [{ name: CONFIG_FILE, store: json(join(root, CONFIG_FILE)) }],
-		schema: SCHEMA,
-	});
+	const config = createConfigSync({ layers: [configLayer(root)], schema: CONFIG_SCHEMA });
 
 	const section = config.get('build');
 	const build = readSection(section);

@@ -43,6 +43,14 @@ describe("the README's own example", () => {
 			"config.get('server.port'); // 8080, unless a layer or PORT said otherwise",
 			"config.has('editor.theme'); // false where nothing configured it",
 			"config.push('plugins', 'mine');",
+			'await config.save(); // and `saveSync()` for an exit handler',
+			'await config.save(); // every layer that changed',
+			"await config.save('user'); // or one of them",
+			'config.saveSync(); // which is what an exit handler needs',
+			"config.set('server.port', 9090);",
+			'await config.save({ lossy: true }); // this call',
+			"json('config.jsonc'); // throws: use jsonc() instead",
+			"config.set('server.retries', Infinity);",
 		]) {
 			expect(readme, line).to.contain(line);
 		}
@@ -76,15 +84,14 @@ describe("the README's own example", () => {
 		expect(config.get('editor.theme')).to.equal('dark');
 		// `config.set('editor.theme', 'dark', 'runtime'); // or into a named one`.
 		// It named `user` until a review round read the README against this test,
-		// and `user` is a file store -- which this ticket does not make writable,
-		// so the line threw as published. Two rounds to get right: this test was
-		// written with `runtime` and its own comment claimed the README had been
-		// changed to match, which it had not for another commit. So the quoted
-		// comment is the README's line verbatim and the assertion below is the
-		// published spelling failing
+		// and `user` was a file store that could not be written -- so the line
+		// threw as published. Both file stores write now, so `user` is a layer a
+		// named `set()` reaches; what still refuses is the layer declared
+		// `readOnly`, which is the second of the two refusals and the one a `/etc`
+		// file is for
 		config.set('editor.theme', 'light', 'runtime');
 		expect(config.get('editor.theme')).to.equal('light');
-		expect(() => config.set('editor.theme', 'light', 'user')).toThrow(/read-only/);
+		expect(() => config.set('editor.theme', 'light', 'system')).toThrow(/read-only/);
 		// `config.push('plugins', 'mine');`
 		config.push('plugins', 'mine');
 		expect(config.get('plugins')).to.deep.equal(['shipped', 'mine']);
@@ -93,6 +100,81 @@ describe("the README's own example", () => {
 		// `config.delete('editor.theme');`
 		expect(config.delete('editor.theme')).to.equal(true);
 		expect(config.has('editor.theme')).to.equal(false);
+	});
+
+	it('should write the file back the way the README says it does', async () => {
+		// the README's own example of what a span write preserves, run: the
+		// `jsonc` block it shows is the file *after* a `set('server.port', 9090)`,
+		// so the only thing in it that may have moved is the port
+		const path = join(root, 'config.jsonc');
+		const before = [
+			'// what this app is configured with',
+			'{',
+			'  "server": {',
+			'    "port": 8080, // not 80, which needs root',
+			'  },',
+			'}',
+			'',
+		].join('\n');
+		writeFileSync(path, before);
+
+		const config = await createConfig({
+			schema: { 'server.port': { type: 'int' } },
+			layers: [{ name: 'user', store: jsonc(path) }],
+			env: {},
+		});
+
+		// `config.set('server.port', 9090);`
+		config.set('server.port', 9090);
+		// `await config.save(); // every layer that changed`
+		expect(await config.save()).to.deep.equal(['user']);
+		expect(readFileSync(path, 'utf8')).to.equal(before.replace('8080', '9090'));
+
+		// and the block the README prints is what is in the file now
+		expect(readFileSync(path, 'utf8')).to.contain('"port": 9090, // not 80, which needs root');
+	});
+
+	it('should refuse the two things the README says it refuses', () => {
+		// `json('config.jsonc'); // throws: use jsonc() instead`
+		expect(() => json(join(root, 'config.jsonc'))).toThrow(/use jsonc\(\) instead/);
+
+		// `config.set('server.retries', Infinity);`
+		// `// user cannot hold the value at "server.retries": JSON has no Infinity`
+		const config = createConfigSync({
+			layers: [{ name: 'user', store: jsonc(join(root, 'c.jsonc')) }],
+			env: {},
+		});
+
+		expect(() => config.set('server.retries', Infinity)).toThrow(
+			'user cannot hold the value at "server.retries": JSON has no Infinity'
+		);
+	});
+
+	it('should take lossy per layer the way the README spells it', async () => {
+		// `layers: [{ name: 'generated', lossy: true, store: jsonc(path) }]`
+		const path = join(root, 'gen.jsonc');
+		writeFileSync(path, '{"a":1}');
+		const config = await createConfig({
+			layers: [{ lossy: true, name: 'generated', store: jsonc(path) }],
+			env: {},
+		});
+
+		config.set('a', 2);
+		expect(await config.save()).to.deep.equal(['generated']);
+	});
+
+	it('should reach a file layer by name, which both file stores now are', async () => {
+		// the half the walk above cannot assert without changing what the line
+		// after it means: `delete()` with no name reaches the topmost writable
+		// layer, so a value set into `user` as well would still be there
+		const config = await createConfig({
+			layers: [{ name: 'user', store: jsonc(join(root, 'config.jsonc')) }],
+			env: {},
+		});
+
+		config.set('editor.theme', 'dark', 'user');
+		expect(config.get('editor.theme')).to.equal('dark');
+		expect(config.layers[0]?.dirty).to.equal(true);
 	});
 
 	it('should mix an option with a setting the way the README says', () => {

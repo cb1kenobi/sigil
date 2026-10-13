@@ -307,35 +307,41 @@ describe('what importing the package costs', () => {
 		}
 	);
 
-	it('should reach exactly the six modules the measurement names', () => {
+	it('should reach exactly the seven modules the measurement names', () => {
 		// the markers say what it must not reach and this says it reaches nothing
 		// else at all, which is the only form that catches a parser module arriving
 		// as a chunk of its own under a name nothing here could have predicted.
-		// Six: the entry, `paths.mjs`, `i18n.mjs`, and the `transform`, `debug` and
-		// `env-value` chunks -- which is the module list the byte figure below is
-		// over, so the two cannot come apart
-		expect([...staticGraph('config.mjs')].sort()).toHaveLength(6);
+		// Seven: the entry, `paths.mjs`, `i18n.mjs`, and the `transform`, `debug`,
+		// `env-value` and `mkdir-owner-sync` chunks -- which is the module list the
+		// byte figure below is over, so the two cannot come apart. The last of them
+		// is the write half's: `save()` creates the directory it writes into, which
+		// is the "apply the parent directory's owner under sudo" rule the update
+		// cache already reads
+		expect([...staticGraph('config.mjs')].sort()).toHaveLength(7);
 	});
 
 	it('should cost a module rather than a component', () => {
 		const graph = staticGraph('config.mjs');
 		const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
 
-		// 20,649 B over six modules, of which 9,355 B over five is what it starts
+		// 30,884 B over seven modules, of which 9,880 B over six is what it starts
 		// from: `paths.mjs`, the `transform` chunk -- which is `transform`, `i18n`
-		// and `debug` -- and the 66-byte `env-value` chunk the parser shares. So
-		// the module itself is about 11.3 KB, and the graph is 2.7x the root entry's
-		// 7,518 B and a twelfth of `components.mjs`'s 239,927 B over 26 -- all three
-		// measured the same way, which is the only comparison that means anything.
+		// and `debug` -- the 66-byte `env-value` chunk the parser shares, and the
+		// 525-byte `mkdir-owner-sync` one the update cache shares. So the module
+		// itself is 21,004 B, and the graph is 4.1x the root entry's 7,518 B and an
+		// eighth of `components.mjs`'s 239,927 B over 26 -- all three measured the
+		// same way, which is the only comparison that means anything. It was
+		// 20,649 B over six before the write half, so the span writer, the atomic
+		// write and the representability check are about 10.2 KB between them.
 		//
 		// A ceiling rather than a measurement, about 2.4x over what it is, so that
 		// ordinary growth never touches it and pulling the parser or the renderer
 		// onto it does. The **measured** figure is here and in AGENTS.md and
 		// nowhere else, for the reason the root entry's is: two comments
 		// disagreeing about one measurement leave a later reader with no way to
-		// tell which was measured. The README carries a rounded "about 20 kB over
-		// six modules" for an app author deciding whether to import it, which is a
-		// different statement and names the same six
+		// tell which was measured. The README carries a rounded "about 31 kB over
+		// seven modules" for an app author deciding whether to import it, which is
+		// a different statement and names the same seven
 		expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(48 * 1024);
 	});
 

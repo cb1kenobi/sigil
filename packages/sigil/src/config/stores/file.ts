@@ -1,7 +1,10 @@
 import { __ } from '../../i18n/index.js';
 import { expand } from '../../paths.js';
+import { writeAtomic, writeAtomicSync } from '../atomic.js';
+import { DEFAULT_STEP, editJsonc } from '../jsonc-write.js';
 import { parseJsonc } from '../jsonc.js';
-import type { ConfigDocument, ConfigStore } from '../types.js';
+import { jsonCanHold } from '../represent.js';
+import type { ConfigDocument, WritableConfigStore, WriteOptions } from '../types.js';
 import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 
@@ -55,7 +58,7 @@ function isMissing(e: unknown): boolean {
  * @param jsonc - Whether comments and trailing commas are allowed.
  * @returns The store.
  */
-function fileStore(path: string, jsonc: boolean): ConfigStore {
+function fileStore(path: string, jsonc: boolean): WritableConfigStore {
 	// refused here rather than at the read, because what the read says about it
 	// names the wrong thing: `expand('')` is `'.'`, so an empty path reported
 	// `Failed to read .: EISDIR` -- a message about a directory nobody named --
@@ -65,8 +68,50 @@ function fileStore(path: string, jsonc: boolean): ConfigStore {
 		throw new Error('A config file store needs a path');
 	}
 
+	// a format conversion that **cannot** preserve is refused where the layer is
+	// built rather than at `save()`, which is the rule that what is decidable
+	// statically fails the build rather than the frame. `.jsonc` is an extension
+	// whose only purpose is to say "comments are allowed here", so the strict
+	// store over one is a declaration that contradicts itself -- and the guard
+	// cannot fire on code that is right, because `jsonc()` reads everything
+	// `json()` reads and more, so there is no file for which `json('x.jsonc')` is
+	// the better spelling.
+	//
+	// The reverse is **not** refused, and that asymmetry is the point:
+	// `tsconfig.json` is JSONC under a `.json` name, so an extension that does
+	// not claim comments says nothing about whether a file holds them
+	if (!jsonc && /\.jsonc$/i.test(path)) {
+		throw new Error(
+			`json("${path}") cannot preserve what a .jsonc file is for: use jsonc() instead.`
+		);
+	}
+
 	const source = expand(path);
 	const format = jsonc ? 'jsonc' : 'json';
+
+	/** What the file holds, or nothing where it is not there. */
+	const text = async (): Promise<string | undefined> => {
+		try {
+			return await readFile(source, 'utf8');
+		} catch (e: unknown) {
+			if (!isMissing(e)) {
+				throw new Error(__`Failed to read ${source}: ${(e as Error).message}`);
+			}
+			return undefined;
+		}
+	};
+
+	/** The same, without awaiting. */
+	const textSync = (): string | undefined => {
+		try {
+			return readFileSync(source, 'utf8');
+		} catch (e: unknown) {
+			if (!isMissing(e)) {
+				throw new Error(__`Failed to read ${source}: ${(e as Error).message}`);
+			}
+			return undefined;
+		}
+	};
 
 	const parse = (text: string | undefined): ConfigDocument => {
 		// a file that is there and holds nothing but whitespace is a file somebody
@@ -89,39 +134,81 @@ function fileStore(path: string, jsonc: boolean): ConfigStore {
 
 		// `wouldLose` is **absent** even over a comment-rich file -- the field is
 		// optional, so nothing lost is no field rather than `[]`, which is what
-		// `layer.wouldLose?.length` is the way to read. That is the
-		// contract rather than an omission: this is the store SIG-154 gives a span
-		// writer to, so comments survive a write because it edits rather than
-		// reprints. A store that reprints -- YAML, XML -- reports what it would
-		// drop, and the field is published for those
+		// `layer.wouldLose?.length` is the way to read. That is the contract rather
+		// than an omission: this store edits spans rather than reprinting, so a
+		// comment survives a write because the bytes holding it are never rewritten.
+		// A store that reprints -- YAML, XML -- reports what it would drop, and the
+		// field is published for those
 		return { value };
 	};
 
+	/**
+	 * The text the file should hold, given what it holds now.
+	 *
+	 * The edit is computed before anything is written, which is what makes a
+	 * refusal cost nothing: a value JSON cannot hold, or a source that will not
+	 * parse, throws with the file untouched.
+	 */
+	const render = (now: string | undefined, value: unknown): string => {
+		// asked here as well as at `set()`, because this is public API and a
+		// `write()` a caller made directly has had nothing checked. `set()`'s own
+		// call is the *early* answer -- it names the one value and the one path at
+		// the moment they were written -- and this one answers for the document
+		const held = jsonCanHold(value, '');
+		if (held !== true) {
+			throw new Error(`Cannot write ${source}: ${held}`);
+		}
+
+		// nothing to edit against, so there is nothing to preserve: a file that is
+		// not there, or one somebody created and has not written yet, is serialized
+		// from scratch with a final newline, which is what every other tool leaves
+		// behind and what a POSIX text file is
+		if (now === undefined || !now.trim()) {
+			return `${JSON.stringify(value, null, DEFAULT_STEP)}\n`;
+		}
+
+		return editJsonc(now, value, { allow: jsonc, what: source });
+	};
+
 	return {
+		canRepresent(value: unknown, at: string): true | string {
+			return jsonCanHold(value, at);
+		},
 		format,
 		async read(): Promise<ConfigDocument> {
-			let text: string | undefined;
-			try {
-				text = await readFile(source, 'utf8');
-			} catch (e: unknown) {
-				if (!isMissing(e)) {
-					throw new Error(__`Failed to read ${source}: ${(e as Error).message}`);
-				}
-			}
-			return parse(text);
+			return parse(await text());
 		},
 		readSync(): ConfigDocument {
-			let text: string | undefined;
-			try {
-				text = readFileSync(source, 'utf8');
-			} catch (e: unknown) {
-				if (!isMissing(e)) {
-					throw new Error(__`Failed to read ${source}: ${(e as Error).message}`);
-				}
-			}
-			return parse(text);
+			return parse(textSync());
 		},
 		source,
+		async write(value: unknown, _opts?: WriteOptions): Promise<void> {
+			// the current bytes, read here rather than kept from the last `read()`.
+			// A cache would be the faster shape and is the dangerous one: a `write()`
+			// computing edits against text the file no longer holds splices at the
+			// wrong offsets, which is the one failure mode a span writer has. So this
+			// works standalone, which is what public API should do, and `save()`'s
+			// own re-read is what the three-way merge needs rather than what this
+			// needs
+			const now = await text();
+			const next = render(now, value);
+
+			// a write that changes nothing touches no file, which is not tidiness:
+			// it keeps the mtime, which is what SIG-153's watcher reads, and it is
+			// what makes `apply()` of a freshly read value a no-op rather than a
+			// rewrite of the same bytes
+			if (next !== now) {
+				await writeAtomic(source, next);
+			}
+		},
+		writeSync(value: unknown, _opts?: WriteOptions): void {
+			const now = textSync();
+			const next = render(now, value);
+
+			if (next !== now) {
+				writeAtomicSync(source, next);
+			}
+		},
 	};
 }
 
@@ -134,10 +221,13 @@ function fileStore(path: string, jsonc: boolean): ConfigStore {
  * `Comments are not allowed in ...` naming the line, where the engine's answer
  * is `Unexpected token /` and a reader has to work out what it meant.
  *
+ * A path that ends `.jsonc` is **refused**, because that extension exists to
+ * say comments are allowed and this store exists to say they are not.
+ *
  * @param path - The file.
  * @returns The store.
  */
-export function json(path: string): ConfigStore {
+export function json(path: string): WritableConfigStore {
 	return fileStore(path, false);
 }
 
@@ -148,9 +238,17 @@ export function json(path: string): ConfigStore {
  * what people mean by a `.jsonc`. Not JSON5 -- see `jsonc.ts` for what is
  * deliberately not in it.
  *
+ * It writes by **editing spans** rather than reprinting, so a comment, a
+ * trailing comma, the user's indentation, their key order, their line endings
+ * and a missing final newline all survive a `set()` -- not because each is
+ * handled but because the bytes holding them are never rewritten. A `.json`
+ * path is accepted, for the reason `json()` refuses a `.jsonc` one in the other
+ * direction: an extension that does not claim comments says nothing about
+ * whether a file holds them.
+ *
  * @param path - The file.
  * @returns The store.
  */
-export function jsonc(path: string): ConfigStore {
+export function jsonc(path: string): WritableConfigStore {
 	return fileStore(path, true);
 }

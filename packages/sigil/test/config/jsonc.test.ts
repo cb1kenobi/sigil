@@ -1,5 +1,6 @@
 import { json, jsonc, createConfigSync } from '../../src/config/index.js';
-import { lineAt, parseJsonc, scanJsonc } from '../../src/config/jsonc.js';
+import { parseJsonc, scanJsonc } from '../../src/config/jsonc.js';
+import { lineAt } from '../../src/config/spans.js';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -265,10 +266,23 @@ describe('both halves of a file store', () => {
 	});
 
 	it('should report its format and its source', () => {
-		const path = file('c.jsonc', '{}');
+		const path = file('c.json', '{}');
 		expect(jsonc(path).format).to.equal('jsonc');
 		expect(json(path).format).to.equal('json');
 		expect(jsonc(path).source).to.equal(path);
+	});
+
+	it('should refuse the strict store over a .jsonc path, naming the other one', () => {
+		// a format conversion that cannot preserve, refused where the layer is
+		// built rather than at `save()`. It cannot fire on code that is right,
+		// because `jsonc()` reads everything `json()` reads and more -- so there is
+		// no file for which `json('x.jsonc')` is the better spelling
+		expect(() => json(file('c.jsonc', '{}'))).toThrow(/use jsonc\(\) instead/);
+		expect(() => json(join(root, 'C.JSONC'))).toThrow(/use jsonc\(\) instead/);
+		// and the reverse is not refused, because `tsconfig.json` is JSONC under a
+		// `.json` name: an extension that does not claim comments says nothing
+		// about whether a file holds them
+		expect(jsonc(file('t.json', '{ /* ok */ }')).readSync().value).to.deep.equal({});
 	});
 
 	it('should say nothing about losing anything, because it edits rather than reprints', () => {

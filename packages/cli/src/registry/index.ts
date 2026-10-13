@@ -98,7 +98,7 @@ export interface Registry {
 export interface AddConfig {
 	/** Where components land, relative to the app root. */
 	readonly components: string;
-	/** Whether the app has a `sigil.json` saying so, or this was worked out. */
+	/** Whether the app has a `sigil.jsonc` saying so, or this was worked out. */
 	readonly declared: boolean;
 }
 
@@ -140,7 +140,7 @@ export function findAppRoot(cwd: string): string {
 /**
  * Where ejected components land.
  *
- * `sigil.json` is the answer when there is one. Otherwise it is worked out, and
+ * `sigil.jsonc` is the answer when there is one. Otherwise it is worked out, and
  * the result says which -- because a guess the user cannot see is the kind that
  * costs an afternoon, so the plan prints it either way.
  *

@@ -33,6 +33,21 @@ function file(name: string, contents: string): string {
 	return path;
 }
 
+/**
+ * A store with no writer at all.
+ *
+ * Both file stores write since SIG-154, so the first of the two refusals -- a
+ * format that cannot be written -- is now something only somebody else's store
+ * is, which is what a sibling package's XML reader will be.
+ */
+function readOnlyStore(value: unknown = {}): ConfigStore {
+	return {
+		format: 'odd',
+		read: (): Promise<ConfigDocument> => Promise.resolve({ value }),
+		readSync: (): ConfigDocument => ({ value }),
+	};
+}
+
 describe('the layer stack', () => {
 	it('should let a later layer win over an earlier one', async () => {
 		// array order read the way document order is paint order everywhere else
@@ -152,6 +167,7 @@ describe('the layer stack', () => {
 
 		expect(config.layers).to.deep.equal([
 			{
+				dirty: false,
 				format: 'json',
 				name: 'system',
 				readOnly: true,
@@ -159,6 +175,7 @@ describe('the layer stack', () => {
 				wouldLose: undefined,
 			},
 			{
+				dirty: false,
 				format: 'object',
 				name: 'runtime',
 				readOnly: false,
@@ -166,6 +183,13 @@ describe('the layer stack', () => {
 				wouldLose: undefined,
 			},
 		]);
+
+		// which is the one field that moves on its own: `dirty` is the
+		// set-then-exit hazard made observable, so it reads `true` the moment a
+		// mutator has touched a layer that `save()` has not written
+		config.set('x', 1);
+		expect(config.layers[1]?.dirty).to.equal(true);
+		expect(config.layers[0]?.dirty).to.equal(false);
 	});
 });
 
@@ -561,8 +585,10 @@ describe('set and delete', () => {
 	});
 
 	it('should refuse a config with no writable layer, naming the fix', async () => {
-		const path = file('c.json', '{}');
-		const config = await createConfig({ layers: [{ name: 'system', store: json(path) }] });
+		// a store with no `write()` at all rather than a file store, which is
+		// writable now: the two refusals are a format that cannot be written and a
+		// layer that is not this app's to write, and this is the first
+		const config = await createConfig({ layers: [{ name: 'system', store: readOnlyStore() }] });
 		expect(() => config.set('x', 1)).toThrow(/No writable config layer.*object\(\)/s);
 	});
 
@@ -1030,12 +1056,16 @@ describe('a layer declaration', () => {
 describe('the two refusals', () => {
 	it('should narrow a writable store from a read-only one by type', () => {
 		expect(isWritableStore(object())).to.equal(true);
-		expect(isWritableStore(json(join(root, 'nope.json')))).to.equal(false);
+		// both file stores write, which is what the span writer bought them -- so
+		// the one with no writer is a store somebody else's package wrote
+		expect(isWritableStore(json(join(root, 'nope.json')))).to.equal(true);
+		expect(isWritableStore(jsonc(join(root, 'nope.jsonc')))).to.equal(true);
+		expect(isWritableStore(readOnlyStore())).to.equal(false);
 	});
 
 	it('should read a store that cannot write as a read-only layer', async () => {
 		const config = await createConfig({
-			layers: [{ name: 'system', store: json(join(root, 'nope.json')) }],
+			layers: [{ name: 'system', store: readOnlyStore() }],
 		});
 
 		expect(config.layers[0]?.readOnly).to.equal(true);

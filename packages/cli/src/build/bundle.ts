@@ -86,7 +86,7 @@ export interface BundleOptions {
 	/** What the built executable is called, without an extension. */
 	readonly binName: string;
 	/**
-	 * The locale the built app falls back on, from `"locale"` in `sigil.json`.
+	 * The locale the built app falls back on, from `"locale"` in `sigil.jsonc`.
 	 *
 	 * Written into the generated schema as `defaultLocale`, beside the version,
 	 * because the runtime has no way to read a config file at startup. Absent

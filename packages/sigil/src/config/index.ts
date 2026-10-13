@@ -6,11 +6,18 @@
  * system file, coerce the values, write it back without truncating it.
  * `paths.ts` gives the directories and reads nothing.
  *
- * This is the **read** half of that: the stack, the merge, the schema and the
- * accessors, with `set()` mutating a layer in memory. `write()` is declared on
- * `WritableConfigStore` and implemented by SIG-154, so the file stores read and
- * do not write -- a reprinting JSON writer would destroy the comments a
- * `.jsonc` is read *for*, which is why the span writer is its own ticket.
+ * `set()` mutates a layer in memory and `save()` persists, which is forced
+ * rather than chosen: every accessor is synchronous and a store's `write()` may
+ * not be, so a synchronous `set()` could not report an asynchronous write
+ * failure. The hazard that introduces is named rather than guarded -- an app
+ * that sets and exits without saving loses the write, and `config.layers`
+ * reports `dirty` so one that wants to warn can.
+ *
+ * A write **edits spans rather than reprinting**, so a comment, a trailing
+ * comma, the user's indentation and their line endings survive a `set()` -- not
+ * because each is handled but because the bytes holding them are never
+ * rewritten. What a store cannot carry it reports as `wouldLose`, and a write
+ * that would lose something refuses unless somebody said `lossy`.
  *
  * ## This is not oclif parity
  *

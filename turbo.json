@@ -8,6 +8,7 @@
         "src/**",
         "scripts/**",
         "sigil.json",
+        "sigil.jsonc",
         "tsdown.config.ts",
         "tsconfig*.json",
         "package.json"

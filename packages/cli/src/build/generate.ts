@@ -319,7 +319,7 @@ export function generateBin(options: GenerateBinOptions): string {
 	// the same way the tree replaces `commands`
 	const bakedVersion = version === undefined ? '' : `\n\tversion: ${quote(version)},`;
 
-	// baked for the reason the version is: the runtime cannot read `sigil.json`,
+	// baked for the reason the version is: the runtime cannot read `sigil.jsonc`,
 	// because reading a file at startup is what `locales` being a map rather than
 	// a directory convention exists to avoid. It is the *bottom* of the locale
 	// chain, so this says what the app ships in and every environment variable
@@ -353,7 +353,7 @@ await main({ schema: {
 /** How to print the generated executable. */
 export interface GenerateBinOptions {
 	/**
-	 * The locale to fall back on, from `"locale"` in `sigil.json`.
+	 * The locale to fall back on, from `"locale"` in `sigil.jsonc`.
 	 *
 	 * Written beside the version and the baked tree, and absent when the config
 	 * names none -- which leaves whatever the app's own schema said, the way the

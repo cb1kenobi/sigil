@@ -1,6 +1,0 @@
-{
-  "build": {
-    "external": ["@ttylabs/sigil", "oxc-parser", "rolldown"],
-    "sourcemap": false
-  }
-}

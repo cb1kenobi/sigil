@@ -573,7 +573,7 @@ describe('a translated app', () => {
 	 * catalog.
 	 *
 	 * The locale is the other half: `"locale": "de"` in the fixture's
-	 * `sigil.json` is baked as `defaultLocale`, which the runtime cannot read for
+	 * `sigil.jsonc` is baked as `defaultLocale`, which the runtime cannot read for
 	 * itself, and it sits at the bottom of the chain -- so the environment is
 	 * cleared here rather than relied on.
 	 */

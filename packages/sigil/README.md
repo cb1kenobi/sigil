@@ -59,7 +59,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Translating](#translating) — `__`, `__n`, catalogs, `SIGIL_LOCALE`
 - [Typed argv](#typed-argv)
 - [Testing](#testing) — `runCommand()`, `runOnTerminal()`, `createTestTerminal()`, `KEYS`
-- [Config files](#config-files) — `createConfig()`, layers, a schema, dotted paths
+- [Config files](#config-files) — `createConfig()`, layers, a schema, dotted paths, `save()`
 - [Subpath modules](#subpath-modules) — `ansi`, `wrap`, `width`, `help`, `i18n`, `terminal`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `config`, `which`, `updates`, `testing`
 
 ---
@@ -915,7 +915,7 @@ all mean English and read no catalog.
 `defaultLocale` is the **bottom** of that chain, which is what makes it a
 default rather than a second `AppOptions.locale`: it says what the app ships in,
 and every environment variable still beats it. `sigil build` writes it from
-`"locale"` in `sigil.json`, so an app configures it once:
+`"locale"` in `sigil.jsonc`, so an app configures it once:
 
 ```json
 { "locale": "de" }
@@ -1352,6 +1352,7 @@ config.set('editor.theme', 'dark'); // into 'runtime', the topmost writable laye
 config.set('editor.theme', 'dark', 'runtime'); // or into a named one
 config.push('plugins', 'mine');
 config.delete('editor.theme');
+await config.save(); // and `saveSync()` for an exit handler
 ```
 
 `createConfigSync()` is the same thing without awaiting, which is what an exit
@@ -1359,8 +1360,9 @@ or signal handler needs. Every accessor is synchronous either way: the layers
 are read once, at construction, so `get()` is a lookup in an object already in
 memory rather than a promise per read.
 
-Writing a file back is not here yet. The file stores read; `object()` is
-writable and holds its value in memory.
+`set()` mutates a layer in memory and `save()` persists it. **An app that sets
+and exits without saving loses the write** — `config.layers[n].dirty` is there
+so an app that wants to warn can.
 
 ### Core does not load config, and does not accept one either
 
@@ -1406,6 +1408,10 @@ A layer is a name, a store, and optionally `readOnly`:
 | `object(value)` | a value your app already has                                                      |
 | `object()`      | the in-memory override layer: a run that overrides a setting for its own duration |
 
+All three write. The file stores write by **editing spans**, so a `save()`
+changes the bytes it was asked to and nothing else; `object()` replaces the
+value it holds, so a layer over one persists nothing.
+
 A file that is not there reads as an empty layer, which is the ordinary state of
 a config file. A file that holds nothing but whitespace reads the same way.
 Every other reason a read can fail — a directory where a file was named, a
@@ -1416,9 +1422,9 @@ statement from a store that cannot be written at all. Both are real: an `/etc`
 file your app reads and must not touch is the first, and a format with no writer
 is the second. `isWritableStore(store)` is the type guard for the second.
 
-So `readOnly: true` on a file layer is redundant today and worth writing anyway:
-it says what you meant, and it is what still holds once the file stores can
-write.
+Both are refusals a named mutator or a named `save()` reports, and `save()` with
+no name skips a read-only layer rather than refusing it — because "save what
+changed" over a stack that holds an `/etc` file is an ordinary thing to ask.
 
 ### There is no `.js` layer
 
@@ -1602,6 +1608,147 @@ the accessor, so a file holding one is read without incident — and then the fi
 either a mistake or an attack, and in both cases your app should not start
 quietly.
 
+### Writing a file back without destroying it
+
+```js
+config.set('server.port', 9090);
+config.push('plugins', 'mine');
+
+await config.save(); // every layer that changed
+await config.save('user'); // or one of them
+config.saveSync(); // which is what an exit handler needs
+```
+
+`save()` answers with the layers it wrote, in stack order, and writes nothing
+for a layer nothing touched. A write whose text comes out identical touches no
+file at all, so the mtime a watcher is reading survives a save that changed
+nothing.
+
+**It edits spans rather than reprinting.** To change a value it replaces the
+span that value occupies; to add a key it splices one in after the last. So a
+comment, a trailing comma, your indentation style, your key order, your line
+endings and a missing final newline all survive — not because each is handled
+but because the bytes holding them are never rewritten:
+
+```jsonc
+// what this app is configured with
+{
+  "server": {
+    "port": 9090, // not 80, which needs root
+  },
+}
+```
+
+That file went through a `set('server.port', 9090)` and `8080` is the only thing
+in it that moved.
+
+What it cannot keep is a comment nobody can attach to anything: delete the key a
+comment sits above and the comment stays where it was, orphaned, because the
+alternative is guessing which comments are about which key.
+
+### The write is atomic, and it keeps what the file was
+
+A temp file beside the target, flushed, and `rename()`d over it — so a crash
+mid-write leaves the old file rather than half of either. The temp file goes in
+the target's **own directory**, because `rename()` is only atomic within one
+filesystem.
+
+The target's permission bits are preserved, or a `600` config comes back `644`.
+Its setuid, setgid and sticky bits are not, because re-creating one on a file
+this just wrote is a privilege decision a config writer has no business making.
+Under `sudo` the file is chowned to the target's own owner, or to the containing
+directory's where the file is new — so `sudo mycli config set` does not leave a
+root-owned config in somebody's home directory.
+
+The directory is created if it is not there, with the same
+parent-directory-owner rule.
+
+### It re-reads before it writes
+
+Each layer's store is read again and **your changes are applied over what it
+finds**, so two invocations setting two _different_ keys both survive where a
+blind write loses one of them.
+
+The residual race is **last-writer-wins on the same key**, documented rather
+than guarded: a lock is the only real fix, nothing has asked for one, and a
+half-guard here would read as safety and not be.
+
+What follows is worth knowing: a layer the save re-read may come back holding
+keys it did not hold before, so `get()` can answer differently after a `save()`
+than before it. That is the file being right about itself.
+
+### There is no `autoSave`
+
+A `set()` that schedules a write is a `set()` that cannot say the write failed,
+which is the silent-loss class every other decision here refuses. `set()` is
+synchronous and a store's `write()` may not be, so the two cannot be one call.
+
+What you get instead: a run that sets five keys writes once, and the
+temp-plus-rename and the re-read are one operation rather than five.
+
+### A write that would lose something refuses
+
+The thing to guard is not comments, it is **loss** — key order, an anchor, an
+indentation style, an XML attribute that was spelled as an attribute. Each is
+silent in exactly the same way, and a guard that greps for comments protects
+the one people notice and leaves the rest. So:
+
+**A write either preserves everything it was not asked to change, or it names
+what it would lose and refuses.**
+
+```
+Refusing to write user: comment:4, comment:11, anchor:22 (&defaults) would be lost.
+  Pass lossy: true to write anyway, or use a store that can keep what is there.
+```
+
+It is asked of the **document** rather than of the store, which matters: a
+reprinting store writing a file that has no comments in it loses nothing, and
+refusing that write would be a guard firing on correct code. A span store
+answers for free because it already parsed the file.
+
+So the file stores in here never trip it — the guard is mostly for a store that
+reprints, which a YAML or XML sibling is. `lossy` is per call and per layer and
+deliberately never global:
+
+```js
+await config.save({ lossy: true }); // this call
+layers: [{ name: 'generated', lossy: true, store: jsonc(path) }]; // this layer
+```
+
+Per layer is the legitimate case — this file is generated, so clobber it freely.
+A global "allow clobbering" is set once in a scaffold and never thought about
+again, which defeats it.
+
+### A value JSON cannot hold is refused where it was written
+
+```js
+config.set('server.retries', Infinity);
+// user cannot hold the value at "server.retries": JSON has no Infinity
+```
+
+`JSON.stringify` has three answers for a value it cannot represent and only one
+is loud: it throws for a `BigInt`, answers `undefined` for a function or a
+symbol, and **silently rewrites** `NaN` and `Infinity` as `null`, a `Map` or a
+`Set` as `{}`, and a class instance as whatever its own enumerable keys happen
+to be. The third is why `canRepresent()` exists.
+
+A `Date` passes, and so does anything else with a `toJSON` — `JSON.stringify`
+calls that first and never looks at the rest, so an object that said what it is
+in JSON has said it.
+
+### `json()` over a `.jsonc` path is refused
+
+```js
+json('config.jsonc'); // throws: use jsonc() instead
+```
+
+That extension exists to say comments are allowed and the strict store exists
+to say they are not, so the pair is a declaration that contradicts itself — and
+it is decidable where the layer is built rather than at `save()`, which is where
+it belongs. The reverse is **not** refused: `tsconfig.json` is JSONC under a
+`.json` name, so an extension that does not claim comments says nothing about
+whether a file holds them.
+
 ### Writing your own store
 
 `ConfigStore` is public API rather than an internal seam, which is why it is
@@ -1625,7 +1772,21 @@ interface ConfigDocument {
   value: unknown;
   wouldLose?: readonly Loss[];
 }
+
+interface Loss {
+  kind: 'comment' | 'anchor' | 'formatting' | 'declaration' | (string & {});
+  line?: number;
+  detail?: string;
+}
 ```
+
+A `write()` is handed the **whole** value the layer should hold rather than a
+list of changes, which is what lets a store choose how to get there: the JSON
+stores diff it against the bytes they already hold and splice, where a store
+with no editing model reprints and says so through `wouldLose`.
+
+`Loss.kind` is open rather than a closed union, because a format this package
+has never heard of has trivia this package cannot enumerate.
 
 Both read halves are **required**, and they are two real implementations over one
 shared parse rather than one wrapping the other:
@@ -1651,7 +1812,8 @@ the case it exists for.
 where nothing would be lost — the field is optional, so a store that edits spans
 omits it even over a comment-rich file rather than answering `[]` — and populated
 by one that reprints. So read it as `layer.wouldLose?.length`, not
-`layer.wouldLose.length`. It reads back on `config.layers`.
+`layer.wouldLose.length`. It reads back on `config.layers`, and `save()` is what
+refuses over it.
 
 ### JSONC, and what it is not
 
@@ -2789,10 +2951,10 @@ import { createConfigSync, json, jsonc, object } from '@ttylabs/sigil/config';
 ```
 
 It imports no parser module at all, which makes it usable from an app that does
-not use sigil's parser. The subpath is about 20 kB over six modules — `paths`,
+not use sigil's parser. The subpath is about 31 kB over seven modules — `paths`,
 the type coercion, i18n, the debug logger, the environment-variable rule the
-parser shares, and the module itself — which is a module rather than anything
-like `sigil/components`.
+parser shares, the directory creation the update cache shares, and the module
+itself — which is a module rather than anything like `sigil/components`.
 
 ### `sigil/testing`
 

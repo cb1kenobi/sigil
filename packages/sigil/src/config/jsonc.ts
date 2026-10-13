@@ -1,4 +1,5 @@
 import { __ } from '../i18n/index.js';
+import { LINE_END, lineAt } from './spans.js';
 
 /**
  * JSONC, as the two things it adds to JSON and nothing else.
@@ -44,36 +45,6 @@ export interface JsoncScan {
 
 /** The byte order mark, which `JSON.parse` refuses and an editor writes. */
 const BOM = '\uFEFF';
-
-/**
- * What ends a line comment.
- *
- * The four JavaScript calls line terminators rather than `\n` alone: a
- * `\r`-only file is rare and the failure is **silent**, which is the
- * combination worth spending four characters on.
- */
-const LINE_END = /[\n\r\u2028\u2029]/;
-
-/**
- * Counts the line a 0-based offset is on.
- *
- * Counted only when a message needs one, which is the rule the stylesheet
- * parser already keeps: counting newlines per token makes reading a file with
- * nothing wrong with it quadratic in its own length.
- *
- * @param text - The source.
- * @param offset - The offset.
- * @returns The 1-based line.
- */
-export function lineAt(text: string, offset: number): number {
-	let line = 1;
-	for (let i = 0; i < offset && i < text.length; i++) {
-		if (text[i] === '\n') {
-			line++;
-		}
-	}
-	return line;
-}
 
 /**
  * Finds the comments and trailing commas in a JSONC source.

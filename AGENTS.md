@@ -19138,18 +19138,468 @@ measurement.
 
 #### What is deliberately out
 
-- **`mkdirOwnerSync()` stays internal.** No subpath publishes it, so config using
-  it in-package is fine and a third-party store cannot reach it -- and writes its
-  own directory creation. Decided rather than discovered: publishing it is
-  permanent surface for a function whose one caller is a write path that does not
-  exist yet.
+- **`mkdirOwnerSync()` stays internal**, and it has a caller now: `writeAtomic()`
+  creates the directory it writes into, which is the "apply the parent
+  directory's owner under sudo" rule the update cache already reads. Still no
+  subpath publishes it, so a third-party store writes its own.
 - **No `strict` schema option**, for the reason the unknown-key entry gives.
 - **No `memory()` beside `object()`**, which would be two names for one store.
-- **No file writing at all**, which is the clean line the read/write split falls
-  on and is SIG-154's: `save()`, atomic temp-plus-rename, the span writer, the
-  lossless rule and `lossy: true`.
 - **No discovery, no `--config`, no naming convention**, for the reason core does
   not load config.
+
+### Writing a config file back without destroying it
+
+SIG-148 read a layered config and mutated it in memory; SIG-154 persists it, and
+the whole difficulty is in **not damaging a file somebody hand-wrote.**
+`src/config/spans.ts` is the span-and-edit layer, `jsonc-write.ts` is the JSONC
+writer, `atomic.ts` is the temp-plus-rename, `represent.ts` is what JSON cannot
+hold, and `Config.save()` is the one caller of all four.
+
+- **Comment preservation is a span problem rather than an AST problem, and the
+  idiom was already here.** A faithful CST per format -- model the trivia, attach
+  comments to nodes, print the tree back -- is what `yaml`'s document model is
+  and is a large amount of work per format. The other way is to **parse for spans
+  and apply minimal text edits to the original source**: to change a value,
+  replace the span it occupies; to add a key, splice at an offset. Everything
+  untouched stays untouched _by construction_, because it is still the same
+  bytes. That is what `compile-templates.ts` already does to an app's module and
+  what `shake.ts` already does to a `utilitySheet()` call site, so it is this
+  repository's own answer to "modify somebody else's file" rather than a new one.
+
+  `magic-string` is what the toolchain uses for the same job and is a dependency,
+  so the applier is written here: ordered splices over a string, which is small.
+
+- **It also makes a subset reader _safer_ than a complete one, which is the
+  property the sibling stores rest on.** A construct the reader does not
+  understand but nobody edited survives byte for byte, where a reprinter corrupts
+  it -- so CRLF line endings, a missing final newline, the user's indentation
+  style and their key order all come through for free. Which is the lossless rule
+  stated backwards: **a span store cannot lose what it was not asked to change**,
+  so it never trips the guard. The guard is for everybody else.
+
+- **The structure is scanned over the _blanked_ text, and that is the whole
+  trick.** `scanJsonc()` replaces every comment and trailing comma with a space
+  and keeps every newline, so what it hands back is ordinary JSON **at the same
+  offsets as the source** -- which its own doc comment already said this editor
+  would use. So the structural pass reads the blanked text, where there are no
+  comments and no trailing commas and the grammar is plain JSON, and every span
+  it records is a span of the source. One grammar with two readers that cannot
+  come to disagree, because one feeds the other.
+
+  Two texts are in play and each answers what it is for. **Structure** is the
+  blanked text's: where a value starts and ends, and -- because a comment is
+  whitespace there -- where the comma between two entries is, which is what lets
+  a comment sitting between them survive a removal. **Trivia** is the source's:
+  what a line is indented by, whether a comment follows a value on its line,
+  whether the container spans lines at all.
+
+  It also lets the structural scan be written to the grammar with **no error
+  handling at all**, because `editJsonc()` parses before it structures: a text
+  `JSON.parse` has accepted has no malformed shape left in it for a guard to
+  describe.
+
+- **A node tree rather than the path-to-span index the ticket named.** The
+  obvious shared shape is a map from dotted path to span, and it cannot answer
+  the question insertion asks: where the closing brace is, whether the container
+  spans lines, what its last entry is indented by, whether a comma already
+  follows it. A tree carries all of that and the index is a walk of it, so the
+  tree is what is built -- and a separate lookup over it is not, because it would
+  have no caller.
+
+- **An object member and an array element are one shape, because the hard half is
+  the same question for both.** The comma handling, the line handling and the
+  indentation differ not at all between them; only the serialization of a _new_
+  one does. So `Entry` carries a span and a node and optionally a key, and `key`
+  is what says which it is.
+
+- **The applier's two rules about a shared offset, and both are load bearing.**
+  **An insertion goes before a replacement** that starts there, which is what
+  lets a new key be spliced in at the offset a removed one starts at -- otherwise
+  every emitter has to get that order right, and one that has to is one that gets
+  it wrong. Measured as exactly that: with the emitters ordered the other way,
+  replacing every key of an object produced `{\n\t,\n\t"b": 1\n}`, which is a
+  dangling comma and invalid JSON. **Two insertions keep the order they were
+  emitted in**, because adding a key to an object with no trailing comma needs a
+  `,` after the last value _and_ a new member after the line's trivia, and when
+  there is no trivia both land on the same offset.
+
+- **The comma is decided against what _survives_ rather than against what is
+  there, and that is the half that cannot be done one entry at a time.** Dropping
+  the last two of three has each of them reach for the comma in front of it, and
+  a pass that looked only at its neighbours would have both reach for the same one
+  and produce two overlapping edits. So an entry takes the comma that **follows**
+  it, and only one with no survivor after it and a survivor before it reaches
+  backwards instead -- which means a container being emptied takes every comma in
+  it forwards, where a rule about "no survivors either side" leaves a dangling one.
+  Found by probing a duplicate-key object whose every key was replaced, which came
+  out `{\n\t"b": 1\n\t,\n}`.
+
+- **And the insertion anchors on the last entry that is _staying_.** An insertion
+  anchored on an entry that is being removed lands inside the removal, which is
+  the same dangling comma by the other road -- so `insertInto()` takes the drop
+  set, and a container whose every entry is going anchors just inside the brace,
+  which is the one offset no removal can reach.
+
+- **The trailing whitespace of a removal is the entry's unless it is the
+  container's padding.** `{ "a": 1 }` emptied has to keep the space in front of
+  its brace, while `{ "a":1, "b":2 }` with `a` removed should not come out
+  `{  "b":2 }` -- so the scan forward over spaces and tabs is committed only
+  where what follows is not the closing brace. The **whole line** goes on top of
+  that where the entry owned one, which is what an editor does and is what stops
+  a removal leaving an indented blank line behind; it cannot fire for an entry
+  that reached backwards for its comma, because the range then starts at the
+  comma and a comma owns no line.
+
+- **The gap between an entry and its comma is swallowed when it is whitespace and
+  left alone when it is not.** Which is what keeps a comment that sits there -- at
+  the cost of the whitespace around it, which is the lesser loss. Asked of the
+  **source** rather than the blanked text, because in the blanked text a comment
+  _is_ whitespace and the question is exactly whether one is there.
+
+- **An inserted member's own value is indented by the line it lands on, which is
+  not where its separator goes.** A multi-line container puts the new entry on a
+  line of its own, so its value's continuation lines take the entry's indent; a
+  single-line one puts the entry _beside_ the last, so the value lands on the
+  container's own line. Reading the entry's indent there pushed a nested object
+  one level further in than the line it sits on -- measured,
+  `{"a": 1, "b": {\n\t\t"c": 2\n\t}}` -- and the test for it is what found the
+  two apart.
+
+- **The indentation, the line ending and the trailing-comma style are read off
+  the document.** One level of indentation is the first container with an entry
+  that owns a line and is indented further than the container's own line; the
+  default is a **tab**, because that is what npm writes into a `package.json` and
+  what this repository's own formatter uses. The line ending is `\r\n` where the
+  document holds one. And a trailing comma is put back where the object had one,
+  because the user's trailing-comma style is one more thing a write is not being
+  asked to change.
+
+- **`lineTriviaEnd()` skips comments as comments rather than scanning for the
+  next newline, and the case that forces it is a block comment holding a line
+  break.** Scanning for the next line terminator lands _inside_
+  `"a": 1 /* long\n comment */` and breaks it. A line comment ends at the
+  terminator, which is exactly where the new member belongs -- so it goes under
+  the comment and the comma stays in front of it, where a comma written after the
+  comment would be _inside_ it. And a container whose closing brace is on this
+  line has no line to end, so the insert goes straight after the value.
+
+- **Duplicate keys are the one thing in the writer that reads as pedantry and is
+  not.** `{"a":1,"a":2}` is legal JSON and `JSON.parse` answers `2`, so the last
+  member of a name is the live one -- which means a _change_ edits that one and
+  leaves the shadowed ones shadowed, while a _removal_ has to take every one of
+  them or the shadowed value becomes live and the round trip changes a value
+  nobody touched. That is the worst class of failure a writer can have, so it is
+  handled rather than hoped about. What is left is a stale shadowed member in the
+  file, which is the lossless answer: it is already dead, and removing it would
+  be changing something nobody asked about.
+
+- **An array is diffed by index, so a `push` is one insertion and an `unshift` is
+  a rewrite of every element plus one.** The second is the worse of the two and is
+  still correct, and what it keeps is everything _between_ the elements -- so a
+  comment on a line of its own inside a list survives either. By identity would
+  need a notion of element identity that JSON does not have.
+
+- **A no-op write touches no file, which is not tidiness.** The store compares the
+  rendered text against the bytes it read and returns where they are equal, which
+  keeps the mtime SIG-153's watcher is reading and makes `apply()` of a freshly
+  read value a no-op rather than a rewrite of the same bytes.
+
+#### `write()` reads the file itself, and the cache was the dangerous shape
+
+- **The store holds no source text between calls.** A cache is the faster shape
+  and is the one that corrupts: a `write()` computing edits against text the file
+  no longer holds splices at the wrong offsets, which is the single failure mode a
+  span writer has. So `write()` reads the current bytes itself, which costs a
+  second read per save -- `save()` already read for the three-way merge -- and
+  makes the method work standalone, which is what public API should do.
+
+- **It validates its own input, which is what makes `canRepresent()` the _early_
+  answer rather than the only one.** `set()`'s call names the one value and the one
+  path at the moment they were written; `write()`'s answers for the document,
+  because a caller who went straight to `write()` has had nothing checked.
+
+- **A value JSON cannot hold is refused, and the third of `JSON.stringify`'s three
+  answers is why.** It **throws** for a `BigInt`. It answers `undefined` -- the
+  value, not a string -- for `undefined`, a function and a symbol, which reaches a
+  file as broken output. And it **silently rewrites** `NaN`, `Infinity` and
+  `-Infinity` as `null`, a `Map` or a `Set` as `{}`, and a class instance as
+  whatever its own enumerable keys happen to be. The third is the silent-loss class
+  every other decision in this module refuses, so it is what `represent.ts` is for.
+
+- **A value with a `toJSON` passes and is not walked.** This asks what
+  `JSON.stringify` will do rather than what the value holds, and `JSON.stringify`
+  calls `toJSON` first and never looks at the rest -- so an object that said what
+  it is in JSON has said it. A `Date` is the case that matters, because its JSON
+  form is an ISO string and the schema's own `date` type reads one back, so it
+  round trips through this module rather than through JSON alone. Found by a test:
+  the first version asked the structure first, so `{ toJSON: () => 1 }` was walked
+  as a plain object and refused for the function inside it. What that method
+  **answers** is not checked, because checking means calling a caller's code
+  during a guard; `serialize()` throws for the one answer that would reach a file
+  broken, which is a tripwire rather than a case anybody has.
+
+- **The refusal names the path rather than the value it was handed.**
+  `set('server', { retries: Infinity })` is a plain object holding something JSON
+  turns into `null`, and a refusal naming `server` would be pointing at the thing
+  that is fine. The walk adds and removes around the recursion, which is
+  `copyInto()`'s own rule and for its reason: a value referenced twice is a DAG
+  that JSON writes twice, and only a genuine cycle is refused.
+
+#### The atomic write, which is new machinery in this repository
+
+- **The temp file goes in the target's own directory.** `rename()` is only atomic
+  **within one filesystem**, so a temp file in `tmp()` is a copy and a delete
+  rather than a rename -- which has the half-written window back, plus a
+  cross-device failure on the platforms that refuse `EXDEV`. The cost is a stray
+  `.tmp` beside the config when a process is killed between the write and the
+  rename, which is litter rather than damage.
+
+- **Where it goes is pinned by a wrapped `fs` rather than by reading the
+  directory afterwards.** The temp file exists only between the open and the
+  rename, so nothing outside can look -- and the first version of that test read
+  the directory _after_ the write and would have passed for a temp file in
+  `tmp()`. `atomic-temp.test.ts` wraps `node:fs` the way `bundle-close.test.ts`
+  wraps `rolldown`: the real calls run, and the wrapper adds a record of which
+  paths were opened, renamed and unlinked plus a way to make one of them fail. A
+  file of its own, because `vi.mock` is hoisted and module-wide.
+
+  The same pass retired a second vacuous test. "Should remove the temp file where
+  the write failed" wrote to a path under an existing _file_, which
+  `mkdirOwnerSync()` refuses before any temp file exists -- so it asserted the
+  cleanup over a run that had nothing to clean up.
+
+- **The mode is preserved and the setuid bits are not.** A `600` config has to
+  come back `600`, or writing a setting hands its contents to every user on the
+  machine. The setuid, setgid and sticky bits are deliberately not copied, because
+  re-creating one on a file this just wrote is a privilege decision a config
+  writer has no business making; a file that did not exist gets whatever the umask
+  says, which is what every other new file on the system gets.
+
+- **And the owner, under sudo.** `sudo mycli config set` must not leave a
+  root-owned config in somebody's home directory, after which they cannot edit
+  their own settings without sudo again. So when the process is root the temp file
+  is chowned before the rename: to the target's own owner where there is one, and
+  to the containing directory's where the file is new. That is `mkdirOwnerSync()`'s
+  rule read one level down, which is what makes the directory and the file it holds
+  agree.
+
+- **It flushes the file and not the directory.** Without an `fsync()` the rename
+  can be visible after a power loss while the data behind it is not, which is the
+  truncated file this exists to prevent arriving by the other road. The
+  **directory** is not flushed, which is where `write-file-atomic` -- the package
+  npm itself writes with -- draws the same line: what that gives up is durability
+  of the rename across a power loss, and what it buys is one fewer disk round trip
+  per save on every filesystem. A flush that fails is **swallowed**, because the
+  filesystems that refuse one refuse it always -- `EINVAL` and `EPERM` are what a
+  network mount or a container layer answers, and failing a save over a durability
+  hint the kernel declined is refusing to write a file that would have written.
+
+- **One bracket around everything the temp file exists for.** Whatever fails,
+  there is no temp file left behind -- which is the rule `bundleApp()`'s own
+  `finally` keeps about a handle it opened, and is why the close is nested inside
+  the cleanup rather than beside it. `writeFile` rather than one `write`, because
+  a `write` may be short and a config half written into the temp file is the thing
+  this is for.
+
+- **It is not published.** No subpath reaches it. SIG-152's YAML store would want
+  it, and the rule is to decide against the first caller that does rather than
+  against one that does not -- which is the same call the span applier gets.
+
+#### `set()` mutates and `save()` persists, which is forced rather than chosen
+
+- **A synchronous `set()` cannot report an asynchronous write failure, so it does
+  not try one.** Every accessor is synchronous and a store's `write()` may not be
+  -- a remote store is async by nature -- so one that tried would be the
+  silent-loss class every other decision here refuses. That is better anyway: a
+  run that sets five keys writes once rather than five times, and the
+  temp-plus-rename and the re-read are one operation rather than five.
+
+- **`autoSave` is deliberately out**, because a `set()` that schedules a write is
+  a `set()` that cannot say the write failed. The hazard that leaves is named
+  rather than guarded -- an app that sets and exits without saving loses the write
+  -- and `ConfigLayerInfo.dirty` is what makes it actionable: an app that wants to
+  warn, or to ask before discarding, needs to be able to ask. It is also what makes
+  the tracking testable without reaching into a private field, which is the
+  decider, because a mechanism with no observable is one a test cannot pin.
+
+- **`saveSync()` is beside `save()` rather than instead of it**, for the reason
+  `createConfigSync()` is: an exit or signal handler **cannot await**, which is the
+  same reason `Terminal.syncRestore()` exists, and "read the config on the way in
+  and write it on the way out" is that shape exactly. Two real implementations of
+  one loop, because a synchronous entry point that awaited an already-settled
+  promise would not be synchronous -- so everything between them is a shared
+  method rather than one calling the other.
+
+- **It re-reads before it writes, and what gets applied over the fresh read is
+  the _paths_ this process touched.** Which makes the common cross-process case
+  work: two invocations setting two _different_ keys both survive, where a blind
+  write loses one of them. Paths rather than a before-and-after copy of the layer
+  is the cheaper shape _and_ the more honest one -- what a three-way merge needs
+  is "what did **this** process change", and a path is that said directly where a
+  deep diff is it inferred.
+
+  The residual race is **last-writer-wins on the same key**, documented rather
+  than guarded: a lock is the only real fix, nothing has asked for one, and a
+  half-guard here would read as safety and not be.
+
+- **The empty string is the whole layer, which is what `apply()` records.**
+  Consistent with the rest of the module, where an absent path is already the
+  whole merged view -- and it is what makes `apply()` replace rather than merge on
+  the write side too, so the other process's keys are not honoured for a layer
+  that was replaced wholesale. A reload is the same statement and costs nothing:
+  re-applying what was just read diffs to no bytes at all, so the write is
+  skipped.
+
+- **Two values are staged and they are two different readings of one result.**
+  What is **written** is the freshly read document with this process's own paths
+  applied over it, _uncoerced_: a layer holds `false` where the file says `"off"`,
+  so coercing what goes back would rewrite a spelling nobody asked to change. What
+  is **held** is the coerced copy of it, because a layer's value is always one the
+  schema has validated -- and it is built before the write, so that a document the
+  schema cannot hold is a refusal rather than a file already on disk.
+
+- **`copyDocument()` is `copyValue()` with a `null` kept, and the write path is
+  what it is for.** `copyValue()` drops a `null` because _this module_ reads one as
+  a format saying nothing, which is right for a layer; a file that says
+  `"theme": null` is a file whose `null` the write was not asked to change, so
+  dropping it on the way to the writer would delete the line -- and with it
+  whatever comment sits above it. `undefined` is still dropped, and that is not an
+  inconsistency: `null` is a value in every text format and `undefined` is a value
+  in none.
+
+- **A layer the save re-read may come back holding keys it did not hold before**,
+  so `get()` can answer differently after a `save()` than before it. That is the
+  file being right about itself, and the alternative -- a view that disagrees with
+  the bytes just written -- is the worse of the two surprises.
+
+- **A clean layer is skipped and a named read-only one is refused**, which is the
+  split every mutator here already keeps: `save()` with no name over a stack
+  holding an `/etc` file is an ordinary thing to ask, and naming that layer is the
+  app asking for something it cannot have. The message distinguishes the two
+  refusals the types already distinguish -- a store with no writer at all, and a
+  layer that is not this app's to write.
+
+- **One method with two signatures rather than two methods**, which is the shape
+  `InputRouter.bind()` already takes. A trailing layer name is the idiom every
+  mutator here keeps and `save()` has no positional argument for a name to trail,
+  so `save({ lossy: true })` has to work or the common escape hatch is spelled
+  `save(undefined, { lossy: true })`.
+
+#### The lossless rule, and the one place a message is not translated
+
+- **The thing to guard is not comments, it is loss.** Comments are the visible
+  casualty and every other one is silent in exactly the same way -- key order, an
+  anchor, an indentation style, CRLF line endings, a missing final newline, an XML
+  attribute that was spelled as an attribute. A guard that greps for comments
+  protects the one people notice and leaves the rest. So the property is: **a write
+  either preserves everything it was not asked to change, or it names what it would
+  lose and refuses.**
+
+  That is `clipboardSequence()`'s rule one subsystem along: over the cap it refuses
+  by default and truncates only when asked, because sending and hoping is the one
+  answer that cannot be observed. A config file quietly stripped of its comments is
+  the same failure with a slower fuse -- the user finds out next time they open the
+  file.
+
+- **It is a property of the write rather than of the store.** The cheap version is
+  a `lossless` flag on each store and it is wrong in the direction that annoys
+  people: a reprinting store writing a file that **has no comments in it** loses
+  nothing, and refusing that write is a guard firing on correct code. So the
+  question is asked of the _document_, which a span store answers for free because
+  it already parsed it. Which means the guard is mostly **for the sibling
+  packages**: the stores in here never report a loss, so nothing in core ever trips
+  it, and the tests for it are written against a store that reprints.
+
+- **Per call and per layer, never one global setting.** A global "allow
+  clobbering" is set once in a scaffold and never thought about again, which
+  defeats it. Per **layer** is the legitimate case -- this file is generated, so
+  clobber it freely -- and per **call** is the escape hatch, which is where
+  `truncate` already sits on the clipboard rather than on a config object.
+
+- **The message names both ways out, and its detail is the one thing here that is
+  not translated.** `Loss.kind` is an open string the _store_ chose -- `comment`,
+  `anchor`, or whatever a format this package has never heard of calls its own
+  trivia -- so the phrase is assembled out of words this package did not pick and
+  cannot translate. `kind:line` is the `file:line` convention the toolchain's own
+  diagnostics already use, it needs no English of its own, and it carries the count
+  by being a list, so there is no plural to translate either. Capped at ten, because
+  a store reporting five hundred losses would otherwise produce a message nobody
+  reads to the end of.
+
+  It is `lossy: true` rather than `{ lossy: true }` in that sentence, because a
+  `{...}` in a key is what `should number a slot per interpolation, never name one`
+  refuses -- and it is right to: a translator meeting one has no way to tell a
+  literal brace from a slot somebody spelled with a name.
+
+- **Format conversion is refused where the layer is built, and the one case core
+  has is `json()` over a `.jsonc` path.** Reading `.jsonc` and writing `.json` is
+  not a write that _might_ lose comments; it is one that certainly will, knowably,
+  before any editing starts -- which belongs where the layer is constructed rather
+  than at `save()`, the rule that what is decidable statically fails the build
+  rather than the frame. `.jsonc` is an extension whose only purpose is to say
+  "comments are allowed here", so the strict store over one is a declaration that
+  contradicts itself, and the guard cannot fire on code that is right: `jsonc()`
+  reads everything `json()` reads and more, so there is no file for which
+  `json('x.jsonc')` is the better spelling.
+
+  The reverse is **not** refused, and that asymmetry is the point:
+  `tsconfig.json` is JSONC under a `.json` name, so an extension that does not
+  claim comments says nothing about whether a file holds them.
+
+#### `sigil.json` becoming `sigil.jsonc`, which is the acceptance test
+
+- **Both names are read and `.jsonc` is preferred.** The extension is what tells
+  an editor that comments are allowed -- a `.json` holding one is something VS
+  Code complains about until somebody sets `files.associations`, and a config file
+  is exactly the file people want to annotate. `sigil.json` is still read so
+  nothing already scaffolded has to be renamed, and `sigil new` writes the
+  `.jsonc` one.
+
+- **Each extension means what it says**, which is what makes the rename a thing
+  somebody does on purpose rather than a filename that stopped meaning anything:
+  the `.jsonc` one is read with comments allowed and the `.json` one strictly, so
+  a `.json` holding a comment still gets `Comments are not allowed` naming the
+  line. Reading both as JSONC was the other option and it makes the extension mean
+  nothing; refusing a comment in a `.jsonc` is incoherent. So `json()` keeps a
+  real caller, which is the half that would otherwise have gone dead.
+
+- **Both at once is refused, naming them.** The two-routes-one-name rule said about
+  a config file: with both there, picking one picks it by the order an array happens
+  to be written in and the other silently does nothing.
+
+- **This repository's own is a commented `.jsonc`**, which is what makes the span
+  writer dogfood rather than a feature with a test of its own.
+  `packages/cli/test/config-write.test.ts` copies it, sets `build.sourcemap`,
+  saves, and asserts the result is the original with that one token changed and
+  **every other byte identical** -- over the real `CONFIG_SCHEMA` rather than a
+  copy of it, so what is asserted is that the writer preserves the file the
+  toolchain actually reads. It also asserts the file **has** comments, because a
+  commit that took them out would leave every other assertion true and empty.
+
+- **There is deliberately no `saveSigilConfig()`.** The toolchain has no setting
+  it persists -- every one of them is a literal somebody edits -- and a function
+  with no caller is the dead code this file has an entry about, where the exported
+  half outlived the script it told the reader to run. `CONFIG_SCHEMA` is exported
+  instead, which is what the acceptance test needs and is API only inside the
+  package, since `@ttylabs/cli` publishes a bin and no subpaths. A
+  `sigil config set` is where a write would get a caller.
+
+- **`inputs` names both file names in both turbo configs**, because `inputs`
+  replaces rather than extends and a build that reads `sigil.jsonc` and does not
+  hash it is the stale-`dist/` hole the `registry/**` incident is written about.
+
+#### What the write half costs
+
+- **The config module's graph is 30,884 B over seven modules**, against 20,649 B
+  over six for the read half -- so the span writer, the atomic write and the
+  representability check are about 10.2 kB between them. The seventh module is the
+  `mkdir-owner-sync` chunk the update cache already shares. It still imports no
+  parser module at all, which is the property the read half's own test holds and is
+  why the ceiling did not move.
+
+- **No new dependency**, which is the hard constraint: the applier is ordered
+  splices over a string rather than `magic-string`, and the value grammar is still
+  `JSON.parse`'s and `JSON.stringify`'s rather than a second one here.
 
 ### Updates
 

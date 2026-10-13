@@ -70,7 +70,31 @@ import { isPlainObject, isUnsafeKey } from './dotted.js';
  * @throws If any key anywhere in it is unsafe.
  */
 export function copyValue(value: unknown, where: string): unknown {
-	return copyInto(value, where, new WeakSet<object>());
+	return copyInto(value, where, new WeakSet<object>(), false);
+}
+
+/**
+ * The same copy, with a `null` **kept**.
+ *
+ * The one difference between the two, and the write path is what it is for.
+ * `copyValue()` drops a `null` because *this module* reads one as a format
+ * saying nothing, which is right for a layer; a file that says `"theme": null`
+ * is a file whose `null` the write was not asked to change, so dropping it on
+ * the way to the writer would delete the line -- and with it whatever comment
+ * sits above it. The lossless rule said in one parameter.
+ *
+ * `undefined` is still dropped, and that is not an inconsistency: `null` is a
+ * value in every text format and `undefined` is a value in none, so a key
+ * holding one cannot have come from a document and cannot be written back into
+ * one. Which is also what keeps `JSON.stringify` from meeting one.
+ *
+ * @param value - The value, as a store read it.
+ * @param where - Where it came from, for the message.
+ * @returns A copy whose structure is this module's.
+ * @throws If any key anywhere in it is unsafe, or it refers back to itself.
+ */
+export function copyDocument(value: unknown, where: string): unknown {
+	return copyInto(value, where, new WeakSet<object>(), true);
 }
 
 /**
@@ -93,9 +117,11 @@ export function copyValue(value: unknown, where: string): unknown {
  * @param value - The value.
  * @param where - Where it came from, for the message.
  * @param seen - The objects this walk is inside.
+ * @param nulls - Whether a key holding `null` is kept, which is the write
+ * path's reading and not a layer's. See `copyDocument()`.
  * @returns A copy whose structure is this module's.
  */
-function copyInto(value: unknown, where: string, seen: WeakSet<object>): unknown {
+function copyInto(value: unknown, where: string, seen: WeakSet<object>, nulls: boolean): unknown {
 	const structure = Array.isArray(value) || isPlainObject(value);
 
 	if (structure) {
@@ -111,7 +137,7 @@ function copyInto(value: unknown, where: string, seen: WeakSet<object>): unknown
 			// nothing, so an element is kept. So is an `undefined`, which no text
 			// format can produce and which a JSON round trip turns into `null` --
 			// the format's business rather than this module's
-			return value.map((item) => copyInto(item, where, seen));
+			return value.map((item) => copyInto(item, where, seen, nulls));
 		}
 
 		if (!isPlainObject(value)) {
@@ -127,10 +153,10 @@ function copyInto(value: unknown, where: string, seen: WeakSet<object>): unknown
 			// whose value is `undefined` is one `Object.keys()` reports and `has()`
 			// answers `false` for -- a phantom key, which is what
 			// `config.set('x', argv.x)` with no `--x` used to make
-			if (value[key] === null || value[key] === undefined) {
+			if (value[key] === undefined || (value[key] === null && !nulls)) {
 				continue;
 			}
-			out[key] = copyInto(value[key], where, seen);
+			out[key] = copyInto(value[key], where, seen, nulls);
 		}
 		return out;
 	} finally {

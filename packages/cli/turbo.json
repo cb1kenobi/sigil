@@ -8,6 +8,7 @@
         "test/**",
         "scripts/**",
         "sigil.json",
+        "sigil.jsonc",
         "tsdown.config.ts",
         "tsconfig*.json",
         "vitest.config.ts",
