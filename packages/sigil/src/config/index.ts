@@ -64,7 +64,6 @@
  */
 
 export { Config, createConfig, createConfigSync, isWritableStore } from './config.js';
-export { lineAt, scanJsonc, type JsoncComment, type JsoncScan } from './jsonc.js';
 export { object } from './stores/object.js';
 export { json, jsonc } from './stores/file.js';
 export type {

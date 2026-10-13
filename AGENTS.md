@@ -5329,6 +5329,103 @@ style sweep had to grow.
   that makes all four one mechanism on screen. That is the rule `which` waited
   eighteen months on, satisfied rather than waived.
 
+#### The public surface, and what the emitted declaration said about it
+
+- **The constructor's parameters are public types, because the published
+  `.d.mts` is where that is visible and nowhere else.** `Config`'s first
+  signature took the built `Layer[]` and the read `Setting[]` -- both this
+  module's own, neither exported -- so the generated declaration held
+  `constructor(layers: Layer[], settings: readonly Setting[], ...)` over two
+  interfaces a consumer could not name: a constructor in the public surface that
+  nobody can call. Found by reading `dist/config.d.mts` rather than the source,
+  which is the only place it appears, and the type-check is perfectly happy with
+  it either way.
+
+  So the reading happens outside and the **building** happens in the
+  constructor, which takes `(opts: ConfigOptions, docs: readonly
+  (ConfigDocument | undefined)[])`. What it costs is that `readSchema()` and
+  `assertLayers()` run twice -- once in the entry point, so that a declaration
+  which cannot mean anything is refused **before** any store is read, which for
+  a remote store is a network call, and once in the constructor, because that has
+  to be correct when called directly. Both are pure. What it buys beyond the
+  declaration is that `new Config(opts, docs)` is a coherent thing to call: build
+  a config from documents somebody already read.
+
+  Exporting the two interfaces was the cheap alternative and is refused for the
+  reason the rest of this section is written: `Layer` is `ConfigLayerInfo` plus
+  the mutable value, and publishing it would be surface nobody should use.
+
+- **`scanJsonc()` and `lineAt()` are not in the barrel, which is the rule
+  `transformValue()` already follows.** They were, and they have no caller
+  outside this package: SIG-154's span editor is in it and imports relatively,
+  the tests import the module directly, and nobody has asked for a JSONC scanner.
+  Real surface for no caller is what `which` waited eighteen months over.
+
+  What the barrel does export is `createConfig`, `createConfigSync`, `Config`,
+  `isWritableStore`, the three stores, and the eleven types -- and `Config` is
+  there for an app's own signatures rather than to be constructed, which the
+  honest constructor above now makes safe to say.
+
+#### What the sabotage pass found
+
+Seventy-eight mutations, one at a time, with the config suites, `dist.test.ts`
+and `options.test.ts` run after each. **Seventy-seven caught and one declared**,
+counted against the shipped tree in one run rather than summed across rounds, so
+the figure is re-derivable. A green control first, and the four verdict guards
+this repository has learned to need: a pattern that matched nothing, a pattern
+that matched more than once, a replacement equal to its original, and a run that
+found fewer test files than the control are each their own verdict rather than a
+pass -- and the tree is restored on `SIGINT` and `SIGTERM` as well as on an
+exception, because a killed pass that left a mutation behind poisons the next
+control.
+
+Two of those guards fired. A pattern went **stale** when the formatter reflowed
+the line it quoted, which is the shape this file records from four earlier
+passes. And one mutation **hung** -- making the unterminated-block-comment check
+unreachable leaves the scan unable to advance -- so the run produced no summary
+and was reported as `HARNESS BROKEN` rather than as a pass; rewritten to swallow
+rather than to loop, it is caught by two tests.
+
+**Six survived the first pass and every one was a test that could not see what it
+was named for**, which is the shape this file keeps rediscovering:
+
+- **The restore after a refused mutation, both halves.** A refusal never
+  recomputes, so the merged view still answers what it answered -- which means
+  every assertion about the _failing_ call passes whether or not the layer was put
+  back. What makes it visible is the **next** mutation: without the restore the
+  layer holds the value that was refused and the recompute that mutation triggers
+  refuses it again. `should not let a refused set poison the next one` is the
+  input, and its sibling covers the restore that _deleted_ where there had been a
+  value.
+- **`readPath()`'s `Object.hasOwn`.** Without it, `at[part]` on a plain object
+  answers for every member the object inherits -- so `config.get('toString')` was
+  `Object.prototype.toString`. `constructor` is refused as a path segment
+  outright, which is why the obvious probe says nothing; `toString`,
+  `hasOwnProperty` and `valueOf` are not, and they are the test.
+- **The `concat` lookup's dotted path.** Built as the merge walks down, so a
+  **top-level** setting cannot tell a correct lookup from one that forgot the
+  parent -- every concat test used one. A `server.tags` fixture is what sees it,
+  with its mirror asserting that a bare `tags` is not that path.
+- **The two coercion-site copies**, which is the subtler pair. The merge's own
+  tripwire catches the same key, so a _construction_ fixture passes either way;
+  what the copies buy is the **message**, which names the setting the value came
+  through where the merge can only name the layer. And the `multiple` branch is a
+  separate branch, so a scalar fixture leaves it unpinned.
+
+**One guard was deleted for being unreachable** rather than tested, which is what
+this repository does with one: `apply()`'s rollback around its recompute.
+`copyValue()` has already run inside `coerceLayer()` by then, so a second walk of
+the same value cannot find an unsafe key -- five lines of machinery for a path
+nothing can take.
+
+**And one survivor is declared**, which is the recompute's **placement** inside
+`#settle()`'s `try` rather than after it. Nothing can reach it today, for the
+reason the deletion above gives; it is one statement's position rather than any
+code, and the failure it is for is unrecoverable -- a throw from the merge with
+the recompute outside leaves the layer holding what it had just written, after
+which every later mutation throws again over a value nobody can see. Kept for the
+reason the `assertLink()` tripwire is.
+
 #### What the first review round found
 
 Two concrete wrong grids, both confirmed and both fixed. The round was pointed at
@@ -17904,11 +18001,13 @@ without destroying it is SIG-154's.
 
 - **It imports no parser module at all, and that is a test rather than a
   coincidence.** Measured as transitive static import byte weight off `dist/`:
-  **19,482 B over six modules**, of which **9,279 B over four** is what it starts
-  from -- `paths.mjs` plus the `transform` chunk, which is `transform`, `i18n`
-  and `debug`. So the module itself is about 10 kB and the subpath costs roughly
-  what the root entry's 7,518 B does rather than anything like
-  `components.mjs`'s 239,917 B over 26. `should not reach any parser module to
+  **20,075 B over six modules**, of which **9,345 B over five** is what it starts
+  from -- `paths.mjs`, the `transform` chunk, which is `transform`, `i18n` and
+  `debug`, and the 66-byte `env-value` chunk the parser shares. So the module
+  itself is about 10.7 kB: **2.7x** the root entry's 7,518 B and a **twelfth** of
+  `components.mjs`'s 239,917 B over 26, which is the shape the ticket's own
+  projection predicted even though its figure was the starting point rather than
+  the total. `should not reach any parser module to
   import the config module` holds it, keyed on symbols the minifier keeps.
 
   The reverse direction is the ticket's own ask in as many words -- "nothing in
@@ -18520,8 +18619,9 @@ without destroying it is SIG-154's.
   complete sentence for all four, and what it loses -- which call it was -- is in
   the stack trace.
 
-- **15 new keys, 77 in total.** `SIGIL_KEYS.length` is the figure; no number
-  anywhere should be read as the current count.
+- **16 new keys, 78 in total.** `SIGIL_KEYS.length` is the figure and the
+  generator prints the count it wrote; no number here should be read as the
+  current one.
 
 #### `paths.config()` is `paths.configHome()`
 

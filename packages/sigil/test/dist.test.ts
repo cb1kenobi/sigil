@@ -284,15 +284,15 @@ describe('what importing the package costs', () => {
 		}
 	});
 
-	it('should cost about what the root entry does', () => {
+	it('should cost a module rather than a component', () => {
 		const graph = staticGraph('config.mjs');
 		const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
 
-		// 19,482 B over six modules, of which 9,279 B over four is what it starts
-		// from: `paths.mjs` plus the `transform` chunk, which is `transform`,
-		// `i18n` and `debug`. So the module itself is about 10 KB and the subpath
-		// costs roughly what the root entry does rather than anything like a
-		// component -- `components.mjs` is 239,917 B over 26.
+		// 20,075 B over six modules, of which 9,345 B over five is what it starts
+		// from: `paths.mjs`, the `transform` chunk -- which is `transform`, `i18n`
+		// and `debug` -- and the 66-byte `env-value` chunk the parser shares. So
+		// the module itself is about 10.7 KB, which is 2.7x the root entry's
+		// 7,518 B and a twelfth of `components.mjs`'s 239,917 B over 26.
 		//
 		// A ceiling rather than a measurement, about 2.4x over what it is, so that
 		// ordinary growth never touches it and pulling the parser or the renderer

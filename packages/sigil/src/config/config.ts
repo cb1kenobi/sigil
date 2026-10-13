@@ -84,20 +84,35 @@ export class Config {
 	readonly #settings: readonly Setting[];
 
 	/**
-	 * @param layers - The layers, already read and validated.
-	 * @param settings - The schema.
-	 * @param env - The environment to read a setting's `env` from.
+	 * Builds a config from declarations and the documents their stores read.
+	 *
+	 * Every parameter is a **public** type, which is the whole reason the reading
+	 * happens outside and the building happens here rather than the other way
+	 * round. The first version took the built `Layer[]` and the read
+	 * `Setting[]` -- both of them this module's own, neither exported -- so the
+	 * published declaration held a constructor nobody could call, over two
+	 * interfaces nobody could name. Found by reading the emitted `.d.mts` rather
+	 * than the source, which is the only place it is visible.
+	 *
+	 * What that costs is that `readSchema()` and `assertLayers()` run twice: once
+	 * in the entry point, so that a declaration which cannot mean anything is
+	 * refused **before** any store is read -- which for a remote store is a
+	 * network call -- and once here, because this has to be correct when called
+	 * directly. Both are pure.
+	 *
+	 * @param opts - The schema, the layers, and the environment to read.
+	 * @param docs - What each layer's store read, in the layers' own order.
 	 */
-	constructor(
-		layers: Layer[],
-		settings: readonly Setting[],
-		env: Record<string, string | undefined>
-	) {
-		this.#layers = layers;
+	constructor(opts: ConfigOptions, docs: readonly (ConfigDocument | undefined)[]) {
+		const declared = opts.layers ?? [];
+		const settings = readSchema(opts.schema);
+		assertLayers(declared);
+
+		this.#layers = declared.map((layer, i) => layerOf(layer, docs[i], settings));
 		this.#settings = settings;
 		this.#concat = concatPaths(settings);
 		this.#defaults = defaultsOf(settings);
-		this.#env = envOf(settings, env);
+		this.#env = envOf(settings, opts.env ?? process.env);
 		this.#merged = undefined;
 		this.#recompute();
 	}
@@ -141,6 +156,12 @@ export class Config {
 			throw new Error(`Cannot apply a value that is not an object to layer "${name}"`);
 		}
 
+		// copied and validated **before** anything is assigned, which is the order
+		// `Show` keeps: build first and touch nothing until there is something to
+		// put there. Which is also why there is no rollback around the recompute
+		// below -- a `copyValue()` the coercion already ran cannot find an unsafe
+		// key a second time, so nothing it could roll back for can happen, and a
+		// guard that cannot fire is one this repository deletes
 		const next = copyValue(value, name) as Record<string, unknown>;
 		coerceLayer(next, this.#settings, name);
 		layer.value = next;
@@ -277,8 +298,7 @@ export class Config {
 		const next = copyValue(value, layer.name);
 		writePath(layer.value, parts, next);
 
-		this.#validate(layer, parts, before);
-		this.#recompute();
+		this.#settle(layer, parts, before);
 	}
 
 	/**
@@ -390,8 +410,8 @@ export class Config {
 	}
 
 	/**
-	 * Validates the **whole** layer after a mutation, putting the one path back
-	 * if it is refused.
+	 * Validates the **whole** layer after a mutation and recomputes, putting the
+	 * one path back if either is refused.
 	 *
 	 * The whole layer rather than the setting at the written path, and that is a
 	 * hole rather than a cost: a path can be *inside* a declared setting or
@@ -419,11 +439,22 @@ export class Config {
 	 * @param layer - The layer that was mutated.
 	 * @param parts - The path that was written.
 	 * @param before - What that path held, for the rollback.
-	 * @throws If the layer is no longer one the schema can hold.
+	 * @throws If the layer is no longer one the schema or the merge can hold.
 	 */
-	#validate(layer: Layer, parts: readonly string[], before: unknown): void {
+	#settle(layer: Layer, parts: readonly string[], before: unknown): void {
 		try {
 			coerceLayer(layer.value, this.#settings, layer.name);
+			// the recompute is inside the guard rather than after it, and this is
+			// one statement's placement rather than any code -- which is why it is
+			// here although nothing can currently reach it. `copyValue()`'s
+			// unsafe-key refusal is a tripwire the coercion sites above reach first,
+			// so the merge cannot throw today; the day a fourth door is added and it
+			// can, a throw with the recompute outside leaves the layer holding what
+			// it had just written, after which every later mutation throws again
+			// over a value nobody can see. A declared survivor of the sabotage pass,
+			// kept for the reason the `assertLink()` tripwire is: it costs nothing
+			// and the failure it is for is unrecoverable
+			this.#recompute();
 		} catch (e: unknown) {
 			// the layer is put back before the throw escapes, because a mutation that
 			// failed must not leave half of itself behind -- the rule `Show` and
@@ -510,8 +541,7 @@ export class Config {
 
 		writePath(layer.value, parts, list);
 
-		this.#validate(layer, parts, at);
-		this.#recompute();
+		this.#settle(layer, parts, at);
 		return (readPath(layer.value, parts) as unknown[]).length;
 	}
 
@@ -663,16 +693,19 @@ function assertLayers(declared: readonly ConfigLayer[]): void {
  * @returns The config.
  */
 export async function createConfig(opts: ConfigOptions = {}): Promise<Config> {
-	const settings = readSchema(opts.schema);
 	const declared = opts.layers ?? [];
+
+	// refused before any store is read, which for a remote one is a network call.
+	// The constructor asks again, because it has to be right when called directly
+	readSchema(opts.schema);
 	assertLayers(declared);
 
-	const layers: Layer[] = [];
+	const docs: ConfigDocument[] = [];
 	for (const layer of declared) {
-		layers.push(layerOf(layer, await layer.store.read(), settings));
+		docs.push(await layer.store.read());
 	}
 
-	return new Config(layers, settings, opts.env ?? process.env);
+	return new Config(opts, docs);
 }
 
 /**
@@ -695,11 +728,13 @@ export async function createConfig(opts: ConfigOptions = {}): Promise<Config> {
  * @returns The config.
  */
 export function createConfigSync(opts: ConfigOptions = {}): Config {
-	const settings = readSchema(opts.schema);
 	const declared = opts.layers ?? [];
+
+	readSchema(opts.schema);
 	assertLayers(declared);
 
-	const layers = declared.map((layer) => layerOf(layer, layer.store.readSync(), settings));
-
-	return new Config(layers, settings, opts.env ?? process.env);
+	return new Config(
+		opts,
+		declared.map((layer) => layer.store.readSync())
+	);
 }

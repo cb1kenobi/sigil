@@ -83,6 +83,35 @@ describe('the layer stack', () => {
 		expect(config.get('plugins')).to.deep.equal(['a', 'b']);
 	});
 
+	it('should concatenate at a nested path too', async () => {
+		// the `concat` lookup is asked with the **dotted** path, built as the merge
+		// walks down -- so a top-level setting cannot tell a correct lookup from one
+		// that forgot the parent. Found by a sabotage that survived every other
+		// concat test
+		const config = await createConfig({
+			schema: { 'server.tags': { merge: 'concat', multiple: true } },
+			layers: [
+				{ name: 'low', store: object({ server: { tags: ['a'] } }) },
+				{ name: 'high', store: object({ server: { tags: ['b'] } }) },
+			],
+		});
+
+		expect(config.get('server.tags')).to.deep.equal(['a', 'b']);
+	});
+
+	it('should not concatenate a differently named path that shares a leaf', async () => {
+		// the other direction: a bare `tags` is not `server.tags`
+		const config = await createConfig({
+			schema: { 'server.tags': { merge: 'concat', multiple: true } },
+			layers: [
+				{ name: 'low', store: object({ tags: ['a'] }) },
+				{ name: 'high', store: object({ tags: ['b'] }) },
+			],
+		});
+
+		expect(config.get('tags')).to.deep.equal(['b']);
+	});
+
 	it('should replace a class instance rather than merging into it', async () => {
 		// merging into one makes no sense -- what would the result be an instance
 		// of -- so the structure this module owns is plain objects and arrays
@@ -214,6 +243,22 @@ describe('dotted paths', () => {
 		// the default to `null` rather than falling back to it
 		expect(config.has('editor.theme')).to.equal(true);
 		expect(config.get('editor.theme')).to.equal('dark');
+	});
+
+	it('should not answer with a member every object inherits', async () => {
+		// `readPath()` asks `Object.hasOwn` for exactly this: on a plain object
+		// `toString` and `hasOwnProperty` read back truthy, which is the hazard
+		// this repository already has three entries about -- the parser's
+		// registries, the style property tables, the palette's two lookups.
+		// `constructor` is refused as a path segment outright; these two are not,
+		// so the own-property check is what answers them
+		const config = await createConfig({ layers: [{ name: 'a', store: object({}) }] });
+
+		expect(config.get('toString')).to.equal(undefined);
+		expect(config.get('hasOwnProperty')).to.equal(undefined);
+		expect(config.get('valueOf')).to.equal(undefined);
+		expect(config.has('toString')).to.equal(false);
+		expect(config.get('a.toString')).to.equal(undefined);
 	});
 
 	it('should refuse a path with an empty segment', async () => {
@@ -1057,6 +1102,70 @@ describe('the schema', () => {
 		expect(() => config.set('port', 'nope')).toThrow(/Invalid value for "port"/);
 		// a refused `set()` over an existing value must not be a `delete()`
 		expect(config.get('port')).to.equal(80);
+	});
+
+	it('should not let a refused set poison the next one', async () => {
+		// the rollback is invisible through `get()` on the failing call, because a
+		// refusal never recomputes -- so the merged view still answers what it
+		// answered. What makes it visible is the **next** mutation: without the
+		// restore the layer holds the value that was refused, and the recompute
+		// that mutation triggers refuses it all over again. Found by a sabotage
+		// that survived both of the obvious tests
+		const config = await createConfig({
+			schema: { port: { type: 'int' } },
+			layers: [{ name: 'a', store: object({ port: 80 }) }],
+		});
+
+		expect(() => config.set('port', 'nope')).toThrow(/Invalid value for "port"/);
+		config.set('other', 1);
+		expect(config.get()).to.deep.equal({ other: 1, port: 80 });
+	});
+
+	it('should put a refused value back rather than deleting it', async () => {
+		// the other half of the same blindness: a rollback that *deleted* where
+		// there had been a value passes every assertion about the failing call
+		const config = await createConfig({
+			schema: { port: { type: 'int' } },
+			layers: [{ name: 'a', store: object({ port: 80 }) }],
+		});
+
+		expect(() => config.set('port', 8080.5)).toThrow();
+		config.set('other', 1);
+		expect(config.get('port')).to.equal(80);
+	});
+
+	it('should name the setting when a coercion produces an unsafe key', async () => {
+		// the coercion sites copy so that the message names the **setting** the
+		// value came through, where the merge's own tripwire can only name the
+		// layer. And the mutation rolls back either way, because the recompute is
+		// inside the guard
+		const config = await createConfig({
+			schema: { data: { type: 'json' } },
+			layers: [{ name: 'a', store: object({ data: { ok: 1 } }) }],
+		});
+
+		expect(() => config.set('data', '{"__proto__":{"polluted":true}}')).toThrow(
+			/Invalid value for "data" in a: Unsafe config key "__proto__"/
+		);
+		expect(config.get('data')).to.deep.equal({ ok: 1 });
+
+		// and the config still works, which is what the rollback is for
+		config.set('other', 1);
+		expect(config.get()).to.deep.equal({ data: { ok: 1 }, other: 1 });
+	});
+
+	it('should name the setting when a coercion produces an unsafe key in a list', async () => {
+		// the `multiple` branch copies for the same reason the scalar one does, and
+		// is a separate branch -- so a scalar fixture leaves it unpinned
+		const config = await createConfig({
+			schema: { items: { multiple: true, type: 'json' } },
+			layers: [{ name: 'a', store: object({ items: ['{"ok":1}'] }) }],
+		});
+
+		expect(() => config.push('items', '{"__proto__":{"polluted":true}}')).toThrow(
+			/Invalid value for "items" in a: Unsafe config key "__proto__"/
+		);
+		expect(config.get('items')).to.deep.equal([{ ok: 1 }]);
 	});
 
 	it('should leave nothing behind when a refused set made objects on the way down', async () => {

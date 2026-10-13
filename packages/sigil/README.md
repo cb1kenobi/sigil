@@ -2780,8 +2780,9 @@ import { createConfigSync, json, jsonc, object } from '@ttylabs/sigil/config';
 ```
 
 It imports no parser module at all, which makes it usable from an app that does
-not use sigil's parser. The subpath costs about what the root entry does:
-`paths`, the type coercion, i18n and the module itself.
+not use sigil's parser. The subpath is about 20 kB over six modules -- `paths`,
+the type coercion, i18n, the debug logger and the module itself -- which is a
+module rather than anything like `sigil/components`.
 
 ### `sigil/testing`
 
