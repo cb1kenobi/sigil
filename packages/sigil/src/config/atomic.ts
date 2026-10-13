@@ -77,6 +77,29 @@ interface Keep {
 /** So that two saves in one process cannot pick the same temp name. */
 let seq = 0;
 
+/**
+ * The errors that mean "this filesystem does not do flushes", rather than
+ * "flushing this file failed".
+ *
+ * A bare `catch` here was wider than the documented set, which a review round
+ * caught -- and the difference is the whole point of flushing: an `EIO` or an
+ * `ENOSPC` out of `fsync()` says the bytes may not be on disk, which is the
+ * truncated file this module exists to prevent arriving by the one road it was
+ * meant to close. So those are raised and the five below are swallowed, each of
+ * which is a filesystem declining the operation itself and declining it always.
+ */
+const FLUSH_DECLINED = new Set(['EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EPERM']);
+
+/**
+ * Whether a failed flush is a filesystem that does not flush.
+ *
+ * @param e - What `fsync()` threw.
+ * @returns Whether to carry on with the rename.
+ */
+function declinesFlush(e: unknown): boolean {
+	return FLUSH_DECLINED.has((e as { code?: string }).code ?? '');
+}
+
 /** Whether this process can hand a file to somebody else. */
 function isRoot(): boolean {
 	return process.getuid !== undefined && process.getuid() === 0;
@@ -87,13 +110,47 @@ function tempFor(path: string): string {
 	return `${path}.${process.pid}-${seq++}.tmp`;
 }
 
-/** A stat that answers nothing rather than throwing for a file that is not there. */
+/**
+ * Whether a failed read or stat means the path is simply not there.
+ *
+ * One predicate because there are two callers and they ask the same question:
+ * a config file that does not exist yet is the ordinary state of one, and every
+ * *other* reason a read can fail is something to report. `EISDIR` is
+ * deliberately not in here -- a path that names a directory is an app pointing
+ * at the wrong thing, and answering "there is nothing there" for it is the
+ * silence that costs an afternoon.
+ *
+ * @param e - What the call threw.
+ * @returns Whether to read it as nothing being there.
+ */
+export function isMissing(e: unknown): boolean {
+	return (e as { code?: string }).code === 'ENOENT';
+}
+
+/**
+ * The target's mode and owner, or nothing where there is no target yet.
+ *
+ * Only `ENOENT` is nothing: a new file has no mode to carry over, which is the
+ * whole reason this may answer with nothing at all. Anything else is **raised**,
+ * which took a review round -- a bare `catch` read an `EPERM` or an `EIO` as a
+ * file that is not there, so the mode of a file that *is* there was silently not
+ * carried and a `0o600` config came back world-readable. The open that follows
+ * would very likely have failed anyway; what matters is that it fails saying
+ * what went wrong rather than quietly writing the wrong permissions.
+ *
+ * @param path - The file.
+ * @returns Its mode and owner, or nothing.
+ * @throws If the stat failed for any reason but the file not being there.
+ */
 function statOf(path: string): { gid: number; mode: number; uid: number } | undefined {
 	try {
 		const it = statSync(path);
 		return { gid: it.gid, mode: it.mode, uid: it.uid };
-	} catch {
-		return undefined;
+	} catch (e: unknown) {
+		if (isMissing(e)) {
+			return undefined;
+		}
+		throw e;
 	}
 }
 
@@ -151,8 +208,10 @@ export async function writeAtomic(path: string, text: string): Promise<void> {
 			await handle.writeFile(text, 'utf8');
 			try {
 				await handle.sync();
-			} catch {
-				// a filesystem that declines a flush declines it always
+			} catch (e: unknown) {
+				if (!declinesFlush(e)) {
+					throw e;
+				}
 			}
 		} finally {
 			await handle.close();
@@ -195,8 +254,10 @@ export function writeAtomicSync(path: string, text: string): void {
 			writeFileSync(fd, text);
 			try {
 				fsyncSync(fd);
-			} catch {
-				// as above
+			} catch (e: unknown) {
+				if (!declinesFlush(e)) {
+					throw e;
+				}
 			}
 		} finally {
 			closeSync(fd);

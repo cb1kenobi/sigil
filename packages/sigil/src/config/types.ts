@@ -165,6 +165,33 @@ export interface WriteOptions {
 	 * code.
 	 */
 	lossy?: boolean;
+	/**
+	 * The dotted paths of `value` this write is claiming, or nothing for all of
+	 * it.
+	 *
+	 * What it is for is the one thing re-reading buys: a store handed a whole
+	 * document and nothing else can only diff the whole of it against what it
+	 * finds, so a key **another process** changed between the read and the write
+	 * is reverted -- even one this process never touched. That is the opposite of
+	 * what the re-read is there for, and it is not a narrow window: it is every
+	 * key of the file for as long as the save takes. Found by review.
+	 *
+	 * So a caller that knows which paths are its own says so, and the store
+	 * leaves every other key exactly as the file has it. `save()` passes what
+	 * `set()`, `delete()` and the array methods recorded, which is **exact**
+	 * rather than a reconstruction -- a diff of the value against the document it
+	 * came from would guess at the same answer and get a no-op `set()` wrong.
+	 *
+	 * Omitted means the whole document, which is what a caller writing a value
+	 * straight to a store means and is the only thing `write(value)` can mean on
+	 * its own. `apply()` passes nothing for that reason: it is replace rather
+	 * than merge, so the layer it replaced is written wholesale.
+	 *
+	 * A store may ignore it, in which case its write is total -- which is a
+	 * coarser answer rather than a wrong one, and is why this is additive rather
+	 * than a second method.
+	 */
+	paths?: readonly string[];
 }
 
 /**

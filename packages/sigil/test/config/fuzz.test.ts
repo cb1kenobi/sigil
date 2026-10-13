@@ -132,7 +132,7 @@ describe('the jsonc scan, differentially', () => {
 
 			checked++;
 			if (scan.comments.length > 0) withComments++;
-			if (scan.trailingCommas) withTrailing++;
+			if (scan.trailing.length > 0) withTrailing++;
 			if (held.tricky) withTrickyString++;
 			if (held.depth > 1) nested++;
 			// the one that makes the line-count assertion above mean something: a

@@ -106,14 +106,32 @@ function look(value: unknown, where: string, seen: WeakSet<object>): string | un
 
 	seen.add(value);
 	try {
-		const entries: [string, unknown][] = list
-			? value.map((it, i) => [`${i}`, it])
-			: Object.entries(value);
+		if (list) {
+			// by index rather than through `map()`, because an array can have
+			// **holes** and every array method skips one: `[1, , 2].map()` answers a
+			// sparse array, so the walk destructured a hole and threw
+			// `undefined is not iterable` out of a function whose whole job is to
+			// name what cannot be written. `JSON.stringify` writes a hole as `null`,
+			// which is the same silent rewrite `NaN` gets and is refused the same
+			// way. Found by review, which expected it to pass rather than throw
+			for (let i = 0; i < value.length; i++) {
+				const label = where === '' ? `${i}` : `${where}.${i}`;
 
-		for (const [key, it] of entries) {
-			const inner = look(it, where === '' ? key : `${where}.${key}`, seen);
-			if (inner !== undefined) {
-				return inner;
+				if (!(i in value)) {
+					return `JSON has no hole in an array; it writes one as null (at "${label}")`;
+				}
+
+				const inner = look(value[i], label, seen);
+				if (inner !== undefined) {
+					return inner;
+				}
+			}
+		} else {
+			for (const [key, it] of Object.entries(value)) {
+				const inner = look(it, where === '' ? key : `${where}.${key}`, seen);
+				if (inner !== undefined) {
+					return inner;
+				}
 			}
 		}
 	} finally {

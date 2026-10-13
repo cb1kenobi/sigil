@@ -1667,11 +1667,23 @@ parent-directory-owner rule.
 
 Each layer's store is read again and **your changes are applied over what it
 finds**, so two invocations setting two _different_ keys both survive where a
-blind write loses one of them.
+blind write loses one of them. The paths you changed are what the store is told
+are yours — every other key in the file is left exactly as the file has it, even
+one another process wrote while the save was running.
 
 The residual race is **last-writer-wins on the same key**, documented rather
 than guarded: a lock is the only real fix, nothing has asked for one, and a
 half-guard here would read as safety and not be.
+
+A store you write to directly gets the same thing through `WriteOptions.paths`:
+
+```ts
+await store.write({ port: 9000 }, { paths: ['port'] });
+```
+
+Without it a write is total, which is the only thing `write(value)` can mean on
+its own. `apply()` passes nothing for that reason — it replaces a layer rather
+than merging into it, so the file is written wholesale.
 
 What follows is worth knowing: a layer the save re-read may come back holding
 keys it did not hold before, so `get()` can answer differently after a `save()`

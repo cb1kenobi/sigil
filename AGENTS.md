@@ -17904,11 +17904,11 @@ without destroying it is SIG-154's.
 
 - **It imports no parser module at all, and that is a test rather than a
   coincidence.** Measured as transitive static import byte weight off `dist/`:
-  **30,884 B over seven modules**, of which **9,880 B over six** is what it starts
+  **31,237 B over seven modules**, of which **9,880 B over six** is what it starts
   from -- `paths.mjs`, the `transform` chunk, which is `transform`, `i18n` and
   `debug`, the 66-byte `env-value` chunk the parser shares, and the 525-byte
   `mkdir-owner-sync` one the update cache shares. So the module itself is
-  21,004 B, and the graph is **4.1x** the root entry's 7,518 B and an **eighth**
+  21,357 B, and the graph is **4.2x** the root entry's 7,518 B and an **eighth**
   of `components.mjs`'s 239,927 B over 26 -- all three measured the
   same way, which is the only comparison that means anything. It was
   **20,649 B over six** before SIG-154, which is the write half costing about
@@ -19702,11 +19702,160 @@ control and reads as a real defect to whoever looks next.
   the harness's. **Nothing else touches the tree while a sabotage pass is
   live**, which is the same rule two writers on one output file already have.
 
+#### What the first review round found, and two of them wrote invalid output
+
+Pointed at the write half with the ticket's requirements and not the rationale.
+**Ten findings, every one confirmed against the code before anything was
+changed** -- two of them a wrong file on disk, one a guard wider than its own
+comment, two comments false about the line beside them, and two tests that could
+not fail for the reason their names gave. The shape is the one this file keeps
+recording: a round pointed at a diff finds the guards that are **missing** rather
+than the ones that are dead, which is the half a sabotage pass is blind to by
+construction.
+
+- **Emptying a container with a trailing comma wrote invalid JSON, and the
+  comment explaining why it could not was the thing that hid it.** The removal
+  entry says a container being emptied "takes every comma in it forwards, where a
+  rule about no survivors either side would leave a dangling one and write
+  invalid JSON" -- which is true of a **separator** comma and was false of a
+  **trailing** one, because a trailing comma is **blanked** by the scan. So
+  `commaAfter()` walked over it as whitespace, found nothing, and the entry was
+  removed with the comma left behind: `{ "a": 1, }` came out `{ , }`, `[1,]` came
+  out `[,]`, and this scanner then refuses both as elisions. Measured on five
+  shapes before anything was written.
+
+  The fix is the scan reporting **where** they are, because nothing else can tell
+  them apart: blanked, a trailing comma is a space to every walk over
+  `ctx.blank`, and watching `ctx.source` instead is no answer either, since a
+  comma inside a comment is a comma there too. So `JsoncScan.trailingCommas`
+  became `trailing: number[]`, which cost two tests and one fuzzer counter --
+  the boolean had exactly three readers, which is what made the widening cheap.
+
+  **And `pendingComma` is not a source offset**, which is the trap inside the
+  fix and cost one run to find: `out` holds **chunks**, because a string is
+  pushed whole, so `out.join('')` is 1:1 with the source and `out`'s own indices
+  are not. The comma of `{"a":1,}` reported as offset 4 rather than 6. The two
+  numbers are carried as **one value** so they cannot come apart, which is what
+  this file keeps choosing over two variables and a reader who has to prove they
+  agree.
+
+- **`save()`'s re-read bought nothing, because the store then diffed the whole
+  document against it.** This is the sharper of the two, and the contract it
+  breaks is `save()`'s headline: "a path this process wrote is a path that wins,
+  and every other key in the file is left exactly as the file has it". A store
+  handed a whole document and nothing else can only diff the whole of it, so a
+  key **another process** changed between `save()`'s read and the store's own was
+  **reverted** -- any key, including every one this process never touched, for as
+  long as the save took. Measured: `b` added in that window was removed, and `a`
+  changed in it was put back to what the first read saw.
+
+  So the window was the same width as a blind write's and the re-read was spent
+  on nothing, which is why `WriteOptions.paths` is the fix rather than narrowing
+  the claim. A caller says which dotted paths are its own and the store applies
+  those to what it reads, leaving every other key alone. It is **additive and
+  optional** on an options object, which is the one shape that does not break
+  every implementor -- the reason `ConfigStore` was drawn whole in the read half
+  is that adding a required method to an interface cannot be softened by a
+  default, and an options field can.
+
+  `save()` passes what `set()`, `delete()` and the array methods recorded, which
+  is **exact** rather than a reconstruction. A three-way merge computed from a
+  `base` document was the other candidate and is a _guess_ at the same answer: it
+  cannot tell a `set()` to the value a key already held from no `set()` at all,
+  and `touched` can. `apply()` passes **nothing**, which is that method's own
+  replace-rather-than-merge rule reaching the one place that can honour it -- and
+  is why the claim is `undefined` rather than every path.
+
+  `overlay()` is the one implementation of what a claimed path means, shared by
+  `#staged` and the store, because the two are the two halves of one save and two
+  copies of that loop is how they come to disagree.
+
+- **The test for that claim could not see the window, and nor could the three
+  written for the fix until the fixture was corrected.** The existing one writes
+  the other process's key **before** `save()`, so the re-read already holds it --
+  which is a real case and is the before-the-read half. The new ones interpose on
+  the store's `read()`, and the first version fired on the **first** read, which
+  is `createConfig()`'s: the concurrent write landed before the read the merge
+  stages against, so all three passed with the claim removed. Firing on the
+  **second** is what reaches the window. The fixture-cannot-reach-the-branch
+  shape, in the tests written for the finding about it.
+
+- **`statOf()` read every error as "the file is not there", under a comment
+  saying it was for a file that is not there.** So an `EPERM` or an `EIO` on the
+  target made `keepOf()` treat it as new: the mode was not carried, the chmod of
+  the previous mode was skipped, and a `0o600` config came back world-readable --
+  silently, with the open that follows very likely failing anyway but saying
+  nothing about what went wrong. Only `ENOENT` is nothing now, and `isMissing()`
+  is one predicate shared with the store's own read rather than two.
+
+- **The `fsync()` catch was wider than the documented set, which is the whole
+  point of flushing.** AGENTS.md names `EINVAL` and `EPERM`; the `catch` was bare.
+  An `EIO` or an `ENOSPC` out of `fsync()` says the bytes may **not** be on disk,
+  which is the truncated file this module exists to prevent arriving by the one
+  road it was meant to close -- so those are raised and five are swallowed, each
+  a filesystem declining the operation itself. Pinned from both sides: a declined
+  flush still writes, and a failed one throws and leaves no temp file.
+
+- **A sparse array threw a `TypeError` out of the one function whose job is to
+  name what cannot be written**, which is worse than the round expected -- it
+  predicted a silent pass. Every array method skips a hole, so
+  `[1, , 2].map((it, i) => [...])` answers a _sparse_ array and the walk
+  destructured `undefined`. `JSON.stringify` writes a hole as `null`, which is
+  the same silent rewrite `NaN` gets and is refused the same way; the walk is by
+  index now, and the test pins the refusal against what `JSON.stringify` really
+  does rather than against a sentence.
+
+- **A `\r`-only document got a `\n` spliced into it.** `LINE_END` is written for
+  exactly this -- "a `\r`-only file is rare and the failure is **silent**, which
+  is the combination worth spending four characters on" -- and the one place that
+  _writes_ a line rather than reading one had two cases where it needed three.
+  U+2028 and U+2029 are declared out: they end a line to every reader worth
+  agreeing with and nothing writes a document in them, so inserting a `\n` into
+  one is the subset this claims to be rather than a lost case.
+
+- **Two comments named the new file twice.** "It is `sigil.jsonc` now and
+  `sigil.jsonc` is still read", and "which is `sigil.jsonc` and may still be
+  `sigil.jsonc`" -- a bulk prose replace that hit the sentences about the `.json`
+  one. The body was right in both places, which is the direction that catches
+  somebody aligning the code with the comment.
+
+- **And one test's name promised something it never did.** `should keep the space
+  before a closing brace it emptied on one line` never empties a container, so it
+  could not have caught the first finding however the name reads. Renamed to the
+  claim it makes -- the container padding a removal did not own -- with the
+  emptying cases beside it.
+
+Two things the round reported and got **wrong**, which are worth recording
+because a review is a set of claims to check. It said the second read "is
+required for offsets" -- it is not: a cache would not splice at the wrong
+offsets, because the edits are computed against the same text they are applied to
+and the result is written whole. What a stale cache does is overwrite blindly,
+and the comment in `file.ts` giving offsets as the reason was false in exactly
+that way. And it listed a redundant test as worth adding, which was written and
+then **deleted**: an `apply()`-in-the-window case fails to the same two sabotages
+the pre-existing `apply()` test fails to, so it added nothing.
+
+#### What the first round's own fixes cost, measured
+
+Eighteen sabotages over the new guards, **all eighteen caught** after three
+survivors. Each survivor was a missing test rather than dead code, and each is
+one the pass could name only because the guard it was aimed at had just been
+written: `writeSync()` dropping the claim, which nothing drove synchronously;
+`statOf()` swallowing everything, which needed `statSync` made to throw; and
+`render()` validating `value` rather than the merged document, which is reachable
+only from a **direct** `write()` with a claim, because `set()` checks each value
+on the way in.
+
+Two of the eighteen are inverse pairs, which is what makes the claim two-sided
+rather than one: `paths` claiming _everything_ fails the `apply()` test where
+claiming _nothing_ fails the window tests, and `FLUSH_DECLINED` gaining `EIO`
+fails only the new test where emptying it fails only the old one.
+
 #### What the write half costs
 
-- **The config module's graph is 30,884 B over seven modules**, against 20,649 B
+- **The config module's graph is 31,237 B over seven modules**, against 20,649 B
   over six for the read half -- so the span writer, the atomic write and the
-  representability check are about 10.2 kB between them. The seventh module is the
+  representability check are about 10.6 kB between them. The seventh module is the
   `mkdir-owner-sync` chunk the update cache already shares. It still imports no
   parser module at all, which is the property the read half's own test holds and is
   why the ceiling did not move.

@@ -8,7 +8,7 @@
  * raised was never "config file or flags" but "this file or a second one". Two
  * files answering for one tool is worse than a long script line.
  *
- * It is `sigil.jsonc` now and `sigil.jsonc` is still read, for the reason
+ * It is `sigil.jsonc` now and `sigil.json` is still read, for the reason
  * `CONFIG_FILES` gives: the extension is what tells an editor that comments are
  * allowed, and a config file is exactly the file people want to annotate. This
  * repository's own is a commented `.jsonc`, which is what makes the span writer
@@ -40,7 +40,7 @@ import { existsSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 
 /**
- * The config file, which is `sigil.jsonc` and may still be `sigil.jsonc`.
+ * The config file, which is `sigil.jsonc` and may still be `sigil.json`.
  *
  * `.jsonc` first and `sigil new` writes that one, because the extension is what
  * tells an editor to allow comments -- a `.json` holding one is something VS

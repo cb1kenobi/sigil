@@ -123,8 +123,11 @@ describe('the scan', () => {
 	});
 
 	it('should report that it found a trailing comma', () => {
-		expect(scanJsonc('{"a":1,}', true, 'f').trailingCommas).to.equal(true);
-		expect(scanJsonc('{"a":1}', true, 'f').trailingCommas).to.equal(false);
+		// the offsets rather than a count, because the span writer needs to know
+		// which space in the blanked text was a comma in the source
+		expect(scanJsonc('{"a":1,}', true, 'f').trailing).to.deep.equal([6]);
+		expect(scanJsonc('{"a":1}', true, 'f').trailing).to.deep.equal([]);
+		expect(scanJsonc('{"a":[1,],"b":2,}', true, 'f').trailing).to.deep.equal([7, 15]);
 	});
 
 	it('should leave a separating comma alone', () => {

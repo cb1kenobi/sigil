@@ -11,6 +11,7 @@ import {
 	type WriteOptions,
 } from '../../src/config/index.js';
 import { editJsonc } from '../../src/config/jsonc-write.js';
+import { scanJsonc } from '../../src/config/jsonc.js';
 import { jsonCanHold } from '../../src/config/represent.js';
 import { applyEdits } from '../../src/config/spans.js';
 import {
@@ -202,9 +203,42 @@ describe('the JSONC writer', () => {
 		expect(edit(source, { b: 2 })).to.equal('{\n\t"b": 2\n}');
 	});
 
-	it('should keep the space before a closing brace it emptied on one line', () => {
+	it('should keep the container padding a removal did not own', () => {
+		// the space before the closing brace belongs to the container rather than to
+		// the entry, so it survives whichever entry goes
 		expect(edit('{ "a":1, "b":2, "c":3 }', { a: 1 })).to.equal('{ "a":1 }');
 		expect(edit('{ "a":1, "b":2, "c":3 }', { c: 3 })).to.equal('{ "c":3 }');
+	});
+
+	it('should take a trailing comma when it empties the container', () => {
+		// a trailing comma is blanked by the scan, so a forward walk over the blanked
+		// text steps straight over it -- and the entry it followed is then removed
+		// with the comma left behind. Every one of these came out with a dangling
+		// comma before the scan reported where they are: `{ , }`, `{\n\t,\n}`, `[,]`.
+		// Found by review
+		expect(edit('{ "a": 1, }', {})).to.equal('{  }');
+		expect(edit('{\n\t"a": 1,\n}', {})).to.equal('{\n}');
+		expect(edit('{ "a": 1, "b": 2, }', {})).to.equal('{  }');
+		expect(edit('[1, 2,]', [])).to.equal('[]');
+		expect(edit('{\n\t"a": [1,]\n}', { a: [] })).to.equal('{\n\t"a": []\n}');
+		expect(edit('{ "a": { "b": 1, } }', { a: {} })).to.equal('{ "a": {  } }');
+	});
+
+	it('should take a trailing comma and keep the comment in front of it', () => {
+		// the comment is what makes the gap unswallowable, so the comma is removed on
+		// its own -- which is the same rule a separator comma follows, reached through
+		// the offsets rather than through the blanked text
+		const out = edit('{ "a": 1 /* c */, }', {});
+		expect(out).to.equal('{ /* c */ }');
+		// and it is JSON once the comment is blanked, which is the claim that matters
+		expect(JSON.parse(scanJsonc(out, true, 'f').json)).to.deep.equal({});
+	});
+
+	it('should leave a trailing comma trailing where something still follows it', () => {
+		// it is the user's style rather than something to tidy away: what was the
+		// trailing comma is still the trailing comma, with a different entry in front
+		expect(edit('{\n\t"a": 1,\n\t"b": 2,\n}', { b: 2 })).to.equal('{\n\t"b": 2,\n}');
+		expect(edit('{ "a": 1, }', { b: 2 })).to.equal('{ "b": 2  }');
 	});
 
 	it('should write valid JSON where every key is replaced', () => {
@@ -350,6 +384,17 @@ describe('the JSONC writer', () => {
 		const source = '{\n\t"a": "} , //"\n}';
 		expect(edit(source, { a: '} , //', b: 1 })).to.equal('{\n\t"a": "} , //",\n\t"b": 1\n}');
 	});
+	it('should insert with the line ending the document uses, including a lone CR', () => {
+		// a `\r`-only document got a `\n` spliced into it, which is a mixed ending
+		// and is **silent** -- the combination `LINE_END` exists for, missing from
+		// the one place that writes a line rather than reads one. Found by review
+		expect(edit('{\r\t"a": 1\r}', { a: 1, b: 2 })).to.equal('{\r\t"a": 1,\r\t"b": 2\r}');
+		expect(edit('{\r\n\t"a": 1\r\n}', { a: 1, b: 2 })).to.equal('{\r\n\t"a": 1,\r\n\t"b": 2\r\n}');
+		expect(edit('{\n\t"a": 1\n}', { a: 1, b: 2 })).to.equal('{\n\t"a": 1,\n\t"b": 2\n}');
+		// CRLF wins over the lone CR inside it, which is what makes the order the
+		// rule rather than a coincidence of the test
+		expect(edit('{\r\n\t"a": 1\r\n}', { a: 1, b: 2 })).to.not.include('\r\t');
+	});
 });
 
 describe('what JSON cannot hold', () => {
@@ -406,6 +451,23 @@ describe('what JSON cannot hold', () => {
 		});
 
 		expect(() => config.set('a', Number.NaN)).toThrow(/cannot hold the value at "a".*no NaN/s);
+	});
+	it('should refuse a hole in an array, which JSON writes as null', () => {
+		// an array method skips a hole, so the walk reached one through `map()` and
+		// destructured `undefined` -- a `TypeError` out of the one function whose job
+		// is to name what cannot be written. `JSON.stringify` writes it as `null`,
+		// which is the silent rewrite `NaN` is refused for. Found by review
+		// eslint-disable-next-line no-sparse-arrays
+		const sparse = [1, , 2] as unknown[];
+
+		expect(jsonCanHold(sparse, '')).to.match(/hole in an array.*"1"/);
+		expect(jsonCanHold({ a: sparse }, 'x')).to.match(/hole in an array.*"x\.a\.1"/);
+		// and the thing it is refused for, so the refusal is pinned against what
+		// JSON really does rather than against a sentence
+		expect(JSON.stringify(sparse)).to.equal('[1,null,2]');
+		// a dense array of the same length is fine, which is what says the refusal
+		// is about the hole rather than about arrays
+		expect(jsonCanHold([1, 2, 3], '')).to.equal(true);
 	});
 });
 
@@ -572,6 +634,114 @@ describe('save', () => {
 		// and the layer holds what the file holds afterwards, which is the file
 		// being right about itself
 		expect(config.get('b')).to.equal(9);
+	});
+
+	it('should keep another process key written inside the save window', async () => {
+		// the half the test above cannot see: that one writes before `save()`, so the
+		// re-read already holds `b`. This writes *between* the read `save()` stages
+		// against and the read the store writes against, which is the only window
+		// there is -- and a store handed a whole document diffs the whole of it, so
+		// `b` was removed. Found by review
+		const path = file('c.jsonc', '{\n\t"a": 1\n}\n');
+		const store = jsonc(path);
+		let reads = 0;
+		const config = await createConfig({
+			layers: [
+				{
+					name: 'user',
+					store: {
+						...store,
+						async read() {
+							const doc = await store.read();
+							// the **second** read, which is `save()`'s: `createConfig()` reads
+							// once at construction, so firing on the first put the concurrent
+							// write before the read the merge stages against -- which is the
+							// case the test above already covers, and is why this one passed
+							// with the claim removed
+							if (reads++ === 1) {
+								writeFileSync(path, '{\n\t"a": 1,\n\t"b": 9\n}\n');
+							}
+							return doc;
+						},
+					},
+				},
+			],
+			env: {},
+		});
+
+		config.set('a', 2);
+		await config.save();
+
+		expect(readFileSync(path, 'utf8')).to.equal('{\n\t"a": 2,\n\t"b": 9\n}\n');
+	});
+
+	it('should not revert a key it never touched', async () => {
+		// the sharper half, and the one that makes the window a defect rather than a
+		// narrowing: a full diff writes back what *it* read for every key, so another
+		// process's change to a key this process never set is undone
+		const path = file('c.jsonc', '{\n\t"a": 1,\n\t"b": 1\n}\n');
+		const store = jsonc(path);
+		let reads = 0;
+		const config = await createConfig({
+			layers: [
+				{
+					name: 'user',
+					store: {
+						...store,
+						async read() {
+							const doc = await store.read();
+							// the **second** read, which is `save()`'s: `createConfig()` reads
+							// once at construction, so firing on the first put the concurrent
+							// write before the read the merge stages against -- which is the
+							// case the test above already covers, and is why this one passed
+							// with the claim removed
+							if (reads++ === 1) {
+								writeFileSync(path, '{\n\t"a": 5,\n\t"b": 1\n}\n');
+							}
+							return doc;
+						},
+					},
+				},
+			],
+			env: {},
+		});
+
+		config.set('b', 2);
+		await config.save();
+
+		expect(readFileSync(path, 'utf8')).to.equal('{\n\t"a": 5,\n\t"b": 2\n}\n');
+	});
+
+	it('should claim its paths from saveSync() too, which is a second write path', () => {
+		// two real implementations of one loop, so the claim has to be passed in both
+		// -- and `writeSync()` dropping it survived every test here, because nothing
+		// drove the window synchronously
+		const path = file('c.jsonc', '{\n\t"a": 1\n}\n');
+		const store = jsonc(path);
+		let reads = 0;
+		const config = createConfigSync({
+			layers: [
+				{
+					name: 'user',
+					store: {
+						...store,
+						readSync() {
+							const doc = store.readSync();
+							if (reads++ === 1) {
+								writeFileSync(path, '{\n\t"a": 1,\n\t"b": 9\n}\n');
+							}
+							return doc;
+						},
+					},
+				},
+			],
+			env: {},
+		});
+
+		config.set('a', 2);
+		config.saveSync();
+
+		expect(readFileSync(path, 'utf8')).to.equal('{\n\t"a": 2,\n\t"b": 9\n}\n');
 	});
 
 	it('should let the last writer win on one key, which is documented rather than guarded', async () => {
@@ -879,10 +1049,44 @@ describe('the lossless rule', () => {
 });
 
 describe('writing a store directly', () => {
+	it('should take only the paths it was given, leaving every other key alone', async () => {
+		// `WriteOptions.paths` is published, so a caller reaching a store directly
+		// gets the same three-way merge `save()` does -- and a write with no claim is
+		// total, which is the only thing `write(value)` can mean on its own
+		const path = file('c.jsonc', '{\n\t// kept\n\t"a": 1,\n\t"b": 2\n}\n');
+		const store = jsonc(path);
+
+		await store.write({ a: 9 }, { paths: ['a'] });
+		expect(readFileSync(path, 'utf8')).to.equal('{\n\t// kept\n\t"a": 9,\n\t"b": 2\n}\n');
+
+		store.writeSync({ a: 9 }, { paths: ['b'] });
+		expect(readFileSync(path, 'utf8')).to.equal('{\n\t// kept\n\t"a": 9\n}\n');
+
+		await store.write({ a: 1 });
+		expect(readFileSync(path, 'utf8')).to.equal('{\n\t// kept\n\t"a": 1\n}\n');
+	});
+
+	it('should ask what JSON can hold of the merged document rather than of the value', async () => {
+		// a part of `value` this write is not claiming is a part it never writes, so
+		// refusing over it would be a guard firing on correct code. Reachable only
+		// from a direct `write()`, because `set()` checks each value on the way in
+		const path = file('c.jsonc', '{\n\t"a": 1\n}\n');
+		const store = jsonc(path);
+
+		await store.write({ a: 2, b: Number.NaN }, { paths: ['a'] });
+		expect(readFileSync(path, 'utf8')).to.equal('{\n\t"a": 2\n}\n');
+
+		// and the claimed path is still checked, which is what says the narrowing is
+		// about what is written rather than about checking less
+		await expect(store.write({ a: Number.NaN }, { paths: ['a'] })).rejects.toThrow(
+			/JSON has no NaN/
+		);
+	});
+
 	it('should work with nothing having read it first', async () => {
 		// public API, so it reads the current bytes itself rather than keeping them
-		// from the last `read()`: a cache would splice at the wrong offsets the
-		// moment the file moved under it
+		// from the last `read()` -- which is what makes the read the merge is against
+		// the same read the edit is computed from
 		const path = file('c.jsonc', '{\n\t// kept\n\t"a": 1\n}\n');
 		const store = jsonc(path);
 

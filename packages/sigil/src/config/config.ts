@@ -1,6 +1,6 @@
 import { __ } from '../i18n/index.js';
 import { deletePath, isPlainObject, readPath, segments, writePath } from './dotted.js';
-import { copyDocument, copyValue, deepFreeze, mergeLayers } from './merge.js';
+import { copyDocument, copyValue, deepFreeze, mergeLayers, overlay } from './merge.js';
 import { coerceLayer, concatPaths, defaultsOf, envOf, readSchema, type Setting } from './schema.js';
 import type {
 	ConfigDocument,
@@ -328,7 +328,15 @@ export class Config {
 	 * process wrote is a path that wins, and every other key in the file is left
 	 * exactly as the file has it.
 	 *
-	 * The residual race is **last-writer-wins on the same key**, documented
+	 * The claimed paths are handed to the store, which is what makes that last
+	 * sentence true rather than nearly true. A store given a whole document and
+	 * nothing else can only diff the whole of it against what it reads, so a key
+	 * **another process** changed between this read and the store's own was
+	 * reverted -- any key, including every one this process never touched, for as
+	 * long as the save took. Found by review, and closed by `WriteOptions.paths`
+	 * rather than by narrowing the claim.
+	 *
+	 * The residual race is then **last-writer-wins on the same key**, documented
 	 * rather than guarded: a lock is the only real fix, nothing has asked for
 	 * one, and a half-guard here would read as safety and not be.
 	 *
@@ -374,7 +382,10 @@ export class Config {
 		for (const layer of this.#targets(which)) {
 			const doc = await layer.declared.store.read();
 			const next = this.#staged(layer, doc, how);
-			await (layer.declared.store as WritableConfigStore).write(next.write, how);
+			await (layer.declared.store as WritableConfigStore).write(next.write, {
+				...how,
+				paths: next.paths,
+			});
 			this.#saved(layer, next.hold);
 			written.push(layer.name);
 		}
@@ -408,7 +419,10 @@ export class Config {
 		for (const layer of this.#targets(which)) {
 			const doc = layer.declared.store.readSync();
 			const next = this.#staged(layer, doc, how);
-			(layer.declared.store as WritableConfigStore).writeSync(next.write, how);
+			(layer.declared.store as WritableConfigStore).writeSync(next.write, {
+				...how,
+				paths: next.paths,
+			});
 			this.#saved(layer, next.hold);
 			written.push(layer.name);
 		}
@@ -637,7 +651,11 @@ export class Config {
 		layer: Layer,
 		doc: ConfigDocument,
 		opts: WriteOptions
-	): { hold: Record<string, unknown>; write: Record<string, unknown> } {
+	): {
+		hold: Record<string, unknown>;
+		paths: readonly string[] | undefined;
+		write: Record<string, unknown>;
+	} {
 		this.#assertLossless(layer, doc, opts);
 
 		const read = doc.value ?? {};
@@ -655,26 +673,18 @@ export class Config {
 			layer.touched.has('') ? copyDocument(layer.value, layer.name) : copyDocument(read, layer.name)
 		) as Record<string, unknown>;
 
-		for (const path of layer.touched) {
-			const parts = segments(path);
-
-			if (parts.length === 0) {
-				continue;
-			}
-
-			const mine = readPath(layer.value, parts);
-
-			if (mine === undefined) {
-				deletePath(write, parts);
-			} else {
-				writePath(write, parts, copyDocument(mine, layer.name));
-			}
-		}
+		overlay(write, layer.value, layer.touched, layer.name);
 
 		const hold = copyValue(write, layer.name) as Record<string, unknown>;
 		coerceLayer(hold, this.#settings, layer.name);
 
-		return { hold, write };
+		// what the store is told is its own, and `undefined` where the layer was
+		// replaced: `apply()` is wholesale, so the other process's keys are not
+		// honoured and the store diffs the whole document. Which is that method's
+		// own rule reaching the one place that can honour it
+		const paths = layer.touched.has('') ? undefined : [...layer.touched];
+
+		return { hold, paths, write };
 	}
 
 	/**

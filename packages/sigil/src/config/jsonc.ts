@@ -39,8 +39,17 @@ export interface JsoncScan {
 	comments: JsoncComment[];
 	/** The source with its comments and trailing commas blanked out. */
 	json: string;
-	/** Whether a trailing comma was found. */
-	trailingCommas: boolean;
+	/**
+	 * Where the trailing commas were, as offsets into the source.
+	 *
+	 * Offsets rather than a count, because the span writer needs them and is the
+	 * only thing that can: a trailing comma is **blanked** here, so it is a space
+	 * in `json` and a comma in the source, and nothing reading either text on its
+	 * own can tell it from a comma inside a comment. Found by review, over a
+	 * container whose every key was removed and whose trailing comma was then
+	 * left with nothing in front of it -- `{ , }`, which is not JSON.
+	 */
+	trailing: number[];
 }
 
 /** The byte order mark, which `JSON.parse` refuses and an editor writes. */
@@ -67,12 +76,20 @@ export function scanJsonc(text: string, allow: boolean, what: string): JsoncScan
 
 	const out: string[] = [];
 	const comments: JsoncComment[] = [];
-	let trailingCommas = false;
+	const trailing: number[] = [];
 
 	// where the last comma was written, so that a `}` or `]` reached with nothing
-	// but trivia in between can go back and blank it. `-1` is "no comma is
-	// pending", which every value, key and brace resets it to
-	let pendingComma = -1;
+	// but trivia in between can go back and blank it. `undefined` is "no comma is
+	// pending", which every value, key and brace resets it to.
+	//
+	// It carries two numbers because `out`'s index is **not** a source offset: a
+	// string is pushed whole, so one element can be many characters --
+	// `out.join('')` is 1:1 with the source and `out` itself is not. `out` is
+	// what gets blanked and `at` is what `trailing` reports, and conflating them
+	// read the comma of `{"a":1,}` as offset 4 rather than 6. One value rather
+	// than two, so the pair cannot come apart: `at` is only ever read where the
+	// index is live, and two variables would leave a reader to prove that
+	let pending: { at: number; out: number } | undefined;
 
 	// the last character that was not trivia, because a trailing comma is one
 	// that *separated* something: after an opener or another comma there is
@@ -123,7 +140,7 @@ export function scanJsonc(text: string, allow: boolean, what: string): JsoncScan
 			// exactly the case `closed` is false for
 			i = Math.min(i, source.length);
 			out.push(source.slice(start, i));
-			pendingComma = -1;
+			pending = undefined;
 			last = '"';
 			continue;
 		}
@@ -167,7 +184,10 @@ export function scanJsonc(text: string, allow: boolean, what: string): JsoncScan
 
 		if (c === ',') {
 			// armed only where something precedes it to have been separated
-			pendingComma = last === '' || last === '[' || last === '{' || last === ',' ? -1 : out.length;
+			pending =
+				last === '' || last === '[' || last === '{' || last === ','
+					? undefined
+					: { at: i, out: out.length };
 			out.push(c);
 			last = c;
 			i++;
@@ -175,16 +195,16 @@ export function scanJsonc(text: string, allow: boolean, what: string): JsoncScan
 		}
 
 		if (c === '}' || c === ']') {
-			if (pendingComma !== -1) {
+			if (pending !== undefined) {
 				if (!allow) {
 					throw new Error(
 						__`Trailing commas are not allowed in ${what}, on line ${lineAt(source, i)}`
 					);
 				}
-				out[pendingComma] = ' ';
-				trailingCommas = true;
+				out[pending.out] = ' ';
+				trailing.push(pending.at);
 			}
-			pendingComma = -1;
+			pending = undefined;
 			out.push(c);
 			last = c;
 			i++;
@@ -195,7 +215,7 @@ export function scanJsonc(text: string, allow: boolean, what: string): JsoncScan
 		// closing brace; anything else is a value, which means the comma was a
 		// separator rather than a trailing one
 		if (c !== ' ' && c !== '\t' && c !== '\n' && c !== '\r') {
-			pendingComma = -1;
+			pending = undefined;
 			last = c;
 		}
 
@@ -203,7 +223,7 @@ export function scanJsonc(text: string, allow: boolean, what: string): JsoncScan
 		i++;
 	}
 
-	return { comments, json: out.join(''), trailingCommas };
+	return { comments, json: out.join(''), trailing };
 }
 
 /**

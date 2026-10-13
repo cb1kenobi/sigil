@@ -1,5 +1,5 @@
 import { __ } from '../i18n/index.js';
-import { isPlainObject, isUnsafeKey } from './dotted.js';
+import { deletePath, isPlainObject, isUnsafeKey, readPath, segments, writePath } from './dotted.js';
 
 /**
  * Copies the structure of a value, and optionally refuses an unsafe key in it.
@@ -276,4 +276,52 @@ export function deepFreeze<T>(value: T): T {
 	}
 
 	return value;
+}
+
+/**
+ * Writes the values at a set of dotted paths from one document into another.
+ *
+ * The three-way merge, said as the only thing it needs to be: the paths are
+ * what this process claimed, `from` is what it holds at them, and `into` is
+ * whatever the file turned out to hold -- so every key neither names is left
+ * exactly as the file has it. A path that is absent in `from` is a deletion,
+ * which is what `delete()` recorded and what `undefined` means everywhere else
+ * in this module.
+ *
+ * One implementation because there are two callers and they are the two halves
+ * of one save: `Config` overlays this process's changes onto what it read, and
+ * the store overlays them again onto what it reads at write time. Two copies of
+ * this loop is how the two come to disagree about what a claimed path means.
+ *
+ * An empty path is skipped rather than refused, because it is how `apply()`
+ * says "the whole layer" -- which is a wholesale write and so reaches no
+ * overlay at all.
+ *
+ * @param into - The document to write into, which is modified.
+ * @param from - The document to read the claimed values out of.
+ * @param paths - The dotted paths that are the caller's.
+ * @param where - The layer or file, for a message.
+ * @throws If a path cannot mean anything, or a value cannot be copied.
+ */
+export function overlay(
+	into: Record<string, unknown>,
+	from: unknown,
+	paths: Iterable<string>,
+	where: string
+): void {
+	for (const path of paths) {
+		const parts = segments(path);
+
+		if (parts.length === 0) {
+			continue;
+		}
+
+		const mine = readPath(from, parts);
+
+		if (mine === undefined) {
+			deletePath(into, parts);
+		} else {
+			writePath(into, parts, copyDocument(mine, where));
+		}
+	}
 }

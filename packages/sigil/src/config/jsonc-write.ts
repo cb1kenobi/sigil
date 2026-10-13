@@ -91,6 +91,17 @@ interface Ctx {
 	readonly source: string;
 	/** One level of indentation, as this document writes it. */
 	readonly step: string;
+	/**
+	 * Where the source's trailing commas are, which `blank` cannot say.
+	 *
+	 * The scan blanks one to a space, so it is whitespace to every walk over the
+	 * blanked text -- and a comma in the source, which is why watching the source
+	 * instead is no answer either: a comma inside a comment is a comma there too.
+	 * So the scan reports the offsets and this is the only thing that can use
+	 * them. Found by review, over a container whose every entry was removed and
+	 * whose trailing comma was then left with nothing in front of it.
+	 */
+	readonly trailing: ReadonlySet<number>;
 }
 
 /** What `editJsonc()` takes beyond the two values. */
@@ -286,14 +297,23 @@ function member(key: string, value: unknown, indent: string, ctx: Ctx): string {
  * survive: a comment is whitespace there, so the scan walks past it and finds
  * the comma, and the removal below then takes the comma without the comment.
  *
+ * A **trailing** comma is blanked as well, so the walk cannot use `skipSpace()`
+ * -- it would step straight over the one character it is looking for. The scan's
+ * own offsets are what tell the two apart, and without them a container being
+ * emptied left its trailing comma behind: `{ "a": 1, }` came out `{ , }`, which
+ * is not JSON and which this scanner then refuses as an elision.
+ *
  * @param ctx - The texts.
  * @param from - Just past the entry.
  * @param limit - The closing brace, which bounds the search.
  * @returns The comma's offset, or `-1`.
  */
 function commaAfter(ctx: Ctx, from: number, limit: number): number {
-	const at = skipSpace(ctx.blank, from);
-	return at < limit && ctx.blank[at] === ',' ? at : -1;
+	let at = from;
+	while (at < limit && !ctx.trailing.has(at) && isSpace(ctx.blank[at])) {
+		at++;
+	}
+	return at < limit && (ctx.blank[at] === ',' || ctx.trailing.has(at)) ? at : -1;
 }
 
 /**
@@ -516,7 +536,11 @@ function insertInto(
  * **follows** it, and only one with no survivor after it and a survivor before
  * it reaches backwards instead -- which means a container being emptied takes
  * every comma in it forwards, where a rule about "no survivors either side"
- * would leave a dangling one and write invalid JSON.
+ * would leave a dangling one and write invalid JSON. That is true of a
+ * **separator** comma and of a **trailing** one, and it was true of the first
+ * alone until a review round: a trailing comma is blanked, so the forward walk
+ * stepped over it and the emptied container kept it. `commaAfter()` is where
+ * that is closed.
  *
  * The gap between the entry and its comma is swallowed when it is whitespace
  * and left alone when it is not, which is what keeps a comment that sits there
@@ -757,10 +781,17 @@ export function editJsonc(source: string, next: unknown, opts: EditOptions): str
 	const ctx: Ctx = {
 		blank: scan.json,
 		edits: [],
-		// the document's own line ending, so an inserted line does not mix them
-		eol: source.includes('\r\n') ? '\r\n' : '\n',
+		// the document's own line ending, so an inserted line does not mix them.
+		// Three rather than two: a `\r`-only document is rare and a mixed ending is
+		// **silent**, which is the combination `LINE_END` is written for and which
+		// a review round found this half of. U+2028 and U+2029 are deliberately not
+		// here -- they end a line to every reader worth agreeing with and nothing
+		// writes a document in them, so inserting a `\n` into one is the subset
+		// this claims to be rather than a lost case
+		eol: source.includes('\r\n') ? '\r\n' : source.includes('\r') ? '\r' : '\n',
 		source,
 		step: detectStep(source, root),
+		trailing: new Set(scan.trailing),
 	};
 
 	diffNode(ctx, root, current, next);

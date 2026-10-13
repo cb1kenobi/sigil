@@ -28,7 +28,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const calls: string[] = [];
 
 /** Which call should fail next, so that the cleanup path is reachable. */
-let fail: 'close' | 'fsync' | 'rename' | undefined;
+let fail: 'close' | 'fsync' | 'fsync-io' | 'rename' | 'stat' | undefined;
 
 vi.mock('node:fs', async (importOriginal) => {
 	const real = await importOriginal<typeof import('node:fs')>();
@@ -46,6 +46,12 @@ vi.mock('node:fs', async (importOriginal) => {
 			}
 		},
 		fsyncSync(fd: number): void {
+			if (fail === 'fsync-io') {
+				// a flush that failed rather than a filesystem that does not flush: the
+				// bytes may not be on disk, which is the truncated file this module
+				// exists to prevent arriving by the one road it was meant to close
+				throw Object.assign(new Error('EIO'), { code: 'EIO' });
+			}
 			if (fail === 'fsync') {
 				// what a network mount or a container layer answers, and what every
 				// atomic writer swallows: failing a save over a durability hint the
@@ -53,6 +59,12 @@ vi.mock('node:fs', async (importOriginal) => {
 				throw Object.assign(new Error('EINVAL'), { code: 'EINVAL' });
 			}
 			real.fsyncSync(fd);
+		},
+		statSync(path: string, opts?: unknown): unknown {
+			if (fail === 'stat') {
+				throw Object.assign(new Error('EPERM'), { code: 'EPERM' });
+			}
+			return (real.statSync as (p: string, o?: unknown) => unknown)(path, opts);
 		},
 		openSync(path: string, flags: string, mode?: number): number {
 			calls.push(`open ${path}`);
@@ -165,5 +177,33 @@ describe('where the temp file goes', () => {
 
 		writeAtomicSync(path, 'new');
 		expect(readFileSync(path, 'utf8')).to.equal('new');
+	});
+});
+
+describe('what a failed stat and a failed flush mean', () => {
+	it('should raise a stat that failed for a reason other than the file missing', () => {
+		// a bare `catch` read an `EPERM` or an `EIO` as a file that is not there, so
+		// the mode of a file that **is** there was silently not carried and a `0o600`
+		// config came back world-readable. Only `ENOENT` is nothing. Found by review
+		const path = join(root, 'c.jsonc');
+		writeFileSync(path, '{}\n');
+		fail = 'stat';
+
+		expect(() => writeAtomicSync(path, 'x')).toThrow(/EPERM/);
+		// and nothing was opened, so there is no temp file to clean up either
+		expect(calls).to.deep.equal([]);
+	});
+
+	it('should raise a flush that failed rather than one the filesystem declined', () => {
+		// the difference is the whole point of flushing: an `EIO` says the bytes may
+		// not be on disk, which is the truncated file this exists to prevent. The
+		// `EINVAL` case above is a filesystem that does not flush at all
+		const path = join(root, 'c.jsonc');
+		fail = 'fsync-io';
+
+		expect(() => writeAtomicSync(path, 'x')).toThrow(/EIO/);
+		// and the temp file is gone, so a failed flush leaves nothing behind
+		expect(calls.filter((it) => it.startsWith('unlink '))).to.have.length(1);
+		expect(readdirSync(root)).to.deep.equal([]);
 	});
 });
