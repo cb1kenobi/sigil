@@ -293,21 +293,31 @@ export function deepFreeze<T>(value: T): T {
  * the store overlays them again onto what it reads at write time. Two copies of
  * this loop is how the two come to disagree about what a claimed path means.
  *
- * An empty path is skipped rather than refused, because it is how `apply()`
- * says "the whole layer" -- which is a wholesale write and so reaches no
- * overlay at all.
+ * An empty path is skipped because `segments('')` is no segments, which is the
+ * whole document and not a path into it -- `Config.#staged` really does hand
+ * `''` over, since `apply()` puts it in `touched`, and what stops that reaching
+ * a write is `#staged` claiming **no** paths rather than anything here. The
+ * consequence for a caller is that `write(value, { paths: [''] })` claims
+ * nothing at all; `save()` never passes it.
  *
- * A claimed path whose ancestor in `into` is **not** an object replaces it, and
- * that is deliberately the opposite of what `set()` does. `Config.#assertWritable`
- * refuses `set('a.b', 9)` where this layer's own `a` is a scalar, because the
- * caller is there and can fix it; here `a` is a scalar because **another
- * process** made it one between the read and the write, and the alternatives are
- * worse -- refusing fails a save over somebody else's edit, and dropping the
- * claim loses this process's write in silence. So the claim wins, which is the
- * documented last-writer-wins read at the one place the two keys are nested
- * rather than equal. Aligning this with `set()` would reintroduce the first of
- * those, which is why the asymmetry is written down rather than left to look
- * like an oversight.
+ * A claimed path whose ancestor in `into` is there and is **not** an object is
+ * refused, which is `Config.#assertWritable`'s own rule at the second door. One
+ * direct call -- `write({ items: { 0: 9 } }, { paths: ['items.0'] })` over
+ * `{ "items": [1, 2, 3] }` -- replaced the array with `{ "0": 9 }` and lost three
+ * elements, which is the input `set()` already refuses, reaching a file through a
+ * door that answered differently for no reason. Found by review.
+ *
+ * Refusing rather than replacing, even where the ancestor is a scalar **another
+ * process** wrote in the save window: the save throws before anything is written,
+ * the user is told which path changed shape, and a re-run reads the new shape and
+ * refuses at `set()` with the same message. The two alternatives both lose
+ * something -- replacing destroys a structure nobody claimed, and dropping the
+ * claim loses this process's write in silence.
+ *
+ * An ancestor that is **absent** is created, which is what makes a claim on a key
+ * the file says nothing about work at all -- and `null` reaches here as absent,
+ * because that is what `null` means everywhere else in this module. So the
+ * condition is "there and not an object", which is the one `set()` asks.
  *
  * @param into - The document to write into, which is modified.
  * @param from - The document to read the claimed values out of.
@@ -332,8 +342,27 @@ export function overlay(
 
 		if (mine === undefined) {
 			deletePath(into, parts);
-		} else {
-			writePath(into, parts, copyDocument(mine, where));
+			continue;
 		}
+
+		// the ancestors, before anything is written: `writePath()` replaces a
+		// non-object on the way down, which for an array is three elements gone
+		let at: unknown = into;
+
+		for (const [i, part] of parts.slice(0, -1).entries()) {
+			at = isPlainObject(at) && Object.hasOwn(at, part) ? at[part] : undefined;
+
+			// `null` is absent, because that is what it means everywhere in this
+			// module -- and the two callers would otherwise disagree about it:
+			// `#staged` overlays a `copyDocument()` with its nulls already dropped,
+			// while the store overlays the **parsed** file, where one survives.
+			// Copying there is not the fix: it would drop a `null` the file holds for
+			// a key nobody claimed, and `editJsonc` would then remove it
+			if (at !== undefined && at !== null && !isPlainObject(at)) {
+				throw new Error(__`"${parts.slice(0, i + 1).join('.')}" in ${where} is not an object`);
+			}
+		}
+
+		writePath(into, parts, copyDocument(mine, where));
 	}
 }

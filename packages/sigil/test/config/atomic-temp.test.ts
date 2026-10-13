@@ -28,7 +28,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const calls: string[] = [];
 
 /** Which call should fail next, so that the cleanup path is reachable. */
-let fail: 'close' | 'fsync' | 'fsync-io' | 'rename' | 'stat' | undefined;
+let fail: 'close' | 'fsync' | 'rename' | 'stat' | undefined;
+
+/** The code `fsync()` fails with, because *which* codes are swallowed is the claim. */
+let flushCode = 'EINVAL';
 
 vi.mock('node:fs', async (importOriginal) => {
 	const real = await importOriginal<typeof import('node:fs')>();
@@ -46,17 +49,14 @@ vi.mock('node:fs', async (importOriginal) => {
 			}
 		},
 		fsyncSync(fd: number): void {
-			if (fail === 'fsync-io') {
-				// a flush that failed rather than a filesystem that does not flush: the
-				// bytes may not be on disk, which is the truncated file this module
-				// exists to prevent arriving by the one road it was meant to close
-				throw Object.assign(new Error('EIO'), { code: 'EIO' });
-			}
 			if (fail === 'fsync') {
-				// what a network mount or a container layer answers, and what every
-				// atomic writer swallows: failing a save over a durability hint the
-				// kernel declined is refusing to write a file that would have written
-				throw Object.assign(new Error('EINVAL'), { code: 'EINVAL' });
+				// the code is the test's, because *which* ones are swallowed is the
+				// whole claim: a filesystem declining the operation answers `EINVAL`
+				// from a network mount, and a flush that **failed** answers `EIO` --
+				// where the bytes may not be on disk, which is the truncated file this
+				// module exists to prevent arriving by the one road it was meant to
+				// close
+				throw Object.assign(new Error(flushCode), { code: flushCode });
 			}
 			real.fsyncSync(fd);
 		},
@@ -91,6 +91,7 @@ let root: string;
 beforeEach(() => {
 	calls.length = 0;
 	fail = undefined;
+	flushCode = 'EINVAL';
 	root = mkdtempSync(join(tmpdir(), 'sigil-atomic-'));
 });
 
@@ -169,15 +170,22 @@ describe('where the temp file goes', () => {
 		expect(calls.filter((it) => it.startsWith('chown '))).to.deep.equal([]);
 	});
 
-	it('should write anyway where the filesystem declined to flush', () => {
-		// swallowed, because the filesystems that refuse one refuse it always:
-		// `EINVAL` is what a network mount answers
-		const path = join(root, 'c.jsonc');
-		fail = 'fsync';
+	it.each(['EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EPERM'])(
+		'should write anyway where the filesystem declined to flush with %s',
+		(code) => {
+			// swallowed, because a filesystem that refuses one refuses it always:
+			// `EINVAL` is what a network mount answers. Each of the five rather than
+			// the one, because the **set** is the claim -- four of them were in it and
+			// pinned by nothing, so cutting it back to `EINVAL` failed no test while
+			// turning a declined flush into a failed save. Found by review
+			const path = join(root, 'c.jsonc');
+			fail = 'fsync';
+			flushCode = code;
 
-		writeAtomicSync(path, 'new');
-		expect(readFileSync(path, 'utf8')).to.equal('new');
-	});
+			writeAtomicSync(path, 'new');
+			expect(readFileSync(path, 'utf8')).to.equal('new');
+		}
+	);
 });
 
 describe('what a failed stat and a failed flush mean', () => {
@@ -194,16 +202,21 @@ describe('what a failed stat and a failed flush mean', () => {
 		expect(calls).to.deep.equal([]);
 	});
 
-	it('should raise a flush that failed rather than one the filesystem declined', () => {
-		// the difference is the whole point of flushing: an `EIO` says the bytes may
-		// not be on disk, which is the truncated file this exists to prevent. The
-		// `EINVAL` case above is a filesystem that does not flush at all
-		const path = join(root, 'c.jsonc');
-		fail = 'fsync-io';
+	it.each(['EIO', 'ENOSPC', 'EDQUOT'])(
+		'should raise a flush that failed with %s rather than one declined',
+		(code) => {
+			// the difference is the whole point of flushing: an `EIO` says the bytes
+			// may not be on disk, which is the truncated file this exists to prevent.
+			// The five declined codes above are a filesystem that does not flush at
+			// all, and each of those is pinned too -- the set *is* the claim
+			const path = join(root, 'c.jsonc');
+			fail = 'fsync';
+			flushCode = code;
 
-		expect(() => writeAtomicSync(path, 'x')).toThrow(/EIO/);
-		// and the temp file is gone, so a failed flush leaves nothing behind
-		expect(calls.filter((it) => it.startsWith('unlink '))).to.have.length(1);
-		expect(readdirSync(root)).to.deep.equal([]);
-	});
+			expect(() => writeAtomicSync(path, 'x')).toThrow(new RegExp(code));
+			// and the temp file is gone, so a failed flush leaves nothing behind
+			expect(calls.filter((it) => it.startsWith('unlink '))).to.have.length(1);
+			expect(readdirSync(root)).to.deep.equal([]);
+		}
+	);
 });

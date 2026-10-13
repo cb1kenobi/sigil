@@ -19976,12 +19976,18 @@ What it found is **three** things, and the first is the sharpest kind there is.
 - **A claimed path replaces a non-object ancestor the file holds, and `set()`
   refuses one.** `set('a.b', 9)` where this layer's own `a` is a scalar is
   `"a" in user is not an object`; where the **file**'s `a` became one in the save
-  window, the overlay writes `{ b: 9 }` over it. That asymmetry is right -- at
-  `set()` the caller is there and can fix it, and at save time refusing fails a
-  save over somebody else's edit while dropping the claim loses this process's
-  write in silence -- and it was undocumented, so aligning the two would have
-  looked like tidying. Written down on `overlay()` and pinned both ways in one
-  test.
+  window, the overlay wrote `{ b: 9 }` over it. This pass called that asymmetry
+  **right** -- at `set()` the caller is there and can fix it, and at save time
+  refusing fails a save over somebody else's edit while dropping the claim loses
+  this process's write in silence -- and documented it as a decision.
+
+  **That was wrong, and the round below overturned it.** Its input has no
+  concurrency in it at all, which is the thing this probe missed by reaching for
+  the save window: one direct `write()` with a claim destroys an array, and a
+  refusal is actionable where this argument assumed it was not. The entry below
+  has it; what is kept here is that a narrower probe of the right mechanism can
+  turn a defect into a recorded decision, which is the one failure mode a pass
+  by the code's own author has that a round does not.
 
 - **The fuzzer could not see a wrong offset at all.** It is the only exhaustive
   check on the scanner and it asserts `JSON.parse(scan.json)`, which is the
@@ -20015,6 +20021,81 @@ a missing positive.
 
 Three sabotages over the three fixes, all three caught once the blunt one was
 sharpened.
+
+#### What the third review round found, and the entry above it was wrong
+
+Pointed at the same two things the pass above was -- the guards the first two
+rounds added, and the test bodies round 2 said it had not read. It found **five**,
+and the first one **overturns a decision the entry above records as correct**,
+which is the most useful thing a round has done here: that pass met the same
+mechanism, probed a narrower input, and wrote the asymmetry down as a decision.
+
+- **A claimed path replaced a non-object ancestor, and the asymmetry with
+  `set()` is a defect rather than a decision.** The entry above found it with a
+  **scalar** that another process wrote in the save window, and argued the claim
+  should win: refusing fails a save over somebody else's edit, dropping it loses
+  this process's write. The round's input has **no concurrency in it at all** --
+  `write({ items: { 0: 9 } }, { paths: ['items.0'] })` over
+  `{ "items": [1, 2, 3] }`, one call, one file -- and comes out
+  `{ "items": { "0": 9 } }` with three elements gone. Which is the input `set()`
+  already refuses, reaching a file through a door that answered differently for
+  no reason.
+
+  So it is refused, and the scalar case with it. What the first argument missed is
+  that a refusal here is **actionable**: nothing is written, the message names the
+  path that changed shape, and a re-run reads the new shape and refuses at `set()`
+  with the same words. Replacing destroys a structure nobody claimed; dropping the
+  claim loses a write in silence; refusing loses neither and says so. The test
+  that asserted the old answer was rewritten rather than deleted, because the
+  decision moved rather than the behaviour being untested.
+
+  Two inputs the refusal must not take with it, and one of them parted the two
+  callers. An **absent** ancestor is created, which is what makes a claim on a key
+  the file says nothing about work at all. And a **`null`** one is absent, because
+  that is what `null` means everywhere in this module -- which is where the two
+  doors disagreed: `#staged` overlays a `copyDocument()` with its nulls already
+  dropped, while the store overlays the **parsed** file, where one survives. So
+  the condition is "there, not null, and not an object". Copying in the store is
+  not the fix and was tried: it drops a `null` the file holds for a key nobody
+  claimed, and `editJsonc` then removes it.
+
+- **`writePath()`'s own doc gave refusing as the alternative and said it "would
+  make a `set()` fail over what some other layer happens to hold".** False of
+  `set()` when it was written -- `#assertWritable()` already refused -- and it was
+  the leftover rationale for the replace that then reached a file through
+  `overlay()`. Both callers refuse now, so the replace below it is unreachable
+  from either and the doc says that instead.
+
+- **`overlay()`'s own empty-path comment contradicted `#staged`.** It said `''`
+  is skipped because `apply()` is wholesale and "reaches no overlay at all" --
+  and `#staged` really does hand `''` over, since `apply()` puts it in `touched`.
+  What stops it reaching a write is `#staged` claiming **no** paths. The
+  consequence for a caller is now written down and pinned:
+  `write(value, { paths: [''] })` claims nothing at all.
+
+- **`FLUSH_DECLINED` was five codes and one of them was pinned.** Cutting the set
+  back to `EINVAL` failed no test, so four of the five were a list nobody could
+  change by accident and nobody could change on purpose either -- and what that
+  turns into is a declined flush becoming a failed save. Both halves are walks
+  now: five declined codes each swallowed, and `EIO`, `ENOSPC` and `EDQUOT` each
+  raised with the temp file gone. The mock takes the code from the test, because
+  _which_ ones are swallowed is the whole claim.
+
+- **A test's name claimed more than its second fixture showed.** `should leave a
+  trailing comma trailing where something still follows it` asserted
+  `{ "a": 1, }` -> `{ "b": 2  }`, which has **no** trailing comma -- so the one
+  shape that does not keep it was sitting under the name that says it does. It is
+  two tests, and the second says what it is: the comma followed the only entry
+  there was, that entry is gone, and there is nothing left for it to be trailing
+  of.
+
+Its three "Unsure" items were each a gap rather than a defect and each got a
+test: a claim over a **nested** object parent, which every other claim test here
+reached at the top level only; the `fresh` branch with a claim, which overlays
+onto an empty document; and the comment-after-comma shape for the emptying.
+Seven sabotages over the five fixes, **all seven caught** -- including both
+inverse directions of the ancestor condition, which is what makes "there, not
+null, and not an object" three claims rather than one.
 
 #### What the write half costs
 

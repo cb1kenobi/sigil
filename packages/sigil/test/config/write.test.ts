@@ -238,7 +238,20 @@ describe('the JSONC writer', () => {
 		// it is the user's style rather than something to tidy away: what was the
 		// trailing comma is still the trailing comma, with a different entry in front
 		expect(edit('{\n\t"a": 1,\n\t"b": 2,\n}', { b: 2 })).to.equal('{\n\t"b": 2,\n}');
+		expect(edit('[1, 2,]', [2])).to.equal('[2,]');
+	});
+
+	it('should lose a trailing comma where the only entry it followed is replaced', () => {
+		// the one shape that does not keep it, and it was the second half of the test
+		// above -- which claims the comma is kept and showed a case where it is not.
+		// The comma followed `a`, `a` is gone, and the insertion is placed before it
+		// rather than after: valid either way, and the user's style is not recovered
+		// because there is no entry left for the comma to be trailing. Found by
+		// review, as a name claiming more than its fixture showed
 		expect(edit('{ "a": 1, }', { b: 2 })).to.equal('{ "b": 2  }');
+		expect(JSON.parse(scanJsonc(edit('{ "a": 1, }', { b: 2 }), true, 'f').json)).to.deep.equal({
+			b: 2,
+		});
 	});
 
 	it('should write valid JSON where every key is replaced', () => {
@@ -747,13 +760,17 @@ describe('save', () => {
 		expect(config.get('b')).to.equal(1);
 	});
 
-	it('should let a claim win over a scalar another process put in its way', async () => {
-		// `set('a.b', 9)` is refused where **this** layer's own `a` is a scalar,
-		// because the caller is there and can fix it. Where the *file*'s `a` became
-		// one in the save window there is nobody to ask, and the two alternatives
-		// are worse: refusing fails a save over somebody else's edit, and dropping
-		// the claim loses this process's write in silence. So the asymmetry is
-		// pinned -- aligning the overlay with `set()` brings the first one back
+	it('should refuse a claim whose ancestor another process reshaped', async () => {
+		// `set('a.b', 9)` is refused where this layer's own `a` is a scalar, and the
+		// overlay **replaced** one -- so the same input answered differently through
+		// a different door, and for an array that is three elements gone. A review
+		// round found it in the direct-write form, which has no concurrency in it at
+		// all; this is the save-window form of the same thing.
+		//
+		// Refused rather than replaced: nothing is written, the message names the
+		// path that changed shape, and a re-run reads the new shape and refuses at
+		// `set()` with the same words. Replacing destroys a structure nobody claimed
+		// and dropping the claim loses this process's write in silence
 		const path = file('c.jsonc', '{\n\t"a": { "b": 1 }\n}\n');
 		const store = jsonc(path);
 		let reads = 0;
@@ -766,7 +783,7 @@ describe('save', () => {
 						async read() {
 							const doc = await store.read();
 							if (reads++ === 1) {
-								writeFileSync(path, '{\n\t"a": 5\n}\n');
+								writeFileSync(path, '{\n\t"a": [1, 2, 3]\n}\n');
 							}
 							return doc;
 						},
@@ -777,11 +794,11 @@ describe('save', () => {
 		});
 
 		config.set('a.b', 9);
-		await config.save();
+		await expect(config.save()).rejects.toThrow(/"a" in .*c\.jsonc is not an object/);
+		// and the file is what the other process left, rather than half of either
+		expect(readFileSync(path, 'utf8')).to.equal('{\n\t"a": [1, 2, 3]\n}\n');
 
-		expect(JSON.parse(readFileSync(path, 'utf8')) as unknown).to.deep.equal({ a: { b: 9 } });
-
-		// and the `set()` half, which is the one that refuses
+		// the `set()` half, which is the same refusal at the door the caller is at
 		expect(() => config.set('a.b.c', 1)).toThrow(/"a\.b" in user is not an object/);
 	});
 
@@ -1137,6 +1154,79 @@ describe('writing a store directly', () => {
 
 		await store.write({ a: 1 });
 		expect(readFileSync(path, 'utf8')).to.equal('{\n\t// kept\n\t"a": 1\n}\n');
+	});
+
+	it('should refuse a claim over an ancestor that is there and is not an object', async () => {
+		// no concurrency in this one at all, which is what makes it the sharper form:
+		// one call, one file, and the same input `set('items.0', 9)` is refused for.
+		// `writePath()` replaces a non-object on the way down, so the array was gone
+		// and `{ "0": 9 }` was in its place. Found by review
+		const path = file('c.jsonc', '{ "items": [1, 2, 3] }\n');
+		const store = jsonc(path);
+
+		expect(() => store.writeSync({ items: { 0: 9 } }, { paths: ['items.0'] })).toThrow(
+			/"items" in .*c\.jsonc is not an object/
+		);
+		expect(readFileSync(path, 'utf8')).to.equal('{ "items": [1, 2, 3] }\n');
+
+		// a scalar is the same answer, because what is wrong is the shape rather than
+		// how much it holds
+		const flat = file('d.jsonc', '{ "a": 5 }\n');
+		await expect(jsonc(flat).write({ a: { b: 2 } }, { paths: ['a.b'] })).rejects.toThrow(
+			/"a" in .*d\.jsonc is not an object/
+		);
+
+		// and a *total* write is untouched by it: with no claim the document replaces
+		// the file, which is the only thing `write(value)` can mean
+		await jsonc(path).write({ items: { 0: 9 } });
+		expect(JSON.parse(readFileSync(path, 'utf8')) as unknown).to.deep.equal({ items: { 0: 9 } });
+	});
+
+	it('should create an ancestor the file is silent about, including a null one', async () => {
+		// the two cases the refusal must not take with it -- a claim on a key the
+		// file says nothing about is the ordinary case, and `null` reaches the
+		// overlay as absent because that is what `null` means everywhere here
+		const absent = file('c.jsonc', '{ "x": 1 }\n');
+		await jsonc(absent).write({ a: { b: 2 } }, { paths: ['a.b'] });
+		expect(JSON.parse(readFileSync(absent, 'utf8')) as unknown).to.deep.equal({
+			a: { b: 2 },
+			x: 1,
+		});
+
+		const nulled = file('d.jsonc', '{ "a": null }\n');
+		await jsonc(nulled).write({ a: { b: 2 } }, { paths: ['a.b'] });
+		expect(JSON.parse(readFileSync(nulled, 'utf8')) as unknown).to.deep.equal({ a: { b: 2 } });
+	});
+
+	it('should claim nothing for an empty path, which is no path into a document', async () => {
+		// `segments('')` is no segments, which is the whole document rather than a
+		// path into it -- and `#staged` really does hand `''` over, since `apply()`
+		// puts it in `touched`. What stops that reaching a write is `#staged`
+		// claiming no paths at all
+		const path = file('c.jsonc', '{ "a": 1 }\n');
+		await jsonc(path).write({ a: 9 }, { paths: [''] });
+		expect(readFileSync(path, 'utf8')).to.equal('{ "a": 1 }\n');
+	});
+
+	it('should claim a nested path over an object parent, which is the happy case', async () => {
+		// every other claim test here is top level, so the ordinary nested one was
+		// unasserted -- and it is what the refusal above has to leave working
+		const path = file('c.jsonc', '{\n\t// kept\n\t"a": { "b": 1, "c": 2 },\n\t"d": 3\n}\n');
+		await jsonc(path).write({ a: { b: 9 } }, { paths: ['a.b'] });
+
+		expect(readFileSync(path, 'utf8')).to.equal(
+			'{\n\t// kept\n\t"a": { "b": 9, "c": 2 },\n\t"d": 3\n}\n'
+		);
+	});
+
+	it('should overlay a claim onto nothing where the file is not there', async () => {
+		// the `fresh` branch with a claim, which falls out of overlaying onto an
+		// empty document rather than needing a case of its own: what the file holds
+		// is nothing, so what it ends up holding is the claim and nothing else
+		const path = join(root, 'new.jsonc');
+		await jsonc(path).write({ a: 1, b: 2 }, { paths: ['a'] });
+
+		expect(readFileSync(path, 'utf8')).to.equal('{\n\t"a": 1\n}\n');
 	});
 
 	it('should ask what JSON can hold of the merged document rather than of the value', async () => {
