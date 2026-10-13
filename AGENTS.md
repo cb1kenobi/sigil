@@ -17907,11 +17907,11 @@ without destroying it is SIG-154's.
 
 - **It imports no parser module at all, and that is a test rather than a
   coincidence.** Measured as transitive static import byte weight off `dist/`:
-  **31,237 B over seven modules**, of which **9,880 B over six** is what it starts
+  **31,425 B over seven modules**, of which **9,880 B over six** is what it starts
   from -- `paths.mjs`, the `transform` chunk, which is `transform`, `i18n` and
   `debug`, the 66-byte `env-value` chunk the parser shares, and the 525-byte
   `mkdir-owner-sync` one the update cache shares. So the module itself is
-  21,357 B, and the graph is **4.2x** the root entry's 7,518 B and an **eighth**
+  21,545 B, and the graph is **4.2x** the root entry's 7,518 B and an **eighth**
   of `components.mjs`'s 239,927 B over 26 -- all three measured the
   same way, which is the only comparison that means anything. It was
   **20,649 B over six** before SIG-154, which is the write half costing about
@@ -20097,11 +20097,39 @@ Seven sabotages over the five fixes, **all seven caught** -- including both
 inverse directions of the ancestor condition, which is what makes "there, not
 null, and not an object" three claims rather than one.
 
+#### And "both of its callers" was false, which counting settled
+
+Round 3's own fix rewrote `writePath()`'s doc to say that "both of its callers
+refuse one before they get here", and there are **six functions** with eight call
+sites. Found by reading the claim rather than the code -- the shape this file
+records as unestablishable by tracing the route you had in mind, written into the
+doc of the function it is about, one commit after a round had corrected the
+sentence it replaced.
+
+The claim it was reaching for is true, and it is true for a **different reason per
+caller**, which is why the doc enumerates them now: `#assertWritable()` for
+`set()`, `delete()` and the four array methods; ancestors the undone write had
+just made, for the rollback; `overlay()`'s own walk, for a claimed path; a path
+`readPath()` found a value at, for `coerceLayer()`; and a **fresh** document plus
+`readSchema()`'s refusal of overlapping setting paths, for `defaultsOf()` and
+`envOf()`.
+
+Two things were measured on the way, and the second is why the first is not a
+finding. `push('a.b', 1)` over a layer whose `a` is `5` **refuses**, which is
+`#assertWritable()` covering the array methods as well. And an **environment**
+value at `a.b` over the same layer answers `{ b: 7 }` where a `default` at `a.b`
+answers `5` -- which looks like the same defect one door along and is not: both
+write into a fresh document, so no `writePath()` ancestor is involved at all, and
+what differs is the **merge** putting the env layer over the file and the default
+layer under it. A scalar meeting an object is the merge's own rule, the asymmetry
+is the precedence chain working, and neither is this branch's: `schema.ts` is
+untouched by it.
+
 #### What the write half costs
 
-- **The config module's graph is 31,237 B over seven modules**, against 20,649 B
+- **The config module's graph is 31,425 B over seven modules**, against 20,649 B
   over six for the read half -- so the span writer, the atomic write and the
-  representability check are about 10.6 kB between them. The seventh module is the
+  representability check are about 10.8 kB between them. The seventh module is the
   `mkdir-owner-sync` chunk the update cache already shares. It still imports no
   parser module at all, which is the property the read half's own test holds and is
   why the ceiling did not move.

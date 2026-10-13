@@ -114,19 +114,32 @@ export function readPath(root: unknown, parts: readonly string[]): unknown {
  * Writes a value at a path, making the objects along the way.
  *
  * A non-object in the way is **replaced** rather than written through, and that
- * is this function's own answer rather than the module's: both of its callers
- * refuse one before they get here. `Config.#assertWritable` does it for `set()`,
- * where the caller is present and can fix it, and `overlay()` does it for a
- * claimed path, where the file turned out to hold a shape the claim cannot go
- * into -- so the replace below is unreachable from either, and is what the
- * function means on its own.
+ * is this function's own answer rather than the module's: no caller can reach
+ * it. Enumerated rather than asserted, because the version of this sentence
+ * before it said "both of its callers" and there are **six functions** --
+ * which is the universal claim this repository keeps recording as
+ * unestablishable by tracing the route you had in mind, written into the doc of
+ * the function it is about:
  *
- * The sentence here used to give refusing as the alternative, on the ground that
+ * - `Config.#settle()`, for `set()` and `delete()`, and the four array methods
+ *   through `#spliceAdd()`/`#spliceEnd()`: `#assertWritable()` refuses first,
+ *   where the caller is present and can fix it.
+ * - `Config`'s rollback after a refused mutation: the ancestors are the ones the
+ *   write being undone had just made, so they are objects.
+ * - `overlay()`, for a claimed path: its own walk refuses, because the file
+ *   turned out to hold a shape the claim cannot go into.
+ * - `coerceLayer()`: it writes only at a path `readPath()` found a value at, so
+ *   every ancestor is an object by construction.
+ * - `defaultsOf()` and `envOf()`: both build a **fresh** document, and
+ *   `readSchema()` refuses a setting whose path runs through another's -- so
+ *   there is never an ancestor there to conflict with.
+ *
+ * The sentence before that gave refusing as the alternative, on the ground that
  * it "would make a `set()` fail over what some other layer happens to hold" --
- * which was false of `set()` by the time it was written, since
- * `#assertWritable()` already refused, and was the leftover rationale for a
- * replace that then reached a file through `overlay()`. Found by review, twice:
- * once at `set()` and once at the overlay.
+ * which was false of `set()` when it was written, since `#assertWritable()`
+ * already refused, and was the leftover rationale for a replace that then
+ * reached a file through `overlay()`. Found by review twice and then by counting
+ * the callers, which is the only thing that settles a claim of this shape.
  *
  * @param root - The object to write into.
  * @param parts - The path segments, at least one.
