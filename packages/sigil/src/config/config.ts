@@ -171,9 +171,15 @@ export class Config {
 	/**
 	 * Removes a path from one layer.
 	 *
+	 * One layer, like every mutator, so `false` means *this* layer had nothing at
+	 * that path -- and `get()` may still answer, from a layer underneath. Where
+	 * that layer is **read-only** this throws instead, because there is nothing
+	 * the caller can do about it from here; where it is writable they can name it,
+	 * so the `false` is the signal rather than an error.
+	 *
 	 * @param path - The dotted path.
 	 * @param name - The layer, or the topmost writable one.
-	 * @returns Whether anything was removed.
+	 * @returns Whether anything was removed from that layer.
 	 * @throws If the path is not one a layer can hold, if there is no writable
 	 * layer, or if the value lives in a read-only layer instead.
 	 */
@@ -192,11 +198,13 @@ export class Config {
 			return false;
 		}
 
-		const removed = deletePath(layer.value, parts);
-		if (removed) {
-			this.#recompute();
-		}
-		return removed;
+		// unconditionally, because `readPath()` said something is there and the two
+		// agree by construction: both walk with `isPlainObject()` and `Object.hasOwn`
+		// at every level, so a path one finds is one the other removes. An `if`
+		// here was a guard that cannot be false
+		deletePath(layer.value, parts);
+		this.#recompute();
+		return true;
 	}
 
 	/**

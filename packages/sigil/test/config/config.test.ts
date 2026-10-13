@@ -436,6 +436,24 @@ describe('set and delete', () => {
 		expect(config.delete('nope')).to.equal(false);
 	});
 
+	it('should answer false where a writable layer underneath still holds it', async () => {
+		// one layer, like every mutator -- so `false` means *this* layer had
+		// nothing there, and `get()` may still answer from underneath. The throw is
+		// for a **read-only** owner, because there is nothing the caller can do
+		// about that one from here; a writable one they can name
+		const config = await createConfig({
+			layers: [
+				{ name: 'low', store: object({ a: 1 }) },
+				{ name: 'high', store: object({}) },
+			],
+		});
+
+		expect(config.delete('a')).to.equal(false);
+		expect(config.get('a')).to.equal(1);
+		expect(config.delete('a', 'low')).to.equal(true);
+		expect(config.has('a')).to.equal(false);
+	});
+
 	it('should refuse a mutator with no path, naming apply()', async () => {
 		const config = await createConfig({ layers: [{ name: 'a', store: object() }] });
 		expect(() => config.set('', 1)).toThrow(/use apply\(\)/);

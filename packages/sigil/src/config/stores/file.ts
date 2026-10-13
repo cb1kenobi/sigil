@@ -39,6 +39,11 @@ function isMissing(e: unknown): boolean {
  * readSync()   { return parse(readFileSync(path, 'utf8')); }
  * ```
  *
+ * That is the shape rather than the lines: each half really does its own I/O
+ * call and both go through one `parse()`, and what the lines below add around it
+ * is the `ENOENT` reading -- which is the same reading twice because a `catch`
+ * cannot be shared between an `await` and a synchronous call.
+ *
  * The path is expanded through `paths.expand()` rather than taken literally. A
  * `~` is the single most likely thing an app writes by hand, and `readFileSync`
  * of one is an `ENOENT` naming a path with a `~` still in it -- which reads as
