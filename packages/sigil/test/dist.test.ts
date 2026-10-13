@@ -272,16 +272,49 @@ describe('what importing the package costs', () => {
 		expect(carriers(staticGraph('config.mjs'), symbol)).not.toEqual([]);
 	});
 
-	it('should not reach any parser module to import the config module', () => {
+	// Every one of them a **string literal**, which is this file's own rule
+	// arriving a second time: `parseArgv` and `initOption` were the first two
+	// spellings and are names the minifier renames, so they are in no bundle at
+	// all -- measured, `grep -l` over every `dist/*.mjs` finds neither. Both
+	// absence halves therefore passed while saying nothing, which is the
+	// `mergeLayers` disease one block up, in the test written right after it.
+	//
+	// One per parser area rather than one, because a parser module can come in as
+	// a chunk of its own: measured, `export { initArg } from
+	// '../parser/argument/init-arg.js'` in the config barrel adds an
+	// `init-arg-*.mjs` and pulls the parse chunk in not at all, so a marker set
+	// keyed on `parse`'s own literals cannot see it
+	const PARSER_MARKERS = ['Unknown option', 'Expected command', 'Invalid argument', 'Usage:'];
+
+	it.each(PARSER_MARKERS)('should not reach %s to import the config module', (symbol) => {
 		// which the packaging measurement assumed and is now a property rather
 		// than a coincidence: a config module usable by an app that does not use
-		// sigil's parser is a better module than one wired into it. Keyed on
-		// symbols the minifier keeps -- an exported name and a string literal --
-		// rather than on a chunk's name, for the reason the pair above gives
-		const graph = staticGraph('config.mjs');
-		for (const symbol of ['parseArgv', 'initOption', 'Unknown option', 'Usage:']) {
-			expect(carriers(graph, symbol), symbol).toEqual([]);
+		// sigil's parser is a better module than one wired into it
+		expect(carriers(staticGraph('config.mjs'), symbol), symbol).toEqual([]);
+	});
+
+	it.each(PARSER_MARKERS)(
+		'should have %s somewhere in dist, so the absence means something',
+		(symbol) => {
+			// the presence half, for the reason the pair above gives: an absence over a
+			// marker that is in no bundle is an assertion that cannot fail
+			expect(
+				readdirSync(dist).filter(
+					(name) => name.endsWith('.mjs') && readFileSync(join(dist, name), 'utf8').includes(symbol)
+				),
+				symbol
+			).not.toEqual([]);
 		}
+	);
+
+	it('should reach exactly the six modules the measurement names', () => {
+		// the markers say what it must not reach and this says it reaches nothing
+		// else at all, which is the only form that catches a parser module arriving
+		// as a chunk of its own under a name nothing here could have predicted.
+		// Six: the entry, `paths.mjs`, `i18n.mjs`, and the `transform`, `debug` and
+		// `env-value` chunks -- which is the module list the byte figure below is
+		// over, so the two cannot come apart
+		expect([...staticGraph('config.mjs')].sort()).toHaveLength(6);
 	});
 
 	it('should cost a module rather than a component', () => {
@@ -297,9 +330,12 @@ describe('what importing the package costs', () => {
 		//
 		// A ceiling rather than a measurement, about 2.4x over what it is, so that
 		// ordinary growth never touches it and pulling the parser or the renderer
-		// onto it does. The figure is here and in AGENTS.md and nowhere else, for
-		// the reason the root entry's is: two comments disagreeing about one
-		// measurement leave a later reader with no way to tell which was measured
+		// onto it does. The **measured** figure is here and in AGENTS.md and
+		// nowhere else, for the reason the root entry's is: two comments
+		// disagreeing about one measurement leave a later reader with no way to
+		// tell which was measured. The README carries a rounded "about 20 kB over
+		// six modules" for an app author deciding whether to import it, which is a
+		// different statement and names the same six
 		expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(48 * 1024);
 	});
 

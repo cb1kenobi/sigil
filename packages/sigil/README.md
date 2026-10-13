@@ -1349,7 +1349,7 @@ config.get('server.port'); // 8080, unless a layer or PORT said otherwise
 config.get('server'); // { port: 8080 } — the merged subtree
 config.has('editor.theme'); // false where nothing configured it
 config.set('editor.theme', 'dark'); // into 'runtime', the topmost writable layer
-config.set('editor.theme', 'dark', 'user'); // or into a named one
+config.set('editor.theme', 'dark', 'runtime'); // or into a named one
 config.push('plugins', 'mine');
 config.delete('editor.theme');
 ```
@@ -1647,9 +1647,11 @@ _Cannot represent this value_ is `canRepresent()`, and it is synchronous because
 it rather than discovered by a `save()` in an exit handler. TOML and `null` is
 the case it exists for.
 
-`wouldLose` is what this store could not carry through a write. It is empty for a
-store that edits spans even over a comment-rich file, and populated by one that
-reprints. It reads back on `config.layers`.
+`wouldLose` is what this store could not carry through a write. It is **absent**
+where nothing would be lost — the field is optional, so a store that edits spans
+omits it even over a comment-rich file rather than answering `[]` — and populated
+by one that reprints. So read it as `layer.wouldLose?.length`, not
+`layer.wouldLose.length`. It reads back on `config.layers`.
 
 ### JSONC, and what it is not
 
@@ -2787,9 +2789,10 @@ import { createConfigSync, json, jsonc, object } from '@ttylabs/sigil/config';
 ```
 
 It imports no parser module at all, which makes it usable from an app that does
-not use sigil's parser. The subpath is about 20 kB over six modules -- `paths`,
-the type coercion, i18n, the debug logger and the module itself -- which is a
-module rather than anything like `sigil/components`.
+not use sigil's parser. The subpath is about 20 kB over six modules — `paths`,
+the type coercion, i18n, the debug logger, the environment-variable rule the
+parser shares, and the module itself — which is a module rather than anything
+like `sigil/components`.
 
 ### `sigil/testing`
 

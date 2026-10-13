@@ -447,15 +447,23 @@ export function checkValue(value: unknown, type: DataType | string): unknown {
 		// a `Date` is what an object layer can hold and no text format can, and an
 		// epoch is what `transformValue()` already reads a 13-digit string as --
 		// so the two agree about what a number means rather than one of them
-		// having a second idea
+		// having a second idea.
+		//
+		// Which took a review round to be true: the test was `isFinite(value) &&
+		// value > 0`, which is far wider than `dateIntRE`, so `8080` was a date in
+		// 1969 where `"8080"` throws -- and a *fraction* was one too, truncated to
+		// the epoch, which is a value no spelling of this type accepts. A file
+		// holding `"when": 8080` is a port somebody put on the wrong line, and the
+		// whole reason `checkValue()` exists is that a file and an option cannot
+		// come to disagree
 		if (value instanceof Date) {
 			if (Number.isNaN(value.getTime())) {
 				throw new Error(__`Invalid date: "${show(value)}"`);
 			}
 			return value;
 		}
-		if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-			return new Date(value);
+		if (Number.isInteger(value) && (value as number) >= 1e12 && (value as number) < 1e13) {
+			return new Date(value as number);
 		}
 		throw new Error(__`Invalid date: "${show(value)}"`);
 	}

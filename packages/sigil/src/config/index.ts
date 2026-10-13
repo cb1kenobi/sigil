@@ -6,6 +6,12 @@
  * system file, coerce the values, write it back without truncating it.
  * `paths.ts` gives the directories and reads nothing.
  *
+ * This is the **read** half of that: the stack, the merge, the schema and the
+ * accessors, with `set()` mutating a layer in memory. `write()` is declared on
+ * `WritableConfigStore` and implemented by SIG-154, so the file stores read and
+ * do not write -- a reprinting JSON writer would destroy the comments a
+ * `.jsonc` is read *for*, which is why the span writer is its own ticket.
+ *
  * ## This is not oclif parity
  *
  * `this.config` in oclif is CLI *metadata* -- `configDir`, `cacheDir`,

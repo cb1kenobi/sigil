@@ -18021,7 +18021,7 @@ without destroying it is SIG-154's.
   shape this file already records twice: a property with no reader is dead, and a
   property with no **producer** is a contract -- `Schema.routeInfo`'s own entry.
   `save()` is SIG-154's, so `write()` is the contract SIG-149 and SIG-152 are
-  blocked on; `wouldLose` is empty for a store that edits spans even over a
+  blocked on; `wouldLose` is **absent** for a store that edits spans even over a
   comment-rich file and populated by one that reprints, which is what a YAML or
   XML store will fill. It is given a **reader** so it cannot go quiet:
   `config.layers` carries it per layer.
@@ -18899,6 +18899,128 @@ harness's own pattern guard earned its keep once: the `seen.delete` removal was
 written with four tabs where the source has three, so it silently matched nothing
 and the run read as a guard that is not load bearing -- which is the shape this
 file records for its own harness three times over, met a fourth way.
+
+#### What the second review round found, and it was twelve tests and sentences
+
+Round 2 was pointed at the eight regions round 1 said it had skipped -- the
+tests, the prose, the demo as a program, the public surface, the migration check
+by check, `transform.ts`, the `paths` rename and i18n -- and told not to
+re-derive round 1's premises. It found **no runtime defect in the five files
+round 1 had read**, and twelve findings in the regions nobody had opened: six
+tests that cannot fail for the reason their names give, five sentences that are
+false about the code beside them, and one divergence between two functions whose
+comment says they agree. Which is the distribution this file already records
+twice over, arriving a third time.
+
+It had to be driven as **three focused chunks plus the whole-scope prompt**,
+because `cursor-grok-4.6-high-fast` died three times on the full diff -- twice
+with a cursor-side `RetriableError` and once silently with zero bytes. That is
+the technique the sequence work already records for the same model, and the
+chunks are what landed first; the whole-scope relaunch finished later and
+independently found three of the same six tests, which is worth knowing as
+corroboration rather than as duplication.
+
+- **Six tests could not fail for the reason their names give, and every one was
+  confirmed by running the sabotage the reviewer named.** The sharpest is `should
+  name the writable layer by its source where it has one`, which is named for a
+  branch **no core store can reach**: `here` is `target.store.source ?? name` on
+  the _writable_ layer, and the only writable core store is `object()`, which has
+  no source -- so the test pinned the right-hand side and its own comment admitted
+  it. It is two tests now, one named for the fallback and one that reaches the
+  source through a writable store of the caller's own, which is what `ConfigStore`
+  is a public interface for and what SIG-154's file store will be.
+
+  `should refuse a set into a path inside a declared setting` wrote `other.port`
+  over a declared `other.port`, which is an ordinary **exact-path** refusal -- so
+  a pass coercing only the setting at the path it was handed survived it, which is
+  the whole thing the whole-layer walk is for. The fixture is `set('server.port',
+  1)` against a declared `server` now, and that sabotage fails two tests.
+
+  `should throw, naming the layer and both ways out` asserted the owner and `to
+  override the value` and never the **destination**, which is the other of the two
+  ways out -- and carried an `expect(user).to.be.a('string')` over an unused
+  fixture, which is the tell. `should refuse a string where a list of classes was
+  meant` matched any complaint about that field, so an `Invalid string` -- the
+  opposite diagnosis -- satisfied it. And `should leave no polluted prototype on
+  anything it handed out` had a payload with no `__proto__` in it at all.
+
+- **That last one was a sentence as well as a weak test, and the sentence was
+  simply false.** It claimed "nothing `get()` answers with may have a prototype
+  that is not `Object.prototype`", and a `Date`, a class instance and a `Map` all
+  come back with their own prototype **and unfrozen** -- which is the documented
+  behaviour and the thing that makes an object layer able to hold a plugin.
+  Measured on all three. The claim is about what this module **built**, and the
+  test asserts both halves now: a plain object nested two deep from the json
+  coercion and from the document alike is `Object.prototype` and frozen, and the
+  app's own object comes back by identity.
+
+- **The dist parser-reach test was absence-only over markers that are in no
+  bundle at all.** `parseArgv` and `initOption` are names the minifier renames --
+  `grep -l` over every `dist/*.mjs` finds neither -- so two of its four absence
+  halves could never fail. That is the `mergeLayers` disease this file records one
+  block up, in the test written immediately after it. All four markers are string
+  literals now, each with a **presence** half.
+
+  And the markers alone are not enough, which is the part that needed measuring:
+  `export { initArg } from '../parser/argument/init-arg.js'` in the config barrel
+  adds an `init-arg-*.mjs` chunk and pulls the parse chunk in **not at all**, so
+  no fixed marker set keyed on `parse`'s own literals can see it. So the module
+  **count** is asserted too -- six, which is the list the byte figure is over, so
+  the two cannot come apart. That sabotage fails two tests where it used to
+  survive entirely.
+
+- **`checkValue()` and `transformValue()` disagreed about a number as a `date`,
+  under a comment saying they agree.** `dateIntRE` is `/^\d{13}$/`, and the check
+  was `isFinite(value) && value > 0` -- so `8080` was a date in 1969 where
+  `"8080"` throws, and `1.5` was one too, truncated to the epoch, which is a value
+  no spelling of this type accepts. A file holding `"when": 8080` is a port
+  somebody put on the wrong line, and the whole reason `checkValue()` exists is
+  that a file and an option cannot come to disagree. Narrowed to a 13-digit
+  integer, and pinned as a **differential** over thirteen numbers rather than as a
+  sentence -- `checkValue(n)` and `transformValue(String(n))` must answer the same
+  thing -- so widening it back fails.
+
+- **The README's own `set()` example threw as published, and the test written to
+  catch that said it had been fixed.** `config.set('editor.theme', 'dark',
+  'user')` names a `jsonc()` layer, which this ticket does not make writable. It
+  was found once already -- `readme.test.ts` runs with `'runtime'` and asserts
+  `'user'` throws -- and the **README was not changed**, while that test's comment
+  claimed it had been. So the published line stayed broken for another commit
+  behind a test that reads as covering it, which is worse than no test.
+
+  Fixed, and the **class** is closed rather than the instance:
+  `readme.test.ts` now reads `README.md` and asserts that every line it quotes in
+  a comment is a line the README has. A comment quoting a file is a copy of that
+  file, and a copy nothing compares is one that drifts -- which is this
+  repository's own warning about prose, met inside the test written to check
+  prose. Putting the published spelling back fails it.
+
+- **Four more sentences, each false about the code beside it.** The barrel's
+  opening lists the boilerplate every CLI writes -- "read it, merge it, write it
+  back without truncating it" -- with nothing saying which half this is, so it
+  reads as a feature list and contradicts the README two sections along; it now
+  says the write half is SIG-154's and why. `wouldLose` was documented as "empty"
+  in three places and the field is **absent** where nothing is lost, so
+  `wouldLose.length` is a `TypeError` and `?.length` is the way to read it. The
+  README's "about 20 kB over six modules" listed **five**, missing the
+  `env-value` chunk the parser shares -- and the dist comment's claim that the
+  figure is "here and in AGENTS.md and nowhere else" was false while it did, so
+  that now says the measured figure is in two places and the README carries a
+  rounded one. And the toolchain's leftover-check inventory named one check where
+  there are four.
+
+- **What it confirmed clean is worth recording, because it is most of the
+  surface.** The `(opts, docs)` constructor, the eleven exported types, the
+  `exports` map against the tsdown entry, `scanJsonc`/`lineAt`/`Setting` staying
+  unexported, the `DATA_TYPES`/`OPTION_DATA_TYPES` membership against the old
+  regexes name for name, the whole `paths.config()` sweep -- every remaining
+  mention is the rename being explained -- and the translated-versus-English split
+  message by message, with none found on the wrong side. The demo's comments
+  match the lines under them.
+
+  It also reached the `null`-as-absent class in the migration **independently**,
+  which had already been found here by walking the inputs. Two routes to one
+  finding is the strongest evidence either produces.
 
 #### What is deliberately out
 

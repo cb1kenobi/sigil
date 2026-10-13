@@ -401,18 +401,39 @@ describe('the prototype guard', () => {
 		).rejects.toThrow(/Unsafe config key "__proto__" in setting "data"/);
 	});
 
-	it('should leave no polluted prototype on anything it handed out', async () => {
-		// the property rather than the refusal: whatever the doors do, nothing
-		// `get()` answers with may have a prototype that is not `Object.prototype`
+	it('should hand out a structure it built with a clean prototype, and a value it carried as it was', async () => {
+		// the property rather than the refusal, and it is **narrower** than "nothing
+		// `get()` answers with has a prototype that is not `Object.prototype`",
+		// which is what this used to claim and is false: a `Date`, a class instance
+		// and a `Map` are carried by reference and keep their own prototype and
+		// their mutability, which is what makes an object layer able to hold a
+		// plugin. So the claim is about what this module **built**
+		class Plugin {}
+		const plugin = new Plugin();
 		const config = await createConfig({
 			schema: { data: { type: 'json' } },
-			layers: [{ name: 'user', store: object({ data: '{"a":1}' }) }],
+			layers: [
+				{
+					name: 'user',
+					store: object({ data: '{"a":{"b":1}}', nested: { deep: { x: 1 } }, plugin }),
+				},
+			],
 		});
 
-		const got = config.get('data') as Record<string, unknown>;
-		expect(Object.getPrototypeOf(got)).to.equal(Object.prototype);
-		expect(got.polluted).to.equal(undefined);
-		expect(Object.isFrozen(got)).to.equal(true);
+		// what it built: a plain object, nested, from the json coercion and from
+		// the document alike
+		for (const path of ['data', 'data.a', 'nested', 'nested.deep']) {
+			const got = config.get(path) as Record<string, unknown>;
+			expect(Object.getPrototypeOf(got), path).to.equal(Object.prototype);
+			expect(got.polluted, path).to.equal(undefined);
+			expect(Object.isFrozen(got), path).to.equal(true);
+		}
+
+		// what it carried: the app's own object, which is neither re-prototyped nor
+		// frozen on the way past
+		expect(config.get('plugin')).to.equal(plugin);
+		expect(Object.getPrototypeOf(config.get('plugin'))).to.equal(Plugin.prototype);
+		expect(Object.isFrozen(config.get('plugin'))).to.equal(false);
 	});
 
 	it('should refuse an unsafe setting path in a schema', async () => {
@@ -553,26 +574,52 @@ describe('deleting a value that lives in a read-only layer', () => {
 		expect(message).to.contain('Cannot delete "editor.theme"');
 		expect(message).to.contain('<system defaults>');
 		expect(message).to.contain('which is read-only');
-		expect(message).to.contain('to override the value');
+		// the destination as well as the owner, which is the half "both ways out"
+		// is about: a message naming only the owner says where the value is and
+		// not what to do, and the two names come from two different layers
+		expect(message).to.contain('Set it in user to override the value');
 		expect(message).to.contain(system);
-		expect(user).to.be.a('string');
 	});
 
-	it('should name the writable layer by its source where it has one', async () => {
-		const system = file('system.json', '{"a":1}');
-		const path = join(root, 'user.json');
-
+	it('should fall back to the layer name where the writable store has no source', async () => {
+		// named for what it checks: an `object()` store has no source, so this is
+		// the right-hand side of `source ?? name` and never the left. The title
+		// used to claim the source branch, which no core store can reach -- the
+		// only writable one is `object()`
 		const config = await createConfig({
 			layers: [
-				{ name: 'system', readOnly: true, store: json(system) },
+				{ name: 'system', readOnly: true, store: json(file('system.json', '{"a":1}')) },
 				{ name: 'user', store: object({}) },
 			],
 		});
 
-		// an object store has no source, so the message falls back to the layer's
-		// own name -- which is the honest answer rather than a path that is not one
 		expect(() => config.delete('a')).toThrow(/Set it in user to override/);
-		expect(path).to.be.a('string');
+	});
+
+	it('should name the writable layer by its source where it has one', async () => {
+		// reachable only through a store of the caller's own, because `object()` is
+		// the one writable core store and has no source -- which is what SIG-154's
+		// file store will be, so this is the branch that exists for it rather than
+		// dead code. `ConfigStore` is a public interface precisely so an app can
+		// write one
+		const held: Record<string, unknown> = {};
+		const store: WritableConfigStore = {
+			format: 'probe',
+			source: '/etc/app/user.json',
+			read: (): Promise<ConfigDocument> => Promise.resolve({ value: held }),
+			readSync: (): ConfigDocument => ({ value: held }),
+			write: (): Promise<void> => Promise.resolve(),
+			writeSync: (): void => undefined,
+		};
+
+		const config = await createConfig({
+			layers: [
+				{ name: 'system', readOnly: true, store: json(file('system.json', '{"a":1}')) },
+				{ name: 'user', store },
+			],
+		});
+
+		expect(() => config.delete('a')).toThrow(/Set it in \/etc\/app\/user\.json to override/);
 	});
 
 	it('should shadow rather than delete, which is the half that works', async () => {
@@ -801,15 +848,28 @@ describe('the merged view', () => {
 });
 
 describe('both entry points', () => {
-	it('should answer the same for every core store', () => {
-		const path = file('c.jsonc', '{ /* hi */ "a": 1, }');
-		const layers = [
-			{ name: 'defaults', store: object({ b: 2 }) },
-			{ name: 'user', store: jsonc(path) },
-		];
+	it('should answer the same for every core store', async () => {
+		// all three of them in one stack, and **both** entry points compared
+		// against each other -- which is the claim this title makes and which a
+		// single call cannot check. The ticket asks for both to work for every core
+		// store, so agreeing is the property rather than either answer
+		const opts = {
+			schema: { c: { type: 'int', default: 3 } } as ConfigSchema,
+			layers: [
+				{ name: 'defaults', store: object({ b: 2 }) },
+				{ name: 'system', store: json(file('c.json', '{"a":0}')) },
+				{ name: 'user', store: jsonc(file('c.jsonc', '{ /* hi */ "a": 1, }')) },
+			],
+		};
 
-		const sync = createConfigSync({ layers });
-		expect(sync.get()).to.deep.equal({ a: 1, b: 2 });
+		const sync = createConfigSync(opts);
+		const async = await createConfig(opts);
+
+		expect(sync.get()).to.deep.equal({ a: 1, b: 2, c: 3 });
+		expect(async.get()).to.deep.equal(sync.get());
+		for (const info of ['name', 'format', 'readOnly', 'source'] as const) {
+			expect(async.layers.map((l) => l[info])).to.deep.equal(sync.layers.map((l) => l[info]));
+		}
 	});
 
 	it('should really be synchronous rather than awaiting a settled promise', () => {
@@ -1264,17 +1324,33 @@ describe('the schema', () => {
 	// both, leaving a layer in a state the load path says is impossible
 	it('should refuse a set into a path inside a declared setting', async () => {
 		// the path runs through an *object*, so the write guard has nothing to say
-		// and the schema is what refuses: `{ server: { port: 1 } }` is not a
-		// string, and `createConfig()` over a file holding it refuses outright --
-		// so a `set()` that produced it would mean the next run of the same app
-		// over the same file fails to start
+		// and the schema is what refuses: `{ port: 1 }` is not a string, and
+		// `createConfig()` over a file holding it refuses outright -- so a `set()`
+		// that produced it would mean the next run of the same app over the same
+		// file fails to start.
+		//
+		// The mutated path is `server.port` and the setting is `server`, which is
+		// the whole point: a pass that coerced only the setting at the path it was
+		// handed would find none there and let this through. The fixture used to
+		// write `other.port` over a declared `other.port`, which is an ordinary
+		// exact-path refusal and survives that sabotage
 		const config = await createConfig({
-			schema: { server: { type: 'json' }, 'other.port': { type: 'int' } },
-			layers: [{ name: 'a', store: object({ other: { port: 1 } }) }],
+			schema: { server: { type: 'string' } },
+			layers: [{ name: 'a', store: object({ server: 'off' }) }],
 		});
 
-		expect(() => config.set('other.port', 'nope')).toThrow(/Invalid value for "other\.port"/);
-		expect(config.get('other.port')).to.equal(1);
+		expect(() => config.set('server.port', 1)).toThrow(/"server" in a is not an object/);
+
+		// and with nothing in the way, so the write guard has nothing to say
+		const open = await createConfig({
+			schema: { server: { type: 'string' } },
+			layers: [{ name: 'a', store: object({}) }],
+		});
+
+		expect(() => open.set('server.port', 1)).toThrow(
+			/Invalid value for "server" in a: Invalid string/
+		);
+		expect(open.get()).to.deep.equal({});
 	});
 
 	it('should refuse a write whose way down is not an object', async () => {

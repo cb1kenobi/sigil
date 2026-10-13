@@ -104,9 +104,15 @@ const FIELDS = ['external', 'name', 'out', 'safelist', 'shake', 'sourcemap'] as 
  * the choices are the same ones an option declaration gets, so `"shake": "off"`
  * and `--no-shake` and `SHAKE=off` cannot come to mean three different things.
  *
- * What stays here is what the schema's vocabulary cannot say -- that
- * `components` is relative to the app -- which is the honest split: the schema
- * does types, and the semantic checks are this tool's own.
+ * What stays here is what the schema's vocabulary cannot say, and it is four
+ * things rather than one: that `components` is relative to the app; that a name
+ * or a list entry is non-empty, which `type: 'string'` accepts and is right to,
+ * because `""` is an empty string somebody chose; that `build` is an object,
+ * which a schema declaring settings by dotted path has no nested shape to say;
+ * and which keys under `build` are `BuildConfig`'s, because the merged view
+ * holds whatever the file holds and passing it through would hand back an object
+ * with keys the type does not declare. The honest split: the schema does types,
+ * and the semantic checks are this tool's own.
  */
 const SCHEMA: ConfigSchema = {
 	'build.external': { multiple: true, type: 'string' },

@@ -87,7 +87,9 @@ function fileStore(path: string, jsonc: boolean): ConfigStore {
 			throw new Error(__`${source} must hold an object`);
 		}
 
-		// `wouldLose` is empty even over a comment-rich file, and that is the
+		// `wouldLose` is **absent** even over a comment-rich file -- the field is
+		// optional, so nothing lost is no field rather than `[]`, which is what
+		// `layer.wouldLose?.length` is the way to read. That is the
 		// contract rather than an omission: this is the store SIG-154 gives a span
 		// writer to, so comments survive a write because it edits rather than
 		// reprints. A store that reprints -- YAML, XML -- reports what it would

@@ -1,6 +1,6 @@
 import { createConfig, createConfigSync, json, jsonc, object } from '../../src/config/index.js';
 import { configHome } from '../../src/paths.js';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -15,6 +15,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
  * moment, a recipe that is broken if followed, an option table that overclaims.
  */
 
+/** The README, read once so the quoted lines can be asserted rather than trusted. */
+const readme = readFileSync(join(import.meta.dirname, '../../README.md'), 'utf8');
+
 let root: string;
 
 beforeEach(() => {
@@ -26,6 +29,25 @@ afterEach(() => {
 });
 
 describe("the README's own example", () => {
+	it('should quote lines the README actually has', () => {
+		// the structural half, and the reason it exists is that the instance it
+		// closes happened: this file ran the example with `runtime` while its own
+		// comment claimed the README said `runtime`, and the README said `user`
+		// for another commit. A comment quoting a file is a copy of that file, and
+		// a copy nothing compares is one that drifts -- which is the hazard this
+		// repository records about prose generally, met inside the test written to
+		// check prose
+		for (const line of [
+			"config.set('editor.theme', 'dark'); // into 'runtime', the topmost writable layer",
+			"config.set('editor.theme', 'dark', 'runtime'); // or into a named one",
+			"config.get('server.port'); // 8080, unless a layer or PORT said otherwise",
+			"config.has('editor.theme'); // false where nothing configured it",
+			"config.push('plugins', 'mine');",
+		]) {
+			expect(readme, line).to.contain(line);
+		}
+	});
+
 	it('should do what its comments say', async () => {
 		writeFileSync(join(root, 'system.json'), JSON.stringify({ plugins: ['shipped'] }));
 
@@ -53,9 +75,13 @@ describe("the README's own example", () => {
 		config.set('editor.theme', 'dark');
 		expect(config.get('editor.theme')).to.equal('dark');
 		// `config.set('editor.theme', 'dark', 'runtime'); // or into a named one`.
-		// It named `user` until this test was written, and `user` is a file store
-		// -- which this ticket does not make writable, so the line threw as
-		// published. The whole reason to run the examples
+		// It named `user` until a review round read the README against this test,
+		// and `user` is a file store -- which this ticket does not make writable,
+		// so the line threw as published. Two rounds to get right: this test was
+		// written with `runtime` and its own comment claimed the README had been
+		// changed to match, which it had not for another commit. So the quoted
+		// comment is the README's line verbatim and the assertion below is the
+		// published spelling failing
 		config.set('editor.theme', 'light', 'runtime');
 		expect(config.get('editor.theme')).to.equal('light');
 		expect(() => config.set('editor.theme', 'light', 'user')).toThrow(/read-only/);

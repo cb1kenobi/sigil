@@ -124,9 +124,11 @@ describe('refusing what it cannot mean', () => {
 	it('should refuse a string where a list of classes was meant', () => {
 		// the same reader as `external`, and it names the field it was asked
 		// about rather than saying "a list": a message that names the wrong field
-		// sends the reader to the wrong line
+		// sends the reader to the wrong line. The list wording is asserted too, or
+		// the pattern passes over any complaint at all about that field -- an
+		// `Invalid string` would satisfy it, which is the opposite diagnosis
 		expect(() => withConfig({ build: { safelist: 'p-2' } })).toThrow(
-			/Invalid value for "build\.safelist" in/
+			/Invalid value for "build\.safelist" in .*: Expected a list of values/
 		);
 	});
 

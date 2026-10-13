@@ -116,6 +116,46 @@ describe('checkValue', () => {
 		expect(checkValue(when.getTime(), 'date')).to.deep.equal(when);
 	});
 
+	it('should read a number as a date exactly where the string spelling does', () => {
+		// the differential rather than the sentence, because the sentence was
+		// wrong: the comment claimed the two agree about what a number means while
+		// the test was `isFinite && > 0`, so `8080` was a date in 1969 where
+		// `"8080"` throws, and `1.5` was one too. `dateIntRE` is `/^\d{13}$/`, so
+		// the number rule is a 13-digit integer and nothing else
+		for (const n of [
+			0,
+			1,
+			1.5,
+			-1,
+			8080,
+			1700000000,
+			999999999999,
+			1e12,
+			1700000000000,
+			9999999999999,
+			1e13,
+			1700000000000.5,
+			Number.MAX_SAFE_INTEGER,
+		]) {
+			const ours = ((): string => {
+				try {
+					return `ok ${(checkValue(n, 'date') as Date).toISOString()}`;
+				} catch {
+					return 'threw';
+				}
+			})();
+			const theirs = ((): string => {
+				try {
+					return `ok ${(transformValue(String(n), 'date') as Date).toISOString()}`;
+				} catch {
+					return 'threw';
+				}
+			})();
+
+			expect(ours, String(n)).to.equal(theirs);
+		}
+	});
+
 	it.each([
 		[new Date('nope'), /Invalid date: "Invalid Date"/],
 		[0, /Invalid date: "0"/],
