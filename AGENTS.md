@@ -19069,14 +19069,19 @@ were `copyInto()`'s cycle guard, `assertEnv()`, the file store's path refusal,
 the narrowed `date` branch, the `undefined` rule's entry points, the JSONC
 scanner's comma shapes, and the fuzzer's own corpus.
 
-**The reviewer never answered.** `cursor-grok-4.6-high-fast` failed five times
-across this ticket -- three on round 2's full diff and both of round 3's chunks
--- with a cursor-side `RetriableError: exceeded max retries` or silently at zero
-bytes. Round 2 landed because it was split into chunks; round 3's chunks died
-too, and a sixth attempt at a single-question prompt produced nothing either. So
-**round 3 is this repository's own work and is labelled as such**, which is
+**The reviewer almost never answered.** `cursor-grok-4.6-high-fast` failed five
+times across this ticket -- three on round 2's full diff and both of round 3's
+chunks -- with a cursor-side `RetriableError: exceeded max retries` or silently
+at zero bytes. Round 2 landed because it was split into chunks; round 3's chunks
+died, and a sixth attempt at a single-question prompt about the fuzzer did come
+back: "the test is sound". Which is **not** corroboration of anything below, and
+saying so is the point -- it read the file after the three counters had been
+added, so it confirms the fix and is no evidence at all about the hole the fix
+closed. A reviewer that arrives late reviews what it finds.
+
+So **round 3 is this repository's own work and is labelled as such**, which is
 weaker evidence than a reviewer's and is the honest statement: the findings below
-were reached by probing, and nobody who had not written the code read it.
+were reached by probing, and nobody who had not written the code read them.
 
 What that does **not** weaken is the findings themselves, each of which is a
 measurement.
