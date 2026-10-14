@@ -284,8 +284,14 @@ describe('the JSONC writer', () => {
 	it('should insert into an object that is empty, behind a comment in it', () => {
 		expect(edit('{}', { b: 2 })).to.equal('{ "b": 2 }');
 		expect(edit('{ }', { b: 2 })).to.equal('{ "b": 2 }');
-		expect(edit('{\n}', { b: 2 })).to.equal('{\n\t"b": 2\n}');
-		expect(edit('{\n\t// todo\n}', { b: 2 })).to.equal('{\n\t// todo\n\t"b": 2\n}');
+		expect(edit('{\n}', { b: 2 })).to.equal('{\n  "b": 2\n}');
+		// the one place the default is **visible** next to the user's own bytes: a
+		// container with no entries has nothing to copy a step from, so the new one
+		// gets `DEFAULT_STEP` while the comment keeps the tab it was written with.
+		// Mixed, and honest about which half is whose -- `detectStep()` reads
+		// entries rather than trivia, and reading an indent off a comment would be
+		// a new rule for the one shape that is a comment and nothing else
+		expect(edit('{\n\t// todo\n}', { b: 2 })).to.equal('{\n\t// todo\n  "b": 2\n}');
 	});
 
 	it('should insert inline where the object is on one line', () => {
@@ -458,9 +464,12 @@ describe('the JSONC writer', () => {
 		);
 	});
 
-	it('should fall back to a tab where there is nothing to read it off', () => {
-		// npm's own `package.json` and this repository's formatter both write one
-		expect(edit('{"a": 1}', { a: 1, b: { c: 2 } })).to.equal('{"a": 1, "b": {\n\t"c": 2\n}}');
+	it('should fall back to two spaces where there is nothing to read it off', () => {
+		// what `npm init` writes and what every JSON file in this repository uses.
+		// It was a tab, on the claim that npm writes one -- measured, `npm init -y`
+		// indents with two spaces, so half the justification was simply false and
+		// the other half was about how this package formats its own TypeScript
+		expect(edit('{"a": 1}', { a: 1, b: { c: 2 } })).to.equal('{"a": 1, "b": {\n  "c": 2\n}}');
 	});
 
 	it('should match the line ending the document uses', () => {
@@ -685,7 +694,7 @@ describe('save', () => {
 
 		config.set('a', 1);
 		config.saveSync();
-		expect(readFileSync(path, 'utf8')).to.equal('{\n\t"a": 1\n}\n');
+		expect(readFileSync(path, 'utf8')).to.equal('{\n  "a": 1\n}\n');
 	});
 
 	it('should skip a layer nothing touched', async () => {
@@ -1348,7 +1357,7 @@ describe('writing a store directly', () => {
 		const path = join(root, 'new.jsonc');
 		await json(path).write({ a: 1, b: 2 }, { paths: ['a'] });
 
-		expect(readFileSync(path, 'utf8')).to.equal('{\n\t"a": 1\n}\n');
+		expect(readFileSync(path, 'utf8')).to.equal('{\n  "a": 1\n}\n');
 	});
 
 	it('should ask what JSON can hold of the merged document rather than of the value', async () => {

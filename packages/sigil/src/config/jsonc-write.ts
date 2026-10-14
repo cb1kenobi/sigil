@@ -127,8 +127,24 @@ export interface EditOptions {
 	readonly what: string;
 }
 
-/** The indentation a document with nothing to copy from gets. */
-export const DEFAULT_STEP = '\t';
+/**
+ * The indentation a document with nothing to copy from gets.
+ *
+ * Two spaces, which is what `npm init` writes into a `package.json`, what every
+ * JSON file in this repository uses, and what the scaffold already wrote into
+ * the two files beside this one. It was a tab, justified as "what npm writes
+ * into a `package.json` and what this repository's own formatter uses" -- the
+ * first half is **false**, measured rather than argued: `npm init -y` indents
+ * with two spaces. The second half is true and does not transfer, because that
+ * formatter formats this package's **TypeScript**, and what a tool writes into
+ * somebody else's data file is a different question from how it formats its own
+ * source.
+ *
+ * Only a document with nothing to read from reaches this: `detectStep()` copies
+ * whatever the file already uses, so an existing tab-indented config stays
+ * tab-indented.
+ */
+export const DEFAULT_STEP = '  ';
 
 /** Nothing is being dropped, which is every array insertion and most object ones. */
 const EMPTY: ReadonlySet<number> = new Set();
@@ -841,8 +857,7 @@ function diffArray(ctx: Ctx, node: Node, current: unknown[], next: unknown[]): v
  * container with an entry that owns a line and is indented further than the
  * container's own line answers it; a document with no such container -- one
  * written on a single line -- gets the default, which is a tab because that is
- * what npm writes into a `package.json` and what this repository's own
- * formatter uses.
+ * `npm init` writes and what every JSON file in this repository uses.
  *
  * @param source - The file as it is.
  * @param root - The root node.

@@ -564,7 +564,7 @@ export function scaffold(opts: ScaffoldOptions): ScaffoldFile[] {
 		// a project's conventions should be explicit, and it is what stops
 		// `sigil add` having to guess and print a guess
 		{
-			contents: `${JSON.stringify({ components: 'src/components' }, undefined, '\t')}\n`,
+			contents: `${JSON.stringify({ components: 'src/components' }, undefined, 2)}\n`,
 			path: 'sigil.json',
 		},
 		{ contents: devRunner(opts), executable: true, path: `dev.${e}` },

@@ -19277,11 +19277,37 @@ hold, and `Config.save()` is the one caller of all four.
 - **The indentation, the line ending and the trailing-comma style are read off
   the document.** One level of indentation is the first container with an entry
   that owns a line and is indented further than the container's own line; the
-  default is a **tab**, because that is what npm writes into a `package.json` and
-  what this repository's own formatter uses. The line ending is `\r\n` where the
-  document holds one. And a trailing comma is put back where the object had one,
-  because the user's trailing-comma style is one more thing a write is not being
-  asked to change.
+  default is **two spaces**. The line ending is `\r\n` where the document holds
+  one. And a trailing comma is put back where the object had one, because the
+  user's trailing-comma style is one more thing a write is not being asked to
+  change.
+
+- **That default was a tab, and the reason written down for it was false.** The
+  entry said "a tab, because that is what npm writes into a `package.json` and
+  what this repository's own formatter uses". The first half is wrong, measured
+  rather than argued: `npm init -y` indents with **two spaces**. The second half
+  is true and does not transfer -- that formatter formats this package's
+  **TypeScript**, and what a tool writes into somebody else's data file is a
+  different question from how it formats its own source. Written down because the
+  sentence was specific enough to be believed, which is what kept anybody from
+  checking it.
+
+  Three places emitted a tab and every JSON file this repository **owns** is two
+  spaces, including its own `sigil.json` -- so the practice and the output
+  disagreed, and the scaffold disagreed with itself: it wrote `package.json` and
+  `tsconfig.json` with two spaces and `sigil.json` with a tab, in one function.
+  `DEFAULT_STEP`, that scaffold line and `generate-registry.mjs` are all two
+  spaces now. Reported by the repository owner, who was right on both counts.
+
+  What it changes is **only a document with nothing to read from**, because
+  `detectStep()` copies whatever the file already uses -- so an existing
+  tab-indented config stays tab-indented, which is the rule that matters and is
+  untouched. The one place the default is visible beside the user's own bytes is a
+  container holding a comment and no entries: the comment keeps its tab and the
+  new entry gets two spaces, which is mixed and is honest about which half is
+  whose. `should insert into an object that is empty, behind a comment in it`
+  pins it, and reading an indent off trivia would be a new rule for the one shape
+  that is a comment and nothing else.
 
 - **`lineTriviaEnd()` skips comments as comments rather than scanning for the
   next newline, and the case that forces it is a block comment holding a line

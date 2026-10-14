@@ -209,7 +209,7 @@ for (const { desc, name } of ENTRIES) {
 
 writeFileSync(
 	join(out, 'registry.json'),
-	`${JSON.stringify({ entries, name: manifest.name, version: manifest.version }, undefined, '\t')}\n`
+	`${JSON.stringify({ entries, name: manifest.name, version: manifest.version }, undefined, 2)}\n`
 );
 
 process.stdout.write(`Wrote ${ENTRIES.length} registry entries to ${out}\n`);
