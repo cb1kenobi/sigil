@@ -24,26 +24,26 @@ import { visitorKeys } from 'oxc-parser';
  * @param visit - Called per node; returning `false` skips its children.
  */
 export function walk(node: Node, visit: (node: Node) => boolean): void {
-	if (!visit(node)) {
-		return;
-	}
+  if (!visit(node)) {
+    return;
+  }
 
-	for (const key of visitorKeys[node.type] ?? []) {
-		const child = (node as unknown as Record<string, unknown>)[key];
+  for (const key of visitorKeys[node.type] ?? []) {
+    const child = (node as unknown as Record<string, unknown>)[key];
 
-		if (Array.isArray(child)) {
-			for (const each of child) {
-				if (isNode(each)) {
-					walk(each, visit);
-				}
-			}
-			continue;
-		}
+    if (Array.isArray(child)) {
+      for (const each of child) {
+        if (isNode(each)) {
+          walk(each, visit);
+        }
+      }
+      continue;
+    }
 
-		if (isNode(child)) {
-			walk(child, visit);
-		}
-	}
+    if (isNode(child)) {
+      walk(child, visit);
+    }
+  }
 }
 
 /**
@@ -56,5 +56,5 @@ export function walk(node: Node, visit: (node: Node) => boolean): void {
  * @returns Whether to walk it.
  */
 function isNode(value: unknown): value is Node {
-	return !!value && typeof value === 'object' && typeof (value as Node).type === 'string';
+  return !!value && typeof value === 'object' && typeof (value as Node).type === 'string';
 }

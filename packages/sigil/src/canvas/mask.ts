@@ -42,21 +42,21 @@ export const MASK_MAX = 255;
  * the whole design rests on: generated once, ramped every frame.
  */
 export interface Mask {
-	/** Rows. */
-	readonly height: number;
-	/**
-	 * How far through the reveal. A cell shows when its value is at most this, so
-	 * `-1` is nothing and `MASK_MAX` is everything.
-	 *
-	 * Mutable, and the one thing a frame loop writes. `maskThreshold()` is the
-	 * arithmetic that turns a fraction into one without the off-by-one at either
-	 * end.
-	 */
-	threshold: number;
-	/** One value per cell, in row order. */
-	readonly values: Uint8Array;
-	/** Columns. */
-	readonly width: number;
+  /** Rows. */
+  readonly height: number;
+  /**
+   * How far through the reveal. A cell shows when its value is at most this, so
+   * `-1` is nothing and `MASK_MAX` is everything.
+   *
+   * Mutable, and the one thing a frame loop writes. `maskThreshold()` is the
+   * arithmetic that turns a fraction into one without the off-by-one at either
+   * end.
+   */
+  threshold: number;
+  /** One value per cell, in row order. */
+  readonly values: Uint8Array;
+  /** Columns. */
+  readonly width: number;
 }
 
 /**
@@ -73,10 +73,10 @@ export interface Mask {
  * @returns Whether the cell is in.
  */
 export function masked(mask: Mask, x: number, y: number): boolean {
-	if (x < 0 || y < 0 || x >= mask.width || y >= mask.height) {
-		return false;
-	}
-	return mask.values[y * mask.width + x] <= mask.threshold;
+  if (x < 0 || y < 0 || x >= mask.width || y >= mask.height) {
+    return false;
+  }
+  return mask.values[y * mask.width + x] <= mask.threshold;
 }
 
 /**
@@ -94,15 +94,15 @@ export function masked(mask: Mask, x: number, y: number): boolean {
  * @returns The threshold.
  */
 export function maskThreshold(progress: number): number {
-	const p = Number.isFinite(progress) ? Math.min(1, Math.max(0, progress)) : 0;
-	return Math.round(p * (MASK_MAX + 1)) - 1;
+  const p = Number.isFinite(progress) ? Math.min(1, Math.max(0, progress)) : 0;
+  return Math.round(p * (MASK_MAX + 1)) - 1;
 }
 
 /** A rectangle's cell count, with a degenerate size read as empty. */
 function area(width: number, height: number): { height: number; size: number; width: number } {
-	const w = Math.max(0, Math.trunc(width));
-	const h = Math.max(0, Math.trunc(height));
-	return { height: h, size: w * h, width: w };
+  const w = Math.max(0, Math.trunc(width));
+  const h = Math.max(0, Math.trunc(height));
+  return { height: h, size: w * h, width: w };
 }
 
 /**
@@ -120,7 +120,7 @@ function area(width: number, height: number): { height: number; size: number; wi
  * @returns The value.
  */
 function rank(position: number, count: number): number {
-	return Math.min(MASK_MAX, Math.floor((position * (MASK_MAX + 1)) / Math.max(1, count)));
+  return Math.min(MASK_MAX, Math.floor((position * (MASK_MAX + 1)) / Math.max(1, count)));
 }
 
 /**
@@ -142,8 +142,8 @@ function rank(position: number, count: number): number {
  * @returns The mask, at `threshold: MASK_MAX`.
  */
 export function openMask(width: number, height: number): Mask {
-	const { height: h, size, width: w } = area(width, height);
-	return { height: h, threshold: MASK_MAX, values: new Uint8Array(size), width: w };
+  const { height: h, size, width: w } = area(width, height);
+  return { height: h, threshold: MASK_MAX, values: new Uint8Array(size), width: w };
 }
 
 /**
@@ -168,22 +168,22 @@ export function openMask(width: number, height: number): Mask {
  * @returns The mask, at `threshold: -1`.
  */
 export function dissolveMask(width: number, height: number, random: Random = Math.random): Mask {
-	const { height: h, size, width: w } = area(width, height);
-	const values = new Uint8Array(size);
-	const order = new Int32Array(size);
-	for (let i = 0; i < size; i++) {
-		order[i] = i;
-	}
-	for (let i = size - 1; i > 0; i--) {
-		const j = Math.floor(unit(random()) * (i + 1));
-		const swap = order[i];
-		order[i] = order[j];
-		order[j] = swap;
-	}
-	for (let i = 0; i < size; i++) {
-		values[order[i]] = rank(i, size);
-	}
-	return { height: h, threshold: -1, values, width: w };
+  const { height: h, size, width: w } = area(width, height);
+  const values = new Uint8Array(size);
+  const order = new Int32Array(size);
+  for (let i = 0; i < size; i++) {
+    order[i] = i;
+  }
+  for (let i = size - 1; i > 0; i--) {
+    const j = Math.floor(unit(random()) * (i + 1));
+    const swap = order[i];
+    order[i] = order[j];
+    order[j] = swap;
+  }
+  for (let i = 0; i < size; i++) {
+    values[order[i]] = rank(i, size);
+  }
+  return { height: h, threshold: -1, values, width: w };
 }
 
 /**
@@ -200,11 +200,11 @@ export function dissolveMask(width: number, height: number, random: Random = Mat
  * @returns A fraction in `[0, 1)`.
  */
 function unit(value: number): number {
-	if (!Number.isFinite(value)) {
-		return 0;
-	}
-	// strictly below one: this is an index multiplier, and 1 is one past the end
-	return Math.min(0.999_999_999_9, Math.max(0, value));
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  // strictly below one: this is an index multiplier, and 1 is one past the end
+  return Math.min(0.999_999_999_9, Math.max(0, value));
 }
 
 /** Which edge a wipe starts from. */
@@ -225,34 +225,34 @@ export type WipeDirection = 'down' | 'left' | 'right' | 'up';
  * @returns The mask, at `threshold: -1`.
  */
 export function wipeMask(width: number, height: number, direction: WipeDirection = 'right'): Mask {
-	const { height: h, size, width: w } = area(width, height);
-	const values = new Uint8Array(size);
-	const horizontal = direction === 'left' || direction === 'right';
-	const extent = horizontal ? w : h;
-	for (let y = 0; y < h; y++) {
-		for (let x = 0; x < w; x++) {
-			const along = horizontal ? x : y;
-			const position = direction === 'left' || direction === 'up' ? extent - 1 - along : along;
-			values[y * w + x] = rank(position, extent);
-		}
-	}
-	return { height: h, threshold: -1, values, width: w };
+  const { height: h, size, width: w } = area(width, height);
+  const values = new Uint8Array(size);
+  const horizontal = direction === 'left' || direction === 'right';
+  const extent = horizontal ? w : h;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const along = horizontal ? x : y;
+      const position = direction === 'left' || direction === 'up' ? extent - 1 - along : along;
+      values[y * w + x] = rank(position, extent);
+    }
+  }
+  return { height: h, threshold: -1, values, width: w };
 }
 
 export interface IrisOptions {
-	/**
-	 * How many rows a column is worth, for the distance that decides the shape.
-	 *
-	 * A terminal cell is about twice as tall as it is wide, so a field built on
-	 * raw cell distance draws an ellipse twice as tall as it is round. Two is the
-	 * usual ratio and is what makes a circle look like one; a caller whose font
-	 * says otherwise says so.
-	 */
-	aspect?: number;
-	/** The column it opens from. The middle, if omitted. */
-	x?: number;
-	/** The row it opens from. The middle, if omitted. */
-	y?: number;
+  /**
+   * How many rows a column is worth, for the distance that decides the shape.
+   *
+   * A terminal cell is about twice as tall as it is wide, so a field built on
+   * raw cell distance draws an ellipse twice as tall as it is round. Two is the
+   * usual ratio and is what makes a circle look like one; a caller whose font
+   * says otherwise says so.
+   */
+  aspect?: number;
+  /** The column it opens from. The middle, if omitted. */
+  x?: number;
+  /** The row it opens from. The middle, if omitted. */
+  y?: number;
 }
 
 /**
@@ -268,35 +268,35 @@ export interface IrisOptions {
  * @returns The mask, at `threshold: -1`.
  */
 export function irisMask(width: number, height: number, opts: IrisOptions = {}): Mask {
-	const { height: h, size, width: w } = area(width, height);
-	const values = new Uint8Array(size);
-	const aspect = opts.aspect !== undefined && Number.isFinite(opts.aspect) ? opts.aspect : 2;
-	const cx = opts.x !== undefined && Number.isFinite(opts.x) ? opts.x : (w - 1) / 2;
-	const cy = opts.y !== undefined && Number.isFinite(opts.y) ? opts.y : (h - 1) / 2;
+  const { height: h, size, width: w } = area(width, height);
+  const values = new Uint8Array(size);
+  const aspect = opts.aspect !== undefined && Number.isFinite(opts.aspect) ? opts.aspect : 2;
+  const cx = opts.x !== undefined && Number.isFinite(opts.x) ? opts.x : (w - 1) / 2;
+  const cy = opts.y !== undefined && Number.isFinite(opts.y) ? opts.y : (h - 1) / 2;
 
-	// the farthest corner, which is what the ramp is normalized by
-	let longest = 0;
-	for (const [x, y] of [
-		[0, 0],
-		[w - 1, 0],
-		[0, h - 1],
-		[w - 1, h - 1],
-	]) {
-		longest = Math.max(longest, Math.hypot(x - cx, (y - cy) * aspect));
-	}
+  // the farthest corner, which is what the ramp is normalized by
+  let longest = 0;
+  for (const [x, y] of [
+    [0, 0],
+    [w - 1, 0],
+    [0, h - 1],
+    [w - 1, h - 1],
+  ]) {
+    longest = Math.max(longest, Math.hypot(x - cx, (y - cy) * aspect));
+  }
 
-	for (let y = 0; y < h; y++) {
-		for (let x = 0; x < w; x++) {
-			const distance = Math.hypot(x - cx, (y - cy) * aspect);
-			// scaled by the longest rather than ranked by position, because what
-			// decides an iris is *how far* a cell is rather than how many cells are
-			// nearer: ranking would reveal a constant number of cells per step, which
-			// makes the circle crawl at the start and race at the end
-			const at = longest === 0 ? 0 : distance / longest;
-			values[y * w + x] = Math.min(MASK_MAX, Math.round(at * MASK_MAX));
-		}
-	}
-	return { height: h, threshold: -1, values, width: w };
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const distance = Math.hypot(x - cx, (y - cy) * aspect);
+      // scaled by the longest rather than ranked by position, because what
+      // decides an iris is *how far* a cell is rather than how many cells are
+      // nearer: ranking would reveal a constant number of cells per step, which
+      // makes the circle crawl at the start and race at the end
+      const at = longest === 0 ? 0 : distance / longest;
+      values[y * w + x] = Math.min(MASK_MAX, Math.round(at * MASK_MAX));
+    }
+  }
+  return { height: h, threshold: -1, values, width: w };
 }
 
 /**
@@ -343,18 +343,18 @@ const REACH = Math.ceil(SIGMA * 3);
  * @returns The mask, at `threshold: -1`.
  */
 export function blueNoiseMask(width: number, height: number, random: Random = Math.random): Mask {
-	const { height: h, size, width: w } = area(width, height);
-	const values = new Uint8Array(size);
-	if (size === 0) {
-		return { height: h, threshold: -1, values, width: w };
-	}
+  const { height: h, size, width: w } = area(width, height);
+  const values = new Uint8Array(size);
+  if (size === 0) {
+    return { height: h, threshold: -1, values, width: w };
+  }
 
-	const field = new VoidAndCluster(w, h);
-	const order = field.rankAll(random);
-	for (let position = 0; position < size; position++) {
-		values[order[position]] = rank(position, size);
-	}
-	return { height: h, threshold: -1, values, width: w };
+  const field = new VoidAndCluster(w, h);
+  const order = field.rankAll(random);
+  for (let position = 0; position < size; position++) {
+    values[order[position]] = rank(position, size);
+  }
+  return { height: h, threshold: -1, values, width: w };
 }
 
 /**
@@ -374,225 +374,225 @@ export function blueNoiseMask(width: number, height: number, random: Random = Ma
  * reveal.
  */
 class VoidAndCluster {
-	/** The binary pattern: 1 where a cell is set. */
-	#pattern: Uint8Array;
-	/** The energy each cell sees from the set cells around it. */
-	#energy: Float64Array;
-	/** `exp(-d^2 / 2 sigma^2)` for each offset within `REACH`. */
-	#splat: Float64Array;
-	#width: number;
-	#height: number;
-	#size: number;
-	#span: number;
+  /** The binary pattern: 1 where a cell is set. */
+  #pattern: Uint8Array;
+  /** The energy each cell sees from the set cells around it. */
+  #energy: Float64Array;
+  /** `exp(-d^2 / 2 sigma^2)` for each offset within `REACH`. */
+  #splat: Float64Array;
+  #width: number;
+  #height: number;
+  #size: number;
+  #span: number;
 
-	constructor(width: number, height: number) {
-		this.#width = width;
-		this.#height = height;
-		this.#size = width * height;
-		this.#pattern = new Uint8Array(this.#size);
-		this.#energy = new Float64Array(this.#size);
+  constructor(width: number, height: number) {
+    this.#width = width;
+    this.#height = height;
+    this.#size = width * height;
+    this.#pattern = new Uint8Array(this.#size);
+    this.#energy = new Float64Array(this.#size);
 
-		this.#span = REACH * 2 + 1;
-		this.#splat = new Float64Array(this.#span * this.#span);
-		for (let dy = -REACH; dy <= REACH; dy++) {
-			for (let dx = -REACH; dx <= REACH; dx++) {
-				this.#splat[(dy + REACH) * this.#span + (dx + REACH)] = Math.exp(
-					-(dx * dx + dy * dy) / (2 * SIGMA * SIGMA)
-				);
-			}
-		}
-	}
+    this.#span = REACH * 2 + 1;
+    this.#splat = new Float64Array(this.#span * this.#span);
+    for (let dy = -REACH; dy <= REACH; dy++) {
+      for (let dx = -REACH; dx <= REACH; dx++) {
+        this.#splat[(dy + REACH) * this.#span + (dx + REACH)] = Math.exp(
+          -(dx * dx + dy * dy) / (2 * SIGMA * SIGMA)
+        );
+      }
+    }
+  }
 
-	/** Adds or removes a cell's own contribution to everything around it. */
-	#stamp(index: number, sign: number): void {
-		const x = index % this.#width;
-		const y = Math.trunc(index / this.#width);
-		for (let dy = -REACH; dy <= REACH; dy++) {
-			// wrapped rather than clipped, which is what keeps the edges unbiased
-			const row = (((y + dy) % this.#height) + this.#height) % this.#height;
-			for (let dx = -REACH; dx <= REACH; dx++) {
-				const column = (((x + dx) % this.#width) + this.#width) % this.#width;
-				this.#energy[row * this.#width + column] +=
-					sign * this.#splat[(dy + REACH) * this.#span + (dx + REACH)];
-			}
-		}
-	}
+  /** Adds or removes a cell's own contribution to everything around it. */
+  #stamp(index: number, sign: number): void {
+    const x = index % this.#width;
+    const y = Math.trunc(index / this.#width);
+    for (let dy = -REACH; dy <= REACH; dy++) {
+      // wrapped rather than clipped, which is what keeps the edges unbiased
+      const row = (((y + dy) % this.#height) + this.#height) % this.#height;
+      for (let dx = -REACH; dx <= REACH; dx++) {
+        const column = (((x + dx) % this.#width) + this.#width) % this.#width;
+        this.#energy[row * this.#width + column] +=
+          sign * this.#splat[(dy + REACH) * this.#span + (dx + REACH)];
+      }
+    }
+  }
 
-	#set(index: number): void {
-		this.#pattern[index] = 1;
-		this.#stamp(index, 1);
-	}
+  #set(index: number): void {
+    this.#pattern[index] = 1;
+    this.#stamp(index, 1);
+  }
 
-	#unset(index: number): void {
-		this.#pattern[index] = 0;
-		this.#stamp(index, -1);
-	}
+  #unset(index: number): void {
+    this.#pattern[index] = 0;
+    this.#stamp(index, -1);
+  }
 
-	/**
-	 * The set cell with the most energy around it: the tightest cluster.
-	 *
-	 * @param want - Which pattern value to look among, so phase three can ask the
-	 *   same question of the complement.
-	 * @returns The index, or `-1` when there is no such cell.
-	 */
-	#tightest(want: number): number {
-		let best = -1;
-		let bestEnergy = -Infinity;
-		for (let i = 0; i < this.#size; i++) {
-			if (this.#pattern[i] === want && this.#energy[i] > bestEnergy) {
-				bestEnergy = this.#energy[i];
-				best = i;
-			}
-		}
-		return best;
-	}
+  /**
+   * The set cell with the most energy around it: the tightest cluster.
+   *
+   * @param want - Which pattern value to look among, so phase three can ask the
+   *   same question of the complement.
+   * @returns The index, or `-1` when there is no such cell.
+   */
+  #tightest(want: number): number {
+    let best = -1;
+    let bestEnergy = -Infinity;
+    for (let i = 0; i < this.#size; i++) {
+      if (this.#pattern[i] === want && this.#energy[i] > bestEnergy) {
+        bestEnergy = this.#energy[i];
+        best = i;
+      }
+    }
+    return best;
+  }
 
-	/** The unset cell with the least energy around it: the largest void. */
-	#largest(want: number): number {
-		let best = -1;
-		let bestEnergy = Infinity;
-		for (let i = 0; i < this.#size; i++) {
-			if (this.#pattern[i] === want && this.#energy[i] < bestEnergy) {
-				bestEnergy = this.#energy[i];
-				best = i;
-			}
-		}
-		return best;
-	}
+  /** The unset cell with the least energy around it: the largest void. */
+  #largest(want: number): number {
+    let best = -1;
+    let bestEnergy = Infinity;
+    for (let i = 0; i < this.#size; i++) {
+      if (this.#pattern[i] === want && this.#energy[i] < bestEnergy) {
+        bestEnergy = this.#energy[i];
+        best = i;
+      }
+    }
+    return best;
+  }
 
-	/**
-	 * Every cell, in the order the algorithm reveals them.
-	 *
-	 * @param random - For the initial pattern.
-	 * @returns The cell indices, best-spread first.
-	 */
-	rankAll(random: Random): Int32Array {
-		const order = new Int32Array(this.#size);
+  /**
+   * Every cell, in the order the algorithm reveals them.
+   *
+   * @param random - For the initial pattern.
+   * @returns The cell indices, best-spread first.
+   */
+  rankAll(random: Random): Int32Array {
+    const order = new Int32Array(this.#size);
 
-		// a tenth of the cells, which is Ulichney's suggestion and is the smallest
-		// fraction that still has clusters and voids to find. At least one, or the
-		// phases below have nothing to work with and a 3x3 rectangle would come
-		// back unranked
-		const ones = Math.max(1, Math.min(this.#size, Math.round(this.#size / 10)));
+    // a tenth of the cells, which is Ulichney's suggestion and is the smallest
+    // fraction that still has clusters and voids to find. At least one, or the
+    // phases below have nothing to work with and a 3x3 rectangle would come
+    // back unranked
+    const ones = Math.max(1, Math.min(this.#size, Math.round(this.#size / 10)));
 
-		// a partial Fisher-Yates rather than rejection sampling, and that is a hang
-		// rather than a preference. "Pick a cell, set it if it is free, try again"
-		// terminates only for a generator that eventually answers something else:
-		// a stuck one -- `() => 1`, which the clamp turns into the last index, or
-		// `() => NaN`, which it reads as the first -- hands back the same cell for
-		// ever and the second `ones` never lands. Found by the test written to
-		// assert the clamp, which hung instead of failing. A shuffle takes `ones`
-		// steps whatever the source answers
-		const indices = new Int32Array(this.#size);
-		for (let i = 0; i < this.#size; i++) {
-			indices[i] = i;
-		}
-		for (let i = 0; i < ones; i++) {
-			const j = i + Math.floor(unit(random()) * (this.#size - i));
-			const swap = indices[i];
-			indices[i] = indices[j];
-			indices[j] = swap;
-			this.#set(indices[i]);
-		}
+    // a partial Fisher-Yates rather than rejection sampling, and that is a hang
+    // rather than a preference. "Pick a cell, set it if it is free, try again"
+    // terminates only for a generator that eventually answers something else:
+    // a stuck one -- `() => 1`, which the clamp turns into the last index, or
+    // `() => NaN`, which it reads as the first -- hands back the same cell for
+    // ever and the second `ones` never lands. Found by the test written to
+    // assert the clamp, which hung instead of failing. A shuffle takes `ones`
+    // steps whatever the source answers
+    const indices = new Int32Array(this.#size);
+    for (let i = 0; i < this.#size; i++) {
+      indices[i] = i;
+    }
+    for (let i = 0; i < ones; i++) {
+      const j = i + Math.floor(unit(random()) * (this.#size - i));
+      const swap = indices[i];
+      indices[i] = indices[j];
+      indices[j] = swap;
+      this.#set(indices[i]);
+    }
 
-		// phase zero: make the initial pattern even, by moving the tightest cluster
-		// into the largest void until there is no void emptier than where the
-		// cluster was
-		for (;;) {
-			const cluster = this.#tightest(1);
-			if (cluster < 0) {
-				break;
-			}
-			this.#unset(cluster);
-			// read after the removal, so both sides of the comparison below are
-			// energies the same arrangement induces
-			const was = this.#energy[cluster];
-			const voidAt = this.#largest(0);
-			// a *strict* improvement, which is what makes this terminate rather than
-			// what makes it tidy. Stopping only at `voidAt === cluster` lets two
-			// equal-energy cells swap back and forth for ever, and exact ties are
-			// not exotic -- a symmetric arrangement on a small rectangle produces
-			// them.
-			//
-			// What strictly decreases is the **pairwise** energy -- the sum of
-			// `w(distance)` over pairs of set cells -- and not the sum of
-			// `#energy`, which on a torus is the same whatever the arrangement,
-			// since every cell's splat carries the same mass wherever it sits. A
-			// review round caught that distinction in the first wording of this
-			// comment, and it is the one that carries the argument: moving a cell
-			// from `cluster`, whose energy over the others is `was`, to a `voidAt`
-			// whose energy over the others is strictly lower changes the pairwise
-			// sum by exactly the difference. Arrangements are finite, so a
-			// strictly-decreasing walk over them cannot cycle
-			if (voidAt < 0 || this.#energy[voidAt] >= was) {
-				this.#set(cluster);
-				break;
-			}
-			this.#set(voidAt);
-		}
+    // phase zero: make the initial pattern even, by moving the tightest cluster
+    // into the largest void until there is no void emptier than where the
+    // cluster was
+    for (;;) {
+      const cluster = this.#tightest(1);
+      if (cluster < 0) {
+        break;
+      }
+      this.#unset(cluster);
+      // read after the removal, so both sides of the comparison below are
+      // energies the same arrangement induces
+      const was = this.#energy[cluster];
+      const voidAt = this.#largest(0);
+      // a *strict* improvement, which is what makes this terminate rather than
+      // what makes it tidy. Stopping only at `voidAt === cluster` lets two
+      // equal-energy cells swap back and forth for ever, and exact ties are
+      // not exotic -- a symmetric arrangement on a small rectangle produces
+      // them.
+      //
+      // What strictly decreases is the **pairwise** energy -- the sum of
+      // `w(distance)` over pairs of set cells -- and not the sum of
+      // `#energy`, which on a torus is the same whatever the arrangement,
+      // since every cell's splat carries the same mass wherever it sits. A
+      // review round caught that distinction in the first wording of this
+      // comment, and it is the one that carries the argument: moving a cell
+      // from `cluster`, whose energy over the others is `was`, to a `voidAt`
+      // whose energy over the others is strictly lower changes the pairwise
+      // sum by exactly the difference. Arrangements are finite, so a
+      // strictly-decreasing walk over them cannot cycle
+      if (voidAt < 0 || this.#energy[voidAt] >= was) {
+        this.#set(cluster);
+        break;
+      }
+      this.#set(voidAt);
+    }
 
-		const prototype = this.#pattern.slice();
+    const prototype = this.#pattern.slice();
 
-		// phase one: rank the prototype's own cells, outwards in -- the cell in the
-		// tightest cluster is the one that matters least, so it goes last of these
-		for (let r = ones - 1; r >= 0; r--) {
-			const cluster = this.#tightest(1);
-			if (cluster < 0) {
-				break;
-			}
-			this.#unset(cluster);
-			order[r] = cluster;
-		}
+    // phase one: rank the prototype's own cells, outwards in -- the cell in the
+    // tightest cluster is the one that matters least, so it goes last of these
+    for (let r = ones - 1; r >= 0; r--) {
+      const cluster = this.#tightest(1);
+      if (cluster < 0) {
+        break;
+      }
+      this.#unset(cluster);
+      order[r] = cluster;
+    }
 
-		// phase two: put the prototype back, then fill the largest void each time
-		// until half the rectangle is set
-		this.#pattern.fill(0);
-		this.#energy.fill(0);
-		for (let i = 0; i < this.#size; i++) {
-			if (prototype[i]) {
-				this.#set(i);
-			}
-		}
-		const half = Math.trunc(this.#size / 2);
+    // phase two: put the prototype back, then fill the largest void each time
+    // until half the rectangle is set
+    this.#pattern.fill(0);
+    this.#energy.fill(0);
+    for (let i = 0; i < this.#size; i++) {
+      if (prototype[i]) {
+        this.#set(i);
+      }
+    }
+    const half = Math.trunc(this.#size / 2);
 
-		// one cursor across both of the phases below rather than a range each. They
-		// are written as two loops because they ask two different questions, and
-		// `half` is not reliably above `ones` -- for a one-cell rectangle it is
-		// below it, and a phase three that started at its own `half` would overwrite
-		// what phase one had already ranked. Sharing the cursor also means a phase
-		// that gives up early is continued from rather than skipped over, which is
-		// the difference between a short order and one with a duplicate in it
-		let r = ones;
-		for (; r < half; r++) {
-			const voidAt = this.#largest(0);
-			if (voidAt < 0) {
-				break;
-			}
-			this.#set(voidAt);
-			order[r] = voidAt;
-		}
+    // one cursor across both of the phases below rather than a range each. They
+    // are written as two loops because they ask two different questions, and
+    // `half` is not reliably above `ones` -- for a one-cell rectangle it is
+    // below it, and a phase three that started at its own `half` would overwrite
+    // what phase one had already ranked. Sharing the cursor also means a phase
+    // that gives up early is continued from rather than skipped over, which is
+    // the difference between a short order and one with a duplicate in it
+    let r = ones;
+    for (; r < half; r++) {
+      const voidAt = this.#largest(0);
+      if (voidAt < 0) {
+        break;
+      }
+      this.#set(voidAt);
+      order[r] = voidAt;
+    }
 
-		// phase three: the same question asked of the holes. Past halfway the
-		// pattern's *zeros* are the sparse thing, so the energy map is rebuilt over
-		// them and the tightest cluster of zeros is the next cell to reveal
-		this.#energy.fill(0);
-		for (let i = 0; i < this.#size; i++) {
-			if (this.#pattern[i] === 0) {
-				this.#stamp(i, 1);
-			}
-		}
-		for (; r < this.#size; r++) {
-			const cluster = this.#tightest(0);
-			if (cluster < 0) {
-				break;
-			}
-			// setting it in the pattern is removing it from the complement, so the
-			// energy it contributed comes off
-			this.#pattern[cluster] = 1;
-			this.#stamp(cluster, -1);
-			order[r] = cluster;
-		}
+    // phase three: the same question asked of the holes. Past halfway the
+    // pattern's *zeros* are the sparse thing, so the energy map is rebuilt over
+    // them and the tightest cluster of zeros is the next cell to reveal
+    this.#energy.fill(0);
+    for (let i = 0; i < this.#size; i++) {
+      if (this.#pattern[i] === 0) {
+        this.#stamp(i, 1);
+      }
+    }
+    for (; r < this.#size; r++) {
+      const cluster = this.#tightest(0);
+      if (cluster < 0) {
+        break;
+      }
+      // setting it in the pattern is removing it from the complement, so the
+      // energy it contributed comes off
+      this.#pattern[cluster] = 1;
+      this.#stamp(cluster, -1);
+      order[r] = cluster;
+    }
 
-		return order;
-	}
+    return order;
+  }
 }

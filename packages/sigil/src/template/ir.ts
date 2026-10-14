@@ -50,13 +50,13 @@
  */
 
 import {
-	box,
-	Element,
-	type ElementProps,
-	type PropValue,
-	raw,
-	type RawOptions,
-	text,
+  box,
+  Element,
+  type ElementProps,
+  type PropValue,
+  raw,
+  type RawOptions,
+  text,
 } from '../element/index.js';
 import { createEffect } from '../renderer/index.js';
 
@@ -73,12 +73,12 @@ import { createEffect } from '../renderer/index.js';
  * the ordinary case on the compiled path.
  */
 export interface SourceLocation {
-	/** 1-based, and counted in UTF-16 code units the way an editor reports it. */
-	readonly column: number;
-	/** The module the template was written in, where the frontend knows it. */
-	readonly file?: string;
-	/** 1-based. */
-	readonly line: number;
+  /** 1-based, and counted in UTF-16 code units the way an editor reports it. */
+  readonly column: number;
+  /** The module the template was written in, where the frontend knows it. */
+  readonly file?: string;
+  /** 1-based. */
+  readonly line: number;
 }
 
 /**
@@ -97,12 +97,12 @@ export interface SourceLocation {
  * prop object the cascade rejects several layers away from the mistake.
  */
 export class Expr {
-	/** The expression, exactly as it was written. */
-	readonly source: string;
+  /** The expression, exactly as it was written. */
+  readonly source: string;
 
-	constructor(source: string) {
-		this.source = source;
-	}
+  constructor(source: string) {
+    this.source = source;
+  }
 }
 
 /** A component: a function of props that produces one element. */
@@ -110,38 +110,38 @@ export type ComponentRef = (props: Record<string, unknown>) => Element;
 
 /** One prop, before anything has decided whether it is static or reactive. */
 export interface IRProp {
-	readonly name: string;
-	readonly value: unknown;
+  readonly name: string;
+  readonly value: unknown;
 }
 
 /** A host element or a component, with its props and children. */
 export interface IRElement {
-	readonly children: readonly IRNode[];
-	readonly kind: 'element';
-	/** Where it was written, where the frontend could say. */
-	readonly loc?: SourceLocation;
-	readonly props: readonly IRProp[];
-	/**
-	 * A host name, the component itself, or -- on the build path -- the
-	 * expression the component was interpolated as. Never a name to look up.
-	 */
-	readonly type: ComponentRef | Expr | string;
+  readonly children: readonly IRNode[];
+  readonly kind: 'element';
+  /** Where it was written, where the frontend could say. */
+  readonly loc?: SourceLocation;
+  readonly props: readonly IRProp[];
+  /**
+   * A host name, the component itself, or -- on the build path -- the
+   * expression the component was interpolated as. Never a name to look up.
+   */
+  readonly type: ComponentRef | Expr | string;
 }
 
 /** Literal text the template carried. */
 export interface IRText {
-	readonly kind: 'text';
-	/** Where it was written, where the frontend could say. */
-	readonly loc?: SourceLocation;
-	readonly value: string;
+  readonly kind: 'text';
+  /** Where it was written, where the frontend could say. */
+  readonly loc?: SourceLocation;
+  readonly value: string;
 }
 
 /** A value a frontend interpolated: static unless it is a function. */
 export interface IRSlot {
-	readonly kind: 'slot';
-	/** Where it was written, where the frontend could say. */
-	readonly loc?: SourceLocation;
-	readonly value: unknown;
+  readonly kind: 'slot';
+  /** Where it was written, where the frontend could say. */
+  readonly loc?: SourceLocation;
+  readonly value: unknown;
 }
 
 export type IRNode = IRElement | IRSlot | IRText;
@@ -156,7 +156,7 @@ const HOSTS = new Set(['box', 'raw', 'text']);
  * @returns True for `box`, `raw` and `text`.
  */
 export function isHost(name: string): boolean {
-	return HOSTS.has(name);
+  return HOSTS.has(name);
 }
 
 /**
@@ -167,11 +167,11 @@ export function isHost(name: string): boolean {
  * @returns The error to throw.
  */
 export function templateError(message: string, loc: SourceLocation | undefined): Error {
-	if (!loc) {
-		return new Error(message);
-	}
-	const where = loc.file ? `${loc.file}:${loc.line}:${loc.column}` : `line ${loc.line}`;
-	return new Error(`${message} (at ${where})`);
+  if (!loc) {
+    return new Error(message);
+  }
+  const where = loc.file ? `${loc.file}:${loc.line}:${loc.column}` : `line ${loc.line}`;
+  return new Error(`${message} (at ${where})`);
 }
 
 /**
@@ -181,13 +181,13 @@ export function templateError(message: string, loc: SourceLocation | undefined):
  * @param loc - Where it was written, if the frontend carried it.
  */
 function refuseExpr(value: unknown, loc: SourceLocation | undefined): void {
-	if (value instanceof Expr) {
-		throw templateError(
-			`\`${value.source}\` is source text rather than a value: this IR was parsed for the ` +
-				'build emitter and cannot be built at runtime',
-			loc
-		);
-	}
+  if (value instanceof Expr) {
+    throw templateError(
+      `\`${value.source}\` is source text rather than a value: this IR was parsed for the ` +
+        'build emitter and cannot be built at runtime',
+      loc
+    );
+  }
 }
 
 /**
@@ -197,34 +197,34 @@ function refuseExpr(value: unknown, loc: SourceLocation | undefined): void {
  * @returns The element.
  */
 export function emit(node: IRNode): Element {
-	if (node.kind === 'text') {
-		return text(node.value);
-	}
+  if (node.kind === 'text') {
+    return text(node.value);
+  }
 
-	if (node.kind === 'slot') {
-		return rootElement(node.value, node.loc);
-	}
+  if (node.kind === 'slot') {
+    return rootElement(node.value, node.loc);
+  }
 
-	refuseExpr(node.type, node.loc);
+  refuseExpr(node.type, node.loc);
 
-	if (typeof node.type === 'function') {
-		return emitComponent(node, node.type);
-	}
+  if (typeof node.type === 'function') {
+    return emitComponent(node, node.type);
+  }
 
-	switch (node.type) {
-		case 'box':
-			return emitBox(node);
-		case 'raw':
-			return emitRaw(node);
-		case 'text':
-			return emitText(node);
-		default:
-			throw templateError(
-				`Unknown element <${String(node.type)}>. The host types are <box>, <text> and <raw>; ` +
-					'a component is interpolated rather than named.',
-				node.loc
-			);
-	}
+  switch (node.type) {
+    case 'box':
+      return emitBox(node);
+    case 'raw':
+      return emitRaw(node);
+    case 'text':
+      return emitText(node);
+    default:
+      throw templateError(
+        `Unknown element <${String(node.type)}>. The host types are <box>, <text> and <raw>; ` +
+          'a component is interpolated rather than named.',
+        node.loc
+      );
+  }
 }
 
 /**
@@ -235,11 +235,11 @@ export function emit(node: IRNode): Element {
  * @returns The element.
  */
 export function rootElement(value: unknown, loc?: SourceLocation): Element {
-	refuseExpr(value, loc);
-	if (value instanceof Element) {
-		return value;
-	}
-	throw templateError('A template root must be an element', loc);
+  refuseExpr(value, loc);
+  if (value instanceof Element) {
+    return value;
+  }
+  throw templateError('A template root must be an element', loc);
 }
 
 /**
@@ -254,21 +254,21 @@ export function rootElement(value: unknown, loc?: SourceLocation): Element {
  * @param value - Its value: a thunk is reactive, anything else is static.
  */
 export function applyProp(element: Element, name: string, value: unknown): void {
-	refuseExpr(value, undefined);
+  refuseExpr(value, undefined);
 
-	if (typeof value === 'function') {
-		const read = value as () => PropValue;
-		createEffect(() => {
-			element.setProp(name, read());
-		});
-		return;
-	}
+  if (typeof value === 'function') {
+    const read = value as () => PropValue;
+    createEffect(() => {
+      element.setProp(name, read());
+    });
+    return;
+  }
 
-	// `undefined` is a prop nobody set rather than one set to nothing, which is
-	// what the JSX transform passes for an omitted attribute
-	if (value !== undefined) {
-		element.setProp(name, value as PropValue);
-	}
+  // `undefined` is a prop nobody set rather than one set to nothing, which is
+  // what the JSX transform passes for an omitted attribute
+  if (value !== undefined) {
+    element.setProp(name, value as PropValue);
+  }
 }
 
 /**
@@ -278,9 +278,9 @@ export function applyProp(element: Element, name: string, value: unknown): void 
  * @param props - The props the frontend read.
  */
 export function applyProps(element: Element, props: readonly IRProp[]): void {
-	for (const { name, value } of props) {
-		applyProp(element, name, value);
-	}
+  for (const { name, value } of props) {
+    applyProp(element, name, value);
+  }
 }
 
 /**
@@ -295,30 +295,30 @@ export function applyProps(element: Element, props: readonly IRProp[]): void {
  * @param loc - Where the element was written.
  */
 export function applyText(element: Element, parts: readonly unknown[], loc?: SourceLocation): void {
-	// checked here rather than inside the effect, because an effect's throw is
-	// reported rather than raised -- so `<text>${() => x}${box()}</text>` handed
-	// back an empty text node and a log where the static spelling of it threw
-	for (const part of parts) {
-		refuseExpr(part, loc);
-		if (part instanceof Element) {
-			throw templateError('An element cannot go inside <text>; there is no inline layout', loc);
-		}
-	}
+  // checked here rather than inside the effect, because an effect's throw is
+  // reported rather than raised -- so `<text>${() => x}${box()}</text>` handed
+  // back an empty text node and a log where the static spelling of it threw
+  for (const part of parts) {
+    refuseExpr(part, loc);
+    if (part instanceof Element) {
+      throw templateError('An element cannot go inside <text>; there is no inline layout', loc);
+    }
+  }
 
-	if (!parts.some((part) => typeof part === 'function')) {
-		element.setText(parts.map((part) => textValue(part)).join(''));
-		return;
-	}
+  if (!parts.some((part) => typeof part === 'function')) {
+    element.setText(parts.map((part) => textValue(part)).join(''));
+    return;
+  }
 
-	createEffect(() => {
-		element.setText(
-			parts
-				.map((part) =>
-					typeof part === 'function' ? textValue((part as () => unknown)()) : textValue(part)
-				)
-				.join('')
-		);
-	});
+  createEffect(() => {
+    element.setText(
+      parts
+        .map((part) =>
+          typeof part === 'function' ? textValue((part as () => unknown)()) : textValue(part)
+        )
+        .join('')
+    );
+  });
 }
 
 /**
@@ -335,19 +335,19 @@ export function applyText(element: Element, parts: readonly unknown[], loc?: Sou
  * @returns The raw element.
  */
 export function rawElement(
-	measure: unknown,
-	paint: unknown,
-	loc?: SourceLocation,
-	props: ElementProps = {}
+  measure: unknown,
+  paint: unknown,
+  loc?: SourceLocation,
+  props: ElementProps = {}
 ): Element {
-	refuseExpr(measure, loc);
-	refuseExpr(paint, loc);
+  refuseExpr(measure, loc);
+  refuseExpr(paint, loc);
 
-	if (typeof measure !== 'function' || typeof paint !== 'function') {
-		throw templateError('<raw> needs a measure and a paint', loc);
-	}
+  if (typeof measure !== 'function' || typeof paint !== 'function') {
+    throw templateError('<raw> needs a measure and a paint', loc);
+  }
 
-	return raw({ measure, paint } as RawOptions, props);
+  return raw({ measure, paint } as RawOptions, props);
 }
 
 /**
@@ -358,35 +358,35 @@ export function rawElement(
  * @param value - The interpolated value.
  */
 export function appendValue(parent: Element, value: unknown): void {
-	refuseExpr(value, undefined);
+  refuseExpr(value, undefined);
 
-	if (value === null || value === undefined || typeof value === 'boolean') {
-		return;
-	}
+  if (value === null || value === undefined || typeof value === 'boolean') {
+    return;
+  }
 
-	if (Array.isArray(value)) {
-		for (const item of value) {
-			appendValue(parent, item);
-		}
-		return;
-	}
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      appendValue(parent, item);
+    }
+    return;
+  }
 
-	if (value instanceof Element) {
-		parent.append(value);
-		return;
-	}
+  if (value instanceof Element) {
+    parent.append(value);
+    return;
+  }
 
-	if (typeof value === 'function') {
-		const node = text('');
-		parent.append(node);
-		const read = value as () => unknown;
-		createEffect(() => {
-			node.setText(textValue(read()));
-		});
-		return;
-	}
+  if (typeof value === 'function') {
+    const node = text('');
+    parent.append(node);
+    const read = value as () => unknown;
+    createEffect(() => {
+      node.setText(textValue(read()));
+    });
+    return;
+  }
 
-	parent.append(text(textValue(value)));
+  parent.append(text(textValue(value)));
 }
 
 /**
@@ -405,16 +405,16 @@ export function appendValue(parent: Element, value: unknown): void {
  * @returns Its string form, with nothing for absent.
  */
 export function textValue(value: unknown): string {
-	if (value === null || value === undefined || typeof value === 'boolean') {
-		return '';
-	}
-	if (value instanceof Element) {
-		// `String(element)` is `[object Object]`, which is what got painted. The
-		// check in `applyText()` cannot see this one: a thunk's value is not known
-		// until the effect runs, and by then the element is whatever it produced
-		throw new Error('An element cannot go inside <text>; there is no inline layout');
-	}
-	return String(value);
+  if (value === null || value === undefined || typeof value === 'boolean') {
+    return '';
+  }
+  if (value instanceof Element) {
+    // `String(element)` is `[object Object]`, which is what got painted. The
+    // check in `applyText()` cannot see this one: a thunk's value is not known
+    // until the effect runs, and by then the element is whatever it produced
+    throw new Error('An element cannot go inside <text>; there is no inline layout');
+  }
+  return String(value);
 }
 
 /**
@@ -424,14 +424,14 @@ export function textValue(value: unknown): string {
  * @returns The box.
  */
 function emitBox(node: IRElement): Element {
-	const element = box();
-	applyProps(element, node.props);
+  const element = box();
+  applyProps(element, node.props);
 
-	for (const child of node.children) {
-		appendChild(element, child);
-	}
+  for (const child of node.children) {
+    appendChild(element, child);
+  }
 
-	return element;
+  return element;
 }
 
 /**
@@ -441,14 +441,14 @@ function emitBox(node: IRElement): Element {
  * @returns The text.
  */
 function emitText(node: IRElement): Element {
-	const element = text('');
-	applyProps(element, node.props);
+  const element = text('');
+  applyProps(element, node.props);
 
-	if (node.children.length > 0) {
-		applyText(element, node.children.map(textPart), node.loc);
-	}
+  if (node.children.length > 0) {
+    applyText(element, node.children.map(textPart), node.loc);
+  }
 
-	return element;
+  return element;
 }
 
 /**
@@ -463,13 +463,13 @@ function emitText(node: IRElement): Element {
  * @returns Its value, for `applyText()` to read.
  */
 function textPart(child: IRNode): unknown {
-	if (child.kind === 'text') {
-		return child.value;
-	}
-	if (child.kind === 'element') {
-		throw templateError('An element cannot go inside <text>; there is no inline layout', child.loc);
-	}
-	return child.value;
+  if (child.kind === 'text') {
+    return child.value;
+  }
+  if (child.kind === 'element') {
+    throw templateError('An element cannot go inside <text>; there is no inline layout', child.loc);
+  }
+  return child.value;
 }
 
 /**
@@ -479,27 +479,27 @@ function textPart(child: IRNode): unknown {
  * @returns The raw element.
  */
 function emitRaw(node: IRElement): Element {
-	// a `raw` paints its own cells, so a child has nowhere to go -- and it was
-	// silently discarded, after JSX had already built it and left its effects on
-	// the owner. Refused where `<text>` refuses an element, and for the reason
-	// AGENTS.md gives against a property the engine ignores: parsing something
-	// and doing nothing with it is worse than not accepting it. Asked before the
-	// measure and the paint because the build emitter can only answer this one at
-	// build time, and two emitters reporting two different faults about one
-	// element is the divergence they exist to avoid
-	if (node.children.length > 0) {
-		throw templateError('<raw> paints its own cells, so it cannot have children', node.loc);
-	}
+  // a `raw` paints its own cells, so a child has nowhere to go -- and it was
+  // silently discarded, after JSX had already built it and left its effects on
+  // the owner. Refused where `<text>` refuses an element, and for the reason
+  // AGENTS.md gives against a property the engine ignores: parsing something
+  // and doing nothing with it is worse than not accepting it. Asked before the
+  // measure and the paint because the build emitter can only answer this one at
+  // build time, and two emitters reporting two different faults about one
+  // element is the divergence they exist to avoid
+  if (node.children.length > 0) {
+    throw templateError('<raw> paints its own cells, so it cannot have children', node.loc);
+  }
 
-	const measure = node.props.find((prop) => prop.name === 'measure')?.value;
-	const paint = node.props.find((prop) => prop.name === 'paint')?.value;
-	const element = rawElement(measure, paint, node.loc);
+  const measure = node.props.find((prop) => prop.name === 'measure')?.value;
+  const paint = node.props.find((prop) => prop.name === 'paint')?.value;
+  const element = rawElement(measure, paint, node.loc);
 
-	applyProps(
-		element,
-		node.props.filter((prop) => prop.name !== 'measure' && prop.name !== 'paint')
-	);
-	return element;
+  applyProps(
+    element,
+    node.props.filter((prop) => prop.name !== 'measure' && prop.name !== 'paint')
+  );
+  return element;
 }
 
 /**
@@ -516,28 +516,28 @@ function emitRaw(node: IRElement): Element {
  * @returns Whatever the component built.
  */
 function emitComponent(node: IRElement, component: ComponentRef): Element {
-	const props: Record<string, unknown> = {};
-	for (const { name, value } of node.props) {
-		refuseExpr(value, node.loc);
-		props[name] = value;
-	}
+  const props: Record<string, unknown> = {};
+  for (const { name, value } of node.props) {
+    refuseExpr(value, node.loc);
+    props[name] = value;
+  }
 
-	// whitespace-only text between a component's tags is dropped, which a host
-	// element's is not. A host's whitespace is content -- the space in
-	// `<text>Enter your email: </text>` is the author's -- while a component's
-	// children are data it interprets, and a stray space is never part of that.
-	// Without this, one space before an expression made `props.children` the
-	// array `[' ', fn]`, so `<${Show}> ${(v) => ...}</>` failed with
-	// `props.children is not a function` while the same template written across
-	// two lines worked, because the newline run was already gone
-	const children = componentChildren(node).map(reify);
-	if (children.length === 1) {
-		props.children = children[0];
-	} else if (children.length > 1) {
-		props.children = children;
-	}
+  // whitespace-only text between a component's tags is dropped, which a host
+  // element's is not. A host's whitespace is content -- the space in
+  // `<text>Enter your email: </text>` is the author's -- while a component's
+  // children are data it interprets, and a stray space is never part of that.
+  // Without this, one space before an expression made `props.children` the
+  // array `[' ', fn]`, so `<${Show}> ${(v) => ...}</>` failed with
+  // `props.children is not a function` while the same template written across
+  // two lines worked, because the newline run was already gone
+  const children = componentChildren(node).map(reify);
+  if (children.length === 1) {
+    props.children = children[0];
+  } else if (children.length > 1) {
+    props.children = children;
+  }
 
-	return component(props);
+  return component(props);
 }
 
 /**
@@ -551,7 +551,7 @@ function emitComponent(node: IRElement, component: ComponentRef): Element {
  * @returns The children that survive.
  */
 export function componentChildren(node: IRElement): readonly IRNode[] {
-	return node.children.filter((child) => child.kind !== 'text' || child.value.trim() !== '');
+  return node.children.filter((child) => child.kind !== 'text' || child.value.trim() !== '');
 }
 
 /**
@@ -561,14 +561,14 @@ export function componentChildren(node: IRElement): readonly IRNode[] {
  * @returns An element, a string, or whatever was interpolated.
  */
 function reify(child: IRNode): unknown {
-	if (child.kind === 'text') {
-		return child.value;
-	}
-	if (child.kind === 'element') {
-		return emit(child);
-	}
-	refuseExpr(child.value, child.loc);
-	return child.value;
+  if (child.kind === 'text') {
+    return child.value;
+  }
+  if (child.kind === 'element') {
+    return emit(child);
+  }
+  refuseExpr(child.value, child.loc);
+  return child.value;
 }
 
 /**
@@ -578,13 +578,13 @@ function reify(child: IRNode): unknown {
  * @param child - The child node.
  */
 function appendChild(parent: Element, child: IRNode): void {
-	if (child.kind === 'text') {
-		parent.append(text(child.value));
-		return;
-	}
-	if (child.kind === 'element') {
-		parent.append(emit(child));
-		return;
-	}
-	appendValue(parent, child.value);
+  if (child.kind === 'text') {
+    parent.append(text(child.value));
+    return;
+  }
+  if (child.kind === 'element') {
+    parent.append(emit(child));
+    return;
+  }
+  appendValue(parent, child.value);
 }

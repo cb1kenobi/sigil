@@ -25,16 +25,16 @@
  */
 
 export interface Key {
-	/** True for `Ctrl`, which terminals send as a control byte. */
-	ctrl: boolean;
-	/** True for `Alt`, which terminals send as a leading `ESC`. */
-	meta: boolean;
-	/** The key's name: a character, or one of the named keys below. */
-	name: string;
-	/** Exactly what the terminal sent, for anything that wants to look again. */
-	sequence: string;
-	/** True only where the terminal actually distinguishes it, such as Shift-Tab. */
-	shift: boolean;
+  /** True for `Ctrl`, which terminals send as a control byte. */
+  ctrl: boolean;
+  /** True for `Alt`, which terminals send as a leading `ESC`. */
+  meta: boolean;
+  /** The key's name: a character, or one of the named keys below. */
+  name: string;
+  /** Exactly what the terminal sent, for anything that wants to look again. */
+  sequence: string;
+  /** True only where the terminal actually distinguishes it, such as Shift-Tab. */
+  shift: boolean;
 }
 
 /**
@@ -44,32 +44,32 @@ export interface Key {
  * normal mode sends `ESC [ A`, and both are common enough that both are here.
  */
 const SEQUENCES: Record<string, string> = {
-	A: 'up',
-	B: 'down',
-	C: 'right',
-	D: 'left',
-	F: 'end',
-	H: 'home',
-	Z: 'tab', // shift-tab, which carries the shift flag below
-	'1~': 'home',
-	'3~': 'delete',
-	'4~': 'end',
-	'5~': 'pageup',
-	'6~': 'pagedown',
-	'7~': 'home',
-	'8~': 'end',
+  A: 'up',
+  B: 'down',
+  C: 'right',
+  D: 'left',
+  F: 'end',
+  H: 'home',
+  Z: 'tab', // shift-tab, which carries the shift flag below
+  '1~': 'home',
+  '3~': 'delete',
+  '4~': 'end',
+  '5~': 'pageup',
+  '6~': 'pagedown',
+  '7~': 'home',
+  '8~': 'end',
 };
 
 /** The control bytes worth naming. Everything else falls through to `ctrl+<letter>`. */
 const CONTROLS: Record<string, string> = {
-	'\r': 'enter',
-	'\n': 'enter',
-	'\t': 'tab',
-	'\b': 'backspace',
-	'\u007f': 'backspace',
-	'\u0003': 'c', // ctrl-c
-	'\u0004': 'd', // ctrl-d
-	' ': 'space',
+  '\r': 'enter',
+  '\n': 'enter',
+  '\t': 'tab',
+  '\b': 'backspace',
+  '\u007f': 'backspace',
+  '\u0003': 'c', // ctrl-c
+  '\u0004': 'd', // ctrl-d
+  ' ': 'space',
 };
 
 /**
@@ -89,13 +89,13 @@ const CONTROLS: Record<string, string> = {
  * than from a table.
  */
 export const KEY_NAMES: ReadonlySet<string> = new Set(
-	[...Object.values(SEQUENCES), ...Object.values(CONTROLS), 'escape'].filter(
-		(name) => [...name].length > 1
-	)
+  [...Object.values(SEQUENCES), ...Object.values(CONTROLS), 'escape'].filter(
+    (name) => [...name].length > 1
+  )
 );
 
 function key(partial: Partial<Key> & { name: string; sequence: string }): Key {
-	return { ctrl: false, meta: false, shift: false, ...partial };
+  return { ctrl: false, meta: false, shift: false, ...partial };
 }
 
 /**
@@ -111,7 +111,7 @@ function key(partial: Partial<Key> & { name: string; sequence: string }): Key {
  * @returns Whether the sequence continues through it.
  */
 function isParameter(code: number): boolean {
-	return code >= 0x20 && code <= 0x3f;
+  return code >= 0x20 && code <= 0x3f;
 }
 
 /**
@@ -124,11 +124,11 @@ function isParameter(code: number): boolean {
  * consumes everything to the end.
  */
 interface Read {
-	key: Key;
-	length: number;
-	pending: boolean;
-	/** Whether this read was a control string rather than a key. */
-	string?: boolean;
+  key: Key;
+  length: number;
+  pending: boolean;
+  /** Whether this read was a control string rather than a key. */
+  string?: boolean;
 }
 
 /**
@@ -144,33 +144,33 @@ interface Read {
  * the terminal a question. So it says.
  */
 export interface DecodeOptions {
-	/**
-	 * Whether an OSC or DCS introducer starts a control string whatever follows.
-	 *
-	 * `false` by default, which is the conservative reading: a control string is
-	 * claimed only where its payload could not plausibly be a key that was typed
-	 * -- a digit after `ESC ]`, since every OSC command is numeric, and `>` or a
-	 * digit after `ESC P`. That keeps Alt-] and Alt-Shift-P working while still
-	 * keeping a terminal's unsolicited chatter out of a prompt.
-	 *
-	 * `true` is what a reader that has just written a query passes, for the window
-	 * in which a reply can arrive. It closes the one case the default cannot: a
-	 * read that splits between `ESC ]` and its payload, where the default has
-	 * nothing left to go on and reads Alt-] followed by the payload as keys. What
-	 * it costs is Alt-] pressed inside that window -- one key lost for as long as
-	 * a probe is outstanding, which is the same asymmetry `ESCAPE_TIMEOUT` is
-	 * written for with the window chosen rather than permanent.
-	 */
-	strings?: boolean;
+  /**
+   * Whether an OSC or DCS introducer starts a control string whatever follows.
+   *
+   * `false` by default, which is the conservative reading: a control string is
+   * claimed only where its payload could not plausibly be a key that was typed
+   * -- a digit after `ESC ]`, since every OSC command is numeric, and `>` or a
+   * digit after `ESC P`. That keeps Alt-] and Alt-Shift-P working while still
+   * keeping a terminal's unsolicited chatter out of a prompt.
+   *
+   * `true` is what a reader that has just written a query passes, for the window
+   * in which a reply can arrive. It closes the one case the default cannot: a
+   * read that splits between `ESC ]` and its payload, where the default has
+   * nothing left to go on and reads Alt-] followed by the payload as keys. What
+   * it costs is Alt-] pressed inside that window -- one key lost for as long as
+   * a probe is outstanding, which is the same asymmetry `ESCAPE_TIMEOUT` is
+   * written for with the window chosen rather than permanent.
+   */
+  strings?: boolean;
 }
 
 /** The introducer of a control string, and which payloads the default claims. */
 const STRINGS: Record<string, RegExp> = {
-	// every OSC command is a number, so a digit is the whole of the test
-	']': /^\d$/,
-	// `ESC P > | name ST` is XTVersion's reply and `ESC P 1 $ r ... ST` is
-	// DECRQSS's. `ESC P q` is Sixel, which nothing here asks for
-	P: /^[>\d]$/,
+  // every OSC command is a number, so a digit is the whole of the test
+  ']': /^\d$/,
+  // `ESC P > | name ST` is XTVersion's reply and `ESC P 1 $ r ... ST` is
+  // DECRQSS's. `ESC P q` is Sixel, which nothing here asks for
+  P: /^[>\d]$/,
 };
 
 /**
@@ -189,16 +189,16 @@ const STRINGS: Record<string, RegExp> = {
  *   chunk ran out first.
  */
 function stringEnd(input: string, from: number): { end: number; length: number } | undefined {
-	for (let i = from; i < input.length; i++) {
-		const ch = input[i];
-		if (ch === '\u0007' || ch === '\u009c') {
-			return { end: i, length: 1 };
-		}
-		if (ch === '\u001b' && input[i + 1] === '\\') {
-			return { end: i, length: 2 };
-		}
-	}
-	return undefined;
+  for (let i = from; i < input.length; i++) {
+    const ch = input[i];
+    if (ch === '\u0007' || ch === '\u009c') {
+      return { end: i, length: 1 };
+    }
+    if (ch === '\u001b' && input[i + 1] === '\\') {
+      return { end: i, length: 2 };
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -217,52 +217,52 @@ function stringEnd(input: string, from: number): { end: number; length: number }
  *   escape should be read the way it always was.
  */
 function readString(input: string, start: number, opts: DecodeOptions): Read | undefined {
-	const claim = STRINGS[input[start + 1]];
-	if (claim === undefined) {
-		return undefined;
-	}
+  const claim = STRINGS[input[start + 1]];
+  if (claim === undefined) {
+    return undefined;
+  }
 
-	const first = input[start + 2];
-	if (first === undefined) {
-		// the introducer is the whole of what arrived. Held only where a query is
-		// outstanding: otherwise `ESC ]` on its own is Alt-], and holding it would
-		// lose that key outright rather than delay it, since Alt-] typed by itself
-		// *is* the whole chunk and nothing will ever follow it
-		return opts.strings
-			? {
-					key: key({ name: 'unknown', sequence: input.slice(start) }),
-					length: input.length - start,
-					pending: true,
-					string: true,
-				}
-			: undefined;
-	}
+  const first = input[start + 2];
+  if (first === undefined) {
+    // the introducer is the whole of what arrived. Held only where a query is
+    // outstanding: otherwise `ESC ]` on its own is Alt-], and holding it would
+    // lose that key outright rather than delay it, since Alt-] typed by itself
+    // *is* the whole chunk and nothing will ever follow it
+    return opts.strings
+      ? {
+          key: key({ name: 'unknown', sequence: input.slice(start) }),
+          length: input.length - start,
+          pending: true,
+          string: true,
+        }
+      : undefined;
+  }
 
-	if (!opts.strings && !claim.test(first)) {
-		return undefined;
-	}
+  if (!opts.strings && !claim.test(first)) {
+    return undefined;
+  }
 
-	const found = stringEnd(input, start + 2);
-	if (!found) {
-		// take the tail rather than leaving it to be read as keys, which is what
-		// `readEscape()` already does with an unfinished CSI and for its reason: the
-		// alternative puts the payload in somebody's answer
-		const sequence = input.slice(start);
-		return {
-			key: key({ name: 'unknown', sequence }),
-			length: sequence.length,
-			pending: true,
-			string: true,
-		};
-	}
+  const found = stringEnd(input, start + 2);
+  if (!found) {
+    // take the tail rather than leaving it to be read as keys, which is what
+    // `readEscape()` already does with an unfinished CSI and for its reason: the
+    // alternative puts the payload in somebody's answer
+    const sequence = input.slice(start);
+    return {
+      key: key({ name: 'unknown', sequence }),
+      length: sequence.length,
+      pending: true,
+      string: true,
+    };
+  }
 
-	const sequence = input.slice(start, found.end + found.length);
-	return {
-		key: key({ name: 'unknown', sequence }),
-		length: sequence.length,
-		pending: false,
-		string: true,
-	};
+  const sequence = input.slice(start, found.end + found.length);
+  return {
+    key: key({ name: 'unknown', sequence }),
+    length: sequence.length,
+    pending: false,
+    string: true,
+  };
 }
 
 /**
@@ -274,90 +274,90 @@ function readString(input: string, start: number, opts: DecodeOptions): Read | u
  * @returns The key, how much of the input it took, and whether it finished.
  */
 function readEscape(input: string, start: number, opts: DecodeOptions): Read {
-	const next = input[start + 1];
+  const next = input[start + 1];
 
-	// a lone ESC, or one at the very end of a chunk. Terminals send Alt-x as ESC
-	// followed by x in the same chunk, so a trailing ESC really is Escape -- and
-	// it is pending, because a read that split puts the x in the next chunk
-	if (next === undefined) {
-		return {
-			key: key({ name: 'escape', sequence: input.slice(start, start + 1) }),
-			length: 1,
-			pending: true,
-		};
-	}
+  // a lone ESC, or one at the very end of a chunk. Terminals send Alt-x as ESC
+  // followed by x in the same chunk, so a trailing ESC really is Escape -- and
+  // it is pending, because a read that split puts the x in the next chunk
+  if (next === undefined) {
+    return {
+      key: key({ name: 'escape', sequence: input.slice(start, start + 1) }),
+      length: 1,
+      pending: true,
+    };
+  }
 
-	// asked before the CSI and before Alt, because it is the narrower claim: the
-	// two introducers it reads are ones `readOne()` would otherwise take for keys
-	const string = readString(input, start, opts);
-	if (string) {
-		return string;
-	}
+  // asked before the CSI and before Alt, because it is the narrower claim: the
+  // two introducers it reads are ones `readOne()` would otherwise take for keys
+  const string = readString(input, start, opts);
+  if (string) {
+    return string;
+  }
 
-	if (next === '[' || next === 'O') {
-		// the parameters, then the byte that ends it. A CSI ends on a byte in
-		// 0x40-0x7e; everything before it carries on the sequence
-		let i = start + 2;
-		while (i < input.length && isParameter(input.charCodeAt(i))) {
-			i++;
-		}
+  if (next === '[' || next === 'O') {
+    // the parameters, then the byte that ends it. A CSI ends on a byte in
+    // 0x40-0x7e; everything before it carries on the sequence
+    let i = start + 2;
+    while (i < input.length && isParameter(input.charCodeAt(i))) {
+      i++;
+    }
 
-		const final = input[i];
-		if (final === undefined) {
-			// an unfinished sequence: take what is here rather than leaving the
-			// bytes to be read as separate keys on the next chunk
-			const sequence = input.slice(start);
-			return { key: key({ name: 'unknown', sequence }), length: sequence.length, pending: true };
-		}
+    const final = input[i];
+    if (final === undefined) {
+      // an unfinished sequence: take what is here rather than leaving the
+      // bytes to be read as separate keys on the next chunk
+      const sequence = input.slice(start);
+      return { key: key({ name: 'unknown', sequence }), length: sequence.length, pending: true };
+    }
 
-		// a byte that can neither carry the sequence on nor end it, which is a key
-		// pressed while one was still arriving. Taking it as the terminator anyway
-		// swallowed it -- `ESC [` and then Ctrl-C was one unknown sequence and a
-		// prompt that could not be escaped, and the window for that is as wide as
-		// the wait for the rest of a split read. The sequence stops in front of it
-		// and it is read as the key it is
-		const code = input.charCodeAt(i);
-		if (code < 0x40 || code > 0x7e) {
-			const sequence = input.slice(start, i);
-			return { key: key({ name: 'unknown', sequence }), length: sequence.length, pending: false };
-		}
+    // a byte that can neither carry the sequence on nor end it, which is a key
+    // pressed while one was still arriving. Taking it as the terminator anyway
+    // swallowed it -- `ESC [` and then Ctrl-C was one unknown sequence and a
+    // prompt that could not be escaped, and the window for that is as wide as
+    // the wait for the rest of a split read. The sequence stops in front of it
+    // and it is read as the key it is
+    const code = input.charCodeAt(i);
+    if (code < 0x40 || code > 0x7e) {
+      const sequence = input.slice(start, i);
+      return { key: key({ name: 'unknown', sequence }), length: sequence.length, pending: false };
+    }
 
-		const params = input.slice(start + 2, i);
-		const sequence = input.slice(start, i + 1);
-		const name = SEQUENCES[final] ?? SEQUENCES[`${params}${final}`] ?? 'unknown';
+    const params = input.slice(start + 2, i);
+    const sequence = input.slice(start, i + 1);
+    const name = SEQUENCES[final] ?? SEQUENCES[`${params}${final}`] ?? 'unknown';
 
-		// `ESC [ 1 ; 5 A` is Ctrl-Up and `ESC [ 1 ; 2 A` is Shift-Up: the modifier is
-		// the second parameter, one more than a bitmask of 1 shift, 2 alt, 4 ctrl,
-		// and 8 meta
-		const modifier = Number.parseInt(params.split(';')[1] ?? '', 10);
-		const bits = Number.isNaN(modifier) ? 0 : modifier - 1;
+    // `ESC [ 1 ; 5 A` is Ctrl-Up and `ESC [ 1 ; 2 A` is Shift-Up: the modifier is
+    // the second parameter, one more than a bitmask of 1 shift, 2 alt, 4 ctrl,
+    // and 8 meta
+    const modifier = Number.parseInt(params.split(';')[1] ?? '', 10);
+    const bits = Number.isNaN(modifier) ? 0 : modifier - 1;
 
-		return {
-			key: key({
-				ctrl: (bits & 4) !== 0,
-				meta: (bits & 2) !== 0 || (bits & 8) !== 0,
-				name,
-				sequence,
-				// Shift-Tab is its own sequence rather than a modifier
-				shift: final === 'Z' || (bits & 1) !== 0,
-			}),
-			length: sequence.length,
-			pending: false,
-		};
-	}
+    return {
+      key: key({
+        ctrl: (bits & 4) !== 0,
+        meta: (bits & 2) !== 0 || (bits & 8) !== 0,
+        name,
+        sequence,
+        // Shift-Tab is its own sequence rather than a modifier
+        shift: final === 'Z' || (bits & 1) !== 0,
+      }),
+      length: sequence.length,
+      pending: false,
+    };
+  }
 
-	// ESC followed by anything else is Alt-that. Whether it finished is whatever
-	// that key says: `ESC ESC [` is Alt held over a sequence still arriving, and
-	// holding all three is what lets the `A` after it make Alt-Up
-	const read = readOne(input, start + 1, opts);
-	return {
-		key: key({ ...read.key, meta: true, sequence: input.slice(start, start + 1 + read.length) }),
-		length: 1 + read.length,
-		pending: read.pending,
-		// carried, or Alt held over a reply still arriving reports itself as a
-		// half-arrived key -- and a caller that reads that decides the wrong deadline
-		string: read.string,
-	};
+  // ESC followed by anything else is Alt-that. Whether it finished is whatever
+  // that key says: `ESC ESC [` is Alt held over a sequence still arriving, and
+  // holding all three is what lets the `A` after it make Alt-Up
+  const read = readOne(input, start + 1, opts);
+  return {
+    key: key({ ...read.key, meta: true, sequence: input.slice(start, start + 1 + read.length) }),
+    length: 1 + read.length,
+    pending: read.pending,
+    // carried, or Alt held over a reply still arriving reports itself as a
+    // half-arrived key -- and a caller that reads that decides the wrong deadline
+    string: read.string,
+  };
 }
 
 /**
@@ -369,37 +369,37 @@ function readEscape(input: string, start: number, opts: DecodeOptions): Read {
  * @returns The key, how much of the input it took, and whether it finished.
  */
 function readOne(input: string, start: number, opts: DecodeOptions): Read {
-	const ch = input[start];
+  const ch = input[start];
 
-	if (ch === '\u001b') {
-		return readEscape(input, start, opts);
-	}
+  if (ch === '\u001b') {
+    return readEscape(input, start, opts);
+  }
 
-	const named = CONTROLS[ch];
-	if (named !== undefined) {
-		// the two that are control bytes rather than keys of their own
-		const ctrl = ch === '\u0003' || ch === '\u0004';
-		return { key: key({ ctrl, name: named, sequence: ch }), length: 1, pending: false };
-	}
+  const named = CONTROLS[ch];
+  if (named !== undefined) {
+    // the two that are control bytes rather than keys of their own
+    const ctrl = ch === '\u0003' || ch === '\u0004';
+    return { key: key({ ctrl, name: named, sequence: ch }), length: 1, pending: false };
+  }
 
-	// read from the whole string, not from `ch`: `input[start]` is one UTF-16 code
-	// unit, so an emoji's high surrogate on its own reports itself as the code
-	// point and the low surrogate is then read as a second key
-	const code = input.codePointAt(start) as number;
+  // read from the whole string, not from `ch`: `input[start]` is one UTF-16 code
+  // unit, so an emoji's high surrogate on its own reports itself as the code
+  // point and the low surrogate is then read as a second key
+  const code = input.codePointAt(start) as number;
 
-	// the rest of the C0 range is Ctrl with a letter: 0x01 is Ctrl-A
-	if (code < 0x20) {
-		return {
-			key: key({ ctrl: true, name: String.fromCharCode(code + 0x60), sequence: ch }),
-			length: 1,
-			pending: false,
-		};
-	}
+  // the rest of the C0 range is Ctrl with a letter: 0x01 is Ctrl-A
+  if (code < 0x20) {
+    return {
+      key: key({ ctrl: true, name: String.fromCharCode(code + 0x60), sequence: ch }),
+      length: 1,
+      pending: false,
+    };
+  }
 
-	// anything else is the character itself, taken whole: an emoji is a surrogate
-	// pair and half of one is not a key
-	const char = String.fromCodePoint(code);
-	return { key: key({ name: char, sequence: char }), length: char.length, pending: false };
+  // anything else is the character itself, taken whole: an emoji is a surrogate
+  // pair and half of one is not a key
+  const char = String.fromCodePoint(code);
+  return { key: key({ name: char, sequence: char }), length: char.length, pending: false };
 }
 
 /**
@@ -430,7 +430,7 @@ function readOne(input: string, start: number, opts: DecodeOptions): Read {
  *   whole key.
  */
 export function pendingLength(input: string, opts: DecodeOptions = {}): number {
-	return tail(input, opts).length;
+  return tail(input, opts).length;
 }
 
 /**
@@ -456,23 +456,23 @@ export function pendingLength(input: string, opts: DecodeOptions = {}): number {
  *   held, and `false` for a key that merely has not finished arriving.
  */
 export function pendingIsString(input: string, opts: DecodeOptions = {}): boolean {
-	return tail(input, opts).string;
+  return tail(input, opts).string;
 }
 
 /** The last read of a chunk, where it did not finish. */
 function tail(input: string, opts: DecodeOptions): { length: number; string: boolean } {
-	let i = 0;
-	let held = { length: 0, string: false };
+  let i = 0;
+  let held = { length: 0, string: false };
 
-	while (i < input.length) {
-		const read = readOne(input, i, opts);
-		i += read.length;
-		held = read.pending
-			? { length: read.length, string: read.string === true }
-			: { length: 0, string: false };
-	}
+  while (i < input.length) {
+    const read = readOne(input, i, opts);
+    i += read.length;
+    held = read.pending
+      ? { length: read.length, string: read.string === true }
+      : { length: 0, string: false };
+  }
 
-	return held;
+  return held;
 }
 
 /**
@@ -483,16 +483,16 @@ function tail(input: string, opts: DecodeOptions): { length: number; string: boo
  * @returns The keys, in order.
  */
 export function decodeKeys(input: string, opts: DecodeOptions = {}): Key[] {
-	const keys: Key[] = [];
-	let i = 0;
+  const keys: Key[] = [];
+  let i = 0;
 
-	while (i < input.length) {
-		const { key: k, length } = readOne(input, i, opts);
-		keys.push(k);
-		i += length;
-	}
+  while (i < input.length) {
+    const { key: k, length } = readOne(input, i, opts);
+    keys.push(k);
+    i += length;
+  }
 
-	return keys;
+  return keys;
 }
 
 /**
@@ -506,5 +506,5 @@ export function decodeKeys(input: string, opts: DecodeOptions = {}): Key[] {
  * @returns `true` when the prompt should abort.
  */
 export function isAbort(k: Key): boolean {
-	return k.ctrl && (k.name === 'c' || k.name === 'd');
+  return k.ctrl && (k.name === 'c' || k.name === 'd');
 }

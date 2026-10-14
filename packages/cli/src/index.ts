@@ -15,8 +15,8 @@ import { readFileSync } from 'node:fs';
  * only the published package would notice.
  */
 export function version(): string {
-	const manifest = new URL('../package.json', import.meta.url);
-	return JSON.parse(readFileSync(manifest, 'utf-8')).version as string;
+  const manifest = new URL('../package.json', import.meta.url);
+  return JSON.parse(readFileSync(manifest, 'utf-8')).version as string;
 }
 
 /**
@@ -27,25 +27,25 @@ export function version(): string {
  * something to replace rather than something to invent.
  */
 export function schema(): Schema {
-	return {
-		name: 'sigil',
-		// the function rather than the string: reading the manifest eagerly is a
-		// file read on every run, and `sigil build` replaces this with the literal
-		// it read at build time anyway
-		version,
-		// The commands are the files in `src/commands/`, which is what SIG-74 is
-		// for and what `sigil build` reads out of an app. `baseDir` is what makes
-		// './commands' mean *this* directory rather than the one the user was
-		// standing in.
-		//
-		// No `routeInfo`: `sigil build` lifts the descriptions out of those
-		// modules and bakes them into the tree it generates, which is the same
-		// lift a hand-run script used to do here. Running from source lists by
-		// name alone until a module is loaded, which is what an unbuilt
-		// filesystem tree has always done.
-		baseDir: import.meta.dirname,
-		commands: './commands',
-	};
+  return {
+    name: 'sigil',
+    // the function rather than the string: reading the manifest eagerly is a
+    // file read on every run, and `sigil build` replaces this with the literal
+    // it read at build time anyway
+    version,
+    // The commands are the files in `src/commands/`, which is what SIG-74 is
+    // for and what `sigil build` reads out of an app. `baseDir` is what makes
+    // './commands' mean *this* directory rather than the one the user was
+    // standing in.
+    //
+    // No `routeInfo`: `sigil build` lifts the descriptions out of those
+    // modules and bakes them into the tree it generates, which is the same
+    // lift a hand-run script used to do here. Running from source lists by
+    // name alone until a module is loaded, which is what an unbuilt
+    // filesystem tree has always done.
+    baseDir: import.meta.dirname,
+    commands: './commands',
+  };
 }
 
 /**
@@ -70,7 +70,7 @@ export function schema(): Schema {
  * @returns Whether to answer with the version and nothing else.
  */
 function isVersionOnly(argv: readonly string[]): boolean {
-	return argv.length === 1 && (argv[0] === '-v' || argv[0] === '--version');
+  return argv.length === 1 && (argv[0] === '-v' || argv[0] === '--version');
 }
 
 /**
@@ -91,15 +91,15 @@ function isVersionOnly(argv: readonly string[]): boolean {
  * @returns Whatever `main()` resolves with.
  */
 export async function run(argv?: string[]): Promise<ParseState | unknown> {
-	if (isVersionOnly(argv ?? process.argv.slice(2))) {
-		process.stdout.write(`${version()}\n`);
-		return undefined;
-	}
+  if (isVersionOnly(argv ?? process.argv.slice(2))) {
+    process.stdout.write(`${version()}\n`);
+    return undefined;
+  }
 
-	// everything else is the schema's: `--version`, and the help screen a run
-	// that named no command gets, are both `main()`'s now rather than this
-	// wrapper's. That is what makes `node src/sigil.ts` and `node dist/sigil.mjs`
-	// the same program -- `sigil build` generates the executable and calls
-	// `main()` itself, so whatever a bin did around it was not in the bundle
-	return main({ argv, schema: schema() });
+  // everything else is the schema's: `--version`, and the help screen a run
+  // that named no command gets, are both `main()`'s now rather than this
+  // wrapper's. That is what makes `node src/sigil.ts` and `node dist/sigil.mjs`
+  // the same program -- `sigil build` generates the executable and calls
+  // `main()` itself, so whatever a bin did around it was not in the bundle
+  return main({ argv, schema: schema() });
 }

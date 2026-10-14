@@ -41,13 +41,13 @@
 import { type Diagnostic, displayPath } from './diagnostic.ts';
 import { factsOf } from './extract.ts';
 import {
-	literalBoolean,
-	literalString,
-	loaderSpecifier,
-	objectLiteral,
-	outermostWith,
-	plainProperty,
-	propertyKey,
+  literalBoolean,
+  literalString,
+  loaderSpecifier,
+  objectLiteral,
+  outermostWith,
+  plainProperty,
+  propertyKey,
 } from './literals.ts';
 import { parseModule, position, type ParsedModule } from './parse-module.ts';
 import type { ResolvedCommand } from './tree.ts';
@@ -82,57 +82,57 @@ const EXTENSIONS = ['.ts', '.mts', '.cts', '.js', '.mjs', '.cjs'];
 
 /** What an app's manifest says that matters here. */
 export interface AppManifest {
-	/** Every dependency it declares, however it declares them. */
-	readonly dependencies: readonly string[];
-	/**
-	 * The one executable it publishes, when it publishes exactly one.
-	 *
-	 * What the built executable should be called, and a better answer than the
-	 * package name: `@ttylabs/cli` publishes `sigil`, and a build naming the
-	 * file after the package writes a `cli.mjs` the manifest does not point at.
-	 * More than one is not an answer, so it is left to `--name`.
-	 */
-	readonly bin?: string;
-	/** What it calls itself. */
-	readonly name?: string;
-	/** Where the manifest is. */
-	readonly path: string;
-	/**
-	 * What it calls its version, baked into the generated entry.
-	 *
-	 * A bundle has no `package.json` beside it, so an app that reads its own at
-	 * run time is reading a path that points wherever the bundle was written.
-	 */
-	readonly version?: string;
+  /** Every dependency it declares, however it declares them. */
+  readonly dependencies: readonly string[];
+  /**
+   * The one executable it publishes, when it publishes exactly one.
+   *
+   * What the built executable should be called, and a better answer than the
+   * package name: `@ttylabs/cli` publishes `sigil`, and a build naming the
+   * file after the package writes a `cli.mjs` the manifest does not point at.
+   * More than one is not an answer, so it is left to `--name`.
+   */
+  readonly bin?: string;
+  /** What it calls itself. */
+  readonly name?: string;
+  /** Where the manifest is. */
+  readonly path: string;
+  /**
+   * What it calls its version, baked into the generated entry.
+   *
+   * A bundle has no `package.json` beside it, so an app that reads its own at
+   * run time is reading a path that points wherever the bundle was written.
+   */
+  readonly version?: string;
 }
 
 /** An app, found. */
 export interface DiscoveredApp {
-	/** The module its schema was read from. */
-	readonly entry: string;
-	/** What its manifest said. */
-	readonly manifest: AppManifest;
-	/** Its root, which is where the manifest is. */
-	readonly root: string;
+  /** The module its schema was read from. */
+  readonly entry: string;
+  /** What its manifest said. */
+  readonly manifest: AppManifest;
+  /** Its root, which is where the manifest is. */
+  readonly root: string;
 }
 
 /** Where an app keeps its commands, as its entry declares them. */
 export type AppCommands =
-	| {
-			/** The directory the filesystem router walks. */
-			readonly dir: string;
-			readonly kind: 'directory';
-	  }
-	| {
-			/** The commands the schema wrote out. */
-			readonly commands: readonly ResolvedCommand[];
-			readonly kind: 'inline';
-	  };
+  | {
+      /** The directory the filesystem router walks. */
+      readonly dir: string;
+      readonly kind: 'directory';
+    }
+  | {
+      /** The commands the schema wrote out. */
+      readonly commands: readonly ResolvedCommand[];
+      readonly kind: 'inline';
+    };
 
 /** How to find an app. */
 export interface DiscoverOptions {
-	/** The entry to read, when the conventions should not be trusted. */
-	readonly entry?: string;
+  /** The entry to read, when the conventions should not be trusted. */
+  readonly entry?: string;
 }
 
 /**
@@ -146,28 +146,28 @@ export interface DiscoverOptions {
  *   carry on from, because none of them leaves anything to check.
  */
 export function discoverApp(cwd: string, options: DiscoverOptions = {}): DiscoveredApp {
-	const root = resolve(cwd);
-	const manifest = readManifest(root);
+  const root = resolve(cwd);
+  const manifest = readManifest(root);
 
-	// asked first, because every error after this one would be a worse version
-	// of the same message
-	if (!manifest.dependencies.includes(RUNTIME)) {
-		throw new Error(
-			`${manifest.path} does not depend on ${RUNTIME}, so there is no sigil app here to check`
-		);
-	}
+  // asked first, because every error after this one would be a worse version
+  // of the same message
+  if (!manifest.dependencies.includes(RUNTIME)) {
+    throw new Error(
+      `${manifest.path} does not depend on ${RUNTIME}, so there is no sigil app here to check`
+    );
+  }
 
-	const entry = options.entry
-		? resolveEntry(root, options.entry)
-		: findEntry(root, readManifestEntries(manifest.path));
+  const entry = options.entry
+    ? resolveEntry(root, options.entry)
+    : findEntry(root, readManifestEntries(manifest.path));
 
-	if (!entry) {
-		throw new Error(
-			`No entry module found in ${root}. Looked for ${ENTRY_NAMES.map((name) => `${name}.*`).join(', ')} and what the manifest names; pass --entry to name one`
-		);
-	}
+  if (!entry) {
+    throw new Error(
+      `No entry module found in ${root}. Looked for ${ENTRY_NAMES.map((name) => `${name}.*`).join(', ')} and what the manifest names; pass --entry to name one`
+    );
+  }
 
-	return { entry, manifest, root };
+  return { entry, manifest, root };
 }
 
 /**
@@ -178,39 +178,39 @@ export function discoverApp(cwd: string, options: DiscoverOptions = {}): Discove
  * @throws If there is no manifest, or it will not parse.
  */
 export function readManifest(root: string): AppManifest {
-	const path = join(root, 'package.json');
+  const path = join(root, 'package.json');
 
-	let raw;
-	try {
-		raw = readFileSync(path, 'utf-8');
-	} catch {
-		throw new Error(`No package.json in ${root}; sigil runs from an app's root`);
-	}
+  let raw;
+  try {
+    raw = readFileSync(path, 'utf-8');
+  } catch {
+    throw new Error(`No package.json in ${root}; sigil runs from an app's root`);
+  }
 
-	let json;
-	try {
-		json = JSON.parse(raw) as Record<string, unknown>;
-	} catch (e: unknown) {
-		throw new Error(`Failed to parse ${path}: ${(e as Error).message}`);
-	}
+  let json;
+  try {
+    json = JSON.parse(raw) as Record<string, unknown>;
+  } catch (e: unknown) {
+    throw new Error(`Failed to parse ${path}: ${(e as Error).message}`);
+  }
 
-	const dependencies = new Set<string>();
-	for (const field of ['dependencies', 'devDependencies', 'peerDependencies']) {
-		const declared = json[field];
-		if (declared && typeof declared === 'object') {
-			for (const name of Object.keys(declared)) {
-				dependencies.add(name);
-			}
-		}
-	}
+  const dependencies = new Set<string>();
+  for (const field of ['dependencies', 'devDependencies', 'peerDependencies']) {
+    const declared = json[field];
+    if (declared && typeof declared === 'object') {
+      for (const name of Object.keys(declared)) {
+        dependencies.add(name);
+      }
+    }
+  }
 
-	return {
-		bin: binName(json.bin),
-		dependencies: [...dependencies],
-		name: typeof json.name === 'string' ? json.name : undefined,
-		path,
-		version: typeof json.version === 'string' ? json.version : undefined,
-	};
+  return {
+    bin: binName(json.bin),
+    dependencies: [...dependencies],
+    name: typeof json.name === 'string' ? json.name : undefined,
+    path,
+    version: typeof json.version === 'string' ? json.version : undefined,
+  };
 }
 
 /**
@@ -224,24 +224,24 @@ export function readManifest(root: string): AppManifest {
  * @returns The relative paths it names.
  */
 function readManifestEntries(manifestPath: string): string[] {
-	const json = JSON.parse(readFileSync(manifestPath, 'utf-8')) as {
-		bin?: string | Record<string, string>;
-		main?: string;
-	};
+  const json = JSON.parse(readFileSync(manifestPath, 'utf-8')) as {
+    bin?: string | Record<string, string>;
+    main?: string;
+  };
 
-	const named: string[] = [];
+  const named: string[] = [];
 
-	if (typeof json.bin === 'string') {
-		named.push(json.bin);
-	} else if (json.bin && typeof json.bin === 'object') {
-		named.push(...Object.values(json.bin));
-	}
+  if (typeof json.bin === 'string') {
+    named.push(json.bin);
+  } else if (json.bin && typeof json.bin === 'object') {
+    named.push(...Object.values(json.bin));
+  }
 
-	if (typeof json.main === 'string') {
-		named.push(json.main);
-	}
+  if (typeof json.main === 'string') {
+    named.push(json.main);
+  }
 
-	return named;
+  return named;
 }
 
 /**
@@ -252,23 +252,23 @@ function readManifestEntries(manifestPath: string): string[] {
  * @returns The entry, or `undefined`.
  */
 function findEntry(root: string, named: readonly string[]): string | undefined {
-	for (const name of ENTRY_NAMES) {
-		for (const extension of EXTENSIONS) {
-			const candidate = join(root, `${name}${extension}`);
-			if (isFile(candidate)) {
-				return candidate;
-			}
-		}
-	}
+  for (const name of ENTRY_NAMES) {
+    for (const extension of EXTENSIONS) {
+      const candidate = join(root, `${name}${extension}`);
+      if (isFile(candidate)) {
+        return candidate;
+      }
+    }
+  }
 
-	for (const entry of named) {
-		const candidate = resolve(root, entry);
-		if (isFile(candidate)) {
-			return candidate;
-		}
-	}
+  for (const entry of named) {
+    const candidate = resolve(root, entry);
+    if (isFile(candidate)) {
+      return candidate;
+    }
+  }
 
-	return undefined;
+  return undefined;
 }
 
 /**
@@ -280,13 +280,13 @@ function findEntry(root: string, named: readonly string[]): string | undefined {
  * @throws If it is not a file.
  */
 function resolveEntry(root: string, entry: string): string {
-	const path = isAbsolute(entry) ? entry : resolve(root, entry);
+  const path = isAbsolute(entry) ? entry : resolve(root, entry);
 
-	if (!isFile(path)) {
-		throw new Error(`Entry module not found: ${displayPath(path)}`);
-	}
+  if (!isFile(path)) {
+    throw new Error(`Entry module not found: ${displayPath(path)}`);
+  }
 
-	return path;
+  return path;
 }
 
 /**
@@ -296,11 +296,11 @@ function resolveEntry(root: string, entry: string): string {
  * @returns Whether to read it.
  */
 function isFile(path: string): boolean {
-	try {
-		return statSync(path).isFile();
-	} catch {
-		return false;
-	}
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -317,44 +317,44 @@ function isFile(path: string): boolean {
  * @returns The file, or `undefined` when nothing answers to it.
  */
 export function resolveSpecifier(from: string, specifier: string): string | undefined {
-	// a bare specifier is a package rather than a file in this app, and a
-	// package's commands are its own business
-	if (!specifier.startsWith('.') && !isAbsolute(specifier)) {
-		return undefined;
-	}
+  // a bare specifier is a package rather than a file in this app, and a
+  // package's commands are its own business
+  if (!specifier.startsWith('.') && !isAbsolute(specifier)) {
+    return undefined;
+  }
 
-	const base = isAbsolute(specifier) ? specifier : resolve(from, specifier);
+  const base = isAbsolute(specifier) ? specifier : resolve(from, specifier);
 
-	if (isFile(base)) {
-		return base;
-	}
+  if (isFile(base)) {
+    return base;
+  }
 
-	// `./check.js` where the file is `check.ts`
-	const swapped = base.replace(/\.[cm]?js$/, '');
-	if (swapped !== base) {
-		for (const extension of EXTENSIONS) {
-			const candidate = `${swapped}${extension}`;
-			if (isFile(candidate)) {
-				return candidate;
-			}
-		}
-	}
+  // `./check.js` where the file is `check.ts`
+  const swapped = base.replace(/\.[cm]?js$/, '');
+  if (swapped !== base) {
+    for (const extension of EXTENSIONS) {
+      const candidate = `${swapped}${extension}`;
+      if (isFile(candidate)) {
+        return candidate;
+      }
+    }
+  }
 
-	for (const extension of EXTENSIONS) {
-		if (isFile(`${base}${extension}`)) {
-			return `${base}${extension}`;
-		}
-	}
+  for (const extension of EXTENSIONS) {
+    if (isFile(`${base}${extension}`)) {
+      return `${base}${extension}`;
+    }
+  }
 
-	// a directory is its index module
-	for (const extension of EXTENSIONS) {
-		const candidate = join(base, `index${extension}`);
-		if (isFile(candidate)) {
-			return candidate;
-		}
-	}
+  // a directory is its index module
+  for (const extension of EXTENSIONS) {
+    const candidate = join(base, `index${extension}`);
+    if (isFile(candidate)) {
+      return candidate;
+    }
+  }
 
-	return undefined;
+  return undefined;
 }
 
 /**
@@ -364,88 +364,88 @@ export function resolveSpecifier(from: string, specifier: string): string | unde
  * @returns What its schema declares, and anything reading it turned up.
  */
 export function readAppCommands(app: DiscoveredApp): {
-	commands?: AppCommands;
-	diagnostics: readonly Diagnostic[];
-	/**
-	 * Whether the entry declared `commands` at all.
-	 *
-	 * Apart from `commands` being `undefined`, which covers the other case too:
-	 * a schema that declares commands this cannot *read* has already been
-	 * reported on, and a caller adding "no commands found" on top would be
-	 * saying one problem twice and getting the second one wrong.
-	 */
-	found: boolean;
+  commands?: AppCommands;
+  diagnostics: readonly Diagnostic[];
+  /**
+   * Whether the entry declared `commands` at all.
+   *
+   * Apart from `commands` being `undefined`, which covers the other case too:
+   * a schema that declares commands this cannot *read* has already been
+   * reported on, and a caller adding "no commands found" on top would be
+   * saying one problem twice and getting the second one wrong.
+   */
+  found: boolean;
 } {
-	const parsed = parseModule(app.entry, readFileSync(app.entry, 'utf-8'));
-	const diagnostics: Diagnostic[] = [];
+  const parsed = parseModule(app.entry, readFileSync(app.entry, 'utf-8'));
+  const diagnostics: Diagnostic[] = [];
 
-	const schemas = outermostWith(parsed.program as never, 'commands');
+  const schemas = outermostWith(parsed.program as never, 'commands');
 
-	if (!schemas.length) {
-		return { diagnostics, found: false };
-	}
+  if (!schemas.length) {
+    return { diagnostics, found: false };
+  }
 
-	if (schemas.length > 1) {
-		// more than one schema in one module is a thing this cannot choose
-		// between, and choosing by source order would be choosing by accident
-		diagnostics.push({
-			...at(parsed, schemas[1]!.start),
-			message: `found ${schemas.length} schemas in this module; pass --commands to say which command directory to check`,
-			severity: 'warning',
-		});
-		return { diagnostics, found: true };
-	}
+  if (schemas.length > 1) {
+    // more than one schema in one module is a thing this cannot choose
+    // between, and choosing by source order would be choosing by accident
+    diagnostics.push({
+      ...at(parsed, schemas[1]!.start),
+      message: `found ${schemas.length} schemas in this module; pass --commands to say which command directory to check`,
+      severity: 'warning',
+    });
+    return { diagnostics, found: true };
+  }
 
-	const declared = plainProperty(schemas[0]!, 'commands')!;
-	const entryDir = dirname(app.entry);
+  const declared = plainProperty(schemas[0]!, 'commands')!;
+  const entryDir = dirname(app.entry);
 
-	const asPath = literalString(declared.value);
-	if (asPath !== undefined) {
-		// A relative path here means two different things unless the schema says
-		// what it is relative to. This pass resolves it against the entry module;
-		// the runtime has no file to resolve an inline schema against, so it falls
-		// back to the process's working directory -- which for an installed CLI is
-		// wherever the user was standing. So the app builds and runs bundled, and
-		// throws `Unsupported command module` the moment anybody runs it from
-		// source, while this command reports no problems at all.
-		//
-		// A warning rather than an error because the *built* app is genuinely
-		// fine, and an app that only ever ships bundled is not wrong. What is
-		// wrong is this command having nothing to say about it.
-		if (!isAbsolute(asPath) && !plainProperty(schemas[0]!, 'baseDir')) {
-			diagnostics.push({
-				...at(parsed, declared.value.start),
-				message:
-					`"commands" is a relative path and the schema sets no "baseDir", so this resolves it ` +
-					`against ${displayPath(entryDir)} while the runtime resolves it against the working ` +
-					`directory. Add \`baseDir: import.meta.dirname\` to the schema.`,
-				severity: 'warning',
-			});
-		}
+  const asPath = literalString(declared.value);
+  if (asPath !== undefined) {
+    // A relative path here means two different things unless the schema says
+    // what it is relative to. This pass resolves it against the entry module;
+    // the runtime has no file to resolve an inline schema against, so it falls
+    // back to the process's working directory -- which for an installed CLI is
+    // wherever the user was standing. So the app builds and runs bundled, and
+    // throws `Unsupported command module` the moment anybody runs it from
+    // source, while this command reports no problems at all.
+    //
+    // A warning rather than an error because the *built* app is genuinely
+    // fine, and an app that only ever ships bundled is not wrong. What is
+    // wrong is this command having nothing to say about it.
+    if (!isAbsolute(asPath) && !plainProperty(schemas[0]!, 'baseDir')) {
+      diagnostics.push({
+        ...at(parsed, declared.value.start),
+        message:
+          `"commands" is a relative path and the schema sets no "baseDir", so this resolves it ` +
+          `against ${displayPath(entryDir)} while the runtime resolves it against the working ` +
+          `directory. Add \`baseDir: import.meta.dirname\` to the schema.`,
+        severity: 'warning',
+      });
+    }
 
-		return {
-			commands: { dir: resolve(entryDir, asPath), kind: 'directory' },
-			diagnostics,
-			found: true,
-		};
-	}
+    return {
+      commands: { dir: resolve(entryDir, asPath), kind: 'directory' },
+      diagnostics,
+      found: true,
+    };
+  }
 
-	const written = objectLiteral(declared.value);
-	if (!written) {
-		diagnostics.push({
-			...at(parsed, declared.value.start),
-			message:
-				'"commands" is computed rather than a path or an object literal, so it cannot be read at build time; pass --commands to name a command directory',
-			severity: 'error',
-		});
-		return { diagnostics, found: true };
-	}
+  const written = objectLiteral(declared.value);
+  if (!written) {
+    diagnostics.push({
+      ...at(parsed, declared.value.start),
+      message:
+        '"commands" is computed rather than a path or an object literal, so it cannot be read at build time; pass --commands to name a command directory',
+      severity: 'error',
+    });
+    return { diagnostics, found: true };
+  }
 
-	return {
-		commands: { commands: readInline(written, entryDir, parsed, diagnostics), kind: 'inline' },
-		diagnostics,
-		found: true,
-	};
+  return {
+    commands: { commands: readInline(written, entryDir, parsed, diagnostics), kind: 'inline' },
+    diagnostics,
+    found: true,
+  };
 }
 
 /**
@@ -458,37 +458,37 @@ export function readAppCommands(app: DiscoveredApp): {
  * @returns One command per property.
  */
 function readInline(
-	object: ObjectExpression,
-	from: string,
-	parsed: ParsedModule,
-	diagnostics: Diagnostic[]
+  object: ObjectExpression,
+  from: string,
+  parsed: ParsedModule,
+  diagnostics: Diagnostic[]
 ): ResolvedCommand[] {
-	const commands: ResolvedCommand[] = [];
+  const commands: ResolvedCommand[] = [];
 
-	for (const property of object.properties) {
-		if (property.type === 'SpreadElement') {
-			diagnostics.push({
-				...at(parsed, property.start),
-				message: '"commands" spreads another object, which may carry commands this cannot see',
-				severity: 'warning',
-			});
-			continue;
-		}
+  for (const property of object.properties) {
+    if (property.type === 'SpreadElement') {
+      diagnostics.push({
+        ...at(parsed, property.start),
+        message: '"commands" spreads another object, which may carry commands this cannot see',
+        severity: 'warning',
+      });
+      continue;
+    }
 
-		const name = propertyKey(property);
-		if (!name) {
-			diagnostics.push({
-				...at(parsed, property.start),
-				message: 'a command is declared under a computed key, so its name cannot be read',
-				severity: 'warning',
-			});
-			continue;
-		}
+    const name = propertyKey(property);
+    if (!name) {
+      diagnostics.push({
+        ...at(parsed, property.start),
+        message: 'a command is declared under a computed key, so its name cannot be read',
+        severity: 'warning',
+      });
+      continue;
+    }
 
-		commands.push(readCommand(name, property.value, from, parsed, diagnostics));
-	}
+    commands.push(readCommand(name, property.value, from, parsed, diagnostics));
+  }
 
-	return commands;
+  return commands;
 }
 
 /**
@@ -502,71 +502,71 @@ function readInline(
  * @returns The command.
  */
 function readCommand(
-	name: string,
-	value: Expression,
-	from: string,
-	parsed: ParsedModule,
-	diagnostics: Diagnostic[]
+  name: string,
+  value: Expression,
+  from: string,
+  parsed: ParsedModule,
+  diagnostics: Diagnostic[]
 ): ResolvedCommand {
-	// `commands: { build: './build.js' }` is a path, which the runtime resolves
-	// as one command however many files sit behind it
-	const asPath = literalString(value);
-	if (asPath !== undefined) {
-		return {
-			commands: [],
-			kind: 'inline',
-			...moduleFacts(resolveSpecifier(from, asPath), asPath, name, parsed, diagnostics, value),
-			name,
-		};
-	}
+  // `commands: { build: './build.js' }` is a path, which the runtime resolves
+  // as one command however many files sit behind it
+  const asPath = literalString(value);
+  if (asPath !== undefined) {
+    return {
+      commands: [],
+      kind: 'inline',
+      ...moduleFacts(resolveSpecifier(from, asPath), asPath, name, parsed, diagnostics, value),
+      name,
+    };
+  }
 
-	const object = objectLiteral(value);
-	if (!object) {
-		diagnostics.push({
-			...at(parsed, value.start),
-			message: `the "${name}" command is computed rather than a literal, so nothing about it can be read at build time`,
-			severity: 'warning',
-		});
-		return { commands: [], kind: 'inline', name };
-	}
+  const object = objectLiteral(value);
+  if (!object) {
+    diagnostics.push({
+      ...at(parsed, value.start),
+      message: `the "${name}" command is computed rather than a literal, so nothing about it can be read at build time`,
+      severity: 'warning',
+    });
+    return { commands: [], kind: 'inline', name };
+  }
 
-	const specifier = moduleSpecifier(object);
-	const nested = plainProperty(object, 'commands');
-	const declaredDesc = plainProperty(object, 'desc');
-	const declaredHidden = plainProperty(object, 'hidden');
+  const specifier = moduleSpecifier(object);
+  const nested = plainProperty(object, 'commands');
+  const declaredDesc = plainProperty(object, 'desc');
+  const declaredHidden = plainProperty(object, 'hidden');
 
-	// what the *placeholder* declares is what help shows before the module loads,
-	// so a readable `desc` here is the answer to every question the module's own
-	// readability could have raised -- which is why it silences them. All of
-	// `factsOf()`'s diagnostics are about what help would show pre-load, and a
-	// `hidden` the module computes is what the `!` name prefix is for
-	const described = declaredDesc !== undefined && literalString(declaredDesc.value) !== undefined;
+  // what the *placeholder* declares is what help shows before the module loads,
+  // so a readable `desc` here is the answer to every question the module's own
+  // readability could have raised -- which is why it silences them. All of
+  // `factsOf()`'s diagnostics are about what help would show pre-load, and a
+  // `hidden` the module computes is what the `!` name prefix is for
+  const described = declaredDesc !== undefined && literalString(declaredDesc.value) !== undefined;
 
-	const facts = moduleFacts(
-		specifier ? resolveSpecifier(from, specifier) : undefined,
-		specifier,
-		name,
-		parsed,
-		diagnostics,
-		value,
-		described
-	);
+  const facts = moduleFacts(
+    specifier ? resolveSpecifier(from, specifier) : undefined,
+    specifier,
+    name,
+    parsed,
+    diagnostics,
+    value,
+    described
+  );
 
-	return {
-		commands: nested
-			? objectLiteral(nested.value)
-				? readInline(objectLiteral(nested.value)!, from, parsed, diagnostics)
-				: []
-			: [],
-		// what the *placeholder* declares is what help shows before the module
-		// loads, so it wins over what the module says -- which is the runtime's
-		// merge read from the other side
-		desc: declaredDesc ? (literalString(declaredDesc.value) ?? facts.desc) : facts.desc,
-		hidden: declaredHidden ? (literalBoolean(declaredHidden.value) ?? facts.hidden) : facts.hidden,
-		kind: 'inline',
-		module: facts.module,
-		name,
-	};
+  return {
+    commands: nested
+      ? objectLiteral(nested.value)
+        ? readInline(objectLiteral(nested.value)!, from, parsed, diagnostics)
+        : []
+      : [],
+    // what the *placeholder* declares is what help shows before the module
+    // loads, so it wins over what the module says -- which is the runtime's
+    // merge read from the other side
+    desc: declaredDesc ? (literalString(declaredDesc.value) ?? facts.desc) : facts.desc,
+    hidden: declaredHidden ? (literalBoolean(declaredHidden.value) ?? facts.hidden) : facts.hidden,
+    kind: 'inline',
+    module: facts.module,
+    name,
+  };
 }
 
 /**
@@ -579,20 +579,20 @@ function readCommand(
  * @returns The specifier, or `undefined`.
  */
 function moduleSpecifier(object: ObjectExpression): string | undefined {
-	const path = plainProperty(object, 'path');
-	if (path) {
-		return literalString(path.value);
-	}
+  const path = plainProperty(object, 'path');
+  if (path) {
+    return literalString(path.value);
+  }
 
-	const load = plainProperty(object, 'load');
-	if (!load) {
-		return undefined;
-	}
+  const load = plainProperty(object, 'load');
+  if (!load) {
+    return undefined;
+  }
 
-	// the one shape a bundler can see and this can read: an arrow whose body is
-	// a dynamic import of a literal. Shared with the catalog check, which reads
-	// `Schema.locales` the same way
-	return loaderSpecifier(load.value);
+  // the one shape a bundler can see and this can read: an arrow whose body is
+  // a dynamic import of a literal. Shared with the catalog check, which reads
+  // `Schema.locales` the same way
+  return loaderSpecifier(load.value);
 }
 
 /**
@@ -608,40 +608,40 @@ function moduleSpecifier(object: ObjectExpression): string | undefined {
  * @returns Its facts and its module.
  */
 function moduleFacts(
-	module: string | undefined,
-	specifier: string | undefined,
-	name: string,
-	parsed: ParsedModule,
-	diagnostics: Diagnostic[],
-	at_: { start: number },
-	described = false
+  module: string | undefined,
+  specifier: string | undefined,
+  name: string,
+  parsed: ParsedModule,
+  diagnostics: Diagnostic[],
+  at_: { start: number },
+  described = false
 ): { desc?: string; hidden?: boolean; module?: string } {
-	if (!module) {
-		if (specifier) {
-			diagnostics.push({
-				...at(parsed, at_.start),
-				message: `the "${name}" command imports "${specifier}", which could not be resolved to a file`,
-				severity: 'error',
-			});
-		}
-		return {};
-	}
+  if (!module) {
+    if (specifier) {
+      diagnostics.push({
+        ...at(parsed, at_.start),
+        message: `the "${name}" command imports "${specifier}", which could not be resolved to a file`,
+        severity: 'error',
+      });
+    }
+    return {};
+  }
 
-	// the module the schema points at is a command module like any other, so it
-	// is read the same way -- which is what makes `check` check the commands
-	// rather than only the tree above them
-	const read = factsOf(parseModule(module, readFileSync(module, 'utf-8')));
+  // the module the schema points at is a command module like any other, so it
+  // is read the same way -- which is what makes `check` check the commands
+  // rather than only the tree above them
+  const read = factsOf(parseModule(module, readFileSync(module, 'utf-8')));
 
-	// an `error` is the module being unusable rather than merely unreadable -- no
-	// default export at all -- and that is worth saying however well the
-	// placeholder describes it
-	for (const diagnostic of read.diagnostics) {
-		if (!described || diagnostic.severity === 'error') {
-			diagnostics.push(diagnostic);
-		}
-	}
+  // an `error` is the module being unusable rather than merely unreadable -- no
+  // default export at all -- and that is worth saying however well the
+  // placeholder describes it
+  for (const diagnostic of read.diagnostics) {
+    if (!described || diagnostic.severity === 'error') {
+      diagnostics.push(diagnostic);
+    }
+  }
 
-	return { ...read.facts, module };
+  return { ...read.facts, module };
 }
 
 /**
@@ -652,8 +652,8 @@ function moduleFacts(
  * @returns The file, line and column.
  */
 function at(parsed: ParsedModule, offset: number): { column: number; file: string; line: number } {
-	const { column, line } = position(parsed.source, offset);
-	return { column, file: parsed.file, line };
+  const { column, line } = position(parsed.source, offset);
+  return { column, file: parsed.file, line };
 }
 
 /**
@@ -669,10 +669,10 @@ function at(parsed: ParsedModule, offset: number): { column: number; file: strin
  * @returns The name, or `undefined`.
  */
 function binName(bin: unknown): string | undefined {
-	if (!bin || typeof bin !== 'object' || Array.isArray(bin)) {
-		return undefined;
-	}
+  if (!bin || typeof bin !== 'object' || Array.isArray(bin)) {
+    return undefined;
+  }
 
-	const names = Object.keys(bin);
-	return names.length === 1 ? names[0] : undefined;
+  const names = Object.keys(bin);
+  return names.length === 1 ? names[0] : undefined;
 }

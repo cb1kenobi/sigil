@@ -1,4 +1,4 @@
 export default {
-	name: 'foo',
-	desc: 'Foo command',
+  name: 'foo',
+  desc: 'Foo command',
 };

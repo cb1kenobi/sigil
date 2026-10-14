@@ -4,9 +4,9 @@ import { main } from '@ttylabs/sigil';
 import { fileURLToPath } from 'node:url';
 
 await main({
-	argv: process.argv.slice(2),
-	schema: {
-		name: 'ts-app',
-		commands: fileURLToPath(new URL('./commands', import.meta.url)),
-	},
+  argv: process.argv.slice(2),
+  schema: {
+    name: 'ts-app',
+    commands: fileURLToPath(new URL('./commands', import.meta.url)),
+  },
 });

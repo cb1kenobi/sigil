@@ -1,13 +1,13 @@
 import {
-	confirm,
-	ESCAPE_TIMEOUT,
-	PROMPT_SYMBOLS,
-	multiline,
-	multiselect,
-	password,
-	PromptError,
-	select,
-	text,
+  confirm,
+  ESCAPE_TIMEOUT,
+  PROMPT_SYMBOLS,
+  multiline,
+  multiselect,
+  password,
+  PromptError,
+  select,
+  text,
 } from '../../src/components/prompt.js';
 import { createInput } from '../../src/input/index.js';
 import { type ScreenHarness, screenSetup, tick } from './helpers.js';
@@ -26,18 +26,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  * @returns Its answer, or the error it rejected with.
  */
 function settle<T>(promise: Promise<T>): Promise<{ error?: PromptError; value?: T }> {
-	return promise.then(
-		(value) => ({ value }),
-		(error: PromptError) => ({ error })
-	);
+  return promise.then(
+    (value) => ({ value }),
+    (error: PromptError) => ({ error })
+  );
 }
 
 /** Sends keys one at a time, letting the prompt act on each. */
 async function type(stdin: { send(chunk: string): void }, ...chunks: string[]) {
-	for (const chunk of chunks) {
-		stdin.send(chunk);
-		await tick();
-	}
+  for (const chunk of chunks) {
+    stdin.send(chunk);
+    await tick();
+  }
 }
 
 /**
@@ -51,15 +51,15 @@ async function type(stdin: { send(chunk: string): void }, ...chunks: string[]) {
  * @returns What is under the caret, or nothing when none was drawn.
  */
 function caret(ui: ScreenHarness): string {
-	const out = ui.output;
-	const at = out.lastIndexOf('\u001b[7m');
-	if (at === -1) {
-		return '';
-	}
-	const rest = out.slice(at + '\u001b[7m'.length);
-	// eslint-disable-next-line no-control-regex
-	const end = rest.search(/\u001b[[\]]/);
-	return end === -1 ? rest : rest.slice(0, end);
+  const out = ui.output;
+  const at = out.lastIndexOf('\u001b[7m');
+  if (at === -1) {
+    return '';
+  }
+  const rest = out.slice(at + '\u001b[7m'.length);
+  // eslint-disable-next-line no-control-regex
+  const end = rest.search(/\u001b[[\]]/);
+  return end === -1 ? rest : rest.slice(0, end);
 }
 
 const ENTER = '\r';
@@ -81,1221 +81,1221 @@ const PASTE_END = '\u001b[201~';
 const UNNAMED = '\u001b[202~';
 
 describe('the prompt plumbing a second component borrows', () => {
-	it('should hand over the glyphs frozen', () => {
-		// it is one object and it is exported, so a caller that wrote to it would
-		// rewrite what every prompt in the process draws -- which is the trap
-		// every initial value in the property table is frozen against
-		expect(Object.isFrozen(PROMPT_SYMBOLS)).toBe(true);
-	});
+  it('should hand over the glyphs frozen', () => {
+    // it is one object and it is exported, so a caller that wrote to it would
+    // rewrite what every prompt in the process draws -- which is the trap
+    // every initial value in the property table is frozen against
+    expect(Object.isFrozen(PROMPT_SYMBOLS)).toBe(true);
+  });
 });
 
 describe('text()', () => {
-	it('should return what was typed', async () => {
-		const ui = screenSetup();
-		const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
+  it('should return what was typed', async () => {
+    const ui = screenSetup();
+    const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
 
-		await type(ui.stdin, 'c', 'h', 'r', 'i', 's', ENTER);
+    await type(ui.stdin, 'c', 'h', 'r', 'i', 's', ENTER);
 
-		expect(await answer).to.equal('chris');
-	});
+    expect(await answer).to.equal('chris');
+  });
 
-	it('should read a chunk carrying several characters, as a paste does', async () => {
-		const ui = screenSetup();
-		const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
+  it('should read a chunk carrying several characters, as a paste does', async () => {
+    const ui = screenSetup();
+    const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
 
-		await type(ui.stdin, 'pasted text', ENTER);
+    await type(ui.stdin, 'pasted text', ENTER);
 
-		expect(await answer).to.equal('pasted text');
-	});
+    expect(await answer).to.equal('pasted text');
+  });
 
-	it('should fall back to the default on an empty answer', async () => {
-		const ui = screenSetup();
-		const answer = text({
-			ansi: ui.ansi,
-			default: 'anonymous',
-			message: 'Name?',
-			terminal: ui.terminal,
-		});
+  it('should fall back to the default on an empty answer', async () => {
+    const ui = screenSetup();
+    const answer = text({
+      ansi: ui.ansi,
+      default: 'anonymous',
+      message: 'Name?',
+      terminal: ui.terminal,
+    });
 
-		await type(ui.stdin, ENTER);
+    await type(ui.stdin, ENTER);
 
-		expect(await answer).to.equal('anonymous');
-	});
+    expect(await answer).to.equal('anonymous');
+  });
 
-	it('should erase with backspace', async () => {
-		const ui = screenSetup();
-		const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
+  it('should erase with backspace', async () => {
+    const ui = screenSetup();
+    const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
 
-		await type(ui.stdin, 'a', 'b', 'c', '\u007f', ENTER);
+    await type(ui.stdin, 'a', 'b', 'c', '\u007f', ENTER);
 
-		expect(await answer).to.equal('ab');
-	});
+    expect(await answer).to.equal('ab');
+  });
 
-	it('should insert where the cursor is', async () => {
-		const ui = screenSetup();
-		const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
+  it('should insert where the cursor is', async () => {
+    const ui = screenSetup();
+    const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
 
-		await type(ui.stdin, 'a', 'c', '\u001b[D', 'b', ENTER);
+    await type(ui.stdin, 'a', 'c', '\u001b[D', 'b', ENTER);
 
-		expect(await answer).to.equal('abc');
-	});
+    expect(await answer).to.equal('abc');
+  });
 
-	it('should clear the line with ctrl-u', async () => {
-		const ui = screenSetup();
-		const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
+  it('should clear the line with ctrl-u', async () => {
+    const ui = screenSetup();
+    const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
 
-		await type(ui.stdin, 'throw away', '\u0015', 'kept', ENTER);
+    await type(ui.stdin, 'throw away', '\u0015', 'kept', ENTER);
 
-		expect(await answer).to.equal('kept');
-	});
+    expect(await answer).to.equal('kept');
+  });
 
-	it('should type a space', async () => {
-		const ui = screenSetup();
-		const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
+  it('should type a space', async () => {
+    const ui = screenSetup();
+    const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
 
-		await type(ui.stdin, 'a', SPACE, 'b', ENTER);
+    await type(ui.stdin, 'a', SPACE, 'b', ENTER);
 
-		expect(await answer).to.equal('a b');
-	});
+    expect(await answer).to.equal('a b');
+  });
 
-	// every named key used to type its own name: the test was whether the *name*
-	// had a display width, and `up`, `tab`, `escape` and `unknown` all do
-	it('should not type the name of a key that is not a character', async () => {
-		const ui = screenSetup();
-		const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
+  // every named key used to type its own name: the test was whether the *name*
+  // had a display width, and `up`, `tab`, `escape` and `unknown` all do
+  it('should not type the name of a key that is not a character', async () => {
+    const ui = screenSetup();
+    const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
 
-		await type(ui.stdin, UP, DOWN, TAB, ESCAPE, UNNAMED, 'ok', ENTER);
+    await type(ui.stdin, UP, DOWN, TAB, ESCAPE, UNNAMED, 'ok', ENTER);
 
-		expect(await answer).to.equal('ok');
-	});
+    expect(await answer).to.equal('ok');
+  });
 
-	// without the markers a pasted block arrives as though it had been typed, so
-	// a newline in the middle of an address is Enter and the prompt submits half
-	// of it. A one-line field flattens the breaks rather than obeying them
-	it('should take a bracketed paste whole, with its line breaks flattened', async () => {
-		const ui = screenSetup();
-		const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
+  // without the markers a pasted block arrives as though it had been typed, so
+  // a newline in the middle of an address is Enter and the prompt submits half
+  // of it. A one-line field flattens the breaks rather than obeying them
+  it('should take a bracketed paste whole, with its line breaks flattened', async () => {
+    const ui = screenSetup();
+    const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
 
-		await type(ui.stdin, 'a', PASTE_START, 'one\ntwo', PASTE_END, ENTER);
+    await type(ui.stdin, 'a', PASTE_START, 'one\ntwo', PASTE_END, ENTER);
 
-		expect(await answer).to.equal('aone two');
-	});
+    expect(await answer).to.equal('aone two');
+  });
 
-	it('should drop the control characters a paste carries', async () => {
-		const ui = screenSetup();
-		const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
+  it('should drop the control characters a paste carries', async () => {
+    const ui = screenSetup();
+    const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
 
-		await type(ui.stdin, PASTE_START, 'a\u0007b', PASTE_END, ENTER);
+    await type(ui.stdin, PASTE_START, 'a\u0007b', PASTE_END, ENTER);
 
-		expect(await answer).to.equal('ab');
-	});
+    expect(await answer).to.equal('ab');
+  });
 
-	// the same test dropped what has no width, which is every combining mark
-	it('should keep a combining mark, as an NFD paste carries', async () => {
-		const ui = screenSetup();
-		const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
+  // the same test dropped what has no width, which is every combining mark
+  it('should keep a combining mark, as an NFD paste carries', async () => {
+    const ui = screenSetup();
+    const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
 
-		await type(ui.stdin, 'cafe', '\u0301', ENTER);
+    await type(ui.stdin, 'cafe', '\u0301', ENTER);
 
-		// NFD: the letter and the mark it carries, which is what was typed
-		expect(await answer).to.equal('cafe\u0301');
-	});
+    // NFD: the letter and the mark it carries, which is what was typed
+    expect(await answer).to.equal('cafe\u0301');
+  });
 
-	it('should not type a key held with ctrl or alt', async () => {
-		const ui = screenSetup();
-		const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
+  it('should not type a key held with ctrl or alt', async () => {
+    const ui = screenSetup();
+    const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
 
-		// alt-b, then ctrl-b, neither of which this prompt binds
-		await type(ui.stdin, 'a', '\u001bb', '\u0002', ENTER);
+    // alt-b, then ctrl-b, neither of which this prompt binds
+    await type(ui.stdin, 'a', '\u001bb', '\u0002', ENTER);
 
-		expect(await answer).to.equal('a');
-	});
+    expect(await answer).to.equal('a');
+  });
 
-	// the cursor used to move by a UTF-16 code unit, so a backspace over an emoji
-	// left its high surrogate in the value and corrupted every edit after it
-	it('should erase a whole astral character with backspace', async () => {
-		const ui = screenSetup();
-		const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
+  // the cursor used to move by a UTF-16 code unit, so a backspace over an emoji
+  // left its high surrogate in the value and corrupted every edit after it
+  it('should erase a whole astral character with backspace', async () => {
+    const ui = screenSetup();
+    const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
 
-		await type(ui.stdin, 'a', '😀', BACKSPACE, 'b', ENTER);
+    await type(ui.stdin, 'a', '😀', BACKSPACE, 'b', ENTER);
 
-		expect(await answer).to.equal('ab');
-	});
-
-	it('should step over an astral character with the arrows', async () => {
-		const ui = screenSetup();
-		const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
-
-		await type(ui.stdin, '😀', 'z', LEFT, LEFT, 'x', RIGHT, 'y', ENTER);
-
-		expect(await answer).to.equal('x😀yz');
-	});
-
-	it('should delete a whole astral character forwards', async () => {
-		const ui = screenSetup();
-		const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
-
-		await type(ui.stdin, '😀', 'b', HOME, DELETE, ENTER);
-
-		expect(await answer).to.equal('b');
-	});
-
-	// a cluster is what a reader calls a character, so backspace takes the mark
-	// and what it sits on together -- here an emoji, which the old cursor cut in
-	// half and left a lone surrogate under the mark
-	it('should erase a combining mark with the character it modifies', async () => {
-		const ui = screenSetup();
-		const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
-
-		await type(ui.stdin, '😀', '\u0301', BACKSPACE, 'x', ENTER);
-
-		expect(await answer).to.equal('x');
-	});
-
-	// an insertion is the one edit that does not move by whole clusters: a mark
-	// with nothing before it is its own cluster, and the letter typed in front of
-	// it joins that cluster rather than making one of its own
-	it('should stay on a boundary when what is typed joins the cluster after it', async () => {
-		const ui = screenSetup();
-		const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
-
-		await type(ui.stdin, '\u0301', LEFT, 'a', BACKSPACE, 'ok', ENTER);
-
-		expect(await answer).to.equal('ok');
-	});
-
-	// the arrows moved an index nothing drew: Left, Right, Home and End all
-	// changed where the next character would land and nothing on screen said so
-	// until that character was typed
-	describe('the caret', () => {
-		it('should draw a caret where the next character goes', async () => {
-			const ui = screenSetup();
-			const answer = text({ colorLevel: 1, message: 'Name?', terminal: ui.terminal });
-
-			// past the last character there is nothing to mark, so the caret is a
-			// column of its own
-			await type(ui.stdin, 'ab');
-			// the screen model trims what a row ends in, so the caret's own column
-			// is read off the styling rather than off the picture
-			expect(ui.frame).to.equal('? Name? ab');
-			expect(caret(ui)).to.equal(' ');
-
-			await type(ui.stdin, ENTER);
-			expect(await answer).to.equal('ab');
-		});
-
-		it('should repaint when only the cursor moved', async () => {
-			const ui = screenSetup();
-			const answer = text({ colorLevel: 1, message: 'Name?', terminal: ui.terminal });
-
-			await type(ui.stdin, 'ab');
-
-			// nothing was typed and the screen still has to change
-			await type(ui.stdin, LEFT);
-			expect(caret(ui)).to.equal('b');
-
-			await type(ui.stdin, HOME);
-			expect(caret(ui)).to.equal('a');
-
-			await type(ui.stdin, ENTER);
-			expect(await answer).to.equal('ab');
-		});
-
-		// the caret marks what the terminal draws as one character, so a wide one
-		// is reversed over both its columns rather than cut in half
-		it('should mark a whole cluster rather than a code unit', async () => {
-			const ui = screenSetup();
-			const answer = text({ colorLevel: 1, message: 'Name?', terminal: ui.terminal });
-
-			await type(ui.stdin, '\u{1f600}', 'z', HOME);
-			expect(caret(ui)).to.equal('\u{1f600}');
-			expect(ui.frame).to.equal('? Name? \u{1f600}z');
-
-			await type(ui.stdin, ENTER);
-			expect(await answer).to.equal('\u{1f600}z');
-		});
-
-		it('should show a caret before anything has been typed', async () => {
-			const ui = screenSetup();
-			const answer = text({
-				colorLevel: 1,
-				message: 'Name?',
-				placeholder: 'your name',
-				terminal: ui.terminal,
-			});
-
-			await tick();
-			expect(caret(ui)).to.equal('y');
-
-			await type(ui.stdin, ENTER);
-			await answer;
-		});
-
-		it('should show a caret with nothing to stand in for the answer', async () => {
-			const ui = screenSetup();
-			const answer = text({ colorLevel: 1, message: 'Name?', terminal: ui.terminal });
-
-			await tick();
-			expect(caret(ui)).to.equal(' ');
-
-			await type(ui.stdin, ENTER);
-			await answer;
-		});
-
-		// a styler asked for plain text draws no caret, deliberately: the same
-		// setting takes the bold message and the dimmed placeholder with it, and a
-		// prompt asked for plain text gets plain text rather than the one sequence
-		// the library decided was too important to turn off
-		it('should draw no caret at all where there is no styling', async () => {
-			const ui = screenSetup();
-			const answer = text({ colorLevel: 0, message: 'Name?', terminal: ui.terminal });
-
-			await type(ui.stdin, 'ab');
-			expect(ui.output).to.not.contain('\u001b[7m');
-
-			await type(ui.stdin, ENTER);
-			expect(await answer).to.equal('ab');
-		});
-
-		// the mask is a column count rather than a substitution, so the caret is
-		// placed in the masked text rather than in the value it stands for
-		it('should put the caret on the mask, not on what it hides', async () => {
-			const ui = screenSetup();
-			const answer = password({ colorLevel: 1, message: 'Password?', terminal: ui.terminal });
-
-			await type(ui.stdin, 'abc', LEFT);
-			expect(ui.frame).to.equal('? Password? \u2022\u2022\u2022');
-			expect(caret(ui)).to.equal('\u2022');
-
-			await type(ui.stdin, ENTER);
-			expect(await answer).to.equal('abc');
-		});
-
-		it('should cover every column a masked character takes', async () => {
-			const ui = screenSetup();
-			const answer = password({ colorLevel: 1, message: 'Password?', terminal: ui.terminal });
-
-			// one bullet for the `a`, then two for the emoji's two columns, both
-			// under the one caret
-			await type(ui.stdin, 'a', '\u{1f600}', LEFT);
-			expect(caret(ui)).to.equal('\u2022\u2022');
-
-			await type(ui.stdin, ENTER);
-			expect(await answer).to.equal('a\u{1f600}');
-		});
-	});
-
-	describe('validation', () => {
-		it('should refuse an answer and say why', async () => {
-			const ui = screenSetup();
-			const answer = text({
-				ansi: ui.ansi,
-				message: 'Port?',
-				terminal: ui.terminal,
-				validate: (value) => (/^\d+$/.test(value) ? undefined : 'Numbers only'),
-			});
-
-			await type(ui.stdin, 'abc', ENTER);
-			expect(ui.log.join('\n')).to.contain('Numbers only');
-
-			await type(ui.stdin, '\u0015', '8080', ENTER);
-			expect(await answer).to.equal('8080');
-		});
-
-		it('should take an async validator', async () => {
-			const ui = screenSetup();
-			const answer = text({
-				ansi: ui.ansi,
-				message: 'Name?',
-				terminal: ui.terminal,
-				validate: async (value) => (value === 'taken' ? 'Already taken' : undefined),
-			});
-
-			await type(ui.stdin, 'taken', ENTER);
-			await type(ui.stdin, '\u0015', 'free', ENTER);
-
-			expect(await answer).to.equal('free');
-		});
-	});
-
-	it('should show the placeholder until something is typed', async () => {
-		const ui = screenSetup();
-		const answer = text({
-			ansi: ui.ansi,
-			message: 'Name?',
-			placeholder: 'your name',
-			terminal: ui.terminal,
-		});
-
-		await tick();
-		expect(ui.frame).to.contain('your name');
-
-		await type(ui.stdin, 'x');
-		expect(ui.frame).to.not.contain('your name');
-		expect(ui.frame).to.contain('x');
-
-		await type(ui.stdin, ENTER);
-		await answer;
-	});
+    expect(await answer).to.equal('ab');
+  });
+
+  it('should step over an astral character with the arrows', async () => {
+    const ui = screenSetup();
+    const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
+
+    await type(ui.stdin, '😀', 'z', LEFT, LEFT, 'x', RIGHT, 'y', ENTER);
+
+    expect(await answer).to.equal('x😀yz');
+  });
+
+  it('should delete a whole astral character forwards', async () => {
+    const ui = screenSetup();
+    const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
+
+    await type(ui.stdin, '😀', 'b', HOME, DELETE, ENTER);
+
+    expect(await answer).to.equal('b');
+  });
+
+  // a cluster is what a reader calls a character, so backspace takes the mark
+  // and what it sits on together -- here an emoji, which the old cursor cut in
+  // half and left a lone surrogate under the mark
+  it('should erase a combining mark with the character it modifies', async () => {
+    const ui = screenSetup();
+    const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
+
+    await type(ui.stdin, '😀', '\u0301', BACKSPACE, 'x', ENTER);
+
+    expect(await answer).to.equal('x');
+  });
+
+  // an insertion is the one edit that does not move by whole clusters: a mark
+  // with nothing before it is its own cluster, and the letter typed in front of
+  // it joins that cluster rather than making one of its own
+  it('should stay on a boundary when what is typed joins the cluster after it', async () => {
+    const ui = screenSetup();
+    const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
+
+    await type(ui.stdin, '\u0301', LEFT, 'a', BACKSPACE, 'ok', ENTER);
+
+    expect(await answer).to.equal('ok');
+  });
+
+  // the arrows moved an index nothing drew: Left, Right, Home and End all
+  // changed where the next character would land and nothing on screen said so
+  // until that character was typed
+  describe('the caret', () => {
+    it('should draw a caret where the next character goes', async () => {
+      const ui = screenSetup();
+      const answer = text({ colorLevel: 1, message: 'Name?', terminal: ui.terminal });
+
+      // past the last character there is nothing to mark, so the caret is a
+      // column of its own
+      await type(ui.stdin, 'ab');
+      // the screen model trims what a row ends in, so the caret's own column
+      // is read off the styling rather than off the picture
+      expect(ui.frame).to.equal('? Name? ab');
+      expect(caret(ui)).to.equal(' ');
+
+      await type(ui.stdin, ENTER);
+      expect(await answer).to.equal('ab');
+    });
+
+    it('should repaint when only the cursor moved', async () => {
+      const ui = screenSetup();
+      const answer = text({ colorLevel: 1, message: 'Name?', terminal: ui.terminal });
+
+      await type(ui.stdin, 'ab');
+
+      // nothing was typed and the screen still has to change
+      await type(ui.stdin, LEFT);
+      expect(caret(ui)).to.equal('b');
+
+      await type(ui.stdin, HOME);
+      expect(caret(ui)).to.equal('a');
+
+      await type(ui.stdin, ENTER);
+      expect(await answer).to.equal('ab');
+    });
+
+    // the caret marks what the terminal draws as one character, so a wide one
+    // is reversed over both its columns rather than cut in half
+    it('should mark a whole cluster rather than a code unit', async () => {
+      const ui = screenSetup();
+      const answer = text({ colorLevel: 1, message: 'Name?', terminal: ui.terminal });
+
+      await type(ui.stdin, '\u{1f600}', 'z', HOME);
+      expect(caret(ui)).to.equal('\u{1f600}');
+      expect(ui.frame).to.equal('? Name? \u{1f600}z');
+
+      await type(ui.stdin, ENTER);
+      expect(await answer).to.equal('\u{1f600}z');
+    });
+
+    it('should show a caret before anything has been typed', async () => {
+      const ui = screenSetup();
+      const answer = text({
+        colorLevel: 1,
+        message: 'Name?',
+        placeholder: 'your name',
+        terminal: ui.terminal,
+      });
+
+      await tick();
+      expect(caret(ui)).to.equal('y');
+
+      await type(ui.stdin, ENTER);
+      await answer;
+    });
+
+    it('should show a caret with nothing to stand in for the answer', async () => {
+      const ui = screenSetup();
+      const answer = text({ colorLevel: 1, message: 'Name?', terminal: ui.terminal });
+
+      await tick();
+      expect(caret(ui)).to.equal(' ');
+
+      await type(ui.stdin, ENTER);
+      await answer;
+    });
+
+    // a styler asked for plain text draws no caret, deliberately: the same
+    // setting takes the bold message and the dimmed placeholder with it, and a
+    // prompt asked for plain text gets plain text rather than the one sequence
+    // the library decided was too important to turn off
+    it('should draw no caret at all where there is no styling', async () => {
+      const ui = screenSetup();
+      const answer = text({ colorLevel: 0, message: 'Name?', terminal: ui.terminal });
+
+      await type(ui.stdin, 'ab');
+      expect(ui.output).to.not.contain('\u001b[7m');
+
+      await type(ui.stdin, ENTER);
+      expect(await answer).to.equal('ab');
+    });
+
+    // the mask is a column count rather than a substitution, so the caret is
+    // placed in the masked text rather than in the value it stands for
+    it('should put the caret on the mask, not on what it hides', async () => {
+      const ui = screenSetup();
+      const answer = password({ colorLevel: 1, message: 'Password?', terminal: ui.terminal });
+
+      await type(ui.stdin, 'abc', LEFT);
+      expect(ui.frame).to.equal('? Password? \u2022\u2022\u2022');
+      expect(caret(ui)).to.equal('\u2022');
+
+      await type(ui.stdin, ENTER);
+      expect(await answer).to.equal('abc');
+    });
+
+    it('should cover every column a masked character takes', async () => {
+      const ui = screenSetup();
+      const answer = password({ colorLevel: 1, message: 'Password?', terminal: ui.terminal });
+
+      // one bullet for the `a`, then two for the emoji's two columns, both
+      // under the one caret
+      await type(ui.stdin, 'a', '\u{1f600}', LEFT);
+      expect(caret(ui)).to.equal('\u2022\u2022');
+
+      await type(ui.stdin, ENTER);
+      expect(await answer).to.equal('a\u{1f600}');
+    });
+  });
+
+  describe('validation', () => {
+    it('should refuse an answer and say why', async () => {
+      const ui = screenSetup();
+      const answer = text({
+        ansi: ui.ansi,
+        message: 'Port?',
+        terminal: ui.terminal,
+        validate: (value) => (/^\d+$/.test(value) ? undefined : 'Numbers only'),
+      });
+
+      await type(ui.stdin, 'abc', ENTER);
+      expect(ui.log.join('\n')).to.contain('Numbers only');
+
+      await type(ui.stdin, '\u0015', '8080', ENTER);
+      expect(await answer).to.equal('8080');
+    });
+
+    it('should take an async validator', async () => {
+      const ui = screenSetup();
+      const answer = text({
+        ansi: ui.ansi,
+        message: 'Name?',
+        terminal: ui.terminal,
+        validate: async (value) => (value === 'taken' ? 'Already taken' : undefined),
+      });
+
+      await type(ui.stdin, 'taken', ENTER);
+      await type(ui.stdin, '\u0015', 'free', ENTER);
+
+      expect(await answer).to.equal('free');
+    });
+  });
+
+  it('should show the placeholder until something is typed', async () => {
+    const ui = screenSetup();
+    const answer = text({
+      ansi: ui.ansi,
+      message: 'Name?',
+      placeholder: 'your name',
+      terminal: ui.terminal,
+    });
+
+    await tick();
+    expect(ui.frame).to.contain('your name');
+
+    await type(ui.stdin, 'x');
+    expect(ui.frame).to.not.contain('your name');
+    expect(ui.frame).to.contain('x');
+
+    await type(ui.stdin, ENTER);
+    await answer;
+  });
 });
 
 describe('password()', () => {
-	it('should keep an astral character whole behind the mask', async () => {
-		const ui = screenSetup();
-		const answer = password({ ansi: ui.ansi, message: 'Password?', terminal: ui.terminal });
+  it('should keep an astral character whole behind the mask', async () => {
+    const ui = screenSetup();
+    const answer = password({ ansi: ui.ansi, message: 'Password?', terminal: ui.terminal });
 
-		await type(ui.stdin, 'a', '😀');
-		// the mask is a column count, so a two-column emoji is two bullets
-		expect(ui.frame).to.contain('•••');
+    await type(ui.stdin, 'a', '😀');
+    // the mask is a column count, so a two-column emoji is two bullets
+    expect(ui.frame).to.contain('•••');
 
-		await type(ui.stdin, BACKSPACE, ENTER);
+    await type(ui.stdin, BACKSPACE, ENTER);
 
-		expect(await answer).to.equal('a');
-	});
+    expect(await answer).to.equal('a');
+  });
 
-	it('should not show what was typed', async () => {
-		const ui = screenSetup();
-		const answer = password({ ansi: ui.ansi, message: 'Password?', terminal: ui.terminal });
+  it('should not show what was typed', async () => {
+    const ui = screenSetup();
+    const answer = password({ ansi: ui.ansi, message: 'Password?', terminal: ui.terminal });
 
-		await type(ui.stdin, 'hunter2', ENTER);
+    await type(ui.stdin, 'hunter2', ENTER);
 
-		expect(await answer).to.equal('hunter2');
-		expect(ui.output).to.not.contain('hunter2');
-		expect(ui.log.join('\n')).to.contain('•••••••');
-	});
+    expect(await answer).to.equal('hunter2');
+    expect(ui.output).to.not.contain('hunter2');
+    expect(ui.log.join('\n')).to.contain('•••••••');
+  });
 });
 
 describe('an affordance in a narrow terminal', () => {
-	// the head reserves the tail's columns, capped at half the line. Both halves
-	// of that were measured in English, and both were wrong before it: reserving
-	// nothing clipped the hint away, and reserving the lot flattened the question
-	it('should keep the hint whole where the message has to wrap for it', async () => {
-		// a hint is a flex item beside a message with `flex-shrink: 0`, so a message
-		// that took every column left squeezed the hint into one and the canvas --
-		// capped at the terminal's width -- clipped the rest. Measured: 24 columns
-		// drew `(Y/`, 22 drew `(`, and from 18 to 24 a yes-or-no question had no
-		// readable affordance at all
-		for (const columns of [80, 40, 26, 24, 22, 20, 18, 14, 13]) {
-			const ui = screenSetup({ columns, rows: 8 });
-			const answer = settle(
-				confirm({ ansi: ui.ansi, message: 'Overwrite the file', terminal: ui.terminal })
-			);
+  // the head reserves the tail's columns, capped at half the line. Both halves
+  // of that were measured in English, and both were wrong before it: reserving
+  // nothing clipped the hint away, and reserving the lot flattened the question
+  it('should keep the hint whole where the message has to wrap for it', async () => {
+    // a hint is a flex item beside a message with `flex-shrink: 0`, so a message
+    // that took every column left squeezed the hint into one and the canvas --
+    // capped at the terminal's width -- clipped the rest. Measured: 24 columns
+    // drew `(Y/`, 22 drew `(`, and from 18 to 24 a yes-or-no question had no
+    // readable affordance at all
+    for (const columns of [80, 40, 26, 24, 22, 20, 18, 14, 13]) {
+      const ui = screenSetup({ columns, rows: 8 });
+      const answer = settle(
+        confirm({ ansi: ui.ansi, message: 'Overwrite the file', terminal: ui.terminal })
+      );
 
-			expect(ui.log.join('\n'), `at ${columns} columns`).to.include('(Y/n)');
+      expect(ui.log.join('\n'), `at ${columns} columns`).to.include('(Y/n)');
 
-			await type(ui.stdin, '\u0003');
-			await answer;
-		}
-	});
+      await type(ui.stdin, '\u0003');
+      await answer;
+    }
+  });
 
-	it('should not flatten the question to reserve a long hint', async () => {
-		// the overcorrection: the multiselect hint is 35 columns, so reserving it in
-		// full left `Pick some things` four columns and seven rows of two letters.
-		// Neither half gives up more than half the line
-		const ui = screenSetup({ columns: 40, rows: 12 });
-		const answer = settle(
-			multiselect({
-				ansi: ui.ansi,
-				choices: ['one', 'two'],
-				message: 'Pick some things',
-				terminal: ui.terminal,
-			})
-		);
+  it('should not flatten the question to reserve a long hint', async () => {
+    // the overcorrection: the multiselect hint is 35 columns, so reserving it in
+    // full left `Pick some things` four columns and seven rows of two letters.
+    // Neither half gives up more than half the line
+    const ui = screenSetup({ columns: 40, rows: 12 });
+    const answer = settle(
+      multiselect({
+        ansi: ui.ansi,
+        choices: ['one', 'two'],
+        message: 'Pick some things',
+        terminal: ui.terminal,
+      })
+    );
 
-		expect(ui.log[0]).to.include('Pick some things');
+    expect(ui.log[0]).to.include('Pick some things');
 
-		await type(ui.stdin, '\u0003');
-		await answer;
-	});
+    await type(ui.stdin, '\u0003');
+    await answer;
+  });
 
-	it('should window the list against the head it drew, not the message alone', async () => {
-		// `headWidths().lines` counted the message alone, so a hint that wrapped made
-		// the head taller than the choice window believed and the row reserved for
-		// the error line absorbed it. Measured at 30 columns with eight choices on a
-		// ten-row screen: eight were drawn where seven fit, filling the screen edge
-		// to edge, so an error would have had nowhere to go.
-		//
-		// Enough choices that the slack is gone, which is what the first fixture here
-		// lacked -- with three choices on ten rows nothing overflows either way and
-		// the sabotage survived
-		const ui = screenSetup({ columns: 30, rows: 10 });
-		const answer = settle(
-			multiselect({
-				ansi: ui.ansi,
-				choices: ['a1', 'b2', 'c3', 'd4', 'e5', 'f6', 'g7', 'h8'],
-				message: 'Pick',
-				terminal: ui.terminal,
-			})
-		);
+  it('should window the list against the head it drew, not the message alone', async () => {
+    // `headWidths().lines` counted the message alone, so a hint that wrapped made
+    // the head taller than the choice window believed and the row reserved for
+    // the error line absorbed it. Measured at 30 columns with eight choices on a
+    // ten-row screen: eight were drawn where seven fit, filling the screen edge
+    // to edge, so an error would have had nowhere to go.
+    //
+    // Enough choices that the slack is gone, which is what the first fixture here
+    // lacked -- with three choices on ten rows nothing overflows either way and
+    // the sabotage survived
+    const ui = screenSetup({ columns: 30, rows: 10 });
+    const answer = settle(
+      multiselect({
+        ansi: ui.ansi,
+        choices: ['a1', 'b2', 'c3', 'd4', 'e5', 'f6', 'g7', 'h8'],
+        message: 'Pick',
+        terminal: ui.terminal,
+      })
+    );
 
-		const drawn = ui.log;
-		const head = drawn.findIndex((row) => row.includes(PROMPT_SYMBOLS.off));
-		const shown = drawn.filter((row) => row.includes(PROMPT_SYMBOLS.off)).length;
+    const drawn = ui.log;
+    const head = drawn.findIndex((row) => row.includes(PROMPT_SYMBOLS.off));
+    const shown = drawn.filter((row) => row.includes(PROMPT_SYMBOLS.off)).length;
 
-		// the head really is taller than its message, or this asserts nothing
-		expect(head).to.be.greaterThan(1);
-		// and the row kept back for the error line is still there
-		expect(head + shown).to.be.lessThan(10);
+    // the head really is taller than its message, or this asserts nothing
+    expect(head).to.be.greaterThan(1);
+    // and the row kept back for the error line is still there
+    expect(head + shown).to.be.lessThan(10);
 
-		await type(ui.stdin, '\u0003');
-		await answer;
-	});
+    await type(ui.stdin, '\u0003');
+    await answer;
+  });
 
-	it('should not throw or hang at a width nothing can be drawn in', async () => {
-		// `headWidths()` clamps both halves with `Math.max(1, ...)`, so at `avail` of
-		// 1 or less they sum to more than there is and the row over-commits -- which
-		// the canvas clips. Nothing below the 13-column floor is *useful*; what has to
-		// hold is that it is not an exception or a loop, and `wrap()` is never handed
-		// a width below 1. Checked down to one column, which is `room - fixed` of -2
-		for (const columns of [1, 2, 3, 4, 5, 6]) {
-			const ui = screenSetup({ columns, rows: 6 });
-			const answer = settle(
-				confirm({ ansi: ui.ansi, message: 'Overwrite', terminal: ui.terminal })
-			);
+  it('should not throw or hang at a width nothing can be drawn in', async () => {
+    // `headWidths()` clamps both halves with `Math.max(1, ...)`, so at `avail` of
+    // 1 or less they sum to more than there is and the row over-commits -- which
+    // the canvas clips. Nothing below the 13-column floor is *useful*; what has to
+    // hold is that it is not an exception or a loop, and `wrap()` is never handed
+    // a width below 1. Checked down to one column, which is `room - fixed` of -2
+    for (const columns of [1, 2, 3, 4, 5, 6]) {
+      const ui = screenSetup({ columns, rows: 6 });
+      const answer = settle(
+        confirm({ ansi: ui.ansi, message: 'Overwrite', terminal: ui.terminal })
+      );
 
-			expect(ui.log.length, `confirm at ${columns}`).to.be.greaterThan(0);
+      expect(ui.log.length, `confirm at ${columns}`).to.be.greaterThan(0);
 
-			await type(ui.stdin, '\u0003');
-			await answer;
-		}
+      await type(ui.stdin, '\u0003');
+      await answer;
+    }
 
-		for (const columns of [1, 3, 5]) {
-			const ui = screenSetup({ columns, rows: 8 });
-			const answer = settle(
-				multiselect({
-					ansi: ui.ansi,
-					choices: ['a', 'b'],
-					message: 'Pick',
-					terminal: ui.terminal,
-				})
-			);
+    for (const columns of [1, 3, 5]) {
+      const ui = screenSetup({ columns, rows: 8 });
+      const answer = settle(
+        multiselect({
+          ansi: ui.ansi,
+          choices: ['a', 'b'],
+          message: 'Pick',
+          terminal: ui.terminal,
+        })
+      );
 
-			expect(ui.log.length, `multiselect at ${columns}`).to.be.greaterThan(0);
+      expect(ui.log.length, `multiselect at ${columns}`).to.be.greaterThan(0);
 
-			await type(ui.stdin, '\u0003');
-			await answer;
-		}
-	});
+      await type(ui.stdin, '\u0003');
+      await answer;
+    }
+  });
 
-	it('should keep the submit hint readable rather than one column wide', async () => {
-		// measured at 40 columns before this: `(ctrl-d to submit)` came out as `(`,
-		// `t`, `s` down the right-hand side, one character per row
-		const ui = screenSetup({ columns: 40, rows: 10 });
-		const answer = settle(
-			multiline({
-				ansi: ui.ansi,
-				message: 'Describe the change in your own words',
-				terminal: ui.terminal,
-			})
-		);
+  it('should keep the submit hint readable rather than one column wide', async () => {
+    // measured at 40 columns before this: `(ctrl-d to submit)` came out as `(`,
+    // `t`, `s` down the right-hand side, one character per row
+    const ui = screenSetup({ columns: 40, rows: 10 });
+    const answer = settle(
+      multiline({
+        ansi: ui.ansi,
+        message: 'Describe the change in your own words',
+        terminal: ui.terminal,
+      })
+    );
 
-		expect(ui.log.join('\n')).to.include('(ctrl-d to submit)');
+    expect(ui.log.join('\n')).to.include('(ctrl-d to submit)');
 
-		await type(ui.stdin, '\u0003');
-		await answer;
-	});
+    await type(ui.stdin, '\u0003');
+    await answer;
+  });
 });
 
 describe('confirm()', () => {
-	it('should answer yes and no', async () => {
-		const ui = screenSetup();
-		const yes = confirm({ ansi: ui.ansi, message: 'Continue?', terminal: ui.terminal });
-		await type(ui.stdin, 'y');
-		expect(await yes).to.equal(true);
+  it('should answer yes and no', async () => {
+    const ui = screenSetup();
+    const yes = confirm({ ansi: ui.ansi, message: 'Continue?', terminal: ui.terminal });
+    await type(ui.stdin, 'y');
+    expect(await yes).to.equal(true);
 
-		const two = screenSetup();
-		const no = confirm({ ansi: two.ansi, message: 'Continue?', terminal: two.terminal });
-		await type(two.stdin, 'n');
-		expect(await no).to.equal(false);
-	});
+    const two = screenSetup();
+    const no = confirm({ ansi: two.ansi, message: 'Continue?', terminal: two.terminal });
+    await type(two.stdin, 'n');
+    expect(await no).to.equal(false);
+  });
 
-	it('should not read a modified key as an answer', async () => {
-		// a modifier makes it a different key, which is the rule the key sequences
-		// already keep: the hint says `Y`, not `ctrl-Y`.
-		//
-		// Here rather than in `prompt-i18n.test.ts`, where it was first written: it
-		// never loads a catalog, so it would survive deleting every `__` in the
-		// prompts -- the one case in that file that did not depend on the feature the
-		// file is for. Found by review
-		const ui = screenSetup({ columns: 40 });
-		let done = false;
-		const answer = settle(
-			confirm({ ansi: ui.ansi, message: 'Continue?', terminal: ui.terminal })
-		).then((r) => {
-			done = true;
-			return r;
-		});
+  it('should not read a modified key as an answer', async () => {
+    // a modifier makes it a different key, which is the rule the key sequences
+    // already keep: the hint says `Y`, not `ctrl-Y`.
+    //
+    // Here rather than in `prompt-i18n.test.ts`, where it was first written: it
+    // never loads a catalog, so it would survive deleting every `__` in the
+    // prompts -- the one case in that file that did not depend on the feature the
+    // file is for. Found by review
+    const ui = screenSetup({ columns: 40 });
+    let done = false;
+    const answer = settle(
+      confirm({ ansi: ui.ansi, message: 'Continue?', terminal: ui.terminal })
+    ).then((r) => {
+      done = true;
+      return r;
+    });
 
-		// Ctrl-Y, which `k.name` reports as `y`
-		await type(ui.stdin, '\u0019');
-		await tick();
-		expect(done, 'ctrl-y answered the prompt').to.equal(false);
+    // Ctrl-Y, which `k.name` reports as `y`
+    await type(ui.stdin, '\u0019');
+    await tick();
+    expect(done, 'ctrl-y answered the prompt').to.equal(false);
 
-		// and the unmodified key still does
-		await type(ui.stdin, 'y');
-		expect((await answer).value).to.equal(true);
-	});
+    // and the unmodified key still does
+    await type(ui.stdin, 'y');
+    expect((await answer).value).to.equal(true);
+  });
 
-	it('should take the default on enter', async () => {
-		const ui = screenSetup();
-		const answer = confirm({
-			ansi: ui.ansi,
-			default: false,
-			message: 'Continue?',
-			terminal: ui.terminal,
-		});
+  it('should take the default on enter', async () => {
+    const ui = screenSetup();
+    const answer = confirm({
+      ansi: ui.ansi,
+      default: false,
+      message: 'Continue?',
+      terminal: ui.terminal,
+    });
 
-		await type(ui.stdin, ENTER);
+    await type(ui.stdin, ENTER);
 
-		expect(await answer).to.equal(false);
-	});
+    expect(await answer).to.equal(false);
+  });
 
-	it('should show which way enter goes', async () => {
-		const ui = screenSetup();
-		const answer = confirm({
-			ansi: ui.ansi,
-			default: false,
-			message: 'Continue?',
-			terminal: ui.terminal,
-		});
+  it('should show which way enter goes', async () => {
+    const ui = screenSetup();
+    const answer = confirm({
+      ansi: ui.ansi,
+      default: false,
+      message: 'Continue?',
+      terminal: ui.terminal,
+    });
 
-		await tick();
-		expect(ui.log.join('\n')).to.contain('(y/N)');
+    await tick();
+    expect(ui.log.join('\n')).to.contain('(y/N)');
 
-		await type(ui.stdin, ENTER);
-		await answer;
-	});
+    await type(ui.stdin, ENTER);
+    await answer;
+  });
 
-	it('should ignore a key that is neither', async () => {
-		const ui = screenSetup();
-		const answer = confirm({ ansi: ui.ansi, message: 'Continue?', terminal: ui.terminal });
+  it('should ignore a key that is neither', async () => {
+    const ui = screenSetup();
+    const answer = confirm({ ansi: ui.ansi, message: 'Continue?', terminal: ui.terminal });
 
-		await type(ui.stdin, 'q', 'z', 'n');
+    await type(ui.stdin, 'q', 'z', 'n');
 
-		expect(await answer).to.equal(false);
-	});
+    expect(await answer).to.equal(false);
+  });
 });
 
 describe('select()', () => {
-	const choices = ['one', 'two', 'three'];
+  const choices = ['one', 'two', 'three'];
 
-	it('should return the highlighted choice', async () => {
-		const ui = screenSetup();
-		const answer = select({ ansi: ui.ansi, choices, message: 'Pick', terminal: ui.terminal });
+  it('should return the highlighted choice', async () => {
+    const ui = screenSetup();
+    const answer = select({ ansi: ui.ansi, choices, message: 'Pick', terminal: ui.terminal });
 
-		await type(ui.stdin, DOWN, ENTER);
+    await type(ui.stdin, DOWN, ENTER);
 
-		expect(await answer).to.equal('two');
-	});
+    expect(await answer).to.equal('two');
+  });
 
-	it('should return a choice object value', async () => {
-		const ui = screenSetup();
-		const answer = select({
-			ansi: ui.ansi,
-			choices: [
-				{ label: 'First', value: 1 },
-				{ label: 'Second', value: 2 },
-			],
-			message: 'Pick',
-			terminal: ui.terminal,
-		});
+  it('should return a choice object value', async () => {
+    const ui = screenSetup();
+    const answer = select({
+      ansi: ui.ansi,
+      choices: [
+        { label: 'First', value: 1 },
+        { label: 'Second', value: 2 },
+      ],
+      message: 'Pick',
+      terminal: ui.terminal,
+    });
 
-		await type(ui.stdin, DOWN, ENTER);
+    await type(ui.stdin, DOWN, ENTER);
 
-		expect(await answer).to.equal(2);
-	});
+    expect(await answer).to.equal(2);
+  });
 
-	// a list you cannot get to the end of by going up is a list you have to know
-	// the length of
-	it('should wrap at both ends', async () => {
-		const ui = screenSetup();
-		const answer = select({ ansi: ui.ansi, choices, message: 'Pick', terminal: ui.terminal });
+  // a list you cannot get to the end of by going up is a list you have to know
+  // the length of
+  it('should wrap at both ends', async () => {
+    const ui = screenSetup();
+    const answer = select({ ansi: ui.ansi, choices, message: 'Pick', terminal: ui.terminal });
 
-		await type(ui.stdin, UP, ENTER);
+    await type(ui.stdin, UP, ENTER);
 
-		expect(await answer).to.equal('three');
-	});
+    expect(await answer).to.equal('three');
+  });
 
-	it('should start where initial says', async () => {
-		const ui = screenSetup();
-		const answer = select({
-			ansi: ui.ansi,
-			choices,
-			initial: 2,
-			message: 'Pick',
-			terminal: ui.terminal,
-		});
+  it('should start where initial says', async () => {
+    const ui = screenSetup();
+    const answer = select({
+      ansi: ui.ansi,
+      choices,
+      initial: 2,
+      message: 'Pick',
+      terminal: ui.terminal,
+    });
 
-		await type(ui.stdin, ENTER);
+    await type(ui.stdin, ENTER);
 
-		expect(await answer).to.equal('three');
-	});
+    expect(await answer).to.equal('three');
+  });
 
-	it('should draw every choice and mark the active one', async () => {
-		const ui = screenSetup();
-		const answer = select({ ansi: ui.ansi, choices, message: 'Pick', terminal: ui.terminal });
+  it('should draw every choice and mark the active one', async () => {
+    const ui = screenSetup();
+    const answer = select({ ansi: ui.ansi, choices, message: 'Pick', terminal: ui.terminal });
 
-		await tick();
-		const frame = ui.log.join('\n');
-		for (const choice of choices) {
-			expect(frame).to.contain(choice);
-		}
-		expect(frame).to.contain('❯ one');
+    await tick();
+    const frame = ui.log.join('\n');
+    for (const choice of choices) {
+      expect(frame).to.contain(choice);
+    }
+    expect(frame).to.contain('❯ one');
 
-		await type(ui.stdin, ENTER);
-		await answer;
-	});
+    await type(ui.stdin, ENTER);
+    await answer;
+  });
 
-	// the cursor is reserved on every row rather than blanked on the inactive
-	// ones: a text of nothing but spaces measures zero, so standing one in for
-	// the cursor indented the rows that did not have it a column less than the
-	// row that did
-	it('should start every label in the same column', async () => {
-		const ui = screenSetup();
-		const answer = select({ ansi: ui.ansi, choices, message: 'Pick', terminal: ui.terminal });
+  // the cursor is reserved on every row rather than blanked on the inactive
+  // ones: a text of nothing but spaces measures zero, so standing one in for
+  // the cursor indented the rows that did not have it a column less than the
+  // row that did
+  it('should start every label in the same column', async () => {
+    const ui = screenSetup();
+    const answer = select({ ansi: ui.ansi, choices, message: 'Pick', terminal: ui.terminal });
 
-		await tick();
+    await tick();
 
-		const columns = ui.log
-			.filter((line) => choices.some((choice) => line.includes(choice)))
-			.map((line) => line.length - line.trimStart().length + (line.startsWith('\u276f') ? 2 : 0));
+    const columns = ui.log
+      .filter((line) => choices.some((choice) => line.includes(choice)))
+      .map((line) => line.length - line.trimStart().length + (line.startsWith('\u276f') ? 2 : 0));
 
-		expect(columns).to.have.length(choices.length);
-		expect(new Set(columns).size).to.equal(1);
+    expect(columns).to.have.length(choices.length);
+    expect(new Set(columns).size).to.equal(1);
 
-		await type(ui.stdin, ENTER);
-		await answer;
-	});
+    await type(ui.stdin, ENTER);
+    await answer;
+  });
 
-	// a canvas is a fixed number of rows and what does not fit is clipped, so a
-	// list longer than the screen shows a window of itself -- and an arrow key
-	// that moved a cursor nobody could see is what that is for
-	it('should scroll the list to keep the highlight on screen', async () => {
-		const ui = screenSetup({ rows: 6 });
-		const many = Array.from({ length: 10 }, (_, i) => `choice ${i}`);
-		const answer = select({ ansi: ui.ansi, choices: many, message: 'Pick', terminal: ui.terminal });
+  // a canvas is a fixed number of rows and what does not fit is clipped, so a
+  // list longer than the screen shows a window of itself -- and an arrow key
+  // that moved a cursor nobody could see is what that is for
+  it('should scroll the list to keep the highlight on screen', async () => {
+    const ui = screenSetup({ rows: 6 });
+    const many = Array.from({ length: 10 }, (_, i) => `choice ${i}`);
+    const answer = select({ ansi: ui.ansi, choices: many, message: 'Pick', terminal: ui.terminal });
 
-		await tick();
-		expect(ui.log).to.deep.equal([
-			'? Pick',
-			'\u276f choice 0',
-			'  choice 1',
-			'  choice 2',
-			'  choice 3',
-			'  choice 4',
-		]);
+    await tick();
+    expect(ui.log).to.deep.equal([
+      '? Pick',
+      '\u276f choice 0',
+      '  choice 1',
+      '  choice 2',
+      '  choice 3',
+      '  choice 4',
+    ]);
 
-		await type(ui.stdin, ...Array.from({ length: 7 }, () => DOWN));
-		expect(ui.log).to.deep.equal([
-			'? Pick',
-			'  choice 3',
-			'  choice 4',
-			'  choice 5',
-			'  choice 6',
-			'\u276f choice 7',
-		]);
+    await type(ui.stdin, ...Array.from({ length: 7 }, () => DOWN));
+    expect(ui.log).to.deep.equal([
+      '? Pick',
+      '  choice 3',
+      '  choice 4',
+      '  choice 5',
+      '  choice 6',
+      '\u276f choice 7',
+    ]);
 
-		await type(ui.stdin, ENTER);
-		expect(await answer).to.equal('choice 7');
-	});
+    await type(ui.stdin, ENTER);
+    expect(await answer).to.equal('choice 7');
+  });
 
-	// wrapping past the top is the case a window that only ever moved forwards
-	// would leave behind
-	it('should scroll back when the highlight wraps to the end', async () => {
-		const ui = screenSetup({ rows: 6 });
-		const many = Array.from({ length: 10 }, (_, i) => `choice ${i}`);
-		const answer = select({ ansi: ui.ansi, choices: many, message: 'Pick', terminal: ui.terminal });
+  // wrapping past the top is the case a window that only ever moved forwards
+  // would leave behind
+  it('should scroll back when the highlight wraps to the end', async () => {
+    const ui = screenSetup({ rows: 6 });
+    const many = Array.from({ length: 10 }, (_, i) => `choice ${i}`);
+    const answer = select({ ansi: ui.ansi, choices: many, message: 'Pick', terminal: ui.terminal });
 
-		await type(ui.stdin, UP);
-		expect(ui.log.at(-1)).to.equal('\u276f choice 9');
+    await type(ui.stdin, UP);
+    expect(ui.log.at(-1)).to.equal('\u276f choice 9');
 
-		await type(ui.stdin, ENTER);
-		expect(await answer).to.equal('choice 9');
-	});
+    await type(ui.stdin, ENTER);
+    expect(await answer).to.equal('choice 9');
+  });
 
-	it('should refuse an empty list rather than hang', async () => {
-		const ui = screenSetup();
-		await expect(
-			select({ ansi: ui.ansi, choices: [], message: 'Pick', terminal: ui.terminal })
-		).rejects.toThrow('has no choices to offer');
-	});
+  it('should refuse an empty list rather than hang', async () => {
+    const ui = screenSetup();
+    await expect(
+      select({ ansi: ui.ansi, choices: [], message: 'Pick', terminal: ui.terminal })
+    ).rejects.toThrow('has no choices to offer');
+  });
 });
 
 describe('multiselect()', () => {
-	const choices = ['a', 'b', 'c'];
+  const choices = ['a', 'b', 'c'];
 
-	it('should return what was ticked, in list order', async () => {
-		const ui = screenSetup();
-		const answer = multiselect({ ansi: ui.ansi, choices, message: 'Pick', terminal: ui.terminal });
+  it('should return what was ticked, in list order', async () => {
+    const ui = screenSetup();
+    const answer = multiselect({ ansi: ui.ansi, choices, message: 'Pick', terminal: ui.terminal });
 
-		await type(ui.stdin, DOWN, SPACE, DOWN, SPACE, UP, UP, SPACE, ENTER);
+    await type(ui.stdin, DOWN, SPACE, DOWN, SPACE, UP, UP, SPACE, ENTER);
 
-		expect(await answer).to.deep.equal(['a', 'b', 'c']);
-	});
+    expect(await answer).to.deep.equal(['a', 'b', 'c']);
+  });
 
-	it('should return nothing when nothing is ticked', async () => {
-		const ui = screenSetup();
-		const answer = multiselect({ ansi: ui.ansi, choices, message: 'Pick', terminal: ui.terminal });
+  it('should return nothing when nothing is ticked', async () => {
+    const ui = screenSetup();
+    const answer = multiselect({ ansi: ui.ansi, choices, message: 'Pick', terminal: ui.terminal });
 
-		await type(ui.stdin, ENTER);
+    await type(ui.stdin, ENTER);
 
-		expect(await answer).to.deep.equal([]);
-	});
+    expect(await answer).to.deep.equal([]);
+  });
 
-	it('should untick a second press', async () => {
-		const ui = screenSetup();
-		const answer = multiselect({ ansi: ui.ansi, choices, message: 'Pick', terminal: ui.terminal });
+  it('should untick a second press', async () => {
+    const ui = screenSetup();
+    const answer = multiselect({ ansi: ui.ansi, choices, message: 'Pick', terminal: ui.terminal });
 
-		await type(ui.stdin, SPACE, SPACE, ENTER);
+    await type(ui.stdin, SPACE, SPACE, ENTER);
 
-		expect(await answer).to.deep.equal([]);
-	});
+    expect(await answer).to.deep.equal([]);
+  });
 
-	it('should start with what selected says ticked', async () => {
-		const ui = screenSetup();
-		const answer = multiselect({
-			ansi: ui.ansi,
-			choices: [{ label: 'a' }, { label: 'b', selected: true }],
-			message: 'Pick',
-			terminal: ui.terminal,
-		});
+  it('should start with what selected says ticked', async () => {
+    const ui = screenSetup();
+    const answer = multiselect({
+      ansi: ui.ansi,
+      choices: [{ label: 'a' }, { label: 'b', selected: true }],
+      message: 'Pick',
+      terminal: ui.terminal,
+    });
 
-		await type(ui.stdin, ENTER);
+    await type(ui.stdin, ENTER);
 
-		expect(await answer).to.deep.equal(['b']);
-	});
+    expect(await answer).to.deep.equal(['b']);
+  });
 
-	it('should refuse an empty selection when required', async () => {
-		const ui = screenSetup();
-		const answer = multiselect({
-			ansi: ui.ansi,
-			choices,
-			message: 'Pick',
-			terminal: ui.terminal,
-			required: true,
-		});
+  it('should refuse an empty selection when required', async () => {
+    const ui = screenSetup();
+    const answer = multiselect({
+      ansi: ui.ansi,
+      choices,
+      message: 'Pick',
+      terminal: ui.terminal,
+      required: true,
+    });
 
-		await type(ui.stdin, ENTER);
-		expect(ui.log.join('\n')).to.contain('Choose at least one');
+    await type(ui.stdin, ENTER);
+    expect(ui.log.join('\n')).to.contain('Choose at least one');
 
-		await type(ui.stdin, SPACE, ENTER);
-		expect(await answer).to.deep.equal(['a']);
-	});
+    await type(ui.stdin, SPACE, ENTER);
+    expect(await answer).to.deep.equal(['a']);
+  });
 
-	it('should tick everything with ctrl-a, and untick with it again', async () => {
-		const ui = screenSetup();
-		const answer = multiselect({ ansi: ui.ansi, choices, message: 'Pick', terminal: ui.terminal });
+  it('should tick everything with ctrl-a, and untick with it again', async () => {
+    const ui = screenSetup();
+    const answer = multiselect({ ansi: ui.ansi, choices, message: 'Pick', terminal: ui.terminal });
 
-		await type(ui.stdin, '\u0001', ENTER);
+    await type(ui.stdin, '\u0001', ENTER);
 
-		expect(await answer).to.deep.equal(['a', 'b', 'c']);
-	});
+    expect(await answer).to.deep.equal(['a', 'b', 'c']);
+  });
 });
 
 describe('giving up', () => {
-	it.each([
-		['ctrl-c', '\u0003'],
-		['ctrl-d', '\u0004'],
-	])('should reject on %s', async (_name, keys) => {
-		const ui = screenSetup();
-		const answer = settle(text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal }));
+  it.each([
+    ['ctrl-c', '\u0003'],
+    ['ctrl-d', '\u0004'],
+  ])('should reject on %s', async (_name, keys) => {
+    const ui = screenSetup();
+    const answer = settle(text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal }));
 
-		await type(ui.stdin, 'part', keys);
+    await type(ui.stdin, 'part', keys);
 
-		const { error } = await answer;
-		expect(error).toBeInstanceOf(PromptError);
-		expect(error?.message).to.equal('Cancelled');
-		expect(error?.aborted).to.equal(true);
-	});
+    const { error } = await answer;
+    expect(error).toBeInstanceOf(PromptError);
+    expect(error?.message).to.equal('Cancelled');
+    expect(error?.aborted).to.equal(true);
+  });
 
-	it('should erase the prompt when it is cancelled', async () => {
-		const ui = screenSetup();
-		const answer = settle(text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal }));
+  it('should erase the prompt when it is cancelled', async () => {
+    const ui = screenSetup();
+    const answer = settle(text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal }));
 
-		await type(ui.stdin, 'x', '\u0003');
-		await answer;
+    await type(ui.stdin, 'x', '\u0003');
+    await answer;
 
-		expect(ui.log).to.deep.equal([]);
-	});
+    expect(ui.log).to.deep.equal([]);
+  });
 
-	it('should leave raw mode however it ends', async () => {
-		const ui = screenSetup();
+  it('should leave raw mode however it ends', async () => {
+    const ui = screenSetup();
 
-		const answered = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
-		await type(ui.stdin, 'x', ENTER);
-		await answered;
-		expect(ui.stdin.rawMode).to.equal(false);
+    const answered = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
+    await type(ui.stdin, 'x', ENTER);
+    await answered;
+    expect(ui.stdin.rawMode).to.equal(false);
 
-		const cancelled = settle(text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal }));
-		await type(ui.stdin, '\u0003');
-		await cancelled;
-		expect(ui.stdin.rawMode).to.equal(false);
-	});
+    const cancelled = settle(text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal }));
+    await type(ui.stdin, '\u0003');
+    await cancelled;
+    expect(ui.stdin.rawMode).to.equal(false);
+  });
 
-	// a prompt that waits on a stdin that will never produce a keystroke is a
-	// hung build with no explanation
-	it('should refuse to prompt when the input is not a terminal', async () => {
-		const ui = screenSetup({ inputTTY: false });
+  // a prompt that waits on a stdin that will never produce a keystroke is a
+  // hung build with no explanation
+  it('should refuse to prompt when the input is not a terminal', async () => {
+    const ui = screenSetup({ inputTTY: false });
 
-		await expect(text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal })).rejects.toThrow(
-			'Cannot prompt for "Name?" because the input is not a terminal'
-		);
-	});
+    await expect(text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal })).rejects.toThrow(
+      'Cannot prompt for "Name?" because the input is not a terminal'
+    );
+  });
 
-	it('should refuse to prompt when the output is not a terminal', async () => {
-		const ui = screenSetup({ isTTY: false });
+  it('should refuse to prompt when the output is not a terminal', async () => {
+    const ui = screenSetup({ isTTY: false });
 
-		await expect(
-			confirm({ ansi: ui.ansi, message: 'Sure?', terminal: ui.terminal })
-		).rejects.toThrow('is not a terminal');
-	});
+    await expect(
+      confirm({ ansi: ui.ansi, message: 'Sure?', terminal: ui.terminal })
+    ).rejects.toThrow('is not a terminal');
+  });
 
-	it('should not report a missing terminal as an abort', async () => {
-		const ui = screenSetup({ inputTTY: false });
+  it('should not report a missing terminal as an abort', async () => {
+    const ui = screenSetup({ inputTTY: false });
 
-		await text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal }).catch(
-			(err: PromptError) => {
-				expect(err).toBeInstanceOf(PromptError);
-				expect(err.aborted).to.equal(false);
-			}
-		);
-	});
+    await text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal }).catch(
+      (err: PromptError) => {
+        expect(err).toBeInstanceOf(PromptError);
+        expect(err.aborted).to.equal(false);
+      }
+    );
+  });
 
-	it('should reject when stdin ends before an answer', async () => {
-		const ui = screenSetup();
-		const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
+  it('should reject when stdin ends before an answer', async () => {
+    const ui = screenSetup();
+    const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
 
-		await tick();
-		ui.stdin.end();
+    await tick();
+    ui.stdin.end();
 
-		await expect(answer).rejects.toThrow('Input ended before the prompt was answered');
-	});
+    await expect(answer).rejects.toThrow('Input ended before the prompt was answered');
+  });
 });
 
 describe('leaving stdin alone', () => {
-	// leaving a `for await (const chunk of stdin)` loop calls the iterator's
-	// `return()`, and Node implements that by *destroying* the stream. The first
-	// prompt answered correctly and then took `process.stdin` with it: the demo
-	// died on `AbortError: The operation was aborted` and no second prompt could
-	// ever read a key
-	it('should not destroy stdin when a prompt is answered', async () => {
-		const ui = screenSetup();
-		const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
+  // leaving a `for await (const chunk of stdin)` loop calls the iterator's
+  // `return()`, and Node implements that by *destroying* the stream. The first
+  // prompt answered correctly and then took `process.stdin` with it: the demo
+  // died on `AbortError: The operation was aborted` and no second prompt could
+  // ever read a key
+  it('should not destroy stdin when a prompt is answered', async () => {
+    const ui = screenSetup();
+    const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
 
-		await type(ui.stdin, 'hi', ENTER);
-		await answer;
+    await type(ui.stdin, 'hi', ENTER);
+    await answer;
 
-		expect(ui.stdin.destroyed, 'the prompt destroyed stdin').to.equal(false);
-	});
+    expect(ui.stdin.destroyed, 'the prompt destroyed stdin').to.equal(false);
+  });
 
-	it('should not destroy stdin when a prompt is cancelled', async () => {
-		const ui = screenSetup();
-		const answer = settle(text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal }));
+  it('should not destroy stdin when a prompt is cancelled', async () => {
+    const ui = screenSetup();
+    const answer = settle(text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal }));
 
-		await type(ui.stdin, '\u0003');
-		await answer;
+    await type(ui.stdin, '\u0003');
+    await answer;
 
-		expect(ui.stdin.destroyed).to.equal(false);
-	});
+    expect(ui.stdin.destroyed).to.equal(false);
+  });
 
-	// the failure as it was actually met: one prompt after another
-	it('should ask a second question on the same stdin', async () => {
-		const ui = screenSetup();
+  // the failure as it was actually met: one prompt after another
+  it('should ask a second question on the same stdin', async () => {
+    const ui = screenSetup();
 
-		const first = text({ ansi: ui.ansi, message: 'One', terminal: ui.terminal });
-		await type(ui.stdin, 'a', ENTER);
-		expect(await first).to.equal('a');
+    const first = text({ ansi: ui.ansi, message: 'One', terminal: ui.terminal });
+    await type(ui.stdin, 'a', ENTER);
+    expect(await first).to.equal('a');
 
-		const second = confirm({ ansi: ui.ansi, message: 'Two', terminal: ui.terminal });
-		await type(ui.stdin, 'y');
-		expect(await second).to.equal(true);
+    const second = confirm({ ansi: ui.ansi, message: 'Two', terminal: ui.terminal });
+    await type(ui.stdin, 'y');
+    expect(await second).to.equal(true);
 
-		const third = select({
-			ansi: ui.ansi,
-			choices: ['x', 'y'],
-			message: 'Three',
-			terminal: ui.terminal,
-		});
-		await type(ui.stdin, DOWN, ENTER);
-		expect(await third).to.equal('y');
-	});
+    const third = select({
+      ansi: ui.ansi,
+      choices: ['x', 'y'],
+      message: 'Three',
+      terminal: ui.terminal,
+    });
+    await type(ui.stdin, DOWN, ENTER);
+    expect(await third).to.equal('y');
+  });
 
-	// nothing of ours may be left listening, or the next reader gets our keys too
-	it('should take its listeners back off', async () => {
-		const ui = screenSetup();
-		const before = ui.stdin.listenerCount('data');
+  // nothing of ours may be left listening, or the next reader gets our keys too
+  it('should take its listeners back off', async () => {
+    const ui = screenSetup();
+    const before = ui.stdin.listenerCount('data');
 
-		const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
-		await type(ui.stdin, 'x');
-		expect(ui.stdin.listenerCount('data')).to.be.greaterThan(before);
+    const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
+    await type(ui.stdin, 'x');
+    expect(ui.stdin.listenerCount('data')).to.be.greaterThan(before);
 
-		await type(ui.stdin, ENTER);
-		await answer;
+    await type(ui.stdin, ENTER);
+    await answer;
 
-		expect(ui.stdin.listenerCount('data')).to.equal(before);
-		expect(ui.stdin.listenerCount('end')).to.equal(0);
-		expect(ui.stdin.listenerCount('error')).to.equal(0);
-	});
+    expect(ui.stdin.listenerCount('data')).to.equal(before);
+    expect(ui.stdin.listenerCount('end')).to.equal(0);
+    expect(ui.stdin.listenerCount('error')).to.equal(0);
+  });
 
-	// a terminal sends Alt-x as ESC then x and Up as ESC [ A, both in one write --
-	// but ssh, a pty under load, or a small read buffer delivers the halves
-	// separately, and decoded on their own they are an unknown sequence and a
-	// literal `A` that lands in the answer
-	describe('a sequence split across chunks', () => {
-		beforeEach(() => {
-			// only `setTimeout`, so `tick()`'s `setImmediate` still lands and the
-			// stream still delivers
-			vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-		});
+  // a terminal sends Alt-x as ESC then x and Up as ESC [ A, both in one write --
+  // but ssh, a pty under load, or a small read buffer delivers the halves
+  // separately, and decoded on their own they are an unknown sequence and a
+  // literal `A` that lands in the answer
+  describe('a sequence split across chunks', () => {
+    beforeEach(() => {
+      // only `setTimeout`, so `tick()`'s `setImmediate` still lands and the
+      // stream still delivers
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    });
 
-		afterEach(() => {
-			vi.useRealTimers();
-		});
+    afterEach(() => {
+      vi.useRealTimers();
+    });
 
-		it('should hold an unfinished sequence until the rest of it arrives', async () => {
-			const ui = screenSetup();
-			const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
+    it('should hold an unfinished sequence until the rest of it arrives', async () => {
+      const ui = screenSetup();
+      const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
 
-			// Left, arriving as `ESC [` and then `D`
-			await type(ui.stdin, 'ac', '[', 'D', 'b', ENTER);
+      // Left, arriving as `ESC [` and then `D`
+      await type(ui.stdin, 'ac', '[', 'D', 'b', ENTER);
 
-			expect(await answer).to.equal('abc');
-		});
+      expect(await answer).to.equal('abc');
+    });
 
-		it('should join a lone escape to the character after it', async () => {
-			const ui = screenSetup();
-			const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
+    it('should join a lone escape to the character after it', async () => {
+      const ui = screenSetup();
+      const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
 
-			// alt-b, which this prompt does not bind -- not Escape and a literal b
-			await type(ui.stdin, 'a', ESCAPE, 'b', ENTER);
+      // alt-b, which this prompt does not bind -- not Escape and a literal b
+      await type(ui.stdin, 'a', ESCAPE, 'b', ENTER);
 
-			expect(await answer).to.equal('a');
-		});
+      expect(await answer).to.equal('a');
+    });
 
-		// the tail that is genuinely ambiguous is a lone ESC: somebody pressing
-		// Escape sends nothing after it, so there is no byte to wait for
-		it('should stop waiting once the silence is long enough', async () => {
-			const ui = screenSetup();
-			const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
+    // the tail that is genuinely ambiguous is a lone ESC: somebody pressing
+    // Escape sends nothing after it, so there is no byte to wait for
+    it('should stop waiting once the silence is long enough', async () => {
+      const ui = screenSetup();
+      const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
 
-			await type(ui.stdin, ESCAPE);
-			vi.advanceTimersByTime(ESCAPE_TIMEOUT);
-			await tick();
+      await type(ui.stdin, ESCAPE);
+      vi.advanceTimersByTime(ESCAPE_TIMEOUT);
+      await tick();
 
-			// the escape was read for what it is, so the `b` is a character of its
-			// own rather than the second half of alt-b
-			await type(ui.stdin, 'b', ENTER);
+      // the escape was read for what it is, so the `b` is a character of its
+      // own rather than the second half of alt-b
+      await type(ui.stdin, 'b', ENTER);
 
-			expect(await answer).to.equal('b');
-		});
+      expect(await answer).to.equal('b');
+    });
 
-		// a prompt that cannot be escaped is worse than no prompt, and a half
-		// arrived sequence is the window where that was easiest to do
-		it('should still abort on ctrl-c while a sequence is being held', async () => {
-			const ui = screenSetup();
-			const answer = settle(text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal }));
+    // a prompt that cannot be escaped is worse than no prompt, and a half
+    // arrived sequence is the window where that was easiest to do
+    it('should still abort on ctrl-c while a sequence is being held', async () => {
+      const ui = screenSetup();
+      const answer = settle(text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal }));
 
-			await type(ui.stdin, 'x', '[', '');
+      await type(ui.stdin, 'x', '[', '');
 
-			const { error } = await answer;
-			expect(error?.aborted).to.equal(true);
-		});
+      const { error } = await answer;
+      expect(error?.aborted).to.equal(true);
+    });
 
-		// a prompt that ended while it was still waiting for the rest of a sequence
-		// owes the loop the timer back
-		it('should not leave a timer behind when the prompt ends', async () => {
-			const ui = screenSetup();
-			const answer = settle(text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal }));
+    // a prompt that ended while it was still waiting for the rest of a sequence
+    // owes the loop the timer back
+    it('should not leave a timer behind when the prompt ends', async () => {
+      const ui = screenSetup();
+      const answer = settle(text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal }));
 
-			await type(ui.stdin, 'x', ESCAPE);
-			expect(vi.getTimerCount()).to.equal(1);
+      await type(ui.stdin, 'x', ESCAPE);
+      expect(vi.getTimerCount()).to.equal(1);
 
-			ui.stdin.end();
-			await answer;
+      ui.stdin.end();
+      await answer;
 
-			expect(vi.getTimerCount()).to.equal(0);
-		});
-	});
+      expect(vi.getTimerCount()).to.equal(0);
+    });
+  });
 
-	// a character split across two chunks is one key, not two broken ones
-	it('should read a multi-byte character split across chunks', async () => {
-		const ui = screenSetup();
-		const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
+  // a character split across two chunks is one key, not two broken ones
+  it('should read a multi-byte character split across chunks', async () => {
+    const ui = screenSetup();
+    const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
 
-		const bytes = Buffer.from('日', 'utf8');
-		ui.stdin.write(bytes.subarray(0, 1));
-		await tick();
-		ui.stdin.write(bytes.subarray(1));
-		await tick();
-		await type(ui.stdin, ENTER);
+    const bytes = Buffer.from('日', 'utf8');
+    ui.stdin.write(bytes.subarray(0, 1));
+    await tick();
+    ui.stdin.write(bytes.subarray(1));
+    await tick();
+    await type(ui.stdin, ENTER);
 
-		expect(await answer).to.equal('日');
-	});
+    expect(await answer).to.equal('日');
+  });
 });
 
 describe('a field narrower than what is in it', () => {
-	// the value scrolls sideways rather than wrapping, because a canvas is a fixed
-	// number of columns and there is no inline layout to wrap three flex items
-	// through
-	it('should keep the caret on screen', async () => {
-		const ui = screenSetup({ columns: 20 });
-		const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
+  // the value scrolls sideways rather than wrapping, because a canvas is a fixed
+  // number of columns and there is no inline layout to wrap three flex items
+  // through
+  it('should keep the caret on screen', async () => {
+    const ui = screenSetup({ columns: 20 });
+    const answer = text({ ansi: ui.ansi, message: 'Name?', terminal: ui.terminal });
 
-		await type(ui.stdin, 'abcdefghijklmnop');
+    await type(ui.stdin, 'abcdefghijklmnop');
 
-		// `? Name? ` is eight columns, so twelve are left and the caret is in them
-		expect(ui.frame).to.equal('? Name? fghijklmnop');
+    // `? Name? ` is eight columns, so twelve are left and the caret is in them
+    expect(ui.frame).to.equal('? Name? fghijklmnop');
 
-		await type(ui.stdin, ENTER);
-		expect(await answer).to.equal('abcdefghijklmnop');
-	});
+    await type(ui.stdin, ENTER);
+    expect(await answer).to.equal('abcdefghijklmnop');
+  });
 
-	// a two-column caret in a one-column field is a field that cannot hold it, and
-	// a loop that insisted on making it fit never ended
-	it('should not hang where the caret is wider than the room', async () => {
-		const ui = screenSetup({ columns: 10 });
-		const answer = text({
-			ansi: ui.ansi,
-			message: 'A very long question indeed',
-			terminal: ui.terminal,
-		});
+  // a two-column caret in a one-column field is a field that cannot hold it, and
+  // a loop that insisted on making it fit never ended
+  it('should not hang where the caret is wider than the room', async () => {
+    const ui = screenSetup({ columns: 10 });
+    const answer = text({
+      ansi: ui.ansi,
+      message: 'A very long question indeed',
+      terminal: ui.terminal,
+    });
 
-		await type(ui.stdin, '\u{1f600}', LEFT, ENTER);
+    await type(ui.stdin, '\u{1f600}', LEFT, ENTER);
 
-		expect(await answer).to.equal('\u{1f600}');
-	});
+    expect(await answer).to.equal('\u{1f600}');
+  });
 });
 
 describe('giving up while something is in flight', () => {
-	// a prompt that cannot be escaped until a slow validator comes back is a
-	// prompt that cannot be escaped, and giving up needs nothing from the state
-	it('should abort without waiting for an async validator', async () => {
-		const ui = screenSetup();
-		let release: (() => void) | undefined;
-		const answer = settle(
-			text({
-				ansi: ui.ansi,
-				message: 'Name?',
-				terminal: ui.terminal,
-				validate: () =>
-					new Promise<undefined>((resolve) => {
-						release = () => resolve(undefined);
-					}),
-			})
-		);
+  // a prompt that cannot be escaped until a slow validator comes back is a
+  // prompt that cannot be escaped, and giving up needs nothing from the state
+  it('should abort without waiting for an async validator', async () => {
+    const ui = screenSetup();
+    let release: (() => void) | undefined;
+    const answer = settle(
+      text({
+        ansi: ui.ansi,
+        message: 'Name?',
+        terminal: ui.terminal,
+        validate: () =>
+          new Promise<undefined>((resolve) => {
+            release = () => resolve(undefined);
+          }),
+      })
+    );
 
-		await type(ui.stdin, 'x', ENTER);
-		expect(release, 'the validator should be in flight').to.be.a('function');
+    await type(ui.stdin, 'x', ENTER);
+    expect(release, 'the validator should be in flight').to.be.a('function');
 
-		await type(ui.stdin, CTRL_C);
+    await type(ui.stdin, CTRL_C);
 
-		const { error } = await answer;
-		expect(error?.aborted).to.equal(true);
+    const { error } = await answer;
+    expect(error?.aborted).to.equal(true);
 
-		// and the validator settling afterwards changes nothing
-		release?.();
-		await tick();
-		expect(ui.log).to.deep.equal([]);
-	});
+    // and the validator settling afterwards changes nothing
+    release?.();
+    await tick();
+    expect(ui.log).to.deep.equal([]);
+  });
 });
 
 describe('a question longer than the room for it', () => {
-	// a row's intrinsic height is taken with every child offered the whole content
-	// box while placement hands each one a share, so a question that wraps to two
-	// lines in the share it gets was one line in the room it was offered -- and the
-	// canvas reserved one row with the second line clipped off the bottom
-	it('should reserve the rows the layout turned out to need', async () => {
-		const ui = screenSetup({ columns: 20 });
-		const answer = text({
-			ansi: ui.ansi,
-			message: 'aaaaaaaaaaaaaa bbb',
-			terminal: ui.terminal,
-		});
+  // a row's intrinsic height is taken with every child offered the whole content
+  // box while placement hands each one a share, so a question that wraps to two
+  // lines in the share it gets was one line in the room it was offered -- and the
+  // canvas reserved one row with the second line clipped off the bottom
+  it('should reserve the rows the layout turned out to need', async () => {
+    const ui = screenSetup({ columns: 20 });
+    const answer = text({
+      ansi: ui.ansi,
+      message: 'aaaaaaaaaaaaaa bbb',
+      terminal: ui.terminal,
+    });
 
-		await tick();
-		expect(ui.log).to.deep.equal(['? aaaaaaaaaaaaaa', '  bbb']);
+    await tick();
+    expect(ui.log).to.deep.equal(['? aaaaaaaaaaaaaa', '  bbb']);
 
-		await type(ui.stdin, ENTER);
-		await answer;
-	});
+    await type(ui.stdin, ENTER);
+    await answer;
+  });
 });
 
 describe('a question that wraps', () => {
-	// a row's intrinsic height is a guess for a child that flexes, so a question
-	// measured at the full width and placed in a share of it came out one line
-	// tall -- and the choice list under it was drawn over the rest of the question
-	it('should not let the list cover the rest of the question', async () => {
-		const ui = screenSetup({ columns: 20, rows: 6 });
-		const answer = select({
-			ansi: ui.ansi,
-			choices: ['one', 'two', 'three'],
-			message: 'aaaaaaaaaaaaaa bbb',
-			terminal: ui.terminal,
-		});
+  // a row's intrinsic height is a guess for a child that flexes, so a question
+  // measured at the full width and placed in a share of it came out one line
+  // tall -- and the choice list under it was drawn over the rest of the question
+  it('should not let the list cover the rest of the question', async () => {
+    const ui = screenSetup({ columns: 20, rows: 6 });
+    const answer = select({
+      ansi: ui.ansi,
+      choices: ['one', 'two', 'three'],
+      message: 'aaaaaaaaaaaaaa bbb',
+      terminal: ui.terminal,
+    });
 
-		await tick();
-		expect(ui.log).to.deep.equal(['? aaaaaaaaaaaaaa', '  bbb', '\u276f one', '  two', '  three']);
+    await tick();
+    expect(ui.log).to.deep.equal(['? aaaaaaaaaaaaaa', '  bbb', '\u276f one', '  two', '  three']);
 
-		await type(ui.stdin, ENTER);
-		expect(await answer).to.equal('one');
-	});
+    await type(ui.stdin, ENTER);
+    expect(await answer).to.equal('one');
+  });
 
-	// and the rows the list may take are the ones the question left, not all but
-	// one of them
-	it('should window the list against the rows the question took', async () => {
-		const ui = screenSetup({ columns: 20, rows: 6 });
-		const answer = select({
-			ansi: ui.ansi,
-			choices: ['one', 'two', 'three', 'four', 'five'],
-			message: 'aaaaaaaaaaaaaa bbb',
-			terminal: ui.terminal,
-		});
+  // and the rows the list may take are the ones the question left, not all but
+  // one of them
+  it('should window the list against the rows the question took', async () => {
+    const ui = screenSetup({ columns: 20, rows: 6 });
+    const answer = select({
+      ansi: ui.ansi,
+      choices: ['one', 'two', 'three', 'four', 'five'],
+      message: 'aaaaaaaaaaaaaa bbb',
+      terminal: ui.terminal,
+    });
 
-		await type(ui.stdin, ...Array.from({ length: 4 }, () => DOWN));
-		expect(ui.log.at(-1)).to.equal('\u276f five');
+    await type(ui.stdin, ...Array.from({ length: 4 }, () => DOWN));
+    expect(ui.log.at(-1)).to.equal('\u276f five');
 
-		await type(ui.stdin, ENTER);
-		expect(await answer).to.equal('five');
-	});
+    await type(ui.stdin, ENTER);
+    expect(await answer).to.equal('five');
+  });
 });
 
 describe('a router the app already owns', () => {
-	// a prompt that builds its own router is only correct because nothing else is
-	// reading at the time, which is the ordinary case and is not every case
-	it('should read keys through it and leave it running', async () => {
-		const ui = screenSetup();
-		const router = createInput({ terminal: ui.terminal });
+  // a prompt that builds its own router is only correct because nothing else is
+  // reading at the time, which is the ordinary case and is not every case
+  it('should read keys through it and leave it running', async () => {
+    const ui = screenSetup();
+    const router = createInput({ terminal: ui.terminal });
 
-		const answer = text({ ansi: ui.ansi, message: 'Name?', router, terminal: ui.terminal });
-		await type(ui.stdin, 'a', 'b', ENTER);
-		expect(await answer).to.equal('ab');
+    const answer = text({ ansi: ui.ansi, message: 'Name?', router, terminal: ui.terminal });
+    await type(ui.stdin, 'a', 'b', ENTER);
+    expect(await answer).to.equal('ab');
 
-		// still reading, and still holding raw mode for whoever built it
-		const seen: string[] = [];
-		router.bind((event) => seen.push(event.key.name));
-		await type(ui.stdin, 'z');
-		expect(seen).to.deep.equal(['z']);
-		expect(ui.stdin.rawMode).to.equal(true);
+    // still reading, and still holding raw mode for whoever built it
+    const seen: string[] = [];
+    router.bind((event) => seen.push(event.key.name));
+    await type(ui.stdin, 'z');
+    expect(seen).to.deep.equal(['z']);
+    expect(ui.stdin.rawMode).to.equal(true);
 
-		router.stop();
-		expect(ui.stdin.rawMode).to.equal(false);
-	});
+    router.stop();
+    expect(ui.stdin.rawMode).to.equal(false);
+  });
 
-	// and the prompt takes its own handlers back off, or the next thing bound to
-	// that router competes with a prompt that has been answered
-	it('should leave none of its own handlers behind', async () => {
-		const ui = screenSetup();
-		const router = createInput({ terminal: ui.terminal });
-		const seen: string[] = [];
+  // and the prompt takes its own handlers back off, or the next thing bound to
+  // that router competes with a prompt that has been answered
+  it('should leave none of its own handlers behind', async () => {
+    const ui = screenSetup();
+    const router = createInput({ terminal: ui.terminal });
+    const seen: string[] = [];
 
-		const first = text({ ansi: ui.ansi, message: 'One', router, terminal: ui.terminal });
-		await type(ui.stdin, 'x', ENTER);
-		expect(await first).to.equal('x');
+    const first = text({ ansi: ui.ansi, message: 'One', router, terminal: ui.terminal });
+    await type(ui.stdin, 'x', ENTER);
+    expect(await first).to.equal('x');
 
-		router.bind((event) => seen.push(event.key.name));
-		await type(ui.stdin, 'y');
+    router.bind((event) => seen.push(event.key.name));
+    await type(ui.stdin, 'y');
 
-		expect(seen).to.deep.equal(['y']);
-		router.stop();
-	});
+    expect(seen).to.deep.equal(['y']);
+    router.stop();
+  });
 });

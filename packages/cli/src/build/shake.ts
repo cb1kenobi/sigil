@@ -96,22 +96,22 @@ const TOKEN_RE = /[\w\-/:]+/g;
 
 /** What an app's source says about the classes it can name. */
 export interface ClassEvidence {
-	/**
-	 * Whether the app could name this class.
-	 *
-	 * @param name - The class name, unescaped.
-	 * @returns Whether some literal in the app is evidence for it.
-	 */
-	mayName(name: string): boolean;
+  /**
+   * Whether the app could name this class.
+   *
+   * @param name - The class name, unescaped.
+   * @returns Whether some literal in the app is evidence for it.
+   */
+  mayName(name: string): boolean;
 }
 
 /** One literal chunk, and which of its ends touch something unknown. */
 interface Chunk {
-	/** Whether something unknown is concatenated on the left. */
-	readonly openLeft: boolean;
-	/** Whether something unknown is concatenated on the right. */
-	readonly openRight: boolean;
-	readonly text: string;
+  /** Whether something unknown is concatenated on the left. */
+  readonly openLeft: boolean;
+  /** Whether something unknown is concatenated on the right. */
+  readonly openRight: boolean;
+  readonly text: string;
 }
 
 /**
@@ -122,66 +122,66 @@ interface Chunk {
  * piece of one, matching by prefix, by suffix, or anywhere.
  */
 class Evidence implements ClassEvidence {
-	readonly #exact = new Set<string>();
-	readonly #infix = new Set<string>();
-	readonly #prefix = new Set<string>();
-	readonly #suffix = new Set<string>();
+  readonly #exact = new Set<string>();
+  readonly #infix = new Set<string>();
+  readonly #prefix = new Set<string>();
+  readonly #suffix = new Set<string>();
 
-	/** Adds a name that is kept whatever the source says. */
-	safelist(name: string): void {
-		this.#exact.add(name);
-	}
+  /** Adds a name that is kept whatever the source says. */
+  safelist(name: string): void {
+    this.#exact.add(name);
+  }
 
-	/**
-	 * Reads one literal chunk.
-	 *
-	 * A token is open on an end only when it *touches* that end: in `'Hello, '`
-	 * followed by an interpolation, the chunk is open on the right and the token
-	 * `Hello` is not, because the comma sits between them. That is what keeps
-	 * the affordance for `` `text-${c}` `` from becoming an affordance for every
-	 * string in the app.
-	 *
-	 * @param chunk - The literal text and which ends are open.
-	 */
-	read(chunk: Chunk): void {
-		for (const match of chunk.text.matchAll(TOKEN_RE)) {
-			const token = match[0];
-			const left = chunk.openLeft && match.index === 0;
-			const right = chunk.openRight && match.index + token.length === chunk.text.length;
+  /**
+   * Reads one literal chunk.
+   *
+   * A token is open on an end only when it *touches* that end: in `'Hello, '`
+   * followed by an interpolation, the chunk is open on the right and the token
+   * `Hello` is not, because the comma sits between them. That is what keeps
+   * the affordance for `` `text-${c}` `` from becoming an affordance for every
+   * string in the app.
+   *
+   * @param chunk - The literal text and which ends are open.
+   */
+  read(chunk: Chunk): void {
+    for (const match of chunk.text.matchAll(TOKEN_RE)) {
+      const token = match[0];
+      const left = chunk.openLeft && match.index === 0;
+      const right = chunk.openRight && match.index + token.length === chunk.text.length;
 
-			if (left && right) {
-				this.#infix.add(token);
-			} else if (left) {
-				this.#suffix.add(token);
-			} else if (right) {
-				this.#prefix.add(token);
-			} else {
-				this.#exact.add(token);
-			}
-		}
-	}
+      if (left && right) {
+        this.#infix.add(token);
+      } else if (left) {
+        this.#suffix.add(token);
+      } else if (right) {
+        this.#prefix.add(token);
+      } else {
+        this.#exact.add(token);
+      }
+    }
+  }
 
-	mayName(name: string): boolean {
-		if (this.#exact.has(name)) {
-			return true;
-		}
-		for (const prefix of this.#prefix) {
-			if (name.startsWith(prefix)) {
-				return true;
-			}
-		}
-		for (const suffix of this.#suffix) {
-			if (name.endsWith(suffix)) {
-				return true;
-			}
-		}
-		for (const infix of this.#infix) {
-			if (name.includes(infix)) {
-				return true;
-			}
-		}
-		return false;
-	}
+  mayName(name: string): boolean {
+    if (this.#exact.has(name)) {
+      return true;
+    }
+    for (const prefix of this.#prefix) {
+      if (name.startsWith(prefix)) {
+        return true;
+      }
+    }
+    for (const suffix of this.#suffix) {
+      if (name.endsWith(suffix)) {
+        return true;
+      }
+    }
+    for (const infix of this.#infix) {
+      if (name.includes(infix)) {
+        return true;
+      }
+    }
+    return false;
+  }
 }
 
 /** Directories a scan never descends into. */
@@ -189,10 +189,10 @@ const SKIPPED = new Set(['node_modules']);
 
 /** What to scan, and what to keep regardless. */
 export interface ScanOptions {
-	/** Absolute directories to leave out -- the output directory, normally. */
-	readonly exclude?: readonly string[];
-	/** Class names kept whatever the source says. */
-	readonly safelist?: readonly string[];
+  /** Absolute directories to leave out -- the output directory, normally. */
+  readonly exclude?: readonly string[];
+  /** Class names kept whatever the source says. */
+  readonly safelist?: readonly string[];
 }
 
 /**
@@ -239,72 +239,72 @@ export interface ScanOptions {
  * @returns What the source says.
  */
 export function scanClassEvidence(root: string, options: ScanOptions = {}): ClassEvidence {
-	const evidence = new Evidence();
-	// resolved on both sides, because the caller's `out` and this walk's
-	// `join()` are two spellings of one directory and a trailing slash or a
-	// `./` would make them miss each other -- which is the one exclusion that
-	// really matters, since a previous build's output holds the whole utility
-	// sheet and reading it keeps every rule
-	const exclude = new Set((options.exclude ?? []).map((path) => resolve(path)));
+  const evidence = new Evidence();
+  // resolved on both sides, because the caller's `out` and this walk's
+  // `join()` are two spellings of one directory and a trailing slash or a
+  // `./` would make them miss each other -- which is the one exclusion that
+  // really matters, since a previous build's output holds the whole utility
+  // sheet and reading it keeps every rule
+  const exclude = new Set((options.exclude ?? []).map((path) => resolve(path)));
 
-	for (const name of options.safelist ?? []) {
-		evidence.safelist(name);
-	}
+  for (const name of options.safelist ?? []) {
+    evidence.safelist(name);
+  }
 
-	// every directory the walk enters, by its real path, so a symlink pointing
-	// back up the tree is followed once rather than forever. Real paths rather
-	// than the paths walked to, because two links to one directory are one
-	// directory and a loop is exactly two of those
-	const entered = new Set<string>();
+  // every directory the walk enters, by its real path, so a symlink pointing
+  // back up the tree is followed once rather than forever. Real paths rather
+  // than the paths walked to, because two links to one directory are one
+  // directory and a loop is exactly two of those
+  const entered = new Set<string>();
 
-	const visit = (dir: string): void => {
-		const real = realOrSelf(dir);
-		if (entered.has(real)) {
-			return;
-		}
-		entered.add(real);
+  const visit = (dir: string): void => {
+    const real = realOrSelf(dir);
+    if (entered.has(real)) {
+      return;
+    }
+    entered.add(real);
 
-		let entries;
-		try {
-			entries = readdirSync(dir, { withFileTypes: true });
-		} catch {
-			// a directory that cannot be read contributes nothing, and refusing to
-			// build over one would fail on a permissions problem in a corner of the
-			// tree that holds no source
-			return;
-		}
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      // a directory that cannot be read contributes nothing, and refusing to
+      // build over one would fail on a permissions problem in a corner of the
+      // tree that holds no source
+      return;
+    }
 
-		for (const entry of entries) {
-			const path = join(dir, entry.name);
+    for (const entry of entries) {
+      const path = join(dir, entry.name);
 
-			// a `Dirent` answers `false` to both `isDirectory()` and `isFile()` for
-			// a **symlink**, because `readdir` does not follow one -- so a walk that
-			// asks only those two skips a linked source file entirely while rolldown
-			// follows the link and compiles it. That is evidence missed and
-			// therefore a rule dropped, which is the one direction this analysis
-			// does not trade in. The `stat` is paid only for a link
-			const kind = entry.isSymbolicLink() ? linkKind(path) : entry.isDirectory() ? 'dir' : 'file';
+      // a `Dirent` answers `false` to both `isDirectory()` and `isFile()` for
+      // a **symlink**, because `readdir` does not follow one -- so a walk that
+      // asks only those two skips a linked source file entirely while rolldown
+      // follows the link and compiles it. That is evidence missed and
+      // therefore a rule dropped, which is the one direction this analysis
+      // does not trade in. The `stat` is paid only for a link
+      const kind = entry.isSymbolicLink() ? linkKind(path) : entry.isDirectory() ? 'dir' : 'file';
 
-			if (kind === 'dir') {
-				// a dot directory is `.git`, `.turbo`, a cache -- never source
-				// `path` needs no resolving of its own: the walk starts at a resolved
-				// root and `join()` normalizes, so it is already the spelling the set
-				// holds. A second `resolve()` here reads as load-bearing and is not,
-				// which is the guard this repository keeps deleting
-				if (!entry.name.startsWith('.') && !SKIPPED.has(entry.name) && !exclude.has(path)) {
-					visit(path);
-				}
-				continue;
-			}
+      if (kind === 'dir') {
+        // a dot directory is `.git`, `.turbo`, a cache -- never source
+        // `path` needs no resolving of its own: the walk starts at a resolved
+        // root and `join()` normalizes, so it is already the spelling the set
+        // holds. A second `resolve()` here reads as load-bearing and is not,
+        // which is the guard this repository keeps deleting
+        if (!entry.name.startsWith('.') && !SKIPPED.has(entry.name) && !exclude.has(path)) {
+          visit(path);
+        }
+        continue;
+      }
 
-			if (kind === 'file' && MODULE_RE.test(entry.name)) {
-				readFile(path, evidence);
-			}
-		}
-	};
+      if (kind === 'file' && MODULE_RE.test(entry.name)) {
+        readFile(path, evidence);
+      }
+    }
+  };
 
-	visit(resolve(root));
-	return evidence;
+  visit(resolve(root));
+  return evidence;
 }
 
 /**
@@ -314,14 +314,14 @@ export function scanClassEvidence(root: string, options: ScanOptions = {}): Clas
  * @returns `dir`, `file`, or `undefined` for a dangling link or anything else.
  */
 function linkKind(path: string): 'dir' | 'file' | undefined {
-	try {
-		const stats = statSync(path);
-		return stats.isDirectory() ? 'dir' : stats.isFile() ? 'file' : undefined;
-	} catch {
-		// a dangling link is not a file, and it is not a build error either: it is
-		// something in the tree that nothing can read
-		return undefined;
-	}
+  try {
+    const stats = statSync(path);
+    return stats.isDirectory() ? 'dir' : stats.isFile() ? 'file' : undefined;
+  } catch {
+    // a dangling link is not a file, and it is not a build error either: it is
+    // something in the tree that nothing can read
+    return undefined;
+  }
 }
 
 /**
@@ -335,11 +335,11 @@ function linkKind(path: string): 'dir' | 'file' | undefined {
  * @returns Its real path.
  */
 function realOrSelf(dir: string): string {
-	try {
-		return realpathSync(dir);
-	} catch {
-		return dir;
-	}
+  try {
+    return realpathSync(dir);
+  } catch {
+    return dir;
+  }
 }
 
 /**
@@ -357,18 +357,18 @@ function realOrSelf(dir: string): string {
  * @param into - Where the evidence goes.
  */
 function readFile(path: string, into: Evidence): void {
-	let source: string;
-	try {
-		source = readFileSync(path, 'utf-8');
-	} catch {
-		return;
-	}
+  let source: string;
+  try {
+    source = readFileSync(path, 'utf-8');
+  } catch {
+    return;
+  }
 
-	try {
-		collectLiterals(parseModule(path, source).program, into);
-	} catch {
-		into.read({ openLeft: false, openRight: false, text: source });
-	}
+  try {
+    collectLiterals(parseModule(path, source).program, into);
+  } catch {
+    into.read({ openLeft: false, openRight: false, text: source });
+  }
 }
 
 /**
@@ -424,50 +424,50 @@ function readFile(path: string, into: Evidence): void {
  * @param into - Where the evidence goes.
  */
 function collectLiterals(program: Node, into: Evidence): void {
-	// the quasi of a tagged template, so that the `TemplateLiteral` branch can
-	// tell one from an ordinary template. Filled on the way past the tag, which
-	// the walk reaches first
-	const tagged = new Set<Node>();
+  // the quasi of a tagged template, so that the `TemplateLiteral` branch can
+  // tell one from an ordinary template. Filled on the way past the tag, which
+  // the walk reaches first
+  const tagged = new Set<Node>();
 
-	walk(program, (node) => {
-		if (node.type === 'TaggedTemplateExpression') {
-			tagged.add(node.quasi as Node);
-			return true;
-		}
+  walk(program, (node) => {
+    if (node.type === 'TaggedTemplateExpression') {
+      tagged.add(node.quasi as Node);
+      return true;
+    }
 
-		if (node.type === 'BinaryExpression' && node.operator === '+') {
-			readRuns(flatten(node).map(literalText), into);
-			return true;
-		}
+    if (node.type === 'BinaryExpression' && node.operator === '+') {
+      readRuns(flatten(node).map(literalText), into);
+      return true;
+    }
 
-		// `c += 'text-'` is the same concatenation with the accumulator on the
-		// left, so the literal is open on that side. What this does *not* reach
-		// is the other half of it -- `let c = 'text-'; c += colour`, where the
-		// literal is in a declaration and only a dataflow could say it was ever
-		// appended to. That is the documented unsound case rather than a shape to
-		// add: this reads where a literal *sits*, and that one sits somewhere
-		// that says nothing
-		if (node.type === 'AssignmentExpression' && node.operator === '+=') {
-			readRuns([undefined, literalText(node.right as Node)], into);
-			return true;
-		}
+    // `c += 'text-'` is the same concatenation with the accumulator on the
+    // left, so the literal is open on that side. What this does *not* reach
+    // is the other half of it -- `let c = 'text-'; c += colour`, where the
+    // literal is in a declaration and only a dataflow could say it was ever
+    // appended to. That is the documented unsound case rather than a shape to
+    // add: this reads where a literal *sits*, and that one sits somewhere
+    // that says nothing
+    if (node.type === 'AssignmentExpression' && node.operator === '+=') {
+      readRuns([undefined, literalText(node.right as Node)], into);
+      return true;
+    }
 
-		if (node.type === 'TemplateLiteral') {
-			readRuns(templateParts(node, tagged.has(node)), into);
-			return true;
-		}
+    if (node.type === 'TemplateLiteral') {
+      readRuns(templateParts(node, tagged.has(node)), into);
+      return true;
+    }
 
-		// everything else a literal can be: an argument, a property value, a
-		// `case`, a JSX attribute. It stands alone, so it is closed. A literal
-		// that a branch above already read as part of a run is read again here,
-		// which changes no answer -- a closed reading matches by equality and the
-		// open one it duplicates matches a superset of it
-		if (isStringLiteral(node)) {
-			into.read({ openLeft: false, openRight: false, text: String(node.value) });
-		}
+    // everything else a literal can be: an argument, a property value, a
+    // `case`, a JSX attribute. It stands alone, so it is closed. A literal
+    // that a branch above already read as part of a run is read again here,
+    // which changes no answer -- a closed reading matches by equality and the
+    // open one it duplicates matches a superset of it
+    if (isStringLiteral(node)) {
+      into.read({ openLeft: false, openRight: false, text: String(node.value) });
+    }
 
-		return true;
-	});
+    return true;
+  });
 }
 
 /**
@@ -478,22 +478,22 @@ function collectLiterals(program: Node, into: Evidence): void {
  * @returns One entry per part, `undefined` where the text is not known.
  */
 function templateParts(node: Node, isTagged: boolean): (string | undefined)[] {
-	const template = node as unknown as {
-		expressions: Node[];
-		quasis: { value: { cooked?: string | null; raw: string } }[];
-	};
-	const parts: (string | undefined)[] = [];
+  const template = node as unknown as {
+    expressions: Node[];
+    quasis: { value: { cooked?: string | null; raw: string } }[];
+  };
+  const parts: (string | undefined)[] = [];
 
-	for (const [at, quasi] of template.quasis.entries()) {
-		parts.push(quasi.value.cooked ?? quasi.value.raw);
+  for (const [at, quasi] of template.quasis.entries()) {
+    parts.push(quasi.value.cooked ?? quasi.value.raw);
 
-		const expression = template.expressions[at];
-		if (expression) {
-			parts.push(isTagged ? undefined : literalText(expression));
-		}
-	}
+    const expression = template.expressions[at];
+    if (expression) {
+      parts.push(isTagged ? undefined : literalText(expression));
+    }
+  }
 
-	return parts;
+  return parts;
 }
 
 /**
@@ -503,28 +503,28 @@ function templateParts(node: Node, isTagged: boolean): (string | undefined)[] {
  * @param into - Where the evidence goes.
  */
 function readRuns(parts: readonly (string | undefined)[], into: Evidence): void {
-	let run: string[] = [];
-	// the first run starts at the start of the expression, where there is
-	// nothing to be open towards
-	let openLeft = false;
+  let run: string[] = [];
+  // the first run starts at the start of the expression, where there is
+  // nothing to be open towards
+  let openLeft = false;
 
-	const flush = (openRight: boolean): void => {
-		if (run.length) {
-			into.read({ openLeft, openRight, text: run.join('') });
-		}
-		run = [];
-	};
+  const flush = (openRight: boolean): void => {
+    if (run.length) {
+      into.read({ openLeft, openRight, text: run.join('') });
+    }
+    run = [];
+  };
 
-	for (const part of parts) {
-		if (part === undefined) {
-			flush(true);
-			openLeft = true;
-			continue;
-		}
-		run.push(part);
-	}
+  for (const part of parts) {
+    if (part === undefined) {
+      flush(true);
+      openLeft = true;
+      continue;
+    }
+    run.push(part);
+  }
 
-	flush(false);
+  flush(false);
 }
 
 /**
@@ -534,33 +534,33 @@ function readRuns(parts: readonly (string | undefined)[], into: Evidence): void 
  * @returns Its text, or `undefined` when it is not a constant string.
  */
 function literalText(node: Node | undefined): string | undefined {
-	if (!node) {
-		return undefined;
-	}
+  if (!node) {
+    return undefined;
+  }
 
-	const inner = bare(node);
+  const inner = bare(node);
 
-	if (isStringLiteral(inner)) {
-		return String(inner.value);
-	}
+  if (isStringLiteral(inner)) {
+    return String(inner.value);
+  }
 
-	// a template with no interpolations is a string written the other way, and
-	// missing that is what made `` `text-` + colour `` drop every `text-*` rule
-	const template = inner as unknown as {
-		expressions?: Node[];
-		quasis?: { value: { cooked?: string | null; raw: string } }[];
-	};
-	if (inner.type === 'TemplateLiteral' && template.expressions?.length === 0) {
-		const only = template.quasis?.[0];
-		return only ? (only.value.cooked ?? only.value.raw) : '';
-	}
+  // a template with no interpolations is a string written the other way, and
+  // missing that is what made `` `text-` + colour `` drop every `text-*` rule
+  const template = inner as unknown as {
+    expressions?: Node[];
+    quasis?: { value: { cooked?: string | null; raw: string } }[];
+  };
+  if (inner.type === 'TemplateLiteral' && template.expressions?.length === 0) {
+    const only = template.quasis?.[0];
+    return only ? (only.value.cooked ?? only.value.raw) : '';
+  }
 
-	return undefined;
+  return undefined;
 }
 
 /** Whether a node is a string literal, which oxc spells as a `Literal`. */
 function isStringLiteral(node: Node): node is Node & { value: string } {
-	return node.type === 'Literal' && typeof (node as { value?: unknown }).value === 'string';
+  return node.type === 'Literal' && typeof (node as { value?: unknown }).value === 'string';
 }
 
 /**
@@ -575,16 +575,16 @@ function isStringLiteral(node: Node): node is Node & { value: string } {
  * @returns Its operands, in source order.
  */
 function flatten(node: Node): Node[] {
-	const expression = node as { left: Node; operator: string; right: Node };
-	const left = bare(expression.left);
+  const expression = node as { left: Node; operator: string; right: Node };
+  const left = bare(expression.left);
 
-	return [
-		...(left.type === 'BinaryExpression' &&
-		(left as unknown as { operator: string }).operator === '+'
-			? flatten(left)
-			: [expression.left]),
-		expression.right,
-	];
+  return [
+    ...(left.type === 'BinaryExpression' &&
+    (left as unknown as { operator: string }).operator === '+'
+      ? flatten(left)
+      : [expression.left]),
+    expression.right,
+  ];
 }
 
 /**
@@ -608,31 +608,31 @@ function flatten(node: Node): Node[] {
  * @returns The expression inside the wrappers.
  */
 function bare(node: Node): Node {
-	let inner = unwrap(node as Parameters<typeof unwrap>[0]) as Node;
+  let inner = unwrap(node as Parameters<typeof unwrap>[0]) as Node;
 
-	for (;;) {
-		if (
-			inner.type === 'TSAsExpression' ||
-			inner.type === 'TSSatisfiesExpression' ||
-			inner.type === 'TSNonNullExpression'
-		) {
-			inner = unwrap(
-				(inner as unknown as { expression: Parameters<typeof unwrap>[0] }).expression
-			) as Node;
-			continue;
-		}
-		return inner;
-	}
+  for (;;) {
+    if (
+      inner.type === 'TSAsExpression' ||
+      inner.type === 'TSSatisfiesExpression' ||
+      inner.type === 'TSNonNullExpression'
+    ) {
+      inner = unwrap(
+        (inner as unknown as { expression: Parameters<typeof unwrap>[0] }).expression
+      ) as Node;
+      continue;
+    }
+    return inner;
+  }
 }
 
 /** What the utility sheet came to once the evidence had been applied. */
 export interface ShakenSheet {
-	/** The sheet source, with only the surviving rules in it. */
-	readonly css: string;
-	/** How many utilities survived. */
-	readonly kept: number;
-	/** How many there were. */
-	readonly total: number;
+  /** The sheet source, with only the surviving rules in it. */
+  readonly css: string;
+  /** How many utilities survived. */
+  readonly kept: number;
+  /** How many there were. */
+  readonly total: number;
 }
 
 /**
@@ -650,26 +650,26 @@ export interface ShakenSheet {
  * @returns The shaken sheet and what it cost.
  */
 export function shakeUtilities(evidence: ClassEvidence): ShakenSheet {
-	// the committed sheet is the base set, so this asks for the base set: a
-	// shaken sheet that quietly grew the variants would be a different sheet
-	const all = utilities({ variants: false });
-	const keep = all.filter((utility) => evidence.mayName(utility.name));
+  // the committed sheet is the base set, so this asks for the base set: a
+  // shaken sheet that quietly grew the variants would be a different sheet
+  const all = utilities({ variants: false });
+  const keep = all.filter((utility) => evidence.mayName(utility.name));
 
-	return {
-		css: generateUtilities({ only: keep.map((utility) => utility.name), variants: false }),
-		kept: keep.length,
-		total: all.length,
-	};
+  return {
+    css: generateUtilities({ only: keep.map((utility) => utility.name), variants: false }),
+    kept: keep.length,
+    total: all.length,
+  };
 }
 
 /** What shaking a module's sheets produced. */
 export interface ShakenModule {
-	/** The rewritten source. */
-	readonly code: string;
-	/** The source map, as rolldown wants it. */
-	readonly map: ReturnType<MagicString['generateMap']>;
-	/** How many `utilitySheet()` calls were rewritten. */
-	readonly sites: number;
+  /** The rewritten source. */
+  readonly code: string;
+  /** The source map, as rolldown wants it. */
+  readonly map: ReturnType<MagicString['generateMap']>;
+  /** How many `utilitySheet()` calls were rewritten. */
+  readonly sites: number;
 }
 
 /**
@@ -686,16 +686,16 @@ export interface ShakenModule {
  * @returns A prefix the module does not contain.
  */
 export function choosePrefix(source: string, base: string): string {
-	if (!source.includes(base)) {
-		return base;
-	}
+  if (!source.includes(base)) {
+    return base;
+  }
 
-	for (let n = 0; ; n++) {
-		const candidate = `${base}${n}`;
-		if (!source.includes(candidate)) {
-			return candidate;
-		}
-	}
+  for (let n = 0; ; n++) {
+    const candidate = `${base}${n}`;
+    if (!source.includes(candidate)) {
+      return candidate;
+    }
+  }
 }
 
 /**
@@ -723,92 +723,92 @@ export function choosePrefix(source: string, base: string): string {
  * @returns The rewritten module, or `undefined` when it calls nothing.
  */
 export function shakeStyles(
-	file: string,
-	source: string,
-	shaken: () => ShakenSheet
+  file: string,
+  source: string,
+  shaken: () => ShakenSheet
 ): ShakenModule | undefined {
-	// a module that does not mention the module the export comes from cannot be
-	// calling it. This is the function's own fast path rather than the build's,
-	// which narrows natively before it ever calls here -- the same split
-	// `compileTemplates()` records
-	if (!source.includes(STYLE_MODULE)) {
-		return undefined;
-	}
+  // a module that does not mention the module the export comes from cannot be
+  // calling it. This is the function's own fast path rather than the build's,
+  // which narrows natively before it ever calls here -- the same split
+  // `compileTemplates()` records
+  if (!source.includes(STYLE_MODULE)) {
+    return undefined;
+  }
 
-	const parsed = parseModule(file, source);
-	const bindings = importBindings(parsed, STYLE_MODULE, SHEET_EXPORT);
+  const parsed = parseModule(file, source);
+  const bindings = importBindings(parsed, STYLE_MODULE, SHEET_EXPORT);
 
-	// a fast path rather than a correctness one, and worth having because it is
-	// the common case for this filter: a module that imports `Cascade` or
-	// `declare` from the same place reaches here and imports no `utilitySheet`.
-	// Without it the walk runs and finds nothing, which is the same answer --
-	// `templatesIn()` states its own the same way
-	if (!reachable(bindings)) {
-		return undefined;
-	}
+  // a fast path rather than a correctness one, and worth having because it is
+  // the common case for this filter: a module that imports `Cascade` or
+  // `declare` from the same place reaches here and imports no `utilitySheet`.
+  // Without it the walk runs and finds nothing, which is the same answer --
+  // `templatesIn()` states its own the same way
+  if (!reachable(bindings)) {
+    return undefined;
+  }
 
-	const calls: CallExpression[] = [];
+  const calls: CallExpression[] = [];
 
-	walk(parsed.program, (node) => {
-		if (
-			node.type === 'CallExpression' &&
-			node.arguments.length === 0 &&
-			bindingName(node.callee as Parameters<typeof bindingName>[0], bindings) !== undefined
-		) {
-			calls.push(node);
-		}
-		return true;
-	});
+  walk(parsed.program, (node) => {
+    if (
+      node.type === 'CallExpression' &&
+      node.arguments.length === 0 &&
+      bindingName(node.callee as Parameters<typeof bindingName>[0], bindings) !== undefined
+    ) {
+      calls.push(node);
+    }
+    return true;
+  });
 
-	if (!calls.length) {
-		return undefined;
-	}
+  if (!calls.length) {
+    return undefined;
+  }
 
-	const sheet = shaken();
-	const prefix = choosePrefix(source, '$css');
-	const read = `${prefix}s`;
-	const memo = `${prefix}v`;
-	const edited = new MagicString(source);
+  const sheet = shaken();
+  const prefix = choosePrefix(source, '$css');
+  const read = `${prefix}s`;
+  const memo = `${prefix}v`;
+  const edited = new MagicString(source);
 
-	for (const call of calls) {
-		edited.overwrite(call.start, call.end, `${read}()`);
-	}
+  for (const call of calls) {
+    edited.overwrite(call.start, call.end, `${read}()`);
+  }
 
-	// a hoisted function over a `var`, which is what `utilitySheet()` itself is:
-	// memoized, so a second call site costs nothing, and lazy, so a module that
-	// imports the sheet down a branch it never takes does not parse it. A
-	// `const` was the first shape and is wrong in both directions -- it parses
-	// at module evaluation whether or not the call is reached, and it sits in a
-	// temporal dead zone, so a module reached through an import cycle before its
-	// own body has run would throw a `ReferenceError` where `utilitySheet()`
-	// answered. `var` and a function declaration hoist, so neither can
-	const head =
-		`import { parseStylesheet as ${prefix}p } from ${JSON.stringify(STYLE_MODULE)};\n` +
-		`var ${memo};\n` +
-		`function ${read}() { return ${memo} ??= ${prefix}p(${JSON.stringify(sheet.css)}); }\n`;
+  // a hoisted function over a `var`, which is what `utilitySheet()` itself is:
+  // memoized, so a second call site costs nothing, and lazy, so a module that
+  // imports the sheet down a branch it never takes does not parse it. A
+  // `const` was the first shape and is wrong in both directions -- it parses
+  // at module evaluation whether or not the call is reached, and it sits in a
+  // temporal dead zone, so a module reached through an import cycle before its
+  // own body has run would throw a `ReferenceError` where `utilitySheet()`
+  // answered. `var` and a function declaration hoist, so neither can
+  const head =
+    `import { parseStylesheet as ${prefix}p } from ${JSON.stringify(STYLE_MODULE)};\n` +
+    `var ${memo};\n` +
+    `function ${read}() { return ${memo} ??= ${prefix}p(${JSON.stringify(sheet.css)}); }\n`;
 
-	// the head is an `import`, and prepending one can only ever reach a module
-	// that already has one: the matcher reads oxc's record of the module's
-	// **static imports**, which a CommonJS file cannot have -- a `.cjs` calling
-	// `require('@ttylabs/sigil/style')` passes the filter, finds no binding, and
-	// is declined before anything is written. A `'use strict'` that stops being
-	// the first statement is no loss either, since a module is strict anyway.
-	//
-	// After a shebang rather than before it, for the reason `compileTemplates()`
-	// records: `#!` is only a shebang on the first line
-	const shebang = source.startsWith('#!') ? source.indexOf('\n') + 1 : 0;
+  // the head is an `import`, and prepending one can only ever reach a module
+  // that already has one: the matcher reads oxc's record of the module's
+  // **static imports**, which a CommonJS file cannot have -- a `.cjs` calling
+  // `require('@ttylabs/sigil/style')` passes the filter, finds no binding, and
+  // is declined before anything is written. A `'use strict'` that stops being
+  // the first statement is no loss either, since a module is strict anyway.
+  //
+  // After a shebang rather than before it, for the reason `compileTemplates()`
+  // records: `#!` is only a shebang on the first line
+  const shebang = source.startsWith('#!') ? source.indexOf('\n') + 1 : 0;
 
-	if (shebang > 0) {
-		edited.appendLeft(shebang, head);
-	} else {
-		edited.prepend(head);
-	}
+  if (shebang > 0) {
+    edited.appendLeft(shebang, head);
+  } else {
+    edited.prepend(head);
+  }
 
-	return {
-		code: edited.toString(),
-		map: edited.generateMap({ hires: true, includeContent: true, source: file }),
-		sites: calls.length,
-	};
+  return {
+    code: edited.toString(),
+    map: edited.generateMap({ hires: true, includeContent: true, source: file }),
+    sites: calls.length,
+  };
 }
 
 /**
@@ -821,10 +821,10 @@ export function shakeStyles(
  * at most one such first module.
  */
 export interface Shaker {
-	/** The shaken sheet, computed on the first ask. */
-	sheet(): ShakenSheet;
-	/** What it came to, or `undefined` if nothing ever asked. */
-	result(): ShakenSheet | undefined;
+  /** The shaken sheet, computed on the first ask. */
+  sheet(): ShakenSheet;
+  /** What it came to, or `undefined` if nothing ever asked. */
+  result(): ShakenSheet | undefined;
 }
 
 /**
@@ -835,13 +835,13 @@ export interface Shaker {
  * @returns The shaker.
  */
 export function createShaker(root: string, options: ScanOptions = {}): Shaker {
-	let computed: ShakenSheet | undefined;
+  let computed: ShakenSheet | undefined;
 
-	return {
-		result: () => computed,
-		sheet: () => {
-			computed ??= shakeUtilities(scanClassEvidence(root, options));
-			return computed;
-		},
-	};
+  return {
+    result: () => computed,
+    sheet: () => {
+      computed ??= shakeUtilities(scanClassEvidence(root, options));
+      return computed;
+    },
+  };
 }

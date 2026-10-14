@@ -31,12 +31,12 @@ import type { Element } from './index.js';
  * @returns Whether it clips.
  */
 export function clipsContent(style: Style): boolean {
-	return style.overflow !== 'visible';
+  return style.overflow !== 'visible';
 }
 
 /** Keeps an offset inside `0..max`, which is what a scroll offset may be. */
 function clampOffset(value: number, max: number): number {
-	return Math.max(0, Math.min(max, value));
+  return Math.max(0, Math.min(max, value));
 }
 
 /**
@@ -64,16 +64,16 @@ function clampOffset(value: number, max: number): number {
  * @returns The largest offset each axis may take, never negative.
  */
 export function scrollRange(viewport: Element): { x: number; y: number } {
-	const inner = viewport.content ?? viewport.box;
-	const reach = viewport.scrollable;
-	if (!inner || !reach) {
-		return { x: 0, y: 0 };
-	}
+  const inner = viewport.content ?? viewport.box;
+  const reach = viewport.scrollable;
+  if (!inner || !reach) {
+    return { x: 0, y: 0 };
+  }
 
-	return {
-		x: Math.max(0, reach.x + reach.width - (inner.x + inner.width)),
-		y: Math.max(0, reach.y + reach.height - (inner.y + inner.height)),
-	};
+  return {
+    x: Math.max(0, reach.x + reach.width - (inner.x + inner.width)),
+    y: Math.max(0, reach.y + reach.height - (inner.y + inner.height)),
+  };
 }
 
 /**
@@ -89,27 +89,27 @@ export function scrollRange(viewport: Element): { x: number; y: number } {
  * @returns Whether the offset moved.
  */
 export function scrollBy(viewport: Element, dx: number, dy: number): boolean {
-	const at = viewport.scroll ?? { x: 0, y: 0 };
-	const max = scrollRange(viewport);
-	const next = { x: clampOffset(at.x + dx, max.x), y: clampOffset(at.y + dy, max.y) };
+  const at = viewport.scroll ?? { x: 0, y: 0 };
+  const max = scrollRange(viewport);
+  const next = { x: clampOffset(at.x + dx, max.x), y: clampOffset(at.y + dy, max.y) };
 
-	if (next.x === at.x && next.y === at.y) {
-		return false;
-	}
+  if (next.x === at.x && next.y === at.y) {
+    return false;
+  }
 
-	viewport.scrollTo(next.x, next.y);
-	return true;
+  viewport.scrollTo(next.x, next.y);
+  return true;
 }
 
 export interface ScrollIntoViewOptions {
-	/**
-	 * Cells to keep visible past the element on every side.
-	 *
-	 * What a list wants so that tabbing to the last visible row still shows the
-	 * next one, which is the difference between knowing there is more and finding
-	 * out by pressing Tab again.
-	 */
-	margin?: number;
+  /**
+   * Cells to keep visible past the element on every side.
+   *
+   * What a list wants so that tabbing to the last visible row still shows the
+   * next one, which is the difference between knowing there is more and finding
+   * out by pressing Tab again.
+   */
+  margin?: number;
 }
 
 /**
@@ -122,23 +122,23 @@ export interface ScrollIntoViewOptions {
  * it falls out of taking the smaller of the two candidate moves.
  */
 function offsetInto(
-	start: number,
-	size: number,
-	viewStart: number,
-	viewSize: number,
-	margin: number
+  start: number,
+  size: number,
+  viewStart: number,
+  viewSize: number,
+  margin: number
 ): number {
-	const lead = start - margin;
-	const tail = start + size + margin;
-	const viewEnd = viewStart + viewSize;
+  const lead = start - margin;
+  const tail = start + size + margin;
+  const viewEnd = viewStart + viewSize;
 
-	if (lead < viewStart) {
-		return lead - viewStart;
-	}
-	if (tail > viewEnd) {
-		return Math.min(tail - viewEnd, lead - viewStart);
-	}
-	return 0;
+  if (lead < viewStart) {
+    return lead - viewStart;
+  }
+  if (tail > viewEnd) {
+    return Math.min(tail - viewEnd, lead - viewStart);
+  }
+  return 0;
 }
 
 /**
@@ -180,59 +180,59 @@ function offsetInto(
  * @returns Whether anything scrolled.
  */
 export function scrollIntoView(target: Element, opts: ScrollIntoViewOptions = {}): boolean {
-	const area = target.box;
-	if (!area) {
-		// nothing has laid this out, so there is no position to reveal
-		return false;
-	}
+  const area = target.box;
+  if (!area) {
+    // nothing has laid this out, so there is no position to reveal
+    return false;
+  }
 
-	const chain: Element[] = [];
-	for (let at = target.parent; at; at = at.parent) {
-		chain.push(at);
-	}
+  const chain: Element[] = [];
+  for (let at = target.parent; at; at = at.parent) {
+    chain.push(at);
+  }
 
-	const margin = Math.max(0, Math.trunc(opts.margin ?? 0));
-	let shiftX = 0;
-	let shiftY = 0;
-	let moved = false;
+  const margin = Math.max(0, Math.trunc(opts.margin ?? 0));
+  let shiftX = 0;
+  let shiftY = 0;
+  let moved = false;
 
-	for (const at of chain) {
-		if (!clipsContent(at.style)) {
-			continue;
-		}
-		const inner = at.content ?? at.box;
-		if (!inner) {
-			continue;
-		}
+  for (const at of chain) {
+    if (!clipsContent(at.style)) {
+      continue;
+    }
+    const inner = at.content ?? at.box;
+    if (!inner) {
+      continue;
+    }
 
-		// where the target has reached, after everything nearer has scrolled. A
-		// scroll of `d` moves the content up or left by `d`, so the target's own
-		// position falls by exactly that
-		const seenX = area.x - shiftX;
-		const seenY = area.y - shiftY;
+    // where the target has reached, after everything nearer has scrolled. A
+    // scroll of `d` moves the content up or left by `d`, so the target's own
+    // position falls by exactly that
+    const seenX = area.x - shiftX;
+    const seenY = area.y - shiftY;
 
-		const dx = offsetInto(seenX, area.width, inner.x, inner.width, margin);
-		const dy = offsetInto(seenY, area.height, inner.y, inner.height, margin);
-		if (dx === 0 && dy === 0) {
-			continue;
-		}
+    const dx = offsetInto(seenX, area.width, inner.x, inner.width, margin);
+    const dy = offsetInto(seenY, area.height, inner.y, inner.height, margin);
+    if (dx === 0 && dy === 0) {
+      continue;
+    }
 
-		const was = at.scroll ?? { x: 0, y: 0 };
-		const max = scrollRange(at);
-		const next = { x: clampOffset(was.x + dx, max.x), y: clampOffset(was.y + dy, max.y) };
-		if (next.x === was.x && next.y === was.y) {
-			continue;
-		}
+    const was = at.scroll ?? { x: 0, y: 0 };
+    const max = scrollRange(at);
+    const next = { x: clampOffset(was.x + dx, max.x), y: clampOffset(was.y + dy, max.y) };
+    if (next.x === was.x && next.y === was.y) {
+      continue;
+    }
 
-		at.scrollTo(next.x, next.y);
-		// the clamped move rather than the asked-for one, or an ancestor that could
-		// not go as far as it was told would hand the next one out a lie
-		shiftX += next.x - was.x;
-		shiftY += next.y - was.y;
-		moved = true;
-	}
+    at.scrollTo(next.x, next.y);
+    // the clamped move rather than the asked-for one, or an ancestor that could
+    // not go as far as it was told would hand the next one out a lie
+    shiftX += next.x - was.x;
+    shiftY += next.y - was.y;
+    moved = true;
+  }
 
-	return moved;
+  return moved;
 }
 
 /**
@@ -248,5 +248,5 @@ export function scrollIntoView(target: Element, opts: ScrollIntoViewOptions = {}
  * @returns Whether they intersect.
  */
 export function overlaps(a: Box, b: Box): boolean {
-	return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 }

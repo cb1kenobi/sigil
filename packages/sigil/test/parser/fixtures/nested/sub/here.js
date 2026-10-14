@@ -1,3 +1,3 @@
 export default {
-	desc: 'reached by an absolute path',
+  desc: 'reached by an absolute path',
 };

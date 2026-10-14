@@ -29,9 +29,9 @@
 
 export { analyze } from './analyze.ts';
 export {
-	compile,
-	type Compiled,
-	type CompiledImport,
-	type CompileOptions,
-	renderImports,
+  compile,
+  type Compiled,
+  type CompiledImport,
+  type CompileOptions,
+  renderImports,
 } from './emit.ts';

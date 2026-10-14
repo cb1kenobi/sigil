@@ -1,3 +1,3 @@
 export default {
-	desc: 'Command lazy loaded',
+  desc: 'Command lazy loaded',
 };

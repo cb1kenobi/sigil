@@ -49,9 +49,9 @@ const renderer = resolve(fixtures, 'render.mjs');
 const tsc = resolve(dirname(createRequire(import.meta.url).resolve('typescript')), 'tsc.js');
 
 interface Ran {
-	code: number | null;
-	stderr: string;
-	stdout: string;
+  code: number | null;
+  stderr: string;
+  stdout: string;
 }
 
 /**
@@ -62,30 +62,30 @@ interface Ran {
  * @returns The exit code and both streams.
  */
 function run(command: string, args: string[]): Promise<Ran> {
-	return new Promise((settle, fail) => {
-		const child = spawn(command, args, {
-			cwd: root,
-			env: { ...process.env, COLUMNS: '80' },
-			stdio: ['ignore', 'pipe', 'pipe'],
-		});
-		let stderr = '';
-		let stdout = '';
-		const timer = setTimeout(() => {
-			child.kill('SIGKILL');
-			fail(new Error(`${args.join(' ')} did not finish within 60s`));
-		}, 60_000);
+  return new Promise((settle, fail) => {
+    const child = spawn(command, args, {
+      cwd: root,
+      env: { ...process.env, COLUMNS: '80' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stderr = '';
+    let stdout = '';
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      fail(new Error(`${args.join(' ')} did not finish within 60s`));
+    }, 60_000);
 
-		child.stderr.on('data', (chunk: Buffer) => void (stderr += chunk.toString()));
-		child.stdout.on('data', (chunk: Buffer) => void (stdout += chunk.toString()));
-		child.on('error', (error) => {
-			clearTimeout(timer);
-			fail(error);
-		});
-		child.on('close', (code) => {
-			clearTimeout(timer);
-			settle({ code, stderr, stdout });
-		});
-	});
+    child.stderr.on('data', (chunk: Buffer) => void (stderr += chunk.toString()));
+    child.stdout.on('data', (chunk: Buffer) => void (stdout += chunk.toString()));
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      fail(error);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      settle({ code, stderr, stdout });
+    });
+  });
 }
 
 /**
@@ -95,49 +95,49 @@ function run(command: string, args: string[]): Promise<Ran> {
  * @returns The frame before the signal write and the frame after it.
  */
 async function frames(module: string): Promise<{ after: string; before: string }> {
-	const ran = await run(process.execPath, [renderer, resolve(fixtures, module)]);
-	expect(ran.stderr, `${module} wrote to stderr`).toBe('');
-	expect(ran.code, `${module} exited ${ran.code}`).toBe(0);
-	return JSON.parse(ran.stdout) as { after: string; before: string };
+  const ran = await run(process.execPath, [renderer, resolve(fixtures, module)]);
+  expect(ran.stderr, `${module} wrote to stderr`).toBe('');
+  expect(ran.code, `${module} exited ${ran.code}`).toBe(0);
+  return JSON.parse(ran.stdout) as { after: string; before: string };
 }
 
 describe('a template across the package boundary', () => {
-	let compiled: Ran;
+  let compiled: Ran;
 
-	// in a hook rather than in the first test, because the tests below import
-	// what it writes: ordering inside a `describe` is not a dependency anything
-	// states, and running one of them on its own would otherwise fail on a
-	// missing file rather than on what it was asking about
-	beforeAll(async () => {
-		compiled = await run(process.execPath, [tsc, '-p', resolve(fixtures, 'tsconfig.json')]);
-	}, 60_000);
+  // in a hook rather than in the first test, because the tests below import
+  // what it writes: ordering inside a `describe` is not a dependency anything
+  // states, and running one of them on its own would otherwise fail on a
+  // missing file rather than on what it was asking about
+  beforeAll(async () => {
+    compiled = await run(process.execPath, [tsc, '-p', resolve(fixtures, 'tsconfig.json')]);
+  }, 60_000);
 
-	it('should compile a .tsx with tsc and nothing else', () => {
-		// no sigil-specific compiler in this path, which is the point: `sigil
-		// build` is an optimizer an app may skip rather than a transform it
-		// depends on to run
-		expect(compiled.stdout + compiled.stderr).toBe('');
-		expect(compiled.code).toBe(0);
-	});
+  it('should compile a .tsx with tsc and nothing else', () => {
+    // no sigil-specific compiler in this path, which is the point: `sigil
+    // build` is an optimizer an app may skip rather than a transform it
+    // depends on to run
+    expect(compiled.stdout + compiled.stderr).toBe('');
+    expect(compiled.code).toBe(0);
+  });
 
-	it('should render the same frames through all three frontends', async () => {
-		// the differential invariant, across the real `exports` map: the tag and
-		// what the transform emits must agree, and the frame after the write is
-		// what makes it a test of the reactivity rather than of the first paint
-		const byHand = await frames('counter-elements.js');
-		const tagged = await frames('counter-tag.js');
-		const compiled = await frames('out/counter-jsx.js');
+  it('should render the same frames through all three frontends', async () => {
+    // the differential invariant, across the real `exports` map: the tag and
+    // what the transform emits must agree, and the frame after the write is
+    // what makes it a test of the reactivity rather than of the first paint
+    const byHand = await frames('counter-elements.js');
+    const tagged = await frames('counter-tag.js');
+    const compiled = await frames('out/counter-jsx.js');
 
-		expect(tagged).toEqual(byHand);
-		expect(compiled).toEqual(byHand);
-	}, 60_000);
+    expect(tagged).toEqual(byHand);
+    expect(compiled).toEqual(byHand);
+  }, 60_000);
 
-	it('should have rendered something worth comparing', async () => {
-		// a frontend that threw would have failed above; one that rendered nothing
-		// would have made the comparison vacuous
-		const { after, before } = await frames('counter-tag.js');
-		expect(before).toContain('count: 1');
-		expect(after).toContain('count: 3');
-		expect(after).toContain('layout');
-	}, 60_000);
+  it('should have rendered something worth comparing', async () => {
+    // a frontend that threw would have failed above; one that rendered nothing
+    // would have made the comparison vacuous
+    const { after, before } = await frames('counter-tag.js');
+    expect(before).toContain('count: 1');
+    expect(after).toContain('count: 3');
+    expect(after).toContain('layout');
+  }, 60_000);
 });

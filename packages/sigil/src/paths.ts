@@ -4,24 +4,24 @@ import { homedir, tmpdir } from 'node:os';
 import { delimiter, isAbsolute, join, normalize } from 'node:path';
 
 const paths = {
-	darwin: {
-		cache: '~/Library/Caches',
-		config: '~/Library/Preferences',
-		data: '~/Library/Application Support',
-		state: '~/Library/state',
-	},
-	linux: {
-		cache: '~/.cache',
-		config: '~/.config',
-		data: '~/.local/share',
-		state: '~/.local/state',
-	},
-	win32: {
-		cache: ['%LOCALAPPDATA%', '~/AppData/Local'],
-		config: '~\\.config',
-		data: ['%APPDATA%', '~/AppData/Roaming'],
-		state: ['%LOCALAPPDATA%', '~/AppData/Local'],
-	},
+  darwin: {
+    cache: '~/Library/Caches',
+    config: '~/Library/Preferences',
+    data: '~/Library/Application Support',
+    state: '~/Library/state',
+  },
+  linux: {
+    cache: '~/.cache',
+    config: '~/.config',
+    data: '~/.local/share',
+    state: '~/.local/state',
+  },
+  win32: {
+    cache: ['%LOCALAPPDATA%', '~/AppData/Local'],
+    config: '~\\.config',
+    data: ['%APPDATA%', '~/AppData/Roaming'],
+    state: ['%LOCALAPPDATA%', '~/AppData/Local'],
+  },
 } as const;
 
 let _cache: string | undefined;
@@ -34,10 +34,10 @@ let _state: string | undefined;
 let _tmp: string | undefined;
 
 export function cache(...paths: string[]): string | undefined {
-	if (!_cache) {
-		_cache = resolvePath('XDG_CACHE_HOME', 'cache');
-	}
-	return _cache && paths ? join(_cache, ...paths) : _cache;
+  if (!_cache) {
+    _cache = resolvePath('XDG_CACHE_HOME', 'cache');
+  }
+  return _cache && paths ? join(_cache, ...paths) : _cache;
 }
 
 /**
@@ -53,36 +53,36 @@ export function cache(...paths: string[]): string | undefined {
  * variable.
  */
 export function configHome(...paths: string[]): string | undefined {
-	if (!_config) {
-		_config = resolvePath('XDG_CONFIG_HOME', 'config');
-	}
-	return _config && paths ? join(_config, ...paths) : _config;
+  if (!_config) {
+    _config = resolvePath('XDG_CONFIG_HOME', 'config');
+  }
+  return _config && paths ? join(_config, ...paths) : _config;
 }
 
 export function configDirs(): string[] | undefined {
-	if (!_configDirs) {
-		_configDirs = combinePaths(configHome(), splitDirs(process.env.XDG_CONFIG_DIRS));
-	}
-	return _configDirs;
+  if (!_configDirs) {
+    _configDirs = combinePaths(configHome(), splitDirs(process.env.XDG_CONFIG_DIRS));
+  }
+  return _configDirs;
 }
 
 export function data(...paths: string[]): string | undefined {
-	if (!_data) {
-		_data = resolvePath('XDG_DATA_HOME', 'data');
-	}
-	return _data && paths ? join(_data, ...paths) : _data;
+  if (!_data) {
+    _data = resolvePath('XDG_DATA_HOME', 'data');
+  }
+  return _data && paths ? join(_data, ...paths) : _data;
 }
 
 export function dataDirs(): string[] | undefined {
-	if (!_dataDirs) {
-		_dataDirs = combinePaths(
-			// `data()`, not `configHome()`: copied from `configDirs()` above, this put
-			// the config home at the head of the data search path
-			data(),
-			splitDirs(process.env.XDG_DATA_DIRS)
-		);
-	}
-	return _dataDirs;
+  if (!_dataDirs) {
+    _dataDirs = combinePaths(
+      // `data()`, not `configHome()`: copied from `configDirs()` above, this put
+      // the config home at the head of the data search path
+      data(),
+      splitDirs(process.env.XDG_DATA_DIRS)
+    );
+  }
+  return _dataDirs;
 }
 
 const homeDirRegExp = /^~([\\|/].*)?$/;
@@ -95,79 +95,79 @@ const winEnvVarRegExp = /(%([^%]*)%)/g;
  * @returns the expanded path.
  */
 export function expand(...segments: string[]): string {
-	const dir = home();
-	if (dir) {
-		// a `~` with no home to put over it stays a `~`, which `baseDir()` then
-		// refuses the way it refuses any other relative path. An empty home used
-		// to reach this as `'.'` -- see `home()` -- so `expand('~')` answered with
-		// the working directory, which is a real path and therefore the one
-		// failure the caller cannot see
-		segments[0] = segments[0].replace(homeDirRegExp, `${dir}$1`);
-	}
+  const dir = home();
+  if (dir) {
+    // a `~` with no home to put over it stays a `~`, which `baseDir()` then
+    // refuses the way it refuses any other relative path. An empty home used
+    // to reach this as `'.'` -- see `home()` -- so `expand('~')` answered with
+    // the working directory, which is a real path and therefore the one
+    // failure the caller cannot see
+    segments[0] = segments[0].replace(homeDirRegExp, `${dir}$1`);
+  }
 
-	if (process.platform === 'win32') {
-		return normalize(
-			join(...segments).replace(winEnvVarRegExp, (s, m, n) => {
-				return process.env[n] || m;
-			})
-		);
-	}
+  if (process.platform === 'win32') {
+    return normalize(
+      join(...segments).replace(winEnvVarRegExp, (s, m, n) => {
+        return process.env[n] || m;
+      })
+    );
+  }
 
-	return normalize(join(...segments));
+  return normalize(join(...segments));
 }
 
 export function home(...paths: string[]): string | undefined {
-	if (!_home) {
-		_home = homedir();
-	}
-	// `paths.length`, not `paths`: an array is always truthy, so a bare `home()`
-	// went through `join()` and there was no way back out of it. `join('')` is
-	// `'.'`, so a home the platform could not name came back as the working
-	// directory, and `expand()` had no falsy value to leave a `~` alone over
-	return paths.length ? join(_home, ...paths) : _home;
+  if (!_home) {
+    _home = homedir();
+  }
+  // `paths.length`, not `paths`: an array is always truthy, so a bare `home()`
+  // went through `join()` and there was no way back out of it. `join('')` is
+  // `'.'`, so a home the platform could not name came back as the working
+  // directory, and `expand()` had no falsy value to leave a `~` alone over
+  return paths.length ? join(_home, ...paths) : _home;
 }
 
 export function runtime(...paths: string[]): string | undefined {
-	const dir = resolvePath('XDG_RUNTIME_DIR');
-	return dir && paths ? join(dir, ...paths) : dir;
+  const dir = resolvePath('XDG_RUNTIME_DIR');
+  return dir && paths ? join(dir, ...paths) : dir;
 }
 
 export function state(...paths: string[]): string | undefined {
-	if (!_state) {
-		_state = resolvePath('XDG_STATE_HOME', 'state');
-	}
-	return _state && paths ? join(_state, ...paths) : _state;
+  if (!_state) {
+    _state = resolvePath('XDG_STATE_HOME', 'state');
+  }
+  return _state && paths ? join(_state, ...paths) : _state;
 }
 
 export function tmp(...paths: string[]): string | undefined {
-	if (!_tmp) {
-		_tmp = tmpdir();
-	}
-	return _tmp && paths ? join(_tmp, ...paths) : _tmp;
+  if (!_tmp) {
+    _tmp = tmpdir();
+  }
+  return _tmp && paths ? join(_tmp, ...paths) : _tmp;
 }
 
 function combinePaths(
-	primary: string | undefined,
-	additional: (string | undefined)[] | undefined
+  primary: string | undefined,
+  additional: (string | undefined)[] | undefined
 ): string[] | undefined {
-	const paths = new Set<string>();
-	if (primary) {
-		paths.add(primary);
-	}
+  const paths = new Set<string>();
+  if (primary) {
+    paths.add(primary);
+  }
 
-	if (additional) {
-		for (const path of additional) {
-			if (path) {
-				paths.add(path);
-			}
-		}
-	}
+  if (additional) {
+    for (const path of additional) {
+      if (path) {
+        paths.add(path);
+      }
+    }
+  }
 
-	return Array.from(paths);
+  return Array.from(paths);
 }
 
 function resolvePath(env: string, type?: string) {
-	return baseDir(process.env[env]) ?? (type && resolveTypePath(type));
+  return baseDir(process.env[env]) ?? (type && resolveTypePath(type));
 }
 
 /**
@@ -190,16 +190,16 @@ function resolvePath(env: string, type?: string) {
  * `C:\foo` anywhere else, and each is right for the platform it is asked on.
  */
 function baseDir(value: string | undefined): string | undefined {
-	// a missing, empty, or whitespace-only value is one nobody configured, and
-	// none of them is absolute -- the blank ones fall out of `isAbsolute()`
-	// rather than being trimmed, since leading whitespace in a real path is the
-	// caller's
-	if (!value) {
-		return;
-	}
+  // a missing, empty, or whitespace-only value is one nobody configured, and
+  // none of them is absolute -- the blank ones fall out of `isAbsolute()`
+  // rather than being trimmed, since leading whitespace in a real path is the
+  // caller's
+  if (!value) {
+    return;
+  }
 
-	const dir = expand(value);
-	return isAbsolute(dir) ? dir : undefined;
+  const dir = expand(value);
+  return isAbsolute(dir) ? dir : undefined;
 }
 
 /**
@@ -211,33 +211,33 @@ function baseDir(value: string | undefined): string | undefined {
  * real entry and the working directory joined the config search path.
  */
 function splitDirs(value: string | undefined): (string | undefined)[] | undefined {
-	return value?.split(delimiter).map((dir) => baseDir(dir));
+  return value?.split(delimiter).map((dir) => baseDir(dir));
 }
 
 function resolveTypePath(type: string) {
-	// every platform that is not Windows or macOS follows the XDG spec this file
-	// is written from, so Linux is what they get rather than a crash: the table
-	// has three keys and `process.platform` has nine values, and `paths.freebsd`
-	// is `undefined`, so indexing it threw
-	const dirs = (paths[process.platform] ?? paths.linux)[type];
+  // every platform that is not Windows or macOS follows the XDG spec this file
+  // is written from, so Linux is what they get rather than a crash: the table
+  // has three keys and `process.platform` has nine values, and `paths.freebsd`
+  // is `undefined`, so indexing it threw
+  const dirs = (paths[process.platform] ?? paths.linux)[type];
 
-	if (Array.isArray(dirs)) {
-		// a candidate that does not expand is not a candidate. `expand()` leaves
-		// `%LOCALAPPDATA%` as it found it when the variable is unset, and the
-		// literal is truthy -- so the array stopped at its first entry and
-		// `~/AppData/Local`, the fallback the array exists for, was unreachable
-		for (const dir of dirs) {
-			const path = baseDir(dir);
-			if (path) {
-				return path;
-			}
-		}
-		return;
-	}
+  if (Array.isArray(dirs)) {
+    // a candidate that does not expand is not a candidate. `expand()` leaves
+    // `%LOCALAPPDATA%` as it found it when the variable is unset, and the
+    // literal is truthy -- so the array stopped at its first entry and
+    // `~/AppData/Local`, the fallback the array exists for, was unreachable
+    for (const dir of dirs) {
+      const path = baseDir(dir);
+      if (path) {
+        return path;
+      }
+    }
+    return;
+  }
 
-	// the string entries are `~`-relative too. Only the win32 array fallbacks
-	// were expanded, so `cache()` on macOS and Linux answered with a literal
-	// `'~/Library/Caches'` -- not a path anything can open, and one that
-	// `mkdirSync` turns into a directory named `~` in the working directory
-	return dirs && baseDir(dirs);
+  // the string entries are `~`-relative too. Only the win32 array fallbacks
+  // were expanded, so `cache()` on macOS and Linux answered with a literal
+  // `'~/Library/Caches'` -- not a path anything can open, and one that
+  // `mkdirSync` turns into a directory named `~` in the working directory
+  return dirs && baseDir(dirs);
 }

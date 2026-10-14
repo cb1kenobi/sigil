@@ -22,7 +22,7 @@ import type { Element } from './index.js';
 
 /** Whether a point is inside a rectangle. */
 export function contains(area: Box, x: number, y: number): boolean {
-	return x >= area.x && y >= area.y && x < area.x + area.width && y < area.y + area.height;
+  return x >= area.x && y >= area.y && x < area.x + area.width && y < area.y + area.height;
 }
 
 /**
@@ -47,13 +47,13 @@ export function contains(area: Box, x: number, y: number): boolean {
  * @returns Its children, in paint order.
  */
 export function paintOrder(element: Element): readonly Element[] {
-	const children = element.children;
-	// the common case is that nobody asked, and sorting a few hundred children per
-	// frame to discover that is work a frame does not need
-	if (!children.some((child) => child.style.zIndex !== 0)) {
-		return children;
-	}
-	return [...children].sort((a, b) => a.style.zIndex - b.style.zIndex);
+  const children = element.children;
+  // the common case is that nobody asked, and sorting a few hundred children per
+  // frame to discover that is work a frame does not need
+  if (!children.some((child) => child.style.zIndex !== 0)) {
+    return children;
+  }
+  return [...children].sort((a, b) => a.style.zIndex - b.style.zIndex);
 }
 
 /**
@@ -79,48 +79,48 @@ export function paintOrder(element: Element): readonly Element[] {
  * @returns The topmost element containing the point, or `undefined`.
  */
 export function hitTest(root: Element, x: number, y: number): Element | undefined {
-	const walk = (element: Element): Element | undefined => {
-		const area = element.box;
-		if (!area || element.style.display === 'none') {
-			// a subtree that was never laid out is not on screen to be hit
-			return undefined;
-		}
+  const walk = (element: Element): Element | undefined => {
+    const area = element.box;
+    if (!area || element.style.display === 'none') {
+      // a subtree that was never laid out is not on screen to be hit
+      return undefined;
+    }
 
-		// every box in this subtree is inside its extent, and a hit needs the point
-		// to be in some box -- so a point outside it cannot be in any of them. The
-		// same rectangle paint culls against, asked the other way round: a scrolled
-		// list of ten thousand rows tests the handful under the pointer rather than
-		// walking all of them to find out they are not there
-		if (element.extent && !contains(element.extent, x, y)) {
-			return undefined;
-		}
+    // every box in this subtree is inside its extent, and a hit needs the point
+    // to be in some box -- so a point outside it cannot be in any of them. The
+    // same rectangle paint culls against, asked the other way round: a scrolled
+    // list of ten thousand rows tests the handful under the pointer rather than
+    // walking all of them to find out they are not there
+    if (element.extent && !contains(element.extent, x, y)) {
+      return undefined;
+    }
 
-		// children first, and backwards: the last child painted is the one on top.
-		// Asked before this element's own box rather than after, and *not* gated on
-		// the point being inside this one -- a child with `overflow: visible` is
-		// drawn outside its parent and is hittable there, which is the whole reason
-		// the clip is a separate question from the box
-		const children = paintOrder(element);
-		for (let i = children.length - 1; i >= 0; i--) {
-			const found = walk(children[i]);
-			if (found) {
-				return found;
-			}
-		}
+    // children first, and backwards: the last child painted is the one on top.
+    // Asked before this element's own box rather than after, and *not* gated on
+    // the point being inside this one -- a child with `overflow: visible` is
+    // drawn outside its parent and is hittable there, which is the whole reason
+    // the clip is a separate question from the box
+    const children = paintOrder(element);
+    for (let i = children.length - 1; i >= 0; i--) {
+      const found = walk(children[i]);
+      if (found) {
+        return found;
+      }
+    }
 
-		if (element.style.visibility === 'hidden') {
-			return undefined;
-		}
-		if (!contains(area, x, y)) {
-			return undefined;
-		}
-		if (element.clip && !contains(element.clip, x, y)) {
-			return undefined;
-		}
-		return element;
-	};
+    if (element.style.visibility === 'hidden') {
+      return undefined;
+    }
+    if (!contains(area, x, y)) {
+      return undefined;
+    }
+    if (element.clip && !contains(element.clip, x, y)) {
+      return undefined;
+    }
+    return element;
+  };
 
-	return walk(root);
+  return walk(root);
 }
 
 /**
@@ -136,9 +136,9 @@ export function hitTest(root: Element, x: number, y: number): Element | undefine
  * @returns The chain, innermost first. Empty for nothing.
  */
 export function ancestry(element: Element | undefined): Element[] {
-	const chain: Element[] = [];
-	for (let at = element; at; at = at.parent) {
-		chain.push(at);
-	}
-	return chain;
+  const chain: Element[] = [];
+  for (let at = element; at; at = at.parent) {
+    chain.push(at);
+  }
+  return chain;
 }

@@ -2,36 +2,36 @@ import { Console } from 'node:console';
 import { Writable } from 'node:stream';
 
 export default function debug(ns: string | undefined): Console {
-	return new Console(
-		new StdioStream({ ns, stream: process.stdout }),
-		new StdioStream({ ns, stream: process.stderr })
-	);
+  return new Console(
+    new StdioStream({ ns, stream: process.stdout }),
+    new StdioStream({ ns, stream: process.stderr })
+  );
 }
 
 interface StdioStreamOptions {
-	ns: string | undefined;
-	stream: Writable;
+  ns: string | undefined;
+  stream: Writable;
 }
 
 class StdioStream extends Writable {
-	#ns: string | undefined;
-	#stream: Writable;
+  #ns: string | undefined;
+  #stream: Writable;
 
-	constructor({ ns, stream }: StdioStreamOptions) {
-		super();
-		this.#ns = ns;
-		this.#stream = stream;
-	}
+  constructor({ ns, stream }: StdioStreamOptions) {
+    super();
+    this.#ns = ns;
+    this.#stream = stream;
+  }
 
-	_write(data, _enc, cb) {
-		if (isEnabled(this.#ns)) {
-			const ts = new Date().toISOString();
-			const ns = this.#ns ? ` ${this.#ns}` : '';
-			const msg = data.toString().replace(/(\r\n|\n)$/, '');
-			this.#stream.write(`[${ts}]${ns} ${msg}\n`);
-		}
-		cb();
-	}
+  _write(data, _enc, cb) {
+    if (isEnabled(this.#ns)) {
+      const ts = new Date().toISOString();
+      const ns = this.#ns ? ` ${this.#ns}` : '';
+      const msg = data.toString().replace(/(\r\n|\n)$/, '');
+      this.#stream.write(`[${ts}]${ns} ${msg}\n`);
+    }
+    cb();
+  }
 }
 
 /**
@@ -47,8 +47,8 @@ const metaRE = /[.+?^${}()|[\]\\]/g;
 const matchers = enable(process.env.DEBUG);
 
 export interface Matchers {
-	allow: RegExp | string | null;
-	ignore: RegExp | null;
+  allow: RegExp | string | null;
+  ignore: RegExp | null;
 }
 
 /**
@@ -57,53 +57,53 @@ export interface Matchers {
  * @returns A map of allow and ignore matchers.
  */
 export function enable(pattern: string | RegExp = ''): Matchers {
-	let allow: RegExp | string | null = null;
-	let ignore: RegExp | null = null;
+  let allow: RegExp | string | null = null;
+  let ignore: RegExp | null = null;
 
-	if (pattern === '*') {
-		allow = '*';
-	} else if (pattern instanceof RegExp) {
-		allow = pattern;
-	} else if (pattern) {
-		const a: string[] = [];
-		const i: string[] = [];
+  if (pattern === '*') {
+    allow = '*';
+  } else if (pattern instanceof RegExp) {
+    allow = pattern;
+  } else if (pattern) {
+    const a: string[] = [];
+    const i: string[] = [];
 
-		for (const p of pattern.split(/[\s,]+/)) {
-			const negated = p[0] === '-';
-			const ns = negated ? p.slice(1) : p;
-			if (ns) {
-				// a namespace is a literal with `*` for a wildcard, so everything a
-				// regular expression would have read as syntax is escaped before the
-				// wildcard becomes one. `DEBUG='sigil.updates'` used to match
-				// `sigilXupdates` as well, and `DEBUG='('` did not compile at all
-				(negated ? i : a).push(ns.replace(metaRE, '\\$&').replace(/\*/g, '.*?'));
-			}
-		}
+    for (const p of pattern.split(/[\s,]+/)) {
+      const negated = p[0] === '-';
+      const ns = negated ? p.slice(1) : p;
+      if (ns) {
+        // a namespace is a literal with `*` for a wildcard, so everything a
+        // regular expression would have read as syntax is escaped before the
+        // wildcard becomes one. `DEBUG='sigil.updates'` used to match
+        // `sigilXupdates` as well, and `DEBUG='('` did not compile at all
+        (negated ? i : a).push(ns.replace(metaRE, '\\$&').replace(/\*/g, '.*?'));
+      }
+    }
 
-		try {
-			if (a.length) {
-				allow = new RegExp(`^(${a.join('|')})$`);
-			} else if (i.length) {
-				// nothing named but something excluded means everything else
-				allow = /./;
-			}
+    try {
+      if (a.length) {
+        allow = new RegExp(`^(${a.join('|')})$`);
+      } else if (i.length) {
+        // nothing named but something excluded means everything else
+        allow = /./;
+      }
 
-			if (i.length) {
-				ignore = new RegExp(`^(${i.join('|')})$`);
-			}
-		} catch {
-			// this runs at module load and every importer of the library is behind
-			// it, so a pattern that will not compile has to end here rather than as a
-			// `SyntaxError` thrown before `main()` exists to turn it into a message.
-			// Escaping should leave nothing that reaches this; it is kept because
-			// escaping is a claim about a grammar, and being wrong about that one
-			// costs an import nobody can make rather than a log line nobody gets
-			allow = null;
-			ignore = null;
-		}
-	}
+      if (i.length) {
+        ignore = new RegExp(`^(${i.join('|')})$`);
+      }
+    } catch {
+      // this runs at module load and every importer of the library is behind
+      // it, so a pattern that will not compile has to end here rather than as a
+      // `SyntaxError` thrown before `main()` exists to turn it into a message.
+      // Escaping should leave nothing that reaches this; it is kept because
+      // escaping is a claim about a grammar, and being wrong about that one
+      // costs an import nobody can make rather than a log line nobody gets
+      allow = null;
+      ignore = null;
+    }
+  }
 
-	return { allow, ignore };
+  return { allow, ignore };
 }
 
 /**
@@ -115,19 +115,19 @@ export function enable(pattern: string | RegExp = ''): Matchers {
  * @returns `true` if the namespace is enabled.
  */
 export function isEnabled(ns: string | undefined, { allow, ignore }: Matchers = matchers): boolean {
-	if (allow === null) {
-		// all logging is silenced
-		return false;
-	}
+  if (allow === null) {
+    // all logging is silenced
+    return false;
+  }
 
-	if (!ns || allow === '*') {
-		// nothing to filter
-		return true;
-	}
+  if (!ns || allow === '*') {
+    // nothing to filter
+    return true;
+  }
 
-	if (allow instanceof RegExp && allow.test(ns) && (!ignore || !ignore.test(ns))) {
-		return true;
-	}
+  if (allow instanceof RegExp && allow.test(ns) && (!ignore || !ignore.test(ns))) {
+    return true;
+  }
 
-	return false;
+  return false;
 }

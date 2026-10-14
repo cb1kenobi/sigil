@@ -24,16 +24,16 @@ import type { Expression, Node, ObjectExpression, ObjectProperty } from 'oxc-par
  * @returns The expression under the type syntax.
  */
 export function unwrapShallow(node: Expression): Expression {
-	let current = node;
-	while (
-		current.type === 'TSAsExpression' ||
-		current.type === 'TSSatisfiesExpression' ||
-		current.type === 'ParenthesizedExpression' ||
-		current.type === 'TSNonNullExpression'
-	) {
-		current = current.expression;
-	}
-	return current;
+  let current = node;
+  while (
+    current.type === 'TSAsExpression' ||
+    current.type === 'TSSatisfiesExpression' ||
+    current.type === 'ParenthesizedExpression' ||
+    current.type === 'TSNonNullExpression'
+  ) {
+    current = current.expression;
+  }
+  return current;
 }
 
 /**
@@ -54,24 +54,24 @@ export function unwrapShallow(node: Expression): Expression {
  * @returns The object literal, or `undefined` when it is not one.
  */
 export function objectLiteral(node: Expression): ObjectExpression | undefined {
-	let current = unwrapShallow(node);
+  let current = unwrapShallow(node);
 
-	for (;;) {
-		if (current.type === 'ObjectExpression') {
-			return current;
-		}
+  for (;;) {
+    if (current.type === 'ObjectExpression') {
+      return current;
+    }
 
-		if (current.type === 'CallExpression' && current.arguments.length === 1) {
-			const [argument] = current.arguments;
-			// a spread argument is not an object literal however it was written
-			if (argument && argument.type !== 'SpreadElement') {
-				current = unwrapShallow(argument);
-				continue;
-			}
-		}
+    if (current.type === 'CallExpression' && current.arguments.length === 1) {
+      const [argument] = current.arguments;
+      // a spread argument is not an object literal however it was written
+      if (argument && argument.type !== 'SpreadElement') {
+        current = unwrapShallow(argument);
+        continue;
+      }
+    }
 
-		return undefined;
-	}
+    return undefined;
+  }
 }
 
 /**
@@ -87,22 +87,22 @@ export function objectLiteral(node: Expression): ObjectExpression | undefined {
  * @returns The key.
  */
 export function propertyKey(property: ObjectProperty): string | undefined {
-	if (property.computed) {
-		return undefined;
-	}
+  if (property.computed) {
+    return undefined;
+  }
 
-	const { key } = property;
+  const { key } = property;
 
-	if (key.type === 'Identifier') {
-		return key.name;
-	}
+  if (key.type === 'Identifier') {
+    return key.name;
+  }
 
-	// `{ 'desc': 'x' }` is the same declaration written with quotes
-	if (key.type === 'Literal' && typeof key.value === 'string') {
-		return key.value;
-	}
+  // `{ 'desc': 'x' }` is the same declaration written with quotes
+  if (key.type === 'Literal' && typeof key.value === 'string') {
+    return key.value;
+  }
 
-	return undefined;
+  return undefined;
 }
 
 /**
@@ -117,17 +117,17 @@ export function propertyKey(property: ObjectProperty): string | undefined {
  * @returns The property, when it is a plain one.
  */
 export function plainProperty(object: ObjectExpression, name: string): ObjectProperty | undefined {
-	for (const property of object.properties) {
-		if (property.type === 'SpreadElement') {
-			continue;
-		}
+  for (const property of object.properties) {
+    if (property.type === 'SpreadElement') {
+      continue;
+    }
 
-		if (propertyKey(property) === name && property.kind === 'init' && !property.method) {
-			return property;
-		}
-	}
+    if (propertyKey(property) === name && property.kind === 'init' && !property.method) {
+      return property;
+    }
+  }
 
-	return undefined;
+  return undefined;
 }
 
 /**
@@ -142,17 +142,17 @@ export function plainProperty(object: ObjectExpression, name: string): ObjectPro
  * @returns The string, or `undefined`.
  */
 export function literalString(node: Expression): string | undefined {
-	const value = unwrapShallow(node);
+  const value = unwrapShallow(node);
 
-	if (value.type === 'Literal' && typeof value.value === 'string') {
-		return value.value;
-	}
+  if (value.type === 'Literal' && typeof value.value === 'string') {
+    return value.value;
+  }
 
-	if (value.type === 'TemplateLiteral' && value.expressions.length === 0) {
-		return value.quasis[0]?.value.cooked ?? undefined;
-	}
+  if (value.type === 'TemplateLiteral' && value.expressions.length === 0) {
+    return value.quasis[0]?.value.cooked ?? undefined;
+  }
 
-	return undefined;
+  return undefined;
 }
 
 /**
@@ -166,9 +166,9 @@ export function literalString(node: Expression): string | undefined {
  * @returns The boolean, or `undefined`.
  */
 export function literalBoolean(node: Expression): boolean | undefined {
-	const value = unwrapShallow(node);
+  const value = unwrapShallow(node);
 
-	return value.type === 'Literal' && typeof value.value === 'boolean' ? value.value : undefined;
+  return value.type === 'Literal' && typeof value.value === 'boolean' ? value.value : undefined;
 }
 
 /**
@@ -189,25 +189,25 @@ export function literalBoolean(node: Expression): boolean | undefined {
  * @returns The outermost such objects, in source order.
  */
 export function outermostWith(program: Node, name: string): ObjectExpression[] {
-	const found: ObjectExpression[] = [];
+  const found: ObjectExpression[] = [];
 
-	walk(program, (node) => {
-		if (node.type !== 'ObjectExpression') {
-			return true;
-		}
+  walk(program, (node) => {
+    if (node.type !== 'ObjectExpression') {
+      return true;
+    }
 
-		const object = node as unknown as ObjectExpression;
-		if (!plainProperty(object, name)) {
-			return true;
-		}
+    const object = node as unknown as ObjectExpression;
+    if (!plainProperty(object, name)) {
+      return true;
+    }
 
-		found.push(object);
+    found.push(object);
 
-		// claimed: everything below is this object's own
-		return false;
-	});
+    // claimed: everything below is this object's own
+    return false;
+  });
 
-	return found;
+  return found;
 }
 
 /**
@@ -222,12 +222,12 @@ export function outermostWith(program: Node, name: string): ObjectExpression[] {
  * @returns The specifier, or `undefined` for anything this cannot read.
  */
 export function loaderSpecifier(node: Expression): string | undefined {
-	let body = unwrapShallow(node);
+  let body = unwrapShallow(node);
 
-	if (body.type === 'ArrowFunctionExpression') {
-		const inner = body.body;
-		body = unwrapShallow((inner.type === 'BlockStatement' ? undefined : inner) ?? body);
-	}
+  if (body.type === 'ArrowFunctionExpression') {
+    const inner = body.body;
+    body = unwrapShallow((inner.type === 'BlockStatement' ? undefined : inner) ?? body);
+  }
 
-	return body.type === 'ImportExpression' ? literalString(body.source) : undefined;
+  return body.type === 'ImportExpression' ? literalString(body.source) : undefined;
 }

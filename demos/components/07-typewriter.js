@@ -18,9 +18,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // a grapheme at a time, which is the default: a wide cluster, a flag and a family
 // emoji are one step each, so none of them is ever drawn half-revealed
 const splash = createTypewriter({
-	cursor: '█',
-	interval: 28,
-	text: 'sigil — the Next.js for CLIs \u{1F6E0}\u{1F1EC}\u{1F1E7}',
+  cursor: '█',
+  interval: 28,
+  text: 'sigil — the Next.js for CLIs \u{1F6E0}\u{1F1EC}\u{1F1E7}',
 }).start();
 
 await sleep(1100);
@@ -31,10 +31,10 @@ splash.done();
 // and the component stays out of the business of guessing what punctuation means
 // in somebody else's prose
 const line = createTypewriter({
-	chunk: byWord,
-	cursor: '█',
-	pace: (chunk) => (/[.,:]$/.test(chunk) ? 320 : 70),
-	text: 'Resolving dependencies, compiling, and writing the bundle.',
+  chunk: byWord,
+  cursor: '█',
+  pace: (chunk) => (/[.,:]$/.test(chunk) ? 320 : 70),
+  text: 'Resolving dependencies, compiling, and writing the bundle.',
 }).start();
 
 await sleep(1400);
@@ -45,8 +45,8 @@ line.done();
 const streamed = createTypewriter({ cursor: '█', interval: 18 }).start('An answer');
 
 for (const more of [' that arrives', ' a few words', ' at a time,', ' the way one does.']) {
-	await sleep(180);
-	streamed.append(more);
+  await sleep(180);
+  streamed.append(more);
 }
 
 await sleep(500);

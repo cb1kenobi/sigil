@@ -65,13 +65,13 @@ export type WheelDirection = 'down' | 'left' | 'right' | 'up';
  * an event's kind with no table in between.
  */
 export type MouseEventKind =
-	| 'click'
-	| 'mousedown'
-	| 'mouseenter'
-	| 'mouseleave'
-	| 'mousemove'
-	| 'mouseup'
-	| 'wheel';
+  | 'click'
+  | 'mousedown'
+  | 'mouseenter'
+  | 'mouseleave'
+  | 'mousemove'
+  | 'mouseup'
+  | 'wheel';
 
 /** The four kinds a terminal reports. The other three are derived. */
 export type MouseReportKind = 'mousedown' | 'mousemove' | 'mouseup' | 'wheel';
@@ -85,25 +85,25 @@ export type MouseReportKind = 'mousedown' | 'mousemove' | 'mouseup' | 'wheel';
  * here guesses at an origin it has no way to learn.
  */
 export interface MouseReport {
-	/**
-	 * The button, where there is one.
-	 *
-	 * `undefined` for a wheel, which is not a button, and for motion with nothing
-	 * held -- which xterm spells as button `3`, the same low bits a release used
-	 * to carry in an encoding this does not read.
-	 */
-	readonly button: MouseButton | undefined;
-	/** The screen column, one-based, exactly as the terminal wrote it. */
-	readonly column: number;
-	readonly ctrl: boolean;
-	readonly kind: MouseReportKind;
-	/** Alt, which xterm calls meta and reports in the same bit. */
-	readonly meta: boolean;
-	/** The screen row, one-based, exactly as the terminal wrote it. */
-	readonly row: number;
-	readonly shift: boolean;
-	/** Which way the wheel turned, for a `wheel` report and nothing else. */
-	readonly wheel: WheelDirection | undefined;
+  /**
+   * The button, where there is one.
+   *
+   * `undefined` for a wheel, which is not a button, and for motion with nothing
+   * held -- which xterm spells as button `3`, the same low bits a release used
+   * to carry in an encoding this does not read.
+   */
+  readonly button: MouseButton | undefined;
+  /** The screen column, one-based, exactly as the terminal wrote it. */
+  readonly column: number;
+  readonly ctrl: boolean;
+  readonly kind: MouseReportKind;
+  /** Alt, which xterm calls meta and reports in the same bit. */
+  readonly meta: boolean;
+  /** The screen row, one-based, exactly as the terminal wrote it. */
+  readonly row: number;
+  readonly shift: boolean;
+  /** Which way the wheel turned, for a `wheel` report and nothing else. */
+  readonly wheel: WheelDirection | undefined;
 }
 
 /** The low two bits, for an ordinary button. */
@@ -122,58 +122,58 @@ const WHEEL: readonly WheelDirection[] = ['up', 'down', 'left', 'right'];
  * @returns The report, or `undefined` when this is not one.
  */
 export function parseMouseReport(sequence: string): MouseReport | undefined {
-	const found = SGR_RE.exec(sequence);
-	if (!found) {
-		return undefined;
-	}
+  const found = SGR_RE.exec(sequence);
+  if (!found) {
+    return undefined;
+  }
 
-	const cb = Number.parseInt(found[1], 10);
-	const column = Number.parseInt(found[2], 10);
-	const row = Number.parseInt(found[3], 10);
-	const released = found[4] === 'm';
+  const cb = Number.parseInt(found[1], 10);
+  const column = Number.parseInt(found[2], 10);
+  const row = Number.parseInt(found[3], 10);
+  const released = found[4] === 'm';
 
-	// the modifier bits, which every kind of report carries
-	const shift = (cb & 4) !== 0;
-	const meta = (cb & 8) !== 0;
-	const ctrl = (cb & 16) !== 0;
-	const low = cb & 3;
+  // the modifier bits, which every kind of report carries
+  const shift = (cb & 4) !== 0;
+  const meta = (cb & 8) !== 0;
+  const ctrl = (cb & 16) !== 0;
+  const low = cb & 3;
 
-	// the wheel, read off bit 64 whatever the final byte says. A terminal sends a
-	// wheel turn as a press and never as a release, so the `m` spelling is one
-	// nothing produces -- and a turn is still a turn if one ever does, which is a
-	// better answer than a release of a button that was never held
-	if ((cb & 64) !== 0) {
-		return Object.freeze({
-			button: undefined,
-			column,
-			ctrl,
-			kind: 'wheel' as const,
-			meta,
-			row,
-			shift,
-			wheel: WHEEL[low],
-		});
-	}
+  // the wheel, read off bit 64 whatever the final byte says. A terminal sends a
+  // wheel turn as a press and never as a release, so the `m` spelling is one
+  // nothing produces -- and a turn is still a turn if one ever does, which is a
+  // better answer than a release of a button that was never held
+  if ((cb & 64) !== 0) {
+    return Object.freeze({
+      button: undefined,
+      column,
+      ctrl,
+      kind: 'wheel' as const,
+      meta,
+      row,
+      shift,
+      wheel: WHEEL[low],
+    });
+  }
 
-	const extra = (cb & 128) !== 0;
-	const motion = (cb & 32) !== 0;
+  const extra = (cb & 128) !== 0;
+  const motion = (cb & 32) !== 0;
 
-	return Object.freeze({
-		// low bits of `3` with no extra bit is xterm's "no button": what
-		// any-event tracking reports for the pointer crossing a cell with nothing
-		// held. A release carries the bits of the button that was let go, so it is
-		// the final byte rather than the bits that says a report is one
-		button: extra ? EXTRAS[low] : low === 3 ? undefined : BUTTONS[low],
-		column,
-		ctrl,
-		kind: released
-			? ('mouseup' as const)
-			: motion
-				? ('mousemove' as const)
-				: ('mousedown' as const),
-		meta,
-		row,
-		shift,
-		wheel: undefined,
-	});
+  return Object.freeze({
+    // low bits of `3` with no extra bit is xterm's "no button": what
+    // any-event tracking reports for the pointer crossing a cell with nothing
+    // held. A release carries the bits of the button that was let go, so it is
+    // the final byte rather than the bits that says a report is one
+    button: extra ? EXTRAS[low] : low === 3 ? undefined : BUTTONS[low],
+    column,
+    ctrl,
+    kind: released
+      ? ('mouseup' as const)
+      : motion
+        ? ('mousemove' as const)
+        : ('mousedown' as const),
+    meta,
+    row,
+    shift,
+    wheel: undefined,
+  });
 }

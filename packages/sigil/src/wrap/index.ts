@@ -18,14 +18,14 @@ export const DEFAULT_WIDTH = 80;
 export const MAX_WIDTH = 100;
 
 export interface TerminalWidthOptions {
-	/** The environment to read `COLUMNS` from. Defaults to `process.env`. */
-	env?: Record<string, string | undefined>;
-	/** What to use when there is nothing to ask. Defaults to 80. */
-	fallback?: number;
-	/** The widest result. Defaults to 100; pass `Infinity` for no cap. */
-	max?: number;
-	/** The stream to measure. Defaults to `process.stdout`. */
-	stream?: { columns?: number };
+  /** The environment to read `COLUMNS` from. Defaults to `process.env`. */
+  env?: Record<string, string | undefined>;
+  /** What to use when there is nothing to ask. Defaults to 80. */
+  fallback?: number;
+  /** The widest result. Defaults to 100; pass `Infinity` for no cap. */
+  max?: number;
+  /** The stream to measure. Defaults to `process.stdout`. */
+  stream?: { columns?: number };
 }
 
 /**
@@ -42,17 +42,17 @@ export interface TerminalWidthOptions {
  * @returns The number of columns.
  */
 export function terminalWidth(opts: TerminalWidthOptions = {}): number {
-	const env = opts.env ?? process.env;
-	const stream = 'stream' in opts ? opts.stream : process.stdout;
+  const env = opts.env ?? process.env;
+  const stream = 'stream' in opts ? opts.stream : process.stdout;
 
-	// a cap or a fallback that is not a width is no instruction at all, and
-	// carrying it through would come back out as the answer
-	const max = opts.max !== undefined && opts.max > 0 ? opts.max : MAX_WIDTH;
-	const fallback = positive(opts.fallback) ?? DEFAULT_WIDTH;
+  // a cap or a fallback that is not a width is no instruction at all, and
+  // carrying it through would come back out as the answer
+  const max = opts.max !== undefined && opts.max > 0 ? opts.max : MAX_WIDTH;
+  const fallback = positive(opts.fallback) ?? DEFAULT_WIDTH;
 
-	const columns = positive(env.COLUMNS) ?? positive(stream?.columns) ?? fallback;
+  const columns = positive(env.COLUMNS) ?? positive(stream?.columns) ?? fallback;
 
-	return Math.min(columns, max);
+  return Math.min(columns, max);
 }
 
 /**
@@ -64,37 +64,37 @@ export function terminalWidth(opts: TerminalWidthOptions = {}): number {
  * @returns The count, when it is one.
  */
 function positive(value: string | number | undefined): number | undefined {
-	if (typeof value === 'string') {
-		// the whole string, not as much of it as parses: `COLUMNS=12junk` is not
-		// somebody saying twelve
-		return /^\s*\d+\s*$/.test(value) ? positive(Number(value)) : undefined;
-	}
+  if (typeof value === 'string') {
+    // the whole string, not as much of it as parses: `COLUMNS=12junk` is not
+    // somebody saying twelve
+    return /^\s*\d+\s*$/.test(value) ? positive(Number(value)) : undefined;
+  }
 
-	return value !== undefined && Number.isFinite(value) && value > 0 ? Math.floor(value) : undefined;
+  return value !== undefined && Number.isFinite(value) && value > 0 ? Math.floor(value) : undefined;
 }
 
 export interface WrapOptions {
-	/**
-	 * Whether to break a word too long for a line of its own. On by default: a
-	 * path or a URL longer than the terminal is wide is the case that makes this
-	 * matter, and letting it run past the edge is what wrapping was supposed to
-	 * prevent. Off, such a word overflows on a line of its own.
-	 */
-	hard?: boolean;
-	/**
-	 * Added to every line after the first, on top of `indent`. This is the
-	 * hanging indent a two-column list is made of: the first line carries the
-	 * term, and what wraps under it lines up with the definition.
-	 *
-	 * The first line means the first line of the output, not the first line of
-	 * each paragraph. The term it hangs from is printed once, so everything
-	 * under it lines up -- including what follows a newline already in the text.
-	 */
-	hangingIndent?: number | string;
-	/** Added to the front of every line. Counts against the width. */
-	indent?: number | string;
-	/** The column to wrap at. Defaults to `terminalWidth()`. */
-	width?: number;
+  /**
+   * Whether to break a word too long for a line of its own. On by default: a
+   * path or a URL longer than the terminal is wide is the case that makes this
+   * matter, and letting it run past the edge is what wrapping was supposed to
+   * prevent. Off, such a word overflows on a line of its own.
+   */
+  hard?: boolean;
+  /**
+   * Added to every line after the first, on top of `indent`. This is the
+   * hanging indent a two-column list is made of: the first line carries the
+   * term, and what wraps under it lines up with the definition.
+   *
+   * The first line means the first line of the output, not the first line of
+   * each paragraph. The term it hangs from is printed once, so everything
+   * under it lines up -- including what follows a newline already in the text.
+   */
+  hangingIndent?: number | string;
+  /** Added to the front of every line. Counts against the width. */
+  indent?: number | string;
+  /** The column to wrap at. Defaults to `terminalWidth()`. */
+  width?: number;
 }
 
 /**
@@ -126,37 +126,37 @@ export interface WrapOptions {
  * @returns The wrapped text.
  */
 export function wrap(text: string, opts: WrapOptions | number = {}): string {
-	const settings = typeof opts === 'number' ? { width: opts } : opts;
-	const { hard = true, hangingIndent = 0, indent = 0 } = settings;
+  const settings = typeof opts === 'number' ? { width: opts } : opts;
+  const { hard = true, hangingIndent = 0, indent = 0 } = settings;
 
-	const first = prefix(indent);
-	const rest = first + prefix(hangingIndent);
-	const limit = settings.width ?? terminalWidth();
+  const first = prefix(indent);
+  const rest = first + prefix(hangingIndent);
+  const limit = settings.width ?? terminalWidth();
 
-	// an indent as wide as the width leaves nowhere to put the text, and one
-	// column is the least that can hold anything
-	const firstRoom = Math.max(limit - stringWidth(first), 1);
-	const restRoom = Math.max(limit - stringWidth(rest), 1);
+  // an indent as wide as the width leaves nowhere to put the text, and one
+  // column is the least that can hold anything
+  const firstRoom = Math.max(limit - stringWidth(first), 1);
+  const restRoom = Math.max(limit - stringWidth(rest), 1);
 
-	// the styling carries across the newlines already in the text, so one state
-	// walks the whole thing rather than one per line
-	const state = createSgrState();
-	const lines: string[] = [];
+  // the styling carries across the newlines already in the text, so one state
+  // walks the whole thing rather than one per line
+  const state = createSgrState();
+  const lines: string[] = [];
 
-	for (const line of text.split(/\r?\n/)) {
-		wrapLine(
-			tokenize(line),
-			lines.length === 0 ? firstRoom : restRoom,
-			restRoom,
-			hard,
-			state,
-			lines
-		);
-	}
+  for (const line of text.split(/\r?\n/)) {
+    wrapLine(
+      tokenize(line),
+      lines.length === 0 ? firstRoom : restRoom,
+      restRoom,
+      hard,
+      state,
+      lines
+    );
+  }
 
-	return lines
-		.map((line, index) => (line === '' ? '' : (index === 0 ? first : rest) + line))
-		.join('\n');
+  return lines
+    .map((line, index) => (line === '' ? '' : (index === 0 ? first : rest) + line))
+    .join('\n');
 }
 
 /**
@@ -176,199 +176,199 @@ export function wrap(text: string, opts: WrapOptions | number = {}): string {
  * @param lines - The output lines to append to.
  */
 function wrapLine(
-	tokens: Token[],
-	first: number,
-	rest: number,
-	hard: boolean,
-	state: SgrState,
-	lines: string[]
+  tokens: Token[],
+  first: number,
+  rest: number,
+  hard: boolean,
+  state: SgrState,
+  lines: string[]
 ): void {
-	let room = first;
-	let used = 0;
-	let content = '';
-	// whether the output line being built is also the start of the input line.
-	// Leading spaces there are the text's own indentation and are kept; the same
-	// spaces after a break are what the break left behind, and are dropped.
-	let atLineStart = true;
-	// captured when the line takes its first token, because that is when the
-	// styling it has to reopen is known. A line with no content opens nothing and
-	// closes nothing.
-	let opened = '';
-	let started = false;
+  let room = first;
+  let used = 0;
+  let content = '';
+  // whether the output line being built is also the start of the input line.
+  // Leading spaces there are the text's own indentation and are kept; the same
+  // spaces after a break are what the break left behind, and are dropped.
+  let atLineStart = true;
+  // captured when the line takes its first token, because that is when the
+  // styling it has to reopen is known. A line with no content opens nothing and
+  // closes nothing.
+  let opened = '';
+  let started = false;
 
-	// read but not committed: the spaces between two words, and any sequences
-	// among them. A break here drops the spaces; an SGR sequence is dropped from
-	// the output too, because opening the next line from the state is what puts
-	// it back. Anything else travels with the word -- see `dropPending()`.
-	let pending: Token[] = [];
-	let pendingWidth = 0;
+  // read but not committed: the spaces between two words, and any sequences
+  // among them. A break here drops the spaces; an SGR sequence is dropped from
+  // the output too, because opening the next line from the state is what puts
+  // it back. Anything else travels with the word -- see `dropPending()`.
+  let pending: Token[] = [];
+  let pendingWidth = 0;
 
-	// the word being read. Sequences inside it travel with it, so a word that
-	// moves to the next line takes its own styling along.
-	let word: Token[] = [];
-	let wordWidth = 0;
+  // the word being read. Sequences inside it travel with it, so a word that
+  // moves to the next line takes its own styling along.
+  let word: Token[] = [];
+  let wordWidth = 0;
 
-	/** Writes tokens to the current line, and lets their styling take effect. */
-	const emit = (list: Token[]) => {
-		for (const token of list) {
-			if (!started) {
-				opened = state.open();
-				started = true;
-			}
-			content += token.text;
-			used += token.width;
-			if (token.type === 'sequence') {
-				state.apply(token.text);
-			}
-		}
-	};
+  /** Writes tokens to the current line, and lets their styling take effect. */
+  const emit = (list: Token[]) => {
+    for (const token of list) {
+      if (!started) {
+        opened = state.open();
+        started = true;
+      }
+      content += token.text;
+      used += token.width;
+      if (token.type === 'sequence') {
+        state.apply(token.text);
+      }
+    }
+  };
 
-	/** Ends the current line, closing whatever it left open. */
-	const endLine = () => {
-		lines.push(started ? opened + content + state.close() : '');
-		content = '';
-		opened = '';
-		started = false;
-		used = 0;
-		room = rest;
-		atLineStart = false;
-	};
+  /** Ends the current line, closing whatever it left open. */
+  const endLine = () => {
+    lines.push(started ? opened + content + state.close() : '');
+    content = '';
+    opened = '';
+    started = false;
+    used = 0;
+    room = rest;
+    atLineStart = false;
+  };
 
-	/**
-	 * Throws away the pending run, keeping the effect of the sequences in it: the
-	 * text they styled is not being written here, but they still happened.
-	 *
-	 * A sequence the state does not model is handed back instead of dropped.
-	 * Nothing puts one back the way `open()` puts an attribute back -- a
-	 * hyperlink passes through untouched, and untouched only happens when it is
-	 * written out -- so deleting it deletes what it said: an OSC 8 open in the gap
-	 * before a word that wrapped took the link away, and the close after one left
-	 * every later line, and anything concatenated onto the result, inside the
-	 * hyperlink.
-	 *
-	 * @returns The sequences that have to be written on the next line.
-	 */
-	const dropPending = (): Token[] => {
-		const carried: Token[] = [];
+  /**
+   * Throws away the pending run, keeping the effect of the sequences in it: the
+   * text they styled is not being written here, but they still happened.
+   *
+   * A sequence the state does not model is handed back instead of dropped.
+   * Nothing puts one back the way `open()` puts an attribute back -- a
+   * hyperlink passes through untouched, and untouched only happens when it is
+   * written out -- so deleting it deletes what it said: an OSC 8 open in the gap
+   * before a word that wrapped took the link away, and the close after one left
+   * every later line, and anything concatenated onto the result, inside the
+   * hyperlink.
+   *
+   * @returns The sequences that have to be written on the next line.
+   */
+  const dropPending = (): Token[] => {
+    const carried: Token[] = [];
 
-		for (const token of pending) {
-			if (token.type !== 'sequence') {
-				continue;
-			}
-			if (isSgr(token.text)) {
-				state.apply(token.text);
-			} else {
-				carried.push(token);
-			}
-		}
+    for (const token of pending) {
+      if (token.type !== 'sequence') {
+        continue;
+      }
+      if (isSgr(token.text)) {
+        state.apply(token.text);
+      } else {
+        carried.push(token);
+      }
+    }
 
-		pending = [];
-		pendingWidth = 0;
-		return carried;
-	};
+    pending = [];
+    pendingWidth = 0;
+    return carried;
+  };
 
-	/** Writes a word too long for one line, breaking between clusters. */
-	const emitBroken = () => {
-		for (const token of word) {
-			if (used > 0 && used + token.width > room) {
-				endLine();
-			}
-			emit([token]);
-		}
-	};
+  /** Writes a word too long for one line, breaking between clusters. */
+  const emitBroken = () => {
+    for (const token of word) {
+      if (used > 0 && used + token.width > room) {
+        endLine();
+      }
+      emit([token]);
+    }
+  };
 
-	const placeWord = () => {
-		if (word.length === 0) {
-			return;
-		}
+  const placeWord = () => {
+    if (word.length === 0) {
+      return;
+    }
 
-		if (used + pendingWidth + wordWidth <= room) {
-			emit(pending);
-			emit(word);
-		} else if (used > 0) {
-			// there is something to break away from, so the word moves down whole.
-			// What the gap carried that the state cannot reopen goes down with it,
-			// in front of the word it applies to
-			endLine();
-			emit(dropPending());
-			if (hard && wordWidth > room) {
-				emitBroken();
-			} else {
-				emit(word);
-			}
-		} else if (atLineStart && pendingWidth > 0) {
-			// the spaces in front of the first word of the input line are the text's
-			// own indentation, so they are kept even though the word does not fit
-			// beside them
-			emit(pending);
-			pending = [];
-			pendingWidth = 0;
-			if (hard && used + wordWidth > room) {
-				emitBroken();
-			} else {
-				emit(word);
-			}
-		} else {
-			// already at the start of a line: no break will help, so the word is
-			// either split or allowed to run over
-			emit(dropPending());
-			if (hard && wordWidth > room) {
-				emitBroken();
-			} else {
-				emit(word);
-			}
-		}
+    if (used + pendingWidth + wordWidth <= room) {
+      emit(pending);
+      emit(word);
+    } else if (used > 0) {
+      // there is something to break away from, so the word moves down whole.
+      // What the gap carried that the state cannot reopen goes down with it,
+      // in front of the word it applies to
+      endLine();
+      emit(dropPending());
+      if (hard && wordWidth > room) {
+        emitBroken();
+      } else {
+        emit(word);
+      }
+    } else if (atLineStart && pendingWidth > 0) {
+      // the spaces in front of the first word of the input line are the text's
+      // own indentation, so they are kept even though the word does not fit
+      // beside them
+      emit(pending);
+      pending = [];
+      pendingWidth = 0;
+      if (hard && used + wordWidth > room) {
+        emitBroken();
+      } else {
+        emit(word);
+      }
+    } else {
+      // already at the start of a line: no break will help, so the word is
+      // either split or allowed to run over
+      emit(dropPending());
+      if (hard && wordWidth > room) {
+        emitBroken();
+      } else {
+        emit(word);
+      }
+    }
 
-		pending = [];
-		pendingWidth = 0;
-		word = [];
-		wordWidth = 0;
-	};
+    pending = [];
+    pendingWidth = 0;
+    word = [];
+    wordWidth = 0;
+  };
 
-	for (const token of tokens) {
-		if (token.type === 'sequence') {
-			if (word.length === 0) {
-				pending.push(token);
-			} else {
-				word.push(token);
-			}
-			continue;
-		}
+  for (const token of tokens) {
+    if (token.type === 'sequence') {
+      if (word.length === 0) {
+        pending.push(token);
+      } else {
+        word.push(token);
+      }
+      continue;
+    }
 
-		if (token.text === ' ' || token.text === '\t') {
-			placeWord();
-			// a tab counts as one space and is written as one, so that what was
-			// measured is what comes out
-			pending.push({ text: ' ', type: 'cluster', width: 1 });
-			pendingWidth += 1;
-			continue;
-		}
+    if (token.text === ' ' || token.text === '\t') {
+      placeWord();
+      // a tab counts as one space and is written as one, so that what was
+      // measured is what comes out
+      pending.push({ text: ' ', type: 'cluster', width: 1 });
+      pendingWidth += 1;
+      continue;
+    }
 
-		word.push(token);
-		wordWidth += token.width;
-	}
+    word.push(token);
+    wordWidth += token.width;
+  }
 
-	placeWord();
+  placeWord();
 
-	// the sequences that came after the last word. They are written as they were
-	// and they are not closed: they are how the text ends, and closing them would
-	// be inventing something the text never said. Dropping them would be worse --
-	// a caller joining wrapped pieces would lose the styling the next piece was
-	// meant to inherit.
-	const trailing = pending
-		.filter((token) => token.type === 'sequence')
-		.map((token) => token.text)
-		.join('');
+  // the sequences that came after the last word. They are written as they were
+  // and they are not closed: they are how the text ends, and closing them would
+  // be inventing something the text never said. Dropping them would be worse --
+  // a caller joining wrapped pieces would lose the styling the next piece was
+  // meant to inherit.
+  const trailing = pending
+    .filter((token) => token.type === 'sequence')
+    .map((token) => token.text)
+    .join('');
 
-	// read before the trailing sequences take effect, because they are written
-	// after it: the close is only for what they do not turn off themselves, and a
-	// text ending in its own close does not need a second one
-	const closing = state.close();
-	dropPending();
+  // read before the trailing sequences take effect, because they are written
+  // after it: the close is only for what they do not turn off themselves, and a
+  // text ending in its own close does not need a second one
+  const closing = state.close();
+  dropPending();
 
-	lines.push(
-		started || trailing !== '' ? opened + content + (state.active ? closing : '') + trailing : ''
-	);
+  lines.push(
+    started || trailing !== '' ? opened + content + (state.active ? closing : '') + trailing : ''
+  );
 }
 
 /**
@@ -378,7 +378,7 @@ function wrapLine(
  * @returns The prefix.
  */
 function prefix(indent: number | string): string {
-	return typeof indent === 'number' ? ' '.repeat(Math.max(indent, 0)) : indent;
+  return typeof indent === 'number' ? ' '.repeat(Math.max(indent, 0)) : indent;
 }
 
 /**
@@ -412,22 +412,22 @@ export const ELLIPSIS = '…';
  * @returns The text, no wider than `width`.
  */
 export function truncate(text: string, width: number, mode: TruncateMode = 'ellipsis'): string {
-	// `NaN` fails every comparison below, so it walked straight through and handed
-	// back the whole string with an ellipsis on the end -- wider than any width
-	// and marked as cut. A width that is not a number is not a width
-	if (!(width > 0)) {
-		return '';
-	}
-	if (stringWidth(text) <= width) {
-		return text;
-	}
+  // `NaN` fails every comparison below, so it walked straight through and handed
+  // back the whole string with an ellipsis on the end -- wider than any width
+  // and marked as cut. A width that is not a number is not a width
+  if (!(width > 0)) {
+    return '';
+  }
+  if (stringWidth(text) <= width) {
+    return text;
+  }
 
-	const { head, marker, tail } = cutAt(width, mode);
+  const { head, marker, tail } = cutAt(width, mode);
 
-	// `takeEnd()` materializes the cluster list before it walks, so the two modes
-	// that keep no tail do not pay for one. `take(text, 0)` breaks on its first
-	// cluster, so the head needs no such guard
-	return take(text, head).text + marker + (tail > 0 ? takeEnd(text, tail) : '');
+  // `takeEnd()` materializes the cluster list before it walks, so the two modes
+  // that keep no tail do not pay for one. `take(text, 0)` breaks on its first
+  // cluster, so the head needs no such guard
+  return take(text, head).text + marker + (tail > 0 ? takeEnd(text, tail) : '');
 }
 
 /**
@@ -438,12 +438,12 @@ export function truncate(text: string, width: number, mode: TruncateMode = 'elli
  * budget and a `tail` of zero is a cut at the end.
  */
 export interface Cut {
-	/** Columns kept from the start. */
-	head: number;
-	/** What marks the cut, or `''` where nothing does. */
-	marker: string;
-	/** Columns kept from the end. */
-	tail: number;
+  /** Columns kept from the start. */
+  head: number;
+  /** What marks the cut, or `''` where nothing does. */
+  marker: string;
+  /** Columns kept from the end. */
+  tail: number;
 }
 
 /**
@@ -475,28 +475,28 @@ export interface Cut {
  * @returns How to divide the budget.
  */
 export function cutAt(width: number, mode: TruncateMode = 'ellipsis'): Cut {
-	// `NaN` fails every comparison, so it is asked about first rather than falling
-	// through to a head of `NaN` columns: the rule `truncate()` already records
-	if (!(width > 0)) {
-		return { head: 0, marker: '', tail: 0 };
-	}
-	if (mode === 'clip') {
-		return { head: width, marker: '', tail: 0 };
-	}
-	if (width === 1) {
-		return { head: 0, marker: ELLIPSIS, tail: 0 };
-	}
-	if (mode === 'ellipsis-start') {
-		return { head: 0, marker: ELLIPSIS, tail: width - 1 };
-	}
-	if (mode === 'ellipsis-middle') {
-		// the head keeps the odd column, because the beginning of a path or an
-		// identifier is what says which one it is
-		const tail = Math.floor((width - 1) / 2);
-		return { head: width - 1 - tail, marker: ELLIPSIS, tail };
-	}
+  // `NaN` fails every comparison, so it is asked about first rather than falling
+  // through to a head of `NaN` columns: the rule `truncate()` already records
+  if (!(width > 0)) {
+    return { head: 0, marker: '', tail: 0 };
+  }
+  if (mode === 'clip') {
+    return { head: width, marker: '', tail: 0 };
+  }
+  if (width === 1) {
+    return { head: 0, marker: ELLIPSIS, tail: 0 };
+  }
+  if (mode === 'ellipsis-start') {
+    return { head: 0, marker: ELLIPSIS, tail: width - 1 };
+  }
+  if (mode === 'ellipsis-middle') {
+    // the head keeps the odd column, because the beginning of a path or an
+    // identifier is what says which one it is
+    const tail = Math.floor((width - 1) / 2);
+    return { head: width - 1 - tail, marker: ELLIPSIS, tail };
+  }
 
-	return { head: width - 1, marker: ELLIPSIS, tail: 0 };
+  return { head: width - 1, marker: ELLIPSIS, tail: 0 };
 }
 
 /**
@@ -507,19 +507,19 @@ export function cutAt(width: number, mode: TruncateMode = 'ellipsis'): Cut {
  * @returns The prefix and how wide it came to.
  */
 function take(text: string, width: number): { text: string; used: number } {
-	let out = '';
-	let used = 0;
+  let out = '';
+  let used = 0;
 
-	for (const cluster of graphemes(text)) {
-		const w = stringWidth(cluster);
-		if (used + w > width) {
-			break;
-		}
-		out += cluster;
-		used += w;
-	}
+  for (const cluster of graphemes(text)) {
+    const w = stringWidth(cluster);
+    if (used + w > width) {
+      break;
+    }
+    out += cluster;
+    used += w;
+  }
 
-	return { text: out, used };
+  return { text: out, used };
 }
 
 /**
@@ -534,18 +534,18 @@ function take(text: string, width: number): { text: string; used: number } {
  * @returns The suffix.
  */
 function takeEnd(text: string, width: number): string {
-	const clusters = [...graphemes(text)];
-	let used = 0;
-	let at = clusters.length;
+  const clusters = [...graphemes(text)];
+  let used = 0;
+  let at = clusters.length;
 
-	while (at > 0) {
-		const w = stringWidth(clusters[at - 1]);
-		if (used + w > width) {
-			break;
-		}
-		used += w;
-		at--;
-	}
+  while (at > 0) {
+    const w = stringWidth(clusters[at - 1]);
+    if (used + w > width) {
+      break;
+    }
+    used += w;
+    at--;
+  }
 
-	return clusters.slice(at).join('');
+  return clusters.slice(at).join('');
 }

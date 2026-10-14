@@ -38,17 +38,17 @@ export type ReducedMotion = 'no-preference' | 'reduce';
  * @returns The preference, or `undefined` where nobody said.
  */
 export function forcedMotion(
-	env: Record<string, string | undefined> = process.env
+  env: Record<string, string | undefined> = process.env
 ): ReducedMotion | undefined {
-	const raw = env.SIGIL_REDUCED_MOTION?.trim().toLowerCase();
-	if (!raw) {
-		return undefined;
-	}
-	if (raw === 'reduce' || raw === '1' || raw === 'on' || raw === 'yes' || raw === 'true') {
-		return 'reduce';
-	}
-	if (raw === 'no-preference' || raw === '0' || raw === 'off' || raw === 'no' || raw === 'false') {
-		return 'no-preference';
-	}
-	return undefined;
+  const raw = env.SIGIL_REDUCED_MOTION?.trim().toLowerCase();
+  if (!raw) {
+    return undefined;
+  }
+  if (raw === 'reduce' || raw === '1' || raw === 'on' || raw === 'yes' || raw === 'true') {
+    return 'reduce';
+  }
+  if (raw === 'no-preference' || raw === '0' || raw === 'off' || raw === 'no' || raw === 'false') {
+    return 'no-preference';
+  }
+  return undefined;
 }

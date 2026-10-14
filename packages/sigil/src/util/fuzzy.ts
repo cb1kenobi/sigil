@@ -54,11 +54,11 @@ const WORD_RE = /[\p{L}\p{N}]/u;
 
 /** One character's answer to "is this the start of a word". */
 function startsWord(prev: string, here: string): boolean {
-	// not a word character before it -- a space, a dash, a dot, a slash -- or a
-	// lower-to-upper transition, which is the camelCase boundary. Both halves
-	// matter: `migrate` in `db migrate` is the first and `Db` in `runDb` is the
-	// second, and a palette's labels carry both
-	return !WORD_RE.test(prev) || (prev === fold(prev) && here !== fold(here));
+  // not a word character before it -- a space, a dash, a dot, a slash -- or a
+  // lower-to-upper transition, which is the camelCase boundary. Both halves
+  // matter: `migrate` in `db migrate` is the first and `Db` in `runDb` is the
+  // second, and a palette's labels carry both
+  return !WORD_RE.test(prev) || (prev === fold(prev) && here !== fold(here));
 }
 
 /**
@@ -114,24 +114,24 @@ function startsWord(prev: string, here: string): boolean {
  * @returns It, folded.
  */
 export function fold(s: string): string {
-	return s.replaceAll('\u0130', 'i').toLowerCase();
+  return s.replaceAll('\u0130', 'i').toLowerCase();
 }
 
 export interface FuzzyMatch {
-	/**
-	 * Where each query character landed, ascending.
-	 *
-	 * Indices into the candidate's **code points** -- `[...candidate]` -- rather
-	 * than into its code units or its grapheme clusters. Code points are the unit
-	 * every fuzzy matcher uses and the one that cannot match half a surrogate
-	 * pair; clusters would be the wrong unit for matching, because a query of `e`
-	 * would then not match a decomposed `é`. What that costs is that an index may
-	 * name a combining mark rather than the base it sits on, which is what
-	 * `highlightRuns()` is for.
-	 */
-	readonly matched: readonly number[];
-	/** How good the match is. Higher is better; never negative, never `NaN`. */
-	readonly score: number;
+  /**
+   * Where each query character landed, ascending.
+   *
+   * Indices into the candidate's **code points** -- `[...candidate]` -- rather
+   * than into its code units or its grapheme clusters. Code points are the unit
+   * every fuzzy matcher uses and the one that cannot match half a surrogate
+   * pair; clusters would be the wrong unit for matching, because a query of `e`
+   * would then not match a decomposed `é`. What that costs is that an index may
+   * name a combining mark rather than the base it sits on, which is what
+   * `highlightRuns()` is for.
+   */
+  readonly matched: readonly number[];
+  /** How good the match is. Higher is better; never negative, never `NaN`. */
+  readonly score: number;
 }
 
 /**
@@ -152,93 +152,93 @@ export interface FuzzyMatch {
  * @returns The match, or `undefined` when the query is not a subsequence.
  */
 export function fuzzyMatch(query: string, candidate: string): FuzzyMatch | undefined {
-	const q = [...query];
+  const q = [...query];
 
-	// an empty query is every candidate's match, with nothing to rank by.
-	//
-	// A **fast path** rather than a claim, which a sabotage established: with it
-	// gone, the three passes below run over an empty query, find nothing to do,
-	// and answer `{ matched: [], score: 0 }` anyway. It is here because that is
-	// the one answer worth being able to read off the top of the function
-	if (q.length === 0) {
-		return { matched: [], score: 0 };
-	}
+  // an empty query is every candidate's match, with nothing to rank by.
+  //
+  // A **fast path** rather than a claim, which a sabotage established: with it
+  // gone, the three passes below run over an empty query, find nothing to do,
+  // and answer `{ matched: [], score: 0 }` anyway. It is here because that is
+  // the one answer worth being able to read off the top of the function
+  if (q.length === 0) {
+    return { matched: [], score: 0 };
+  }
 
-	const c = [...candidate];
+  const c = [...candidate];
 
-	if (q.length > c.length) {
-		// a **fast path**, declared: a subsequence cannot be longer than what it is
-		// drawn from, so the forward pass below runs off the end and answers
-		// `undefined` on its own. What it buys is not folding a long query against
-		// a short candidate, which for a palette is most of the list once two
-		// characters have been typed
-		return undefined;
-	}
+  if (q.length > c.length) {
+    // a **fast path**, declared: a subsequence cannot be longer than what it is
+    // drawn from, so the forward pass below runs off the end and answers
+    // `undefined` on its own. What it buys is not folding a long query against
+    // a short candidate, which for a palette is most of the list once two
+    // characters have been typed
+    return undefined;
+  }
 
-	const lq = q.map(fold);
-	const lc = c.map(fold);
+  const lq = q.map(fold);
+  const lc = c.map(fold);
 
-	// forward: where does the match end at the earliest
-	let end = -1;
-	let at = 0;
-	for (const needle of lq) {
-		while (at < lc.length && lc[at] !== needle) {
-			at++;
-		}
-		if (at >= lc.length) {
-			return undefined;
-		}
-		end = at;
-		at++;
-	}
+  // forward: where does the match end at the earliest
+  let end = -1;
+  let at = 0;
+  for (const needle of lq) {
+    while (at < lc.length && lc[at] !== needle) {
+      at++;
+    }
+    if (at >= lc.length) {
+      return undefined;
+    }
+    end = at;
+    at++;
+  }
 
-	// backward from there: where does the match start at the latest. This is the
-	// whole of what greedy gets wrong -- it finds the *first* subsequence rather
-	// than the tightest one -- and running the same loop in reverse from a known
-	// end is what fixes it for a character of cost
-	let begin = end;
-	at = end;
-	for (let i = lq.length - 1; i >= 0; i--) {
-		const needle = lq[i] as string;
-		while (at >= 0 && lc[at] !== needle) {
-			at--;
-		}
-		begin = at;
-		at--;
-	}
+  // backward from there: where does the match start at the latest. This is the
+  // whole of what greedy gets wrong -- it finds the *first* subsequence rather
+  // than the tightest one -- and running the same loop in reverse from a known
+  // end is what fixes it for a character of cost
+  let begin = end;
+  at = end;
+  for (let i = lq.length - 1; i >= 0; i--) {
+    const needle = lq[i] as string;
+    while (at >= 0 && lc[at] !== needle) {
+      at--;
+    }
+    begin = at;
+    at--;
+  }
 
-	// forward again, inside the span the two passes agreed on, to say where each
-	// query character landed.
-	//
-	// The inner `while` needs no bound and must not be given one: the backward
-	// pass placed every query character at an index inside `[begin, end]`, so a
-	// forward greedy starting at `begin` finds each one at or before where the
-	// backward pass put it, and the last of those is `end`. A guard here could
-	// never fire, which this repository deletes rather than keeps
-	const matched: number[] = [];
-	at = begin;
-	for (const needle of lq) {
-		while (lc[at] !== needle) {
-			at++;
-		}
-		matched.push(at);
-		at++;
-	}
+  // forward again, inside the span the two passes agreed on, to say where each
+  // query character landed.
+  //
+  // The inner `while` needs no bound and must not be given one: the backward
+  // pass placed every query character at an index inside `[begin, end]`, so a
+  // forward greedy starting at `begin` finds each one at or before where the
+  // backward pass put it, and the last of those is `end`. A guard here could
+  // never fire, which this repository deletes rather than keeps
+  const matched: number[] = [];
+  at = begin;
+  for (const needle of lq) {
+    while (lc[at] !== needle) {
+      at++;
+    }
+    matched.push(at);
+    at++;
+  }
 
-	let score = 0;
-	for (const [i, idx] of matched.entries()) {
-		score += MATCH;
+  let score = 0;
+  for (const [i, idx] of matched.entries()) {
+    score += MATCH;
 
-		if (idx === 0) {
-			score += PREFIX;
-		} else if (startsWord(c[idx - 1] as string, c[idx] as string)) {
-			score += BOUNDARY;
-		}
+    if (idx === 0) {
+      score += PREFIX;
+    } else if (startsWord(c[idx - 1] as string, c[idx] as string)) {
+      score += BOUNDARY;
+    }
 
-		if (i > 0 && matched[i - 1] === idx - 1) {
-			score += CONSECUTIVE;
-		}
-	}
+    if (i > 0 && matched[i - 1] === idx - 1) {
+      score += CONSECUTIVE;
+    }
+  }
 
-	return { matched, score };
+  return { matched, score };
 }

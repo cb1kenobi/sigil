@@ -32,13 +32,13 @@ const MAX_DELAY = 2_147_483_647;
  * @throws If it is not a whole number of at least one.
  */
 export function cells(value: number, name: string): number {
-	// `isSafeInteger` rather than `isInteger`, which is the rule the parser's own
-	// `int` type already records: `Number.isInteger(1e20)` is true, and a screen
-	// of 1e20 columns is an allocation nothing survives. Found by review
-	if (!Number.isSafeInteger(value) || value < 1) {
-		throw new Error(`${name} must be a whole number of cells, at least 1, not ${String(value)}`);
-	}
-	return value;
+  // `isSafeInteger` rather than `isInteger`, which is the rule the parser's own
+  // `int` type already records: `Number.isInteger(1e20)` is true, and a screen
+  // of 1e20 columns is an allocation nothing survives. Found by review
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new Error(`${name} must be a whole number of cells, at least 1, not ${String(value)}`);
+  }
+  return value;
 }
 
 /**
@@ -59,13 +59,13 @@ export function cells(value: number, name: string): number {
  * @returns A delay in milliseconds.
  */
 export function delay(value: number | undefined, fallback: number): number {
-	// `< 1` rather than `< 0`: a watchdog of zero is not a watchdog, because
-	// `setTimeout(fn, 0)` fires on the next tick and kills the child before it has
-	// written anything -- so `timeout: 0` read as "no wait" and did the opposite.
-	// There is deliberately no way to turn the watchdog off: a fixture that can
-	// hang a suite for ever is the thing it exists for. Found by review
-	if (value === undefined || !Number.isFinite(value) || value < 1) {
-		return fallback;
-	}
-	return Math.min(value, MAX_DELAY);
+  // `< 1` rather than `< 0`: a watchdog of zero is not a watchdog, because
+  // `setTimeout(fn, 0)` fires on the next tick and kills the child before it has
+  // written anything -- so `timeout: 0` read as "no wait" and did the opposite.
+  // There is deliberately no way to turn the watchdog off: a fixture that can
+  // hang a suite for ever is the thing it exists for. Found by review
+  if (value === undefined || !Number.isFinite(value) || value < 1) {
+    return fallback;
+  }
+  return Math.min(value, MAX_DELAY);
 }

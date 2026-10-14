@@ -21,45 +21,45 @@ const HEIGHT = 18;
 
 /** Escape time for a point, smoothed so the bands do not step. */
 function escape(cx, cy, limit = 60) {
-	let x = 0;
-	let y = 0;
-	for (let i = 0; i < limit; i++) {
-		const x2 = x * x;
-		const y2 = y * y;
-		if (x2 + y2 > 4) {
-			// the fractional part removes the banding a plain iteration count has
-			return (i + 1 - Math.log2(Math.log2(x2 + y2) / 2)) / limit;
-		}
-		y = 2 * x * y + cy;
-		x = x2 - y2 + cx;
-	}
-	return undefined;
+  let x = 0;
+  let y = 0;
+  for (let i = 0; i < limit; i++) {
+    const x2 = x * x;
+    const y2 = y * y;
+    if (x2 + y2 > 4) {
+      // the fractional part removes the banding a plain iteration count has
+      return (i + 1 - Math.log2(Math.log2(x2 + y2) / 2)) / limit;
+    }
+    y = 2 * x * y + cy;
+    x = x2 - y2 + cx;
+  }
+  return undefined;
 }
 
 /** A colour ramp: deep blue through teal to a pale edge. */
 function ramp(t) {
-	const eased = Math.sqrt(Math.max(0, Math.min(1, t)));
-	return rgb(
-		Math.round(20 + 235 * eased ** 3),
-		Math.round(30 + 200 * eased ** 1.4),
-		Math.round(70 + 150 * eased ** 0.7)
-	);
+  const eased = Math.sqrt(Math.max(0, Math.min(1, t)));
+  return rgb(
+    Math.round(20 + 235 * eased ** 3),
+    Math.round(30 + 200 * eased ** 1.4),
+    Math.round(70 + 150 * eased ** 0.7)
+  );
 }
 
 const pixels = new Pixels(WIDTH, HEIGHT);
 
 for (let py = 0; py < pixels.pixelHeight; py++) {
-	for (let px = 0; px < pixels.width; px++) {
-		// the plane, framed so the interesting part fills the box
-		const cx = -2.2 + (px / (pixels.width - 1)) * 2.9;
-		const cy = -1.2 + (py / (pixels.pixelHeight - 1)) * 2.4;
-		const t = escape(cx, cy);
-		// inside the set is left uncoloured, which `blit` skips rather than
-		// painting -- so the terminal's own background shows through
-		if (t !== undefined) {
-			pixels.set(px, py, ramp(t));
-		}
-	}
+  for (let px = 0; px < pixels.width; px++) {
+    // the plane, framed so the interesting part fills the box
+    const cx = -2.2 + (px / (pixels.width - 1)) * 2.9;
+    const cy = -1.2 + (py / (pixels.pixelHeight - 1)) * 2.4;
+    const t = escape(cx, cy);
+    // inside the set is left uncoloured, which `blit` skips rather than
+    // painting -- so the terminal's own background shows through
+    if (t !== undefined) {
+      pixels.set(px, py, ramp(t));
+    }
+  }
 }
 
 const canvas = createCanvas({ width: WIDTH, height: HEIGHT });

@@ -117,19 +117,19 @@ const slotRE = /\{\{|\}\}|\{(\d+)\}/g;
  * @returns The interpolated string.
  */
 function fill(text: string, values: readonly unknown[]): string {
-	if (!values.length && !text.includes('{')) {
-		return text;
-	}
+  if (!values.length && !text.includes('{')) {
+    return text;
+  }
 
-	return text.replace(slotRE, (match, index: string | undefined) => {
-		if (index === undefined) {
-			return match === '{{' ? '{' : '}';
-		}
+  return text.replace(slotRE, (match, index: string | undefined) => {
+    if (index === undefined) {
+      return match === '{{' ? '{' : '}';
+    }
 
-		const at = Number(index);
+    const at = Number(index);
 
-		return at < values.length ? String(values[at]) : match;
-	});
+    return at < values.length ? String(values[at]) : match;
+  });
 }
 
 /**
@@ -156,16 +156,16 @@ function fill(text: string, values: readonly unknown[]): string {
  * @returns The key.
  */
 export function templateKey(
-	cooked: readonly (string | undefined)[],
-	raw: readonly string[]
+  cooked: readonly (string | undefined)[],
+  raw: readonly string[]
 ): string {
-	let key = cooked[0] ?? raw[0] ?? '';
+  let key = cooked[0] ?? raw[0] ?? '';
 
-	for (let i = 1; i < cooked.length; i++) {
-		key += `{${i - 1}}${cooked[i] ?? raw[i] ?? ''}`;
-	}
+  for (let i = 1; i < cooked.length; i++) {
+    key += `{${i - 1}}${cooked[i] ?? raw[i] ?? ''}`;
+  }
 
-	return key;
+  return key;
 }
 
 /**
@@ -175,7 +175,7 @@ export function templateKey(
  * @returns The key.
  */
 function keyOf(strings: TemplateStringsArray): string {
-	return templateKey(strings, strings.raw);
+  return templateKey(strings, strings.raw);
 }
 
 /**
@@ -191,17 +191,17 @@ function keyOf(strings: TemplateStringsArray): string {
  * @returns The English string.
  */
 function zip(strings: TemplateStringsArray, values: readonly unknown[]): string {
-	// the raw fallback is `templateKey()`'s, for its reason and so that the two
-	// cannot disagree about what a part *is*: a cooked value is `undefined` only
-	// for an escape an untagged template would refuse, and losing that part of
-	// the English would be the one place this returns less than it was given
-	let out = strings[0] ?? strings.raw[0] ?? '';
+  // the raw fallback is `templateKey()`'s, for its reason and so that the two
+  // cannot disagree about what a part *is*: a cooked value is `undefined` only
+  // for an escape an untagged template would refuse, and losing that part of
+  // the English would be the one place this returns less than it was given
+  let out = strings[0] ?? strings.raw[0] ?? '';
 
-	for (let i = 1; i < strings.length; i++) {
-		out += `${String(values[i - 1])}${strings[i] ?? strings.raw[i] ?? ''}`;
-	}
+  for (let i = 1; i < strings.length; i++) {
+    out += `${String(values[i - 1])}${strings[i] ?? strings.raw[i] ?? ''}`;
+  }
 
-	return out;
+  return out;
 }
 
 /**
@@ -217,13 +217,13 @@ function zip(strings: TemplateStringsArray, values: readonly unknown[]): string 
  * @returns The entry, or nothing.
  */
 function lookup(key: string): string | PluralForms | undefined {
-	const entry = active?.[key];
+  const entry = active?.[key];
 
-	if (entry === undefined) {
-		log(`missing key for ${current}: ${JSON.stringify(key)}`);
-	}
+  if (entry === undefined) {
+    log(`missing key for ${current}: ${JSON.stringify(key)}`);
+  }
 
-	return entry;
+  return entry;
 }
 
 /**
@@ -242,30 +242,30 @@ function lookup(key: string): string | PluralForms | undefined {
  * @returns The translated string, or the English one.
  */
 export function __(strings: TemplateStringsArray, ...values: unknown[]): string {
-	// a declared fast path rather than a guard: without it the key is built, the
-	// lookup misses, and the branch below answers with this same `zip()` -- so no
-	// answer changes and nothing can be written that fails when it goes. What it
-	// buys is that every run of every app with no translations builds no key at
-	// all, which is the path this whole design is arranged around
-	if (active === undefined) {
-		return zip(strings, values);
-	}
+  // a declared fast path rather than a guard: without it the key is built, the
+  // lookup misses, and the branch below answers with this same `zip()` -- so no
+  // answer changes and nothing can be written that fails when it goes. What it
+  // buys is that every run of every app with no translations builds no key at
+  // all, which is the path this whole design is arranged around
+  if (active === undefined) {
+    return zip(strings, values);
+  }
 
-	const entry = lookup(keyOf(strings));
+  const entry = lookup(keyOf(strings));
 
-	// a catalog that answers a plural object where the source asked for a string
-	// is a catalog that has drifted from the source, which is `sigil check`'s to
-	// report -- here it falls back, because what a wrong shape must not do is
-	// replace a working sentence with `[object Object]`
-	if (typeof entry !== 'string') {
-		if (entry !== undefined) {
-			log(`expected a string for ${JSON.stringify(keyOf(strings))}`);
-		}
+  // a catalog that answers a plural object where the source asked for a string
+  // is a catalog that has drifted from the source, which is `sigil check`'s to
+  // report -- here it falls back, because what a wrong shape must not do is
+  // replace a working sentence with `[object Object]`
+  if (typeof entry !== 'string') {
+    if (entry !== undefined) {
+      log(`expected a string for ${JSON.stringify(keyOf(strings))}`);
+    }
 
-		return zip(strings, values);
-	}
+    return zip(strings, values);
+  }
 
-	return fill(entry, values);
+  return fill(entry, values);
 }
 
 /**
@@ -293,31 +293,31 @@ export function __(strings: TemplateStringsArray, ...values: unknown[]): string 
  * @returns The translated string, or the English one.
  */
 export function __n(count: number, one: string, other: string, ...values: unknown[]): string {
-	const args = [count, ...values];
-	const english = (): string => fill(count === 1 ? one : other, args);
+  const args = [count, ...values];
+  const english = (): string => fill(count === 1 ? one : other, args);
 
-	if (active === undefined) {
-		return english();
-	}
+  if (active === undefined) {
+    return english();
+  }
 
-	const entry = lookup(one);
+  const entry = lookup(one);
 
-	if (entry === undefined) {
-		return english();
-	}
+  if (entry === undefined) {
+    return english();
+  }
 
-	// a plain string where a plural was asked for is taken rather than refused:
-	// a language with one form for every count -- Japanese, Chinese, Korean --
-	// has nothing an object would say that the string does not
-	if (typeof entry === 'string') {
-		return fill(entry, args);
-	}
+  // a plain string where a plural was asked for is taken rather than refused:
+  // a language with one form for every count -- Japanese, Chinese, Korean --
+  // has nothing an object would say that the string does not
+  if (typeof entry === 'string') {
+    return fill(entry, args);
+  }
 
-	rules ??= new Intl.PluralRules(current);
+  rules ??= new Intl.PluralRules(current);
 
-	const form = entry[rules.select(count) as PluralCategory] ?? entry.other;
+  const form = entry[rules.select(count) as PluralCategory] ?? entry.other;
 
-	return typeof form === 'string' ? fill(form, args) : english();
+  return typeof form === 'string' ? fill(form, args) : english();
 }
 
 /**
@@ -338,12 +338,12 @@ const ENGLISH_PAIR = ['y', 'n'] as const;
  * ignores `j`, which is a hint that parses and lies.
  */
 export interface ConfirmKeys {
-	/** The hint, `(Y/n)` in English, with the default's half capitalized. */
-	hint: string;
-	/** Every key that means no, lowercased. */
-	no: readonly string[];
-	/** Every key that means yes, lowercased. */
-	yes: readonly string[];
+  /** The hint, `(Y/n)` in English, with the default's half capitalized. */
+  hint: string;
+  /** Every key that means no, lowercased. */
+  no: readonly string[];
+  /** Every key that means yes, lowercased. */
+  yes: readonly string[];
 }
 
 /**
@@ -364,37 +364,37 @@ export interface ConfirmKeys {
  * @returns The key, or an empty string.
  */
 function keyOfHalf(half: string): string {
-	const points = [...half];
-	const first = (points[0] ?? '').toLowerCase();
+  const points = [...half];
+  const first = (points[0] ?? '').toLowerCase();
 
-	// a combining mark and a control or format character are each a code point
-	// that is not a *key*: a terminal sends no keystroke a reader could match them
-	// with, and the mark would attach itself to the `(` the hint opens with -- so
-	// `´a/n` drew a hint of `(́a/n)` whose first half advertised `a`, which is not
-	// the key
-	if (/[\p{C}\p{M}]/u.test(first)) {
-		return '';
-	}
+  // a combining mark and a control or format character are each a code point
+  // that is not a *key*: a terminal sends no keystroke a reader could match them
+  // with, and the mark would attach itself to the `(` the hint opens with -- so
+  // `´a/n` drew a hint of `(́a/n)` whose first half advertised `a`, which is not
+  // the key
+  if (/[\p{C}\p{M}]/u.test(first)) {
+    return '';
+  }
 
-	// and a first glyph with a shorter **precomposed** form is the same lie one step
-	// along, because the precomposed form is what a keyboard sends: a decomposed
-	// `e\u0301/n` has a key of `e` and draws `(É/n)`, so a reader pressing the É key
-	// sends the single code point `é` and nothing matches. Making the key the whole
-	// cluster is not the fix either -- `readOne()` decodes a keystroke by code
-	// point, so a two-code-point key could never match anything. So the half is
-	// refused and English stands, which is why a catalog writes its pair in the form
-	// the keyboard produces.
-	//
-	// Asked as `NFC` rather than as "is the next code point a mark", which is the
-	// approximation this started as and is too broad by two cases that are *not*
-	// lies: an emoji with a variation selector draws the same glyph its base code
-	// point is the key for, and a flag's two regional indicators have no
-	// precomposed form at all, so pressing one sends the first indicator -- which is
-	// the key. Both are accepted, and only a half that really has a one-code-point
-	// spelling is refused
-	const glyph = first + (points[1] ?? '');
+  // and a first glyph with a shorter **precomposed** form is the same lie one step
+  // along, because the precomposed form is what a keyboard sends: a decomposed
+  // `e\u0301/n` has a key of `e` and draws `(É/n)`, so a reader pressing the É key
+  // sends the single code point `é` and nothing matches. Making the key the whole
+  // cluster is not the fix either -- `readOne()` decodes a keystroke by code
+  // point, so a two-code-point key could never match anything. So the half is
+  // refused and English stands, which is why a catalog writes its pair in the form
+  // the keyboard produces.
+  //
+  // Asked as `NFC` rather than as "is the next code point a mark", which is the
+  // approximation this started as and is too broad by two cases that are *not*
+  // lies: an emoji with a variation selector draws the same glyph its base code
+  // point is the key for, and a flag's two regional indicators have no
+  // precomposed form at all, so pressing one sends the first indicator -- which is
+  // the key. Both are accepted, and only a half that really has a one-code-point
+  // spelling is refused
+  const glyph = first + (points[1] ?? '');
 
-	return [...glyph.normalize('NFC')].length < [...glyph].length ? '' : first;
+  return [...glyph.normalize('NFC')].length < [...glyph].length ? '' : first;
 }
 
 /**
@@ -425,23 +425,23 @@ function keyOfHalf(half: string): string {
  * @returns The hint and the keys.
  */
 function pairKeys(yesHalf: string, noHalf: string, fallback: boolean): ConfirmKeys {
-	const yes = keyOfHalf(yesHalf);
-	const no = keyOfHalf(noHalf);
-	const yesKeys = [yes];
-	const noKeys = [no];
+  const yes = keyOfHalf(yesHalf);
+  const no = keyOfHalf(noHalf);
+  const yesKeys = [yes];
+  const noKeys = [no];
 
-	if (yes !== 'y' && no !== 'y') {
-		yesKeys.push('y');
-	}
-	if (no !== 'n' && yes !== 'n') {
-		noKeys.push('n');
-	}
+  if (yes !== 'y' && no !== 'y') {
+    yesKeys.push('y');
+  }
+  if (no !== 'n' && yes !== 'n') {
+    noKeys.push('n');
+  }
 
-	return {
-		hint: `(${fallback ? capitalize(yesHalf) : yesHalf}/${fallback ? noHalf : capitalize(noHalf)})`,
-		no: noKeys,
-		yes: yesKeys,
-	};
+  return {
+    hint: `(${fallback ? capitalize(yesHalf) : yesHalf}/${fallback ? noHalf : capitalize(noHalf)})`,
+    no: noKeys,
+    yes: yesKeys,
+  };
 }
 
 /**
@@ -465,15 +465,15 @@ function pairKeys(yesHalf: string, noHalf: string, fallback: boolean): ConfirmKe
  * @returns The half with its first character upper-cased, where that is safe.
  */
 function capitalize(half: string): string {
-	const [first, ...rest] = [...half];
+  const [first, ...rest] = [...half];
 
-	if (first === undefined) {
-		return half;
-	}
+  if (first === undefined) {
+    return half;
+  }
 
-	const upper = first.toUpperCase();
+  const upper = first.toUpperCase();
 
-	return upper.toLowerCase() === first ? upper + rest.join('') : half;
+  return upper.toLowerCase() === first ? upper + rest.join('') : half;
 }
 
 /**
@@ -523,30 +523,30 @@ function capitalize(half: string): string {
  * @returns The hint and the keys.
  */
 export function confirmKeys(pair: string, fallback: boolean): ConfirmKeys {
-	const halves = pair.split('/').map((half) => half.trim());
-	const [yesHalf = '', noHalf = ''] = halves;
+  const halves = pair.split('/').map((half) => half.trim());
+  const [yesHalf = '', noHalf = ''] = halves;
 
-	// refused rather than guessed at, which is the rule a data type already
-	// follows: two halves or it is not a pair, each has to name a key, and the
-	// two keys have to differ or one keypress means both answers. English stands
-	// and says so, because a hint nobody can read is worse than an English one
-	if (
-		halves.length !== 2 ||
-		keyOfHalf(yesHalf) === '' ||
-		keyOfHalf(noHalf) === '' ||
-		keyOfHalf(yesHalf) === keyOfHalf(noHalf)
-	) {
-		if (active !== undefined) {
-			log(
-				`expected two distinct keys for ${JSON.stringify(ENGLISH_PAIR.join('/'))}, ` +
-					`got ${JSON.stringify(pair)}`
-			);
-		}
+  // refused rather than guessed at, which is the rule a data type already
+  // follows: two halves or it is not a pair, each has to name a key, and the
+  // two keys have to differ or one keypress means both answers. English stands
+  // and says so, because a hint nobody can read is worse than an English one
+  if (
+    halves.length !== 2 ||
+    keyOfHalf(yesHalf) === '' ||
+    keyOfHalf(noHalf) === '' ||
+    keyOfHalf(yesHalf) === keyOfHalf(noHalf)
+  ) {
+    if (active !== undefined) {
+      log(
+        `expected two distinct keys for ${JSON.stringify(ENGLISH_PAIR.join('/'))}, ` +
+          `got ${JSON.stringify(pair)}`
+      );
+    }
 
-		return pairKeys(...ENGLISH_PAIR, fallback);
-	}
+    return pairKeys(...ENGLISH_PAIR, fallback);
+  }
 
-	return pairKeys(yesHalf, noHalf, fallback);
+  return pairKeys(yesHalf, noHalf, fallback);
 }
 
 /**
@@ -565,32 +565,32 @@ export function confirmKeys(pair: string, fallback: boolean): ConfirmKeys {
  * @returns A canonical tag, or nothing for English.
  */
 export function normalizeLocale(raw: string | undefined): string | undefined {
-	if (!raw) {
-		return;
-	}
+  if (!raw) {
+    return;
+  }
 
-	// `LANGUAGE` is a `:`-separated preference list and the others are not, so
-	// taking the first entry is right for all of them
-	const first = raw.split(':')[0].trim();
+  // `LANGUAGE` is a `:`-separated preference list and the others are not, so
+  // taking the first entry is right for all of them
+  const first = raw.split(':')[0].trim();
 
-	// `de_DE.UTF-8@euro` is a tag, a codeset and a modifier; only the tag is a
-	// question about language
-	const tag = first.replace(/[@.].*$/, '').replace(/_/g, '-');
+  // `de_DE.UTF-8@euro` is a tag, a codeset and a modifier; only the tag is a
+  // question about language
+  const tag = first.replace(/[@.].*$/, '').replace(/_/g, '-');
 
-	// the C locale is this feature's `NO_COLOR`: it is what CI generally holds,
-	// and English is the right answer for a CI log. Asked before `Intl`, which
-	// would throw for `C` and quietly answer `posix` for `POSIX`
-	if (!tag || /^(c|posix)$/i.test(tag)) {
-		return;
-	}
+  // the C locale is this feature's `NO_COLOR`: it is what CI generally holds,
+  // and English is the right answer for a CI log. Asked before `Intl`, which
+  // would throw for `C` and quietly answer `posix` for `POSIX`
+  if (!tag || /^(c|posix)$/i.test(tag)) {
+    return;
+  }
 
-	try {
-		return Intl.getCanonicalLocales(tag)[0];
-	} catch {
-		// a value nobody meant as a locale is not a decision, which is the rule an
-		// empty environment variable already follows in the parser
-		return;
-	}
+  try {
+    return Intl.getCanonicalLocales(tag)[0];
+  } catch {
+    // a value nobody meant as a locale is not a decision, which is the rule an
+    // empty environment variable already follows in the parser
+    return;
+  }
 }
 
 /**
@@ -630,17 +630,17 @@ export function normalizeLocale(raw: string | undefined): string | undefined {
  * @returns A canonical tag, or nothing for English.
  */
 export function resolveLocale(
-	env: Record<string, string | undefined> = {},
-	explicit?: string,
-	fallback?: string
+  env: Record<string, string | undefined> = {},
+  explicit?: string,
+  fallback?: string
 ): string | undefined {
-	for (const raw of [explicit, env.SIGIL_LOCALE, env.LC_ALL, env.LC_MESSAGES, env.LANG, fallback]) {
-		if (raw?.trim()) {
-			return normalizeLocale(raw);
-		}
-	}
+  for (const raw of [explicit, env.SIGIL_LOCALE, env.LC_ALL, env.LC_MESSAGES, env.LANG, fallback]) {
+    if (raw?.trim()) {
+      return normalizeLocale(raw);
+    }
+  }
 
-	return undefined;
+  return undefined;
 }
 
 /**
@@ -655,17 +655,17 @@ export function resolveLocale(
  * @returns The chain, most specific first.
  */
 export function localeChain(tag: string): string[] {
-	const chain: string[] = [];
+  const chain: string[] = [];
 
-	for (let at: string = tag; at; at = at.slice(0, at.lastIndexOf('-'))) {
-		chain.push(at);
+  for (let at: string = tag; at; at = at.slice(0, at.lastIndexOf('-'))) {
+    chain.push(at);
 
-		if (!at.includes('-')) {
-			break;
-		}
-	}
+    if (!at.includes('-')) {
+      break;
+    }
+  }
 
-	return chain;
+  return chain;
 }
 
 /**
@@ -681,30 +681,30 @@ export function localeChain(tag: string): string[] {
  * @returns The matching tag and its loader, or nothing.
  */
 function findLoader(
-	locales: Locales,
-	tag: string
+  locales: Locales,
+  tag: string
 ): { loader: LocaleLoader; tag: string } | undefined {
-	const byTag = new Map<string, LocaleLoader>();
+  const byTag = new Map<string, LocaleLoader>();
 
-	for (const [key, loader] of Object.entries(locales)) {
-		const normal = normalizeLocale(key);
+  for (const [key, loader] of Object.entries(locales)) {
+    const normal = normalizeLocale(key);
 
-		// first spelling wins, so a map with both `de` and `de_DE` keeps the one
-		// that was written first rather than depending on key order twice over
-		if (normal && !byTag.has(normal)) {
-			byTag.set(normal, loader);
-		}
-	}
+    // first spelling wins, so a map with both `de` and `de_DE` keeps the one
+    // that was written first rather than depending on key order twice over
+    if (normal && !byTag.has(normal)) {
+      byTag.set(normal, loader);
+    }
+  }
 
-	for (const candidate of localeChain(tag)) {
-		const loader = byTag.get(candidate);
+  for (const candidate of localeChain(tag)) {
+    const loader = byTag.get(candidate);
 
-		if (loader) {
-			return { loader, tag: candidate };
-		}
-	}
+    if (loader) {
+      return { loader, tag: candidate };
+    }
+  }
 
-	return undefined;
+  return undefined;
 }
 
 /**
@@ -718,12 +718,12 @@ function findLoader(
  * @returns The catalog, or nothing when it is not one.
  */
 function readCatalog(answer: unknown): Catalog | undefined {
-	const value =
-		answer && typeof answer === 'object' && 'default' in answer
-			? (answer as { default: unknown }).default
-			: answer;
+  const value =
+    answer && typeof answer === 'object' && 'default' in answer
+      ? (answer as { default: unknown }).default
+      : answer;
 
-	return value && typeof value === 'object' ? (value as Catalog) : undefined;
+  return value && typeof value === 'object' ? (value as Catalog) : undefined;
 }
 
 /**
@@ -738,31 +738,31 @@ function readCatalog(answer: unknown): Catalog | undefined {
  * @param tag - A canonical tag, or nothing for English.
  */
 async function use(tag: string | undefined): Promise<void> {
-	active = undefined;
-	current = tag;
-	rules = undefined;
+  active = undefined;
+  current = tag;
+  rules = undefined;
 
-	if (!tag || !registered) {
-		return;
-	}
+  if (!tag || !registered) {
+    return;
+  }
 
-	const found = findLoader(registered, tag);
+  const found = findLoader(registered, tag);
 
-	if (!found) {
-		log(`no catalog for ${tag}`);
-		return;
-	}
+  if (!found) {
+    log(`no catalog for ${tag}`);
+    return;
+  }
 
-	try {
-		active = readCatalog(await found.loader());
-		current = found.tag;
+  try {
+    active = readCatalog(await found.loader());
+    current = found.tag;
 
-		if (!active) {
-			log(`loader for ${found.tag} answered no catalog`);
-		}
-	} catch (err) {
-		log(`loader for ${found.tag} threw: ${String(err)}`);
-	}
+    if (!active) {
+      log(`loader for ${found.tag} answered no catalog`);
+    }
+  } catch (err) {
+    log(`loader for ${found.tag} threw: ${String(err)}`);
+  }
 }
 
 /**
@@ -780,23 +780,23 @@ async function use(tag: string | undefined): Promise<void> {
  * @param fallback - `Schema.defaultLocale`, which the environment outranks.
  */
 export async function loadCatalog(
-	locales: Locales | undefined,
-	env: Record<string, string | undefined> = {},
-	explicit?: string,
-	fallback?: string
+  locales: Locales | undefined,
+  env: Record<string, string | undefined> = {},
+  explicit?: string,
+  fallback?: string
 ): Promise<void> {
-	registered = locales;
+  registered = locales;
 
-	// an app with no catalogs has nothing to resolve a locale *for*, which is
-	// most apps -- so the common path never asks `Intl.getCanonicalLocales()`
-	// whether `LANG` names a language. A declared fast path rather than a guard:
-	// `use(undefined)` is what it skips to, and the only thing it changes is
-	// that `locale()` answers nothing, which is the right answer when English is
-	// what is in effect
-	//
-	// a `defaultLocale` is not a catalog, so it does not open this gate: an app
-	// that names one and ships none has nothing to load either
-	await use(locales ? resolveLocale(env, explicit, fallback) : undefined);
+  // an app with no catalogs has nothing to resolve a locale *for*, which is
+  // most apps -- so the common path never asks `Intl.getCanonicalLocales()`
+  // whether `LANG` names a language. A declared fast path rather than a guard:
+  // `use(undefined)` is what it skips to, and the only thing it changes is
+  // that `locale()` answers nothing, which is the right answer when English is
+  // what is in effect
+  //
+  // a `defaultLocale` is not a catalog, so it does not open this gate: an app
+  // that names one and ships none has nothing to load either
+  await use(locales ? resolveLocale(env, explicit, fallback) : undefined);
 }
 
 /**
@@ -816,7 +816,7 @@ export async function loadCatalog(
  * @param tag - A locale tag, in any spelling, or nothing for English.
  */
 export async function setLocale(tag: string | undefined): Promise<void> {
-	await use(normalizeLocale(tag));
+  await use(normalizeLocale(tag));
 }
 
 /**
@@ -834,5 +834,5 @@ export async function setLocale(tag: string | undefined): Promise<void> {
  * @returns The tag, or nothing.
  */
 export function locale(): string | undefined {
-	return current;
+  return current;
 }

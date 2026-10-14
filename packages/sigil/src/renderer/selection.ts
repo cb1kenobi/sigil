@@ -20,9 +20,9 @@
 import { createSelection, type Selection, type SelectionMode } from '../canvas/index.js';
 import type { InputRouter, MouseEvent } from '../input/index.js';
 import {
-	type ClipboardCopy,
-	type ClipboardOptions,
-	copyToClipboard,
+  type ClipboardCopy,
+  type ClipboardOptions,
+  copyToClipboard,
 } from '../terminal/clipboard.js';
 import type { Renderer } from './index.js';
 
@@ -30,77 +30,77 @@ import type { Renderer } from './index.js';
 export type BlockModifier = 'alt' | 'ctrl' | 'none';
 
 export interface SelectionOptions {
-	/**
-	 * What makes a drag rectangular rather than linear. Alt by default.
-	 *
-	 * Alt is what Windows Terminal and iTerm2 use for a block selection, so it is
-	 * the one people already know -- and it carries a caveat worth knowing before
-	 * it reads as a bug: **in iTerm2 alt is also what overrides mouse reporting**,
-	 * so an alt-drag there never reaches the app at all. That is not a failure of
-	 * this option. What the user gets instead is the terminal's own selection,
-	 * which is the thing they were reaching for; and `'ctrl'`, which is xterm's
-	 * spelling, is here for an app that wants the block mode reachable everywhere.
-	 * `'none'` turns the gesture off and leaves the mode to `begin()`.
-	 */
-	block?: BlockModifier;
-	/** What `copy()` passes through to the clipboard. */
-	clipboard?: ClipboardOptions;
-	/**
-	 * Whether shift and an arrow key extend the selection. On by default.
-	 *
-	 * Only while **nothing is focused**, which is the rule `03-focus.js` already
-	 * follows for its own `q`: a focused text input owns shift-arrow for its own
-	 * selection, and a binding sees every key before anything focused does, so
-	 * taking it unconditionally would steal it. With nothing focused there is
-	 * nothing it could belong to.
-	 *
-	 * With no selection, shift-arrow starts one at the canvas's own origin, which
-	 * is the only cell this layer can name -- an app that wants somewhere else
-	 * calls `begin()` first.
-	 */
-	keys?: boolean;
+  /**
+   * What makes a drag rectangular rather than linear. Alt by default.
+   *
+   * Alt is what Windows Terminal and iTerm2 use for a block selection, so it is
+   * the one people already know -- and it carries a caveat worth knowing before
+   * it reads as a bug: **in iTerm2 alt is also what overrides mouse reporting**,
+   * so an alt-drag there never reaches the app at all. That is not a failure of
+   * this option. What the user gets instead is the terminal's own selection,
+   * which is the thing they were reaching for; and `'ctrl'`, which is xterm's
+   * spelling, is here for an app that wants the block mode reachable everywhere.
+   * `'none'` turns the gesture off and leaves the mode to `begin()`.
+   */
+  block?: BlockModifier;
+  /** What `copy()` passes through to the clipboard. */
+  clipboard?: ClipboardOptions;
+  /**
+   * Whether shift and an arrow key extend the selection. On by default.
+   *
+   * Only while **nothing is focused**, which is the rule `03-focus.js` already
+   * follows for its own `q`: a focused text input owns shift-arrow for its own
+   * selection, and a binding sees every key before anything focused does, so
+   * taking it unconditionally would steal it. With nothing focused there is
+   * nothing it could belong to.
+   *
+   * With no selection, shift-arrow starts one at the canvas's own origin, which
+   * is the only cell this layer can name -- an app that wants somewhere else
+   * calls `begin()` first.
+   */
+  keys?: boolean;
 }
 
 export interface SelectionHandle {
-	/** Clears the selection. */
-	clear(): void;
-	/**
-	 * Writes the selected text to the clipboard with OSC 52.
-	 *
-	 * **There is no default binding for this**, which is settled rather than
-	 * missing: Ctrl-C is the abort and the binding order exists so that an app
-	 * cannot become unquittable, and Ctrl-Shift-C reaches a terminal as the same
-	 * `0x03` Ctrl-C does without the Kitty keyboard protocol. A framework claiming
-	 * either would be claiming a key it cannot hear or one it must not take, so an
-	 * app binds whatever it likes and calls this.
-	 *
-	 * @param opts - Overrides whatever `enableSelection()` was given.
-	 * @returns What was sent. **Never a claim that the clipboard changed** -- there
-	 *   is no reply to an OSC 52, several terminals refuse it, and tmux needs
-	 *   `set -g set-clipboard on`.
-	 */
-	copy(opts?: ClipboardOptions): ClipboardCopy;
-	/** What is selected, if anything. */
-	readonly current: Selection | undefined;
-	/**
-	 * Selects from one cell, which is what a drag or a keyboard extension grows.
-	 *
-	 * @param x - The column, in the canvas's own cells.
-	 * @param y - The row.
-	 * @param mode - Linear by default.
-	 */
-	begin(x: number, y: number, mode?: SelectionMode): void;
-	/**
-	 * Moves the focus end to a cell, keeping the anchor where it was.
-	 *
-	 * @param x - The column.
-	 * @param y - The row.
-	 */
-	extend(x: number, y: number): void;
-	/** Takes the handlers off. The selection itself is left where it was. */
-	stop(): void;
-	/** The selected text, read off the frame last painted. */
-	text(): string;
+  /** Clears the selection. */
+  clear(): void;
+  /**
+   * Writes the selected text to the clipboard with OSC 52.
+   *
+   * **There is no default binding for this**, which is settled rather than
+   * missing: Ctrl-C is the abort and the binding order exists so that an app
+   * cannot become unquittable, and Ctrl-Shift-C reaches a terminal as the same
+   * `0x03` Ctrl-C does without the Kitty keyboard protocol. A framework claiming
+   * either would be claiming a key it cannot hear or one it must not take, so an
+   * app binds whatever it likes and calls this.
+   *
+   * @param opts - Overrides whatever `enableSelection()` was given.
+   * @returns What was sent. **Never a claim that the clipboard changed** -- there
+   *   is no reply to an OSC 52, several terminals refuse it, and tmux needs
+   *   `set -g set-clipboard on`.
+   */
+  copy(opts?: ClipboardOptions): ClipboardCopy;
+  /** What is selected, if anything. */
+  readonly current: Selection | undefined;
+  /**
+   * Selects from one cell, which is what a drag or a keyboard extension grows.
+   *
+   * @param x - The column, in the canvas's own cells.
+   * @param y - The row.
+   * @param mode - Linear by default.
+   */
+  begin(x: number, y: number, mode?: SelectionMode): void;
+  /**
+   * Moves the focus end to a cell, keeping the anchor where it was.
+   *
+   * @param x - The column.
+   * @param y - The row.
+   */
+  extend(x: number, y: number): void;
+  /** Takes the handlers off. The selection itself is left where it was. */
+  stop(): void;
+  /** The selected text, read off the frame last painted. */
+  text(): string;
 }
 
 /**
@@ -119,10 +119,10 @@ export interface SelectionHandle {
  * JSX source-type pinning: with two, removing either fails nothing.
  */
 const ARROWS: Record<string, { x: number; y: number }> = {
-	down: { x: 0, y: 1 },
-	left: { x: -1, y: 0 },
-	right: { x: 1, y: 0 },
-	up: { x: 0, y: -1 },
+  down: { x: 0, y: 1 },
+  left: { x: -1, y: 0 },
+  right: { x: 1, y: 0 },
+  up: { x: 0, y: -1 },
 };
 // set afterwards rather than written as a `__proto__` key, which is the rule the
 // template's own tables record: that key makes TypeScript type the literal
@@ -131,7 +131,7 @@ Object.setPrototypeOf(ARROWS, null);
 
 /** Whether a mouse event carries the modifier that asks for a block. */
 function wantsBlock(event: MouseEvent, modifier: BlockModifier): boolean {
-	return modifier === 'alt' ? event.meta : modifier === 'ctrl' ? event.ctrl : false;
+  return modifier === 'alt' ? event.meta : modifier === 'ctrl' ? event.ctrl : false;
 }
 
 /**
@@ -143,145 +143,145 @@ function wantsBlock(event: MouseEvent, modifier: BlockModifier): boolean {
  * @returns The handle.
  */
 export function enableSelection(
-	view: Renderer,
-	input: InputRouter,
-	opts: SelectionOptions = {}
+  view: Renderer,
+  input: InputRouter,
+  opts: SelectionOptions = {}
 ): SelectionHandle {
-	const block = opts.block ?? 'alt';
-	const clipboard = opts.clipboard;
+  const block = opts.block ?? 'alt';
+  const clipboard = opts.clipboard;
 
-	/** Where the current gesture started, and in which mode. */
-	let anchor: { mode: SelectionMode; x: number; y: number } | undefined;
+  /** Where the current gesture started, and in which mode. */
+  let anchor: { mode: SelectionMode; x: number; y: number } | undefined;
 
-	const handle: SelectionHandle = {
-		begin(x, y, mode = 'linear'): void {
-			anchor = { mode, x, y };
-			view.setSelection(createSelection({ x, y }, { x, y }, mode));
-		},
+  const handle: SelectionHandle = {
+    begin(x, y, mode = 'linear'): void {
+      anchor = { mode, x, y };
+      view.setSelection(createSelection({ x, y }, { x, y }, mode));
+    },
 
-		clear(): void {
-			anchor = undefined;
-			view.setSelection(undefined);
-		},
+    clear(): void {
+      anchor = undefined;
+      view.setSelection(undefined);
+    },
 
-		copy(over?: ClipboardOptions): ClipboardCopy {
-			return copyToClipboard(view.backend.terminal, view.selectionText(), {
-				...clipboard,
-				...over,
-			});
-		},
+    copy(over?: ClipboardOptions): ClipboardCopy {
+      return copyToClipboard(view.backend.terminal, view.selectionText(), {
+        ...clipboard,
+        ...over,
+      });
+    },
 
-		get current() {
-			return view.selection;
-		},
+    get current() {
+      return view.selection;
+    },
 
-		extend(x, y): void {
-			const from = anchor ?? view.selection?.anchor;
-			const mode = anchor?.mode ?? view.selection?.mode ?? 'linear';
-			if (!from) {
-				handle.begin(x, y, mode);
-				return;
-			}
-			anchor ??= { mode, x: from.x, y: from.y };
-			view.setSelection(createSelection(from, { x, y }, mode));
-		},
+    extend(x, y): void {
+      const from = anchor ?? view.selection?.anchor;
+      const mode = anchor?.mode ?? view.selection?.mode ?? 'linear';
+      if (!from) {
+        handle.begin(x, y, mode);
+        return;
+      }
+      anchor ??= { mode, x: from.x, y: from.y };
+      view.setSelection(createSelection(from, { x, y }, mode));
+    },
 
-		stop(): void {
-			offMouse();
-			offResize();
-			offKeys?.();
-		},
+    stop(): void {
+      offMouse();
+      offResize();
+      offKeys?.();
+    },
 
-		text(): string {
-			return view.selectionText();
-		},
-	};
+    text(): string {
+      return view.selectionText();
+    },
+  };
 
-	const offMouse = input.onMouse((event) => {
-		// shift is left alone, deliberately. Where a terminal honours it as the
-		// override this never sees the report at all; where it forwards one with the
-		// shift bit set, acting on it would put a selection of ours underneath the
-		// terminal's own. Either way the user's muscle memory is the terminal's to
-		// serve
-		if (event.shift) {
-			return;
-		}
+  const offMouse = input.onMouse((event) => {
+    // shift is left alone, deliberately. Where a terminal honours it as the
+    // override this never sees the report at all; where it forwards one with the
+    // shift bit set, acting on it would put a selection of ours underneath the
+    // terminal's own. Either way the user's muscle memory is the terminal's to
+    // serve
+    if (event.shift) {
+      return;
+    }
 
-		if (event.kind === 'mousedown' && event.button === 'left') {
-			// the press clears and records, and does **not** select: a click with no
-			// drag leaves nothing selected, which is what a terminal does. The first
-			// motion report is what makes a selection, which is why `anchor` is kept
-			// here rather than as a one-cell selection nobody asked for
-			anchor = {
-				mode: wantsBlock(event, block) ? 'block' : 'linear',
-				x: event.x,
-				y: event.y,
-			};
-			view.setSelection(undefined);
-			return;
-		}
+    if (event.kind === 'mousedown' && event.button === 'left') {
+      // the press clears and records, and does **not** select: a click with no
+      // drag leaves nothing selected, which is what a terminal does. The first
+      // motion report is what makes a selection, which is why `anchor` is kept
+      // here rather than as a one-cell selection nobody asked for
+      anchor = {
+        mode: wantsBlock(event, block) ? 'block' : 'linear',
+        x: event.x,
+        y: event.y,
+      };
+      view.setSelection(undefined);
+      return;
+    }
 
-		if (event.kind === 'mousemove' && anchor && event.button === 'left') {
-			view.setSelection(createSelection(anchor, { x: event.x, y: event.y }, anchor.mode));
-		}
-	});
+    if (event.kind === 'mousemove' && anchor && event.button === 'left') {
+      view.setSelection(createSelection(anchor, { x: event.x, y: event.y }, anchor.mode));
+    }
+  });
 
-	/**
-	 * A resize ends the gesture, because the anchor is a cell of the old grid.
-	 *
-	 * The renderer drops the *selection* on a resize, for the reason the canvas
-	 * discards both buffers there: a cell pair names a screen that no longer
-	 * exists. The anchor is a cell of that same grid and is held here rather than
-	 * on the renderer, so clearing one and not the other left a drag still in
-	 * progress writing the selection straight back from the pre-resize cell -- the
-	 * highlight and `selectionText()` both returning, anchored where nothing is any
-	 * more. `extend()` read the same stale anchor.
-	 *
-	 * The anchor and nothing else: `view.setSelection(undefined)` here as well
-	 * would be a second mechanism for a thing the renderer already owns, and two
-	 * that cover each other is what a sabotage pass cannot tell apart -- which this
-	 * file has already been caught by once, over the lookup tables below.
-	 */
-	const offResize = input.onResize(() => {
-		anchor = undefined;
-	});
+  /**
+   * A resize ends the gesture, because the anchor is a cell of the old grid.
+   *
+   * The renderer drops the *selection* on a resize, for the reason the canvas
+   * discards both buffers there: a cell pair names a screen that no longer
+   * exists. The anchor is a cell of that same grid and is held here rather than
+   * on the renderer, so clearing one and not the other left a drag still in
+   * progress writing the selection straight back from the pre-resize cell -- the
+   * highlight and `selectionText()` both returning, anchored where nothing is any
+   * more. `extend()` read the same stale anchor.
+   *
+   * The anchor and nothing else: `view.setSelection(undefined)` here as well
+   * would be a second mechanism for a thing the renderer already owns, and two
+   * that cover each other is what a sabotage pass cannot tell apart -- which this
+   * file has already been caught by once, over the lookup tables below.
+   */
+  const offResize = input.onResize(() => {
+    anchor = undefined;
+  });
 
-	const offKeys =
-		opts.keys === false
-			? undefined
-			: input.bind((event) => {
-					if (!event.key.shift) {
-						return;
-					}
-					// nothing focused only, for the reason `SelectionOptions.keys` gives:
-					// a binding is ahead of the focused element, and shift-arrow inside a
-					// text field is that field's
-					if (input.focus.current.get() !== undefined) {
-						return;
-					}
-					const step = ARROWS[event.key.name];
-					if (!step) {
-						return;
-					}
-					event.stop();
+  const offKeys =
+    opts.keys === false
+      ? undefined
+      : input.bind((event) => {
+          if (!event.key.shift) {
+            return;
+          }
+          // nothing focused only, for the reason `SelectionOptions.keys` gives:
+          // a binding is ahead of the focused element, and shift-arrow inside a
+          // text field is that field's
+          if (input.focus.current.get() !== undefined) {
+            return;
+          }
+          const step = ARROWS[event.key.name];
+          if (!step) {
+            return;
+          }
+          event.stop();
 
-					const at = view.selection?.focus;
-					if (!at) {
-						// the canvas's own origin, which is the only cell this layer can
-						// name without inventing a caret nothing else reads
-						handle.begin(0, 0);
-						return;
-					}
-					// clamped, unlike a drag: a press captures the pointer so a drag's
-					// focus may legitimately be off the canvas, while an arrow key has no
-					// capture to honour -- and an unclamped focus walking further off the
-					// edge every keystroke is a selection that looks stuck for as many
-					// presses as it took to get there
-					handle.extend(
-						Math.max(0, Math.min(view.backend.width - 1, at.x + step.x)),
-						Math.max(0, Math.min(view.backend.height - 1, at.y + step.y))
-					);
-				});
+          const at = view.selection?.focus;
+          if (!at) {
+            // the canvas's own origin, which is the only cell this layer can
+            // name without inventing a caret nothing else reads
+            handle.begin(0, 0);
+            return;
+          }
+          // clamped, unlike a drag: a press captures the pointer so a drag's
+          // focus may legitimately be off the canvas, while an arrow key has no
+          // capture to honour -- and an unclamped focus walking further off the
+          // edge every keystroke is a selection that looks stuck for as many
+          // presses as it took to get there
+          handle.extend(
+            Math.max(0, Math.min(view.backend.width - 1, at.x + step.x)),
+            Math.max(0, Math.min(view.backend.height - 1, at.y + step.y))
+          );
+        });
 
-	return handle;
+  return handle;
 }

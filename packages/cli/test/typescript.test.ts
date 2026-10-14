@@ -23,69 +23,69 @@ const root = resolve(here, '../../..');
 const cli = resolve(here, 'fixtures/ts-app/cli.mjs');
 
 interface Ran {
-	code: number | null;
-	stderr: string;
-	stdout: string;
+  code: number | null;
+  stderr: string;
+  stdout: string;
 }
 
 function run(args: string[]): Promise<Ran> {
-	return new Promise((settle, fail) => {
-		// no flags: type stripping is on by default in every node this supports,
-		// and passing one here would prove something about the flag instead
-		const child = spawn(process.execPath, [cli, ...args], {
-			cwd: root,
-			env: { ...process.env, COLUMNS: '80' },
-			stdio: ['ignore', 'pipe', 'pipe'],
-		});
-		let stderr = '';
-		let stdout = '';
-		const timer = setTimeout(() => {
-			child.kill('SIGKILL');
-			fail(new Error(`ts-app ${args.join(' ')} did not finish within 30s`));
-		}, 30_000);
+  return new Promise((settle, fail) => {
+    // no flags: type stripping is on by default in every node this supports,
+    // and passing one here would prove something about the flag instead
+    const child = spawn(process.execPath, [cli, ...args], {
+      cwd: root,
+      env: { ...process.env, COLUMNS: '80' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stderr = '';
+    let stdout = '';
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      fail(new Error(`ts-app ${args.join(' ')} did not finish within 30s`));
+    }, 30_000);
 
-		child.stderr.on('data', (chunk: Buffer) => void (stderr += chunk.toString()));
-		child.stdout.on('data', (chunk: Buffer) => void (stdout += chunk.toString()));
-		child.on('error', (error) => {
-			clearTimeout(timer);
-			fail(error);
-		});
-		child.on('close', (code) => {
-			clearTimeout(timer);
-			settle({ code, stderr, stdout });
-		});
-	});
+    child.stderr.on('data', (chunk: Buffer) => void (stderr += chunk.toString()));
+    child.stdout.on('data', (chunk: Buffer) => void (stdout += chunk.toString()));
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      fail(error);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      settle({ code, stderr, stdout });
+    });
+  });
 }
 
 describe('TypeScript command modules', () => {
-	it.concurrent('should run a .ts command', async () => {
-		const { code, stderr, stdout } = await run(['deploy']);
-		expect(stderr).to.equal('');
-		expect(code).to.equal(0);
-		expect(stdout).to.equal('deployed to prod\n');
-	});
+  it.concurrent('should run a .ts command', async () => {
+    const { code, stderr, stdout } = await run(['deploy']);
+    expect(stderr).to.equal('');
+    expect(code).to.equal(0);
+    expect(stdout).to.equal('deployed to prod\n');
+  });
 
-	it.concurrent('should run a .mts index module', async () => {
-		const { code, stderr, stdout } = await run(['settings']);
-		expect(stderr).to.equal('');
-		expect(code).to.equal(0);
-		expect(stdout).to.equal('settings are on\n');
-	});
+  it.concurrent('should run a .mts index module', async () => {
+    const { code, stderr, stdout } = await run(['settings']);
+    expect(stderr).to.equal('');
+    expect(code).to.equal(0);
+    expect(stdout).to.equal('settings are on\n');
+  });
 
-	it.concurrent('should run a .cts command as the CommonJS it says it is', async () => {
-		const { code, stderr, stdout } = await run(['settings', 'edit']);
-		expect(stderr).to.equal('');
-		expect(code).to.equal(0);
-		expect(stdout).to.equal('edited\n');
-	});
+  it.concurrent('should run a .cts command as the CommonJS it says it is', async () => {
+    const { code, stderr, stdout } = await run(['settings', 'edit']);
+    expect(stderr).to.equal('');
+    expect(code).to.equal(0);
+    expect(stdout).to.equal('edited\n');
+  });
 
-	it.concurrent('should describe the tree without importing any of it', async () => {
-		// help lists what the walk found; the descriptions are still behind the
-		// imports, which is the rule a lazily loaded module already follows
-		const { code, stderr, stdout } = await run(['--help']);
-		expect(stderr).to.equal('');
-		expect(code).to.equal(0);
-		expect(stdout).to.contain('deploy');
-		expect(stdout).to.contain('settings');
-	});
+  it.concurrent('should describe the tree without importing any of it', async () => {
+    // help lists what the walk found; the descriptions are still behind the
+    // imports, which is the rule a lazily loaded module already follows
+    const { code, stderr, stdout } = await run(['--help']);
+    expect(stderr).to.equal('');
+    expect(code).to.equal(0);
+    expect(stdout).to.contain('deploy');
+    expect(stdout).to.contain('settings');
+  });
 });

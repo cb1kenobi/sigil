@@ -12,5 +12,5 @@ import type { Element } from '@ttylabs/sigil/element';
  * preserves under `tsc`, does not.
  */
 export function Panel({ who }: { who: string }): Element {
-	return <text class="hello">Hello, {who}!</text>;
+  return <text class="hello">Hello, {who}!</text>;
 }

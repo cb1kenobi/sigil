@@ -37,188 +37,188 @@ import { readFile } from 'node:fs/promises';
  * @returns The store.
  */
 function fileStore(path: string): WritableConfigStore {
-	// refused here rather than at the read, because what the read says about it
-	// names the wrong thing: `expand('')` is `'.'`, so an empty path reported
-	// `Failed to read .: EISDIR` -- a message about a directory nobody named --
-	// and a path that is not a string threw out of `expand()` itself. Not
-	// translated: a store's path is the app's own
-	if (typeof path !== 'string' || !path) {
-		throw new Error('A config file store needs a path');
-	}
+  // refused here rather than at the read, because what the read says about it
+  // names the wrong thing: `expand('')` is `'.'`, so an empty path reported
+  // `Failed to read .: EISDIR` -- a message about a directory nobody named --
+  // and a path that is not a string threw out of `expand()` itself. Not
+  // translated: a store's path is the app's own
+  if (typeof path !== 'string' || !path) {
+    throw new Error('A config file store needs a path');
+  }
 
-	const source = expand(path);
+  const source = expand(path);
 
-	/** What the file holds, or nothing where it is not there. */
-	const text = async (): Promise<string | undefined> => {
-		try {
-			return await readFile(source, 'utf8');
-		} catch (e: unknown) {
-			if (!isMissing(e)) {
-				throw new Error(__`Failed to read ${source}: ${(e as Error).message}`);
-			}
-			return undefined;
-		}
-	};
+  /** What the file holds, or nothing where it is not there. */
+  const text = async (): Promise<string | undefined> => {
+    try {
+      return await readFile(source, 'utf8');
+    } catch (e: unknown) {
+      if (!isMissing(e)) {
+        throw new Error(__`Failed to read ${source}: ${(e as Error).message}`);
+      }
+      return undefined;
+    }
+  };
 
-	/** The same, without awaiting. */
-	const textSync = (): string | undefined => {
-		try {
-			return readFileSync(source, 'utf8');
-		} catch (e: unknown) {
-			if (!isMissing(e)) {
-				throw new Error(__`Failed to read ${source}: ${(e as Error).message}`);
-			}
-			return undefined;
-		}
-	};
+  /** The same, without awaiting. */
+  const textSync = (): string | undefined => {
+    try {
+      return readFileSync(source, 'utf8');
+    } catch (e: unknown) {
+      if (!isMissing(e)) {
+        throw new Error(__`Failed to read ${source}: ${(e as Error).message}`);
+      }
+      return undefined;
+    }
+  };
 
-	const parse = (text: string | undefined): ConfigDocument => {
-		// a file that is there and holds nothing but whitespace is a file somebody
-		// created and has not written yet, which is the same state as one that is
-		// not there -- `JSON.parse('')` is a syntax error, and reporting one over
-		// `touch config.json` would be refusing to start over an empty file
-		if (text === undefined || !text.trim()) {
-			return { value: {} };
-		}
+  const parse = (text: string | undefined): ConfigDocument => {
+    // a file that is there and holds nothing but whitespace is a file somebody
+    // created and has not written yet, which is the same state as one that is
+    // not there -- `JSON.parse('')` is a syntax error, and reporting one over
+    // `touch config.json` would be refusing to start over an empty file
+    if (text === undefined || !text.trim()) {
+      return { value: {} };
+    }
 
-		const { value } = parseJsonc(text, source);
+    const { value } = parseJsonc(text, source);
 
-		// a document's root has to be something a layer can merge, which is an
-		// object. A file holding `42` or `[1, 2]` is not a config, and merging it
-		// would make every key of every layer below it vanish -- so it is refused
-		// where it was read rather than discovered as a missing setting later
-		if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-			throw new Error(__`${source} must hold an object`);
-		}
+    // a document's root has to be something a layer can merge, which is an
+    // object. A file holding `42` or `[1, 2]` is not a config, and merging it
+    // would make every key of every layer below it vanish -- so it is refused
+    // where it was read rather than discovered as a missing setting later
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      throw new Error(__`${source} must hold an object`);
+    }
 
-		// `wouldLose` is **absent** even over a comment-rich file -- the field is
-		// optional, so nothing lost is no field rather than `[]`, which is what
-		// `layer.wouldLose?.length` is the way to read. That is the contract rather
-		// than an omission: this store edits spans rather than reprinting, so a
-		// comment survives a write because the bytes holding it are never rewritten.
-		// A store that reprints -- YAML, XML -- reports what it would drop, and the
-		// field is published for those
-		return { value };
-	};
+    // `wouldLose` is **absent** even over a comment-rich file -- the field is
+    // optional, so nothing lost is no field rather than `[]`, which is what
+    // `layer.wouldLose?.length` is the way to read. That is the contract rather
+    // than an omission: this store edits spans rather than reprinting, so a
+    // comment survives a write because the bytes holding it are never rewritten.
+    // A store that reprints -- YAML, XML -- reports what it would drop, and the
+    // field is published for those
+    return { value };
+  };
 
-	/**
-	 * What the file should hold: whatever it holds now, with the claimed paths of
-	 * `value` written over it.
-	 *
-	 * A write with no claim is total, which is the only thing `write(value)` can
-	 * mean on its own and is what a caller reaching a store directly means. A
-	 * write **with** one is the three-way merge `save()` exists to perform: the
-	 * read it staged against may be stale by the time this runs, so the paths are
-	 * applied to what is there now and every other key is left alone. Without it
-	 * a key another process changed in that window is reverted -- any key, not
-	 * only one this process touched -- which is the defect `WriteOptions.paths`
-	 * is written for.
-	 *
-	 * @param theirs - What the file holds, which is modified.
-	 * @param value - What the caller is writing.
-	 * @param paths - The caller's own paths, or nothing for all of them.
-	 * @returns The document to write.
-	 */
-	const claim = (
-		theirs: Record<string, unknown>,
-		value: unknown,
-		paths: readonly string[] | undefined
-	): unknown => {
-		if (paths === undefined) {
-			return value;
-		}
+  /**
+   * What the file should hold: whatever it holds now, with the claimed paths of
+   * `value` written over it.
+   *
+   * A write with no claim is total, which is the only thing `write(value)` can
+   * mean on its own and is what a caller reaching a store directly means. A
+   * write **with** one is the three-way merge `save()` exists to perform: the
+   * read it staged against may be stale by the time this runs, so the paths are
+   * applied to what is there now and every other key is left alone. Without it
+   * a key another process changed in that window is reverted -- any key, not
+   * only one this process touched -- which is the defect `WriteOptions.paths`
+   * is written for.
+   *
+   * @param theirs - What the file holds, which is modified.
+   * @param value - What the caller is writing.
+   * @param paths - The caller's own paths, or nothing for all of them.
+   * @returns The document to write.
+   */
+  const claim = (
+    theirs: Record<string, unknown>,
+    value: unknown,
+    paths: readonly string[] | undefined
+  ): unknown => {
+    if (paths === undefined) {
+      return value;
+    }
 
-		overlay(theirs, value, paths, source);
-		return theirs;
-	};
+    overlay(theirs, value, paths, source);
+    return theirs;
+  };
 
-	/**
-	 * The text the file should hold, given what it holds now.
-	 *
-	 * The edit is computed before anything is written, which is what makes a
-	 * refusal cost nothing: a value JSON cannot hold, or a source that will not
-	 * parse, throws with the file untouched.
-	 */
-	const render = (
-		now: string | undefined,
-		value: unknown,
-		paths: readonly string[] | undefined
-	): string => {
-		// nothing to edit against, so there is nothing to preserve: a file that is
-		// not there, or one somebody created and has not written yet, is serialized
-		// from scratch with a final newline, which is what every other tool leaves
-		// behind and what a POSIX text file is. A claimed set of paths over no file
-		// is those paths and nothing else, which falls out of overlaying onto an
-		// empty document rather than needing a case of its own
-		const fresh = now === undefined || !now.trim();
-		const held = claim(
-			fresh ? {} : (parse(now as string).value as Record<string, unknown>),
-			value,
-			paths
-		);
+  /**
+   * The text the file should hold, given what it holds now.
+   *
+   * The edit is computed before anything is written, which is what makes a
+   * refusal cost nothing: a value JSON cannot hold, or a source that will not
+   * parse, throws with the file untouched.
+   */
+  const render = (
+    now: string | undefined,
+    value: unknown,
+    paths: readonly string[] | undefined
+  ): string => {
+    // nothing to edit against, so there is nothing to preserve: a file that is
+    // not there, or one somebody created and has not written yet, is serialized
+    // from scratch with a final newline, which is what every other tool leaves
+    // behind and what a POSIX text file is. A claimed set of paths over no file
+    // is those paths and nothing else, which falls out of overlaying onto an
+    // empty document rather than needing a case of its own
+    const fresh = now === undefined || !now.trim();
+    const held = claim(
+      fresh ? {} : (parse(now as string).value as Record<string, unknown>),
+      value,
+      paths
+    );
 
-		// asked here as well as at `set()`, because this is public API and a
-		// `write()` a caller made directly has had nothing checked. `set()`'s own
-		// call is the *early* answer -- it names the one value and the one path at
-		// the moment they were written -- and this one answers for the document.
-		// Asked of the **merged** document rather than of `value`, or a part of
-		// `value` this write is not claiming would refuse a write that never
-		// touches it
-		const ok = jsonCanHold(held, '');
-		if (ok !== true) {
-			throw new Error(`Cannot write ${source}: ${ok}`);
-		}
+    // asked here as well as at `set()`, because this is public API and a
+    // `write()` a caller made directly has had nothing checked. `set()`'s own
+    // call is the *early* answer -- it names the one value and the one path at
+    // the moment they were written -- and this one answers for the document.
+    // Asked of the **merged** document rather than of `value`, or a part of
+    // `value` this write is not claiming would refuse a write that never
+    // touches it
+    const ok = jsonCanHold(held, '');
+    if (ok !== true) {
+      throw new Error(`Cannot write ${source}: ${ok}`);
+    }
 
-		if (fresh) {
-			return `${JSON.stringify(held, null, DEFAULT_STEP)}\n`;
-		}
+    if (fresh) {
+      return `${JSON.stringify(held, null, DEFAULT_STEP)}\n`;
+    }
 
-		return editJsonc(now as string, held, { what: source });
-	};
+    return editJsonc(now as string, held, { what: source });
+  };
 
-	return {
-		canRepresent(value: unknown, at: string): true | string {
-			return jsonCanHold(value, at);
-		},
-		format: 'jsonc',
-		async read(): Promise<ConfigDocument> {
-			return parse(await text());
-		},
-		readSync(): ConfigDocument {
-			return parse(textSync());
-		},
-		source,
-		async write(value: unknown, opts?: WriteOptions): Promise<void> {
-			// the current bytes, read here rather than kept from the last `read()`.
-			// A cache would be the faster shape and this is the correct one, and the
-			// first reason written down for it was wrong: a stale cache does not
-			// splice at the wrong offsets, because the edits are computed against
-			// the same text they are applied to and the result is written whole. What
-			// it does is overwrite blindly. Reading here is what makes this **the**
-			// read the merge is against -- `claim()` applies the caller's paths to
-			// what is there now, so the read and the merge cannot come apart -- and
-			// it is what makes a `write()` reached directly work standalone, which is
-			// what public API should do
-			const now = await text();
-			const next = render(now, value, opts?.paths);
+  return {
+    canRepresent(value: unknown, at: string): true | string {
+      return jsonCanHold(value, at);
+    },
+    format: 'jsonc',
+    async read(): Promise<ConfigDocument> {
+      return parse(await text());
+    },
+    readSync(): ConfigDocument {
+      return parse(textSync());
+    },
+    source,
+    async write(value: unknown, opts?: WriteOptions): Promise<void> {
+      // the current bytes, read here rather than kept from the last `read()`.
+      // A cache would be the faster shape and this is the correct one, and the
+      // first reason written down for it was wrong: a stale cache does not
+      // splice at the wrong offsets, because the edits are computed against
+      // the same text they are applied to and the result is written whole. What
+      // it does is overwrite blindly. Reading here is what makes this **the**
+      // read the merge is against -- `claim()` applies the caller's paths to
+      // what is there now, so the read and the merge cannot come apart -- and
+      // it is what makes a `write()` reached directly work standalone, which is
+      // what public API should do
+      const now = await text();
+      const next = render(now, value, opts?.paths);
 
-			// a write that changes nothing touches no file, which is not tidiness:
-			// it keeps the mtime, which is what SIG-153's watcher reads, and it is
-			// what makes `apply()` of a freshly read value a no-op rather than a
-			// rewrite of the same bytes
-			if (next !== now) {
-				await writeAtomic(source, next);
-			}
-		},
-		writeSync(value: unknown, opts?: WriteOptions): void {
-			const now = textSync();
-			const next = render(now, value, opts?.paths);
+      // a write that changes nothing touches no file, which is not tidiness:
+      // it keeps the mtime, which is what SIG-153's watcher reads, and it is
+      // what makes `apply()` of a freshly read value a no-op rather than a
+      // rewrite of the same bytes
+      if (next !== now) {
+        await writeAtomic(source, next);
+      }
+    },
+    writeSync(value: unknown, opts?: WriteOptions): void {
+      const now = textSync();
+      const next = render(now, value, opts?.paths);
 
-			if (next !== now) {
-				writeAtomicSync(source, next);
-			}
-		},
-	};
+      if (next !== now) {
+        writeAtomicSync(source, next);
+      }
+    },
+  };
 }
 
 /**
@@ -249,5 +249,5 @@ function fileStore(path: string): WritableConfigStore {
  * @returns The store.
  */
 export function json(path: string): WritableConfigStore {
-	return fileStore(path);
+  return fileStore(path);
 }

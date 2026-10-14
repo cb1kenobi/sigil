@@ -7,7 +7,7 @@
  * the catalog's display name and its dispatch name part company.
  */
 export default {
-	name: 'renamed-ns',
-	desc: 'A namespace that renamed itself',
-	commands: { inner: { desc: 'Inner command', run: () => undefined } },
+  name: 'renamed-ns',
+  desc: 'A namespace that renamed itself',
+  commands: { inner: { desc: 'Inner command', run: () => undefined } },
 };

@@ -73,19 +73,19 @@
  */
 
 import {
-	type Diagnostic,
-	diagnosticLocation,
-	formatDiagnostic,
-	type Severity,
+  type Diagnostic,
+  diagnosticLocation,
+  formatDiagnostic,
+  type Severity,
 } from './build/index.ts';
 import { type ColorLevel, supportsColor } from '@ttylabs/sigil/ansi';
 import {
-	box,
-	type Element,
-	renderToString,
-	text as textNode,
-	type TextRun,
-	toDisplayText,
+  box,
+  type Element,
+  renderToString,
+  text as textNode,
+  type TextRun,
+  toDisplayText,
 } from '@ttylabs/sigil/element';
 import { schemeFromEnv } from '@ttylabs/sigil/style';
 import { themedCascade } from '@ttylabs/sigil/theme';
@@ -147,24 +147,24 @@ const VERBATIM = /\n|\s\s|^\s/;
 
 /** A stream a report can be written to, and asked about. */
 export interface ReportStream {
-	readonly columns?: number;
-	readonly isTTY?: boolean;
+  readonly columns?: number;
+  readonly isTTY?: boolean;
 }
 
 /** Where a report is going, and what can be read about it. */
 export interface Destination {
-	/**
-	 * The environment to detect from. Defaults to `process.env`.
-	 *
-	 * Threaded rather than left to the default because the stream is only half of
-	 * the answer: `FORCE_COLOR`, `NO_COLOR`, `TERM` and `COLUMNS` all outrank what
-	 * the stream says, which is what makes `FORCE_COLOR=3 sigil check | cat` work
-	 * -- and it is the only way a test can ask about a terminal, since a vitest
-	 * worker's stderr is a pipe with no `TERM` behind it.
-	 */
-	readonly env?: Record<string, string | undefined>;
-	/** The stream it is written to. */
-	readonly stream: ReportStream;
+  /**
+   * The environment to detect from. Defaults to `process.env`.
+   *
+   * Threaded rather than left to the default because the stream is only half of
+   * the answer: `FORCE_COLOR`, `NO_COLOR`, `TERM` and `COLUMNS` all outrank what
+   * the stream says, which is what makes `FORCE_COLOR=3 sigil check | cat` work
+   * -- and it is the only way a test can ask about a terminal, since a vitest
+   * worker's stderr is a pipe with no `TERM` behind it.
+   */
+  readonly env?: Record<string, string | undefined>;
+  /** The stream it is written to. */
+  readonly stream: ReportStream;
 }
 
 /**
@@ -192,22 +192,22 @@ export interface Destination {
  * @returns The lines, with no trailing newline.
  */
 export function render(build: (width: number) => Element, to: Destination | ReportStream): string {
-	const dest = destination(to);
-	// normalized the way `renderToString()` normalizes it, so that the number the
-	// builder is given is the number it is laid out in rather than one rounding
-	// away from it
-	const width = Math.max(1, Math.floor(terminalWidth({ env: dest.env, stream: dest.stream })));
+  const dest = destination(to);
+  // normalized the way `renderToString()` normalizes it, so that the number the
+  // builder is given is the number it is laid out in rather than one rounding
+  // away from it
+  const width = Math.max(1, Math.floor(terminalWidth({ env: dest.env, stream: dest.stream })));
 
-	return renderToString(build(width), {
-		// the scheme comes off the destination's own environment, like the width and
-		// the colour level above it rather than unlike them. `themedCascade()` falls
-		// back to the process when this is undefined, which is what it always read --
-		// so this changes nothing for the CLI, where they are the same object, and is
-		// what makes a report's light half reachable from a test at all
-		cascade: themedCascade({ colorScheme: schemeFromEnv(dest.env) }),
-		colorLevel: reportLevel(dest),
-		width,
-	});
+  return renderToString(build(width), {
+    // the scheme comes off the destination's own environment, like the width and
+    // the colour level above it rather than unlike them. `themedCascade()` falls
+    // back to the process when this is undefined, which is what it always read --
+    // so this changes nothing for the CLI, where they are the same object, and is
+    // what makes a report's light half reachable from a test at all
+    cascade: themedCascade({ colorScheme: schemeFromEnv(dest.env) }),
+    colorLevel: reportLevel(dest),
+    width,
+  });
 }
 
 /**
@@ -217,9 +217,9 @@ export function render(build: (width: number) => Element, to: Destination | Repo
  * @returns Its colour level.
  */
 export function reportLevel(to: Destination | ReportStream): ColorLevel {
-	const dest = destination(to);
+  const dest = destination(to);
 
-	return supportsColor({ env: dest.env, stream: dest.stream });
+  return supportsColor({ env: dest.env, stream: dest.stream });
 }
 
 /**
@@ -233,7 +233,7 @@ export function reportLevel(to: Destination | ReportStream): ColorLevel {
  * @returns It as a destination.
  */
 function destination(to: Destination | ReportStream): Destination {
-	return 'stream' in to ? to : { stream: to };
+  return 'stream' in to ? to : { stream: to };
 }
 
 /**
@@ -251,7 +251,7 @@ function destination(to: Destination | ReportStream): Destination {
  * @returns It, on one line, as it will be drawn.
  */
 function oneLine(value: string): string {
-	return toDisplayText(value).replaceAll('\n', ' ');
+  return toDisplayText(value).replaceAll('\n', ' ');
 }
 
 /**
@@ -265,13 +265,13 @@ function oneLine(value: string): string {
  * @returns The rows.
  */
 export function diagnosticsView(
-	diagnostics: readonly Diagnostic[],
-	opts: { width: number }
+  diagnostics: readonly Diagnostic[],
+  opts: { width: number }
 ): Element {
-	return box(
-		{ 'flex-direction': 'column' },
-		...diagnostics.map((diagnostic) => diagnosticRow(diagnostic, opts))
-	);
+  return box(
+    { 'flex-direction': 'column' },
+    ...diagnostics.map((diagnostic) => diagnosticRow(diagnostic, opts))
+  );
 }
 
 /**
@@ -294,8 +294,8 @@ export function diagnosticsView(
  * bin and nothing else -- so it costs no API to make the claim checkable.
  */
 export const SEVERITY_ROLE: Record<Severity, string> = {
-	error: 'sigil-error',
-	warning: 'sigil-warn',
+  error: 'sigil-error',
+  warning: 'sigil-warn',
 };
 
 /**
@@ -335,104 +335,104 @@ export const SEVERITY_ROLE: Record<Severity, string> = {
  * @returns The row.
  */
 function diagnosticRow(diagnostic: Diagnostic, opts: { width: number }): Element {
-	const { message, severity } = diagnostic;
+  const { message, severity } = diagnostic;
 
-	// the location and the severity are one unwrappable prefix, because breaking
-	// inside `file:12:3` gives a location nothing can jump to. It comes from
-	// `diagnosticLocation()` rather than being rebuilt here, which is what makes
-	// the claim that both forms print the same location true rather than merely
-	// intended -- the first version of this rebuilt it, and a tab in the path was
-	// then a different location on a terminal than in a pipe
-	const location = oneLine(`${diagnosticLocation(diagnostic)}: `);
-	const label = oneLine(`${severity}: `);
-	const prefix: Element[] = [
-		textNode(location, { class: 'cli-location sigil-muted', 'white-space': 'nowrap' }),
-		textNode(label, {
-			class: `cli-${severity} ${SEVERITY_ROLE[severity]}`,
-			'white-space': 'nowrap',
-		}),
-	];
+  // the location and the severity are one unwrappable prefix, because breaking
+  // inside `file:12:3` gives a location nothing can jump to. It comes from
+  // `diagnosticLocation()` rather than being rebuilt here, which is what makes
+  // the claim that both forms print the same location true rather than merely
+  // intended -- the first version of this rebuilt it, and a tab in the path was
+  // then a different location on a terminal than in a pipe
+  const location = oneLine(`${diagnosticLocation(diagnostic)}: `);
+  const label = oneLine(`${severity}: `);
+  const prefix: Element[] = [
+    textNode(location, { class: 'cli-location sigil-muted', 'white-space': 'nowrap' }),
+    textNode(label, {
+      class: `cli-${severity} ${SEVERITY_ROLE[severity]}`,
+      'white-space': 'nowrap',
+    }),
+  ];
 
-	// measured as it will be *drawn*, which is the rule a table cell already
-	// follows: a tab measures nothing and draws a space, so measuring the raw
-	// string leaves the message column a column out per tab -- and a path really
-	// can hold one. `oneLine()` is the other half, since a prefix two lines tall
-	// would put the message beside the wrong one
-	const room = opts.width - stringWidth(location) - stringWidth(label);
+  // measured as it will be *drawn*, which is the rule a table cell already
+  // follows: a tab measures nothing and draws a space, so measuring the raw
+  // string leaves the message column a column out per tab -- and a path really
+  // can hold one. `oneLine()` is the other half, since a prefix two lines tall
+  // would put the message beside the wrong one
+  const room = opts.width - stringWidth(location) - stringWidth(label);
 
-	// a message whose whitespace is structure is output somebody captured rather
-	// than prose -- `typecheck.ts` puts a compiler's whole stdout in one when it
-	// exited without saying anything parseable -- so it keeps its own spacing.
-	// `nowrap` is what that takes and `normal` is not enough: `normal` honours the
-	// author's newlines and then *reflows* each line, so a code line wrapped and
-	// the caret under it no longer sat beneath what it pointed at -- which is the
-	// opposite of printing it as it stands. Overflowing instead is the rule the
-	// location prefix already follows, and the grid grows to its content, so
-	// nothing is lost.
-	//
-	// A run of two spaces counts as well as a newline, because a paragraph splits
-	// on `/\s+/`: `expected '  ' here` came out as `expected ' ' here`, so the
-	// terminal disagreed with the pipe about what the message said. One rule --
-	// whitespace the author put there is structure -- rather than two.
-	const body = (props: { 'padding-left'?: number; width: number }): Element => {
-		if (!VERBATIM.test(message)) {
-			// never breaks a word, because a message embeds a path as readily as a
-			// summary does -- see `wordsView()`
-			return wordsView([message], { 'flex-shrink': 0, ...props });
-		}
+  // a message whose whitespace is structure is output somebody captured rather
+  // than prose -- `typecheck.ts` puts a compiler's whole stdout in one when it
+  // exited without saying anything parseable -- so it keeps its own spacing.
+  // `nowrap` is what that takes and `normal` is not enough: `normal` honours the
+  // author's newlines and then *reflows* each line, so a code line wrapped and
+  // the caret under it no longer sat beneath what it pointed at -- which is the
+  // opposite of printing it as it stands. Overflowing instead is the rule the
+  // location prefix already follows, and the grid grows to its content, so
+  // nothing is lost.
+  //
+  // A run of two spaces counts as well as a newline, because a paragraph splits
+  // on `/\s+/`: `expected '  ' here` came out as `expected ' ' here`, so the
+  // terminal disagreed with the pipe about what the message said. One rule --
+  // whitespace the author put there is structure -- rather than two.
+  const body = (props: { 'padding-left'?: number; width: number }): Element => {
+    if (!VERBATIM.test(message)) {
+      // never breaks a word, because a message embeds a path as readily as a
+      // summary does -- see `wordsView()`
+      return wordsView([message], { 'flex-shrink': 0, ...props });
+    }
 
-		// The width is the whole mechanism, and it is worth saying which property is
-		// doing the work: a `text` at `white-space: normal` keeps the author's
-		// newlines and the spaces inside each line, and the only thing it does wrong
-		// is *reflow* a line too long for its box. Give the box the content's own
-		// width and there is no such line, so nothing reflows -- which is help's rule
-		// for a label too wide for its column, reached from the other side. A
-		// `white-space: nowrap` here would be a property that does nothing, since
-		// nothing can exceed its box; it was in the first version of this, and
-		// removing it changed no output at any width, which is how it was found.
-		//
-		// Getting the width wrong is the trap rather than the wrapping:
-		// `text-overflow` bites on a line wider than the box it was given, so a
-		// declared column narrower than the content silently *cut* the dump -- a code
-		// line came out as `const x = "hello h` with the rest gone. Overflowing costs
-		// nothing, because the grid grows to its content. Measured as it will be
-		// drawn, for the reason the prefix is
-		const natural = Math.max(
-			...toDisplayText(message)
-				.split('\n')
-				.map((line) => stringWidth(line))
-		);
+    // The width is the whole mechanism, and it is worth saying which property is
+    // doing the work: a `text` at `white-space: normal` keeps the author's
+    // newlines and the spaces inside each line, and the only thing it does wrong
+    // is *reflow* a line too long for its box. Give the box the content's own
+    // width and there is no such line, so nothing reflows -- which is help's rule
+    // for a label too wide for its column, reached from the other side. A
+    // `white-space: nowrap` here would be a property that does nothing, since
+    // nothing can exceed its box; it was in the first version of this, and
+    // removing it changed no output at any width, which is how it was found.
+    //
+    // Getting the width wrong is the trap rather than the wrapping:
+    // `text-overflow` bites on a line wider than the box it was given, so a
+    // declared column narrower than the content silently *cut* the dump -- a code
+    // line came out as `const x = "hello h` with the rest gone. Overflowing costs
+    // nothing, because the grid grows to its content. Measured as it will be
+    // drawn, for the reason the prefix is
+    const natural = Math.max(
+      ...toDisplayText(message)
+        .split('\n')
+        .map((line) => stringWidth(line))
+    );
 
-		// the padding is *inside* the width, because `box-sizing` starts at
-		// `border-box` -- so a width of exactly `natural` leaves the content two
-		// columns short in the stacked case and cuts the end off each line. That is
-		// the border-box rule this repo already records for a themed table cell, met
-		// from the other side
-		const pad = props['padding-left'] ?? 0;
+    // the padding is *inside* the width, because `box-sizing` starts at
+    // `border-box` -- so a width of exactly `natural` leaves the content two
+    // columns short in the stacked case and cuts the end off each line. That is
+    // the border-box rule this repo already records for a themed table cell, met
+    // from the other side
+    const pad = props['padding-left'] ?? 0;
 
-		return textNode(message, {
-			'flex-shrink': 0,
-			...props,
-			width: Math.max(props.width, natural + pad),
-		});
-	};
+    return textNode(message, {
+      'flex-shrink': 0,
+      ...props,
+      width: Math.max(props.width, natural + pad),
+    });
+  };
 
-	// not enough room left to read as prose: the location takes the line and the
-	// message is indented under it, which is what help's list does at the same
-	// threshold and for the same reason
-	if (room < MIN_MESSAGE) {
-		return box(
-			{ 'align-items': 'flex-start', 'flex-direction': 'column' },
-			box({ 'flex-direction': 'row' }, ...prefix),
-			body({ 'padding-left': 2, width: Math.max(3, opts.width) })
-		);
-	}
+  // not enough room left to read as prose: the location takes the line and the
+  // message is indented under it, which is what help's list does at the same
+  // threshold and for the same reason
+  if (room < MIN_MESSAGE) {
+    return box(
+      { 'align-items': 'flex-start', 'flex-direction': 'column' },
+      box({ 'flex-direction': 'row' }, ...prefix),
+      body({ 'padding-left': 2, width: Math.max(3, opts.width) })
+    );
+  }
 
-	return box(
-		{ 'align-items': 'flex-start', 'flex-direction': 'row' },
-		...prefix,
-		body({ width: room })
-	);
+  return box(
+    { 'align-items': 'flex-start', 'flex-direction': 'row' },
+    ...prefix,
+    body({ width: room })
+  );
 }
 
 /**
@@ -465,7 +465,7 @@ function diagnosticRow(diagnostic: Diagnostic, opts: { width: number }): Element
  * @returns The line.
  */
 export function summaryView(runs: readonly (TextRun | string)[], width: number): Element {
-	return wordsView(runs, { width });
+  return wordsView(runs, { width });
 }
 
 /**
@@ -498,25 +498,25 @@ export function summaryView(runs: readonly (TextRun | string)[], width: number):
  * @returns The row.
  */
 function wordsView(
-	runs: readonly (TextRun | string)[],
-	props: { 'flex-shrink'?: number; 'padding-left'?: number; width: number }
+  runs: readonly (TextRun | string)[],
+  props: { 'flex-shrink'?: number; 'padding-left'?: number; width: number }
 ): Element {
-	const words: Element[] = [];
+  const words: Element[] = [];
 
-	for (const run of runs) {
-		const { class: classes, text } =
-			typeof run === 'string' ? { class: undefined, text: run } : run;
+  for (const run of runs) {
+    const { class: classes, text } =
+      typeof run === 'string' ? { class: undefined, text: run } : run;
 
-		// split on whitespace for the reason `paragraph()` did: a run is prose, and
-		// the gap between two words on a line is the row's own `column-gap`
-		for (const word of text.split(/\s+/)) {
-			if (word !== '') {
-				words.push(textNode(word, { class: classes, 'white-space': 'nowrap' }));
-			}
-		}
-	}
+    // split on whitespace for the reason `paragraph()` did: a run is prose, and
+    // the gap between two words on a line is the row's own `column-gap`
+    for (const word of text.split(/\s+/)) {
+      if (word !== '') {
+        words.push(textNode(word, { class: classes, 'white-space': 'nowrap' }));
+      }
+    }
+  }
 
-	return box({ 'column-gap': 1, 'flex-direction': 'row', 'flex-wrap': 'wrap', ...props }, ...words);
+  return box({ 'column-gap': 1, 'flex-direction': 'row', 'flex-wrap': 'wrap', ...props }, ...words);
 }
 
 /**
@@ -531,7 +531,7 @@ function wordsView(
  * @returns Whether it is a terminal.
  */
 function isTerminal(to: Destination | ReportStream): boolean {
-	return destination(to).stream.isTTY === true;
+  return destination(to).stream.isTTY === true;
 }
 
 /**
@@ -541,28 +541,28 @@ function isTerminal(to: Destination | ReportStream): boolean {
  * @param opts - What to write paths relative to, and where to write.
  */
 export function writeDiagnostics(
-	diagnostics: readonly Diagnostic[],
-	opts: { relativeTo?: (file: string) => string; stream: ReportStream & { write(s: string): void } }
+  diagnostics: readonly Diagnostic[],
+  opts: { relativeTo?: (file: string) => string; stream: ReportStream & { write(s: string): void } }
 ): void {
-	if (!diagnostics.length) {
-		// nothing at all rather than a blank line: `renderToString()` is never less
-		// than one row, so rendering an empty report writes one empty line
-		return;
-	}
+  if (!diagnostics.length) {
+    // nothing at all rather than a blank line: `renderToString()` is never less
+    // than one row, so rendering an empty report writes one empty line
+    return;
+  }
 
-	const { relativeTo, stream } = opts;
-	// applied here and nowhere else, so both forms are handed the same diagnostic
-	// and `diagnosticLocation()` is the only thing that formats a location
-	const shown = relativeTo
-		? diagnostics.map((d) => ({ ...d, file: relativeTo(d.file) }))
-		: diagnostics;
+  const { relativeTo, stream } = opts;
+  // applied here and nowhere else, so both forms are handed the same diagnostic
+  // and `diagnosticLocation()` is the only thing that formats a location
+  const shown = relativeTo
+    ? diagnostics.map((d) => ({ ...d, file: relativeTo(d.file) }))
+    : diagnostics;
 
-	if (!isTerminal(stream)) {
-		stream.write(`${shown.map((d) => formatDiagnostic(d)).join('\n')}\n`);
-		return;
-	}
+  if (!isTerminal(stream)) {
+    stream.write(`${shown.map((d) => formatDiagnostic(d)).join('\n')}\n`);
+    return;
+  }
 
-	stream.write(`${render((width) => diagnosticsView(shown, { width }), stream)}\n`);
+  stream.write(`${render((width) => diagnosticsView(shown, { width }), stream)}\n`);
 }
 
 /**
@@ -576,15 +576,15 @@ export function writeDiagnostics(
  * @param stream - Where to write it.
  */
 export function writeSummary(
-	runs: readonly (TextRun | string)[],
-	stream: ReportStream & { write(s: string): void }
+  runs: readonly (TextRun | string)[],
+  stream: ReportStream & { write(s: string): void }
 ): void {
-	const plain = (): string =>
-		runs.map((run) => (typeof run === 'string' ? run : run.text)).join(' ');
+  const plain = (): string =>
+    runs.map((run) => (typeof run === 'string' ? run : run.text)).join(' ');
 
-	stream.write(
-		`\n${isTerminal(stream) ? render((width) => summaryView(runs, width), stream) : plain()}\n`
-	);
+  stream.write(
+    `\n${isTerminal(stream) ? render((width) => summaryView(runs, width), stream) : plain()}\n`
+  );
 }
 
 /**
@@ -604,8 +604,8 @@ export function writeSummary(
  * @param stream - Where to write it.
  */
 export function writeNote(
-	runs: readonly (TextRun | string)[],
-	stream: ReportStream & { write(s: string): void }
+  runs: readonly (TextRun | string)[],
+  stream: ReportStream & { write(s: string): void }
 ): void {
-	stream.write(`${render((width) => summaryView(runs, width), stream)}\n`);
+  stream.write(`${render((width) => summaryView(runs, width), stream)}\n`);
 }

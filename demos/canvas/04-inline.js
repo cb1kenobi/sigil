@@ -25,20 +25,20 @@ const done = { fg: palette(2) };
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 for (let step = 1; step <= STEPS; step++) {
-	const filled = Math.round((step / STEPS) * (WIDTH - 2));
+  const filled = Math.round((step / STEPS) * (WIDTH - 2));
 
-	backend.render((p) => {
-		p.text(0, 0, `building  ${step}/${STEPS}`, step === STEPS ? done : undefined);
-		p.text(0, 1, '█'.repeat(filled), done);
-		p.text(filled, 1, '░'.repeat(WIDTH - 2 - filled), dim);
-	});
+  backend.render((p) => {
+    p.text(0, 0, `building  ${step}/${STEPS}`, step === STEPS ? done : undefined);
+    p.text(0, 1, '█'.repeat(filled), done);
+    p.text(filled, 1, '░'.repeat(WIDTH - 2 - filled), dim);
+  });
 
-	// the log carries on above, which is the whole point of this anchor
-	if (step % 6 === 0) {
-		backend.write(`compiled module ${step / 6}`);
-	}
+  // the log carries on above, which is the whole point of this anchor
+  if (step % 6 === 0) {
+    backend.write(`compiled module ${step / 6}`);
+  }
 
-	await sleep(90);
+  await sleep(90);
 }
 
 // the frame stays and the cursor comes off the end of it, so whatever the shell

@@ -39,94 +39,94 @@ const FORMATTING = new Set([0x09, 0x0a, 0x0d]);
  * else. They are listed rather than inferred so that a new one is a decision.
  */
 const ALLOWED = new Set([
-	'demos/canvas/01-sparkline.js',
-	'demos/canvas/02-image.js',
-	'demos/canvas/03-links.js',
-	'packages/sigil/test/ansi/strip.test.ts',
-	'packages/sigil/test/components/helpers.ts',
-	'packages/sigil/test/components/keys.test.ts',
-	'packages/sigil/test/components/prompt.test.ts',
-	'packages/sigil/test/input/input.test.ts',
-	'website/src/app/favicon.ico',
+  'demos/canvas/01-sparkline.js',
+  'demos/canvas/02-image.js',
+  'demos/canvas/03-links.js',
+  'packages/sigil/test/ansi/strip.test.ts',
+  'packages/sigil/test/components/helpers.ts',
+  'packages/sigil/test/components/keys.test.ts',
+  'packages/sigil/test/components/prompt.test.ts',
+  'packages/sigil/test/input/input.test.ts',
+  'website/src/app/favicon.ico',
 ]);
 
 /** Everything git is tracking, which is what a reviewer sees. */
 function tracked(): string[] {
-	return execFileSync('git', ['ls-files', '-z'], { cwd: root, maxBuffer: 1 << 24 })
-		.toString('utf8')
-		.split('\0')
-		.filter(Boolean);
+  return execFileSync('git', ['ls-files', '-z'], { cwd: root, maxBuffer: 1 << 24 })
+    .toString('utf8')
+    .split('\0')
+    .filter(Boolean);
 }
 
 describe('committed sources', () => {
-	const files = tracked().filter((name) => !ALLOWED.has(name));
+  const files = tracked().filter((name) => !ALLOWED.has(name));
 
-	it('should be tracked, so that this is testing something', () => {
-		expect(files.length).toBeGreaterThan(100);
-	});
+  it('should be tracked, so that this is testing something', () => {
+    expect(files.length).toBeGreaterThan(100);
+  });
 
-	it('should carry no raw control character', () => {
-		const offenders: string[] = [];
+  it('should carry no raw control character', () => {
+    const offenders: string[] = [];
 
-		for (const name of files) {
-			let raw: Buffer;
-			try {
-				raw = readFileSync(join(root, name));
-			} catch {
-				// a path git knows about and the disk does not: a submodule, or a file
-				// removed but not yet staged. Neither is this test's business
-				continue;
-			}
+    for (const name of files) {
+      let raw: Buffer;
+      try {
+        raw = readFileSync(join(root, name));
+      } catch {
+        // a path git knows about and the disk does not: a submodule, or a file
+        // removed but not yet staged. Neither is this test's business
+        continue;
+      }
 
-			const found = new Set<number>();
-			for (const byte of raw) {
-				if (FORMATTING.has(byte)) {
-					continue;
-				}
-				// C0 and DEL as bytes. C1 arrives as UTF-8 rather than as a byte, so it
-				// is read from the decoded text below instead
-				if (byte < 0x20 || byte === 0x7f) {
-					found.add(byte);
-				}
-			}
+      const found = new Set<number>();
+      for (const byte of raw) {
+        if (FORMATTING.has(byte)) {
+          continue;
+        }
+        // C0 and DEL as bytes. C1 arrives as UTF-8 rather than as a byte, so it
+        // is read from the decoded text below instead
+        if (byte < 0x20 || byte === 0x7f) {
+          found.add(byte);
+        }
+      }
 
-			for (const char of raw.toString('utf8')) {
-				const code = char.codePointAt(0) ?? 0;
-				if (code >= 0x80 && code <= 0x9f) {
-					found.add(code);
-				}
-			}
+      for (const char of raw.toString('utf8')) {
+        const code = char.codePointAt(0) ?? 0;
+        if (code >= 0x80 && code <= 0x9f) {
+          found.add(code);
+        }
+      }
 
-			if (found.size > 0) {
-				const names = [...found]
-					.sort((a, b) => a - b)
-					.map((code) => `U+${code.toString(16).toUpperCase().padStart(4, '0')}`);
-				offenders.push(`${name}: ${names.join(', ')}`);
-			}
-		}
+      if (found.size > 0) {
+        const names = [...found]
+          .sort((a, b) => a - b)
+          .map((code) => `U+${code.toString(16).toUpperCase().padStart(4, '0')}`);
+        offenders.push(`${name}: ${names.join(', ')}`);
+      }
+    }
 
-		expect(offenders, offenders.join('\n')).toEqual([]);
-	});
+    expect(offenders, offenders.join('\n')).toEqual([]);
+  });
 
-	it('should be text to git, which is what makes a diff readable', () => {
-		// the observable half of the same rule, and the one that was actually
-		// costing something: git's own test is a NUL in the first 8000 bytes, so a
-		// file can hold raw control characters for years and only become binary the
-		// day one of them moves far enough up
-		const binary: string[] = [];
+  it('should be text to git, which is what makes a diff readable', () => {
+    // the observable half of the same rule, and the one that was actually
+    // costing something: git's own test is a NUL in the first 8000 bytes, so a
+    // file can hold raw control characters for years and only become binary the
+    // day one of them moves far enough up
+    const binary: string[] = [];
 
-		for (const name of files) {
-			let raw: Buffer;
-			try {
-				raw = readFileSync(join(root, name));
-			} catch {
-				continue;
-			}
-			if (raw.subarray(0, 8000).includes(0)) {
-				binary.push(name);
-			}
-		}
+    for (const name of files) {
+      let raw: Buffer;
+      try {
+        raw = readFileSync(join(root, name));
+      } catch {
+        continue;
+      }
+      if (raw.subarray(0, 8000).includes(0)) {
+        binary.push(name);
+      }
+    }
 
-		expect(binary, binary.join('\n')).toEqual([]);
-	});
+    expect(binary, binary.join('\n')).toEqual([]);
+  });
 });

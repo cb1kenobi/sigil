@@ -80,15 +80,15 @@ export { Config, createConfig, createConfigSync, isWritableStore } from './confi
 export { object } from './stores/object.js';
 export { json } from './stores/file.js';
 export type {
-	ConfigDocument,
-	ConfigLayer,
-	ConfigLayerInfo,
-	ConfigMerge,
-	ConfigOptions,
-	ConfigSchema,
-	ConfigSetting,
-	ConfigStore,
-	Loss,
-	WritableConfigStore,
-	WriteOptions,
+  ConfigDocument,
+  ConfigLayer,
+  ConfigLayerInfo,
+  ConfigMerge,
+  ConfigOptions,
+  ConfigSchema,
+  ConfigSetting,
+  ConfigStore,
+  Loss,
+  WritableConfigStore,
+  WriteOptions,
 } from './types.js';

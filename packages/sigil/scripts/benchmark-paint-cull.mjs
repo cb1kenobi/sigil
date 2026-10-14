@@ -39,22 +39,22 @@ const ITERATIONS = 20;
 
 /** A log of two-text rows inside a viewport that clips: three elements a row. */
 function build() {
-	const rows = [];
-	for (let i = 0; i < ROWS; i++) {
-		rows.push(
-			box(
-				{ 'column-gap': 1, 'flex-direction': 'row' },
-				text(String(i).padStart(6, '0'), { 'white-space': 'nowrap' }),
-				text(`event ${i} on the queue`, { 'white-space': 'nowrap' })
-			)
-		);
-	}
-	const content = box({ 'flex-direction': 'column' }, ...rows);
-	const view = box(
-		{ 'flex-direction': 'column', height: HEIGHT, overflow: 'hidden', width: WIDTH },
-		content
-	);
-	return { root: box({}, view), view };
+  const rows = [];
+  for (let i = 0; i < ROWS; i++) {
+    rows.push(
+      box(
+        { 'column-gap': 1, 'flex-direction': 'row' },
+        text(String(i).padStart(6, '0'), { 'white-space': 'nowrap' }),
+        text(`event ${i} on the queue`, { 'white-space': 'nowrap' })
+      )
+    );
+  }
+  const content = box({ 'flex-direction': 'column' }, ...rows);
+  const view = box(
+    { 'flex-direction': 'column', height: HEIGHT, overflow: 'hidden', width: WIDTH },
+    content
+  );
+  return { root: box({}, view), view };
 }
 
 /**
@@ -64,19 +64,19 @@ function build() {
  * @param {import('../dist/element.mjs').Element} element
  */
 function clearExtents(element) {
-	element.extent = undefined;
-	for (const child of element.children) {
-		clearExtents(child);
-	}
+  element.extent = undefined;
+  for (const child of element.children) {
+    clearExtents(child);
+  }
 }
 
 /** @param {import('../dist/element.mjs').Element} element */
 function countElements(element) {
-	let n = 1;
-	for (const child of element.children) {
-		n += countElements(child);
-	}
-	return n;
+  let n = 1;
+  for (const child of element.children) {
+    n += countElements(child);
+  }
+  return n;
 }
 
 const { root, view } = build();
@@ -88,21 +88,21 @@ resolveStyles(root);
 // paint optimization and says nothing about the measure, which is what the
 // virtualization argument rests on.
 {
-	const t = process.hrtime.bigint();
-	arrange(root, { height: HEIGHT, width: WIDTH });
-	console.log(`arrange: ${(Number(process.hrtime.bigint() - t) / 1e6).toFixed(2)}ms`);
+  const t = process.hrtime.bigint();
+  arrange(root, { height: HEIGHT, width: WIDTH });
+  console.log(`arrange: ${(Number(process.hrtime.bigint() - t) / 1e6).toFixed(2)}ms`);
 }
 
 function paintOnce() {
-	const buffer = new CellBuffer(WIDTH, HEIGHT);
-	paint(root, new Painter(buffer, new StyleTable()));
-	return buffer;
+  const buffer = new CellBuffer(WIDTH, HEIGHT);
+  paint(root, new Painter(buffer, new StyleTable()));
+  return buffer;
 }
 
 /** Puts the extents back and scrolls, since an arrange is what writes them. */
 function settle(offset) {
-	view.scrollTo(0, offset);
-	arrange(root, { height: HEIGHT, width: WIDTH });
+  view.scrollTo(0, offset);
+  arrange(root, { height: HEIGHT, width: WIDTH });
 }
 
 // Correctness before cost, because a cull that changed a cell would be faster
@@ -112,65 +112,65 @@ const culled = paintOnce().toString();
 clearExtents(root);
 const whole = paintOnce().toString();
 if (culled !== whole) {
-	console.error('the culled walk painted something else; not timing a wrong answer');
-	console.error(`culled:\n${culled}\n\nwhole:\n${whole}`);
-	process.exitCode = 1;
+  console.error('the culled walk painted something else; not timing a wrong answer');
+  console.error(`culled:\n${culled}\n\nwhole:\n${whole}`);
+  process.exitCode = 1;
 } else {
-	console.log('identical output: true');
+  console.log('identical output: true');
 
-	/** @type {{ after: number[], before: number[] }} */
-	const paints = { after: [], before: [] };
-	/** @type {{ after: number[], before: number[] }} */
-	const hits = { after: [], before: [] };
+  /** @type {{ after: number[], before: number[] }} */
+  const paints = { after: [], before: [] };
+  /** @type {{ after: number[], before: number[] }} */
+  const hits = { after: [], before: [] };
 
-	for (let round = 0; round < ROUNDS; round++) {
-		for (const side of /** @type {const} */ (['before', 'after'])) {
-			// a different offset per round, so nothing is measured at one position
-			settle(MID + round);
-			if (side === 'before') {
-				clearExtents(root);
-			}
+  for (let round = 0; round < ROUNDS; round++) {
+    for (const side of /** @type {const} */ (['before', 'after'])) {
+      // a different offset per round, so nothing is measured at one position
+      settle(MID + round);
+      if (side === 'before') {
+        clearExtents(root);
+      }
 
-			const t = process.hrtime.bigint();
-			for (let i = 0; i < ITERATIONS; i++) {
-				paintOnce();
-			}
-			paints[side].push(Number(process.hrtime.bigint() - t) / 1e6 / ITERATIONS);
+      const t = process.hrtime.bigint();
+      for (let i = 0; i < ITERATIONS; i++) {
+        paintOnce();
+      }
+      paints[side].push(Number(process.hrtime.bigint() - t) / 1e6 / ITERATIONS);
 
-			// and the hit test, which culls on the same rectangle
-			settle(MID + round);
-			if (side === 'before') {
-				clearExtents(root);
-			}
+      // and the hit test, which culls on the same rectangle
+      settle(MID + round);
+      if (side === 'before') {
+        clearExtents(root);
+      }
 
-			const h = process.hrtime.bigint();
-			for (let i = 0; i < ITERATIONS; i++) {
-				hitTest(root, 40, 12);
-			}
-			hits[side].push(Number(process.hrtime.bigint() - h) / 1e6 / ITERATIONS);
-		}
-	}
+      const h = process.hrtime.bigint();
+      for (let i = 0; i < ITERATIONS; i++) {
+        hitTest(root, 40, 12);
+      }
+      hits[side].push(Number(process.hrtime.bigint() - h) / 1e6 / ITERATIONS);
+    }
+  }
 
-	/**
-	 * @param {string} name
-	 * @param {{ after: number[], before: number[] }} data
-	 */
-	function report(name, data) {
-		/** @param {'after' | 'before'} side */
-		const sorted = (side) => [...data[side]].sort((a, b) => a - b);
-		/** @param {'after' | 'before'} side */
-		const median = (side) => sorted(side)[Math.floor(data[side].length / 2)];
+  /**
+   * @param {string} name
+   * @param {{ after: number[], before: number[] }} data
+   */
+  function report(name, data) {
+    /** @param {'after' | 'before'} side */
+    const sorted = (side) => [...data[side]].sort((a, b) => a - b);
+    /** @param {'after' | 'before'} side */
+    const median = (side) => sorted(side)[Math.floor(data[side].length / 2)];
 
-		for (const side of /** @type {const} */ (['before', 'after'])) {
-			const s = sorted(side);
-			console.log(
-				`${name} ${side.padEnd(6)}: min ${s[0].toFixed(3)}ms  median ` +
-					`${median(side).toFixed(3)}ms  max ${s.at(-1).toFixed(3)}ms`
-			);
-		}
-		console.log(`${name} speedup: ${(median('before') / median('after')).toFixed(1)}x median`);
-	}
+    for (const side of /** @type {const} */ (['before', 'after'])) {
+      const s = sorted(side);
+      console.log(
+        `${name} ${side.padEnd(6)}: min ${s[0].toFixed(3)}ms  median ` +
+          `${median(side).toFixed(3)}ms  max ${s.at(-1).toFixed(3)}ms`
+      );
+    }
+    console.log(`${name} speedup: ${(median('before') / median('after')).toFixed(1)}x median`);
+  }
 
-	report('paint   ', paints);
-	report('hit test', hits);
+  report('paint   ', paints);
+  report('hit test', hits);
 }

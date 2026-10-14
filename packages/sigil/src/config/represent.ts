@@ -30,27 +30,27 @@ import { isPlainObject } from './dotted.js';
 
 /** Why JSON cannot hold a value, or nothing where it can. */
 function why(value: unknown): string | undefined {
-	switch (typeof value) {
-		case 'bigint':
-			return 'JSON has no bigint';
-		case 'function':
-			return 'JSON has no function';
-		case 'symbol':
-			return 'JSON has no symbol';
-		case 'undefined':
-			return 'JSON has no undefined; delete the key instead';
-		case 'number':
-			return Number.isFinite(value) ? undefined : `JSON has no ${value}`;
-		default:
-			break;
-	}
+  switch (typeof value) {
+    case 'bigint':
+      return 'JSON has no bigint';
+    case 'function':
+      return 'JSON has no function';
+    case 'symbol':
+      return 'JSON has no symbol';
+    case 'undefined':
+      return 'JSON has no undefined; delete the key instead';
+    case 'number':
+      return Number.isFinite(value) ? undefined : `JSON has no ${value}`;
+    default:
+      break;
+  }
 
-	return undefined;
+  return undefined;
 }
 
 /** What JSON writes an object of no kind it knows as, which is `{}`. */
 function asEmpty(value: object): string {
-	return `JSON writes a ${value.constructor?.name ?? 'value'} of this kind as {}`;
+  return `JSON writes a ${value.constructor?.name ?? 'value'} of this kind as {}`;
 }
 
 /**
@@ -66,77 +66,77 @@ function asEmpty(value: object): string {
  * @returns `true`, or a sentence saying why not.
  */
 export function jsonCanHold(value: unknown, path: string): true | string {
-	// the objects this walk is inside, so that a cycle is a refusal rather than a
-	// hang -- added and removed around the recursion rather than only added,
-	// which is `copyInto()`'s own rule and for its reason: a value referenced
-	// twice is a DAG that JSON writes twice, and only a genuine cycle is refused
-	const answer = look(value, path, new WeakSet<object>());
-	return answer ?? true;
+  // the objects this walk is inside, so that a cycle is a refusal rather than a
+  // hang -- added and removed around the recursion rather than only added,
+  // which is `copyInto()`'s own rule and for its reason: a value referenced
+  // twice is a DAG that JSON writes twice, and only a genuine cycle is refused
+  const answer = look(value, path, new WeakSet<object>());
+  return answer ?? true;
 }
 
 /** The walk, with the objects it is inside. */
 function look(value: unknown, where: string, seen: WeakSet<object>): string | undefined {
-	const at = (answer: string): string => (where === '' ? answer : `${answer} (at "${where}")`);
-	const answer = why(value);
+  const at = (answer: string): string => (where === '' ? answer : `${answer} (at "${where}")`);
+  const answer = why(value);
 
-	if (answer !== undefined) {
-		return at(answer);
-	}
+  if (answer !== undefined) {
+    return at(answer);
+  }
 
-	if (typeof value !== 'object' || value === null) {
-		return undefined;
-	}
+  if (typeof value !== 'object' || value === null) {
+    return undefined;
+  }
 
-	if (seen.has(value)) {
-		return at('a value that refers back to itself');
-	}
+  if (seen.has(value)) {
+    return at('a value that refers back to itself');
+  }
 
-	// asked before the structure, because `JSON.stringify` asks it before the
-	// structure: a value with a `toJSON` is written as whatever that answers, so
-	// walking its own keys would refuse it for what it holds rather than for what
-	// it says. `{ toJSON: () => 1 }` is a plain object and is still that statement
-	if (typeof (value as { toJSON?: unknown }).toJSON === 'function') {
-		return undefined;
-	}
+  // asked before the structure, because `JSON.stringify` asks it before the
+  // structure: a value with a `toJSON` is written as whatever that answers, so
+  // walking its own keys would refuse it for what it holds rather than for what
+  // it says. `{ toJSON: () => 1 }` is a plain object and is still that statement
+  if (typeof (value as { toJSON?: unknown }).toJSON === 'function') {
+    return undefined;
+  }
 
-	const list = Array.isArray(value);
-	if (!list && !isPlainObject(value)) {
-		return at(asEmpty(value));
-	}
+  const list = Array.isArray(value);
+  if (!list && !isPlainObject(value)) {
+    return at(asEmpty(value));
+  }
 
-	seen.add(value);
-	try {
-		if (list) {
-			// by index rather than through `map()`, because an array can have
-			// **holes** and every array method skips one: `[1, , 2].map()` answers a
-			// sparse array, so the walk destructured a hole and threw
-			// `undefined is not iterable` out of a function whose whole job is to
-			// name what cannot be written. `JSON.stringify` writes a hole as `null`,
-			// which is the same silent rewrite `NaN` gets and is refused the same
-			// way. Found by review, which expected it to pass rather than throw
-			for (let i = 0; i < value.length; i++) {
-				const label = where === '' ? `${i}` : `${where}.${i}`;
+  seen.add(value);
+  try {
+    if (list) {
+      // by index rather than through `map()`, because an array can have
+      // **holes** and every array method skips one: `[1, , 2].map()` answers a
+      // sparse array, so the walk destructured a hole and threw
+      // `undefined is not iterable` out of a function whose whole job is to
+      // name what cannot be written. `JSON.stringify` writes a hole as `null`,
+      // which is the same silent rewrite `NaN` gets and is refused the same
+      // way. Found by review, which expected it to pass rather than throw
+      for (let i = 0; i < value.length; i++) {
+        const label = where === '' ? `${i}` : `${where}.${i}`;
 
-				if (!(i in value)) {
-					return `JSON has no hole in an array; it writes one as null (at "${label}")`;
-				}
+        if (!(i in value)) {
+          return `JSON has no hole in an array; it writes one as null (at "${label}")`;
+        }
 
-				const inner = look(value[i], label, seen);
-				if (inner !== undefined) {
-					return inner;
-				}
-			}
-		} else {
-			for (const [key, it] of Object.entries(value)) {
-				const inner = look(it, where === '' ? key : `${where}.${key}`, seen);
-				if (inner !== undefined) {
-					return inner;
-				}
-			}
-		}
-	} finally {
-		seen.delete(value);
-	}
+        const inner = look(value[i], label, seen);
+        if (inner !== undefined) {
+          return inner;
+        }
+      }
+    } else {
+      for (const [key, it] of Object.entries(value)) {
+        const inner = look(it, where === '' ? key : `${where}.${key}`, seen);
+        if (inner !== undefined) {
+          return inner;
+        }
+      }
+    }
+  } finally {
+    seen.delete(value);
+  }
 
-	return undefined;
+  return undefined;
 }

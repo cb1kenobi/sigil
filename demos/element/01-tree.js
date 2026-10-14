@@ -19,35 +19,35 @@ import { arrange, box, createTree, paint, resolveStyles, text } from '@ttylabs/s
 import { Cascade, parseStylesheet, Restyler } from '@ttylabs/sigil/style';
 
 const sheet = parseStylesheet(`
-	.panel {
-		border: round;
-		border-color: gray;
-		padding: 1;
-		flex-direction: column;
-		width: 34;
-	}
-	.title { color: cyan; font-weight: bold }
-	.row { flex-direction: row; gap: 1 }
-	.label { color: gray }
-	.done { color: green }
-	.pending { color: yellow }
+  .panel {
+    border: round;
+    border-color: gray;
+    padding: 1;
+    flex-direction: column;
+    width: 34;
+  }
+  .title { color: cyan; font-weight: bold }
+  .row { flex-direction: row; gap: 1 }
+  .label { color: gray }
+  .done { color: green }
+  .pending { color: yellow }
 `);
 
 const rows = [
-	['parser', 'done'],
-	['layout', 'done'],
-	['renderer', 'pending'],
+  ['parser', 'done'],
+  ['layout', 'done'],
+  ['renderer', 'pending'],
 ];
 
 const root = box({ class: 'panel' }, text('sigil 2.0', { class: 'title' }));
 for (const [name, state] of rows) {
-	root.append(
-		box(
-			{ class: 'row' },
-			text(state === 'done' ? '✓' : '·', { class: state }),
-			text(name, { class: 'label' })
-		)
-	);
+  root.append(
+    box(
+      { class: 'row' },
+      text(state === 'done' ? '✓' : '·', { class: state }),
+      text(name, { class: 'label' })
+    )
+  );
 }
 
 const tree = createTree(root);
@@ -55,9 +55,9 @@ const restyler = new Restyler(new Cascade([sheet]));
 const backend = createInlineCanvas({ height: 7, width: 34 });
 
 const draw = () => {
-	resolveStyles(root, restyler);
-	arrange(root, { height: backend.height, width: backend.width });
-	backend.render((painter) => paint(root, painter));
+  resolveStyles(root, restyler);
+  arrange(root, { height: backend.height, width: backend.width });
+  backend.render((painter) => paint(root, painter));
 };
 
 draw();
@@ -73,9 +73,9 @@ backend.done();
 
 const marks = tree.take();
 console.log(
-	'marked:',
-	Object.entries(marks)
-		.filter(([, set]) => set.size > 0)
-		.map(([kind, set]) => `${kind}=${set.size}`)
-		.join(' ') || 'nothing'
+  'marked:',
+  Object.entries(marks)
+    .filter(([, set]) => set.size > 0)
+    .map(([kind, set]) => `${kind}=${set.size}`)
+    .join(' ') || 'nothing'
 );

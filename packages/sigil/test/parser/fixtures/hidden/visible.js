@@ -1,4 +1,4 @@
 export default {
-	desc: 'visible!',
-	hidden: false,
+  desc: 'visible!',
+  hidden: false,
 };

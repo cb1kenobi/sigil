@@ -72,18 +72,18 @@ const shorthandsKebab = <box flex-flow="column" font-weight="bold" text-decorati
 const shorthandsCamel = <box flexFlow="column" fontWeight="bold" textDecoration="underline" />;
 
 export type Checked = typeof unknownElement &
-	typeof misspelledLonghand &
-	typeof misspelledShorthand &
-	typeof badKeyword &
-	typeof badKeywordKebab &
-	typeof notAThunk &
-	typeof thunk &
-	typeof list &
-	typeof numericColor &
-	typeof numericColorProp &
-	typeof namedColor &
-	typeof numericLonghands &
-	typeof numericProp &
-	typeof lengths &
-	typeof shorthandsKebab &
-	typeof shorthandsCamel;
+  typeof misspelledLonghand &
+  typeof misspelledShorthand &
+  typeof badKeyword &
+  typeof badKeywordKebab &
+  typeof notAThunk &
+  typeof thunk &
+  typeof list &
+  typeof numericColor &
+  typeof numericColorProp &
+  typeof namedColor &
+  typeof numericLonghands &
+  typeof numericProp &
+  typeof lengths &
+  typeof shorthandsKebab &
+  typeof shorthandsCamel;

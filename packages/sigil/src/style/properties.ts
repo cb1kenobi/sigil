@@ -1,20 +1,20 @@
 import { type Color, DEFAULT_COLOR } from '../canvas/style.js';
 import { type Easing, LINEAR, parseEasing } from './easing.js';
 import {
-	AUTO,
-	cells,
-	type Length,
-	NONE,
-	parseBoolean,
-	parseColor,
-	parseCount,
-	parseFactor,
-	parseInteger,
-	parseIterations,
-	parseKeyword,
-	parseLength,
-	parseTime,
-	StyleError,
+  AUTO,
+  cells,
+  type Length,
+  NONE,
+  parseBoolean,
+  parseColor,
+  parseCount,
+  parseFactor,
+  parseInteger,
+  parseIterations,
+  parseKeyword,
+  parseLength,
+  parseTime,
+  StyleError,
 } from './value.js';
 
 /**
@@ -40,20 +40,20 @@ export type Display = 'flex' | 'none';
 export type FlexDirection = 'row' | 'row-reverse' | 'column' | 'column-reverse';
 export type FlexWrap = 'nowrap' | 'wrap' | 'wrap-reverse';
 export type JustifyContent =
-	| 'flex-start'
-	| 'flex-end'
-	| 'center'
-	| 'space-between'
-	| 'space-around'
-	| 'space-evenly';
+  | 'flex-start'
+  | 'flex-end'
+  | 'center'
+  | 'space-between'
+  | 'space-around'
+  | 'space-evenly';
 export type AlignItems = 'flex-start' | 'flex-end' | 'center' | 'stretch';
 export type AlignContent =
-	| 'flex-start'
-	| 'flex-end'
-	| 'center'
-	| 'stretch'
-	| 'space-between'
-	| 'space-around';
+  | 'flex-start'
+  | 'flex-end'
+  | 'center'
+  | 'stretch'
+  | 'space-between'
+  | 'space-around';
 export type BoxSizing = 'border-box' | 'content-box';
 export type Visibility = 'visible' | 'hidden';
 export type AlignSelf = AlignItems | 'auto';
@@ -89,101 +89,101 @@ export type BorderStyle = 'none' | 'single' | 'double' | 'round' | 'bold' | 'asc
 
 /** Every property, in the order they are documented. */
 export interface Style {
-	// layout
-	display: Display;
-	flexDirection: FlexDirection;
-	flexGrow: number;
-	flexShrink: number;
-	flexBasis: Length;
-	flexWrap: FlexWrap;
-	justifyContent: JustifyContent;
-	alignItems: AlignItems;
-	alignSelf: AlignSelf;
-	alignContent: AlignContent;
-	order: number;
-	rowGap: number;
-	columnGap: number;
+  // layout
+  display: Display;
+  flexDirection: FlexDirection;
+  flexGrow: number;
+  flexShrink: number;
+  flexBasis: Length;
+  flexWrap: FlexWrap;
+  justifyContent: JustifyContent;
+  alignItems: AlignItems;
+  alignSelf: AlignSelf;
+  alignContent: AlignContent;
+  order: number;
+  rowGap: number;
+  columnGap: number;
 
-	// box
-	boxSizing: BoxSizing;
-	width: Length;
-	height: Length;
-	minWidth: Length;
-	minHeight: Length;
-	maxWidth: Length;
-	maxHeight: Length;
-	paddingTop: number;
-	paddingRight: number;
-	paddingBottom: number;
-	paddingLeft: number;
-	marginTop: Length;
-	marginRight: Length;
-	marginBottom: Length;
-	marginLeft: Length;
-	borderStyle: BorderStyle;
-	borderColor: Color;
+  // box
+  boxSizing: BoxSizing;
+  width: Length;
+  height: Length;
+  minWidth: Length;
+  minHeight: Length;
+  maxWidth: Length;
+  maxHeight: Length;
+  paddingTop: number;
+  paddingRight: number;
+  paddingBottom: number;
+  paddingLeft: number;
+  marginTop: Length;
+  marginRight: Length;
+  marginBottom: Length;
+  marginLeft: Length;
+  borderStyle: BorderStyle;
+  borderColor: Color;
 
-	// position
-	position: Position;
-	top: Length;
-	right: Length;
-	bottom: Length;
-	left: Length;
-	zIndex: number;
-	overflow: Overflow;
-	visibility: Visibility;
+  // position
+  position: Position;
+  top: Length;
+  right: Length;
+  bottom: Length;
+  left: Length;
+  zIndex: number;
+  overflow: Overflow;
+  visibility: Visibility;
 
-	// text
-	color: Color;
-	backgroundColor: Color;
-	bold: boolean;
-	dim: boolean;
-	italic: boolean;
-	underline: boolean;
-	strikethrough: boolean;
-	overline: boolean;
-	inverse: boolean;
-	textAlign: TextAlign;
-	textTransform: TextTransform;
-	textOverflow: TextOverflow;
-	whiteSpace: WhiteSpace;
+  // text
+  color: Color;
+  backgroundColor: Color;
+  bold: boolean;
+  dim: boolean;
+  italic: boolean;
+  underline: boolean;
+  strikethrough: boolean;
+  overline: boolean;
+  inverse: boolean;
+  textAlign: TextAlign;
+  textTransform: TextTransform;
+  textOverflow: TextOverflow;
+  whiteSpace: WhiteSpace;
 
-	// animation
-	transitionProperty: TransitionProperty;
-	transitionDuration: number;
-	transitionTimingFunction: Easing;
-	transitionDelay: number;
-	animationName: string;
-	animationDuration: number;
-	animationTimingFunction: Easing;
-	animationDelay: number;
-	animationIterationCount: number;
-	animationDirection: AnimationDirection;
-	animationFillMode: AnimationFillMode;
+  // animation
+  transitionProperty: TransitionProperty;
+  transitionDuration: number;
+  transitionTimingFunction: Easing;
+  transitionDelay: number;
+  animationName: string;
+  animationDuration: number;
+  animationTimingFunction: Easing;
+  animationDelay: number;
+  animationIterationCount: number;
+  animationDirection: AnimationDirection;
+  animationFillMode: AnimationFillMode;
 }
 
 export type PropertyName = keyof Style;
 
 interface Definition<K extends PropertyName = PropertyName> {
-	/**
-	 * Whether a child gets this from its parent when nothing else says
-	 * otherwise. Follows CSS: text properties inherit, box and layout properties
-	 * do not. It is the rule people already know, and it is most of why a cascade
-	 * beats props -- setting `color` on a container and having the text inside
-	 * pick it up is the single most common thing anyone wants.
-	 */
-	readonly inherits: boolean;
-	readonly initial: Style[K];
-	/**
-	 * Every value this property accepts, where that is a fixed set.
-	 *
-	 * Absent for a property whose values are open -- a length, a colour, a plain
-	 * number. Present for the sixteen that take keywords, so the table can answer
-	 * what a property accepts rather than only whether a given string is one.
-	 */
-	readonly keywords?: readonly string[];
-	/** Reads the property's value from source. Throws `StyleError` on nonsense. */
-	readonly parse: (input: string) => Style[K];
+  /**
+   * Whether a child gets this from its parent when nothing else says
+   * otherwise. Follows CSS: text properties inherit, box and layout properties
+   * do not. It is the rule people already know, and it is most of why a cascade
+   * beats props -- setting `color` on a container and having the text inside
+   * pick it up is the single most common thing anyone wants.
+   */
+  readonly inherits: boolean;
+  readonly initial: Style[K];
+  /**
+   * Every value this property accepts, where that is a fixed set.
+   *
+   * Absent for a property whose values are open -- a length, a colour, a plain
+   * number. Present for the sixteen that take keywords, so the table can answer
+   * what a property accepts rather than only whether a given string is one.
+   */
+  readonly keywords?: readonly string[];
+  /** Reads the property's value from source. Throws `StyleError` on nonsense. */
+  readonly parse: (input: string) => Style[K];
 }
 
 /**
@@ -204,8 +204,8 @@ interface Definition<K extends PropertyName = PropertyName> {
 const ATTRIBUTE_NAMES = new Set<string>();
 
 const flag = (name: string) => {
-	ATTRIBUTE_NAMES.add(name);
-	return (input: string) => parseBoolean(input, name);
+  ATTRIBUTE_NAMES.add(name);
+  return (input: string) => parseBoolean(input, name);
 };
 
 /**
@@ -225,22 +225,22 @@ const flag = (name: string) => {
  * @returns The definition.
  */
 function fromKeywords<T extends string>(
-	keywords: readonly T[],
-	initial: T,
-	name: string,
-	inherits = false
+  keywords: readonly T[],
+  initial: T,
+  name: string,
+  inherits = false
 ): { inherits: boolean; initial: T; keywords: readonly T[]; parse: (input: string) => T } {
-	// frozen, for the reason the table's own entry gives about initial values:
-	// `Object.freeze` on the definition freezes the slot, not the array in it, and
-	// `parseKeyword` closes over this same array -- so a push onto it would make
-	// `display: grid` parse
-	const frozen = Object.freeze([...keywords]);
-	return {
-		inherits,
-		initial,
-		keywords: frozen,
-		parse: (input) => parseKeyword(input, frozen, name),
-	};
+  // frozen, for the reason the table's own entry gives about initial values:
+  // `Object.freeze` on the definition freezes the slot, not the array in it, and
+  // `parseKeyword` closes over this same array -- so a push onto it would make
+  // `display: grid` parse
+  const frozen = Object.freeze([...keywords]);
+  return {
+    inherits,
+    initial,
+    keywords: frozen,
+    parse: (input) => parseKeyword(input, frozen, name),
+  };
 }
 
 /**
@@ -278,48 +278,48 @@ const PROPERTY_LISTS = new Map<string, readonly PropertyName[]>([['', NO_PROPERT
  * @returns The list, interned, or `'all'`.
  */
 function parseTransitionProperty(input: string): TransitionProperty {
-	const text = input.trim();
-	if (text.toLowerCase() === 'all') {
-		return 'all';
-	}
-	if (text.toLowerCase() === 'none') {
-		return NO_PROPERTIES;
-	}
+  const text = input.trim();
+  if (text.toLowerCase() === 'all') {
+    return 'all';
+  }
+  if (text.toLowerCase() === 'none') {
+    return NO_PROPERTIES;
+  }
 
-	const names: PropertyName[] = [];
-	for (const piece of text.split(',')) {
-		const part = piece.trim();
-		if (part === '') {
-			throw new StyleError(`Invalid transition-property "${input}": an empty name in the list`);
-		}
-		// every longhand the name covers, so `transition-property: padding` watches
-		// all four edges and `font-weight` watches `bold` and `dim`. A shorthand is
-		// the spelling an author reaches for and expanding it here is the only place
-		// that can know what it covers
-		const longhands = propertyLonghands(part) ?? shorthandLonghandsOf(part);
-		if (!longhands) {
-			throw new StyleError(`Invalid transition-property "${part}": no such property`);
-		}
-		for (const name of longhands) {
-			if (INTERPOLATION.get(name) === 'none') {
-				throw new StyleError(
-					`Invalid transition-property "${part}": "${kebab(name)}" is not a property that animates`
-				);
-			}
-			if (!names.includes(name)) {
-				names.push(name);
-			}
-		}
-	}
+  const names: PropertyName[] = [];
+  for (const piece of text.split(',')) {
+    const part = piece.trim();
+    if (part === '') {
+      throw new StyleError(`Invalid transition-property "${input}": an empty name in the list`);
+    }
+    // every longhand the name covers, so `transition-property: padding` watches
+    // all four edges and `font-weight` watches `bold` and `dim`. A shorthand is
+    // the spelling an author reaches for and expanding it here is the only place
+    // that can know what it covers
+    const longhands = propertyLonghands(part) ?? shorthandLonghandsOf(part);
+    if (!longhands) {
+      throw new StyleError(`Invalid transition-property "${part}": no such property`);
+    }
+    for (const name of longhands) {
+      if (INTERPOLATION.get(name) === 'none') {
+        throw new StyleError(
+          `Invalid transition-property "${part}": "${kebab(name)}" is not a property that animates`
+        );
+      }
+      if (!names.includes(name)) {
+        names.push(name);
+      }
+    }
+  }
 
-	const key = names.join(',');
-	const already = PROPERTY_LISTS.get(key);
-	if (already) {
-		return already;
-	}
-	const frozen = Object.freeze(names);
-	PROPERTY_LISTS.set(key, frozen);
-	return frozen;
+  const key = names.join(',');
+  const already = PROPERTY_LISTS.get(key);
+  if (already) {
+    return already;
+  }
+  const frozen = Object.freeze(names);
+  PROPERTY_LISTS.set(key, frozen);
+  return frozen;
 }
 
 /**
@@ -338,9 +338,9 @@ let shorthandLonghandsOf: (name: string) => readonly PropertyName[] | undefined 
  * @param lookup - What `shorthand.ts` knows.
  */
 export function registerShorthandLookup(
-	lookup: (name: string) => readonly PropertyName[] | undefined
+  lookup: (name: string) => readonly PropertyName[] | undefined
 ): void {
-	shorthandLonghandsOf = lookup;
+  shorthandLonghandsOf = lookup;
 }
 
 /** A keyframes name: an identifier, or the keyword that means there is no animation. */
@@ -357,223 +357,223 @@ const NAME_RE = /^[A-Za-z_][\w-]*$/;
  * @returns The name, or `'none'`.
  */
 function parseAnimationName(input: string): string {
-	const text = input.trim();
-	if (text === 'none') {
-		return 'none';
-	}
-	if (!NAME_RE.test(text)) {
-		throw new StyleError(
-			`Invalid animation-name "${input}": expected an identifier, or none for no animation`
-		);
-	}
-	return text;
+  const text = input.trim();
+  if (text === 'none') {
+    return 'none';
+  }
+  if (!NAME_RE.test(text)) {
+    throw new StyleError(
+      `Invalid animation-name "${input}": expected an identifier, or none for no animation`
+    );
+  }
+  return text;
 }
 
 /** The table. */
 export const PROPERTIES: { readonly [K in PropertyName]: Definition<K> } = {
-	display: fromKeywords(['flex', 'none'] as const, 'flex', 'display', false),
-	flexDirection: fromKeywords(
-		['row', 'row-reverse', 'column', 'column-reverse'] as const,
-		'row',
-		'flex-direction',
-		false
-	),
-	flexGrow: { inherits: false, initial: 0, parse: (v) => parseFactor(v, 'flex-grow') },
-	flexShrink: { inherits: false, initial: 1, parse: (v) => parseFactor(v, 'flex-shrink') },
-	flexBasis: { inherits: false, initial: AUTO, parse: parseLength },
-	flexWrap: fromKeywords(['nowrap', 'wrap', 'wrap-reverse'] as const, 'nowrap', 'flex-wrap', false),
-	justifyContent: fromKeywords(
-		['flex-start', 'flex-end', 'center', 'space-between', 'space-around', 'space-evenly'] as const,
-		'flex-start',
-		'justify-content',
-		false
-	),
-	alignItems: fromKeywords(
-		['flex-start', 'flex-end', 'center', 'stretch'] as const,
-		'stretch',
-		'align-items',
-		false
-	),
-	alignSelf: fromKeywords(
-		['auto', 'flex-start', 'flex-end', 'center', 'stretch'] as const,
-		'auto',
-		'align-self',
-		false
-	),
-	alignContent: fromKeywords(
-		['flex-start', 'flex-end', 'center', 'stretch', 'space-between', 'space-around'] as const,
-		'stretch',
-		'align-content',
-		false
-	),
-	order: { inherits: false, initial: 0, parse: (v) => parseInteger(v, 'order') },
-	rowGap: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'row-gap') },
-	columnGap: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'column-gap') },
+  display: fromKeywords(['flex', 'none'] as const, 'flex', 'display', false),
+  flexDirection: fromKeywords(
+    ['row', 'row-reverse', 'column', 'column-reverse'] as const,
+    'row',
+    'flex-direction',
+    false
+  ),
+  flexGrow: { inherits: false, initial: 0, parse: (v) => parseFactor(v, 'flex-grow') },
+  flexShrink: { inherits: false, initial: 1, parse: (v) => parseFactor(v, 'flex-shrink') },
+  flexBasis: { inherits: false, initial: AUTO, parse: parseLength },
+  flexWrap: fromKeywords(['nowrap', 'wrap', 'wrap-reverse'] as const, 'nowrap', 'flex-wrap', false),
+  justifyContent: fromKeywords(
+    ['flex-start', 'flex-end', 'center', 'space-between', 'space-around', 'space-evenly'] as const,
+    'flex-start',
+    'justify-content',
+    false
+  ),
+  alignItems: fromKeywords(
+    ['flex-start', 'flex-end', 'center', 'stretch'] as const,
+    'stretch',
+    'align-items',
+    false
+  ),
+  alignSelf: fromKeywords(
+    ['auto', 'flex-start', 'flex-end', 'center', 'stretch'] as const,
+    'auto',
+    'align-self',
+    false
+  ),
+  alignContent: fromKeywords(
+    ['flex-start', 'flex-end', 'center', 'stretch', 'space-between', 'space-around'] as const,
+    'stretch',
+    'align-content',
+    false
+  ),
+  order: { inherits: false, initial: 0, parse: (v) => parseInteger(v, 'order') },
+  rowGap: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'row-gap') },
+  columnGap: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'column-gap') },
 
-	// `border-box` rather than CSS's `content-box`. In a terminal, `width: 20`
-	// meaning "twenty columns on screen" is what everybody means; having a border
-	// silently make the box twenty-two wide is the surprise, not the convenience
-	boxSizing: fromKeywords(
-		['border-box', 'content-box'] as const,
-		'border-box',
-		'box-sizing',
-		false
-	),
-	width: { inherits: false, initial: AUTO, parse: parseLength },
-	height: { inherits: false, initial: AUTO, parse: parseLength },
-	// `auto` rather than CSS 2.1's `0`, matching CSS Sizing 3: a flex item's
-	// automatic minimum size is its min-content size, which is what stops text
-	// shrinking past its longest word
-	minWidth: { inherits: false, initial: AUTO, parse: parseLength },
-	minHeight: { inherits: false, initial: AUTO, parse: parseLength },
-	// `none`, not `auto`. "No maximum" and "size to content" are different
-	// questions, and one sentinel for both makes `max-width: none` unwritable
-	maxWidth: { inherits: false, initial: NONE, parse: (v) => parseLength(v, { none: true }) },
-	maxHeight: { inherits: false, initial: NONE, parse: (v) => parseLength(v, { none: true }) },
-	paddingTop: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'padding-top') },
-	paddingRight: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'padding-right') },
-	paddingBottom: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'padding-bottom') },
-	paddingLeft: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'padding-left') },
-	// margins take a length rather than a count, because `auto` is how a box is
-	// centred and how it is pushed to one end -- the one place a negative or
-	// automatic value earns itself
-	marginTop: { inherits: false, initial: cells(0), parse: parseLength },
-	marginRight: { inherits: false, initial: cells(0), parse: parseLength },
-	marginBottom: { inherits: false, initial: cells(0), parse: parseLength },
-	marginLeft: { inherits: false, initial: cells(0), parse: parseLength },
-	borderStyle: fromKeywords(
-		['none', 'single', 'double', 'round', 'bold', 'ascii'] as const,
-		'none',
-		'border-style',
-		false
-	),
-	borderColor: { inherits: false, initial: DEFAULT_COLOR, parse: parseColor },
+  // `border-box` rather than CSS's `content-box`. In a terminal, `width: 20`
+  // meaning "twenty columns on screen" is what everybody means; having a border
+  // silently make the box twenty-two wide is the surprise, not the convenience
+  boxSizing: fromKeywords(
+    ['border-box', 'content-box'] as const,
+    'border-box',
+    'box-sizing',
+    false
+  ),
+  width: { inherits: false, initial: AUTO, parse: parseLength },
+  height: { inherits: false, initial: AUTO, parse: parseLength },
+  // `auto` rather than CSS 2.1's `0`, matching CSS Sizing 3: a flex item's
+  // automatic minimum size is its min-content size, which is what stops text
+  // shrinking past its longest word
+  minWidth: { inherits: false, initial: AUTO, parse: parseLength },
+  minHeight: { inherits: false, initial: AUTO, parse: parseLength },
+  // `none`, not `auto`. "No maximum" and "size to content" are different
+  // questions, and one sentinel for both makes `max-width: none` unwritable
+  maxWidth: { inherits: false, initial: NONE, parse: (v) => parseLength(v, { none: true }) },
+  maxHeight: { inherits: false, initial: NONE, parse: (v) => parseLength(v, { none: true }) },
+  paddingTop: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'padding-top') },
+  paddingRight: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'padding-right') },
+  paddingBottom: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'padding-bottom') },
+  paddingLeft: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'padding-left') },
+  // margins take a length rather than a count, because `auto` is how a box is
+  // centred and how it is pushed to one end -- the one place a negative or
+  // automatic value earns itself
+  marginTop: { inherits: false, initial: cells(0), parse: parseLength },
+  marginRight: { inherits: false, initial: cells(0), parse: parseLength },
+  marginBottom: { inherits: false, initial: cells(0), parse: parseLength },
+  marginLeft: { inherits: false, initial: cells(0), parse: parseLength },
+  borderStyle: fromKeywords(
+    ['none', 'single', 'double', 'round', 'bold', 'ascii'] as const,
+    'none',
+    'border-style',
+    false
+  ),
+  borderColor: { inherits: false, initial: DEFAULT_COLOR, parse: parseColor },
 
-	// `static` rather than `relative`, and the difference is not cosmetic twice
-	// over. Only a positioned ancestor is a containing block, so defaulting to
-	// `relative` would make every box in the tree an anchor an `absolute`
-	// descendant stops at -- and the insets are read only on a positioned box, so
-	// it would also make every stray `top` in a stylesheet move something.
-	//
-	// `absolute` used to be refused here, and the reason was that a keyword which
-	// parses and does nothing is worse than one that does not exist. That was
-	// true for as long as there was no out-of-flow engine; there is one now, so
-	// the keyword is back -- along with `fixed`, whose containing block is the
-	// canvas rather than an ancestor. The rule it was refused under is the same
-	// rule that admits it: what the engine honours is what the table offers,
-	// which is also what the utility generator builds a rule per entry from
-	position: fromKeywords(POSITIONS, 'static', 'position', false),
-	// read only where `position` is not `static`, which is CSS and cannot be
-	// checked here: `position` may be set by a different rule in a different
-	// sheet, and a declaration is parsed on its own
-	top: { inherits: false, initial: AUTO, parse: parseLength },
-	right: { inherits: false, initial: AUTO, parse: parseLength },
-	bottom: { inherits: false, initial: AUTO, parse: parseLength },
-	left: { inherits: false, initial: AUTO, parse: parseLength },
-	zIndex: {
-		inherits: false,
-		initial: 0,
-		// `0` rather than CSS's `auto`. `auto` means "do not establish a stacking
-		// context", which matters when contexts nest; the paint order here is flat
-		// enough that the distinction has nothing to bite on yet
-		parse: (v) => parseInteger(v, 'z-index'),
-	},
-	overflow: fromKeywords(
-		['visible', 'hidden', 'scroll', 'auto'] as const,
-		'visible',
-		'overflow',
-		false
-	),
-	// different from `display: none`: this one still takes its space
-	visibility: fromKeywords(['visible', 'hidden'] as const, 'visible', 'visibility', true),
+  // `static` rather than `relative`, and the difference is not cosmetic twice
+  // over. Only a positioned ancestor is a containing block, so defaulting to
+  // `relative` would make every box in the tree an anchor an `absolute`
+  // descendant stops at -- and the insets are read only on a positioned box, so
+  // it would also make every stray `top` in a stylesheet move something.
+  //
+  // `absolute` used to be refused here, and the reason was that a keyword which
+  // parses and does nothing is worse than one that does not exist. That was
+  // true for as long as there was no out-of-flow engine; there is one now, so
+  // the keyword is back -- along with `fixed`, whose containing block is the
+  // canvas rather than an ancestor. The rule it was refused under is the same
+  // rule that admits it: what the engine honours is what the table offers,
+  // which is also what the utility generator builds a rule per entry from
+  position: fromKeywords(POSITIONS, 'static', 'position', false),
+  // read only where `position` is not `static`, which is CSS and cannot be
+  // checked here: `position` may be set by a different rule in a different
+  // sheet, and a declaration is parsed on its own
+  top: { inherits: false, initial: AUTO, parse: parseLength },
+  right: { inherits: false, initial: AUTO, parse: parseLength },
+  bottom: { inherits: false, initial: AUTO, parse: parseLength },
+  left: { inherits: false, initial: AUTO, parse: parseLength },
+  zIndex: {
+    inherits: false,
+    initial: 0,
+    // `0` rather than CSS's `auto`. `auto` means "do not establish a stacking
+    // context", which matters when contexts nest; the paint order here is flat
+    // enough that the distinction has nothing to bite on yet
+    parse: (v) => parseInteger(v, 'z-index'),
+  },
+  overflow: fromKeywords(
+    ['visible', 'hidden', 'scroll', 'auto'] as const,
+    'visible',
+    'overflow',
+    false
+  ),
+  // different from `display: none`: this one still takes its space
+  visibility: fromKeywords(['visible', 'hidden'] as const, 'visible', 'visibility', true),
 
-	color: { inherits: true, initial: DEFAULT_COLOR, parse: parseColor },
-	// not inherited, as in CSS. A container's background showing through its
-	// children is paint order, not the cascade -- pushing the value down would make
-	// every descendant *own* that colour, which is a different thing entirely
-	backgroundColor: { inherits: false, initial: DEFAULT_COLOR, parse: parseColor },
-	bold: { inherits: true, initial: false, parse: flag('bold') },
-	dim: { inherits: true, initial: false, parse: flag('dim') },
-	italic: { inherits: true, initial: false, parse: flag('italic') },
-	underline: { inherits: true, initial: false, parse: flag('underline') },
-	strikethrough: { inherits: true, initial: false, parse: flag('strikethrough') },
-	overline: { inherits: true, initial: false, parse: flag('overline') },
-	inverse: { inherits: true, initial: false, parse: flag('inverse') },
-	textAlign: fromKeywords(['left', 'center', 'right'] as const, 'left', 'text-align', true),
-	textTransform: fromKeywords(
-		['none', 'uppercase', 'lowercase', 'capitalize'] as const,
-		'none',
-		'text-transform',
-		true
-	),
-	// not inherited, as in CSS: it only means anything on the box doing the
-	// clipping, which for a line of text is the text's own box. A container
-	// setting it would otherwise silently cut every descendant
-	textOverflow: fromKeywords(
-		['clip', 'ellipsis', 'ellipsis-start', 'ellipsis-middle'] as const,
-		'clip',
-		'text-overflow',
-		false
-	),
-	whiteSpace: fromKeywords(['normal', 'pre', 'nowrap'] as const, 'normal', 'white-space', true),
+  color: { inherits: true, initial: DEFAULT_COLOR, parse: parseColor },
+  // not inherited, as in CSS. A container's background showing through its
+  // children is paint order, not the cascade -- pushing the value down would make
+  // every descendant *own* that colour, which is a different thing entirely
+  backgroundColor: { inherits: false, initial: DEFAULT_COLOR, parse: parseColor },
+  bold: { inherits: true, initial: false, parse: flag('bold') },
+  dim: { inherits: true, initial: false, parse: flag('dim') },
+  italic: { inherits: true, initial: false, parse: flag('italic') },
+  underline: { inherits: true, initial: false, parse: flag('underline') },
+  strikethrough: { inherits: true, initial: false, parse: flag('strikethrough') },
+  overline: { inherits: true, initial: false, parse: flag('overline') },
+  inverse: { inherits: true, initial: false, parse: flag('inverse') },
+  textAlign: fromKeywords(['left', 'center', 'right'] as const, 'left', 'text-align', true),
+  textTransform: fromKeywords(
+    ['none', 'uppercase', 'lowercase', 'capitalize'] as const,
+    'none',
+    'text-transform',
+    true
+  ),
+  // not inherited, as in CSS: it only means anything on the box doing the
+  // clipping, which for a line of text is the text's own box. A container
+  // setting it would otherwise silently cut every descendant
+  textOverflow: fromKeywords(
+    ['clip', 'ellipsis', 'ellipsis-start', 'ellipsis-middle'] as const,
+    'clip',
+    'text-overflow',
+    false
+  ),
+  whiteSpace: fromKeywords(['normal', 'pre', 'nowrap'] as const, 'normal', 'white-space', true),
 
-	// the animation properties do not inherit, as in CSS. The temptation is to
-	// make them inherit so that `.panel { transition: color 200ms }` covers the
-	// text inside it -- which matters more here than in a browser, because an
-	// animated value is presented on the element that animates and is not
-	// inherited (see `animate.ts`). It is refused anyway: a surprise transition on
-	// every descendant is still a surprise, and a divergence from CSS costs
-	// everyone's intuition. The spelling for a subtree is a selector that covers
-	// it, and because the *base* value still inherits, every element covered
-	// starts at the same moment and stays in lockstep
-	transitionProperty: {
-		inherits: false,
-		initial: NO_PROPERTIES,
-		parse: parseTransitionProperty,
-	},
-	transitionDuration: {
-		inherits: false,
-		initial: 0,
-		parse: (v) => parseTime(v, 'transition-duration'),
-	},
-	transitionTimingFunction: { inherits: false, initial: LINEAR, parse: parseEasing },
-	// a negative delay is meaningful on a transition the way it is on an
-	// animation: it starts the clock partway in, so the first frame is already
-	// underway. CSS allows it on both and refuses a negative *duration* on either
-	transitionDelay: {
-		inherits: false,
-		initial: 0,
-		parse: (v) => parseTime(v, 'transition-delay', { negative: true }),
-	},
-	animationName: { inherits: false, initial: 'none', parse: parseAnimationName },
-	animationDuration: {
-		inherits: false,
-		initial: 0,
-		parse: (v) => parseTime(v, 'animation-duration'),
-	},
-	animationTimingFunction: { inherits: false, initial: LINEAR, parse: parseEasing },
-	animationDelay: {
-		inherits: false,
-		initial: 0,
-		parse: (v) => parseTime(v, 'animation-delay', { negative: true }),
-	},
-	animationIterationCount: {
-		inherits: false,
-		initial: 1,
-		parse: (v) => parseIterations(v, 'animation-iteration-count'),
-	},
-	animationDirection: fromKeywords(
-		['normal', 'reverse', 'alternate', 'alternate-reverse'] as const,
-		'normal',
-		'animation-direction',
-		false
-	),
-	animationFillMode: fromKeywords(
-		['none', 'forwards', 'backwards', 'both'] as const,
-		'none',
-		'animation-fill-mode',
-		false
-	),
+  // the animation properties do not inherit, as in CSS. The temptation is to
+  // make them inherit so that `.panel { transition: color 200ms }` covers the
+  // text inside it -- which matters more here than in a browser, because an
+  // animated value is presented on the element that animates and is not
+  // inherited (see `animate.ts`). It is refused anyway: a surprise transition on
+  // every descendant is still a surprise, and a divergence from CSS costs
+  // everyone's intuition. The spelling for a subtree is a selector that covers
+  // it, and because the *base* value still inherits, every element covered
+  // starts at the same moment and stays in lockstep
+  transitionProperty: {
+    inherits: false,
+    initial: NO_PROPERTIES,
+    parse: parseTransitionProperty,
+  },
+  transitionDuration: {
+    inherits: false,
+    initial: 0,
+    parse: (v) => parseTime(v, 'transition-duration'),
+  },
+  transitionTimingFunction: { inherits: false, initial: LINEAR, parse: parseEasing },
+  // a negative delay is meaningful on a transition the way it is on an
+  // animation: it starts the clock partway in, so the first frame is already
+  // underway. CSS allows it on both and refuses a negative *duration* on either
+  transitionDelay: {
+    inherits: false,
+    initial: 0,
+    parse: (v) => parseTime(v, 'transition-delay', { negative: true }),
+  },
+  animationName: { inherits: false, initial: 'none', parse: parseAnimationName },
+  animationDuration: {
+    inherits: false,
+    initial: 0,
+    parse: (v) => parseTime(v, 'animation-duration'),
+  },
+  animationTimingFunction: { inherits: false, initial: LINEAR, parse: parseEasing },
+  animationDelay: {
+    inherits: false,
+    initial: 0,
+    parse: (v) => parseTime(v, 'animation-delay', { negative: true }),
+  },
+  animationIterationCount: {
+    inherits: false,
+    initial: 1,
+    parse: (v) => parseIterations(v, 'animation-iteration-count'),
+  },
+  animationDirection: fromKeywords(
+    ['normal', 'reverse', 'alternate', 'alternate-reverse'] as const,
+    'normal',
+    'animation-direction',
+    false
+  ),
+  animationFillMode: fromKeywords(
+    ['none', 'forwards', 'backwards', 'both'] as const,
+    'none',
+    'animation-fill-mode',
+    false
+  ),
 };
 
 // the definitions and the table are frozen too. The initial values already were,
@@ -581,7 +581,7 @@ export const PROPERTIES: { readonly [K in PropertyName]: Definition<K> } = {
 // level up: `PROPERTIES.width.initial = cells(7)` changed what `declare()`
 // returns for every style in the process
 for (const definition of Object.values(PROPERTIES)) {
-	Object.freeze(definition);
+  Object.freeze(definition);
 }
 Object.freeze(PROPERTIES);
 
@@ -590,7 +590,7 @@ export const PROPERTY_NAMES: readonly PropertyName[] = Object.keys(PROPERTIES) a
 
 /** The properties a child takes from its parent when nothing else says otherwise. */
 export const INHERITED: readonly PropertyName[] = PROPERTY_NAMES.filter(
-	(name) => PROPERTIES[name].inherits
+  (name) => PROPERTIES[name].inherits
 );
 
 /**
@@ -617,42 +617,42 @@ export const INHERITED: readonly PropertyName[] = PROPERTY_NAMES.filter(
  * recorded decision, not a shortcut taken here.
  */
 export const LAYOUT_PROPERTIES: ReadonlySet<PropertyName> = new Set([
-	'display',
-	'flexDirection',
-	'flexGrow',
-	'flexShrink',
-	'flexBasis',
-	'flexWrap',
-	'justifyContent',
-	'alignItems',
-	'alignSelf',
-	'alignContent',
-	'order',
-	'rowGap',
-	'columnGap',
-	'boxSizing',
-	'width',
-	'height',
-	'minWidth',
-	'minHeight',
-	'maxWidth',
-	'maxHeight',
-	'paddingTop',
-	'paddingRight',
-	'paddingBottom',
-	'paddingLeft',
-	'marginTop',
-	'marginRight',
-	'marginBottom',
-	'marginLeft',
-	'borderStyle',
-	'position',
-	'top',
-	'right',
-	'bottom',
-	'left',
-	'textTransform',
-	'whiteSpace',
+  'display',
+  'flexDirection',
+  'flexGrow',
+  'flexShrink',
+  'flexBasis',
+  'flexWrap',
+  'justifyContent',
+  'alignItems',
+  'alignSelf',
+  'alignContent',
+  'order',
+  'rowGap',
+  'columnGap',
+  'boxSizing',
+  'width',
+  'height',
+  'minWidth',
+  'minHeight',
+  'maxWidth',
+  'maxHeight',
+  'paddingTop',
+  'paddingRight',
+  'paddingBottom',
+  'paddingLeft',
+  'marginTop',
+  'marginRight',
+  'marginBottom',
+  'marginLeft',
+  'borderStyle',
+  'position',
+  'top',
+  'right',
+  'bottom',
+  'left',
+  'textTransform',
+  'whiteSpace',
 ]);
 
 /**
@@ -665,7 +665,7 @@ export const LAYOUT_PROPERTIES: ReadonlySet<PropertyName> = new Set([
  * initial value, since `DEFAULT_COLOR` is a value no other numeric property has.
  */
 export const COLOR_PROPERTIES: readonly PropertyName[] = PROPERTY_NAMES.filter(
-	(name) => PROPERTIES[name].parse === parseColor
+  (name) => PROPERTIES[name].parse === parseColor
 );
 
 /**
@@ -676,7 +676,7 @@ export const COLOR_PROPERTIES: readonly PropertyName[] = PROPERTY_NAMES.filter(
  * is, and for the same reason.
  */
 export const ATTRIBUTE_PROPERTIES: readonly PropertyName[] = PROPERTY_NAMES.filter((name) =>
-	ATTRIBUTE_NAMES.has(name)
+  ATTRIBUTE_NAMES.has(name)
 );
 
 /**
@@ -710,47 +710,47 @@ export type Interpolation = 'color' | 'discrete' | 'integer' | 'length' | 'none'
  * silently rounded on every frame.
  */
 const INTERPOLATION_EXCEPTIONS: Partial<Record<PropertyName, Interpolation>> = {
-	// ratios rather than lengths: the cells they resolve to are whole even when
-	// the ratio is not
-	flexGrow: 'number',
-	flexShrink: 'number',
-	// the animation properties are not animatable, which is CSS and is also the
-	// only answer that terminates: a transition whose own duration was in flight
-	// would be asking what the duration is in order to find out what it is
-	animationDelay: 'none',
-	animationDirection: 'none',
-	animationDuration: 'none',
-	animationFillMode: 'none',
-	animationIterationCount: 'none',
-	animationName: 'none',
-	animationTimingFunction: 'none',
-	transitionDelay: 'none',
-	transitionDuration: 'none',
-	transitionProperty: 'none',
-	transitionTimingFunction: 'none',
+  // ratios rather than lengths: the cells they resolve to are whole even when
+  // the ratio is not
+  flexGrow: 'number',
+  flexShrink: 'number',
+  // the animation properties are not animatable, which is CSS and is also the
+  // only answer that terminates: a transition whose own duration was in flight
+  // would be asking what the duration is in order to find out what it is
+  animationDelay: 'none',
+  animationDirection: 'none',
+  animationDuration: 'none',
+  animationFillMode: 'none',
+  animationIterationCount: 'none',
+  animationName: 'none',
+  animationTimingFunction: 'none',
+  transitionDelay: 'none',
+  transitionDuration: 'none',
+  transitionProperty: 'none',
+  transitionTimingFunction: 'none',
 };
 
 /** How each property interpolates, for every property there is. */
 export const INTERPOLATION: ReadonlyMap<PropertyName, Interpolation> = new Map(
-	PROPERTY_NAMES.map((name): [PropertyName, Interpolation] => {
-		const named = INTERPOLATION_EXCEPTIONS[name];
-		if (named) {
-			return [name, named];
-		}
-		if ((COLOR_PROPERTIES as readonly string[]).includes(name)) {
-			return [name, 'color'];
-		}
-		const initial = PROPERTIES[name].initial as unknown;
-		if (typeof initial === 'object' && initial !== null && 'type' in initial) {
-			return [name, 'length'];
-		}
-		return [name, typeof initial === 'number' ? 'integer' : 'discrete'];
-	})
+  PROPERTY_NAMES.map((name): [PropertyName, Interpolation] => {
+    const named = INTERPOLATION_EXCEPTIONS[name];
+    if (named) {
+      return [name, named];
+    }
+    if ((COLOR_PROPERTIES as readonly string[]).includes(name)) {
+      return [name, 'color'];
+    }
+    const initial = PROPERTIES[name].initial as unknown;
+    if (typeof initial === 'object' && initial !== null && 'type' in initial) {
+      return [name, 'length'];
+    }
+    return [name, typeof initial === 'number' ? 'integer' : 'discrete'];
+  })
 );
 
 /** Every property a `transition-property: all` watches. */
 export const ANIMATABLE_PROPERTIES: readonly PropertyName[] = PROPERTY_NAMES.filter(
-	(name) => INTERPOLATION.get(name) !== 'none'
+  (name) => INTERPOLATION.get(name) !== 'none'
 );
 
 /**
@@ -758,9 +758,9 @@ export const ANIMATABLE_PROPERTIES: readonly PropertyName[] = PROPERTY_NAMES.fil
  * property. Rather than refuse the familiar one, these map onto it.
  */
 const WEIGHT_TO_FLAG: Record<string, PropertyName> = {
-	__proto__: null,
-	bold: 'bold',
-	dim: 'dim',
+  __proto__: null,
+  bold: 'bold',
+  dim: 'dim',
 } as unknown as Record<string, PropertyName>;
 
 /**
@@ -772,18 +772,18 @@ const WEIGHT_TO_FLAG: Record<string, PropertyName> = {
  * for either parser to read.
  */
 type Alias =
-	| PropertyName
-	| {
-			readonly expand: (value: string) => [PropertyName, string][];
-			readonly longhands: readonly PropertyName[];
-	  };
+  | PropertyName
+  | {
+      readonly expand: (value: string) => [PropertyName, string][];
+      readonly longhands: readonly PropertyName[];
+    };
 
 /** Builds one multi-longhand alias entry. */
 function alias(
-	longhands: readonly PropertyName[],
-	expand: (value: string) => [PropertyName, string][]
+  longhands: readonly PropertyName[],
+  expand: (value: string) => [PropertyName, string][]
 ): Alias {
-	return { expand, longhands };
+  return { expand, longhands };
 }
 
 /**
@@ -803,57 +803,57 @@ function alias(
 export type AliasName = 'font-style' | 'font-weight' | 'text-decoration';
 
 const ALIASES = {
-	'font-weight': alias(['bold', 'dim'], (value: string) => {
-		const key = value.trim().toLowerCase();
-		if (key === 'normal') {
-			return [
-				['bold', 'false'],
-				['dim', 'false'],
-			];
-		}
-		const flagName = Object.hasOwn(WEIGHT_TO_FLAG, key) ? WEIGHT_TO_FLAG[key] : undefined;
-		if (!flagName) {
-			throw new StyleError(
-				`Invalid font-weight "${value}": a terminal has bold, dim, and normal, and no axis between them`
-			);
-		}
-		// one CSS property over two longhands, so it has to reset the other -- the
-		// same rule `border` and `flex-flow` follow. `font-weight: normal` did and
-		// `font-weight: bold` did not
-		return flagName === 'bold'
-			? [
-					['bold', 'true'],
-					['dim', 'false'],
-				]
-			: [
-					['bold', 'false'],
-					['dim', 'true'],
-				];
-	}),
-	'font-style': alias(['italic'], (value: string) => {
-		const key = value.trim().toLowerCase();
-		if (key === 'normal') {
-			return [['italic', 'false']];
-		}
-		if (key === 'italic' || key === 'oblique') {
-			return [['italic', 'true']];
-		}
-		throw new StyleError(`Invalid font-style "${value}": expected normal or italic`);
-	}),
-	'text-decoration': alias(['underline', 'strikethrough', 'overline'], (value: string) => {
-		const wanted = new Set(value.trim().toLowerCase().split(/\s+/));
-		const known: [PropertyName, string][] = [
-			['underline', String(wanted.has('underline'))],
-			['strikethrough', String(wanted.has('line-through') || wanted.has('strikethrough'))],
-			['overline', String(wanted.has('overline'))],
-		];
-		for (const word of wanted) {
-			if (!['none', 'underline', 'line-through', 'strikethrough', 'overline'].includes(word)) {
-				throw new StyleError(`Invalid text-decoration "${value}"`);
-			}
-		}
-		return known;
-	}),
+  'font-weight': alias(['bold', 'dim'], (value: string) => {
+    const key = value.trim().toLowerCase();
+    if (key === 'normal') {
+      return [
+        ['bold', 'false'],
+        ['dim', 'false'],
+      ];
+    }
+    const flagName = Object.hasOwn(WEIGHT_TO_FLAG, key) ? WEIGHT_TO_FLAG[key] : undefined;
+    if (!flagName) {
+      throw new StyleError(
+        `Invalid font-weight "${value}": a terminal has bold, dim, and normal, and no axis between them`
+      );
+    }
+    // one CSS property over two longhands, so it has to reset the other -- the
+    // same rule `border` and `flex-flow` follow. `font-weight: normal` did and
+    // `font-weight: bold` did not
+    return flagName === 'bold'
+      ? [
+          ['bold', 'true'],
+          ['dim', 'false'],
+        ]
+      : [
+          ['bold', 'false'],
+          ['dim', 'true'],
+        ];
+  }),
+  'font-style': alias(['italic'], (value: string) => {
+    const key = value.trim().toLowerCase();
+    if (key === 'normal') {
+      return [['italic', 'false']];
+    }
+    if (key === 'italic' || key === 'oblique') {
+      return [['italic', 'true']];
+    }
+    throw new StyleError(`Invalid font-style "${value}": expected normal or italic`);
+  }),
+  'text-decoration': alias(['underline', 'strikethrough', 'overline'], (value: string) => {
+    const wanted = new Set(value.trim().toLowerCase().split(/\s+/));
+    const known: [PropertyName, string][] = [
+      ['underline', String(wanted.has('underline'))],
+      ['strikethrough', String(wanted.has('line-through') || wanted.has('strikethrough'))],
+      ['overline', String(wanted.has('overline'))],
+    ];
+    for (const word of wanted) {
+      if (!['none', 'underline', 'line-through', 'strikethrough', 'overline'].includes(word)) {
+        throw new StyleError(`Invalid text-decoration "${value}"`);
+      }
+    }
+    return known;
+  }),
 } satisfies { readonly [K in AliasName]: Alias };
 
 // null-prototype, for the reason AGENTS.md gives under Conventions: on a plain
@@ -873,7 +873,7 @@ Object.setPrototypeOf(ALIASES, null);
  * @returns Whether it is known.
  */
 export function isProperty(name: string): boolean {
-	return aliasFor(name) !== undefined || resolveName(name) !== undefined;
+  return aliasFor(name) !== undefined || resolveName(name) !== undefined;
 }
 
 /**
@@ -887,18 +887,18 @@ export function isProperty(name: string): boolean {
  * @returns The alias, if there is one.
  */
 function aliasFor(name: string): Alias | undefined {
-	const trimmed = name.trim();
-	for (const candidate of [trimmed.toLowerCase(), kebabOf(trimmed).toLowerCase()]) {
-		if (Object.hasOwn(ALIASES, candidate)) {
-			return ALIASES[candidate];
-		}
-	}
-	return undefined;
+  const trimmed = name.trim();
+  for (const candidate of [trimmed.toLowerCase(), kebabOf(trimmed).toLowerCase()]) {
+    if (Object.hasOwn(ALIASES, candidate)) {
+      return ALIASES[candidate];
+    }
+  }
+  return undefined;
 }
 
 /** `fontWeight` -> `font-weight`, leaving an already-kebab name alone. */
 function kebabOf(name: string): string {
-	return name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+  return name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
 }
 
 /**
@@ -914,15 +914,15 @@ function kebabOf(name: string): string {
  * @returns The property, or `undefined` if there is no such thing.
  */
 function resolveName(name: string): PropertyName | undefined {
-	// `has()` as well as `get()`, because "no such property" is an answer worth
-	// remembering and it is spelled `undefined`
-	const memo = RESOLVED_NAMES.get(name);
-	if (memo !== undefined || RESOLVED_NAMES.has(name)) {
-		return memo;
-	}
-	const answer = resolveNameUncached(name);
-	RESOLVED_NAMES.set(name, answer);
-	return answer;
+  // `has()` as well as `get()`, because "no such property" is an answer worth
+  // remembering and it is spelled `undefined`
+  const memo = RESOLVED_NAMES.get(name);
+  if (memo !== undefined || RESOLVED_NAMES.has(name)) {
+    return memo;
+  }
+  const answer = resolveNameUncached(name);
+  RESOLVED_NAMES.set(name, answer);
+  return answer;
 }
 
 /**
@@ -942,23 +942,23 @@ function resolveName(name: string): PropertyName | undefined {
 const RESOLVED_NAMES = new Map<string, PropertyName | undefined>();
 
 function resolveNameUncached(name: string): PropertyName | undefined {
-	const trimmed = name.trim();
+  const trimmed = name.trim();
 
-	// as written first, which is what keeps `backgroundColor` working; then
-	// lowercased, which is what a case-insensitive kebab lookup needs and exactly
-	// what would destroy the camelCase one. `Object.hasOwn` rather than `in`,
-	// because `constructor` and `toString` are truthy on a plain object
-	for (const candidate of [camel(trimmed), camel(trimmed.toLowerCase())] as PropertyName[]) {
-		if (Object.hasOwn(PROPERTIES, candidate)) {
-			return candidate;
-		}
-	}
-	return undefined;
+  // as written first, which is what keeps `backgroundColor` working; then
+  // lowercased, which is what a case-insensitive kebab lookup needs and exactly
+  // what would destroy the camelCase one. `Object.hasOwn` rather than `in`,
+  // because `constructor` and `toString` are truthy on a plain object
+  for (const candidate of [camel(trimmed), camel(trimmed.toLowerCase())] as PropertyName[]) {
+    if (Object.hasOwn(PROPERTIES, candidate)) {
+      return candidate;
+    }
+  }
+  return undefined;
 }
 
 /** `background-color` -> `backgroundColor`. */
 function camel(name: string): string {
-	return name.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
+  return name.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
 }
 
 /**
@@ -971,7 +971,7 @@ function camel(name: string): string {
  * already written in kebab passes through as itself.
  */
 export function kebab(name: string): string {
-	return name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+  return name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
 }
 
 /**
@@ -985,22 +985,22 @@ export function kebab(name: string): string {
  * @returns The longhand properties and their parsed values.
  */
 export function parseDeclaration(name: string, value: string): [PropertyName, unknown][] {
-	const entry = aliasFor(name);
-	if (entry) {
-		const pairs: [PropertyName, string][] =
-			typeof entry === 'string' ? [[entry, value]] : entry.expand(value);
-		return pairs.map(([prop, raw]) => [prop, PROPERTIES[prop].parse(raw)]);
-	}
+  const entry = aliasFor(name);
+  if (entry) {
+    const pairs: [PropertyName, string][] =
+      typeof entry === 'string' ? [[entry, value]] : entry.expand(value);
+    return pairs.map(([prop, raw]) => [prop, PROPERTIES[prop].parse(raw)]);
+  }
 
-	// case-insensitive like every other lookup here. This was the one path that
-	// was not, so `Color` was an unknown property while `Padding` and
-	// `Font-Weight` were both fine
-	const key = resolveName(name);
-	if (!key) {
-		throw new StyleError(`Unknown property "${name}"`);
-	}
+  // case-insensitive like every other lookup here. This was the one path that
+  // was not, so `Color` was an unknown property while `Padding` and
+  // `Font-Weight` were both fine
+  const key = resolveName(name);
+  if (!key) {
+    throw new StyleError(`Unknown property "${name}"`);
+  }
 
-	return [[key, PROPERTIES[key].parse(value)]];
+  return [[key, PROPERTIES[key].parse(value)]];
 }
 
 /**
@@ -1009,11 +1009,11 @@ export function parseDeclaration(name: string, value: string): [PropertyName, un
  * @returns The style.
  */
 export function initialStyle(): Style {
-	const style = {} as Record<PropertyName, unknown>;
-	for (const name of PROPERTY_NAMES) {
-		style[name] = PROPERTIES[name].initial;
-	}
-	return style as Style;
+  const style = {} as Record<PropertyName, unknown>;
+  for (const name of PROPERTY_NAMES) {
+    style[name] = PROPERTIES[name].initial;
+  }
+  return style as Style;
 }
 
 /**
@@ -1024,11 +1024,11 @@ export function initialStyle(): Style {
  * @returns The starting point for the child, before anything is cascaded onto it.
  */
 export function inheritFrom(parent: Style): Style {
-	const style = initialStyle() as Record<PropertyName, unknown>;
-	for (const name of INHERITED) {
-		style[name] = parent[name];
-	}
-	return style as Style;
+  const style = initialStyle() as Record<PropertyName, unknown>;
+  for (const name of INHERITED) {
+    style[name] = parent[name];
+  }
+  return style as Style;
 }
 
 /**
@@ -1042,10 +1042,10 @@ export function inheritFrom(parent: Style): Style {
  * @returns The longhands, or `undefined` if there is no such property.
  */
 export function propertyLonghands(name: string): readonly PropertyName[] | undefined {
-	const entry = aliasFor(name);
-	if (entry !== undefined) {
-		return typeof entry === 'string' ? [entry] : entry.longhands;
-	}
-	const key = resolveName(name);
-	return key === undefined ? undefined : [key];
+  const entry = aliasFor(name);
+  if (entry !== undefined) {
+    return typeof entry === 'string' ? [entry] : entry.longhands;
+  }
+  const key = resolveName(name);
+  return key === undefined ? undefined : [key];
 }

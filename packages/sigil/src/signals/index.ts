@@ -17,47 +17,47 @@
  */
 
 import {
-	Computed,
-	currentComputed,
-	hasSinks,
-	hasSources,
-	introspectSinks,
-	introspectSources,
-	sinkCount,
-	type SignalOptions,
-	State,
-	untrack,
-	unwatched,
-	Watcher,
-	watched,
+  Computed,
+  currentComputed,
+  hasSinks,
+  hasSources,
+  introspectSinks,
+  introspectSources,
+  sinkCount,
+  type SignalOptions,
+  State,
+  untrack,
+  unwatched,
+  Watcher,
+  watched,
 } from './graph.js';
 
 export {
-	Computed,
-	currentComputed,
-	hasSinks,
-	hasSources,
-	introspectSinks,
-	introspectSources,
-	sinkCount,
-	type SignalOptions,
-	State,
-	untrack,
-	unwatched,
-	Watcher,
-	watched,
+  Computed,
+  currentComputed,
+  hasSinks,
+  hasSources,
+  introspectSinks,
+  introspectSources,
+  sinkCount,
+  type SignalOptions,
+  State,
+  untrack,
+  unwatched,
+  Watcher,
+  watched,
 };
 export {
-	createEffects,
-	effect,
-	type EffectErrorHandler,
-	type Effects,
-	type Flush,
-	flush,
-	type Scheduler,
-	setErrorHandler,
-	setScheduler,
-	unowned,
+  createEffects,
+  effect,
+  type EffectErrorHandler,
+  type Effects,
+  type Flush,
+  flush,
+  type Scheduler,
+  setErrorHandler,
+  setScheduler,
+  unowned,
 } from './effect.js';
 
 /**
@@ -66,21 +66,21 @@ export {
  * in itself -- ordinary code uses `State`, `Computed`, and `effect()`.
  */
 export interface SignalSubtle {
-	currentComputed: typeof currentComputed;
-	hasSinks: typeof hasSinks;
-	hasSources: typeof hasSources;
-	introspectSinks: typeof introspectSinks;
-	introspectSources: typeof introspectSources;
-	untrack: typeof untrack;
-	unwatched: typeof unwatched;
-	Watcher: typeof Watcher;
-	watched: typeof watched;
+  currentComputed: typeof currentComputed;
+  hasSinks: typeof hasSinks;
+  hasSources: typeof hasSources;
+  introspectSinks: typeof introspectSinks;
+  introspectSources: typeof introspectSources;
+  untrack: typeof untrack;
+  unwatched: typeof unwatched;
+  Watcher: typeof Watcher;
+  watched: typeof watched;
 }
 
 export interface SignalNamespace {
-	Computed: typeof Computed;
-	State: typeof State;
-	subtle: SignalSubtle;
+  Computed: typeof Computed;
+  State: typeof State;
+  subtle: SignalSubtle;
 }
 
 /**
@@ -88,17 +88,17 @@ export interface SignalNamespace {
  * and so that switching to the native `Signal` is an import change.
  */
 export const Signal: SignalNamespace = {
-	Computed,
-	State,
-	subtle: {
-		currentComputed,
-		hasSinks,
-		hasSources,
-		introspectSinks,
-		introspectSources,
-		untrack,
-		unwatched,
-		Watcher,
-		watched,
-	},
+  Computed,
+  State,
+  subtle: {
+    currentComputed,
+    hasSinks,
+    hasSources,
+    introspectSinks,
+    introspectSources,
+    untrack,
+    unwatched,
+    Watcher,
+    watched,
+  },
 };

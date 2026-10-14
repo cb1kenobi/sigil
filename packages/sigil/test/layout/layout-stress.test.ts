@@ -41,13 +41,13 @@ import { describe, expect, it } from 'vitest';
 
 /** The sizes every generated tree is laid out at, degenerate ones included. */
 const SIZES: [number, number][] = [
-	[0, 0],
-	[1, 1],
-	[3, 2],
-	[7, 4],
-	[13, 6],
-	[40, 12],
-	[80, 24],
+  [0, 0],
+  [1, 1],
+  [3, 2],
+  [7, 4],
+  [13, 6],
+  [40, 12],
+  [80, 24],
 ];
 
 const SHAPE: Options = { breadth: 4, depth: 3, relative: true };
@@ -64,22 +64,22 @@ const SHAPE: Options = { breadth: 4, depth: 3, relative: true };
 const TREES = 200;
 
 interface Failure {
-	height: number;
-	message: string;
-	width: number;
+  height: number;
+  message: string;
+  width: number;
 }
 
 /** Lays a tree out and reports what it broke, if anything. */
 function check(spec: Spec, width: number, height: number): string | undefined {
-	try {
-		// overflow allowed, for the reason at the top: an escape is legitimate
-		// across this corpus, and a check that fails on what the engine is
-		// supposed to do is a check somebody deletes
-		checkInvariants(layout(build(spec), { height, width }), { overflow: true });
-		return undefined;
-	} catch (error) {
-		return (error as Error).message;
-	}
+  try {
+    // overflow allowed, for the reason at the top: an escape is legitimate
+    // across this corpus, and a check that fails on what the engine is
+    // supposed to do is a check somebody deletes
+    checkInvariants(layout(build(spec), { height, width }), { overflow: true });
+    return undefined;
+  } catch (error) {
+    return (error as Error).message;
+  }
 }
 
 /**
@@ -98,97 +98,97 @@ function check(spec: Spec, width: number, height: number): string | undefined {
  * @returns The report.
  */
 function report(seed: number, spec: Spec, failure: Failure): string {
-	const smallest = shrink(
-		spec,
-		(candidate) => check(candidate, failure.width, failure.height) !== undefined
-	);
+  const smallest = shrink(
+    spec,
+    (candidate) => check(candidate, failure.width, failure.height) !== undefined
+  );
 
-	return [
-		`seed ${seed}, at ${failure.width}x${failure.height}: ` +
-			`${check(smallest, failure.width, failure.height) ?? failure.message}`,
-		'',
-		source(smallest),
-		'',
-	].join('\n');
+  return [
+    `seed ${seed}, at ${failure.width}x${failure.height}: ` +
+      `${check(smallest, failure.width, failure.height) ?? failure.message}`,
+    '',
+    source(smallest),
+    '',
+  ].join('\n');
 }
 
 describe('the layout engine, over random trees', () => {
-	for (const seed of [1, 2, 3, 12345, 987654321]) {
-		it(`should hold the invariants (seed ${seed})`, () => {
-			const random = rng(seed);
-			let found: { failure: Failure; spec: Spec } | undefined;
+  for (const seed of [1, 2, 3, 12345, 987654321]) {
+    it(`should hold the invariants (seed ${seed})`, () => {
+      const random = rng(seed);
+      let found: { failure: Failure; spec: Spec } | undefined;
 
-			for (let tree = 0; tree < TREES && !found; tree++) {
-				const spec = generate(random, SHAPE);
-				for (const [width, height] of SIZES) {
-					const message = check(spec, width, height);
-					if (message !== undefined) {
-						found = { failure: { height, message, width }, spec };
-						break;
-					}
-				}
-			}
+      for (let tree = 0; tree < TREES && !found; tree++) {
+        const spec = generate(random, SHAPE);
+        for (const [width, height] of SIZES) {
+          const message = check(spec, width, height);
+          if (message !== undefined) {
+            found = { failure: { height, message, width }, spec };
+            break;
+          }
+        }
+      }
 
-			if (found) {
-				throw new Error(report(seed, found.spec, found.failure));
-			}
-		});
-	}
+      if (found) {
+        throw new Error(report(seed, found.spec, found.failure));
+      }
+    });
+  }
 
-	it('should generate trees that reach the properties it means to', () => {
-		const random = rng(42);
-		const seen = new Set<string>();
+  it('should generate trees that reach the properties it means to', () => {
+    const random = rng(42);
+    const seen = new Set<string>();
 
-		for (let tree = 0; tree < TREES; tree++) {
-			const walk = (spec: Spec): void => {
-				if (spec.text !== undefined) {
-					seen.add('text');
-				}
-				for (const [key, value] of Object.entries(spec.declarations)) {
-					seen.add(key);
-					if (value.endsWith('%')) {
-						seen.add('percent');
-					}
-					if (value === 'auto') {
-						seen.add('auto margin');
-					}
-				}
-				for (const child of spec.children) {
-					walk(child);
-				}
-			};
-			walk(generate(random, SHAPE));
-		}
+    for (let tree = 0; tree < TREES; tree++) {
+      const walk = (spec: Spec): void => {
+        if (spec.text !== undefined) {
+          seen.add('text');
+        }
+        for (const [key, value] of Object.entries(spec.declarations)) {
+          seen.add(key);
+          if (value.endsWith('%')) {
+            seen.add('percent');
+          }
+          if (value === 'auto') {
+            seen.add('auto margin');
+          }
+        }
+        for (const child of spec.children) {
+          walk(child);
+        }
+      };
+      walk(generate(random, SHAPE));
+    }
 
-		// a fuzzer that never reaches what its ticket names is not testing what its
-		// name says, so the corpus is asserted rather than assumed -- the same
-		// reason `graph-stress.test.ts` counts the short-circuits it exists to
-		// exercise. A property dropped from the generator by accident would
-		// otherwise cost nothing and be noticed by nobody
-		for (const property of [
-			'align-content',
-			'align-self',
-			'auto margin',
-			'border',
-			'flex-basis',
-			'flex-direction',
-			'flex-grow',
-			'flex-shrink',
-			'flex-wrap',
-			'gap',
-			'justify-content',
-			'max-width',
-			'min-height',
-			'min-width',
-			'order',
-			'overflow',
-			'padding',
-			'percent',
-			'position',
-			'text',
-			'z-index',
-		]) {
-			expect(seen.has(property), `generated no ${property}`).toBe(true);
-		}
-	});
+    // a fuzzer that never reaches what its ticket names is not testing what its
+    // name says, so the corpus is asserted rather than assumed -- the same
+    // reason `graph-stress.test.ts` counts the short-circuits it exists to
+    // exercise. A property dropped from the generator by accident would
+    // otherwise cost nothing and be noticed by nobody
+    for (const property of [
+      'align-content',
+      'align-self',
+      'auto margin',
+      'border',
+      'flex-basis',
+      'flex-direction',
+      'flex-grow',
+      'flex-shrink',
+      'flex-wrap',
+      'gap',
+      'justify-content',
+      'max-width',
+      'min-height',
+      'min-width',
+      'order',
+      'overflow',
+      'padding',
+      'percent',
+      'position',
+      'text',
+      'z-index',
+    ]) {
+      expect(seen.has(property), `generated no ${property}`).toBe(true);
+    }
+  });
 });

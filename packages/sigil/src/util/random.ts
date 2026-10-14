@@ -52,13 +52,13 @@ export type Random = () => number;
  * @returns The generator.
  */
 export function seeded(seed: number): Random {
-	let state = seed >>> 0 || 0x9e37_79b9;
-	return () => {
-		state ^= state << 13;
-		state >>>= 0;
-		state ^= state >>> 17;
-		state ^= state << 5;
-		state >>>= 0;
-		return state / 0x1_0000_0000;
-	};
+  let state = seed >>> 0 || 0x9e37_79b9;
+  return () => {
+    state ^= state << 13;
+    state >>>= 0;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    state >>>= 0;
+    return state / 0x1_0000_0000;
+  };
 }

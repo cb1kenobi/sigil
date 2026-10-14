@@ -16,53 +16,53 @@ export const LINE: readonly string[] = ['-', '\\', '|', '/'];
 
 /** How a spinner ends, and the mark it leaves. */
 const OUTCOMES = {
-	error: '✖',
-	info: 'ℹ',
-	success: '✔',
-	warn: '⚠',
+  error: '✖',
+  info: 'ℹ',
+  success: '✔',
+  warn: '⚠',
 } as const;
 
 /** One of the four ways a spinner settles. */
 export type SpinnerOutcome = keyof typeof OUTCOMES;
 
 export interface SpinnerOptions extends MountOptions {
-	/** How long each frame lasts, in milliseconds. Defaults to 80. */
-	interval?: number;
-	/** What it is doing, shown after the spinner. */
-	text?: string;
-	/** The frames to cycle. Defaults to `DOTS`. */
-	frames?: readonly string[];
+  /** How long each frame lasts, in milliseconds. Defaults to 80. */
+  interval?: number;
+  /** What it is doing, shown after the spinner. */
+  text?: string;
+  /** The frames to cycle. Defaults to `DOTS`. */
+  frames?: readonly string[];
 }
 
 export interface Spinner {
-	/** Whether it is currently spinning. */
-	readonly spinning: boolean;
-	/** Stops, leaving `text` behind marked as failed. */
-	fail(text?: string): void;
-	/** Stops, leaving `text` behind marked as an informational note. */
-	info(text?: string): void;
-	/** Starts spinning, optionally changing the text first. */
-	start(text?: string): Spinner;
-	/** Stops and erases, leaving nothing behind. */
-	stop(): void;
-	/** Stops, leaving `text` behind marked as done. */
-	succeed(text?: string): void;
-	/** What it is doing. Assigning redraws it. */
-	text: string;
-	/** Stops, leaving `text` behind marked as a warning. */
-	warn(text?: string): void;
-	/** Writes a line that stays, above the spinner. */
-	write(text: string): void;
+  /** Whether it is currently spinning. */
+  readonly spinning: boolean;
+  /** Stops, leaving `text` behind marked as failed. */
+  fail(text?: string): void;
+  /** Stops, leaving `text` behind marked as an informational note. */
+  info(text?: string): void;
+  /** Starts spinning, optionally changing the text first. */
+  start(text?: string): Spinner;
+  /** Stops and erases, leaving nothing behind. */
+  stop(): void;
+  /** Stops, leaving `text` behind marked as done. */
+  succeed(text?: string): void;
+  /** What it is doing. Assigning redraws it. */
+  text: string;
+  /** Stops, leaving `text` behind marked as a warning. */
+  warn(text?: string): void;
+  /** Writes a line that stays, above the spinner. */
+  write(text: string): void;
 }
 
 /** What a spinner's tree is driven by, and what the facade writes to. */
 export interface SpinnerState {
-	/** How far through the frames, or `undefined` once it has settled. */
-	readonly frame: State<number | undefined>;
-	/** The mark it settled with, if it has. */
-	readonly outcome: State<SpinnerOutcome | undefined>;
-	/** What it is doing. */
-	readonly label: State<string>;
+  /** How far through the frames, or `undefined` once it has settled. */
+  readonly frame: State<number | undefined>;
+  /** The mark it settled with, if it has. */
+  readonly outcome: State<SpinnerOutcome | undefined>;
+  /** What it is doing. */
+  readonly label: State<string>;
 }
 
 /**
@@ -72,11 +72,11 @@ export interface SpinnerState {
  * @returns The signals.
  */
 export function spinnerState(label = ''): SpinnerState {
-	return {
-		frame: new State<number | undefined>(undefined),
-		label: new State(label),
-		outcome: new State<SpinnerOutcome | undefined>(undefined),
-	};
+  return {
+    frame: new State<number | undefined>(undefined),
+    label: new State(label),
+    outcome: new State<SpinnerOutcome | undefined>(undefined),
+  };
 }
 
 /**
@@ -93,30 +93,30 @@ export function spinnerState(label = ''): SpinnerState {
  * @returns The tree.
  */
 export function spinnerView(state: SpinnerState, frames: readonly string[] = DOTS): Element {
-	const lead = textNode('', { 'margin-right': 1 });
-	const label = textNode(state.label.get(), { class: 'sigil-spinner-text' });
+  const lead = textNode('', { 'margin-right': 1 });
+  const label = textNode(state.label.get(), { class: 'sigil-spinner-text' });
 
-	createEffect(() => {
-		const outcome = state.outcome.get();
-		const frame = state.frame.get();
+  createEffect(() => {
+    const outcome = state.outcome.get();
+    const frame = state.frame.get();
 
-		if (outcome) {
-			lead.setText(OUTCOMES[outcome]);
-			lead.setProps({ class: `sigil-symbol is-${outcome} sigil-${outcome}`, display: 'flex' });
-		} else if (frame === undefined) {
-			lead.setText('');
-			lead.setProps({ class: 'sigil-spinner-frame sigil-accent', display: 'none' });
-		} else {
-			lead.setText(frames[frame % frames.length]);
-			lead.setProps({ class: 'sigil-spinner-frame sigil-accent', display: 'flex' });
-		}
-	});
+    if (outcome) {
+      lead.setText(OUTCOMES[outcome]);
+      lead.setProps({ class: `sigil-symbol is-${outcome} sigil-${outcome}`, display: 'flex' });
+    } else if (frame === undefined) {
+      lead.setText('');
+      lead.setProps({ class: 'sigil-spinner-frame sigil-accent', display: 'none' });
+    } else {
+      lead.setText(frames[frame % frames.length]);
+      lead.setProps({ class: 'sigil-spinner-frame sigil-accent', display: 'flex' });
+    }
+  });
 
-	createEffect(() => {
-		label.setText(state.label.get());
-	});
+  createEffect(() => {
+    label.setText(state.label.get());
+  });
 
-	return box({ class: 'sigil-spinner' }, lead, label);
+  return box({ class: 'sigil-spinner' }, lead, label);
 }
 
 /**
@@ -133,145 +133,145 @@ export function spinnerView(state: SpinnerState, frames: readonly string[] = DOT
  * @returns The spinner, not yet started.
  */
 export function createSpinner(opts: SpinnerOptions = {}): Spinner {
-	const frames = opts.frames?.length ? opts.frames : DOTS;
-	const interval = opts.interval && opts.interval > 0 ? opts.interval : 80;
-	const state = spinnerState(opts.text ?? '');
-	const running = new State(false);
-	const terminal = opts.terminal ?? defaultTerminal;
+  const frames = opts.frames?.length ? opts.frames : DOTS;
+  const interval = opts.interval && opts.interval > 0 ? opts.interval : 80;
+  const state = spinnerState(opts.text ?? '');
+  const running = new State(false);
+  const terminal = opts.terminal ?? defaultTerminal;
 
-	/**
-	 * What is on screen now, or nothing.
-	 *
-	 * Nothing is mounted until it is started, because a spinner that has not been
-	 * started has nothing on screen -- which is what it has always meant and is
-	 * the one thing a canvas would take away by itself: a renderer paints its
-	 * first frame as it is built. And nothing is left mounted once it has settled
-	 * or stopped, because a disposed renderer paints nothing ever again: keeping
-	 * it made `start()` after `succeed()` a call that set `spinning` to true and
-	 * changed the screen not at all.
-	 */
-	let mounted: Mounted | undefined;
-	let spinning = false;
+  /**
+   * What is on screen now, or nothing.
+   *
+   * Nothing is mounted until it is started, because a spinner that has not been
+   * started has nothing on screen -- which is what it has always meant and is
+   * the one thing a canvas would take away by itself: a renderer paints its
+   * first frame as it is built. And nothing is left mounted once it has settled
+   * or stopped, because a disposed renderer paints nothing ever again: keeping
+   * it made `start()` after `succeed()` a call that set `spinning` to true and
+   * changed the screen not at all.
+   */
+  let mounted: Mounted | undefined;
+  let spinning = false;
 
-	function mount(): Mounted {
-		mounted ??= mountLive(
-			(live) => {
-				createEffect(() => {
-					// only while there is something to animate and something running: a
-					// pipe has no frames to show, so a timer would wake the process
-					// eighty times a second to render nothing
-					if (!live || !running.get()) {
-						return;
-					}
+  function mount(): Mounted {
+    mounted ??= mountLive(
+      (live) => {
+        createEffect(() => {
+          // only while there is something to animate and something running: a
+          // pipe has no frames to show, so a timer would wake the process
+          // eighty times a second to render nothing
+          if (!live || !running.get()) {
+            return;
+          }
 
-					state.frame.set(0);
-					const timer = setInterval(() => {
-						state.frame.set((state.frame.get() ?? 0) + 1);
-					}, interval);
-					// the spinner is not a reason to stay alive -- a program that has
-					// finished should exit even if somebody forgot to stop it
-					timer.unref?.();
-					onCleanup(() => clearInterval(timer));
-				});
+          state.frame.set(0);
+          const timer = setInterval(() => {
+            state.frame.set((state.frame.get() ?? 0) + 1);
+          }, interval);
+          // the spinner is not a reason to stay alive -- a program that has
+          // finished should exit even if somebody forgot to stop it
+          timer.unref?.();
+          onCleanup(() => clearInterval(timer));
+        });
 
-				return spinnerView(state, frames);
-			},
-			{ ...opts, terminal }
-		);
-		return mounted;
-	}
+        return spinnerView(state, frames);
+      },
+      { ...opts, terminal }
+    );
+    return mounted;
+  }
 
-	/**
-	 * Stops and leaves one final line, which is the only thing a CI log keeps.
-	 *
-	 * @param outcome - How it ended.
-	 * @param final - The text to leave. The current text, if omitted.
-	 */
-	function settle(outcome: SpinnerOutcome, final?: string): void {
-		if (final !== undefined) {
-			state.label.set(final);
-		}
-		spinning = false;
-		running.set(false);
-		state.frame.set(undefined);
-		state.outcome.set(outcome);
+  /**
+   * Stops and leaves one final line, which is the only thing a CI log keeps.
+   *
+   * @param outcome - How it ended.
+   * @param final - The text to leave. The current text, if omitted.
+   */
+  function settle(outcome: SpinnerOutcome, final?: string): void {
+    if (final !== undefined) {
+      state.label.set(final);
+    }
+    spinning = false;
+    running.set(false);
+    state.frame.set(undefined);
+    state.outcome.set(outcome);
 
-		// mounted even if it never ran: a `succeed()` on a spinner nobody started
-		// still leaves its line, which is what a region asked to `done(final)`
-		// always did
-		const it = mount();
-		// painted before the screen is given back, because `done()` leaves what is
-		// on screen where it is and what is on screen is still the frame before this
-		it.frame();
-		it.done();
-		mounted = undefined;
-	}
+    // mounted even if it never ran: a `succeed()` on a spinner nobody started
+    // still leaves its line, which is what a region asked to `done(final)`
+    // always did
+    const it = mount();
+    // painted before the screen is given back, because `done()` leaves what is
+    // on screen where it is and what is on screen is still the frame before this
+    it.frame();
+    it.done();
+    mounted = undefined;
+  }
 
-	const spinner: Spinner = {
-		fail(final?: string): void {
-			settle('error', final);
-		},
+  const spinner: Spinner = {
+    fail(final?: string): void {
+      settle('error', final);
+    },
 
-		info(final?: string): void {
-			settle('info', final);
-		},
+    info(final?: string): void {
+      settle('info', final);
+    },
 
-		start(next?: string): Spinner {
-			if (next !== undefined) {
-				state.label.set(next);
-			}
+    start(next?: string): Spinner {
+      if (next !== undefined) {
+        state.label.set(next);
+      }
 
-			if (!spinning) {
-				spinning = true;
-				// whatever it settled as is cleared, so a spinner started again after
-				// a `succeed()` shows its frames rather than the tick it ended on
-				state.outcome.set(undefined);
-				running.set(true);
-				mount().frame();
-			}
+      if (!spinning) {
+        spinning = true;
+        // whatever it settled as is cleared, so a spinner started again after
+        // a `succeed()` shows its frames rather than the tick it ended on
+        state.outcome.set(undefined);
+        running.set(true);
+        mount().frame();
+      }
 
-			return spinner;
-		},
+      return spinner;
+    },
 
-		get spinning() {
-			return spinning;
-		},
+    get spinning() {
+      return spinning;
+    },
 
-		stop(): void {
-			spinning = false;
-			running.set(false);
-			mounted?.stop();
-			mounted = undefined;
-		},
+    stop(): void {
+      spinning = false;
+      running.set(false);
+      mounted?.stop();
+      mounted = undefined;
+    },
 
-		succeed(final?: string): void {
-			settle('success', final);
-		},
+    succeed(final?: string): void {
+      settle('success', final);
+    },
 
-		get text() {
-			return state.label.get();
-		},
+    get text() {
+      return state.label.get();
+    },
 
-		set text(next: string) {
-			state.label.set(next);
-			if (spinning) {
-				mounted?.frame();
-			}
-		},
+    set text(next: string) {
+      state.label.set(next);
+      if (spinning) {
+        mounted?.frame();
+      }
+    },
 
-		warn(final?: string): void {
-			settle('warn', final);
-		},
+    warn(final?: string): void {
+      settle('warn', final);
+    },
 
-		write(line: string): void {
-			if (mounted) {
-				mounted.write(line);
-				return;
-			}
-			// nothing has claimed the screen, so there is nothing to write above
-			terminal.write(line.endsWith('\n') ? line : `${line}\n`);
-		},
-	};
+    write(line: string): void {
+      if (mounted) {
+        mounted.write(line);
+        return;
+      }
+      // nothing has claimed the screen, so there is nothing to write above
+      terminal.write(line.endsWith('\n') ? line : `${line}\n`);
+    },
+  };
 
-	return spinner;
+  return spinner;
 }

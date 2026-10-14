@@ -1,12 +1,12 @@
 import { __ } from '../i18n/index.js';
 import {
-	type HelpRequest,
-	Internal,
-	type InternalCommand,
-	type InternalOption,
-	type ParsedCommand,
-	type ParseState,
-	type Schema,
+  type HelpRequest,
+  Internal,
+  type InternalCommand,
+  type InternalOption,
+  type ParsedCommand,
+  type ParseState,
+  type Schema,
 } from '../types.js';
 import { initCommand } from './command/init-command.js';
 import { loadCommand } from './command/load-command.js';
@@ -18,8 +18,8 @@ import { unknownCommand } from './suggest.js';
  * schema that declares its own keeps it, and then neither is here.
  */
 export interface HelpHandles {
-	command?: InternalCommand;
-	option?: InternalOption;
+  command?: InternalCommand;
+  option?: InternalOption;
 }
 
 /**
@@ -40,47 +40,47 @@ export interface HelpHandles {
  * @returns What was added, so a parse can recognize it later.
  */
 export async function registerHelp(root: InternalCommand, schema: Schema): Promise<HelpHandles> {
-	if (schema.help === false) {
-		return {};
-	}
+  if (schema.help === false) {
+    return {};
+  }
 
-	const internal = root[Internal];
-	const handles: HelpHandles = {};
+  const internal = root[Internal];
+  const handles: HelpHandles = {};
 
-	// `find()` answers about spellings and `has()` about the key the registry
-	// stores an option under, which is its name. Both have to be free: an option
-	// spelled `-x` and named `help` takes the key `help` without answering to
-	// `--help`, and adding one there would replace it -- leaving `-x` pointing at
-	// the option that replaced it.
-	if (!internal.options.find('--help') && !internal.options.has('help')) {
-		// the short form only when it is free: `-h` is a common spelling for
-		// something else, and taking it from an app that wants it would be worse
-		// than not having it
-		const format = internal.options.find('-h') ? '--help' : '-h, --help';
-		await internal.options.add({ desc: __`Show help for a command`, format });
-		handles.option = internal.options.find('--help');
+  // `find()` answers about spellings and `has()` about the key the registry
+  // stores an option under, which is its name. Both have to be free: an option
+  // spelled `-x` and named `help` takes the key `help` without answering to
+  // `--help`, and adding one there would replace it -- leaving `-x` pointing at
+  // the option that replaced it.
+  if (!internal.options.find('--help') && !internal.options.has('help')) {
+    // the short form only when it is free: `-h` is a common spelling for
+    // something else, and taking it from an app that wants it would be worse
+    // than not having it
+    const format = internal.options.find('-h') ? '--help' : '-h, --help';
+    await internal.options.add({ desc: __`Show help for a command`, format });
+    handles.option = internal.options.find('--help');
 
-		if (handles.option) {
-			// a flag always has a value, and this one is not the app's: an app that
-			// never declared `--help` should not find `help: false` in its argv
-			handles.option[Internal].parserOwned = true;
-		}
-	}
+    if (handles.option) {
+      // a flag always has a value, and this one is not the app's: an app that
+      // never declared `--help` should not find `help: false` in its argv
+      handles.option[Internal].parserOwned = true;
+    }
+  }
 
-	if (!internal.commands.find('help')) {
-		internal.commands.add(
-			await initCommand({
-				args: [{ desc: __`The command to describe`, name: '[command...]' }],
-				// the same sentence as the option's, so it is the same key -- which is
-				// the merge keying on the English buys
-				desc: __`Show help for a command`,
-				name: 'help',
-			})
-		);
-		handles.command = internal.commands.find('help');
-	}
+  if (!internal.commands.find('help')) {
+    internal.commands.add(
+      await initCommand({
+        args: [{ desc: __`The command to describe`, name: '[command...]' }],
+        // the same sentence as the option's, so it is the same key -- which is
+        // the merge keying on the English buys
+        desc: __`Show help for a command`,
+        name: 'help',
+      })
+    );
+    handles.command = internal.commands.find('help');
+  }
 
-	return handles;
+  return handles;
 }
 
 /**
@@ -95,21 +95,21 @@ export async function registerHelp(root: InternalCommand, schema: Schema): Promi
  * @returns The request, or `undefined` when help was not what was asked for.
  */
 export async function detectHelp(
-	state: ParseState,
-	handles: HelpHandles
+  state: ParseState,
+  handles: HelpHandles
 ): Promise<HelpRequest | undefined> {
-	// the command form is asked first, because it is the more specific of the two
-	// when both are present: somebody who typed `help build` named the command
-	// they meant, and the `--help` after it adds nothing
-	if (handles.command && state.cmd === handles.command) {
-		return { contexts: await resolve(state, path(state, handles.command)), via: 'command' };
-	}
+  // the command form is asked first, because it is the more specific of the two
+  // when both are present: somebody who typed `help build` named the command
+  // they meant, and the `--help` after it adds nothing
+  if (handles.command && state.cmd === handles.command) {
+    return { contexts: await resolve(state, path(state, handles.command)), via: 'command' };
+  }
 
-	if (handles.option && used(state, handles.option)) {
-		return { contexts: asked(state), via: 'option' };
-	}
+  if (handles.option && used(state, handles.option)) {
+    return { contexts: asked(state), via: 'option' };
+  }
 
-	return undefined;
+  return undefined;
 }
 
 /**
@@ -125,8 +125,8 @@ export async function detectHelp(
  * @returns The chain, innermost first.
  */
 function asked(state: ParseState): InternalCommand[] {
-	const named = state.$.filter((parsed) => parsed.type === 'Command').length;
-	return state.contexts.slice(state.contexts.length - (named + 1));
+  const named = state.$.filter((parsed) => parsed.type === 'Command').length;
+  return state.contexts.slice(state.contexts.length - (named + 1));
 }
 
 /**
@@ -141,9 +141,9 @@ function asked(state: ParseState): InternalCommand[] {
  * @returns `true` when argv turned it on.
  */
 function used(state: ParseState, option: InternalOption): boolean {
-	return state.$.some(
-		(parsed) => parsed.type === 'Option' && parsed.option === option && parsed.value === true
-	);
+  return state.$.some(
+    (parsed) => parsed.type === 'Option' && parsed.option === option && parsed.value === true
+  );
 }
 
 /**
@@ -161,25 +161,25 @@ function used(state: ParseState, option: InternalOption): boolean {
  * @returns The names, in order.
  */
 function path(state: ParseState, command: InternalCommand): string[] {
-	const names: string[] = [];
-	let reached = false;
+  const names: string[] = [];
+  let reached = false;
 
-	for (const parsed of state.$) {
-		if (!reached) {
-			reached = parsed.type === 'Command' && (parsed as ParsedCommand).cmd === command;
-			continue;
-		}
+  for (const parsed of state.$) {
+    if (!reached) {
+      reached = parsed.type === 'Command' && (parsed as ParsedCommand).cmd === command;
+      continue;
+    }
 
-		if (parsed.type === 'Unknown') {
-			for (const input of parsed.inputs) {
-				if (typeof input === 'string' && input) {
-					names.push(input);
-				}
-			}
-		}
-	}
+    if (parsed.type === 'Unknown') {
+      for (const input of parsed.inputs) {
+        if (typeof input === 'string' && input) {
+          names.push(input);
+        }
+      }
+    }
+  }
 
-	return names;
+  return names;
 }
 
 /**
@@ -196,22 +196,22 @@ function path(state: ParseState, command: InternalCommand): string[] {
  * @returns The chain, innermost first.
  */
 async function resolve(state: ParseState, names: string[]): Promise<InternalCommand[]> {
-	// the root, which is the last element of any chain
-	const chain = [state.contexts[state.contexts.length - 1]!];
+  // the root, which is the last element of any chain
+  const chain = [state.contexts[state.contexts.length - 1]!];
 
-	for (const name of names) {
-		const parent = chain[0]!;
-		const found = parent[Internal].commands.find(name);
+  for (const name of names) {
+    const parent = chain[0]!;
+    const found = parent[Internal].commands.find(name);
 
-		if (!found) {
-			throw new Error(unknownCommand(name, parent, state.settings));
-		}
+    if (!found) {
+      throw new Error(unknownCommand(name, parent, state.settings));
+    }
 
-		// a lazily declared command has its description and its own subcommands in
-		// a module, and describing it means reading them -- so `help <command>` is
-		// a load like any other and its parent is told about it like any other
-		chain.unshift(await loadCommand(found, parent));
-	}
+    // a lazily declared command has its description and its own subcommands in
+    // a module, and describing it means reading them -- so `help <command>` is
+    // a load like any other and its parent is told about it like any other
+    chain.unshift(await loadCommand(found, parent));
+  }
 
-	return chain;
+  return chain;
 }

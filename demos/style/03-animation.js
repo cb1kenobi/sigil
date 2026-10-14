@@ -32,140 +32,140 @@ import { Cascade, parseStylesheet } from '@ttylabs/sigil/style';
 // failure the piped demos test can see: that test spawns with stdin ignored, so
 // nothing below the terminal guard is ever reached there
 const sheet = parseStylesheet(`
-	.app { flex-direction: column; width: 46; border: round; border-color: gray; padding: 1 }
-	.title { font-weight: bold }
-	.hint { color: gray }
+  .app { flex-direction: column; width: 46; border: round; border-color: gray; padding: 1 }
+  .title { font-weight: bold }
+  .hint { color: gray }
 
-	/* a transition is an ordinary declaration: what it animates is any change
-	   to the property, from a class, a theme, a resize, or a :focus */
-	.bar { height: 1; width: 4; background-color: #2244aa; transition: width 600ms ease-out }
-	.bar.wide { width: 30 }
+  /* a transition is an ordinary declaration: what it animates is any change
+     to the property, from a class, a theme, a resize, or a :focus */
+  .bar { height: 1; width: 4; background-color: #2244aa; transition: width 600ms ease-out }
+  .bar.wide { width: 30 }
 
-	/* two properties at one duration, which is what a list is for */
-	.swatch {
-		height: 1;
-		width: 8;
-		background-color: #333333;
-		color: #888888;
-		transition-property: background-color, color;
-		transition-duration: 400ms;
-	}
-	.swatch.hot { background-color: #cc3311; color: #ffddcc }
+  /* two properties at one duration, which is what a list is for */
+  .swatch {
+    height: 1;
+    width: 8;
+    background-color: #333333;
+    color: #888888;
+    transition-property: background-color, color;
+    transition-duration: 400ms;
+  }
+  .swatch.hot { background-color: #cc3311; color: #ffddcc }
 
-	/* and the whole of an animation: a name, a time, and a curve */
-	@keyframes march { from { left: 0 } to { left: 20 } }
-	.runner {
-		height: 1;
-		width: 4;
-		position: relative;
-		background-color: #22aa55;
-		animation: march 1600ms ease-in-out infinite alternate;
-	}
+  /* and the whole of an animation: a name, a time, and a curve */
+  @keyframes march { from { left: 0 } to { left: 20 } }
+  .runner {
+    height: 1;
+    width: 4;
+    position: relative;
+    background-color: #22aa55;
+    animation: march 1600ms ease-in-out infinite alternate;
+  }
 
-	.track { height: 1; width: 40 }
-	.field { border: single; border-color: gray; padding-left: 1; height: 3 }
-	/* a transition over a state the cascade already matches: no component code */
-	.field { transition: border-color 300ms linear }
-	.field:focus { border-color: cyan }
+  .track { height: 1; width: 40 }
+  .field { border: single; border-color: gray; padding-left: 1; height: 3 }
+  /* a transition over a state the cascade already matches: no component code */
+  .field { transition: border-color 300ms linear }
+  .field:focus { border-color: cyan }
 `);
 
 // both sides, for the reason `demos/terminal/01-capabilities.js` records: the
 // keys arrive on stdin and the frames are drawn to the output, so asking only
 // about stdin let `| cat` through *from* a terminal and threw a stack
 if (process.stdin.isTTY && process.stdout.isTTY) {
-	run();
+  run();
 } else {
-	console.log('This demo animates and reads keys, so it needs a terminal on both sides.');
-	console.log('Piped, every animation collapses to its end state -- which is what you would want');
-	console.log('in a log: one line per thing that happened rather than one per tick.');
+  console.log('This demo animates and reads keys, so it needs a terminal on both sides.');
+  console.log('Piped, every animation collapses to its end state -- which is what you would want');
+  console.log('in a log: one line per thing that happened rather than one per tick.');
 }
 
 function run() {
-	const wide = new State(false);
-	const hot = new State(false);
-	/** The line the frame counter is written to, kept rather than looked up. */
-	let counter;
+  const wide = new State(false);
+  const hot = new State(false);
+  /** The line the frame counter is written to, kept rather than looked up. */
+  let counter;
 
-	let painted = 0;
-	const started = Date.now();
+  let painted = 0;
+  const started = Date.now();
 
-	function App() {
-		const bar = box({ class: 'bar' });
-		const swatch = text('swatch', { class: 'swatch' });
-		counter = text('', { class: 'hint' });
+  function App() {
+    const bar = box({ class: 'bar' });
+    const swatch = text('swatch', { class: 'swatch' });
+    counter = text('', { class: 'hint' });
 
-		createEffect(() => {
-			bar.toggleClass('wide', wide.get());
-		});
-		createEffect(() => {
-			swatch.toggleClass('hot', hot.get());
-		});
+    createEffect(() => {
+      bar.toggleClass('wide', wide.get());
+    });
+    createEffect(() => {
+      swatch.toggleClass('hot', hot.get());
+    });
 
-		// not a per-frame readout: this effect runs when a signal moves, and what
-		// it prints is read again on whatever frame happens next
-		createEffect(() => {
-			void wide.get();
-			void hot.get();
-			counter.setText('counting frames');
-		});
+    // not a per-frame readout: this effect runs when a signal moves, and what
+    // it prints is read again on whatever frame happens next
+    createEffect(() => {
+      void wide.get();
+      void hot.get();
+      counter.setText('counting frames');
+    });
 
-		return box(
-			{ class: 'app' },
-			text('transitions and keyframes', { class: 'title' }),
-			bar,
-			swatch,
-			box({ class: 'track' }, box({ class: 'runner' })),
-			box({ class: 'field', focusable: true }, text('tab here')),
-			counter,
-			text('space widens, c heats, Tab focuses, q quits', { class: 'hint' })
-		);
-	}
+    return box(
+      { class: 'app' },
+      text('transitions and keyframes', { class: 'title' }),
+      bar,
+      swatch,
+      box({ class: 'track' }, box({ class: 'runner' })),
+      box({ class: 'field', focusable: true }, text('tab here')),
+      counter,
+      text('space widens, c heats, Tab focuses, q quits', { class: 'hint' })
+    );
+  }
 
-	const view = render(App, { cascade: new Cascade([sheet]), width: 'auto' });
+  const view = render(App, { cascade: new Cascade([sheet]), width: 'auto' });
 
-	// the backend is wrapped *after* the renderer built it, rather than handed in:
-	// a backend passed to `render()` is one whose size is its owner's, so the
-	// canvas would stay the one row it was built with and only the bottom of the
-	// box would be drawn. The frame loop calls this through the object, so
-	// replacing the method is enough to count what was painted
-	const draw = view.backend.render.bind(view.backend);
-	view.backend.render = (paint) => {
-		painted++;
-		return draw(paint);
-	};
+  // the backend is wrapped *after* the renderer built it, rather than handed in:
+  // a backend passed to `render()` is one whose size is its owner's, so the
+  // canvas would stay the one row it was built with and only the bottom of the
+  // box would be drawn. The frame loop calls this through the object, so
+  // replacing the method is enough to count what was painted
+  const draw = view.backend.render.bind(view.backend);
+  view.backend.render = (paint) => {
+    painted++;
+    return draw(paint);
+  };
 
-	const input = createInput({ root: view.root });
+  const input = createInput({ root: view.root });
 
-	// the counter is written from outside the graph, because what it reports is a
-	// fact about the frame loop rather than about any signal
-	const tick = setInterval(() => {
-		const seconds = (Date.now() - started) / 1000;
-		const naive = Math.round(seconds * 30);
-		counter.setText(
-			`${String(painted)} frames painted, against ${String(naive)} at thirty a second` +
-				(view.animating ? ' (animating)' : '')
-		);
-	}, 250);
-	tick.unref?.();
+  // the counter is written from outside the graph, because what it reports is a
+  // fact about the frame loop rather than about any signal
+  const tick = setInterval(() => {
+    const seconds = (Date.now() - started) / 1000;
+    const naive = Math.round(seconds * 30);
+    counter.setText(
+      `${String(painted)} frames painted, against ${String(naive)} at thirty a second` +
+        (view.animating ? ' (animating)' : '')
+    );
+  }, 250);
+  tick.unref?.();
 
-	input.bind((event) => {
-		const { key } = event;
-		if (isAbort(key) || key.name === 'q') {
-			event.stop();
-			clearInterval(tick);
-			view.dispose();
-			input.stop();
-			console.log(
-				`${String(painted)} frames for ${String(Math.round((Date.now() - started) / 1000))}s`
-			);
-			return;
-		}
-		if (key.name === 'space') {
-			event.stop();
-			wide.set(!wide.get());
-		} else if (key.name === 'c') {
-			event.stop();
-			hot.set(!hot.get());
-		}
-	});
+  input.bind((event) => {
+    const { key } = event;
+    if (isAbort(key) || key.name === 'q') {
+      event.stop();
+      clearInterval(tick);
+      view.dispose();
+      input.stop();
+      console.log(
+        `${String(painted)} frames for ${String(Math.round((Date.now() - started) / 1000))}s`
+      );
+      return;
+    }
+    if (key.name === 'space') {
+      event.stop();
+      wide.set(!wide.get());
+    } else if (key.name === 'c') {
+      event.stop();
+      hot.set(!hot.get());
+    }
+  });
 }

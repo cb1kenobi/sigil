@@ -35,106 +35,106 @@ let stage2: string;
 
 /** Runs a sigil binary, failing loudly rather than leaving a silent build. */
 function build(bin: string, out: string): void {
-	const result = spawnSync(process.execPath, [bin, 'build', '--out', out], {
-		cwd: root,
-		encoding: 'utf-8',
-	});
+  const result = spawnSync(process.execPath, [bin, 'build', '--out', out], {
+    cwd: root,
+    encoding: 'utf-8',
+  });
 
-	expect(result.status, `${relative(root, bin)} build failed:\n${result.stderr}`).toBe(0);
+  expect(result.status, `${relative(root, bin)} build failed:\n${result.stderr}`).toBe(0);
 }
 
 /** Every file in a directory, relative and sorted, so two trees can be compared. */
 function tree(dir: string): string[] {
-	const found: string[] = [];
+  const found: string[] = [];
 
-	const walk = (at: string): void => {
-		for (const entry of readdirSync(at, { withFileTypes: true }).sort((a, b) =>
-			a.name.localeCompare(b.name)
-		)) {
-			const path = join(at, entry.name);
-			if (entry.isDirectory()) {
-				walk(path);
-			} else {
-				// forward-slashed, because the comparison is between two trees and
-				// not against a path somebody typed
-				found.push(relative(dir, path).split(sep).join('/'));
-			}
-		}
-	};
+  const walk = (at: string): void => {
+    for (const entry of readdirSync(at, { withFileTypes: true }).sort((a, b) =>
+      a.name.localeCompare(b.name)
+    )) {
+      const path = join(at, entry.name);
+      if (entry.isDirectory()) {
+        walk(path);
+      } else {
+        // forward-slashed, because the comparison is between two trees and
+        // not against a path somebody typed
+        found.push(relative(dir, path).split(sep).join('/'));
+      }
+    }
+  };
 
-	walk(dir);
-	return found;
+  walk(dir);
+  return found;
 }
 
 beforeAll(() => {
-	// inside the package, so `@ttylabs/sigil`, `oxc-parser` and `rolldown`
-	// resolve from the built files the way they would once published
-	work = mkdtempSync(join(root, '.bootstrap-'));
-	stage1 = join(work, 'stage1');
-	stage2 = join(work, 'stage2');
+  // inside the package, so `@ttylabs/sigil`, `oxc-parser` and `rolldown`
+  // resolve from the built files the way they would once published
+  work = mkdtempSync(join(root, '.bootstrap-'));
+  stage1 = join(work, 'stage1');
+  stage2 = join(work, 'stage2');
 
-	build(source, stage1);
-	build(join(stage1, 'sigil.mjs'), stage2);
+  build(source, stage1);
+  build(join(stage1, 'sigil.mjs'), stage2);
 }, 120_000);
 
 afterAll(() => {
-	rmSync(work, { force: true, recursive: true });
+  rmSync(work, { force: true, recursive: true });
 });
 
 describe('the bootstrap', () => {
-	it('should write the same files at both stages', () => {
-		// the file names carry rolldown's content hashes, so a set that matches is
-		// already most of the claim -- and naming the difference beats a byte
-		// count nobody can act on
-		expect(tree(stage2)).toStrictEqual(tree(stage1));
-	});
+  it('should write the same files at both stages', () => {
+    // the file names carry rolldown's content hashes, so a set that matches is
+    // already most of the claim -- and naming the difference beats a byte
+    // count nobody can act on
+    expect(tree(stage2)).toStrictEqual(tree(stage1));
+  });
 
-	it('should write byte-identical contents', () => {
-		for (const file of tree(stage1)) {
-			const one = readFileSync(join(stage1, file));
-			const other = readFileSync(join(stage2, file));
+  it('should write byte-identical contents', () => {
+    for (const file of tree(stage1)) {
+      const one = readFileSync(join(stage1, file));
+      const other = readFileSync(join(stage2, file));
 
-			expect(other.equals(one), `${file} differs between stage 1 and stage 2`).toBe(true);
-		}
-	});
+      expect(other.equals(one), `${file} differs between stage 1 and stage 2`).toBe(true);
+    }
+  });
 
-	it('should produce a binary that works, not merely one that matches', () => {
-		// two identical broken binaries would satisfy everything above, so the
-		// fixed point has to be a *working* fixed point
-		const result = spawnSync(process.execPath, [join(stage2, 'sigil.mjs'), '--help'], {
-			cwd: root,
-			encoding: 'utf-8',
-		});
+  it('should produce a binary that works, not merely one that matches', () => {
+    // two identical broken binaries would satisfy everything above, so the
+    // fixed point has to be a *working* fixed point
+    const result = spawnSync(process.execPath, [join(stage2, 'sigil.mjs'), '--help'], {
+      cwd: root,
+      encoding: 'utf-8',
+    });
 
-		expect(result.status).toBe(0);
-		expect(result.stdout).toContain('Usage: sigil');
-		expect(result.stdout).toContain('Build an app into a bundle that depends on nothing');
-	});
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Usage: sigil');
+    expect(result.stdout).toContain('Build an app into a bundle that depends on nothing');
+  });
 
-	it('should build an app with the stage 2 binary', () => {
-		// the whole point of the toolchain, asked of the copy that was built by a
-		// copy: a self-hosted compiler that cannot compile is a fixed point and
-		// nothing else
-		const out = join(work, 'app');
-		const result = spawnSync(
-			process.execPath,
-			[
-				join(stage2, 'sigil.mjs'),
-				'build',
-				join(root, 'test', 'fixtures', 'buildable'),
-				'--out',
-				out,
-			],
-			{ cwd: root, encoding: 'utf-8' }
-		);
+  it('should build an app with the stage 2 binary', () => {
+    // the whole point of the toolchain, asked of the copy that was built by a
+    // copy: a self-hosted compiler that cannot compile is a fixed point and
+    // nothing else
+    const out = join(work, 'app');
+    const result = spawnSync(
+      process.execPath,
+      [
+        join(stage2, 'sigil.mjs'),
+        'build',
+        join(root, 'test', 'fixtures', 'buildable'),
+        '--out',
+        out,
+      ],
+      { cwd: root, encoding: 'utf-8' }
+    );
 
-		expect(result.status, result.stderr).toBe(0);
+    expect(result.status, result.stderr).toBe(0);
 
-		const ran = spawnSync(process.execPath, [join(out, 'buildable.mjs'), '--help'], {
-			encoding: 'utf-8',
-		});
+    const ran = spawnSync(process.execPath, [join(out, 'buildable.mjs'), '--help'], {
+      encoding: 'utf-8',
+    });
 
-		expect(ran.status).toBe(0);
-		expect(ran.stdout).toContain('Usage: buildable');
-	});
+    expect(ran.status).toBe(0);
+    expect(ran.stdout).toContain('Usage: buildable');
+  });
 });

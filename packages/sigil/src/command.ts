@@ -45,11 +45,11 @@ import type { Argument, Command, OptionDeclarations } from './types.js';
  * @returns The same object.
  */
 export function command<
-	// the defaults are what an absent property contributes: nothing. Without them a
-	// parameter with no inference candidate falls back to its constraint, which is
-	// the wide type, and one wide part makes the whole `argv` wide again.
-	const O extends OptionDeclarations = {},
-	const A extends readonly (string | Argument)[] = [],
+  // the defaults are what an absent property contributes: nothing. Without them a
+  // parameter with no inference candidate falls back to its constraint, which is
+  // the wide type, and one wide part makes the whole `argv` wide again.
+  const O extends OptionDeclarations = {},
+  const A extends readonly (string | Argument)[] = [],
 >(decl: Command<O, A>): Command<O, A> {
-	return decl;
+  return decl;
 }

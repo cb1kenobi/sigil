@@ -14,27 +14,27 @@ import { For, Show } from '@ttylabs/sigil/renderer';
 import type { State } from '@ttylabs/sigil/signals';
 
 interface CounterProps {
-	count: State<number>;
-	items: State<string[]>;
+  count: State<number>;
+  items: State<string[]>;
 }
 
 export function Counter({ count, items }: CounterProps) {
-	return (
-		<box border="round" flex-direction="column" padding="0 1" width="28">
-			<text font-weight="bold">Counter</text>
-			<text>count: {() => count.get()}</text>
-			<text color="cyan">{() => (count.get() > 2 ? 'high' : 'low')}</text>
-			<Show
-				when={() => items.get().length > 0}
-				fallback={() => <text font-style="italic">(nothing)</text>}
-				props={{ 'flex-direction': 'column' }}
-			>
-				{() => (
-					<For each={() => items.get()} props={{ 'flex-direction': 'column' }}>
-						{(item: string) => <text>- {item}</text>}
-					</For>
-				)}
-			</Show>
-		</box>
-	);
+  return (
+    <box border="round" flex-direction="column" padding="0 1" width="28">
+      <text font-weight="bold">Counter</text>
+      <text>count: {() => count.get()}</text>
+      <text color="cyan">{() => (count.get() > 2 ? 'high' : 'low')}</text>
+      <Show
+        when={() => items.get().length > 0}
+        fallback={() => <text font-style="italic">(nothing)</text>}
+        props={{ 'flex-direction': 'column' }}
+      >
+        {() => (
+          <For each={() => items.get()} props={{ 'flex-direction': 'column' }}>
+            {(item: string) => <text>- {item}</text>}
+          </For>
+        )}
+      </Show>
+    </box>
+  );
 }

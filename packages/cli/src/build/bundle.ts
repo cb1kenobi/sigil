@@ -73,160 +73,160 @@ const WORK_DIR = join('node_modules', '.sigil');
  * trusting that to be a directory nothing else is in.
  */
 interface GeneratedEntry {
-	/** The per-build directory, which the caller removes. */
-	readonly dir: string;
-	/** The entry module inside it. */
-	readonly file: string;
+  /** The per-build directory, which the caller removes. */
+  readonly dir: string;
+  /** The entry module inside it. */
+  readonly file: string;
 }
 
 /** How to bundle. */
 export interface BundleOptions {
-	/** The app. */
-	readonly app: DiscoveredApp;
-	/** What the built executable is called, without an extension. */
-	readonly binName: string;
-	/**
-	 * The locale the built app falls back on, from `"locale"` in `sigil.json`.
-	 *
-	 * Written into the generated schema as `defaultLocale`, beside the version,
-	 * because the runtime has no way to read a config file at startup. Absent
-	 * leaves whatever the app's own schema said.
-	 */
-	readonly defaultLocale?: string;
-	/** An executable of the app's own, bundled instead of a generated one. */
-	readonly bin?: string;
-	/**
-	 * Packages to leave as imports rather than inline.
-	 *
-	 * The zero-dependency promise is about what *sigil* adds, and this is the
-	 * one thing that can break it, so it is explicit and it is reported. What
-	 * forces it is a **native binding**: a package like `oxc-parser` or
-	 * `rolldown` is JavaScript around a `.node` file, and no bundler inlines a
-	 * `.node`. Its JavaScript resolves perfectly well, gets inlined, and then
-	 * looks for a binary beside a file that is no longer there -- so the build
-	 * reports success and the executable dies the first time it is used.
-	 *
-	 * An app that names one is saying its bundle is not self-contained, which is
-	 * a true thing to say about an app with a native dependency and a lie about
-	 * any other.
-	 */
-	readonly external?: readonly string[];
-	/** Where the bundle goes. */
-	readonly out: string;
-	/**
-	 * Utility classes the shake keeps whatever the app's source says.
-	 *
-	 * Ignored when `shake` is off, for the reason a flag that only matters
-	 * beside another flag is confusing rather than clever: there is nothing for
-	 * a safelist to be an exception to once nothing is being dropped.
-	 */
-	readonly safelist?: readonly string[];
-	/**
-	 * Whether to shake the utility sheet. On by default.
-	 *
-	 * See `shake.ts` for what that means and for why it is only the utility
-	 * sheet.
-	 */
-	readonly shake?: boolean;
-	/**
-	 * Whether to write sourcemaps. On by default.
-	 *
-	 * The first thing anybody debugging a built app wants, and nothing to
-	 * whoever never opens one -- at run time. What it is not free of is *size*:
-	 * they are several times the minified code they describe, and a package
-	 * publishing its `dist` publishes them. So an app that ships its bundle
-	 * rather than debugging it can say no.
-	 */
-	readonly sourcemap?: boolean;
-	/** The tree to bake into the generated entry. */
-	readonly tree: ResolvedTree;
+  /** The app. */
+  readonly app: DiscoveredApp;
+  /** What the built executable is called, without an extension. */
+  readonly binName: string;
+  /**
+   * The locale the built app falls back on, from `"locale"` in `sigil.json`.
+   *
+   * Written into the generated schema as `defaultLocale`, beside the version,
+   * because the runtime has no way to read a config file at startup. Absent
+   * leaves whatever the app's own schema said.
+   */
+  readonly defaultLocale?: string;
+  /** An executable of the app's own, bundled instead of a generated one. */
+  readonly bin?: string;
+  /**
+   * Packages to leave as imports rather than inline.
+   *
+   * The zero-dependency promise is about what *sigil* adds, and this is the
+   * one thing that can break it, so it is explicit and it is reported. What
+   * forces it is a **native binding**: a package like `oxc-parser` or
+   * `rolldown` is JavaScript around a `.node` file, and no bundler inlines a
+   * `.node`. Its JavaScript resolves perfectly well, gets inlined, and then
+   * looks for a binary beside a file that is no longer there -- so the build
+   * reports success and the executable dies the first time it is used.
+   *
+   * An app that names one is saying its bundle is not self-contained, which is
+   * a true thing to say about an app with a native dependency and a lie about
+   * any other.
+   */
+  readonly external?: readonly string[];
+  /** Where the bundle goes. */
+  readonly out: string;
+  /**
+   * Utility classes the shake keeps whatever the app's source says.
+   *
+   * Ignored when `shake` is off, for the reason a flag that only matters
+   * beside another flag is confusing rather than clever: there is nothing for
+   * a safelist to be an exception to once nothing is being dropped.
+   */
+  readonly safelist?: readonly string[];
+  /**
+   * Whether to shake the utility sheet. On by default.
+   *
+   * See `shake.ts` for what that means and for why it is only the utility
+   * sheet.
+   */
+  readonly shake?: boolean;
+  /**
+   * Whether to write sourcemaps. On by default.
+   *
+   * The first thing anybody debugging a built app wants, and nothing to
+   * whoever never opens one -- at run time. What it is not free of is *size*:
+   * they are several times the minified code they describe, and a package
+   * publishing its `dist` publishes them. So an app that ships its bundle
+   * rather than debugging it can say no.
+   */
+  readonly sourcemap?: boolean;
+  /** The tree to bake into the generated entry. */
+  readonly tree: ResolvedTree;
 }
 
 /** One file the build wrote. */
 export interface BuiltChunk {
-	/** Whether it is the executable. */
-	readonly entry: boolean;
-	/** Its name inside the output directory. */
-	readonly name: string;
-	/** Its size in bytes. */
-	readonly size: number;
+  /** Whether it is the executable. */
+  readonly entry: boolean;
+  /** Its name inside the output directory. */
+  readonly name: string;
+  /** Its size in bytes. */
+  readonly size: number;
 }
 
 /** One package the bundle inlined, and what it came to. */
 export interface InlinedPackage {
-	/** How many bytes of the rendered output came from it. */
-	readonly bytes: number;
-	/** What the package calls itself. */
-	readonly name: string;
+  /** How many bytes of the rendered output came from it. */
+  readonly bytes: number;
+  /** What the package calls itself. */
+  readonly name: string;
 }
 
 /** What shaking the utility sheet came to. */
 export interface ShakenStyles {
-	/** How many utilities survived. */
-	readonly kept: number;
-	/** How many utilities there were. */
-	readonly total: number;
+  /** How many utilities survived. */
+  readonly kept: number;
+  /** How many utilities there were. */
+  readonly total: number;
 }
 
 /** What the build produced. */
 export interface BundleResult {
-	/** The executable, as an absolute path. */
-	readonly bin: string;
-	/** Everything written, the executable included, largest first. */
-	readonly chunks: readonly BuiltChunk[];
-	/** What was left as an import rather than inlined, in the order given. */
-	readonly external: readonly string[];
-	/**
-	 * Every package whose code went into the bundle, largest first.
-	 *
-	 * The zero-dependency promise is about what *sigil* adds, and this is the
-	 * other half of saying it honestly: an app that imports something is
-	 * bundling it, and a build that silently inlines two megabytes of somebody
-	 * else's library has told the author nothing. `@ttylabs/sigil` is in the
-	 * list like any other, because what the runtime costs is exactly as worth
-	 * knowing as what a dependency costs.
-	 *
-	 * The bytes are before minification; see `inlinedPackages()` for why that
-	 * is the only per-package figure there is.
-	 */
-	readonly inlined: readonly InlinedPackage[];
-	// there is no `generated` here any more. It handed back the path of the
-	// generated entry, nothing in either package ever read it, and the per-build
-	// directory is removed before this result is returned -- so keeping it would
-	// mean publishing a path that is guaranteed not to exist. That is the same
-	// call `Command.file` got, for the same two reasons: unread, and wrong.
-	/**
-	 * What shaking the utility sheet came to, or `undefined` when nothing in the
-	 * app called `utilitySheet()` -- which is most apps, since it is opt-in.
-	 *
-	 * Reported for the reason `templates` is: "this app names twelve utilities"
-	 * and "the analysis found nothing and dropped 383 rules the app needed" look
-	 * identical from outside, and only one of them is what anybody wanted.
-	 *
-	 * It describes **the sheet this build produced for the calls it rewrote**,
-	 * which is a narrower claim than "this is what is in the bundle" and is worth
-	 * reading as the narrower one. Two things can part them, and neither is
-	 * detectable from here. A second call in a shape the matcher cannot claim --
-	 * `const { utilitySheet } = style` -- is left alone with the whole 383-rule
-	 * sheet behind it, so both sheets ship while the count names one; that is the
-	 * same silent miss the matcher documents everywhere else, seen from the
-	 * report's side. And a rewritten call that tree-shaking then drops takes its
-	 * sheet with it, so the count names one that is not there at all. Detecting
-	 * either means asking the written bundle whether a dropped rule survived in
-	 * it, which is a substring search that an app writing its own CSS can fool --
-	 * a false alarm about a correct build, which is the one thing this repository
-	 * will not print.
-	 */
-	readonly styles?: ShakenStyles;
-	/**
-	 * How many `ui` templates were compiled.
-	 *
-	 * Reported because it is the difference between "this app ships no template
-	 * parser" and "this app has no templates", and those look identical from the
-	 * outside. A build that silently compiled none when the author wrote twelve is
-	 * the failure mode worth being able to see.
-	 */
-	readonly templates: number;
+  /** The executable, as an absolute path. */
+  readonly bin: string;
+  /** Everything written, the executable included, largest first. */
+  readonly chunks: readonly BuiltChunk[];
+  /** What was left as an import rather than inlined, in the order given. */
+  readonly external: readonly string[];
+  /**
+   * Every package whose code went into the bundle, largest first.
+   *
+   * The zero-dependency promise is about what *sigil* adds, and this is the
+   * other half of saying it honestly: an app that imports something is
+   * bundling it, and a build that silently inlines two megabytes of somebody
+   * else's library has told the author nothing. `@ttylabs/sigil` is in the
+   * list like any other, because what the runtime costs is exactly as worth
+   * knowing as what a dependency costs.
+   *
+   * The bytes are before minification; see `inlinedPackages()` for why that
+   * is the only per-package figure there is.
+   */
+  readonly inlined: readonly InlinedPackage[];
+  // there is no `generated` here any more. It handed back the path of the
+  // generated entry, nothing in either package ever read it, and the per-build
+  // directory is removed before this result is returned -- so keeping it would
+  // mean publishing a path that is guaranteed not to exist. That is the same
+  // call `Command.file` got, for the same two reasons: unread, and wrong.
+  /**
+   * What shaking the utility sheet came to, or `undefined` when nothing in the
+   * app called `utilitySheet()` -- which is most apps, since it is opt-in.
+   *
+   * Reported for the reason `templates` is: "this app names twelve utilities"
+   * and "the analysis found nothing and dropped 383 rules the app needed" look
+   * identical from outside, and only one of them is what anybody wanted.
+   *
+   * It describes **the sheet this build produced for the calls it rewrote**,
+   * which is a narrower claim than "this is what is in the bundle" and is worth
+   * reading as the narrower one. Two things can part them, and neither is
+   * detectable from here. A second call in a shape the matcher cannot claim --
+   * `const { utilitySheet } = style` -- is left alone with the whole 383-rule
+   * sheet behind it, so both sheets ship while the count names one; that is the
+   * same silent miss the matcher documents everywhere else, seen from the
+   * report's side. And a rewritten call that tree-shaking then drops takes its
+   * sheet with it, so the count names one that is not there at all. Detecting
+   * either means asking the written bundle whether a dropped rule survived in
+   * it, which is a substring search that an app writing its own CSS can fool --
+   * a false alarm about a correct build, which is the one thing this repository
+   * will not print.
+   */
+  readonly styles?: ShakenStyles;
+  /**
+   * How many `ui` templates were compiled.
+   *
+   * Reported because it is the difference between "this app ships no template
+   * parser" and "this app has no templates", and those look identical from the
+   * outside. A build that silently compiled none when the author wrote twelve is
+   * the failure mode worth being able to see.
+   */
+  readonly templates: number;
 }
 
 /**
@@ -236,404 +236,404 @@ export interface BundleResult {
  * @returns What it wrote.
  */
 export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
-	const {
-		app,
-		bin,
-		binName,
-		defaultLocale,
-		external = [],
-		out,
-		safelist,
-		shake = true,
-		sourcemap = true,
-		tree,
-	} = options;
+  const {
+    app,
+    bin,
+    binName,
+    defaultLocale,
+    external = [],
+    out,
+    safelist,
+    shake = true,
+    sourcemap = true,
+    tree,
+  } = options;
 
-	// imported here rather than at the top, the way the runtime defers its own
-	// heavy modules: rolldown is a native binary, and `sigil check` has no use
-	// for it
-	const { rolldown } = await import('rolldown');
+  // imported here rather than at the top, the way the runtime defers its own
+  // heavy modules: rolldown is a native binary, and `sigil check` has no use
+  // for it
+  const { rolldown } = await import('rolldown');
 
-	const generated = bin ? undefined : entryLocation(app, out);
-	const input = bin ?? generated!.file;
+  const generated = bin ? undefined : entryLocation(app, out);
+  const input = bin ?? generated!.file;
 
-	const unresolved: string[] = [];
-	let templates = 0;
+  const unresolved: string[] = [];
+  let templates = 0;
 
-	// worked out on the first module that turns out to call `utilitySheet()`,
-	// and never for an app that does not: the scan walks the app's source tree
-	// and the sheet regenerates 383 rules, neither of which an app that has not
-	// opted into utilities should pay for
-	const shaker: Shaker | undefined = shake
-		? createShaker(app.root, { exclude: [out], safelist })
-		: undefined;
+  // worked out on the first module that turns out to call `utilitySheet()`,
+  // and never for an app that does not: the scan walks the app's source tree
+  // and the sheet regenerates 383 rules, neither of which an app that has not
+  // opted into utilities should pay for
+  const shaker: Shaker | undefined = shake
+    ? createShaker(app.root, { exclude: [out], safelist })
+    : undefined;
 
-	const bundle = await rolldown({
-		// left as imports rather than inlined. Rolldown does not report these as
-		// unresolved, which is the point: an external is a deliberate answer to
-		// "this cannot be inlined" and an unresolved import is the absence of one
-		external: external.flatMap((name) => [
-			name,
-			new RegExp(`^${name.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')}/`),
-		]),
-		input,
-		// an import a bundler cannot resolve is left as an import, so the bundle
-		// reaches for it at run time -- which is the zero-dependency promise
-		// broken without anybody being told. It is collected and raised below
-		// rather than warned about, because a build that cannot find the runtime
-		// has not built anything worth running
-		onLog(level, log, handler) {
-			const message = String(log.message ?? '');
+  const bundle = await rolldown({
+    // left as imports rather than inlined. Rolldown does not report these as
+    // unresolved, which is the point: an external is a deliberate answer to
+    // "this cannot be inlined" and an unresolved import is the absence of one
+    external: external.flatMap((name) => [
+      name,
+      new RegExp(`^${name.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')}/`),
+    ]),
+    input,
+    // an import a bundler cannot resolve is left as an import, so the bundle
+    // reaches for it at run time -- which is the zero-dependency promise
+    // broken without anybody being told. It is collected and raised below
+    // rather than warned about, because a build that cannot find the runtime
+    // has not built anything worth running
+    onLog(level, log, handler) {
+      const message = String(log.message ?? '');
 
-			if (log.code === 'UNRESOLVED_IMPORT') {
-				unresolved.push(message);
-				return;
-			}
+      if (log.code === 'UNRESOLVED_IMPORT') {
+        unresolved.push(message);
+        return;
+      }
 
-			// the one warning this build asks for and does not want reported.
-			// Setting `transform.jsx.importSource` makes rolldown say that it beat
-			// `compilerOptions.jsxImportSource`, and it says so without comparing
-			// the two -- measured: an app whose tsconfig names `@ttylabs/sigil`,
-			// which is what `sigil new` scaffolds, gets the warning for being
-			// right. A warning that fires on correct code teaches people to ignore
-			// warnings, which is the rule already written down for reading a file
-			// off `import.meta.url`.
-			//
-			// It is every scaffolded TypeScript app rather than the few with a
-			// `.tsx`: loading the tsconfig is what reports the conflict and a
-			// `.ts` module loads it whether or not it holds JSX, measured, while a
-			// `.js` module does not. And it is reported even where the tsconfig
-			// did not win -- a per-file `@jsxImportSource` beats both and the
-			// warning still names the tsconfig -- so some of what it says is not
-			// true either.
-			//
-			// Scoped to the field rather than switched off with
-			// `checks: { configurationFieldConflict: false }`, so a conflict about
-			// any of the other options this build sets still reaches whoever is
-			// building. Matching the message is what that costs, and it fails in
-			// the safe direction: reworded, the warning comes back.
-			if (log.code === 'CONFIGURATION_FIELD_CONFLICT' && message.includes('jsxImportSource')) {
-				return;
-			}
+      // the one warning this build asks for and does not want reported.
+      // Setting `transform.jsx.importSource` makes rolldown say that it beat
+      // `compilerOptions.jsxImportSource`, and it says so without comparing
+      // the two -- measured: an app whose tsconfig names `@ttylabs/sigil`,
+      // which is what `sigil new` scaffolds, gets the warning for being
+      // right. A warning that fires on correct code teaches people to ignore
+      // warnings, which is the rule already written down for reading a file
+      // off `import.meta.url`.
+      //
+      // It is every scaffolded TypeScript app rather than the few with a
+      // `.tsx`: loading the tsconfig is what reports the conflict and a
+      // `.ts` module loads it whether or not it holds JSX, measured, while a
+      // `.js` module does not. And it is reported even where the tsconfig
+      // did not win -- a per-file `@jsxImportSource` beats both and the
+      // warning still names the tsconfig -- so some of what it says is not
+      // true either.
+      //
+      // Scoped to the field rather than switched off with
+      // `checks: { configurationFieldConflict: false }`, so a conflict about
+      // any of the other options this build sets still reaches whoever is
+      // building. Matching the message is what that costs, and it fails in
+      // the safe direction: reworded, the warning comes back.
+      if (log.code === 'CONFIGURATION_FIELD_CONFLICT' && message.includes('jsxImportSource')) {
+        return;
+      }
 
-			handler(level, log);
-		},
-		platform: 'node',
-		plugins: [
-			{
-				name: 'sigil:templates',
-				/**
-				 * Compiles a module's `ui` templates on the way in, so the parser,
-				 * the tag and the IR walk shake out of the bundle.
-				 *
-				 * A `transform` rather than a pass over the app's files beforehand,
-				 * because rolldown is what knows which modules are actually reached:
-				 * a template in a file nothing imports costs nothing here, and a
-				 * template inside a dependency is compiled the same way the app's own
-				 * are. The map is returned because a transform without one is
-				 * `SOURCEMAP_BROKEN` *and* silently drops the module from the map --
-				 * measured, not assumed.
-				 */
-				transform: {
-					/**
-					 * Narrowed before the handler is reached rather than inside it.
-					 *
-					 * rolldown applies these natively, so a module that cannot hold a
-					 * template never crosses into JavaScript at all -- and most modules
-					 * in a bundle are the runtime's own. Asking inside the handler
-					 * instead costs the per-module call itself rather than the parsing,
-					 * which a substring test already skipped; AGENTS.md carries the
-					 * measurement, and it is stated there rather than here as well
-					 * because two spellings of one number is how the two come to
-					 * disagree -- which they had, by 2ms of a noise band a few ms wide.
-					 *
-					 * `code` is the substring that has to be there for a template to
-					 * exist, since the tag is only the tag because something imported
-					 * it. `id` is the extensions `parseModule()` can read, so JSON, a
-					 * `.node` binding and whatever virtual module a plugin invented are
-					 * all out. The `id` pattern is matched against forward slashes
-					 * whatever the platform, which rolldown documents and which is why
-					 * it needs no Windows spelling.
-					 */
-					filter: {
-						code: new RegExp(TAG_MODULE.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')),
-						id: MODULE_RE,
-					},
+      handler(level, log);
+    },
+    platform: 'node',
+    plugins: [
+      {
+        name: 'sigil:templates',
+        /**
+         * Compiles a module's `ui` templates on the way in, so the parser,
+         * the tag and the IR walk shake out of the bundle.
+         *
+         * A `transform` rather than a pass over the app's files beforehand,
+         * because rolldown is what knows which modules are actually reached:
+         * a template in a file nothing imports costs nothing here, and a
+         * template inside a dependency is compiled the same way the app's own
+         * are. The map is returned because a transform without one is
+         * `SOURCEMAP_BROKEN` *and* silently drops the module from the map --
+         * measured, not assumed.
+         */
+        transform: {
+          /**
+           * Narrowed before the handler is reached rather than inside it.
+           *
+           * rolldown applies these natively, so a module that cannot hold a
+           * template never crosses into JavaScript at all -- and most modules
+           * in a bundle are the runtime's own. Asking inside the handler
+           * instead costs the per-module call itself rather than the parsing,
+           * which a substring test already skipped; AGENTS.md carries the
+           * measurement, and it is stated there rather than here as well
+           * because two spellings of one number is how the two come to
+           * disagree -- which they had, by 2ms of a noise band a few ms wide.
+           *
+           * `code` is the substring that has to be there for a template to
+           * exist, since the tag is only the tag because something imported
+           * it. `id` is the extensions `parseModule()` can read, so JSON, a
+           * `.node` binding and whatever virtual module a plugin invented are
+           * all out. The `id` pattern is matched against forward slashes
+           * whatever the platform, which rolldown documents and which is why
+           * it needs no Windows spelling.
+           */
+          filter: {
+            code: new RegExp(TAG_MODULE.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+            id: MODULE_RE,
+          },
 
-					handler(code: string, id: string) {
-						// no extension or substring test here: the filter above is what
-						// does the narrowing, natively, and verified -- the `buildable`
-						// fixture reaches this handler zero times and `templated` reaches
-						// it exactly once, for the one module holding a template. A second
-						// check would be a guard that reads as load-bearing and is not
-						const compiled = compileTemplates(id, code);
-						if (!compiled) {
-							return null;
-						}
+          handler(code: string, id: string) {
+            // no extension or substring test here: the filter above is what
+            // does the narrowing, natively, and verified -- the `buildable`
+            // fixture reaches this handler zero times and `templated` reaches
+            // it exactly once, for the one module holding a template. A second
+            // check would be a guard that reads as load-bearing and is not
+            const compiled = compileTemplates(id, code);
+            if (!compiled) {
+              return null;
+            }
 
-						templates += compiled.count;
-						return { code: compiled.code, map: compiled.map };
-					},
-				},
-			} satisfies Plugin,
-			{
-				name: 'sigil:styles',
-				/**
-				 * Rewrites a module's `utilitySheet()` calls to the shaken sheet, so
-				 * the 383 rules an app names a dozen of leave the bundle rather than
-				 * being replaced in it.
-				 *
-				 * A `transform` for the reason the template pass is one, and a
-				 * *second* plugin rather than a branch inside that one: the two ask
-				 * different questions about different imports, rolldown composes their
-				 * source maps for us, and each stays testable on its own. What it
-				 * costs is a module holding both a template and a sheet call being
-				 * parsed twice, which is one module in an app.
-				 */
-				transform: {
-					/**
-					 * `code` is the substring that has to be there for a call to exist,
-					 * since `utilitySheet` is only itself because something imported it.
-					 * `id` is the same extension set the template pass uses. Both are
-					 * applied natively, so a module that cannot hold a call never
-					 * crosses into JavaScript.
-					 *
-					 * The **module** rather than the export name, though
-					 * `utilitySheet` is distinctive enough to filter on and would be
-					 * tighter: every shape that can call it mentions it, so that
-					 * filter would be sound -- except for the one it is not, a name
-					 * written with a unicode escape, which oxc decodes and a substring
-					 * search does not. That is a new silent miss bought for a
-					 * measurement that says there is nothing to buy: the `styled`
-					 * fixture reaches this handler **once**, and the toolchain's own
-					 * build has four modules mentioning the specifier at all. Same
-					 * filter as the template pass, for the same reason, with the same
-					 * boundary.
-					 */
-					filter: {
-						code: new RegExp(STYLE_MODULE.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')),
-						id: MODULE_RE,
-					},
+            templates += compiled.count;
+            return { code: compiled.code, map: compiled.map };
+          },
+        },
+      } satisfies Plugin,
+      {
+        name: 'sigil:styles',
+        /**
+         * Rewrites a module's `utilitySheet()` calls to the shaken sheet, so
+         * the 383 rules an app names a dozen of leave the bundle rather than
+         * being replaced in it.
+         *
+         * A `transform` for the reason the template pass is one, and a
+         * *second* plugin rather than a branch inside that one: the two ask
+         * different questions about different imports, rolldown composes their
+         * source maps for us, and each stays testable on its own. What it
+         * costs is a module holding both a template and a sheet call being
+         * parsed twice, which is one module in an app.
+         */
+        transform: {
+          /**
+           * `code` is the substring that has to be there for a call to exist,
+           * since `utilitySheet` is only itself because something imported it.
+           * `id` is the same extension set the template pass uses. Both are
+           * applied natively, so a module that cannot hold a call never
+           * crosses into JavaScript.
+           *
+           * The **module** rather than the export name, though
+           * `utilitySheet` is distinctive enough to filter on and would be
+           * tighter: every shape that can call it mentions it, so that
+           * filter would be sound -- except for the one it is not, a name
+           * written with a unicode escape, which oxc decodes and a substring
+           * search does not. That is a new silent miss bought for a
+           * measurement that says there is nothing to buy: the `styled`
+           * fixture reaches this handler **once**, and the toolchain's own
+           * build has four modules mentioning the specifier at all. Same
+           * filter as the template pass, for the same reason, with the same
+           * boundary.
+           */
+          filter: {
+            code: new RegExp(STYLE_MODULE.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+            id: MODULE_RE,
+          },
 
-					handler(code: string, id: string) {
-						if (!shaker) {
-							return null;
-						}
+          handler(code: string, id: string) {
+            if (!shaker) {
+              return null;
+            }
 
-						const shaken = shakeStyles(id, code, () => shaker.sheet());
-						if (!shaken) {
-							return null;
-						}
+            const shaken = shakeStyles(id, code, () => shaker.sheet());
+            if (!shaken) {
+              return null;
+            }
 
-						// `shaken.sites` is not added up here, and the counter that did
-						// was deleted: the sheet is asked for only once a call has been
-						// found, so a shaker that has a result is one that rewrote at
-						// least one site. Sabotage said so -- dropping the `&& sites`
-						// from the report failed no test, because it could not
-						return { code: shaken.code, map: shaken.map };
-					},
-				},
-			} satisfies Plugin,
-		],
-		resolve: { conditionNames: ['node', 'import', 'default'] },
-		// JSX compiles against the runtime the app depends on, because rolldown's
-		// own default is `react` and a framework that publishes `./jsx-runtime` has
-		// no business shipping apps that import somebody else's. Left to the
-		// default, a `.tsx` holding one JSX element built cleanly, reported
-		// success, and died the first time the command was run with `Cannot find
-		// package 'react'` -- a build that reported success and an executable that
-		// dies the first time it is used, which is the shape `--external` is
-		// written for one option along.
-		//
-		// rolldown *does* read the app's `tsconfig.json`, and that was the first
-		// thing measured rather than assumed: `tsconfig` defaults to `true` and it
-		// is resolved by walking up from each module, so an app whose config names
-		// `jsxImportSource` already built correctly and the defect was only ever
-		// the default. Which is why this is one option and not a `tsconfig`
-		// reader: parsing one means JSONC and an `extends` chain, and a second
-		// reader of the app's config is a second thing to disagree with the app's
-		// own `tsc`.
-		//
-		// `importSource` alone, and the narrowness is the decision. Measured
-		// against rolldown 1.2.11: this option beats a `jsxImportSource` from the
-		// tsconfig, and everything else about the transform stays the app's --
-		// `jsx: "react-jsxdev"` still reaches `@ttylabs/sigil/jsx-dev-runtime`,
-		// `jsx: "react"` still emits `React.createElement`, and `jsx: "preserve"`
-		// still preserves. Adding `runtime: 'automatic'` was tried and rejected:
-		// it does fix `preserve` and classic, and it silently costs
-		// `react-jsxdev` its dev runtime, which is a configuration this framework
-		// publishes a runtime for -- re-measured when `preserve` was closed, since
-		// this was the candidate for closing it, and the rejection holds. What the
-		// option takes away in **this** build is the `panel.tsx` string and the
-		// `fileName` property, not the `jsx-dev-runtime` chunk: minification is on,
-		// so that chunk is inlined and gone either way, and the string is the marker
-		// `test/fixtures/jsx-dev/` pins for exactly that reason. See `rawJsxIn()`
-		// below for the whole table. What `preserve` leaves behind is a
-		// bundle that keeps the JSX and dies with `Unexpected token '<'`, which is
-		// **refused** rather than honoured -- by `rawJsxIn()` below, which asks
-		// what was written rather than what the tsconfig said, so this stays one
-		// option with no config reader of its own.
-		//
-		// What it costs is an app that names a different automatic import source
-		// in its tsconfig, which this overrides. Deliberate: the JSX in a sigil
-		// app has to produce sigil `Element`s for anything in the framework to
-		// render it, and the one statement nothing here overrides is the per-file
-		// `@jsxImportSource` pragma -- measured, it beats this option -- so the
-		// escape hatch is the most explicit spelling there is rather than the
-		// least. A tsconfig could not have been the whole answer in any case:
-		// measured, `compilerOptions.jsxImportSource` does not reach a `.jsx` at
-		// all, so a `.jsx` has never been configurable that way with a tsconfig
-		// or without one.
-		transform: { jsx: { importSource: RUNTIME } },
-	});
+            // `shaken.sites` is not added up here, and the counter that did
+            // was deleted: the sheet is asked for only once a call has been
+            // found, so a shaker that has a result is one that rewrote at
+            // least one site. Sabotage said so -- dropping the `&& sites`
+            // from the report failed no test, because it could not
+            return { code: shaken.code, map: shaken.map };
+          },
+        },
+      } satisfies Plugin,
+    ],
+    resolve: { conditionNames: ['node', 'import', 'default'] },
+    // JSX compiles against the runtime the app depends on, because rolldown's
+    // own default is `react` and a framework that publishes `./jsx-runtime` has
+    // no business shipping apps that import somebody else's. Left to the
+    // default, a `.tsx` holding one JSX element built cleanly, reported
+    // success, and died the first time the command was run with `Cannot find
+    // package 'react'` -- a build that reported success and an executable that
+    // dies the first time it is used, which is the shape `--external` is
+    // written for one option along.
+    //
+    // rolldown *does* read the app's `tsconfig.json`, and that was the first
+    // thing measured rather than assumed: `tsconfig` defaults to `true` and it
+    // is resolved by walking up from each module, so an app whose config names
+    // `jsxImportSource` already built correctly and the defect was only ever
+    // the default. Which is why this is one option and not a `tsconfig`
+    // reader: parsing one means JSONC and an `extends` chain, and a second
+    // reader of the app's config is a second thing to disagree with the app's
+    // own `tsc`.
+    //
+    // `importSource` alone, and the narrowness is the decision. Measured
+    // against rolldown 1.2.11: this option beats a `jsxImportSource` from the
+    // tsconfig, and everything else about the transform stays the app's --
+    // `jsx: "react-jsxdev"` still reaches `@ttylabs/sigil/jsx-dev-runtime`,
+    // `jsx: "react"` still emits `React.createElement`, and `jsx: "preserve"`
+    // still preserves. Adding `runtime: 'automatic'` was tried and rejected:
+    // it does fix `preserve` and classic, and it silently costs
+    // `react-jsxdev` its dev runtime, which is a configuration this framework
+    // publishes a runtime for -- re-measured when `preserve` was closed, since
+    // this was the candidate for closing it, and the rejection holds. What the
+    // option takes away in **this** build is the `panel.tsx` string and the
+    // `fileName` property, not the `jsx-dev-runtime` chunk: minification is on,
+    // so that chunk is inlined and gone either way, and the string is the marker
+    // `test/fixtures/jsx-dev/` pins for exactly that reason. See `rawJsxIn()`
+    // below for the whole table. What `preserve` leaves behind is a
+    // bundle that keeps the JSX and dies with `Unexpected token '<'`, which is
+    // **refused** rather than honoured -- by `rawJsxIn()` below, which asks
+    // what was written rather than what the tsconfig said, so this stays one
+    // option with no config reader of its own.
+    //
+    // What it costs is an app that names a different automatic import source
+    // in its tsconfig, which this overrides. Deliberate: the JSX in a sigil
+    // app has to produce sigil `Element`s for anything in the framework to
+    // render it, and the one statement nothing here overrides is the per-file
+    // `@jsxImportSource` pragma -- measured, it beats this option -- so the
+    // escape hatch is the most explicit spelling there is rather than the
+    // least. A tsconfig could not have been the whole answer in any case:
+    // measured, `compilerOptions.jsxImportSource` does not reach a `.jsx` at
+    // all, so a `.jsx` has never been configurable that way with a tsconfig
+    // or without one.
+    transform: { jsx: { importSource: RUNTIME } },
+  });
 
-	// there is one leak and it is a `write()` that rejects: `close()` used to be
-	// the statement immediately after the write, so the unresolved gate,
-	// `undo()`, `escapeControls()` and the `chmod` below all ran with the bundle
-	// already closed. A `finally` around the write alone would have closed the
-	// same leak -- what the wide one buys is where the correctness lives. The
-	// eager call was right only because nothing between the write and it threw,
-	// which is a property of the fifty lines under it rather than of the call;
-	// everything added since happened to be added *after* the close, and one
-	// statement added before it would have brought the leak back with nothing to
-	// notice. A `finally` over the whole use of the bundle is right by its shape,
-	// and it closes exactly once on one path, so "was it closed" has one answer.
-	//
-	// It begins where the bundle exists, which is after `await rolldown()`
-	// returns rather than at the call: a `rolldown()` that rejects hands back no
-	// reference for anything here to close. Measured against rolldown 1.2.11 --
-	// an `options` hook that throws rejects before a bundle is constructed, and a
-	// missing input resolves to one -- so there is no reachable path where a
-	// bundle exists and this function cannot see it.
-	//
-	// The generated entry is *written* here rather than before, so the directory
-	// and the bundle are owned by the same block. Only the path has to exist
-	// earlier, because it is `rolldown()`'s `input`; see `writeEntry()`.
-	try {
-		if (generated) {
-			writeEntry(generated, app, tree, defaultLocale);
-		}
+  // there is one leak and it is a `write()` that rejects: `close()` used to be
+  // the statement immediately after the write, so the unresolved gate,
+  // `undo()`, `escapeControls()` and the `chmod` below all ran with the bundle
+  // already closed. A `finally` around the write alone would have closed the
+  // same leak -- what the wide one buys is where the correctness lives. The
+  // eager call was right only because nothing between the write and it threw,
+  // which is a property of the fifty lines under it rather than of the call;
+  // everything added since happened to be added *after* the close, and one
+  // statement added before it would have brought the leak back with nothing to
+  // notice. A `finally` over the whole use of the bundle is right by its shape,
+  // and it closes exactly once on one path, so "was it closed" has one answer.
+  //
+  // It begins where the bundle exists, which is after `await rolldown()`
+  // returns rather than at the call: a `rolldown()` that rejects hands back no
+  // reference for anything here to close. Measured against rolldown 1.2.11 --
+  // an `options` hook that throws rejects before a bundle is constructed, and a
+  // missing input resolves to one -- so there is no reachable path where a
+  // bundle exists and this function cannot see it.
+  //
+  // The generated entry is *written* here rather than before, so the directory
+  // and the bundle are owned by the same block. Only the path has to exist
+  // earlier, because it is `rolldown()`'s `input`; see `writeEntry()`.
+  try {
+    if (generated) {
+      writeEntry(generated, app, tree, defaultLocale);
+    }
 
-		const written = await bundle.write({
-			chunkFileNames: 'chunks/[name]-[hash].mjs',
-			dir: out,
-			entryFileNames: `${binName}.mjs`,
-			format: 'esm',
-			minify: true,
-			// the first thing anybody debugging a built app wants, and nothing to
-			// whoever never opens one -- but several times the size of the code it
-			// describes, and a package publishing its `dist` publishes it too
-			sourcemap,
-		});
+    const written = await bundle.write({
+      chunkFileNames: 'chunks/[name]-[hash].mjs',
+      dir: out,
+      entryFileNames: `${binName}.mjs`,
+      format: 'esm',
+      minify: true,
+      // the first thing anybody debugging a built app wants, and nothing to
+      // whoever never opens one -- but several times the size of the code it
+      // describes, and a package publishing its `dist` publishes it too
+      sourcemap,
+    });
 
-		// asked after the write, which reads backwards and is the only place the
-		// answer exists. `rolldown()` builds nothing: rolldown's own documentation
-		// says the module graph is not built until a method on the bundle is called,
-		// so asking here before the write -- which is where this check used to sit --
-		// asked an empty array and the gate had never once fired. Measured: an app
-		// importing `totally-not-a-package` built and reported success, and so did
-		// one whose JSX reached for `react`. It was untested, which is how a check
-		// comes to be dead.
-		//
-		// It cannot be moved into a plugin hook either, and each candidate was tried:
-		// `buildEnd` and `generateBundle` both run *before* the warning is reported,
-		// so both see nothing. `generate()` first and `write()` after is the other
-		// shape and is worse -- measured, the transform hook runs again for the
-		// second call, which would double `templates` and compile every template
-		// twice. So one write, and what it wrote is unwound: exactly the files
-		// rolldown reported, which is where the `.map`s are too.
-		if (unresolved.length) {
-			undo(out, written.output);
-			throw new Error(
-				`Cannot build: ${unresolved.length} import${unresolved.length === 1 ? '' : 's'} could not be resolved, and an unresolved import is one the built app would reach for at run time.\n${unresolved.map((message) => `  ${message}`).join('\n')}`
-			);
-		}
+    // asked after the write, which reads backwards and is the only place the
+    // answer exists. `rolldown()` builds nothing: rolldown's own documentation
+    // says the module graph is not built until a method on the bundle is called,
+    // so asking here before the write -- which is where this check used to sit --
+    // asked an empty array and the gate had never once fired. Measured: an app
+    // importing `totally-not-a-package` built and reported success, and so did
+    // one whose JSX reached for `react`. It was untested, which is how a check
+    // comes to be dead.
+    //
+    // It cannot be moved into a plugin hook either, and each candidate was tried:
+    // `buildEnd` and `generateBundle` both run *before* the warning is reported,
+    // so both see nothing. `generate()` first and `write()` after is the other
+    // shape and is worse -- measured, the transform hook runs again for the
+    // second call, which would double `templates` and compile every template
+    // twice. So one write, and what it wrote is unwound: exactly the files
+    // rolldown reported, which is where the `.map`s are too.
+    if (unresolved.length) {
+      undo(out, written.output);
+      throw new Error(
+        `Cannot build: ${unresolved.length} import${unresolved.length === 1 ? '' : 's'} could not be resolved, and an unresolved import is one the built app would reach for at run time.\n${unresolved.map((message) => `  ${message}`).join('\n')}`
+      );
+    }
 
-		// the second thing a bundle can be wrong about in a way that only shows up
-		// the first time somebody runs it, and the reason it is asked here rather
-		// than configured away is one entry along in AGENTS.md
-		const preserved = rawJsxIn(out, written.output);
-		if (preserved) {
-			undo(out, written.output);
-			throw new Error(
-				`Cannot build: ${preserved} still holds JSX, so the built app would die with "Unexpected token '<'" the first time it was loaded.\n  Set "jsx" in the app's tsconfig.json to "react-jsx" or "react-jsxdev". "preserve" leaves JSX for a later tool to compile, and a bundle is the end of the pipeline -- there is no later tool.`
-			);
-		}
+    // the second thing a bundle can be wrong about in a way that only shows up
+    // the first time somebody runs it, and the reason it is asked here rather
+    // than configured away is one entry along in AGENTS.md
+    const preserved = rawJsxIn(out, written.output);
+    if (preserved) {
+      undo(out, written.output);
+      throw new Error(
+        `Cannot build: ${preserved} still holds JSX, so the built app would die with "Unexpected token '<'" the first time it was loaded.\n  Set "jsx" in the app's tsconfig.json to "react-jsx" or "react-jsxdev". "preserve" leaves JSX for a later tool to compile, and a bundle is the end of the pipeline -- there is no later tool.`
+      );
+    }
 
-		escapeControls(out, written.output);
+    escapeControls(out, written.output);
 
-		const chunks = written.output
-			.map((chunk) => ({
-				entry: chunk.type === 'chunk' && chunk.isEntry,
-				name: chunk.fileName,
-				size: Buffer.byteLength(
-					chunk.type === 'chunk' ? chunk.code : (chunk.source as string | Uint8Array)
-				),
-			}))
-			.sort((one, other) => other.size - one.size);
+    const chunks = written.output
+      .map((chunk) => ({
+        entry: chunk.type === 'chunk' && chunk.isEntry,
+        name: chunk.fileName,
+        size: Buffer.byteLength(
+          chunk.type === 'chunk' ? chunk.code : (chunk.source as string | Uint8Array)
+        ),
+      }))
+      .sort((one, other) => other.size - one.size);
 
-		const executable = join(out, `${binName}.mjs`);
+    const executable = join(out, `${binName}.mjs`);
 
-		// the bit, because a shebang without it is a file nobody can run. `0o755`
-		// rather than a mask off the umask: what a bin needs is the same everywhere
-		// and an umask that happened to be 077 would produce one only its owner
-		// could execute
-		chmodSync(executable, 0o755);
+    // the bit, because a shebang without it is a file nobody can run. `0o755`
+    // rather than a mask off the umask: what a bin needs is the same everywhere
+    // and an umask that happened to be 077 would produce one only its owner
+    // could execute
+    chmodSync(executable, 0o755);
 
-		return {
-			bin: executable,
-			chunks,
-			external: [...external],
-			inlined: inlinedPackages(app.root, input, written.output),
-			styles: styleReport(shaker),
-			templates,
-		};
-	} finally {
-		// this build's own directory, so removing it cannot disturb a build running
-		// beside it -- which is the whole point of it being unique. Unconditional
-		// rather than success-only: a refused build has no more use for a generated
-		// entry than a finished one, and leaving one behind per failure is how
-		// `node_modules/.sigil` fills up with the outputs of builds nobody kept
-		if (generated) {
-			try {
-				rmSync(generated.dir, { force: true, recursive: true });
-			} catch {
-				// for the reason `close()` below is swallowed: a `finally` that throws
-				// replaces the real diagnostic with one about a directory, and what is
-				// left behind is a few kB inside `node_modules`
-			}
-		}
+    return {
+      bin: executable,
+      chunks,
+      external: [...external],
+      inlined: inlinedPackages(app.root, input, written.output),
+      styles: styleReport(shaker),
+      templates,
+    };
+  } finally {
+    // this build's own directory, so removing it cannot disturb a build running
+    // beside it -- which is the whole point of it being unique. Unconditional
+    // rather than success-only: a refused build has no more use for a generated
+    // entry than a finished one, and leaving one behind per failure is how
+    // `node_modules/.sigil` fills up with the outputs of builds nobody kept
+    if (generated) {
+      try {
+        rmSync(generated.dir, { force: true, recursive: true });
+      } catch {
+        // for the reason `close()` below is swallowed: a `finally` that throws
+        // replaces the real diagnostic with one about a directory, and what is
+        // left behind is a few kB inside `node_modules`
+      }
+    }
 
-		try {
-			await bundle.close();
-		} catch {
-			// `close()` never decides what the build answered, which is the same
-			// rule `undo()` follows and for the same reason: a `finally` that
-			// rethrows replaces the real diagnostic with one about releasing a
-			// handle, and there is no error worse to report than the one that was
-			// already on its way. It is swallowed on the success path too rather
-			// than raised there, because the asymmetry would have to be stated as
-			// "releasing the bundle is fatal only when everything else worked",
-			// which reads backwards -- and what it would produce is a refused
-			// build sitting beside a bundle that is complete, escaped and
-			// executable, which is the shape `undo()` exists to prevent with
-			// nothing left to unwind.
-			//
-			// Reachable, unlike the guards in `undo()`: measured against rolldown
-			// 1.2.11, a plugin whose `closeBundle` hook throws throws out of
-			// `close()`, as a `PLUGIN_ERROR`. This build's one plugin has only a
-			// `transform`, so it cannot happen here today -- and a plugin is
-			// exactly the kind of thing that gets added.
-			//
-			// Which is also why the eager call was *replaced* rather than joined to
-			// this one. A second `close()` is **not** a no-op: measured, it resolves
-			// and leaves `closed` true, and it runs every `closeBundle` hook again
-			// -- a counting hook reached 3 after three closes, and a throwing one
-			// threw from each. So two closes would run a plugin's teardown twice
-			// for one build, which is a thing to get wrong rather than a tidiness
-			// argument.
-		}
-	}
+    try {
+      await bundle.close();
+    } catch {
+      // `close()` never decides what the build answered, which is the same
+      // rule `undo()` follows and for the same reason: a `finally` that
+      // rethrows replaces the real diagnostic with one about releasing a
+      // handle, and there is no error worse to report than the one that was
+      // already on its way. It is swallowed on the success path too rather
+      // than raised there, because the asymmetry would have to be stated as
+      // "releasing the bundle is fatal only when everything else worked",
+      // which reads backwards -- and what it would produce is a refused
+      // build sitting beside a bundle that is complete, escaped and
+      // executable, which is the shape `undo()` exists to prevent with
+      // nothing left to unwind.
+      //
+      // Reachable, unlike the guards in `undo()`: measured against rolldown
+      // 1.2.11, a plugin whose `closeBundle` hook throws throws out of
+      // `close()`, as a `PLUGIN_ERROR`. This build's one plugin has only a
+      // `transform`, so it cannot happen here today -- and a plugin is
+      // exactly the kind of thing that gets added.
+      //
+      // Which is also why the eager call was *replaced* rather than joined to
+      // this one. A second `close()` is **not** a no-op: measured, it resolves
+      // and leaves `closed` true, and it runs every `closeBundle` hook again
+      // -- a counting hook reached 3 after three closes, and a throwing one
+      // threw from each. So two closes would run a plugin's teardown twice
+      // for one build, which is a thing to get wrong rather than a tidiness
+      // argument.
+    }
+  }
 }
 
 /**
@@ -669,56 +669,56 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
  * @returns One entry per package, largest first.
  */
 function inlinedPackages(
-	root: string,
-	entry: string,
-	output: readonly { modules?: Record<string, { renderedLength?: number }>; type: string }[]
+  root: string,
+  entry: string,
+  output: readonly { modules?: Record<string, { renderedLength?: number }>; type: string }[]
 ): InlinedPackage[] {
-	const bytes = new Map<string, number>();
-	const owners = new Map<string, string | undefined>();
-	const app = resolve(root);
-	const input = resolve(entry);
+  const bytes = new Map<string, number>();
+  const owners = new Map<string, string | undefined>();
+  const app = resolve(root);
+  const input = resolve(entry);
 
-	for (const chunk of output) {
-		if (chunk.type !== 'chunk') {
-			continue;
-		}
+  for (const chunk of output) {
+    if (chunk.type !== 'chunk') {
+      continue;
+    }
 
-		for (const [id, rendered] of Object.entries(chunk.modules ?? {})) {
-			// a virtual module has no path to own it
-			if (!isAbsolute(id)) {
-				continue;
-			}
+    for (const [id, rendered] of Object.entries(chunk.modules ?? {})) {
+      // a virtual module has no path to own it
+      if (!isAbsolute(id)) {
+        continue;
+      }
 
-			// resolved before it is compared, because a module id is not
-			// necessarily spelled the way `resolve()` spells one: rolldown hands
-			// back forward slashes on Windows, where `resolve()` produces
-			// backslashes -- so a raw `startsWith()` there matches nothing and
-			// every one of the app's own modules is reported as a package, which
-			// the app's own `package.json` then happily names. The comparison has
-			// to be between two spellings made the same way, which is the rule
-			// `scanClassEvidence()` keeps for its exclusions
-			const file = resolve(id);
+      // resolved before it is compared, because a module id is not
+      // necessarily spelled the way `resolve()` spells one: rolldown hands
+      // back forward slashes on Windows, where `resolve()` produces
+      // backslashes -- so a raw `startsWith()` there matches nothing and
+      // every one of the app's own modules is reported as a package, which
+      // the app's own `package.json` then happily names. The comparison has
+      // to be between two spellings made the same way, which is the rule
+      // `scanClassEvidence()` keeps for its exclusions
+      const file = resolve(id);
 
-			// the entry is the build's own, and the generated one is the reason
-			// this is asked at all: it is written inside `node_modules/.sigil`, so
-			// `isAppsOwn()` correctly says it is not the app's -- and walking up
-			// from it for an owner then finds the app's own manifest and reports
-			// the app as a package it depends on. A `--bin` needs no such
-			// exception, since it sits in the app tree like any other module
-			if (file === input || isAppsOwn(file, app)) {
-				continue;
-			}
+      // the entry is the build's own, and the generated one is the reason
+      // this is asked at all: it is written inside `node_modules/.sigil`, so
+      // `isAppsOwn()` correctly says it is not the app's -- and walking up
+      // from it for an owner then finds the app's own manifest and reports
+      // the app as a package it depends on. A `--bin` needs no such
+      // exception, since it sits in the app tree like any other module
+      if (file === input || isAppsOwn(file, app)) {
+        continue;
+      }
 
-			const name = packageOf(dirname(file), owners);
-			if (name !== undefined) {
-				bytes.set(name, (bytes.get(name) ?? 0) + (rendered.renderedLength ?? 0));
-			}
-		}
-	}
+      const name = packageOf(dirname(file), owners);
+      if (name !== undefined) {
+        bytes.set(name, (bytes.get(name) ?? 0) + (rendered.renderedLength ?? 0));
+      }
+    }
+  }
 
-	return [...bytes]
-		.map(([name, size]) => ({ bytes: size, name }))
-		.sort((one, other) => other.bytes - one.bytes || one.name.localeCompare(other.name));
+  return [...bytes]
+    .map(([name, size]) => ({ bytes: size, name }))
+    .sort((one, other) => other.bytes - one.bytes || one.name.localeCompare(other.name));
 }
 
 /**
@@ -749,10 +749,10 @@ function inlinedPackages(
  * @returns Whether it is the app's own.
  */
 export function isAppsOwn(file: string, app: string): boolean {
-	if (file !== app && !file.startsWith(`${app}${sep}`)) {
-		return false;
-	}
-	return !file.slice(app.length).split(sep).includes('node_modules');
+  if (file !== app && !file.startsWith(`${app}${sep}`)) {
+    return false;
+  }
+  return !file.slice(app.length).split(sep).includes('node_modules');
 }
 
 /**
@@ -767,48 +767,48 @@ export function isAppsOwn(file: string, app: string): boolean {
  * @returns The package name, or `undefined` when nothing above names one.
  */
 function packageOf(from: string, cache: Map<string, string | undefined>): string | undefined {
-	const seen: string[] = [];
-	let at = from;
+  const seen: string[] = [];
+  let at = from;
 
-	for (;;) {
-		if (cache.has(at)) {
-			const found = cache.get(at);
-			for (const dir of seen) {
-				cache.set(dir, found);
-			}
-			return found;
-		}
+  for (;;) {
+    if (cache.has(at)) {
+      const found = cache.get(at);
+      for (const dir of seen) {
+        cache.set(dir, found);
+      }
+      return found;
+    }
 
-		seen.push(at);
+    seen.push(at);
 
-		let name: string | undefined;
-		try {
-			const manifest: unknown = JSON.parse(readFileSync(join(at, 'package.json'), 'utf-8'));
-			const declared = (manifest as { name?: unknown }).name;
-			// a manifest with no name is a real thing -- a private folder marking
-			// its module type -- and it does not name a package, so the walk goes
-			// on rather than stopping at it
-			name = typeof declared === 'string' && declared ? declared : undefined;
-		} catch {
-			name = undefined;
-		}
+    let name: string | undefined;
+    try {
+      const manifest: unknown = JSON.parse(readFileSync(join(at, 'package.json'), 'utf-8'));
+      const declared = (manifest as { name?: unknown }).name;
+      // a manifest with no name is a real thing -- a private folder marking
+      // its module type -- and it does not name a package, so the walk goes
+      // on rather than stopping at it
+      name = typeof declared === 'string' && declared ? declared : undefined;
+    } catch {
+      name = undefined;
+    }
 
-		if (name !== undefined) {
-			for (const dir of seen) {
-				cache.set(dir, name);
-			}
-			return name;
-		}
+    if (name !== undefined) {
+      for (const dir of seen) {
+        cache.set(dir, name);
+      }
+      return name;
+    }
 
-		const up = dirname(at);
-		if (up === at) {
-			for (const dir of seen) {
-				cache.set(dir, undefined);
-			}
-			return undefined;
-		}
-		at = up;
-	}
+    const up = dirname(at);
+    if (up === at) {
+      for (const dir of seen) {
+        cache.set(dir, undefined);
+      }
+      return undefined;
+    }
+    at = up;
+  }
 }
 
 /**
@@ -830,8 +830,8 @@ function packageOf(from: string, cache: Map<string, string | undefined>): string
  * @returns The report, or `undefined`.
  */
 function styleReport(shaker: Shaker | undefined): ShakenStyles | undefined {
-	const sheet: ShakenSheet | undefined = shaker?.result();
-	return sheet ? { kept: sheet.kept, total: sheet.total } : undefined;
+  const sheet: ShakenSheet | undefined = shaker?.result();
+  return sheet ? { kept: sheet.kept, total: sheet.total } : undefined;
 }
 
 /**
@@ -942,40 +942,40 @@ function styleReport(shaker: Shaker | undefined): ShakenStyles | undefined {
  * @returns The first offending chunk's name, or `undefined`.
  */
 export function rawJsxIn(
-	out: string,
-	output: readonly { fileName: string; type: string }[]
+  out: string,
+  output: readonly { fileName: string; type: string }[]
 ): string | undefined {
-	for (const chunk of output) {
-		// an asset is not a module, which is the same line `escapeControls()`
-		// draws -- and here it is a **cost** guard rather than a correctness one,
-		// which is worth saying because it looks like the latter. A sourcemap
-		// fails both parses and would fall into the conservative branch below
-		// anyway, measured, so removing this changes no answer for anything
-		// rolldown emits; what it changes is that the maps are read, and they are
-		// the largest files in the output -- 288 kB of maps against 111 kB of
-		// chunks on the fixture, which takes the pass from 2.33ms to 3.14ms. An
-		// asset that is JSX, which an app shipping a template as one would be, is
-		// the case where it changes an answer too, and that answer is that an
-		// asset nobody imports is not a module that has to parse
-		if (chunk.type !== 'chunk') {
-			continue;
-		}
+  for (const chunk of output) {
+    // an asset is not a module, which is the same line `escapeControls()`
+    // draws -- and here it is a **cost** guard rather than a correctness one,
+    // which is worth saying because it looks like the latter. A sourcemap
+    // fails both parses and would fall into the conservative branch below
+    // anyway, measured, so removing this changes no answer for anything
+    // rolldown emits; what it changes is that the maps are read, and they are
+    // the largest files in the output -- 288 kB of maps against 111 kB of
+    // chunks on the fixture, which takes the pass from 2.33ms to 3.14ms. An
+    // asset that is JSX, which an app shipping a template as one would be, is
+    // the case where it changes an answer too, and that answer is that an
+    // asset nobody imports is not a module that has to parse
+    if (chunk.type !== 'chunk') {
+      continue;
+    }
 
-		const file = join(out, chunk.fileName);
-		const code = readFileSync(file, 'utf-8');
+    const file = join(out, chunk.fileName);
+    const code = readFileSync(file, 'utf-8');
 
-		// the cost filter, not half the answer: a chunk that parses cannot hold a
-		// JSX node, so this only keeps the AST off the success path
-		if (parses(file, code)) {
-			continue;
-		}
-		// the whole of the answer, asked of the tree rather than of a verdict
-		if (hasJsx(file, code)) {
-			return chunk.fileName;
-		}
-	}
+    // the cost filter, not half the answer: a chunk that parses cannot hold a
+    // JSX node, so this only keeps the AST off the success path
+    if (parses(file, code)) {
+      continue;
+    }
+    // the whole of the answer, asked of the tree rather than of a verdict
+    if (hasJsx(file, code)) {
+      return chunk.fileName;
+    }
+  }
 
-	return undefined;
+  return undefined;
 }
 
 /**
@@ -1016,21 +1016,21 @@ const AS_JSX = { lang: 'jsx' } as const;
  * @returns Whether a `JSXElement` or `JSXFragment` is in it.
  */
 function hasJsx(file: string, source: string): boolean {
-	const program = parseTree(file, source, AS_JSX);
-	if (!program) {
-		return false;
-	}
+  const program = parseTree(file, source, AS_JSX);
+  if (!program) {
+    return false;
+  }
 
-	let found = false;
-	walk(program, (node) => {
-		if (node.type === 'JSXElement' || node.type === 'JSXFragment') {
-			found = true;
-		}
+  let found = false;
+  walk(program, (node) => {
+    if (node.type === 'JSXElement' || node.type === 'JSXFragment') {
+      found = true;
+    }
 
-		return !found;
-	});
+    return !found;
+  });
 
-	return found;
+  return found;
 }
 
 /**
@@ -1076,43 +1076,43 @@ function hasJsx(file: string, source: string): boolean {
  * @param output - What rolldown wrote.
  */
 export function undo(out: string, output: readonly { fileName: string }[]): void {
-	const root = resolve(out);
-	// with the separator, so that an `--out` of `dist` cannot have `dist-old`
-	// read as being inside it
-	const inside = root.endsWith(sep) ? root : root + sep;
+  const root = resolve(out);
+  // with the separator, so that an `--out` of `dist` cannot have `dist-old`
+  // read as being inside it
+  const inside = root.endsWith(sep) ? root : root + sep;
 
-	for (const chunk of output) {
-		const file = resolve(join(out, chunk.fileName));
-		if (!file.startsWith(inside)) {
-			continue;
-		}
+  for (const chunk of output) {
+    const file = resolve(join(out, chunk.fileName));
+    if (!file.startsWith(inside)) {
+      continue;
+    }
 
-		try {
-			rmSync(file, { force: true });
-		} catch {
-			// what must survive this function is the error the build was about to
-			// report, and a removal that throws replaces it with something about the
-			// file system. `force` covers a file that is not there and not a
-			// `fileName` that names a **directory**, which is `ERR_FS_EISDIR` --
-			// rolldown 1.2.11 reports no such name, so this is the same kind of guard
-			// as the containment check above: unreachable through the bundler, and
-			// cheap where the alternative is a message about the file system in place
-			// of the real one. Whatever could not be removed is skipped and the rest
-			// of the list still is
-			continue;
-		}
+    try {
+      rmSync(file, { force: true });
+    } catch {
+      // what must survive this function is the error the build was about to
+      // report, and a removal that throws replaces it with something about the
+      // file system. `force` covers a file that is not there and not a
+      // `fileName` that names a **directory**, which is `ERR_FS_EISDIR` --
+      // rolldown 1.2.11 reports no such name, so this is the same kind of guard
+      // as the containment check above: unreachable through the bundler, and
+      // cheap where the alternative is a message about the file system in place
+      // of the real one. Whatever could not be removed is skipped and the rest
+      // of the list still is
+      continue;
+    }
 
-		for (let dir = dirname(file); dir !== root && dir.startsWith(inside);) {
-			try {
-				rmdirSync(dir);
-			} catch {
-				// not empty, or already gone: either way there is nothing above it
-				// left to remove
-				break;
-			}
-			dir = dirname(dir);
-		}
-	}
+    for (let dir = dirname(file); dir !== root && dir.startsWith(inside);) {
+      try {
+        rmdirSync(dir);
+      } catch {
+        // not empty, or already gone: either way there is nothing above it
+        // left to remove
+        break;
+      }
+      dir = dirname(dir);
+    }
+  }
 }
 
 /**
@@ -1123,31 +1123,31 @@ export function undo(out: string, output: readonly { fileName: string }[]): void
  * @returns Where it was written.
  */
 function entryLocation(app: DiscoveredApp, out: string): GeneratedEntry {
-	// named from the **output** rather than randomly, and that is a trade taken on
-	// purpose. `mkdtempSync` was the first version and is unique per invocation,
-	// which closes this defect and one more -- two builds of one app to one `--out`
-	// -- at the cost of a directory name that differs every run. That name reaches
-	// the sourcemap, where it is a `sources` entry, so a random one makes two
-	// identical builds produce different bytes: this repo asserts its own build is
-	// a byte-identical fixed point, and an app verifying a published artifact wants
-	// the same property. It survived only because the toolchain builds with
-	// `--no-sourcemap`, which is luck rather than design.
-	//
-	// A hash of the resolved output is deterministic and separates any two outputs
-	// that do not collide, which real ones do not -- see `hash()` for why that is a
-	// claim about accident rather than about possibility, and for the measurement
-	// that made the first width wrong. What it does not separate is two builds of
-	// one app to one `--out`, which are already fighting over every file they
-	// write -- the entry is the least of what they would clobber -- so buying that
-	// case with reproducibility would be paying for the wrong thing. That case is
-	// also where the cleanup below is unreliable: two processes removing one
-	// directory means one of the two `rmSync` calls can throw, and a swallowed
-	// throw leaves it behind. Observed once in four runs, a few kB inside
-	// `node_modules`, in a case whose bundle was already whichever process wrote
-	// last.
-	const dir = join(app.root, WORK_DIR, hash(resolve(out)));
+  // named from the **output** rather than randomly, and that is a trade taken on
+  // purpose. `mkdtempSync` was the first version and is unique per invocation,
+  // which closes this defect and one more -- two builds of one app to one `--out`
+  // -- at the cost of a directory name that differs every run. That name reaches
+  // the sourcemap, where it is a `sources` entry, so a random one makes two
+  // identical builds produce different bytes: this repo asserts its own build is
+  // a byte-identical fixed point, and an app verifying a published artifact wants
+  // the same property. It survived only because the toolchain builds with
+  // `--no-sourcemap`, which is luck rather than design.
+  //
+  // A hash of the resolved output is deterministic and separates any two outputs
+  // that do not collide, which real ones do not -- see `hash()` for why that is a
+  // claim about accident rather than about possibility, and for the measurement
+  // that made the first width wrong. What it does not separate is two builds of
+  // one app to one `--out`, which are already fighting over every file they
+  // write -- the entry is the least of what they would clobber -- so buying that
+  // case with reproducibility would be paying for the wrong thing. That case is
+  // also where the cleanup below is unreliable: two processes removing one
+  // directory means one of the two `rmSync` calls can throw, and a swallowed
+  // throw leaves it behind. Observed once in four runs, a few kB inside
+  // `node_modules`, in a case whose bundle was already whichever process wrote
+  // last.
+  const dir = join(app.root, WORK_DIR, hash(resolve(out)));
 
-	return { dir, file: join(dir, 'entry.mjs') };
+  return { dir, file: join(dir, 'entry.mjs') };
 }
 
 /**
@@ -1174,24 +1174,24 @@ function entryLocation(app: DiscoveredApp, out: string): GeneratedEntry {
  * @param defaultLocale - The locale to bake as the bottom of the chain.
  */
 function writeEntry(
-	at: GeneratedEntry,
-	app: DiscoveredApp,
-	tree: ResolvedTree,
-	defaultLocale: string | undefined
+  at: GeneratedEntry,
+  app: DiscoveredApp,
+  tree: ResolvedTree,
+  defaultLocale: string | undefined
 ): void {
-	mkdirSync(at.dir, { recursive: true });
+  mkdirSync(at.dir, { recursive: true });
 
-	writeFileSync(
-		at.file,
-		generateBin({
-			defaultLocale,
-			from: at.dir,
-			schemaModule: app.entry,
-			tree,
-			version: app.manifest.version,
-		}),
-		'utf-8'
-	);
+  writeFileSync(
+    at.file,
+    generateBin({
+      defaultLocale,
+      from: at.dir,
+      schemaModule: app.entry,
+      tree,
+      version: app.manifest.version,
+    }),
+    'utf-8'
+  );
 }
 
 /**
@@ -1221,7 +1221,7 @@ function writeEntry(
  * @returns Sixteen hex characters.
  */
 function hash(value: string): string {
-	return createHash('sha256').update(value).digest('hex').slice(0, 16);
+  return createHash('sha256').update(value).digest('hex').slice(0, 16);
 }
 
 /**
@@ -1275,19 +1275,19 @@ const FORMATTING = new Set(['\t', '\n', '\r']);
  * @param output - What rolldown wrote.
  */
 function escapeControls(out: string, output: readonly { fileName: string; type: string }[]): void {
-	for (const chunk of output) {
-		if (chunk.type !== 'chunk') {
-			continue;
-		}
+  for (const chunk of output) {
+    if (chunk.type !== 'chunk') {
+      continue;
+    }
 
-		const file = join(out, chunk.fileName);
-		const code = readFileSync(file, 'utf-8');
-		const escaped = code.replaceAll(CONTROL, (c) =>
-			FORMATTING.has(c) ? c : `\\x${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`
-		);
+    const file = join(out, chunk.fileName);
+    const code = readFileSync(file, 'utf-8');
+    const escaped = code.replaceAll(CONTROL, (c) =>
+      FORMATTING.has(c) ? c : `\\x${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`
+    );
 
-		if (escaped !== code) {
-			writeFileSync(file, escaped);
-		}
-	}
+    if (escaped !== code) {
+      writeFileSync(file, escaped);
+    }
+  }
 }

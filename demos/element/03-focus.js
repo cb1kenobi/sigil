@@ -23,55 +23,55 @@ import { graphemes } from '@ttylabs/sigil/width';
 // terminals, so asking only about stdin let `| cat` through *from* a terminal and
 // threw an `InputError` stack over a minified module
 if (!process.stdin.isTTY || !process.stdout.isTTY) {
-	console.log('This demo reads keys and draws frames, so it needs a terminal on both sides.');
-	process.exit(0);
+  console.log('This demo reads keys and draws frames, so it needs a terminal on both sides.');
+  process.exit(0);
 }
 
 const sheet = parseStylesheet(`
-	.app { flex-direction: column; width: 40; border: round; border-color: gray; padding: 1 }
-	.field { border: single; border-color: gray; padding-left: 1; padding-right: 1; height: 3 }
-	.field:focus { border-color: cyan }
-	.label { color: gray }
-	/* the label never holds the focus -- the field does -- so it is reached
-	   through the field rather than by a :focus of its own */
-	.field:focus .label { color: cyan; font-weight: bold }
-	.hint { color: gray }
+  .app { flex-direction: column; width: 40; border: round; border-color: gray; padding: 1 }
+  .field { border: single; border-color: gray; padding-left: 1; padding-right: 1; height: 3 }
+  .field:focus { border-color: cyan }
+  .label { color: gray }
+  /* the label never holds the focus -- the field does -- so it is reached
+     through the field rather than by a :focus of its own */
+  .field:focus .label { color: cyan; font-weight: bold }
+  .hint { color: gray }
 `);
 
 const app = box({ class: 'app' });
 const fields = ['name', 'email', 'role'].map((name) => {
-	const label = text(`${name}: `, { class: 'label' });
-	const field = box({ class: 'field', focusable: true }, label);
-	// the key reaches the focused field first; the app binding below never sees
-	// what this stops
-	field.onKey = (event) => {
-		const key = event.key;
-		const typed = label.text.split(': ')[1] ?? '';
+  const label = text(`${name}: `, { class: 'label' });
+  const field = box({ class: 'field', focusable: true }, label);
+  // the key reaches the focused field first; the app binding below never sees
+  // what this stops
+  field.onKey = (event) => {
+    const key = event.key;
+    const typed = label.text.split(': ')[1] ?? '';
 
-		if (key.name === 'backspace') {
-			// by grapheme cluster rather than by code unit, which is the rule
-			// `src/components/prompt.ts` records: an emoji is two code units, so
-			// `slice(0, -1)` leaves a lone surrogate behind and every edit after it
-			// works on a string no terminal can draw
-			const clusters = graphemes(typed);
-			clusters.pop();
-			label.setText(`${name}: ${clusters.join('')}`);
-			event.stop();
-			return;
-		}
+    if (key.name === 'backspace') {
+      // by grapheme cluster rather than by code unit, which is the rule
+      // `src/components/prompt.ts` records: an emoji is two code units, so
+      // `slice(0, -1)` leaves a lone surrogate behind and every edit after it
+      // works on a string no terminal can draw
+      const clusters = graphemes(typed);
+      clusters.pop();
+      label.setText(`${name}: ${clusters.join('')}`);
+      event.stop();
+      return;
+    }
 
-		// a printable key is one that named itself: a character arrives with its
-		// name and its sequence the same string, while a named key's name is one
-		// the terminal never sent -- `up` for `ESC [ A`, `backspace` for a `DEL`.
-		// Space is named and is still a character. Asking whether the name is one
-		// character long is what this used to do, and it dropped space along with
-		// everything else it was meant to drop
-		if (!key.ctrl && !key.meta && (key.name === 'space' || key.name === key.sequence)) {
-			label.setText(`${name}: ${typed}${key.name === 'space' ? ' ' : key.sequence}`);
-			event.stop();
-		}
-	};
-	return field;
+    // a printable key is one that named itself: a character arrives with its
+    // name and its sequence the same string, while a named key's name is one
+    // the terminal never sent -- `up` for `ESC [ A`, `backspace` for a `DEL`.
+    // Space is named and is still a character. Asking whether the name is one
+    // character long is what this used to do, and it dropped space along with
+    // everything else it was meant to drop
+    if (!key.ctrl && !key.meta && (key.name === 'space' || key.name === key.sequence)) {
+      label.setText(`${name}: ${typed}${key.name === 'space' ? ' ' : key.sequence}`);
+      event.stop();
+    }
+  };
+  return field;
 });
 
 app.append(...fields, text('Tab moves, type, Ctrl-C quits', { class: 'hint' }));
@@ -82,38 +82,38 @@ const tree = createTree(app);
 const input = createInput({ root: app });
 
 const draw = () => {
-	// the tree records what changed and the restyler is told what that implies,
-	// which is the join the renderer (SIG-67) will own. Without it the restyler
-	// re-resolves nothing after the first frame: focus really does move and the
-	// `:focus` rule never re-matches, so the ring is invisible
-	const marks = tree.take();
-	for (const element of marks.classes) restyler.touchClasses(element);
-	for (const element of marks.props) restyler.touchProps(element);
-	for (const element of marks.children) restyler.touchChildren(element);
+  // the tree records what changed and the restyler is told what that implies,
+  // which is the join the renderer (SIG-67) will own. Without it the restyler
+  // re-resolves nothing after the first frame: focus really does move and the
+  // `:focus` rule never re-matches, so the ring is invisible
+  const marks = tree.take();
+  for (const element of marks.classes) restyler.touchClasses(element);
+  for (const element of marks.props) restyler.touchProps(element);
+  for (const element of marks.children) restyler.touchChildren(element);
 
-	resolveStyles(app, restyler);
-	arrange(app, { height: backend.height, width: backend.width });
-	backend.render((painter) => paint(app, painter));
+  resolveStyles(app, restyler);
+  arrange(app, { height: backend.height, width: backend.width });
+  backend.render((painter) => paint(app, painter));
 };
 
 const quit = () => {
-	input.stop();
-	backend.done();
-	// what the tree ended up holding, which is the point: the keys went to the
-	// focused element rather than to whoever grabbed stdin first
-	for (const field of fields) console.log(`  ${field.children[0].text}`);
-	console.log('one router, one focus ring, and the terminal put back');
-	process.exit(0);
+  input.stop();
+  backend.done();
+  // what the tree ended up holding, which is the point: the keys went to the
+  // focused element rather than to whoever grabbed stdin first
+  for (const field of fields) console.log(`  ${field.children[0].text}`);
+  console.log('one router, one focus ring, and the terminal put back');
+  process.exit(0);
 };
 
 input.bind((event) => {
-	// an app binding sees every key first, which is where quitting belongs: an
-	// app that cannot be quit because a focused field swallowed Ctrl-C is the
-	// failure this order exists to prevent
-	if (isAbort(event.key) || (event.key.name === 'q' && !event.target)) {
-		event.stop();
-		quit();
-	}
+  // an app binding sees every key first, which is where quitting belongs: an
+  // app that cannot be quit because a focused field swallowed Ctrl-C is the
+  // failure this order exists to prevent
+  if (isAbort(event.key) || (event.key.name === 'q' && !event.target)) {
+    event.stop();
+    quit();
+  }
 });
 
 // every key redraws, which is the frame loop the renderer will own

@@ -19,8 +19,8 @@ import { table } from '@ttylabs/sigil/components';
 import { FRAMEWORK_CSS } from '@ttylabs/sigil/theme';
 
 const rows = [
-	{ file: 'dist/index.mjs', size: '12.4 kB', note: 'entry' },
-	{ file: 'dist/ansi.mjs', size: '4.9 kB', note: '' },
+  { file: 'dist/index.mjs', size: '12.4 kB', note: 'entry' },
+  { file: 'dist/ansi.mjs', size: '4.9 kB', note: '' },
 ];
 
 console.log('the defaults, which are the framework origin:\n');
@@ -28,25 +28,25 @@ console.log(table(rows, { indent: 2 }));
 
 console.log('\n\na theme over them -- one rule, and the heading is magenta:\n');
 console.log(
-	table(rows, {
-		indent: 2,
-		theme: '.sigil-table-head { color: magenta; font-weight: normal; text-decoration: underline }',
-	})
+  table(rows, {
+    indent: 2,
+    theme: '.sigil-table-head { color: magenta; font-weight: normal; text-decoration: underline }',
+  })
 );
 
 // the app's own sheet is a later origin still, so it beats the theme without
 // either of them having to say anything about the other
 console.log('\n\nand the app over the theme:\n');
 console.log(
-	table(rows, {
-		indent: 2,
-		sheets: ['.sigil-table-head { color: green }'],
-		theme: '.sigil-table-head { color: magenta }',
-	})
+  table(rows, {
+    indent: 2,
+    sheets: ['.sigil-table-head { color: green }'],
+    theme: '.sigil-table-head { color: magenta }',
+  })
 );
 
 // the classes a theme is written against, which is the whole vocabulary
 console.log('\n\nwhat a theme may restyle:\n');
 for (const line of FRAMEWORK_CSS.trim().split('\n')) {
-	console.log(`  ${line}`);
+  console.log(`  ${line}`);
 }

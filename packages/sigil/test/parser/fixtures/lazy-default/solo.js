@@ -1,4 +1,4 @@
 export default {
-	default: true,
-	desc: 'solo!',
+  default: true,
+  desc: 'solo!',
 };

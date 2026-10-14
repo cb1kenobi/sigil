@@ -49,49 +49,49 @@ export type ClipboardTarget = 'clipboard' | 'primary';
 export type ClipboardRefusal = 'empty' | 'too-large';
 
 export interface ClipboardOptions {
-	/**
-	 * The most UTF-8 bytes to send. `CLIPBOARD_LIMIT` by default.
-	 *
-	 * `0` or less means no limit, for a caller who knows their terminal and has
-	 * measured it.
-	 */
-	limit?: number;
-	/** Which selection. The system clipboard by default. */
-	target?: ClipboardTarget;
-	/**
-	 * Whether to cut the text to fit rather than refusing it.
-	 *
-	 * Off by default, which is the decision the ticket asked for: a selection over
-	 * the cap is **refused** unless somebody says to truncate it, because a
-	 * terminal that is handed too much drops the whole sequence silently -- so the
-	 * default is a refusal the caller can see rather than a copy that did nothing.
-	 * Truncation is on cluster boundaries, so a cut never lands inside an emoji
-	 * and produces bytes no terminal can decode.
-	 */
-	truncate?: boolean;
+  /**
+   * The most UTF-8 bytes to send. `CLIPBOARD_LIMIT` by default.
+   *
+   * `0` or less means no limit, for a caller who knows their terminal and has
+   * measured it.
+   */
+  limit?: number;
+  /** Which selection. The system clipboard by default. */
+  target?: ClipboardTarget;
+  /**
+   * Whether to cut the text to fit rather than refusing it.
+   *
+   * Off by default, which is the decision the ticket asked for: a selection over
+   * the cap is **refused** unless somebody says to truncate it, because a
+   * terminal that is handed too much drops the whole sequence silently -- so the
+   * default is a refusal the caller can see rather than a copy that did nothing.
+   * Truncation is on cluster boundaries, so a cut never lands inside an emoji
+   * and produces bytes no terminal can decode.
+   */
+  truncate?: boolean;
 }
 
 export interface ClipboardSequence {
-	/** How many UTF-8 bytes were encoded, after any truncation. */
-	readonly bytes: number;
-	/** Why the sequence is empty, if it is. */
-	readonly refused: ClipboardRefusal | undefined;
-	/** The sequence to write, or `''` where there is nothing to write. */
-	readonly sequence: string;
-	/** Whether the text was cut to fit. */
-	readonly truncated: boolean;
+  /** How many UTF-8 bytes were encoded, after any truncation. */
+  readonly bytes: number;
+  /** Why the sequence is empty, if it is. */
+  readonly refused: ClipboardRefusal | undefined;
+  /** The sequence to write, or `''` where there is nothing to write. */
+  readonly sequence: string;
+  /** Whether the text was cut to fit. */
+  readonly truncated: boolean;
 }
 
 export interface ClipboardCopy extends ClipboardSequence {
-	/**
-	 * Whether the bytes reached the output stream.
-	 *
-	 * **Never a claim that the clipboard changed.** There is no reply to an OSC
-	 * 52, so "the terminal accepted this" is not a thing anybody can know; this is
-	 * false only where nothing was written at all -- a refusal, or a stream whose
-	 * far end has gone.
-	 */
-	readonly written: boolean;
+  /**
+   * Whether the bytes reached the output stream.
+   *
+   * **Never a claim that the clipboard changed.** There is no reply to an OSC
+   * 52, so "the terminal accepted this" is not a thing anybody can know; this is
+   * false only where nothing was written at all -- a refusal, or a stream whose
+   * far end has gone.
+   */
+  readonly written: boolean;
 }
 
 /**
@@ -120,18 +120,18 @@ Object.setPrototypeOf(TARGETS, null);
  * @returns `c` or `p`.
  */
 function targetOf(target: ClipboardTarget): string {
-	const found = TARGETS[target];
-	if (found === undefined) {
-		throw new TypeError(
-			`Invalid clipboard target ${String(target)}: expected "clipboard" or "primary"`
-		);
-	}
-	return found;
+  const found = TARGETS[target];
+  if (found === undefined) {
+    throw new TypeError(
+      `Invalid clipboard target ${String(target)}: expected "clipboard" or "primary"`
+    );
+  }
+  return found;
 }
 
 /** How many UTF-8 bytes a string takes. */
 function utf8Length(text: string): number {
-	return Buffer.byteLength(text, 'utf8');
+  return Buffer.byteLength(text, 'utf8');
 }
 
 /**
@@ -148,17 +148,17 @@ function utf8Length(text: string): number {
  * @returns The prefix.
  */
 function cutToBytes(text: string, limit: number): string {
-	let out = '';
-	let used = 0;
-	for (const cluster of graphemes(text)) {
-		const size = utf8Length(cluster);
-		if (used + size > limit) {
-			break;
-		}
-		out += cluster;
-		used += size;
-	}
-	return out;
+  let out = '';
+  let used = 0;
+  for (const cluster of graphemes(text)) {
+    const size = utf8Length(cluster);
+    if (used + size > limit) {
+      break;
+    }
+    out += cluster;
+    used += size;
+  }
+  return out;
 }
 
 /**
@@ -190,54 +190,54 @@ function cutToBytes(text: string, limit: number): string {
  * @returns The sequence and what was done to get there.
  */
 export function clipboardSequence(text: string, opts: ClipboardOptions = {}): ClipboardSequence {
-	const limit = opts.limit ?? CLIPBOARD_LIMIT;
-	const target = targetOf(opts.target ?? 'clipboard');
+  const limit = opts.limit ?? CLIPBOARD_LIMIT;
+  const target = targetOf(opts.target ?? 'clipboard');
 
-	if (text === '') {
-		return Object.freeze({ bytes: 0, refused: 'empty' as const, sequence: '', truncated: false });
-	}
+  if (text === '') {
+    return Object.freeze({ bytes: 0, refused: 'empty' as const, sequence: '', truncated: false });
+  }
 
-	let payload = text;
-	let truncated = false;
+  let payload = text;
+  let truncated = false;
 
-	if (limit > 0 && utf8Length(payload) > limit) {
-		if (opts.truncate !== true) {
-			return Object.freeze({
-				bytes: utf8Length(payload),
-				refused: 'too-large' as const,
-				sequence: '',
-				truncated: false,
-			});
-		}
-		payload = cutToBytes(payload, limit);
-		truncated = true;
-		if (payload === '') {
-			// a limit too small for the first cluster: there is nothing to send, and
-			// sending an empty payload would clear the clipboard instead
-			return Object.freeze({
-				bytes: 0,
-				refused: 'too-large' as const,
-				sequence: '',
-				truncated: true,
-			});
-		}
-	}
+  if (limit > 0 && utf8Length(payload) > limit) {
+    if (opts.truncate !== true) {
+      return Object.freeze({
+        bytes: utf8Length(payload),
+        refused: 'too-large' as const,
+        sequence: '',
+        truncated: false,
+      });
+    }
+    payload = cutToBytes(payload, limit);
+    truncated = true;
+    if (payload === '') {
+      // a limit too small for the first cluster: there is nothing to send, and
+      // sending an empty payload would clear the clipboard instead
+      return Object.freeze({
+        bytes: 0,
+        refused: 'too-large' as const,
+        sequence: '',
+        truncated: true,
+      });
+    }
+  }
 
-	const encoded = Buffer.from(payload, 'utf8').toString('base64');
-	const sequence = `${ESC}]52;${target};${encoded}${ESC}\\`;
+  const encoded = Buffer.from(payload, 'utf8').toString('base64');
+  const sequence = `${ESC}]52;${target};${encoded}${ESC}\\`;
 
-	// what base64 guarantees, asserted rather than assumed. The payload is the
-	// only part a caller supplies, so this can only fail if the encoding stopped
-	// being base64 -- which is exactly the change that would reopen the injection.
-	// `\p{Cc}` names the set rather than enumerating it, so there is no control
-	// character in this source and no suppression for a formatter to detach
-	if (/\p{Cc}/u.test(encoded)) {
-		throw new TypeError(
-			'Invalid clipboard payload: control characters would end the sequence early'
-		);
-	}
+  // what base64 guarantees, asserted rather than assumed. The payload is the
+  // only part a caller supplies, so this can only fail if the encoding stopped
+  // being base64 -- which is exactly the change that would reopen the injection.
+  // `\p{Cc}` names the set rather than enumerating it, so there is no control
+  // character in this source and no suppression for a formatter to detach
+  if (/\p{Cc}/u.test(encoded)) {
+    throw new TypeError(
+      'Invalid clipboard payload: control characters would end the sequence early'
+    );
+  }
 
-	return Object.freeze({ bytes: utf8Length(payload), refused: undefined, sequence, truncated });
+  return Object.freeze({ bytes: utf8Length(payload), refused: undefined, sequence, truncated });
 }
 
 /**
@@ -255,16 +255,16 @@ export function clipboardSequence(text: string, opts: ClipboardOptions = {}): Cl
  * @returns What was sent, and never a claim that the clipboard changed.
  */
 export function copyToClipboard(
-	terminal: Terminal,
-	text: string,
-	opts: ClipboardOptions = {}
+  terminal: Terminal,
+  text: string,
+  opts: ClipboardOptions = {}
 ): ClipboardCopy {
-	const built = clipboardSequence(text, opts);
-	if (built.sequence === '') {
-		return Object.freeze({ ...built, written: false });
-	}
-	// `write()` answers `false` once the far end has gone, which is the one
-	// failure available here -- a terminal that took the bytes and ignored them is
-	// indistinguishable from one that acted on them
-	return Object.freeze({ ...built, written: terminal.write(built.sequence) });
+  const built = clipboardSequence(text, opts);
+  if (built.sequence === '') {
+    return Object.freeze({ ...built, written: false });
+  }
+  // `write()` answers `false` once the far end has gone, which is the one
+  // failure available here -- a terminal that took the bytes and ignored them is
+  // indistinguishable from one that acted on them
+  return Object.freeze({ ...built, written: terminal.write(built.sequence) });
 }

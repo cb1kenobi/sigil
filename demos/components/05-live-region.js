@@ -14,22 +14,22 @@ console.log('a log line printed before anything is live');
 
 // a frame may be several rows, and the region walks back up all of them
 for (let done = 0; done <= 10; done++) {
-	region.render(
-		[
-			`Building  ${'#'.repeat(done)}${'.'.repeat(10 - done)}`,
-			`Step ${done} of 10`,
-			done < 10 ? 'working...' : 'finishing',
-		].join('\n'),
-		// what it means, for when there is no terminal to repaint
-		`Building step ${done} of 10`
-	);
+  region.render(
+    [
+      `Building  ${'#'.repeat(done)}${'.'.repeat(10 - done)}`,
+      `Step ${done} of 10`,
+      done < 10 ? 'working...' : 'finishing',
+    ].join('\n'),
+    // what it means, for when there is no terminal to repaint
+    `Building step ${done} of 10`
+  );
 
-	if (done === 4) {
-		// lands above the region, which is redrawn underneath
-		region.write('warning: two files were skipped');
-	}
+  if (done === 4) {
+    // lands above the region, which is redrawn underneath
+    region.write('warning: two files were skipped');
+  }
 
-	await sleep(200);
+  await sleep(200);
 }
 
 region.done('Built in 2.0s');

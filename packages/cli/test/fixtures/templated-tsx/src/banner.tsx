@@ -21,5 +21,5 @@ import { ui } from '@ttylabs/sigil/template';
  * cannot say which of them broke.
  */
 export function banner(): Element {
-	return ui`<text class="banner">a template from a .tsx</text>`;
+  return ui`<text class="banner">a template from a .tsx</text>`;
 }

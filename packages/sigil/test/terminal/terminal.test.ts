@@ -1,13 +1,13 @@
 import { createTerminal, type OutputStream, type ProcessLike } from '../../src/terminal/index.js';
 import {
-	DISABLE_MOUSE_BUTTONS,
-	DISABLE_MOUSE_MOTION,
-	DISABLE_MOUSE_SGR,
-	ENABLE_MOUSE_BUTTONS,
-	ENABLE_MOUSE_MOTION,
-	ENABLE_MOUSE_SGR,
-	HIDE_CURSOR,
-	SHOW_CURSOR,
+  DISABLE_MOUSE_BUTTONS,
+  DISABLE_MOUSE_MOTION,
+  DISABLE_MOUSE_SGR,
+  ENABLE_MOUSE_BUTTONS,
+  ENABLE_MOUSE_MOTION,
+  ENABLE_MOUSE_SGR,
+  HIDE_CURSOR,
+  SHOW_CURSOR,
 } from '../../src/terminal/sequences.js';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -17,608 +17,608 @@ import { describe, expect, it, vi } from 'vitest';
  * which is the shape that actually kills a CLI.
  */
 function createStream(opts: { columns?: number; isTTY?: boolean; rows?: number } = {}) {
-	const listeners = new Map<string, Set<(...args: never[]) => void>>();
-	let throws: NodeJS.ErrnoException | undefined;
+  const listeners = new Map<string, Set<(...args: never[]) => void>>();
+  let throws: NodeJS.ErrnoException | undefined;
 
-	return {
-		columns: opts.columns,
-		isTTY: opts.isTTY ?? false,
-		rows: opts.rows,
-		written: [] as string[],
+  return {
+    columns: opts.columns,
+    isTTY: opts.isTTY ?? false,
+    rows: opts.rows,
+    written: [] as string[],
 
-		get output() {
-			return this.written.join('');
-		},
+    get output() {
+      return this.written.join('');
+    },
 
-		on(event: string, listener: (...args: never[]) => void) {
-			let set = listeners.get(event);
-			if (!set) {
-				listeners.set(event, (set = new Set()));
-			}
-			set.add(listener);
-			return this;
-		},
+    on(event: string, listener: (...args: never[]) => void) {
+      let set = listeners.get(event);
+      if (!set) {
+        listeners.set(event, (set = new Set()));
+      }
+      set.add(listener);
+      return this;
+    },
 
-		removeListener(event: string, listener: (...args: never[]) => void) {
-			listeners.get(event)?.delete(listener);
-			return this;
-		},
+    removeListener(event: string, listener: (...args: never[]) => void) {
+      listeners.get(event)?.delete(listener);
+      return this;
+    },
 
-		listenerCount(event: string) {
-			return listeners.get(event)?.size ?? 0;
-		},
+    listenerCount(event: string) {
+      return listeners.get(event)?.size ?? 0;
+    },
 
-		emit(event: string, ...args: unknown[]) {
-			// a copy, matching what the real emitters do: a listener that removes
-			// another must not change who hears this event
-			// eslint-disable-next-line unicorn/no-useless-spread
-			for (const listener of [...(listeners.get(event) ?? [])]) {
-				(listener as (...a: unknown[]) => void)(...args);
-			}
-		},
+    emit(event: string, ...args: unknown[]) {
+      // a copy, matching what the real emitters do: a listener that removes
+      // another must not change who hears this event
+      // eslint-disable-next-line unicorn/no-useless-spread
+      for (const listener of [...(listeners.get(event) ?? [])]) {
+        (listener as (...a: unknown[]) => void)(...args);
+      }
+    },
 
-		failWith(code: string) {
-			throws = Object.assign(new Error(code), { code });
-		},
+    failWith(code: string) {
+      throws = Object.assign(new Error(code), { code });
+    },
 
-		write(chunk: string) {
-			if (throws) {
-				throw throws;
-			}
-			this.written.push(chunk);
-			return true;
-		},
-	};
+    write(chunk: string) {
+      if (throws) {
+        throw throws;
+      }
+      this.written.push(chunk);
+      return true;
+    },
+  };
 }
 
 /** A process that records handlers instead of installing them. */
 function createProc() {
-	const listeners = new Map<string, Set<(...args: never[]) => void>>();
+  const listeners = new Map<string, Set<(...args: never[]) => void>>();
 
-	return {
-		killed: [] as string[],
-		pid: 1234,
+  return {
+    killed: [] as string[],
+    pid: 1234,
 
-		on(event: string, listener: (...args: never[]) => void) {
-			let set = listeners.get(event);
-			if (!set) {
-				listeners.set(event, (set = new Set()));
-			}
-			set.add(listener);
-			return this;
-		},
+    on(event: string, listener: (...args: never[]) => void) {
+      let set = listeners.get(event);
+      if (!set) {
+        listeners.set(event, (set = new Set()));
+      }
+      set.add(listener);
+      return this;
+    },
 
-		removeListener(event: string, listener: (...args: never[]) => void) {
-			listeners.get(event)?.delete(listener);
-			return this;
-		},
+    removeListener(event: string, listener: (...args: never[]) => void) {
+      listeners.get(event)?.delete(listener);
+      return this;
+    },
 
-		listenerCount(event: string) {
-			return listeners.get(event)?.size ?? 0;
-		},
+    listenerCount(event: string) {
+      return listeners.get(event)?.size ?? 0;
+    },
 
-		kill(_pid: number, signal: string) {
-			this.killed.push(signal);
-			return true;
-		},
+    kill(_pid: number, signal: string) {
+      this.killed.push(signal);
+      return true;
+    },
 
-		emit(event: string) {
-			// as above: the restore handler removes its own siblings as it runs
-			// eslint-disable-next-line unicorn/no-useless-spread
-			for (const listener of [...(listeners.get(event) ?? [])]) {
-				(listener as () => void)();
-			}
-		},
-	};
+    emit(event: string) {
+      // as above: the restore handler removes its own siblings as it runs
+      // eslint-disable-next-line unicorn/no-useless-spread
+      for (const listener of [...(listeners.get(event) ?? [])]) {
+        (listener as () => void)();
+      }
+    },
+  };
 }
 
 function setup(streamOpts: Parameters<typeof createStream>[0] = {}) {
-	const stdout = createStream({ isTTY: true, ...streamOpts });
-	const stderr = createStream({ isTTY: true });
-	const proc = createProc();
-	const stdin = { isTTY: true, setRawMode: vi.fn() };
-	const term = createTerminal({
-		env: {},
-		proc: proc as unknown as ProcessLike,
-		stderr: stderr as unknown as OutputStream,
-		stdin,
-		stdout: stdout as unknown as OutputStream,
-	});
-	return { proc, stderr, stdin, stdout, term };
+  const stdout = createStream({ isTTY: true, ...streamOpts });
+  const stderr = createStream({ isTTY: true });
+  const proc = createProc();
+  const stdin = { isTTY: true, setRawMode: vi.fn() };
+  const term = createTerminal({
+    env: {},
+    proc: proc as unknown as ProcessLike,
+    stderr: stderr as unknown as OutputStream,
+    stdin,
+    stdout: stdout as unknown as OutputStream,
+  });
+  return { proc, stderr, stdin, stdout, term };
 }
 
 describe('createTerminal()', () => {
-	describe('installing nothing up front', () => {
-		// a CLI that only prints lines must not acquire signal handling by
-		// importing a module
-		it('should not touch the process until there is something to restore', () => {
-			const { proc, term } = setup();
-
-			expect(proc.listenerCount('exit')).to.equal(0);
-			expect(proc.listenerCount('SIGINT')).to.equal(0);
-
-			term.write('hello');
-			expect(proc.listenerCount('exit')).to.equal(0);
-
-			term.hideCursor();
-			expect(proc.listenerCount('exit')).to.equal(1);
-			expect(proc.listenerCount('SIGINT')).to.equal(1);
-		});
-
-		it('should stand down once there is nothing left to restore', () => {
-			const { proc, term } = setup();
-
-			term.hideCursor();
-			expect(proc.listenerCount('SIGINT')).to.equal(1);
-
-			term.showCursor();
-			expect(proc.listenerCount('SIGINT')).to.equal(0);
-			expect(proc.listenerCount('exit')).to.equal(0);
-		});
-
-		it('should not subscribe to resize until somebody is listening', () => {
-			const { stdout, term } = setup();
-
-			expect(stdout.listenerCount('resize')).to.equal(0);
-
-			const off = term.onResize(() => {});
-			expect(stdout.listenerCount('resize')).to.equal(1);
-
-			off();
-			expect(stdout.listenerCount('resize')).to.equal(0);
-		});
-	});
-
-	describe('size', () => {
-		it('should report the stream size', () => {
-			const { term } = setup({ columns: 120, rows: 40 });
-			expect(term.width).to.equal(120);
-			expect(term.height).to.equal(40);
-		});
-
-		// `terminalWidth()` caps at MAX_WIDTH because a line of prose is hard to
-		// read past it. That is about generated text; this is the real screen, and
-		// a progress bar told 100 when it is 200 erases the wrong amount
-		it('should not cap the width the way terminalWidth() does', () => {
-			const { term } = setup({ columns: 200 });
-			expect(term.width).to.equal(200);
-		});
-
-		it('should fall back when there is nothing to ask', () => {
-			const { term } = setup({ columns: undefined, rows: undefined });
-			expect(term.width).to.equal(80);
-			expect(term.height).to.equal(24);
-		});
-
-		it('should re-read the size rather than answer from a snapshot', () => {
-			const { stdout, term } = setup({ columns: 80 });
-			expect(term.width).to.equal(80);
-
-			stdout.columns = 132;
-			expect(term.width).to.equal(132);
-		});
-
-		it('should tell subscribers the new size on a resize', () => {
-			const { stdout, term } = setup({ columns: 80, rows: 24 });
-			const seen: { height: number; width: number }[] = [];
-
-			term.onResize((size) => seen.push(size));
-			stdout.columns = 132;
-			stdout.rows = 50;
-			stdout.emit('resize');
-
-			expect(seen).to.deep.equal([{ height: 50, width: 132 }]);
-		});
-
-		it('should stop telling a subscriber that unsubscribed', () => {
-			const { stdout, term } = setup();
-			const fn = vi.fn();
-
-			const off = term.onResize(fn);
-			stdout.emit('resize');
-			expect(fn).toHaveBeenCalledTimes(1);
-
-			off();
-			stdout.emit('resize');
-			expect(fn).toHaveBeenCalledTimes(1);
-		});
-	});
-
-	describe('the far end going away', () => {
-		// `mycli --help | head -1` kills a CLI that did nothing wrong, because an
-		// `error` event with no listener is an uncaught exception
-		it('should swallow EPIPE from an error event and go quiet', () => {
-			const { stdout, term } = setup();
-
-			term.write('first');
-			expect(term.closed).to.equal(false);
-
-			stdout.emit('error', Object.assign(new Error('EPIPE'), { code: 'EPIPE' }));
-
-			expect(term.closed).to.equal(true);
-			expect(term.write('second')).to.equal(false);
-			expect(stdout.output).to.equal('first');
-		});
+  describe('installing nothing up front', () => {
+    // a CLI that only prints lines must not acquire signal handling by
+    // importing a module
+    it('should not touch the process until there is something to restore', () => {
+      const { proc, term } = setup();
+
+      expect(proc.listenerCount('exit')).to.equal(0);
+      expect(proc.listenerCount('SIGINT')).to.equal(0);
+
+      term.write('hello');
+      expect(proc.listenerCount('exit')).to.equal(0);
+
+      term.hideCursor();
+      expect(proc.listenerCount('exit')).to.equal(1);
+      expect(proc.listenerCount('SIGINT')).to.equal(1);
+    });
+
+    it('should stand down once there is nothing left to restore', () => {
+      const { proc, term } = setup();
+
+      term.hideCursor();
+      expect(proc.listenerCount('SIGINT')).to.equal(1);
+
+      term.showCursor();
+      expect(proc.listenerCount('SIGINT')).to.equal(0);
+      expect(proc.listenerCount('exit')).to.equal(0);
+    });
+
+    it('should not subscribe to resize until somebody is listening', () => {
+      const { stdout, term } = setup();
+
+      expect(stdout.listenerCount('resize')).to.equal(0);
+
+      const off = term.onResize(() => {});
+      expect(stdout.listenerCount('resize')).to.equal(1);
+
+      off();
+      expect(stdout.listenerCount('resize')).to.equal(0);
+    });
+  });
+
+  describe('size', () => {
+    it('should report the stream size', () => {
+      const { term } = setup({ columns: 120, rows: 40 });
+      expect(term.width).to.equal(120);
+      expect(term.height).to.equal(40);
+    });
+
+    // `terminalWidth()` caps at MAX_WIDTH because a line of prose is hard to
+    // read past it. That is about generated text; this is the real screen, and
+    // a progress bar told 100 when it is 200 erases the wrong amount
+    it('should not cap the width the way terminalWidth() does', () => {
+      const { term } = setup({ columns: 200 });
+      expect(term.width).to.equal(200);
+    });
+
+    it('should fall back when there is nothing to ask', () => {
+      const { term } = setup({ columns: undefined, rows: undefined });
+      expect(term.width).to.equal(80);
+      expect(term.height).to.equal(24);
+    });
+
+    it('should re-read the size rather than answer from a snapshot', () => {
+      const { stdout, term } = setup({ columns: 80 });
+      expect(term.width).to.equal(80);
+
+      stdout.columns = 132;
+      expect(term.width).to.equal(132);
+    });
+
+    it('should tell subscribers the new size on a resize', () => {
+      const { stdout, term } = setup({ columns: 80, rows: 24 });
+      const seen: { height: number; width: number }[] = [];
+
+      term.onResize((size) => seen.push(size));
+      stdout.columns = 132;
+      stdout.rows = 50;
+      stdout.emit('resize');
+
+      expect(seen).to.deep.equal([{ height: 50, width: 132 }]);
+    });
+
+    it('should stop telling a subscriber that unsubscribed', () => {
+      const { stdout, term } = setup();
+      const fn = vi.fn();
+
+      const off = term.onResize(fn);
+      stdout.emit('resize');
+      expect(fn).toHaveBeenCalledTimes(1);
+
+      off();
+      stdout.emit('resize');
+      expect(fn).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('the far end going away', () => {
+    // `mycli --help | head -1` kills a CLI that did nothing wrong, because an
+    // `error` event with no listener is an uncaught exception
+    it('should swallow EPIPE from an error event and go quiet', () => {
+      const { stdout, term } = setup();
+
+      term.write('first');
+      expect(term.closed).to.equal(false);
+
+      stdout.emit('error', Object.assign(new Error('EPIPE'), { code: 'EPIPE' }));
+
+      expect(term.closed).to.equal(true);
+      expect(term.write('second')).to.equal(false);
+      expect(stdout.output).to.equal('first');
+    });
 
-		it('should swallow a synchronous EPIPE', () => {
-			const { stdout, term } = setup();
-
-			stdout.failWith('EPIPE');
+    it('should swallow a synchronous EPIPE', () => {
+      const { stdout, term } = setup();
+
+      stdout.failWith('EPIPE');
 
-			expect(term.write('anything')).to.equal(false);
-			expect(term.closed).to.equal(true);
-		});
-
-		it.each(['ERR_STREAM_DESTROYED', 'ERR_STREAM_WRITE_AFTER_END'])(
-			'should treat %s as the far end going away too',
-			(code) => {
-				const { stdout, term } = setup();
-				stdout.failWith(code);
-				expect(term.write('x')).to.equal(false);
-				expect(term.closed).to.equal(true);
-			}
-		);
-
-		// only the pipe going away is this module's to swallow; a real fault is
-		// still a fault
-		it('should rethrow anything that is not the far end going away', () => {
-			const { stdout, term } = setup();
-
-			stdout.failWith('ENOSPC');
-
-			expect(() => term.write('x')).toThrow('ENOSPC');
-			expect(term.closed).to.equal(false);
-		});
-
-		it('should not install an error guard on a stream nothing writes to', () => {
-			const { stderr, stdout, term } = setup();
+      expect(term.write('anything')).to.equal(false);
+      expect(term.closed).to.equal(true);
+    });
+
+    it.each(['ERR_STREAM_DESTROYED', 'ERR_STREAM_WRITE_AFTER_END'])(
+      'should treat %s as the far end going away too',
+      (code) => {
+        const { stdout, term } = setup();
+        stdout.failWith(code);
+        expect(term.write('x')).to.equal(false);
+        expect(term.closed).to.equal(true);
+      }
+    );
+
+    // only the pipe going away is this module's to swallow; a real fault is
+    // still a fault
+    it('should rethrow anything that is not the far end going away', () => {
+      const { stdout, term } = setup();
+
+      stdout.failWith('ENOSPC');
+
+      expect(() => term.write('x')).toThrow('ENOSPC');
+      expect(term.closed).to.equal(false);
+    });
+
+    it('should not install an error guard on a stream nothing writes to', () => {
+      const { stderr, stdout, term } = setup();
 
-			expect(stdout.listenerCount('error')).to.equal(0);
-			expect(stderr.listenerCount('error')).to.equal(0);
+      expect(stdout.listenerCount('error')).to.equal(0);
+      expect(stderr.listenerCount('error')).to.equal(0);
 
-			// the guard goes on the stream being written and on no other. Writing to
-			// stdout used to guard stderr as well, so a terminal that never touched
-			// stderr still left a listener on it -- which under vitest is one shared
-			// stream, and eleven terminals in a file is Node's leak warning
-			term.write('x');
-			expect(stdout.listenerCount('error')).to.equal(1);
-			expect(stderr.listenerCount('error')).to.equal(0);
+      // the guard goes on the stream being written and on no other. Writing to
+      // stdout used to guard stderr as well, so a terminal that never touched
+      // stderr still left a listener on it -- which under vitest is one shared
+      // stream, and eleven terminals in a file is Node's leak warning
+      term.write('x');
+      expect(stdout.listenerCount('error')).to.equal(1);
+      expect(stderr.listenerCount('error')).to.equal(0);
 
-			term.writeErr('y');
-			expect(stderr.listenerCount('error')).to.equal(1);
-		});
+      term.writeErr('y');
+      expect(stderr.listenerCount('error')).to.equal(1);
+    });
 
-		it('should guard a stream once however many times it is written', () => {
-			const { stdout, term } = setup();
+    it('should guard a stream once however many times it is written', () => {
+      const { stdout, term } = setup();
 
-			term.write('a');
-			term.write('b');
-			term.hideCursor();
-			expect(stdout.listenerCount('error')).to.equal(1);
-		});
+      term.write('a');
+      term.write('b');
+      term.hideCursor();
+      expect(stdout.listenerCount('error')).to.equal(1);
+    });
 
-		// the one thing `createTerminal()` attached that nothing ever put back
-		it('should take its error guards off again when it restores', () => {
-			const { stderr, stdout, term } = setup();
+    // the one thing `createTerminal()` attached that nothing ever put back
+    it('should take its error guards off again when it restores', () => {
+      const { stderr, stdout, term } = setup();
 
-			term.write('x');
-			term.writeErr('y');
-			expect(stdout.listenerCount('error')).to.equal(1);
-			expect(stderr.listenerCount('error')).to.equal(1);
+      term.write('x');
+      term.writeErr('y');
+      expect(stdout.listenerCount('error')).to.equal(1);
+      expect(stderr.listenerCount('error')).to.equal(1);
 
-			term.restore();
+      term.restore();
 
-			expect(stdout.listenerCount('error')).to.equal(0);
-			expect(stderr.listenerCount('error')).to.equal(0);
-		});
+      expect(stdout.listenerCount('error')).to.equal(0);
+      expect(stderr.listenerCount('error')).to.equal(0);
+    });
 
-		// `restore()` writes on its way out -- and a write is what attaches a guard,
-		// so detaching before those writes would leave one behind
-		it('should leave no guard behind when restoring writes', () => {
-			const { stdout, term } = setup();
+    // `restore()` writes on its way out -- and a write is what attaches a guard,
+    // so detaching before those writes would leave one behind
+    it('should leave no guard behind when restoring writes', () => {
+      const { stdout, term } = setup();
 
-			term.hideCursor();
-			term.enterAltScreen();
-			term.restore();
+      term.hideCursor();
+      term.enterAltScreen();
+      term.restore();
 
-			expect(stdout.listenerCount('error')).to.equal(0);
-		});
+      expect(stdout.listenerCount('error')).to.equal(0);
+    });
 
-		// a terminal with nothing left to put back is still a terminal being
-		// written to: `syncRestore()` drops the process handlers and must not drop
-		// the guard with them
-		it('should keep the guard when there is nothing left to restore', () => {
-			const { stdout, term } = setup();
+    // a terminal with nothing left to put back is still a terminal being
+    // written to: `syncRestore()` drops the process handlers and must not drop
+    // the guard with them
+    it('should keep the guard when there is nothing left to restore', () => {
+      const { stdout, term } = setup();
 
-			term.hideCursor();
-			term.showCursor();
+      term.hideCursor();
+      term.showCursor();
 
-			expect(stdout.listenerCount('error')).to.equal(1);
-		});
+      expect(stdout.listenerCount('error')).to.equal(1);
+    });
 
-		it('should guard again after a restore if it is written to again', () => {
-			const { stdout, term } = setup();
+    it('should guard again after a restore if it is written to again', () => {
+      const { stdout, term } = setup();
 
-			term.write('x');
-			term.restore();
-			expect(stdout.listenerCount('error')).to.equal(0);
+      term.write('x');
+      term.restore();
+      expect(stdout.listenerCount('error')).to.equal(0);
 
-			term.write('y');
-			expect(stdout.listenerCount('error')).to.equal(1);
-			stdout.emit('error', Object.assign(new Error('EPIPE'), { code: 'EPIPE' }));
-			expect(term.closed).to.equal(true);
-		});
-	});
+      term.write('y');
+      expect(stdout.listenerCount('error')).to.equal(1);
+      stdout.emit('error', Object.assign(new Error('EPIPE'), { code: 'EPIPE' }));
+      expect(term.closed).to.equal(true);
+    });
+  });
 
-	describe('the cursor', () => {
-		it('should hide and show the cursor', () => {
-			const { stdout, term } = setup();
+  describe('the cursor', () => {
+    it('should hide and show the cursor', () => {
+      const { stdout, term } = setup();
 
-			term.hideCursor();
-			expect(stdout.output).to.equal(HIDE_CURSOR);
+      term.hideCursor();
+      expect(stdout.output).to.equal(HIDE_CURSOR);
 
-			term.showCursor();
-			expect(stdout.output).to.equal(HIDE_CURSOR + SHOW_CURSOR);
-		});
+      term.showCursor();
+      expect(stdout.output).to.equal(HIDE_CURSOR + SHOW_CURSOR);
+    });
 
-		it('should hide the cursor once', () => {
-			const { stdout, term } = setup();
+    it('should hide the cursor once', () => {
+      const { stdout, term } = setup();
 
-			term.hideCursor();
-			term.hideCursor();
+      term.hideCursor();
+      term.hideCursor();
 
-			expect(stdout.output).to.equal(HIDE_CURSOR);
-		});
+      expect(stdout.output).to.equal(HIDE_CURSOR);
+    });
 
-		// nothing is watching, and a hidden cursor is invisible in a pipe anyway
-		it('should not hide the cursor when this is not a terminal', () => {
-			const { stdout, term } = setup({ isTTY: false });
+    // nothing is watching, and a hidden cursor is invisible in a pipe anyway
+    it('should not hide the cursor when this is not a terminal', () => {
+      const { stdout, term } = setup({ isTTY: false });
 
-			term.hideCursor();
+      term.hideCursor();
 
-			expect(stdout.output).to.equal('');
-		});
-	});
+      expect(stdout.output).to.equal('');
+    });
+  });
 
-	describe('raw mode', () => {
-		it('should enter and leave raw mode', () => {
-			const { stdin, term } = setup();
+  describe('raw mode', () => {
+    it('should enter and leave raw mode', () => {
+      const { stdin, term } = setup();
 
-			term.setRawMode(true);
-			expect(stdin.setRawMode).toHaveBeenCalledWith(true);
+      term.setRawMode(true);
+      expect(stdin.setRawMode).toHaveBeenCalledWith(true);
 
-			term.setRawMode(false);
-			expect(stdin.setRawMode).toHaveBeenCalledWith(false);
-		});
+      term.setRawMode(false);
+      expect(stdin.setRawMode).toHaveBeenCalledWith(false);
+    });
 
-		it('should not ask twice for the mode it is already in', () => {
-			const { stdin, term } = setup();
+    it('should not ask twice for the mode it is already in', () => {
+      const { stdin, term } = setup();
 
-			term.setRawMode(true);
-			term.setRawMode(true);
+      term.setRawMode(true);
+      term.setRawMode(true);
 
-			expect(stdin.setRawMode).toHaveBeenCalledTimes(1);
-		});
+      expect(stdin.setRawMode).toHaveBeenCalledTimes(1);
+    });
 
-		it('should do nothing when the input is not a terminal', () => {
-			const stdin = { isTTY: false, setRawMode: vi.fn() };
-			const term = createTerminal({ env: {}, stdin, stdout: createStream() as never });
+    it('should do nothing when the input is not a terminal', () => {
+      const stdin = { isTTY: false, setRawMode: vi.fn() };
+      const term = createTerminal({ env: {}, stdin, stdout: createStream() as never });
 
-			term.setRawMode(true);
+      term.setRawMode(true);
 
-			expect(stdin.setRawMode).not.toHaveBeenCalled();
-		});
-	});
+      expect(stdin.setRawMode).not.toHaveBeenCalled();
+    });
+  });
 
-	describe('the live region', () => {
-		// a spinner still ticking underneath a prompt writes over it on its next
-		// frame, so the region is a lock rather than a convention
-		it('should evict the previous holder', () => {
-			const { term } = setup();
-			const first = vi.fn();
+  describe('the live region', () => {
+    // a spinner still ticking underneath a prompt writes over it on its next
+    // frame, so the region is a lock rather than a convention
+    it('should evict the previous holder', () => {
+      const { term } = setup();
+      const first = vi.fn();
 
-			const a = term.claimLive(first);
-			expect(a.active).to.equal(true);
+      const a = term.claimLive(first);
+      expect(a.active).to.equal(true);
 
-			const b = term.claimLive();
+      const b = term.claimLive();
 
-			expect(first).toHaveBeenCalledTimes(1);
-			expect(a.active).to.equal(false);
-			expect(b.active).to.equal(true);
-		});
+      expect(first).toHaveBeenCalledTimes(1);
+      expect(a.active).to.equal(false);
+      expect(b.active).to.equal(true);
+    });
 
-		it('should not evict a holder that released first', () => {
-			const { term } = setup();
-			const onEvict = vi.fn();
-
-			const a = term.claimLive(onEvict);
-			a.release();
-			expect(a.active).to.equal(false);
+    it('should not evict a holder that released first', () => {
+      const { term } = setup();
+      const onEvict = vi.fn();
+
+      const a = term.claimLive(onEvict);
+      a.release();
+      expect(a.active).to.equal(false);
 
-			term.claimLive();
+      term.claimLive();
 
-			expect(onEvict).not.toHaveBeenCalled();
-		});
-
-		it('should be idempotent to release', () => {
-			const { term } = setup();
-			const a = term.claimLive();
-
-			a.release();
-			a.release();
-
-			expect(a.active).to.equal(false);
-		});
-
-		// the region belongs to whoever holds it now, and an evicted claim
-		// releasing itself afterwards would hand it to nobody
-		it('should not let an evicted claim release the new holder', () => {
-			const { proc, term } = setup();
-
-			const a = term.claimLive();
-			const b = term.claimLive();
-			a.release();
-
-			expect(b.active).to.equal(true);
-			expect(proc.listenerCount('exit')).to.equal(1);
-		});
-
-		it('should hold the restore handlers while a claim is live', () => {
-			const { proc, term } = setup();
-
-			const a = term.claimLive();
-			expect(proc.listenerCount('exit')).to.equal(1);
-
-			a.release();
-			expect(proc.listenerCount('exit')).to.equal(0);
-		});
-	});
-
-	describe('mouse tracking', () => {
-		it('should ask for SGR before the tracking mode, and put it back after', () => {
-			// there is never a moment in which the mouse is being reported in an encoding
-			// nothing here reads, which is what the ordering buys and is the only reason
-			// these are two sequences rather than one
-			const { stdout, term } = setup();
-
-			expect(term.enableMouse()).to.equal(true);
-			expect(stdout.output).to.equal(ENABLE_MOUSE_SGR + ENABLE_MOUSE_BUTTONS);
-
-			term.disableMouse();
-			expect(stdout.output).to.equal(
-				ENABLE_MOUSE_SGR + ENABLE_MOUSE_BUTTONS + DISABLE_MOUSE_BUTTONS + DISABLE_MOUSE_SGR
-			);
-		});
-
-		it('should ask for any-event tracking only where motion was asked for', () => {
-			const { stdout, term } = setup();
+      expect(onEvict).not.toHaveBeenCalled();
+    });
+
+    it('should be idempotent to release', () => {
+      const { term } = setup();
+      const a = term.claimLive();
+
+      a.release();
+      a.release();
+
+      expect(a.active).to.equal(false);
+    });
+
+    // the region belongs to whoever holds it now, and an evicted claim
+    // releasing itself afterwards would hand it to nobody
+    it('should not let an evicted claim release the new holder', () => {
+      const { proc, term } = setup();
+
+      const a = term.claimLive();
+      const b = term.claimLive();
+      a.release();
+
+      expect(b.active).to.equal(true);
+      expect(proc.listenerCount('exit')).to.equal(1);
+    });
+
+    it('should hold the restore handlers while a claim is live', () => {
+      const { proc, term } = setup();
+
+      const a = term.claimLive();
+      expect(proc.listenerCount('exit')).to.equal(1);
+
+      a.release();
+      expect(proc.listenerCount('exit')).to.equal(0);
+    });
+  });
+
+  describe('mouse tracking', () => {
+    it('should ask for SGR before the tracking mode, and put it back after', () => {
+      // there is never a moment in which the mouse is being reported in an encoding
+      // nothing here reads, which is what the ordering buys and is the only reason
+      // these are two sequences rather than one
+      const { stdout, term } = setup();
+
+      expect(term.enableMouse()).to.equal(true);
+      expect(stdout.output).to.equal(ENABLE_MOUSE_SGR + ENABLE_MOUSE_BUTTONS);
+
+      term.disableMouse();
+      expect(stdout.output).to.equal(
+        ENABLE_MOUSE_SGR + ENABLE_MOUSE_BUTTONS + DISABLE_MOUSE_BUTTONS + DISABLE_MOUSE_SGR
+      );
+    });
+
+    it('should ask for any-event tracking only where motion was asked for', () => {
+      const { stdout, term } = setup();
 
-			term.enableMouse({ motion: true });
-			expect(stdout.output).to.equal(ENABLE_MOUSE_SGR + ENABLE_MOUSE_MOTION);
+      term.enableMouse({ motion: true });
+      expect(stdout.output).to.equal(ENABLE_MOUSE_SGR + ENABLE_MOUSE_MOTION);
 
-			term.disableMouse();
-			// the mode that was turned on is the mode that is turned off: asking `1002l`
-			// over a `1003h` would leave the terminal reporting every cell the pointer
-			// crosses into a shell
-			expect(stdout.output).to.equal(
-				ENABLE_MOUSE_SGR + ENABLE_MOUSE_MOTION + DISABLE_MOUSE_MOTION + DISABLE_MOUSE_SGR
-			);
-		});
+      term.disableMouse();
+      // the mode that was turned on is the mode that is turned off: asking `1002l`
+      // over a `1003h` would leave the terminal reporting every cell the pointer
+      // crosses into a shell
+      expect(stdout.output).to.equal(
+        ENABLE_MOUSE_SGR + ENABLE_MOUSE_MOTION + DISABLE_MOUSE_MOTION + DISABLE_MOUSE_SGR
+      );
+    });
 
-		it('should report only the call that turned it on', () => {
-			const { stdout, term } = setup();
+    it('should report only the call that turned it on', () => {
+      const { stdout, term } = setup();
 
-			expect(term.enableMouse()).to.equal(true);
-			// including a second call asking for the *other* mode: whoever turned it on
-			// owns which one it is, and a caller told `true` here would turn it off again
-			expect(term.enableMouse({ motion: true })).to.equal(false);
-			expect(stdout.output).to.equal(ENABLE_MOUSE_SGR + ENABLE_MOUSE_BUTTONS);
-		});
+      expect(term.enableMouse()).to.equal(true);
+      // including a second call asking for the *other* mode: whoever turned it on
+      // owns which one it is, and a caller told `true` here would turn it off again
+      expect(term.enableMouse({ motion: true })).to.equal(false);
+      expect(stdout.output).to.equal(ENABLE_MOUSE_SGR + ENABLE_MOUSE_BUTTONS);
+    });
 
-		it('should do nothing when this is not a terminal', () => {
-			const term = createTerminal({ env: {}, isTTY: false, stdout: createStream() as never });
-			expect(term.enableMouse()).to.equal(false);
-		});
+    it('should do nothing when this is not a terminal', () => {
+      const term = createTerminal({ env: {}, isTTY: false, stdout: createStream() as never });
+      expect(term.enableMouse()).to.equal(false);
+    });
 
-		it('should write nothing to disable a mode nobody turned on', () => {
-			const { stdout, term } = setup();
-			term.disableMouse();
-			expect(stdout.output).to.equal('');
-		});
+    it('should write nothing to disable a mode nobody turned on', () => {
+      const { stdout, term } = setup();
+      term.disableMouse();
+      expect(stdout.output).to.equal('');
+    });
 
-		it('should put the mode back on restore, which is the loudest entry on the list', () => {
-			// a shell left in a tracking mode puts a report into whatever the user types
-			// next every time they move the pointer over the window
-			const { proc, stdout, term } = setup();
+    it('should put the mode back on restore, which is the loudest entry on the list', () => {
+      // a shell left in a tracking mode puts a report into whatever the user types
+      // next every time they move the pointer over the window
+      const { proc, stdout, term } = setup();
 
-			term.enableMouse({ motion: true });
-			expect(proc.listenerCount('exit')).to.equal(1);
+      term.enableMouse({ motion: true });
+      expect(proc.listenerCount('exit')).to.equal(1);
 
-			term.restore();
-			expect(stdout.output).to.equal(
-				ENABLE_MOUSE_SGR + ENABLE_MOUSE_MOTION + DISABLE_MOUSE_MOTION + DISABLE_MOUSE_SGR
-			);
-			expect(proc.listenerCount('exit')).to.equal(0);
-		});
+      term.restore();
+      expect(stdout.output).to.equal(
+        ENABLE_MOUSE_SGR + ENABLE_MOUSE_MOTION + DISABLE_MOUSE_MOTION + DISABLE_MOUSE_SGR
+      );
+      expect(proc.listenerCount('exit')).to.equal(0);
+    });
 
-		it('should hold the restore handlers for tracking alone', () => {
-			// it is on `syncRestore()`'s list, so it is enough on its own to keep the
-			// process handlers attached and enough on its own to let them go
-			const { proc, term } = setup();
+    it('should hold the restore handlers for tracking alone', () => {
+      // it is on `syncRestore()`'s list, so it is enough on its own to keep the
+      // process handlers attached and enough on its own to let them go
+      const { proc, term } = setup();
 
-			term.enableMouse();
-			expect(proc.listenerCount('exit')).to.equal(1);
+      term.enableMouse();
+      expect(proc.listenerCount('exit')).to.equal(1);
 
-			term.disableMouse();
-			expect(proc.listenerCount('exit')).to.equal(0);
-		});
-	});
+      term.disableMouse();
+      expect(proc.listenerCount('exit')).to.equal(0);
+    });
+  });
 
-	describe('restoring', () => {
-		it('should put everything back', () => {
-			const { proc, stdin, stdout, term } = setup();
-			const onEvict = vi.fn();
+  describe('restoring', () => {
+    it('should put everything back', () => {
+      const { proc, stdin, stdout, term } = setup();
+      const onEvict = vi.fn();
 
-			term.hideCursor();
-			term.setRawMode(true);
-			term.claimLive(onEvict);
+      term.hideCursor();
+      term.setRawMode(true);
+      term.claimLive(onEvict);
 
-			term.restore();
+      term.restore();
 
-			expect(stdout.output).to.equal(HIDE_CURSOR + SHOW_CURSOR);
-			expect(stdin.setRawMode).toHaveBeenLastCalledWith(false);
-			expect(onEvict).toHaveBeenCalledTimes(1);
-			expect(proc.listenerCount('exit')).to.equal(0);
-		});
+      expect(stdout.output).to.equal(HIDE_CURSOR + SHOW_CURSOR);
+      expect(stdin.setRawMode).toHaveBeenLastCalledWith(false);
+      expect(onEvict).toHaveBeenCalledTimes(1);
+      expect(proc.listenerCount('exit')).to.equal(0);
+    });
 
-		it('should be idempotent', () => {
-			const { stdout, term } = setup();
+    it('should be idempotent', () => {
+      const { stdout, term } = setup();
 
-			term.hideCursor();
-			term.restore();
-			term.restore();
+      term.hideCursor();
+      term.restore();
+      term.restore();
 
-			expect(stdout.output).to.equal(HIDE_CURSOR + SHOW_CURSOR);
-		});
+      expect(stdout.output).to.equal(HIDE_CURSOR + SHOW_CURSOR);
+    });
 
-		it('should restore on exit', () => {
-			const { proc, stdout, term } = setup();
+    it('should restore on exit', () => {
+      const { proc, stdout, term } = setup();
 
-			term.hideCursor();
-			proc.emit('exit');
+      term.hideCursor();
+      proc.emit('exit');
 
-			expect(stdout.output).to.equal(HIDE_CURSOR + SHOW_CURSOR);
-		});
+      expect(stdout.output).to.equal(HIDE_CURSOR + SHOW_CURSOR);
+    });
 
-		it.each(['SIGINT', 'SIGTERM', 'SIGHUP'])('should restore on %s', (signal) => {
-			const { proc, stdout, term } = setup();
+    it.each(['SIGINT', 'SIGTERM', 'SIGHUP'])('should restore on %s', (signal) => {
+      const { proc, stdout, term } = setup();
 
-			term.hideCursor();
-			proc.emit(signal);
+      term.hideCursor();
+      proc.emit(signal);
 
-			expect(stdout.output).to.equal(HIDE_CURSOR + SHOW_CURSOR);
-		});
+      expect(stdout.output).to.equal(HIDE_CURSOR + SHOW_CURSOR);
+    });
 
-		// a listener on a signal replaces the default action, so a CLI that hid its
-		// cursor would stop dying on Ctrl-C -- worse than the bug being fixed
-		it('should re-raise a signal nothing else is listening for', () => {
-			const { proc, term } = setup();
+    // a listener on a signal replaces the default action, so a CLI that hid its
+    // cursor would stop dying on Ctrl-C -- worse than the bug being fixed
+    it('should re-raise a signal nothing else is listening for', () => {
+      const { proc, term } = setup();
 
-			term.hideCursor();
-			proc.emit('SIGINT');
+      term.hideCursor();
+      proc.emit('SIGINT');
 
-			expect(proc.killed).to.deep.equal(['SIGINT']);
-			expect(proc.listenerCount('SIGINT')).to.equal(0);
-		});
+      expect(proc.killed).to.deep.equal(['SIGINT']);
+      expect(proc.listenerCount('SIGINT')).to.equal(0);
+    });
 
-		it('should leave a signal alone when the app is listening for it too', () => {
-			const { proc, term } = setup();
+    it('should leave a signal alone when the app is listening for it too', () => {
+      const { proc, term } = setup();
 
-			proc.on('SIGINT', () => {});
-			term.hideCursor();
-			proc.emit('SIGINT');
+      proc.on('SIGINT', () => {});
+      term.hideCursor();
+      proc.emit('SIGINT');
 
-			expect(proc.killed).to.deep.equal([]);
-		});
-	});
+      expect(proc.killed).to.deep.equal([]);
+    });
+  });
 });

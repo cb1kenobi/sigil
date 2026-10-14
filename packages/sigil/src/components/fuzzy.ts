@@ -16,10 +16,10 @@ export { fuzzyMatch, type FuzzyMatch };
 
 /** An item and how well it matched. */
 export interface Ranked<T> {
-	/** The item. */
-	readonly item: T;
-	/** Its match. */
-	readonly match: FuzzyMatch;
+  /** The item. */
+  readonly item: T;
+  /** Its match. */
+  readonly match: FuzzyMatch;
 }
 
 /**
@@ -43,40 +43,40 @@ export interface Ranked<T> {
  * @returns The matches, best first.
  */
 export function rankBy<T>(
-	query: string,
-	items: readonly T[],
-	key: (item: T) => string
+  query: string,
+  items: readonly T[],
+  key: (item: T) => string
 ): Ranked<T>[] {
-	const ranked: { candidate: string; index: number; item: T; match: FuzzyMatch }[] = [];
+  const ranked: { candidate: string; index: number; item: T; match: FuzzyMatch }[] = [];
 
-	for (const [index, item] of items.entries()) {
-		const candidate = key(item);
-		const match = fuzzyMatch(query, candidate);
-		if (match) {
-			ranked.push({ candidate, index, item, match });
-		}
-	}
+  for (const [index, item] of items.entries()) {
+    const candidate = key(item);
+    const match = fuzzyMatch(query, candidate);
+    if (match) {
+      ranked.push({ candidate, index, item, match });
+    }
+  }
 
-	if ([...query].length > 0) {
-		// no tie-break past the length: `Array.prototype.sort` is stable, and
-		// `index` *is* the source position, so a third comparison on it can only
-		// ever agree with the order the sort has already kept. There was one, and a
-		// sabotage said so -- replacing it with `0` changed no answer in 38 tests,
-		// which is the state this file deletes a guard in rather than keeping
-		ranked.sort(
-			(a, b) => b.match.score - a.match.score || [...a.candidate].length - [...b.candidate].length
-		);
-	}
+  if ([...query].length > 0) {
+    // no tie-break past the length: `Array.prototype.sort` is stable, and
+    // `index` *is* the source position, so a third comparison on it can only
+    // ever agree with the order the sort has already kept. There was one, and a
+    // sabotage said so -- replacing it with `0` changed no answer in 38 tests,
+    // which is the state this file deletes a guard in rather than keeping
+    ranked.sort(
+      (a, b) => b.match.score - a.match.score || [...a.candidate].length - [...b.candidate].length
+    );
+  }
 
-	return ranked.map(({ item, match }) => ({ item, match }));
+  return ranked.map(({ item, match }) => ({ item, match }));
 }
 
 /** A run of text that is either part of the match or is not. */
 export interface HighlightRun {
-	/** Whether this run matched. */
-	readonly on: boolean;
-	/** The text. */
-	readonly text: string;
+  /** Whether this run matched. */
+  readonly on: boolean;
+  /** The text. */
+  readonly text: string;
 }
 
 /**
@@ -98,27 +98,27 @@ export interface HighlightRun {
  * @returns The runs, in order, with no empty run among them.
  */
 export function highlightRuns(label: string, matched: readonly number[]): HighlightRun[] {
-	const hits = new Set(matched);
-	const runs: HighlightRun[] = [];
-	let point = 0;
+  const hits = new Set(matched);
+  const runs: HighlightRun[] = [];
+  let point = 0;
 
-	for (const cluster of graphemes(label)) {
-		const size = [...cluster].length;
-		let on = false;
-		for (let k = 0; k < size; k++) {
-			if (hits.has(point + k)) {
-				on = true;
-			}
-		}
-		point += size;
+  for (const cluster of graphemes(label)) {
+    const size = [...cluster].length;
+    let on = false;
+    for (let k = 0; k < size; k++) {
+      if (hits.has(point + k)) {
+        on = true;
+      }
+    }
+    point += size;
 
-		const last = runs[runs.length - 1];
-		if (last && last.on === on) {
-			runs[runs.length - 1] = { on, text: last.text + cluster };
-		} else {
-			runs.push({ on, text: cluster });
-		}
-	}
+    const last = runs[runs.length - 1];
+    if (last && last.on === on) {
+      runs[runs.length - 1] = { on, text: last.text + cluster };
+    } else {
+      runs.push({ on, text: cluster });
+    }
+  }
 
-	return runs;
+  return runs;
 }

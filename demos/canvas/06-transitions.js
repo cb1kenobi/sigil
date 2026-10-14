@@ -23,14 +23,14 @@
  * gives way over it.
  */
 import {
-	blueNoiseMask,
-	createInlineCanvas,
-	dissolveMask,
-	irisMask,
-	maskThreshold,
-	palette,
-	seeded,
-	wipeMask,
+  blueNoiseMask,
+  createInlineCanvas,
+  dissolveMask,
+  irisMask,
+  maskThreshold,
+  palette,
+  seeded,
+  wipeMask,
 } from '@ttylabs/sigil/canvas';
 
 const WIDTH = 44;
@@ -44,35 +44,35 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** A card of text, so each state is something a reader can tell apart. */
 const card = (title, body, colour) => (p) => {
-	p.fill(0, 0, WIDTH, HEIGHT, { bg: palette(colour) });
-	p.text(2, 1, title, { attrs: 1, bg: palette(colour), fg: palette(15) });
-	for (const [i, line] of body.entries()) {
-		p.text(2, 3 + i, line, { bg: palette(colour), fg: palette(15) });
-	}
+  p.fill(0, 0, WIDTH, HEIGHT, { bg: palette(colour) });
+  p.text(2, 1, title, { attrs: 1, bg: palette(colour), fg: palette(15) });
+  for (const [i, line] of body.entries()) {
+    p.text(2, 3 + i, line, { bg: palette(colour), fg: palette(15) });
+  }
 };
 
 const states = [
-	{
-		// a seed, so the demo looks the same every time somebody runs it
-		mask: () => dissolveMask(WIDTH, HEIGHT, seeded(7)),
-		name: 'dissolve  (shuffled permutation)',
-		draw: card('ONE', ['every cell at its own moment,', 'in a shuffled order'], 4),
-	},
-	{
-		mask: () => blueNoiseMask(WIDTH, HEIGHT, seeded(7)),
-		name: 'dissolve  (blue noise)',
-		draw: card('TWO', ['the same even ramp, spread so', 'no step of it clumps'], 5),
-	},
-	{
-		mask: () => wipeMask(WIDTH, HEIGHT, 'right'),
-		name: 'wipe      (a hard edge, left to right)',
-		draw: card('THREE', ['one value per column, so the', 'edge is a straight line'], 2),
-	},
-	{
-		mask: () => irisMask(WIDTH, HEIGHT),
-		name: 'iris      (a circle, opening out)',
-		draw: card('FOUR', ['distance from the centre, with', 'a row worth two columns'], 6),
-	},
+  {
+    // a seed, so the demo looks the same every time somebody runs it
+    mask: () => dissolveMask(WIDTH, HEIGHT, seeded(7)),
+    name: 'dissolve  (shuffled permutation)',
+    draw: card('ONE', ['every cell at its own moment,', 'in a shuffled order'], 4),
+  },
+  {
+    mask: () => blueNoiseMask(WIDTH, HEIGHT, seeded(7)),
+    name: 'dissolve  (blue noise)',
+    draw: card('TWO', ['the same even ramp, spread so', 'no step of it clumps'], 5),
+  },
+  {
+    mask: () => wipeMask(WIDTH, HEIGHT, 'right'),
+    name: 'wipe      (a hard edge, left to right)',
+    draw: card('THREE', ['one value per column, so the', 'edge is a straight line'], 2),
+  },
+  {
+    mask: () => irisMask(WIDTH, HEIGHT),
+    name: 'iris      (a circle, opening out)',
+    draw: card('FOUR', ['distance from the centre, with', 'a row worth two columns'], 6),
+  },
 ];
 
 // the first state just appears; there is nothing on screen to transition from
@@ -80,30 +80,30 @@ backend.render(card('ZERO', ['nothing to dissolve from yet'], 8));
 await sleep(600);
 
 for (const state of states) {
-	backend.write(`-> ${state.name}`);
+  backend.write(`-> ${state.name}`);
 
-	// generated once, before the ramp, and never per frame. A per-frame random
-	// gives a cell that is in on frame nine and out on frame ten, which flickers
-	// -- and the blue-noise generator is the one that costs enough to notice
-	const mask = state.mask();
+  // generated once, before the ramp, and never per frame. A per-frame random
+  // gives a cell that is in on frame nine and out on frame ten, which flickers
+  // -- and the blue-noise generator is the one that costs enough to notice
+  const mask = state.mask();
 
-	// the snapshot is the old screen, and it is the whole reason this is a
-	// framework feature rather than six lines in the callback
-	const over = { cells: canvas.snapshot(), mask, x: 0, y: 0 };
-	canvas.layers.push(over);
+  // the snapshot is the old screen, and it is the whole reason this is a
+  // framework feature rather than six lines in the callback
+  const over = { cells: canvas.snapshot(), mask, x: 0, y: 0 };
+  canvas.layers.push(over);
 
-	for (let frame = FRAMES; frame >= 0; frame--) {
-		// ramped down: the snapshot's highest values give way first, revealing the
-		// new state painted underneath it
-		mask.threshold = maskThreshold(frame / FRAMES);
-		backend.render(state.draw);
-		await sleep(45);
-	}
+  for (let frame = FRAMES; frame >= 0; frame--) {
+    // ramped down: the snapshot's highest values give way first, revealing the
+    // new state painted underneath it
+    mask.threshold = maskThreshold(frame / FRAMES);
+    backend.render(state.draw);
+    await sleep(45);
+  }
 
-	// and the layer goes, so the next frame is the new state and nothing else
-	canvas.layers.length = 0;
-	backend.render(state.draw);
-	await sleep(400);
+  // and the layer goes, so the next frame is the new state and nothing else
+  canvas.layers.length = 0;
+  backend.render(state.draw);
+  await sleep(400);
 }
 
 // the frame stays in the log and the cursor comes off the end of it

@@ -44,19 +44,19 @@ export type { JSX } from './runtime.js';
  * @returns The element.
  */
 export function jsxDEV(
-	type: ComponentRef | string,
-	props: Record<string, unknown>,
-	key?: number | string,
-	isStaticChildren?: boolean,
-	source?: { columnNumber?: number; fileName?: string; lineNumber?: number }
+  type: ComponentRef | string,
+  props: Record<string, unknown>,
+  key?: number | string,
+  isStaticChildren?: boolean,
+  source?: { columnNumber?: number; fileName?: string; lineNumber?: number }
 ): SigilElement {
-	const loc =
-		source?.lineNumber === undefined
-			? undefined
-			: {
-					column: source.columnNumber ?? 1,
-					file: source.fileName,
-					line: source.lineNumber,
-				};
-	return build(type, props, key, isStaticChildren === true, loc);
+  const loc =
+    source?.lineNumber === undefined
+      ? undefined
+      : {
+          column: source.columnNumber ?? 1,
+          file: source.fileName,
+          line: source.lineNumber,
+        };
+  return build(type, props, key, isStaticChildren === true, loc);
 }

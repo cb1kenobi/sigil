@@ -9,20 +9,20 @@
 import { main } from '@ttylabs/sigil';
 
 await main({
-	argv: process.argv.length > 2 ? undefined : ['src/index.js', '--minify'],
-	schema: {
-		name: 'bundle',
-		commands: {
-			build: {
-				default: true,
-				desc: 'Build the project (the default)',
-				args: ['<entry>'],
-				options: { '--minify': 'Minify the output' },
-				run: ({ argv }) => console.log('building', argv.entry, argv.minify ? '(minified)' : ''),
-			},
+  argv: process.argv.length > 2 ? undefined : ['src/index.js', '--minify'],
+  schema: {
+    name: 'bundle',
+    commands: {
+      build: {
+        default: true,
+        desc: 'Build the project (the default)',
+        args: ['<entry>'],
+        options: { '--minify': 'Minify the output' },
+        run: ({ argv }) => console.log('building', argv.entry, argv.minify ? '(minified)' : ''),
+      },
 
-			// a named command still wins when argv names it
-			clean: { desc: 'Delete the output', run: () => console.log('cleaning') },
-		},
-	},
+      // a named command still wins when argv names it
+      clean: { desc: 'Delete the output', run: () => console.log('cleaning') },
+    },
+  },
 });

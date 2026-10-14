@@ -15,20 +15,20 @@
  */
 
 import {
-	appKeys,
-	checkCatalogs,
-	discoverApp,
-	displayPath,
-	isFatal,
-	readAppCatalogs,
-	readAppCommands,
-	resolveCommandTree,
-	typeCheck,
-	walkTree,
-	type Diagnostic,
-	type DiscoveredApp,
-	type ResolvedCommand,
-	type TypeCheckResult,
+  appKeys,
+  checkCatalogs,
+  discoverApp,
+  displayPath,
+  isFatal,
+  readAppCatalogs,
+  readAppCommands,
+  resolveCommandTree,
+  typeCheck,
+  walkTree,
+  type Diagnostic,
+  type DiscoveredApp,
+  type ResolvedCommand,
+  type TypeCheckResult,
 } from '../build/index.ts';
 import { reportLevel, writeDiagnostics, writeSummary } from '../report.ts';
 import { table } from '@ttylabs/sigil/components';
@@ -39,24 +39,24 @@ import { relative, resolve } from 'node:path';
 
 /** What reading an app turned up. */
 export interface Inspection {
-	/** The app, and the entry the conventions chose. */
-	readonly app: DiscoveredApp;
-	/** Its commands, however its schema declares them. */
-	readonly commands: readonly ResolvedCommand[];
-	/** Everything worth saying, in the order it was found. */
-	readonly diagnostics: readonly Diagnostic[];
-	/** What the type check did, or why it did not. */
-	readonly types: TypeCheckResult;
+  /** The app, and the entry the conventions chose. */
+  readonly app: DiscoveredApp;
+  /** Its commands, however its schema declares them. */
+  readonly commands: readonly ResolvedCommand[];
+  /** Everything worth saying, in the order it was found. */
+  readonly diagnostics: readonly Diagnostic[];
+  /** What the type check did, or why it did not. */
+  readonly types: TypeCheckResult;
 }
 
 /** Where to look and what to trust. */
 export interface InspectOptions {
-	/** A command directory, when the entry does not say or says wrong. */
-	readonly commands?: string;
-	/** The app's root. */
-	readonly cwd: string;
-	/** The schema module, when the conventions find the wrong one. */
-	readonly entry?: string;
+  /** A command directory, when the entry does not say or says wrong. */
+  readonly commands?: string;
+  /** The app's root. */
+  readonly cwd: string;
+  /** The schema module, when the conventions find the wrong one. */
+  readonly entry?: string;
 }
 
 /**
@@ -67,23 +67,23 @@ export interface InspectOptions {
  * @throws If there is no app here at all. Everything else is a diagnostic.
  */
 export function inspect(options: InspectOptions): Inspection {
-	const diagnostics: Diagnostic[] = [];
+  const diagnostics: Diagnostic[] = [];
 
-	// the app before anything else: a directory that does not depend on the
-	// runtime is not one this can read, and saying so is more use than reporting
-	// that it has no `commands/` directory
-	const app = discoverApp(resolve(options.cwd), { entry: options.entry });
+  // the app before anything else: a directory that does not depend on the
+  // runtime is not one this can read, and saying so is more use than reporting
+  // that it has no `commands/` directory
+  const app = discoverApp(resolve(options.cwd), { entry: options.entry });
 
-	// the type check answers for the whole app rather than for the routes, so it
-	// runs whatever the tree turns out to be
-	const types = typeCheck({ cwd: app.root });
-	diagnostics.push(...types.diagnostics);
+  // the type check answers for the whole app rather than for the routes, so it
+  // runs whatever the tree turns out to be
+  const types = typeCheck({ cwd: app.root });
+  diagnostics.push(...types.diagnostics);
 
-	const commands = findCommands(app, options.commands, diagnostics);
+  const commands = findCommands(app, options.commands, diagnostics);
 
-	diagnostics.push(...checkTranslations(app, diagnostics));
+  diagnostics.push(...checkTranslations(app, diagnostics));
 
-	return { app, commands, diagnostics, types };
+  return { app, commands, diagnostics, types };
 }
 
 /**
@@ -107,24 +107,24 @@ export function inspect(options: InspectOptions): Inspection {
  * @returns One diagnostic per missing key and per orphan key.
  */
 function checkTranslations(app: DiscoveredApp, found: Diagnostic[]): readonly Diagnostic[] {
-	const read = readAppCatalogs(app);
+  const read = readAppCatalogs(app);
 
-	if (!read.declared) {
-		return [];
-	}
+  if (!read.declared) {
+    return [];
+  }
 
-	found.push(...read.diagnostics);
+  found.push(...read.diagnostics);
 
-	if (!read.catalogs.length) {
-		return [];
-	}
+  if (!read.catalogs.length) {
+    return [];
+  }
 
-	return checkCatalogs({
-		catalogs: read.catalogs,
-		file: app.entry,
-		framework: SIGIL_KEYS,
-		keys: appKeys(app.root),
-	});
+  return checkCatalogs({
+    catalogs: read.catalogs,
+    file: app.entry,
+    framework: SIGIL_KEYS,
+    keys: appKeys(app.root),
+  });
 }
 
 /**
@@ -140,37 +140,37 @@ function checkTranslations(app: DiscoveredApp, found: Diagnostic[]): readonly Di
  * @returns The commands.
  */
 function findCommands(
-	app: DiscoveredApp,
-	named: string | undefined,
-	diagnostics: Diagnostic[]
+  app: DiscoveredApp,
+  named: string | undefined,
+  diagnostics: Diagnostic[]
 ): readonly ResolvedCommand[] {
-	if (named !== undefined) {
-		return walkCommandDir(resolve(app.root, named), diagnostics);
-	}
+  if (named !== undefined) {
+    return walkCommandDir(resolve(app.root, named), diagnostics);
+  }
 
-	const declared = readAppCommands(app);
-	diagnostics.push(...declared.diagnostics);
+  const declared = readAppCommands(app);
+  diagnostics.push(...declared.diagnostics);
 
-	if (!declared.commands) {
-		// only when the entry declared none at all: one it declared and this could
-		// not read has already been reported, and saying it again here would get
-		// the second telling wrong
-		if (!declared.found) {
-			diagnostics.push({
-				file: app.entry,
-				message:
-					'no "commands" found in this module; pass --entry to name the one declaring the schema, or --commands to name a command directory',
-				severity: 'error',
-			});
-		}
-		return [];
-	}
+  if (!declared.commands) {
+    // only when the entry declared none at all: one it declared and this could
+    // not read has already been reported, and saying it again here would get
+    // the second telling wrong
+    if (!declared.found) {
+      diagnostics.push({
+        file: app.entry,
+        message:
+          'no "commands" found in this module; pass --entry to name the one declaring the schema, or --commands to name a command directory',
+        severity: 'error',
+      });
+    }
+    return [];
+  }
 
-	// a path is the filesystem router, which is a tree to walk; an object is the
-	// app having written its commands out, which is already the tree
-	return declared.commands.kind === 'directory'
-		? walkCommandDir(declared.commands.dir, diagnostics)
-		: declared.commands.commands;
+  // a path is the filesystem router, which is a tree to walk; an object is the
+  // app having written its commands out, which is already the tree
+  return declared.commands.kind === 'directory'
+    ? walkCommandDir(declared.commands.dir, diagnostics)
+    : declared.commands.commands;
 }
 
 /**
@@ -186,23 +186,23 @@ function findCommands(
  * @returns Its commands, or none when it could not be read.
  */
 function walkCommandDir(dir: string, diagnostics: Diagnostic[]): readonly ResolvedCommand[] {
-	if (!existsSync(dir)) {
-		diagnostics.push({
-			file: dir,
-			message: 'no command directory here; pass --commands to name one, or check the app root',
-			severity: 'error',
-		});
-		return [];
-	}
+  if (!existsSync(dir)) {
+    diagnostics.push({
+      file: dir,
+      message: 'no command directory here; pass --commands to name one, or check the app root',
+      severity: 'error',
+    });
+    return [];
+  }
 
-	try {
-		const tree = resolveCommandTree(dir);
-		diagnostics.push(...tree.diagnostics);
-		return tree.commands;
-	} catch (e: unknown) {
-		diagnostics.push({ file: dir, message: (e as Error).message, severity: 'error' });
-		return [];
-	}
+  try {
+    const tree = resolveCommandTree(dir);
+    diagnostics.push(...tree.diagnostics);
+    return tree.commands;
+  } catch (e: unknown) {
+    diagnostics.push({ file: dir, message: (e as Error).message, severity: 'error' });
+    return [];
+  }
 }
 
 /**
@@ -220,27 +220,27 @@ function walkCommandDir(dir: string, diagnostics: Diagnostic[]): readonly Resolv
  * @param root - What to write paths relative to.
  */
 export function printTree(commands: readonly ResolvedCommand[], root: string): void {
-	const rows = [...walkTree(commands)].map(({ command: cmd, path }) => [
-		`${'  '.repeat(path.length - 1)}${cmd.name}${cmd.hidden ? ' (hidden)' : ''}`,
-		// a namespace has no module and nothing to run, which is a thing to say
-		// rather than a blank: it is the answer to half the questions this is for
-		cmd.module ? displayPath(relative(root, cmd.module)) : `(${cmd.kind}, nothing to run)`,
-		cmd.desc ?? '',
-	]);
+  const rows = [...walkTree(commands)].map(({ command: cmd, path }) => [
+    `${'  '.repeat(path.length - 1)}${cmd.name}${cmd.hidden ? ' (hidden)' : ''}`,
+    // a namespace has no module and nothing to run, which is a thing to say
+    // rather than a blank: it is the answer to half the questions this is for
+    cmd.module ? displayPath(relative(root, cmd.module)) : `(${cmd.kind}, nothing to run)`,
+    cmd.desc ?? '',
+  ]);
 
-	if (rows.length) {
-		// told stdout's colour level rather than defaulting to the process styler's.
-		// They happen to be the same stream here, which is exactly why it is worth
-		// saying: `supportsColor()` defaults to `process.stdout` whoever is asking,
-		// so a default that is right here is right by luck and wrong the moment
-		// something like this goes to stderr
-		process.stdout.write(
-			`${table(rows, {
-				colorLevel: reportLevel(process.stdout),
-				columns: ['Command', 'Module', 'Description'],
-			})}\n`
-		);
-	}
+  if (rows.length) {
+    // told stdout's colour level rather than defaulting to the process styler's.
+    // They happen to be the same stream here, which is exactly why it is worth
+    // saying: `supportsColor()` defaults to `process.stdout` whoever is asking,
+    // so a default that is right here is right by luck and wrong the moment
+    // something like this goes to stderr
+    process.stdout.write(
+      `${table(rows, {
+        colorLevel: reportLevel(process.stdout),
+        columns: ['Command', 'Module', 'Description'],
+      })}\n`
+    );
+  }
 }
 
 /**
@@ -255,35 +255,35 @@ export function printTree(commands: readonly ResolvedCommand[], root: string): v
  * @returns How many of each, and whether to stop.
  */
 export function reportDiagnostics(found: Inspection): {
-	errors: number;
-	fatal: boolean;
-	warnings: number;
+  errors: number;
+  fatal: boolean;
+  warnings: number;
 } {
-	const { app, diagnostics, types } = found;
-	const stream = process.stderr;
+  const { app, diagnostics, types } = found;
+  const stream = process.stderr;
 
-	// relative to the app, because an absolute path per line is mostly the same
-	// prefix repeated and the interesting part is at the end of it. Which form it
-	// takes is `report.ts`'s: a terminal is laid out for, a pipe gets the one-line
-	// form every compiler writes
-	writeDiagnostics(diagnostics, {
-		relativeTo: (file) => relative(app.root, file) || '.',
-		stream,
-	});
+  // relative to the app, because an absolute path per line is mostly the same
+  // prefix repeated and the interesting part is at the end of it. Which form it
+  // takes is `report.ts`'s: a terminal is laid out for, a pipe gets the one-line
+  // form every compiler writes
+  writeDiagnostics(diagnostics, {
+    relativeTo: (file) => relative(app.root, file) || '.',
+    stream,
+  });
 
-	if (!types.checked && types.skipped) {
-		// a note rather than a diagnostic: nothing is wrong with an app that has no
-		// tsconfig, and it goes through the same writer the verdict does because it
-		// is the same shape of line
-		writeSummary(
-			[{ class: 'cli-note sigil-muted', text: `Not type-checked: ${types.skipped}` }],
-			stream
-		);
-	}
+  if (!types.checked && types.skipped) {
+    // a note rather than a diagnostic: nothing is wrong with an app that has no
+    // tsconfig, and it goes through the same writer the verdict does because it
+    // is the same shape of line
+    writeSummary(
+      [{ class: 'cli-note sigil-muted', text: `Not type-checked: ${types.skipped}` }],
+      stream
+    );
+  }
 
-	const errors = diagnostics.filter((d) => d.severity === 'error').length;
+  const errors = diagnostics.filter((d) => d.severity === 'error').length;
 
-	return { errors, fatal: isFatal(diagnostics), warnings: diagnostics.length - errors };
+  return { errors, fatal: isFatal(diagnostics), warnings: diagnostics.length - errors };
 }
 
 /**
@@ -297,14 +297,14 @@ export function reportDiagnostics(found: Inspection): {
  * @returns The error to throw.
  */
 export function failure(found: Inspection, counts: { errors: number; warnings: number }): Error {
-	const { errors, warnings } = counts;
-	const where = found.app.manifest.name ?? found.app.root;
+  const { errors, warnings } = counts;
+  const where = found.app.manifest.name ?? found.app.root;
 
-	return new Error(
-		`${errors} error${errors === 1 ? '' : 's'}${
-			warnings ? ` and ${warnings} warning${warnings === 1 ? '' : 's'}` : ''
-		} in ${where}`
-	);
+  return new Error(
+    `${errors} error${errors === 1 ? '' : 's'}${
+      warnings ? ` and ${warnings} warning${warnings === 1 ? '' : 's'}` : ''
+    } in ${where}`
+  );
 }
 
 /**
@@ -323,13 +323,13 @@ export function failure(found: Inspection, counts: { errors: number; warnings: n
  * @returns Its name and its entry, styled.
  */
 export function appRuns(app: DiscoveredApp): TextRun[] {
-	return [
-		{ class: 'cli-app sigil-heading', text: app.manifest.name ?? app.root },
-		{
-			class: 'cli-entry sigil-muted',
-			text: `(${displayPath(relative(app.root, app.entry) || app.entry)}):`,
-		},
-	];
+  return [
+    { class: 'cli-app sigil-heading', text: app.manifest.name ?? app.root },
+    {
+      class: 'cli-entry sigil-muted',
+      text: `(${displayPath(relative(app.root, app.entry) || app.entry)}):`,
+    },
+  ];
 }
 
 /**
@@ -339,5 +339,5 @@ export function appRuns(app: DiscoveredApp): TextRun[] {
  * @returns The count.
  */
 export function countCommands(commands: readonly ResolvedCommand[]): number {
-	return [...walkTree(commands)].length;
+  return [...walkTree(commands)].length;
 }

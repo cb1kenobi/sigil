@@ -54,20 +54,20 @@ import type { InputRouter } from './index.js';
 
 /** What a reply turned out to be. */
 export type CapabilityKind =
-	/** A DA1 or DA2 reply: what the terminal claims to be. */
-	| 'device'
-	/** An XTVersion reply: the terminal's own name and version. */
-	| 'version'
-	/** A DECRPM reply: whether a mode is actually set. */
-	| 'mode'
-	/** A cursor position report. */
-	| 'cursor'
-	/** A window-op reply carrying a pixel geometry. */
-	| 'size'
-	/** An OSC reply. Its command is the first parameter and the rest is `text`. */
-	| 'osc'
-	/** A control string this does not interpret, which is still not a key. */
-	| 'string';
+  /** A DA1 or DA2 reply: what the terminal claims to be. */
+  | 'device'
+  /** An XTVersion reply: the terminal's own name and version. */
+  | 'version'
+  /** A DECRPM reply: whether a mode is actually set. */
+  | 'mode'
+  /** A cursor position report. */
+  | 'cursor'
+  /** A window-op reply carrying a pixel geometry. */
+  | 'size'
+  /** An OSC reply. Its command is the first parameter and the rest is `text`. */
+  | 'osc'
+  /** A control string this does not interpret, which is still not a key. */
+  | 'string';
 
 /**
  * One reply, read.
@@ -78,20 +78,20 @@ export type CapabilityKind =
  * asserting on what the terminal sent rather than on this reading of it.
  */
 export interface CapabilityReply {
-	readonly kind: CapabilityKind;
-	/**
-	 * The numeric parameters, where they are numbers.
-	 *
-	 * Empty parameters come through as `0`, which is what a terminal means by one:
-	 * every parameter in the sequences read here defaults to zero when it is
-	 * omitted. A non-numeric payload is not here at all and is in `text`.
-	 */
-	readonly params: readonly number[];
-	/** The private-use prefix, where there was one: `?` for DA1, `>` for DA2. */
-	readonly prefix: string;
-	readonly sequence: string;
-	/** The payload of a string reply, with the introducer and terminator off. */
-	readonly text: string;
+  readonly kind: CapabilityKind;
+  /**
+   * The numeric parameters, where they are numbers.
+   *
+   * Empty parameters come through as `0`, which is what a terminal means by one:
+   * every parameter in the sequences read here defaults to zero when it is
+   * omitted. A non-numeric payload is not here at all and is in `text`.
+   */
+  readonly params: readonly number[];
+  /** The private-use prefix, where there was one: `?` for DA1, `>` for DA2. */
+  readonly prefix: string;
+  readonly sequence: string;
+  /** The payload of a string reply, with the introducer and terminator off. */
+  readonly text: string;
 }
 
 /** BEL and the C1 spelling of ST, which are two of the three ways a string ends. */
@@ -139,7 +139,7 @@ export const CELL_PIXELS: string = `${CSI}16t`;
  * @returns The DECRQM sequence.
  */
 export function requestMode(mode: number): string {
-	return `${CSI}?${mode}$p`;
+  return `${CSI}?${mode}$p`;
 }
 
 /**
@@ -165,11 +165,11 @@ export const FOREGROUND_COLOR: string = `${OSC}10;?${ST}`;
 export type ModeState = 'permanently-reset' | 'permanently-set' | 'reset' | 'set' | 'unrecognised';
 
 const MODE_STATES: Record<number, ModeState> = {
-	0: 'unrecognised',
-	1: 'set',
-	2: 'reset',
-	3: 'permanently-set',
-	4: 'permanently-reset',
+  0: 'unrecognised',
+  1: 'set',
+  2: 'reset',
+  3: 'permanently-set',
+  4: 'permanently-reset',
 };
 
 /**
@@ -200,93 +200,93 @@ const OSC_RE = /^(\d+)(?:;([\s\S]*))?$/;
  * @returns The reply, or `undefined` when this is not one at all.
  */
 export function parseCapabilityResponse(sequence: string): CapabilityReply | undefined {
-	const string = STRING_RE.exec(sequence);
-	if (string) {
-		const introducer = string[1];
-		const text = string[2];
-		if (introducer === ']') {
-			// the command is the first parameter, so `OSC 11 ; rgb:...` reads as
-			// command 11 with the colour as its text. An OSC with no command at all is
-			// still a reply and still not a key, so it comes through with none
-			const osc = OSC_RE.exec(text);
-			return osc
-				? reply('osc', sequence, '', osc[2] ?? '', [Number.parseInt(osc[1], 10)])
-				: reply('string', sequence, '', text);
-		}
-		if (introducer === 'P') {
-			// `ESC P > | name ST` is XTVersion. Anything else arriving as a DCS is an
-			// answer to something this does not ask, so it is a reply without being a
-			// version -- read as a version only where it carries the marker saying so
-			return text.startsWith('>|')
-				? reply('version', sequence, '>', text.slice(2))
-				: reply('string', sequence, '', text);
-		}
-		// APC, PM and SOS are not framed by the decoder, so nothing reaches here
-		// with one. Read rather than refused, because what would be wrong about
-		// refusing is that it is still not a key
-		return reply('string', sequence, '', text);
-	}
+  const string = STRING_RE.exec(sequence);
+  if (string) {
+    const introducer = string[1];
+    const text = string[2];
+    if (introducer === ']') {
+      // the command is the first parameter, so `OSC 11 ; rgb:...` reads as
+      // command 11 with the colour as its text. An OSC with no command at all is
+      // still a reply and still not a key, so it comes through with none
+      const osc = OSC_RE.exec(text);
+      return osc
+        ? reply('osc', sequence, '', osc[2] ?? '', [Number.parseInt(osc[1], 10)])
+        : reply('string', sequence, '', text);
+    }
+    if (introducer === 'P') {
+      // `ESC P > | name ST` is XTVersion. Anything else arriving as a DCS is an
+      // answer to something this does not ask, so it is a reply without being a
+      // version -- read as a version only where it carries the marker saying so
+      return text.startsWith('>|')
+        ? reply('version', sequence, '>', text.slice(2))
+        : reply('string', sequence, '', text);
+    }
+    // APC, PM and SOS are not framed by the decoder, so nothing reaches here
+    // with one. Read rather than refused, because what would be wrong about
+    // refusing is that it is still not a key
+    return reply('string', sequence, '', text);
+  }
 
-	const csi = CSI_RE.exec(sequence);
-	if (!csi) {
-		return undefined;
-	}
+  const csi = CSI_RE.exec(sequence);
+  if (!csi) {
+    return undefined;
+  }
 
-	const prefix = csi[1];
-	const params = csi[2];
-	const intermediates = csi[3];
-	const final = csi[4];
+  const prefix = csi[1];
+  const params = csi[2];
+  const intermediates = csi[3];
+  const final = csi[4];
 
-	// DECRPM: `CSI ? Pd ; Ps $ y`. Nothing a keyboard sends carries a `$`
-	// intermediate, so this needs no prefix to be unambiguous
-	if (final === 'y' && intermediates === '$') {
-		return reply('mode', sequence, prefix, '', numbers(params));
-	}
+  // DECRPM: `CSI ? Pd ; Ps $ y`. Nothing a keyboard sends carries a `$`
+  // intermediate, so this needs no prefix to be unambiguous
+  if (final === 'y' && intermediates === '$') {
+    return reply('mode', sequence, prefix, '', numbers(params));
+  }
 
-	// DA1 is `CSI ? ... c` and DA2 is `CSI > ... c`. A bare `CSI c` is the
-	// *request*, which nothing sends to us, so the prefix is what makes this a
-	// reply rather than a guess
-	if (final === 'c' && (prefix === '?' || prefix === '>')) {
-		return reply('device', sequence, prefix, '', numbers(params));
-	}
+  // DA1 is `CSI ? ... c` and DA2 is `CSI > ... c`. A bare `CSI c` is the
+  // *request*, which nothing sends to us, so the prefix is what makes this a
+  // reply rather than a guess
+  if (final === 'c' && (prefix === '?' || prefix === '>')) {
+    return reply('device', sequence, prefix, '', numbers(params));
+  }
 
-	// a window-op reply: `CSI 4 ; height ; width t` for the text area and
-	// `CSI 6 ; h ; w t` for a cell. Exactly three parameters, because the requests
-	// are one or two and a reply is what has all three
-	if (final === 't' && intermediates === '' && /^\d+;\d+;\d+$/.test(params)) {
-		return reply('size', sequence, prefix, '', numbers(params));
-	}
+  // a window-op reply: `CSI 4 ; height ; width t` for the text area and
+  // `CSI 6 ; h ; w t` for a cell. Exactly three parameters, because the requests
+  // are one or two and a reply is what has all three
+  if (final === 't' && intermediates === '' && /^\d+;\d+;\d+$/.test(params)) {
+    return reply('size', sequence, prefix, '', numbers(params));
+  }
 
-	// CPR: `CSI row ; column R`, or `CSI ? row ; column R` for DECXCPR. Parsed
-	// here and gated in `isCapabilityResponse()`, for the reason recorded there
-	if (final === 'R' && intermediates === '' && /^\d+;\d+$/.test(params)) {
-		return reply('cursor', sequence, prefix, '', numbers(params));
-	}
+  // CPR: `CSI row ; column R`, or `CSI ? row ; column R` for DECXCPR. Parsed
+  // here and gated in `isCapabilityResponse()`, for the reason recorded there
+  if (final === 'R' && intermediates === '' && /^\d+;\d+$/.test(params)) {
+    return reply('cursor', sequence, prefix, '', numbers(params));
+  }
 
-	return undefined;
+  return undefined;
 }
 
 function reply(
-	kind: CapabilityKind,
-	sequence: string,
-	prefix: string,
-	text: string,
-	params: readonly number[] = []
+  kind: CapabilityKind,
+  sequence: string,
+  prefix: string,
+  text: string,
+  params: readonly number[] = []
 ): CapabilityReply {
-	return Object.freeze({ kind, params: Object.freeze(params), prefix, sequence, text });
+  return Object.freeze({ kind, params: Object.freeze(params), prefix, sequence, text });
 }
 
 /** `1;2` as `[1, 2]`, and an omitted parameter as the zero a terminal means by it. */
 function numbers(params: string): number[] {
-	return params === ''
-		? []
-		: params.split(';').map((part) => {
-				// a sub-parameter (`1:2`) is read as its first component: nothing here
-				// asks a question whose answer uses one, and taking the whole string
-				// through `Number()` would answer `NaN`
-				const value = Number.parseInt(part.split(':')[0], 10);
-				return Number.isNaN(value) ? 0 : value;
-			});
+  return params === ''
+    ? []
+    : params.split(';').map((part) => {
+        // a sub-parameter (`1:2`) is read as its first component: nothing here
+        // asks a question whose answer uses one, and taking the whole string
+        // through `Number()` would answer `NaN`
+        const value = Number.parseInt(part.split(':')[0], 10);
+        return Number.isNaN(value) ? 0 : value;
+      });
 }
 
 /**
@@ -329,8 +329,8 @@ function numbers(params: string): number[] {
  * @returns Whether it is unambiguously a reply.
  */
 export function isCapabilityResponse(sequence: string): boolean {
-	const found = parseCapabilityResponse(sequence);
-	return found !== undefined && found.kind !== 'cursor';
+  const found = parseCapabilityResponse(sequence);
+  return found !== undefined && found.kind !== 'cursor';
 }
 
 /**
@@ -356,59 +356,59 @@ export const QUERY_TIMEOUT: number = 250;
 
 /** What a probe writes and how long it waits. */
 export interface QueryOptions {
-	/**
-	 * Whether to claim a cursor position report while this query is outstanding.
-	 *
-	 * Off by default, because `CSI 1 ; 2 R` is also Shift-F3 and a reply nobody
-	 * asked for must not cost a key. A caller that asked for one says so.
-	 */
-	cursor?: boolean;
-	/** Milliseconds to wait. Defaults to `QUERY_TIMEOUT`. */
-	timeout?: number;
-	/**
-	 * Resolves the probe early.
-	 *
-	 * Handed each reply and everything collected so far. The batched probe uses it
-	 * for the DA1 sentinel, which is what turns a deadline into a round trip.
-	 */
-	until?: (reply: CapabilityReply, all: readonly CapabilityReply[]) => boolean;
-	/** The bytes to write, in one write. */
-	write: string;
+  /**
+   * Whether to claim a cursor position report while this query is outstanding.
+   *
+   * Off by default, because `CSI 1 ; 2 R` is also Shift-F3 and a reply nobody
+   * asked for must not cost a key. A caller that asked for one says so.
+   */
+  cursor?: boolean;
+  /** Milliseconds to wait. Defaults to `QUERY_TIMEOUT`. */
+  timeout?: number;
+  /**
+   * Resolves the probe early.
+   *
+   * Handed each reply and everything collected so far. The batched probe uses it
+   * for the DA1 sentinel, which is what turns a deadline into a round trip.
+   */
+  until?: (reply: CapabilityReply, all: readonly CapabilityReply[]) => boolean;
+  /** The bytes to write, in one write. */
+  write: string;
 }
 
 /** What a terminal turned out to be. */
 export interface Capabilities {
-	/** One cell in pixels, from `CSI 16 t`. */
-	readonly cell?: { readonly height: number; readonly width: number };
-	/**
-	 * The colour level the reply refines the environment's guess to.
-	 *
-	 * Absent when nothing said. Present only where it is *higher* than what was
-	 * inferred, which is the direction that is safe: see `refineColorLevel()`.
-	 */
-	readonly colorLevel?: ColorLevel;
-	/** What DA1 said, as its raw parameters. */
-	readonly device?: readonly number[];
-	/** The terminal's own name, lowercased, from XTVersion. */
-	readonly name?: string;
-	/** The terminal's background, from an OSC 11 reply, on 0-255 per channel. */
-	readonly background?: ReportedColor;
-	/**
-	 * The scheme that background implies.
-	 *
-	 * Absent where nothing answered, which is the case the environment is still the
-	 * answer for. Present here it is the *truthful* one: `COLORFGBG` is frequently
-	 * stale and notoriously wrong under tmux, and this is the terminal itself.
-	 */
-	readonly colorScheme?: ColorScheme;
-	/** The text area in pixels, from `CSI 14 t`. */
-	readonly pixels?: { readonly height: number; readonly width: number };
-	/** Every reply, in the order it arrived, for anything that wants to look again. */
-	readonly replies: readonly CapabilityReply[];
-	/** Whether anything answered at all. */
-	readonly responded: boolean;
-	/** The version string XTVersion carried, unparsed. */
-	readonly version?: string;
+  /** One cell in pixels, from `CSI 16 t`. */
+  readonly cell?: { readonly height: number; readonly width: number };
+  /**
+   * The colour level the reply refines the environment's guess to.
+   *
+   * Absent when nothing said. Present only where it is *higher* than what was
+   * inferred, which is the direction that is safe: see `refineColorLevel()`.
+   */
+  readonly colorLevel?: ColorLevel;
+  /** What DA1 said, as its raw parameters. */
+  readonly device?: readonly number[];
+  /** The terminal's own name, lowercased, from XTVersion. */
+  readonly name?: string;
+  /** The terminal's background, from an OSC 11 reply, on 0-255 per channel. */
+  readonly background?: ReportedColor;
+  /**
+   * The scheme that background implies.
+   *
+   * Absent where nothing answered, which is the case the environment is still the
+   * answer for. Present here it is the *truthful* one: `COLORFGBG` is frequently
+   * stale and notoriously wrong under tmux, and this is the terminal itself.
+   */
+  readonly colorScheme?: ColorScheme;
+  /** The text area in pixels, from `CSI 14 t`. */
+  readonly pixels?: { readonly height: number; readonly width: number };
+  /** Every reply, in the order it arrived, for anything that wants to look again. */
+  readonly replies: readonly CapabilityReply[];
+  /** Whether anything answered at all. */
+  readonly responded: boolean;
+  /** The version string XTVersion carried, unparsed. */
+  readonly version?: string;
 }
 
 /**
@@ -440,9 +440,9 @@ const HASH_RE = /^#((?:[\da-f]{3}){1,4})$/i;
 
 /** A colour a terminal reported, on 0-255 per channel. */
 export interface ReportedColor {
-	readonly b: number;
-	readonly g: number;
-	readonly r: number;
+  readonly b: number;
+  readonly g: number;
+  readonly r: number;
 }
 
 /**
@@ -457,28 +457,28 @@ export interface ReportedColor {
  *   same outcome as a terminal that said nothing.
  */
 export function parseReportedColor(text: string): ReportedColor | undefined {
-	const trimmed = text.trim();
+  const trimmed = text.trim();
 
-	const rgb = COLOR_RE.exec(trimmed);
-	if (rgb) {
-		return Object.freeze({
-			b: scale(rgb[3]),
-			g: scale(rgb[2]),
-			r: scale(rgb[1]),
-		});
-	}
+  const rgb = COLOR_RE.exec(trimmed);
+  if (rgb) {
+    return Object.freeze({
+      b: scale(rgb[3]),
+      g: scale(rgb[2]),
+      r: scale(rgb[1]),
+    });
+  }
 
-	const hash = HASH_RE.exec(trimmed);
-	if (hash) {
-		const each = hash[1].length / 3;
-		return Object.freeze({
-			b: scale(hash[1].slice(each * 2)),
-			g: scale(hash[1].slice(each, each * 2)),
-			r: scale(hash[1].slice(0, each)),
-		});
-	}
+  const hash = HASH_RE.exec(trimmed);
+  if (hash) {
+    const each = hash[1].length / 3;
+    return Object.freeze({
+      b: scale(hash[1].slice(each * 2)),
+      g: scale(hash[1].slice(each, each * 2)),
+      r: scale(hash[1].slice(0, each)),
+    });
+  }
 
-	return undefined;
+  return undefined;
 }
 
 /**
@@ -490,22 +490,22 @@ export function parseReportedColor(text: string): ReportedColor | undefined {
  * floor moves every component down half a step.
  */
 function scale(digits: string): number {
-	const full = 16 ** digits.length - 1;
-	return Math.round((Number.parseInt(digits, 16) / full) * 255);
+  const full = 16 ** digits.length - 1;
+  return Math.round((Number.parseInt(digits, 16) / full) * 255);
 }
 
 /** Which capabilities to ask for. */
 export interface DetectOptions {
-	/** Ask for the background colour, for `prefers-color-scheme`. Off by default. */
-	background?: boolean;
-	/** Ask for the cell and text-area pixel geometry. Off by default. */
-	geometry?: boolean;
-	/** What the environment inferred, which a reply may only refine upwards. */
-	colorLevel?: ColorLevel;
-	/** Milliseconds to wait. Defaults to `QUERY_TIMEOUT`. */
-	timeout?: number;
-	/** Ask the terminal for its name and version. On by default. */
-	version?: boolean;
+  /** Ask for the background colour, for `prefers-color-scheme`. Off by default. */
+  background?: boolean;
+  /** Ask for the cell and text-area pixel geometry. Off by default. */
+  geometry?: boolean;
+  /** What the environment inferred, which a reply may only refine upwards. */
+  colorLevel?: ColorLevel;
+  /** Milliseconds to wait. Defaults to `QUERY_TIMEOUT`. */
+  timeout?: number;
+  /** Ask the terminal for its name and version. On by default. */
+  version?: boolean;
 }
 
 /**
@@ -518,15 +518,15 @@ export interface DetectOptions {
  * a short list covers most of what a reply can be.
  */
 const TRUECOLOR = new Set([
-	'alacritty',
-	'contour',
-	'foot',
-	'ghostty',
-	'iterm2',
-	'kitty',
-	'mintty',
-	'rio',
-	'wezterm',
+  'alacritty',
+  'contour',
+  'foot',
+  'ghostty',
+  'iterm2',
+  'kitty',
+  'mintty',
+  'rio',
+  'wezterm',
 ]);
 
 /**
@@ -564,17 +564,17 @@ const TRUECOLOR = new Set([
  * @returns The refined level, or `undefined` when nothing changes.
  */
 export function refineColorLevel(
-	name: string | undefined,
-	inferred: ColorLevel | undefined
+  name: string | undefined,
+  inferred: ColorLevel | undefined
 ): ColorLevel | undefined {
-	if (name === undefined || inferred === undefined || inferred === 0) {
-		return undefined;
-	}
-	// matched whole rather than by prefix, which was the first spelling and is
-	// loose in the direction that costs: `name` is already the first token with any
-	// `(version)` taken off, so a prefix test buys nothing and would read a terminal
-	// called `footer` as `foot`
-	return TRUECOLOR.has(name) && inferred < 3 ? 3 : undefined;
+  if (name === undefined || inferred === undefined || inferred === 0) {
+    return undefined;
+  }
+  // matched whole rather than by prefix, which was the first spelling and is
+  // loose in the direction that costs: `name` is already the first token with any
+  // `(version)` taken off, so a prefix test buys nothing and would read a terminal
+  // called `footer` as `foot`
+  return TRUECOLOR.has(name) && inferred < 3 ? 3 : undefined;
 }
 
 /**
@@ -602,30 +602,30 @@ export function refineColorLevel(
  *   terminal.
  */
 export async function detectCapabilities(
-	router: InputRouter,
-	opts: DetectOptions = {}
+  router: InputRouter,
+  opts: DetectOptions = {}
 ): Promise<Capabilities> {
-	const parts: string[] = [];
-	if (opts.version !== false) {
-		parts.push(XTVERSION);
-	}
-	if (opts.background) {
-		parts.push(BACKGROUND_COLOR);
-	}
-	if (opts.geometry) {
-		parts.push(CELL_PIXELS, TEXT_AREA_PIXELS);
-	}
-	// last, always: its reply is what says the ones before it are answered or
-	// never will be
-	parts.push(DA1);
+  const parts: string[] = [];
+  if (opts.version !== false) {
+    parts.push(XTVERSION);
+  }
+  if (opts.background) {
+    parts.push(BACKGROUND_COLOR);
+  }
+  if (opts.geometry) {
+    parts.push(CELL_PIXELS, TEXT_AREA_PIXELS);
+  }
+  // last, always: its reply is what says the ones before it are answered or
+  // never will be
+  parts.push(DA1);
 
-	const replies = await router.query({
-		timeout: opts.timeout,
-		until: (it) => it.kind === 'device' && it.prefix === '?',
-		write: parts.join(''),
-	});
+  const replies = await router.query({
+    timeout: opts.timeout,
+    until: (it) => it.kind === 'device' && it.prefix === '?',
+    write: parts.join(''),
+  });
 
-	return readCapabilities(replies, opts.colorLevel);
+  return readCapabilities(replies, opts.colorLevel);
 }
 
 /**
@@ -640,87 +640,87 @@ export async function detectCapabilities(
  * @returns The capabilities.
  */
 export function readCapabilities(
-	replies: readonly CapabilityReply[],
-	inferred?: ColorLevel
+  replies: readonly CapabilityReply[],
+  inferred?: ColorLevel
 ): Capabilities {
-	let background: ReportedColor | undefined;
-	let cell: { height: number; width: number } | undefined;
-	let device: readonly number[] | undefined;
-	let name: string | undefined;
-	/**
-	 * Every name that answered, because more than one thing may.
-	 *
-	 * tmux answers XTVersion itself and can pass the outer terminal's answer
-	 * through as well, and taking the first would let a `tmux 3.4` hide the
-	 * `ghostty 1.1.0` behind it. Since a refinement only ever *raises*, the
-	 * permissive reading is the safe one: if anything that answered is known to do
-	 * truecolour, it does. `name` stays the first, which is what a caller reading it
-	 * back means by "what is this terminal".
-	 */
-	const names: string[] = [];
-	let pixels: { height: number; width: number } | undefined;
-	let version: string | undefined;
+  let background: ReportedColor | undefined;
+  let cell: { height: number; width: number } | undefined;
+  let device: readonly number[] | undefined;
+  let name: string | undefined;
+  /**
+   * Every name that answered, because more than one thing may.
+   *
+   * tmux answers XTVersion itself and can pass the outer terminal's answer
+   * through as well, and taking the first would let a `tmux 3.4` hide the
+   * `ghostty 1.1.0` behind it. Since a refinement only ever *raises*, the
+   * permissive reading is the safe one: if anything that answered is known to do
+   * truecolour, it does. `name` stays the first, which is what a caller reading it
+   * back means by "what is this terminal".
+   */
+  const names: string[] = [];
+  let pixels: { height: number; width: number } | undefined;
+  let version: string | undefined;
 
-	for (const it of replies) {
-		if (it.kind === 'device' && it.prefix === '?' && device === undefined) {
-			device = it.params;
-		} else if (it.kind === 'version') {
-			// `Ghostty 1.0.1`, `WezTerm 20240203-110809`, `kitty 0.32.2`, `foot(1.16.2)`
-			const match = /^([^\s(]+)[\s(]*(.*?)\)?$/.exec(it.text.trim());
-			const found = (match?.[1] ?? it.text.trim()).toLowerCase();
-			names.push(found);
-			if (name === undefined) {
-				// the first is what the terminal in front of us called itself, which is
-				// what a caller wants to read back
-				name = found;
-				version = match?.[2] === '' ? undefined : match?.[2];
-			}
-		} else if (it.kind === 'osc' && it.params[0] === 11 && background === undefined) {
-			// the first one that can be *read*, which is not the same as the first, and
-			// the difference matters: a terminal may legally answer `white`, and giving
-			// up there would throw away a second reply that does say something. A reply
-			// this cannot read is no answer, so it does not close the question -- while a
-			// reply it can read does, because a terminal answers a question once and
-			// anything after it is somebody else's answer to the same one.
-			//
-			// Which falls out of the guard above rather than needing a `?? background`
-			// after it: the branch is only entered while nothing has been read, so there
-			// is never a value here for an unreadable reply to overwrite. One was written
-			// and taken out again -- a line that can be deleted with the suite still green
-			// reads as load-bearing and is not
-			background = parseReportedColor(it.text);
-		} else if (it.kind === 'size') {
-			// the reply's first parameter says which question it answers: 6 is a cell
-			// and 4 is the text area. The *request* numbers are 16 and 14, which is
-			// the pair that is easy to write down the wrong way round
-			const box = { height: it.params[1] ?? 0, width: it.params[2] ?? 0 };
-			if (it.params[0] === 6) {
-				cell = box;
-			} else if (it.params[0] === 4) {
-				pixels = box;
-			}
-		}
-	}
+  for (const it of replies) {
+    if (it.kind === 'device' && it.prefix === '?' && device === undefined) {
+      device = it.params;
+    } else if (it.kind === 'version') {
+      // `Ghostty 1.0.1`, `WezTerm 20240203-110809`, `kitty 0.32.2`, `foot(1.16.2)`
+      const match = /^([^\s(]+)[\s(]*(.*?)\)?$/.exec(it.text.trim());
+      const found = (match?.[1] ?? it.text.trim()).toLowerCase();
+      names.push(found);
+      if (name === undefined) {
+        // the first is what the terminal in front of us called itself, which is
+        // what a caller wants to read back
+        name = found;
+        version = match?.[2] === '' ? undefined : match?.[2];
+      }
+    } else if (it.kind === 'osc' && it.params[0] === 11 && background === undefined) {
+      // the first one that can be *read*, which is not the same as the first, and
+      // the difference matters: a terminal may legally answer `white`, and giving
+      // up there would throw away a second reply that does say something. A reply
+      // this cannot read is no answer, so it does not close the question -- while a
+      // reply it can read does, because a terminal answers a question once and
+      // anything after it is somebody else's answer to the same one.
+      //
+      // Which falls out of the guard above rather than needing a `?? background`
+      // after it: the branch is only entered while nothing has been read, so there
+      // is never a value here for an unreadable reply to overwrite. One was written
+      // and taken out again -- a line that can be deleted with the suite still green
+      // reads as load-bearing and is not
+      background = parseReportedColor(it.text);
+    } else if (it.kind === 'size') {
+      // the reply's first parameter says which question it answers: 6 is a cell
+      // and 4 is the text area. The *request* numbers are 16 and 14, which is
+      // the pair that is easy to write down the wrong way round
+      const box = { height: it.params[1] ?? 0, width: it.params[2] ?? 0 };
+      if (it.params[0] === 6) {
+        cell = box;
+      } else if (it.params[0] === 4) {
+        pixels = box;
+      }
+    }
+  }
 
-	let colorLevel: ColorLevel | undefined;
-	for (const it of names) {
-		colorLevel = refineColorLevel(it, inferred) ?? colorLevel;
-	}
+  let colorLevel: ColorLevel | undefined;
+  for (const it of names) {
+    colorLevel = refineColorLevel(it, inferred) ?? colorLevel;
+  }
 
-	return Object.freeze({
-		...(background ? { background } : {}),
-		...(cell ? { cell: Object.freeze(cell) } : {}),
-		...(colorLevel === undefined ? {} : { colorLevel }),
-		...(background
-			? { colorScheme: schemeForBackground(background.r, background.g, background.b) }
-			: {}),
-		...(device ? { device } : {}),
-		...(name === undefined ? {} : { name }),
-		...(pixels ? { pixels: Object.freeze(pixels) } : {}),
-		...(version === undefined ? {} : { version }),
-		replies: Object.freeze([...replies]),
-		responded: replies.length > 0,
-	});
+  return Object.freeze({
+    ...(background ? { background } : {}),
+    ...(cell ? { cell: Object.freeze(cell) } : {}),
+    ...(colorLevel === undefined ? {} : { colorLevel }),
+    ...(background
+      ? { colorScheme: schemeForBackground(background.r, background.g, background.b) }
+      : {}),
+    ...(device ? { device } : {}),
+    ...(name === undefined ? {} : { name }),
+    ...(pixels ? { pixels: Object.freeze(pixels) } : {}),
+    ...(version === undefined ? {} : { version }),
+    replies: Object.freeze([...replies]),
+    responded: replies.length > 0,
+  });
 }
 
 /**
@@ -749,23 +749,23 @@ export function readCapabilities(
  *   which is why they are not told apart.
  */
 export async function queryMode(
-	router: InputRouter,
-	mode: number,
-	opts: { timeout?: number } = {}
+  router: InputRouter,
+  mode: number,
+  opts: { timeout?: number } = {}
 ): Promise<ModeState | undefined> {
-	const replies = await router.query({
-		timeout: opts.timeout,
-		// the sentinel again, and it has to be in `until` as well as in the write or
-		// it is decoration: a terminal that does not know DECRQM answers only the
-		// DA1, and without that second clause the probe waits out the whole deadline
-		// to learn something it already knew
-		until: (it) =>
-			(it.kind === 'mode' && it.params[0] === mode) || (it.kind === 'device' && it.prefix === '?'),
-		write: `${requestMode(mode)}${DA1}`,
-	});
+  const replies = await router.query({
+    timeout: opts.timeout,
+    // the sentinel again, and it has to be in `until` as well as in the write or
+    // it is decoration: a terminal that does not know DECRQM answers only the
+    // DA1, and without that second clause the probe waits out the whole deadline
+    // to learn something it already knew
+    until: (it) =>
+      (it.kind === 'mode' && it.params[0] === mode) || (it.kind === 'device' && it.prefix === '?'),
+    write: `${requestMode(mode)}${DA1}`,
+  });
 
-	const found = replies.find((it) => it.kind === 'mode' && it.params[0] === mode);
-	return found ? MODE_STATES[found.params[1]] : undefined;
+  const found = replies.find((it) => it.kind === 'mode' && it.params[0] === mode);
+  return found ? MODE_STATES[found.params[1]] : undefined;
 }
 
 /**
@@ -780,19 +780,19 @@ export async function queryMode(
  * @returns The one-based row and column, or `undefined` when nothing answered.
  */
 export async function queryCursor(
-	router: InputRouter,
-	opts: { timeout?: number } = {}
+  router: InputRouter,
+  opts: { timeout?: number } = {}
 ): Promise<{ column: number; row: number } | undefined> {
-	const replies = await router.query({
-		cursor: true,
-		timeout: opts.timeout,
-		until: (it) => it.kind === 'cursor',
-		// no DA1 sentinel: a terminal that answers DA1 and not CPR does not exist,
-		// and a DA1 reply arriving *first* would end the probe before the position
-		// did -- which is the sentinel working against the one query it cannot help
-		write: CURSOR_POSITION,
-	});
+  const replies = await router.query({
+    cursor: true,
+    timeout: opts.timeout,
+    until: (it) => it.kind === 'cursor',
+    // no DA1 sentinel: a terminal that answers DA1 and not CPR does not exist,
+    // and a DA1 reply arriving *first* would end the probe before the position
+    // did -- which is the sentinel working against the one query it cannot help
+    write: CURSOR_POSITION,
+  });
 
-	const found = replies.find((it) => it.kind === 'cursor');
-	return found ? { column: found.params[1], row: found.params[0] } : undefined;
+  const found = replies.find((it) => it.kind === 'cursor');
+  return found ? { column: found.params[1], row: found.params[0] } : undefined;
 }

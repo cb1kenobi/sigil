@@ -13,16 +13,16 @@ export type Severity = 'error' | 'warning';
 
 /** Something the build found in a file and has to say out loud. */
 export interface Diagnostic {
-	/** One-based column, when whatever produced it knew one. */
-	readonly column?: number;
-	/** The file it is about. */
-	readonly file: string;
-	/** One-based line, when whatever produced it knew one. */
-	readonly line?: number;
-	/** What to tell the author, written as the thing to do about it. */
-	readonly message: string;
-	/** Whether the build can carry on. */
-	readonly severity: Severity;
+  /** One-based column, when whatever produced it knew one. */
+  readonly column?: number;
+  /** The file it is about. */
+  readonly file: string;
+  /** One-based line, when whatever produced it knew one. */
+  readonly line?: number;
+  /** What to tell the author, written as the thing to do about it. */
+  readonly message: string;
+  /** Whether the build can carry on. */
+  readonly severity: Severity;
 }
 
 /**
@@ -49,7 +49,7 @@ export interface Diagnostic {
  * @returns The same path with forward slashes.
  */
 export function displayPath(path: string): string {
-	return path.replaceAll('\\', '/');
+  return path.replaceAll('\\', '/');
 }
 
 /**
@@ -64,7 +64,7 @@ export function displayPath(path: string): string {
  * @returns Whether any of it is fatal.
  */
 export function isFatal(diagnostics: readonly Diagnostic[]): boolean {
-	return diagnostics.some((diagnostic) => diagnostic.severity === 'error');
+  return diagnostics.some((diagnostic) => diagnostic.severity === 'error');
 }
 
 /**
@@ -84,10 +84,10 @@ export function isFatal(diagnostics: readonly Diagnostic[]): boolean {
  * @returns The location, with no trailing colon.
  */
 export function diagnosticLocation(diagnostic: Diagnostic): string {
-	const { column, file, line } = diagnostic;
-	const shown = displayPath(file);
+  const { column, file, line } = diagnostic;
+  const shown = displayPath(file);
 
-	return line === undefined ? shown : `${shown}:${line}${column === undefined ? '' : `:${column}`}`;
+  return line === undefined ? shown : `${shown}:${line}${column === undefined ? '' : `:${column}`}`;
 }
 
 /**
@@ -102,5 +102,5 @@ export function diagnosticLocation(diagnostic: Diagnostic): string {
  * @returns The line, without a trailing newline.
  */
 export function formatDiagnostic(diagnostic: Diagnostic): string {
-	return `${diagnosticLocation(diagnostic)}: ${diagnostic.severity}: ${diagnostic.message}`;
+  return `${diagnosticLocation(diagnostic)}: ${diagnostic.severity}: ${diagnostic.message}`;
 }

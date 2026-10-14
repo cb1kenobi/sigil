@@ -8,5 +8,5 @@ import type { Element } from '@ttylabs/sigil/element';
  * bundle as a string, which is the marker a minified build still carries.
  */
 export function Panel({ who }: { who: string }): Element {
-	return <text class="hello">Hello, {who}!</text>;
+  return <text class="hello">Hello, {who}!</text>;
 }

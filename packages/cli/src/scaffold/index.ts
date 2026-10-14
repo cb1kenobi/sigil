@@ -50,27 +50,27 @@ export type Linter = 'biome' | 'eslint' | 'none' | 'oxlint';
 
 /** Everything `new` needs to decide before it writes anything. */
 export interface ScaffoldOptions {
-	/** The language. */
-	readonly language: Language;
-	/** The layout. */
-	readonly layout: Layout;
-	/** The linter. */
-	readonly linter: Linter;
-	/** The app's name, which is also its bin. */
-	readonly name: string;
-	/**
-	 * The version to ask for of `@ttylabs/sigil` and `@ttylabs/cli`.
-	 *
-	 * One field rather than two, because the two cannot differ: the toolchain
-	 * depends on the runtime at its own version and the release workflow
-	 * refuses a tag that does not match every package, so a scaffold asking for
-	 * different ones would be asking for a pair that was never published
-	 * together. They were two while `--link` existed, when each could be a
-	 * local path.
-	 */
-	readonly version: string;
-	/** The versions of the shared devDependencies, read off the toolchain. */
-	readonly versions: Readonly<Record<string, string>>;
+  /** The language. */
+  readonly language: Language;
+  /** The layout. */
+  readonly layout: Layout;
+  /** The linter. */
+  readonly linter: Linter;
+  /** The app's name, which is also its bin. */
+  readonly name: string;
+  /**
+   * The version to ask for of `@ttylabs/sigil` and `@ttylabs/cli`.
+   *
+   * One field rather than two, because the two cannot differ: the toolchain
+   * depends on the runtime at its own version and the release workflow
+   * refuses a tag that does not match every package, so a scaffold asking for
+   * different ones would be asking for a pair that was never published
+   * together. They were two while `--link` existed, when each could be a
+   * local path.
+   */
+  readonly version: string;
+  /** The versions of the shared devDependencies, read off the toolchain. */
+  readonly versions: Readonly<Record<string, string>>;
 }
 
 /**
@@ -90,27 +90,27 @@ export interface ScaffoldOptions {
  * current the day it was written. The app's own lockfile is what pins them.
  */
 const LINTERS = {
-	biome: { config: 'biome.json', deps: { '@biomejs/biome': '^2.5.14' }, script: 'biome check .' },
-	eslint: {
-		config: 'eslint.config.js',
-		deps: { '@eslint/js': '^10.0.1', eslint: '^10.11.0' },
-		script: 'eslint .',
-	},
-	none: undefined,
-	oxlint: { config: '.oxlintrc.json', deps: { oxlint: '^1.85.0' }, script: 'oxlint' },
+  biome: { config: 'biome.json', deps: { '@biomejs/biome': '^2.5.14' }, script: 'biome check .' },
+  eslint: {
+    config: 'eslint.config.js',
+    deps: { '@eslint/js': '^10.0.1', eslint: '^10.11.0' },
+    script: 'eslint .',
+  },
+  none: undefined,
+  oxlint: { config: '.oxlintrc.json', deps: { oxlint: '^1.85.0' }, script: 'oxlint' },
 } as const satisfies Record<
-	Linter,
-	{ config: string; deps: Record<string, string>; script: string } | undefined
+  Linter,
+  { config: string; deps: Record<string, string>; script: string } | undefined
 >;
 
 /** One file to write. */
 export interface ScaffoldFile {
-	/** Its contents. */
-	readonly contents: string;
-	/** Whether it needs the executable bit, where the platform has one. */
-	readonly executable?: boolean;
-	/** Its path, relative to the app root, with forward slashes. */
-	readonly path: string;
+  /** Its contents. */
+  readonly contents: string;
+  /** Whether it needs the executable bit, where the platform has one. */
+  readonly executable?: boolean;
+  /** Its path, relative to the app root, with forward slashes. */
+  readonly path: string;
 }
 
 /**
@@ -125,146 +125,146 @@ export interface ScaffoldFile {
  * @returns What is wrong with it, or `undefined`.
  */
 export function nameProblem(name: string): string | undefined {
-	if (name.length === 0) {
-		return 'A name is required';
-	}
-	if (name.length > 214) {
-		return 'A name must be 214 characters or fewer';
-	}
-	if (name.startsWith('.') || name.startsWith('_')) {
-		return 'A name cannot start with a dot or an underscore';
-	}
-	if (name.startsWith('@')) {
-		return 'A scoped name cannot be used here, because the name is also the directory and the bin';
-	}
-	if (name !== name.toLowerCase()) {
-		return 'A name must be lowercase';
-	}
-	if (!/^[a-z0-9][a-z0-9._-]*$/.test(name)) {
-		return 'A name may only hold lowercase letters, digits, dots, hyphens and underscores';
-	}
-	return undefined;
+  if (name.length === 0) {
+    return 'A name is required';
+  }
+  if (name.length > 214) {
+    return 'A name must be 214 characters or fewer';
+  }
+  if (name.startsWith('.') || name.startsWith('_')) {
+    return 'A name cannot start with a dot or an underscore';
+  }
+  if (name.startsWith('@')) {
+    return 'A scoped name cannot be used here, because the name is also the directory and the bin';
+  }
+  if (name !== name.toLowerCase()) {
+    return 'A name must be lowercase';
+  }
+  if (!/^[a-z0-9][a-z0-9._-]*$/.test(name)) {
+    return 'A name may only hold lowercase letters, digits, dots, hyphens and underscores';
+  }
+  return undefined;
 }
 
 /** The extension the app's modules take. */
 function ext(language: Language): string {
-	return language === 'ts' ? 'ts' : 'js';
+  return language === 'ts' ? 'ts' : 'js';
 }
 
 /** The app's manifest. */
 function manifest(opts: ScaffoldOptions): string {
-	const { language, linter, name, version, versions } = opts;
+  const { language, linter, name, version, versions } = opts;
 
-	const scripts: Record<string, string> = {
-		build: 'sigil build',
-		check: 'sigil check',
-		dev: `node dev.${ext(language)}`,
-	};
+  const scripts: Record<string, string> = {
+    build: 'sigil build',
+    check: 'sigil check',
+    dev: `node dev.${ext(language)}`,
+  };
 
-	const devDependencies: Record<string, string> = {
-		'@ttylabs/cli': version,
-		vitest: versions.vitest as string,
-	};
-	scripts.test = 'vitest run';
+  const devDependencies: Record<string, string> = {
+    '@ttylabs/cli': version,
+    vitest: versions.vitest as string,
+  };
+  scripts.test = 'vitest run';
 
-	if (language === 'ts') {
-		devDependencies['@types/node'] = versions['@types/node'] as string;
-		devDependencies.typescript = versions.typescript as string;
-		scripts['type-check'] = 'tsc --noEmit';
-	}
+  if (language === 'ts') {
+    devDependencies['@types/node'] = versions['@types/node'] as string;
+    devDependencies.typescript = versions.typescript as string;
+    scripts['type-check'] = 'tsc --noEmit';
+  }
 
-	const lint = LINTERS[linter];
-	if (lint) {
-		Object.assign(devDependencies, lint.deps);
-		scripts.lint = lint.script;
-	}
+  const lint = LINTERS[linter];
+  if (lint) {
+    Object.assign(devDependencies, lint.deps);
+    scripts.lint = lint.script;
+  }
 
-	// the check that a script never names a tool nothing installs. The first
-	// version of this read the versions off a manifest that did not have them,
-	// and `JSON.stringify` drops an undefined value rather than complaining --
-	// so the manifest was wrong in a way only running it could show
-	for (const [dep, spec] of Object.entries(devDependencies)) {
-		if (typeof spec !== 'string' || spec.length === 0) {
-			throw new Error(
-				`No version to write for ${dep}, so the manifest would name it and not install it`
-			);
-		}
-	}
+  // the check that a script never names a tool nothing installs. The first
+  // version of this read the versions off a manifest that did not have them,
+  // and `JSON.stringify` drops an undefined value rather than complaining --
+  // so the manifest was wrong in a way only running it could show
+  for (const [dep, spec] of Object.entries(devDependencies)) {
+    if (typeof spec !== 'string' || spec.length === 0) {
+      throw new Error(
+        `No version to write for ${dep}, so the manifest would name it and not install it`
+      );
+    }
+  }
 
-	// exact versions rather than ranges, which is the rule this toolchain's own
-	// repository keeps and for the reason it records: a range means a fresh
-	// install and an old lockfile can resolve to different trees, with nothing
-	// in the diff to point at
-	return `${JSON.stringify(
-		{
-			bin: { [name]: `./dist/${name}.mjs` },
-			dependencies: { '@ttylabs/sigil': version },
-			description: '',
-			devDependencies: sorted(devDependencies),
-			engines: { node: '>=22.19.0' },
-			name,
-			private: true,
-			scripts: sorted(scripts),
-			type: 'module',
-			version: '0.0.0',
-		},
-		undefined,
-		2
-	)}\n`;
+  // exact versions rather than ranges, which is the rule this toolchain's own
+  // repository keeps and for the reason it records: a range means a fresh
+  // install and an old lockfile can resolve to different trees, with nothing
+  // in the diff to point at
+  return `${JSON.stringify(
+    {
+      bin: { [name]: `./dist/${name}.mjs` },
+      dependencies: { '@ttylabs/sigil': version },
+      description: '',
+      devDependencies: sorted(devDependencies),
+      engines: { node: '>=22.19.0' },
+      name,
+      private: true,
+      scripts: sorted(scripts),
+      type: 'module',
+      version: '0.0.0',
+    },
+    undefined,
+    2
+  )}\n`;
 }
 
 /** An object with its keys in order, so a generated file is stable. */
 function sorted(record: Record<string, string>): Record<string, string> {
-	return Object.fromEntries(Object.entries(record).sort(([a], [b]) => a.localeCompare(b)));
+  return Object.fromEntries(Object.entries(record).sort(([a], [b]) => a.localeCompare(b)));
 }
 
 /** The TypeScript config, whose `lib`, `types` and `jsx` are load-bearing. */
 function tsconfig(): string {
-	return `${JSON.stringify(
-		{
-			compilerOptions: {
-				allowImportingTsExtensions: true,
-				// JSX is the canonical syntax, so a `.tsx` has to type-check the day it
-				// is written rather than after somebody finds these two lines. Without
-				// `jsx` it is TS17004 -- "Cannot use JSX unless the '--jsx' flag is
-				// provided" -- and with `jsx` but no `jsxImportSource` it is TS2875,
-				// "This JSX tag requires the module path 'react/jsx-runtime' to exist",
-				// which is a package a sigil app does not have. So it is the pair or
-				// neither. Both verified against the app's own tsc.
-				// `sigil build` supplies the same import source to the bundler, so what
-				// this buys is the editor and `tsc` agreeing with the build rather than
-				// the build working alone
-				jsx: 'react-jsx',
-				jsxImportSource: '@ttylabs/sigil',
-				// `esnext` and `node` rather than the defaults, and not as taste:
-				// lib.dom declares setInterval(): number, which shadows node's
-				// NodeJS.Timeout and makes an ejected spinner fail to compile
-				lib: ['esnext'],
-				module: 'nodenext',
-				moduleResolution: 'nodenext',
-				noEmit: true,
-				skipLibCheck: true,
-				strict: true,
-				target: 'esnext',
-				types: ['node'],
-				verbatimModuleSyntax: true,
-			},
-			// `test` and the runner config are in, which is what makes
-			// `tsc --noEmit` -- and therefore `sigil build`, which type-checks with
-			// this file -- see a type error in a test. A build that passes over the
-			// tests is one that disagrees with the editor about what compiles
-			include: ['src', 'test', 'dev.ts', 'vitest.config.ts'],
-		},
-		undefined,
-		2
-	)}\n`;
+  return `${JSON.stringify(
+    {
+      compilerOptions: {
+        allowImportingTsExtensions: true,
+        // JSX is the canonical syntax, so a `.tsx` has to type-check the day it
+        // is written rather than after somebody finds these two lines. Without
+        // `jsx` it is TS17004 -- "Cannot use JSX unless the '--jsx' flag is
+        // provided" -- and with `jsx` but no `jsxImportSource` it is TS2875,
+        // "This JSX tag requires the module path 'react/jsx-runtime' to exist",
+        // which is a package a sigil app does not have. So it is the pair or
+        // neither. Both verified against the app's own tsc.
+        // `sigil build` supplies the same import source to the bundler, so what
+        // this buys is the editor and `tsc` agreeing with the build rather than
+        // the build working alone
+        jsx: 'react-jsx',
+        jsxImportSource: '@ttylabs/sigil',
+        // `esnext` and `node` rather than the defaults, and not as taste:
+        // lib.dom declares setInterval(): number, which shadows node's
+        // NodeJS.Timeout and makes an ejected spinner fail to compile
+        lib: ['esnext'],
+        module: 'nodenext',
+        moduleResolution: 'nodenext',
+        noEmit: true,
+        skipLibCheck: true,
+        strict: true,
+        target: 'esnext',
+        types: ['node'],
+        verbatimModuleSyntax: true,
+      },
+      // `test` and the runner config are in, which is what makes
+      // `tsc --noEmit` -- and therefore `sigil build`, which type-checks with
+      // this file -- see a type error in a test. A build that passes over the
+      // tests is one that disagrees with the editor about what compiles
+      include: ['src', 'test', 'dev.ts', 'vitest.config.ts'],
+    },
+    undefined,
+    2
+  )}\n`;
 }
 
 /** The dev runner: the half of the app that actually starts it. */
 function devRunner(opts: ScaffoldOptions): string {
-	const from = opts.language === 'ts' ? './src/index.ts' : './src/index.js';
+  const from = opts.language === 'ts' ? './src/index.ts' : './src/index.js';
 
-	return `#!/usr/bin/env node
+  return `#!/usr/bin/env node
 // Runs the app from source, with nothing compiled.
 //
 // \`src/index\` exports the schema and does not run it, because \`sigil build\`
@@ -279,52 +279,52 @@ await main({ schema });
 
 /** The schema, in whichever layout was chosen. */
 function entry(opts: ScaffoldOptions): string {
-	const { language, layout, name } = opts;
-	const typed = language === 'ts';
+  const { language, layout, name } = opts;
+  const typed = language === 'ts';
 
-	if (layout === 'single') {
-		return `${header(name)}
+  if (layout === 'single') {
+    return `${header(name)}
 export default {
-	name: '${name}',
-	desc: 'What ${name} does',
-	args: [{ name: '[who]', desc: 'Who to greet' }],
-	options: {
-		'-v, --verbose': { desc: 'Say more', type: 'bool' },
-	},
+  name: '${name}',
+  desc: 'What ${name} does',
+  args: [{ name: '[who]', desc: 'Who to greet' }],
+  options: {
+    '-v, --verbose': { desc: 'Say more', type: 'bool' },
+  },
 
-	run({ argv }${typed ? ': { argv: { who?: string; verbose: boolean } }' : ''}) {
-		process.stdout.write(\`hello \${argv.who ?? 'world'}\\n\`);
-	},
+  run({ argv }${typed ? ': { argv: { who?: string; verbose: boolean } }' : ''}) {
+    process.stdout.write(\`hello \${argv.who ?? 'world'}\\n\`);
+  },
 };
 `;
-	}
+  }
 
-	return `${header(name)}
+  return `${header(name)}
 export default {
-	name: '${name}',
-	desc: 'What ${name} does',
-	options: {
-		'-v, --verbose': { desc: 'Say more', type: 'bool' },
-	},
+  name: '${name}',
+  desc: 'What ${name} does',
+  options: {
+    '-v, --verbose': { desc: 'Say more', type: 'bool' },
+  },
 
-	// What './commands' below is relative to. Without it the runtime would
-	// resolve that path from whatever directory the CLI was *run* in, while
-	// \`sigil build\` resolves it from this file -- so the same line would mean
-	// two different things. Naming the directory keeps 'commands' a plain string
-	// that the build can still read without running anything.
-	baseDir: import.meta.dirname,
+  // What './commands' below is relative to. Without it the runtime would
+  // resolve that path from whatever directory the CLI was *run* in, while
+  // \`sigil build\` resolves it from this file -- so the same line would mean
+  // two different things. Naming the directory keeps 'commands' a plain string
+  // that the build can still read without running anything.
+  baseDir: import.meta.dirname,
 
-	// A directory of commands: every module inside is a command named after its
-	// file, and a subdirectory is a command with subcommands of its own. Nothing
-	// is imported until argv names it.
-	commands: './commands',
+  // A directory of commands: every module inside is a command named after its
+  // file, and a subdirectory is a command with subcommands of its own. Nothing
+  // is imported until argv names it.
+  commands: './commands',
 };
 `;
 }
 
 /** The comment at the top of the entry, which is where the shape is explained. */
 function header(name: string): string {
-	return `// ${name}'s schema.
+  return `// ${name}'s schema.
 //
 // Exported rather than run: \`sigil build\` reads this module without importing
 // it, so anything here that *did* something would happen at build time. \`dev\`
@@ -333,62 +333,62 @@ function header(name: string): string {
 
 /** The one example command, in the multi-command layout. */
 function exampleCommand(language: Language): string {
-	const typed = language === 'ts';
+  const typed = language === 'ts';
 
-	return `// \`${'${bin}'} hello\` -- one command per file, named after the file.
+  return `// \`${'${bin}'} hello\` -- one command per file, named after the file.
 export default {
-	desc: 'Say hello',
-	args: [{ name: '[who]', desc: 'Who to greet' }],
+  desc: 'Say hello',
+  args: [{ name: '[who]', desc: 'Who to greet' }],
 
-	run({ argv }${typed ? ': { argv: { who?: string } }' : ''}) {
-		process.stdout.write(\`hello \${argv.who ?? 'world'}\\n\`);
-	},
+  run({ argv }${typed ? ': { argv: { who?: string } }' : ''}) {
+    process.stdout.write(\`hello \${argv.who ?? 'world'}\\n\`);
+  },
 };
 `;
 }
 
 /** The linter's config, where there is one. */
 function linterConfig(linter: Linter): ScaffoldFile | undefined {
-	if (linter === 'oxlint') {
-		return {
-			contents: `${JSON.stringify(
-				{ categories: { correctness: 'error', suspicious: 'warn' }, ignorePatterns: ['dist'] },
-				undefined,
-				2
-			)}\n`,
-			path: LINTERS.oxlint.config,
-		};
-	}
+  if (linter === 'oxlint') {
+    return {
+      contents: `${JSON.stringify(
+        { categories: { correctness: 'error', suspicious: 'warn' }, ignorePatterns: ['dist'] },
+        undefined,
+        2
+      )}\n`,
+      path: LINTERS.oxlint.config,
+    };
+  }
 
-	if (linter === 'eslint') {
-		return {
-			contents: `import js from '@eslint/js';
+  if (linter === 'eslint') {
+    return {
+      contents: `import js from '@eslint/js';
 
 export default [
-	{ ignores: ['dist'] },
-	js.configs.recommended,
+  { ignores: ['dist'] },
+  js.configs.recommended,
 ];
 `,
-			path: LINTERS.eslint.config,
-		};
-	}
+      path: LINTERS.eslint.config,
+    };
+  }
 
-	if (linter === 'biome') {
-		return {
-			contents: `${JSON.stringify(
-				{
-					$schema: 'https://biomejs.dev/schemas/2.0.0/schema.json',
-					files: { includes: ['**', '!dist'] },
-					linter: { enabled: true, rules: { recommended: true } },
-				},
-				undefined,
-				2
-			)}\n`,
-			path: LINTERS.biome.config,
-		};
-	}
+  if (linter === 'biome') {
+    return {
+      contents: `${JSON.stringify(
+        {
+          $schema: 'https://biomejs.dev/schemas/2.0.0/schema.json',
+          files: { includes: ['**', '!dist'] },
+          linter: { enabled: true, rules: { recommended: true } },
+        },
+        undefined,
+        2
+      )}\n`,
+      path: LINTERS.biome.config,
+    };
+  }
 
-	return undefined;
+  return undefined;
 }
 
 /**
@@ -405,17 +405,17 @@ export default [
  * @returns The config.
  */
 function vitestConfig(): string {
-	return `import { defineConfig } from 'vitest/config';
+  return `import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
-	test: {
-		// \`runCommand()\` captures \`process.stdout.write\`, which is what \`main()\`
-		// and \`console.log\` both go through. vitest replaces the \`console\` methods
-		// by default so it can attribute output to a test, and then a command's
-		// \`console.log\` reaches the reporter instead of the capture -- so
-		// \`ran.out\` comes back empty for a command that works.
-		disableConsoleIntercept: true,
-	},
+  test: {
+    // \`runCommand()\` captures \`process.stdout.write\`, which is what \`main()\`
+    // and \`console.log\` both go through. vitest replaces the \`console\` methods
+    // by default so it can attribute output to a test, and then a command's
+    // \`console.log\` reaches the reporter instead of the capture -- so
+    // \`ran.out\` comes back empty for a command that works.
+    disableConsoleIntercept: true,
+  },
 });
 `;
 }
@@ -441,37 +441,37 @@ export default defineConfig({
  * @returns The file.
  */
 function appTest(opts: ScaffoldOptions): string {
-	const { language, layout, name } = opts;
-	// relative to `test/`, which is where this lands -- `dev` is at the root and
-	// its specifier is a different one
-	const from = language === 'ts' ? '../src/index.ts' : '../src/index.js';
+  const { language, layout, name } = opts;
+  // relative to `test/`, which is where this lands -- `dev` is at the root and
+  // its specifier is a different one
+  const from = language === 'ts' ? '../src/index.ts' : '../src/index.js';
 
-	const body =
-		layout === 'multi'
-			? `	it('greets', async () => {
-		const ran = await runCommand({ argv: ['hello', 'world'], schema });
+  const body =
+    layout === 'multi'
+      ? `  it('greets', async () => {
+    const ran = await runCommand({ argv: ['hello', 'world'], schema });
 
-		expect(ran.code).toBe(0);
-		expect(ran.out).toBe('hello world\\n');
-	});
+    expect(ran.code).toBe(0);
+    expect(ran.out).toBe('hello world\\n');
+  });
 
-	it('parses what the command declared', async () => {
-		const ran = await runCommand({ argv: ['hello', 'everyone'], schema });
+  it('parses what the command declared', async () => {
+    const ran = await runCommand({ argv: ['hello', 'everyone'], schema });
 
-		// the values the command's \`run()\` was handed, which is usually what a
-		// test about an option really wants to assert
-		expect(ran.argv.who).toBe('everyone');
-	});
+    // the values the command's \`run()\` was handed, which is usually what a
+    // test about an option really wants to assert
+    expect(ran.argv.who).toBe('everyone');
+  });
 `
-			: `	it('describes itself', async () => {
-		const ran = await runCommand({ argv: ['--help'], schema });
+      : `  it('describes itself', async () => {
+    const ran = await runCommand({ argv: ['--help'], schema });
 
-		expect(ran.code).toBe(0);
-		expect(ran.out).toContain('${name}');
-	});
+    expect(ran.code).toBe(0);
+    expect(ran.out).toContain('${name}');
+  });
 `;
 
-	return `// What a new app starts with, and why each piece is here.
+  return `// What a new app starts with, and why each piece is here.
 //
 // \`runCommand()\` runs the app through the real \`main()\` -- the same function
 // \`dev\` calls and the same one the built binary calls -- and hands back the exit
@@ -501,10 +501,10 @@ ${body}});
 
 /** The README, which is the only place the next steps are written down. */
 function readme(opts: ScaffoldOptions): string {
-	const { language, layout, name } = opts;
-	const e = ext(language);
+  const { language, layout, name } = opts;
+  const e = ext(language);
 
-	return `# ${name}
+  return `# ${name}
 
 A CLI built with [sigil](https://github.com/cb1kenobi/sigil).
 
@@ -522,9 +522,9 @@ npm run dev -- hello world
 \`\`\`
 src/index.${e}${' '.repeat(Math.max(1, 14 - e.length))}the schema: the app's name, its options, and where its commands are
 ${
-	layout === 'multi'
-		? `src/commands/${' '.repeat(9)}one command per file, loaded only when argv names it\n`
-		: ''
+  layout === 'multi'
+    ? `src/commands/${' '.repeat(9)}one command per file, loaded only when argv names it\n`
+    : ''
 }dev.${e}${' '.repeat(Math.max(1, 20 - e.length))}runs it from source
 \`\`\`
 
@@ -555,39 +555,39 @@ lands there stops following the framework.
  * @returns The files, in the order they would be written.
  */
 export function scaffold(opts: ScaffoldOptions): ScaffoldFile[] {
-	const e = ext(opts.language);
-	const files: ScaffoldFile[] = [
-		{ contents: manifest(opts), path: 'package.json' },
-		{ contents: readme(opts), path: 'README.md' },
-		{ contents: 'node_modules\ndist\n', path: '.gitignore' },
-		// written rather than left to the convention: a scaffold is exactly where
-		// a project's conventions should be explicit, and it is what stops
-		// `sigil add` having to guess and print a guess
-		{
-			contents: `${JSON.stringify({ components: 'src/components' }, undefined, 2)}\n`,
-			path: 'sigil.json',
-		},
-		{ contents: devRunner(opts), executable: true, path: `dev.${e}` },
-		{ contents: entry(opts), path: `src/index.${e}` },
-		{ contents: vitestConfig(), path: `vitest.config.${e}` },
-		{ contents: appTest(opts), path: `test/app.test.${e}` },
-	];
+  const e = ext(opts.language);
+  const files: ScaffoldFile[] = [
+    { contents: manifest(opts), path: 'package.json' },
+    { contents: readme(opts), path: 'README.md' },
+    { contents: 'node_modules\ndist\n', path: '.gitignore' },
+    // written rather than left to the convention: a scaffold is exactly where
+    // a project's conventions should be explicit, and it is what stops
+    // `sigil add` having to guess and print a guess
+    {
+      contents: `${JSON.stringify({ components: 'src/components' }, undefined, 2)}\n`,
+      path: 'sigil.json',
+    },
+    { contents: devRunner(opts), executable: true, path: `dev.${e}` },
+    { contents: entry(opts), path: `src/index.${e}` },
+    { contents: vitestConfig(), path: `vitest.config.${e}` },
+    { contents: appTest(opts), path: `test/app.test.${e}` },
+  ];
 
-	if (opts.language === 'ts') {
-		files.splice(1, 0, { contents: tsconfig(), path: 'tsconfig.json' });
-	}
+  if (opts.language === 'ts') {
+    files.splice(1, 0, { contents: tsconfig(), path: 'tsconfig.json' });
+  }
 
-	if (opts.layout === 'multi') {
-		files.push({
-			contents: exampleCommand(opts.language).replaceAll('${bin}', opts.name),
-			path: `src/commands/hello.${e}`,
-		});
-	}
+  if (opts.layout === 'multi') {
+    files.push({
+      contents: exampleCommand(opts.language).replaceAll('${bin}', opts.name),
+      path: `src/commands/hello.${e}`,
+    });
+  }
 
-	const linter = linterConfig(opts.linter);
-	if (linter) {
-		files.push(linter);
-	}
+  const linter = linterConfig(opts.linter);
+  if (linter) {
+    files.push(linter);
+  }
 
-	return files;
+  return files;
 }

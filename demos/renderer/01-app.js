@@ -30,25 +30,25 @@ import { Cascade, parseStylesheet } from '@ttylabs/sigil/style';
 // stdin is a TTY and stdout is a pipe, and what reached the screen was half a
 // frame and then an `InputError` stack over a minified module
 if (!process.stdin.isTTY || !process.stdout.isTTY) {
-	console.log('This demo reads keys and draws frames, so it needs a terminal on both sides.');
-	process.exit(0);
+  console.log('This demo reads keys and draws frames, so it needs a terminal on both sides.');
+  process.exit(0);
 }
 
 const sheet = parseStylesheet(`
-	.app { flex-direction: column; width: 46; border: round; border-color: gray; padding: 1 }
-	.title { font-weight: bold }
-	.hint { color: gray }
-	.row { padding-left: 1 }
-	.row:focus { background-color: blue; color: white }
-	.badge { color: cyan }
-	.empty { color: gray; font-style: italic }
-	.count { color: gray }
+  .app { flex-direction: column; width: 46; border: round; border-color: gray; padding: 1 }
+  .title { font-weight: bold }
+  .hint { color: gray }
+  .row { padding-left: 1 }
+  .row:focus { background-color: blue; color: white }
+  .badge { color: cyan }
+  .empty { color: gray; font-style: italic }
+  .count { color: gray }
 `);
 
 const items = new State([
-	{ id: 1, name: 'parser' },
-	{ id: 2, name: 'canvas' },
-	{ id: 3, name: 'layout' },
+  { id: 1, name: 'parser' },
+  { id: 2, name: 'canvas' },
+  { id: 3, name: 'layout' },
 ]);
 const showDone = new State(true);
 /** How many component bodies have run. The number that does not move. */
@@ -57,49 +57,49 @@ const ranOne = () => bodies.set(bodies.get() + 1);
 
 /** One row. Built once per item, and kept while that item is in the list. */
 function Row({ index, item }) {
-	ranOne();
-	const label = text('');
-	// the row follows its own position without being rebuilt: `index` is an
-	// accessor because a row that moved is the same row
-	createEffect(() => {
-		label.setText(`${index() + 1}. ${item.name}`);
-	});
-	return box({ class: 'row', focusable: true }, label);
+  ranOne();
+  const label = text('');
+  // the row follows its own position without being rebuilt: `index` is an
+  // accessor because a row that moved is the same row
+  createEffect(() => {
+    label.setText(`${index() + 1}. ${item.name}`);
+  });
+  return box({ class: 'row', focusable: true }, label);
 }
 
 function App() {
-	ranOne();
-	const counter = text('', { class: 'count' });
-	createEffect(() => {
-		counter.setText(`${items.get().length} items - ${bodies.get()} component bodies have run`);
-	});
+  ranOne();
+  const counter = text('', { class: 'count' });
+  createEffect(() => {
+    counter.setText(`${items.get().length} items - ${bodies.get()} component bodies have run`);
+  });
 
-	onMount(() => {
-		// after a frame rather than at the end of the body, because what is worth
-		// knowing here is where the component landed -- and during the body there
-		// is no answer. `box` is that answer, and it is why this fires when it does
-		if (process.env.SIGIL_DEMO_TRACE) {
-			console.error(`mounted ${counter.box?.width} columns wide`);
-		}
-	});
+  onMount(() => {
+    // after a frame rather than at the end of the body, because what is worth
+    // knowing here is where the component landed -- and during the body there
+    // is no answer. `box` is that answer, and it is why this fires when it does
+    if (process.env.SIGIL_DEMO_TRACE) {
+      console.error(`mounted ${counter.box?.width} columns wide`);
+    }
+  });
 
-	return box(
-		{ class: 'app' },
-		text('sigil', { class: 'title' }),
-		Show({
-			children: () =>
-				For({
-					children: (item, index) => Row({ index, item }),
-					each: () => items.get(),
-					fallback: () => text('nothing left', { class: 'empty' }),
-					props: { 'flex-direction': 'column' },
-				}),
-			props: { 'flex-direction': 'column' },
-			when: () => showDone.get(),
-		}),
-		counter,
-		text('Tab moves, space hides, a adds, d deletes, q quits', { class: 'hint' })
-	);
+  return box(
+    { class: 'app' },
+    text('sigil', { class: 'title' }),
+    Show({
+      children: () =>
+        For({
+          children: (item, index) => Row({ index, item }),
+          each: () => items.get(),
+          fallback: () => text('nothing left', { class: 'empty' }),
+          props: { 'flex-direction': 'column' },
+        }),
+      props: { 'flex-direction': 'column' },
+      when: () => showDone.get(),
+    }),
+    counter,
+    text('Tab moves, space hides, a adds, d deletes, q quits', { class: 'hint' })
+  );
 }
 
 const view = render(App, { cascade: new Cascade([sheet]) });
@@ -107,24 +107,24 @@ const input = createInput({ root: view.root });
 
 let next = 4;
 input.bind((event) => {
-	const { key } = event;
-	if (isAbort(key) || key.name === 'q') {
-		event.stop();
-		view.dispose();
-		input.stop();
-		console.log(`${bodies.get()} component bodies ran, for every frame that was drawn`);
-		process.exit(0);
-	}
+  const { key } = event;
+  if (isAbort(key) || key.name === 'q') {
+    event.stop();
+    view.dispose();
+    input.stop();
+    console.log(`${bodies.get()} component bodies ran, for every frame that was drawn`);
+    process.exit(0);
+  }
 
-	if (key.name === 'space') {
-		event.stop();
-		showDone.set(!showDone.get());
-	} else if (key.name === 'a') {
-		event.stop();
-		items.set([...items.get(), { id: next, name: `thing ${next}` }]);
-		next++;
-	} else if (key.name === 'd') {
-		event.stop();
-		items.set(items.get().slice(0, -1));
-	}
+  if (key.name === 'space') {
+    event.stop();
+    showDone.set(!showDone.get());
+  } else if (key.name === 'a') {
+    event.stop();
+    items.set([...items.get(), { id: next, name: `thing ${next}` }]);
+    next++;
+  } else if (key.name === 'd') {
+    event.stop();
+    items.set(items.get().slice(0, -1));
+  }
 });

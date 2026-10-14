@@ -26,11 +26,11 @@ import type { Diagnostic } from './diagnostic.ts';
 import { displayPath } from './diagnostic.ts';
 import type { DiscoveredApp } from './discover.ts';
 import {
-	loaderSpecifier,
-	objectLiteral,
-	outermostWith,
-	plainProperty,
-	propertyKey,
+  loaderSpecifier,
+  objectLiteral,
+  outermostWith,
+  plainProperty,
+  propertyKey,
 } from './literals.ts';
 import { MODULE_RE, type ParsedModule, parseModule, position } from './parse-module.ts';
 import { walk } from './walk.ts';
@@ -50,26 +50,26 @@ const PLURAL_EXPORT = '__n';
 
 /** One translatable string a module declares. */
 export interface FoundKey {
-	/** One-based column of the call. */
-	readonly column: number;
-	/** The catalog key, which is the English with its slots numbered. */
-	readonly key: string;
-	/** Whether the catalog entry is a string or an object of plural forms. */
-	readonly kind: 'plural' | 'string';
-	/** One-based line of the call. */
-	readonly line: number;
-	/** The English plural form, for a plural. */
-	readonly plural?: string;
+  /** One-based column of the call. */
+  readonly column: number;
+  /** The catalog key, which is the English with its slots numbered. */
+  readonly key: string;
+  /** Whether the catalog entry is a string or an object of plural forms. */
+  readonly kind: 'plural' | 'string';
+  /** One-based line of the call. */
+  readonly line: number;
+  /** The English plural form, for a plural. */
+  readonly plural?: string;
 }
 
 /** Where to look, for a caller that is not looking for sigil's own tag. */
 export interface KeysOptions {
-	/** The module the tag is imported from. */
-	readonly from?: string;
-	/** The tag's export name. */
-	readonly name?: string;
-	/** The plural's export name. */
-	readonly plural?: string;
+  /** The module the tag is imported from. */
+  readonly from?: string;
+  /** The tag's export name. */
+  readonly name?: string;
+  /** The plural's export name. */
+  readonly plural?: string;
 }
 
 /**
@@ -83,19 +83,19 @@ export interface KeysOptions {
  * @returns The string, or nothing.
  */
 function staticString(node: Expression | undefined): string | undefined {
-	if (!node) {
-		return undefined;
-	}
+  if (!node) {
+    return undefined;
+  }
 
-	if (node.type === 'Literal' && typeof node.value === 'string') {
-		return node.value;
-	}
+  if (node.type === 'Literal' && typeof node.value === 'string') {
+    return node.value;
+  }
 
-	if (node.type === 'TemplateLiteral' && node.expressions.length === 0) {
-		return node.quasis[0]?.value.cooked ?? node.quasis[0]?.value.raw;
-	}
+  if (node.type === 'TemplateLiteral' && node.expressions.length === 0) {
+    return node.quasis[0]?.value.cooked ?? node.quasis[0]?.value.raw;
+  }
 
-	return undefined;
+  return undefined;
 }
 
 /**
@@ -106,32 +106,32 @@ function staticString(node: Expression | undefined): string | undefined {
  * @returns The key.
  */
 function fromTag(parsed: ParsedModule, node: TaggedTemplateExpression): FoundKey {
-	const { column, line } = position(parsed.source, node.start);
-	const quasis = node.quasi.quasis;
+  const { column, line } = position(parsed.source, node.start);
+  const quasis = node.quasi.quasis;
 
-	return {
-		column,
-		key: templateKey(
-			quasis.map((element) => element.value.cooked ?? undefined),
-			quasis.map((element) => element.value.raw)
-		),
-		kind: 'string',
-		line,
-	};
+  return {
+    column,
+    key: templateKey(
+      quasis.map((element) => element.value.cooked ?? undefined),
+      quasis.map((element) => element.value.raw)
+    ),
+    kind: 'string',
+    line,
+  };
 }
 
 /** What a value written as a `__` tag came to, for the static lift. */
 export interface TranslatedKey {
-	/**
-	 * The catalog key the tag declares.
-	 *
-	 * Absent when the tag carried an interpolation, which a build cannot read
-	 * for the reason it cannot read `desc: greeting()`: the value is the running
-	 * app's. The caller reports that rather than guessing, and a reader told
-	 * only "computed rather than a string literal" about a `__` tag whose
-	 * neighbour lifted fine would have no idea which half was the problem.
-	 */
-	readonly key?: string;
+  /**
+   * The catalog key the tag declares.
+   *
+   * Absent when the tag carried an interpolation, which a build cannot read
+   * for the reason it cannot read `desc: greeting()`: the value is the running
+   * app's. The caller reports that rather than guessing, and a reader told
+   * only "computed rather than a string literal" about a `__` tag whose
+   * neighbour lifted fine would have no idea which half was the problem.
+   */
+  readonly key?: string;
 }
 
 /**
@@ -156,34 +156,34 @@ export interface TranslatedKey {
  * @returns What it came to, or `undefined` when it is not the tag at all.
  */
 export function translatedKey(parsed: ParsedModule, node: Expression): TranslatedKey | undefined {
-	const expression = unwrap(node);
+  const expression = unwrap(node);
 
-	if (expression.type !== 'TaggedTemplateExpression') {
-		return undefined;
-	}
+  if (expression.type !== 'TaggedTemplateExpression') {
+    return undefined;
+  }
 
-	const tags = importBindings(parsed, KEY_MODULE, TAG_EXPORT);
+  const tags = importBindings(parsed, KEY_MODULE, TAG_EXPORT);
 
-	if (!reachable(tags) || bindingName(expression.tag, tags) === undefined) {
-		return undefined;
-	}
+  if (!reachable(tags) || bindingName(expression.tag, tags) === undefined) {
+    return undefined;
+  }
 
-	if (expression.quasi.expressions.length) {
-		return {};
-	}
+  if (expression.quasi.expressions.length) {
+    return {};
+  }
 
-	// `templateKey()` rather than the one quasi read off directly, which for a
-	// template with no interpolations is the same string: one reader of the key
-	// rule, because two that agree today is how the lift comes to bake a key the
-	// tag does not look up
-	const quasis = expression.quasi.quasis;
+  // `templateKey()` rather than the one quasi read off directly, which for a
+  // template with no interpolations is the same string: one reader of the key
+  // rule, because two that agree today is how the lift comes to bake a key the
+  // tag does not look up
+  const quasis = expression.quasi.quasis;
 
-	return {
-		key: templateKey(
-			quasis.map((element) => element.value.cooked ?? undefined),
-			quasis.map((element) => element.value.raw)
-		),
-	};
+  return {
+    key: templateKey(
+      quasis.map((element) => element.value.cooked ?? undefined),
+      quasis.map((element) => element.value.raw)
+    ),
+  };
 }
 
 /**
@@ -198,46 +198,46 @@ export function translatedKey(parsed: ParsedModule, node: Expression): Translate
  * @returns One entry per call, in source order.
  */
 export function keysIn(parsed: ParsedModule, options: KeysOptions = {}): readonly FoundKey[] {
-	const from = options.from ?? KEY_MODULE;
-	const tags = importBindings(parsed, from, options.name ?? TAG_EXPORT);
-	const plurals = importBindings(parsed, from, options.plural ?? PLURAL_EXPORT);
+  const from = options.from ?? KEY_MODULE;
+  const tags = importBindings(parsed, from, options.name ?? TAG_EXPORT);
+  const plurals = importBindings(parsed, from, options.plural ?? PLURAL_EXPORT);
 
-	if (!reachable(tags) && !reachable(plurals)) {
-		return [];
-	}
+  if (!reachable(tags) && !reachable(plurals)) {
+    return [];
+  }
 
-	const found: FoundKey[] = [];
+  const found: FoundKey[] = [];
 
-	walk(parsed.program, (node) => {
-		if (node.type === 'TaggedTemplateExpression') {
-			if (bindingName(node.tag, tags) !== undefined) {
-				found.push(fromTag(parsed, node));
+  walk(parsed.program, (node) => {
+    if (node.type === 'TaggedTemplateExpression') {
+      if (bindingName(node.tag, tags) !== undefined) {
+        found.push(fromTag(parsed, node));
 
-				// the tag's own interpolations are expressions, and one of those may
-				// hold another call -- so the walk carries on rather than claiming
-				// the subtree, which is where a nested `__` is found
-			}
+        // the tag's own interpolations are expressions, and one of those may
+        // hold another call -- so the walk carries on rather than claiming
+        // the subtree, which is where a nested `__` is found
+      }
 
-			return true;
-		}
+      return true;
+    }
 
-		if (node.type === 'CallExpression' && bindingName(node.callee as Expression, plurals)) {
-			const one = staticString(node.arguments[1] as Expression | undefined);
-			const other = staticString(node.arguments[2] as Expression | undefined);
-			const { column, line } = position(parsed.source, node.start);
+    if (node.type === 'CallExpression' && bindingName(node.callee as Expression, plurals)) {
+      const one = staticString(node.arguments[1] as Expression | undefined);
+      const other = staticString(node.arguments[2] as Expression | undefined);
+      const { column, line } = position(parsed.source, node.start);
 
-			// a singular that is not a literal is a key this pass cannot know, which
-			// is declined rather than guessed at -- the string still translates, and
-			// what is lost is only `sigil check` knowing it is there
-			if (one !== undefined) {
-				found.push({ column, key: one, kind: 'plural', line, plural: other });
-			}
-		}
+      // a singular that is not a literal is a key this pass cannot know, which
+      // is declined rather than guessed at -- the string still translates, and
+      // what is lost is only `sigil check` knowing it is there
+      if (one !== undefined) {
+        found.push({ column, key: one, kind: 'plural', line, plural: other });
+      }
+    }
 
-		return true;
-	});
+    return true;
+  });
 
-	return found;
+  return found;
 }
 
 /**
@@ -249,31 +249,31 @@ export function keysIn(parsed: ParsedModule, options: KeysOptions = {}): readonl
  * @returns One entry per call, in source order.
  */
 export function findKeys(
-	file: string,
-	source: string,
-	options: KeysOptions = {}
+  file: string,
+  source: string,
+  options: KeysOptions = {}
 ): readonly FoundKey[] {
-	return keysIn(parseModule(file, source), options);
+  return keysIn(parseModule(file, source), options);
 }
 
 /** A catalog as the build found it, with where it came from. */
 export interface FoundCatalog {
-	/** What the loader answered. */
-	readonly catalog: Catalog;
-	/** The locale it is keyed under in the loader map. */
-	readonly locale: string;
+  /** What the loader answered. */
+  readonly catalog: Catalog;
+  /** The locale it is keyed under in the loader map. */
+  readonly locale: string;
 }
 
 /** What `checkCatalogs()` compares. */
 export interface CatalogCheck {
-	/** The catalogs an app declares. */
-	readonly catalogs: readonly FoundCatalog[];
-	/** The file to report against, which is the app's entry. */
-	readonly file: string;
-	/** Every key the framework itself declares. */
-	readonly framework: readonly string[];
-	/** Every key the app's own modules declare. */
-	readonly keys: readonly string[];
+  /** The catalogs an app declares. */
+  readonly catalogs: readonly FoundCatalog[];
+  /** The file to report against, which is the app's entry. */
+  readonly file: string;
+  /** Every key the framework itself declares. */
+  readonly framework: readonly string[];
+  /** Every key the app's own modules declare. */
+  readonly keys: readonly string[];
 }
 
 /**
@@ -313,59 +313,59 @@ export interface CatalogCheck {
  * framework's, and one per orphan.
  */
 export function checkCatalogs(input: CatalogCheck): readonly Diagnostic[] {
-	const framework = new Set(input.framework);
-	const own = new Set(input.keys);
-	const diagnostics: Diagnostic[] = [];
-	const file = displayPath(input.file);
+  const framework = new Set(input.framework);
+  const own = new Set(input.keys);
+  const diagnostics: Diagnostic[] = [];
+  const file = displayPath(input.file);
 
-	for (const { catalog, locale } of input.catalogs) {
-		const carried = new Set(Object.keys(catalog));
+  for (const { catalog, locale } of input.catalogs) {
+    const carried = new Set(Object.keys(catalog));
 
-		for (const key of own) {
-			if (!carried.has(key) && !framework.has(key)) {
-				diagnostics.push({
-					file,
-					message: `"${locale}" has no translation for ${JSON.stringify(key)}; it will render in English`,
-					severity: 'warning',
-				});
-			}
-		}
+    for (const key of own) {
+      if (!carried.has(key) && !framework.has(key)) {
+        diagnostics.push({
+          file,
+          message: `"${locale}" has no translation for ${JSON.stringify(key)}; it will render in English`,
+          severity: 'warning',
+        });
+      }
+    }
 
-		const missing = [...framework].filter((key) => !carried.has(key));
+    const missing = [...framework].filter((key) => !carried.has(key));
 
-		if (missing.length) {
-			diagnostics.push({
-				file,
-				message:
-					`"${locale}" translates ${framework.size - missing.length} of sigil's own ${framework.size} ` +
-					`messages; the other ${missing.length} render in English. ` +
-					`SIGIL_KEYS from "@ttylabs/sigil/i18n-keys" is the list.`,
-				severity: 'warning',
-			});
-		}
+    if (missing.length) {
+      diagnostics.push({
+        file,
+        message:
+          `"${locale}" translates ${framework.size - missing.length} of sigil's own ${framework.size} ` +
+          `messages; the other ${missing.length} render in English. ` +
+          `SIGIL_KEYS from "@ttylabs/sigil/i18n-keys" is the list.`,
+        severity: 'warning',
+      });
+    }
 
-		for (const key of carried) {
-			if (!own.has(key) && !framework.has(key)) {
-				diagnostics.push({
-					file,
-					message: `"${locale}" translates ${JSON.stringify(key)}, which nothing asks for; the English may have been reworded`,
-					severity: 'warning',
-				});
-			}
-		}
-	}
+    for (const key of carried) {
+      if (!own.has(key) && !framework.has(key)) {
+        diagnostics.push({
+          file,
+          message: `"${locale}" translates ${JSON.stringify(key)}, which nothing asks for; the English may have been reworded`,
+          severity: 'warning',
+        });
+      }
+    }
+  }
 
-	return diagnostics;
+  return diagnostics;
 }
 
 /** What `readAppCatalogs()` found in an app's entry. */
 export interface AppCatalogs {
-	/** Every catalog it could read. */
-	readonly catalogs: readonly FoundCatalog[];
-	/** Whether the entry declared `locales` at all. */
-	readonly declared: boolean;
-	/** Everything worth saying about what it could not read. */
-	readonly diagnostics: readonly Diagnostic[];
+  /** Every catalog it could read. */
+  readonly catalogs: readonly FoundCatalog[];
+  /** Whether the entry declared `locales` at all. */
+  readonly declared: boolean;
+  /** Everything worth saying about what it could not read. */
+  readonly diagnostics: readonly Diagnostic[];
 }
 
 /**
@@ -386,81 +386,81 @@ export interface AppCatalogs {
  * @returns The catalogs, and what could not be read.
  */
 export function readAppCatalogs(app: DiscoveredApp): AppCatalogs {
-	const parsed = parseModule(app.entry, readFileSync(app.entry, 'utf-8'));
-	const diagnostics: Diagnostic[] = [];
-	const catalogs: FoundCatalog[] = [];
-	const file = displayPath(app.entry);
+  const parsed = parseModule(app.entry, readFileSync(app.entry, 'utf-8'));
+  const diagnostics: Diagnostic[] = [];
+  const catalogs: FoundCatalog[] = [];
+  const file = displayPath(app.entry);
 
-	const schemas = outermostWith(parsed.program as never, 'locales');
+  const schemas = outermostWith(parsed.program as never, 'locales');
 
-	if (!schemas.length) {
-		return { catalogs, declared: false, diagnostics };
-	}
+  if (!schemas.length) {
+    return { catalogs, declared: false, diagnostics };
+  }
 
-	const declared = objectLiteral(plainProperty(schemas[0]!, 'locales')!.value);
+  const declared = objectLiteral(plainProperty(schemas[0]!, 'locales')!.value);
 
-	if (!declared) {
-		const { column, line } = position(parsed.source, schemas[0]!.start);
-		diagnostics.push({
-			column,
-			file,
-			line,
-			message:
-				'"locales" is computed rather than an object literal, so the catalogs cannot be read at build time and are not checked',
-			severity: 'warning',
-		});
+  if (!declared) {
+    const { column, line } = position(parsed.source, schemas[0]!.start);
+    diagnostics.push({
+      column,
+      file,
+      line,
+      message:
+        '"locales" is computed rather than an object literal, so the catalogs cannot be read at build time and are not checked',
+      severity: 'warning',
+    });
 
-		return { catalogs, declared: true, diagnostics };
-	}
+    return { catalogs, declared: true, diagnostics };
+  }
 
-	const entryDir = dirname(app.entry);
+  const entryDir = dirname(app.entry);
 
-	for (const property of declared.properties) {
-		if (property.type !== 'Property') {
-			continue;
-		}
+  for (const property of declared.properties) {
+    if (property.type !== 'Property') {
+      continue;
+    }
 
-		const locale = propertyKey(property);
-		const specifier = loaderSpecifier(property.value as Expression);
-		const { column, line } = position(parsed.source, property.start);
+    const locale = propertyKey(property);
+    const specifier = loaderSpecifier(property.value as Expression);
+    const { column, line } = position(parsed.source, property.start);
 
-		if (locale === undefined) {
-			continue;
-		}
+    if (locale === undefined) {
+      continue;
+    }
 
-		if (specifier === undefined) {
-			diagnostics.push({
-				column,
-				file,
-				line,
-				message: `the loader for "${locale}" is not \`() => import('...')\` of a literal, so its catalog cannot be read at build time and is not checked`,
-				severity: 'warning',
-			});
-			continue;
-		}
+    if (specifier === undefined) {
+      diagnostics.push({
+        column,
+        file,
+        line,
+        message: `the loader for "${locale}" is not \`() => import('...')\` of a literal, so its catalog cannot be read at build time and is not checked`,
+        severity: 'warning',
+      });
+      continue;
+    }
 
-		const path = resolve(entryDir, specifier);
+    const path = resolve(entryDir, specifier);
 
-		try {
-			const value: unknown = JSON.parse(readFileSync(path, 'utf-8'));
+    try {
+      const value: unknown = JSON.parse(readFileSync(path, 'utf-8'));
 
-			if (!value || typeof value !== 'object') {
-				throw new Error('not an object');
-			}
+      if (!value || typeof value !== 'object') {
+        throw new Error('not an object');
+      }
 
-			catalogs.push({ catalog: value as Catalog, locale });
-		} catch (e) {
-			diagnostics.push({
-				column,
-				file,
-				line,
-				message: `the catalog for "${locale}" could not be read from ${displayPath(path)}: ${(e as Error).message}`,
-				severity: 'warning',
-			});
-		}
-	}
+      catalogs.push({ catalog: value as Catalog, locale });
+    } catch (e) {
+      diagnostics.push({
+        column,
+        file,
+        line,
+        message: `the catalog for "${locale}" could not be read from ${displayPath(path)}: ${(e as Error).message}`,
+        severity: 'warning',
+      });
+    }
+  }
 
-	return { catalogs, declared: true, diagnostics };
+  return { catalogs, declared: true, diagnostics };
 }
 
 /**
@@ -485,59 +485,59 @@ export function readAppCatalogs(app: DiscoveredApp): AppCatalogs {
  * @returns The keys, sorted.
  */
 export function appKeys(root: string): readonly string[] {
-	const keys = new Set<string>();
-	const entered = new Set<string>();
+  const keys = new Set<string>();
+  const entered = new Set<string>();
 
-	const visit = (dir: string): void => {
-		if (entered.has(resolve(dir))) {
-			return;
-		}
-		entered.add(resolve(dir));
+  const visit = (dir: string): void => {
+    if (entered.has(resolve(dir))) {
+      return;
+    }
+    entered.add(resolve(dir));
 
-		let entries;
-		try {
-			entries = readdirSync(dir, { withFileTypes: true });
-		} catch {
-			return;
-		}
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
 
-		for (const entry of entries) {
-			const path = join(dir, entry.name);
+    for (const entry of entries) {
+      const path = join(dir, entry.name);
 
-			if (entry.isDirectory()) {
-				// `node_modules` is somebody else's source, and its keys are not this
-				// app's to translate
-				if (entry.name !== 'node_modules' && !entry.name.startsWith('.')) {
-					visit(path);
-				}
-			} else if (MODULE_RE.test(entry.name)) {
-				let source;
-				try {
-					source = readFileSync(path, 'utf-8');
-				} catch {
-					continue;
-				}
+      if (entry.isDirectory()) {
+        // `node_modules` is somebody else's source, and its keys are not this
+        // app's to translate
+        if (entry.name !== 'node_modules' && !entry.name.startsWith('.')) {
+          visit(path);
+        }
+      } else if (MODULE_RE.test(entry.name)) {
+        let source;
+        try {
+          source = readFileSync(path, 'utf-8');
+        } catch {
+          continue;
+        }
 
-				// the substring filter the template pass takes, for its reason: most
-				// modules hold no translatable string and are not worth parsing
-				if (!source.includes('__`') && !source.includes('__n(')) {
-					continue;
-				}
+        // the substring filter the template pass takes, for its reason: most
+        // modules hold no translatable string and are not worth parsing
+        if (!source.includes('__`') && !source.includes('__n(')) {
+          continue;
+        }
 
-				try {
-					for (const found of keysIn(parseModule(path, source))) {
-						keys.add(found.key);
-					}
-				} catch {
-					// a module that does not parse is rolldown's to report, and a key
-					// this did not find is a key nobody is told about rather than a
-					// wrong answer
-				}
-			}
-		}
-	};
+        try {
+          for (const found of keysIn(parseModule(path, source))) {
+            keys.add(found.key);
+          }
+        } catch {
+          // a module that does not parse is rolldown's to report, and a key
+          // this did not find is a key nobody is told about rather than a
+          // wrong answer
+        }
+      }
+    }
+  };
 
-	visit(root);
+  visit(root);
 
-	return [...keys].sort();
+  return [...keys].sort();
 }

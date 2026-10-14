@@ -23,225 +23,225 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 let root: string;
 
 beforeEach(() => {
-	root = mkdtempSync(join(tmpdir(), 'sigil-config-'));
+  root = mkdtempSync(join(tmpdir(), 'sigil-config-'));
 });
 
 afterEach(() => {
-	rmSync(root, { force: true, recursive: true });
+  rmSync(root, { force: true, recursive: true });
 });
 
 /** Writes a config and reads it back. */
 function withConfig(json: unknown) {
-	writeFileSync(join(root, CONFIG_FILE), JSON.stringify(json));
-	return readSigilConfig(root);
+  writeFileSync(join(root, CONFIG_FILE), JSON.stringify(json));
+  return readSigilConfig(root);
 }
 
 describe('reading it', () => {
-	it('should answer empty when there is none', () => {
-		expect(readSigilConfig(root)).toStrictEqual({});
-	});
+  it('should answer empty when there is none', () => {
+    expect(readSigilConfig(root)).toStrictEqual({});
+  });
 
-	it('should read the build section', () => {
-		// only the keys the file said something about, where the hand-written
-		// reader set every one of them to `undefined`. The merged view holds what
-		// the layers hold, which is the better answer: a reader cannot tell
-		// "absent" from "present and undefined" and does not have to
-		expect(
-			withConfig({ build: { external: ['rolldown'], out: 'build', sourcemap: false } }).build
-		).toStrictEqual({
-			external: ['rolldown'],
-			out: 'build',
-			sourcemap: false,
-		});
-	});
+  it('should read the build section', () => {
+    // only the keys the file said something about, where the hand-written
+    // reader set every one of them to `undefined`. The merged view holds what
+    // the layers hold, which is the better answer: a reader cannot tell
+    // "absent" from "present and undefined" and does not have to
+    expect(
+      withConfig({ build: { external: ['rolldown'], out: 'build', sourcemap: false } }).build
+    ).toStrictEqual({
+      external: ['rolldown'],
+      out: 'build',
+      sourcemap: false,
+    });
+  });
 
-	it('should read a file holding nothing the same way as no file at all', () => {
-		// the two really are the same state, and the old reader distinguished them
-		// only by returning early
-		expect(withConfig({})).toStrictEqual({});
-		expect(withConfig({ build: {} })).toStrictEqual({});
-	});
+  it('should read a file holding nothing the same way as no file at all', () => {
+    // the two really are the same state, and the old reader distinguished them
+    // only by returning early
+    expect(withConfig({})).toStrictEqual({});
+    expect(withConfig({ build: {} })).toStrictEqual({});
+  });
 
-	it('should coerce a value written as a string', () => {
-		// which is the whole point of sharing the parser's vocabulary: `"off"`
-		// means in this file what it already means to `--shake=off`
-		expect(withConfig({ build: { shake: 'off', sourcemap: '1' } }).build).toStrictEqual({
-			shake: false,
-			sourcemap: true,
-		});
-		expect(withConfig({ build: { out: 'x' } }).build?.out).to.equal('x');
-	});
+  it('should coerce a value written as a string', () => {
+    // which is the whole point of sharing the parser's vocabulary: `"off"`
+    // means in this file what it already means to `--shake=off`
+    expect(withConfig({ build: { shake: 'off', sourcemap: '1' } }).build).toStrictEqual({
+      shake: false,
+      sourcemap: true,
+    });
+    expect(withConfig({ build: { out: 'x' } }).build?.out).to.equal('x');
+  });
 
-	it('should keep only the fields build declares', () => {
-		// the merged view holds whatever the *file* holds, so passing it through
-		// would hand back an object with keys `BuildConfig` does not declare -- a
-		// value that lies about its own type, over a key that is almost always a
-		// typo for one of the six. The hand-written reader picked by naming each
-		// one; this picks by a list
-		expect(withConfig({ build: { nope: 1, out: 'x' } }).build).toStrictEqual({ out: 'x' });
-		expect(withConfig({ build: { nope: 1 } }).build).to.equal(undefined);
-	});
+  it('should keep only the fields build declares', () => {
+    // the merged view holds whatever the *file* holds, so passing it through
+    // would hand back an object with keys `BuildConfig` does not declare -- a
+    // value that lies about its own type, over a key that is almost always a
+    // typo for one of the six. The hand-written reader picked by naming each
+    // one; this picks by a list
+    expect(withConfig({ build: { nope: 1, out: 'x' } }).build).toStrictEqual({ out: 'x' });
+    expect(withConfig({ build: { nope: 1 } }).build).to.equal(undefined);
+  });
 
-	it('should ignore an unknown key beside build, as it always did', () => {
-		expect(withConfig({ locale: 'de', whatever: 1 })).toStrictEqual({ locale: 'de' });
-	});
+  it('should ignore an unknown key beside build, as it always did', () => {
+    expect(withConfig({ locale: 'de', whatever: 1 })).toStrictEqual({ locale: 'de' });
+  });
 
-	it('should report a directory where the file was named', () => {
-		// `isFile()` answered `false` for one and the reader returned `{}`, so an
-		// app pointing at the wrong thing looked like an app with no config.
-		// `EISDIR` is deliberately not read as "there is none"
-		const dir = join(root, CONFIG_FILE);
-		mkdirSync(dir);
-		expect(() => readSigilConfig(root)).toThrow(/Failed to read/);
-	});
+  it('should report a directory where the file was named', () => {
+    // `isFile()` answered `false` for one and the reader returned `{}`, so an
+    // app pointing at the wrong thing looked like an app with no config.
+    // `EISDIR` is deliberately not read as "there is none"
+    const dir = join(root, CONFIG_FILE);
+    mkdirSync(dir);
+    expect(() => readSigilConfig(root)).toThrow(/Failed to read/);
+  });
 
-	it('should read the shaking fields', () => {
-		expect(withConfig({ build: { safelist: ['p-2'], shake: false } }).build).toMatchObject({
-			safelist: ['p-2'],
-			shake: false,
-		});
-	});
+  it('should read the shaking fields', () => {
+    expect(withConfig({ build: { safelist: ['p-2'], shake: false } }).build).toMatchObject({
+      safelist: ['p-2'],
+      shake: false,
+    });
+  });
 
-	it('should read components beside it', () => {
-		// the field that predates the rest of the file, still read by `add`
-		expect(withConfig({ build: { out: 'x' }, components: 'src/ui' }).components).toBe('src/ui');
-	});
+  it('should read components beside it', () => {
+    // the field that predates the rest of the file, still read by `add`
+    expect(withConfig({ build: { out: 'x' }, components: 'src/ui' }).components).toBe('src/ui');
+  });
 });
 
 describe('refusing what it cannot mean', () => {
-	it('should refuse a string where a list of packages was meant', () => {
-		// it would otherwise reach rolldown as a string and match something else.
-		// The message is the shared one now, and it names the setting and the file
-		expect(() => withConfig({ build: { external: 'rolldown' } })).toThrow(
-			/Invalid value for "build\.external" in sigil\.json: Expected a list of values/
-		);
-	});
+  it('should refuse a string where a list of packages was meant', () => {
+    // it would otherwise reach rolldown as a string and match something else.
+    // The message is the shared one now, and it names the setting and the file
+    expect(() => withConfig({ build: { external: 'rolldown' } })).toThrow(
+      /Invalid value for "build\.external" in sigil\.json: Expected a list of values/
+    );
+  });
 
-	it('should refuse an empty name in that list', () => {
-		expect(() => withConfig({ build: { external: ['ok', ''] } })).toThrow(/array of package/);
-	});
+  it('should refuse an empty name in that list', () => {
+    expect(() => withConfig({ build: { external: ['ok', ''] } })).toThrow(/array of package/);
+  });
 
-	it('should refuse a string where a list of classes was meant', () => {
-		// the same reader as `external`, and it names the field it was asked
-		// about rather than saying "a list": a message that names the wrong field
-		// sends the reader to the wrong line. The list wording is asserted too, or
-		// the pattern passes over any complaint at all about that field -- an
-		// `Invalid string` would satisfy it, which is the opposite diagnosis
-		expect(() => withConfig({ build: { safelist: 'p-2' } })).toThrow(
-			/Invalid value for "build\.safelist" in .*: Expected a list of values/
-		);
-	});
+  it('should refuse a string where a list of classes was meant', () => {
+    // the same reader as `external`, and it names the field it was asked
+    // about rather than saying "a list": a message that names the wrong field
+    // sends the reader to the wrong line. The list wording is asserted too, or
+    // the pattern passes over any complaint at all about that field -- an
+    // `Invalid string` would satisfy it, which is the opposite diagnosis
+    expect(() => withConfig({ build: { safelist: 'p-2' } })).toThrow(
+      /Invalid value for "build\.safelist" in .*: Expected a list of values/
+    );
+  });
 
-	it('should refuse an empty name in a list of classes', () => {
-		// the one thing a data type cannot say about a list of names
-		expect(() => withConfig({ build: { safelist: ['p-2', ''] } })).toThrow(
-			/"build\.safelist" must be an array of class names/
-		);
-	});
+  it('should refuse an empty name in a list of classes', () => {
+    // the one thing a data type cannot say about a list of names
+    expect(() => withConfig({ build: { safelist: ['p-2', ''] } })).toThrow(
+      /"build\.safelist" must be an array of class names/
+    );
+  });
 
-	it('should refuse a string a boolean cannot mean', () => {
-		// `"off"` is coerced because the vocabulary knows it; `"nope"` is not in
-		// the vocabulary, so there is no silent wrong answer available
-		expect(() => withConfig({ build: { sourcemap: 'nope' } })).toThrow(/Invalid boolean/);
-		expect(() => withConfig({ build: { sourcemap: 42 } })).toThrow(/Invalid boolean/);
-	});
+  it('should refuse a string a boolean cannot mean', () => {
+    // `"off"` is coerced because the vocabulary knows it; `"nope"` is not in
+    // the vocabulary, so there is no silent wrong answer available
+    expect(() => withConfig({ build: { sourcemap: 'nope' } })).toThrow(/Invalid boolean/);
+    expect(() => withConfig({ build: { sourcemap: 42 } })).toThrow(/Invalid boolean/);
+  });
 
-	it('should read a field written null as absent rather than refusing it', () => {
-		// the one class the old reader and this one disagree about, found by walking
-		// the inputs rather than by reading the checks: `"build": null` was `"build"
-		// must be an object`, because that reader asked `!value` before it asked
-		// about the type, and `"shake": null` was `must be true or false`. `null` is
-		// "not configured" wherever it is written, which is the config module's own
-		// rule -- somebody writing `"shake": null` is saying nothing about shaking,
-		// and what nothing means is the default
-		expect(withConfig({ build: null })).toStrictEqual({});
-		expect(withConfig({ locale: null })).toStrictEqual({});
-		expect(withConfig({ components: null })).toStrictEqual({});
-		expect(withConfig({ build: { shake: null } })).toStrictEqual({});
+  it('should read a field written null as absent rather than refusing it', () => {
+    // the one class the old reader and this one disagree about, found by walking
+    // the inputs rather than by reading the checks: `"build": null` was `"build"
+    // must be an object`, because that reader asked `!value` before it asked
+    // about the type, and `"shake": null` was `must be true or false`. `null` is
+    // "not configured" wherever it is written, which is the config module's own
+    // rule -- somebody writing `"shake": null` is saying nothing about shaking,
+    // and what nothing means is the default
+    expect(withConfig({ build: null })).toStrictEqual({});
+    expect(withConfig({ locale: null })).toStrictEqual({});
+    expect(withConfig({ components: null })).toStrictEqual({});
+    expect(withConfig({ build: { shake: null } })).toStrictEqual({});
 
-		// and the check still fires for every value that is not `null`, which is
-		// what makes this a rule about silence rather than a dropped validation
-		expect(() => withConfig({ build: [] })).toThrow(/"build" must be an object/);
-		expect(() => withConfig({ build: { shake: 'nope' } })).toThrow(/Invalid boolean/);
-	});
+    // and the check still fires for every value that is not `null`, which is
+    // what makes this a rule about silence rather than a dropped validation
+    expect(() => withConfig({ build: [] })).toThrow(/"build" must be an object/);
+    expect(() => withConfig({ build: { shake: 'nope' } })).toThrow(/Invalid boolean/);
+  });
 
-	it('should refuse a build section that is not an object', () => {
-		// a config schema declares settings by dotted path and has no nested
-		// object shapes, so `build.external` is typed and `build` itself is not --
-		// which leaves this a mistake nothing in the schema would report
-		expect(() => withConfig({ build: [] })).toThrow(/"build" must be an object/);
-		expect(() => withConfig({ build: 'nope' })).toThrow(/"build" must be an object/);
-	});
+  it('should refuse a build section that is not an object', () => {
+    // a config schema declares settings by dotted path and has no nested
+    // object shapes, so `build.external` is typed and `build` itself is not --
+    // which leaves this a mistake nothing in the schema would report
+    expect(() => withConfig({ build: [] })).toThrow(/"build" must be an object/);
+    expect(() => withConfig({ build: 'nope' })).toThrow(/"build" must be an object/);
+  });
 
-	it('should read a default locale', () => {
-		// top level rather than under `build`, because it is a fact about the app
-		// rather than a bundler knob: the build writes it into the schema it
-		// generates, and the runtime cannot read this file for itself
-		expect(withConfig({ locale: 'de' }).locale).to.equal('de');
-	});
+  it('should read a default locale', () => {
+    // top level rather than under `build`, because it is a fact about the app
+    // rather than a bundler knob: the build writes it into the schema it
+    // generates, and the runtime cannot read this file for itself
+    expect(withConfig({ locale: 'de' }).locale).to.equal('de');
+  });
 
-	it('should refuse a locale that is not a non-empty string', () => {
-		// the type is the schema's and the non-emptiness is this tool's: `""`
-		// passes `type: 'string'` and is right to, because a key written `""` is
-		// an empty string somebody chose
-		expect(() => withConfig({ locale: 42 })).toThrow(/Invalid value for "locale" in/);
-		expect(() => withConfig({ locale: '' })).toThrow(/"locale" must be a non-empty string/);
-	});
+  it('should refuse a locale that is not a non-empty string', () => {
+    // the type is the schema's and the non-emptiness is this tool's: `""`
+    // passes `type: 'string'` and is right to, because a key written `""` is
+    // an empty string somebody chose
+    expect(() => withConfig({ locale: 42 })).toThrow(/Invalid value for "locale" in/);
+    expect(() => withConfig({ locale: '' })).toThrow(/"locale" must be a non-empty string/);
+  });
 
-	it('should refuse an empty components, and an absolute one', () => {
-		expect(() => withConfig({ components: '' })).toThrow(/"components" must be a non-empty string/);
-		expect(() => withConfig({ components: '/etc' })).toThrow(/must be relative to the app/);
-	});
+  it('should refuse an empty components, and an absolute one', () => {
+    expect(() => withConfig({ components: '' })).toThrow(/"components" must be a non-empty string/);
+    expect(() => withConfig({ components: '/etc' })).toThrow(/must be relative to the app/);
+  });
 
-	it('should leave a locale it was not given undefined', () => {
-		expect(withConfig({ build: {} }).locale).to.equal(undefined);
-	});
+  it('should leave a locale it was not given undefined', () => {
+    expect(withConfig({ build: {} }).locale).to.equal(undefined);
+  });
 
-	it('should say which file failed to parse, by its path', () => {
-		// the path rather than the file name, which is what the shared reader
-		// gives and is what somebody can open
-		writeFileSync(join(root, CONFIG_FILE), '{ nope');
-		expect(() => readSigilConfig(root)).toThrow(
-			new RegExp(`Failed to parse .*${CONFIG_FILE.replace('.', '\\.')}`)
-		);
-	});
+  it('should say which file failed to parse, by its path', () => {
+    // the path rather than the file name, which is what the shared reader
+    // gives and is what somebody can open
+    writeFileSync(join(root, CONFIG_FILE), '{ nope');
+    expect(() => readSigilConfig(root)).toThrow(
+      new RegExp(`Failed to parse .*${CONFIG_FILE.replace('.', '\\.')}`)
+    );
+  });
 
-	it('should read a comment in either of the two names', () => {
-		// one reader rather than one per extension, so the name a file already had
-		// costs it nothing: a comment in `sigil.json` is read rather than reported.
-		// What this replaces asserted the refusal that used to be here
-		for (const name of CONFIG_FILES) {
-			writeFileSync(join(root, name), '{\n// a note\n"components":"x"}');
-			expect(readSigilConfig(root).components, name).to.equal('x');
-			rmSync(join(root, name));
-		}
-	});
+  it('should read a comment in either of the two names', () => {
+    // one reader rather than one per extension, so the name a file already had
+    // costs it nothing: a comment in `sigil.json` is read rather than reported.
+    // What this replaces asserted the refusal that used to be here
+    for (const name of CONFIG_FILES) {
+      writeFileSync(join(root, name), '{\n// a note\n"components":"x"}');
+      expect(readSigilConfig(root).components, name).to.equal('x');
+      rmSync(join(root, name));
+    }
+  });
 });
 
 describe('which of the two files it reads', () => {
-	it('should read the .json one, which is the name an app already had', () => {
-		writeFileSync(join(root, 'sigil.json'), '{"components":"from-json"}');
-		expect(readSigilConfig(root).components).to.equal('from-json');
-	});
+  it('should read the .json one, which is the name an app already had', () => {
+    writeFileSync(join(root, 'sigil.json'), '{"components":"from-json"}');
+    expect(readSigilConfig(root).components).to.equal('from-json');
+  });
 
-	it('should read a .jsonc one too, for an app that prefers that name', () => {
-		writeFileSync(join(root, 'sigil.jsonc'), '{"components":"from-jsonc"}');
-		expect(readSigilConfig(root).components).to.equal('from-jsonc');
-	});
+  it('should read a .jsonc one too, for an app that prefers that name', () => {
+    writeFileSync(join(root, 'sigil.jsonc'), '{"components":"from-jsonc"}');
+    expect(readSigilConfig(root).components).to.equal('from-jsonc');
+  });
 
-	it('should refuse both at once, naming them', () => {
-		// the two-routes-one-name rule said about a config file: with both there,
-		// picking one picks it by the order an array happens to be written in and
-		// the other silently does nothing
-		for (const name of CONFIG_FILES) {
-			writeFileSync(join(root, name), '{}');
-		}
-		expect(() => readSigilConfig(root)).toThrow(/has both sigil\.json and sigil\.jsonc; keep one/);
-	});
+  it('should refuse both at once, naming them', () => {
+    // the two-routes-one-name rule said about a config file: with both there,
+    // picking one picks it by the order an array happens to be written in and
+    // the other silently does nothing
+    for (const name of CONFIG_FILES) {
+      writeFileSync(join(root, name), '{}');
+    }
+    expect(() => readSigilConfig(root)).toThrow(/has both sigil\.json and sigil\.jsonc; keep one/);
+  });
 
-	it('should name the .json one where there is neither', () => {
-		// which is the one `sigil new` writes and the one a message should name
-		expect(CONFIG_FILE).to.equal('sigil.json');
-		expect(readSigilConfig(root)).toStrictEqual({});
-	});
+  it('should name the .json one where there is neither', () => {
+    // which is the one `sigil new` writes and the one a message should name
+    expect(CONFIG_FILE).to.equal('sigil.json');
+    expect(readSigilConfig(root)).toStrictEqual({});
+  });
 });

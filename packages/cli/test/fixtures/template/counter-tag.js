@@ -12,21 +12,21 @@ import { For, Show } from '@ttylabs/sigil/renderer';
 import { ui } from '@ttylabs/sigil/template';
 
 export function Counter({ count, items }) {
-	return ui`
-		<box border="round" flex-direction="column" padding="0 1" width="28">
-			<text font-weight="bold">Counter</text>
-			<text>count: ${() => count.get()}</text>
-			<text color="cyan">${() => (count.get() > 2 ? 'high' : 'low')}</text>
-			<${Show}
-				when=${() => items.get().length > 0}
-				fallback=${() => ui`<text font-style="italic">(nothing)</text>`}
-				props=${{ 'flex-direction': 'column' }}
-			>
-				${() =>
-					ui`<${For} each=${() => items.get()} props=${{ 'flex-direction': 'column' }}>
-						${(item) => ui`<text>- ${item}</text>`}
-					</>`}
-			</>
-		</box>
-	`;
+  return ui`
+    <box border="round" flex-direction="column" padding="0 1" width="28">
+      <text font-weight="bold">Counter</text>
+      <text>count: ${() => count.get()}</text>
+      <text color="cyan">${() => (count.get() > 2 ? 'high' : 'low')}</text>
+      <${Show}
+        when=${() => items.get().length > 0}
+        fallback=${() => ui`<text font-style="italic">(nothing)</text>`}
+        props=${{ 'flex-direction': 'column' }}
+      >
+        ${() =>
+          ui`<${For} each=${() => items.get()} props=${{ 'flex-direction': 'column' }}>
+            ${(item) => ui`<text>- ${item}</text>`}
+          </>`}
+      </>
+    </box>
+  `;
 }

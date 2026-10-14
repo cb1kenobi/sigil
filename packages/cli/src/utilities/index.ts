@@ -32,51 +32,51 @@
  */
 
 import {
-	isProperty,
-	kebab,
-	PROPERTIES,
-	PROPERTY_NAMES,
-	type PropertyName,
-	readDeclarations,
+  isProperty,
+  kebab,
+  PROPERTIES,
+  PROPERTY_NAMES,
+  type PropertyName,
+  readDeclarations,
 } from '@ttylabs/sigil/style';
 
 /** One generated utility: the class name, and the declarations it stands for. */
 export interface Utility {
-	/** The class, without a leading dot and without any variant prefix. */
-	readonly name: string;
-	/** The declarations, as source text, in the order they are written. */
-	readonly declarations: readonly (readonly [property: string, value: string])[];
+  /** The class, without a leading dot and without any variant prefix. */
+  readonly name: string;
+  /** The declarations, as source text, in the order they are written. */
+  readonly declarations: readonly (readonly [property: string, value: string])[];
 }
 
 export interface UtilityOptions {
-	/**
-	 * How far the spacing scale goes, in cells.
-	 *
-	 * Eight, because a terminal's meaningful spacing is tiny -- there is nothing
-	 * between one cell and two, and a `p-40` is not a thing anybody wants on a
-	 * screen eighty columns wide. Past the scale is what arbitrary values are
-	 * for, and they are SIG-81's.
-	 */
-	readonly spacing?: number;
-	/**
-	 * Which utilities to generate, by name. Every one of them, when omitted.
-	 *
-	 * What style shaking passes: the names an app's own source could produce.
-	 * A filter over the generated set rather than a second generator, so the
-	 * text of a rule that survives is byte for byte the text it has in the
-	 * committed sheet -- which is what makes a shaken sheet a *subset* rather
-	 * than a second sheet that happens to agree.
-	 *
-	 * A name nothing generates is ignored rather than refused, because a
-	 * safelist is written by hand against a vocabulary that moves between
-	 * releases, and failing a build over a class somebody stopped using is a
-	 * worse answer than generating nothing for it.
-	 */
-	readonly only?: readonly string[];
-	/** How far `w-N` and `h-N` go, in cells. */
-	readonly sizing?: number;
-	/** Whether to generate the variants as well as the base set. */
-	readonly variants?: boolean;
+  /**
+   * How far the spacing scale goes, in cells.
+   *
+   * Eight, because a terminal's meaningful spacing is tiny -- there is nothing
+   * between one cell and two, and a `p-40` is not a thing anybody wants on a
+   * screen eighty columns wide. Past the scale is what arbitrary values are
+   * for, and they are SIG-81's.
+   */
+  readonly spacing?: number;
+  /**
+   * Which utilities to generate, by name. Every one of them, when omitted.
+   *
+   * What style shaking passes: the names an app's own source could produce.
+   * A filter over the generated set rather than a second generator, so the
+   * text of a rule that survives is byte for byte the text it has in the
+   * committed sheet -- which is what makes a shaken sheet a *subset* rather
+   * than a second sheet that happens to agree.
+   *
+   * A name nothing generates is ignored rather than refused, because a
+   * safelist is written by hand against a vocabulary that moves between
+   * releases, and failing a build over a class somebody stopped using is a
+   * worse answer than generating nothing for it.
+   */
+  readonly only?: readonly string[];
+  /** How far `w-N` and `h-N` go, in cells. */
+  readonly sizing?: number;
+  /** Whether to generate the variants as well as the base set. */
+  readonly variants?: boolean;
 }
 
 const DEFAULTS = { sizing: 12, spacing: 8, variants: true } as const;
@@ -90,26 +90,26 @@ const DEFAULTS = { sizing: 12, spacing: 8, variants: true } as const;
  * that matches nothing.
  */
 const COLORS: readonly (readonly [utility: string, value: string])[] = [
-	['black', 'black'],
-	['red', 'red'],
-	['green', 'green'],
-	['yellow', 'yellow'],
-	['blue', 'blue'],
-	['magenta', 'magenta'],
-	['cyan', 'cyan'],
-	['white', 'white'],
-	// the class is hyphenated and the value is not, which is the split this file
-	// is built on: the utility name is ours to define and the value has to be one
-	// `parseColor()` already takes. Generating `bright-black` as a *value* is what
-	// the check below caught on the first run
-	['bright-black', 'brightblack'],
-	['bright-red', 'brightred'],
-	['bright-green', 'brightgreen'],
-	['bright-yellow', 'brightyellow'],
-	['bright-blue', 'brightblue'],
-	['bright-magenta', 'brightmagenta'],
-	['bright-cyan', 'brightcyan'],
-	['bright-white', 'brightwhite'],
+  ['black', 'black'],
+  ['red', 'red'],
+  ['green', 'green'],
+  ['yellow', 'yellow'],
+  ['blue', 'blue'],
+  ['magenta', 'magenta'],
+  ['cyan', 'cyan'],
+  ['white', 'white'],
+  // the class is hyphenated and the value is not, which is the split this file
+  // is built on: the utility name is ours to define and the value has to be one
+  // `parseColor()` already takes. Generating `bright-black` as a *value* is what
+  // the check below caught on the first run
+  ['bright-black', 'brightblack'],
+  ['bright-red', 'brightred'],
+  ['bright-green', 'brightgreen'],
+  ['bright-yellow', 'brightyellow'],
+  ['bright-blue', 'brightblue'],
+  ['bright-magenta', 'brightmagenta'],
+  ['bright-cyan', 'brightcyan'],
+  ['bright-white', 'brightwhite'],
 ];
 
 /**
@@ -126,67 +126,67 @@ const COLORS: readonly (readonly [utility: string, value: string])[] = [
  * where Tailwind has a shorter spelling people already have muscle memory for.
  */
 interface KeywordFamily {
-	readonly property: PropertyName;
-	readonly prefix: string;
-	readonly short?: Readonly<Record<string, string>>;
+  readonly property: PropertyName;
+  readonly prefix: string;
+  readonly short?: Readonly<Record<string, string>>;
 }
 
 const ALIGN_SHORT = {
-	'flex-start': 'start',
-	'flex-end': 'end',
-	'space-around': 'around',
-	'space-between': 'between',
-	'space-evenly': 'evenly',
+  'flex-start': 'start',
+  'flex-end': 'end',
+  'space-around': 'around',
+  'space-between': 'between',
+  'space-evenly': 'evenly',
 } as const;
 
 const KEYWORD_FAMILIES: readonly KeywordFamily[] = [
-	{
-		prefix: 'flex-',
-		property: 'flexDirection',
-		short: { column: 'col', 'column-reverse': 'col-reverse' },
-	},
-	{ prefix: '', property: 'flexWrap' },
-	{ prefix: 'justify-', property: 'justifyContent', short: ALIGN_SHORT },
-	{ prefix: 'items-', property: 'alignItems', short: ALIGN_SHORT },
-	{ prefix: 'self-', property: 'alignSelf', short: ALIGN_SHORT },
-	{ prefix: 'content-', property: 'alignContent', short: ALIGN_SHORT },
-	{
-		prefix: 'box-',
-		property: 'boxSizing',
-		short: { 'border-box': 'border', 'content-box': 'content' },
-	},
-	{ prefix: 'border-', property: 'borderStyle' },
-	{ prefix: '', property: 'position' },
-	{ prefix: 'overflow-', property: 'overflow' },
-	// Tailwind's spelling, and it keeps `hidden` meaning display:none the way
-	// everybody expects rather than colliding with it
-	{ prefix: '', property: 'visibility', short: { hidden: 'invisible' } },
-	{ prefix: 'text-', property: 'textAlign' },
-	{ prefix: 'case-', property: 'textTransform' },
-	{ prefix: 'truncate-', property: 'textOverflow' },
-	{ prefix: 'whitespace-', property: 'whiteSpace' },
-	{ prefix: 'display-', property: 'display' },
+  {
+    prefix: 'flex-',
+    property: 'flexDirection',
+    short: { column: 'col', 'column-reverse': 'col-reverse' },
+  },
+  { prefix: '', property: 'flexWrap' },
+  { prefix: 'justify-', property: 'justifyContent', short: ALIGN_SHORT },
+  { prefix: 'items-', property: 'alignItems', short: ALIGN_SHORT },
+  { prefix: 'self-', property: 'alignSelf', short: ALIGN_SHORT },
+  { prefix: 'content-', property: 'alignContent', short: ALIGN_SHORT },
+  {
+    prefix: 'box-',
+    property: 'boxSizing',
+    short: { 'border-box': 'border', 'content-box': 'content' },
+  },
+  { prefix: 'border-', property: 'borderStyle' },
+  { prefix: '', property: 'position' },
+  { prefix: 'overflow-', property: 'overflow' },
+  // Tailwind's spelling, and it keeps `hidden` meaning display:none the way
+  // everybody expects rather than colliding with it
+  { prefix: '', property: 'visibility', short: { hidden: 'invisible' } },
+  { prefix: 'text-', property: 'textAlign' },
+  { prefix: 'case-', property: 'textTransform' },
+  { prefix: 'truncate-', property: 'textOverflow' },
+  { prefix: 'whitespace-', property: 'whiteSpace' },
+  { prefix: 'display-', property: 'display' },
 ];
 
 /** The edge prefixes, which every spacing family shares. */
 const EDGES: readonly (readonly [suffix: string, properties: readonly string[]])[] = [
-	['', ['top', 'right', 'bottom', 'left']],
-	['x', ['left', 'right']],
-	['y', ['top', 'bottom']],
-	['t', ['top']],
-	['r', ['right']],
-	['b', ['bottom']],
-	['l', ['left']],
+  ['', ['top', 'right', 'bottom', 'left']],
+  ['x', ['left', 'right']],
+  ['y', ['top', 'bottom']],
+  ['t', ['top']],
+  ['r', ['right']],
+  ['b', ['bottom']],
+  ['l', ['left']],
 ];
 
 /** The fractions `w-` and `h-` take, which is what a terminal can divide evenly. */
 const FRACTIONS: readonly (readonly [name: string, percent: string])[] = [
-	['1/2', '50%'],
-	['1/3', '33%'],
-	['2/3', '67%'],
-	['1/4', '25%'],
-	['3/4', '75%'],
-	['full', '100%'],
+  ['1/2', '50%'],
+  ['1/3', '33%'],
+  ['2/3', '67%'],
+  ['1/4', '25%'],
+  ['3/4', '75%'],
+  ['full', '100%'],
 ];
 
 /**
@@ -196,131 +196,131 @@ const FRACTIONS: readonly (readonly [name: string, percent: string])[] = [
  * @returns The utilities, in a stable order.
  */
 export function utilities(opts: UtilityOptions = {}): Utility[] {
-	const spacing = opts.spacing ?? DEFAULTS.spacing;
-	const sizing = opts.sizing ?? DEFAULTS.sizing;
-	const out: Utility[] = [];
+  const spacing = opts.spacing ?? DEFAULTS.spacing;
+  const sizing = opts.sizing ?? DEFAULTS.sizing;
+  const out: Utility[] = [];
 
-	const taken = new Set<string>();
-	const add = (name: string, declarations: readonly (readonly [string, string])[]): void => {
-		// two utilities of one name is a class that quietly applies both, which is
-		// the failure mode a generated vocabulary is most prone to: `hidden` was
-		// display:none and visibility:hidden at the same time until this caught it
-		if (taken.has(name)) {
-			throw new Error(`Two utilities are both called "${name}"`);
-		}
-		taken.add(name);
-		out.push({ declarations, name });
-	};
+  const taken = new Set<string>();
+  const add = (name: string, declarations: readonly (readonly [string, string])[]): void => {
+    // two utilities of one name is a class that quietly applies both, which is
+    // the failure mode a generated vocabulary is most prone to: `hidden` was
+    // display:none and visibility:hidden at the same time until this caught it
+    if (taken.has(name)) {
+      throw new Error(`Two utilities are both called "${name}"`);
+    }
+    taken.add(name);
+    out.push({ declarations, name });
+  };
 
-	// --- keywords, straight off the table -----------------------------------
-	for (const family of KEYWORD_FAMILIES) {
-		const { keywords } = PROPERTIES[family.property];
-		if (!keywords) {
-			throw new Error(
-				`"${family.property}" has no keyword list: a keyword family can only be generated for a property the table enumerates`
-			);
-		}
-		for (const value of keywords) {
-			const short = family.short?.[value] ?? value;
-			add(`${family.prefix}${short}`, [[family.property, value]]);
-		}
-	}
+  // --- keywords, straight off the table -----------------------------------
+  for (const family of KEYWORD_FAMILIES) {
+    const { keywords } = PROPERTIES[family.property];
+    if (!keywords) {
+      throw new Error(
+        `"${family.property}" has no keyword list: a keyword family can only be generated for a property the table enumerates`
+      );
+    }
+    for (const value of keywords) {
+      const short = family.short?.[value] ?? value;
+      add(`${family.prefix}${short}`, [[family.property, value]]);
+    }
+  }
 
-	// `flex` on its own is the display, because that is the one everybody types
-	add('flex', [['display', 'flex']]);
-	add('hidden', [['display', 'none']]);
+  // `flex` on its own is the display, because that is the one everybody types
+  add('flex', [['display', 'flex']]);
+  add('hidden', [['display', 'none']]);
 
-	// --- the boolean attributes ----------------------------------------------
-	for (const name of PROPERTY_NAMES) {
-		if (PROPERTIES[name].initial === false && typeof PROPERTIES[name].initial === 'boolean') {
-			add(ATTRIBUTE_NAMES[name] ?? name, [[name, 'true']]);
-			add(`not-${ATTRIBUTE_NAMES[name] ?? name}`, [[name, 'false']]);
-		}
-	}
+  // --- the boolean attributes ----------------------------------------------
+  for (const name of PROPERTY_NAMES) {
+    if (PROPERTIES[name].initial === false && typeof PROPERTIES[name].initial === 'boolean') {
+      add(ATTRIBUTE_NAMES[name] ?? name, [[name, 'true']]);
+      add(`not-${ATTRIBUTE_NAMES[name] ?? name}`, [[name, 'false']]);
+    }
+  }
 
-	// --- spacing --------------------------------------------------------------
-	for (const [suffix, edges] of EDGES) {
-		for (let n = 0; n <= spacing; n++) {
-			add(
-				`p${suffix}-${n}`,
-				edges.map((edge) => [`padding-${edge}`, String(n)])
-			);
-			add(
-				`m${suffix}-${n}`,
-				edges.map((edge) => [`margin-${edge}`, String(n)])
-			);
-		}
-		add(
-			`m${suffix}-auto`,
-			edges.map((edge) => [`margin-${edge}`, 'auto'])
-		);
-	}
+  // --- spacing --------------------------------------------------------------
+  for (const [suffix, edges] of EDGES) {
+    for (let n = 0; n <= spacing; n++) {
+      add(
+        `p${suffix}-${n}`,
+        edges.map((edge) => [`padding-${edge}`, String(n)])
+      );
+      add(
+        `m${suffix}-${n}`,
+        edges.map((edge) => [`margin-${edge}`, String(n)])
+      );
+    }
+    add(
+      `m${suffix}-auto`,
+      edges.map((edge) => [`margin-${edge}`, 'auto'])
+    );
+  }
 
-	for (let n = 0; n <= spacing; n++) {
-		add(`gap-${n}`, [
-			['row-gap', String(n)],
-			['column-gap', String(n)],
-		]);
-		add(`gap-x-${n}`, [['column-gap', String(n)]]);
-		add(`gap-y-${n}`, [['row-gap', String(n)]]);
-	}
+  for (let n = 0; n <= spacing; n++) {
+    add(`gap-${n}`, [
+      ['row-gap', String(n)],
+      ['column-gap', String(n)],
+    ]);
+    add(`gap-x-${n}`, [['column-gap', String(n)]]);
+    add(`gap-y-${n}`, [['row-gap', String(n)]]);
+  }
 
-	// --- sizing ---------------------------------------------------------------
-	for (const [axis, property] of [
-		['w', 'width'],
-		['h', 'height'],
-	] as const) {
-		for (let n = 0; n <= sizing; n++) {
-			add(`${axis}-${n}`, [[property, String(n)]]);
-		}
-		add(`${axis}-auto`, [[property, 'auto']]);
-		for (const [name, value] of FRACTIONS) {
-			add(`${axis}-${name}`, [[property, value]]);
-		}
-		add(`min-${axis}-0`, [[`min-${property}`, '0']]);
-		add(`max-${axis}-none`, [[`max-${property}`, 'none']]);
-	}
+  // --- sizing ---------------------------------------------------------------
+  for (const [axis, property] of [
+    ['w', 'width'],
+    ['h', 'height'],
+  ] as const) {
+    for (let n = 0; n <= sizing; n++) {
+      add(`${axis}-${n}`, [[property, String(n)]]);
+    }
+    add(`${axis}-auto`, [[property, 'auto']]);
+    for (const [name, value] of FRACTIONS) {
+      add(`${axis}-${name}`, [[property, value]]);
+    }
+    add(`min-${axis}-0`, [[`min-${property}`, '0']]);
+    add(`max-${axis}-none`, [[`max-${property}`, 'none']]);
+  }
 
-	// --- flex factors ----------------------------------------------------------
-	add('grow', [['flex-grow', '1']]);
-	add('grow-0', [['flex-grow', '0']]);
-	add('shrink', [['flex-shrink', '1']]);
-	add('shrink-0', [['flex-shrink', '0']]);
-	add('basis-0', [['flex-basis', '0']]);
-	add('basis-auto', [['flex-basis', 'auto']]);
+  // --- flex factors ----------------------------------------------------------
+  add('grow', [['flex-grow', '1']]);
+  add('grow-0', [['flex-grow', '0']]);
+  add('shrink', [['flex-shrink', '1']]);
+  add('shrink-0', [['flex-shrink', '0']]);
+  add('basis-0', [['flex-basis', '0']]);
+  add('basis-auto', [['flex-basis', 'auto']]);
 
-	// --- position --------------------------------------------------------------
-	for (const edge of ['top', 'right', 'bottom', 'left']) {
-		for (let n = 0; n <= spacing; n++) {
-			add(`${edge}-${n}`, [[edge, String(n)]]);
-		}
-	}
-	add(
-		'inset-0',
-		(['top', 'right', 'bottom', 'left'] as const).map((edge) => [edge, '0'])
-	);
-	for (let n = 0; n <= spacing; n++) {
-		add(`z-${n}`, [['z-index', String(n)]]);
-	}
+  // --- position --------------------------------------------------------------
+  for (const edge of ['top', 'right', 'bottom', 'left']) {
+    for (let n = 0; n <= spacing; n++) {
+      add(`${edge}-${n}`, [[edge, String(n)]]);
+    }
+  }
+  add(
+    'inset-0',
+    (['top', 'right', 'bottom', 'left'] as const).map((edge) => [edge, '0'])
+  );
+  for (let n = 0; n <= spacing; n++) {
+    add(`z-${n}`, [['z-index', String(n)]]);
+  }
 
-	// --- colour ----------------------------------------------------------------
-	for (const [name, value] of COLORS) {
-		add(`text-${name}`, [['color', value]]);
-		add(`bg-${name}`, [['background-color', value]]);
-		add(`border-${name}`, [['border-color', value]]);
-	}
+  // --- colour ----------------------------------------------------------------
+  for (const [name, value] of COLORS) {
+    add(`text-${name}`, [['color', value]]);
+    add(`bg-${name}`, [['background-color', value]]);
+    add(`border-${name}`, [['border-color', value]]);
+  }
 
-	// `border` with no value is one cell of single-line border, which is ours to
-	// define: a terminal border has exactly one width, so Tailwind's `border-2`
-	// has nothing to mean here
-	add('border', [['border-style', 'single']]);
+  // `border` with no value is one cell of single-line border, which is ours to
+  // define: a terminal border has exactly one width, so Tailwind's `border-2`
+  // has nothing to mean here
+  add('border', [['border-style', 'single']]);
 
-	return out;
+  return out;
 }
 
 /** The properties whose CSS name is not what people would type for the utility. */
 const ATTRIBUTE_NAMES: Readonly<Record<string, string>> = {
-	strikethrough: 'strike',
+  strikethrough: 'strike',
 };
 
 /**
@@ -344,28 +344,28 @@ const ATTRIBUTE_NAMES: Readonly<Record<string, string>> = {
  * Still not `hover:` until mouse tracking exists.
  */
 interface Variant {
-	readonly name: string;
-	/** A media query this variant's rules sit inside, if any. */
-	readonly media?: string;
-	/** A pseudo-class appended to the selector, if any. */
-	readonly pseudo?: string;
+  readonly name: string;
+  /** A media query this variant's rules sit inside, if any. */
+  readonly media?: string;
+  /** A pseudo-class appended to the selector, if any. */
+  readonly pseudo?: string;
 }
 
 const VARIANTS: readonly Variant[] = [
-	{ media: '(min-width: 60)', name: 'sm' },
-	{ media: '(min-width: 80)', name: 'md' },
-	{ media: '(min-width: 120)', name: 'lg' },
-	{ media: '(min-width: 160)', name: 'xl' },
-	{ media: '(color-level: 0)', name: 'c0' },
-	{ media: '(color-level: 1)', name: 'c16' },
-	{ media: '(color-level: 2)', name: 'c256' },
-	{ media: '(prefers-color-scheme: dark)', name: 'dark' },
-	{ media: '(prefers-color-scheme: light)', name: 'light' },
-	{ name: 'focus', pseudo: ':focus' },
-	{ name: 'disabled', pseudo: ':disabled' },
-	{ name: 'checked', pseudo: ':checked' },
-	{ name: 'first', pseudo: ':first-child' },
-	{ name: 'last', pseudo: ':last-child' },
+  { media: '(min-width: 60)', name: 'sm' },
+  { media: '(min-width: 80)', name: 'md' },
+  { media: '(min-width: 120)', name: 'lg' },
+  { media: '(min-width: 160)', name: 'xl' },
+  { media: '(color-level: 0)', name: 'c0' },
+  { media: '(color-level: 1)', name: 'c16' },
+  { media: '(color-level: 2)', name: 'c256' },
+  { media: '(prefers-color-scheme: dark)', name: 'dark' },
+  { media: '(prefers-color-scheme: light)', name: 'light' },
+  { name: 'focus', pseudo: ':focus' },
+  { name: 'disabled', pseudo: ':disabled' },
+  { name: 'checked', pseudo: ':checked' },
+  { name: 'first', pseudo: ':first-child' },
+  { name: 'last', pseudo: ':last-child' },
 ];
 
 /** Every variant, for documentation and for tests that walk them. */
@@ -379,7 +379,7 @@ export const VARIANT_NAMES: readonly string[] = VARIANTS.map((variant) => varian
  * does and it is why its class names are legal at all.
  */
 function escapeClass(name: string): string {
-	return name.replace(/[^\w-]/g, (c) => `\\${c}`);
+  return name.replace(/[^\w-]/g, (c) => `\\${c}`);
 }
 
 /**
@@ -393,28 +393,28 @@ function escapeClass(name: string): string {
  * @returns The stylesheet source, in the utilities layer.
  */
 export function generateUtilities(opts: UtilityOptions = {}): string {
-	const base = only(utilities(opts), opts.only);
-	const lines: string[] = ['@layer utilities {'];
+  const base = only(utilities(opts), opts.only);
+  const lines: string[] = ['@layer utilities {'];
 
-	for (const utility of base) {
-		lines.push(`\t${rule(utility, '')}`);
-	}
+  for (const utility of base) {
+    lines.push(`\t${rule(utility, '')}`);
+  }
 
-	if (base.length && (opts.variants ?? DEFAULTS.variants)) {
-		for (const variant of VARIANTS) {
-			const body = base.map((utility) => rule(utility, variant.name, variant.pseudo));
-			if (variant.media) {
-				lines.push(`\t@media ${variant.media} {`);
-				lines.push(...body.map((line) => `\t\t${line}`));
-				lines.push('\t}');
-			} else {
-				lines.push(...body.map((line) => `\t${line}`));
-			}
-		}
-	}
+  if (base.length && (opts.variants ?? DEFAULTS.variants)) {
+    for (const variant of VARIANTS) {
+      const body = base.map((utility) => rule(utility, variant.name, variant.pseudo));
+      if (variant.media) {
+        lines.push(`\t@media ${variant.media} {`);
+        lines.push(...body.map((line) => `\t\t${line}`));
+        lines.push('\t}');
+      } else {
+        lines.push(...body.map((line) => `\t${line}`));
+      }
+    }
+  }
 
-	lines.push('}');
-	return `${lines.join('\n')}\n`;
+  lines.push('}');
+  return `${lines.join('\n')}\n`;
 }
 
 /**
@@ -430,11 +430,11 @@ export function generateUtilities(opts: UtilityOptions = {}): string {
  * @returns The utilities to print.
  */
 function only(all: readonly Utility[], wanted: readonly string[] | undefined): readonly Utility[] {
-	if (wanted === undefined) {
-		return all;
-	}
-	const keep = new Set(wanted);
-	return all.filter((utility) => keep.has(utility.name));
+  if (wanted === undefined) {
+    return all;
+  }
+  const keep = new Set(wanted);
+  return all.filter((utility) => keep.has(utility.name));
 }
 
 /**
@@ -460,112 +460,112 @@ function only(all: readonly Utility[], wanted: readonly string[] | undefined): r
  * @returns The declaration as `property: value`.
  */
 function declaration(utility: Utility, property: string, value: string): string {
-	if (!isProperty(property)) {
-		throw new Error(
-			`Utility "${utility.name}" sets "${property}", which is not a property the table has`
-		);
-	}
-	// parsed and thrown away: this is the check that a utility cannot ship a
-	// value its own property would refuse
-	readDeclarations({ [property]: value });
-	return `${kebab(property)}: ${value}`;
+  if (!isProperty(property)) {
+    throw new Error(
+      `Utility "${utility.name}" sets "${property}", which is not a property the table has`
+    );
+  }
+  // parsed and thrown away: this is the check that a utility cannot ship a
+  // value its own property would refuse
+  readDeclarations({ [property]: value });
+  return `${kebab(property)}: ${value}`;
 }
 
 /** One rule, with its declarations checked against the property table. */
 function rule(utility: Utility, variant: string, pseudo = ''): string {
-	const declarations = utility.declarations
-		.map(([property, value]) => declaration(utility, property, value))
-		.join('; ');
+  const declarations = utility.declarations
+    .map(([property, value]) => declaration(utility, property, value))
+    .join('; ');
 
-	const name = variant ? `${variant}:${utility.name}` : utility.name;
-	return `.${escapeClass(name)}${pseudo} { ${declarations} }`;
+  const name = variant ? `${variant}:${utility.name}` : utility.name;
+  return `.${escapeClass(name)}${pseudo} { ${declarations} }`;
 }
 
 export function expandApply(source: string, opts: UtilityOptions = {}): string {
-	const byName = new Map(utilities(opts).map((utility) => [utility.name, utility]));
+  const byName = new Map(utilities(opts).map((utility) => [utility.name, utility]));
 
-	/** The declarations a name list stands for. */
-	const expand = (names: string): string => {
-		const wanted = names.trim().split(/\s+/).filter(Boolean);
-		if (wanted.length === 0) {
-			throw new Error('@apply names no utilities');
-		}
+  /** The declarations a name list stands for. */
+  const expand = (names: string): string => {
+    const wanted = names.trim().split(/\s+/).filter(Boolean);
+    if (wanted.length === 0) {
+      throw new Error('@apply names no utilities');
+    }
 
-		const out: string[] = [];
-		for (const name of wanted) {
-			const utility = byName.get(name);
-			if (!utility) {
-				throw new Error(
-					`@apply names "${name}", which is not a utility. A variant cannot be applied -- it is a rule in another context, not a set of declarations`
-				);
-			}
-			out.push(
-				...utility.declarations.map(([property, value]) => declaration(utility, property, value))
-			);
-		}
-		return out.join('; ');
-	};
+    const out: string[] = [];
+    for (const name of wanted) {
+      const utility = byName.get(name);
+      if (!utility) {
+        throw new Error(
+          `@apply names "${name}", which is not a utility. A variant cannot be applied -- it is a rule in another context, not a set of declarations`
+        );
+      }
+      out.push(
+        ...utility.declarations.map(([property, value]) => declaration(utility, property, value))
+      );
+    }
+    return out.join('; ');
+  };
 
-	/** Steps over a comment, or answers `undefined` if there is not one here. */
-	const comment = (at: number): number | undefined => {
-		if (!source.startsWith('/*', at)) {
-			return undefined;
-		}
-		const end = source.indexOf('*/', at + 2);
-		if (end === -1) {
-			throw new Error('Unterminated comment');
-		}
-		return end + 2;
-	};
+  /** Steps over a comment, or answers `undefined` if there is not one here. */
+  const comment = (at: number): number | undefined => {
+    if (!source.startsWith('/*', at)) {
+      return undefined;
+    }
+    const end = source.indexOf('*/', at + 2);
+    if (end === -1) {
+      throw new Error('Unterminated comment');
+    }
+    return end + 2;
+  };
 
-	const out: string[] = [];
-	let at = 0;
+  const out: string[] = [];
+  let at = 0;
 
-	while (at < source.length) {
-		// a comment is copied through untouched, so an `@apply` that lives inside
-		// one is a note about `@apply` rather than one
-		const past = comment(at);
-		if (past !== undefined) {
-			out.push(source.slice(at, past));
-			at = past;
-			continue;
-		}
+  while (at < source.length) {
+    // a comment is copied through untouched, so an `@apply` that lives inside
+    // one is a note about `@apply` rather than one
+    const past = comment(at);
+    if (past !== undefined) {
+      out.push(source.slice(at, past));
+      at = past;
+      continue;
+    }
 
-		if (!source.startsWith('@apply', at) || /[\w-]/.test(source[at + 6] ?? '')) {
-			out.push(source[at]);
-			at++;
-			continue;
-		}
+    if (!source.startsWith('@apply', at) || /[\w-]/.test(source[at + 6] ?? '')) {
+      out.push(source[at]);
+      at++;
+      continue;
+    }
 
-		// the name list runs to the end of the statement: a semicolon, or the `}`
-		// that closes the block. A comment inside it is *trivia*, the way it is
-		// everywhere else in a stylesheet -- treating it as a boundary made
-		// `@apply p-1 /* and */ m-1;` expand only half of itself and leave the
-		// rest behind as a declaration the parser then choked on
-		let i = at + '@apply'.length;
-		let names = '';
+    // the name list runs to the end of the statement: a semicolon, or the `}`
+    // that closes the block. A comment inside it is *trivia*, the way it is
+    // everywhere else in a stylesheet -- treating it as a boundary made
+    // `@apply p-1 /* and */ m-1;` expand only half of itself and leave the
+    // rest behind as a declaration the parser then choked on
+    let i = at + '@apply'.length;
+    let names = '';
 
-		for (; i < source.length; i++) {
-			const skip = comment(i);
-			if (skip !== undefined) {
-				names += ' ';
-				i = skip - 1;
-				continue;
-			}
-			const ch = source[i];
-			if (ch === ';' || ch === '{' || ch === '}') {
-				break;
-			}
-			names += ch;
-		}
+    for (; i < source.length; i++) {
+      const skip = comment(i);
+      if (skip !== undefined) {
+        names += ' ';
+        i = skip - 1;
+        continue;
+      }
+      const ch = source[i];
+      if (ch === ';' || ch === '{' || ch === '}') {
+        break;
+      }
+      names += ch;
+    }
 
-		const semicolon = source[i] === ';' ? ';' : '';
-		// whatever followed the last name is put back: a source transform that
-		// eats the space before a `}` is one whose output nobody can diff
-		const trimmed = names.trimEnd();
-		out.push(expand(trimmed), semicolon, names.slice(trimmed.length));
-		at = i + (semicolon ? 1 : 0);
-	}
+    const semicolon = source[i] === ';' ? ';' : '';
+    // whatever followed the last name is put back: a source transform that
+    // eats the space before a `}` is one whose output nobody can diff
+    const trimmed = names.trimEnd();
+    out.push(expand(trimmed), semicolon, names.slice(trimmed.length));
+    at = i + (semicolon ? 1 : 0);
+  }
 
-	return out.join('');
+  return out.join('');
 }

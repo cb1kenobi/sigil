@@ -32,17 +32,17 @@ import type { Expression } from 'oxc-parser';
  * and each of them is that import.
  */
 export interface ImportBindings {
-	/** Locals a named import bound it to, alias included. */
-	readonly direct: ReadonlySet<string>;
-	/** The export name being looked for, which a namespace member has to match. */
-	readonly name: string;
-	/** Locals a namespace import bound the whole module to. */
-	readonly namespaces: ReadonlySet<string>;
+  /** Locals a named import bound it to, alias included. */
+  readonly direct: ReadonlySet<string>;
+  /** The export name being looked for, which a namespace member has to match. */
+  readonly name: string;
+  /** Locals a namespace import bound the whole module to. */
+  readonly namespaces: ReadonlySet<string>;
 }
 
 /** Whether a set of bindings can reach the export at all. */
 export function reachable(bindings: ImportBindings): boolean {
-	return bindings.direct.size > 0 || bindings.namespaces.size > 0;
+  return bindings.direct.size > 0 || bindings.namespaces.size > 0;
 }
 
 /**
@@ -58,40 +58,40 @@ export function reachable(bindings: ImportBindings): boolean {
  * @returns The direct locals and the namespace locals, shadowed names removed.
  */
 export function importBindings(parsed: ParsedModule, from: string, name: string): ImportBindings {
-	const direct = new Set<string>();
-	const namespaces = new Set<string>();
+  const direct = new Set<string>();
+  const namespaces = new Set<string>();
 
-	for (const imported of parsed.module.staticImports) {
-		if (imported.moduleRequest.value !== from) {
-			continue;
-		}
+  for (const imported of parsed.module.staticImports) {
+    if (imported.moduleRequest.value !== from) {
+      continue;
+    }
 
-		for (const entry of imported.entries) {
-			// a type-only import erases, so nothing it named exists at run time
-			if (entry.isType) {
-				continue;
-			}
+    for (const entry of imported.entries) {
+      // a type-only import erases, so nothing it named exists at run time
+      if (entry.isType) {
+        continue;
+      }
 
-			if (entry.importName.kind === 'NamespaceObject') {
-				namespaces.add(entry.localName.value);
-			} else if (entry.importName.kind === 'Name' && entry.importName.name === name) {
-				direct.add(entry.localName.value);
-			}
-		}
-	}
+      if (entry.importName.kind === 'NamespaceObject') {
+        namespaces.add(entry.localName.value);
+      } else if (entry.importName.kind === 'Name' && entry.importName.name === name) {
+        direct.add(entry.localName.value);
+      }
+    }
+  }
 
-	// nothing imported it, so there is nothing for a shadow to shadow and the
-	// walk `reboundNames()` would do is worth skipping rather than running to
-	// find that out
-	if (!direct.size && !namespaces.size) {
-		return { direct, name, namespaces };
-	}
+  // nothing imported it, so there is nothing for a shadow to shadow and the
+  // walk `reboundNames()` would do is worth skipping rather than running to
+  // find that out
+  if (!direct.size && !namespaces.size) {
+    return { direct, name, namespaces };
+  }
 
-	const rebound = reboundNames(parsed);
-	const keep = (names: ReadonlySet<string>): Set<string> =>
-		new Set([...names].filter((local) => !rebound.has(local)));
+  const rebound = reboundNames(parsed);
+  const keep = (names: ReadonlySet<string>): Set<string> =>
+    new Set([...names].filter((local) => !rebound.has(local)));
 
-	return { direct: keep(direct), name, namespaces: keep(namespaces) };
+  return { direct: keep(direct), name, namespaces: keep(namespaces) };
 }
 
 /**
@@ -116,31 +116,31 @@ export function importBindings(parsed: ParsedModule, from: string, name: string)
  * @returns The names it re-binds.
  */
 function reboundNames(parsed: ParsedModule): Set<string> {
-	const names = new Set<string>();
+  const names = new Set<string>();
 
-	walk(parsed.program, (node) => {
-		// an import's own binding is not a shadow of itself
-		if (node.type === 'ImportDeclaration') {
-			return false;
-		}
+  walk(parsed.program, (node) => {
+    // an import's own binding is not a shadow of itself
+    if (node.type === 'ImportDeclaration') {
+      return false;
+    }
 
-		const record = node as unknown as Record<string, unknown>;
-		for (const key of ['id', 'param', 'params']) {
-			const value = record[key];
+    const record = node as unknown as Record<string, unknown>;
+    for (const key of ['id', 'param', 'params']) {
+      const value = record[key];
 
-			if (Array.isArray(value)) {
-				for (const each of value) {
-					patternNames(each, names);
-				}
-			} else {
-				patternNames(value, names);
-			}
-		}
+      if (Array.isArray(value)) {
+        for (const each of value) {
+          patternNames(each, names);
+        }
+      } else {
+        patternNames(value, names);
+      }
+    }
 
-		return true;
-	});
+    return true;
+  });
 
-	return names;
+  return names;
 }
 
 /**
@@ -154,40 +154,40 @@ function reboundNames(parsed: ParsedModule): Set<string> {
  * @param into - Where to collect the names.
  */
 function patternNames(value: unknown, into: Set<string>): void {
-	if (!value || typeof value !== 'object') {
-		return;
-	}
+  if (!value || typeof value !== 'object') {
+    return;
+  }
 
-	const node = value as Record<string, unknown> & { type?: string };
+  const node = value as Record<string, unknown> & { type?: string };
 
-	switch (node.type) {
-		case 'ArrayPattern':
-			for (const element of (node.elements as unknown[]) ?? []) {
-				patternNames(element, into);
-			}
-			patternNames(node.rest, into);
-			return;
-		case 'AssignmentPattern':
-			patternNames(node.left, into);
-			return;
-		case 'Identifier':
-			into.add(String(node.name));
-			return;
-		case 'ObjectPattern':
-			for (const property of (node.properties as Record<string, unknown>[]) ?? []) {
-				patternNames(property.value, into);
-			}
-			patternNames(node.rest, into);
-			return;
-		case 'RestElement':
-			patternNames(node.argument, into);
-			return;
-		case 'TSParameterProperty':
-			patternNames(node.parameter, into);
-			return;
-		default:
-			return;
-	}
+  switch (node.type) {
+    case 'ArrayPattern':
+      for (const element of (node.elements as unknown[]) ?? []) {
+        patternNames(element, into);
+      }
+      patternNames(node.rest, into);
+      return;
+    case 'AssignmentPattern':
+      patternNames(node.left, into);
+      return;
+    case 'Identifier':
+      into.add(String(node.name));
+      return;
+    case 'ObjectPattern':
+      for (const property of (node.properties as Record<string, unknown>[]) ?? []) {
+        patternNames(property.value, into);
+      }
+      patternNames(node.rest, into);
+      return;
+    case 'RestElement':
+      patternNames(node.argument, into);
+      return;
+    case 'TSParameterProperty':
+      patternNames(node.parameter, into);
+      return;
+    default:
+      return;
+  }
 }
 
 /**
@@ -210,24 +210,24 @@ function patternNames(value: unknown, into: Set<string>): void {
  * @returns The name it was reached by, or `undefined` if it is not the import.
  */
 export function bindingName(node: Expression, bindings: ImportBindings): string | undefined {
-	const expression = unwrap(node);
+  const expression = unwrap(node);
 
-	if (expression.type === 'Identifier') {
-		return bindings.direct.has(expression.name) ? expression.name : undefined;
-	}
+  if (expression.type === 'Identifier') {
+    return bindings.direct.has(expression.name) ? expression.name : undefined;
+  }
 
-	if (
-		expression.type === 'MemberExpression' &&
-		!expression.computed &&
-		expression.object.type === 'Identifier' &&
-		bindings.namespaces.has(expression.object.name) &&
-		expression.property.type === 'Identifier' &&
-		expression.property.name === bindings.name
-	) {
-		return `${expression.object.name}.${expression.property.name}`;
-	}
+  if (
+    expression.type === 'MemberExpression' &&
+    !expression.computed &&
+    expression.object.type === 'Identifier' &&
+    bindings.namespaces.has(expression.object.name) &&
+    expression.property.type === 'Identifier' &&
+    expression.property.name === bindings.name
+  ) {
+    return `${expression.object.name}.${expression.property.name}`;
+  }
 
-	return undefined;
+  return undefined;
 }
 
 /**
@@ -242,9 +242,9 @@ export function bindingName(node: Expression, bindings: ImportBindings): string 
  * @returns The innermost expression the parentheses wrap.
  */
 export function unwrap(node: Expression): Expression {
-	let inner = node;
-	while (inner.type === 'ParenthesizedExpression') {
-		inner = inner.expression;
-	}
-	return inner;
+  let inner = node;
+  while (inner.type === 'ParenthesizedExpression') {
+    inner = inner.expression;
+  }
+  return inner;
 }

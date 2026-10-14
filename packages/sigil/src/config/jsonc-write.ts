@@ -1,13 +1,13 @@
 import { isPlainObject } from './dotted.js';
 import { scanJsonc } from './jsonc.js';
 import {
-	applyEdits,
-	LINE_END,
-	lineIndent,
-	lineStartAt,
-	ownLineIndent,
-	type Edit,
-	type Span,
+  applyEdits,
+  LINE_END,
+  lineIndent,
+  lineStartAt,
+  ownLineIndent,
+  type Edit,
+  type Span,
 } from './spans.js';
 
 /**
@@ -55,14 +55,14 @@ type NodeKind = 'array' | 'object' | 'scalar';
 
 /** One value, with the span it occupies in the source. */
 interface Node {
-	/** The offset of the closing `}` or `]`, for a container. */
-	readonly close?: number;
-	/** The entries, for a container: an object's members or an array's elements. */
-	readonly entries?: readonly Entry[];
-	readonly kind: NodeKind;
-	/** The offset of the opening `{` or `[`, for a container. */
-	readonly open?: number;
-	readonly span: Span;
+  /** The offset of the closing `}` or `]`, for a container. */
+  readonly close?: number;
+  /** The entries, for a container: an object's members or an array's elements. */
+  readonly entries?: readonly Entry[];
+  readonly kind: NodeKind;
+  /** The offset of the opening `{` or `[`, for a container. */
+  readonly open?: number;
+  readonly span: Span;
 }
 
 /**
@@ -74,57 +74,57 @@ interface Node {
  * which it is.
  */
 interface Entry {
-	/** The member's key, or nothing for an array element. */
-	readonly key?: string;
-	readonly node: Node;
-	/** The key start to the value end for a member; the value's span for an element. */
-	readonly span: Span;
+  /** The member's key, or nothing for an array element. */
+  readonly key?: string;
+  readonly node: Node;
+  /** The key start to the value end for a member; the value's span for an element. */
+  readonly span: Span;
 }
 
 /** What the walk needs that is not the tree. */
 interface Ctx {
-	/** The source with its comments and trailing commas blanked out. */
-	readonly blank: string;
-	/**
-	 * Commas a removal deleted **on its own**, leaving the trivia after them.
-	 *
-	 * That is what happens when a comment sits in the gap: the comma goes and the
-	 * comment stays, so an insertion anchored on the entry before it still has to
-	 * go past that comment. The pair with `eaten` is what `insertInto()` reads --
-	 * one records a comma whose line survived it and the other one whose did not.
-	 */
-	readonly cut: Set<number>;
-	readonly edits: Edit[];
-	/**
-	 * Commas a removal swallowed into its own **range**, taking the gap with them.
-	 *
-	 * So there is nothing left between the entry before and what was removed, and
-	 * an insertion has to anchor back at the value: anchoring past the comma would
-	 * land inside the removal, which is an overlapping edit.
-	 */
-	readonly eaten: Set<number>;
-	/** The line ending the document uses, so an inserted line matches it. */
-	readonly eol: string;
-	readonly source: string;
-	/** One level of indentation, as this document writes it. */
-	readonly step: string;
-	/**
-	 * Where the source's trailing commas are, which `blank` cannot say.
-	 *
-	 * The scan blanks one to a space, so it is whitespace to every walk over the
-	 * blanked text -- and a comma in the source, which is why watching the source
-	 * instead is no answer either: a comma inside a comment is a comma there too.
-	 * So the scan reports the offsets and this is the only thing that can use
-	 * them. Found by review, over a container whose every entry was removed and
-	 * whose trailing comma was then left with nothing in front of it.
-	 */
-	readonly trailing: ReadonlySet<number>;
+  /** The source with its comments and trailing commas blanked out. */
+  readonly blank: string;
+  /**
+   * Commas a removal deleted **on its own**, leaving the trivia after them.
+   *
+   * That is what happens when a comment sits in the gap: the comma goes and the
+   * comment stays, so an insertion anchored on the entry before it still has to
+   * go past that comment. The pair with `eaten` is what `insertInto()` reads --
+   * one records a comma whose line survived it and the other one whose did not.
+   */
+  readonly cut: Set<number>;
+  readonly edits: Edit[];
+  /**
+   * Commas a removal swallowed into its own **range**, taking the gap with them.
+   *
+   * So there is nothing left between the entry before and what was removed, and
+   * an insertion has to anchor back at the value: anchoring past the comma would
+   * land inside the removal, which is an overlapping edit.
+   */
+  readonly eaten: Set<number>;
+  /** The line ending the document uses, so an inserted line matches it. */
+  readonly eol: string;
+  readonly source: string;
+  /** One level of indentation, as this document writes it. */
+  readonly step: string;
+  /**
+   * Where the source's trailing commas are, which `blank` cannot say.
+   *
+   * The scan blanks one to a space, so it is whitespace to every walk over the
+   * blanked text -- and a comma in the source, which is why watching the source
+   * instead is no answer either: a comma inside a comment is a comma there too.
+   * So the scan reports the offsets and this is the only thing that can use
+   * them. Found by review, over a container whose every entry was removed and
+   * whose trailing comma was then left with nothing in front of it.
+   */
+  readonly trailing: ReadonlySet<number>;
 }
 
 /** What `editJsonc()` takes beyond the two values. */
 export interface EditOptions {
-	/** The file, for a message. */
-	readonly what: string;
+  /** The file, for a message. */
+  readonly what: string;
 }
 
 /**
@@ -151,21 +151,21 @@ const EMPTY: ReadonlySet<number> = new Set();
 
 /** JSON's own whitespace, which is all the blanked text can hold between tokens. */
 function isSpace(c: string | undefined): boolean {
-	return c === ' ' || c === '\t' || c === '\n' || c === '\r';
+  return c === ' ' || c === '\t' || c === '\n' || c === '\r';
 }
 
 /** Whether a character ends a bare scalar. */
 function isDelimiter(c: string | undefined): boolean {
-	return c === undefined || c === ',' || c === '}' || c === ']' || isSpace(c);
+  return c === undefined || c === ',' || c === '}' || c === ']' || isSpace(c);
 }
 
 /** Past the whitespace, which in the blanked text is past the comments too. */
 function skipSpace(text: string, from: number): number {
-	let i = from;
-	while (i < text.length && isSpace(text[i])) {
-		i++;
-	}
-	return i;
+  let i = from;
+  while (i < text.length && isSpace(text[i])) {
+    i++;
+  }
+  return i;
 }
 
 /**
@@ -180,18 +180,18 @@ function skipSpace(text: string, from: number): number {
  * @returns The offset just past the closing quote.
  */
 function skipString(text: string, from: number): number {
-	let i = from + 1;
-	while (i < text.length) {
-		if (text[i] === '\\') {
-			i += 2;
-			continue;
-		}
-		if (text[i] === '"') {
-			return i + 1;
-		}
-		i++;
-	}
-	return text.length;
+  let i = from + 1;
+  while (i < text.length) {
+    if (text[i] === '\\') {
+      i += 2;
+      continue;
+    }
+    if (text[i] === '"') {
+      return i + 1;
+    }
+    i++;
+  }
+  return text.length;
 }
 
 /**
@@ -207,60 +207,60 @@ function skipString(text: string, from: number): number {
  * @returns The node and the offset just past it.
  */
 function readNode(text: string, from: number): { end: number; node: Node } {
-	const start = skipSpace(text, from);
-	const c = text[start];
+  const start = skipSpace(text, from);
+  const c = text[start];
 
-	if (c === '{' || c === '[') {
-		const object = c === '{';
-		const entries: Entry[] = [];
-		let i = skipSpace(text, start + 1);
+  if (c === '{' || c === '[') {
+    const object = c === '{';
+    const entries: Entry[] = [];
+    let i = skipSpace(text, start + 1);
 
-		while (i < text.length && text[i] !== (object ? '}' : ']')) {
-			let key: string | undefined;
-			let at = i;
+    while (i < text.length && text[i] !== (object ? '}' : ']')) {
+      let key: string | undefined;
+      let at = i;
 
-			if (object) {
-				const keyEnd = skipString(text, i);
-				key = JSON.parse(text.slice(i, keyEnd)) as string;
-				at = skipSpace(text, keyEnd) + 1;
-			}
+      if (object) {
+        const keyEnd = skipString(text, i);
+        key = JSON.parse(text.slice(i, keyEnd)) as string;
+        at = skipSpace(text, keyEnd) + 1;
+      }
 
-			const read = readNode(text, at);
-			entries.push({
-				...(key !== undefined && { key }),
-				node: read.node,
-				span: { end: read.node.span.end, start: i },
-			});
+      const read = readNode(text, at);
+      entries.push({
+        ...(key !== undefined && { key }),
+        node: read.node,
+        span: { end: read.node.span.end, start: i },
+      });
 
-			i = skipSpace(text, read.end);
-			if (text[i] === ',') {
-				i = skipSpace(text, i + 1);
-			}
-		}
+      i = skipSpace(text, read.end);
+      if (text[i] === ',') {
+        i = skipSpace(text, i + 1);
+      }
+    }
 
-		return {
-			end: i + 1,
-			node: {
-				close: i,
-				entries,
-				kind: object ? 'object' : 'array',
-				open: start,
-				span: { end: i + 1, start },
-			},
-		};
-	}
+    return {
+      end: i + 1,
+      node: {
+        close: i,
+        entries,
+        kind: object ? 'object' : 'array',
+        open: start,
+        span: { end: i + 1, start },
+      },
+    };
+  }
 
-	const end = c === '"' ? skipString(text, start) : bareEnd(text, start);
-	return { end, node: { kind: 'scalar', span: { end, start } } };
+  const end = c === '"' ? skipString(text, start) : bareEnd(text, start);
+  return { end, node: { kind: 'scalar', span: { end, start } } };
 }
 
 /** Past a `true`, a `false`, a `null` or a number. */
 function bareEnd(text: string, from: number): number {
-	let i = from;
-	while (i < text.length && !isDelimiter(text[i])) {
-		i++;
-	}
-	return i;
+  let i = from;
+  while (i < text.length && !isDelimiter(text[i])) {
+    i++;
+  }
+  return i;
 }
 
 /**
@@ -287,7 +287,7 @@ function bareEnd(text: string, from: number): number {
  * @returns Whether an edit can be skipped.
  */
 function same(a: unknown, b: unknown): boolean {
-	return a === b;
+  return a === b;
 }
 
 /**
@@ -305,20 +305,20 @@ function same(a: unknown, b: unknown): boolean {
  * @returns The text.
  */
 function serialize(value: unknown, indent: string, ctx: Ctx): string {
-	// `undefined` is the one value `JSON.stringify` answers for with `undefined`
-	// rather than a string, and `canRepresent()` is what keeps it from arriving.
-	// A tripwire rather than a case anybody has, which is the line
-	// `clipboardSequence()`'s own unreachable assertion takes
-	const text = JSON.stringify(value, null, ctx.step);
-	if (text === undefined) {
-		throw new Error('A config value JSON cannot represent reached the writer');
-	}
-	return text.split('\n').join(ctx.eol + indent);
+  // `undefined` is the one value `JSON.stringify` answers for with `undefined`
+  // rather than a string, and `canRepresent()` is what keeps it from arriving.
+  // A tripwire rather than a case anybody has, which is the line
+  // `clipboardSequence()`'s own unreachable assertion takes
+  const text = JSON.stringify(value, null, ctx.step);
+  if (text === undefined) {
+    throw new Error('A config value JSON cannot represent reached the writer');
+  }
+  return text.split('\n').join(ctx.eol + indent);
 }
 
 /** A member, as it is written. */
 function member(key: string, value: unknown, indent: string, ctx: Ctx): string {
-	return `${JSON.stringify(key)}: ${serialize(value, indent, ctx)}`;
+  return `${JSON.stringify(key)}: ${serialize(value, indent, ctx)}`;
 }
 
 /**
@@ -340,11 +340,11 @@ function member(key: string, value: unknown, indent: string, ctx: Ctx): string {
  * @returns The comma's offset, or `-1`.
  */
 function commaAfter(ctx: Ctx, from: number, limit: number): number {
-	let at = from;
-	while (at < limit && !ctx.trailing.has(at) && isSpace(ctx.blank[at])) {
-		at++;
-	}
-	return at < limit && (ctx.blank[at] === ',' || ctx.trailing.has(at)) ? at : -1;
+  let at = from;
+  while (at < limit && !ctx.trailing.has(at) && isSpace(ctx.blank[at])) {
+    at++;
+  }
+  return at < limit && (ctx.blank[at] === ',' || ctx.trailing.has(at)) ? at : -1;
 }
 
 /**
@@ -356,11 +356,11 @@ function commaAfter(ctx: Ctx, from: number, limit: number): number {
  * @returns The comma's offset, or `-1`.
  */
 function commaBefore(ctx: Ctx, from: number, limit: number): number {
-	let i = from;
-	while (i > limit && isSpace(ctx.blank[i - 1])) {
-		i--;
-	}
-	return i > limit && ctx.blank[i - 1] === ',' ? i - 1 : -1;
+  let i = from;
+  while (i > limit && isSpace(ctx.blank[i - 1])) {
+    i--;
+  }
+  return i > limit && ctx.blank[i - 1] === ',' ? i - 1 : -1;
 }
 
 /**
@@ -383,53 +383,53 @@ function commaBefore(ctx: Ctx, from: number, limit: number): number {
  * @returns Where to insert, which is `from` when the line does not end first.
  */
 function lineTriviaEnd(ctx: Ctx, from: number, limit: number): number {
-	let i = from;
+  let i = from;
 
-	for (;;) {
-		// the bound said rather than relied upon: deleting it changes no answer,
-		// because the character at `limit` is the closing brace and the fallthrough
-		// at the bottom returns `from` for one anyway. A declared survivor of the
-		// sabotage pass, kept because a scan that walks to a limit should say what
-		// the limit is rather than leave it to a reader to notice that a brace
-		// happens to stop it
-		if (i >= limit) {
-			return from;
-		}
+  for (;;) {
+    // the bound said rather than relied upon: deleting it changes no answer,
+    // because the character at `limit` is the closing brace and the fallthrough
+    // at the bottom returns `from` for one anyway. A declared survivor of the
+    // sabotage pass, kept because a scan that walks to a limit should say what
+    // the limit is rather than leave it to a reader to notice that a brace
+    // happens to stop it
+    if (i >= limit) {
+      return from;
+    }
 
-		const c = ctx.source[i] as string;
+    const c = ctx.source[i] as string;
 
-		if (c === ' ' || c === '\t') {
-			i++;
-			continue;
-		}
+    if (c === ' ' || c === '\t') {
+      i++;
+      continue;
+    }
 
-		if (LINE_END.test(c)) {
-			return i;
-		}
+    if (LINE_END.test(c)) {
+      return i;
+    }
 
-		if (c === '/' && ctx.source[i + 1] === '/') {
-			while (i < limit && !LINE_END.test(ctx.source[i] as string)) {
-				i++;
-			}
-			return i < limit ? i : from;
-		}
+    if (c === '/' && ctx.source[i + 1] === '/') {
+      while (i < limit && !LINE_END.test(ctx.source[i] as string)) {
+        i++;
+      }
+      return i < limit ? i : from;
+    }
 
-		if (c === '/' && ctx.source[i + 1] === '*') {
-			const close = ctx.source.indexOf('*/', i + 2);
-			if (close === -1 || close + 2 > limit) {
-				return from;
-			}
-			i = close + 2;
-			continue;
-		}
+    if (c === '/' && ctx.source[i + 1] === '*') {
+      const close = ctx.source.indexOf('*/', i + 2);
+      if (close === -1 || close + 2 > limit) {
+        return from;
+      }
+      i = close + 2;
+      continue;
+    }
 
-		return from;
-	}
+    return from;
+  }
 }
 
 /** Whether a container spans more than one line in the source. */
 function multiline(ctx: Ctx, node: Node): boolean {
-	return LINE_END.test(ctx.source.slice(node.open as number, node.close as number));
+  return LINE_END.test(ctx.source.slice(node.open as number, node.close as number));
 }
 
 /**
@@ -446,16 +446,16 @@ function multiline(ctx: Ctx, node: Node): boolean {
  * @returns The indentation.
  */
 function entryIndent(ctx: Ctx, node: Node): string {
-	const entries = node.entries ?? [];
+  const entries = node.entries ?? [];
 
-	for (let i = entries.length - 1; i >= 0; i--) {
-		const own = ownLineIndent(ctx.source, (entries[i] as Entry).span.start);
-		if (own !== undefined) {
-			return own;
-		}
-	}
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const own = ownLineIndent(ctx.source, (entries[i] as Entry).span.start);
+    if (own !== undefined) {
+      return own;
+    }
+  }
 
-	return lineIndent(ctx.source, node.open as number) + ctx.step;
+  return lineIndent(ctx.source, node.open as number) + ctx.step;
 }
 
 /**
@@ -474,9 +474,9 @@ function entryIndent(ctx: Ctx, node: Node): string {
  * @returns The indentation.
  */
 function insertIndent(ctx: Ctx, node: Node): string {
-	return multiline(ctx, node)
-		? entryIndent(ctx, node)
-		: lineIndent(ctx.source, node.open as number);
+  return multiline(ctx, node)
+    ? entryIndent(ctx, node)
+    : lineIndent(ctx.source, node.open as number);
 }
 
 /**
@@ -493,129 +493,129 @@ function insertIndent(ctx: Ctx, node: Node): string {
  * anchor on.
  */
 function insertInto(
-	ctx: Ctx,
-	node: Node,
-	blobs: readonly string[],
-	drop: ReadonlySet<number>
+  ctx: Ctx,
+  node: Node,
+  blobs: readonly string[],
+  drop: ReadonlySet<number>
 ): void {
-	const entries = node.entries ?? [];
-	const open = node.open as number;
-	const close = node.close as number;
-	const lines = multiline(ctx, node);
-	const indent = entryIndent(ctx, node);
-	// the last entry that is **staying**, because the anchor has to be an offset
-	// the file will still have: anchoring on an entry that is being removed puts
-	// the separator inside the removal, which is a dangling comma and invalid JSON
-	const kept = entries.filter((_, i) => !drop.has(i));
+  const entries = node.entries ?? [];
+  const open = node.open as number;
+  const close = node.close as number;
+  const lines = multiline(ctx, node);
+  const indent = entryIndent(ctx, node);
+  // the last entry that is **staying**, because the anchor has to be an offset
+  // the file will still have: anchoring on an entry that is being removed puts
+  // the separator inside the removal, which is a dangling comma and invalid JSON
+  const kept = entries.filter((_, i) => !drop.has(i));
 
-	if (kept.length === 0) {
-		// nothing to anchor on. An object whose every key is being replaced
-		// anchors just inside the brace, which is the one offset no removal can
-		// reach; a container that was empty to begin with anchors after whatever
-		// trivia is already inside it, so that a comment somebody left in an empty
-		// object stays in front of what is added. The whitespace the second case
-		// walks back over is the source's, which is why a blanked comment cannot
-		// be mistaken for it
-		let at = open + 1;
-		if (entries.length === 0) {
-			at = close;
-			while (at > open + 1 && isSpace(ctx.source[at - 1])) {
-				at--;
-			}
-		}
+  if (kept.length === 0) {
+    // nothing to anchor on. An object whose every key is being replaced
+    // anchors just inside the brace, which is the one offset no removal can
+    // reach; a container that was empty to begin with anchors after whatever
+    // trivia is already inside it, so that a comment somebody left in an empty
+    // object stays in front of what is added. The whitespace the second case
+    // walks back over is the source's, which is why a blanked comment cannot
+    // be mistaken for it
+    let at = open + 1;
+    if (entries.length === 0) {
+      at = close;
+      while (at > open + 1 && isSpace(ctx.source[at - 1])) {
+        at--;
+      }
+    }
 
-		const text = lines
-			? blobs.map((blob) => ctx.eol + indent + blob).join(',')
-			: // a space either side, unless there is already whitespace before the
-				// closing brace to serve as the second one
-				` ${blobs.join(', ')}${at === close ? ' ' : ''}`;
+    const text = lines
+      ? blobs.map((blob) => ctx.eol + indent + blob).join(',')
+      : // a space either side, unless there is already whitespace before the
+        // closing brace to serve as the second one
+        ` ${blobs.join(', ')}${at === close ? ' ' : ''}`;
 
-		ctx.edits.push({ end: at, start: at, text });
-		return;
-	}
+    ctx.edits.push({ end: at, start: at, text });
+    return;
+  }
 
-	const last = kept[kept.length - 1] as Entry;
+  const last = kept[kept.length - 1] as Entry;
 
-	// the comma that already follows the last kept entry, which decides both
-	// where this goes and whether a separator has to be written. Three answers
-	// rather than two, because a removal may have taken it and what it took with
-	// it is the question: `eaten` is a comma swallowed into a removal range, so
-	// the gap after it went too and the anchor is back at the value -- anchoring
-	// past it would land *inside* that range, which is an overlapping edit --
-	// while `cut` is one deleted on its own, which is what happens when a comment
-	// sits in the gap, so the comment is still there and still has to be gone
-	// past.
-	//
-	// The first version read none of this: it anchored at the value whatever
-	// followed, so `lineTriviaEnd()` met the comma at its first character and
-	// bailed, and a new key was spliced in **front** of the last entry's own
-	// inline comment -- which then read as a comment about the new key. Found by
-	// review, and it is why the branch below is back after a sabotage pass had
-	// proved it dead: the premise that deletion rested on was that `commaAfter()`
-	// could not see a trailing comma, and an earlier round taught it to
-	const comma = commaAfter(ctx, last.span.end, close);
-	const eaten = comma !== -1 && ctx.eaten.has(comma);
-	const reuse = comma !== -1 && !eaten && !ctx.cut.has(comma);
-	const from = comma === -1 || eaten ? last.span.end : comma + 1;
-	const trivia = lines ? lineTriviaEnd(ctx, from, close) : from;
+  // the comma that already follows the last kept entry, which decides both
+  // where this goes and whether a separator has to be written. Three answers
+  // rather than two, because a removal may have taken it and what it took with
+  // it is the question: `eaten` is a comma swallowed into a removal range, so
+  // the gap after it went too and the anchor is back at the value -- anchoring
+  // past it would land *inside* that range, which is an overlapping edit --
+  // while `cut` is one deleted on its own, which is what happens when a comment
+  // sits in the gap, so the comment is still there and still has to be gone
+  // past.
+  //
+  // The first version read none of this: it anchored at the value whatever
+  // followed, so `lineTriviaEnd()` met the comma at its first character and
+  // bailed, and a new key was spliced in **front** of the last entry's own
+  // inline comment -- which then read as a comment about the new key. Found by
+  // review, and it is why the branch below is back after a sabotage pass had
+  // proved it dead: the premise that deletion rested on was that `commaAfter()`
+  // could not see a trailing comma, and an earlier round taught it to
+  const comma = commaAfter(ctx, last.span.end, close);
+  const eaten = comma !== -1 && ctx.eaten.has(comma);
+  const reuse = comma !== -1 && !eaten && !ctx.cut.has(comma);
+  const from = comma === -1 || eaten ? last.span.end : comma + 1;
+  const trivia = lines ? lineTriviaEnd(ctx, from, close) : from;
 
-	// and where a comment sits between the kept value and a comma the removal
-	// swallowed, the comma's own offset is the anchor rather than the value's end.
-	//
-	// `lineTriviaEnd()` bails back to `from` at anything that is not trivia, so a
-	// comma sharing the line with the value stops it -- and the insert then landed
-	// in **front** of the kept entry's own inline comment, which then read as a
-	// comment about the new key. Measured: `{ "a": 1 /* on a */, "b": 2 }` losing
-	// `b` and gaining `c` came out `"c": 3 /* on a */`, a comment describing the
-	// wrong setting, which is worse than losing it. Found by review.
-	//
-	// The condition is read off the **source** rather than inferred from what
-	// `lineTriviaEnd()` answered, and that is not fussiness: it returns `from`
-	// both when it bailed and when a line end sits exactly at `from`, so the two
-	// cannot be told apart from the outside. A version that tried threw an
-	// overlapping edit on `{ "a": 1\n\t,\n\t"b": 2 }`, where the comma owns a
-	// line and the removal therefore starts at that line's beginning rather than
-	// at the comma.
-	//
-	// Two conditions, each carrying half of the safety argument and each pinned.
-	// `eaten` is what says the comma was swallowed **into** the removal rather
-	// than deleted on its own -- a `cut` comma has `from` past it already, and
-	// anchoring back at it would put the insert in front of whatever is in the gap
-	// *after* it, which is the same defect one comment along. And no line end in
-	// the gap is what says the comma shares the value's line, so it cannot own
-	// one, so the removal really does start at it -- and `applyEdits()` orders an
-	// insertion before a replacement that starts where it does.
-	//
-	// Two further conditions were tried and both were redundant: a `comma > from`
-	// that only ever excluded a comma sitting flush against the value, where the
-	// anchor is that same offset either way, and a `gap.trim()` that excluded a
-	// whitespace-only gap -- which turned out to be the *worse* answer, since it
-	// moved the space the user had put after their value onto the line this
-	// writes. Measured, both
-	const gap = ctx.source.slice(from, comma);
-	const buried = eaten && !LINE_END.test(gap);
-	const at = buried ? comma : trivia;
-	const sep = lines ? ctx.eol + indent : ' ';
+  // and where a comment sits between the kept value and a comma the removal
+  // swallowed, the comma's own offset is the anchor rather than the value's end.
+  //
+  // `lineTriviaEnd()` bails back to `from` at anything that is not trivia, so a
+  // comma sharing the line with the value stops it -- and the insert then landed
+  // in **front** of the kept entry's own inline comment, which then read as a
+  // comment about the new key. Measured: `{ "a": 1 /* on a */, "b": 2 }` losing
+  // `b` and gaining `c` came out `"c": 3 /* on a */`, a comment describing the
+  // wrong setting, which is worse than losing it. Found by review.
+  //
+  // The condition is read off the **source** rather than inferred from what
+  // `lineTriviaEnd()` answered, and that is not fussiness: it returns `from`
+  // both when it bailed and when a line end sits exactly at `from`, so the two
+  // cannot be told apart from the outside. A version that tried threw an
+  // overlapping edit on `{ "a": 1\n\t,\n\t"b": 2 }`, where the comma owns a
+  // line and the removal therefore starts at that line's beginning rather than
+  // at the comma.
+  //
+  // Two conditions, each carrying half of the safety argument and each pinned.
+  // `eaten` is what says the comma was swallowed **into** the removal rather
+  // than deleted on its own -- a `cut` comma has `from` past it already, and
+  // anchoring back at it would put the insert in front of whatever is in the gap
+  // *after* it, which is the same defect one comment along. And no line end in
+  // the gap is what says the comma shares the value's line, so it cannot own
+  // one, so the removal really does start at it -- and `applyEdits()` orders an
+  // insertion before a replacement that starts where it does.
+  //
+  // Two further conditions were tried and both were redundant: a `comma > from`
+  // that only ever excluded a comma sitting flush against the value, where the
+  // anchor is that same offset either way, and a `gap.trim()` that excluded a
+  // whitespace-only gap -- which turned out to be the *worse* answer, since it
+  // moved the space the user had put after their value onto the line this
+  // writes. Measured, both
+  const gap = ctx.source.slice(from, comma);
+  const buried = eaten && !LINE_END.test(gap);
+  const at = buried ? comma : trivia;
+  const sep = lines ? ctx.eol + indent : ' ';
 
-	// the separator the last entry never needed, which goes directly after it
-	// rather than at the insertion point: with a line comment in between, a comma
-	// written after the comment would be *inside* it. Only where there is not
-	// already one to serve, or the two make `1,,` and nothing parses
-	if (!reuse) {
-		ctx.edits.push({ end: last.span.end, start: last.span.end, text: ',' });
-	}
+  // the separator the last entry never needed, which goes directly after it
+  // rather than at the insertion point: with a line comment in between, a comma
+  // written after the comment would be *inside* it. Only where there is not
+  // already one to serve, or the two make `1,,` and nothing parses
+  if (!reuse) {
+    ctx.edits.push({ end: last.span.end, start: last.span.end, text: ',' });
+  }
 
-	// and the user's trailing comma put back, where the one being reused is it.
-	// It is no longer in front of what this adds -- the anchor is past it now --
-	// so what used to be the trailing comma is a separator, and the style is kept
-	// by writing one rather than by leaving one where it was
-	const trail = reuse && ctx.trailing.has(comma) ? ',' : '';
+  // and the user's trailing comma put back, where the one being reused is it.
+  // It is no longer in front of what this adds -- the anchor is past it now --
+  // so what used to be the trailing comma is a separator, and the style is kept
+  // by writing one rather than by leaving one where it was
+  const trail = reuse && ctx.trailing.has(comma) ? ',' : '';
 
-	ctx.edits.push({
-		end: at,
-		start: at,
-		text: blobs.map((blob) => sep + blob).join(',') + trail,
-	});
+  ctx.edits.push({
+    end: at,
+    start: at,
+    text: blobs.map((blob) => sep + blob).join(',') + trail,
+  });
 }
 
 /**
@@ -653,98 +653,98 @@ function insertInto(
  * @param drop - The indices to remove.
  */
 function removeFrom(ctx: Ctx, node: Node, drop: ReadonlySet<number>): void {
-	const entries = node.entries ?? [];
-	const open = node.open as number;
-	const close = node.close as number;
-	const survives = (from: number, to: number): boolean => {
-		for (let i = from; i < to; i++) {
-			if (!drop.has(i)) {
-				return true;
-			}
-		}
-		return false;
-	};
+  const entries = node.entries ?? [];
+  const open = node.open as number;
+  const close = node.close as number;
+  const survives = (from: number, to: number): boolean => {
+    for (let i = from; i < to; i++) {
+      if (!drop.has(i)) {
+        return true;
+      }
+    }
+    return false;
+  };
 
-	for (const [first, final] of runsOf(entries.length, drop)) {
-		let { start } = (entries[first] as Entry).span;
-		let { end } = (entries[final] as Entry).span;
+  for (const [first, final] of runsOf(entries.length, drop)) {
+    let { start } = (entries[first] as Entry).span;
+    let { end } = (entries[final] as Entry).span;
 
-		if (!survives(final + 1, entries.length) && survives(0, first)) {
-			const comma = commaBefore(ctx, start, open);
-			if (comma !== -1) {
-				if (ctx.source.slice(comma + 1, start).trim() === '') {
-					start = comma;
-					ctx.eaten.add(comma);
-				} else {
-					ctx.edits.push({ end: comma + 1, start: comma, text: '' });
-					ctx.cut.add(comma);
-				}
-			}
-		} else {
-			const comma = commaAfter(ctx, end, close);
-			if (comma !== -1) {
-				if (ctx.source.slice(end, comma).trim() === '') {
-					end = comma + 1;
-				} else {
-					ctx.edits.push({ end: comma + 1, start: comma, text: '' });
-				}
-			}
-		}
+    if (!survives(final + 1, entries.length) && survives(0, first)) {
+      const comma = commaBefore(ctx, start, open);
+      if (comma !== -1) {
+        if (ctx.source.slice(comma + 1, start).trim() === '') {
+          start = comma;
+          ctx.eaten.add(comma);
+        } else {
+          ctx.edits.push({ end: comma + 1, start: comma, text: '' });
+          ctx.cut.add(comma);
+        }
+      }
+    } else {
+      const comma = commaAfter(ctx, end, close);
+      if (comma !== -1) {
+        if (ctx.source.slice(end, comma).trim() === '') {
+          end = comma + 1;
+        } else {
+          ctx.edits.push({ end: comma + 1, start: comma, text: '' });
+        }
+      }
+    }
 
-		// the trailing whitespace of what is being removed -- unless it is the
-		// container's own padding before the closing brace, which belongs to the
-		// container rather than to the run: `{ "a": 1 }` emptied has to keep the
-		// space in front of its brace. And unless swallowing it would **glue** a
-		// comment onto whatever precedes the range: `{ "a": 1,\n\t"b": 2 // on b\n}`
-		// less `b` came out `"a": 1// on b`, where the comment reads as `a`'s and
-		// the space is the only thing that was keeping them apart. Where what
-		// precedes is itself whitespace, or the brace, there is nothing to glue to
-		// and the space is still the run's -- which is what keeps `{ "a": 1 /* c */, }`
-		// emptying to `{ /* c */ }` rather than to a double space. Found by review
-		let ahead = end;
-		while (ctx.source[ahead] === ' ' || ctx.source[ahead] === '\t') {
-			ahead++;
-		}
-		const glues =
-			ctx.source[ahead] === '/' &&
-			(ctx.source[ahead + 1] === '/' || ctx.source[ahead + 1] === '*') &&
-			start - 1 !== open &&
-			!isSpace(ctx.source[start - 1]);
-		if (ahead !== close && !glues) {
-			end = ahead;
-		}
+    // the trailing whitespace of what is being removed -- unless it is the
+    // container's own padding before the closing brace, which belongs to the
+    // container rather than to the run: `{ "a": 1 }` emptied has to keep the
+    // space in front of its brace. And unless swallowing it would **glue** a
+    // comment onto whatever precedes the range: `{ "a": 1,\n\t"b": 2 // on b\n}`
+    // less `b` came out `"a": 1// on b`, where the comment reads as `a`'s and
+    // the space is the only thing that was keeping them apart. Where what
+    // precedes is itself whitespace, or the brace, there is nothing to glue to
+    // and the space is still the run's -- which is what keeps `{ "a": 1 /* c */, }`
+    // emptying to `{ /* c */ }` rather than to a double space. Found by review
+    let ahead = end;
+    while (ctx.source[ahead] === ' ' || ctx.source[ahead] === '\t') {
+      ahead++;
+    }
+    const glues =
+      ctx.source[ahead] === '/' &&
+      (ctx.source[ahead + 1] === '/' || ctx.source[ahead + 1] === '*') &&
+      start - 1 !== open &&
+      !isSpace(ctx.source[start - 1]);
+    if (ahead !== close && !glues) {
+      end = ahead;
+    }
 
-		// and then the whole line where the run had one to itself, which is what an
-		// editor does and is what stops a removal leaving an indented blank line
-		// behind. It cannot fire for a run that reached backwards for its comma and
-		// swallowed it, because the range then starts at that comma and a comma owns
-		// no line.
-		//
-		// A comma still to come on that line goes with it, which is the half a
-		// review round found: where the run reached backwards, the comma *after* it
-		// is a trailing one the survivor above has no use for, and left where it was
-		// it sat alone on an indented line of its own -- `{\n\t"a": 1 // keep a\n\t,\n}`.
-		// Only where nothing but whitespace follows it, so a separator another run is
-		// taking is never swallowed from under it
-		const own = ownLineIndent(ctx.source, start) !== undefined;
-		let tail = end;
-		if (own && ctx.source[tail] === ',') {
-			let after = tail + 1;
-			while (ctx.source[after] === ' ' || ctx.source[after] === '\t') {
-				after++;
-			}
-			if (LINE_END.test(ctx.source[after] ?? '')) {
-				tail = after;
-			}
-		}
+    // and then the whole line where the run had one to itself, which is what an
+    // editor does and is what stops a removal leaving an indented blank line
+    // behind. It cannot fire for a run that reached backwards for its comma and
+    // swallowed it, because the range then starts at that comma and a comma owns
+    // no line.
+    //
+    // A comma still to come on that line goes with it, which is the half a
+    // review round found: where the run reached backwards, the comma *after* it
+    // is a trailing one the survivor above has no use for, and left where it was
+    // it sat alone on an indented line of its own -- `{\n\t"a": 1 // keep a\n\t,\n}`.
+    // Only where nothing but whitespace follows it, so a separator another run is
+    // taking is never swallowed from under it
+    const own = ownLineIndent(ctx.source, start) !== undefined;
+    let tail = end;
+    if (own && ctx.source[tail] === ',') {
+      let after = tail + 1;
+      while (ctx.source[after] === ' ' || ctx.source[after] === '\t') {
+        after++;
+      }
+      if (LINE_END.test(ctx.source[after] ?? '')) {
+        tail = after;
+      }
+    }
 
-		if (own && LINE_END.test(ctx.source[tail] ?? '')) {
-			start = lineStartAt(ctx.source, start);
-			end = ctx.source.startsWith('\r\n', tail) ? tail + 2 : tail + 1;
-		}
+    if (own && LINE_END.test(ctx.source[tail] ?? '')) {
+      start = lineStartAt(ctx.source, start);
+      end = ctx.source.startsWith('\r\n', tail) ? tail + 2 : tail + 1;
+    }
 
-		ctx.edits.push({ end, start, text: '' });
-	}
+    ctx.edits.push({ end, start, text: '' });
+  }
 }
 
 /**
@@ -762,44 +762,44 @@ function removeFrom(ctx: Ctx, node: Node, drop: ReadonlySet<number>): void {
  * @returns The runs, in source order.
  */
 function runsOf(count: number, drop: ReadonlySet<number>): Array<[number, number]> {
-	const runs: Array<[number, number]> = [];
+  const runs: Array<[number, number]> = [];
 
-	for (let i = 0; i < count; i++) {
-		if (!drop.has(i)) {
-			continue;
-		}
+  for (let i = 0; i < count; i++) {
+    if (!drop.has(i)) {
+      continue;
+    }
 
-		let final = i;
-		while (final + 1 < count && drop.has(final + 1)) {
-			final++;
-		}
+    let final = i;
+    while (final + 1 < count && drop.has(final + 1)) {
+      final++;
+    }
 
-		runs.push([i, final]);
-		i = final;
-	}
+    runs.push([i, final]);
+    i = final;
+  }
 
-	return runs;
+  return runs;
 }
 
 /** Walks one value, emitting the edits that turn `current` into `next`. */
 function diffNode(ctx: Ctx, node: Node, current: unknown, next: unknown): void {
-	if (node.kind === 'object' && isPlainObject(current) && isPlainObject(next)) {
-		diffObject(ctx, node, current, next);
-		return;
-	}
+  if (node.kind === 'object' && isPlainObject(current) && isPlainObject(next)) {
+    diffObject(ctx, node, current, next);
+    return;
+  }
 
-	if (node.kind === 'array' && Array.isArray(current) && Array.isArray(next)) {
-		diffArray(ctx, node, current, next);
-		return;
-	}
+  if (node.kind === 'array' && Array.isArray(current) && Array.isArray(next)) {
+    diffArray(ctx, node, current, next);
+    return;
+  }
 
-	if (!same(current, next)) {
-		ctx.edits.push({
-			end: node.span.end,
-			start: node.span.start,
-			text: serialize(next, lineIndent(ctx.source, node.span.start), ctx),
-		});
-	}
+  if (!same(current, next)) {
+    ctx.edits.push({
+      end: node.span.end,
+      start: node.span.start,
+      text: serialize(next, lineIndent(ctx.source, node.span.start), ctx),
+    });
+  }
 }
 
 /**
@@ -815,39 +815,39 @@ function diffNode(ctx: Ctx, node: Node, current: unknown, next: unknown): void {
  * is handled rather than hoped about.
  */
 function diffObject(
-	ctx: Ctx,
-	node: Node,
-	current: Record<string, unknown>,
-	next: Record<string, unknown>
+  ctx: Ctx,
+  node: Node,
+  current: Record<string, unknown>,
+  next: Record<string, unknown>
 ): void {
-	const entries = node.entries ?? [];
-	const live = new Map<string, Entry>();
-	for (const entry of entries) {
-		live.set(entry.key as string, entry);
-	}
+  const entries = node.entries ?? [];
+  const live = new Map<string, Entry>();
+  for (const entry of entries) {
+    live.set(entry.key as string, entry);
+  }
 
-	const drop = new Set<number>();
-	for (const [index, entry] of entries.entries()) {
-		const key = entry.key as string;
-		if (!Object.hasOwn(next, key)) {
-			drop.add(index);
-		} else if (live.get(key) === entry) {
-			diffNode(ctx, entry.node, current[key], next[key]);
-		}
-	}
+  const drop = new Set<number>();
+  for (const [index, entry] of entries.entries()) {
+    const key = entry.key as string;
+    if (!Object.hasOwn(next, key)) {
+      drop.add(index);
+    } else if (live.get(key) === entry) {
+      diffNode(ctx, entry.node, current[key], next[key]);
+    }
+  }
 
-	if (drop.size > 0) {
-		removeFrom(ctx, node, drop);
-	}
+  if (drop.size > 0) {
+    removeFrom(ctx, node, drop);
+  }
 
-	const indent = insertIndent(ctx, node);
-	const added = Object.keys(next)
-		.filter((key) => !live.has(key))
-		.map((key) => member(key, next[key], indent, ctx));
+  const indent = insertIndent(ctx, node);
+  const added = Object.keys(next)
+    .filter((key) => !live.has(key))
+    .map((key) => member(key, next[key], indent, ctx));
 
-	if (added.length > 0) {
-		insertInto(ctx, node, added, drop);
-	}
+  if (added.length > 0) {
+    insertInto(ctx, node, added, drop);
+  }
 }
 
 /**
@@ -859,31 +859,31 @@ function diffObject(
  * elements -- so a comment on a line of its own inside a list survives either.
  */
 function diffArray(ctx: Ctx, node: Node, current: unknown[], next: unknown[]): void {
-	const entries = node.entries ?? [];
-	const shared = Math.min(entries.length, next.length);
+  const entries = node.entries ?? [];
+  const shared = Math.min(entries.length, next.length);
 
-	for (let i = 0; i < shared; i++) {
-		diffNode(ctx, (entries[i] as Entry).node, current[i], next[i]);
-	}
+  for (let i = 0; i < shared; i++) {
+    diffNode(ctx, (entries[i] as Entry).node, current[i], next[i]);
+  }
 
-	if (next.length < entries.length) {
-		const drop = new Set<number>();
-		for (let i = next.length; i < entries.length; i++) {
-			drop.add(i);
-		}
-		removeFrom(ctx, node, drop);
-		return;
-	}
+  if (next.length < entries.length) {
+    const drop = new Set<number>();
+    for (let i = next.length; i < entries.length; i++) {
+      drop.add(i);
+    }
+    removeFrom(ctx, node, drop);
+    return;
+  }
 
-	if (next.length > entries.length) {
-		const indent = insertIndent(ctx, node);
-		insertInto(
-			ctx,
-			node,
-			next.slice(entries.length).map((it) => serialize(it, indent, ctx)),
-			EMPTY
-		);
-	}
+  if (next.length > entries.length) {
+    const indent = insertIndent(ctx, node);
+    insertInto(
+      ctx,
+      node,
+      next.slice(entries.length).map((it) => serialize(it, indent, ctx)),
+      EMPTY
+    );
+  }
 }
 
 /**
@@ -901,31 +901,31 @@ function diffArray(ctx: Ctx, node: Node, current: unknown[], next: unknown[]): v
  * @returns The step.
  */
 function detectStep(source: string, root: Node): string {
-	const stack: Node[] = [root];
+  const stack: Node[] = [root];
 
-	while (stack.length > 0) {
-		const node = stack.shift() as Node;
-		const entries = node.entries;
+  while (stack.length > 0) {
+    const node = stack.shift() as Node;
+    const entries = node.entries;
 
-		if (entries === undefined) {
-			continue;
-		}
+    if (entries === undefined) {
+      continue;
+    }
 
-		const base = lineIndent(source, node.open as number);
+    const base = lineIndent(source, node.open as number);
 
-		for (const entry of entries) {
-			const own = ownLineIndent(source, entry.span.start);
-			if (own !== undefined && own.length > base.length && own.startsWith(base)) {
-				return own.slice(base.length);
-			}
-		}
+    for (const entry of entries) {
+      const own = ownLineIndent(source, entry.span.start);
+      if (own !== undefined && own.length > base.length && own.startsWith(base)) {
+        return own.slice(base.length);
+      }
+    }
 
-		for (const entry of entries) {
-			stack.push(entry.node);
-		}
-	}
+    for (const entry of entries) {
+      stack.push(entry.node);
+    }
+  }
 
-	return DEFAULT_STEP;
+  return DEFAULT_STEP;
 }
 
 /**
@@ -938,33 +938,33 @@ function detectStep(source: string, root: Node): string {
  * @throws If the source is not readable as the format it claims.
  */
 export function editJsonc(source: string, next: unknown, opts: EditOptions): string {
-	const scan = scanJsonc(source, opts.what);
+  const scan = scanJsonc(source, opts.what);
 
-	// parsed before it is structured, which is what lets the structural pass be
-	// written to the grammar with no error handling: a text `JSON.parse` has
-	// accepted has no malformed shape left in it for a guard to describe
-	const current = JSON.parse(scan.json) as unknown;
-	const root = readNode(scan.json, 0).node;
+  // parsed before it is structured, which is what lets the structural pass be
+  // written to the grammar with no error handling: a text `JSON.parse` has
+  // accepted has no malformed shape left in it for a guard to describe
+  const current = JSON.parse(scan.json) as unknown;
+  const root = readNode(scan.json, 0).node;
 
-	const ctx: Ctx = {
-		blank: scan.json,
-		cut: new Set(),
-		edits: [],
-		eaten: new Set(),
-		// the document's own line ending, so an inserted line does not mix them.
-		// Three rather than two: a `\r`-only document is rare and a mixed ending is
-		// **silent**, which is the combination `LINE_END` is written for and which
-		// a review round found this half of. U+2028 and U+2029 are deliberately not
-		// here -- they end a line to every reader worth agreeing with and nothing
-		// writes a document in them, so inserting a `\n` into one is the subset
-		// this claims to be rather than a lost case
-		eol: source.includes('\r\n') ? '\r\n' : source.includes('\r') ? '\r' : '\n',
-		source,
-		step: detectStep(source, root),
-		trailing: new Set(scan.trailing),
-	};
+  const ctx: Ctx = {
+    blank: scan.json,
+    cut: new Set(),
+    edits: [],
+    eaten: new Set(),
+    // the document's own line ending, so an inserted line does not mix them.
+    // Three rather than two: a `\r`-only document is rare and a mixed ending is
+    // **silent**, which is the combination `LINE_END` is written for and which
+    // a review round found this half of. U+2028 and U+2029 are deliberately not
+    // here -- they end a line to every reader worth agreeing with and nothing
+    // writes a document in them, so inserting a `\n` into one is the subset
+    // this claims to be rather than a lost case
+    eol: source.includes('\r\n') ? '\r\n' : source.includes('\r') ? '\r' : '\n',
+    source,
+    step: detectStep(source, root),
+    trailing: new Set(scan.trailing),
+  };
 
-	diffNode(ctx, root, current, next);
+  diffNode(ctx, root, current, next);
 
-	return applyEdits(source, ctx.edits);
+  return applyEdits(source, ctx.edits);
 }

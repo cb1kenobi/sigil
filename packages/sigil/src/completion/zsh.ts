@@ -68,7 +68,7 @@ import type { CompletionCommand, CompletionSpec } from './spec.js';
  * @returns The quoted literal.
  */
 export function zshQuote(text: string): string {
-	return `'${text.replaceAll("'", "'\\''")}'`;
+  return `'${text.replaceAll("'", "'\\''")}'`;
 }
 
 /**
@@ -84,90 +84,90 @@ export function zshQuote(text: string): string {
  * @returns The quoted element.
  */
 export function zshPair(name: string, desc?: string): string {
-	const value = name.replaceAll('\\', '\\\\').replaceAll(':', '\\:');
-	return zshQuote(desc === undefined ? value : `${value}:${desc}`);
+  const value = name.replaceAll('\\', '\\\\').replaceAll(':', '\\:');
+  return zshQuote(desc === undefined ? value : `${value}:${desc}`);
 }
 
 /** The prefix every generated name carries. See `bashPrefix()`. */
 export function zshPrefix(program: string): string {
-	return `__${program.replaceAll(/[^A-Za-z0-9_]/gu, '_')}`;
+  return `__${program.replaceAll(/[^A-Za-z0-9_]/gu, '_')}`;
 }
 
 /** The name of the completion function, which is what `compdef` names. */
 export function zshFunction(program: string): string {
-	return `_${program.replaceAll(/[^A-Za-z0-9_]/gu, '_')}`;
+  return `_${program.replaceAll(/[^A-Za-z0-9_]/gu, '_')}`;
 }
 
 /** The `case` pattern for a command path, `''` for the root. */
 function pathPattern(path: readonly string[]): string {
-	return `(${zshQuote(path.join(' '))})`;
+  return `(${zshQuote(path.join(' '))})`;
 }
 
 /** One `case` arm. */
 function arm(path: readonly string[], body: string): string {
-	return `\t\t${pathPattern(path)} ${body} ;;\n`;
+  return `\t\t${pathPattern(path)} ${body} ;;\n`;
 }
 
 /** The arms that say which path a word at a path takes you to. See `resolveArms()` in `./bash.ts`. */
 function resolveArms(spec: CompletionSpec, next: string): string {
-	let out = '';
+  let out = '';
 
-	for (const cmd of spec.commands) {
-		if (cmd.subcommands.length === 0) {
-			continue;
-		}
+  for (const cmd of spec.commands) {
+    if (cmd.subcommands.length === 0) {
+      continue;
+    }
 
-		let inner = '';
-		for (const sub of cmd.subcommands) {
-			const patterns = sub.tokens.map(zshQuote).join('|');
-			const reached = zshQuote([...cmd.path, sub.name].join(' '));
-			inner += `\t\t\t\t(${patterns}) ${next}=${reached} ;;\n`;
-		}
+    let inner = '';
+    for (const sub of cmd.subcommands) {
+      const patterns = sub.tokens.map(zshQuote).join('|');
+      const reached = zshQuote([...cmd.path, sub.name].join(' '));
+      inner += `\t\t\t\t(${patterns}) ${next}=${reached} ;;\n`;
+    }
 
-		out += `\t\t${pathPattern(cmd.path)}\n\t\t\tcase "$2" in\n${inner}\t\t\tesac\n\t\t\t;;\n`;
-	}
+    out += `\t\t${pathPattern(cmd.path)}\n\t\t\tcase "$2" in\n${inner}\t\t\tesac\n\t\t\t;;\n`;
+  }
 
-	return out;
+  return out;
 }
 
 /** The arms that offer subcommand names and their aliases, with their descriptions. */
 function subArms(spec: CompletionSpec, cands: string): string {
-	let out = '';
-	for (const cmd of spec.commands) {
-		if (cmd.subcommands.length > 0) {
-			const pairs = cmd.subcommands
-				.flatMap((sub) => sub.tokens.map((token) => zshPair(token, sub.desc)))
-				.join(' ');
-			out += arm(cmd.path, `${cands}=(${pairs})`);
-		}
-	}
-	return out;
+  let out = '';
+  for (const cmd of spec.commands) {
+    if (cmd.subcommands.length > 0) {
+      const pairs = cmd.subcommands
+        .flatMap((sub) => sub.tokens.map((token) => zshPair(token, sub.desc)))
+        .join(' ');
+      out += arm(cmd.path, `${cands}=(${pairs})`);
+    }
+  }
+  return out;
 }
 
 /** The arms that offer option spellings, with their descriptions. */
 function optArms(spec: CompletionSpec, cands: string): string {
-	let out = '';
-	for (const cmd of spec.commands) {
-		const pairs = cmd.options.flatMap((opt) =>
-			opt.spellings.map((spelling) => zshPair(spelling, opt.desc))
-		);
-		if (pairs.length > 0) {
-			out += arm(cmd.path, `${cands}=(${pairs.join(' ')})`);
-		}
-	}
-	return out;
+  let out = '';
+  for (const cmd of spec.commands) {
+    const pairs = cmd.options.flatMap((opt) =>
+      opt.spellings.map((spelling) => zshPair(spelling, opt.desc))
+    );
+    if (pairs.length > 0) {
+      out += arm(cmd.path, `${cands}=(${pairs.join(' ')})`);
+    }
+  }
+  return out;
 }
 
 /** The arms that offer a command's positional choices. */
 function argArms(spec: CompletionSpec, cands: string): string {
-	let out = '';
-	for (const cmd of spec.commands) {
-		if (cmd.argValues.length > 0) {
-			const pairs = cmd.argValues.map((value) => zshPair(value)).join(' ');
-			out += arm(cmd.path, `${cands}=(${pairs})`);
-		}
-	}
-	return out;
+  let out = '';
+  for (const cmd of spec.commands) {
+    if (cmd.argValues.length > 0) {
+      const pairs = cmd.argValues.map((value) => zshPair(value)).join(' ');
+      out += arm(cmd.path, `${cands}=(${pairs})`);
+    }
+  }
+  return out;
 }
 
 /**
@@ -179,27 +179,27 @@ function argArms(spec: CompletionSpec, cands: string): string {
  * @returns The arm, or nothing when none of its options takes a value.
  */
 function valueArm(cmd: CompletionCommand, takes: string, cands: string): string {
-	const valued = cmd.options.filter((opt) => opt.takesValue);
+  const valued = cmd.options.filter((opt) => opt.takesValue);
 
-	if (valued.length === 0) {
-		return '';
-	}
+  if (valued.length === 0) {
+    return '';
+  }
 
-	let inner = '';
-	for (const opt of valued) {
-		const patterns = opt.spellings.map(zshQuote).join('|');
-		const values = opt.values?.length
-			? `; ${cands}=(${opt.values.map((value) => zshPair(value)).join(' ')})`
-			: '';
-		inner += `\t\t\t\t(${patterns}) ${takes}=1${values} ;;\n`;
-	}
+  let inner = '';
+  for (const opt of valued) {
+    const patterns = opt.spellings.map(zshQuote).join('|');
+    const values = opt.values?.length
+      ? `; ${cands}=(${opt.values.map((value) => zshPair(value)).join(' ')})`
+      : '';
+    inner += `\t\t\t\t(${patterns}) ${takes}=1${values} ;;\n`;
+  }
 
-	return `\t\t${pathPattern(cmd.path)}\n\t\t\tcase "$2" in\n${inner}\t\t\tesac\n\t\t\t;;\n`;
+  return `\t\t${pathPattern(cmd.path)}\n\t\t\tcase "$2" in\n${inner}\t\t\tesac\n\t\t\t;;\n`;
 }
 
 /** The arms that say which options take a value. */
 function valueArms(spec: CompletionSpec, takes: string, cands: string): string {
-	return spec.commands.map((cmd) => valueArm(cmd, takes, cands)).join('');
+  return spec.commands.map((cmd) => valueArm(cmd, takes, cands)).join('');
 }
 
 /**
@@ -209,16 +209,16 @@ function valueArms(spec: CompletionSpec, takes: string, cands: string): string {
  * @returns The script, ending in a newline.
  */
 export function zshScript(spec: CompletionSpec): string {
-	const { program } = spec;
-	const pre = zshPrefix(program);
-	const fn = zshFunction(program);
-	const q = zshQuote(program);
-	const cands = `${pre}_cands`;
-	const next = `${pre}_next`;
-	const path = `${pre}_path`;
-	const takes = `${pre}_takes`;
+  const { program } = spec;
+  const pre = zshPrefix(program);
+  const fn = zshFunction(program);
+  const q = zshQuote(program);
+  const cands = `${pre}_cands`;
+  const next = `${pre}_next`;
+  const path = `${pre}_path`;
+  const takes = `${pre}_takes`;
 
-	return `#compdef ${program}
+  return `#compdef ${program}
 # zsh completion for \`${program}\`, generated by sigil.
 #
 # Save it where zsh looks:

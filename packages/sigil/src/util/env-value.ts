@@ -23,12 +23,12 @@
  * @returns The first value that is set to something, or `undefined`.
  */
 export function envValue(
-	env: Record<string, string | undefined>,
-	names: Iterable<string>
+  env: Record<string, string | undefined>,
+  names: Iterable<string>
 ): string | undefined {
-	for (const name of names) {
-		if (env[name]) {
-			return env[name];
-		}
-	}
+  for (const name of names) {
+    if (env[name]) {
+      return env[name];
+    }
+  }
 }

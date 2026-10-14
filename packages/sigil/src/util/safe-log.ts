@@ -9,9 +9,9 @@
  * @param value - The value to log.
  */
 export function safeLog(log: (...args: unknown[]) => void, value: unknown): void {
-	try {
-		log(value);
-	} catch {
-		// a value that cannot even be inspected has nothing to tell us
-	}
+  try {
+    log(value);
+  } catch {
+    // a value that cannot even be inspected has nothing to tell us
+  }
 }

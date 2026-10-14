@@ -1,6 +1,6 @@
 export default {
-	commands: {
-		deep: './sub/deep.js',
-	},
-	desc: 'build everything',
+  commands: {
+    deep: './sub/deep.js',
+  },
+  desc: 'build everything',
 };

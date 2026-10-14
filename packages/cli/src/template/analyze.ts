@@ -70,14 +70,14 @@ import { type IRElement, type IRNode, textValue } from '@ttylabs/sigil/template'
  *   there was nothing to fold.
  */
 export function analyze(node: IRNode): IRNode {
-	if (node.kind !== 'element') {
-		return node;
-	}
+  if (node.kind !== 'element') {
+    return node;
+  }
 
-	const children = node.children.map(analyze);
-	const folded = foldChildren(node, children);
+  const children = node.children.map(analyze);
+  const folded = foldChildren(node, children);
 
-	return same(node.children, folded) ? node : { ...node, children: folded };
+  return same(node.children, folded) ? node : { ...node, children: folded };
 }
 
 /**
@@ -88,7 +88,7 @@ export function analyze(node: IRNode): IRNode {
  * @returns True when nothing moved, so the node can be handed back untouched.
  */
 function same(before: readonly IRNode[], after: readonly IRNode[]): boolean {
-	return before.length === after.length && before.every((child, at) => child === after[at]);
+  return before.length === after.length && before.every((child, at) => child === after[at]);
 }
 
 /**
@@ -99,14 +99,14 @@ function same(before: readonly IRNode[], after: readonly IRNode[]): boolean {
  * @returns The children it should hold.
  */
 function foldChildren(node: IRElement, children: readonly IRNode[]): readonly IRNode[] {
-	if (node.type === 'text') {
-		return foldContent(children);
-	}
-	if (node.type === 'box') {
-		return foldBoxChildren(children);
-	}
-	// a `raw` has no children and a component's are its own business
-	return children;
+  if (node.type === 'text') {
+    return foldContent(children);
+  }
+  if (node.type === 'box') {
+    return foldBoxChildren(children);
+  }
+  // a `raw` has no children and a component's are its own business
+  return children;
 }
 
 /**
@@ -117,28 +117,28 @@ function foldChildren(node: IRElement, children: readonly IRNode[]): readonly IR
  * @returns The content with its constants merged.
  */
 function foldContent(children: readonly IRNode[]): readonly IRNode[] {
-	const folded: IRNode[] = [];
+  const folded: IRNode[] = [];
 
-	for (const child of children) {
-		const value = constant(child);
+  for (const child of children) {
+    const value = constant(child);
 
-		if (value === undefined) {
-			folded.push(child);
-			continue;
-		}
+    if (value === undefined) {
+      folded.push(child);
+      continue;
+    }
 
-		// adjacent literals are one literal only inside a `<text>`, whose children
-		// are pieces of one string. A box's two text children are two elements, and
-		// merging them there would delete a flex item
-		const last = folded[folded.length - 1];
-		if (last?.kind === 'text') {
-			folded[folded.length - 1] = { ...last, value: last.value + value };
-		} else {
-			folded.push({ kind: 'text', loc: child.loc, value });
-		}
-	}
+    // adjacent literals are one literal only inside a `<text>`, whose children
+    // are pieces of one string. A box's two text children are two elements, and
+    // merging them there would delete a flex item
+    const last = folded[folded.length - 1];
+    if (last?.kind === 'text') {
+      folded[folded.length - 1] = { ...last, value: last.value + value };
+    } else {
+      folded.push({ kind: 'text', loc: child.loc, value });
+    }
+  }
 
-	return folded;
+  return folded;
 }
 
 /**
@@ -149,27 +149,27 @@ function foldContent(children: readonly IRNode[]): readonly IRNode[] {
  * @returns The children it should hold.
  */
 function foldBoxChildren(children: readonly IRNode[]): readonly IRNode[] {
-	const folded: IRNode[] = [];
+  const folded: IRNode[] = [];
 
-	for (const child of children) {
-		if (child.kind !== 'slot') {
-			folded.push(child);
-			continue;
-		}
+  for (const child of children) {
+    if (child.kind !== 'slot') {
+      folded.push(child);
+      continue;
+    }
 
-		const value = child.value;
+    const value = child.value;
 
-		// `appendValue()` skips these, so there is nothing to append and nothing to
-		// decide at run time
-		if (value === null || value === undefined || typeof value === 'boolean') {
-			continue;
-		}
+    // `appendValue()` skips these, so there is nothing to append and nothing to
+    // decide at run time
+    if (value === null || value === undefined || typeof value === 'boolean') {
+      continue;
+    }
 
-		const literal = constant(child);
-		folded.push(literal === undefined ? child : { kind: 'text', loc: child.loc, value: literal });
-	}
+    const literal = constant(child);
+    folded.push(literal === undefined ? child : { kind: 'text', loc: child.loc, value: literal });
+  }
 
-	return folded;
+  return folded;
 }
 
 /**
@@ -185,23 +185,23 @@ function foldBoxChildren(children: readonly IRNode[]): readonly IRNode[] {
  * @returns The string it folds to, or `undefined` when it does not fold.
  */
 function constant(child: IRNode): string | undefined {
-	if (child.kind === 'text') {
-		return child.value;
-	}
-	if (child.kind !== 'slot') {
-		return undefined;
-	}
+  if (child.kind === 'text') {
+    return child.value;
+  }
+  if (child.kind !== 'slot') {
+    return undefined;
+  }
 
-	const value = child.value;
-	switch (typeof value) {
-		case 'bigint':
-		case 'boolean':
-		case 'number':
-		case 'string':
-			return textValue(value);
-		case 'undefined':
-			return '';
-		default:
-			return value === null ? '' : undefined;
-	}
+  const value = child.value;
+  switch (typeof value) {
+    case 'bigint':
+    case 'boolean':
+    case 'number':
+    case 'string':
+      return textValue(value);
+    case 'undefined':
+      return '';
+    default:
+      return value === null ? '' : undefined;
+  }
 }

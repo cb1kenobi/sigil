@@ -1,4 +1,4 @@
 export default {
-	name: 'fallback',
-	desc: 'Fallback command',
+  name: 'fallback',
+  desc: 'Fallback command',
 };

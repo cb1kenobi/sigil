@@ -37,39 +37,39 @@
  */
 
 import {
-	type Comment,
-	type EcmaScriptModule,
-	type ParserOptions,
-	parseSync,
-	type Program,
+  type Comment,
+  type EcmaScriptModule,
+  type ParserOptions,
+  parseSync,
+  type Program,
 } from 'oxc-parser';
 
 /** A module, read. */
 export interface ParsedModule {
-	/** Its comments, in source order. */
-	readonly comments: readonly Comment[];
-	/** The path it was read from, for anything it has to report. */
-	readonly file: string;
-	/**
-	 * What it imports and exports, as oxc records it.
-	 *
-	 * Worth having rather than walking the tree for: the local name a binding
-	 * was imported under is exactly the question "which of these tagged
-	 * templates is a `ui` template", and this answers it without a scope walk.
-	 */
-	readonly module: EcmaScriptModule;
-	/** Its tree. */
-	readonly program: Program;
-	/** Its source, kept because a node is a span into it. */
-	readonly source: string;
+  /** Its comments, in source order. */
+  readonly comments: readonly Comment[];
+  /** The path it was read from, for anything it has to report. */
+  readonly file: string;
+  /**
+   * What it imports and exports, as oxc records it.
+   *
+   * Worth having rather than walking the tree for: the local name a binding
+   * was imported under is exactly the question "which of these tagged
+   * templates is a `ui` template", and this answers it without a scope walk.
+   */
+  readonly module: EcmaScriptModule;
+  /** Its tree. */
+  readonly program: Program;
+  /** Its source, kept because a node is a span into it. */
+  readonly source: string;
 }
 
 /** Where in a file something is, counted for a human. */
 export interface Position {
-	/** One-based. */
-	readonly column: number;
-	/** One-based. */
-	readonly line: number;
+  /** One-based. */
+  readonly column: number;
+  /** One-based. */
+  readonly line: number;
 }
 
 /**
@@ -82,25 +82,25 @@ export interface Position {
  * @throws If the source does not parse.
  */
 export function parseModule(file: string, source: string): ParsedModule {
-	const result = parseSync(file, source);
+  const result = parseSync(file, source);
 
-	// a module that does not parse is not a module this build can say anything
-	// about, and guessing past a syntax error is how a build reports a missing
-	// description for a file whose real problem is a missing brace
-	const failure = result.errors.find((error) => error.severity === 'Error') ?? result.errors[0];
-	if (failure) {
-		const at = failure.labels[0]?.start;
-		const where = at === undefined ? file : `${file}:${formatPosition(position(source, at))}`;
-		throw new Error(`Failed to parse ${where}: ${failure.message}`);
-	}
+  // a module that does not parse is not a module this build can say anything
+  // about, and guessing past a syntax error is how a build reports a missing
+  // description for a file whose real problem is a missing brace
+  const failure = result.errors.find((error) => error.severity === 'Error') ?? result.errors[0];
+  if (failure) {
+    const at = failure.labels[0]?.start;
+    const where = at === undefined ? file : `${file}:${formatPosition(position(source, at))}`;
+    throw new Error(`Failed to parse ${where}: ${failure.message}`);
+  }
 
-	return {
-		comments: result.comments,
-		file,
-		module: result.module,
-		program: result.program,
-		source,
-	};
+  return {
+    comments: result.comments,
+    file,
+    module: result.module,
+    program: result.program,
+    source,
+  };
 }
 
 /**
@@ -118,7 +118,7 @@ export function parseModule(file: string, source: string): ParsedModule {
  * @returns Whether it failed.
  */
 function failed(result: { readonly errors: readonly unknown[] }): boolean {
-	return result.errors.length > 0;
+  return result.errors.length > 0;
 }
 
 /**
@@ -139,7 +139,7 @@ function failed(result: { readonly errors: readonly unknown[] }): boolean {
  * @returns Whether it parsed.
  */
 export function parses(file: string, source: string): boolean {
-	return !failed(parseSync(file, source));
+  return !failed(parseSync(file, source));
 }
 
 /**
@@ -156,13 +156,13 @@ export function parses(file: string, source: string): boolean {
  * @returns The program, or `undefined`.
  */
 export function parseTree(
-	file: string,
-	source: string,
-	options?: ParserOptions
+  file: string,
+  source: string,
+  options?: ParserOptions
 ): Program | undefined {
-	const result = parseSync(file, source, options);
+  const result = parseSync(file, source, options);
 
-	return failed(result) ? undefined : result.program;
+  return failed(result) ? undefined : result.program;
 }
 
 /**
@@ -173,20 +173,20 @@ export function parseTree(
  * @returns The one-based line and column.
  */
 export function position(source: string, offset: number): Position {
-	// clamped rather than trusted: an offset past the end is a bug somewhere
-	// above, and a diagnostic is the worst place to turn one bug into two
-	const end = Math.max(0, Math.min(offset, source.length));
+  // clamped rather than trusted: an offset past the end is a bug somewhere
+  // above, and a diagnostic is the worst place to turn one bug into two
+  const end = Math.max(0, Math.min(offset, source.length));
 
-	let line = 1;
-	let lineStart = 0;
-	for (let i = 0; i < end; i++) {
-		if (source[i] === '\n') {
-			line++;
-			lineStart = i + 1;
-		}
-	}
+  let line = 1;
+  let lineStart = 0;
+  for (let i = 0; i < end; i++) {
+    if (source[i] === '\n') {
+      line++;
+      lineStart = i + 1;
+    }
+  }
 
-	return { column: end - lineStart + 1, line };
+  return { column: end - lineStart + 1, line };
 }
 
 /**
@@ -197,7 +197,7 @@ export function position(source: string, offset: number): Position {
  * @returns The text.
  */
 export function formatPosition(at: Position): string {
-	return `${at.line}:${at.column}`;
+  return `${at.line}:${at.column}`;
 }
 
 /**

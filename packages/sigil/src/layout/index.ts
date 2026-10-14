@@ -36,12 +36,12 @@
 
 export { layout, type LayoutOptions, measureNode } from './flex.js';
 export {
-	type Box,
-	borderWidth,
-	clamp,
-	distribute,
-	type LayoutNode,
-	type LayoutResult,
-	type Measurement,
-	resolve,
+  type Box,
+  borderWidth,
+  clamp,
+  distribute,
+  type LayoutNode,
+  type LayoutResult,
+  type Measurement,
+  resolve,
 } from './node.js';

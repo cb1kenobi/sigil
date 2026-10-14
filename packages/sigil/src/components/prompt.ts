@@ -1,11 +1,11 @@
 import { cellWidth } from '../canvas/index.js';
 import {
-	box,
-	cellStyle,
-	type Element,
-	raw,
-	text as textNode,
-	toDisplayText,
+  box,
+  cellStyle,
+  type Element,
+  raw,
+  text as textNode,
+  toDisplayText,
 } from '../element/index.js';
 import { __, __n, confirmKeys } from '../i18n/index.js';
 import { createInput, type InputRouter, type InputStream, type Key } from '../input/index.js';
@@ -14,18 +14,18 @@ import { terminal as defaultTerminal } from '../terminal/index.js';
 import { graphemes, stringWidth } from '../width/index.js';
 import { wrap } from '../wrap/index.js';
 import {
-	boundary,
-	deleteAfter,
-	deleteBefore,
-	deleteRange,
-	insertAt,
-	isSpaceCluster,
-	pastedBlock,
-	pastedLine,
-	snap,
-	typedText,
-	wordAfter,
-	wordBefore,
+  boundary,
+  deleteAfter,
+  deleteBefore,
+  deleteRange,
+  insertAt,
+  isSpaceCluster,
+  pastedBlock,
+  pastedLine,
+  snap,
+  typedText,
+  wordAfter,
+  wordBefore,
 } from './editing.js';
 import { type Mounted, type MountOptions, mountLive } from './mount.js';
 
@@ -42,79 +42,79 @@ export { ESCAPE_TIMEOUT } from '../input/index.js';
  * stdin that will never produce a keystroke is a hung build with no explanation.
  */
 export class PromptError extends Error {
-	/** `true` when the person pressed Ctrl-C or Ctrl-D. */
-	aborted: boolean;
+  /** `true` when the person pressed Ctrl-C or Ctrl-D. */
+  aborted: boolean;
 
-	constructor(message: string, aborted = false) {
-		super(message);
-		this.name = 'PromptError';
-		this.aborted = aborted;
-	}
+  constructor(message: string, aborted = false) {
+    super(message);
+    this.name = 'PromptError';
+    this.aborted = aborted;
+  }
 }
 
 /** A choice offered by `select()` and `multiselect()`. */
 export interface Choice<T = unknown> {
-	/** Shown after the label, dimmed. */
-	hint?: string;
-	/** What is shown. */
-	label: string;
-	/** Whether `multiselect()` starts with it ticked. */
-	selected?: boolean;
-	/** What is returned. The label, if omitted. */
-	value?: T;
+  /** Shown after the label, dimmed. */
+  hint?: string;
+  /** What is shown. */
+  label: string;
+  /** Whether `multiselect()` starts with it ticked. */
+  selected?: boolean;
+  /** What is returned. The label, if omitted. */
+  value?: T;
 }
 
 export interface PromptOptions extends MountOptions {
-	/** What is being asked. */
-	message: string;
-	/**
-	 * The input router to read keys through. One is built if not given.
-	 *
-	 * An app that already owns a router -- a full-screen one, which had to build
-	 * one to have a focus ring at all -- hands it over here, and the prompt binds
-	 * to it rather than taking stdin out from under it. That is what makes "one
-	 * thing owns stdin" true in an app that prompts: a prompt that builds its own
-	 * is only correct because nothing else is reading at the time, which is the
-	 * ordinary case and is not every case.
-	 *
-	 * A router handed in is not stopped when the prompt is answered. The prompt
-	 * removes the handlers it added and nothing else, because the router is not
-	 * its to give back.
-	 */
-	router?: InputRouter;
-	/** Where keys come from. Defaults to the terminal's input. */
-	stdin?: InputStream;
+  /** What is being asked. */
+  message: string;
+  /**
+   * The input router to read keys through. One is built if not given.
+   *
+   * An app that already owns a router -- a full-screen one, which had to build
+   * one to have a focus ring at all -- hands it over here, and the prompt binds
+   * to it rather than taking stdin out from under it. That is what makes "one
+   * thing owns stdin" true in an app that prompts: a prompt that builds its own
+   * is only correct because nothing else is reading at the time, which is the
+   * ordinary case and is not every case.
+   *
+   * A router handed in is not stopped when the prompt is answered. The prompt
+   * removes the handlers it added and nothing else, because the router is not
+   * its to give back.
+   */
+  router?: InputRouter;
+  /** Where keys come from. Defaults to the terminal's input. */
+  stdin?: InputStream;
 }
 
 export interface TextOptions extends PromptOptions {
-	/** Used when the answer is empty. */
-	default?: string;
-	/** Shown in place of what is typed, for a password. */
-	mask?: string;
-	/** Shown dimmed when nothing has been typed. */
-	placeholder?: string;
-	/**
-	 * Checks the answer. Return a string to reject it with that message, or
-	 * anything falsy to accept.
-	 */
-	validate?: (value: string) => string | undefined | false | Promise<string | undefined | false>;
+  /** Used when the answer is empty. */
+  default?: string;
+  /** Shown in place of what is typed, for a password. */
+  mask?: string;
+  /** Shown dimmed when nothing has been typed. */
+  placeholder?: string;
+  /**
+   * Checks the answer. Return a string to reject it with that message, or
+   * anything falsy to accept.
+   */
+  validate?: (value: string) => string | undefined | false | Promise<string | undefined | false>;
 }
 
 export interface ConfirmOptions extends PromptOptions {
-	/** What Enter alone means. Defaults to `true`. */
-	default?: boolean;
+  /** What Enter alone means. Defaults to `true`. */
+  default?: boolean;
 }
 
 export interface SelectOptions<T> extends PromptOptions {
-	/** What to offer. */
-	choices: readonly (Choice<T> | string)[];
-	/** Which one starts highlighted, by index. Defaults to 0. */
-	initial?: number;
+  /** What to offer. */
+  choices: readonly (Choice<T> | string)[];
+  /** Which one starts highlighted, by index. Defaults to 0. */
+  initial?: number;
 }
 
 export interface MultiselectOptions<T> extends SelectOptions<T> {
-	/** Refuse an empty selection. Defaults to `false`. */
-	required?: boolean;
+  /** Refuse an empty selection. Defaults to `false`. */
+  required?: boolean;
 }
 
 /**
@@ -126,54 +126,54 @@ export interface MultiselectOptions<T> extends SelectOptions<T> {
  * for the same glyph is that trap with a frame on it.
  */
 export interface PromptSymbols {
-	/** The pointer on the active row of a list. */
-	readonly cursor: string;
-	/** An unticked box, for a multiselect. */
-	readonly off: string;
-	/** A ticked box. */
-	readonly on: string;
-	/** The mark in front of a question. */
-	readonly question: string;
+  /** The pointer on the active row of a list. */
+  readonly cursor: string;
+  /** An unticked box, for a multiselect. */
+  readonly off: string;
+  /** A ticked box. */
+  readonly on: string;
+  /** The mark in front of a question. */
+  readonly question: string;
 }
 
 const SYMBOL: PromptSymbols = Object.freeze({
-	cursor: '❯',
-	off: '◯',
-	on: '◉',
-	question: '?',
+  cursor: '❯',
+  off: '◯',
+  on: '◉',
+  question: '?',
 });
 
 function toChoice<T>(choice: Choice<T> | string): Choice<T> {
-	return typeof choice === 'string' ? { label: choice, value: choice as T } : choice;
+  return typeof choice === 'string' ? { label: choice, value: choice as T } : choice;
 }
 
 function valueOf<T>(choice: Choice<T>): T {
-	return 'value' in choice ? (choice.value as T) : (choice.label as T);
+  return 'value' in choice ? (choice.value as T) : (choice.label as T);
 }
 
 /** What a prompt's tree and its key handling are, built together under an owner. */
 interface Handlers<T> {
-	/**
-	 * Whether this prompt wants a key `isAbort()` would otherwise take.
-	 *
-	 * Only Ctrl-D is ever reachable through this, and only the multiline field
-	 * asks: that is its submit key, and end of input and "that is my answer" are
-	 * the same gesture -- a field escaped by the key that submits it has no way
-	 * out. Ctrl-C is refused above, because an app that cannot be quit because a
-	 * field swallowed it is the failure the binding order exists to prevent.
-	 *
-	 * Absent for the other four prompts, so the abort path they take is the one
-	 * they always took.
-	 */
-	claims?(k: Key): boolean;
-	/** Handles a key. Returning `{ value }` finishes. */
-	key(k: Key): Promise<{ value: T } | void> | ({ value: T } | void);
-	/** Handles pasted text, when the prompt is one that can take a block of it. */
-	paste?(text: string): void;
-	/** Puts the tree into the form left behind once it is answered. */
-	settle(value: T): void;
-	/** The tree. */
-	view: Element;
+  /**
+   * Whether this prompt wants a key `isAbort()` would otherwise take.
+   *
+   * Only Ctrl-D is ever reachable through this, and only the multiline field
+   * asks: that is its submit key, and end of input and "that is my answer" are
+   * the same gesture -- a field escaped by the key that submits it has no way
+   * out. Ctrl-C is refused above, because an app that cannot be quit because a
+   * field swallowed it is the failure the binding order exists to prevent.
+   *
+   * Absent for the other four prompts, so the abort path they take is the one
+   * they always took.
+   */
+  claims?(k: Key): boolean;
+  /** Handles a key. Returning `{ value }` finishes. */
+  key(k: Key): Promise<{ value: T } | void> | ({ value: T } | void);
+  /** Handles pasted text, when the prompt is one that can take a block of it. */
+  paste?(text: string): void;
+  /** Puts the tree into the form left behind once it is answered. */
+  settle(value: T): void;
+  /** The tree. */
+  view: Element;
 }
 
 /**
@@ -196,199 +196,199 @@ interface Handlers<T> {
  * @returns The answer.
  */
 function run<T>(opts: PromptOptions, make: () => Handlers<T>): Promise<T> {
-	const terminal = opts.terminal ?? defaultTerminal;
-	const stdin = opts.stdin ?? (terminal.stdin as InputStream | undefined);
+  const terminal = opts.terminal ?? defaultTerminal;
+  const stdin = opts.stdin ?? (terminal.stdin as InputStream | undefined);
 
-	// nobody is there to answer, and waiting on a stdin that will never produce a
-	// keystroke is a hung build with no explanation. The message names the prompt,
-	// because "no TTY" on its own does not say which question went unanswered
-	if (!terminal.isTTY || !stdin?.isTTY) {
-		return Promise.reject(
-			new PromptError(__`Cannot prompt for "${opts.message}" because the input is not a terminal`)
-		);
-	}
+  // nobody is there to answer, and waiting on a stdin that will never produce a
+  // keystroke is a hung build with no explanation. The message names the prompt,
+  // because "no TTY" on its own does not say which question went unanswered
+  if (!terminal.isTTY || !stdin?.isTTY) {
+    return Promise.reject(
+      new PromptError(__`Cannot prompt for "${opts.message}" because the input is not a terminal`)
+    );
+  }
 
-	return new Promise<T>((resolve, reject) => {
-		let handlers: Handlers<T>;
-		let settled = false;
-		let mounted: Mounted | undefined;
-		let stopInput: (() => void) | undefined;
+  return new Promise<T>((resolve, reject) => {
+    let handlers: Handlers<T>;
+    let settled = false;
+    let mounted: Mounted | undefined;
+    let stopInput: (() => void) | undefined;
 
-		/** Everything this prompt took, given back in the order it was taken. */
-		function detach(): void {
-			stopInput?.();
-			stopInput = undefined;
-		}
+    /** Everything this prompt took, given back in the order it was taken. */
+    function detach(): void {
+      stopInput?.();
+      stopInput = undefined;
+    }
 
-		function fail(error: unknown): void {
-			if (settled) {
-				return;
-			}
-			settled = true;
-			detach();
-			mounted?.stop();
-			reject(error);
-		}
+    function fail(error: unknown): void {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      detach();
+      mounted?.stop();
+      reject(error);
+    }
 
-		/**
-		 * Where a throw goes, which depends on whether there is still a prompt.
-		 *
-		 * Before it is answered, a throw is the answer: the promise rejects. After,
-		 * the caller already has what it asked for and a frame that failed on the
-		 * way out is not a reason to take it back -- so it goes to `onError` if the
-		 * caller wanted to hear about one, and nowhere if it did not.
-		 *
-		 * @param error - What was thrown.
-		 */
-		function report(error: unknown): void {
-			if (settled) {
-				opts.onError?.(error);
-				return;
-			}
-			fail(error);
-		}
+    /**
+     * Where a throw goes, which depends on whether there is still a prompt.
+     *
+     * Before it is answered, a throw is the answer: the promise rejects. After,
+     * the caller already has what it asked for and a frame that failed on the
+     * way out is not a reason to take it back -- so it goes to `onError` if the
+     * caller wanted to hear about one, and nowhere if it did not.
+     *
+     * @param error - What was thrown.
+     */
+    function report(error: unknown): void {
+      if (settled) {
+        opts.onError?.(error);
+        return;
+      }
+      fail(error);
+    }
 
-		function succeed(value: T): void {
-			if (settled) {
-				return;
-			}
-			settled = true;
-			detach();
+    function succeed(value: T): void {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      detach();
 
-			// the answer is the answer whatever the last frame does, so resolving is
-			// in a `finally`: a throw from `settle()` would otherwise be caught by
-			// the queue, handed to a `fail()` that no-ops because this already set
-			// `settled`, and leave the caller awaiting a prompt that is gone
-			try {
-				handlers.settle(value);
-				// painted before the screen is given back, because `done()` leaves
-				// what is on screen where it is, and that is still the question
-				mounted?.frame();
-			} catch (error) {
-				report(error);
-			} finally {
-				mounted?.done();
-				resolve(value);
-			}
-		}
+      // the answer is the answer whatever the last frame does, so resolving is
+      // in a `finally`: a throw from `settle()` would otherwise be caught by
+      // the queue, handed to a `fail()` that no-ops because this already set
+      // `settled`, and leave the caller awaiting a prompt that is gone
+      try {
+        handlers.settle(value);
+        // painted before the screen is given back, because `done()` leaves
+        // what is on screen where it is, and that is still the question
+        mounted?.frame();
+      } catch (error) {
+        report(error);
+      } finally {
+        mounted?.done();
+        resolve(value);
+      }
+    }
 
-		try {
-			mounted = mountLive(
-				() => {
-					handlers = make();
-					return handlers.view;
-				},
-				{ ...opts, onError: report, terminal }
-			);
-		} catch (error) {
-			fail(error);
-			return;
-		}
+    try {
+      mounted = mountLive(
+        () => {
+          handlers = make();
+          return handlers.view;
+        },
+        { ...opts, onError: report, terminal }
+      );
+    } catch (error) {
+      fail(error);
+      return;
+    }
 
-		// a throw from the *first frame* does not come back as a throw: the
-		// renderer reports it through `onError`, which is `fail()`, and then hands
-		// back a handle that has already given the screen up. Carrying on from here
-		// built a router over a promise that was already rejected -- stdin left in
-		// raw mode with a `data` listener nothing would ever remove, and the next
-		// prompt fighting it for keys
-		if (settled) {
-			return;
-		}
+    // a throw from the *first frame* does not come back as a throw: the
+    // renderer reports it through `onError`, which is `fail()`, and then hands
+    // back a handle that has already given the screen up. Carrying on from here
+    // built a router over a promise that was already rejected -- stdin left in
+    // raw mode with a `data` listener nothing would ever remove, and the next
+    // prompt fighting it for keys
+    if (settled) {
+      return;
+    }
 
-		let router: InputRouter;
-		const ownRouter = opts.router === undefined;
-		try {
-			router = opts.router ?? createInput({ root: mounted.renderer.root, stdin, terminal });
-		} catch (error) {
-			// the frame is already on screen, so it has to come off: a router that
-			// could not be built leaves a question nobody can answer, and leaving it
-			// drawn is the hang this rejects instead of
-			fail(error);
-			return;
-		}
-		stopInput = ownRouter ? () => router.stop() : undefined;
+    let router: InputRouter;
+    const ownRouter = opts.router === undefined;
+    try {
+      router = opts.router ?? createInput({ root: mounted.renderer.root, stdin, terminal });
+    } catch (error) {
+      // the frame is already on screen, so it has to come off: a router that
+      // could not be built leaves a question nobody can answer, and leaving it
+      // drawn is the hang this rejects instead of
+      fail(error);
+      return;
+    }
+    stopInput = ownRouter ? () => router.stop() : undefined;
 
-		/** One key at a time, for the reason the binding below records. */
-		let queue: Promise<void> = Promise.resolve();
+    /** One key at a time, for the reason the binding below records. */
+    let queue: Promise<void> = Promise.resolve();
 
-		const offEnd = router.onEnd((error) => {
-			// the same nobody-is-there problem as the check above, arriving later
-			fail(error ?? new PromptError(__`Input ended before the prompt was answered`));
-		});
-		const offKey = router.bind((event) => {
-			event.stop();
-			const key = event.key;
+    const offEnd = router.onEnd((error) => {
+      // the same nobody-is-there problem as the check above, arriving later
+      fail(error ?? new PromptError(__`Input ended before the prompt was answered`));
+    });
+    const offKey = router.bind((event) => {
+      event.stop();
+      const key = event.key;
 
-			// Ctrl-C does not wait its turn. Everything else is queued because
-			// `handlers.key` may be async -- a `validate` that asks a server -- and a
-			// key read while the last one is still being handled would apply to a
-			// state that has not caught up; but a prompt that cannot be escaped until
-			// a slow validator comes back is a prompt that cannot be escaped, and
-			// giving up needs nothing from the state
-			// Ctrl-C is never a key a prompt may claim, which is the binding order's own
-			// rule said one layer along. Ctrl-D is the other half of `isAbort()` and is
-			// claimable, for the reason `Handlers.claims` records
-			if (isAbort(key) && !(key.name === 'd' && handlers.claims?.(key))) {
-				fail(new PromptError(__`Cancelled`, true));
-				return;
-			}
+      // Ctrl-C does not wait its turn. Everything else is queued because
+      // `handlers.key` may be async -- a `validate` that asks a server -- and a
+      // key read while the last one is still being handled would apply to a
+      // state that has not caught up; but a prompt that cannot be escaped until
+      // a slow validator comes back is a prompt that cannot be escaped, and
+      // giving up needs nothing from the state
+      // Ctrl-C is never a key a prompt may claim, which is the binding order's own
+      // rule said one layer along. Ctrl-D is the other half of `isAbort()` and is
+      // claimable, for the reason `Handlers.claims` records
+      if (isAbort(key) && !(key.name === 'd' && handlers.claims?.(key))) {
+        fail(new PromptError(__`Cancelled`, true));
+        return;
+      }
 
-			queue = queue
-				.then(async () => {
-					if (settled) {
-						return;
-					}
+      queue = queue
+        .then(async () => {
+          if (settled) {
+            return;
+          }
 
-					const done = await handlers.key(key);
-					if (done) {
-						succeed(done.value);
-						return;
-					}
+          const done = await handlers.key(key);
+          if (done) {
+            succeed(done.value);
+            return;
+          }
 
-					if (!settled) {
-						mounted?.frame();
-					}
-				})
-				.catch(report);
-		});
+          if (!settled) {
+            mounted?.frame();
+          }
+        })
+        .catch(report);
+    });
 
-		const offPaste = handlers!.paste
-			? router.onPaste((event) => {
-					event.stop();
-					const text = event.text;
-					queue = queue
-						.then(() => {
-							if (settled) {
-								return;
-							}
-							handlers.paste?.(text);
-							mounted?.frame();
-						})
-						.catch(report);
-				})
-			: undefined;
+    const offPaste = handlers!.paste
+      ? router.onPaste((event) => {
+          event.stop();
+          const text = event.text;
+          queue = queue
+            .then(() => {
+              if (settled) {
+                return;
+              }
+              handlers.paste?.(text);
+              mounted?.frame();
+            })
+            .catch(report);
+        })
+      : undefined;
 
-		stopInput = () => {
-			offEnd();
-			offKey();
-			offPaste?.();
-			// only a router this prompt built is given back: one handed in belongs to
-			// an app that is still reading keys with it
-			if (ownRouter) {
-				router.stop();
-			}
-		};
-	});
+    stopInput = () => {
+      offEnd();
+      offKey();
+      offPaste?.();
+      // only a router this prompt built is given back: one handed in belongs to
+      // an app that is still reading keys with it
+      if (ownRouter) {
+        router.stop();
+      }
+    };
+  });
 }
 
 /** What a field shows when what was typed is wider than the room for it. */
 interface Window {
-	/** The part before the caret. */
-	before: string;
-	/** The cluster the caret is on, empty past the end of the value. */
-	under: string;
-	/** The part after the caret. */
-	after: string;
+  /** The part before the caret. */
+  before: string;
+  /** The cluster the caret is on, empty past the end of the value. */
+  under: string;
+  /** The part after the caret. */
+  after: string;
 }
 
 /**
@@ -409,32 +409,32 @@ interface Window {
  * @returns The three pieces, together no wider than `width`.
  */
 function windowOf(value: string, cursor: number, width: number): Window {
-	const room = Math.max(1, width);
-	const end = boundary(value, cursor, 1);
-	const under = value.slice(cursor, end);
-	// the caret always takes a column, whether it is on a character or past the
-	// last one, so the room for the value itself is one less
-	const caret = Math.max(1, stringWidth(under));
+  const room = Math.max(1, width);
+  const end = boundary(value, cursor, 1);
+  const under = value.slice(cursor, end);
+  // the caret always takes a column, whether it is on a character or past the
+  // last one, so the room for the value itself is one less
+  const caret = Math.max(1, stringWidth(under));
 
-	let before = value.slice(0, cursor);
-	let after = value.slice(end);
+  let before = value.slice(0, cursor);
+  let after = value.slice(end);
 
-	// the caret is kept on screen by dropping clusters from the front, and what
-	// is left over at the end goes by dropping them from the back. Both stop when
-	// there is nothing left to drop: a two-column caret in a one-column field is
-	// a field that cannot hold it, and a loop that insists would never end --
-	// which is a hung process rather than a frame one column too wide
-	while (before !== '' && stringWidth(before) + caret > room) {
-		// the boundary after offset zero, which is the end of the *first* cluster:
-		// asking from one gives the end of the second, so the window jumped two
-		// characters at a time and settled a column narrower than it had room for
-		before = before.slice(boundary(before, 0, 1));
-	}
-	while (after !== '' && stringWidth(before) + caret + stringWidth(after) > room) {
-		after = after.slice(0, boundary(after, after.length, -1));
-	}
+  // the caret is kept on screen by dropping clusters from the front, and what
+  // is left over at the end goes by dropping them from the back. Both stop when
+  // there is nothing left to drop: a two-column caret in a one-column field is
+  // a field that cannot hold it, and a loop that insists would never end --
+  // which is a hung process rather than a frame one column too wide
+  while (before !== '' && stringWidth(before) + caret > room) {
+    // the boundary after offset zero, which is the end of the *first* cluster:
+    // asking from one gives the end of the second, so the window jumped two
+    // characters at a time and settled a column narrower than it had room for
+    before = before.slice(boundary(before, 0, 1));
+  }
+  while (after !== '' && stringWidth(before) + caret + stringWidth(after) > room) {
+    after = after.slice(0, boundary(after, after.length, -1));
+  }
 
-	return { after, before, under };
+  return { after, before, under };
 }
 
 /**
@@ -466,55 +466,55 @@ function windowOf(value: string, cursor: number, width: number): Window {
  *   worked out here so that the width and the height cannot disagree about it.
  */
 function headWidths(
-	message: string,
-	room: number,
-	tail = ''
+  message: string,
+  room: number,
+  tail = ''
 ): { lines: number; message: number; rest: number } {
-	// the mark, the mark's margin, and the message's own margin
-	const fixed = stringWidth(SYMBOL.question) + 2;
-	const avail = room - fixed;
-	// **Neither half of the head gives up more than half the line.** The tail's own
-	// columns are reserved rather than assumed to be one, and the reservation is
-	// capped at half of what there is.
-	//
-	// Both halves of that were measured, in English. Reserving nothing is what
-	// shipped: a hint is a flex item beside a message with `flex-shrink: 0`, so a
-	// message that took every column left squeezed the hint into one and the canvas
-	// -- capped at the terminal's width -- clipped the rest. `? Overwrite the file`
-	// at 22 columns drew `(` where it should have drawn `(Y/n)`, so between about
-	// 18 and 24 columns a yes-or-no question had no readable affordance at all.
-	// Reserving the tail *in full* is the overcorrection: the multiselect hint is 35
-	// columns, so at 40 it left the question four columns and `Pick some things`
-	// came out as seven rows of two letters.
-	//
-	// So a short affordance is always whole -- `(Y/n)` down to 13 columns -- and a
-	// long one wraps, with `lines` below counting what that came to
-	const forTail = Math.min(
-		Math.max(1, stringWidth(toDisplayText(tail))),
-		Math.max(1, Math.floor(avail / 2))
-	);
-	const forMessage = Math.max(1, Math.min(stringWidth(message), avail - forTail));
-	const rest = Math.max(1, avail - forMessage);
+  // the mark, the mark's margin, and the message's own margin
+  const fixed = stringWidth(SYMBOL.question) + 2;
+  const avail = room - fixed;
+  // **Neither half of the head gives up more than half the line.** The tail's own
+  // columns are reserved rather than assumed to be one, and the reservation is
+  // capped at half of what there is.
+  //
+  // Both halves of that were measured, in English. Reserving nothing is what
+  // shipped: a hint is a flex item beside a message with `flex-shrink: 0`, so a
+  // message that took every column left squeezed the hint into one and the canvas
+  // -- capped at the terminal's width -- clipped the rest. `? Overwrite the file`
+  // at 22 columns drew `(` where it should have drawn `(Y/n)`, so between about
+  // 18 and 24 columns a yes-or-no question had no readable affordance at all.
+  // Reserving the tail *in full* is the overcorrection: the multiselect hint is 35
+  // columns, so at 40 it left the question four columns and `Pick some things`
+  // came out as seven rows of two letters.
+  //
+  // So a short affordance is always whole -- `(Y/n)` down to 13 columns -- and a
+  // long one wraps, with `lines` below counting what that came to
+  const forTail = Math.min(
+    Math.max(1, stringWidth(toDisplayText(tail))),
+    Math.max(1, Math.floor(avail / 2))
+  );
+  const forMessage = Math.max(1, Math.min(stringWidth(message), avail - forTail));
+  const rest = Math.max(1, avail - forMessage);
 
-	return {
-		// through the same wrapper the text element draws with, rather than by
-		// dividing one width by another: a word too long to fit is broken, and a
-		// count that guessed would put a choice list over the question.
-		//
-		// The *taller* of the two halves, because the head is one flex row. With the
-		// tail reserved above it does not wrap and the message is what decides; at a
-		// width too narrow for even that, the tail is. Counting the message alone is
-		// what let a wrapped hint make the head taller than the choice window
-		// believed -- measured, the multiselect head goes 1 to 4 rows at 30 columns
-		// while this answered 1, and the row reserved for the error line is what
-		// absorbed the first of them
-		lines: Math.max(
-			wrap(toDisplayText(message), { width: forMessage }).split('\n').length,
-			tail === '' ? 1 : wrap(toDisplayText(tail), { width: rest }).split('\n').length
-		),
-		message: forMessage,
-		rest,
-	};
+  return {
+    // through the same wrapper the text element draws with, rather than by
+    // dividing one width by another: a word too long to fit is broken, and a
+    // count that guessed would put a choice list over the question.
+    //
+    // The *taller* of the two halves, because the head is one flex row. With the
+    // tail reserved above it does not wrap and the message is what decides; at a
+    // width too narrow for even that, the tail is. Counting the message alone is
+    // what let a wrapped hint make the head taller than the choice window
+    // believed -- measured, the multiselect head goes 1 to 4 rows at 30 columns
+    // while this answered 1, and the row reserved for the error line is what
+    // absorbed the first of them
+    lines: Math.max(
+      wrap(toDisplayText(message), { width: forMessage }).split('\n').length,
+      tail === '' ? 1 : wrap(toDisplayText(tail), { width: rest }).split('\n').length
+    ),
+    message: forMessage,
+    rest,
+  };
 }
 
 /**
@@ -526,35 +526,35 @@ function headWidths(
  * @returns The line, and the mark, which every prompt settles.
  */
 function promptHead(
-	message: string,
-	width: number,
-	...rest: Element[]
+  message: string,
+  width: number,
+  ...rest: Element[]
 ): { line: Element; mark: Element } {
-	const mark = textNode(SYMBOL.question, { class: 'sigil-symbol sigil-accent', 'margin-right': 1 });
-	return {
-		line: box(
-			{ class: 'sigil-prompt-line' },
-			mark,
-			textNode(message, {
-				class: 'sigil-prompt-message sigil-heading',
-				'flex-shrink': 0,
-				'margin-right': 1,
-				width,
-			}),
-			...rest
-		),
-		mark,
-	};
+  const mark = textNode(SYMBOL.question, { class: 'sigil-symbol sigil-accent', 'margin-right': 1 });
+  return {
+    line: box(
+      { class: 'sigil-prompt-line' },
+      mark,
+      textNode(message, {
+        class: 'sigil-prompt-message sigil-heading',
+        'flex-shrink': 0,
+        'margin-right': 1,
+        width,
+      }),
+      ...rest
+    ),
+    mark,
+  };
 }
 
 /** Marks the head as answered, which is the only thing every prompt settles. */
 function answered(mark: Element): void {
-	mark.setProps({ class: 'sigil-symbol is-success sigil-success' });
+  mark.setProps({ class: 'sigil-symbol is-success sigil-success' });
 }
 
 /** A line that is shown only when it has something to say. */
 function note(classes: string): Element {
-	return textNode('', { class: classes, display: 'none' });
+  return textNode('', { class: classes, display: 'none' });
 }
 
 /**
@@ -564,8 +564,8 @@ function note(classes: string): Element {
  * @param text - What it says, or nothing.
  */
 function setNote(element: Element, text: string | undefined): void {
-	element.setText(text ?? '');
-	element.setProps({ display: text ? 'flex' : 'none' });
+  element.setText(text ?? '');
+  element.setProps({ display: text ? 'flex' : 'none' });
 }
 
 /**
@@ -575,148 +575,148 @@ function setNote(element: Element, text: string | undefined): void {
  * @returns What was typed.
  */
 export function text(opts: TextOptions): Promise<string> {
-	const terminal = opts.terminal ?? defaultTerminal;
-	let value = '';
-	let cursor = 0;
-	let error: string | undefined;
+  const terminal = opts.terminal ?? defaultTerminal;
+  let value = '';
+  let cursor = 0;
+  let error: string | undefined;
 
-	return run<string>(opts, () => {
-		const before = textNode('', { 'white-space': 'nowrap' });
-		const caret = textNode('', { class: 'sigil-caret', 'white-space': 'nowrap' });
-		const after = textNode('', { 'white-space': 'nowrap' });
-		const field = box({ class: 'sigil-prompt-field' }, before, caret, after);
-		const head = headWidths(opts.message, Math.max(1, terminal.width));
-		const { line, mark } = promptHead(opts.message, head.message, field);
-		const complaint = note('sigil-prompt-error sigil-error');
-		const view = box(
-			{ class: 'sigil-prompt', 'flex-direction': 'column' },
-			line,
-			box({ 'padding-left': 2 }, complaint)
-		);
+  return run<string>(opts, () => {
+    const before = textNode('', { 'white-space': 'nowrap' });
+    const caret = textNode('', { class: 'sigil-caret', 'white-space': 'nowrap' });
+    const after = textNode('', { 'white-space': 'nowrap' });
+    const field = box({ class: 'sigil-prompt-field' }, before, caret, after);
+    const head = headWidths(opts.message, Math.max(1, terminal.width));
+    const { line, mark } = promptHead(opts.message, head.message, field);
+    const complaint = note('sigil-prompt-error sigil-error');
+    const view = box(
+      { class: 'sigil-prompt', 'flex-direction': 'column' },
+      line,
+      box({ 'padding-left': 2 }, complaint)
+    );
 
-		/**
-		 * What is drawn in place of a piece of the value.
-		 *
-		 * A mask is a column count rather than a substitution -- a two-column emoji
-		 * is two bullets -- so it is applied per piece rather than to the whole
-		 * value, which is what lets the caret sit between two of them. The pieces
-		 * still add up to what the whole value masked to, because they are split on
-		 * cluster boundaries and a width is the sum of its parts.
-		 *
-		 * @param part - A piece of the value.
-		 * @returns The piece, or the mask standing in for it.
-		 */
-		function shown(part: string): string {
-			return opts.mask === undefined ? part : opts.mask.repeat(stringWidth(part));
-		}
+    /**
+     * What is drawn in place of a piece of the value.
+     *
+     * A mask is a column count rather than a substitution -- a two-column emoji
+     * is two bullets -- so it is applied per piece rather than to the whole
+     * value, which is what lets the caret sit between two of them. The pieces
+     * still add up to what the whole value masked to, because they are split on
+     * cluster boundaries and a width is the sum of its parts.
+     *
+     * @param part - A piece of the value.
+     * @returns The piece, or the mask standing in for it.
+     */
+    function shown(part: string): string {
+      return opts.mask === undefined ? part : opts.mask.repeat(stringWidth(part));
+    }
 
-		/** How many columns the value has, once the head has taken its share. */
-		function room(): number {
-			return head.rest;
-		}
+    /** How many columns the value has, once the head has taken its share. */
+    function room(): number {
+      return head.rest;
+    }
 
-		function draw(): void {
-			setNote(complaint, error);
+    function draw(): void {
+      setNote(complaint, error);
 
-			if (value === '') {
-				// the caret is on screen from the first frame rather than from the
-				// first keystroke: a prompt that only shows where it will type once
-				// something has been typed is the same bug one keystroke smaller
-				const hint = opts.placeholder ? opts.placeholder : (opts.default ?? '');
-				const end = boundary(hint, 0, 1);
-				before.setText('');
-				// not dimmed along with the rest: it is under the reverse video either
-				// way, and dimming it is how a caret comes to read as part of the hint
-				// rather than as the place the next character goes
-				caret.setText(hint.slice(0, end) || ' ');
-				after.setText(hint.slice(end));
-				after.setProps({ class: 'sigil-prompt-placeholder sigil-muted' });
-				return;
-			}
+      if (value === '') {
+        // the caret is on screen from the first frame rather than from the
+        // first keystroke: a prompt that only shows where it will type once
+        // something has been typed is the same bug one keystroke smaller
+        const hint = opts.placeholder ? opts.placeholder : (opts.default ?? '');
+        const end = boundary(hint, 0, 1);
+        before.setText('');
+        // not dimmed along with the rest: it is under the reverse video either
+        // way, and dimming it is how a caret comes to read as part of the hint
+        // rather than as the place the next character goes
+        caret.setText(hint.slice(0, end) || ' ');
+        after.setText(hint.slice(end));
+        after.setProps({ class: 'sigil-prompt-placeholder sigil-muted' });
+        return;
+      }
 
-			const pane = windowOf(value, cursor, room());
-			before.setText(shown(pane.before));
-			// past the last character there is nothing to mark, so the caret is a
-			// column of its own rather than a mark on one
-			caret.setText(shown(pane.under) || ' ');
-			after.setText(shown(pane.after));
-			after.setProps({ class: '' });
-		}
+      const pane = windowOf(value, cursor, room());
+      before.setText(shown(pane.before));
+      // past the last character there is nothing to mark, so the caret is a
+      // column of its own rather than a mark on one
+      caret.setText(shown(pane.under) || ' ');
+      after.setText(shown(pane.after));
+      after.setProps({ class: '' });
+    }
 
-		/**
-		 * Types text in at the cursor, which is what a key and a paste both are.
-		 *
-		 * @param input - What to insert.
-		 */
-		function insert(input: string): void {
-			({ cursor, value } = insertAt(value, cursor, input));
-		}
+    /**
+     * Types text in at the cursor, which is what a key and a paste both are.
+     *
+     * @param input - What to insert.
+     */
+    function insert(input: string): void {
+      ({ cursor, value } = insertAt(value, cursor, input));
+    }
 
-		draw();
+    draw();
 
-		return {
-			async key(k) {
-				error = undefined;
+    return {
+      async key(k) {
+        error = undefined;
 
-				if (k.name === 'enter') {
-					const answer = value === '' ? (opts.default ?? '') : value;
-					const failed = await opts.validate?.(answer);
-					if (typeof failed === 'string' && failed) {
-						error = failed;
-						draw();
-						return;
-					}
-					return { value: answer };
-				}
+        if (k.name === 'enter') {
+          const answer = value === '' ? (opts.default ?? '') : value;
+          const failed = await opts.validate?.(answer);
+          if (typeof failed === 'string' && failed) {
+            error = failed;
+            draw();
+            return;
+          }
+          return { value: answer };
+        }
 
-				if (k.name === 'backspace') {
-					({ cursor, value } = deleteBefore(value, cursor));
-				} else if (k.name === 'delete') {
-					({ cursor, value } = deleteAfter(value, cursor));
-				} else if (k.name === 'left') {
-					cursor = boundary(value, cursor, -1);
-				} else if (k.name === 'right') {
-					cursor = boundary(value, cursor, 1);
-				} else if (k.name === 'home' || (k.ctrl && k.name === 'a')) {
-					cursor = 0;
-				} else if (k.name === 'end' || (k.ctrl && k.name === 'e')) {
-					cursor = value.length;
-				} else if (k.ctrl && k.name === 'u') {
-					value = value.slice(cursor);
-					cursor = 0;
-				} else {
-					// a printable key, and `typedText()` is what decides whether this was
-					// one: a character arrives with its name and its sequence the same
-					// string, while a named key's name is one the terminal never sent. What
-					// is inserted is the sequence rather than the name
-					insert(typedText(k) ?? '');
-				}
+        if (k.name === 'backspace') {
+          ({ cursor, value } = deleteBefore(value, cursor));
+        } else if (k.name === 'delete') {
+          ({ cursor, value } = deleteAfter(value, cursor));
+        } else if (k.name === 'left') {
+          cursor = boundary(value, cursor, -1);
+        } else if (k.name === 'right') {
+          cursor = boundary(value, cursor, 1);
+        } else if (k.name === 'home' || (k.ctrl && k.name === 'a')) {
+          cursor = 0;
+        } else if (k.name === 'end' || (k.ctrl && k.name === 'e')) {
+          cursor = value.length;
+        } else if (k.ctrl && k.name === 'u') {
+          value = value.slice(cursor);
+          cursor = 0;
+        } else {
+          // a printable key, and `typedText()` is what decides whether this was
+          // one: a character arrives with its name and its sequence the same
+          // string, while a named key's name is one the terminal never sent. What
+          // is inserted is the sequence rather than the name
+          insert(typedText(k) ?? '');
+        }
 
-				draw();
-			},
+        draw();
+      },
 
-			paste(block: string): void {
-				// a one-line field, so the line breaks a pasted block carries are
-				// flattened rather than obeyed -- `pastedLine()` is that rule, and it sits
-				// beside `pastedBlock()`, which is the multiline field's opposite answer
-				// to the same question
-				insert(pastedLine(block));
-				draw();
-			},
+      paste(block: string): void {
+        // a one-line field, so the line breaks a pasted block carries are
+        // flattened rather than obeyed -- `pastedLine()` is that rule, and it sits
+        // beside `pastedBlock()`, which is the multiline field's opposite answer
+        // to the same question
+        insert(pastedLine(block));
+        draw();
+      },
 
-			settle(answer: string): void {
-				answered(mark);
-				before.setText('');
-				caret.setText('');
-				caret.setProps({ class: '' });
-				after.setText(opts.mask === undefined ? answer : opts.mask.repeat(stringWidth(answer)));
-				after.setProps({ class: 'sigil-prompt-answer sigil-muted' });
-				setNote(complaint, undefined);
-			},
+      settle(answer: string): void {
+        answered(mark);
+        before.setText('');
+        caret.setText('');
+        caret.setProps({ class: '' });
+        after.setText(opts.mask === undefined ? answer : opts.mask.repeat(stringWidth(answer)));
+        after.setProps({ class: 'sigil-prompt-answer sigil-muted' });
+        setNote(complaint, undefined);
+      },
 
-			view,
-		};
-	});
+      view,
+    };
+  });
 }
 
 /**
@@ -726,7 +726,7 @@ export function text(opts: TextOptions): Promise<string> {
  * @returns What was typed.
  */
 export function password(opts: TextOptions): Promise<string> {
-	return text({ mask: '•', ...opts });
+  return text({ mask: '•', ...opts });
 }
 
 /**
@@ -744,46 +744,46 @@ export function password(opts: TextOptions): Promise<string> {
  * field having to hold a mode nothing on screen could show.
  */
 export interface SubmitKey {
-	/** Whether Ctrl is held. */
-	ctrl?: boolean;
-	/** Whether Alt is held, which a terminal sends as a leading `ESC`. */
-	meta?: boolean;
-	/** The key's name, as `decodeKeys()` names it. */
-	name: string;
+  /** Whether Ctrl is held. */
+  ctrl?: boolean;
+  /** Whether Alt is held, which a terminal sends as a leading `ESC`. */
+  meta?: boolean;
+  /** The key's name, as `decodeKeys()` names it. */
+  name: string;
 }
 
 export interface MultilineOptions extends PromptOptions {
-	/**
-	 * What the field starts with, which the person can then edit.
-	 *
-	 * There is deliberately no `default`: `text()` has one because Enter alone is
-	 * the common gesture there, and here Enter is a newline -- so a field that is
-	 * meant to come up with something in it comes up with it *visible and
-	 * editable*, which is the better answer anyway.
-	 *
-	 * Its line endings are normalized the way a paste's are, so that the value
-	 * holds one spelling of a line break and nothing else.
-	 */
-	initial?: string;
-	/** Shown dimmed when nothing has been typed. */
-	placeholder?: string;
-	/**
-	 * The most rows the field takes before it scrolls. Ten by default, and capped
-	 * by what the terminal has left under the question.
-	 *
-	 * The field *grows* into it rather than starting there: one that reserved ten
-	 * rows for a one-line answer would hold nine blank rows of the user's
-	 * scrollback open for the life of the prompt, which is the same argument the
-	 * auto-height canvas is written for.
-	 */
-	rows?: number;
-	/** What submits the answer. Ctrl-D by default. */
-	submit?: SubmitKey;
-	/**
-	 * Checks the answer. Return a string to reject it with that message, or
-	 * anything falsy to accept.
-	 */
-	validate?: (value: string) => string | undefined | false | Promise<string | undefined | false>;
+  /**
+   * What the field starts with, which the person can then edit.
+   *
+   * There is deliberately no `default`: `text()` has one because Enter alone is
+   * the common gesture there, and here Enter is a newline -- so a field that is
+   * meant to come up with something in it comes up with it *visible and
+   * editable*, which is the better answer anyway.
+   *
+   * Its line endings are normalized the way a paste's are, so that the value
+   * holds one spelling of a line break and nothing else.
+   */
+  initial?: string;
+  /** Shown dimmed when nothing has been typed. */
+  placeholder?: string;
+  /**
+   * The most rows the field takes before it scrolls. Ten by default, and capped
+   * by what the terminal has left under the question.
+   *
+   * The field *grows* into it rather than starting there: one that reserved ten
+   * rows for a one-line answer would hold nine blank rows of the user's
+   * scrollback open for the life of the prompt, which is the same argument the
+   * auto-height canvas is written for.
+   */
+  rows?: number;
+  /** What submits the answer. Ctrl-D by default. */
+  submit?: SubmitKey;
+  /**
+   * Checks the answer. Return a string to reject it with that message, or
+   * anything falsy to accept.
+   */
+  validate?: (value: string) => string | undefined | false | Promise<string | undefined | false>;
 }
 
 /**
@@ -805,54 +805,54 @@ export interface MultilineOptions extends PromptOptions {
 
 /** One cluster of a field's value, and where it was drawn. */
 export interface FieldCell {
-	/** The cluster's offset in the value. */
-	at: number;
-	/** What is drawn for it, which is what a `text` would draw for it. */
-	text: string;
-	/** How many columns it takes. */
-	width: number;
-	/** The column it starts at. */
-	x: number;
+  /** The cluster's offset in the value. */
+  at: number;
+  /** What is drawn for it, which is what a `text` would draw for it. */
+  text: string;
+  /** How many columns it takes. */
+  width: number;
+  /** The column it starts at. */
+  x: number;
 }
 
 /** One row of a field, which is a row on screen rather than a line of the value. */
 export interface FieldRow {
-	cells: FieldCell[];
-	/** The offset the row begins at, which is where an empty row's caret goes. */
-	start: number;
-	/** The columns its cells take. */
-	width: number;
+  cells: FieldCell[];
+  /** The offset the row begins at, which is where an empty row's caret goes. */
+  start: number;
+  /** The columns its cells take. */
+  width: number;
 }
 
 /** A value laid out at a width, with the caret placed in it. */
 export interface FieldLayout {
-	/** Where the caret is drawn, and the cluster it marks. */
-	caret: { row: number; text: string; x: number };
-	rows: FieldRow[];
-	/** The columns the field asks for: its widest row, plus the caret's own. */
-	width: number;
+  /** Where the caret is drawn, and the cluster it marks. */
+  caret: { row: number; text: string; x: number };
+  rows: FieldRow[];
+  /** The columns the field asks for: its widest row, plus the caret's own. */
+  width: number;
 }
 
 /** What the two layers of a field read: the rows, the window, and the caret. */
 export interface FieldFrame {
-	layout: FieldLayout;
-	/** The first row on screen, when the value is taller than the field. */
-	top: number;
-	/** How many of its rows are on screen. */
-	visible: number;
+  layout: FieldLayout;
+  /** The first row on screen, when the value is taller than the field. */
+  top: number;
+  /** How many of its rows are on screen. */
+  visible: number;
 }
 
 /** A cluster of the value, with where it is. */
 interface Cluster {
-	at: number;
-	text: string;
+  at: number;
+  text: string;
 }
 
 /** A run of clusters that are all whitespace or all not, which is what wraps. */
 interface ClusterRun {
-	clusters: Cluster[];
-	space: boolean;
-	width: number;
+  clusters: Cluster[];
+  space: boolean;
+  width: number;
 }
 
 /**
@@ -876,38 +876,38 @@ interface ClusterRun {
  * @returns What to paint, which is empty for anything with no cell.
  */
 function clusterText(cluster: string): string {
-	return cluster === '\n' ? '' : toDisplayText(cluster);
+  return cluster === '\n' ? '' : toDisplayText(cluster);
 }
 
 /** How many columns one cluster takes, which is what the grid will give it. */
 function clusterWidth(cluster: string): number {
-	const text = clusterText(cluster);
-	return text === '' ? 0 : cellWidth(text);
+  const text = clusterText(cluster);
+  return text === '' ? 0 : cellWidth(text);
 }
 
 /** Splits a line's clusters into the runs `wrap()` breaks between. */
 function clusterRuns(clusters: readonly Cluster[]): ClusterRun[] {
-	const runs: ClusterRun[] = [];
-	let current: Cluster[] = [];
-	let space = false;
-	let width = 0;
+  const runs: ClusterRun[] = [];
+  let current: Cluster[] = [];
+  let space = false;
+  let width = 0;
 
-	for (const cluster of clusters) {
-		const blank = isSpaceCluster(cluster.text);
-		if (current.length > 0 && blank !== space) {
-			runs.push({ clusters: current, space, width });
-			current = [];
-			width = 0;
-		}
-		space = blank;
-		current.push(cluster);
-		width += clusterWidth(cluster.text);
-	}
-	if (current.length > 0) {
-		runs.push({ clusters: current, space, width });
-	}
+  for (const cluster of clusters) {
+    const blank = isSpaceCluster(cluster.text);
+    if (current.length > 0 && blank !== space) {
+      runs.push({ clusters: current, space, width });
+      current = [];
+      width = 0;
+    }
+    space = blank;
+    current.push(cluster);
+    width += clusterWidth(cluster.text);
+  }
+  if (current.length > 0) {
+    runs.push({ clusters: current, space, width });
+  }
 
-	return runs;
+  return runs;
 }
 
 /**
@@ -938,13 +938,13 @@ function clusterRuns(clusters: readonly Cluster[]): ClusterRun[] {
  * @returns The column to paint in, and what to paint there.
  */
 function caretOn(row: FieldRow, at: number): { text: string; x: number } {
-	for (const cell of row.cells) {
-		if (cell.width > 0 && at >= cell.x && at < cell.x + cell.width) {
-			return { text: cell.text, x: cell.x };
-		}
-	}
+  for (const cell of row.cells) {
+    if (cell.width > 0 && at >= cell.x && at < cell.x + cell.width) {
+      return { text: cell.text, x: cell.x };
+    }
+  }
 
-	return { text: ' ', x: at };
+  return { text: ' ', x: at };
 }
 
 /**
@@ -990,131 +990,131 @@ function caretOn(row: FieldRow, at: number): { text: string; x: number } {
  * @returns The rows, the caret, and the width the field asks for.
  */
 export function layoutField(value: string, cursor: number, room: number): FieldLayout {
-	const limit = Math.max(1, room - 1);
-	const at = snap(value, Math.max(0, Math.min(cursor, value.length)));
-	const rows: FieldRow[] = [];
+  const limit = Math.max(1, room - 1);
+  const at = snap(value, Math.max(0, Math.min(cursor, value.length)));
+  const rows: FieldRow[] = [];
 
-	let cells: FieldCell[] = [];
-	let start = 0;
-	/** The column the next cluster would take, before the clamp. */
-	let x = 0;
+  let cells: FieldCell[] = [];
+  let start = 0;
+  /** The column the next cluster would take, before the clamp. */
+  let x = 0;
 
-	/** Ends the row being built and starts one at `next`. */
-	const flush = (next: number): void => {
-		let width = 0;
-		for (const cell of cells) {
-			width = Math.max(width, cell.x + cell.width);
-		}
-		rows.push({ cells, start, width });
-		cells = [];
-		start = next;
-		x = 0;
-	};
+  /** Ends the row being built and starts one at `next`. */
+  const flush = (next: number): void => {
+    let width = 0;
+    for (const cell of cells) {
+      width = Math.max(width, cell.x + cell.width);
+    }
+    rows.push({ cells, start, width });
+    cells = [];
+    start = next;
+    x = 0;
+  };
 
-	const place = (cluster: Cluster): void => {
-		const text = clusterText(cluster.text);
-		const width = text === '' ? 0 : cellWidth(text);
-		cells.push({ at: cluster.at, text, width, x: Math.min(x, limit) });
-		x += width;
-	};
+  const place = (cluster: Cluster): void => {
+    const text = clusterText(cluster.text);
+    const width = text === '' ? 0 : cellWidth(text);
+    cells.push({ at: cluster.at, text, width, x: Math.min(x, limit) });
+    x += width;
+  };
 
-	// the value's clusters, grouped into the logical lines its newlines define.
-	// The terminator belongs to the line it ends, because its offset is a place
-	// the caret goes: pressing End on a line puts it there
-	const lines: { clusters: Cluster[]; start: number; terminator: Cluster | undefined }[] = [];
-	let line: Cluster[] = [];
-	let lineStart = 0;
-	let offset = 0;
+  // the value's clusters, grouped into the logical lines its newlines define.
+  // The terminator belongs to the line it ends, because its offset is a place
+  // the caret goes: pressing End on a line puts it there
+  const lines: { clusters: Cluster[]; start: number; terminator: Cluster | undefined }[] = [];
+  let line: Cluster[] = [];
+  let lineStart = 0;
+  let offset = 0;
 
-	for (const text of graphemes(value)) {
-		const cluster = { at: offset, text };
-		offset += text.length;
-		if (text === '\n') {
-			lines.push({ clusters: line, start: lineStart, terminator: cluster });
-			line = [];
-			lineStart = offset;
-		} else {
-			line.push(cluster);
-		}
-	}
-	lines.push({ clusters: line, start: lineStart, terminator: undefined });
+  for (const text of graphemes(value)) {
+    const cluster = { at: offset, text };
+    offset += text.length;
+    if (text === '\n') {
+      lines.push({ clusters: line, start: lineStart, terminator: cluster });
+      line = [];
+      lineStart = offset;
+    } else {
+      line.push(cluster);
+    }
+  }
+  lines.push({ clusters: line, start: lineStart, terminator: undefined });
 
-	for (const logical of lines) {
-		start = logical.start;
+  for (const logical of lines) {
+    start = logical.start;
 
-		/** The whitespace since the last word, which decides where a break falls. */
-		let gap: Cluster[] = [];
-		let gapWidth = 0;
+    /** The whitespace since the last word, which decides where a break falls. */
+    let gap: Cluster[] = [];
+    let gapWidth = 0;
 
-		for (const run of clusterRuns(logical.clusters)) {
-			if (run.space) {
-				gap = run.clusters;
-				gapWidth = run.width;
-				continue;
-			}
+    for (const run of clusterRuns(logical.clusters)) {
+      if (run.space) {
+        gap = run.clusters;
+        gapWidth = run.width;
+        continue;
+      }
 
-			const breaking = x > 0 && x + gapWidth + run.width > limit;
-			// the gap goes on the row it ended either way, which is where this parts
-			// company with `wrap()` and why
-			for (const cluster of gap) {
-				place(cluster);
-			}
-			gap = [];
-			gapWidth = 0;
-			if (breaking) {
-				flush(run.clusters[0].at);
-			}
+      const breaking = x > 0 && x + gapWidth + run.width > limit;
+      // the gap goes on the row it ended either way, which is where this parts
+      // company with `wrap()` and why
+      for (const cluster of gap) {
+        place(cluster);
+      }
+      gap = [];
+      gapWidth = 0;
+      if (breaking) {
+        flush(run.clusters[0].at);
+      }
 
-			for (const cluster of run.clusters) {
-				// only reachable for a word that did not fit a row of its own, since
-				// the row was already broken for one that did: this is where it is cut
-				if (x > 0 && x + clusterWidth(cluster.text) > limit) {
-					flush(cluster.at);
-				}
-				place(cluster);
-			}
-		}
+      for (const cluster of run.clusters) {
+        // only reachable for a word that did not fit a row of its own, since
+        // the row was already broken for one that did: this is where it is cut
+        if (x > 0 && x + clusterWidth(cluster.text) > limit) {
+          flush(cluster.at);
+        }
+        place(cluster);
+      }
+    }
 
-		for (const cluster of gap) {
-			place(cluster);
-		}
-		if (logical.terminator) {
-			place(logical.terminator);
-		}
-		flush(logical.terminator ? logical.terminator.at + 1 : value.length);
-	}
+    for (const cluster of gap) {
+      place(cluster);
+    }
+    if (logical.terminator) {
+      place(logical.terminator);
+    }
+    flush(logical.terminator ? logical.terminator.at + 1 : value.length);
+  }
 
-	let widest = 0;
-	for (const row of rows) {
-		widest = Math.max(widest, row.width);
-	}
-	// the caret's own column is what the `+ 1` is, and it is what makes the clamp
-	// below a no-op anywhere but a one-column field -- where `limit` cannot be
-	// zero, so a cell really can land on the column the box ends at
-	const width = Math.min(Math.max(1, room), widest + 1);
-	const edge = width - 1;
+  let widest = 0;
+  for (const row of rows) {
+    widest = Math.max(widest, row.width);
+  }
+  // the caret's own column is what the `+ 1` is, and it is what makes the clamp
+  // below a no-op anywhere but a one-column field -- where `limit` cannot be
+  // zero, so a cell really can land on the column the box ends at
+  const width = Math.min(Math.max(1, room), widest + 1);
+  const edge = width - 1;
 
-	for (const [row, built] of rows.entries()) {
-		for (const cell of built.cells) {
-			if (cell.at === at) {
-				// through `caretOn()` whatever the cell is, which is one rule rather
-				// than two: a cell of positive width finds itself there and takes its
-				// own text, and a cell with no cell at all -- a newline, a lone
-				// combining mark, a control character a caller handed in -- has nothing
-				// to mark, so it comes back a blank unless the column it was clamped to
-				// belongs to a cluster. `place()` clamps a zero-width cell to the wrap
-				// column, which a wide cluster may already be sitting on
-				const on = caretOn(built, Math.min(edge, cell.x));
-				return { caret: { row, text: on.text, x: on.x }, rows, width };
-			}
-		}
-	}
+  for (const [row, built] of rows.entries()) {
+    for (const cell of built.cells) {
+      if (cell.at === at) {
+        // through `caretOn()` whatever the cell is, which is one rule rather
+        // than two: a cell of positive width finds itself there and takes its
+        // own text, and a cell with no cell at all -- a newline, a lone
+        // combining mark, a control character a caller handed in -- has nothing
+        // to mark, so it comes back a blank unless the column it was clamped to
+        // belongs to a cluster. `place()` clamps a zero-width cell to the wrap
+        // column, which a wide cluster may already be sitting on
+        const on = caretOn(built, Math.min(edge, cell.x));
+        return { caret: { row, text: on.text, x: on.x }, rows, width };
+      }
+    }
+  }
 
-	// past the last cluster, which is the one position no cluster owns -- and it is
-	// the last row's, because every other row's end is the next row's start
-	const last = rows.at(-1);
-	const on = last ? caretOn(last, Math.min(edge, last.width)) : { text: ' ', x: 0 };
-	return { caret: { row: rows.length - 1, text: on.text, x: on.x }, rows, width };
+  // past the last cluster, which is the one position no cluster owns -- and it is
+  // the last row's, because every other row's end is the next row's start
+  const last = rows.at(-1);
+  const on = last ? caretOn(last, Math.min(edge, last.width)) : { text: ' ', x: 0 };
+  return { caret: { row: rows.length - 1, text: on.text, x: on.x }, rows, width };
 }
 
 /**
@@ -1138,33 +1138,33 @@ export function layoutField(value: string, cursor: number, room: number): FieldL
  * @returns The offset.
  */
 export function offsetIn(layout: FieldLayout, length: number, row: number, column: number): number {
-	const index = Math.max(0, Math.min(row, layout.rows.length - 1));
-	const target = layout.rows[index];
+  const index = Math.max(0, Math.min(row, layout.rows.length - 1));
+  const target = layout.rows[index];
 
-	// the position past the last cluster, which only the last row has: every other
-	// row's end is the next row's start, and belongs to that row.
-	//
-	// Aimed at the column the caret would be *drawn* in rather than at the row's
-	// own extent, because the two part company exactly where the whitespace clamp
-	// bit: a row ending in a run of spaces is `limit + 1` wide while the caret past
-	// it is drawn at `limit`, so a goal column -- which can never exceed the edge --
-	// could not reach the end of the value at all. `layoutField()` computes that
-	// column the same way, which is what keeps the two agreeing
-	if (index === layout.rows.length - 1 && column >= Math.min(layout.width - 1, target.width)) {
-		return length;
-	}
+  // the position past the last cluster, which only the last row has: every other
+  // row's end is the next row's start, and belongs to that row.
+  //
+  // Aimed at the column the caret would be *drawn* in rather than at the row's
+  // own extent, because the two part company exactly where the whitespace clamp
+  // bit: a row ending in a run of spaces is `limit + 1` wide while the caret past
+  // it is drawn at `limit`, so a goal column -- which can never exceed the edge --
+  // could not reach the end of the value at all. `layoutField()` computes that
+  // column the same way, which is what keeps the two agreeing
+  if (index === layout.rows.length - 1 && column >= Math.min(layout.width - 1, target.width)) {
+    return length;
+  }
 
-	let found = target.start;
-	for (const cell of target.cells) {
-		if (cell.x > column) {
-			break;
-		}
-		// at or before, and the *last* such cell: a run of whitespace clamped to the
-		// wrap column shares it, and the caret belongs on the last of them
-		found = cell.at;
-	}
+  let found = target.start;
+  for (const cell of target.cells) {
+    if (cell.x > column) {
+      break;
+    }
+    // at or before, and the *last* such cell: a run of whitespace clamped to the
+    // wrap column shares it, and the caret belongs on the last of them
+    found = cell.at;
+  }
 
-	return found;
+  return found;
 }
 
 /**
@@ -1189,7 +1189,7 @@ export function offsetIn(layout: FieldLayout, length: number, row: number, colum
  * @returns The offset after the previous newline, or zero.
  */
 export function lineStart(value: string, at: number): number {
-	return (at <= 0 ? -1 : value.lastIndexOf('\n', at - 1)) + 1;
+  return (at <= 0 ? -1 : value.lastIndexOf('\n', at - 1)) + 1;
 }
 
 /**
@@ -1204,8 +1204,8 @@ export function lineStart(value: string, at: number): number {
  * @returns The offset of the next newline, or the end of the value.
  */
 export function lineEnd(value: string, at: number): number {
-	const found = value.indexOf('\n', Math.max(0, at));
-	return found === -1 ? value.length : found;
+  const found = value.indexOf('\n', Math.max(0, at));
+  return found === -1 ? value.length : found;
 }
 
 /**
@@ -1242,85 +1242,85 @@ export function lineEnd(value: string, at: number): number {
  * @returns The two elements, the field named first because it is the one in flow.
  */
 export function fieldLayers(read: () => FieldFrame): { caret: Element; field: Element } {
-	const field = raw(
-		{
-			drawsText: true,
-			// the frame's own width rather than the one it was offered, because the
-			// layout was taken at a room the component already knew
-			measure: () => {
-				const { layout, visible } = read();
-				return {
-					height: visible,
-					minHeight: visible,
-					minWidth: layout.width,
-					width: layout.width,
-				};
-			},
-			paint: (painter, area, element) => {
-				const { layout, top, visible } = read();
-				const style = cellStyle(element.style);
+  const field = raw(
+    {
+      drawsText: true,
+      // the frame's own width rather than the one it was offered, because the
+      // layout was taken at a room the component already knew
+      measure: () => {
+        const { layout, visible } = read();
+        return {
+          height: visible,
+          minHeight: visible,
+          minWidth: layout.width,
+          width: layout.width,
+        };
+      },
+      paint: (painter, area, element) => {
+        const { layout, top, visible } = read();
+        const style = cellStyle(element.style);
 
-				// the window rather than the box, and a `Math.min` of the two was written
-				// here and taken out again for failing its sabotage: the measure asks for
-				// exactly `visible` rows, so the box's own height is that number -- and
-				// where a parent gave it more, drawing the rows that were not asked for
-				// would be drawing outside the window rather than inside the box
-				for (let row = 0; row < visible && top + row < layout.rows.length; row++) {
-					for (const cell of layout.rows[top + row].cells) {
-						// a cluster with no cell is not painted, and the guard is a tripwire
-						// rather than a saving: `CellBuffer.put()` *throws* on a control
-						// character rather than dropping it, and a throw from inside paint
-						// takes the frame and the renderer with it. `clusterText()` already
-						// gives one no text, so nothing the field itself produces reaches
-						// this -- what does is a `FieldCell` somebody else built
-						if (cell.width > 0) {
-							painter.text(area.x + cell.x, area.y + row, cell.text, style);
-						}
-					}
-				}
-			},
-		},
-		{ class: 'sigil-prompt-field' }
-	);
+        // the window rather than the box, and a `Math.min` of the two was written
+        // here and taken out again for failing its sabotage: the measure asks for
+        // exactly `visible` rows, so the box's own height is that number -- and
+        // where a parent gave it more, drawing the rows that were not asked for
+        // would be drawing outside the window rather than inside the box
+        for (let row = 0; row < visible && top + row < layout.rows.length; row++) {
+          for (const cell of layout.rows[top + row].cells) {
+            // a cluster with no cell is not painted, and the guard is a tripwire
+            // rather than a saving: `CellBuffer.put()` *throws* on a control
+            // character rather than dropping it, and a throw from inside paint
+            // takes the frame and the renderer with it. `clusterText()` already
+            // gives one no text, so nothing the field itself produces reaches
+            // this -- what does is a `FieldCell` somebody else built
+            if (cell.width > 0) {
+              painter.text(area.x + cell.x, area.y + row, cell.text, style);
+            }
+          }
+        }
+      },
+    },
+    { class: 'sigil-prompt-field' }
+  );
 
-	const caret = raw(
-		{
-			drawsText: true,
-			// never asked, because a box given both insets on an axis is as wide as
-			// they say
-			measure: () => ({ height: 0, width: 0 }),
-			paint: (painter, _area, element) => {
-				const { layout, top, visible } = read();
-				const area = field.content ?? field.box;
-				const row = layout.caret.row - top;
-				// the window rather than the box, which is the same number: the measure
-				// asked for `visible` rows and nothing in this tree squeezes the cross
-				// axis below what a line's largest item reported. A second bound on
-				// `area.height` was written here and taken out again for failing its
-				// sabotage -- the grid refuses a cell outside itself, so what it was
-				// standing against was a box this component cannot produce
-				if (!area || row < 0 || row >= visible) {
-					return;
-				}
-				painter.text(
-					area.x + layout.caret.x,
-					area.y + row,
-					layout.caret.text,
-					cellStyle(element.style)
-				);
-			},
-		},
-		{
-			bottom: 0,
-			class: 'sigil-caret',
-			left: 0,
-			position: 'absolute',
-			right: 0,
-			top: 0,
-		}
-	);
+  const caret = raw(
+    {
+      drawsText: true,
+      // never asked, because a box given both insets on an axis is as wide as
+      // they say
+      measure: () => ({ height: 0, width: 0 }),
+      paint: (painter, _area, element) => {
+        const { layout, top, visible } = read();
+        const area = field.content ?? field.box;
+        const row = layout.caret.row - top;
+        // the window rather than the box, which is the same number: the measure
+        // asked for `visible` rows and nothing in this tree squeezes the cross
+        // axis below what a line's largest item reported. A second bound on
+        // `area.height` was written here and taken out again for failing its
+        // sabotage -- the grid refuses a cell outside itself, so what it was
+        // standing against was a box this component cannot produce
+        if (!area || row < 0 || row >= visible) {
+          return;
+        }
+        painter.text(
+          area.x + layout.caret.x,
+          area.y + row,
+          layout.caret.text,
+          cellStyle(element.style)
+        );
+      },
+    },
+    {
+      bottom: 0,
+      class: 'sigil-caret',
+      left: 0,
+      position: 'absolute',
+      right: 0,
+      top: 0,
+    }
+  );
 
-	return { caret, field };
+  return { caret, field };
 }
 
 /**
@@ -1345,54 +1345,54 @@ export function fieldLayers(read: () => FieldFrame): { caret: Element; field: El
  * @returns A whole number of rows, or the default.
  */
 function rowCap(rows: number | undefined, fallback = 10): number {
-	// `rows >= 1` is what refuses `NaN`, since every comparison against it is
-	// false -- so `Number.isFinite()` beside it was refusing `Infinity` as well,
-	// which is the one value the comment above says passes through
-	//
-	// `fallback` is the palette's: its default is what the terminal has left
-	// under the question rather than ten, and the rule about what a `rows` may be
-	// is this one said once. Without it the palette had its own, and `Math.max(1,
-	// NaN)` is `NaN` -- which blanked the list while keeping the empty message
-	// hidden, because `rank >= NaN` is false for every row
-	return rows !== undefined && rows >= 1 ? Math.floor(rows) : fallback;
+  // `rows >= 1` is what refuses `NaN`, since every comparison against it is
+  // false -- so `Number.isFinite()` beside it was refusing `Infinity` as well,
+  // which is the one value the comment above says passes through
+  //
+  // `fallback` is the palette's: its default is what the terminal has left
+  // under the question rather than ten, and the rule about what a `rows` may be
+  // is this one said once. Without it the palette had its own, and `Math.max(1,
+  // NaN)` is `NaN` -- which blanked the list while keeping the empty message
+  // hidden, because `rank >= NaN` is false for every row
+  return rows !== undefined && rows >= 1 ? Math.floor(rows) : fallback;
 }
 
 /** `ctrl-d`, as a reader would type it. */
 function keyLabel(key: SubmitKey): string {
-	const { name } = key;
+  const { name } = key;
 
-	// the *modifier* is translated and the key's own name is not, which is the
-	// line SIG-53 drew one step along: a name the user types stays English, and a
-	// modifier is a word printed on a key cap that really does differ -- a German
-	// keyboard says `Strg`, so `ctrl-d` names a key that is not there. The letter
-	// on the key, and `enter` or `tab`, are printed the same on essentially every
-	// keyboard sold, so translating those would be inventing a vocabulary rather
-	// than matching one -- and could not be done through `__` anyway, which is
-	// worth knowing before anybody tries: the tag's key comes from its *literal*
-	// parts, so `__`${name}`` keys on `{0}` rather than on `f2`. A key name is a
-	// value, and a value is never a key -- so a bare name is covered by the modifier
-	// test's own `f2` case, and the thing that is *not* asserted there is that it
-	// was not looked up, because such an assertion cannot fail.
-	//
-	// Each combination is a whole key rather than two translatable fragments, so
-	// that a translator sees `ctrl-{0}` and writes `Strg+{0}` -- which also lets
-	// them pick the separator, since `+` is the German convention and `-` is ours
-	if (key.ctrl && key.meta) {
-		return __`ctrl-alt-${name}`;
-	}
-	if (key.ctrl) {
-		return __`ctrl-${name}`;
-	}
-	if (key.meta) {
-		return __`alt-${name}`;
-	}
+  // the *modifier* is translated and the key's own name is not, which is the
+  // line SIG-53 drew one step along: a name the user types stays English, and a
+  // modifier is a word printed on a key cap that really does differ -- a German
+  // keyboard says `Strg`, so `ctrl-d` names a key that is not there. The letter
+  // on the key, and `enter` or `tab`, are printed the same on essentially every
+  // keyboard sold, so translating those would be inventing a vocabulary rather
+  // than matching one -- and could not be done through `__` anyway, which is
+  // worth knowing before anybody tries: the tag's key comes from its *literal*
+  // parts, so `__`${name}`` keys on `{0}` rather than on `f2`. A key name is a
+  // value, and a value is never a key -- so a bare name is covered by the modifier
+  // test's own `f2` case, and the thing that is *not* asserted there is that it
+  // was not looked up, because such an assertion cannot fail.
+  //
+  // Each combination is a whole key rather than two translatable fragments, so
+  // that a translator sees `ctrl-{0}` and writes `Strg+{0}` -- which also lets
+  // them pick the separator, since `+` is the German convention and `-` is ours
+  if (key.ctrl && key.meta) {
+    return __`ctrl-alt-${name}`;
+  }
+  if (key.ctrl) {
+    return __`ctrl-${name}`;
+  }
+  if (key.meta) {
+    return __`alt-${name}`;
+  }
 
-	return name;
+  return name;
 }
 
 /** Whether a key is the one that submits. */
 function isSubmitKey(k: Key, spec: SubmitKey): boolean {
-	return k.name === spec.name && k.ctrl === (spec.ctrl ?? false) && k.meta === (spec.meta ?? false);
+  return k.name === spec.name && k.ctrl === (spec.ctrl ?? false) && k.meta === (spec.meta ?? false);
 }
 
 /**
@@ -1417,261 +1417,261 @@ function isSubmitKey(k: Key, spec: SubmitKey): boolean {
  * @returns What was typed.
  */
 export function multiline(opts: MultilineOptions): Promise<string> {
-	const terminal = opts.terminal ?? defaultTerminal;
-	const submit = opts.submit ?? { ctrl: true, name: 'd' };
+  const terminal = opts.terminal ?? defaultTerminal;
+  const submit = opts.submit ?? { ctrl: true, name: 'd' };
 
-	// a key with no name is one `decodeKeys()` never produces, so a field given one
-	// has no way to be submitted at all -- which is the hang `PromptError` exists
-	// for, and is refused the way a choice list with nothing to offer is rather
-	// than by quietly putting the default back
-	if (submit.name === '') {
-		return Promise.reject(
-			new PromptError(`"${opts.message}" has no key to submit with: \`submit.name\` is empty`)
-		);
-	}
-	// through the same normalizer a paste goes through, so that the value holds
-	// one spelling of a line break and every rule below can split on it
-	let value = pastedBlock(opts.initial ?? '');
-	let cursor = value.length;
-	let error: string | undefined;
-	/**
-	 * The column a run of vertical moves is aiming for.
-	 *
-	 * Cleared by anything else, which is what makes Up-Up-Down end in the column
-	 * it started in rather than wherever the shortest row on the way left it.
-	 */
-	let goal: number | undefined;
-	/** The first row on screen, when the value is taller than the field. */
-	let top = 0;
+  // a key with no name is one `decodeKeys()` never produces, so a field given one
+  // has no way to be submitted at all -- which is the hang `PromptError` exists
+  // for, and is refused the way a choice list with nothing to offer is rather
+  // than by quietly putting the default back
+  if (submit.name === '') {
+    return Promise.reject(
+      new PromptError(`"${opts.message}" has no key to submit with: \`submit.name\` is empty`)
+    );
+  }
+  // through the same normalizer a paste goes through, so that the value holds
+  // one spelling of a line break and every rule below can split on it
+  let value = pastedBlock(opts.initial ?? '');
+  let cursor = value.length;
+  let error: string | undefined;
+  /**
+   * The column a run of vertical moves is aiming for.
+   *
+   * Cleared by anything else, which is what makes Up-Up-Down end in the column
+   * it started in rather than wherever the shortest row on the way left it.
+   */
+  let goal: number | undefined;
+  /** The first row on screen, when the value is taller than the field. */
+  let top = 0;
 
-	return run<string>(opts, () => {
-		const hintText = __`(${keyLabel(submit)} to submit)`;
-		const hint = textNode(hintText, {
-			class: 'sigil-prompt-hint sigil-muted',
-		});
-		const answer = textNode('', { class: 'sigil-prompt-answer sigil-muted', display: 'none' });
-		const head = headWidths(opts.message, Math.max(1, terminal.width), hintText);
-		const { line, mark } = promptHead(opts.message, head.message, hint, answer);
-		const complaint = note('sigil-prompt-error sigil-error');
+  return run<string>(opts, () => {
+    const hintText = __`(${keyLabel(submit)} to submit)`;
+    const hint = textNode(hintText, {
+      class: 'sigil-prompt-hint sigil-muted',
+    });
+    const answer = textNode('', { class: 'sigil-prompt-answer sigil-muted', display: 'none' });
+    const head = headWidths(opts.message, Math.max(1, terminal.width), hintText);
+    const { line, mark } = promptHead(opts.message, head.message, hint, answer);
+    const complaint = note('sigil-prompt-error sigil-error');
 
-		/** The columns the field has, once the indent under the question is taken. */
-		const room = Math.max(1, Math.max(1, terminal.width) - 2);
-		/**
-		 * The rows the field may take before it scrolls.
-		 *
-		 * Capped by what is left under the question and over the error line, which
-		 * is reserved either way so that showing one does not push the last row of
-		 * the field off the screen -- the rule the choice list already keeps.
-		 */
-		const cap = Math.max(
-			1,
-			Math.min(rowCap(opts.rows), Math.max(1, terminal.height) - head.lines - 1)
-		);
+    /** The columns the field has, once the indent under the question is taken. */
+    const room = Math.max(1, Math.max(1, terminal.width) - 2);
+    /**
+     * The rows the field may take before it scrolls.
+     *
+     * Capped by what is left under the question and over the error line, which
+     * is reserved either way so that showing one does not push the last row of
+     * the field off the screen -- the rule the choice list already keeps.
+     */
+    const cap = Math.max(
+      1,
+      Math.min(rowCap(opts.rows), Math.max(1, terminal.height) - head.lines - 1)
+    );
 
-		/**
-		 * The layout on screen, as a plain field.
-		 *
-		 * Computed in `draw()` at a room the component already knows rather than at
-		 * the width the box was given, which is the rule the single-line field keeps
-		 * -- `windowOf()` is handed `head.rest` -- and is what makes the measure and
-		 * the paint one answer rather than two that have to be kept in agreement.
-		 */
-		let layout = layoutField(value, cursor, room);
-		/** How many of its rows are on screen. */
-		let visible = 1;
+    /**
+     * The layout on screen, as a plain field.
+     *
+     * Computed in `draw()` at a room the component already knows rather than at
+     * the width the box was given, which is the rule the single-line field keeps
+     * -- `windowOf()` is handed `head.rest` -- and is what makes the measure and
+     * the paint one answer rather than two that have to be kept in agreement.
+     */
+    let layout = layoutField(value, cursor, room);
+    /** How many of its rows are on screen. */
+    let visible = 1;
 
-		const { caret: caretLayer, field } = fieldLayers(() => ({ layout, top, visible }));
+    const { caret: caretLayer, field } = fieldLayers(() => ({ layout, top, visible }));
 
-		const view = box(
-			{ class: 'sigil-prompt', 'flex-direction': 'column' },
-			line,
-			// `position: relative` with no insets moves nothing and is what gives the
-			// caret layer a containing block to resolve its own against
-			box(
-				{ class: 'sigil-prompt-multiline', 'padding-left': 2, position: 'relative' },
-				field,
-				caretLayer
-			),
-			box({ 'padding-left': 2 }, complaint)
-		);
+    const view = box(
+      { class: 'sigil-prompt', 'flex-direction': 'column' },
+      line,
+      // `position: relative` with no insets moves nothing and is what gives the
+      // caret layer a containing block to resolve its own against
+      box(
+        { class: 'sigil-prompt-multiline', 'padding-left': 2, position: 'relative' },
+        field,
+        caretLayer
+      ),
+      box({ 'padding-left': 2 }, complaint)
+    );
 
-		function draw(): void {
-			setNote(complaint, error);
+    function draw(): void {
+      setNote(complaint, error);
 
-			// the placeholder is drawn by the field with its class switched rather than
-			// by a layer of its own: one element cannot resolve two styles, and there
-			// is only ever one of the two to draw
-			const shown = value === '' ? opts.placeholder : undefined;
-			layout = layoutField(shown ?? value, shown === undefined ? cursor : 0, room);
-			visible = Math.max(1, Math.min(layout.rows.length, cap));
-			top = windowStart(layout.rows.length, layout.caret.row, visible, top);
+      // the placeholder is drawn by the field with its class switched rather than
+      // by a layer of its own: one element cannot resolve two styles, and there
+      // is only ever one of the two to draw
+      const shown = value === '' ? opts.placeholder : undefined;
+      layout = layoutField(shown ?? value, shown === undefined ? cursor : 0, room);
+      visible = Math.max(1, Math.min(layout.rows.length, cap));
+      top = windowStart(layout.rows.length, layout.caret.row, visible, top);
 
-			field.setProps({
-				class:
-					shown === undefined
-						? 'sigil-prompt-field'
-						: 'sigil-prompt-field sigil-prompt-placeholder sigil-muted',
-			});
-			field.invalidateMeasure();
-			caretLayer.invalidatePaint();
-		}
+      field.setProps({
+        class:
+          shown === undefined
+            ? 'sigil-prompt-field'
+            : 'sigil-prompt-field sigil-prompt-placeholder sigil-muted',
+      });
+      field.invalidateMeasure();
+      caretLayer.invalidatePaint();
+    }
 
-		/**
-		 * Moves the caret, which is the one place a cursor is written.
-		 *
-		 * Through `snap()` and clamped, so that an offset worked out from a row of
-		 * the *placeholder* -- which is what the rows describe while the value is
-		 * empty -- can never be stored as a cursor into the value.
-		 *
-		 * **Declared rather than claimed**: it cannot change an answer today and it
-		 * fails its own sabotage, because the one way an offset from the wrong
-		 * string gets here is with a value of `''` -- the placeholder shows only
-		 * then -- and every rule below answers the same for any offset into that.
-		 * What it buys is that this is the one place a cursor is written, so the
-		 * invariant every rule below reads is asserted here rather than assumed of
-		 * each of them.
-		 *
-		 * @param to - Where to put it.
-		 */
-		function move(to: number): void {
-			cursor = snap(value, Math.max(0, Math.min(to, value.length)));
-		}
+    /**
+     * Moves the caret, which is the one place a cursor is written.
+     *
+     * Through `snap()` and clamped, so that an offset worked out from a row of
+     * the *placeholder* -- which is what the rows describe while the value is
+     * empty -- can never be stored as a cursor into the value.
+     *
+     * **Declared rather than claimed**: it cannot change an answer today and it
+     * fails its own sabotage, because the one way an offset from the wrong
+     * string gets here is with a value of `''` -- the placeholder shows only
+     * then -- and every rule below answers the same for any offset into that.
+     * What it buys is that this is the one place a cursor is written, so the
+     * invariant every rule below reads is asserted here rather than assumed of
+     * each of them.
+     *
+     * @param to - Where to put it.
+     */
+    function move(to: number): void {
+      cursor = snap(value, Math.max(0, Math.min(to, value.length)));
+    }
 
-		/**
-		 * Moves the caret by rows, keeping the column it is aiming for.
-		 *
-		 * Going up from the first row and down from the last land on the ends of the
-		 * value, which is what a textarea does: there is no row to go to, and a caret
-		 * that moved nowhere reads as a key that did not work.
-		 *
-		 * @param by - How many rows, signed.
-		 */
-		function vertical(by: number): void {
-			goal ??= layout.caret.x;
-			const to = layout.caret.row + by;
+    /**
+     * Moves the caret by rows, keeping the column it is aiming for.
+     *
+     * Going up from the first row and down from the last land on the ends of the
+     * value, which is what a textarea does: there is no row to go to, and a caret
+     * that moved nowhere reads as a key that did not work.
+     *
+     * @param by - How many rows, signed.
+     */
+    function vertical(by: number): void {
+      goal ??= layout.caret.x;
+      const to = layout.caret.row + by;
 
-			if (to < 0) {
-				move(0);
-			} else if (to >= layout.rows.length) {
-				move(value.length);
-			} else {
-				move(offsetIn(layout, value.length, to, goal));
-			}
-		}
+      if (to < 0) {
+        move(0);
+      } else if (to >= layout.rows.length) {
+        move(value.length);
+      } else {
+        move(offsetIn(layout, value.length, to, goal));
+      }
+    }
 
-		draw();
+    draw();
 
-		return {
-			// Ctrl-D is this field's submit key and `isAbort()` would otherwise take
-			// it: end of input and "that is my answer" are the same gesture, and a
-			// field escaped by the key that submits it has no way out. Ctrl-C is never
-			// claimable, which `run()` is what enforces
-			claims(k) {
-				return isSubmitKey(k, submit);
-			},
+    return {
+      // Ctrl-D is this field's submit key and `isAbort()` would otherwise take
+      // it: end of input and "that is my answer" are the same gesture, and a
+      // field escaped by the key that submits it has no way out. Ctrl-C is never
+      // claimable, which `run()` is what enforces
+      claims(k) {
+        return isSubmitKey(k, submit);
+      },
 
-			async key(k) {
-				error = undefined;
+      async key(k) {
+        error = undefined;
 
-				if (isSubmitKey(k, submit)) {
-					const failed = await opts.validate?.(value);
-					if (typeof failed === 'string' && failed) {
-						error = failed;
-						draw();
-						return;
-					}
-					return { value };
-				}
+        if (isSubmitKey(k, submit)) {
+          const failed = await opts.validate?.(value);
+          if (typeof failed === 'string' && failed) {
+            error = failed;
+            draw();
+            return;
+          }
+          return { value };
+        }
 
-				const vertically = k.name === 'up' || k.name === 'down';
-				const paging = k.name === 'pageup' || k.name === 'pagedown';
-				const word = k.ctrl || k.meta;
+        const vertically = k.name === 'up' || k.name === 'down';
+        const paging = k.name === 'pageup' || k.name === 'pagedown';
+        const word = k.ctrl || k.meta;
 
-				if (k.name === 'enter') {
-					({ cursor, value } = insertAt(value, cursor, '\n'));
-				} else if (k.name === 'backspace') {
-					({ cursor, value } = word
-						? deleteRange(value, wordBefore(value, cursor), cursor)
-						: deleteBefore(value, cursor));
-				} else if (k.name === 'delete') {
-					({ cursor, value } = word
-						? deleteRange(value, cursor, wordAfter(value, cursor))
-						: deleteAfter(value, cursor));
-				} else if (k.ctrl && k.name === 'w') {
-					({ cursor, value } = deleteRange(value, wordBefore(value, cursor), cursor));
-				} else if (k.meta && k.name === 'd') {
-					({ cursor, value } = deleteRange(value, cursor, wordAfter(value, cursor)));
-				} else if (k.name === 'left') {
-					move(word ? wordBefore(value, cursor) : boundary(value, cursor, -1));
-				} else if (k.name === 'right') {
-					move(word ? wordAfter(value, cursor) : boundary(value, cursor, 1));
-				} else if (k.meta && k.name === 'b') {
-					move(wordBefore(value, cursor));
-				} else if (k.meta && k.name === 'f') {
-					move(wordAfter(value, cursor));
-				} else if (vertically) {
-					vertical(k.name === 'up' ? -1 : 1);
-				} else if (paging) {
-					vertical(k.name === 'pageup' ? -visible : visible);
-				} else if (k.ctrl && (k.name === 'home' || k.name === 'end')) {
-					// the whole value rather than the line, which is the one place the
-					// modifier means something here
-					move(k.name === 'home' ? 0 : value.length);
-				} else if (k.name === 'home' || (k.ctrl && k.name === 'a')) {
-					move(lineStart(value, cursor));
-				} else if (k.name === 'end' || (k.ctrl && k.name === 'e')) {
-					move(lineEnd(value, cursor));
-				} else if (k.ctrl && k.name === 'u') {
-					({ cursor, value } = deleteRange(value, lineStart(value, cursor), cursor));
-				} else if (k.ctrl && k.name === 'k') {
-					({ cursor, value } = deleteRange(value, cursor, lineEnd(value, cursor)));
-				} else {
-					({ cursor, value } = insertAt(value, cursor, typedText(k) ?? ''));
-				}
+        if (k.name === 'enter') {
+          ({ cursor, value } = insertAt(value, cursor, '\n'));
+        } else if (k.name === 'backspace') {
+          ({ cursor, value } = word
+            ? deleteRange(value, wordBefore(value, cursor), cursor)
+            : deleteBefore(value, cursor));
+        } else if (k.name === 'delete') {
+          ({ cursor, value } = word
+            ? deleteRange(value, cursor, wordAfter(value, cursor))
+            : deleteAfter(value, cursor));
+        } else if (k.ctrl && k.name === 'w') {
+          ({ cursor, value } = deleteRange(value, wordBefore(value, cursor), cursor));
+        } else if (k.meta && k.name === 'd') {
+          ({ cursor, value } = deleteRange(value, cursor, wordAfter(value, cursor)));
+        } else if (k.name === 'left') {
+          move(word ? wordBefore(value, cursor) : boundary(value, cursor, -1));
+        } else if (k.name === 'right') {
+          move(word ? wordAfter(value, cursor) : boundary(value, cursor, 1));
+        } else if (k.meta && k.name === 'b') {
+          move(wordBefore(value, cursor));
+        } else if (k.meta && k.name === 'f') {
+          move(wordAfter(value, cursor));
+        } else if (vertically) {
+          vertical(k.name === 'up' ? -1 : 1);
+        } else if (paging) {
+          vertical(k.name === 'pageup' ? -visible : visible);
+        } else if (k.ctrl && (k.name === 'home' || k.name === 'end')) {
+          // the whole value rather than the line, which is the one place the
+          // modifier means something here
+          move(k.name === 'home' ? 0 : value.length);
+        } else if (k.name === 'home' || (k.ctrl && k.name === 'a')) {
+          move(lineStart(value, cursor));
+        } else if (k.name === 'end' || (k.ctrl && k.name === 'e')) {
+          move(lineEnd(value, cursor));
+        } else if (k.ctrl && k.name === 'u') {
+          ({ cursor, value } = deleteRange(value, lineStart(value, cursor), cursor));
+        } else if (k.ctrl && k.name === 'k') {
+          ({ cursor, value } = deleteRange(value, cursor, lineEnd(value, cursor)));
+        } else {
+          ({ cursor, value } = insertAt(value, cursor, typedText(k) ?? ''));
+        }
 
-				// a run of vertical moves keeps the column it is aiming for and
-				// everything else gives it up, which is the whole of what a goal column
-				// is. Cleared after the move, because `vertical()` is what reads it
-				if (!vertically && !paging) {
-					goal = undefined;
-				}
+        // a run of vertical moves keeps the column it is aiming for and
+        // everything else gives it up, which is the whole of what a goal column
+        // is. Cleared after the move, because `vertical()` is what reads it
+        if (!vertically && !paging) {
+          goal = undefined;
+        }
 
-				draw();
-			},
+        draw();
+      },
 
-			paste(block: string): void {
-				// the opposite of what `text()` does with a block, and the reason is
-				// under `pastedBlock()`: the breaks are what a multiline field is for
-				({ cursor, value } = insertAt(value, cursor, pastedBlock(block)));
-				goal = undefined;
-				draw();
-			},
+      paste(block: string): void {
+        // the opposite of what `text()` does with a block, and the reason is
+        // under `pastedBlock()`: the breaks are what a multiline field is for
+        ({ cursor, value } = insertAt(value, cursor, pastedBlock(block)));
+        goal = undefined;
+        draw();
+      },
 
-			settle(written: string): void {
-				answered(mark);
-				hint.setProps({ display: 'none' });
-				// one line in the log, which is the house style every other prompt here
-				// keeps -- `select()` leaves its label and `multiselect()` leaves a comma
-				// list. The whole of what was written is the caller's return value, and a
-				// log holding a fifty-line paste per prompt is a log nobody reads
-				const lines = written.split('\n');
-				const more = lines.length - 1;
-				answer.setText(
-					written === ''
-						? __`(empty)`
-						: more > 0
-							? `${lines[0]} ${__n(more, '(+{0} more line)', '(+{0} more lines)')}`
-							: lines[0]
-				);
-				answer.setProps({ display: 'flex' });
-				field.setProps({ display: 'none' });
-				caretLayer.setProps({ display: 'none' });
-				setNote(complaint, undefined);
-			},
+      settle(written: string): void {
+        answered(mark);
+        hint.setProps({ display: 'none' });
+        // one line in the log, which is the house style every other prompt here
+        // keeps -- `select()` leaves its label and `multiselect()` leaves a comma
+        // list. The whole of what was written is the caller's return value, and a
+        // log holding a fifty-line paste per prompt is a log nobody reads
+        const lines = written.split('\n');
+        const more = lines.length - 1;
+        answer.setText(
+          written === ''
+            ? __`(empty)`
+            : more > 0
+              ? `${lines[0]} ${__n(more, '(+{0} more line)', '(+{0} more lines)')}`
+              : lines[0]
+        );
+        answer.setProps({ display: 'flex' });
+        field.setProps({ display: 'none' });
+        caretLayer.setProps({ display: 'none' });
+        setNote(complaint, undefined);
+      },
 
-			view,
-		};
-	});
+      view,
+    };
+  });
 }
 
 /**
@@ -1681,63 +1681,63 @@ export function multiline(opts: MultilineOptions): Promise<string> {
  * @returns The answer.
  */
 export function confirm(opts: ConfirmOptions): Promise<boolean> {
-	const fallback = opts.default ?? true;
+  const fallback = opts.default ?? true;
 
-	return run<boolean>(opts, () => {
-		// one catalog entry decides both what is drawn and what is accepted, so the
-		// hint cannot be a false statement about the keys. `confirmKeys()` has why
-		// that is one entry rather than three, and why English stays accepted
-		const keys = confirmKeys(__`y/n`, fallback);
-		const tail = textNode(keys.hint, {
-			class: 'sigil-prompt-hint sigil-muted',
-		});
-		const { line, mark } = promptHead(
-			opts.message,
-			headWidths(opts.message, Math.max(1, (opts.terminal ?? defaultTerminal).width), keys.hint)
-				.message,
-			tail
-		);
+  return run<boolean>(opts, () => {
+    // one catalog entry decides both what is drawn and what is accepted, so the
+    // hint cannot be a false statement about the keys. `confirmKeys()` has why
+    // that is one entry rather than three, and why English stays accepted
+    const keys = confirmKeys(__`y/n`, fallback);
+    const tail = textNode(keys.hint, {
+      class: 'sigil-prompt-hint sigil-muted',
+    });
+    const { line, mark } = promptHead(
+      opts.message,
+      headWidths(opts.message, Math.max(1, (opts.terminal ?? defaultTerminal).width), keys.hint)
+        .message,
+      tail
+    );
 
-		return {
-			key(k) {
-				if (k.name === 'enter') {
-					return { value: fallback };
-				}
+    return {
+      key(k) {
+        if (k.name === 'enter') {
+          return { value: fallback };
+        }
 
-				// a modifier makes it a different key, which is the rule the key
-				// sequences already keep -- the hint says `Y` rather than `ctrl-Y`, so
-				// reading Ctrl-Y as yes is the hint being wrong about what it accepts
-				if (k.ctrl || k.meta) {
-					return;
-				}
+        // a modifier makes it a different key, which is the rule the key
+        // sequences already keep -- the hint says `Y` rather than `ctrl-Y`, so
+        // reading Ctrl-Y as yes is the hint being wrong about what it accepts
+        if (k.ctrl || k.meta) {
+          return;
+        }
 
-				const ch = k.name.toLowerCase();
-				if (keys.yes.includes(ch)) {
-					return { value: true };
-				}
-				if (keys.no.includes(ch)) {
-					return { value: false };
-				}
-			},
+        const ch = k.name.toLowerCase();
+        if (keys.yes.includes(ch)) {
+          return { value: true };
+        }
+        if (keys.no.includes(ch)) {
+          return { value: false };
+        }
+      },
 
-			settle(answer: boolean): void {
-				answered(mark);
-				tail.setText(answer ? __`yes` : __`no`);
-				tail.setProps({ class: 'sigil-prompt-answer sigil-muted' });
-			},
+      settle(answer: boolean): void {
+        answered(mark);
+        tail.setText(answer ? __`yes` : __`no`);
+        tail.setProps({ class: 'sigil-prompt-answer sigil-muted' });
+      },
 
-			view: line,
-		};
-	});
+      view: line,
+    };
+  });
 }
 
 /** One row of a choice list, and the parts of it that change. */
 interface ChoiceRow {
-	hint: Element;
-	label: Element;
-	mark: Element;
-	pointer: Element;
-	row: Element;
+  hint: Element;
+  label: Element;
+  mark: Element;
+  pointer: Element;
+  row: Element;
 }
 
 /**
@@ -1748,42 +1748,42 @@ interface ChoiceRow {
  * @returns The rows and the box holding them.
  */
 function choiceRows<T>(
-	choices: readonly Choice<T>[],
-	ticked: boolean
+  choices: readonly Choice<T>[],
+  ticked: boolean
 ): { list: Element; rows: ChoiceRow[] } {
-	const rows = choices.map((choice) => {
-		// the cursor on every row, hidden where it is not the active one: a text of
-		// nothing but spaces measures zero, since `white-space: normal` collapses a
-		// run of them, so a blank standing in for the cursor indented an inactive
-		// row one column less than an active one. Hidden content still takes its
-		// space, and reserving it with the same glyph is what keeps the column the
-		// cursor's own width rather than a guess at it.
-		const pointer = textNode(SYMBOL.cursor, { 'margin-right': 1, visibility: 'hidden' });
-		const mark = textNode(SYMBOL.off, { class: 'sigil-choice-mark', 'margin-right': 1 });
-		const label = textNode(choice.label);
-		const hint = textNode(choice.hint ?? '', {
-			class: 'sigil-choice-hint sigil-muted',
-			display: choice.hint ? 'flex' : 'none',
-			'margin-left': 1,
-		});
+  const rows = choices.map((choice) => {
+    // the cursor on every row, hidden where it is not the active one: a text of
+    // nothing but spaces measures zero, since `white-space: normal` collapses a
+    // run of them, so a blank standing in for the cursor indented an inactive
+    // row one column less than an active one. Hidden content still takes its
+    // space, and reserving it with the same glyph is what keeps the column the
+    // cursor's own width rather than a guess at it.
+    const pointer = textNode(SYMBOL.cursor, { 'margin-right': 1, visibility: 'hidden' });
+    const mark = textNode(SYMBOL.off, { class: 'sigil-choice-mark', 'margin-right': 1 });
+    const label = textNode(choice.label);
+    const hint = textNode(choice.hint ?? '', {
+      class: 'sigil-choice-hint sigil-muted',
+      display: choice.hint ? 'flex' : 'none',
+      'margin-left': 1,
+    });
 
-		if (!ticked) {
-			mark.setProps({ display: 'none' });
-		}
+    if (!ticked) {
+      mark.setProps({ display: 'none' });
+    }
 
-		return {
-			hint,
-			label,
-			mark,
-			pointer,
-			row: box({ class: 'sigil-choice' }, pointer, mark, label, hint),
-		};
-	});
+    return {
+      hint,
+      label,
+      mark,
+      pointer,
+      row: box({ class: 'sigil-choice' }, pointer, mark, label, hint),
+    };
+  });
 
-	return {
-		list: box({ 'flex-direction': 'column' }, ...rows.map((row) => row.row)),
-		rows,
-	};
+  return {
+    list: box({ 'flex-direction': 'column' }, ...rows.map((row) => row.row)),
+    rows,
+  };
 }
 
 /**
@@ -1807,16 +1807,16 @@ function choiceRows<T>(
  * @returns Where it starts next.
  */
 function windowStart(count: number, active: number, room: number, from: number): number {
-	const visible = Math.max(1, Math.min(room, count));
-	const start = Math.min(Math.max(0, from), Math.max(0, count - visible));
+  const visible = Math.max(1, Math.min(room, count));
+  const start = Math.min(Math.max(0, from), Math.max(0, count - visible));
 
-	if (active < start) {
-		return active;
-	}
-	if (active >= start + visible) {
-		return active - visible + 1;
-	}
-	return start;
+  if (active < start) {
+    return active;
+  }
+  if (active >= start + visible) {
+    return active - visible + 1;
+  }
+  return start;
 }
 
 /**
@@ -1829,32 +1829,32 @@ function windowStart(count: number, active: number, room: number, from: number):
  * @param ticked - Which are ticked, for a multiselect.
  */
 function paintChoices(
-	rows: ChoiceRow[],
-	active: number,
-	start: number,
-	room: number,
-	ticked?: ReadonlySet<number>
+  rows: ChoiceRow[],
+  active: number,
+  start: number,
+  room: number,
+  ticked?: ReadonlySet<number>
 ): void {
-	const visible = Math.max(1, Math.min(room, rows.length));
+  const visible = Math.max(1, Math.min(room, rows.length));
 
-	for (const [i, row] of rows.entries()) {
-		const here = i === active;
-		row.pointer.setProps({
-			class: here ? 'sigil-choice-pointer' : '',
-			visibility: here ? 'visible' : 'hidden',
-		});
-		row.row.setProps({
-			class: here ? 'sigil-choice is-active sigil-accent' : 'sigil-choice',
-			display: i >= start && i < start + visible ? 'flex' : 'none',
-		});
-		if (ticked) {
-			const on = ticked.has(i);
-			row.mark.setText(on ? SYMBOL.on : SYMBOL.off);
-			row.mark.setProps({
-				class: on ? 'sigil-choice-mark is-on sigil-success' : 'sigil-choice-mark',
-			});
-		}
-	}
+  for (const [i, row] of rows.entries()) {
+    const here = i === active;
+    row.pointer.setProps({
+      class: here ? 'sigil-choice-pointer' : '',
+      visibility: here ? 'visible' : 'hidden',
+    });
+    row.row.setProps({
+      class: here ? 'sigil-choice is-active sigil-accent' : 'sigil-choice',
+      display: i >= start && i < start + visible ? 'flex' : 'none',
+    });
+    if (ticked) {
+      const on = ticked.has(i);
+      row.mark.setText(on ? SYMBOL.on : SYMBOL.off);
+      row.mark.setProps({
+        class: on ? 'sigil-choice-mark is-on sigil-success' : 'sigil-choice-mark',
+      });
+    }
+  }
 }
 
 /**
@@ -1864,64 +1864,64 @@ function paintChoices(
  * @returns The chosen value.
  */
 export function select<T = string>(opts: SelectOptions<T>): Promise<T> {
-	const choices = opts.choices.map((choice) => toChoice<T>(choice));
+  const choices = opts.choices.map((choice) => toChoice<T>(choice));
 
-	if (!choices.length) {
-		return Promise.reject(new PromptError(`"${opts.message}" has no choices to offer`));
-	}
+  if (!choices.length) {
+    return Promise.reject(new PromptError(`"${opts.message}" has no choices to offer`));
+  }
 
-	let active = Math.min(Math.max(0, opts.initial ?? 0), choices.length - 1);
-	let start = 0;
-	const terminal = opts.terminal ?? defaultTerminal;
+  let active = Math.min(Math.max(0, opts.initial ?? 0), choices.length - 1);
+  let start = 0;
+  const terminal = opts.terminal ?? defaultTerminal;
 
-	return run<T>(opts, () => {
-		const answer = textNode('', { class: 'sigil-prompt-answer sigil-muted', display: 'none' });
-		const head = headWidths(opts.message, Math.max(1, terminal.width));
-		const { line, mark } = promptHead(opts.message, head.message, answer);
-		const { list, rows } = choiceRows(choices, false);
-		const view = box({ class: 'sigil-prompt', 'flex-direction': 'column' }, line, list);
+  return run<T>(opts, () => {
+    const answer = textNode('', { class: 'sigil-prompt-answer sigil-muted', display: 'none' });
+    const head = headWidths(opts.message, Math.max(1, terminal.width));
+    const { line, mark } = promptHead(opts.message, head.message, answer);
+    const { list, rows } = choiceRows(choices, false);
+    const view = box({ class: 'sigil-prompt', 'flex-direction': 'column' }, line, list);
 
-		/** The rows the list has, once the question has taken its own. */
-		const room = (): number => Math.max(1, Math.max(1, terminal.height) - head.lines);
+    /** The rows the list has, once the question has taken its own. */
+    const room = (): number => Math.max(1, Math.max(1, terminal.height) - head.lines);
 
-		function draw(): void {
-			start = windowStart(choices.length, active, room(), start);
-			paintChoices(rows, active, start, room());
-		}
+    function draw(): void {
+      start = windowStart(choices.length, active, room(), start);
+      paintChoices(rows, active, start, room());
+    }
 
-		draw();
+    draw();
 
-		return {
-			key(k) {
-				if (k.name === 'enter') {
-					return { value: valueOf(choices[active]) };
-				}
-				// wrapping, because a list you cannot get to the end of by going up is
-				// a list you have to know the length of
-				if (k.name === 'up') {
-					active = (active - 1 + choices.length) % choices.length;
-				} else if (k.name === 'down') {
-					active = (active + 1) % choices.length;
-				} else if (k.name === 'home') {
-					active = 0;
-				} else if (k.name === 'end') {
-					active = choices.length - 1;
-				}
-				draw();
-			},
+    return {
+      key(k) {
+        if (k.name === 'enter') {
+          return { value: valueOf(choices[active]) };
+        }
+        // wrapping, because a list you cannot get to the end of by going up is
+        // a list you have to know the length of
+        if (k.name === 'up') {
+          active = (active - 1 + choices.length) % choices.length;
+        } else if (k.name === 'down') {
+          active = (active + 1) % choices.length;
+        } else if (k.name === 'home') {
+          active = 0;
+        } else if (k.name === 'end') {
+          active = choices.length - 1;
+        }
+        draw();
+      },
 
-			settle(): void {
-				answered(mark);
-				answer.setText(choices[active].label);
-				answer.setProps({ display: 'flex' });
-				// the list goes: what is left is the question and its answer, which is
-				// the one line worth keeping in a log
-				list.setProps({ display: 'none' });
-			},
+      settle(): void {
+        answered(mark);
+        answer.setText(choices[active].label);
+        answer.setProps({ display: 'flex' });
+        // the list goes: what is left is the question and its answer, which is
+        // the one line worth keeping in a log
+        list.setProps({ display: 'none' });
+      },
 
-			view,
-		};
-	});
+      view,
+    };
+  });
 }
 
 /**
@@ -1931,107 +1931,107 @@ export function select<T = string>(opts: SelectOptions<T>): Promise<T> {
  * @returns The chosen values, in the order they are listed.
  */
 export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[]> {
-	const choices = opts.choices.map((choice) => toChoice<T>(choice));
+  const choices = opts.choices.map((choice) => toChoice<T>(choice));
 
-	if (!choices.length) {
-		return Promise.reject(new PromptError(`"${opts.message}" has no choices to offer`));
-	}
+  if (!choices.length) {
+    return Promise.reject(new PromptError(`"${opts.message}" has no choices to offer`));
+  }
 
-	let active = Math.min(Math.max(0, opts.initial ?? 0), choices.length - 1);
-	const ticked = new Set<number>(
-		choices.map((choice, i) => (choice.selected ? i : -1)).filter((i) => i >= 0)
-	);
-	let error: string | undefined;
-	let start = 0;
-	const terminal = opts.terminal ?? defaultTerminal;
+  let active = Math.min(Math.max(0, opts.initial ?? 0), choices.length - 1);
+  const ticked = new Set<number>(
+    choices.map((choice, i) => (choice.selected ? i : -1)).filter((i) => i >= 0)
+  );
+  let error: string | undefined;
+  let start = 0;
+  const terminal = opts.terminal ?? defaultTerminal;
 
-	function chosen(): T[] {
-		return [...ticked].sort((a, b) => a - b).map((i) => valueOf(choices[i]));
-	}
+  function chosen(): T[] {
+    return [...ticked].sort((a, b) => a - b).map((i) => valueOf(choices[i]));
+  }
 
-	return run<T[]>(opts, () => {
-		const hintText = __`(space to select, enter to confirm)`;
-		const hint = textNode(hintText, {
-			class: 'sigil-prompt-hint sigil-muted',
-		});
-		const head = headWidths(opts.message, Math.max(1, terminal.width), hintText);
-		const { line, mark } = promptHead(opts.message, head.message, hint);
-		const { list, rows } = choiceRows(choices, true);
-		const complaint = note('sigil-prompt-error sigil-error');
-		const view = box(
-			{ class: 'sigil-prompt', 'flex-direction': 'column' },
-			line,
-			list,
-			box({ 'padding-left': 2 }, complaint)
-		);
+  return run<T[]>(opts, () => {
+    const hintText = __`(space to select, enter to confirm)`;
+    const hint = textNode(hintText, {
+      class: 'sigil-prompt-hint sigil-muted',
+    });
+    const head = headWidths(opts.message, Math.max(1, terminal.width), hintText);
+    const { line, mark } = promptHead(opts.message, head.message, hint);
+    const { list, rows } = choiceRows(choices, true);
+    const complaint = note('sigil-prompt-error sigil-error');
+    const view = box(
+      { class: 'sigil-prompt', 'flex-direction': 'column' },
+      line,
+      list,
+      box({ 'padding-left': 2 }, complaint)
+    );
 
-		// the question's rows, and the line an error would take: reserved either
-		// way, so that showing one does not push the last choice off the screen
-		const room = (): number => Math.max(1, Math.max(1, terminal.height) - head.lines - 1);
+    // the question's rows, and the line an error would take: reserved either
+    // way, so that showing one does not push the last choice off the screen
+    const room = (): number => Math.max(1, Math.max(1, terminal.height) - head.lines - 1);
 
-		function draw(): void {
-			start = windowStart(choices.length, active, room(), start);
-			setNote(complaint, error);
-			paintChoices(rows, active, start, room(), ticked);
-		}
+    function draw(): void {
+      start = windowStart(choices.length, active, room(), start);
+      setNote(complaint, error);
+      paintChoices(rows, active, start, room(), ticked);
+    }
 
-		draw();
+    draw();
 
-		return {
-			key(k) {
-				error = undefined;
+    return {
+      key(k) {
+        error = undefined;
 
-				if (k.name === 'enter') {
-					if (opts.required && ticked.size === 0) {
-						error = __`Choose at least one`;
-						draw();
-						return;
-					}
-					return { value: chosen() };
-				}
+        if (k.name === 'enter') {
+          if (opts.required && ticked.size === 0) {
+            error = __`Choose at least one`;
+            draw();
+            return;
+          }
+          return { value: chosen() };
+        }
 
-				if (k.name === 'space') {
-					if (ticked.has(active)) {
-						ticked.delete(active);
-					} else {
-						ticked.add(active);
-					}
-				} else if (k.name === 'up') {
-					active = (active - 1 + choices.length) % choices.length;
-				} else if (k.name === 'down') {
-					active = (active + 1) % choices.length;
-				} else if (k.name === 'a' && k.ctrl) {
-					// all, or none if everything is already ticked
-					if (ticked.size === choices.length) {
-						ticked.clear();
-					} else {
-						for (let i = 0; i < choices.length; i++) {
-							ticked.add(i);
-						}
-					}
-				}
+        if (k.name === 'space') {
+          if (ticked.has(active)) {
+            ticked.delete(active);
+          } else {
+            ticked.add(active);
+          }
+        } else if (k.name === 'up') {
+          active = (active - 1 + choices.length) % choices.length;
+        } else if (k.name === 'down') {
+          active = (active + 1) % choices.length;
+        } else if (k.name === 'a' && k.ctrl) {
+          // all, or none if everything is already ticked
+          if (ticked.size === choices.length) {
+            ticked.clear();
+          } else {
+            for (let i = 0; i < choices.length; i++) {
+              ticked.add(i);
+            }
+          }
+        }
 
-				draw();
-			},
+        draw();
+      },
 
-			settle(values: T[]): void {
-				answered(mark);
-				hint.setText(
-					values.length
-						? choices
-								.filter((_, i) => ticked.has(i))
-								.map((choice) => choice.label)
-								.join(', ')
-						: __`none`
-				);
-				hint.setProps({ class: 'sigil-prompt-answer sigil-muted' });
-				list.setProps({ display: 'none' });
-				setNote(complaint, undefined);
-			},
+      settle(values: T[]): void {
+        answered(mark);
+        hint.setText(
+          values.length
+            ? choices
+                .filter((_, i) => ticked.has(i))
+                .map((choice) => choice.label)
+                .join(', ')
+            : __`none`
+        );
+        hint.setProps({ class: 'sigil-prompt-answer sigil-muted' });
+        list.setProps({ display: 'none' });
+        setNote(complaint, undefined);
+      },
 
-			view,
-		};
-	});
+      view,
+    };
+  });
 }
 
 /**
@@ -2058,15 +2058,15 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
  * gets: a test that had to move is a behaviour that changed.
  */
 export {
-	answered as promptAnswered,
-	rowCap as promptRowCap,
-	headWidths as promptHeadWidths,
-	note as promptNote,
-	promptHead as promptHeadLine,
-	run as runPrompt,
-	setNote as setPromptNote,
-	SYMBOL as PROMPT_SYMBOLS,
-	windowOf as promptWindow,
-	windowStart as listWindow,
+  answered as promptAnswered,
+  rowCap as promptRowCap,
+  headWidths as promptHeadWidths,
+  note as promptNote,
+  promptHead as promptHeadLine,
+  run as runPrompt,
+  setNote as setPromptNote,
+  SYMBOL as PROMPT_SYMBOLS,
+  windowOf as promptWindow,
+  windowStart as listWindow,
 };
 export type { Handlers as PromptHandlers, Window as PromptWindow };

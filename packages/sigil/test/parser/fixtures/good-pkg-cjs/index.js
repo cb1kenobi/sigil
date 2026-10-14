@@ -1,4 +1,4 @@
 module.exports = {
-	name: 'foo',
-	desc: 'Foo command',
+  name: 'foo',
+  desc: 'Foo command',
 };

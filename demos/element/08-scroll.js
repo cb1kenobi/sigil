@@ -49,107 +49,107 @@ import { Cascade, parseStylesheet } from '@ttylabs/sigil/style';
 import { frameworkSheet } from '@ttylabs/sigil/theme';
 
 if (!process.stdin.isTTY || !process.stdout.isTTY) {
-	console.log('This demo reads keys and the mouse, so it needs a terminal.');
-	console.log('Run it without a pipe: node demos/element/08-scroll.js');
+  console.log('This demo reads keys and the mouse, so it needs a terminal.');
+  console.log('Run it without a pipe: node demos/element/08-scroll.js');
 }
 
 if (process.stdin.isTTY && process.stdout.isTTY) {
-	/** Ten thousand, which is the number the ticket's benchmark is written for. */
-	const ROWS = 10_000;
-	/** How tall the window is, border included. */
-	const WINDOW = 20;
+  /** Ten thousand, which is the number the ticket's benchmark is written for. */
+  const ROWS = 10_000;
+  /** How tall the window is, border included. */
+  const WINDOW = 20;
 
-	const sheet = parseStylesheet(`
-		.app { flex-direction: column }
-		.log { border: round; border-color: gray; height: ${WINDOW} }
-		.row { height: 1; padding-left: 1 }
-		.row:focus { background-color: blue; color: white }
-		.row:hover { color: cyan }
-		.odd { color: gray }
-		.readout { color: gray; margin-top: 1 }
-		.key { color: yellow }
-	`);
+  const sheet = parseStylesheet(`
+    .app { flex-direction: column }
+    .log { border: round; border-color: gray; height: ${WINDOW} }
+    .row { height: 1; padding-left: 1 }
+    .row:focus { background-color: blue; color: white }
+    .row:hover { color: cyan }
+    .odd { color: gray }
+    .readout { color: gray; margin-top: 1 }
+    .key { color: yellow }
+  `);
 
-	/**
-	 * The focus ring, once there is one.
-	 *
-	 * A signal rather than a reference because of an ordering nobody can escape:
-	 * `createInput()` needs the root element, which `render()` produces, so the
-	 * ring does not exist while the component that reads it is being built. An
-	 * effect that reads a signal holding the ring tracks both -- the box and the
-	 * focus inside it -- and starts answering the moment it is filled in.
-	 */
-	const ring = new State(undefined);
+  /**
+   * The focus ring, once there is one.
+   *
+   * A signal rather than a reference because of an ordering nobody can escape:
+   * `createInput()` needs the root element, which `render()` produces, so the
+   * ring does not exist while the component that reads it is being built. An
+   * effect that reads a signal holding the ring tracks both -- the box and the
+   * focus inside it -- and starts answering the moment it is filled in.
+   */
+  const ring = new State(undefined);
 
-	const rows = [];
-	for (let i = 0; i < ROWS; i++) {
-		rows.push(
-			text(`${String(i).padStart(5, ' ')}  event ${i} arrived on the queue`, {
-				class: i % 2 === 0 ? 'row' : 'row odd',
-				focusable: true,
-				id: `row-${i}`,
-				'white-space': 'nowrap',
-			})
-		);
-	}
+  const rows = [];
+  for (let i = 0; i < ROWS; i++) {
+    rows.push(
+      text(`${String(i).padStart(5, ' ')}  event ${i} arrived on the queue`, {
+        class: i % 2 === 0 ? 'row' : 'row odd',
+        focusable: true,
+        id: `row-${i}`,
+        'white-space': 'nowrap',
+      })
+    );
+  }
 
-	function App() {
-		const log = ScrollBox({
-			children: () => box({ 'flex-direction': 'column' }, ...rows),
-			props: { class: 'log' },
-		});
+  function App() {
+    const log = ScrollBox({
+      children: () => box({ 'flex-direction': 'column' }, ...rows),
+      props: { class: 'log' },
+    });
 
-		const readout = text('');
-		createEffect(() => {
-			const at = ring.get()?.current.get();
-			readout.setText(
-				at === undefined ? 'nothing focused' : `focus: ${at.id ?? 'the scroll box itself'}`
-			);
-		});
+    const readout = text('');
+    createEffect(() => {
+      const at = ring.get()?.current.get();
+      readout.setText(
+        at === undefined ? 'nothing focused' : `focus: ${at.id ?? 'the scroll box itself'}`
+      );
+    });
 
-		return box(
-			{ class: 'app' },
-			log,
-			box(
-				{ class: 'readout', 'column-gap': 1, 'flex-direction': 'row' },
-				text('arrows / pgup / home', { class: 'key' }),
-				text('wheel', { class: 'key' }),
-				text('drag the thumb', { class: 'key' }),
-				text('tab', { class: 'key' }),
-				text('q', { class: 'key' }),
-				readout
-			)
-		);
-	}
+    return box(
+      { class: 'app' },
+      log,
+      box(
+        { class: 'readout', 'column-gap': 1, 'flex-direction': 'row' },
+        text('arrows / pgup / home', { class: 'key' }),
+        text('wheel', { class: 'key' }),
+        text('drag the thumb', { class: 'key' }),
+        text('tab', { class: 'key' }),
+        text('q', { class: 'key' }),
+        readout
+      )
+    );
+  }
 
-	const canvas = createInlineCanvas({ height: WINDOW + 2 });
-	const view = render(App, {
-		backend: canvas,
-		cascade: new Cascade([frameworkSheet(), sheet]),
-		height: WINDOW + 2,
-		width: 'auto',
-	});
+  const canvas = createInlineCanvas({ height: WINDOW + 2 });
+  const view = render(App, {
+    backend: canvas,
+    cascade: new Cascade([frameworkSheet(), sheet]),
+    height: WINDOW + 2,
+    width: 'auto',
+  });
 
-	const input = createInput({
-		root: view.root,
-		mouse: { motion: true, surface: canvas },
-	});
+  const input = createInput({
+    root: view.root,
+    mouse: { motion: true, surface: canvas },
+  });
 
-	// `q` quits whatever is focused, which `03-focus.js` could afford to guard and
-	// this cannot: nothing here reads a character, and the box has to be focused
-	// from the start or the first arrow key goes to the bindings and nowhere else
-	// -- a demo that does nothing on the first thing anybody tries
-	input.bind((event) => {
-		if (isAbort(event.key) || event.key.name === 'q') {
-			event.stop();
-			view.dispose();
-			input.stop();
-		}
-	});
+  // `q` quits whatever is focused, which `03-focus.js` could afford to guard and
+  // this cannot: nothing here reads a character, and the box has to be focused
+  // from the start or the first arrow key goes to the bindings and nowhere else
+  // -- a demo that does nothing on the first thing anybody tries
+  input.bind((event) => {
+    if (isAbort(event.key) || event.key.name === 'q') {
+      event.stop();
+      view.dispose();
+      input.stop();
+    }
+  });
 
-	ring.set(input.focus);
-	// the first focusable element, which is the scroll box itself: it is focusable
-	// so that a box holding nothing focusable can still be scrolled, and here it
-	// is what makes the arrows work before anybody has pressed Tab
-	input.focus.next();
+  ring.set(input.focus);
+  // the first focusable element, which is the scroll box itself: it is focusable
+  // so that a box holding nothing focusable can still be scrolled, and here it
+  // is what makes the arrows work before anybody has pressed Tab
+  input.focus.next();
 }

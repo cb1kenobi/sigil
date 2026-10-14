@@ -192,42 +192,42 @@ const MAX_VERSION = 40;
  * capacity table the same information is usually written as.
  */
 const ECC_PER_BLOCK: Readonly<Record<QrEcc, readonly number[]>> = {
-	H: [
-		0, 17, 28, 22, 16, 22, 28, 26, 26, 24, 28, 24, 28, 22, 24, 24, 30, 28, 28, 26, 28, 30, 24, 30,
-		30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30,
-	],
-	L: [
-		0, 7, 10, 15, 20, 26, 18, 20, 24, 30, 18, 20, 24, 26, 30, 22, 24, 28, 30, 28, 28, 28, 28, 30,
-		30, 26, 28, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30,
-	],
-	M: [
-		0, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26, 30, 22, 22, 24, 24, 28, 28, 26, 26, 26, 26, 28, 28,
-		28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28,
-	],
-	Q: [
-		0, 13, 22, 18, 26, 18, 24, 18, 22, 20, 24, 28, 26, 24, 20, 30, 24, 28, 28, 26, 30, 28, 30, 30,
-		30, 30, 28, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30,
-	],
+  H: [
+    0, 17, 28, 22, 16, 22, 28, 26, 26, 24, 28, 24, 28, 22, 24, 24, 30, 28, 28, 26, 28, 30, 24, 30,
+    30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30,
+  ],
+  L: [
+    0, 7, 10, 15, 20, 26, 18, 20, 24, 30, 18, 20, 24, 26, 30, 22, 24, 28, 30, 28, 28, 28, 28, 30,
+    30, 26, 28, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30,
+  ],
+  M: [
+    0, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26, 30, 22, 22, 24, 24, 28, 28, 26, 26, 26, 26, 28, 28,
+    28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28,
+  ],
+  Q: [
+    0, 13, 22, 18, 26, 18, 24, 18, 22, 20, 24, 28, 26, 24, 20, 30, 24, 28, 28, 26, 30, 28, 30, 30,
+    30, 30, 28, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30,
+  ],
 };
 
 /** How many error-correction blocks a symbol is split into, by version. */
 const BLOCKS: Readonly<Record<QrEcc, readonly number[]>> = {
-	H: [
-		0, 1, 1, 2, 4, 4, 4, 5, 6, 8, 8, 11, 11, 16, 16, 18, 16, 19, 21, 25, 25, 25, 34, 30, 32, 35, 37,
-		40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 70, 74, 77, 81,
-	],
-	L: [
-		0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 4, 4, 4, 4, 4, 6, 6, 6, 6, 7, 8, 8, 9, 9, 10, 12, 12, 12, 13, 14,
-		15, 16, 17, 18, 19, 19, 20, 21, 22, 24, 25,
-	],
-	M: [
-		0, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5, 5, 8, 9, 9, 10, 10, 11, 13, 14, 16, 17, 17, 18, 20, 21, 23, 25,
-		26, 28, 29, 31, 33, 35, 37, 38, 40, 43, 45, 47, 49,
-	],
-	Q: [
-		0, 1, 1, 2, 2, 4, 4, 6, 6, 8, 8, 8, 10, 12, 16, 12, 17, 16, 18, 21, 20, 23, 23, 25, 27, 29, 34,
-		34, 35, 38, 40, 43, 45, 48, 51, 53, 56, 59, 62, 65, 68,
-	],
+  H: [
+    0, 1, 1, 2, 4, 4, 4, 5, 6, 8, 8, 11, 11, 16, 16, 18, 16, 19, 21, 25, 25, 25, 34, 30, 32, 35, 37,
+    40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 70, 74, 77, 81,
+  ],
+  L: [
+    0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 4, 4, 4, 4, 4, 6, 6, 6, 6, 7, 8, 8, 9, 9, 10, 12, 12, 12, 13, 14,
+    15, 16, 17, 18, 19, 19, 20, 21, 22, 24, 25,
+  ],
+  M: [
+    0, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5, 5, 8, 9, 9, 10, 10, 11, 13, 14, 16, 17, 17, 18, 20, 21, 23, 25,
+    26, 28, 29, 31, 33, 35, 37, 38, 40, 43, 45, 47, 49,
+  ],
+  Q: [
+    0, 1, 1, 2, 2, 4, 4, 6, 6, 8, 8, 8, 10, 12, 16, 12, 17, 16, 18, 21, 20, 23, 23, 25, 27, 29, 34,
+    34, 35, 38, 40, 43, 45, 48, 51, 53, 56, 59, 62, 65, 68,
+  ],
 };
 
 /** The two format-information bits each level is written as. */
@@ -246,9 +246,9 @@ const MODE_BITS: Readonly<Record<QrMode, number>> = { alphanumeric: 2, byte: 4, 
  * twelve-bit one, so each version is asked about its own encoding.
  */
 const COUNT_BITS: Readonly<Record<QrMode, readonly [number, number, number]>> = {
-	alphanumeric: [9, 11, 13],
-	byte: [8, 16, 16],
-	numeric: [10, 12, 14],
+  alphanumeric: [9, 11, 13],
+  byte: [8, 16, 16],
+  numeric: [10, 12, 14],
 };
 
 /** The forty-five characters alphanumeric mode can spell, in the order it packs them. */
@@ -256,24 +256,24 @@ const ALPHANUMERIC = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:';
 
 /** A parsed, masked, finished symbol. */
 export interface QrCode {
-	/** Which error-correction level it carries. */
-	readonly ecc: QrEcc;
-	/** Which of the eight data masks was applied, 0 to 7. */
-	readonly mask: number;
-	/**
-	 * The modules, `[y][x]`, true for dark.
-	 *
-	 * The **symbol** and not the quiet zone, which is what the spec calls the
-	 * symbol and what every encoder reports: a version 1 code is 21 rows of 21.
-	 * The quiet zone is the renderer's, for the reason this module's notes give.
-	 */
-	readonly modules: readonly (readonly boolean[])[];
-	/** How the payload was packed. */
-	readonly mode: QrMode;
-	/** How many modules on a side, which is `version * 4 + 17`. */
-	readonly size: number;
-	/** The version, 1 to 40. */
-	readonly version: number;
+  /** Which error-correction level it carries. */
+  readonly ecc: QrEcc;
+  /** Which of the eight data masks was applied, 0 to 7. */
+  readonly mask: number;
+  /**
+   * The modules, `[y][x]`, true for dark.
+   *
+   * The **symbol** and not the quiet zone, which is what the spec calls the
+   * symbol and what every encoder reports: a version 1 code is 21 rows of 21.
+   * The quiet zone is the renderer's, for the reason this module's notes give.
+   */
+  readonly modules: readonly (readonly boolean[])[];
+  /** How the payload was packed. */
+  readonly mode: QrMode;
+  /** How many modules on a side, which is `version * 4 + 17`. */
+  readonly size: number;
+  /** The version, 1 to 40. */
+  readonly version: number;
 }
 
 /* -------------------------------------------------------------------------- *
@@ -291,16 +291,16 @@ const EXP = new Uint8Array(255);
 const LOG = new Uint8Array(256);
 
 {
-	let value = 1;
-	for (let i = 0; i < 255; i++) {
-		EXP[i] = value;
-		LOG[value] = i;
-		// the shift, with the reduction when it carries out of eight bits
-		value <<= 1;
-		if ((value & 0x100) !== 0) {
-			value ^= 0x11d;
-		}
-	}
+  let value = 1;
+  for (let i = 0; i < 255; i++) {
+    EXP[i] = value;
+    LOG[value] = i;
+    // the shift, with the reduction when it carries out of eight bits
+    value <<= 1;
+    if ((value & 0x100) !== 0) {
+      value ^= 0x11d;
+    }
+  }
 }
 
 /**
@@ -314,10 +314,10 @@ const LOG = new Uint8Array(256);
  * @returns The product.
  */
 function multiply(a: number, b: number): number {
-	if (a === 0 || b === 0) {
-		return 0;
-	}
-	return EXP[(LOG[a] + LOG[b]) % 255];
+  if (a === 0 || b === 0) {
+    return 0;
+  }
+  return EXP[(LOG[a] + LOG[b]) % 255];
 }
 
 /**
@@ -338,21 +338,21 @@ function multiply(a: number, b: number): number {
  * @returns The coefficients, without the leading 1.
  */
 function generator(degree: number): Uint8Array {
-	const result = new Uint8Array(degree);
-	result[degree - 1] = 1;
+  const result = new Uint8Array(degree);
+  result[degree - 1] = 1;
 
-	let root = 1;
-	for (let i = 0; i < degree; i++) {
-		for (let j = 0; j < degree; j++) {
-			result[j] = multiply(result[j], root);
-			if (j + 1 < degree) {
-				result[j] ^= result[j + 1];
-			}
-		}
-		root = multiply(root, 2);
-	}
+  let root = 1;
+  for (let i = 0; i < degree; i++) {
+    for (let j = 0; j < degree; j++) {
+      result[j] = multiply(result[j], root);
+      if (j + 1 < degree) {
+        result[j] ^= result[j + 1];
+      }
+    }
+    root = multiply(root, 2);
+  }
 
-	return result;
+  return result;
 }
 
 /**
@@ -367,19 +367,19 @@ function generator(degree: number): Uint8Array {
  * @returns The remainder.
  */
 function remainder(data: Uint8Array, degree: number): Uint8Array {
-	const gen = generator(degree);
-	const result = new Uint8Array(degree);
+  const gen = generator(degree);
+  const result = new Uint8Array(degree);
 
-	for (const byte of data) {
-		const factor = byte ^ (result[0] ?? 0);
-		result.copyWithin(0, 1);
-		result[degree - 1] = 0;
-		for (let i = 0; i < degree; i++) {
-			result[i] ^= multiply(gen[i], factor);
-		}
-	}
+  for (const byte of data) {
+    const factor = byte ^ (result[0] ?? 0);
+    result.copyWithin(0, 1);
+    result[degree - 1] = 0;
+    for (let i = 0; i < degree; i++) {
+      result[i] ^= multiply(gen[i], factor);
+    }
+  }
 
-	return result;
+  return result;
 }
 
 /* -------------------------------------------------------------------------- *
@@ -399,19 +399,19 @@ function remainder(data: Uint8Array, degree: number): Uint8Array {
  * @returns The centres, ascending. Empty for version 1, which has none.
  */
 function alignmentCentres(version: number): number[] {
-	if (version === 1) {
-		return [];
-	}
+  if (version === 1) {
+    return [];
+  }
 
-	const count = Math.floor(version / 7) + 2;
-	const step = version === 32 ? 26 : Math.ceil((version * 4 + 4) / (count * 2 - 2)) * 2;
-	const result = [6];
+  const count = Math.floor(version / 7) + 2;
+  const step = version === 32 ? 26 : Math.ceil((version * 4 + 4) / (count * 2 - 2)) * 2;
+  const result = [6];
 
-	for (let pos = version * 4 + 10; result.length < count; pos -= step) {
-		result.splice(1, 0, pos);
-	}
+  for (let pos = version * 4 + 10; result.length < count; pos -= step) {
+    result.splice(1, 0, pos);
+  }
 
-	return result;
+  return result;
 }
 
 /**
@@ -428,20 +428,20 @@ function alignmentCentres(version: number): number[] {
  * @returns The module count.
  */
 function rawModules(version: number): number {
-	let result = (16 * version + 128) * version + 64;
+  let result = (16 * version + 128) * version + 64;
 
-	if (version >= 2) {
-		const count = Math.floor(version / 7) + 2;
-		// each alignment pattern is 25 modules, less the 10 the timing pattern
-		// already counted for the ones that sit on it, less the 55 the three
-		// finders already counted for the three corners that have none
-		result -= (25 * count - 10) * count - 55;
-		if (version >= 7) {
-			result -= 36;
-		}
-	}
+  if (version >= 2) {
+    const count = Math.floor(version / 7) + 2;
+    // each alignment pattern is 25 modules, less the 10 the timing pattern
+    // already counted for the ones that sit on it, less the 55 the three
+    // finders already counted for the three corners that have none
+    result -= (25 * count - 10) * count - 55;
+    if (version >= 7) {
+      result -= 36;
+    }
+  }
 
-	return result;
+  return result;
 }
 
 /**
@@ -452,12 +452,12 @@ function rawModules(version: number): number {
  * @returns The count.
  */
 function dataCodewords(version: number, ecc: QrEcc): number {
-	return Math.floor(rawModules(version) / 8) - ECC_PER_BLOCK[ecc][version] * BLOCKS[ecc][version];
+  return Math.floor(rawModules(version) / 8) - ECC_PER_BLOCK[ecc][version] * BLOCKS[ecc][version];
 }
 
 /** Which of the three count-indicator bands a version is in. */
 function band(version: number): 0 | 1 | 2 {
-	return version <= 9 ? 0 : version <= 26 ? 1 : 2;
+  return version <= 9 ? 0 : version <= 26 ? 1 : 2;
 }
 
 /* -------------------------------------------------------------------------- *
@@ -466,16 +466,16 @@ function band(version: number): 0 | 1 | 2 {
 
 /** The narrowest mode that can spell every character of a string. */
 function modeFor(value: string): QrMode {
-	if (/^\d*$/.test(value)) {
-		return 'numeric';
-	}
-	// the forty-five alphanumeric characters, written as a class rather than
-	// checked against `ALPHANUMERIC` so that a reader can see the set is the
-	// digits, the upper-case letters, and nine punctuation marks
-	if (/^[\dA-Z $%*+\-./:]*$/.test(value)) {
-		return 'alphanumeric';
-	}
-	return 'byte';
+  if (/^\d*$/.test(value)) {
+    return 'numeric';
+  }
+  // the forty-five alphanumeric characters, written as a class rather than
+  // checked against `ALPHANUMERIC` so that a reader can see the set is the
+  // digits, the upper-case letters, and nine punctuation marks
+  if (/^[\dA-Z $%*+\-./:]*$/.test(value)) {
+    return 'alphanumeric';
+  }
+  return 'byte';
 }
 
 /**
@@ -487,22 +487,22 @@ function modeFor(value: string): QrMode {
  * @returns The bit count.
  */
 function payloadBits(value: string, mode: QrMode, bytes: Uint8Array): number {
-	if (mode === 'numeric') {
-		// three digits in ten bits, and the remainder in four or seven
-		const groups = Math.floor(value.length / 3);
-		const left = value.length % 3;
-		return groups * 10 + (left === 0 ? 0 : left * 3 + 1);
-	}
-	if (mode === 'alphanumeric') {
-		// two characters in eleven bits, and a leftover one in six
-		return Math.floor(value.length / 2) * 11 + (value.length % 2) * 6;
-	}
-	return bytes.length * 8;
+  if (mode === 'numeric') {
+    // three digits in ten bits, and the remainder in four or seven
+    const groups = Math.floor(value.length / 3);
+    const left = value.length % 3;
+    return groups * 10 + (left === 0 ? 0 : left * 3 + 1);
+  }
+  if (mode === 'alphanumeric') {
+    // two characters in eleven bits, and a leftover one in six
+    return Math.floor(value.length / 2) * 11 + (value.length % 2) * 6;
+  }
+  return bytes.length * 8;
 }
 
 /** How many characters a mode's count indicator is counting. */
 function charCount(value: string, mode: QrMode, bytes: Uint8Array): number {
-	return mode === 'byte' ? bytes.length : value.length;
+  return mode === 'byte' ? bytes.length : value.length;
 }
 
 /** A growable list of bits, as 0 and 1. */
@@ -516,9 +516,9 @@ type Bits = number[];
  * @param count - How many bits.
  */
 function push(bits: Bits, value: number, count: number): void {
-	for (let i = count - 1; i >= 0; i--) {
-		bits.push((value >>> i) & 1);
-	}
+  for (let i = count - 1; i >= 0; i--) {
+    bits.push((value >>> i) & 1);
+  }
 }
 
 /**
@@ -530,29 +530,29 @@ function push(bits: Bits, value: number, count: number): void {
  * @param bytes - The UTF-8 bytes, for byte mode.
  */
 function pushPayload(bits: Bits, value: string, mode: QrMode, bytes: Uint8Array): void {
-	if (mode === 'numeric') {
-		for (let i = 0; i < value.length; i += 3) {
-			const group = value.slice(i, i + 3);
-			push(bits, Number(group), group.length * 3 + 1);
-		}
-		return;
-	}
+  if (mode === 'numeric') {
+    for (let i = 0; i < value.length; i += 3) {
+      const group = value.slice(i, i + 3);
+      push(bits, Number(group), group.length * 3 + 1);
+    }
+    return;
+  }
 
-	if (mode === 'alphanumeric') {
-		for (let i = 0; i < value.length; i += 2) {
-			const high = ALPHANUMERIC.indexOf(value[i]);
-			if (i + 1 < value.length) {
-				push(bits, high * 45 + ALPHANUMERIC.indexOf(value[i + 1]), 11);
-			} else {
-				push(bits, high, 6);
-			}
-		}
-		return;
-	}
+  if (mode === 'alphanumeric') {
+    for (let i = 0; i < value.length; i += 2) {
+      const high = ALPHANUMERIC.indexOf(value[i]);
+      if (i + 1 < value.length) {
+        push(bits, high * 45 + ALPHANUMERIC.indexOf(value[i + 1]), 11);
+      } else {
+        push(bits, high, 6);
+      }
+    }
+    return;
+  }
 
-	for (const byte of bytes) {
-		push(bits, byte, 8);
-	}
+  for (const byte of bytes) {
+    push(bits, byte, 8);
+  }
 }
 
 /**
@@ -572,42 +572,42 @@ function pushPayload(bits: Bits, value: string, mode: QrMode, bytes: Uint8Array)
  * @returns The codewords.
  */
 function codewordsFor(
-	value: string,
-	mode: QrMode,
-	bytes: Uint8Array,
-	version: number,
-	ecc: QrEcc
+  value: string,
+  mode: QrMode,
+  bytes: Uint8Array,
+  version: number,
+  ecc: QrEcc
 ): Uint8Array {
-	const capacity = dataCodewords(version, ecc) * 8;
-	const bits: Bits = [];
+  const capacity = dataCodewords(version, ecc) * 8;
+  const bits: Bits = [];
 
-	push(bits, MODE_BITS[mode], 4);
-	push(bits, charCount(value, mode, bytes), COUNT_BITS[mode][band(version)]);
-	pushPayload(bits, value, mode, bytes);
+  push(bits, MODE_BITS[mode], 4);
+  push(bits, charCount(value, mode, bytes), COUNT_BITS[mode][band(version)]);
+  pushPayload(bits, value, mode, bytes);
 
-	// the spec's rule, and a sabotage of it is *equivalent* rather than caught, so
-	// it says so here: the four bits a full payload has no room for are zeros, and
-	// the loop below writes them past the end of a `Uint8Array`, which drops them
-	// -- so the bytes agree either way. It stays because what the function means is
-	// "the terminator is shortened at capacity" rather than "a typed array is
-	// tolerant of an overflow", and the day the buffer stops being one is the day
-	// that difference is a wrong codeword
-	for (let i = 0; i < 4 && bits.length < capacity; i++) {
-		bits.push(0);
-	}
-	while (bits.length % 8 !== 0) {
-		bits.push(0);
-	}
+  // the spec's rule, and a sabotage of it is *equivalent* rather than caught, so
+  // it says so here: the four bits a full payload has no room for are zeros, and
+  // the loop below writes them past the end of a `Uint8Array`, which drops them
+  // -- so the bytes agree either way. It stays because what the function means is
+  // "the terminator is shortened at capacity" rather than "a typed array is
+  // tolerant of an overflow", and the day the buffer stops being one is the day
+  // that difference is a wrong codeword
+  for (let i = 0; i < 4 && bits.length < capacity; i++) {
+    bits.push(0);
+  }
+  while (bits.length % 8 !== 0) {
+    bits.push(0);
+  }
 
-	const result = new Uint8Array(capacity / 8);
-	for (const [i, bit] of bits.entries()) {
-		result[i >>> 3] |= bit << (7 - (i & 7));
-	}
-	for (let i = bits.length / 8, pad = 0xec; i < result.length; i++, pad ^= 0xfd) {
-		result[i] = pad;
-	}
+  const result = new Uint8Array(capacity / 8);
+  for (const [i, bit] of bits.entries()) {
+    result[i >>> 3] |= bit << (7 - (i & 7));
+  }
+  for (let i = bits.length / 8, pad = 0xec; i < result.length; i++, pad ^= 0xfd) {
+    result[i] = pad;
+  }
 
-	return result;
+  return result;
 }
 
 /**
@@ -625,43 +625,43 @@ function codewordsFor(
  * @returns Every codeword the symbol carries, in the order it is written.
  */
 function interleave(data: Uint8Array, version: number, ecc: QrEcc): Uint8Array {
-	const blockCount = BLOCKS[ecc][version];
-	const eccLength = ECC_PER_BLOCK[ecc][version];
-	const total = Math.floor(rawModules(version) / 8);
-	const shortLength = Math.floor(total / blockCount) - eccLength;
-	// how many of the blocks are the short ones
-	const shortCount = blockCount - (total % blockCount);
+  const blockCount = BLOCKS[ecc][version];
+  const eccLength = ECC_PER_BLOCK[ecc][version];
+  const total = Math.floor(rawModules(version) / 8);
+  const shortLength = Math.floor(total / blockCount) - eccLength;
+  // how many of the blocks are the short ones
+  const shortCount = blockCount - (total % blockCount);
 
-	const blocks: Uint8Array[] = [];
-	const checks: Uint8Array[] = [];
+  const blocks: Uint8Array[] = [];
+  const checks: Uint8Array[] = [];
 
-	for (let i = 0, at = 0; i < blockCount; i++) {
-		const length = shortLength + (i < shortCount ? 0 : 1);
-		const block = data.subarray(at, at + length);
-		at += length;
-		blocks.push(block);
-		checks.push(remainder(block, eccLength));
-	}
+  for (let i = 0, at = 0; i < blockCount; i++) {
+    const length = shortLength + (i < shortCount ? 0 : 1);
+    const block = data.subarray(at, at + length);
+    at += length;
+    blocks.push(block);
+    checks.push(remainder(block, eccLength));
+  }
 
-	const result = new Uint8Array(total);
-	let out = 0;
+  const result = new Uint8Array(total);
+  let out = 0;
 
-	for (let column = 0; column <= shortLength; column++) {
-		for (const [i, block] of blocks.entries()) {
-			// the short blocks' missing last column, which is the whole of the
-			// irregularity: every other column is present in every block
-			if (column < shortLength || i >= shortCount) {
-				result[out++] = block[column];
-			}
-		}
-	}
-	for (let column = 0; column < eccLength; column++) {
-		for (const check of checks) {
-			result[out++] = check[column];
-		}
-	}
+  for (let column = 0; column <= shortLength; column++) {
+    for (const [i, block] of blocks.entries()) {
+      // the short blocks' missing last column, which is the whole of the
+      // irregularity: every other column is present in every block
+      if (column < shortLength || i >= shortCount) {
+        result[out++] = block[column];
+      }
+    }
+  }
+  for (let column = 0; column < eccLength; column++) {
+    for (const check of checks) {
+      result[out++] = check[column];
+    }
+  }
 
-	return result;
+  return result;
 }
 
 /* -------------------------------------------------------------------------- *
@@ -670,21 +670,21 @@ function interleave(data: Uint8Array, version: number, ecc: QrEcc): Uint8Array {
 
 /** A matrix being built: the modules, and which of them a mask may not touch. */
 interface Grid {
-	/** True where a function pattern or an information area has been written. */
-	readonly fixed: boolean[][];
-	/** True for dark. */
-	readonly modules: boolean[][];
-	/** Modules on a side. */
-	readonly size: number;
+  /** True where a function pattern or an information area has been written. */
+  readonly fixed: boolean[][];
+  /** True for dark. */
+  readonly modules: boolean[][];
+  /** Modules on a side. */
+  readonly size: number;
 }
 
 /** An empty grid. */
 function emptyGrid(size: number): Grid {
-	return {
-		fixed: Array.from({ length: size }, () => Array.from({ length: size }, () => false)),
-		modules: Array.from({ length: size }, () => Array.from({ length: size }, () => false)),
-		size,
-	};
+  return {
+    fixed: Array.from({ length: size }, () => Array.from({ length: size }, () => false)),
+    modules: Array.from({ length: size }, () => Array.from({ length: size }, () => false)),
+    size,
+  };
 }
 
 /**
@@ -696,71 +696,71 @@ function emptyGrid(size: number): Grid {
  * sites, each of which can be wrong on its own.
  */
 function fix(grid: Grid, x: number, y: number, dark: boolean): void {
-	if (x < 0 || y < 0 || x >= grid.size || y >= grid.size) {
-		return;
-	}
-	grid.modules[y][x] = dark;
-	grid.fixed[y][x] = true;
+  if (x < 0 || y < 0 || x >= grid.size || y >= grid.size) {
+    return;
+  }
+  grid.modules[y][x] = dark;
+  grid.fixed[y][x] = true;
 }
 
 /** The three finders, their separators, the timing patterns and the dark module. */
 function drawFunctionPatterns(grid: Grid, version: number): void {
-	const size = grid.size;
+  const size = grid.size;
 
-	// the timing patterns: row six and column six, alternating from the finder's
-	// own edge, which is what makes them line up with it
-	for (let i = 0; i < size; i++) {
-		const dark = i % 2 === 0;
-		fix(grid, 6, i, dark);
-		fix(grid, i, 6, dark);
-	}
+  // the timing patterns: row six and column six, alternating from the finder's
+  // own edge, which is what makes them line up with it
+  for (let i = 0; i < size; i++) {
+    const dark = i % 2 === 0;
+    fix(grid, 6, i, dark);
+    fix(grid, i, 6, dark);
+  }
 
-	// the three finders, each a 7x7 target with a one-module light separator
-	// around it. The separator is written as the ring of the 9x9 so that the
-	// corner cases fall off the edge rather than being enumerated
-	for (const [cx, cy] of [
-		[3, 3],
-		[size - 4, 3],
-		[3, size - 4],
-	]) {
-		for (let dy = -4; dy <= 4; dy++) {
-			for (let dx = -4; dx <= 4; dx++) {
-				const reach = Math.max(Math.abs(dx), Math.abs(dy));
-				fix(grid, cx + dx, cy + dy, reach !== 2 && reach <= 3);
-			}
-		}
-	}
+  // the three finders, each a 7x7 target with a one-module light separator
+  // around it. The separator is written as the ring of the 9x9 so that the
+  // corner cases fall off the edge rather than being enumerated
+  for (const [cx, cy] of [
+    [3, 3],
+    [size - 4, 3],
+    [3, size - 4],
+  ]) {
+    for (let dy = -4; dy <= 4; dy++) {
+      for (let dx = -4; dx <= 4; dx++) {
+        const reach = Math.max(Math.abs(dx), Math.abs(dy));
+        fix(grid, cx + dx, cy + dy, reach !== 2 && reach <= 3);
+      }
+    }
+  }
 
-	// the alignment patterns: a 5x5 target at every pair of centres, except the
-	// three pairs that would sit on a finder
-	const centres = alignmentCentres(version);
-	for (const [i, cy] of centres.entries()) {
-		for (const [j, cx] of centres.entries()) {
-			const corner =
-				(i === 0 && j === 0) ||
-				(i === 0 && j === centres.length - 1) ||
-				(i === centres.length - 1 && j === 0);
-			if (corner) {
-				continue;
-			}
-			for (let dy = -2; dy <= 2; dy++) {
-				for (let dx = -2; dx <= 2; dx++) {
-					fix(grid, cx + dx, cy + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1);
-				}
-			}
-		}
-	}
+  // the alignment patterns: a 5x5 target at every pair of centres, except the
+  // three pairs that would sit on a finder
+  const centres = alignmentCentres(version);
+  for (const [i, cy] of centres.entries()) {
+    for (const [j, cx] of centres.entries()) {
+      const corner =
+        (i === 0 && j === 0) ||
+        (i === 0 && j === centres.length - 1) ||
+        (i === centres.length - 1 && j === 0);
+      if (corner) {
+        continue;
+      }
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          fix(grid, cx + dx, cy + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1);
+        }
+      }
+    }
+  }
 
-	// the information areas are reserved before the data is placed, so that the
-	// zigzag skips them, and written afterwards once the mask is known
-	drawFormat(grid, 'L', 0, true);
-	if (version >= 7) {
-		drawVersion(grid, version, true);
-	}
+  // the information areas are reserved before the data is placed, so that the
+  // zigzag skips them, and written afterwards once the mask is known
+  drawFormat(grid, 'L', 0, true);
+  if (version >= 7) {
+    drawVersion(grid, version, true);
+  }
 
-	// and the dark module, which is one module that is always dark and is the
-	// one piece of the format area that carries no information
-	fix(grid, 8, size - 8, true);
+  // and the dark module, which is one module that is always dark and is the
+  // one piece of the format area that carries no information
+  fix(grid, 8, size - 8, true);
 }
 
 /**
@@ -775,12 +775,12 @@ function drawFunctionPatterns(grid: Grid, version: number): void {
  * @returns The bits, as a fifteen-bit value.
  */
 function formatBits(ecc: QrEcc, mask: number): number {
-	const data = (ECC_BITS[ecc] << 3) | mask;
-	let rem = data;
-	for (let i = 0; i < 10; i++) {
-		rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
-	}
-	return ((data << 10) | rem) ^ 0x5412;
+  const data = (ECC_BITS[ecc] << 3) | mask;
+  let rem = data;
+  for (let i = 0; i < 10; i++) {
+    rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
+  }
+  return ((data << 10) | rem) ^ 0x5412;
 }
 
 /**
@@ -794,11 +794,11 @@ function formatBits(ecc: QrEcc, mask: number): number {
  * @returns The bits, as an eighteen-bit value.
  */
 function versionBits(version: number): number {
-	let rem = version;
-	for (let i = 0; i < 12; i++) {
-		rem = (rem << 1) ^ ((rem >>> 11) * 0x1f25);
-	}
-	return (version << 12) | rem;
+  let rem = version;
+  for (let i = 0; i < 12; i++) {
+    rem = (rem << 1) ^ ((rem >>> 11) * 0x1f25);
+  }
+  return (version << 12) | rem;
 }
 
 /**
@@ -814,28 +814,28 @@ function versionBits(version: number): number {
  * @param reserve - Whether this is the reservation pass, before the data.
  */
 function drawFormat(grid: Grid, ecc: QrEcc, mask: number, reserve = false): void {
-	const bits = reserve ? 0 : formatBits(ecc, mask);
-	const size = grid.size;
+  const bits = reserve ? 0 : formatBits(ecc, mask);
+  const size = grid.size;
 
-	// the copy around the top-left finder, least significant bit first, skipping
-	// the two modules row six and column six already own
-	for (let i = 0; i <= 5; i++) {
-		fix(grid, 8, i, ((bits >>> i) & 1) === 1);
-	}
-	fix(grid, 8, 7, ((bits >>> 6) & 1) === 1);
-	fix(grid, 8, 8, ((bits >>> 7) & 1) === 1);
-	fix(grid, 7, 8, ((bits >>> 8) & 1) === 1);
-	for (let i = 9; i < 15; i++) {
-		fix(grid, 14 - i, 8, ((bits >>> i) & 1) === 1);
-	}
+  // the copy around the top-left finder, least significant bit first, skipping
+  // the two modules row six and column six already own
+  for (let i = 0; i <= 5; i++) {
+    fix(grid, 8, i, ((bits >>> i) & 1) === 1);
+  }
+  fix(grid, 8, 7, ((bits >>> 6) & 1) === 1);
+  fix(grid, 8, 8, ((bits >>> 7) & 1) === 1);
+  fix(grid, 7, 8, ((bits >>> 8) & 1) === 1);
+  for (let i = 9; i < 15; i++) {
+    fix(grid, 14 - i, 8, ((bits >>> i) & 1) === 1);
+  }
 
-	// and the copy split between the other two finders
-	for (let i = 0; i < 8; i++) {
-		fix(grid, size - 1 - i, 8, ((bits >>> i) & 1) === 1);
-	}
-	for (let i = 8; i < 15; i++) {
-		fix(grid, 8, size - 15 + i, ((bits >>> i) & 1) === 1);
-	}
+  // and the copy split between the other two finders
+  for (let i = 0; i < 8; i++) {
+    fix(grid, size - 1 - i, 8, ((bits >>> i) & 1) === 1);
+  }
+  for (let i = 8; i < 15; i++) {
+    fix(grid, 8, size - 15 + i, ((bits >>> i) & 1) === 1);
+  }
 }
 
 /**
@@ -846,18 +846,18 @@ function drawFormat(grid: Grid, ecc: QrEcc, mask: number, reserve = false): void
  * @param reserve - Whether this is the reservation pass, before the data.
  */
 function drawVersion(grid: Grid, version: number, reserve = false): void {
-	const bits = reserve ? 0 : versionBits(version);
-	const size = grid.size;
+  const bits = reserve ? 0 : versionBits(version);
+  const size = grid.size;
 
-	for (let i = 0; i < 18; i++) {
-		const dark = ((bits >>> i) & 1) === 1;
-		const a = Math.floor(i / 3);
-		const b = (i % 3) + size - 11;
-		// a 3x6 block below the top-right finder and its transpose to the right of
-		// the bottom-left one
-		fix(grid, b, a, dark);
-		fix(grid, a, b, dark);
-	}
+  for (let i = 0; i < 18; i++) {
+    const dark = ((bits >>> i) & 1) === 1;
+    const a = Math.floor(i / 3);
+    const b = (i % 3) + size - 11;
+    // a 3x6 block below the top-right finder and its transpose to the right of
+    // the bottom-left one
+    fix(grid, b, a, dark);
+    fix(grid, a, b, dark);
+  }
 }
 
 /**
@@ -871,80 +871,80 @@ function drawVersion(grid: Grid, version: number, reserve = false): void {
  * @param codewords - Every codeword, interleaved.
  */
 function drawCodewords(grid: Grid, codewords: Uint8Array): void {
-	const size = grid.size;
-	let at = 0;
+  const size = grid.size;
+  let at = 0;
 
-	for (let right = size - 1; right >= 1; right -= 2) {
-		// the pair that would straddle the vertical timing pattern is shifted one
-		// left, and the shift *carries*: the pairs after it are 3-2 and 1-0 rather
-		// than 4-3 and 2-1. Written as an assignment to the loop variable for that
-		// reason -- a local computed from `right` leaves column 0 unvisited and
-		// column 4 visited twice, which is a symbol that differs from every other
-		// encoder's in its last four columns and in nothing else. Caught by the
-		// reference vectors, which is what they are for
-		if (right === 6) {
-			right = 5;
-		}
+  for (let right = size - 1; right >= 1; right -= 2) {
+    // the pair that would straddle the vertical timing pattern is shifted one
+    // left, and the shift *carries*: the pairs after it are 3-2 and 1-0 rather
+    // than 4-3 and 2-1. Written as an assignment to the loop variable for that
+    // reason -- a local computed from `right` leaves column 0 unvisited and
+    // column 4 visited twice, which is a symbol that differs from every other
+    // encoder's in its last four columns and in nothing else. Caught by the
+    // reference vectors, which is what they are for
+    if (right === 6) {
+      right = 5;
+    }
 
-		for (let step = 0; step < size; step++) {
-			for (let j = 0; j < 2; j++) {
-				const x = right - j;
-				// which way this pair runs: the pairs alternate, counted from the
-				// right-hand edge. The shift above does **not** change it -- `(6+1)&2`
-				// and `(5+1)&2` are the same bit, as are 4 and 3 and 2 and 1 -- so
-				// what the assignment changes is which columns are visited and
-				// nothing else. The comment here claimed a flip for a commit, which
-				// is worse than no comment: compensating for it would reverse every
-				// pair left of the timing pattern. Found by review
-				const upward = ((right + 1) & 2) === 0;
-				const y = upward ? size - 1 - step : step;
+    for (let step = 0; step < size; step++) {
+      for (let j = 0; j < 2; j++) {
+        const x = right - j;
+        // which way this pair runs: the pairs alternate, counted from the
+        // right-hand edge. The shift above does **not** change it -- `(6+1)&2`
+        // and `(5+1)&2` are the same bit, as are 4 and 3 and 2 and 1 -- so
+        // what the assignment changes is which columns are visited and
+        // nothing else. The comment here claimed a flip for a commit, which
+        // is worse than no comment: compensating for it would reverse every
+        // pair left of the timing pattern. Found by review
+        const upward = ((right + 1) & 2) === 0;
+        const y = upward ? size - 1 - step : step;
 
-				if (!grid.fixed[y][x] && at < codewords.length * 8) {
-					grid.modules[y][x] = ((codewords[at >>> 3] >>> (7 - (at & 7))) & 1) === 1;
-					at++;
-				}
-			}
-		}
-	}
+        if (!grid.fixed[y][x] && at < codewords.length * 8) {
+          grid.modules[y][x] = ((codewords[at >>> 3] >>> (7 - (at & 7))) & 1) === 1;
+          at++;
+        }
+      }
+    }
+  }
 }
 
 /** Whether a mask covers a module. */
 function masked(mask: number, x: number, y: number): boolean {
-	switch (mask) {
-		case 0:
-			return (x + y) % 2 === 0;
-		case 1:
-			return y % 2 === 0;
-		case 2:
-			return x % 3 === 0;
-		case 3:
-			return (x + y) % 3 === 0;
-		case 4:
-			return (Math.floor(y / 2) + Math.floor(x / 3)) % 2 === 0;
-		case 5:
-			return ((x * y) % 2) + ((x * y) % 3) === 0;
-		case 6:
-			return (((x * y) % 2) + ((x * y) % 3)) % 2 === 0;
-		default:
-			return (((x + y) % 2) + ((x * y) % 3)) % 2 === 0;
-	}
+  switch (mask) {
+    case 0:
+      return (x + y) % 2 === 0;
+    case 1:
+      return y % 2 === 0;
+    case 2:
+      return x % 3 === 0;
+    case 3:
+      return (x + y) % 3 === 0;
+    case 4:
+      return (Math.floor(y / 2) + Math.floor(x / 3)) % 2 === 0;
+    case 5:
+      return ((x * y) % 2) + ((x * y) % 3) === 0;
+    case 6:
+      return (((x * y) % 2) + ((x * y) % 3)) % 2 === 0;
+    default:
+      return (((x + y) % 2) + ((x * y) % 3)) % 2 === 0;
+  }
 }
 
 /** Exclusive-ors a mask over every module a function pattern does not own. */
 function applyMask(grid: Grid, mask: number): void {
-	for (let y = 0; y < grid.size; y++) {
-		for (let x = 0; x < grid.size; x++) {
-			if (!grid.fixed[y][x] && masked(mask, x, y)) {
-				grid.modules[y][x] = !grid.modules[y][x];
-			}
-		}
-	}
+  for (let y = 0; y < grid.size; y++) {
+    for (let x = 0; x < grid.size; x++) {
+      if (!grid.fixed[y][x] && masked(mask, x, y)) {
+        grid.modules[y][x] = !grid.modules[y][x];
+      }
+    }
+  }
 }
 
 /** The two eleven-module windows rule three counts, as the spec draws them. */
 const FINDER_LIKE: readonly boolean[][] = [
-	[true, false, true, true, true, false, true, false, false, false, false],
-	[false, false, false, false, true, false, true, true, true, false, true],
+  [true, false, true, true, true, false, true, false, false, false, false],
+  [false, false, false, false, true, false, true, true, true, false, true],
 ];
 
 /**
@@ -964,85 +964,85 @@ const FINDER_LIKE: readonly boolean[][] = [
  * @returns The score.
  */
 function penalty(grid: Grid): number {
-	const size = grid.size;
-	let score = 0;
+  const size = grid.size;
+  let score = 0;
 
-	// rule one: a run of five or more of one colour, in a row or a column
-	for (const byRow of [true, false]) {
-		for (let a = 0; a < size; a++) {
-			let run = 1;
-			let last = byRow ? grid.modules[a][0] : grid.modules[0][a];
-			for (let b = 1; b < size; b++) {
-				const here = byRow ? grid.modules[a][b] : grid.modules[b][a];
-				if (here === last) {
-					run++;
-				} else {
-					if (run >= 5) {
-						score += run - 2;
-					}
-					last = here;
-					run = 1;
-				}
-			}
-			if (run >= 5) {
-				score += run - 2;
-			}
-		}
-	}
+  // rule one: a run of five or more of one colour, in a row or a column
+  for (const byRow of [true, false]) {
+    for (let a = 0; a < size; a++) {
+      let run = 1;
+      let last = byRow ? grid.modules[a][0] : grid.modules[0][a];
+      for (let b = 1; b < size; b++) {
+        const here = byRow ? grid.modules[a][b] : grid.modules[b][a];
+        if (here === last) {
+          run++;
+        } else {
+          if (run >= 5) {
+            score += run - 2;
+          }
+          last = here;
+          run = 1;
+        }
+      }
+      if (run >= 5) {
+        score += run - 2;
+      }
+    }
+  }
 
-	// rule two: every 2x2 block of one colour, which is three per block and
-	// therefore three per *overlapping* position rather than per tiling
-	for (let y = 0; y + 1 < size; y++) {
-		for (let x = 0; x + 1 < size; x++) {
-			const here = grid.modules[y][x];
-			if (
-				here === grid.modules[y][x + 1] &&
-				here === grid.modules[y + 1][x] &&
-				here === grid.modules[y + 1][x + 1]
-			) {
-				score += 3;
-			}
-		}
-	}
+  // rule two: every 2x2 block of one colour, which is three per block and
+  // therefore three per *overlapping* position rather than per tiling
+  for (let y = 0; y + 1 < size; y++) {
+    for (let x = 0; x + 1 < size; x++) {
+      const here = grid.modules[y][x];
+      if (
+        here === grid.modules[y][x + 1] &&
+        here === grid.modules[y + 1][x] &&
+        here === grid.modules[y + 1][x + 1]
+      ) {
+        score += 3;
+      }
+    }
+  }
 
-	// rule three: a finder-like run
-	for (let a = 0; a < size; a++) {
-		for (let b = 0; b + 11 <= size; b++) {
-			for (const window of FINDER_LIKE) {
-				let rowHit = true;
-				let columnHit = true;
-				for (let i = 0; i < 11; i++) {
-					if (grid.modules[a][b + i] !== window[i]) {
-						rowHit = false;
-					}
-					if (grid.modules[b + i][a] !== window[i]) {
-						columnHit = false;
-					}
-				}
-				if (rowHit) {
-					score += 40;
-				}
-				if (columnHit) {
-					score += 40;
-				}
-			}
-		}
-	}
+  // rule three: a finder-like run
+  for (let a = 0; a < size; a++) {
+    for (let b = 0; b + 11 <= size; b++) {
+      for (const window of FINDER_LIKE) {
+        let rowHit = true;
+        let columnHit = true;
+        for (let i = 0; i < 11; i++) {
+          if (grid.modules[a][b + i] !== window[i]) {
+            rowHit = false;
+          }
+          if (grid.modules[b + i][a] !== window[i]) {
+            columnHit = false;
+          }
+        }
+        if (rowHit) {
+          score += 40;
+        }
+        if (columnHit) {
+          score += 40;
+        }
+      }
+    }
+  }
 
-	// rule four: how far the proportion of dark modules is from half, in steps
-	// of five per cent
-	let dark = 0;
-	for (const row of grid.modules) {
-		for (const module of row) {
-			if (module) {
-				dark++;
-			}
-		}
-	}
-	const percent = (dark * 100) / (size * size);
-	score += Math.floor(Math.abs(percent - 50) / 5) * 10;
+  // rule four: how far the proportion of dark modules is from half, in steps
+  // of five per cent
+  let dark = 0;
+  for (const row of grid.modules) {
+    for (const module of row) {
+      if (module) {
+        dark++;
+      }
+    }
+  }
+  const percent = (dark * 100) / (size * size);
+  score += Math.floor(Math.abs(percent - 50) / 5) * 10;
 
-	return score;
+  return score;
 }
 
 /* -------------------------------------------------------------------------- *
@@ -1050,32 +1050,32 @@ function penalty(grid: Grid): number {
  * -------------------------------------------------------------------------- */
 
 export interface QrEncodeOptions {
-	/**
-	 * How much error correction, L through H. Defaults to `M`.
-	 *
-	 * `M` because it is the level every generator defaults to and the one the
-	 * recovery it buys -- about fifteen per cent -- is worth its size for: `L` is
-	 * a smaller code that a camera at an angle loses, and `H` is a much larger one
-	 * for damage a screen does not have.
-	 */
-	ecc?: QrEcc;
-	/**
-	 * Which of the eight data masks to use. Defaults to the lowest-penalty one.
-	 *
-	 * Worth having for a test and for nothing else: the spec's penalty rules are
-	 * what pick a mask that a scanner can read, and overriding them is asking for
-	 * a code with a finder-like run in its data.
-	 */
-	mask?: number;
-	/**
-	 * The smallest version to use, 1 to 40. Defaults to 1.
-	 *
-	 * A floor rather than an answer: a payload that does not fit the version named
-	 * here moves up until it does, because the alternative is refusing a code over
-	 * a size preference. A caller who wants a bigger code than the payload needs
-	 * -- so that a run of codes is all one size -- says so here.
-	 */
-	version?: number;
+  /**
+   * How much error correction, L through H. Defaults to `M`.
+   *
+   * `M` because it is the level every generator defaults to and the one the
+   * recovery it buys -- about fifteen per cent -- is worth its size for: `L` is
+   * a smaller code that a camera at an angle loses, and `H` is a much larger one
+   * for damage a screen does not have.
+   */
+  ecc?: QrEcc;
+  /**
+   * Which of the eight data masks to use. Defaults to the lowest-penalty one.
+   *
+   * Worth having for a test and for nothing else: the spec's penalty rules are
+   * what pick a mask that a scanner can read, and overriding them is asking for
+   * a code with a finder-like run in its data.
+   */
+  mask?: number;
+  /**
+   * The smallest version to use, 1 to 40. Defaults to 1.
+   *
+   * A floor rather than an answer: a payload that does not fit the version named
+   * here moves up until it does, because the alternative is refusing a code over
+   * a size preference. A caller who wants a bigger code than the payload needs
+   * -- so that a run of codes is all one size -- says so here.
+   */
+  version?: number;
 }
 
 /**
@@ -1106,110 +1106,110 @@ export interface QrEncodeOptions {
  *   is out of range.
  */
 export function encodeQr(value: string, opts: QrEncodeOptions = {}): QrCode {
-	// a symbol of nothing is a symbol that scans to nothing, which is a worse
-	// answer than an error: a caller interpolating a value that turned out to be
-	// empty gets told where, rather than a code somebody photographs twice
-	if (value === '') {
-		throw new Error('A QR code needs something to encode');
-	}
+  // a symbol of nothing is a symbol that scans to nothing, which is a worse
+  // answer than an error: a caller interpolating a value that turned out to be
+  // empty gets told where, rather than a code somebody photographs twice
+  if (value === '') {
+    throw new Error('A QR code needs something to encode');
+  }
 
-	const ecc = opts.ecc ?? 'M';
-	if (!Object.hasOwn(ECC_BITS, ecc)) {
-		throw new Error(`Unknown QR error-correction level "${ecc}": expected L, M, Q or H`);
-	}
+  const ecc = opts.ecc ?? 'M';
+  if (!Object.hasOwn(ECC_BITS, ecc)) {
+    throw new Error(`Unknown QR error-correction level "${ecc}": expected L, M, Q or H`);
+  }
 
-	const floor = opts.version ?? 1;
-	if (!Number.isInteger(floor) || floor < 1 || floor > MAX_VERSION) {
-		throw new Error(`QR version must be a whole number from 1 to ${MAX_VERSION}, got ${floor}`);
-	}
+  const floor = opts.version ?? 1;
+  if (!Number.isInteger(floor) || floor < 1 || floor > MAX_VERSION) {
+    throw new Error(`QR version must be a whole number from 1 to ${MAX_VERSION}, got ${floor}`);
+  }
 
-	const mask = opts.mask;
-	if (mask !== undefined && (!Number.isInteger(mask) || mask < 0 || mask > 7)) {
-		throw new Error(`QR mask must be a whole number from 0 to 7, got ${mask}`);
-	}
+  const mask = opts.mask;
+  if (mask !== undefined && (!Number.isInteger(mask) || mask < 0 || mask > 7)) {
+    throw new Error(`QR mask must be a whole number from 0 to 7, got ${mask}`);
+  }
 
-	const mode = modeFor(value);
-	const bytes = mode === 'byte' ? new TextEncoder().encode(value) : new Uint8Array(0);
+  const mode = modeFor(value);
+  const bytes = mode === 'byte' ? new TextEncoder().encode(value) : new Uint8Array(0);
 
-	// the version is a search rather than a division, because the count indicator
-	// gets wider at versions 10 and 27: a payload that fits version 9 may not fit
-	// version 10, so each one is asked about its own encoding
-	let version = floor;
-	while (
-		version <= MAX_VERSION &&
-		4 + COUNT_BITS[mode][band(version)] + payloadBits(value, mode, bytes) >
-			dataCodewords(version, ecc) * 8
-	) {
-		version++;
-	}
-	if (version > MAX_VERSION) {
-		// what the largest version holds **in this mode**, which is the number the
-		// caller can act on. The message used to print a byte figure labelled as
-		// characters for every mode, so a numeric payload over capacity was told
-		// 2,331 where version 40-M holds 5,596 digits -- what is load bearing here
-		// is the per-mode unit, which `should say what a payload that does not fit
-		// would need, in its own mode` pins against the published figures.
-		//
-		// `COUNT_BITS[mode][2]` rather than the literal 14 is **equivalent**, which
-		// is declared rather than discovered: measured over all twelve combinations
-		// of level and mode, the three band-2 widths -- 14, 13 and 16 -- floor to the
-		// same held figure as a flat 14, because a difference of a bit or two cannot
-		// cross a 10-, 11- or 8-bit group boundary at version 40's sizes. Band 0's
-		// widths do differ, by one character in eleven of the twelve. It stays
-		// written as the mode's own indicator because that is the number the
-		// arithmetic means
-		const bits = dataCodewords(MAX_VERSION, ecc) * 8 - 4 - COUNT_BITS[mode][2];
-		const held =
-			mode === 'numeric'
-				? Math.floor(bits / 10) * 3 + (bits % 10 >= 7 ? 2 : bits % 10 >= 4 ? 1 : 0)
-				: mode === 'alphanumeric'
-					? Math.floor(bits / 11) * 2 + (bits % 11 >= 6 ? 1 : 0)
-					: Math.floor(bits / 8);
-		const unit = mode === 'byte' ? 'bytes' : 'characters';
-		throw new Error(
-			`This payload needs more than a version ${MAX_VERSION} QR code holds at level ${ecc}: ` +
-				`${charCount(value, mode, bytes)} ${unit} in ${mode} mode against ${held}. ` +
-				`A lower error-correction level holds more.`
-		);
-	}
+  // the version is a search rather than a division, because the count indicator
+  // gets wider at versions 10 and 27: a payload that fits version 9 may not fit
+  // version 10, so each one is asked about its own encoding
+  let version = floor;
+  while (
+    version <= MAX_VERSION &&
+    4 + COUNT_BITS[mode][band(version)] + payloadBits(value, mode, bytes) >
+      dataCodewords(version, ecc) * 8
+  ) {
+    version++;
+  }
+  if (version > MAX_VERSION) {
+    // what the largest version holds **in this mode**, which is the number the
+    // caller can act on. The message used to print a byte figure labelled as
+    // characters for every mode, so a numeric payload over capacity was told
+    // 2,331 where version 40-M holds 5,596 digits -- what is load bearing here
+    // is the per-mode unit, which `should say what a payload that does not fit
+    // would need, in its own mode` pins against the published figures.
+    //
+    // `COUNT_BITS[mode][2]` rather than the literal 14 is **equivalent**, which
+    // is declared rather than discovered: measured over all twelve combinations
+    // of level and mode, the three band-2 widths -- 14, 13 and 16 -- floor to the
+    // same held figure as a flat 14, because a difference of a bit or two cannot
+    // cross a 10-, 11- or 8-bit group boundary at version 40's sizes. Band 0's
+    // widths do differ, by one character in eleven of the twelve. It stays
+    // written as the mode's own indicator because that is the number the
+    // arithmetic means
+    const bits = dataCodewords(MAX_VERSION, ecc) * 8 - 4 - COUNT_BITS[mode][2];
+    const held =
+      mode === 'numeric'
+        ? Math.floor(bits / 10) * 3 + (bits % 10 >= 7 ? 2 : bits % 10 >= 4 ? 1 : 0)
+        : mode === 'alphanumeric'
+          ? Math.floor(bits / 11) * 2 + (bits % 11 >= 6 ? 1 : 0)
+          : Math.floor(bits / 8);
+    const unit = mode === 'byte' ? 'bytes' : 'characters';
+    throw new Error(
+      `This payload needs more than a version ${MAX_VERSION} QR code holds at level ${ecc}: ` +
+        `${charCount(value, mode, bytes)} ${unit} in ${mode} mode against ${held}. ` +
+        `A lower error-correction level holds more.`
+    );
+  }
 
-	const size = version * 4 + 17;
-	const codewords = interleave(codewordsFor(value, mode, bytes, version, ecc), version, ecc);
+  const size = version * 4 + 17;
+  const codewords = interleave(codewordsFor(value, mode, bytes, version, ecc), version, ecc);
 
-	// every mask is a whole grid, because the mask is chosen by how the *finished*
-	// symbol scores and the format information is part of what is scored
-	let best: Grid | undefined;
-	let chosen = 0;
-	let score = Number.POSITIVE_INFINITY;
+  // every mask is a whole grid, because the mask is chosen by how the *finished*
+  // symbol scores and the format information is part of what is scored
+  let best: Grid | undefined;
+  let chosen = 0;
+  let score = Number.POSITIVE_INFINITY;
 
-	for (const candidate of mask === undefined ? [0, 1, 2, 3, 4, 5, 6, 7] : [mask]) {
-		const grid = emptyGrid(size);
-		drawFunctionPatterns(grid, version);
-		drawCodewords(grid, codewords);
-		applyMask(grid, candidate);
-		drawFormat(grid, ecc, candidate);
-		if (version >= 7) {
-			drawVersion(grid, version);
-		}
+  for (const candidate of mask === undefined ? [0, 1, 2, 3, 4, 5, 6, 7] : [mask]) {
+    const grid = emptyGrid(size);
+    drawFunctionPatterns(grid, version);
+    drawCodewords(grid, codewords);
+    applyMask(grid, candidate);
+    drawFormat(grid, ecc, candidate);
+    if (version >= 7) {
+      drawVersion(grid, version);
+    }
 
-		const here = penalty(grid);
-		// strictly less, so that a tie keeps the lower-numbered mask -- which is
-		// what every encoder does and is the only thing that makes the choice
-		// reproducible
-		if (here < score) {
-			best = grid;
-			chosen = candidate;
-			score = here;
-		}
-	}
+    const here = penalty(grid);
+    // strictly less, so that a tie keeps the lower-numbered mask -- which is
+    // what every encoder does and is the only thing that makes the choice
+    // reproducible
+    if (here < score) {
+      best = grid;
+      chosen = candidate;
+      score = here;
+    }
+  }
 
-	// `best` is written on the first pass of a loop that always runs at least
-	// once, and the assertion is the type's rather than a guard anybody can reach
-	if (best === undefined) {
-		throw new Error('No QR mask was evaluated');
-	}
+  // `best` is written on the first pass of a loop that always runs at least
+  // once, and the assertion is the type's rather than a guard anybody can reach
+  if (best === undefined) {
+    throw new Error('No QR mask was evaluated');
+  }
 
-	return { ecc, mask: chosen, modules: best.modules, mode, size, version };
+  return { ecc, mask: chosen, modules: best.modules, mode, size, version };
 }
 
 /* -------------------------------------------------------------------------- *
@@ -1218,10 +1218,10 @@ export function encodeQr(value: string, opts: QrEncodeOptions = {}): QrCode {
 
 /** How many cells a module gets. */
 export type QrForm =
-	/** A half block per cell: one column by half a cell per module. */
-	| 'compact'
-	/** Two columns by one cell per module. */
-	| 'large';
+  /** A half block per cell: one column by half a cell per module. */
+  | 'compact'
+  /** Two columns by one cell per module. */
+  | 'large';
 
 /**
  * The four glyphs the compact form spells two modules with.
@@ -1261,54 +1261,54 @@ const NEITHER = ' ';
 const QUIET = 1;
 
 export interface QrLinesOptions {
-	/** How many cells a module gets. Defaults to `compact`. */
-	form?: QrForm;
-	/**
-	 * Whether the light modules are the drawn ones rather than the dark.
-	 *
-	 * Defaults to false, which is what a destination that can paint its own two
-	 * colours wants. `qrcodeView()` is what works out when it should be true.
-	 */
-	invert?: boolean;
-	/**
-	 * How many light modules on every side. Defaults to one.
-	 *
-	 * A number of **modules** rather than of cells, so it is the same count on
-	 * every side in both forms. `QUIET` is where the default is and why it is not
-	 * the spec's four; widening it to four is what to do when a scanner is
-	 * struggling, and `0` is for a caller whose surroundings are already light --
-	 * what that costs is the thing the quiet zone is for, and it is measured.
-	 */
-	quietZone?: number;
+  /** How many cells a module gets. Defaults to `compact`. */
+  form?: QrForm;
+  /**
+   * Whether the light modules are the drawn ones rather than the dark.
+   *
+   * Defaults to false, which is what a destination that can paint its own two
+   * colours wants. `qrcodeView()` is what works out when it should be true.
+   */
+  invert?: boolean;
+  /**
+   * How many light modules on every side. Defaults to one.
+   *
+   * A number of **modules** rather than of cells, so it is the same count on
+   * every side in both forms. `QUIET` is where the default is and why it is not
+   * the spec's four; widening it to four is what to do when a scanner is
+   * struggling, and `0` is for a caller whose surroundings are already light --
+   * what that costs is the thing the quiet zone is for, and it is measured.
+   */
+  quietZone?: number;
 }
 
 export interface QrPaintOptions {
-	/**
-	 * Whether to paint the code's own two colours rather than borrow the
-	 * terminal's. Defaults to false.
-	 *
-	 * **Painting guarantees the polarity and the contrast and costs an uneven
-	 * border, and the border is why it is not the default.** A painted code is a
-	 * white rectangle of whole cells, a symbol is an odd number of module rows,
-	 * and a half block per cell pairs them two at a time -- so the vertical white
-	 * border is `2 * cells - size`, which is odd for every version and every
-	 * quiet zone there is. An odd total cannot split evenly, so a painted border
-	 * is one module on one edge and two on the other and can never be one and
-	 * one. Measured at versions 1, 3, 10 and 40 and quiet zones 1 to 4: 3, 5, 7
-	 * and 9 half-rows, never even.
-	 *
-	 * Unpainted there is no rectangle: the drawn modules are whichever ones match
-	 * the terminal's foreground, the rest is its background, and the half-cell an
-	 * odd span leaves over is the page -- so the border is the quiet zone and
-	 * nothing else, on every edge. That is the polarity `colorLevel: 0` has
-	 * always used, it is what every other terminal QR renderer draws, and it is
-	 * one of the three destinations `scripts/verify-qrcode-decode.mjs` decodes.
-	 *
-	 * What painting buys is a code that does not depend on the terminal's own two
-	 * colours having the contrast a camera needs, which is the case to reach for
-	 * it in.
-	 */
-	paint?: boolean;
+  /**
+   * Whether to paint the code's own two colours rather than borrow the
+   * terminal's. Defaults to false.
+   *
+   * **Painting guarantees the polarity and the contrast and costs an uneven
+   * border, and the border is why it is not the default.** A painted code is a
+   * white rectangle of whole cells, a symbol is an odd number of module rows,
+   * and a half block per cell pairs them two at a time -- so the vertical white
+   * border is `2 * cells - size`, which is odd for every version and every
+   * quiet zone there is. An odd total cannot split evenly, so a painted border
+   * is one module on one edge and two on the other and can never be one and
+   * one. Measured at versions 1, 3, 10 and 40 and quiet zones 1 to 4: 3, 5, 7
+   * and 9 half-rows, never even.
+   *
+   * Unpainted there is no rectangle: the drawn modules are whichever ones match
+   * the terminal's foreground, the rest is its background, and the half-cell an
+   * odd span leaves over is the page -- so the border is the quiet zone and
+   * nothing else, on every edge. That is the polarity `colorLevel: 0` has
+   * always used, it is what every other terminal QR renderer draws, and it is
+   * one of the three destinations `scripts/verify-qrcode-decode.mjs` decodes.
+   *
+   * What painting buys is a code that does not depend on the terminal's own two
+   * colours having the contrast a camera needs, which is the case to reach for
+   * it in.
+   */
+  paint?: boolean;
 }
 
 /**
@@ -1325,98 +1325,98 @@ export interface QrPaintOptions {
  * @throws If the quiet zone is not a whole number of modules.
  */
 export function qrLines(code: QrCode, opts: QrLinesOptions = {}): string[] {
-	const quiet = opts.quietZone ?? QUIET;
-	if (!Number.isInteger(quiet) || quiet < 0) {
-		throw new Error(`A QR quiet zone must be a whole number of modules from 0, got ${quiet}`);
-	}
+  const quiet = opts.quietZone ?? QUIET;
+  if (!Number.isInteger(quiet) || quiet < 0) {
+    throw new Error(`A QR quiet zone must be a whole number of modules from 0, got ${quiet}`);
+  }
 
-	const form = opts.form ?? 'compact';
-	// refused rather than read as `compact`, which is the rule a key spec that
-	// cannot be a key already follows: `form: 'Large'` from a JavaScript caller
-	// would otherwise draw the compact code and say nothing, which is the
-	// parses-and-does-nothing shape this repository refuses
-	if (form !== 'compact' && form !== 'large') {
-		throw new Error(`Unknown QR form "${form}": expected "compact" or "large"`);
-	}
+  const form = opts.form ?? 'compact';
+  // refused rather than read as `compact`, which is the rule a key spec that
+  // cannot be a key already follows: `form: 'Large'` from a JavaScript caller
+  // would otherwise draw the compact code and say nothing, which is the
+  // parses-and-does-nothing shape this repository refuses
+  if (form !== 'compact' && form !== 'large') {
+    throw new Error(`Unknown QR form "${form}": expected "compact" or "large"`);
+  }
 
-	const invert = opts.invert ?? false;
-	const span = code.size + quiet * 2;
+  const invert = opts.invert ?? false;
+  const span = code.size + quiet * 2;
 
-	/** Whether the module at a grid position is the one that gets a glyph. */
-	const drawn = (x: number, y: number): boolean => {
-		// a position off the grid is not a module at all, so it takes no glyph
-		// whatever the polarity -- which is what the pad half-row below is, and
-		// is the difference between a light border that is a half cell on both
-		// edges and one that is a half cell on top and a *full* cell underneath.
-		// `dark !== invert` answers `invert` for a position with no module, so
-		// reading past the grid used to draw the pad: inverted, the last line of
-		// every compact code was a solid row of full blocks
-		if (x < 0 || y < 0 || x >= span || y >= span) {
-			return false;
-		}
-		const inside = x >= quiet && y >= quiet && x < quiet + code.size && y < quiet + code.size;
-		// outside the symbol is the quiet zone, which is light
-		const dark = inside && code.modules[y - quiet][x - quiet];
-		return dark !== invert;
-	};
+  /** Whether the module at a grid position is the one that gets a glyph. */
+  const drawn = (x: number, y: number): boolean => {
+    // a position off the grid is not a module at all, so it takes no glyph
+    // whatever the polarity -- which is what the pad half-row below is, and
+    // is the difference between a light border that is a half cell on both
+    // edges and one that is a half cell on top and a *full* cell underneath.
+    // `dark !== invert` answers `invert` for a position with no module, so
+    // reading past the grid used to draw the pad: inverted, the last line of
+    // every compact code was a solid row of full blocks
+    if (x < 0 || y < 0 || x >= span || y >= span) {
+      return false;
+    }
+    const inside = x >= quiet && y >= quiet && x < quiet + code.size && y < quiet + code.size;
+    // outside the symbol is the quiet zone, which is light
+    const dark = inside && code.modules[y - quiet][x - quiet];
+    return dark !== invert;
+  };
 
-	if (form === 'large') {
-		return Array.from({ length: span }, (_, y) => {
-			let line = '';
-			for (let x = 0; x < span; x++) {
-				line += drawn(x, y) ? BOTH + BOTH : NEITHER + NEITHER;
-			}
-			return line;
-		});
-	}
+  if (form === 'large') {
+    return Array.from({ length: span }, (_, y) => {
+      let line = '';
+      for (let x = 0; x < span; x++) {
+        line += drawn(x, y) ? BOTH + BOTH : NEITHER + NEITHER;
+      }
+      return line;
+    });
+  }
 
-	// one half-row of pad where the count is odd, so that no cell holds half a
-	// module.
-	//
-	// It is **always** odd, which is worth knowing and is not obvious: a symbol is
-	// `4 * version + 17` modules on a side, which is odd for every version, and a
-	// quiet zone is added twice, which is even -- so the pad fires for every code
-	// there has ever been and the even branch is unreachable. Written as the parity
-	// rather than as `+ 1` because the parity is the *reason* it adds one, and
-	// `should be an odd number of module rows for every version` is what keeps that
-	// a checked fact rather than a claim in a comment. Found by review
-	const pad = span % 2;
+  // one half-row of pad where the count is odd, so that no cell holds half a
+  // module.
+  //
+  // It is **always** odd, which is worth knowing and is not obvious: a symbol is
+  // `4 * version + 17` modules on a side, which is odd for every version, and a
+  // quiet zone is added twice, which is even -- so the pad fires for every code
+  // there has ever been and the even branch is unreachable. Written as the parity
+  // rather than as `+ 1` because the parity is the *reason* it adds one, and
+  // `should be an odd number of module rows for every version` is what keeps that
+  // a checked fact rather than a claim in a comment. Found by review
+  const pad = span % 2;
 
-	// and it goes to the edge where it cannot be seen, which is the one place the
-	// polarity reaches the geometry rather than only the glyphs.
-	//
-	// The pad is not a module, so it takes no glyph -- and what an undrawn half
-	// cell *is* differs by polarity. Inverted it is the terminal's own background,
-	// which is the page: invisible at either end, so it goes above, which puts the
-	// light border in a cell's lower half at both edges and makes the first line
-	// one uniform strip hugging the symbol. Painted it is the body's own
-	// `background-color: white`, which is indistinguishable from quiet zone -- so
-	// wherever it goes it *adds* a module of border, and the span being odd means
-	// the painted form always has two modules on one edge and one on the other.
-	// Below the grid is where that belongs: a thicker bottom border reads as the
-	// gap before whatever is printed next, where a thicker top one is the first
-	// thing a reader sees and was reported as exactly that.
-	//
-	// There is no arrangement with one module on both edges of the painted form.
-	// A cell carries one style, so the pad half cannot be painted the page's
-	// colour; and an even span needs an odd *total* vertical quiet zone -- `1` and
-	// `2` -- which puts a full cell on one edge again and costs the inverted form
-	// the symmetry it has here
-	const above = invert ? pad : 0;
+  // and it goes to the edge where it cannot be seen, which is the one place the
+  // polarity reaches the geometry rather than only the glyphs.
+  //
+  // The pad is not a module, so it takes no glyph -- and what an undrawn half
+  // cell *is* differs by polarity. Inverted it is the terminal's own background,
+  // which is the page: invisible at either end, so it goes above, which puts the
+  // light border in a cell's lower half at both edges and makes the first line
+  // one uniform strip hugging the symbol. Painted it is the body's own
+  // `background-color: white`, which is indistinguishable from quiet zone -- so
+  // wherever it goes it *adds* a module of border, and the span being odd means
+  // the painted form always has two modules on one edge and one on the other.
+  // Below the grid is where that belongs: a thicker bottom border reads as the
+  // gap before whatever is printed next, where a thicker top one is the first
+  // thing a reader sees and was reported as exactly that.
+  //
+  // There is no arrangement with one module on both edges of the painted form.
+  // A cell carries one style, so the pad half cannot be painted the page's
+  // colour; and an even span needs an odd *total* vertical quiet zone -- `1` and
+  // `2` -- which puts a full cell on one edge again and costs the inverted form
+  // the symmetry it has here
+  const above = invert ? pad : 0;
 
-	return Array.from({ length: (span + pad) / 2 }, (_, cell) => {
-		let line = '';
-		for (let x = 0; x < span; x++) {
-			const upper = drawn(x, cell * 2 - above);
-			const lower = drawn(x, cell * 2 + 1 - above);
-			line += upper ? (lower ? BOTH : UPPER) : lower ? LOWER : NEITHER;
-		}
-		return line;
-	});
+  return Array.from({ length: (span + pad) / 2 }, (_, cell) => {
+    let line = '';
+    for (let x = 0; x < span; x++) {
+      const upper = drawn(x, cell * 2 - above);
+      const lower = drawn(x, cell * 2 + 1 - above);
+      line += upper ? (lower ? BOTH : UPPER) : lower ? LOWER : NEITHER;
+    }
+    return line;
+  });
 }
 
 export interface QrViewOptions
-	extends StyledOptions, QrEncodeOptions, QrLinesOptions, QrPaintOptions {}
+  extends StyledOptions, QrEncodeOptions, QrLinesOptions, QrPaintOptions {}
 
 /**
  * Whether the light modules are the ones to draw.
@@ -1433,23 +1433,23 @@ export interface QrViewOptions
  * @returns Whether to invert.
  */
 function polarity(opts: QrViewOptions): boolean {
-	if (opts.invert !== undefined) {
-		return opts.invert;
-	}
+  if (opts.invert !== undefined) {
+    return opts.invert;
+  }
 
-	// painting is the one case with two colours of its own to draw with, and it
-	// draws the dark modules on its own white. Everything else borrows the
-	// terminal's two, so the drawn modules have to be the ones whose colour the
-	// foreground already is
-	if (opts.paint === true) {
-		const level = opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level;
-		if (level > 0) {
-			return false;
-		}
-	}
+  // painting is the one case with two colours of its own to draw with, and it
+  // draws the dark modules on its own white. Everything else borrows the
+  // terminal's two, so the drawn modules have to be the ones whose colour the
+  // foreground already is
+  if (opts.paint === true) {
+    const level = opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level;
+    if (level > 0) {
+      return false;
+    }
+  }
 
-	const scheme: ColorScheme = opts.colorScheme ?? schemeFromEnv() ?? DEFAULT_MEDIA.colorScheme;
-	return scheme === 'dark';
+  const scheme: ColorScheme = opts.colorScheme ?? schemeFromEnv() ?? DEFAULT_MEDIA.colorScheme;
+  return scheme === 'dark';
 }
 
 /**
@@ -1472,32 +1472,32 @@ function polarity(opts: QrViewOptions): boolean {
  * @returns The tree, how wide it wants to be, and the symbol it drew.
  */
 export function qrcodeView(
-	value: string,
-	opts: QrViewOptions = {}
+  value: string,
+  opts: QrViewOptions = {}
 ): { code: QrCode; element: Element; width: number } {
-	const code = encodeQr(value, opts);
-	const lines = qrLines(code, { ...opts, invert: polarity(opts) });
+  const code = encodeQr(value, opts);
+  const lines = qrLines(code, { ...opts, invert: polarity(opts) });
 
-	return {
-		code,
-		element: box(
-			{ class: 'sigil-qrcode' },
-			textNode(lines.join('\n'), {
-				// the paint class is what carries the two colours, so it is added
-				// rather than written into the body's: a code that borrows the
-				// terminal's two has no colour of its own to name, and a prop beats
-				// a sheet per property, so a colour here is one a theme could not
-				// reach
-				class: opts.paint === true ? 'sigil-qrcode-body sigil-qrcode-paint' : 'sigil-qrcode-body',
-				'white-space': 'nowrap',
-			})
-		),
-		// every line is the same length and every glyph is one column wide -- which
-		// is checked rather than assumed, since U+2588 is East Asian Width Ambiguous
-		// and a width table that read it as two would draw a code twice as wide as
-		// it measures
-		width: lines[0]?.length ?? 1,
-	};
+  return {
+    code,
+    element: box(
+      { class: 'sigil-qrcode' },
+      textNode(lines.join('\n'), {
+        // the paint class is what carries the two colours, so it is added
+        // rather than written into the body's: a code that borrows the
+        // terminal's two has no colour of its own to name, and a prop beats
+        // a sheet per property, so a colour here is one a theme could not
+        // reach
+        class: opts.paint === true ? 'sigil-qrcode-body sigil-qrcode-paint' : 'sigil-qrcode-body',
+        'white-space': 'nowrap',
+      })
+    ),
+    // every line is the same length and every glyph is one column wide -- which
+    // is checked rather than assumed, since U+2588 is East Asian Width Ambiguous
+    // and a width table that read it as two would draw a code twice as wide as
+    // it measures
+    width: lines[0]?.length ?? 1,
+  };
 }
 
 export interface QrcodeOptions extends QrViewOptions {}
@@ -1515,12 +1515,12 @@ export interface QrcodeOptions extends QrViewOptions {}
  * @throws Whatever `encodeQr()` throws.
  */
 export function qrcode(value: string, opts: QrcodeOptions = {}): string {
-	const { element, width } = qrcodeView(value, opts);
+  const { element, width } = qrcodeView(value, opts);
 
-	return renderToString(element, {
-		cascade: themedCascade(opts),
-		colorLevel: opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level,
-		colorScheme: opts.colorScheme,
-		width,
-	});
+  return renderToString(element, {
+    cascade: themedCascade(opts),
+    colorLevel: opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level,
+    colorScheme: opts.colorScheme,
+    width,
+  });
 }

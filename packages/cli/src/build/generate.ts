@@ -67,38 +67,38 @@ import { relative, sep } from 'node:path';
 
 /** How to print a tree. */
 export interface GenerateOptions {
-	/**
-	 * The directory the generated module will sit in.
-	 *
-	 * Every `import()` specifier is written relative to it, because that is what
-	 * a specifier in that module means.
-	 */
-	readonly from: string;
-	/**
-	 * How the binding is declared.
-	 *
-	 * `export const` by default, since the tree is usually a module of its own.
-	 * The generated executable wants a plain `const`, because there it is a
-	 * local that `main()` is handed rather than something anybody imports.
-	 */
-	readonly declare?: string;
-	/**
-	 * What to call the binding.
-	 *
-	 * Defaults to `commands`, which is the shape a schema wants it in:
-	 * `schema: { commands }`.
-	 */
-	readonly name?: string;
-	/**
-	 * Where the runtime comes from, for the `__` import a translated
-	 * description needs. `@ttylabs/sigil` by default, which is the only thing an
-	 * app depends on; `generateBin()` passes whatever it was told.
-	 */
-	readonly runtime?: string;
+  /**
+   * The directory the generated module will sit in.
+   *
+   * Every `import()` specifier is written relative to it, because that is what
+   * a specifier in that module means.
+   */
+  readonly from: string;
+  /**
+   * How the binding is declared.
+   *
+   * `export const` by default, since the tree is usually a module of its own.
+   * The generated executable wants a plain `const`, because there it is a
+   * local that `main()` is handed rather than something anybody imports.
+   */
+  readonly declare?: string;
+  /**
+   * What to call the binding.
+   *
+   * Defaults to `commands`, which is the shape a schema wants it in:
+   * `schema: { commands }`.
+   */
+  readonly name?: string;
+  /**
+   * Where the runtime comes from, for the `__` import a translated
+   * description needs. `@ttylabs/sigil` by default, which is the only thing an
+   * app depends on; `generateBin()` passes whatever it was told.
+   */
+  readonly runtime?: string;
 }
 
-/** One tab, since the repo's formatter uses them. */
-const INDENT = '\t';
+/** Two spaces, since the repo's formatter uses them. */
+const INDENT = '  ';
 
 /**
  * The tag a translated description is printed over.
@@ -116,19 +116,19 @@ const TAG = TAG_EXPORT;
  * @returns The module's source, newline-terminated.
  */
 export function generateCommands(tree: ResolvedTree, options: GenerateOptions): string {
-	const name = options.name ?? 'commands';
-	const keyword = options.declare ?? 'export const';
+  const name = options.name ?? 'commands';
+  const keyword = options.declare ?? 'export const';
 
-	// the tag, when and only when a description in the tree is a catalog key.
-	// Emitted here rather than left to the caller, because this is what knows
-	// whether the literal it just printed names `__` -- a caller deciding would
-	// be a second reading of the same tree, and the one that got it wrong would
-	// print a module with an undefined tag in it
-	const tag = translated(tree.commands)
-		? `import { ${TAG} } from ${quote(`${options.runtime ?? RUNTIME}/i18n`)};\n`
-		: '';
+  // the tag, when and only when a description in the tree is a catalog key.
+  // Emitted here rather than left to the caller, because this is what knows
+  // whether the literal it just printed names `__` -- a caller deciding would
+  // be a second reading of the same tree, and the one that got it wrong would
+  // print a module with an undefined tag in it
+  const tag = translated(tree.commands)
+    ? `import { ${TAG} } from ${quote(`${options.runtime ?? RUNTIME}/i18n`)};\n`
+    : '';
 
-	return `${tag}${keyword} ${name} = ${printCommands(tree.commands, options.from, 0)};\n`;
+  return `${tag}${keyword} ${name} = ${printCommands(tree.commands, options.from, 0)};\n`;
 }
 
 /**
@@ -138,9 +138,9 @@ export function generateCommands(tree: ResolvedTree, options: GenerateOptions): 
  * @returns Whether the `__` import is needed.
  */
 function translated(commands: readonly ResolvedCommand[]): boolean {
-	return commands.some(
-		(command) => command.descTranslated === true || translated(command.commands)
-	);
+  return commands.some(
+    (command) => command.descTranslated === true || translated(command.commands)
+  );
 }
 
 /**
@@ -152,16 +152,16 @@ function translated(commands: readonly ResolvedCommand[]): boolean {
  * @returns The literal.
  */
 function printCommands(commands: readonly ResolvedCommand[], from: string, depth: number): string {
-	if (!commands.length) {
-		return '{}';
-	}
+  if (!commands.length) {
+    return '{}';
+  }
 
-	const pad = INDENT.repeat(depth + 1);
-	const body = commands
-		.map((command) => `${pad}${quoteKey(command.name)}: ${printCommand(command, from, depth + 1)},`)
-		.join('\n');
+  const pad = INDENT.repeat(depth + 1);
+  const body = commands
+    .map((command) => `${pad}${quoteKey(command.name)}: ${printCommand(command, from, depth + 1)},`)
+    .join('\n');
 
-	return `{\n${body}\n${INDENT.repeat(depth)}}`;
+  return `{\n${body}\n${INDENT.repeat(depth)}}`;
 }
 
 /**
@@ -173,40 +173,40 @@ function printCommands(commands: readonly ResolvedCommand[], from: string, depth
  * @returns The literal.
  */
 function printCommand(command: ResolvedCommand, from: string, depth: number): string {
-	const pad = INDENT.repeat(depth + 1);
-	const fields: string[] = [];
+  const pad = INDENT.repeat(depth + 1);
+  const fields: string[] = [];
 
-	// the keys are written in the order a reader wants them: what it is, then how
-	// to get it, then what is under it -- so a nested tree reads top-down rather
-	// than opening with a subtree and mentioning the command afterwards
-	if (command.desc !== undefined) {
-		// a key is printed as a thunk over the tag rather than as the string,
-		// because the catalog is loaded after this module is evaluated
-		const desc = command.descTranslated
-			? `() => ${TAG}${backtick(command.desc)}`
-			: quote(command.desc);
-		fields.push(`${pad}desc: ${desc},`);
-	}
+  // the keys are written in the order a reader wants them: what it is, then how
+  // to get it, then what is under it -- so a nested tree reads top-down rather
+  // than opening with a subtree and mentioning the command afterwards
+  if (command.desc !== undefined) {
+    // a key is printed as a thunk over the tag rather than as the string,
+    // because the catalog is loaded after this module is evaluated
+    const desc = command.descTranslated
+      ? `() => ${TAG}${backtick(command.desc)}`
+      : quote(command.desc);
+    fields.push(`${pad}desc: ${desc},`);
+  }
 
-	if (command.hidden !== undefined) {
-		fields.push(`${pad}hidden: ${command.hidden},`);
-	}
+  if (command.hidden !== undefined) {
+    fields.push(`${pad}hidden: ${command.hidden},`);
+  }
 
-	if (command.module) {
-		fields.push(`${pad}load: () => import(${quote(specifier(from, command.module))}),`);
-	}
+  if (command.module) {
+    fields.push(`${pad}load: () => import(${quote(specifier(from, command.module))}),`);
+  }
 
-	if (command.commands.length) {
-		fields.push(`${pad}commands: ${printCommands(command.commands, from, depth + 1)},`);
-	}
+  if (command.commands.length) {
+    fields.push(`${pad}commands: ${printCommands(command.commands, from, depth + 1)},`);
+  }
 
-	if (!fields.length) {
-		// a directory with nothing in it that this could say anything about. The
-		// runtime still registers it, so an empty literal is the honest print
-		return '{}';
-	}
+  if (!fields.length) {
+    // a directory with nothing in it that this could say anything about. The
+    // runtime still registers it, so an empty literal is the honest print
+    return '{}';
+  }
 
-	return `{\n${fields.join('\n')}\n${INDENT.repeat(depth)}}`;
+  return `{\n${fields.join('\n')}\n${INDENT.repeat(depth)}}`;
 }
 
 /**
@@ -217,13 +217,13 @@ function printCommand(command: ResolvedCommand, from: string, depth: number): st
  * @returns The specifier, with forward slashes and an explicit `./`.
  */
 export function specifier(from: string, module: string): string {
-	// `sep` rather than a literal backslash, so the swap is the running
-	// platform's separator rather than a guess about which one it was
-	const parts = relative(from, module).split(sep).join('/');
+  // `sep` rather than a literal backslash, so the swap is the running
+  // platform's separator rather than a guess about which one it was
+  const parts = relative(from, module).split(sep).join('/');
 
-	// a specifier with no leading `./` is a package specifier to every resolver
-	// there is, so `commands/build.js` would be looked for in `node_modules`
-	return parts.startsWith('.') ? parts : `./${parts}`;
+  // a specifier with no leading `./` is a package specifier to every resolver
+  // there is, so `commands/build.js` would be looked for in `node_modules`
+  return parts.startsWith('.') ? parts : `./${parts}`;
 }
 
 /**
@@ -236,7 +236,7 @@ export function specifier(from: string, module: string): string {
  * @returns It, bare or quoted.
  */
 function quoteKey(name: string): string {
-	return /^[A-Za-z_$][\w$]*$/.test(name) ? name : quote(name);
+  return /^[A-Za-z_$][\w$]*$/.test(name) ? name : quote(name);
 }
 
 /**
@@ -252,7 +252,7 @@ function quoteKey(name: string): string {
  * @returns Its source.
  */
 function quote(value: string): string {
-	return JSON.stringify(value).replaceAll('\u2028', '\\u2028').replaceAll('\u2029', '\\u2029');
+  return JSON.stringify(value).replaceAll('\u2028', '\\u2028').replaceAll('\u2029', '\\u2029');
 }
 
 /**
@@ -272,16 +272,16 @@ function quote(value: string): string {
  * @returns Its source, backticks included.
  */
 function backtick(value: string): string {
-	const escaped = value
-		.replaceAll('\\', '\\\\')
-		.replaceAll('`', '\\`')
-		.replaceAll('${', '\\${')
-		.replaceAll('\r', '\\r')
-		.replaceAll('\n', '\\n')
-		.replaceAll('\u2028', '\\u2028')
-		.replaceAll('\u2029', '\\u2029');
+  const escaped = value
+    .replaceAll('\\', '\\\\')
+    .replaceAll('`', '\\`')
+    .replaceAll('${', '\\${')
+    .replaceAll('\r', '\\r')
+    .replaceAll('\n', '\\n')
+    .replaceAll('\u2028', '\\u2028')
+    .replaceAll('\u2029', '\\u2029');
 
-	return `\`${escaped}\``;
+  return `\`${escaped}\``;
 }
 
 /**
@@ -310,24 +310,24 @@ function backtick(value: string): string {
  * @returns The module's source, newline-terminated.
  */
 export function generateBin(options: GenerateBinOptions): string {
-	const { defaultLocale, from, runtime = RUNTIME, schemaModule, tree, version } = options;
+  const { defaultLocale, from, runtime = RUNTIME, schemaModule, tree, version } = options;
 
-	// baked, because a bundle has no `package.json` beside it: an app reading
-	// its own version off `import.meta.url` is reading a path that points
-	// wherever the bundle was written, which is a throw rather than a version.
-	// The app keeps its own answer for the unbundled case and this replaces it,
-	// the same way the tree replaces `commands`
-	const bakedVersion = version === undefined ? '' : `\n\tversion: ${quote(version)},`;
+  // baked, because a bundle has no `package.json` beside it: an app reading
+  // its own version off `import.meta.url` is reading a path that points
+  // wherever the bundle was written, which is a throw rather than a version.
+  // The app keeps its own answer for the unbundled case and this replaces it,
+  // the same way the tree replaces `commands`
+  const bakedVersion = version === undefined ? '' : `\n  version: ${quote(version)},`;
 
-	// baked for the reason the version is: the runtime cannot read `sigil.json`,
-	// because reading a file at startup is what `locales` being a map rather than
-	// a directory convention exists to avoid. It is the *bottom* of the locale
-	// chain, so this says what the app ships in and every environment variable
-	// still beats it
-	const bakedLocale =
-		defaultLocale === undefined ? '' : `\n\tdefaultLocale: ${quote(defaultLocale)},`;
+  // baked for the reason the version is: the runtime cannot read `sigil.json`,
+  // because reading a file at startup is what `locales` being a map rather than
+  // a directory convention exists to avoid. It is the *bottom* of the locale
+  // chain, so this says what the app ships in and every environment variable
+  // still beats it
+  const bakedLocale =
+    defaultLocale === undefined ? '' : `\n  defaultLocale: ${quote(defaultLocale)},`;
 
-	return `#!/usr/bin/env node
+  return `#!/usr/bin/env node
 // Generated by sigil build. Do not edit.
 import { main } from ${quote(runtime)};
 import * as app from ${quote(specifier(from, schemaModule))};
@@ -344,36 +344,36 @@ const schema = typeof declared === 'function' ? declared() : declared;
 // \`commands\` last, because the baked tree is the one property the build knows
 // better than the app does -- everything else is the app's own
 await main({ schema: {
-	...schema,
-	commands,${bakedVersion}${bakedLocale}
+  ...schema,
+  commands,${bakedVersion}${bakedLocale}
 } });
 `;
 }
 
 /** How to print the generated executable. */
 export interface GenerateBinOptions {
-	/**
-	 * The locale to fall back on, from `"locale"` in `sigil.json`.
-	 *
-	 * Written beside the version and the baked tree, and absent when the config
-	 * names none -- which leaves whatever the app's own schema said, the way the
-	 * version does.
-	 */
-	readonly defaultLocale?: string;
-	/**
-	 * The app's version, read from its manifest at build time.
-	 *
-	 * Baked because a bundle has no `package.json` beside it to read at run
-	 * time. Left out when the manifest names none, which leaves whatever the
-	 * app's own schema said.
-	 */
-	readonly version?: string;
-	/** The directory the generated module will sit in. */
-	readonly from: string;
-	/** Where `main` comes from. */
-	readonly runtime?: string;
-	/** The app module exporting its schema. */
-	readonly schemaModule: string;
-	/** The command tree to bake in. */
-	readonly tree: ResolvedTree;
+  /**
+   * The locale to fall back on, from `"locale"` in `sigil.json`.
+   *
+   * Written beside the version and the baked tree, and absent when the config
+   * names none -- which leaves whatever the app's own schema said, the way the
+   * version does.
+   */
+  readonly defaultLocale?: string;
+  /**
+   * The app's version, read from its manifest at build time.
+   *
+   * Baked because a bundle has no `package.json` beside it to read at run
+   * time. Left out when the manifest names none, which leaves whatever the
+   * app's own schema said.
+   */
+  readonly version?: string;
+  /** The directory the generated module will sit in. */
+  readonly from: string;
+  /** Where `main` comes from. */
+  readonly runtime?: string;
+  /** The app module exporting its schema. */
+  readonly schemaModule: string;
+  /** The command tree to bake in. */
+  readonly tree: ResolvedTree;
 }

@@ -1,3 +1,3 @@
 export default {
-	desc: 'build it',
+  desc: 'build it',
 };

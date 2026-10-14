@@ -1,4 +1,4 @@
 export default {
-	alias: 'compile',
-	desc: 'build it',
+  alias: 'compile',
+  desc: 'build it',
 };
