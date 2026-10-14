@@ -557,7 +557,44 @@ function insertInto(
 	const eaten = comma !== -1 && ctx.eaten.has(comma);
 	const reuse = comma !== -1 && !eaten && !ctx.cut.has(comma);
 	const from = comma === -1 || eaten ? last.span.end : comma + 1;
-	const at = lines ? lineTriviaEnd(ctx, from, close) : from;
+	const trivia = lines ? lineTriviaEnd(ctx, from, close) : from;
+
+	// and where a comment sits between the kept value and a comma the removal
+	// swallowed, the comma's own offset is the anchor rather than the value's end.
+	//
+	// `lineTriviaEnd()` bails back to `from` at anything that is not trivia, so a
+	// comma sharing the line with the value stops it -- and the insert then landed
+	// in **front** of the kept entry's own inline comment, which then read as a
+	// comment about the new key. Measured: `{ "a": 1 /* on a */, "b": 2 }` losing
+	// `b` and gaining `c` came out `"c": 3 /* on a */`, a comment describing the
+	// wrong setting, which is worse than losing it. Found by review.
+	//
+	// The condition is read off the **source** rather than inferred from what
+	// `lineTriviaEnd()` answered, and that is not fussiness: it returns `from`
+	// both when it bailed and when a line end sits exactly at `from`, so the two
+	// cannot be told apart from the outside. A version that tried threw an
+	// overlapping edit on `{ "a": 1\n\t,\n\t"b": 2 }`, where the comma owns a
+	// line and the removal therefore starts at that line's beginning rather than
+	// at the comma.
+	//
+	// Two conditions, each carrying half of the safety argument and each pinned.
+	// `eaten` is what says the comma was swallowed **into** the removal rather
+	// than deleted on its own -- a `cut` comma has `from` past it already, and
+	// anchoring back at it would put the insert in front of whatever is in the gap
+	// *after* it, which is the same defect one comment along. And no line end in
+	// the gap is what says the comma shares the value's line, so it cannot own
+	// one, so the removal really does start at it -- and `applyEdits()` orders an
+	// insertion before a replacement that starts where it does.
+	//
+	// Two further conditions were tried and both were redundant: a `comma > from`
+	// that only ever excluded a comma sitting flush against the value, where the
+	// anchor is that same offset either way, and a `gap.trim()` that excluded a
+	// whitespace-only gap -- which turned out to be the *worse* answer, since it
+	// moved the space the user had put after their value onto the line this
+	// writes. Measured, both
+	const gap = ctx.source.slice(from, comma);
+	const buried = eaten && !LINE_END.test(gap);
+	const at = buried ? comma : trivia;
 	const sep = lines ? ctx.eol + indent : ' ';
 
 	// the separator the last entry never needed, which goes directly after it

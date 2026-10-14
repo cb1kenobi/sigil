@@ -260,7 +260,7 @@ describe('the JSONC writer', () => {
 	});
 
 	it('should keep every one of those parseable, which is the claim under them', () => {
-		// each of the six above as JSON once the comments are blanked, because a
+		// each of the shapes above as JSON once the comments are blanked, because a
 		// comment in the right place and a dangling comma are two different failures
 		// and the pictures above only see the first
 		const cases: Array<[string, unknown]> = [
@@ -270,6 +270,18 @@ describe('the JSONC writer', () => {
 			['{\n\t"a": 1, // keep a\n\t"b": 2,\n}', { a: 1 }],
 			['{\n\t"a": 1, // keep a\n\t"b": 2,\n\t"c": 3\n}', { a: 1 }],
 			['{\n\t"a": 1,\n\t"b": 2 // comment on b\n}', { a: 1 }],
+			// and the comment-before-the-comma shapes, where the anchor moved: the
+			// insert is ordered before a removal that starts where it does, so a
+			// dangling comma is exactly what getting that wrong would produce
+			['{\n\t"a": 1 /* on a */,\n\t"b": 2\n}', { a: 1, c: 3 }],
+			['{\n\t"a": 1 /* on a */,\n\t"b": 2,\n\t"d": 4\n}', { a: 1, c: 3 }],
+			['{ "a": 1 /* on a */, "b": 2 }', { a: 1, c: 3 }],
+			['{\n\t"a": 1\n\t,\n\t"b": 2\n}', { a: 1, c: 3 }],
+			['{\n\t"a": 1 /* on a */\n\t,\n\t"b": 2\n}', { a: 1, c: 3 }],
+			['{\n\t"a": 1 /* pre */, /* post */\n\t"b": 2\n}', { a: 1, c: 3 }],
+			['{\n\t"a": 1, /* post */\n\t"b": 2\n}', { a: 1, c: 3 }],
+			['{\n\t"a": 1 /* on a */,\n}', { a: 1, c: 3 }],
+			['{\n\t"a": 1 ,\n\t"b": 2\n}', { a: 1, c: 3 }],
 		];
 
 		for (const [source, next] of cases) {
@@ -296,6 +308,99 @@ describe('the JSONC writer', () => {
 		// entries rather than trivia, and reading an indent off a comment would be
 		// a new rule for the one shape that is a comment and nothing else
 		expect(edit('{\n\t// todo\n}', { b: 2 })).to.equal('{\n\t// todo\n  "b": 2\n}');
+	});
+
+	it('should keep an inline comment with its own key when the next one goes', () => {
+		// the anchor was the kept value's end, and `lineTriviaEnd()` bails at the
+		// comma sharing that line -- so a new key was spliced in **front** of the
+		// kept entry's own comment, which then read as a comment about the new key.
+		// A file saying something false, which is worse than losing the comment.
+		// Found by review
+		expect(edit('{\n\t"a": 1 /* on a */,\n\t"b": 2\n}', { a: 1, c: 3 })).to.equal(
+			'{\n\t"a": 1, /* on a */\n\t"c": 3\n}'
+		);
+		// and it is the same answer the write with nothing removed already gave,
+		// which is what says the removal is not what decides where the comment goes
+		expect(edit('{\n\t"a": 1 /* on a */\n}', { a: 1, c: 3 })).to.equal(
+			'{\n\t"a": 1, /* on a */\n\t"c": 3\n}'
+		);
+	});
+
+	it.each([
+		['one line', '{ "a": 1 /* on a */, "b": 2 }', { a: 1, c: 3 }, '{ "a": 1, /* on a */ "c": 3 }'],
+		[
+			'an array',
+			'[\n\t1 /* on 1 */,\n\t2\n]',
+			[1, 3],
+			// the element is replaced in place rather than removed, because an array
+			// is diffed by index -- so this is the control for the shape above
+			'[\n\t1 /* on 1 */,\n\t3\n]',
+		],
+		[
+			'a tail of two',
+			'{\n\t"a": 1 /* on a */,\n\t"b": 2,\n\t"d": 4\n}',
+			{ a: 1, c: 3 },
+			'{\n\t"a": 1, /* on a */\n\t"c": 3\n}',
+		],
+		[
+			'CRLF',
+			'{\r\n\t"a": 1 /* on a */,\r\n\t"b": 2\r\n}',
+			{ a: 1, c: 3 },
+			'{\r\n\t"a": 1, /* on a */\r\n\t"c": 3\r\n}',
+		],
+	])('should keep it with its own key in %s too', (_what, source, next, want) => {
+		expect(edit(source, next)).to.equal(want);
+	});
+
+	it('should leave a comma a removal deleted on its own alone', () => {
+		// the other half of the condition, and it protects three shapes. A comma the
+		// removal **cut** rather than swallowed has the anchor already past it, so
+		// reaching back to it would put the insert in front of whatever sits in the
+		// gap *after* it -- the same defect one comment along
+		expect(edit('{\n\t"a": 1 /* pre */, /* post */\n\t"b": 2\n}', { a: 1, c: 3 })).to.equal(
+			'{\n\t"a": 1, /* pre */ /* post */\n\t"c": 3\n}'
+		);
+		expect(edit('{\n\t"a": 1, /* post */\n\t"b": 2\n}', { a: 1, c: 3 })).to.equal(
+			'{\n\t"a": 1, /* post */\n\t"c": 3\n}'
+		);
+		// and where nothing was removed at all the comma is **reused** as the
+		// separator, so reaching back to it writes a second one: `1,,` and nothing
+		// parses. Which is why this is the one of the three that is not merely a
+		// comment in the wrong place
+		expect(edit('{\n\t"a": 1 /* on a */,\n}', { a: 1, c: 3 })).to.equal(
+			'{\n\t"a": 1 /* on a */,\n\t"c": 3,\n}'
+		);
+	});
+
+	it("should keep a space the user put after their value on that value's line", () => {
+		// a whitespace-only gap takes the same path as a comment, which is one
+		// condition fewer and the better answer besides: excluding it moved the
+		// space onto the line this writes, where keeping it leaves the space where
+		// the user put it. Measured both ways
+		expect(edit('{\n\t"a": 1 ,\n\t"b": 2\n}', { a: 1, c: 3 })).to.equal(
+			'{\n\t"a": 1, \n\t"c": 3\n}'
+		);
+		// and a comma flush against the value is the same offset either way, which
+		// is what made a `comma > from` guard redundant
+		expect(edit('{\n\t"a": 1,\n\t"b": 2\n}', { a: 1, c: 3 })).to.equal('{\n\t"a": 1,\n\t"c": 3\n}');
+	});
+
+	it('should still take the clean path where the comma owns a line', () => {
+		// which is what makes the condition above read the **source** rather than
+		// what `lineTriviaEnd()` answered: it returns `from` both when it bailed and
+		// when a line end sits exactly at `from`, so a version that inferred the
+		// bail anchored at a comma whose removal starts at that comma's **line**
+		// start -- an overlapping edit, and `applyEdits()` refused the write. A gap
+		// holding a line end is what rules that out, and these are the two shapes it
+		// has to leave alone
+		expect(edit('{\n\t"a": 1\n\t,\n\t"b": 2\n}', { a: 1, c: 3 })).to.equal(
+			'{\n\t"a": 1,\n\t"c": 3\n}'
+		);
+		// and with a comment on the value's line, which `lineTriviaEnd()` gets past
+		// on its own because the line really does end before the comma
+		expect(edit('{\n\t"a": 1 /* on a */\n\t,\n\t"b": 2\n}', { a: 1, c: 3 })).to.equal(
+			'{\n\t"a": 1, /* on a */\n\t"c": 3\n}'
+		);
 	});
 
 	it('should insert inline where the object is on one line', () => {

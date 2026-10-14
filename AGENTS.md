@@ -17907,11 +17907,11 @@ without destroying it is SIG-154's.
 
 - **It imports no parser module at all, and that is a test rather than a
   coincidence.** Measured as transitive static import byte weight off `dist/`:
-  **32,466 B over seven modules**, of which **9,880 B over six** is what it starts
+  **32,512 B over seven modules**, of which **9,880 B over six** is what it starts
   from -- `paths.mjs`, the `transform` chunk, which is `transform`, `i18n` and
   `debug`, the 66-byte `env-value` chunk the parser shares, and the 525-byte
   `mkdir-owner-sync` one the update cache shares. So the module itself is
-  22,586 B, and the graph is **4.3x** the root entry's 7,518 B and an **eighth**
+  22,632 B, and the graph is **4.3x** the root entry's 7,518 B and an **eighth**
   of `components.mjs`'s 239,927 B over 26 -- all three measured the
   same way, which is the only comparison that means anything. It was
   **20,649 B over six** before SIG-154, which is the write half costing about
@@ -20356,13 +20356,20 @@ second one.
   writing it rather than by construction.
 - **`removeFrom()` records which comma it took and what went with it**, as
   `Ctx.eaten` and `Ctx.cut`. That is the decoupling: a comma swallowed into a
-  removal **range** took the gap after it too, so the anchor has to go back to the
-  value or it splices inside that range and `applyEdits()` refuses it; a comma
-  deleted **on its own** -- which is what happens when a comment sits in the gap --
-  leaves the comment there to be gone past. Two sets rather than a flag, because
-  the two answers are different and `insertInto()` reads both. The alternative was
-  for `insertInto()` to re-derive the rule, which is the two-readers-of-one-question
+  removal **range** took the gap after it too, so the anchor cannot go _past_ it or
+  it splices inside that range and `applyEdits()` refuses it; a comma deleted **on
+  its own** -- which is what happens when a comment sits in the gap -- leaves the
+  comment there to be gone past. Two sets rather than a flag, because the two
+  answers are different and `insertInto()` reads both. The alternative was for
+  `insertInto()` to re-derive the rule, which is the two-readers-of-one-question
   drift this file deletes everywhere else.
+
+  What this said for a while is that the swallowed case means "the anchor has to go
+  back to the value", and that is the half a later round falsified: back at the
+  value is in front of anything in the gap, so a comment there ended up describing
+  the new key. The anchor is the **comma itself** for that case now -- neither past
+  it nor back at the value -- and the entry below is where that is argued.
+
 - **`removeFrom()` works a contiguous run at a time**, which is `runsOf()`. A
   run's commas and its lines are one question, and the per-entry version could not
   see the end of the run it was in the middle of.
@@ -20380,6 +20387,10 @@ module's stated bias and the alternative is deleting a comment somebody wrote, s
 it is kept and said out loud; closing it properly means deciding that a comment
 sharing a line with an entry belongs to that entry, which is a rule about ownership
 rather than about arithmetic and wants its own ticket.
+
+The **kept** entry's own comment is not in that class and was a defect rather than
+a residue -- it moved onto the new key, which is the opposite direction. See the
+round below.
 
 **Eight sabotages over the four changes, all eight caught**, each by a test named
 for it: the anchor reverting to the value (4 tests), the unconditional separator
@@ -20712,9 +20723,79 @@ one was named.
   by the one POSIX fixture that can see it, after the `join()` hazard above made
   the first attempt at that fixture vacuous.
 
+#### What the fourth round of PR review found: the kept entry's own comment
+
+One comment, confirmed, and it is the **third PR round in a row to find a defect
+in its predecessor's own fix** -- which is now a pattern rather than a run of bad
+luck: code written in response to a review is code no review has seen, and the
+fix for a comment-placement defect is exactly where the next comment-placement
+defect lives.
+
+- **A new key was spliced in front of the kept entry's own inline comment, so the
+  comment described the new key.** `{ "a": 1 /* on a */, "b": 2 }` losing `b` and
+  gaining `c` came out `"a": 1,` then `"c": 3 /* on a */` -- a file saying
+  something **false**, which this module already records as worse than losing the
+  comment outright. Measured first, in six shapes: multiline, single-line, an
+  array, nested, CRLF, and a dropped tail of two. All six.
+
+  The mechanism is one sentence and it is the previous round's own machinery read
+  one step further. `lineTriviaEnd()` bails back to `from` at anything that is not
+  trivia, so a comma **sharing the value's line** stops it -- and for a comma the
+  removal swallowed the anchor was `from`, the value's end, which is in front of
+  everything in the gap. The entry two blocks up said that case "has to go back to
+  the value", and that is the half this falsifies.
+
+- **The anchor is the comma itself: neither past it nor back at the value.** Past
+  it is inside the removal range and `applyEdits()` refuses the write; back at the
+  value is in front of the comment. **At** it is the offset the range starts from,
+  and `applyEdits()` orders an insertion before a replacement that starts where it
+  does -- which is a rule that block already relied on for a key spliced in where a
+  removed one began, so nothing new was needed to make this work.
+
+- **The condition is read off the source, because what `lineTriviaEnd()` returned
+  cannot tell you what happened.** It answers `from` both when it bailed and when a
+  line end sits exactly at `from`, so a first fix that inferred the bail threw an
+  overlapping edit on `{ "a": 1\n\t,\n\t"b": 2 }` -- a comma that **owns a line**
+  has the removal start at that line's beginning rather than at the comma. Measured,
+  and it is the shape that makes the guard non-obvious: the old code was _correct_
+  for both own-line shapes and wrong only for the shared-line one, so a fix has to
+  leave the good cases alone.
+
+  So: `eaten && !LINE_END.test(gap)`. No line end in the gap means the comma shares
+  the value's line, which means it cannot own one, which means the removal really
+  does start at it -- the condition carries its own safety argument rather than
+  resting on a comment.
+
+- **Two further conditions were tried and both were measured away, which is the
+  part worth copying.** A `comma > from` only ever excluded a comma sitting flush
+  against the value, where the anchor is that same offset either way -- redundant,
+  and it was also **masking** `eaten`: with it present, removing `eaten` changed no
+  output, so the pass reported `eaten` as not load bearing. Two guards covering for
+  each other is how a sabotage survivor becomes a wrong conclusion.
+
+  And a `gap.trim() !== ''` excluded a whitespace-only gap, which turned out to be
+  the **worse** answer: it moved a space the user had put after their value onto the
+  line this writes, where including it leaves the space where they put it. Measured
+  both ways. Four conditions down to two, each of the two pinned, and the reduction
+  is what made `eaten` observable at all.
+
+- **`eaten` protects three shapes and one of them is invalid JSON.** With it gone,
+  a comma the removal **cut** has the anchor reach back in front of the comment
+  _after_ it -- the same defect one comment along, in two shapes -- and a comma
+  nothing removed is **reused** as the separator, so reaching back writes a second
+  one: `"c": 3,,` and nothing parses. That third one is why this is not merely a
+  cosmetic guard, and it is in the parseability walk rather than only in a picture.
+
+- **Seven sabotages, all seven caught, nothing declared.** The fix removed, the
+  anchor moved past the comma, each of the two conditions, the gap measured the
+  wrong way, the separator moved to the insertion point, and `lineTriviaEnd()`
+  skipped. Four new tests and four more inputs in the parseability walk, which
+  exists because a comment in the wrong place and a dangling comma are two
+  different failures and a picture only sees the first.
+
 #### What the write half costs
 
-- **The config module's graph is 32,466 B over seven modules**, against 20,649 B
+- **The config module's graph is 32,512 B over seven modules**, against 20,649 B
   over six for the read half -- so the span writer, the atomic write and the
   representability check are about 11.5 kB between them. The seventh module is the
   `mkdir-owner-sync` chunk the update cache already shares. It still imports no
