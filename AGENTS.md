@@ -20516,7 +20516,13 @@ in response to a review is code no review has seen.
 - **The file system bounds the walk, and that measurement is what decided its
   shape.** A chain of **31 or more** dangling links answers `ELOOP` rather than
   `ENOENT` -- measured at 8, 31, 32, 33, 40 and 64 hops, which is `MAXSYMLINKS`
-  being 32 -- and `ELOOP` is raised by the resolve above the walk. So the walk's
+  being 32 -- and `ELOOP` is raised by the resolve above the walk. That sweep is
+  macOS's, so the `ELOOP` the cycle test asserts was a **platform claim** this
+  machine could not settle: Windows resolves a link through a reparse point and
+  reports what `GetFinalPathNameByHandle` gives. CI settled it -- all three
+  Windows jobs pass that assertion, along with a dangling, a relative and a
+  chained `symlinkSync`, so none of the four fixtures needed the `it.skipIf` the
+  Conventions entry about platform fixtures would otherwise have asked for. So the walk's
   input is a chain of at most thirty hops, every cycle is refused before it is
   entered, and no state the file system can be in reaches `MAX_LINKS`. What the
   bound is for is a link that changed **between the two calls**, which is a race
