@@ -660,7 +660,7 @@ export interface Schema {
 	 * `AppOptions.locale`'s "this program's output *is* German" -- two
 	 * precedences, so two names, because one name meaning both is the trap.
 	 *
-	 * This is what `sigil build` writes from `"locale"` in `sigil.jsonc`, beside
+	 * This is what `sigil build` writes from `"locale"` in `sigil.json`, beside
 	 * the version and the baked tree: the runtime cannot read that file, because
 	 * reading one at startup is what `locales` being a map rather than a
 	 * directory convention exists to avoid. An unbundled app writes it here

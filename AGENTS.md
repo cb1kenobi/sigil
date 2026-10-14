@@ -19884,7 +19884,10 @@ construction.
   `sigil.jsonc` is still read", and "which is `sigil.jsonc` and may still be
   `sigil.jsonc`" -- a bulk prose replace that hit the sentences about the `.json`
   one. The body was right in both places, which is the direction that catches
-  somebody aligning the code with the comment.
+  somebody aligning the code with the comment. Both sentences are **gone**, along
+  with the rename they were about: the quotation is here as the finding's evidence
+  rather than as anything the tree still says, and what survives it is the lesson
+  about a bulk replace over prose.
 
 - **And one test's name promised something it never did.** `should keep the space
   before a closing brace it emptied on one line` never empties a container, so it

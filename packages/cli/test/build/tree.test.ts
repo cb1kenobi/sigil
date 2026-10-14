@@ -411,7 +411,7 @@ describe('the generated executable', () => {
 	};
 
 	it('should bake the locale the config named as the bottom of the chain', () => {
-		// the runtime cannot read `sigil.jsonc` -- reading a file at startup is what
+		// the runtime cannot read `sigil.json` -- reading a file at startup is what
 		// `Schema.locales` being a map rather than a directory convention exists to
 		// avoid -- so the build is the only thing that can carry it across
 		const source = generateBin({
