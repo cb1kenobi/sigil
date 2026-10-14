@@ -10,7 +10,7 @@ import {
 	type WriteOptions,
 } from '../../src/config/index.js';
 import { editJsonc } from '../../src/config/jsonc-write.js';
-import { parseJsonc, scanJsonc } from '../../src/config/jsonc.js';
+import { scanJsonc } from '../../src/config/jsonc.js';
 import { jsonCanHold } from '../../src/config/represent.js';
 import { applyEdits, lineAt } from '../../src/config/spans.js';
 import {
