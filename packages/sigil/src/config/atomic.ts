@@ -13,7 +13,7 @@ import {
 	writeFileSync,
 } from 'node:fs';
 import { chmod, chown, open, rename, unlink } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, sep } from 'node:path';
 
 /**
  * Writing a file without the window in which it is half written.
@@ -147,6 +147,77 @@ function endsChain(e: unknown): boolean {
 	return NO_LINK.has((e as { code?: string }).code ?? '');
 }
 
+/**
+ * Two path pieces joined with **nothing normalized**, which is the whole point.
+ *
+ * `join()` and `resolve()` collapse a `..` lexically, and the kernel resolves one
+ * against the directory that **physically** holds it -- so handing either of them
+ * a link target is how the answer comes to differ from where the write lands.
+ * This hands the un-collapsed path to `physicalPath()`, which asks the kernel.
+ *
+ * @param dir - The directory the second piece is relative to.
+ * @param rest - The relative piece, exactly as it was stored.
+ * @returns The two with one separator between them and no `..` resolved.
+ */
+function rawJoin(dir: string, rest: string): string {
+	return dir.endsWith(sep) ? dir + rest : `${dir}${sep}${rest}`;
+}
+
+/**
+ * The physical path a file names, which it does not have to exist to have.
+ *
+ * `realpath` needs the whole path to exist and answers `ENOENT` otherwise, and
+ * what this is asked about is a link target that by definition does not. So the
+ * deepest ancestor that **does** exist is resolved by the kernel and the rest is
+ * joined back on -- which is exact rather than a best effort, because the part
+ * that does not exist cannot hold a symlink, and a lexical `..` over a path that
+ * is already physical is the physical one.
+ *
+ * It is `realpathSync.native` rather than `realpathSync`, and that is not a
+ * preference: node's own `realpathSync` begins with `path.resolve()`, so it
+ * collapses `..` **lexically** and disagrees with the kernel for a path whose
+ * `..` follows a symlinked directory. Measured, over a link whose target walks
+ * through a symlinked directory and back up: the kernel opens `far/other`, which
+ * `.native` and `realpath(3)` both answer, while `realpathSync` answers
+ * `real/other` -- a different file, which is the silent wrong write this whole
+ * function exists to prevent. Every error code the walk above reads is the same
+ * from both, checked rather than assumed: `ENOENT` for a dangling link and for
+ * nothing there, `ELOOP` for a cycle and for a chain of 31 or more, `ENOTDIR`
+ * under a file, and the same spelling for an ordinary file.
+ *
+ * @param raw - A path, which may hold a `..` and need not exist.
+ * @returns What the kernel would resolve it to.
+ * @throws If a resolution failed for any reason but something not being there.
+ */
+function physicalPath(raw: string): string {
+	let rest = '';
+	let at = raw;
+
+	for (;;) {
+		try {
+			const real = realpathSync.native(at);
+			return rest === '' ? real : join(real, rest);
+		} catch (e: unknown) {
+			if (!isMissing(e)) {
+				throw e;
+			}
+		}
+
+		const up = dirname(at);
+		if (up === at) {
+			// the file system root, which always exists -- so the return above has
+			// already answered and nothing reaches this. It is here because a loop
+			// that relies on finding something is one that can run off the top of
+			// the file system, which is the rule `mkdirOwnerSync()`'s own climb
+			// already follows
+			return raw;
+		}
+
+		rest = rest === '' ? basename(at) : join(basename(at), rest);
+		at = up;
+	}
+}
+
 /** Whether this process can hand a file to somebody else. */
 function isRoot(): boolean {
 	return process.getuid !== undefined && process.getuid() === 0;
@@ -219,12 +290,32 @@ export function isMissing(e: unknown): boolean {
  *   with nothing at `c` is one `ENOENT` for the whole of it, and `c` is the file
  *   to create.
  *
- * What it does not do is normalize the answer's parent, for the reason the
- * paragraph above gives: a parent reached through links that do exist is a
- * directory the temp file and the rename both land inside either way. And a
- * parent component that is itself a dangling link fails at `mkdirOwnerSync()`
- * naming that path, which is the right answer rather than creating a directory
- * where somebody put a link.
+ * ## And a relative target is resolved by the kernel rather than by string work
+ *
+ * The first version of the walk joined the target with `resolve()`, which is
+ * **lexical**: it collapses a `..` against the path as written, where the kernel
+ * resolves one against the directory that physically holds it. So a link in a
+ * directory reached through a symlink -- a `~/.config` pointing at a synced
+ * folder, which is the ordinary setup, with a `stow`-style relative link inside
+ * it -- resolved to a sibling of the **named** directory rather than of the real
+ * one. Measured: the correct target was never written, a `home/dots/` the kernel
+ * would never resolve to was **created**, the link stayed dangling and the
+ * settings were lost. Found by review, and invisible to the test above because
+ * that one puts its link in a plain directory.
+ *
+ * So the pieces are joined with `rawJoin()`, which collapses nothing, and
+ * `physicalPath()` asks the kernel -- which also settles the same mistake one
+ * level in, a `..` inside the target that follows a symlinked directory of its
+ * own. Both are the one defect rather than two: a lexical `..` where the kernel's
+ * is physical.
+ *
+ * What it does not do is normalize the answer when the walk stops at a path that
+ * is not a link, because `keepOf()`, `tempFor()`, `mkdirOwnerSync()` and the
+ * `rename` are each resolved by the kernel when they run -- so what the answer
+ * has to do is name the right file, which it does, rather than spell it
+ * physically. And a parent component that is itself a dangling link fails at
+ * `mkdirOwnerSync()` naming that path, which is the right answer rather than
+ * creating a directory where somebody put a link.
  *
  * @param path - The file, as the caller named it.
  * @returns What it resolves to, or where the chain of links ends, or itself
@@ -233,7 +324,7 @@ export function isMissing(e: unknown): boolean {
  */
 function realPathOf(path: string): string {
 	try {
-		return realpathSync(path);
+		return realpathSync.native(path);
 	} catch (e: unknown) {
 		if (!isMissing(e)) {
 			throw e;
@@ -254,7 +345,9 @@ function realPathOf(path: string): string {
 			throw e;
 		}
 
-		at = resolve(dirname(at), target);
+		// the kernel reads a relative target from the directory that **physically**
+		// holds the link, so the pieces are joined un-collapsed and it is asked
+		at = physicalPath(isAbsolute(target) ? target : rawJoin(dirname(at), target));
 	}
 
 	// unreachable through any state the file system can be in, for the reason

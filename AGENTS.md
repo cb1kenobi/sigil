@@ -17907,16 +17907,16 @@ without destroying it is SIG-154's.
 
 - **It imports no parser module at all, and that is a test rather than a
   coincidence.** Measured as transitive static import byte weight off `dist/`:
-  **32,171 B over seven modules**, of which **9,880 B over six** is what it starts
+  **32,455 B over seven modules**, of which **9,880 B over six** is what it starts
   from -- `paths.mjs`, the `transform` chunk, which is `transform`, `i18n` and
   `debug`, the 66-byte `env-value` chunk the parser shares, and the 525-byte
   `mkdir-owner-sync` one the update cache shares. So the module itself is
-  22,291 B, and the graph is **4.3x** the root entry's 7,518 B and an **eighth**
+  22,575 B, and the graph is **4.3x** the root entry's 7,518 B and an **eighth**
   of `components.mjs`'s 239,927 B over 26 -- all three measured the
   same way, which is the only comparison that means anything. It was
   **20,649 B over six** before SIG-154, which is the write half costing about
-  11.3 kB. Re-derived after
-  every change that moved it, which is five times now: a figure only a re-run
+  11.5 kB. Re-derived after
+  every change that moved it, which is six times now: a figure only a re-run
   can confirm is the stale snapshot this file warns about. The shape the
   ticket's own projection predicted, even though its figure was the starting point
   rather than the total. `should not reach any parser module to
@@ -20513,6 +20513,13 @@ in response to a review is code no review has seen.
   both were found by walking the edges before writing the fix, which is the one
   thing that separates a fix from the sentence that asked for it.
 
+  What "resolved against the link's own directory" meant in that first version was
+  `resolve(dirname(at), target)`, and the round below is where that is corrected:
+  `dirname()` and `resolve()` are **string** work, so the directory it resolves
+  against is the one the caller **named** rather than the one that physically
+  holds the link. Recorded here because the sentence reads as though the fix were
+  complete, and the test beside it could not tell the two apart.
+
 - **The file system bounds the walk, and that measurement is what decided its
   shape.** A chain of **31 or more** dangling links answers `ELOOP` rather than
   `ENOENT` -- measured at 8, 31, 32, 33, 40 and 64 hops, which is `MAXSYMLINKS`
@@ -20568,11 +20575,79 @@ in response to a review is code no review has seen.
   resolve and the chain walk are each caught by exactly the test named for it, and
   neither existed before this round. Nothing turned out to be dead.
 
+#### What the third round of PR review found: lexical `..` against the kernel's
+
+One comment, confirmed, and it falsified a sentence the round before it had
+written -- the second PR round in a row to find a defect in its predecessor's own
+fix. What it found is one defect class with **two** members, and only the nearer
+one was named.
+
+- **A relative target was resolved against the directory the caller _named_
+  rather than the one that physically holds the link.** `dirname()` and
+  `resolve()` are string work: `resolve()` collapses a `..` lexically, where the
+  kernel resolves one against the physical directory. So a link in a directory
+  reached through a symlink -- a `~/.config` pointing at a synced folder with a
+  `stow`-style relative link inside it, which is the ordinary setup rather than an
+  exotic one -- resolved to a sibling of the named directory.
+
+  Measured before anything was written, and it is worse than a wrong target: the
+  right file was never written, a `home/dots/` the kernel would **never** resolve
+  to was _created_, and the link stayed dangling, so the settings were lost. The
+  previous round's own relative test could not see it, because that one puts its
+  link in a plain directory -- which is the fixture-cannot-reach-the-branch shape
+  this file keeps recording, in the test written for the feature one round
+  earlier.
+
+- **And node's own `realpathSync` is lexical about `..` too, which is the member
+  the review did not name and the bigger of the two.** It begins with
+  `path.resolve()`, so it collapses a `..` before it walks anything --
+  `realpathSync.native`, which is `realpath(3)`, does not. Measured over a link
+  whose target goes through a symlinked directory and back up, with a distinct
+  file at each candidate: the kernel opens `far/other`, `.native` and
+  `realpath(3)` both answer `far/other`, and `realpathSync` answers `real/other`.
+  A different file.
+
+  Which means the **merged** fix had the same defect on its main path, for a link
+  that is not dangling at all: `realPathOf()` answered `real/other`, and
+  `keepOf()`, `tempFor()` and the `rename` all then operated on the wrong file.
+  Reachable without the walk, so this is not a property of the dangling case.
+
+  So the whole function is `realpathSync.native` now. Every error code the design
+  rests on is the same from both, checked rather than assumed: `ENOENT` for a
+  dangling link and for nothing there, `ELOOP` for a cycle and for a chain of 31
+  or more, `ENOTDIR` under a file, and the same spelling for an ordinary file --
+  so the bound's own measurement and the cycle refusal carry over unchanged.
+
+- **The fix is to stop doing the arithmetic and ask the kernel**, which is this
+  file's own standing preference -- the only way to agree by construction is to
+  _be_ the other party's arithmetic. `rawJoin()` puts the pieces together with
+  **nothing** collapsed, and `physicalPath()` resolves the deepest ancestor that
+  exists and joins the rest back on. That is exact rather than a best effort for
+  two reasons worth keeping: the part that does not exist cannot hold a symlink,
+  and a lexical `..` over a path that is _already physical_ is the physical one.
+  So both members of the class are closed by one mechanism, and `isAbsolute()`
+  stops being an optimization and becomes required -- `rawJoin()` of an absolute
+  target onto a directory is a path to nowhere.
+
+- **The review asked for one line, and the one line is caught by a test.** Its
+  own suggestion -- realpath the link's parent, then join -- fixes the member it
+  names and leaves the other: sabotaged in exactly that shape, it fails the
+  `..`-after-a-symlinked-directory test. Which is what justifies going past what
+  the comment asked for: a measurement rather than taste, and it is the reason
+  the deeper member was not written down as a declared limit instead. A limit is
+  for a missing feature; a silent write to the wrong file is not one.
+
+- **Fourteen sabotages, all fourteen caught** -- the eight new and the six from
+  the round before, so nothing regressed. The two that matter most are the pair
+  that separates the complete fix from the partial one: realpathing the base but
+  still joining lexically, and `rawJoin()` normalizing. Each is caught, and by
+  the deeper test alone.
+
 #### What the write half costs
 
-- **The config module's graph is 32,171 B over seven modules**, against 20,649 B
+- **The config module's graph is 32,455 B over seven modules**, against 20,649 B
   over six for the read half -- so the span writer, the atomic write and the
-  representability check are about 11.3 kB between them. The seventh module is the
+  representability check are about 11.5 kB between them. The seventh module is the
   `mkdir-owner-sync` chunk the update cache already shares. It still imports no
   parser module at all, which is the property the read half's own test holds and is
   why the ceiling did not move.

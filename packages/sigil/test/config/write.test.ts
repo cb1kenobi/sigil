@@ -722,6 +722,65 @@ describe('the atomic write', () => {
 		expect(existsSync(join(process.cwd(), 'dots')), 'nothing landed in the cwd').to.equal(false);
 	});
 
+	it('should read a relative target from the directory that physically holds it', () => {
+		// the first version of the walk joined with `resolve()`, which collapses a
+		// `..` **lexically** where the kernel resolves one against the directory
+		// that physically holds the link. So a link in a directory reached through
+		// a symlink -- a `~/.config` pointing at a synced folder, with a
+		// `stow`-style relative link inside it, which is the ordinary setup --
+		// resolved to a sibling of the **named** directory rather than of the real
+		// one. Measured: the right target was never written, a `home/dots/` the
+		// kernel would never resolve to was created, and the link stayed dangling.
+		// Found by review, and invisible to the test above because that one puts
+		// its link in a plain directory
+		mkdirSync(join(root, 'real', 'cfg'), { recursive: true });
+		mkdirSync(join(root, 'real', 'dots'), { recursive: true });
+		mkdirSync(join(root, 'home'));
+		symlinkSync(join(root, 'real', 'cfg'), join(root, 'home', 'app'));
+		symlinkSync('../dots/real.jsonc', join(root, 'real', 'cfg', 'c.jsonc'));
+
+		writeAtomicSync(join(root, 'home', 'app', 'c.jsonc'), '{"a":1}\n');
+
+		expect(readFileSync(join(root, 'real', 'dots', 'real.jsonc'), 'utf8')).to.equal('{"a":1}\n');
+		expect(
+			existsSync(join(root, 'home', 'dots')),
+			'nothing was created beside the named directory'
+		).to.equal(false);
+	});
+
+	it.each([
+		['dangling', false],
+		['live', true],
+	])('should let the kernel resolve a .. after a symlinked directory, %s', (_what, live) => {
+		// the same defect one level in, and the same cause: a `..` **inside** the
+		// target that follows a symlinked directory of its own. It is also why the
+		// resolve is `realpathSync.native` rather than `realpathSync` -- node's own
+		// begins with `path.resolve()`, so it collapses that `..` lexically and
+		// answers a different file from the one the kernel opens. Measured both
+		// ways, which is what says the live half is not a shape only the walk can
+		// reach: `realpathSync` answers `real/other` where the kernel, `.native`
+		// and `realpath(3)` all answer `far/other`
+		mkdirSync(join(root, 'real', 'cfg'), { recursive: true });
+		mkdirSync(join(root, 'far', 'elsewhere'), { recursive: true });
+		mkdirSync(join(root, 'far', 'other'), { recursive: true });
+		mkdirSync(join(root, 'real', 'other'), { recursive: true });
+		symlinkSync(join(root, 'far', 'elsewhere'), join(root, 'real', 'dots'));
+		symlinkSync('../dots/../other/real.jsonc', join(root, 'real', 'cfg', 'c.jsonc'));
+
+		const right = join(root, 'far', 'other', 'real.jsonc');
+		const wrong = join(root, 'real', 'other', 'real.jsonc');
+		if (live) {
+			// both candidates exist, so only *which* one moved says anything
+			writeFileSync(right, 'old\n');
+			writeFileSync(wrong, 'untouched\n');
+		}
+
+		writeAtomicSync(join(root, 'real', 'cfg', 'c.jsonc'), '{"a":1}\n');
+
+		expect(readFileSync(right, 'utf8')).to.equal('{"a":1}\n');
+		expect(existsSync(wrong) ? readFileSync(wrong, 'utf8') : '').to.not.equal('{"a":1}\n');
+	});
+
 	it('should follow a chain of dangling links to its end', () => {
 		// `a -> b -> c` with nothing at `c` is one `ENOENT` for the whole of it, so
 		// the end of the chain is the file to create and every link on the way is
@@ -733,6 +792,16 @@ describe('the atomic write', () => {
 		expect(lstatSync(join(root, 'a.jsonc')).isSymbolicLink()).to.equal(true);
 		expect(lstatSync(join(root, 'b.jsonc')).isSymbolicLink()).to.equal(true);
 		expect(readFileSync(join(root, 'c.jsonc'), 'utf8')).to.equal('{"a":1}\n');
+
+		// and each hop reads its own base, which a chain of *relative* targets
+		// across two directories is what asks for
+		mkdirSync(join(root, 'one'));
+		mkdirSync(join(root, 'two'));
+		symlinkSync('../two/b.jsonc', join(root, 'one', 'a.jsonc'));
+		symlinkSync('../one/c.jsonc', join(root, 'two', 'b.jsonc'));
+
+		writeAtomicSync(join(root, 'one', 'a.jsonc'), '{"b":2}\n');
+		expect(readFileSync(join(root, 'one', 'c.jsonc'), 'utf8')).to.equal('{"b":2}\n');
 	});
 
 	it('should refuse a cycle rather than walking it', () => {
