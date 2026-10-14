@@ -15,7 +15,9 @@ import { jsonCanHold } from '../../src/config/represent.js';
 import { applyEdits, lineAt } from '../../src/config/spans.js';
 import {
 	chmodSync,
+	existsSync,
 	lstatSync,
+	mkdirSync,
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
@@ -679,6 +681,71 @@ describe('the atomic write', () => {
 		// and the comment the file was read for is still there, which is the whole
 		// of what writing through it is worth
 		expect(readFileSync(target, 'utf8')).to.contain('// keep me');
+	});
+
+	it('should write through a dangling symlink rather than replacing it', async () => {
+		// `realpathSync()` refuses a chain that ends at nothing **whole** rather
+		// than resolving as far as it can, so a link pointing at a file that does
+		// not exist yet answers `ENOENT` exactly as a path with nothing at it does
+		// -- and reading that as "a new file" wrote the plain file at the link's own
+		// location after all. Which is the defect the test above is for, for the one
+		// state a dotfile manager leaves behind before its target has been created,
+		// and invisible to that test. Found by a second review round
+		const target = join(root, 'dotfiles', 'real.jsonc');
+		const link = join(root, 'link.jsonc');
+		symlinkSync(target, link);
+
+		writeAtomicSync(link, '{"a":1}\n');
+		expect(lstatSync(link).isSymbolicLink(), 'sync kept the link').to.equal(true);
+		// the directory the target names is created too, which is what a managed
+		// file whose repository has not been laid out yet needs
+		expect(readFileSync(target, 'utf8')).to.equal('{"a":1}\n');
+
+		await writeAtomic(link, '{"a":2}\n');
+		expect(lstatSync(link).isSymbolicLink(), 'async kept the link').to.equal(true);
+		expect(readFileSync(target, 'utf8')).to.equal('{"a":2}\n');
+	});
+
+	it('should resolve a relative link target against the link, not the cwd', () => {
+		// `readlinkSync()` hands back whatever was stored, and
+		// `ln -s ../dotfiles/sigil.json config.json` is the ordinary spelling -- so
+		// a cwd-relative resolve is wrong for every relative link there is, and
+		// writes into whatever directory the process happened to start in
+		mkdirSync(join(root, 'cfg'));
+		mkdirSync(join(root, 'dots'));
+		const link = join(root, 'cfg', 'c.jsonc');
+		symlinkSync('../dots/real.jsonc', link);
+
+		writeAtomicSync(link, '{"a":1}\n');
+		expect(lstatSync(link).isSymbolicLink()).to.equal(true);
+		expect(readFileSync(join(root, 'dots', 'real.jsonc'), 'utf8')).to.equal('{"a":1}\n');
+		expect(existsSync(join(process.cwd(), 'dots')), 'nothing landed in the cwd').to.equal(false);
+	});
+
+	it('should follow a chain of dangling links to its end', () => {
+		// `a -> b -> c` with nothing at `c` is one `ENOENT` for the whole of it, so
+		// the end of the chain is the file to create and every link on the way is
+		// left a link
+		symlinkSync(join(root, 'b.jsonc'), join(root, 'a.jsonc'));
+		symlinkSync(join(root, 'c.jsonc'), join(root, 'b.jsonc'));
+
+		writeAtomicSync(join(root, 'a.jsonc'), '{"a":1}\n');
+		expect(lstatSync(join(root, 'a.jsonc')).isSymbolicLink()).to.equal(true);
+		expect(lstatSync(join(root, 'b.jsonc')).isSymbolicLink()).to.equal(true);
+		expect(readFileSync(join(root, 'c.jsonc'), 'utf8')).to.equal('{"a":1}\n');
+	});
+
+	it('should refuse a cycle rather than walking it', () => {
+		// which the file system answers before the walk is reached: `realpathSync()`
+		// reports `ELOOP` for a cycle and for any chain of 31 or more links, so the
+		// walk's input is a chain of at most thirty hops. Pinned so that following
+		// the links by hand cannot come to swallow the one state that must not be
+		// written to
+		symlinkSync(join(root, 'b.jsonc'), join(root, 'a.jsonc'));
+		symlinkSync(join(root, 'a.jsonc'), join(root, 'b.jsonc'));
+
+		expect(() => writeAtomicSync(join(root, 'a.jsonc'), 'x')).toThrow(/ELOOP/);
+		expect(readdirSync(root).sort()).to.deep.equal(['a.jsonc', 'b.jsonc']);
 	});
 
 	it('should report a failure the file system refused rather than swallowing it', () => {

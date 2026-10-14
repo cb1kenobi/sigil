@@ -17907,16 +17907,16 @@ without destroying it is SIG-154's.
 
 - **It imports no parser module at all, and that is a test rather than a
   coincidence.** Measured as transitive static import byte weight off `dist/`:
-  **31,789 B over seven modules**, of which **9,880 B over six** is what it starts
+  **32,171 B over seven modules**, of which **9,880 B over six** is what it starts
   from -- `paths.mjs`, the `transform` chunk, which is `transform`, `i18n` and
   `debug`, the 66-byte `env-value` chunk the parser shares, and the 525-byte
   `mkdir-owner-sync` one the update cache shares. So the module itself is
-  21,909 B, and the graph is **4.2x** the root entry's 7,518 B and an **eighth**
+  22,291 B, and the graph is **4.3x** the root entry's 7,518 B and an **eighth**
   of `components.mjs`'s 239,927 B over 26 -- all three measured the
   same way, which is the only comparison that means anything. It was
   **20,649 B over six** before SIG-154, which is the write half costing about
-  10.2 kB. Re-derived after
-  every change that moved it, which is four times now: a figure only a re-run
+  11.3 kB. Re-derived after
+  every change that moved it, which is five times now: a figure only a re-run
   can confirm is the stale snapshot this file warns about. The shape the
   ticket's own projection predicted, even though its figure was the starting point
   rather than the total. `should not reach any parser module to
@@ -20422,12 +20422,19 @@ diff, and that is what found the two the earlier rounds could not.
   `realPathOf()` resolves first and both write paths use the resolved path for
   `keepOf()`, `tempFor()` and the rename, which is what `write-file-atomic` does
   and which also keeps the temp file a sibling of the **real** file, so the rename
-  stays on one filesystem. A path that is not there yet resolves to itself, which
-  is the new-file case; a symlinked **parent** needs nothing, since the temp file
-  then lands in the directory the link points at. Anything other than missing is
-  raised, because a loop or a permission failure means the write cannot land and
+  stays on one filesystem. A symlinked **parent** needs nothing, since the temp
+  file then lands in the directory the link points at. Anything other than missing
+  is raised, because a loop or a permission failure means the write cannot land and
   saying so beats writing somewhere else. Pinned both ways: the test fails on
   `const real = path`.
+
+  What this fix then said about the missing case -- "a path that is not there yet
+  resolves to itself, which is the new-file case" -- is the half that was **still
+  wrong**, and the entry below is the round that found it: `realpathSync()` answers
+  `ENOENT` for a link pointing at nothing just as it does for a path with nothing
+  at it, so a **dangling** link went on being replaced. The sentence is corrected
+  here rather than left standing, because aligning the code with it is the defect
+  put back.
 
 - **Three Windows CI jobs failed, for two independent reasons, and the round named
   one.** The one it named: `chmod` on Windows only toggles the read-only flag, so
@@ -20472,11 +20479,94 @@ diff, and that is what found the two the earlier rounds could not.
   than by eye, and the other eight jobs pass. A worker deadline on one of nine
   runners is the contention shape this file already records for the layout fuzzer.
 
+#### What the second round of PR review found: the dangling half of the symlink fix
+
+One comment, confirmed, and it is the **first review round on this ticket to find
+a defect in a previous round's own fix** -- which is the shape this file already
+records from the five reading rounds and had not yet seen from a PR: code written
+in response to a review is code no review has seen.
+
+- **A dangling symlink was still replaced by a plain file, so the real target was
+  never written.** The first round's fix resolves the path and writes through the
+  link, and it covers a link whose target **already exists**: `realpathSync()`
+  answers `ENOENT` for a chain that ends at nothing, exactly as it does for a path
+  with nothing at it, so reading that as "this is a new file" wrote the plain file
+  at the link's own location after all. Which is the identical defect for the one
+  state a dotfile manager leaves behind before its target has been created -- a
+  `ln -s ~/dotfiles/sigil.json` run before the dotfiles file exists, a repository
+  checked out but not laid out, a link left over a rename.
+
+  Measured before anything was written, over three shapes: the link stopped being
+  a link, its location held the new contents, and the target was **never created**
+  -- including where the target's own directory did not exist either. The test for
+  the resolved case could not see any of it, because its target is a real file.
+
+  So the fix is a **bounded walk** that follows the chain by hand, and two things
+  about it are not what a reader guesses -- each the commoner half of its pair.
+  A target is resolved against the **link's own directory** rather than the working
+  directory, because `readlinkSync()` hands back whatever was stored and
+  `ln -s ../dotfiles/sigil.json config.json` is the ordinary spelling: a
+  cwd-relative resolve is wrong for every relative link there is, and writes into
+  whatever directory the process happened to start in. And a **chain** is followed
+  to its end, because `a -> b -> c` with nothing at `c` is one `ENOENT` for the
+  whole of it and `c` is the file to create. Neither was named by the review;
+  both were found by walking the edges before writing the fix, which is the one
+  thing that separates a fix from the sentence that asked for it.
+
+- **The file system bounds the walk, and that measurement is what decided its
+  shape.** A chain of **31 or more** dangling links answers `ELOOP` rather than
+  `ENOENT` -- measured at 8, 31, 32, 33, 40 and 64 hops, which is `MAXSYMLINKS`
+  being 32 -- and `ELOOP` is raised by the resolve above the walk. So the walk's
+  input is a chain of at most thirty hops, every cycle is refused before it is
+  entered, and no state the file system can be in reaches `MAX_LINKS`. What the
+  bound is for is a link that changed **between the two calls**, which is a race
+  rather than a shape and is what a dotfiles repo something else is re-linking
+  produces. Kept rather than left to the file system, because a loop with no bound
+  in a save is a hang -- the rule `mkdirOwnerSync()`'s own climb already follows.
+
+  Which is also why the throw at the bound is **English rather than a catalog
+  key**, against the rule that a user's file system is translated: what it stands
+  in for is the `ELOOP` the file system itself would have raised, and node's own
+  errors on this path are not translated either. A translated sentence standing in
+  for an untranslated one is inconsistent in the other direction.
+
+- **The three error codes are each a decision and were each measured.**
+  `readlinkSync()` answers `ENOENT` for nothing there, `EINVAL` for something
+  there that is **not** a link, and `ENOTDIR` for a path under a file. The first
+  two are the end of the walk and everything else is raised, for the reason the
+  resolve above it raises one. Both of the first two are unreachable except by the
+  same race as the bound -- a path that exists and is not a link is one
+  `realpathSync()` would have resolved -- so all three guards are race-only, and
+  all three are **pinned** rather than declared, which is the part worth copying.
+
+  `atomic-temp.test.ts` already wraps `node:fs` with a failure code the test
+  chooses, for its own stated reason that "_which_ ones are swallowed is the whole
+  claim" -- so staging the race is a `readlinkSync` in that same wrapper, and the
+  bound is reached by having it return the path it was asked about. That turned
+  three declared survivors into three caught mutations, which is strictly better
+  than the declaration this file would otherwise have accepted: the established
+  harness was already there and the only thing missing was asking it this
+  question.
+
+- **A dangling link in a **parent** component is left to fail at
+  `mkdirOwnerSync()`, which names it.** Measured: `mkdir` through one answers
+  `ENOENT` rather than creating a directory where somebody put a link, which is
+  the right answer rather than a gap -- writing through it would be a decision a
+  config writer has no business making. Unchanged by the fix, and written down so
+  the next reader finds a decision rather than an omission.
+
+- **Eight sabotages, all eight caught**, after two survivors that were the two
+  race-only codes and one that was the bound. The bound is caught in **both**
+  directions -- deleted it hangs, which is what the harness's own deadline reports,
+  and returning the path instead of throwing writes to the link. The relative
+  resolve and the chain walk are each caught by exactly the test named for it, and
+  neither existed before this round. Nothing turned out to be dead.
+
 #### What the write half costs
 
-- **The config module's graph is 31,789 B over seven modules**, against 20,649 B
+- **The config module's graph is 32,171 B over seven modules**, against 20,649 B
   over six for the read half -- so the span writer, the atomic write and the
-  representability check are about 11.1 kB between them. The seventh module is the
+  representability check are about 11.3 kB between them. The seventh module is the
   `mkdir-owner-sync` chunk the update cache already shares. It still imports no
   parser module at all, which is the property the read half's own test holds and is
   why the ceiling did not move.

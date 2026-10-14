@@ -19,7 +19,14 @@
  * expect.
  */
 
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+	mkdtempSync,
+	readFileSync,
+	readdirSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -28,10 +35,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const calls: string[] = [];
 
 /** Which call should fail next, so that the cleanup path is reachable. */
-let fail: 'close' | 'fsync' | 'rename' | 'stat' | undefined;
+let fail: 'close' | 'fsync' | 'loop' | 'readlink' | 'rename' | 'stat' | undefined;
 
 /** The code `fsync()` fails with, because *which* codes are swallowed is the claim. */
 let flushCode = 'EINVAL';
+
+/**
+ * The code `readlink()` fails with, for the reason `flushCode` exists.
+ *
+ * The walk that follows a dangling link can only meet one of these if the link
+ * changed between `realpathSync()` and `readlinkSync()` -- every other shape is
+ * raised by the `realpathSync()` above it -- so a race is the only way to reach
+ * either branch, and wrapping `fs` is the only way to stage one.
+ */
+let linkCode = 'EACCES';
 
 vi.mock('node:fs', async (importOriginal) => {
 	const real = await importOriginal<typeof import('node:fs')>();
@@ -70,6 +87,18 @@ vi.mock('node:fs', async (importOriginal) => {
 			calls.push(`open ${path}`);
 			return real.openSync(path, flags, mode);
 		},
+		readlinkSync(path: string, opts?: unknown): unknown {
+			if (fail === 'readlink') {
+				throw Object.assign(new Error(linkCode), { code: linkCode });
+			}
+			if (fail === 'loop') {
+				// a link that points at itself, which the file system itself refuses
+				// with `ELOOP` -- so this is the one way to put the walk in a cycle,
+				// and it is the race the bound exists for
+				return path;
+			}
+			return (real.readlinkSync as (p: string, o?: unknown) => unknown)(path, opts);
+		},
 		renameSync(from: string, to: string): void {
 			calls.push(`rename ${from} -> ${to}`);
 			if (fail === 'rename') {
@@ -92,6 +121,7 @@ beforeEach(() => {
 	calls.length = 0;
 	fail = undefined;
 	flushCode = 'EINVAL';
+	linkCode = 'EACCES';
 	root = mkdtempSync(join(tmpdir(), 'sigil-atomic-'));
 });
 
@@ -186,6 +216,59 @@ describe('where the temp file goes', () => {
 			expect(readFileSync(path, 'utf8')).to.equal('new');
 		}
 	);
+});
+
+describe('what a failed readlink means', () => {
+	/** A link to a file that is not there, which is what makes the walk run. */
+	function dangling(): { link: string; target: string } {
+		const target = join(root, 'dotfiles', 'real.jsonc');
+		const link = join(root, 'link.jsonc');
+		symlinkSync(target, link);
+		return { link, target };
+	}
+
+	it('should raise one that failed rather than reading it as the end of the chain', () => {
+		// the walk follows a dangling link by hand, and the one thing it must not do
+		// is read "I could not look" as "there is nothing here" -- which would write
+		// the plain file at the link's own location, the defect the walk exists for.
+		// An `EACCES` means the write cannot land, and saying so beats writing
+		// somewhere else
+		const { link } = dangling();
+		fail = 'readlink';
+		linkCode = 'EACCES';
+
+		expect(() => writeAtomicSync(link, 'x')).toThrow(/EACCES/);
+		// and nothing was opened, so there is no temp file to clean up
+		expect(calls).to.deep.equal([]);
+	});
+
+	it('should give up on a chain that does not end rather than following it forever', () => {
+		// the file system answers `ELOOP` for a cycle and for any chain of 31 or
+		// more links, so the walk's input is a chain of at most thirty hops and no
+		// state the file system can be in reaches the bound. What it bounds is a
+		// link that changed between the two calls -- which is what the wrapper
+		// stages here, because a loop with no bound in a save is a hang
+		const { link } = dangling();
+		fail = 'loop';
+
+		expect(() => writeAtomicSync(link, 'x')).toThrow(/Too many levels of symbolic links/);
+		expect(calls).to.deep.equal([]);
+	});
+
+	it.each(['EINVAL', 'ENOENT'])('should end the chain where %s says there is no link', (code) => {
+		// `ENOENT` is nothing there, which is the end of a dangling chain and the
+		// ordinary new-file case; `EINVAL` is something there that is **not** a
+		// link, which only a race can produce because `realpathSync()` would have
+		// resolved it. Both are the end of the walk, and the set *is* the claim --
+		// cutting `EINVAL` out of it turns that race into a failed save
+		const { link } = dangling();
+		fail = 'readlink';
+		linkCode = code;
+
+		writeAtomicSync(link, 'x');
+		// the write landed where the walk stopped, which is the link's own path
+		expect(calls.at(-1)).to.equal(`rename ${opened()} -> ${link}`);
+	});
 });
 
 describe('what a failed stat and a failed flush mean', () => {

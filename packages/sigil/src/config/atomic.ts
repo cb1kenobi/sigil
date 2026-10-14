@@ -5,6 +5,7 @@ import {
 	closeSync,
 	fsyncSync,
 	openSync,
+	readlinkSync,
 	realpathSync,
 	renameSync,
 	statSync,
@@ -12,7 +13,7 @@ import {
 	writeFileSync,
 } from 'node:fs';
 import { chmod, chown, open, rename, unlink } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 
 /**
  * Writing a file without the window in which it is half written.
@@ -105,6 +106,47 @@ function declinesFlush(e: unknown): boolean {
 	return FLUSH_DECLINED.has((e as { code?: string }).code ?? '');
 }
 
+/**
+ * How far a chain of links is followed, which the file system itself bounds.
+ *
+ * The walk in `realPathOf()` only runs once `realpathSync()` has answered
+ * `ENOENT`, and a chain of **31 or more** dangling links answers `ELOOP`
+ * instead -- measured, which is `MAXSYMLINKS` being 32 on the kernels this runs
+ * on. So the walk's input is a chain of at most thirty hops and no state the
+ * file system can be in reaches this bound: what it bounds is a link that
+ * changed between the two calls, which is a race rather than a shape, and a
+ * config in a dotfiles repo something else is re-linking is where one comes
+ * from. Kept rather than left to the file system because a loop with no bound
+ * in a save is a hang, which is the rule `mkdirOwnerSync()`'s own climb already
+ * follows: a loop that relies on finding something is one that can run off the
+ * top of the file system.
+ */
+const MAX_LINKS = 32;
+
+/**
+ * The errors that mean "there is no link at this path to follow".
+ *
+ * `ENOENT` is nothing there, which is the end of a dangling chain and the
+ * ordinary new-file case. `EINVAL` is something there that is **not** a link,
+ * which `realpathSync()` would have resolved rather than refusing -- so it is
+ * the same race the bound above is for, and the end of the walk either way.
+ *
+ * Everything else is raised, for the reason `realPathOf()` raises one: an
+ * `ENOTDIR`, an `EACCES` or an `ELOOP` means the write cannot land, and saying
+ * so beats writing somewhere else.
+ */
+const NO_LINK = new Set(['EINVAL', 'ENOENT']);
+
+/**
+ * Whether a failed `readlink()` is the end of the chain rather than a failure.
+ *
+ * @param e - What `readlinkSync()` threw.
+ * @returns Whether the path it was asked about is where the write lands.
+ */
+function endsChain(e: unknown): boolean {
+	return NO_LINK.has((e as { code?: string }).code ?? '');
+}
+
 /** Whether this process can hand a file to somebody else. */
 function isRoot(): boolean {
 	return process.getuid !== undefined && process.getuid() === 0;
@@ -148,25 +190,79 @@ export function isMissing(e: unknown): boolean {
  *
  * So the write resolves first and the temp file is a sibling of the **real**
  * file, which also keeps the rename on one filesystem -- `write-file-atomic`
- * does the same. A path that is not there yet resolves to itself, which is the
- * new-file case; a symlinked parent needs nothing, since the temp file then
+ * does the same. A symlinked parent needs nothing, since the temp file then
  * lands in the directory the link points at and the rename creates the file
  * there. Anything other than missing is raised, because a loop or a permission
  * failure means the write cannot land and saying so beats writing somewhere
  * else.
  *
+ * ## A link whose target is not there yet is followed by hand
+ *
+ * `realpathSync()` refuses a chain that ends at nothing **whole** rather than
+ * resolving as far as it can: a link pointing at a file that does not exist
+ * answers `ENOENT`, exactly as a path with nothing at it does. So resolving and
+ * then reading `ENOENT` as "this is a new file" wrote the plain file at the
+ * link's own location after all -- the same defect as above, for the one state a
+ * dotfile manager leaves behind before its target has been created, and
+ * invisible to the test for the resolved case. Measured: the link stopped being
+ * a link, its location held the new contents, and the target was **never
+ * created**. Found by a second review round, on the fix for the first.
+ *
+ * Hence the walk. Two things about it are not what a reader guesses, and each is
+ * the commoner half of its pair:
+ *
+ * - A target is resolved against the **link's own directory** rather than the
+ *   working directory, because `readlinkSync()` hands back whatever was stored
+ *   and `ln -s ../dotfiles/sigil.json config.json` is the ordinary spelling. A
+ *   cwd-relative resolve is wrong for every relative link there is.
+ * - A **chain** of dangling links is followed to its end, because `a -> b -> c`
+ *   with nothing at `c` is one `ENOENT` for the whole of it, and `c` is the file
+ *   to create.
+ *
+ * What it does not do is normalize the answer's parent, for the reason the
+ * paragraph above gives: a parent reached through links that do exist is a
+ * directory the temp file and the rename both land inside either way. And a
+ * parent component that is itself a dangling link fails at `mkdirOwnerSync()`
+ * naming that path, which is the right answer rather than creating a directory
+ * where somebody put a link.
+ *
  * @param path - The file, as the caller named it.
- * @returns What it resolves to, or itself where there is nothing there yet.
+ * @returns What it resolves to, or where the chain of links ends, or itself
+ *   where there is nothing there at all.
+ * @throws If a resolution failed for any reason but the file not being there.
  */
 function realPathOf(path: string): string {
 	try {
 		return realpathSync(path);
 	} catch (e: unknown) {
-		if (isMissing(e)) {
-			return path;
+		if (!isMissing(e)) {
+			throw e;
 		}
-		throw e;
 	}
+
+	let at = path;
+	for (let hops = 0; hops < MAX_LINKS; hops++) {
+		let target: string;
+		try {
+			target = readlinkSync(at);
+		} catch (e: unknown) {
+			if (endsChain(e)) {
+				// where the write lands -- which for a parent component that is not
+				// there is the error `mkdirOwnerSync()` is about to name
+				return at;
+			}
+			throw e;
+		}
+
+		at = resolve(dirname(at), target);
+	}
+
+	// unreachable through any state the file system can be in, for the reason
+	// `MAX_LINKS` gives, so this is a tripwire rather than a case anybody has --
+	// and it is English rather than a catalog key for the same reason: what it
+	// stands in for is the `ELOOP` the file system itself would have raised, and
+	// node's own errors on this path are not translated either
+	throw new Error(`Too many levels of symbolic links: ${path}`);
 }
 
 /**
