@@ -345,9 +345,13 @@ function realPathOf(path: string): string {
 			throw e;
 		}
 
-		// the kernel reads a relative target from the directory that **physically**
-		// holds the link, so the pieces are joined un-collapsed and it is asked
-		at = physicalPath(isAbsolute(target) ? target : rawJoin(dirname(at), target));
+		// the base is resolved **first**, because a relative target is read from the
+		// directory that physically holds the link -- and then the pieces are joined
+		// un-collapsed, so that each platform's own `..` rule is the one applied.
+		// Both halves are load bearing and on different platforms: see below
+		at = physicalPath(
+			isAbsolute(target) ? target : rawJoin(realpathSync.native(dirname(at)), target)
+		);
 	}
 
 	// unreachable through any state the file system can be in, for the reason

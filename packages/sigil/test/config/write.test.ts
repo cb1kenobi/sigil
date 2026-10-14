@@ -27,7 +27,7 @@ import {
 	writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 let root: string;
@@ -722,7 +722,7 @@ describe('the atomic write', () => {
 		expect(existsSync(join(process.cwd(), 'dots')), 'nothing landed in the cwd').to.equal(false);
 	});
 
-	it('should land where the link points, for a relative target under a linked dir', () => {
+	it('should read a relative target from the directory that physically holds it', () => {
 		// the first version of the walk joined with `resolve()`, which collapses a
 		// `..` against the path **as written** -- so a link in a directory reached
 		// through a symlink, which is a `~/.config` pointing at a synced folder
@@ -730,11 +730,13 @@ describe('the atomic write', () => {
 		// the caller *named*. Found by review, and invisible to the test above
 		// because that one puts its link in a plain directory.
 		//
-		// What is asserted is that the write lands where the link **points**, read
-		// back through the link, rather than at a path spelled out here -- because
-		// which path that is differs by platform, and the next block is where that
-		// is pinned. Reading through the link is also the sharper claim: it is what
-		// the app does next
+		// The base is resolved before the pieces are joined, which is what the
+		// review asked for and is right on **both** platforms: POSIX reads a
+		// relative target from the physical directory, and Windows substitutes the
+		// target into the physically resolved directory too. What Windows does
+		// lexically is a `..` in a path the *caller* passes -- which is why the
+		// first attempt at this, joining un-collapsed onto the raw `dirname()`, was
+		// right on POSIX and wrong there. CI is what said so
 		mkdirSync(join(root, 'real', 'cfg'), { recursive: true });
 		mkdirSync(join(root, 'real', 'dots'), { recursive: true });
 		mkdirSync(join(root, 'home'));
@@ -745,54 +747,27 @@ describe('the atomic write', () => {
 		writeAtomicSync(named, '{"a":1}\n');
 
 		expect(lstatSync(join(root, 'real', 'cfg', 'c.jsonc')).isSymbolicLink()).to.equal(true);
+		// a sibling of the **real** directory, and read back through the link --
+		// which is what the app does next, and is what fails when the bytes go
+		// somewhere the link does not point
+		expect(readFileSync(join(root, 'real', 'dots', 'real.jsonc'), 'utf8')).to.equal('{"a":1}\n');
 		expect(readFileSync(named, 'utf8'), 'read back through the link').to.equal('{"a":1}\n');
+		expect(
+			existsSync(join(root, 'home', 'dots')),
+			'nothing created beside the named directory'
+		).to.equal(false);
 	});
-
-	it.skipIf(process.platform === 'win32')(
-		'should resolve that one against the directory that physically holds the link',
-		() => {
-			// the POSIX half of the block above, and the reason the walk asks the
-			// platform rather than doing the arithmetic: there, `..` is resolved
-			// against the directory that **physically** holds it, so the answer is a
-			// sibling of the real directory rather than of the named one. Measured,
-			// and the old lexical join created a `home/dots/` the kernel would never
-			// resolve to.
-			//
-			// Skipped on Windows rather than loosened, because there it is the other
-			// answer and both are correct: Win32 normalizes a path -- `.` and `..`
-			// included -- **before** the file system sees it, so lexical is what that
-			// platform itself does. Measured on CI, where this fixture wrote to the
-			// lexical candidate and reading back through the link agreed. Which is
-			// why the code needs no platform branch: `realpathSync.native` is each
-			// platform's own answer, where `resolve()` was Windows's on both
-			mkdirSync(join(root, 'real', 'cfg'), { recursive: true });
-			mkdirSync(join(root, 'real', 'dots'), { recursive: true });
-			mkdirSync(join(root, 'home'));
-			symlinkSync(join(root, 'real', 'cfg'), join(root, 'home', 'app'), 'dir');
-			symlinkSync('../dots/real.jsonc', join(root, 'real', 'cfg', 'c.jsonc'));
-
-			writeAtomicSync(join(root, 'home', 'app', 'c.jsonc'), '{"a":1}\n');
-
-			expect(readFileSync(join(root, 'real', 'dots', 'real.jsonc'), 'utf8')).to.equal('{"a":1}\n');
-			expect(
-				existsSync(join(root, 'home', 'dots')),
-				'nothing created beside the named directory'
-			).to.equal(false);
-		}
-	);
 
 	it.each([
 		['dangling', false],
 		['live', true],
 	])('should land where the link points through a .. of its own, %s', (_what, live) => {
-		// the same thing one level in: a `..` **inside** the target that follows a
-		// symlinked directory of its own. It is also why the resolve is
-		// `realpathSync.native` rather than `realpathSync` -- node's own begins
-		// with `path.resolve()`, so on POSIX it collapses that `..` lexically and
-		// answers a different file from the one the kernel opens. Measured there
-		// with a distinct file at each candidate: `realpathSync` answers
-		// `real/other` where the kernel, `.native` and `realpath(3)` answer
-		// `far/other`. So the **live** half is not a shape only the walk can reach
+		// the same shape one level in: a `..` **inside** the target that follows a
+		// symlinked directory of its own. This is the one place the platforms
+		// genuinely disagree -- POSIX resolves that `..` physically and Windows
+		// collapses it lexically once the target has been substituted in -- so what
+		// is asserted is the portable claim, that the bytes land where the link
+		// points, with the POSIX answer named in the block below
 		mkdirSync(join(root, 'real', 'cfg'), { recursive: true });
 		mkdirSync(join(root, 'far', 'elsewhere'), { recursive: true });
 		mkdirSync(join(root, 'far', 'other'), { recursive: true });
@@ -822,6 +797,76 @@ describe('the atomic write', () => {
 		);
 		expect(written, 'exactly one candidate moved').to.have.length(1);
 	});
+
+	it.skipIf(process.platform === 'win32')(
+		'should resolve a .. inside the target physically, which is POSIX only',
+		() => {
+			// and this is why the resolve is `realpathSync.native` rather than
+			// `realpathSync`: node's own begins with `path.resolve()`, so it
+			// collapses that `..` lexically and answers a different file from the one
+			// the kernel opens. Measured with a distinct file at each candidate --
+			// `realpathSync` answers `real/other` where the kernel, `.native` and
+			// `realpath(3)` answer `far/other`.
+			//
+			// Skipped on Windows rather than loosened, because there the lexical
+			// answer is the platform's own: Win32 normalizes `.` and `..` out of a
+			// path before the file system sees it, so the two are **both** correct
+			// and the portable block above is what holds everywhere. Which is also
+			// why the code needs no platform branch -- `.native` is each platform's
+			// own answer, where `resolve()` was Windows's on both
+			mkdirSync(join(root, 'real', 'cfg'), { recursive: true });
+			mkdirSync(join(root, 'far', 'elsewhere'), { recursive: true });
+			mkdirSync(join(root, 'far', 'other'), { recursive: true });
+			mkdirSync(join(root, 'real', 'other'), { recursive: true });
+			symlinkSync(join(root, 'far', 'elsewhere'), join(root, 'real', 'dots'), 'dir');
+			symlinkSync('../dots/../other/real.jsonc', join(root, 'real', 'cfg', 'c.jsonc'));
+			writeFileSync(join(root, 'real', 'other', 'real.jsonc'), 'untouched\n');
+
+			writeAtomicSync(join(root, 'real', 'cfg', 'c.jsonc'), '{"a":1}\n');
+
+			expect(readFileSync(join(root, 'far', 'other', 'real.jsonc'), 'utf8')).to.equal('{"a":1}\n');
+			expect(readFileSync(join(root, 'real', 'other', 'real.jsonc'), 'utf8')).to.equal(
+				'untouched\n'
+			);
+		}
+	);
+
+	it.skipIf(process.platform === 'win32')(
+		'should resolve the base with the kernel too, which is POSIX only',
+		() => {
+			// the base is `dirname(at)`, and the **caller's** own path can hold a `..`
+			// after a symlink just as a target can -- so it is resolved with
+			// `realpathSync.native` for the same reason everything else here is, and
+			// one spelling throughout beats a reader having to work out whether this
+			// particular path can contain one.
+			//
+			// `link/../sib` is the shape: lexically it is `A/sib` and physically it is
+			// `B/sib`, and **both exist**, so the wrong one is a silent wrong write
+			// rather than an error. Skipped on Windows, where the lexical answer is
+			// the platform's own
+			mkdirSync(join(root, 'a', 'sib'), { recursive: true });
+			mkdirSync(join(root, 'b', 'dir'), { recursive: true });
+			mkdirSync(join(root, 'b', 'sib'), { recursive: true });
+			symlinkSync(join(root, 'b', 'dir'), join(root, 'a', 'link'), 'dir');
+			// the link lives in the physical base, pointing at a sibling of itself
+			symlinkSync('t.jsonc', join(root, 'b', 'sib', 'c.jsonc'));
+
+			// `a/link/..` is `b` to the kernel and `a` to a lexical collapse, so the
+			// base is `b/sib` or `a/sib` -- and both of those exist, which is what
+			// makes the wrong one a silent write rather than an error.
+			//
+			// Built by concatenation, because `join()` **collapses the `..` itself**
+			// -- the same lexical collapse this whole block is about, which is worth
+			// knowing before writing a fixture for it. What reaches a store is
+			// `expand()`'s answer, which does not normalize, so a layer declared with
+			// a path holding a `..` is where this comes from
+			const named = `${join(root, 'a', 'link')}${sep}..${sep}sib${sep}c.jsonc`;
+			writeAtomicSync(named, '{"a":1}\n');
+
+			expect(readFileSync(join(root, 'b', 'sib', 't.jsonc'), 'utf8')).to.equal('{"a":1}\n');
+			expect(existsSync(join(root, 'a', 'sib', 't.jsonc')), 'not the lexical base').to.equal(false);
+		}
+	);
 
 	it('should follow a chain of dangling links to its end', () => {
 		// `a -> b -> c` with nothing at `c` is one `ENOENT` for the whole of it, so

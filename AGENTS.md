@@ -20618,43 +20618,72 @@ one was named.
   or more, `ENOTDIR` under a file, and the same spelling for an ordinary file --
   so the bound's own measurement and the cycle refusal carry over unchanged.
 
-- **And `..` is lexical on Windows, which CI found and which is why the code
-  needs no platform branch.** Every measurement above is POSIX's, and the three
-  new tests failed on all three Windows jobs: the write landed on the **lexical**
-  candidate there. Win32 normalizes a path -- `.` and `..` included -- _before_
-  the file system sees it, so on that platform lexical is what the platform
-  itself does and the `resolve()` this round replaced was **right** there.
+- **Windows draws the lexical line somewhere else, and it took two CI rounds to
+  find where.** Every measurement above is POSIX's, and the first attempt --
+  `rawJoin()` onto the **raw** `dirname(at)`, with no base resolve -- failed all
+  three Windows jobs. The second, with the portable assertions below, failed one.
+  Reading those two failures is what located the line:
 
-  Which makes the fix better than it was argued for rather than worse: by asking
-  the platform instead of doing the arithmetic, `realpathSync.native` is each
-  platform's own answer, where `resolve()` was Windows's answer on both. One
-  mechanism, no `process.platform` anywhere in it.
+  Win32 normalizes a path -- `.` and `..` included -- **before** the file system
+  sees it, so a `..` in a path _the caller passes_ is collapsed lexically there.
+  But a **relative reparse target** is substituted into the directory resolved so
+  far, which is the _physical_ one -- so that half matches POSIX. Which is why the
+  first attempt was wrong there and only there: it handed `realpath` a path with
+  `home/app/..` in it, and Windows collapsed that to `home` before resolving
+  `home/app` at all.
+
+  So with the base resolved first, a relative target is platform-independent, and
+  the one place the two genuinely disagree is a `..` **inside** the target: POSIX
+  resolves it physically, Windows collapses it once substituted. Both are correct
+  on their own platform, which is why the code needs no `process.platform`
+  anywhere in it -- `realpathSync.native` is each platform's own answer, where
+  `resolve()` was Windows's answer on both.
+
+  The two halves of the fix are therefore pinned on different platforms, and that
+  is worth knowing before reading the sabotage tally: resolving the base is
+  POSIX-visible only through a caller path that holds a `..`, and joining
+  un-collapsed is **not POSIX-visible at all**.
 
   What it cost is the tests, and the Conventions entry about platform fixtures is
-  the one that was broken -- they spelled out a POSIX path. They assert the
-  **portable** claim now, that the write lands where the link points, read back
-  **through the link**: that is what the app does next, it needs no path spelled
-  out, and it is the sharper discriminator anyway -- on POSIX the old lexical join
-  put the bytes where the link does not point, so reading through it fails. The
-  one assertion that names a path is `it.skipIf`'d to POSIX, with the divergence
-  written into it, which is what keeps the platform difference documented rather
-  than merely survived.
+  the one that was broken -- they spelled out a POSIX path. The portable claim is
+  asserted now, that the write lands where the link points, read back **through
+  the link**: that is what the app does next, it needs no path spelled out, and it
+  is the sharper discriminator anyway -- the lexical join put the bytes where the
+  link does not point, so reading through it fails. The two genuinely POSIX-only
+  answers are `it.skipIf`'d with the divergence written into them, which keeps the
+  platform difference documented rather than merely survived.
 
   Measured from the failure rather than assumed, which is the part worth copying:
-  the live fixture has a distinct file at **each** candidate, so which one moved
-  is the evidence, and on Windows it was the lexical one. A fixture that asserted
-  only "the right one changed" could not have said that.
+  the live fixture has a distinct file at **each** candidate, so which one moved is
+  the evidence. A fixture that asserted only "the right one changed" could not have
+  said that -- and the first write-up of this entry read the first failure as
+  "Windows is lexical about `..`", which the second failure then refuted. One CI
+  round is a data point rather than a mechanism.
 
-- **The fix is to stop doing the arithmetic and ask the kernel**, which is this
+- **And `join()` collapses a `..` itself, which is the fixture hazard this feature
+  creates.** The POSIX test for the base resolve first used
+  `join(root, 'a', 'link', '..', 'sib', 'c.jsonc')` and could not fail: `join()`
+  had already collapsed the `..` to `a/sib` before the subject saw it, so there was
+  no `..` in the path under test at all. Measured rather than noticed. It is built
+  by concatenation now, which is also the honest statement of where such a path
+  comes from -- `expand()` does not normalize, so a layer declared with a path
+  holding a `..` is the route.
+
+- **The fix is to stop doing the arithmetic and ask the platform**, which is this
   file's own standing preference -- the only way to agree by construction is to
-  _be_ the other party's arithmetic. `rawJoin()` puts the pieces together with
-  **nothing** collapsed, and `physicalPath()` resolves the deepest ancestor that
-  exists and joins the rest back on. That is exact rather than a best effort for
-  two reasons worth keeping: the part that does not exist cannot hold a symlink,
-  and a lexical `..` over a path that is _already physical_ is the physical one.
-  So both members of the class are closed by one mechanism, and `isAbsolute()`
-  stops being an optimization and becomes required -- `rawJoin()` of an absolute
-  target onto a directory is a path to nowhere.
+  _be_ the other party's arithmetic. Three pieces, and the first is the review's
+  own suggestion, which turned out to be load bearing for a reason it did not
+  give: the **base is resolved first**, so a relative target is read from the
+  directory that physically holds the link. Then `rawJoin()` puts the pieces
+  together with **nothing** collapsed and `physicalPath()` resolves the deepest
+  ancestor that exists, joining the rest back on -- exact rather than a best
+  effort, because the part that does not exist cannot hold a symlink and a lexical
+  `..` over a path that is _already physical_ is the physical one. `isAbsolute()`
+  stops being an optimization and becomes required, since `rawJoin()` of an
+  absolute target onto a directory is a path to nowhere.
+
+  Resolving the base and joining un-collapsed are **both** needed and on
+  different platforms, which is the part only CI could say: see below.
 
 - **The review asked for one line, and the one line is caught by a test.** Its
   own suggestion -- realpath the link's parent, then join -- fixes the member it
@@ -20664,14 +20693,24 @@ one was named.
   the deeper member was not written down as a declared limit instead. A limit is
   for a missing feature; a silent write to the wrong file is not one.
 
-- **Fourteen sabotages, all fourteen caught** -- the eight new and the six from
-  the round before, so nothing regressed. The two that matter most are the pair
-  that separates the complete fix from the partial one: realpathing the base but
-  still joining lexically, and `rawJoin()` normalizing. Each is caught, and the
-  first by the deeper test alone. Re-run after the tests were made portable, and
-  every one is caught **harder** -- six tests fail for the lexical join where
-  five did -- because reading back through the link sees a wrong answer that a
-  named path can only see when it is the named path that moved.
+- **Sixteen sabotages, fifteen caught and one declared, and the declared one is
+  the first in this file whose guard is CI.** Fifteen are the ordinary kind: the
+  lexical join, each of the three `realpathSync` sites, `rawJoin()` normalizing,
+  both halves of `physicalPath()`, the absolute branch, and the six from the round
+  before, so nothing regressed.
+
+  The survivor is `rawJoin()` onto the **raw** `dirname(at)` rather than the
+  resolved one -- unreachable on POSIX by **proof** rather than for want of a
+  fixture: `realpath(D)` names the same directory as `D`, so any relative path
+  resolves identically from either and no POSIX fixture can tell the two apart. It
+  is exactly the shape CI failed on, three jobs at once, which is the strongest
+  evidence available and is better than a test this machine could run. Written down
+  because a survivor with no assertion behind it normally means a guard that is not
+  load bearing, and this one is load bearing on a platform the pass cannot reach.
+
+  Its sibling -- `realpathSync` rather than `.native` for the base -- _is_ caught,
+  by the one POSIX fixture that can see it, after the `join()` hazard above made
+  the first attempt at that fixture vacuous.
 
 #### What the write half costs
 
