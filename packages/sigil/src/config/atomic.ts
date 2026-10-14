@@ -5,6 +5,7 @@ import {
 	closeSync,
 	fsyncSync,
 	openSync,
+	realpathSync,
 	renameSync,
 	statSync,
 	unlinkSync,
@@ -132,6 +133,43 @@ export function isMissing(e: unknown): boolean {
 }
 
 /**
+ * The path a write should land on, with a symlink followed to what it points at.
+ *
+ * `rename()` replaces whatever is **at** the path, so a config that is a symlink
+ * -- which is what every dotfile manager makes of one, `stow` and `chezmoi`
+ * among them -- is replaced by a plain file on the first `save()` that changes
+ * anything. Measured before it was fixed: the link stopped being a link, the
+ * link's location held the new contents, and the real file in the dotfiles repo
+ * kept the old ones, so every later edit went to a local copy nobody was
+ * tracking. Nothing reported it, because `keepOf()` and the lossless check both
+ * read the path **through** the link and see a file that is perfectly fine.
+ * That is the damage-to-somebody's-setup this module exists to prevent, arriving
+ * by the one road it was not watching. Found by review.
+ *
+ * So the write resolves first and the temp file is a sibling of the **real**
+ * file, which also keeps the rename on one filesystem -- `write-file-atomic`
+ * does the same. A path that is not there yet resolves to itself, which is the
+ * new-file case; a symlinked parent needs nothing, since the temp file then
+ * lands in the directory the link points at and the rename creates the file
+ * there. Anything other than missing is raised, because a loop or a permission
+ * failure means the write cannot land and saying so beats writing somewhere
+ * else.
+ *
+ * @param path - The file, as the caller named it.
+ * @returns What it resolves to, or itself where there is nothing there yet.
+ */
+function realPathOf(path: string): string {
+	try {
+		return realpathSync(path);
+	} catch (e: unknown) {
+		if (isMissing(e)) {
+			return path;
+		}
+		throw e;
+	}
+}
+
+/**
  * The target's mode and owner, or nothing where there is no target yet.
  *
  * Only `ENOENT` is nothing: a new file has no mode to carry over, which is the
@@ -194,12 +232,18 @@ function keepOf(path: string): Keep {
  * @param text - What it should hold.
  */
 export async function writeAtomic(path: string, text: string): Promise<void> {
+	// resolved first, so a symlinked config is written **through** rather than
+	// replaced -- `realPathOf()` has the measurement. Synchronous for the reason
+	// `mkdirOwnerSync()` is: there is no async twin of that one, so the pair is
+	// two syscalls on the way in either way
+	const real = realPathOf(path);
+
 	// synchronous because there is no async twin of it, which is how `updates/`
 	// already uses it. One directory creation per save is one `mkdir` syscall
-	mkdirOwnerSync(dirname(path));
+	mkdirOwnerSync(dirname(real));
 
-	const keep = keepOf(path);
-	const temp = tempFor(path);
+	const keep = keepOf(real);
+	const temp = tempFor(real);
 	const handle = await open(temp, 'w', keep.mode ?? 0o666);
 
 	// one bracket around everything the temp file exists for, so that whatever
@@ -229,7 +273,7 @@ export async function writeAtomic(path: string, text: string): Promise<void> {
 		if (keep.uid !== undefined && keep.gid !== undefined) {
 			await chown(temp, keep.uid, keep.gid);
 		}
-		await rename(temp, path);
+		await rename(temp, real);
 	} catch (e: unknown) {
 		await unlink(temp).catch(() => undefined);
 		throw e;
@@ -247,10 +291,12 @@ export async function writeAtomic(path: string, text: string): Promise<void> {
  * @param text - What it should hold.
  */
 export function writeAtomicSync(path: string, text: string): void {
-	mkdirOwnerSync(dirname(path));
+	const real = realPathOf(path);
 
-	const keep = keepOf(path);
-	const temp = tempFor(path);
+	mkdirOwnerSync(dirname(real));
+
+	const keep = keepOf(real);
+	const temp = tempFor(real);
 	const fd = openSync(temp, 'w', keep.mode ?? 0o666);
 
 	try {
@@ -273,7 +319,7 @@ export function writeAtomicSync(path: string, text: string): void {
 		if (keep.uid !== undefined && keep.gid !== undefined) {
 			chownSync(temp, keep.uid, keep.gid);
 		}
-		renameSync(temp, path);
+		renameSync(temp, real);
 	} catch (e: unknown) {
 		try {
 			unlinkSync(temp);

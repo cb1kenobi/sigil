@@ -45,6 +45,18 @@ writeFileSync(
 
 const bad = process.argv.includes('--bad');
 
+// built before the `try`, so the only thing inside it that can throw before the
+// body is `createConfig()` itself. With these calls in there, a mistake in one
+// -- a renamed store, a typo -- was caught by the `catch` below and printed as a
+// refusal in `--bad` mode, which is the masking that catch is gated against
+const layers = [
+	{ name: 'system', readOnly: true, store: json(system) },
+	{ name: 'user', store: json(user) },
+	// an object layer with nothing in it is the in-memory override: a run
+	// that overrides a setting for its own duration and persists nothing
+	{ name: 'runtime', store: object(bad ? { server: { port: 'eighty' } } : {}) },
+];
+
 try {
 	const config = await createConfig({
 		// config's own schema, declared by dotted path, in the parser's own type
@@ -60,13 +72,7 @@ try {
 			'server.port': { type: 'int', default: 8080, env: 'PORT' },
 		},
 		// bottom first, so the last entry is on top
-		layers: [
-			{ name: 'system', readOnly: true, store: json(system) },
-			{ name: 'user', store: json(user) },
-			// an object layer with nothing in it is the in-memory override: a run
-			// that overrides a setting for its own duration and persists nothing
-			{ name: 'runtime', store: object(bad ? { server: { port: 'eighty' } } : {}) },
-		],
+		layers,
 	});
 
 	console.log('the merged view');
@@ -140,6 +146,24 @@ try {
 			} ${where}`
 		);
 	}
+} catch (e) {
+	// `--bad` is the mode that provokes this, and it is the only thing that can
+	// reach here in that mode: the runtime layer holds a port the schema cannot
+	// hold, so `createConfig()` always throws and the body below never runs. A
+	// value a schema cannot hold names the setting, the layer and what was wrong
+	// -- and it fails at construction rather than at the first `get()`.
+	//
+	// Rethrown in every other mode, which is the half a bare `catch` here cost:
+	// a rename left a `jsonc(user)` call behind, and the ReferenceError came out
+	// as `refused: jsonc is not defined` on stdout with exit 0, so
+	// `demos.test.ts` passed over a broken demo. Gated on the mode rather than
+	// removed, because removing it broke `--bad` -- the opposite mistake, found
+	// by review
+	if (!bad) {
+		throw e;
+	}
+
+	console.log(`refused: ${e.message}`);
 } finally {
 	rmSync(root, { force: true, recursive: true });
 }

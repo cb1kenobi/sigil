@@ -20401,6 +20401,77 @@ findings are a `defaultsOf()` question that is arguably the recorded "a non-stri
 default passes through untouched" rule rather than a defect, and two stale comments
 in `config.test.ts`.
 
+#### What the first round of PR review found, and the CI it was reading
+
+Three comments on the pull request, every one confirmed, and two of them defects
+this file's own rules are written about. The round is worth recording separately
+because it is the first one driven by **CI output** rather than by reading the
+diff, and that is what found the two the earlier rounds could not.
+
+- **An atomic write replaced a symlinked config with a plain file**, which is the
+  sharpest defect in the whole ticket and the one the lossless rule exists for.
+  `rename()` replaces whatever is **at** the path, so a config that is a symlink
+  -- which is what `stow`, `chezmoi` and every other dotfile manager makes of one
+  -- stopped being a link on the first `save()` that changed anything. Measured
+  before anything was written: `lstat` said the link was gone, the link's location
+  held the new contents, and the real file in the dotfiles repo kept the old ones,
+  so every later edit went to a local copy nobody was tracking. **Nothing reported
+  it**, because `keepOf()` and the lossless check both read the path _through_ the
+  link and see a file that is perfectly fine.
+
+  `realPathOf()` resolves first and both write paths use the resolved path for
+  `keepOf()`, `tempFor()` and the rename, which is what `write-file-atomic` does
+  and which also keeps the temp file a sibling of the **real** file, so the rename
+  stays on one filesystem. A path that is not there yet resolves to itself, which
+  is the new-file case; a symlinked **parent** needs nothing, since the temp file
+  then lands in the directory the link points at. Anything other than missing is
+  raised, because a loop or a permission failure means the write cannot land and
+  saying so beats writing somewhere else. Pinned both ways: the test fails on
+  `const real = path`.
+
+- **Three Windows CI jobs failed, for two independent reasons, and the round named
+  one.** The one it named: `chmod` on Windows only toggles the read-only flag, so
+  `chmodSync(path, 0o600)` leaves the file at `0o666` and the mode tests compare
+  against something the platform cannot hold -- 0o600, 0o640 and 0o660 failed and
+  0o666 passed, which is the signature. Skipped on win32 rather than loosened,
+  because what they pin is that a 600 config does not come back 644, and that is a
+  POSIX claim about a POSIX mode.
+
+  The one it did not name is this file's own Conventions entry, met for the fifth
+  time: `.gitattributes` says `text=auto` and lists no `*.md`, so git checks a
+  README out with **CRLF** on Windows -- and `readme.test.ts`'s fence pattern
+  captures the info string with `.*`, which takes the `\r` with it, so the language
+  came back `jsonc\r`, matched no filter, and four tests failed saying
+  "expected [] to have a length of 1". The precedent was already in the tree:
+  `testing-helpers.test.ts` normalizes for exactly this and its comment says
+  "Caught by CI on all three Windows jobs and nowhere else". A rule recorded and a
+  fix already written, and the next test to read a file still repeated it -- which
+  is the argument for the entry rather than against it.
+
+- **And removing a demo's `catch` broke the mode that `catch` was for**, which is
+  the opposite of the mistake it was meant to fix and is mine twice over.
+  `demos/config/01-layers.js` has a documented `--bad` mode, named in its own
+  header, that builds the runtime layer with a port the schema cannot hold -- so
+  the commit claiming the `catch` "described a refusal nothing in the demo
+  provoked" was simply false, and with it gone `--bad` ended in a stack trace and
+  exit 1 where it used to print the refusal. The demos test runs the default mode
+  only, so it could not see either direction.
+
+  What is there now is the `catch` back, gated on `bad` and rethrowing otherwise,
+  **and** the layer array hoisted above the `try`. The hoist is the half that makes
+  the gate's claim true: with the `json()` and `object()` calls inside the `try`, a
+  ReferenceError in one of them reached the gated `catch` and was printed as a
+  refusal in `--bad` mode -- measured, which is how the first version of this fix
+  was found to be wrong too. With them outside, the only thing inside that can
+  throw before the body is `createConfig()` itself, and both modes now exit 1 with
+  a stack on a sabotage while `--bad` still prints what it is for.
+
+- **A fourth job failed and is not this branch's**: `updates.test.ts > Check Late`
+  on node 26 and macOS, with `Update worker timed out`. Nothing on this branch
+  touches `src/updates/` or `src/util/`, checked with a diff against `main` rather
+  than by eye, and the other eight jobs pass. A worker deadline on one of nine
+  runners is the contention shape this file already records for the layout fuzzer.
+
 #### What the write half costs
 
 - **The config module's graph is 31,789 B over seven modules**, against 20,649 B

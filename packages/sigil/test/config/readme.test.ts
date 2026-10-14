@@ -18,7 +18,18 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
  */
 
 /** The README, read once so the quoted lines can be asserted rather than trusted. */
-const readme = readFileSync(join(import.meta.dirname, '../../README.md'), 'utf8');
+// line endings normalized, because git checks a `.md` out with CRLF on Windows
+// -- `.gitattributes` says `text=auto` and lists no `*.md` -- and the fence
+// pattern below captures the info string with `.*`, which takes the `\r` with
+// it: the language came back as `jsonc\r`, matched no filter, and four of these
+// failed on three Windows CI jobs while saying "expected [] to have a length of
+// 1". The subject here is the README's **text**, so reading it the way every
+// platform stores it is the fixture's job rather than the pattern's. Found by
+// review
+const readme = readFileSync(join(import.meta.dirname, '../../README.md'), 'utf8').replaceAll(
+	'\r\n',
+	'\n'
+);
 
 /**
  * The one fenced block of a language inside the config section.

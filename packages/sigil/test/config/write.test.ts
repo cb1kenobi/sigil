@@ -15,11 +15,13 @@ import { jsonCanHold } from '../../src/config/represent.js';
 import { applyEdits, lineAt } from '../../src/config/spans.js';
 import {
 	chmodSync,
+	lstatSync,
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
 	rmSync,
 	statSync,
+	symlinkSync,
 	writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -613,7 +615,13 @@ describe('the atomic write', () => {
 		expect(readdirSync(root)).to.deep.equal(['c.jsonc']);
 	});
 
-	it.each([0o600, 0o640, 0o660, 0o666])(
+	// POSIX permission bits, so not on Windows: `chmod` there only toggles the
+	// read-only flag, so `chmodSync(path, 0o600)` leaves the file at 0o666 and
+	// every row but that one compares the mode against something the platform
+	// cannot hold. Skipped rather than loosened, because what these pin is that
+	// a 600 config does not come back 644 -- which is a POSIX claim about a POSIX
+	// mode. Found by review, as three Windows CI jobs
+	it.skipIf(process.platform === 'win32').each([0o600, 0o640, 0o660, 0o666])(
 		'should keep the mode %s the file already had',
 		async (mode) => {
 			// or a 600 config comes back 644, which hands its contents to every user
@@ -633,16 +641,44 @@ describe('the atomic write', () => {
 		}
 	);
 
-	it('should not carry the setuid, setgid or sticky bits over', () => {
-		// re-creating one on a file this just wrote is a privilege decision a
-		// config writer has no business making, so the permission bits are copied
-		// exactly and these are not
-		const path = file('c.jsonc', '{}');
-		chmodSync(path, 0o1600);
-		expect(statSync(path).mode & 0o7777).to.equal(0o1600);
+	it.skipIf(process.platform === 'win32')(
+		'should not carry the setuid, setgid or sticky bits over',
+		() => {
+			// re-creating one on a file this just wrote is a privilege decision a
+			// config writer has no business making, so the permission bits are copied
+			// exactly and these are not
+			const path = file('c.jsonc', '{}');
+			chmodSync(path, 0o1600);
+			expect(statSync(path).mode & 0o7777).to.equal(0o1600);
 
-		writeAtomicSync(path, 'a');
-		expect(statSync(path).mode & 0o7777).to.equal(0o600);
+			writeAtomicSync(path, 'a');
+			expect(statSync(path).mode & 0o7777).to.equal(0o600);
+		}
+	);
+
+	it('should write through a symlink rather than replacing it', async () => {
+		// `rename()` replaces whatever is **at** the path, so a config that is a
+		// symlink -- which is what every dotfile manager makes of one -- was replaced
+		// by a plain file on the first save that changed anything: the link stopped
+		// being a link, its location held the new contents, and the real file kept
+		// the old ones, so every later edit went to a local copy nobody tracked.
+		// Nothing reported it, because every other check reads *through* the link.
+		// Found by review
+		const target = file('real.jsonc', '{\n\t// keep me\n\t"a": 1\n}\n');
+		const link = join(root, 'link.jsonc');
+		symlinkSync(target, link);
+
+		writeAtomicSync(link, '{\n\t// keep me\n\t"a": 2\n}\n');
+		expect(lstatSync(link).isSymbolicLink(), 'sync kept the link').to.equal(true);
+		expect(readFileSync(target, 'utf8')).to.contain('"a": 2');
+
+		await writeAtomic(link, '{\n\t// keep me\n\t"a": 3\n}\n');
+		expect(lstatSync(link).isSymbolicLink(), 'async kept the link').to.equal(true);
+		expect(readFileSync(target, 'utf8')).to.contain('"a": 3');
+
+		// and the comment the file was read for is still there, which is the whole
+		// of what writing through it is worth
+		expect(readFileSync(target, 'utf8')).to.contain('// keep me');
 	});
 
 	it('should report a failure the file system refused rather than swallowing it', () => {
