@@ -19880,14 +19880,16 @@ construction.
   agreeing with and nothing writes a document in them, so inserting a `\n` into
   one is the subset this claims to be rather than a lost case.
 
-- **Two comments named the new file twice.** "It is `sigil.jsonc` now and
-  `sigil.jsonc` is still read", and "which is `sigil.jsonc` and may still be
-  `sigil.jsonc`" -- a bulk prose replace that hit the sentences about the `.json`
-  one. The body was right in both places, which is the direction that catches
-  somebody aligning the code with the comment. Both sentences are **gone**, along
-  with the rename they were about: the quotation is here as the finding's evidence
-  rather than as anything the tree still says, and what survives it is the lesson
-  about a bulk replace over prose.
+- **Two comments in `config.ts` named the new extension where they meant the
+  old one.** A bulk prose replace over the rename hit the two sentences whose
+  subject was the `.json` file, so each said the new name twice and neither said
+  anything true. The body was right in both places, which is the direction that
+  catches somebody aligning the code with the comment. The lesson is the replace
+  rather than the sentences: a rename done over prose by substitution hits the
+  sentences that are _about the other thing_, and those are exactly the ones a
+  reader trusts. Both are gone, along with the rename itself -- so the finding is
+  recorded here without quoting them, because four occurrences of a dead filename
+  in this file is the thing somebody greps and has to rule out.
 
 - **And one test's name promised something it never did.** `should keep the space
   before a closing brace it emptied on one line` never empties a container, so it
