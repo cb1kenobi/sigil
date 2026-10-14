@@ -20618,6 +20618,33 @@ one was named.
   or more, `ENOTDIR` under a file, and the same spelling for an ordinary file --
   so the bound's own measurement and the cycle refusal carry over unchanged.
 
+- **And `..` is lexical on Windows, which CI found and which is why the code
+  needs no platform branch.** Every measurement above is POSIX's, and the three
+  new tests failed on all three Windows jobs: the write landed on the **lexical**
+  candidate there. Win32 normalizes a path -- `.` and `..` included -- _before_
+  the file system sees it, so on that platform lexical is what the platform
+  itself does and the `resolve()` this round replaced was **right** there.
+
+  Which makes the fix better than it was argued for rather than worse: by asking
+  the platform instead of doing the arithmetic, `realpathSync.native` is each
+  platform's own answer, where `resolve()` was Windows's answer on both. One
+  mechanism, no `process.platform` anywhere in it.
+
+  What it cost is the tests, and the Conventions entry about platform fixtures is
+  the one that was broken -- they spelled out a POSIX path. They assert the
+  **portable** claim now, that the write lands where the link points, read back
+  **through the link**: that is what the app does next, it needs no path spelled
+  out, and it is the sharper discriminator anyway -- on POSIX the old lexical join
+  put the bytes where the link does not point, so reading through it fails. The
+  one assertion that names a path is `it.skipIf`'d to POSIX, with the divergence
+  written into it, which is what keeps the platform difference documented rather
+  than merely survived.
+
+  Measured from the failure rather than assumed, which is the part worth copying:
+  the live fixture has a distinct file at **each** candidate, so which one moved
+  is the evidence, and on Windows it was the lexical one. A fixture that asserted
+  only "the right one changed" could not have said that.
+
 - **The fix is to stop doing the arithmetic and ask the kernel**, which is this
   file's own standing preference -- the only way to agree by construction is to
   _be_ the other party's arithmetic. `rawJoin()` puts the pieces together with
@@ -20640,8 +20667,11 @@ one was named.
 - **Fourteen sabotages, all fourteen caught** -- the eight new and the six from
   the round before, so nothing regressed. The two that matter most are the pair
   that separates the complete fix from the partial one: realpathing the base but
-  still joining lexically, and `rawJoin()` normalizing. Each is caught, and by
-  the deeper test alone.
+  still joining lexically, and `rawJoin()` normalizing. Each is caught, and the
+  first by the deeper test alone. Re-run after the tests were made portable, and
+  every one is caught **harder** -- six tests fail for the lexical join where
+  five did -- because reading back through the link sees a wrong answer that a
+  named path can only see when it is the named path that moved.
 
 #### What the write half costs
 
