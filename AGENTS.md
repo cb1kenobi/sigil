@@ -21354,6 +21354,30 @@ has been corrected.
   a process and fails naming the export that went missing. Then it spawns each
   one and asks for its exit code and its stderr, because a demo that imports
   fine and then throws is invisible to the first half.
+- **A demo may not wrap its whole body in a `catch` that logs, because then it
+  cannot fail.** `demos/config/01-layers.js` did, over a `catch` whose comment
+  described a refusal nothing in the demo provoked -- so when a rename left a
+  `jsonc(user)` call behind, the `ReferenceError` came out as
+  `refused: jsonc is not defined` on **stdout**, with exit 0 and no stack frame,
+  and `demos.test.ts` passed. Which is that test's own contract honoured exactly:
+  it asserts an exit code, an empty stderr and no stack frame, and a demo that
+  catches its own `ReferenceError` and prints it as prose satisfies all three.
+
+  The fix is the `catch` rather than the test. With it gone -- a bare
+  `try`/`finally`, which is all the cleanup needed -- the same sabotage exits 1
+  with a stack and the test fails, verified both ways. A narrow `try` around the
+  one statement whose throw is the point is the right shape and is what
+  `03-links.js` and `09-errors.js` already have; `04-prompts.js` is the sharper
+  version of it, narrowing on `err instanceof PromptError` and **rethrowing**
+  anything else. Swept: those three are the only other top-level catches and all
+  three are correct.
+
+  The reason this is worth an entry rather than a commit message is that the
+  demo's own prose was the thing that hid it. A `catch` describing a case the
+  demo had stopped exercising reads as deliberate, so nobody asks what else it
+  swallows -- the shape this file keeps recording, with a test-visible cost this
+  time rather than only a reader's.
+
 - **The demos are run piped, and that is the interesting half rather than a
   concession to CI.** `demos/README.md` documents what each one does without a
   terminal -- a spinner writes one line per change, a bar one line every ten

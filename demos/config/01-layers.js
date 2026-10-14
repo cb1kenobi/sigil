@@ -62,7 +62,7 @@ try {
 		// bottom first, so the last entry is on top
 		layers: [
 			{ name: 'system', readOnly: true, store: json(system) },
-			{ name: 'user', store: jsonc(user) },
+			{ name: 'user', store: json(user) },
 			// an object layer with nothing in it is the in-memory override: a run
 			// that overrides a setting for its own duration and persists nothing
 			{ name: 'runtime', store: object(bad ? { server: { port: 'eighty' } } : {}) },
@@ -140,10 +140,6 @@ try {
 			} ${where}`
 		);
 	}
-} catch (e) {
-	// a value a schema cannot hold names the setting, the layer and what was
-	// wrong -- and it fails at construction rather than at the first `get()`
-	console.log(`refused: ${e.message}`);
 } finally {
 	rmSync(root, { force: true, recursive: true });
 }
