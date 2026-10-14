@@ -4,7 +4,6 @@ import {
 	createConfigSync,
 	isWritableStore,
 	json,
-	jsonc,
 	object,
 	type ConfigDocument,
 	type ConfigSchema,
@@ -168,7 +167,7 @@ describe('the layer stack', () => {
 		expect(config.layers).to.deep.equal([
 			{
 				dirty: false,
-				format: 'json',
+				format: 'jsonc',
 				name: 'system',
 				readOnly: true,
 				source: path,
@@ -639,7 +638,7 @@ describe('deleting a value that lives in a read-only layer', () => {
 		// named for what it checks: an `object()` store has no source, so this is
 		// the right-hand side of `source ?? name` and never the left. The title
 		// used to claim the source branch, which that store cannot reach -- a
-		// `json()` or `jsonc()` layer can, since SIG-154 made both writable and
+		// `json()` or `json()` layer can, since SIG-154 made both writable and
 		// both carry one, which is the sibling test below
 		const config = await createConfig({
 			layers: [
@@ -653,7 +652,7 @@ describe('deleting a value that lives in a read-only layer', () => {
 
 	it('should name the writable layer by its source where it has one', async () => {
 		// a store of the caller's own, because `object()` has no source to name --
-		// the core stores that do are `json()` and `jsonc()`, which SIG-154 made
+		// the core stores that do are `json()` and `json()`, which SIG-154 made
 		// writable, so this branch is no longer only for a store nobody has written
 		// yet. `ConfigStore` is a public interface precisely so an app can write one
 		const held: Record<string, unknown> = {};
@@ -912,7 +911,7 @@ describe('both entry points', () => {
 			layers: [
 				{ name: 'defaults', store: object({ b: 2 }) },
 				{ name: 'system', store: json(file('c.json', '{"a":0}')) },
-				{ name: 'user', store: jsonc(file('c.jsonc', '{ /* hi */ "a": 1, }')) },
+				{ name: 'user', store: json(file('c.jsonc', '{ /* hi */ "a": 1, }')) },
 			],
 		};
 
@@ -1002,18 +1001,13 @@ describe('a layer declaration', () => {
 		).rejects.toThrow(message);
 	});
 
-	it.each([
-		['', 'json'],
-		['', 'jsonc'],
-		[undefined, 'json'],
-	])('should refuse a %o path to %s', (path, kind) => {
+	it.each([[''], [undefined]])('should refuse a %o path', (path) => {
 		// refused where the store is built rather than at the read, because what
 		// the read says names the wrong thing: `expand('')` is `'.'`, so an empty
 		// path reported `EISDIR` about a directory nobody named, and a path that is
 		// not a string threw a `TypeError` out of `expand()` itself
-		const make = kind === 'json' ? json : jsonc;
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		expect(() => make(path as any)).toThrow(/A config file store needs a path/);
+		expect(() => json(path as any)).toThrow(/A config file store needs a path/);
 	});
 
 	it('should refuse two layers of one name', async () => {
@@ -1059,7 +1053,7 @@ describe('the two refusals', () => {
 		// both file stores write, which is what the span writer bought them -- so
 		// the one with no writer is a store somebody else's package wrote
 		expect(isWritableStore(json(join(root, 'nope.json')))).to.equal(true);
-		expect(isWritableStore(jsonc(join(root, 'nope.jsonc')))).to.equal(true);
+		expect(isWritableStore(json(join(root, 'nope.jsonc')))).to.equal(true);
 		expect(isWritableStore(readOnlyStore())).to.equal(false);
 	});
 

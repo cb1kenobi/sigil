@@ -123,8 +123,6 @@ interface Ctx {
 
 /** What `editJsonc()` takes beyond the two values. */
 export interface EditOptions {
-	/** Whether comments and trailing commas are allowed, as the store's format says. */
-	readonly allow: boolean;
 	/** The file, for a message. */
 	readonly what: string;
 }
@@ -888,7 +886,7 @@ function detectStep(source: string, root: Node): string {
  * @throws If the source is not readable as the format it claims.
  */
 export function editJsonc(source: string, next: unknown, opts: EditOptions): string {
-	const scan = scanJsonc(source, opts.allow, opts.what);
+	const scan = scanJsonc(source, opts.what);
 
 	// parsed before it is structured, which is what lets the structural pass be
 	// written to the grammar with no error handling: a text `JSON.parse` has

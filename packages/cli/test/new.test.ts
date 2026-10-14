@@ -161,13 +161,13 @@ describe('the scaffold', () => {
 		expect(paths).not.toContain('src/cli.ts');
 	});
 
-	it('should write a sigil.jsonc so add does not have to guess', () => {
-		// `.jsonc` rather than `.json`, because the extension is what tells an
-		// editor to allow comments and a config file is exactly the file people
-		// want to annotate. `readSigilConfig()` still reads a `.json`, so nothing
-		// already scaffolded has to be renamed
-		expect(json('sigil.jsonc')).toStrictEqual({ components: 'src/components' });
-		expect([...files().keys()]).not.toContain('sigil.json');
+	it('should write a sigil.json so add does not have to guess', () => {
+		// `.json` rather than `.jsonc`, because one reader serves both extensions:
+		// a comment in a `sigil.json` is read rather than reported, so the name an
+		// app already had costs it nothing. `readSigilConfig()` reads a `.jsonc`
+		// too, for an app that prefers to say so in the file name
+		expect(json('sigil.json')).toStrictEqual({ components: 'src/components' });
+		expect([...files().keys()]).not.toContain('sigil.jsonc');
 	});
 
 	it('should write a test that runs the app through the real main()', () => {

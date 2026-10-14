@@ -1,4 +1,4 @@
-import { json, jsonc, createConfigSync } from '../../src/config/index.js';
+import { json, createConfigSync } from '../../src/config/index.js';
 import { parseJsonc, scanJsonc } from '../../src/config/jsonc.js';
 import { lineAt } from '../../src/config/spans.js';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -27,7 +27,7 @@ function file(name: string, contents: string): string {
 function read(name: string, contents: string, strict = false): unknown {
 	const path = file(name, contents);
 	return createConfigSync({
-		layers: [{ name: 'f', store: strict ? json(path) : jsonc(path) }],
+		layers: [{ name: 'f', store: strict ? json(path) : json(path) }],
 	}).get();
 }
 
@@ -37,7 +37,7 @@ describe('the scan', () => {
 		// message still points at the character it was about, and the span writer
 		// reads the structure out of this text, where its offsets are the source's
 		const source = '{\n\t// hi\n\t"a": 1,\n}';
-		const { json: out } = scanJsonc(source, true, 'f');
+		const { json: out } = scanJsonc(source, 'f');
 
 		expect(out).to.have.lengthOf(source.length);
 		expect(out.split('\n')).to.have.lengthOf(source.split('\n').length);
@@ -57,7 +57,7 @@ describe('the scan', () => {
 	});
 
 	it('should report every comment it found, with its line', () => {
-		const { comments } = scanJsonc('{\n// one\n"a": 1 /* two */\n}', true, 'f');
+		const { comments } = scanJsonc('{\n// one\n"a": 1 /* two */\n}', 'f');
 		expect(comments).to.deep.equal([
 			{ line: 2, text: '// one' },
 			{ line: 3, text: '/* two */' },
@@ -81,7 +81,7 @@ describe('the scan', () => {
 			// and `{,}` as `{}`, which is wider than the flavour this claims to be:
 			// VS Code's own parser refuses both. Found by walking the comma shapes,
 			// and the two it accepted were the only two
-			expect(() => parseJsonc(text, true, 'f')).toThrow(/Failed to parse f/);
+			expect(() => parseJsonc(text, 'f')).toThrow(/Failed to parse f/);
 		}
 	);
 
@@ -96,7 +96,7 @@ describe('the scan', () => {
 		// `\n` alone ran the comment to the end of the document, so a classic-Mac
 		// file blanked every key after the first comment and `JSON.parse` succeeded
 		// over what was left -- a key dropped with no error at all. Found by review
-		expect(JSON.parse(scanJsonc('{ "a": 1 // c\r , "b": 2 }', true, 'f').json)).to.deep.equal({
+		expect(JSON.parse(scanJsonc('{ "a": 1 // c\r , "b": 2 }', 'f').json)).to.deep.equal({
 			a: 1,
 			b: 2,
 		});
@@ -111,23 +111,21 @@ describe('the scan', () => {
 		// so a document holding one outside a string was never valid JSON. Which is
 		// the point: ending the comment there turns a silent truncation into a
 		// refusal, and the refusal is the better of the two answers available
-		expect(() => parseJsonc(`{ "a": 1 // c${nl} , "b": 2 }`, true, 'f')).toThrow(
-			/Failed to parse f/
-		);
+		expect(() => parseJsonc(`{ "a": 1 // c${nl} , "b": 2 }`, 'f')).toThrow(/Failed to parse f/);
 
 		// and what the comment blanked is the comment, which is the half that
 		// matters: `"b"` is still in the scanned output rather than blanked away,
 		// where with `\n` alone it was gone and `JSON.parse` was perfectly happy
 		// with the remains
-		expect(scanJsonc(`{ "a": 1 // c${nl} , "b": 2 }`, true, 'f').json).to.contain('"b": 2');
+		expect(scanJsonc(`{ "a": 1 // c${nl} , "b": 2 }`, 'f').json).to.contain('"b": 2');
 	});
 
 	it('should report that it found a trailing comma', () => {
 		// the offsets rather than a count, because the span writer needs to know
 		// which space in the blanked text was a comma in the source
-		expect(scanJsonc('{"a":1,}', true, 'f').trailing).to.deep.equal([6]);
-		expect(scanJsonc('{"a":1}', true, 'f').trailing).to.deep.equal([]);
-		expect(scanJsonc('{"a":[1,],"b":2,}', true, 'f').trailing).to.deep.equal([7, 15]);
+		expect(scanJsonc('{"a":1,}', 'f').trailing).to.deep.equal([6]);
+		expect(scanJsonc('{"a":1}', 'f').trailing).to.deep.equal([]);
+		expect(scanJsonc('{"a":[1,],"b":2,}', 'f').trailing).to.deep.equal([7, 15]);
 	});
 
 	it('should leave a separating comma alone', () => {
@@ -151,7 +149,7 @@ describe('the scan', () => {
 		// character the document holds -- blanked so that every offset after it
 		// still means what it meant
 		const source = '﻿{"a":1}';
-		const { json: out } = scanJsonc(source, true, 'f');
+		const { json: out } = scanJsonc(source, 'f');
 		expect(out).to.have.lengthOf(source.length);
 		expect(JSON.parse(out)).to.deep.equal({ a: 1 });
 		expect(read('c.json', source, true)).to.deep.equal({ a: 1 });
@@ -167,40 +165,36 @@ describe('the scan', () => {
 
 describe('what it refuses', () => {
 	it('should refuse an unterminated string, naming the line', () => {
-		expect(() => scanJsonc('{\n"a": "oops\n}', true, 'f')).toThrow(
-			/Unterminated string in f on line 2/
-		);
+		expect(() => scanJsonc('{\n"a": "oops\n}', 'f')).toThrow(/Unterminated string in f on line 2/);
 	});
 
 	it('should refuse an unterminated string that ends mid-escape', () => {
-		expect(() => scanJsonc('{"a":"x\\', true, 'f')).toThrow(/Unterminated string/);
+		expect(() => scanJsonc('{"a":"x\\', 'f')).toThrow(/Unterminated string/);
 	});
 
 	it('should refuse an unterminated block comment, naming the line', () => {
-		expect(() => scanJsonc('{\n/* open\n}', true, 'f')).toThrow(
-			/Unterminated comment in f on line 2/
-		);
+		expect(() => scanJsonc('{\n/* open\n}', 'f')).toThrow(/Unterminated comment in f on line 2/);
 	});
 
 	it('should refuse an unterminated block comment before it refuses the comment', () => {
 		// an unterminated comment is a scan that cannot finish, so it is reported
 		// whether or not comments were allowed -- naming what is wrong rather than
 		// what would also have been wrong
-		expect(() => scanJsonc('{\n/* open\n}', false, 'f')).toThrow(/Unterminated comment/);
+		expect(() => scanJsonc('{\n/* open\n}', 'f')).toThrow(/Unterminated comment/);
 	});
 
-	it('should refuse a comment in a .json, naming the line', () => {
-		// reported rather than left to `JSON.parse`, which is the one thing this
-		// adds over calling it directly: the engine's answer is `Unexpected token /`
-		expect(() => read('c.json', '{\n// nope\n"a":1}', true)).toThrow(
-			/Comments are not allowed in .*c\.json, on line 2/
-		);
+	it('should read a comment in a .json rather than refusing it', () => {
+		// one reader rather than one per extension: `tsconfig.json` is JSONC under
+		// a `.json` name and so are VS Code's own settings, so an extension is a
+		// file name rather than a declaration about the bytes. What this gives up
+		// is the `Comments are not allowed` message, which bought strictness
+		// nobody asked for -- this store never writes a comment, so reading one
+		// strictly could only refuse a file every other tool accepts
+		expect(read('c.json', '{\n// fine\n"a":1}', true)).to.deep.equal({ a: 1 });
 	});
 
-	it('should refuse a trailing comma in a .json, naming the line', () => {
-		expect(() => read('c.json', '{\n"a":1,\n}', true)).toThrow(
-			/Trailing commas are not allowed in .*c\.json, on line 3/
-		);
+	it('should read a trailing comma in a .json too, which is the same rule', () => {
+		expect(read('c.json', '{"a":1,}', true)).to.deep.equal({ a: 1 });
 	});
 
 	it('should say which file failed to parse', () => {
@@ -222,7 +216,7 @@ describe('a file that is not there', () => {
 		// has written nothing yet
 		expect(
 			createConfigSync({
-				layers: [{ name: 'f', store: jsonc(join(root, 'nope.jsonc')) }],
+				layers: [{ name: 'f', store: json(join(root, 'nope.jsonc')) }],
 			}).get()
 		).to.deep.equal({});
 	});
@@ -258,7 +252,7 @@ describe('a file that is not there', () => {
 describe('both halves of a file store', () => {
 	it('should answer the same', async () => {
 		const path = file('c.jsonc', '{ /* hi */ "a": 1, }');
-		const store = jsonc(path);
+		const store = json(path);
 		const { createConfig } = await import('../../src/config/index.js');
 
 		expect(store.readSync().value).to.deep.equal({ a: 1 });
@@ -269,23 +263,21 @@ describe('both halves of a file store', () => {
 	});
 
 	it('should report its format and its source', () => {
+		// one format whatever the extension, which is what collapsing the two
+		// stores into one comes to: a store says what it *reads*, and that is JSONC
 		const path = file('c.json', '{}');
-		expect(jsonc(path).format).to.equal('jsonc');
-		expect(json(path).format).to.equal('json');
-		expect(jsonc(path).source).to.equal(path);
+		expect(json(path).format).to.equal('jsonc');
+		expect(json(file('c.jsonc', '{}')).format).to.equal('jsonc');
+		expect(json(path).source).to.equal(path);
 	});
 
-	it('should refuse the strict store over a .jsonc path, naming the other one', () => {
-		// a format conversion that cannot preserve, refused where the layer is
-		// built rather than at `save()`. It cannot fire on code that is right,
-		// because `jsonc()` reads everything `json()` reads and more -- so there is
-		// no file for which `json('x.jsonc')` is the better spelling
-		expect(() => json(file('c.jsonc', '{}'))).toThrow(/use jsonc\(\) instead/);
-		expect(() => json(join(root, 'C.JSONC'))).toThrow(/use jsonc\(\) instead/);
-		// and the reverse is not refused, because `tsconfig.json` is JSONC under a
-		// `.json` name: an extension that does not claim comments says nothing
-		// about whether a file holds them
-		expect(jsonc(file('t.json', '{ /* ok */ }')).readSync().value).to.deep.equal({});
+	it('should read either extension the same way', () => {
+		// the asymmetry this replaces refused `json()` over a `.jsonc` path, which
+		// made sense only while the two stores read differently. With one reader
+		// there is nothing to convert and nothing to refuse
+		expect(json(file('a.json', '{ /* ok */ }')).readSync().value).to.deep.equal({});
+		expect(json(file('b.jsonc', '{ /* ok */ }')).readSync().value).to.deep.equal({});
+		expect(json(join(root, 'C.JSONC'))).to.be.an('object');
 	});
 
 	it('should say nothing about losing anything, because it edits rather than reprints', () => {
@@ -293,13 +285,13 @@ describe('both halves of a file store', () => {
 		// omission: this store edits spans rather than reprinting, so a comment
 		// survives a write because the bytes holding it are never rewritten
 		const path = file('c.jsonc', '{\n// a note\n"a": 1\n}');
-		expect(jsonc(path).readSync().wouldLose).to.equal(undefined);
+		expect(json(path).readSync().wouldLose).to.equal(undefined);
 	});
 
 	it('should expand a ~ rather than taking the path literally', () => {
 		// a `~` is the single most likely thing an app writes by hand, and
 		// `readFileSync` of one is an `ENOENT` naming a path with a `~` still in it
-		const store = jsonc('~/sigil-config-does-not-exist.jsonc');
+		const store = json('~/sigil-config-does-not-exist.jsonc');
 		expect(store.source).to.not.contain('~');
 		expect(store.readSync().value).to.deep.equal({});
 	});
@@ -315,13 +307,13 @@ describe('what JSONC is not', () => {
 		['{ "a": NaN }', 'NaN'],
 		['{ "a": .5 }', 'a bare fraction'],
 	])('should refuse %s (%s)', (source) => {
-		expect(() => parseJsonc(source, true, 'f')).toThrow(/Failed to parse f/);
+		expect(() => parseJsonc(source, 'f')).toThrow(/Failed to parse f/);
 	});
 
 	it('should leave the JSON value grammar to JSON.parse', () => {
 		// `-0`, a surrogate pair and an exponent past the float range are the
 		// reason this does not re-implement the value grammar
-		const { value } = parseJsonc('{"neg":-0,"big":1e400,"pair":"\\uD83D\\uDE00"}', true, 'f');
+		const { value } = parseJsonc('{"neg":-0,"big":1e400,"pair":"\\uD83D\\uDE00"}', 'f');
 		const got = value as Record<string, unknown>;
 		expect(Object.is(got.neg, -0)).to.equal(true);
 		expect(got.big).to.equal(Infinity);

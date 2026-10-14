@@ -50,7 +50,7 @@
  * off the tree rather than guessed at from the text, which is the whole
  * difference between this and a scanner.
  *
- * What is left over is the escape hatch: `build.safelist` in `sigil.jsonc` names
+ * What is left over is the escape hatch: `build.safelist` in `sigil.json` names
  * classes to keep whatever the evidence says, and `build.shake: false` turns
  * the whole thing off. The count is in the build summary either way, because a
  * build that quietly kept everything and a build that quietly dropped the wrong

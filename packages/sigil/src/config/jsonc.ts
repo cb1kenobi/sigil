@@ -59,16 +59,11 @@ const BOM = '\uFEFF';
  * Finds the comments and trailing commas in a JSONC source.
  *
  * @param text - The source.
- * @param allow - Whether the extensions are allowed. A `.json` file is scanned
- * with this off, so that a comment in one is reported as a comment -- which is
- * a message somebody can act on, where `JSON.parse`'s `Unexpected token /` is
- * one they have to work out.
- * @param what - The file, for the message.
+ * @param what - The file, for a message.
  * @returns The scan.
- * @throws If an extension is found and not allowed, or a string or block
- * comment is never closed.
+ * @throws If a string or a block comment is never closed.
  */
-export function scanJsonc(text: string, allow: boolean, what: string): JsoncScan {
+export function scanJsonc(text: string, what: string): JsoncScan {
 	// a leading byte order mark is what an editor writes and what `JSON.parse`
 	// refuses, and it is not a character the document holds -- blanked rather
 	// than trimmed, so every offset after it still means what it meant
@@ -170,10 +165,6 @@ export function scanJsonc(text: string, allow: boolean, what: string): JsoncScan
 				}
 			}
 
-			if (!allow) {
-				throw new Error(__`Comments are not allowed in ${what}, on line ${lineAt(source, start)}`);
-			}
-
 			comments.push({ line: lineAt(source, start), text: source.slice(start, end) });
 			blank(start, end);
 			i = end;
@@ -196,11 +187,6 @@ export function scanJsonc(text: string, allow: boolean, what: string): JsoncScan
 
 		if (c === '}' || c === ']') {
 			if (pending !== undefined) {
-				if (!allow) {
-					throw new Error(
-						__`Trailing commas are not allowed in ${what}, on line ${lineAt(source, i)}`
-					);
-				}
 				out[pending.out] = ' ';
 				trailing.push(pending.at);
 			}
@@ -230,17 +216,15 @@ export function scanJsonc(text: string, allow: boolean, what: string): JsoncScan
  * Parses a JSON or JSONC source.
  *
  * @param text - The source.
- * @param allow - Whether comments and trailing commas are allowed.
  * @param what - The file, for the message.
  * @returns The value and the comments that were in it.
  * @throws If it is not readable as the format it claims.
  */
 export function parseJsonc(
 	text: string,
-	allow: boolean,
 	what: string
 ): { comments: JsoncComment[]; value: unknown } {
-	const scan = scanJsonc(text, allow, what);
+	const scan = scanJsonc(text, what);
 
 	try {
 		return { comments: scan.comments, value: JSON.parse(scan.json) as unknown };

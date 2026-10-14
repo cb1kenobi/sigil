@@ -3,7 +3,6 @@ import {
 	createConfig,
 	createConfigSync,
 	json,
-	jsonc,
 	object,
 	type ConfigDocument,
 	type ConfigStore,
@@ -46,7 +45,7 @@ function file(name: string, contents: string): string {
 
 /** The one call this module's writer is reached by. */
 function edit(source: string, next: unknown): string {
-	return editJsonc(source, next, { allow: true, what: 'c.jsonc' });
+	return editJsonc(source, next, { what: 'c.jsonc' });
 }
 
 describe('the edit applier', () => {
@@ -115,8 +114,12 @@ describe('the edit applier', () => {
 		// a CRLF is one break rather than two
 		expect(lineAt('a\r\nb', 3)).to.equal(2);
 		expect(lineAt('a\nb', 2)).to.equal(2);
-		// and the message really does come out on that line, which is the claim
-		expect(() => parseJsonc('{\r// a note\r"a":1}', false, 'f')).toThrow(/on line 2/);
+		// and the scan really does report a comment on that line, which is the claim
+		// -- the vehicle used to be the strict reader's own message, and with one
+		// forgiving reader the comment's recorded line is what carries it
+		expect(scanJsonc('{\r// a note\r"a":1}', 'f').comments).to.deep.equal([
+			{ line: 2, text: '// a note' },
+		]);
 	});
 
 	it('should refuse an inverted span, which is the other half of its one rule', () => {
@@ -267,7 +270,7 @@ describe('the JSONC writer', () => {
 
 		for (const [source, next] of cases) {
 			const out = edit(source, next);
-			expect(JSON.parse(scanJsonc(out, true, 'f').json), out).to.deep.equal(next);
+			expect(JSON.parse(scanJsonc(out, 'f').json), out).to.deep.equal(next);
 		}
 	});
 
@@ -331,7 +334,7 @@ describe('the JSONC writer', () => {
 		const out = edit('{ "a": 1 /* c */, }', {});
 		expect(out).to.equal('{ /* c */ }');
 		// and it is JSON once the comment is blanked, which is the claim that matters
-		expect(JSON.parse(scanJsonc(out, true, 'f').json)).to.deep.equal({});
+		expect(JSON.parse(scanJsonc(out, 'f').json)).to.deep.equal({});
 	});
 
 	it('should leave a trailing comma trailing where something still follows it', () => {
@@ -349,7 +352,7 @@ describe('the JSONC writer', () => {
 		// because there is no entry left for the comma to be trailing. Found by
 		// review, as a name claiming more than its fixture showed
 		expect(edit('{ "a": 1, }', { b: 2 })).to.equal('{ "b": 2  }');
-		expect(JSON.parse(scanJsonc(edit('{ "a": 1, }', { b: 2 }), true, 'f').json)).to.deep.equal({
+		expect(JSON.parse(scanJsonc(edit('{ "a": 1, }', { b: 2 }), 'f').json)).to.deep.equal({
 			b: 2,
 		});
 	});
@@ -552,14 +555,14 @@ describe('what JSON cannot hold', () => {
 	});
 
 	it('should be what the store answers canRepresent with', () => {
-		const store = jsonc(join(root, 'c.jsonc'));
+		const store = json(join(root, 'c.jsonc'));
 		expect(store.canRepresent?.(Infinity, 'a.b')).to.match(/no Infinity/);
 		expect(store.canRepresent?.(1, 'a.b')).to.equal(true);
 	});
 
 	it('should refuse the value at the call that wrote it', () => {
 		const config = createConfigSync({
-			layers: [{ name: 'user', store: jsonc(join(root, 'c.jsonc')) }],
+			layers: [{ name: 'user', store: json(join(root, 'c.jsonc')) }],
 			env: {},
 		});
 
@@ -653,7 +656,7 @@ describe('save', () => {
 	it('should persist what set changed and nothing else', async () => {
 		const path = file('c.jsonc', '{\n\t// a note\n\t"server": { "port": 8080 }\n}\n');
 		const config = await createConfig({
-			layers: [{ name: 'user', store: jsonc(path) }],
+			layers: [{ name: 'user', store: json(path) }],
 			schema,
 			env: {},
 		});
@@ -669,7 +672,7 @@ describe('save', () => {
 		// which is what an exit or signal handler needs, and is the reason
 		// `createConfigSync()` exists one call earlier
 		const path = file('c.jsonc', '{\n\t"a": 1\n}\n');
-		const config = createConfigSync({ layers: [{ name: 'user', store: jsonc(path) }], env: {} });
+		const config = createConfigSync({ layers: [{ name: 'user', store: json(path) }], env: {} });
 
 		config.set('a', 2);
 		expect(config.saveSync()).to.deep.equal(['user']);
@@ -678,7 +681,7 @@ describe('save', () => {
 
 	it('should write a file that is not there yet', () => {
 		const path = join(root, 'deep', 'c.jsonc');
-		const config = createConfigSync({ layers: [{ name: 'user', store: jsonc(path) }], env: {} });
+		const config = createConfigSync({ layers: [{ name: 'user', store: json(path) }], env: {} });
 
 		config.set('a', 1);
 		config.saveSync();
@@ -688,7 +691,7 @@ describe('save', () => {
 	it('should skip a layer nothing touched', async () => {
 		const path = file('c.jsonc', '{\n\t"a": 1\n}\n');
 		const before = statSync(path).mtimeMs;
-		const config = await createConfig({ layers: [{ name: 'user', store: jsonc(path) }], env: {} });
+		const config = await createConfig({ layers: [{ name: 'user', store: json(path) }], env: {} });
 
 		expect(await config.save()).to.deep.equal([]);
 		expect(await config.save('user')).to.deep.equal([]);
@@ -699,7 +702,7 @@ describe('save', () => {
 		// which keeps the mtime a watcher is reading, and is what makes `apply()`
 		// of a freshly read value a no-op rather than a rewrite of the same bytes
 		const path = file('c.jsonc', '{\n\t"a": 1\n}\n');
-		const config = await createConfig({ layers: [{ name: 'user', store: jsonc(path) }], env: {} });
+		const config = await createConfig({ layers: [{ name: 'user', store: json(path) }], env: {} });
 		const before = statSync(path).mtimeMs;
 
 		config.set('a', 1);
@@ -711,7 +714,7 @@ describe('save', () => {
 
 	it('should report whether a layer has changes it has not written', async () => {
 		const config = await createConfig({
-			layers: [{ name: 'user', store: jsonc(join(root, 'c.jsonc')) }],
+			layers: [{ name: 'user', store: json(join(root, 'c.jsonc')) }],
 			env: {},
 		});
 
@@ -724,7 +727,7 @@ describe('save', () => {
 
 	it('should not mark a layer a refused mutation never changed', async () => {
 		const config = await createConfig({
-			layers: [{ name: 'user', store: jsonc(join(root, 'c.jsonc')) }],
+			layers: [{ name: 'user', store: json(join(root, 'c.jsonc')) }],
 			schema: { a: { type: 'int' } },
 			env: {},
 		});
@@ -737,7 +740,7 @@ describe('save', () => {
 		// the common cross-process case: two invocations setting two *different*
 		// keys both survive, where a blind write loses one of them
 		const path = file('c.jsonc', '{\n\t"a": 1\n}\n');
-		const config = await createConfig({ layers: [{ name: 'user', store: jsonc(path) }], env: {} });
+		const config = await createConfig({ layers: [{ name: 'user', store: json(path) }], env: {} });
 
 		config.set('a', 2);
 		writeFileSync(path, '{\n\t"a": 1,\n\t"b": 9\n}\n');
@@ -756,7 +759,7 @@ describe('save', () => {
 		// there is -- and a store handed a whole document diffs the whole of it, so
 		// `b` was removed. Found by review
 		const path = file('c.jsonc', '{\n\t"a": 1\n}\n');
-		const store = jsonc(path);
+		const store = json(path);
 		let reads = 0;
 		const config = await createConfig({
 			layers: [
@@ -793,7 +796,7 @@ describe('save', () => {
 		// narrowing: a full diff writes back what *it* read for every key, so another
 		// process's change to a key this process never set is undone
 		const path = file('c.jsonc', '{\n\t"a": 1,\n\t"b": 1\n}\n');
-		const store = jsonc(path);
+		const store = json(path);
 		let reads = 0;
 		const config = await createConfig({
 			layers: [
@@ -832,7 +835,7 @@ describe('save', () => {
 		// bought by *reverting* that key, which is the defect the claim fixes -- and
 		// the doc claimed the opposite until this was measured
 		const path = file('c.jsonc', '{"a":1,"b":1}');
-		const store = jsonc(path);
+		const store = json(path);
 		let reads = 0;
 		const config = await createConfig({
 			layers: [
@@ -872,7 +875,7 @@ describe('save', () => {
 		// `set()` with the same words. Replacing destroys a structure nobody claimed
 		// and dropping the claim loses this process's write in silence
 		const path = file('c.jsonc', '{\n\t"a": { "b": 1 }\n}\n');
-		const store = jsonc(path);
+		const store = json(path);
 		let reads = 0;
 		const config = await createConfig({
 			layers: [
@@ -907,7 +910,7 @@ describe('save', () => {
 		// -- and `writeSync()` dropping it survived every test here, because nothing
 		// drove the window synchronously
 		const path = file('c.jsonc', '{\n\t"a": 1\n}\n');
-		const store = jsonc(path);
+		const store = json(path);
 		let reads = 0;
 		const config = createConfigSync({
 			layers: [
@@ -936,7 +939,7 @@ describe('save', () => {
 
 	it('should let the last writer win on one key, which is documented rather than guarded', async () => {
 		const path = file('c.jsonc', '{\n\t"a": 1\n}\n');
-		const config = await createConfig({ layers: [{ name: 'user', store: jsonc(path) }], env: {} });
+		const config = await createConfig({ layers: [{ name: 'user', store: json(path) }], env: {} });
 
 		config.set('a', 2);
 		writeFileSync(path, '{\n\t"a": 3\n}\n');
@@ -947,7 +950,7 @@ describe('save', () => {
 
 	it('should persist a delete as a removal', async () => {
 		const path = file('c.jsonc', '{\n\t"a": 1,\n\t"b": 2\n}\n');
-		const config = await createConfig({ layers: [{ name: 'user', store: jsonc(path) }], env: {} });
+		const config = await createConfig({ layers: [{ name: 'user', store: json(path) }], env: {} });
 
 		expect(config.delete('a')).to.equal(true);
 		await config.save();
@@ -957,7 +960,7 @@ describe('save', () => {
 	it('should persist a push into a list', async () => {
 		const path = file('c.jsonc', '{\n\t"plugins": ["a"]\n}\n');
 		const config = await createConfig({
-			layers: [{ name: 'user', store: jsonc(path) }],
+			layers: [{ name: 'user', store: json(path) }],
 			schema,
 			env: {},
 		});
@@ -970,7 +973,7 @@ describe('save', () => {
 	it('should persist a pop out of a list', async () => {
 		const path = file('c.jsonc', '{\n\t"plugins": ["a", "b"]\n}\n');
 		const config = await createConfig({
-			layers: [{ name: 'user', store: jsonc(path) }],
+			layers: [{ name: 'user', store: json(path) }],
 			schema,
 			env: {},
 		});
@@ -988,7 +991,7 @@ describe('save', () => {
 			'c.jsonc',
 			'{\n\t// theme is deliberately unset\n\t"theme": null,\n\t"a": 1\n}\n'
 		);
-		const config = await createConfig({ layers: [{ name: 'user', store: jsonc(path) }], env: {} });
+		const config = await createConfig({ layers: [{ name: 'user', store: json(path) }], env: {} });
 
 		expect(config.has('theme')).to.equal(false);
 		config.set('a', 2);
@@ -1005,7 +1008,7 @@ describe('save', () => {
 		// nobody asked to change
 		const path = file('c.jsonc', '{\n\t"shake": "off",\n\t"a": 1\n}\n');
 		const config = await createConfig({
-			layers: [{ name: 'user', store: jsonc(path) }],
+			layers: [{ name: 'user', store: json(path) }],
 			schema: { shake: { type: 'bool' }, a: { type: 'int' } },
 			env: {},
 		});
@@ -1020,7 +1023,7 @@ describe('save', () => {
 		// `apply()` is replace rather than merge, which is that method's own rule
 		// read from the write side: the other process's keys are not honoured
 		const path = file('c.jsonc', '{\n\t"a": 1\n}\n');
-		const config = await createConfig({ layers: [{ name: 'user', store: jsonc(path) }], env: {} });
+		const config = await createConfig({ layers: [{ name: 'user', store: json(path) }], env: {} });
 
 		config.apply('user', { b: 2 });
 		writeFileSync(path, '{\n\t"a": 1,\n\t"c": 3\n}\n');
@@ -1034,8 +1037,8 @@ describe('save', () => {
 		const high = file('high.jsonc', '{\n\t"b": 1\n}\n');
 		const config = await createConfig({
 			layers: [
-				{ name: 'low', store: jsonc(low) },
-				{ name: 'high', store: jsonc(high) },
+				{ name: 'low', store: json(low) },
+				{ name: 'high', store: json(high) },
 			],
 			env: {},
 		});
@@ -1055,8 +1058,8 @@ describe('save', () => {
 		const high = file('high.jsonc', '{\n\t"b": 1\n}\n');
 		const config = await createConfig({
 			layers: [
-				{ name: 'low', store: jsonc(low) },
-				{ name: 'high', store: jsonc(high) },
+				{ name: 'low', store: json(low) },
+				{ name: 'high', store: json(high) },
 			],
 			env: {},
 		});
@@ -1070,7 +1073,7 @@ describe('save', () => {
 		const path = file('c.jsonc', '{\n\t"a": 1\n}\n');
 		const config = await createConfig({
 			layers: [
-				{ name: 'system', readOnly: true, store: jsonc(path) },
+				{ name: 'system', readOnly: true, store: json(path) },
 				{ name: 'user', store: object() },
 			],
 			env: {},
@@ -1114,7 +1117,7 @@ describe('save', () => {
 		// schema refuses is a refusal rather than a file already on disk
 		const path = file('c.jsonc', '{\n\t"a": 1\n}\n');
 		const config = await createConfig({
-			layers: [{ name: 'user', store: jsonc(path) }],
+			layers: [{ name: 'user', store: json(path) }],
 			schema: { a: { type: 'int' }, b: { type: 'int' } },
 			env: {},
 		});
@@ -1244,7 +1247,7 @@ describe('writing a store directly', () => {
 		// gets the same three-way merge `save()` does -- and a write with no claim is
 		// total, which is the only thing `write(value)` can mean on its own
 		const path = file('c.jsonc', '{\n\t// kept\n\t"a": 1,\n\t"b": 2\n}\n');
-		const store = jsonc(path);
+		const store = json(path);
 
 		await store.write({ a: 9 }, { paths: ['a'] });
 		expect(readFileSync(path, 'utf8')).to.equal('{\n\t// kept\n\t"a": 9,\n\t"b": 2\n}\n');
@@ -1262,7 +1265,7 @@ describe('writing a store directly', () => {
 		// `writePath()` replaces a non-object on the way down, so the array was gone
 		// and `{ "0": 9 }` was in its place. Found by review
 		const path = file('c.jsonc', '{ "items": [1, 2, 3] }\n');
-		const store = jsonc(path);
+		const store = json(path);
 
 		expect(() => store.writeSync({ items: { 0: 9 } }, { paths: ['items.0'] })).toThrow(
 			/"items" in .*c\.jsonc is not an object/
@@ -1272,13 +1275,13 @@ describe('writing a store directly', () => {
 		// a scalar is the same answer, because what is wrong is the shape rather than
 		// how much it holds
 		const flat = file('d.jsonc', '{ "a": 5 }\n');
-		await expect(jsonc(flat).write({ a: { b: 2 } }, { paths: ['a.b'] })).rejects.toThrow(
+		await expect(json(flat).write({ a: { b: 2 } }, { paths: ['a.b'] })).rejects.toThrow(
 			/"a" in .*d\.jsonc is not an object/
 		);
 
 		// and a *total* write is untouched by it: with no claim the document replaces
 		// the file, which is the only thing `write(value)` can mean
-		await jsonc(path).write({ items: { 0: 9 } });
+		await json(path).write({ items: { 0: 9 } });
 		expect(JSON.parse(readFileSync(path, 'utf8')) as unknown).to.deep.equal({ items: { 0: 9 } });
 	});
 
@@ -1291,12 +1294,12 @@ describe('writing a store directly', () => {
 		// review, which offered throwing as the other option
 		const path = file('c.jsonc', '{ "items": [1, 2, 3] }\n');
 
-		await jsonc(path).write({}, { paths: ['items.0'] });
+		await json(path).write({}, { paths: ['items.0'] });
 		expect(readFileSync(path, 'utf8')).to.equal('{ "items": [1, 2, 3] }\n');
 
 		// and the set in the same place is the throw, which is what makes this a
 		// pair rather than a gap
-		expect(() => jsonc(path).writeSync({ items: { 0: 9 } }, { paths: ['items.0'] })).toThrow(
+		expect(() => json(path).writeSync({ items: { 0: 9 } }, { paths: ['items.0'] })).toThrow(
 			/is not an object/
 		);
 	});
@@ -1306,14 +1309,14 @@ describe('writing a store directly', () => {
 		// file says nothing about is the ordinary case, and `null` reaches the
 		// overlay as absent because that is what `null` means everywhere here
 		const absent = file('c.jsonc', '{ "x": 1 }\n');
-		await jsonc(absent).write({ a: { b: 2 } }, { paths: ['a.b'] });
+		await json(absent).write({ a: { b: 2 } }, { paths: ['a.b'] });
 		expect(JSON.parse(readFileSync(absent, 'utf8')) as unknown).to.deep.equal({
 			a: { b: 2 },
 			x: 1,
 		});
 
 		const nulled = file('d.jsonc', '{ "a": null }\n');
-		await jsonc(nulled).write({ a: { b: 2 } }, { paths: ['a.b'] });
+		await json(nulled).write({ a: { b: 2 } }, { paths: ['a.b'] });
 		expect(JSON.parse(readFileSync(nulled, 'utf8')) as unknown).to.deep.equal({ a: { b: 2 } });
 	});
 
@@ -1323,7 +1326,7 @@ describe('writing a store directly', () => {
 		// puts it in `touched`. What stops that reaching a write is `#staged`
 		// claiming no paths at all
 		const path = file('c.jsonc', '{ "a": 1 }\n');
-		await jsonc(path).write({ a: 9 }, { paths: [''] });
+		await json(path).write({ a: 9 }, { paths: [''] });
 		expect(readFileSync(path, 'utf8')).to.equal('{ "a": 1 }\n');
 	});
 
@@ -1331,7 +1334,7 @@ describe('writing a store directly', () => {
 		// every other claim test here is top level, so the ordinary nested one was
 		// unasserted -- and it is what the refusal above has to leave working
 		const path = file('c.jsonc', '{\n\t// kept\n\t"a": { "b": 1, "c": 2 },\n\t"d": 3\n}\n');
-		await jsonc(path).write({ a: { b: 9 } }, { paths: ['a.b'] });
+		await json(path).write({ a: { b: 9 } }, { paths: ['a.b'] });
 
 		expect(readFileSync(path, 'utf8')).to.equal(
 			'{\n\t// kept\n\t"a": { "b": 9, "c": 2 },\n\t"d": 3\n}\n'
@@ -1343,7 +1346,7 @@ describe('writing a store directly', () => {
 		// empty document rather than needing a case of its own: what the file holds
 		// is nothing, so what it ends up holding is the claim and nothing else
 		const path = join(root, 'new.jsonc');
-		await jsonc(path).write({ a: 1, b: 2 }, { paths: ['a'] });
+		await json(path).write({ a: 1, b: 2 }, { paths: ['a'] });
 
 		expect(readFileSync(path, 'utf8')).to.equal('{\n\t"a": 1\n}\n');
 	});
@@ -1353,7 +1356,7 @@ describe('writing a store directly', () => {
 		// refusing over it would be a guard firing on correct code. Reachable only
 		// from a direct `write()`, because `set()` checks each value on the way in
 		const path = file('c.jsonc', '{\n\t"a": 1\n}\n');
-		const store = jsonc(path);
+		const store = json(path);
 
 		await store.write({ a: 2, b: Number.NaN }, { paths: ['a'] });
 		expect(readFileSync(path, 'utf8')).to.equal('{\n\t"a": 2\n}\n');
@@ -1370,7 +1373,7 @@ describe('writing a store directly', () => {
 		// from the last `read()` -- which is what makes the read the merge is against
 		// the same read the edit is computed from
 		const path = file('c.jsonc', '{\n\t// kept\n\t"a": 1\n}\n');
-		const store = jsonc(path);
+		const store = json(path);
 
 		await store.write({ a: 2 });
 		expect(readFileSync(path, 'utf8')).to.equal('{\n\t// kept\n\t"a": 2\n}\n');
@@ -1381,7 +1384,7 @@ describe('writing a store directly', () => {
 
 	it('should edit against the bytes the file holds now rather than when it was read', async () => {
 		const path = file('c.jsonc', '{\n\t"a": 1\n}\n');
-		const store = jsonc(path);
+		const store = json(path);
 
 		await store.read();
 		writeFileSync(path, '{\n\t"a": 1,\n\t"b": 2\n}\n');
@@ -1392,7 +1395,7 @@ describe('writing a store directly', () => {
 
 	it('should refuse a value JSON cannot hold, with the file untouched', async () => {
 		const path = file('c.jsonc', '{\n\t"a": 1\n}\n');
-		const store = jsonc(path);
+		const store = json(path);
 
 		await expect(store.write({ a: Infinity })).rejects.toThrow(/Cannot write .*no Infinity/s);
 		expect(() => store.writeSync({ a: Infinity })).toThrow(/Cannot write .*no Infinity/s);
@@ -1407,8 +1410,12 @@ describe('writing a store directly', () => {
 		expect(readFileSync(path, 'utf8')).to.equal('{\n\t"a": 2,\n\t"b": 3\n}\n');
 	});
 
-	it('should report a comment in a strict .json file rather than writing past it', () => {
-		const path = file('c.json', '{\n\t// not allowed here\n\t"a": 1\n}\n');
-		expect(() => json(path).writeSync({ a: 2 })).toThrow(/Comments are not allowed/);
+	it('should keep a comment in a .json through a write, not refuse it', () => {
+		// the reversal: one reader for both extensions, so a `.json` is edited by
+		// spans exactly as a `.jsonc` is and its comments survive the write. What
+		// this replaces asserted the refusal that used to be here
+		const path = file('c.json', '{\n\t// keep me\n\t"a": 1\n}\n');
+		json(path).writeSync({ a: 2 });
+		expect(readFileSync(path, 'utf8')).to.equal('{\n\t// keep me\n\t"a": 2\n}\n');
 	});
 });

@@ -1,6 +1,0 @@
-{
-	// the bottom of the locale chain, which `sigil build` bakes into the schema
-	// it generates -- and a comment here is what makes the fixture a `.jsonc`
-	// rather than a `.json` under another name
-	"locale": "de",
-}

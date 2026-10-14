@@ -117,7 +117,7 @@ const build: AnyCommand = command({
 		const bin = argv.bin === undefined ? undefined : resolve(found.app.root, String(argv.bin));
 		assertBuildable(found, bin);
 
-		// a flag beats the file, which beats the default: `sigil.jsonc` says what
+		// a flag beats the file, which beats the default: `sigil.json` says what
 		// this app is always built with, and a flag says what this invocation
 		// wants. `--out` carries a `default:`, so what it holds when nobody
 		// passed it is that default rather than `undefined` -- which is why it is
@@ -365,7 +365,7 @@ function warnEmptyShake(styles: ShakenStyles | undefined): void {
 			{ class: 'cli-warning sigil-warn', text: 'No utility class is named anywhere in this app,' },
 			`so all ${styles.total} rules were dropped from the sheet it asked for.`,
 			'If its classes are built out of values that are never literals in the source,',
-			'name them in "build.safelist" in sigil.jsonc, or pass --no-shake.',
+			'name them in "build.safelist" in sigil.json, or pass --no-shake.',
 		],
 		process.stderr
 	);

@@ -122,7 +122,7 @@ describe('the jsonc scan, differentially', () => {
 			const rnd = seeded(seed * 2654435761);
 			const v = value(rnd, 0);
 			const text = jsoncify(v, rnd);
-			const scan = scanJsonc(text, true, 'f');
+			const scan = scanJsonc(text, 'f');
 
 			expect(scan.json, `seed ${seed}: length`).to.have.lengthOf(text.length);
 			expect(scan.json.split('\n').length, `seed ${seed}: lines`).to.equal(text.split('\n').length);
@@ -169,7 +169,7 @@ describe('the jsonc scan, differentially', () => {
 	it('should keep every string literal shape intact', () => {
 		for (const s of STRINGS) {
 			const text = `{ "k": [${s}, ${s},] /* x */ }`;
-			const scan = scanJsonc(text, true, 'f');
+			const scan = scanJsonc(text, 'f');
 			expect(scan.json).to.have.lengthOf(text.length);
 			expect(JSON.parse(scan.json), text).to.deep.equal({ k: [JSON.parse(s), JSON.parse(s)] });
 		}

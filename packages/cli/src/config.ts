@@ -1,5 +1,5 @@
 /**
- * `sigil.jsonc`: the one file the toolchain configures itself from.
+ * `sigil.json`: the one file the toolchain configures itself from.
  *
  * ## Why one file, and why not a `.ts` one
  *
@@ -8,11 +8,11 @@
  * raised was never "config file or flags" but "this file or a second one". Two
  * files answering for one tool is worse than a long script line.
  *
- * It is `sigil.jsonc` now and `sigil.json` is still read, for the reason
- * `CONFIG_FILES` gives: the extension is what tells an editor that comments are
- * allowed, and a config file is exactly the file people want to annotate. This
- * repository's own is a commented `.jsonc`, which is what makes the span writer
- * dogfood rather than a feature with a test.
+ * It stays `sigil.json`, and comments in it are read: `json()` reads a `.json`
+ * as JSONC, so the extension costs nothing and nothing has to be renamed to
+ * carry a comment. This repository's own is a commented `sigil.json`, which is
+ * what makes the span writer dogfood rather than a feature with a test.
+ * `sigil.jsonc` is read too, for an app that prefers the explicit name.
  *
  * A `next.config.ts`-shaped config was the other candidate and was left alone
  * for now. It has to be *executed*, and everything else this build does is
@@ -29,32 +29,25 @@
  * `"sourcemap": true` in the file, and the file wins over the built-in default.
  */
 
-import {
-	createConfigSync,
-	json,
-	jsonc,
-	type ConfigLayer,
-	type ConfigSchema,
-} from '@ttylabs/sigil/config';
+import { createConfigSync, json, type ConfigLayer, type ConfigSchema } from '@ttylabs/sigil/config';
 import { existsSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 
 /**
- * The config file, which is `sigil.jsonc` and may still be `sigil.json`.
+ * The config file, which is `sigil.json` and may be `sigil.jsonc`.
  *
- * `.jsonc` first and `sigil new` writes that one, because the extension is what
- * tells an editor to allow comments -- a `.json` holding one is something VS
- * Code complains about until somebody sets `files.associations`, and a config
- * file is exactly the file people want to annotate. `.json` is still read, so
- * nothing already scaffolded has to be renamed.
+ * `.json` first and `sigil new` writes that one, because it is the name an app
+ * already had and there is nothing left for the other extension to buy: one
+ * reader serves both, so a comment in a `sigil.json` is read rather than
+ * reported. `.jsonc` is still accepted for an app that prefers to say so in the
+ * file name -- which is a preference rather than a declaration about the bytes,
+ * since `tsconfig.json` is JSONC under a `.json` name too.
  *
- * Each extension means what it says: the `.jsonc` one is read with comments
- * allowed and the `.json` one strictly, which is what makes the rename a thing
- * somebody does on purpose rather than a filename that stopped meaning
- * anything. A `.json` holding a comment gets `Comments are not allowed`, naming
- * the line.
+ * Both at once is refused, naming them: with both there, picking one picks it by
+ * the order this array happens to be written in and the other silently does
+ * nothing.
  */
-export const CONFIG_FILES = ['sigil.jsonc', 'sigil.json'] as const;
+export const CONFIG_FILES = ['sigil.json', 'sigil.jsonc'] as const;
 
 /** What `sigil new` writes and what every message names where there is no file. */
 export const CONFIG_FILE: string = CONFIG_FILES[0];
@@ -96,7 +89,7 @@ export interface BuildConfig {
 	readonly sourcemap?: boolean;
 }
 
-/** `sigil.jsonc`, as it is on disk. */
+/** `sigil.json`, as it is on disk. */
 export interface SigilConfig {
 	readonly build?: BuildConfig;
 	/** Where ejected components land, relative to the app. */
@@ -178,19 +171,18 @@ function configLayer(root: string): ConfigLayer {
 		throw new Error(`${root} has both ${found.join(' and ')}; keep one.`);
 	}
 
-	// the `.jsonc` one when there is neither, because that is the one `sigil new`
+	// the `.json` one when there is neither, because that is the one `sigil new`
 	// writes and the one a message should name
 	const name = found[0] ?? CONFIG_FILE;
-	const path = join(root, name);
 
-	// the extension decides which reader, which is what makes it mean what it
-	// says: `endsWith('.jsonc')` rather than `endsWith('c')`, because the second
-	// is right about these two names and is a trick rather than the rule
-	return { name, store: name.endsWith('.jsonc') ? jsonc(path) : json(path) };
+	// one reader for either extension, so there is nothing here that has to ask
+	// which name it got -- the branch this replaces picked a strict reader for a
+	// `.json`, which is the asymmetry the two stores collapsing removed
+	return { name, store: json(join(root, name)) };
 }
 
 /**
- * Reads an app's `sigil.jsonc`, if it has one.
+ * Reads an app's `sigil.json`, if it has one.
  *
  * Validated on the way out rather than trusted: a config file is source the app
  * wrote, and an `"external": "rolldown"` where an array was meant should say so
@@ -211,7 +203,7 @@ function configLayer(root: string): ConfigLayer {
  * answer where there were two.
  *
  * And the **messages are the shared ones**, which is what sharing a validator
- * costs: `Invalid value for "build.sourcemap" in sigil.jsonc: Invalid boolean`
+ * costs: `Invalid value for "build.sourcemap" in sigil.json: Invalid boolean`
  * rather than a sentence written here. They name the file, the setting and what
  * was wrong, which is what a message has to do.
  *

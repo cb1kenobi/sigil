@@ -276,13 +276,13 @@ describe('sigil build', () => {
 		expect(map?.sourcesContent[at]).toContain('const tpl: AnyCommand');
 	}, 60_000);
 
-	it('should keep what sigil.jsonc safelists', async () => {
+	it('should keep what sigil.json safelists', async () => {
 		// the escape hatch, end to end: the scan is evidence rather than proof, so
 		// a class assembled out of values that never appear as literals leaves
 		// nothing behind -- and this is the only way to say it anyway. Written
 		// into the fixture rather than given a fixture of its own, because what is
 		// being asserted is that the config reaches the shake at all
-		const config = join(fixtures, 'styled', 'sigil.jsonc');
+		const config = join(fixtures, 'styled', 'sigil.json');
 		writeFileSync(config, JSON.stringify({ build: { safelist: ['justify-around'] } }));
 
 		try {
@@ -442,7 +442,7 @@ describe('sigil build', () => {
 		expect(statSync(file).isFile()).toBe(true);
 	}, 60_000);
 
-	it('should bake the locale `sigil.jsonc` named into the app it builds', async () => {
+	it('should bake the locale `sigil.json` named into the app it builds', async () => {
 		// the wiring the command owns: `bundle.test.ts` calls `bundleApp()` with
 		// the locale already read, so without this the one line that gets it out of
 		// the config and into the build is pinned by nothing

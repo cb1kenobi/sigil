@@ -1,4 +1,4 @@
-import { createConfig, createConfigSync, json, jsonc, object } from '../../src/config/index.js';
+import { createConfig, createConfigSync, json, object } from '../../src/config/index.js';
 import type { ConfigDocument, WritableConfigStore } from '../../src/config/index.js';
 import { parse } from '../../src/parser/parse.js';
 import { configHome } from '../../src/paths.js';
@@ -77,7 +77,7 @@ describe("the README's own example", () => {
 			"config.set('server.port', 9090);",
 			'await config.save({ lossy: true }); // this call',
 			"layers: [{ name: 'generated', lossy: true, store: reprinting(path) }]; // this layer",
-			"json('config.jsonc'); // throws: use jsonc() instead",
+			"json('config.json'); // comments and trailing commas: fine",
 			"config.set('server.retries', Infinity);",
 		]) {
 			expect(readme, line).to.contain(line);
@@ -95,7 +95,7 @@ describe("the README's own example", () => {
 			},
 			layers: [
 				{ name: 'system', readOnly: true, store: json(join(root, 'system.json')) },
-				{ name: 'user', store: jsonc(join(root, 'config.jsonc')) },
+				{ name: 'user', store: json(join(root, 'config.jsonc')) },
 				{ name: 'runtime', store: object() },
 			],
 			env: {},
@@ -152,7 +152,7 @@ describe("the README's own example", () => {
 
 		const config = await createConfig({
 			schema: { 'server.port': { type: 'int' } },
-			layers: [{ name: 'user', store: jsonc(path) }],
+			layers: [{ name: 'user', store: json(path) }],
 			env: {},
 		});
 
@@ -181,7 +181,7 @@ describe("the README's own example", () => {
 
 		const path = join(root, 'config.jsonc');
 		writeFileSync(path, '{\n\t// kept\n\t"port": 8080,\n\t"host": "a"\n}\n');
-		const store = jsonc(path);
+		const store = json(path);
 
 		await store.write({ port: 9000 }, { paths: ['port'] });
 
@@ -237,14 +237,11 @@ describe("the README's own example", () => {
 		);
 	});
 
-	it('should refuse the two things the README says it refuses', () => {
-		// `json('config.jsonc'); // throws: use jsonc() instead`
-		expect(() => json(join(root, 'config.jsonc'))).toThrow(/use jsonc\(\) instead/);
-
+	it('should refuse what the README says it refuses', () => {
 		// `config.set('server.retries', Infinity);`
 		// `// user cannot hold the value at "server.retries": JSON has no Infinity`
 		const config = createConfigSync({
-			layers: [{ name: 'user', store: jsonc(join(root, 'c.jsonc')) }],
+			layers: [{ name: 'user', store: json(join(root, 'c.jsonc')) }],
 			env: {},
 		});
 
@@ -257,7 +254,7 @@ describe("the README's own example", () => {
 		// `layers: [{ name: 'generated', lossy: true, store: reprinting(path) }]`
 		//
 		// over a store that really does report a loss, because the two in here never
-		// do: with a `jsonc()` layer the lossless check returns before it ever reads
+		// do: with a `json()` layer the lossless check returns before it ever reads
 		// `layer.lossy`, so this passed with the flag deleted -- which is the README's
 		// own "the file stores in here never trip it" said against the test for it.
 		// Found by review, and the example moved with it
@@ -290,7 +287,7 @@ describe("the README's own example", () => {
 		// after it means: `delete()` with no name reaches the topmost writable
 		// layer, so a value set into `user` as well would still be there
 		const config = await createConfig({
-			layers: [{ name: 'user', store: jsonc(join(root, 'config.jsonc')) }],
+			layers: [{ name: 'user', store: json(join(root, 'config.jsonc')) }],
 			env: {},
 		});
 
@@ -381,11 +378,12 @@ describe("the README's own example", () => {
 		// `object()` -- the in-memory override layer
 		expect(object().format).to.equal('object');
 		expect(object().readSync().value).to.deep.equal({});
-		// `json(path)` -- strict, with comments reported
-		expect(json(join(root, 'x.json')).format).to.equal('json');
-		// `jsonc(path)` -- comments and trailing commas
-		writeFileSync(join(root, 'y.jsonc'), '{ /* hi */ "a": 1, }');
-		expect(jsonc(join(root, 'y.jsonc')).readSync().value).to.deep.equal({ a: 1 });
+		// `json(path)` -- a JSON file, read as JSONC whatever it is called
+		expect(json(join(root, 'x.json')).format).to.equal('jsonc');
+		for (const name of ['y.json', 'y.jsonc']) {
+			writeFileSync(join(root, name), '{ /* hi */ "a": 1, }');
+			expect(json(join(root, name)).readSync().value, name).to.deep.equal({ a: 1 });
+		}
 	});
 
 	it('should be able to name a layer the way the README spells it', () => {

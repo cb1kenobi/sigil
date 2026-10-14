@@ -1,5 +1,5 @@
 import { CONFIG_FILE, CONFIG_SCHEMA, readSigilConfig } from '../src/config.js';
-import { createConfigSync, jsonc } from '@ttylabs/sigil/config';
+import { createConfigSync, json } from '@ttylabs/sigil/config';
 import { copyFileSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
  * The write half's acceptance test: this repository's **own** config file,
  * read, changed and written back.
  *
- * `sigil.json` became `sigil.jsonc` with comments in it, which is what makes
+ * this repository's own `sigil.json` holds comments, which is what makes
  * the span writer dogfood rather than a feature with a test of its own -- and
  * it is the one file in here nobody can claim was written to be easy. Over the
  * real `CONFIG_SCHEMA` rather than a copy of it, so that what is asserted is
@@ -23,7 +23,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
  */
 
 /** This repository's own, which is the file under test. */
-const real = join(import.meta.dirname, '..', 'sigil.jsonc');
+const real = join(import.meta.dirname, '..', 'sigil.json');
 
 let root: string;
 let path: string;
@@ -41,7 +41,7 @@ afterEach(() => {
 /** A config over the copy, declared the way the toolchain declares its own. */
 function open(): ReturnType<typeof createConfigSync> {
 	return createConfigSync({
-		layers: [{ name: CONFIG_FILE, store: jsonc(path) }],
+		layers: [{ name: CONFIG_FILE, store: json(path) }],
 		schema: CONFIG_SCHEMA,
 		env: {},
 	});

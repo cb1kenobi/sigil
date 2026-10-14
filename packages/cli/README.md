@@ -25,10 +25,11 @@ one that checks out.
 
 ## Configuration
 
-`sigil.jsonc`, beside your `package.json`. Every field is optional, and a
-command-line flag beats the file. Comments and trailing commas are allowed,
-which is what the extension is for; a `sigil.json` is still read, strictly, so
-nothing already scaffolded has to be renamed. Both at once is an error.
+`sigil.json`, beside your `package.json`. Every field is optional, and a
+command-line flag beats the file. Comments and trailing commas are allowed in
+it -- the file is read as JSONC whatever it is called, so you never have to
+rename it to annotate it. `sigil.jsonc` is read too, for a project that prefers
+to say so in the name; both at once is an error.
 
 ```jsonc
 {

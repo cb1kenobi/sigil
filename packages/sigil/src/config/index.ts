@@ -78,7 +78,7 @@
 
 export { Config, createConfig, createConfigSync, isWritableStore } from './config.js';
 export { object } from './stores/object.js';
-export { json, jsonc } from './stores/file.js';
+export { json } from './stores/file.js';
 export type {
 	ConfigDocument,
 	ConfigLayer,

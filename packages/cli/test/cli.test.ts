@@ -299,7 +299,7 @@ describe('@ttylabs/cli', () => {
 		});
 
 		it('should build with no options at all', () => {
-			// what `sigil.jsonc` bought: the options are facts about the app, so
+			// what `sigil.json` bought: the options are facts about the app, so
 			// they live beside it rather than in whoever happens to be typing the
 			// command. `sigil build` empties the output directory itself, so there
 			// is no `rimraf` either
@@ -552,7 +552,7 @@ describe('@ttylabs/cli', () => {
 		 * written out rather than derived from the command.
 		 *
 		 * This is the half the global hash was hiding. `@ttylabs/cli`'s build is
-		 * `node src/sigil.ts build`, which reads `sigil.jsonc` for `external` and
+		 * `node src/sigil.ts build`, which reads `sigil.json` for `external` and
 		 * `sourcemap` -- and that file was in no input list, so it rode into the
 		 * hash only as one more file of a root internal dependency. Take that away
 		 * and one cache key names two different bundles: flipping `sourcemap` left
@@ -566,7 +566,7 @@ describe('@ttylabs/cli', () => {
 		 * are: adding one is then an edit somebody makes on purpose.
 		 */
 		const reads: Record<string, string[]> = {
-			'@ttylabs/cli#build': ['package.json', 'sigil.jsonc', 'tsconfig.json', 'vitest.config.ts'],
+			'@ttylabs/cli#build': ['package.json', 'sigil.json', 'tsconfig.json', 'vitest.config.ts'],
 			'@ttylabs/sigil#build': [
 				'package.json',
 				'scripts/generate-registry.mjs',

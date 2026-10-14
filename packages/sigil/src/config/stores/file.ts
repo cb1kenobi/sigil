@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 
 /**
- * A store over a file, in one of the two JSON flavours.
+ * A store over a JSON file, read as JSONC whatever it is called.
  *
  * `read()` and `readSync()` are two real implementations over one shared parse
  * rather than one wrapping the other, which is what the interface asks for and
@@ -34,10 +34,9 @@ import { readFile } from 'node:fs/promises';
  * Windows it expands `%VAR%` too, for the same reason.
  *
  * @param path - The file.
- * @param jsonc - Whether comments and trailing commas are allowed.
  * @returns The store.
  */
-function fileStore(path: string, jsonc: boolean): WritableConfigStore {
+function fileStore(path: string): WritableConfigStore {
 	// refused here rather than at the read, because what the read says about it
 	// names the wrong thing: `expand('')` is `'.'`, so an empty path reported
 	// `Failed to read .: EISDIR` -- a message about a directory nobody named --
@@ -47,26 +46,7 @@ function fileStore(path: string, jsonc: boolean): WritableConfigStore {
 		throw new Error('A config file store needs a path');
 	}
 
-	// a format conversion that **cannot** preserve is refused where the layer is
-	// built rather than at `save()`, which is the rule that what is decidable
-	// statically fails the build rather than the frame. `.jsonc` is an extension
-	// whose only purpose is to say "comments are allowed here", so the strict
-	// store over one is a declaration that contradicts itself -- and the guard
-	// cannot fire on code that is right, because `jsonc()` reads everything
-	// `json()` reads and more, so there is no file for which `json('x.jsonc')` is
-	// the better spelling.
-	//
-	// The reverse is **not** refused, and that asymmetry is the point:
-	// `tsconfig.json` is JSONC under a `.json` name, so an extension that does
-	// not claim comments says nothing about whether a file holds them
-	if (!jsonc && /\.jsonc$/i.test(path)) {
-		throw new Error(
-			`json("${path}") cannot preserve what a .jsonc file is for: use jsonc() instead.`
-		);
-	}
-
 	const source = expand(path);
-	const format = jsonc ? 'jsonc' : 'json';
 
 	/** What the file holds, or nothing where it is not there. */
 	const text = async (): Promise<string | undefined> => {
@@ -101,7 +81,7 @@ function fileStore(path: string, jsonc: boolean): WritableConfigStore {
 			return { value: {} };
 		}
 
-		const { value } = parseJsonc(text, jsonc, source);
+		const { value } = parseJsonc(text, source);
 
 		// a document's root has to be something a layer can merge, which is an
 		// object. A file holding `42` or `[1, 2]` is not a config, and merging it
@@ -193,14 +173,14 @@ function fileStore(path: string, jsonc: boolean): WritableConfigStore {
 			return `${JSON.stringify(held, null, DEFAULT_STEP)}\n`;
 		}
 
-		return editJsonc(now as string, held, { allow: jsonc, what: source });
+		return editJsonc(now as string, held, { what: source });
 	};
 
 	return {
 		canRepresent(value: unknown, at: string): true | string {
 			return jsonCanHold(value, at);
 		},
-		format,
+		format: 'jsonc',
 		async read(): Promise<ConfigDocument> {
 			return parse(await text());
 		},
@@ -242,42 +222,32 @@ function fileStore(path: string, jsonc: boolean): WritableConfigStore {
 }
 
 /**
- * A `.json` file: strict JSON, with comments and trailing commas **reported**
- * rather than accepted.
+ * A JSON config file, read as JSONC whatever it is called.
  *
- * Reported rather than left to `JSON.parse`, which is the one thing this adds
- * over calling it directly: a `.json` holding a comment gets
- * `Comments are not allowed in ...` naming the line, where the engine's answer
- * is `Unexpected token /` and a reader has to work out what it meant.
+ * Comments and trailing commas are accepted in a `.json` as readily as in a
+ * `.jsonc`, which is **one** reader rather than one per extension. The argument
+ * for two was that an extension should mean what it says, and the counterexample
+ * is the one this file already cited for the other direction: `tsconfig.json` is
+ * JSONC under a `.json` name, and so are VS Code's own settings. An extension is
+ * not a declaration about the bytes -- it is a file name, and a config file is
+ * the file people most want to annotate. So a comment in a `.json` is read
+ * rather than reported, and nobody has to rename a file to write one.
  *
- * A path that ends `.jsonc` is **refused**, because that extension exists to
- * say comments are allowed and this store exists to say they are not.
+ * What that gives up is the `Comments are not allowed in ...` message, which
+ * named the line where `JSON.parse`'s `Unexpected token /` does not. It bought
+ * strictness nobody asked for: this store never *writes* a comment, so reading
+ * one strictly could only refuse a file every other tool in the ecosystem
+ * accepts. An app that needs a file to stay strict JSON has a tool that says so
+ * -- its own validator, or whatever consumes it -- and that tool is not this.
+ *
+ * It writes by **editing spans** rather than reprinting, so a comment, a
+ * trailing comma, the user's indentation, their key order, their line endings
+ * and a missing final newline all survive a `set()` -- not because each is
+ * handled but because the bytes holding them are never rewritten.
  *
  * @param path - The file.
  * @returns The store.
  */
 export function json(path: string): WritableConfigStore {
-	return fileStore(path, false);
-}
-
-/**
- * A `.jsonc` file: JSON plus comments and trailing commas.
- *
- * The flavour `tsconfig.json` and VS Code's settings are written in, which is
- * what people mean by a `.jsonc`. Not JSON5 -- see `jsonc.ts` for what is
- * deliberately not in it.
- *
- * It writes by **editing spans** rather than reprinting, so a comment, a
- * trailing comma, the user's indentation, their key order, their line endings
- * and a missing final newline all survive a `set()` -- not because each is
- * handled but because the bytes holding them are never rewritten. A `.json`
- * path is accepted, for the reason `json()` refuses a `.jsonc` one in the other
- * direction: an extension that does not claim comments says nothing about
- * whether a file holds them.
- *
- * @param path - The file.
- * @returns The store.
- */
-export function jsonc(path: string): WritableConfigStore {
-	return fileStore(path, true);
+	return fileStore(path);
 }

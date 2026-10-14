@@ -205,7 +205,7 @@ hole and the more consequential half of it, since it decides whether
 the build wrote, here it restores something the build would not have written.
 
 So `sigil.json` is in `inputs`, beside `tsdown.config.ts`, which is the precedent
--- and `sigil.jsonc` is beside it since the write half, because either name is
+-- and `sigil.jsonc` is beside it, because either name is
 read and a task's `inputs` has to name both or the one it left out is the hole
 this entry is about, back again
 in both directions -- a package without the file contributes nothing, and a
@@ -9642,7 +9642,7 @@ makes it testable with a fixture directory and no bundler at all.
   app naming `jsxImportSource` always built correctly and the defect was only
   ever rolldown's default; byte for byte, such an app's bundle is what it was
   before this changed. Which is also the argument against the other candidate:
-  a `sigil.jsonc` key, or a `tsconfig` reader of the build's own, would be a
+  a `sigil.json` key, or a `tsconfig` reader of the build's own, would be a
   second place to say a thing the app's editor and its own `tsc` already obey,
   and reading one means JSONC and an `extends` chain rather than a lookup.
 - **`importSource` and nothing else, which is the whole of the decision.**
@@ -10349,7 +10349,7 @@ other is refused with numbers.
 - **A flag beats the file, and for a _flag_ that is only true in one
   direction.** A declared flag always has a value -- `false`, or `true` when
   negated, never `undefined` -- so an explicit `--shake` is indistinguishable
-  from the default and cannot beat a `"shake": false` in `sigil.jsonc`, while
+  from the default and cannot beat a `"shake": false` in `sigil.json`, while
   `--no-shake` over a `"shake": true` works. That is the direction that matters,
   because off is the only thing either flag is offered for, and it is the same
   imprecision `--out` already carries a comment about: what a defaulted option
@@ -11469,7 +11469,7 @@ people's software and will move.
   case and `cd apps/demo` under a `--cwd`. Both go through `displayPath`, which
   is what makes them forward-slashed on Windows -- and is what a test asserting
   a `join()`ed path would get wrong there and nowhere else.
-- **A `sigil.jsonc` is written rather than left to the convention.** A scaffold is
+- **A `sigil.json` is written rather than left to the convention.** A scaffold is
   exactly where a project's conventions should be explicit, and it is what stops
   `sigil add` having to guess -- and then print the guess, which is what it does
   when there is no config.
@@ -16840,7 +16840,7 @@ and the check, and `src/i18n/keys.ts` is generated.
   `defaultLocale` is the app saying "ship in German unless the machine asks
   otherwise" and the environment outranks it. One name meaning both is how a
   default comes to override the user, which is the trap. It is what
-  `"locale": "de"` in `sigil.jsonc` reaches, through the build.
+  `"locale": "de"` in `sigil.json` reaches, through the build.
 
   It does **not** open the no-catalogs fast path: an app that names a default and
   ships no `locales` still resolves nothing, because a default is not a catalog
@@ -16849,7 +16849,7 @@ and the check, and `src/i18n/keys.ts` is generated.
   serves Austria from one `de` catalog, and a tag no loader is keyed by reads as
   English.
 
-- **`sigil.jsonc` gains a `locale`, which is the first key in that file that
+- **`sigil.json` gains a `locale`, which is the first key in that file that
   changes what the app says at run time -- so it is top level rather than under
   `build`.** Everything else in there is a toolchain setting: `components` is
   where `sigil add` ejects and `build.*` are bundler knobs, none of which the
@@ -16866,7 +16866,7 @@ and the check, and `src/i18n/keys.ts` is generated.
   here would be one that disagrees with `Intl`.
 
   What it costs is an asymmetry worth stating rather than hiding: the key reaches
-  the **built** app only, so an app whose `sigil.jsonc` says `de` and whose schema
+  the **built** app only, so an app whose `sigil.json` says `de` and whose schema
   says nothing is German built and English unbundled. That is `version`'s own
   shape -- the manifest's version is baked while the app's own function is the
   unbundled answer -- and the answer is the same: an app that wants its
@@ -17056,7 +17056,7 @@ and the check, and `src/i18n/keys.ts` is generated.
   literal rather than the `JSON.parse`-of-a-string-literal trick everybody
   reaches for first -- which loses until about a thousand keys. A `printCatalog()`
   was written and tested and then **removed**, because the baking is not wired and
-  this repo does not ship an export with no caller. What `sigil.jsonc` gained
+  this repo does not ship an export with no caller. What `sigil.json` gained
   instead is a `locale` **default** rather than a baked catalog, which is the
   entry below: it decides which catalog is loaded and bakes none of it.
 
@@ -17907,11 +17907,11 @@ without destroying it is SIG-154's.
 
 - **It imports no parser module at all, and that is a test rather than a
   coincidence.** Measured as transitive static import byte weight off `dist/`:
-  **31,425 B over seven modules**, of which **9,880 B over six** is what it starts
+  **31,789 B over seven modules**, of which **9,880 B over six** is what it starts
   from -- `paths.mjs`, the `transform` chunk, which is `transform`, `i18n` and
   `debug`, the 66-byte `env-value` chunk the parser shares, and the 525-byte
   `mkdir-owner-sync` one the update cache shares. So the module itself is
-  21,545 B, and the graph is **4.2x** the root entry's 7,518 B and an **eighth**
+  21,909 B, and the graph is **4.2x** the root entry's 7,518 B and an **eighth**
   of `components.mjs`'s 239,927 B over 26 -- all three measured the
   same way, which is the only comparison that means anything. It was
   **20,649 B over six** before SIG-154, which is the write half costing about
@@ -18539,7 +18539,7 @@ without destroying it is SIG-154's.
   complete sentence for all four, and what it loses -- which call it was -- is in
   the stack trace.
 
-- **16 new keys, 78 in total.** `SIGIL_KEYS.length` is the figure and the
+- **16 new keys, and 77 in total once the two strict-reader keys went.** `SIGIL_KEYS.length` is the figure and the
   generator prints the count it wrote; no number here should be read as the
   current one.
 
@@ -18623,10 +18623,10 @@ without destroying it is SIG-154's.
 
   Worth knowing where each half of a message comes from: the type messages name
   the **layer**, which the toolchain calls after whichever of the two files it
-  found -- `sigil.jsonc` or `sigil.json` -- while the parse and read messages
+  found -- `sigil.json` or `sigil.jsonc` -- while the parse and read messages
   name the store's **source**, which is the absolute path. So
-  `Invalid value for "build.external" in sigil.jsonc` and
-  `Failed to parse /path/to/sigil.jsonc` sit side by side, and each names the
+  `Invalid value for "build.external" in sigil.json` and
+  `Failed to parse /path/to/sigil.json` sit side by side, and each names the
   thing its own reader can act on.
 
 - **A file that is not there and a file holding `{}` are now the same answer.**
@@ -19028,7 +19028,8 @@ corroboration rather than as duplication.
 
 - **The README's own `set()` example threw as published, and the test written to
   catch that said it had been fixed.** `config.set('editor.theme', 'dark',
-  'user')` names a `jsonc()` layer, which this ticket does not make writable. It
+  'user')` names a `jsonc()` layer -- the factory that became `json()` -- which
+  that ticket did not make writable. It
   was found once already -- `readme.test.ts` runs with `'runtime'` and asserts
   `'user'` throws -- and the **README was not changed**, while that test's comment
   claimed it had been. So the published line stayed broken for another commit
@@ -19539,44 +19540,69 @@ hold, and `Config.save()` is the one caller of all four.
   refuses -- and it is right to: a translator meeting one has no way to tell a
   literal brace from a slot somebody spelled with a name.
 
-- **Format conversion is refused where the layer is built, and the one case core
-  has is `json()` over a `.jsonc` path.** Reading `.jsonc` and writing `.json` is
-  not a write that _might_ lose comments; it is one that certainly will, knowably,
-  before any editing starts -- which belongs where the layer is constructed rather
-  than at `save()`, the rule that what is decidable statically fails the build
-  rather than the frame. `.jsonc` is an extension whose only purpose is to say
-  "comments are allowed here", so the strict store over one is a declaration that
-  contradicts itself, and the guard cannot fire on code that is right: `jsonc()`
-  reads everything `json()` reads and more, so there is no file for which
-  `json('x.jsonc')` is the better spelling.
+- **Format conversion is no longer a thing core can be asked for**, because there
+  is one file store and it reads both extensions. What this records is the entry
+  that was here: `json()` over a `.jsonc` path used to throw, on the argument that
+  such an extension exists to say comments are allowed and the strict store exists
+  to say they are not. The asymmetry it rested on -- that the _reverse_ was not
+  refused, because `tsconfig.json` is JSONC under a `.json` name -- is what
+  eventually overturned the whole distinction. See "One reader for both extensions"
+  below. A store that genuinely cannot preserve what it was handed still refuses
+  where the layer is built, which is the rule; core just has no such store.
 
-  The reverse is **not** refused, and that asymmetry is the point:
-  `tsconfig.json` is JSONC under a `.json` name, so an extension that does not
-  claim comments says nothing about whether a file holds them.
+#### One reader for both extensions, and `sigil.json` stays `sigil.json`
 
-#### `sigil.json` becoming `sigil.jsonc`, which is the acceptance test
+This reverses a decision recorded here, at the repository owner's call, and the
+reversal is better than what it replaces -- so what the entry below is for is the
+argument rather than the history.
 
-- **Both names are read and `.jsonc` is preferred.** The extension is what tells
-  an editor that comments are allowed -- a `.json` holding one is something VS
-  Code complains about until somebody sets `files.associations`, and a config file
-  is exactly the file people want to annotate. `sigil.json` is still read so
-  nothing already scaffolded has to be renamed, and `sigil new` writes the
-  `.jsonc` one.
+- **A `.json` is read as JSONC, and so is a `.jsonc`.** One reader rather than one
+  per extension. What this replaced read the `.jsonc` one with comments allowed
+  and the `.json` one strictly, on the argument that an extension should mean what
+  it says -- and the counterexample was already written into this file one
+  paragraph away, as the reason the _reverse_ conversion was not refused:
+  **`tsconfig.json` is JSONC under a `.json` name**, and so are VS Code's own
+  settings. An extension is a file name rather than a declaration about the bytes,
+  and a config file is the file people most want to annotate. So the rule that
+  "each extension means what it says" was being applied to a convention the
+  ecosystem had already settled the other way.
 
-- **Each extension means what it says**, which is what makes the rename a thing
-  somebody does on purpose rather than a filename that stopped meaning anything:
-  the `.jsonc` one is read with comments allowed and the `.json` one strictly, so
-  a `.json` holding a comment still gets `Comments are not allowed` naming the
-  line. Reading both as JSONC was the other option and it makes the extension mean
-  nothing; refusing a comment in a `.jsonc` is incoherent. So `json()` keeps a
-  real caller, which is the half that would otherwise have gone dead.
+- **What it gives up is the `Comments are not allowed in {0}, on line {1}`
+  message**, which named the line where `JSON.parse`'s `Unexpected token /` does
+  not. It bought strictness nobody asked for: this store never _writes_ a comment,
+  so reading one strictly could only refuse a file every other tool accepts. An
+  app that needs a file to stay strict JSON has something that says so -- its own
+  validator, or whatever consumes it -- and that something is not this. Two i18n
+  keys went with it, 79 to 77.
+
+- **So `json()` and `jsonc()` collapsed into one `json()`**, because two names for
+  one behaviour is the drift this file deletes everywhere else. `json()` is the
+  surviving spelling: it is the one that reads naturally over a `config.json`,
+  which is the extension an app already has. A breaking change to a published
+  export, taken because the package is at `0.0.1` -- the call `heading()` and
+  `paths.config()` already got.
+
+- **And the format-conversion refusal went with it.** `json('x.jsonc')` used to
+  throw, which was coherent only while the two stores read differently: with one
+  reader there is nothing to convert and nothing to refuse. `fileStore()`'s
+  `jsonc` parameter, `scanJsonc()`'s and `parseJsonc()`'s `allow`, and
+  `EditOptions.allow` all went the same way -- an unused parameter is worse than
+  no parameter, and the strict branch they fed had no caller left.
 
 - **Both at once is refused, naming them.** The two-routes-one-name rule said about
   a config file: with both there, picking one picks it by the order an array happens
-  to be written in and the other silently does nothing.
+  to be written in and the other silently does nothing. `sigil.json` is first and
+  is what `sigil new` writes, because it is the name an app already had and there is
+  nothing left for the other extension to buy.
 
-- **This repository's own is a commented `.jsonc`**, which is what makes the span
-  writer dogfood rather than a feature with a test of its own.
+- **This repository's own is a commented `sigil.json`**, which is what makes the span
+  writer dogfood rather than a feature with a test of its own. Four sabotages over the
+  reversal, all four caught: refusing a comment again fails **42** tests across
+  both packages, reporting the store's format as `json` fails 3, putting `.jsonc`
+  back at the head of `CONFIG_FILES` fails 3, and having `sigil new` write a
+  `.jsonc` fails 1. So the new behaviour is pinned rather than incidental, which
+  for a reversal is the thing worth checking: a decision reversed without a test
+  is one the next round reverses back.
   `packages/cli/test/config-write.test.ts` copies it, sets `build.sourcemap`,
   saves, and asserts the result is the original with that one token changed and
   **every other byte identical** -- over the real `CONFIG_SCHEMA` rather than a
@@ -19593,7 +19619,7 @@ hold, and `Config.save()` is the one caller of all four.
   `sigil config set` is where a write would get a caller.
 
 - **`inputs` names both file names in both turbo configs**, because `inputs`
-  replaces rather than extends and a build that reads `sigil.jsonc` and does not
+  replaces rather than extends and a build that reads either name and does not
   hash it is the stale-`dist/` hole the `registry/**` incident is written about.
 
 #### What the sabotage pass found, and the two declared survivors
@@ -19939,11 +19965,12 @@ the one the round found too.
   that sentence reverts the rename on the common path.
 
 Its "Unsure" section was empty, and the one thing it put there instead is worth
-keeping: `cli.test.ts`'s `reads` table lists only `sigil.jsonc` while
-`packages/cli/turbo.json` hashes both, and that is **not** a hole, because
-`should hash every file a build command reads` is presence-only `toContain` --
-omitting `sigil.json` fails nothing. A correct reading of a non-hole is as much
-of a result as a finding.
+keeping: `cli.test.ts`'s `reads` table names only the one of the two config file
+names that is **on disk** while `packages/cli/turbo.json` hashes both, and that is
+**not** a hole, because `should hash every file a build command reads` is
+presence-only `toContain` -- omitting the other fails nothing, and turbo's
+resolved inputs cannot hold a file that is not there anyway. A correct reading of
+a non-hole is as much of a result as a finding.
 
 Six sabotages over the fixes, **all six caught**, each by exactly the test named
 for it -- after two survivors that were the same shape as the findings: the
@@ -20345,9 +20372,9 @@ in `config.test.ts`.
 
 #### What the write half costs
 
-- **The config module's graph is 31,425 B over seven modules**, against 20,649 B
+- **The config module's graph is 31,789 B over seven modules**, against 20,649 B
   over six for the read half -- so the span writer, the atomic write and the
-  representability check are about 10.8 kB between them. The seventh module is the
+  representability check are about 11.1 kB between them. The seventh module is the
   `mkdir-owner-sync` chunk the update cache already shares. It still imports no
   parser module at all, which is the property the read half's own test holds and is
   why the ceiling did not move.

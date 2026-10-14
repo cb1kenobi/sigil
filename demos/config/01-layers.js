@@ -1,4 +1,4 @@
-import { createConfig, json, jsonc, object } from '@ttylabs/sigil/config';
+import { createConfig, json, object } from '@ttylabs/sigil/config';
 /**
  * One merged view over an ordered stack of layers: the merge, the schema, the
  * environment on top, and what `set()` does to one layer.
@@ -16,10 +16,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 // two files, written here so the demo is self-contained. An app's would be
-// `/etc/myapp/config.json` and `paths.configHome('myapp', 'config.jsonc')`
+// `/etc/myapp/config.json` and `paths.configHome('myapp', 'config.json')`
 const root = mkdtempSync(join(tmpdir(), 'sigil-config-demo-'));
 const system = join(root, 'system.json');
-const user = join(root, 'config.jsonc');
+const user = join(root, 'config.json');
 
 writeFileSync(
 	system,
@@ -30,9 +30,10 @@ writeFileSync(
 	})
 );
 
-// a `.jsonc` holds comments and trailing commas. The store reads them, and the
-// span writer SIG-154 gives it will keep them -- which is why a `.jsonc` is read
-// rather than reprinted
+// a config file holds comments and trailing commas whatever it is called:
+// `json()` reads a `.json` as JSONC, which is what `tsconfig.json` already is.
+// The span writer keeps them, which is why the file is edited rather than
+// reprinted
 writeFileSync(
 	user,
 	`{
@@ -126,11 +127,10 @@ try {
 	console.log(`  still ${JSON.stringify(config.get('editor.theme'))}`);
 	console.log();
 
-	// both file layers read as read-only, and that is this ticket rather than the
-	// design: a `.json` store reads and does not write, because a reprinting JSON
-	// writer would destroy the comments a `.jsonc` file is read *for*. The span
-	// writer SIG-154 gives them is what makes them writable, and until then the
-	// `object()` layer on top is where a `set()` goes
+	// the system layer is read-only because this demo declares it so -- an
+	// `/etc` file an app reads and must not touch. The user file is writable:
+	// `json()` edits spans rather than reprinting, so a `save()` changes the
+	// bytes it was asked to and leaves the comments alone
 	console.log('the layers, for diagnostics');
 	for (const layer of config.layers) {
 		const where = layer.source ? layer.source.replace(root, '<tmp>') : '(in memory)';

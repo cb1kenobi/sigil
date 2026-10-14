@@ -915,7 +915,7 @@ all mean English and read no catalog.
 `defaultLocale` is the **bottom** of that chain, which is what makes it a
 default rather than a second `AppOptions.locale`: it says what the app ships in,
 and every environment variable still beats it. `sigil build` writes it from
-`"locale"` in `sigil.jsonc`, so an app configures it once:
+`"locale"` in `sigil.json`, so an app configures it once:
 
 ```json
 { "locale": "de" }
@@ -1329,7 +1329,7 @@ layers**. `get()` reads the merged view; `set()` and `delete()` mutate one
 layer, because a merged value has no single home to write to.
 
 ```js
-import { createConfig, json, jsonc, object } from '@ttylabs/sigil/config';
+import { createConfig, json, object } from '@ttylabs/sigil/config';
 import { configHome } from '@ttylabs/sigil/paths';
 
 const config = await createConfig({
@@ -1340,7 +1340,7 @@ const config = await createConfig({
   },
   layers: [
     { name: 'system', readOnly: true, store: json('/etc/myapp/config.json') },
-    { name: 'user', store: jsonc(configHome('myapp', 'config.jsonc')) },
+    { name: 'user', store: json(configHome('myapp', 'config.json')) },
     { name: 'runtime', store: object() },
   ],
 });
@@ -1404,14 +1404,13 @@ A layer is a name, a store, and optionally `readOnly`:
 
 | store           | what it is                                                                        |
 | --------------- | --------------------------------------------------------------------------------- |
-| `json(path)`    | strict JSON, with comments and trailing commas reported rather than accepted      |
-| `jsonc(path)`   | JSON plus `//` and `/* */` comments and trailing commas                           |
+| `json(path)`    | a JSON file, read as JSONC: `//` and `/* */` comments and trailing commas         |
 | `object(value)` | a value your app already has                                                      |
 | `object()`      | the in-memory override layer: a run that overrides a setting for its own duration |
 
-All three write. The file stores write by **editing spans**, so a `save()`
-changes the bytes it was asked to and nothing else; `object()` replaces the
-value it holds, so a layer over one persists nothing.
+Both write. `json()` writes by **editing spans**, so a `save()` changes the
+bytes it was asked to and nothing else; `object()` replaces the value it holds,
+so a layer over one persists nothing.
 
 A file that is not there reads as an empty layer, which is the ordinary state of
 a config file. A file that holds nothing but whitespace reads the same way.
@@ -1441,7 +1440,7 @@ const config = await createConfig({
   schema,
   layers: [
     { name: 'defaults', store: object(mod.default) },
-    { name: 'user', store: jsonc(configHome('myapp', 'config.jsonc')) },
+    { name: 'user', store: json(configHome('myapp', 'config.json')) },
   ],
 });
 ```
@@ -1586,7 +1585,7 @@ It throws, and the message names the layer and both ways out:
 
 ```
 Cannot delete "editor.theme": it is set in <system defaults>, which is read-only.
-  Set it in ~/.config/app/config.jsonc to override the value, or
+  Set it in ~/.config/app/config.json to override the value, or
   remove it from /etc/app/config.json.
 ```
 
@@ -1736,7 +1735,7 @@ layers: [{ name: 'generated', lossy: true, store: reprinting(path) }]; // this l
 ```
 
 `reprinting(path)` stands for a store that reprints — the two file stores in
-here answer with no loss at all, so `lossy` on a `jsonc()` layer is a flag
+here answer with no loss at all, so `lossy` on a `json()` layer is a flag
 nothing ever reads.
 
 Per layer is the legitimate case — this file is generated, so clobber it freely.
@@ -1760,18 +1759,23 @@ A `Date` passes, and so does anything else with a `toJSON` — `JSON.stringify`
 calls that first and never looks at the rest, so an object that said what it is
 in JSON has said it.
 
-### `json()` over a `.jsonc` path is refused
+### `.json` and `.jsonc` are read the same way
 
 ```js
-json('config.jsonc'); // throws: use jsonc() instead
+json('config.json'); // comments and trailing commas: fine
+json('config.jsonc'); // the same reader, the same answer
 ```
 
-That extension exists to say comments are allowed and the strict store exists
-to say they are not, so the pair is a declaration that contradicts itself — and
-it is decidable where the layer is built rather than at `save()`, which is where
-it belongs. The reverse is **not** refused: `tsconfig.json` is JSONC under a
-`.json` name, so an extension that does not claim comments says nothing about
-whether a file holds them.
+One reader rather than one per extension, so you never have to rename a config
+file to put a comment in it. `tsconfig.json` is JSONC under a `.json` name and
+so are VS Code's own settings: an extension is a file name rather than a
+declaration about the bytes, and a config file is the file people most want to
+annotate.
+
+What that gives up is a `Comments are not allowed in ...` message naming the
+line. It bought strictness nobody asked for — `json()` never _writes_ a comment,
+so reading one strictly could only refuse a file every other tool accepts. If a
+file has to stay strict JSON, the thing that says so is whatever consumes it.
 
 ### Writing your own store
 
@@ -1855,7 +1859,8 @@ refuses over it.
 ### JSONC, and what it is not
 
 `//` and `/* */` comments and trailing commas. The flavour `tsconfig.json` and
-VS Code's settings are written in, which is what people mean by a `.jsonc`.
+VS Code's settings are written in -- which is also why `json()` reads a `.json`
+this way: those two are JSONC under a `.json` name.
 
 Not JSON5: no single-quoted strings, no unquoted keys, no `+1`, no hex, no `NaN`.
 Widening it would be inventing a dialect other tools cannot read.
@@ -2985,13 +2990,13 @@ interface — one merged view over an ordered stack of layers. See
 
 The whole surface, since an exported type is API an app can write into its own
 signatures: `createConfig`, `createConfigSync`, `Config`, `isWritableStore`,
-`object`, `json`, `jsonc`, and the types `ConfigOptions`, `ConfigLayer`,
+`object`, `json`, and the types `ConfigOptions`, `ConfigLayer`,
 `ConfigLayerInfo`, `ConfigSchema`, `ConfigSetting`, `ConfigMerge`,
 `ConfigDocument`, `ConfigStore`, `WritableConfigStore`, `WriteOptions` and
 `Loss`.
 
 ```js
-import { createConfigSync, json, jsonc, object } from '@ttylabs/sigil/config';
+import { createConfigSync, json, object } from '@ttylabs/sigil/config';
 ```
 
 It imports no parser module at all, which makes it usable from an app that does

@@ -565,7 +565,7 @@ export function scaffold(opts: ScaffoldOptions): ScaffoldFile[] {
 		// `sigil add` having to guess and print a guess
 		{
 			contents: `${JSON.stringify({ components: 'src/components' }, undefined, '\t')}\n`,
-			path: 'sigil.jsonc',
+			path: 'sigil.json',
 		},
 		{ contents: devRunner(opts), executable: true, path: `dev.${e}` },
 		{ contents: entry(opts), path: `src/index.${e}` },
