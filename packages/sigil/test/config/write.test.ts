@@ -197,6 +197,80 @@ describe('the JSONC writer', () => {
 		);
 	});
 
+	it('should keep a comment on the line of the comma it reuses', () => {
+		// the comma is already there, so the insert goes past it **and** past the
+		// comment after it -- where anchoring at the value put the new key in front
+		// of the comment, which then read as a comment about the new key. The
+		// trailing comma style survives by being written rather than by being left
+		// where it was, because the anchor is past it now. Found by review
+		expect(edit('{\n\t"a": 1, // comment on a\n}', { a: 1, b: 2 })).to.equal(
+			'{\n\t"a": 1, // comment on a\n\t"b": 2,\n}'
+		);
+	});
+
+	it('should keep a comment on that line where the comma goes with the tail', () => {
+		// the same anchor, with the comma `cut` on its own rather than reused: the
+		// comment is what made the gap unswallowable, so it is still there to go
+		// past, and the separator is written back at the value
+		expect(edit('{\n\t"a": 1, // comment on a\n\t"b": 2\n}', { a: 1, c: 3 })).to.equal(
+			'{\n\t"a": 1, // comment on a\n\t"c": 3\n}'
+		);
+	});
+
+	it('should not anchor past a comma a removal swallowed with its line', () => {
+		// the other half of the pair: with no comment in the gap the comma is
+		// `eaten` into the removal range, so anchoring past it would splice inside
+		// that range -- which is an overlapping edit rather than a wrong byte
+		expect(edit('{\n\t"a": 1,\n\t"b": 2\n}', { a: 1, c: 3 })).to.equal('{\n\t"a": 1,\n\t"c": 3\n}');
+	});
+
+	it('should not leave a comma alone on the line of a removal', () => {
+		// the trailing comma the survivor above has no use for: left where it was it
+		// sat on an indented line of its own. Found by review
+		expect(edit('{\n\t"a": 1, // keep a\n\t"b": 2,\n}', { a: 1 })).to.equal(
+			'{\n\t"a": 1 // keep a\n}'
+		);
+	});
+
+	it('should take a dropped tail off as one run rather than one entry at a time', () => {
+		// per entry, the first of the two ended just before the comma the second was
+		// taking, so the line removal saw a comma rather than a line end and left an
+		// indented blank line behind. Found by review
+		expect(edit('{\n\t"a": 1, // keep a\n\t"b": 2,\n\t"c": 3\n}', { a: 1 })).to.equal(
+			'{\n\t"a": 1 // keep a\n}'
+		);
+	});
+
+	it('should not glue a comment onto the value a removal left in front of it', () => {
+		// the space was the only thing keeping them apart, and swallowing it as the
+		// run's own trailing whitespace made `1// on b` out of `1,\n\t"b": 2 // on b`.
+		// The comment survives onto the line above, which is the residue rather than
+		// the defect: preservation is the bias, and what is lost is that it now
+		// reads as `a`'s. Found by review
+		expect(edit('{\n\t"a": 1,\n\t"b": 2 // comment on b\n}', { a: 1 })).to.equal(
+			'{\n\t"a": 1 // comment on b\n}'
+		);
+	});
+
+	it('should keep every one of those parseable, which is the claim under them', () => {
+		// each of the six above as JSON once the comments are blanked, because a
+		// comment in the right place and a dangling comma are two different failures
+		// and the pictures above only see the first
+		const cases: Array<[string, unknown]> = [
+			['{\n\t"a": 1, // comment on a\n}', { a: 1, b: 2 }],
+			['{\n\t"a": 1, // comment on a\n\t"b": 2\n}', { a: 1, c: 3 }],
+			['{\n\t"a": 1,\n\t"b": 2\n}', { a: 1, c: 3 }],
+			['{\n\t"a": 1, // keep a\n\t"b": 2,\n}', { a: 1 }],
+			['{\n\t"a": 1, // keep a\n\t"b": 2,\n\t"c": 3\n}', { a: 1 }],
+			['{\n\t"a": 1,\n\t"b": 2 // comment on b\n}', { a: 1 }],
+		];
+
+		for (const [source, next] of cases) {
+			const out = edit(source, next);
+			expect(JSON.parse(scanJsonc(out, true, 'f').json), out).to.deep.equal(next);
+		}
+	});
+
 	it('should not splice inside a block comment that holds a line break', () => {
 		const source = '{\n\t"a": 1 /* long\n\t comment */\n}';
 		expect(edit(source, { a: 1, b: 2 })).to.equal(

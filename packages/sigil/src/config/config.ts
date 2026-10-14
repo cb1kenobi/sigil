@@ -764,6 +764,12 @@ export class Config {
 	 * settings a path touches. What it costs is a path read per declared setting
 	 * per mutation, which for a config is a handful of lookups.
 	 *
+	 * Every mutation that **writes a value** runs it. `pop()` and `shift()` do
+	 * not, and need not: what they leave is a subset of a list the schema has
+	 * already accepted rather than anything a caller supplied, so there is no
+	 * value for a pass to judge. Found by review, as a docblock that said every
+	 * mutation and meant every write.
+	 *
 	 * Restoring one path is enough even though the pass rewrites every setting it
 	 * validates, because `coerceSetting()` is idempotent: a coerced value coerces
 	 * to itself, and a `null` that was dropped is absent on the second pass. So a

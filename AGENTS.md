@@ -19625,22 +19625,33 @@ control and reads as a real defect to whoever looks next.
   for two different structures is the one answer that silently keeps a stale
   value.
 
-- **And a fourth was deleted after the sabotage explained why it was dead, which
-  is the finding of the pass.** The insertion had a branch for "a comma already
-  follows the last entry", which put the new member after that comma and
-  appended a trailing comma of its own so the user's style survived. It is
-  unreachable: `commaAfter()` reads the **blanked** text, where a trailing comma
-  has been blanked out, and a comma after the _last_ entry is trailing by
-  definition -- so the only comma that branch could find is one that is not
-  there. Measured, with and without it, over a multi-line object, a single-line
-  one and an array: byte for byte identical.
+- **And a fourth was deleted after the sabotage explained why it was dead -- and
+  round 5 put it back, which is the sharpest thing either pass produced.** The
+  insertion had a branch for "a comma already follows the last entry", which put
+  the new member after that comma and appended a trailing comma of its own so the
+  user's style survived. It was deleted as unreachable on the argument that
+  `commaAfter()` reads the **blanked** text, where a trailing comma has been
+  blanked out, so the only comma it could find is one that is not there --
+  measured at the time, with and without it, over a multi-line object, a
+  single-line one and an array: byte for byte identical.
 
-  What it was standing in for is better than what it claimed. The user's
-  trailing comma survives **by construction**: it is still in the source, after
-  the offset the insertion anchors at, so what used to be the trailing comma
-  becomes the trailing comma again with the new member in front of it. Three
-  expressions collapsed to none, and the property is stronger for being
-  structural rather than branched.
+  **Both halves of that argument had stopped being true, and the deletion is what
+  made it visible.** Review round 1 taught `commaAfter()` to read `ctx.trailing`,
+  precisely so an emptied container would stop leaving its trailing comma behind
+  -- so it finds one now. And a comma after the last _kept_ entry is not trailing
+  at all when the entries after it are being dropped in the same write: that one
+  is a **separator**, which was never blanked. So the branch was reachable from
+  the moment round 1 landed, and what stood in its place anchored the insertion at
+  the value whatever followed it -- which is the defect under "Writing a config
+  file back without destroying it".
+
+  The byte-for-byte measurement was sound and said less than it was read as
+  saying: it was taken over inputs with **no comment** after the last entry, where
+  anchoring before or after the comma produces the same string. That is the
+  fixture-too-easy shape this file records about a sabotage verdict, arriving in a
+  differential rather than in a test -- a measurement is a statement about the
+  inputs it was taken over, and three shapes of object is not the same as the
+  grammar.
 
 - **Eight survivors were a test that could not reach the branch it was named
   for**, and each got the input that makes it matter. The sharpest is the
@@ -20224,6 +20235,113 @@ second set.
 
 Three sabotages over the two behavioural fixes, all three caught, including both
 directions of the CRLF rule.
+
+#### What the fifth round found: the insertion arithmetic nobody had read
+
+Round 5 was pointed at round 4's own fixes first and then at the regions every
+earlier round had listed as **not examined** -- which for four rounds running
+included `jsonc-write.ts`'s insertion and removal arithmetic. It found **two
+defects that write a wrong file**, and they are the only two findings in five
+rounds that break the lossless rule itself rather than a sentence about it. Both
+reproduce byte for byte, and both are in the half of the writer that no round had
+opened, which is the skipped-list discipline paying off harder than anywhere else
+in this file.
+
+- **A new key was spliced in front of the last kept entry's comma and its inline
+  comment, so the comment came out describing the new key.** `lineTriviaEnd()`
+  documents its `from` as "just past the comma, or just past the value where there
+  is none" and `insertInto()` passed `last.span.end`, which is just past the
+  **value** always -- so with a comma there the scan met it at its first character,
+  took the fallthrough, and returned where it started. Measured:
+
+  ```
+  { "a": 1, // comment on a }   + b   ->   { "a": 1,\n\t"b": 2, // comment on a\n}
+  ```
+
+  The output parses and keeps the trailing comma, which is why four rounds and a
+  56-mutation pass went past it: nothing about the commas is wrong. What is wrong
+  is that a comment somebody wrote about `a` now sits after `b`, which is **worse
+  than losing it** -- a write that silently makes the file say something false,
+  with `wouldLose` reporting nothing because a span store is built on the premise
+  that it cannot lose anything. The contradiction between the parameter's own doc
+  and its one call site is the whole of the mechanism, and it had been sitting
+  there since the writer was first written.
+
+- **A dropped tail stranded its comma, left an indented blank line, or glued a
+  removed entry's comment onto the survivor above it.** Three shapes of one cause:
+  `removeFrom()` worked an entry at a time, so in a tail of two the first one's
+  range ended just before the comma the second was taking -- which left
+  `source[end]` a comma rather than a line end, so the line-removal step did not
+  fire and the first line survived as a bare indent. Measured:
+
+  ```
+  { "a": 1, // keep a\n\t"b": 2,\n}        - b    ->   { "a": 1 // keep a\n\t,\n}
+  { "a": 1, // keep a\n\t"b": 2,\n\t"c": 3\n} - b,c  ->   { "a": 1 // keep a\n\t\n}
+  { "a": 1,\n\t"b": 2 // comment on b\n}   - b    ->   { "a": 1// comment on b\n}
+  ```
+
+  The second violates the guarantee `removeFrom()`'s own comment states in as many
+  words -- "what stops a removal leaving an indented blank line behind" -- and the
+  third is the comment-moved defect again with the space that was keeping the two
+  apart swallowed as the run's own trailing whitespace.
+
+**The fix is four coordinated changes, because the two functions are coupled
+through one comma.** That coupling is what made the obvious one-line fix produce
+`1,,`: move the anchor past the comma and the unconditional separator writes a
+second one.
+
+- **`insertInto()` anchors past the comma and writes the separator only where
+  there is not already one to serve**, which is the deleted fourth guard back, for
+  the reason the corrected entry above gives. Where the comma it reuses was the
+  user's **trailing** comma, one is written after what is added rather than left
+  where it was, because the anchor is past it now -- so the style is kept by
+  writing it rather than by construction.
+- **`removeFrom()` records which comma it took and what went with it**, as
+  `Ctx.eaten` and `Ctx.cut`. That is the decoupling: a comma swallowed into a
+  removal **range** took the gap after it too, so the anchor has to go back to the
+  value or it splices inside that range and `applyEdits()` refuses it; a comma
+  deleted **on its own** -- which is what happens when a comment sits in the gap --
+  leaves the comment there to be gone past. Two sets rather than a flag, because
+  the two answers are different and `insertInto()` reads both. The alternative was
+  for `insertInto()` to re-derive the rule, which is the two-readers-of-one-question
+  drift this file deletes everywhere else.
+- **`removeFrom()` works a contiguous run at a time**, which is `runsOf()`. A
+  run's commas and its lines are one question, and the per-entry version could not
+  see the end of the run it was in the middle of.
+- **And two narrower rules on the run's own whitespace**: a comma left with
+  nothing but whitespace after it on the run's line goes with the line, and the
+  run's trailing whitespace is **not** swallowed where doing so would glue a
+  comment onto what precedes the range. The second is conditional on what precedes
+  being neither whitespace nor the brace, which is what keeps
+  `{ "a": 1 /* c */, }` emptying to `{ /* c */ }` rather than to a double space.
+
+**What is left is one residue, written down rather than closed.** A comment on the
+**removed** entry's own line survives onto the line above, so it then reads as the
+surviving entry's -- `{ "a": 1 // comment on b\n}` above. Preservation is this
+module's stated bias and the alternative is deleting a comment somebody wrote, so
+it is kept and said out loud; closing it properly means deciding that a comment
+sharing a line with an entry belongs to that entry, which is a rule about ownership
+rather than about arithmetic and wants its own ticket.
+
+**Eight sabotages over the four changes, all eight caught**, each by a test named
+for it: the anchor reverting to the value (4 tests), the unconditional separator
+(3), the trailing comma not written back (2), runs collapsing to single entries
+(2), the stranded comma (1), the glue guard (1), and each of `cut` and `eaten` not
+being recorded (1 and 3). Seven tests were added with them, plus one that walks all
+six inputs through `JSON.parse` of the blanked text -- because a comment in the
+wrong place and a dangling comma are two different failures and the pictures only
+see the first.
+
+**And one of its findings was refuted, which is why a round is a set of claims
+rather than a list of fixes.** It reported `object()` ignoring `WriteOptions.paths`
+as data loss, quoting `write()`'s method doc -- and `types.ts` says of the option
+itself that "a store may ignore it, in which case its write is total, which is a
+coarser answer rather than a wrong one, and is why this is additive rather than a
+second method". Permitted, and not reachable through `save()` in any case, since
+what `#staged` hands a store already holds the merged document. The two remaining
+findings are a `defaultsOf()` question that is arguably the recorded "a non-string
+default passes through untouched" rule rather than a defect, and two stale comments
+in `config.test.ts`.
 
 #### What the write half costs
 

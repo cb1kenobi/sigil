@@ -85,7 +85,24 @@ interface Entry {
 interface Ctx {
 	/** The source with its comments and trailing commas blanked out. */
 	readonly blank: string;
+	/**
+	 * Commas a removal deleted **on its own**, leaving the trivia after them.
+	 *
+	 * That is what happens when a comment sits in the gap: the comma goes and the
+	 * comment stays, so an insertion anchored on the entry before it still has to
+	 * go past that comment. The pair with `eaten` is what `insertInto()` reads --
+	 * one records a comma whose line survived it and the other one whose did not.
+	 */
+	readonly cut: Set<number>;
 	readonly edits: Edit[];
+	/**
+	 * Commas a removal swallowed into its own **range**, taking the gap with them.
+	 *
+	 * So there is nothing left between the entry before and what was removed, and
+	 * an insertion has to anchor back at the value: anchoring past the comma would
+	 * land inside the removal, which is an overlapping edit.
+	 */
+	readonly eaten: Set<number>;
 	/** The line ending the document uses, so an inserted line matches it. */
 	readonly eol: string;
 	readonly source: string;
@@ -346,7 +363,8 @@ function commaBefore(ctx: Ctx, from: number, limit: number): number {
  * value.
  *
  * @param ctx - The texts.
- * @param from - Just past the comma, or just past the value where there is none.
+ * @param from - Just past the comma, or just past the value where there is none
+ * or a removal swallowed it.
  * @param limit - The closing brace.
  * @returns Where to insert, which is `from` when the line does not end first.
  */
@@ -503,48 +521,81 @@ function insertInto(
 	}
 
 	const last = kept[kept.length - 1] as Entry;
-	const at = lines ? lineTriviaEnd(ctx, last.span.end, close) : last.span.end;
+
+	// the comma that already follows the last kept entry, which decides both
+	// where this goes and whether a separator has to be written. Three answers
+	// rather than two, because a removal may have taken it and what it took with
+	// it is the question: `eaten` is a comma swallowed into a removal range, so
+	// the gap after it went too and the anchor is back at the value -- anchoring
+	// past it would land *inside* that range, which is an overlapping edit --
+	// while `cut` is one deleted on its own, which is what happens when a comment
+	// sits in the gap, so the comment is still there and still has to be gone
+	// past.
+	//
+	// The first version read none of this: it anchored at the value whatever
+	// followed, so `lineTriviaEnd()` met the comma at its first character and
+	// bailed, and a new key was spliced in **front** of the last entry's own
+	// inline comment -- which then read as a comment about the new key. Found by
+	// review, and it is why the branch below is back after a sabotage pass had
+	// proved it dead: the premise that deletion rested on was that `commaAfter()`
+	// could not see a trailing comma, and an earlier round taught it to
+	const comma = commaAfter(ctx, last.span.end, close);
+	const eaten = comma !== -1 && ctx.eaten.has(comma);
+	const reuse = comma !== -1 && !eaten && !ctx.cut.has(comma);
+	const from = comma === -1 || eaten ? last.span.end : comma + 1;
+	const at = lines ? lineTriviaEnd(ctx, from, close) : from;
 	const sep = lines ? ctx.eol + indent : ' ';
 
 	// the separator the last entry never needed, which goes directly after it
 	// rather than at the insertion point: with a line comment in between, a comma
-	// written after the comment would be *inside* it.
-	//
-	// Unconditionally, and that is the whole of the trailing-comma story. A
-	// branch for "a comma already follows the last entry" was written here and a
-	// sabotage proved it dead, which `commaAfter()` explains: it reads the
-	// **blanked** text, where a trailing comma has been blanked out, and a comma
-	// after the *last* entry is trailing by definition -- so the only comma that
-	// could be found is one that is not there. Which means the user's trailing
-	// comma survives by construction rather than by being put back: it is still
-	// in the source, after the offset this inserts at, so what used to be the
-	// trailing comma becomes the trailing comma again with the new member in
-	// front of it
-	ctx.edits.push({ end: last.span.end, start: last.span.end, text: ',' });
+	// written after the comment would be *inside* it. Only where there is not
+	// already one to serve, or the two make `1,,` and nothing parses
+	if (!reuse) {
+		ctx.edits.push({ end: last.span.end, start: last.span.end, text: ',' });
+	}
 
-	ctx.edits.push({ end: at, start: at, text: blobs.map((blob) => sep + blob).join(',') });
+	// and the user's trailing comma put back, where the one being reused is it.
+	// It is no longer in front of what this adds -- the anchor is past it now --
+	// so what used to be the trailing comma is a separator, and the style is kept
+	// by writing one rather than by leaving one where it was
+	const trail = reuse && ctx.trailing.has(comma) ? ',' : '';
+
+	ctx.edits.push({
+		end: at,
+		start: at,
+		text: blobs.map((blob) => sep + blob).join(',') + trail,
+	});
 }
 
 /**
  * Removes entries from a container, taking one comma each.
  *
- * The comma is decided against what **survives** rather than against what is
- * there, which is the half that cannot be done one entry at a time: dropping
- * the last two of three has each of them reach for the comma in front of it,
- * and a pass that looked only at its neighbours would have both reach for the
- * same one and produce two overlapping edits. So an entry takes the comma that
- * **follows** it, and only one with no survivor after it and a survivor before
- * it reaches backwards instead -- which means a container being emptied takes
- * every comma in it forwards, where a rule about "no survivors either side"
- * would leave a dangling one and write invalid JSON. That is true of a
- * **separator** comma and of a **trailing** one, and it was true of the first
- * alone until a review round: a trailing comma is blanked, so the forward walk
- * stepped over it and the emptied container kept it. `commaAfter()` is where
- * that is closed.
+ * A **run** at a time rather than an entry, because a run's commas and its
+ * lines are one question -- `runsOf()` has the measurement, and the entry at a
+ * time left an indented blank line behind. So the span is the whole run's and
+ * one comma is taken for it.
  *
- * The gap between the entry and its comma is swallowed when it is whitespace
+ * The comma is decided against what **survives** rather than against what is
+ * there: a run takes the comma that **follows** it, and only one with no
+ * survivor after it and a survivor before it reaches backwards instead -- which
+ * means a container being emptied takes every comma in it forwards, where a rule
+ * about "no survivors either side" would leave a dangling one and write invalid
+ * JSON. That is true of a **separator** comma and of a **trailing** one, and it
+ * was true of the first alone until a review round: a trailing comma is blanked,
+ * so the forward walk stepped over it and the emptied container kept it.
+ * `commaAfter()` is where that is closed.
+ *
+ * Which comma it took is recorded on the `Ctx`, as `eaten` or `cut`, because
+ * `insertInto()` has to know whether the comma after the last kept entry is
+ * still going to be there and whether its line survived with it.
+ *
+ * The gap between the run and its comma is swallowed when it is whitespace
  * and left alone when it is not, which is what keeps a comment that sits there
- * -- at the cost of the whitespace around it, which is the lesser loss.
+ * -- at the cost of the whitespace around it, which is the lesser loss. What
+ * that leaves is a comment on the **removed** entry's own line, which survives
+ * onto the line above: preservation is this module's bias, and the residue is
+ * that such a comment then reads as the surviving entry's. Written down rather
+ * than closed, because the alternative is deleting a comment somebody wrote.
  *
  * @param ctx - The texts and the edits.
  * @param node - The container.
@@ -563,17 +614,19 @@ function removeFrom(ctx: Ctx, node: Node, drop: ReadonlySet<number>): void {
 		return false;
 	};
 
-	for (const index of drop) {
-		const entry = entries[index] as Entry;
-		let { end, start } = entry.span;
+	for (const [first, final] of runsOf(entries.length, drop)) {
+		let { start } = (entries[first] as Entry).span;
+		let { end } = (entries[final] as Entry).span;
 
-		if (!survives(index + 1, entries.length) && survives(0, index)) {
+		if (!survives(final + 1, entries.length) && survives(0, first)) {
 			const comma = commaBefore(ctx, start, open);
 			if (comma !== -1) {
 				if (ctx.source.slice(comma + 1, start).trim() === '') {
 					start = comma;
+					ctx.eaten.add(comma);
 				} else {
 					ctx.edits.push({ end: comma + 1, start: comma, text: '' });
+					ctx.cut.add(comma);
 				}
 			}
 		} else {
@@ -589,27 +642,92 @@ function removeFrom(ctx: Ctx, node: Node, drop: ReadonlySet<number>): void {
 
 		// the trailing whitespace of what is being removed -- unless it is the
 		// container's own padding before the closing brace, which belongs to the
-		// container rather than to the entry: `{ "a": 1 }` emptied has to keep the
-		// space in front of its brace
+		// container rather than to the run: `{ "a": 1 }` emptied has to keep the
+		// space in front of its brace. And unless swallowing it would **glue** a
+		// comment onto whatever precedes the range: `{ "a": 1,\n\t"b": 2 // on b\n}`
+		// less `b` came out `"a": 1// on b`, where the comment reads as `a`'s and
+		// the space is the only thing that was keeping them apart. Where what
+		// precedes is itself whitespace, or the brace, there is nothing to glue to
+		// and the space is still the run's -- which is what keeps `{ "a": 1 /* c */, }`
+		// emptying to `{ /* c */ }` rather than to a double space. Found by review
 		let ahead = end;
 		while (ctx.source[ahead] === ' ' || ctx.source[ahead] === '\t') {
 			ahead++;
 		}
-		if (ahead !== close) {
+		const glues =
+			ctx.source[ahead] === '/' &&
+			(ctx.source[ahead + 1] === '/' || ctx.source[ahead + 1] === '*') &&
+			start - 1 !== open &&
+			!isSpace(ctx.source[start - 1]);
+		if (ahead !== close && !glues) {
 			end = ahead;
 		}
 
-		// and then the whole line where the entry had one to itself, which is what
-		// an editor does and is what stops a removal leaving an indented blank line
-		// behind. It cannot fire for an entry that reached backwards for its comma,
-		// because the range then starts at the comma and a comma owns no line
-		if (LINE_END.test(ctx.source[end] ?? '') && ownLineIndent(ctx.source, start) !== undefined) {
+		// and then the whole line where the run had one to itself, which is what an
+		// editor does and is what stops a removal leaving an indented blank line
+		// behind. It cannot fire for a run that reached backwards for its comma and
+		// swallowed it, because the range then starts at that comma and a comma owns
+		// no line.
+		//
+		// A comma still to come on that line goes with it, which is the half a
+		// review round found: where the run reached backwards, the comma *after* it
+		// is a trailing one the survivor above has no use for, and left where it was
+		// it sat alone on an indented line of its own -- `{\n\t"a": 1 // keep a\n\t,\n}`.
+		// Only where nothing but whitespace follows it, so a separator another run is
+		// taking is never swallowed from under it
+		const own = ownLineIndent(ctx.source, start) !== undefined;
+		let tail = end;
+		if (own && ctx.source[tail] === ',') {
+			let after = tail + 1;
+			while (ctx.source[after] === ' ' || ctx.source[after] === '\t') {
+				after++;
+			}
+			if (LINE_END.test(ctx.source[after] ?? '')) {
+				tail = after;
+			}
+		}
+
+		if (own && LINE_END.test(ctx.source[tail] ?? '')) {
 			start = lineStartAt(ctx.source, start);
-			end = ctx.source.startsWith('\r\n', end) ? end + 2 : end + 1;
+			end = ctx.source.startsWith('\r\n', tail) ? tail + 2 : tail + 1;
 		}
 
 		ctx.edits.push({ end, start, text: '' });
 	}
+}
+
+/**
+ * The dropped indices as contiguous runs, each `[first, final]` inclusive.
+ *
+ * A run rather than an entry at a time, because a run's commas and its lines
+ * are one question. With each entry answering for itself, one in the middle of
+ * a dropped tail ended just before the comma the entry after it was taking --
+ * so the line-removal above saw a comma rather than a line end, did not fire,
+ * and left the run's first line behind as an indented blank one. Found by
+ * review, over a tail of two.
+ *
+ * @param count - How many entries the container has.
+ * @param drop - The indices being removed.
+ * @returns The runs, in source order.
+ */
+function runsOf(count: number, drop: ReadonlySet<number>): Array<[number, number]> {
+	const runs: Array<[number, number]> = [];
+
+	for (let i = 0; i < count; i++) {
+		if (!drop.has(i)) {
+			continue;
+		}
+
+		let final = i;
+		while (final + 1 < count && drop.has(final + 1)) {
+			final++;
+		}
+
+		runs.push([i, final]);
+		i = final;
+	}
+
+	return runs;
 }
 
 /** Walks one value, emitting the edits that turn `current` into `next`. */
@@ -780,7 +898,9 @@ export function editJsonc(source: string, next: unknown, opts: EditOptions): str
 
 	const ctx: Ctx = {
 		blank: scan.json,
+		cut: new Set(),
 		edits: [],
+		eaten: new Set(),
 		// the document's own line ending, so an inserted line does not mix them.
 		// Three rather than two: a `\r`-only document is rare and a mixed ending is
 		// **silent**, which is the combination `LINE_END` is written for and which

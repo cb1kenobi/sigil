@@ -638,8 +638,9 @@ describe('deleting a value that lives in a read-only layer', () => {
 	it('should fall back to the layer name where the writable store has no source', async () => {
 		// named for what it checks: an `object()` store has no source, so this is
 		// the right-hand side of `source ?? name` and never the left. The title
-		// used to claim the source branch, which no core store can reach -- the
-		// only writable one is `object()`
+		// used to claim the source branch, which that store cannot reach -- a
+		// `json()` or `jsonc()` layer can, since SIG-154 made both writable and
+		// both carry one, which is the sibling test below
 		const config = await createConfig({
 			layers: [
 				{ name: 'system', readOnly: true, store: json(file('system.json', '{"a":1}')) },
@@ -651,11 +652,10 @@ describe('deleting a value that lives in a read-only layer', () => {
 	});
 
 	it('should name the writable layer by its source where it has one', async () => {
-		// reachable only through a store of the caller's own, because `object()` is
-		// the one writable core store and has no source -- which is what SIG-154's
-		// file store will be, so this is the branch that exists for it rather than
-		// dead code. `ConfigStore` is a public interface precisely so an app can
-		// write one
+		// a store of the caller's own, because `object()` has no source to name --
+		// the core stores that do are `json()` and `jsonc()`, which SIG-154 made
+		// writable, so this branch is no longer only for a store nobody has written
+		// yet. `ConfigStore` is a public interface precisely so an app can write one
 		const held: Record<string, unknown> = {};
 		const store: WritableConfigStore = {
 			format: 'probe',
