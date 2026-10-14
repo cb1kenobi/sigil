@@ -17907,11 +17907,11 @@ without destroying it is SIG-154's.
 
 - **It imports no parser module at all, and that is a test rather than a
   coincidence.** Measured as transitive static import byte weight off `dist/`:
-  **32,455 B over seven modules**, of which **9,880 B over six** is what it starts
+  **32,466 B over seven modules**, of which **9,880 B over six** is what it starts
   from -- `paths.mjs`, the `transform` chunk, which is `transform`, `i18n` and
   `debug`, the 66-byte `env-value` chunk the parser shares, and the 525-byte
   `mkdir-owner-sync` one the update cache shares. So the module itself is
-  22,575 B, and the graph is **4.3x** the root entry's 7,518 B and an **eighth**
+  22,586 B, and the graph is **4.3x** the root entry's 7,518 B and an **eighth**
   of `components.mjs`'s 239,927 B over 26 -- all three measured the
   same way, which is the only comparison that means anything. It was
   **20,649 B over six** before SIG-154, which is the write half costing about
@@ -20714,7 +20714,7 @@ one was named.
 
 #### What the write half costs
 
-- **The config module's graph is 32,455 B over seven modules**, against 20,649 B
+- **The config module's graph is 32,466 B over seven modules**, against 20,649 B
   over six for the read half -- so the span writer, the atomic write and the
   representability check are about 11.5 kB between them. The seventh module is the
   `mkdir-owner-sync` chunk the update cache already shares. It still imports no
