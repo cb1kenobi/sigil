@@ -148,7 +148,7 @@ describe('the scan', () => {
     // an editor writes one and `JSON.parse` refuses it, and it is not a
     // character the document holds -- blanked so that every offset after it
     // still means what it meant
-    const source = '﻿{"a":1}';
+    const source = '\uFEFF{"a":1}';
     const { json: out } = scanJsonc(source, 'f');
     expect(out).to.have.lengthOf(source.length);
     expect(JSON.parse(out)).to.deep.equal({ a: 1 });

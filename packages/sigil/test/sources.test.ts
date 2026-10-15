@@ -108,6 +108,40 @@ describe('committed sources', () => {
     expect(offenders, offenders.join('\n')).toEqual([]);
   });
 
+  it('should carry no byte order mark, which is the one format character that bites', () => {
+    // the gap the FIGlet pass recorded and the XML store then walked into
+    // again: the check above is C0, `DEL` and C1, and a byte order mark is a
+    // **format** character rather than a control one -- so four literal ones
+    // sat in this repository's comments and `oxlint`'s
+    // `no-irregular-whitespace` was what said so rather than anything here.
+    //
+    // Closed for the mark **alone** rather than by widening to `\p{Cf}`, which
+    // is the obvious generalization and needs an allow-list: there are two
+    // legitimate U+200D in the tree, in `packages/sigil/README.md` and in
+    // `test/components/typewriter.test.ts`, where they are the joiners inside
+    // emoji sequences. A mark needs none, because no file here has a reason to
+    // hold one -- and it is the one that is not merely invisible: it changes
+    // how a file **parses**, which is what the XML store spends a module on.
+    const marked: string[] = [];
+
+    for (const name of files) {
+      let raw: Buffer;
+      try {
+        raw = readFileSync(join(root, name));
+      } catch {
+        continue;
+      }
+      // read off the bytes rather than the decoded text, so that a mark
+      // anywhere in the file is found rather than only a leading one -- the
+      // four this found were in comments part way down
+      if (raw.includes(Buffer.from('\uFEFF', 'utf8'))) {
+        marked.push(name);
+      }
+    }
+
+    expect(marked, marked.join('\n')).toEqual([]);
+  });
+
   it('should be text to git, which is what makes a diff readable', () => {
     // the observable half of the same rule, and the one that was actually
     // costing something: git's own test is a NUL in the first 8000 bytes, so a

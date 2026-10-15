@@ -39,16 +39,16 @@
   "dependencies": {
     "@ttylabs/sigil": "workspace:*",
     "magic-string": "1.4.3",
-    "oxc-parser": "0.153.0",
+    "oxc-parser": "0.154.0",
     "rolldown": "1.2.13"
   },
   "devDependencies": {
     "@types/node": "26.6.5",
-    "@vitest/coverage-v8": "5.0.3",
+    "@vitest/coverage-v8": "5.0.4",
     "rimraf": "6.1.3",
     "tsdown": "0.23.1",
     "typescript": "7.0.2",
-    "vitest": "5.0.3"
+    "vitest": "5.0.4"
   },
   "peerDependencies": {
     "typescript": ">=5.0.0"

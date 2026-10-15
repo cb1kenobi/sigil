@@ -18,26 +18,26 @@
   "scripts": {
     "build": "turbo run build",
     "check": "pnpm type-check && pnpm lint && pnpm fmt:check",
-    "coverage": "turbo run build --filter=@ttylabs/sigil --filter=@ttylabs/cli && vitest --coverage",
+    "coverage": "turbo run build --filter=@ttylabs/sigil --filter=@ttylabs/cli --filter=@ttylabs/config-xml && vitest --coverage",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "lint": "oxlint",
     "ncu": "turbo ncu ncu:root --",
     "ncu:root": "ncu -c 1d",
-    "test": "turbo run build --filter=@ttylabs/sigil --filter=@ttylabs/cli && vitest",
+    "test": "turbo run build --filter=@ttylabs/sigil --filter=@ttylabs/cli --filter=@ttylabs/config-xml && vitest",
     "type-check": "turbo run type-check"
   },
   "devDependencies": {
     "@types/node": "26.6.5",
-    "@vitest/coverage-v8": "5.0.3",
-    "lefthook": "2.2.1",
-    "oxfmt": "0.72.0",
-    "oxlint": "1.87.0",
+    "@vitest/coverage-v8": "5.0.4",
+    "lefthook": "2.2.2",
+    "oxfmt": "0.73.0",
+    "oxlint": "1.88.0",
     "rimraf": "6.1.3",
     "tsdown": "0.23.1",
-    "turbo": "2.11.7",
+    "turbo": "2.11.8",
     "typescript": "7.0.2",
-    "vitest": "5.0.3"
+    "vitest": "5.0.4"
   },
   "engines": {
     "node": ">=22.19.0"

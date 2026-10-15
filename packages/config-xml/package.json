@@ -1,0 +1,56 @@
+{
+  "name": "@ttylabs/config-xml",
+  "version": "0.0.1",
+  "description": "An XML config store for sigil",
+  "keywords": [],
+  "homepage": "https://github.com/cb1kenobi/sigil",
+  "bugs": {
+    "url": "https://github.com/cb1kenobi/sigil/issues"
+  },
+  "license": "MIT",
+  "author": "Chris Barber <me@chrisbarber.dev>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cb1kenobi/sigil.git",
+    "directory": "packages/config-xml"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "rimraf dist && tsdown -c tsdown.config.ts",
+    "coverage": "vitest --coverage",
+    "ncu": "ncu -c 1d",
+    "prepublishOnly": "pnpm run build",
+    "test": "vitest",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ttylabs/sigil": "workspace:*",
+    "@xmldom/xmldom": "0.9.12"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "@vitest/coverage-v8": "5.0.4",
+    "rimraf": "6.1.3",
+    "tsdown": "0.23.1",
+    "typescript": "7.0.2",
+    "vitest": "5.0.4"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  }
+}
