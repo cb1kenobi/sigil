@@ -7,6 +7,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
+/** A directory where a file was named, which every platform reads as `EISDIR`. */
+function dir(): string {
+  return mkdtempSync(join(tmpdir(), 'sigil-xml-'));
+}
+
 describe('the store', () => {
   describe('the contract', () => {
     it('should report its format and its source', () => {
@@ -52,10 +57,19 @@ describe('the store', () => {
 
     it('should report a read that failed for a reason other than absence', () => {
       // `isMissing()` is core's, and it is `ENOENT` alone: reading every error
-      // as absence was a real defect there, found by review
-      const dir = absent('dir');
-      writeFileSync(dir, '');
-      expect(() => xml(`${dir}/config.xml`).readSync()).toThrow(/Failed to read/);
+      // as absence was a real defect there, found by review.
+      //
+      // A directory where a file was named, which is `EISDIR` everywhere. A
+      // path *under a file* is `ENOTDIR` on POSIX and reads as absence on
+      // Windows, so it pinned this on two platforms and failed on the third --
+      // core's own test of the same claim uses a directory for that reason.
+      expect(() => xml(dir()).readSync()).toThrow(/Failed to read/);
+    });
+
+    it('should report one the async read failed for, which is the other reader', async () => {
+      // two `isMissing()` call sites in the store and only the sync one was
+      // pinned, which is the pair core keeps a test each for
+      await expect(xml(dir()).read()).rejects.toThrow(/Failed to read/);
     });
   });
 
