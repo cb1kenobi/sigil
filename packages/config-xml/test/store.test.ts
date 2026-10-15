@@ -2,7 +2,9 @@ import { xml } from '../src/index.js';
 import { absent, file, read } from './helpers.js';
 import { createConfig, createConfigSync, isWritableStore, json } from '@ttylabs/sigil/config';
 import type { ConfigSchema } from '@ttylabs/sigil/config';
-import { writeFileSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdtempSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 describe('the store', () => {
@@ -203,6 +205,49 @@ describe('the store', () => {
         schema,
       });
       expect(config.get('plugins')).toStrictEqual(['z']);
+    });
+  });
+
+  describe('what it writes through, which is the atomic write in the runtime', () => {
+    // the interaction both review rounds listed as not examined, and the one
+    // place it is this store's rather than core's: the path it hands over. Both
+    // of the defects core's own PR rounds found here are a dotfile manager's
+    // ordinary state, so they are worth an end-to-end assertion from a store
+    // that writes real files
+    it('should write through a symlink rather than replacing it', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'sigil-xml-'));
+      const real = join(dir, 'real.xml');
+      const link = join(dir, 'config.xml');
+      writeFileSync(real, `<config>\n  <!-- keep -->\n  <a>1</a>\n</config>\n`);
+      symlinkSync(real, link);
+
+      xml(link).writeSync({ a: '2' });
+
+      expect(lstatSync(link).isSymbolicLink(), 'still a link').toBe(true);
+      expect(read(real)).toBe(`<config>\n  <!-- keep -->\n  <a>2</a>\n</config>\n`);
+    });
+
+    it('should create the target of a dangling symlink rather than replacing it', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'sigil-xml-'));
+      const target = join(dir, 'not-there.xml');
+      const link = join(dir, 'config.xml');
+      symlinkSync(target, link);
+
+      xml(link).writeSync({ b: '1' });
+
+      expect(lstatSync(link).isSymbolicLink(), 'still a link').toBe(true);
+      expect(read(target)).toContain(`<b>1</b>`);
+    });
+
+    // `chmod` on Windows only toggles the read-only flag, so the mode a POSIX
+    // claim is about is not one that platform can hold
+    it.skipIf(process.platform === 'win32')('should keep the mode it found', () => {
+      const path = file(`<config>\n  <a>1</a>\n</config>\n`);
+      chmodSync(path, 0o600);
+
+      xml(path).writeSync({ a: '2' });
+
+      expect(statSync(path).mode & 0o777).toBe(0o600);
     });
   });
 

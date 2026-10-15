@@ -21647,6 +21647,44 @@ the declaration is content, so a row has to be able to match there.
   `newElement()`'s rule and is right here, since a promoted key is a new element
   and the setting is identified by its local name either way.
 
+#### What the packaging claims come to, measured
+
+Both review rounds listed the manifest, the `exports` map, the build config and
+the turbo wiring as regions they did not examine, so each claim was checked
+rather than left on the strength of having been written.
+
+- **The published declaration is two names and no `@xmldom/xmldom` at all**,
+  which is what `names.ts`'s structural `XmlNode` and `XmlAttr` are for: a
+  parser's types in a published `.d.mts` would be a dependency of every consumer
+  that reads the store's signature. Measured -- `dist/index.d.mts` holds `xml()`
+  and `XmlStoreOptions` and zero references to the parser.
+- **What publishes is four files**: the README, `dist/index.mjs`,
+  `dist/index.d.mts` and the manifest, which is exactly what the `exports` map
+  names and nothing else. `npm pack --dry-run` rather than reading `files`.
+- **Both dependencies stay imports**, so the 12.9 kB bundle begins with four
+  `import` statements -- `@ttylabs/sigil/i18n`, `/config`, `/paths` and
+  `@xmldom/xmldom` -- which is the call `@ttylabs/cli` already makes about the
+  runtime. The `/config` one names **six** store-kit symbols, which is what
+  settled the count that docblock had wrong.
+- **The build's resolved inputs are complete and the package needs no
+  `turbo.json` of its own.** `turbo run build --dry-run=json` reports
+  `package.json`, every `src/*.ts`, `tsconfig.json`, `tsconfig.build.json` and
+  `tsdown.config.ts` -- which is everything its build reads, since it has no
+  `scripts/` and no `sigil.json`. So the root's `inputs` covers it and there is
+  nothing to override, which is the opposite of `@ttylabs/cli`'s case and for the
+  stated reason: nothing here type-checks as part of its build.
+
+  The tracer the other two packages were audited with says nothing here, and that
+  is the method's recorded limit rather than a gap: `tsdown` is rolldown, which is
+  native, so its reads do not go through node's `fs`. The dry run is the evidence.
+
+- **A symlinked config is written through and a dangling one has its target
+  created**, which is the one place this store's use of `writeAtomic()` is
+  observable -- the path it hands over. Both are defects core's own PR rounds
+  found and fixed, both are a dotfile manager's ordinary state, and the comment
+  in the file survives the write either way. The mode is kept too, asserted
+  everywhere but Windows, where `chmod` only toggles the read-only flag.
+
 #### Parse errors, and the one thing the parser does twice
 
 - **A fatal parse error is reported through `onError` _and then thrown_, so the
