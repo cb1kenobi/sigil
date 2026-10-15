@@ -233,10 +233,27 @@ in a loss table and carry on from. A declaration nothing references is fine.
   either before it reaches a store, so this is for a `write()` you made directly.)
 - **A function, a symbol, a `Map`, a `Set`, a class instance** — each reaches a
   file as something unparseable or as `[object Map]`.
+- **`NaN` and `Infinity`.** `NaN` reaches the file as the text `NaN`, which
+  `transformValue()` refuses on a `number` setting — so writing one produces a
+  config the next run cannot load.
+- **A `bigint`**, for a different reason from JSON's: `JSON.stringify` _throws_
+  for one, where `String(10n)` is exact text. It is that no data type reads one
+  back — `'10'` on an `int` is the number `10` rather than `10n`.
+- **A character XML cannot carry, or that a parser changes.** C0 controls except
+  tab, newline and carriage return; a lone surrogate; U+FFFE and U+FFFF. Those are
+  outside XML 1.0's `Char` production, and `@xmldom/xmldom` writes one **raw** —
+  so without this the store writes a file it can read back and nothing else can.
+  A carriage return and NEL (U+0085) are refused too, because a parser normalizes
+  both to a newline. U+007F to U+009F are legal and are allowed.
 - **A string whose own leading or trailing whitespace matters.** A leaf's text and
   an attribute's value are both trimmed on the way in, because whitespace around a
   value in XML is layout — so a padded string is one this store would read back as
   something else. Refused rather than quietly changed.
+- **A name no element can have.** XML's `Name` production, minus the colon,
+  checked against each segment of the path _and_ each key of the value — so
+  `set('1bad', 'v')` is refused at the `set()` rather than throwing
+  `invalid character in qualified name` out of the DOM at a `save()`. The colon is
+  excluded because a prefix is not part of a path here.
 - **An empty object**, which is the same bytes as the empty string. The mapping
   picks `''`, because that is what `set('host', '')` writes. To clear a subtree,
   `delete()` it. (The whole document is exempt: there `{}` is an empty config.)
@@ -250,6 +267,16 @@ already reaches an option. A `Date` is written as its ISO form, because
 
 A value with no schema setting reads back as a **string**. That is the format
 rather than this store, and it is what `type` is for.
+
+### One consequence worth knowing
+
+The check is asked of the **merged document** rather than of what you passed, so
+that a key your write is not claiming cannot refuse a write that never touches
+it. Which means a file that already holds something XML cannot carry — a stray
+control character somebody pasted — refuses **every** write to that file, naming
+the character and the key. That is conservative on purpose: the alternative is
+the store deliberately writing a document no conforming tool can read. Reading
+such a file is fine; only writing it back is refused.
 
 ## Options
 

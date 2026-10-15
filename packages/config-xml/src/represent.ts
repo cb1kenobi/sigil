@@ -60,6 +60,71 @@ import { isPlainObject } from '@ttylabs/sigil/config';
  * direction this repository already picks over silent and wrong.
  */
 
+/**
+ * Whether a code point is one XML 1.0 cannot hold, or one this parser changes.
+ *
+ * Two sets in one predicate, because what a caller can do about either is the
+ * same thing. Measured character by character rather than read off the spec,
+ * and the first set is the one that matters: `@xmldom/xmldom` writes a C0
+ * control **raw** and then parses it back, so the file round-trips here and is
+ * rejected by every conforming tool -- a store writing a file nobody else can
+ * read, with nothing saying so.
+ *
+ * - **Forbidden by XML 1.0's `Char` production**: C0 except tab, newline and
+ *   carriage return; a lone surrogate; U+FFFE and U+FFFF. `Char` is
+ *   `#x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] | [#x10000-#x10FFFF]`,
+ *   so the range stopping at U+FFFD is why the last two are in. U+007F to
+ *   U+009F **are** legal and are not here, which is the one place reading the
+ *   production rather than guessing changed the answer.
+ * - **Changed by this parser**: a carriage return becomes a newline, which is
+ *   XML's own line-ending normalization, and NEL (U+0085) becomes a newline in
+ *   text and a space in an attribute, which is XML 1.1's. Measured both ways.
+ *
+ * A lone surrogate is in both sets: it is illegal *and* it reaches the file as
+ * U+FFFD, so the value changes even where a tool would read it.
+ *
+ * ## Code points rather than a character class, which is this repository's rule
+ *
+ * A class of `\u0000`-escapes is what `no-control-regex` is about, and the
+ * recorded answer is not to suppress it: a suppression a formatter can detach
+ * from the line it was written over is one that stops working without anybody
+ * editing anything, which happened once already in the toolchain's copy of the
+ * escape pass. `\p{Cc}` is the usual way out and is the **wrong set** here --
+ * it is C0, `DEL` and C1, where this wants C0 minus three and neither `DEL` nor
+ * C1. So the ranges are named as numbers, which carries no control character
+ * escaped or otherwise and leaves nothing to keep in place.
+ */
+function badChar(code: number): boolean {
+  // C0, except the three XML's own `Char` production keeps
+  if (code < 0x20) {
+    return code !== 0x09 && code !== 0x0a;
+  }
+  // a carriage return is legal and is normalized to a newline, so it is in the
+  // second set rather than the first -- which the branch above would have said
+  // too, and is split out so the reason is readable
+  return code === 0x0d || code === 0x85 || code === 0xfffe || code === 0xffff;
+}
+
+/**
+ * The first code point of a string that XML cannot carry, or nothing.
+ *
+ * Walked by code **point** rather than by code unit, so that an astral
+ * character is one character rather than two surrogates -- which is what lets a
+ * **lone** surrogate be the thing that is refused: iterating a string yields a
+ * paired surrogate as one code point above U+FFFF and an unpaired one as itself.
+ * So the check is "is this code point in the surrogate range at all", and it is
+ * only ever true for a lone one.
+ */
+function firstBadChar(value: string): number | undefined {
+  for (const char of value) {
+    const code = char.codePointAt(0) as number;
+    if (badChar(code) || (code >= 0xd800 && code <= 0xdfff)) {
+      return code;
+    }
+  }
+  return undefined;
+}
+
 /** Why XML cannot hold a value, or nothing where it can. */
 function why(value: unknown): string | undefined {
   if (value === null) {
@@ -73,13 +138,64 @@ function why(value: unknown): string | undefined {
       return 'XML has no function';
     case 'symbol':
       return 'XML has no symbol';
-    case 'string':
-      return value.trim() === value
-        ? undefined
-        : 'XML trims a value, so leading or trailing whitespace would not survive a round trip';
+    case 'bigint':
+      // unlike JSON's reason, which is that `JSON.stringify` **throws**:
+      // `String(10n)` is exact text, so the refusal is not inherited. It is
+      // that no schema type reads one back -- `'10'` on an `int` is the number
+      // `10` rather than `10n` -- so a bigint round-trips to a different value
+      // under every declaration, where `8080` round-trips to itself
+      return 'XML has no bigint, and no data type reads one back';
+    case 'number':
+      // `NaN` reaches the file as the text `NaN`, which `transformValue()`
+      // **refuses** on a `number` setting -- so writing one produces a config
+      // the next run cannot load. `Infinity` happens to read back, and is
+      // refused with it rather than explained: one rule is worth more than a
+      // divergence from `jsonCanHold()` that has to be remembered
+      return Number.isFinite(value) ? undefined : `XML has no ${value}`;
+    case 'string': {
+      if (value.trim() !== value) {
+        return 'XML trims a value, so leading or trailing whitespace would not survive a round trip';
+      }
+      const bad = firstBadChar(value);
+      if (bad !== undefined) {
+        return `XML cannot carry U+${bad.toString(16).toUpperCase().padStart(4, '0')} in a value`;
+      }
+      return undefined;
+    }
     default:
       return undefined;
   }
+}
+
+/**
+ * Whether a name is one an element can have.
+ *
+ * XML 1.0's `Name` production **without the colon**, which is the one
+ * deliberate narrowing: a colon makes a prefixed name, and this mapping's own
+ * rule is that a prefix is not part of a path -- so a key called `a:b` would
+ * write an element whose local name is `b` under a prefix `a` and read back as
+ * `b`. Measured: `createElementNS(null, 'a:b')` throws
+ * `prefix is non-null and namespace is null`, which is a DOM error naming
+ * nothing a caller can act on.
+ *
+ * Which is the whole reason this is here: without it `set('1bad', 'v')`
+ * reached `write()` and threw `invalid character in qualified name "1bad"` --
+ * `@xmldom/xmldom`'s own message, with neither the file nor the path in it, at
+ * a `save()` rather than at the `set()` that wrote it. `canRepresent()` is
+ * synchronous for exactly that.
+ */
+const NAME_START =
+  'A-Z_a-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u02FF\\u0370-\\u037D\\u037F-\\u1FFF\\u200C-\\u200D\\u2070-\\u218F\\u2C00-\\u2FEF\\u3001-\\uD7FF\\uF900-\\uFDCF\\uFDF0-\\uFFFD';
+
+/** A name an element can have: the `Name` production, minus the colon. */
+const NAME = new RegExp(
+  `^[${NAME_START}][${NAME_START}\\-.0-9\\u00B7\\u0300-\\u036F\\u203F-\\u2040]*$`,
+  'u'
+);
+
+/** Whether a path segment or a key can be an element name. */
+function nameable(name: string): boolean {
+  return NAME.test(name);
 }
 
 /**
@@ -94,6 +210,18 @@ function why(value: unknown): string | undefined {
  * @returns `true`, or a sentence saying why not.
  */
 export function xmlCanHold(value: unknown, path: string): true | string {
+  // the path's own segments first, because the message should name the segment
+  // rather than the value sitting at it: `set('1bad', 'v')` is a *name* XML
+  // cannot have, and nothing about `'v'` is wrong. Split here rather than
+  // through `segments()`, which refuses an unsafe key and an empty one with its
+  // own messages -- those are already refused one layer up, and this answers a
+  // different question about the same string
+  for (const part of path ? path.split('.') : []) {
+    if (!nameable(part)) {
+      return `XML has no element called "${part}"${path === part ? '' : ` (at "${path}")`}`;
+    }
+  }
+
   // the objects this walk is inside, so a cycle is a refusal rather than a
   // hang -- added and removed around the recursion, which is `copyInto()`'s own
   // rule: a value referenced twice is a DAG that writes twice, and only a
@@ -171,7 +299,17 @@ function look(value: unknown, where: string, seen: WeakSet<object>): string | un
       }
     } else {
       for (const [key, it] of Object.entries(value)) {
-        const inner = look(it, where === '' ? key : `${where}.${key}`, seen);
+        const label = where === '' ? key : `${where}.${key}`;
+
+        // the keys as well as the path, because `write()` is handed a whole
+        // document and the path it is asked about is `''`: a key nothing ever
+        // passed to `set()` -- one that came off an `apply()`, or out of
+        // another layer -- reaches the DOM with no segment check behind it
+        if (!nameable(key)) {
+          return `XML has no element called "${key}"${where === '' ? '' : ` (at "${where}")`}`;
+        }
+
+        const inner = look(it, label, seen);
         if (inner !== undefined) {
           return inner;
         }

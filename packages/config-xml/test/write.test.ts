@@ -92,6 +92,32 @@ describe('writing', () => {
       );
     });
 
+    it('should read the layout off the first sibling that has one', () => {
+      // neither the first nor the last. The first alone is wrong here: `<a>`
+      // shares the opening tag's line and has no preceding text at all, so an
+      // insert read "no layout" off it and landed inline against a `<b>` that
+      // is laid out. Found by probing the detection rather than by a report
+      expect(after(`<config><a>1</a>\n  <b>2</b>\n</config>\n`, { a: '1', b: '2', c: '3' })).toBe(
+        `<config><a>1</a>\n  <b>2</b>\n  <c>3</c>\n</config>\n`
+      );
+    });
+
+    it('should copy the majority rather than an outlier where the indent is inconsistent', () => {
+      // which is what the *last* sibling that has one would get wrong
+      expect(
+        after(`<config>\n  <a>1</a>\n      <b>2</b>\n</config>\n`, { a: '1', b: '2', c: '3' })
+      ).toBe(`<config>\n  <a>1</a>\n      <b>2</b>\n  <c>3</c>\n</config>\n`);
+    });
+
+    it('should leave no stray blank line in an empty but laid-out document', () => {
+      // the **root** is where this shows, because it reads as `{}` where a leaf
+      // reads as `''`: both are plain objects, so the clear that handles a
+      // scalar becoming a container was skipped, the `\n` survived, and the
+      // insert added a second one beside it -- a blank line in every file
+      // written into one
+      expect(after(`<config>\n</config>\n`, { a: '1' })).toBe(`<config>\n  <a>1</a>\n</config>\n`);
+    });
+
     it('should keep a single-line document on one line', () => {
       // a document with no line break in its layout has no step to read, and
       // inventing one would reformat a file nobody asked to reformat

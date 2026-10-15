@@ -149,7 +149,7 @@ describe("the README's own claims", () => {
     // detect-and-reapply rather than normalizations
     for (const doc of [
       `<config>\r\n  <a>1</a>\r\n</config>\r\n`,
-      `﻿<config><a>1</a></config>`,
+      `\uFEFF<config><a>1</a></config>`,
       `<config><a>1</a></config>\n`,
     ]) {
       expect(xml(file(doc)).readSync().wouldLose, doc).toBeUndefined();

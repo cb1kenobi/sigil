@@ -62,6 +62,92 @@ describe('what this store can hold', () => {
     });
   });
 
+  describe('a character XML cannot carry, or that this parser changes', () => {
+    it('should refuse a C0 control, which would write a file no conforming tool can read', () => {
+      // the sharpest of these: `@xmldom/xmldom` writes one **raw** and then
+      // parses it back, so the file round-trips here and is rejected by
+      // everything else -- a store writing a file nobody can read, with nothing
+      // saying so. Measured character by character
+      expect(hold('a\u0001b')).toMatch(/U\+0001/);
+      expect(hold('a\u0000b')).toMatch(/U\+0000/);
+      expect(hold('a\u000Bb')).toMatch(/U\+000B/);
+      expect(hold('a\u001Fb')).toMatch(/U\+001F/);
+    });
+
+    it('should allow U+007F to U+009F, which the Char production does', () => {
+      // the one place reading the production rather than guessing changes the
+      // answer: `Char` is `[#x20-#xD7FF]` among others, so these are legal
+      expect(hold('a\u007Fb')).toBe(true);
+      expect(hold('a\u009Fb')).toBe(true);
+    });
+
+    it('should refuse U+FFFE and U+FFFF, where the Char range stops at U+FFFD', () => {
+      expect(hold('a\uFFFEb')).toMatch(/U\+FFFE/);
+      expect(hold('a\uFFFFb')).toMatch(/U\+FFFF/);
+      expect(hold('a\uFFFDb')).toBe(true);
+    });
+
+    it('should refuse a lone surrogate, which is illegal and also changes', () => {
+      // in both sets: illegal XML *and* it reaches the file as U+FFFD, so the
+      // value changes even where a tool would read it
+      expect(hold('a\uD800b')).toMatch(/U\+D800/);
+      expect(hold('a\uDC00b')).toMatch(/U\+DC00/);
+      expect(hold('a\u{1F600}b')).toBe(true);
+    });
+
+    it('should refuse a carriage return and NEL, which this parser normalizes', () => {
+      // XML's own line-ending normalization and XML 1.1's: measured, `a\rb`
+      // reads back as `a\nb` in text, and NEL as `a\nb` in text and `a b` in
+      // an attribute
+      expect(hold('a\rb')).toMatch(/U\+000D/);
+      expect(hold('a\u0085b')).toMatch(/U\+0085/);
+      expect(hold('a\nb')).toBe(true);
+      expect(hold('a\tb')).toBe(true);
+    });
+  });
+
+  describe('a name no element can have', () => {
+    it('should refuse a path segment that is not an XML name', () => {
+      // without this, `set('1bad', 'v')` reached `write()` and threw
+      // `invalid character in qualified name "1bad"` -- the DOM's own message,
+      // with neither the file nor the path in it, at a `save()` rather than at
+      // the `set()` that wrote it
+      expect(hold('v', '1bad')).toMatch(/no element called "1bad"/);
+      expect(hold('v', 'a b')).toMatch(/no element called "a b"/);
+      expect(hold('v', 'a<b')).toMatch(/no element called/);
+      expect(hold('v', '-x')).toMatch(/no element called/);
+    });
+
+    it('should refuse a colon, because a prefix is not part of a path', () => {
+      // `createElementNS(null, 'a:b')` throws `prefix is non-null and namespace
+      // is null`, and the mapping's own rule is that a prefix is not part of a
+      // path -- so `a:b` would write `b` under a prefix `a` and read back as `b`
+      expect(hold('v', 'a:b')).toMatch(/no element called "a:b"/);
+    });
+
+    it('should name the segment inside a longer path', () => {
+      expect(hold('v', 'server.1bad')).toMatch(/"1bad".*at "server.1bad"/);
+    });
+
+    it('should refuse a key in the value as well as a segment of the path', () => {
+      // `write()` is handed a whole document and the path it is asked about is
+      // `''`, so a key nothing ever passed to `set()` -- one off an `apply()`,
+      // or out of another layer -- reaches the DOM with no segment check behind
+      // it
+      expect(hold({ '1bad': 'v' }, '')).toMatch(/no element called "1bad"/);
+      expect(hold({ a: { 'b c': 'v' } }, '')).toMatch(/no element called "b c"/);
+    });
+
+    it('should allow a name the production allows', () => {
+      expect(hold('v', 'server.port')).toBe(true);
+      expect(hold('v', '_x')).toBe(true);
+      expect(hold('v', 'a-b')).toBe(true);
+      expect(hold('v', 'x1')).toBe(true);
+      expect(hold('v', 'caf\u00e9')).toBe(true);
+      expect(hold({ 'a.b': 'v' }, '')).toBe(true);
+    });
+  });
+
   describe('what the format turns into text, which is a saving rather than a cost', () => {
     it('should allow a number and a boolean', () => {
       // XML has no scalar kind, so these reach the file as text -- exactly what
@@ -69,6 +155,21 @@ describe('what this store can hold', () => {
       // variable already reaches an option
       expect(hold(8080)).toBe(true);
       expect(hold(true)).toBe(true);
+    });
+
+    it('should refuse a non-finite number', () => {
+      // `NaN` reaches the file as the text `NaN`, which `transformValue()`
+      // refuses on a `number` setting -- so writing one produces a config the
+      // next run cannot load. `Infinity` happens to read back, and is refused
+      // with it rather than explained
+      expect(hold(NaN)).toMatch(/XML has no NaN/);
+      expect(hold(Infinity)).toMatch(/XML has no Infinity/);
+    });
+
+    it('should refuse a bigint, for a different reason from JSON', () => {
+      // `JSON.stringify` **throws** for one; `String(10n)` is exact text, so
+      // this refusal is not inherited. It is that no data type reads one back
+      expect(hold(10n)).toMatch(/no bigint, and no data type reads one back/);
     });
 
     it('should allow a Date, because the schema reads one back', () => {

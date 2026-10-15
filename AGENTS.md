@@ -21128,13 +21128,29 @@ five things core had deliberately not published, which is the entry below.
   removal leaves an indented blank line per key, which is the line rule
   `removeFrom()` in the JSONC writer already keeps.
 
-- **An insert copies the indentation of the first element child, and a document
-  with no layout keeps none.** The step is read off the document -- the first
-  element whose own indent is longer than its parent's -- so it is the user's
-  answer rather than this package's, with two spaces where a document is laid out
-  across lines and has no nesting to read one off. A document with no line break
-  in its layout, `<a><b>1</b></a>`, has no step, and an insert stays on the line it
-  is already on: inventing one would reformat a file nobody asked to reformat.
+- **An insert copies the indentation of the first sibling that _has_ one**, which
+  is neither the first nor the last and took probing the detection to arrive at.
+  The first alone is wrong for `<config><a>1</a>\n  <b>2</b>\n</config>`, where
+  `<a>` shares the opening tag's line and has no preceding text at all -- so an
+  insert read "no layout" off it and landed inline against a `<b>` that is laid
+  out. The last alone copies an **outlier**: a document whose indentation is
+  inconsistent gets the odd one out rather than the majority. Measured on both.
+
+  The step is read off the document -- the first element whose own indent is longer
+  than its parent's -- so it is the user's answer rather than this package's, with
+  two spaces where a document is laid out across lines and has no nesting to read
+  one off. A document with no line break in its layout, `<a><b>1</b></a>`, has no
+  step, and an insert stays on the line it is already on: inventing one would
+  reformat a file nobody asked to reformat.
+
+- **An element with no children to copy has its whitespace dropped before the
+  layout is written, and the _root_ is where that shows.** A scalar becoming a
+  container is already cleared, because the read says `''` and the target says an
+  object; the **root** reads as `{}` by its own rule, so both sides are plain
+  objects, the clear was skipped, and `<config>\n</config>` kept its newline while
+  the insert added a second one beside it -- a stray blank line in every file
+  written into an empty-but-laid-out document. Also found by probing rather than by
+  a report.
 
   A document written **from nothing** is the one case the detection gets wrong on
   its own, and the caller says so rather than the bytes: a fresh `<config/>` has no
@@ -21254,6 +21270,80 @@ five things core had deliberately not published, which is the entry below.
   on an `int` is the number `10` rather than `10n`, so a bigint does not round-trip
   under any declaration, where `8080` does.
 
+- **A non-finite number is refused, and `NaN` is the one that decides it.**
+  `transformValue('NaN', 'number')` **throws** -- measured -- so writing one
+  produces a config the next run cannot load, which is the silent-loss class one
+  step worse. `Infinity` happens to read back and is refused with it rather than
+  explained: one rule is worth more than a divergence from `jsonCanHold()` that has
+  to be remembered.
+
+#### Characters and names, which the probe found and the ticket did not name
+
+- **A C0 control is written _raw_ and parsed back, so the file round-trips here and
+  is rejected by everything else.** Measured, and it is the sharpest defect in this
+  package's own self-review: `set('a', '\u0001')` produced
+  `<config><a>\u0001</a></config>`, which `@xmldom/xmldom` reads back perfectly and
+  which is outside XML 1.0's `Char` production -- so a store whose whole argument
+  is about not corrupting a user's file was writing one no conforming tool can
+  read, with nothing saying so.
+
+  So `canRepresent()` refuses every character outside `Char`: C0 except tab,
+  newline and carriage return; a lone surrogate; U+FFFE and U+FFFF, where the
+  range stops at U+FFFD. **U+007F to U+009F are legal** and are allowed, which is
+  the one place reading the production rather than guessing changed the answer --
+  they are inside `[#x20-#xD7FF]`.
+
+  Expressed as **code points rather than a character class**, which is this
+  repository's own recorded rule and the lint is what asked for it: a class of
+  escapes is what `no-control-regex` is about, and the answer is not a
+  suppression, because one a formatter can detach from the line it was written
+  over stops working without anybody editing anything -- which happened once in
+  the toolchain's copy of the escape pass. `\p{Cc}` is the usual way out and is
+  the **wrong set** here: it is C0, `DEL` and C1, where this wants C0 minus three
+  and neither `DEL` nor C1. And the walk is by code **point**, which is what lets
+  a _lone_ surrogate be the thing refused -- iterating a string yields a paired
+  one as a single code point above U+FFFF and an unpaired one as itself, so
+  "is this in the surrogate range at all" is only ever true for a lone one.
+
+- **And every character this parser _changes_, measured rather than reasoned
+  about.** A carriage return reads back as a newline, which is XML's own
+  line-ending normalization; NEL (U+0085) reads back as a newline in text and as a
+  **space** in an attribute, which is XML 1.1's. A lone surrogate is in both sets:
+  illegal _and_ it reaches the file as U+FFFD, so the value changes even where a
+  tool would read it. Each is a round trip that quietly changes a value, which is
+  the thing the trim refusal is already written for.
+
+  What survives is worth recording because it is not obvious: a tab and a newline
+  round-trip in **both** spellings, because the serializer escapes them in an
+  attribute as `&#9;` and `&#10;` -- so the loss-table row about attribute
+  whitespace is about _reading_ a document that holds one raw rather than about
+  writing one.
+
+- **A name no element can have is refused at the `set()` rather than thrown out of
+  the DOM at a `save()`.** Measured: `set('1bad', 'v')` reached `write()` and threw
+  `invalid character in qualified name "1bad"` -- `@xmldom/xmldom`'s own message,
+  untranslated, with neither the file nor the path in it. Which is exactly what
+  `canRepresent()` is synchronous for.
+
+  XML's `Name` production **minus the colon**, which is the one deliberate
+  narrowing: a colon makes a prefixed name, and this mapping's rule is that a
+  prefix is not part of a path -- so `a:b` would write `b` under a prefix `a` and
+  read back as `b`. The DOM's own answer there is
+  `prefix is non-null and namespace is null`, which names nothing.
+
+  Asked of **each segment of the path and each key of the value**, because
+  `write()` is handed a whole document and the path it is asked about is `''`: a
+  key nothing ever passed to `set()` -- one off an `apply()`, or out of another
+  layer -- reaches the DOM with no segment check behind it.
+
+- **One consequence, conservative on purpose.** The check is asked of the _merged_
+  document rather than of what the caller passed, which is `jsonCanHold()`'s own
+  recorded reason -- so a file that already holds a character XML cannot carry
+  refuses **every** write to it, naming the character and the key. The alternative
+  is the store deliberately emitting a document no conforming tool can read.
+  Reading such a file is fine, and `wouldLose` reports nothing about it, which is
+  honest: nothing is lost, the file was illegal before and after.
+
 #### Parse errors, and the one thing the parser does twice
 
 - **A fatal parse error is reported through `onError` _and then thrown_, so the
@@ -21349,15 +21439,19 @@ Every item the ticket predicted, paid:
   see which is which. Which is the hazard stated as a cost: the fix for an
   invisible character is itself hard to do by eye.
 
-- **Then the paragraph above put two more in**, which is the fourth instance and the
-  one that says something about the tooling rather than about anybody's care: the
+- **Then the paragraph above put two more in, and a test file a third**, which is
+  the fourth and fifth instances and what they say is about the tooling rather than
+  about anybody's care: the
   two sentences naming the escape were written into this file through a shell
   heredoc, and the `\uFEFF` in them arrived as the character. So the new check caught
-  the prose describing it, twice, in the commit that added the check -- and the fix
-  was to build the six characters in a script rather than to type them. Which is
-  the whole argument for the check in one line: an escape sequence for an invisible
-  character is itself something a layer of tooling can quietly turn back into the
-  character, so nothing but reading the bytes answers it.
+  the prose describing it, twice, in the commit that added the check -- and then a
+  third time, in a test asserting that a marked file is **not** a loss, written
+  through the same heredoc an hour later. The fix is to build the six characters in
+  a script rather than to type them. Which is the whole argument for the check in
+  one line: an escape sequence for an invisible character is itself something a
+  layer of tooling can quietly turn back into the character, so nothing but reading
+  the bytes answers it -- and the check caught all three, which is the first time
+  anything in this repository has.
 
 ### Updates
 

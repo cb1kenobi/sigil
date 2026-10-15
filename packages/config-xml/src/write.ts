@@ -277,10 +277,15 @@ function addChild(parent: XmlEl, child: XmlEl, shape: WriteShape): void {
   const doc = docOf(parent);
 
   if (existing.length > 0) {
-    // the indent of the first element child says how a child of *this* parent
-    // is laid out, whatever that is -- including nothing, which keeps a
-    // one-line parent on one line
-    const indent = indentBefore(existing[0] as XmlEl);
+    // the **first child that has one** says how a child of this parent is laid
+    // out, which is neither the first child nor the last. The first alone is
+    // wrong for `<config><a>1</a>\n  <b>2</b>\n</config>`, where `<a>` shares
+    // the opening tag's line and has no preceding text at all -- so an insert
+    // read "no layout" off it and landed inline against `<b>`, which is laid
+    // out. The last alone copies an outlier: a document whose indentation is
+    // inconsistent gets the odd one out rather than the majority. Measured on
+    // both, which is why it is neither.
+    const indent = existing.map(indentBefore).find((it) => it !== undefined);
     const after = (existing[existing.length - 1] as XmlEl).nextSibling ?? null;
 
     if (indent !== undefined) {
@@ -291,8 +296,15 @@ function addChild(parent: XmlEl, child: XmlEl, shape: WriteShape): void {
   }
 
   // nothing to copy a layout from, so it is the parent's own indent plus one
-  // step. The parent's text -- its scalar, or its whitespace -- is already gone
-  // by the time this runs, which is what `applyInto()` clears it for
+  // step -- and whatever whitespace the element held is this branch's to drop,
+  // because what it writes replaces it. A scalar is already gone by the time
+  // this runs, which is what `applyInto()` clears it for; whitespace is not,
+  // and the **root** is where that shows: it reads as `{}` where a leaf reads
+  // as `''`, so `<config>\n</config>` kept its newline and an insert added a
+  // second one beside it -- a stray blank line in every file written into an
+  // empty-but-laid-out document
+  clearText(parent);
+
   if (shape.step === undefined) {
     parent.appendChild(child);
     return;
