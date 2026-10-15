@@ -17,13 +17,13 @@
  */
 
 import {
-	Internal,
-	type InternalArgument,
-	type InternalCommand,
-	type InternalOption,
-	type OptionDataType,
-	type ParsedValue,
-	type Schema,
+  Internal,
+  type InternalArgument,
+  type InternalCommand,
+  type InternalOption,
+  type OptionDataType,
+  type ParsedValue,
+  type Schema,
 } from '../types.js';
 
 /**
@@ -35,45 +35,45 @@ import {
  * required option a variable already answers for is not a question to ask.
  */
 export interface CatalogTarget {
-	/**
-	 * What the parse matched, which is where the name argv reached each context
-	 * by comes from. Optional, because a caller may hand over a chain and
-	 * nothing else; without it a context contributes its own `name`, which is
-	 * right for every command but one whose module renamed it.
-	 */
-	$?: readonly ParsedValue[];
-	/** The command chain, innermost first, ending at the schema's root. */
-	contexts: InternalCommand[];
-	/** The environment, as the parse read it. */
-	env?: Record<string, string | undefined>;
-	/** The schema, for the program's name. */
-	schema?: Schema;
+  /**
+   * What the parse matched, which is where the name argv reached each context
+   * by comes from. Optional, because a caller may hand over a chain and
+   * nothing else; without it a context contributes its own `name`, which is
+   * right for every command but one whose module renamed it.
+   */
+  $?: readonly ParsedValue[];
+  /** The command chain, innermost first, ending at the schema's root. */
+  contexts: InternalCommand[];
+  /** The environment, as the parse read it. */
+  env?: Record<string, string | undefined>;
+  /** The schema, for the program's name. */
+  schema?: Schema;
 }
 
 export interface CatalogOptions {
-	/** The environment, when the target does not carry one. */
-	env?: Record<string, string | undefined>;
-	/**
-	 * Whether to list a command that holds other commands and has no `run` of
-	 * its own. Defaults to `false`.
-	 *
-	 * A namespace -- a directory with no `index` module, or a command declared
-	 * only to hold subcommands -- matches, lists what is under it, and has
-	 * nothing to run. Selecting one is still a coherent thing to do, because
-	 * `main()` prints its help, so this is an opt-in rather than a refusal; left
-	 * off it is noise in a list whose whole job is to be short.
-	 *
-	 * What it does **not** leave out is a *leaf* with no `run`, and that is a
-	 * correction rather than a nicety: `help` is exactly one -- the parser
-	 * dispatches it by setting `state.help` rather than through a handler -- so a
-	 * gate written as "has a `run`" left the one command every schema gets for
-	 * free out of the list. A command is a namespace because it holds others, not
-	 * because it has no handler.
-	 *
-	 * A command whose module has **not** been read is listed either way, since
-	 * whether it has a `run` is in that module.
-	 */
-	namespaces?: boolean;
+  /** The environment, when the target does not carry one. */
+  env?: Record<string, string | undefined>;
+  /**
+   * Whether to list a command that holds other commands and has no `run` of
+   * its own. Defaults to `false`.
+   *
+   * A namespace -- a directory with no `index` module, or a command declared
+   * only to hold subcommands -- matches, lists what is under it, and has
+   * nothing to run. Selecting one is still a coherent thing to do, because
+   * `main()` prints its help, so this is an opt-in rather than a refusal; left
+   * off it is noise in a list whose whole job is to be short.
+   *
+   * What it does **not** leave out is a *leaf* with no `run`, and that is a
+   * correction rather than a nicety: `help` is exactly one -- the parser
+   * dispatches it by setting `state.help` rather than through a handler -- so a
+   * gate written as "has a `run`" left the one command every schema gets for
+   * free out of the list. A command is a namespace because it holds others, not
+   * because it has no handler.
+   *
+   * A command whose module has **not** been read is listed either way, since
+   * whether it has a `run` is in that module.
+   */
+  namespaces?: boolean;
 }
 
 /**
@@ -86,77 +86,77 @@ export interface CatalogOptions {
  * Plain data, so a test can write one.
  */
 export interface PaletteSlot {
-	/** The values it will accept, if the declaration named any. */
-	readonly choices?: readonly unknown[];
-	/** What it is for, as help prints it. */
-	readonly desc?: string;
-	/** What a prompt asks under: `<entry>` for an argument, `--port <n>` for an option. */
-	readonly label: string;
-	/** Whether it takes more than one value. */
-	readonly multiple: boolean;
-	/** Whether a value has to be given. */
-	readonly required: boolean;
-	/**
-	 * The argv spelling a value is attached to, for an option.
-	 *
-	 * Absent for an argument, which is positional. Present and dashed for an
-	 * option -- `--port`, or `-p` where that is the only spelling the registry
-	 * answers to -- because `slotTokens()` attaches the value with an `=`.
-	 */
-	readonly spelling?: string;
-	/**
-	 * The data type a value is coerced with, which is what a prompt validates
-	 * against.
-	 *
-	 * `OptionDataType` rather than `ArgDataType`, because it is the wider of the
-	 * two: an option may be a `count` and an argument may not, and one slot shape
-	 * for both is what keeps there being one prompt builder.
-	 */
-	readonly type: OptionDataType;
+  /** The values it will accept, if the declaration named any. */
+  readonly choices?: readonly unknown[];
+  /** What it is for, as help prints it. */
+  readonly desc?: string;
+  /** What a prompt asks under: `<entry>` for an argument, `--port <n>` for an option. */
+  readonly label: string;
+  /** Whether it takes more than one value. */
+  readonly multiple: boolean;
+  /** Whether a value has to be given. */
+  readonly required: boolean;
+  /**
+   * The argv spelling a value is attached to, for an option.
+   *
+   * Absent for an argument, which is positional. Present and dashed for an
+   * option -- `--port`, or `-p` where that is the only spelling the registry
+   * answers to -- because `slotTokens()` attaches the value with an `=`.
+   */
+  readonly spelling?: string;
+  /**
+   * The data type a value is coerced with, which is what a prompt validates
+   * against.
+   *
+   * `OptionDataType` rather than `ArgDataType`, because it is the wider of the
+   * two: an option may be a `count` and an argument may not, and one slot shape
+   * for both is what keeps there being one prompt builder.
+   */
+  readonly type: OptionDataType;
 }
 
 /** One row of the palette. */
 export interface PaletteEntry {
-	/** The command, as the registry holds it. */
-	readonly cmd: InternalCommand;
-	/** What it is for. Absent until its module has been loaded, exactly as in help. */
-	readonly desc?: string;
-	/** The aliases it also answers to, sorted. */
-	readonly aliases: readonly string[];
-	/**
-	 * Whether there is a module behind it that nothing has read.
-	 *
-	 * `true` for a lazily loaded command and for a route a directory walk found,
-	 * and `false` for everything else -- including a command declared inline,
-	 * which has no module to wait for. Such an entry has no description and no
-	 * subcommands under it in the list, because both live in that module; see
-	 * `commandCatalog()`.
-	 *
-	 * Not `cmd[Internal].loaded`, which is a different question and was the first
-	 * answer: that flag says whether `loadCommand()` has *finished*, and it starts
-	 * `false` and is only ever flipped by a dispatch -- so an ordinary inline
-	 * command that argv never named reads as unloaded, and reading it that way
-	 * stopped the walk at the first level and listed every namespace as a command
-	 * that might have a `run`. What a palette has to know is whether anything is
-	 * still outstanding, which is `loaded` *or* there never was a module.
-	 */
-	readonly deferred: boolean;
-	/** What is shown: the argv path, spaced. */
-	readonly label: string;
-	/** The argv path from the root, which is what running it means. */
-	readonly path: readonly string[];
-	/**
-	 * What the query is matched against: the label, then the aliases.
-	 *
-	 * Separate from `label` so that an alias hit ranks without being highlighted:
-	 * `highlightRuns()` ignores an index past the end of what it is given, so a
-	 * match inside the alias tail simply highlights nothing. The cost is the one
-	 * `rankBy()` records -- a command with aliases loses a score tie to one
-	 * without -- which decides nothing but the order of two equally good matches.
-	 */
-	readonly search: string;
-	/** The values it needs before it can be run, in the order they are asked for. */
-	readonly slots: readonly PaletteSlot[];
+  /** The command, as the registry holds it. */
+  readonly cmd: InternalCommand;
+  /** What it is for. Absent until its module has been loaded, exactly as in help. */
+  readonly desc?: string;
+  /** The aliases it also answers to, sorted. */
+  readonly aliases: readonly string[];
+  /**
+   * Whether there is a module behind it that nothing has read.
+   *
+   * `true` for a lazily loaded command and for a route a directory walk found,
+   * and `false` for everything else -- including a command declared inline,
+   * which has no module to wait for. Such an entry has no description and no
+   * subcommands under it in the list, because both live in that module; see
+   * `commandCatalog()`.
+   *
+   * Not `cmd[Internal].loaded`, which is a different question and was the first
+   * answer: that flag says whether `loadCommand()` has *finished*, and it starts
+   * `false` and is only ever flipped by a dispatch -- so an ordinary inline
+   * command that argv never named reads as unloaded, and reading it that way
+   * stopped the walk at the first level and listed every namespace as a command
+   * that might have a `run`. What a palette has to know is whether anything is
+   * still outstanding, which is `loaded` *or* there never was a module.
+   */
+  readonly deferred: boolean;
+  /** What is shown: the argv path, spaced. */
+  readonly label: string;
+  /** The argv path from the root, which is what running it means. */
+  readonly path: readonly string[];
+  /**
+   * What the query is matched against: the label, then the aliases.
+   *
+   * Separate from `label` so that an alias hit ranks without being highlighted:
+   * `highlightRuns()` ignores an index past the end of what it is given, so a
+   * match inside the alias tail simply highlights nothing. The cost is the one
+   * `rankBy()` records -- a command with aliases loses a score tie to one
+   * without -- which decides nothing but the order of two equally good matches.
+   */
+  readonly search: string;
+  /** The values it needs before it can be run, in the order they are asked for. */
+  readonly slots: readonly PaletteSlot[];
 }
 
 /**
@@ -174,9 +174,9 @@ export interface PaletteEntry {
  * @returns The tokens, in order.
  */
 export function slotTokens(slot: PaletteSlot, values: readonly string[]): string[] {
-	return slot.spelling === undefined
-		? [...values]
-		: values.map((value) => `${slot.spelling}=${value}`);
+  return slot.spelling === undefined
+    ? [...values]
+    : values.map((value) => `${slot.spelling}=${value}`);
 }
 
 /**
@@ -207,19 +207,19 @@ export function slotTokens(slot: PaletteSlot, values: readonly string[]): string
  * @returns The spelling, or `undefined` for an option nothing can type.
  */
 function spellingOf(opt: InternalOption): string | undefined {
-	const { long, short } = opt[Internal];
+  const { long, short } = opt[Internal];
 
-	for (const name of long) {
-		if (!name.startsWith('--no-')) {
-			return name;
-		}
-	}
-	for (const name of long) {
-		return name;
-	}
-	for (const name of short) {
-		return name;
-	}
+  for (const name of long) {
+    if (!name.startsWith('--no-')) {
+      return name;
+    }
+  }
+  for (const name of long) {
+    return name;
+  }
+  for (const name of short) {
+    return name;
+  }
 }
 
 /**
@@ -235,8 +235,8 @@ function spellingOf(opt: InternalOption): string | undefined {
  * @returns Whether its description and its subcommands are still unknown.
  */
 function isDeferred(cmd: InternalCommand): boolean {
-	const { dir, load, loaded, path } = cmd[Internal];
-	return !loaded && (path !== undefined || load !== undefined || dir !== undefined);
+  const { dir, load, loaded, path } = cmd[Internal];
+  return !loaded && (path !== undefined || load !== undefined || dir !== undefined);
 }
 
 /** `<name>` or `[name...]`, which is how an argument is spelled where it is typed. */
@@ -265,12 +265,12 @@ function isDeferred(cmd: InternalCommand): boolean {
  * @returns The token that reaches it.
  */
 function matchedName(cmd: InternalCommand, named: Map<InternalCommand, string>): string {
-	return named.get(cmd) ?? cmd.name;
+  return named.get(cmd) ?? cmd.name;
 }
 
 function argLabel(arg: InternalArgument): string {
-	const name = `${arg.name}${arg.multiple ? '...' : ''}`;
-	return arg.required ? `<${name}>` : `[${name}]`;
+  const name = `${arg.name}${arg.multiple ? '...' : ''}`;
+  return arg.required ? `<${name}>` : `[${name}]`;
 }
 
 /**
@@ -287,15 +287,15 @@ function argLabel(arg: InternalArgument): string {
  * @returns Whether one of them has a value.
  */
 function fromEnv(envs: Set<string>, env: Record<string, string | undefined> | undefined): boolean {
-	if (!env) {
-		return false;
-	}
-	for (const name of envs) {
-		if (env[name]) {
-			return true;
-		}
-	}
-	return false;
+  if (!env) {
+    return false;
+  }
+  for (const name of envs) {
+    if (env[name]) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -338,92 +338,92 @@ function fromEnv(envs: Set<string>, env: Record<string, string | undefined> | un
  * @returns The slots, arguments first and then the options innermost first.
  */
 export function slotsFor(
-	chain: readonly InternalCommand[],
-	env?: Record<string, string | undefined>
+  chain: readonly InternalCommand[],
+  env?: Record<string, string | undefined>
 ): PaletteSlot[] {
-	const cmd = chain[0];
+  const cmd = chain[0];
 
-	if (!cmd) {
-		throw new TypeError('Expected a command chain to read slots from');
-	}
+  if (!cmd) {
+    throw new TypeError('Expected a command chain to read slots from');
+  }
 
-	const slots: PaletteSlot[] = [];
-	/** Destinations something will fill without being asked. */
-	const answered = new Set<string>();
-	/** Destinations a slot above will fill. */
-	const asked = new Set<string>();
+  const slots: PaletteSlot[] = [];
+  /** Destinations something will fill without being asked. */
+  const answered = new Set<string>();
+  /** Destinations a slot above will fill. */
+  const asked = new Set<string>();
 
-	for (const arg of cmd[Internal].args) {
-		const { dest, envs } = arg[Internal];
+  for (const arg of cmd[Internal].args) {
+    const { dest, envs } = arg[Internal];
 
-		slots.push({
-			choices: Array.isArray(arg.choices) ? arg.choices : undefined,
-			desc: typeof arg.desc === 'string' ? arg.desc : undefined,
-			label: argLabel(arg),
-			multiple: !!arg.multiple,
-			required: !!arg.required,
-			type: arg.type,
-		});
+    slots.push({
+      choices: Array.isArray(arg.choices) ? arg.choices : undefined,
+      desc: typeof arg.desc === 'string' ? arg.desc : undefined,
+      label: argLabel(arg),
+      multiple: !!arg.multiple,
+      required: !!arg.required,
+      type: arg.type,
+    });
 
-		// a *required* argument always comes back with a value, and an optional one
-		// only where its own fallback fills the slot it was skipped at. An optional
-		// argument with neither is deliberately not counted, because over-skipping
-		// is the direction that puts the defect back
-		if (arg.required || arg.default !== undefined || fromEnv(envs, env)) {
-			answered.add(dest);
-		}
-	}
+    // a *required* argument always comes back with a value, and an optional one
+    // only where its own fallback fills the slot it was skipped at. An optional
+    // argument with neither is deliberately not counted, because over-skipping
+    // is the direction that puts the defect back
+    if (arg.required || arg.default !== undefined || fromEnv(envs, env)) {
+      answered.add(dest);
+    }
+  }
 
-	const options = chain.flatMap((ctx) => [...ctx[Internal].options.values()]);
+  const options = chain.flatMap((ctx) => [...ctx[Internal].options.values()]);
 
-	// what the parse will fill on its own, read before anything is asked: a
-	// nearer option's default answers for an outer option of the same destination
-	// whichever order the two are seen in
-	for (const opt of options) {
-		const { dest, envs, parserOwned, skipDefault } = opt[Internal];
+  // what the parse will fill on its own, read before anything is asked: a
+  // nearer option's default answers for an outer option of the same destination
+  // whichever order the two are seen in
+  for (const opt of options) {
+    const { dest, envs, parserOwned, skipDefault } = opt[Internal];
 
-		// the parser's own flags answer for nothing, and this is a declared
-		// statement rather than a guard a test can see: deleting it passes all
-		// 5,264 of them. It is kept because what makes it safe to delete is two
-		// steps rather than an impossibility -- a flag carries a `false` default,
-		// so without this their destinations would join `answered`, which is then
-		// harmless only because the ask pass below skips a flag for not being
-		// `required`. There are two of them, `--help` and `--version`
-		if (parserOwned) {
-			continue;
-		}
-		if (fromEnv(envs, env) || (!skipDefault && opt.default !== undefined)) {
-			answered.add(dest);
-		}
-	}
+    // the parser's own flags answer for nothing, and this is a declared
+    // statement rather than a guard a test can see: deleting it passes all
+    // 5,264 of them. It is kept because what makes it safe to delete is two
+    // steps rather than an impossibility -- a flag carries a `false` default,
+    // so without this their destinations would join `answered`, which is then
+    // harmless only because the ask pass below skips a flag for not being
+    // `required`. There are two of them, `--help` and `--version`
+    if (parserOwned) {
+      continue;
+    }
+    if (fromEnv(envs, env) || (!skipDefault && opt.default !== undefined)) {
+      answered.add(dest);
+    }
+  }
 
-	for (const opt of options) {
-		const { dest } = opt[Internal];
-		const spelling = spellingOf(opt);
+  for (const opt of options) {
+    const { dest } = opt[Internal];
+    const spelling = spellingOf(opt);
 
-		// `spelling === undefined` is the narrowing rather than a guard: every
-		// initialized option has at least one spelling, because `initOption()`
-		// refuses a declaration that names none and gives a bare name a `--name`,
-		// so this cannot fire. It is what lets the slot carry a `string` without a
-		// cast -- and it used to be reachable, through the `no-` filter above,
-		// which is what made this comment false rather than merely optimistic
-		if (!opt.required || answered.has(dest) || asked.has(dest) || spelling === undefined) {
-			continue;
-		}
+    // `spelling === undefined` is the narrowing rather than a guard: every
+    // initialized option has at least one spelling, because `initOption()`
+    // refuses a declaration that names none and gives a bare name a `--name`,
+    // so this cannot fire. It is what lets the slot carry a `string` without a
+    // cast -- and it used to be reachable, through the `no-` filter above,
+    // which is what made this comment false rather than merely optimistic
+    if (!opt.required || answered.has(dest) || asked.has(dest) || spelling === undefined) {
+      continue;
+    }
 
-		asked.add(dest);
-		slots.push({
-			choices: Array.isArray(opt.choices) ? opt.choices : undefined,
-			desc: typeof opt.desc === 'string' ? opt.desc : undefined,
-			label: `${spelling} <${opt.hint ?? opt.name}>`,
-			multiple: !!opt.multiple,
-			required: true,
-			spelling,
-			type: opt.type,
-		});
-	}
+    asked.add(dest);
+    slots.push({
+      choices: Array.isArray(opt.choices) ? opt.choices : undefined,
+      desc: typeof opt.desc === 'string' ? opt.desc : undefined,
+      label: `${spelling} <${opt.hint ?? opt.name}>`,
+      multiple: !!opt.multiple,
+      required: true,
+      spelling,
+      type: opt.type,
+    });
+  }
 
-	return slots;
+  return slots;
 }
 
 /**
@@ -464,125 +464,125 @@ export function slotsFor(
  * @returns The entries, nearest context first.
  */
 export function commandCatalog(target: CatalogTarget, opts: CatalogOptions = {}): PaletteEntry[] {
-	const contexts = target?.contexts;
+  const contexts = target?.contexts;
 
-	if (!Array.isArray(contexts) || contexts.length === 0) {
-		throw new TypeError('Expected a context chain to build a catalog from');
-	}
+  if (!Array.isArray(contexts) || contexts.length === 0) {
+    throw new TypeError('Expected a context chain to build a catalog from');
+  }
 
-	const env = opts.env ?? target.env;
-	const entries: PaletteEntry[] = [];
+  const env = opts.env ?? target.env;
+  const entries: PaletteEntry[] = [];
 
-	// the token argv reached each matched command by, which is what routes
-	const named = new Map<InternalCommand, string>();
-	for (const value of target.$ ?? []) {
-		if (value.type === 'Command' && typeof value.inputs[0] === 'string') {
-			named.set(value.cmd, value.inputs[0]);
-		}
-	}
+  // the token argv reached each matched command by, which is what routes
+  const named = new Map<InternalCommand, string>();
+  for (const value of target.$ ?? []) {
+    if (value.type === 'Command' && typeof value.inputs[0] === 'string') {
+      named.set(value.cmd, value.inputs[0]);
+    }
+  }
 
-	/**
-	 * The commands whose registries have been read.
-	 *
-	 * It bounds a cycle, which is reachable: a registry holds initialized commands
-	 * and `initCommand()` hands one straight back, so a declaration that names a
-	 * command already in its own subtree builds a cycle rather than a copy.
-	 * Nothing in this repository writes one, and a palette that overflowed the
-	 * stack over it would be a worse answer than a list that stops.
-	 *
-	 * It is also what makes a second, path-keyed dedup unnecessary -- there was
-	 * one, and a sabotage said it could never fire. Every parent is walked at most
-	 * once, so a path and a child name cannot be produced twice. What that costs
-	 * is that the guard is path-*insensitive*: one command registered under two
-	 * parents is listed under both, and its own subtree is listed under whichever
-	 * path the walk reached first. Written down rather than fixed, because a
-	 * path-keyed guard would be unbounded on a cycle again.
-	 */
-	const seen = new Set<InternalCommand>();
+  /**
+   * The commands whose registries have been read.
+   *
+   * It bounds a cycle, which is reachable: a registry holds initialized commands
+   * and `initCommand()` hands one straight back, so a declaration that names a
+   * command already in its own subtree builds a cycle rather than a copy.
+   * Nothing in this repository writes one, and a palette that overflowed the
+   * stack over it would be a worse answer than a list that stops.
+   *
+   * It is also what makes a second, path-keyed dedup unnecessary -- there was
+   * one, and a sabotage said it could never fire. Every parent is walked at most
+   * once, so a path and a child name cannot be produced twice. What that costs
+   * is that the guard is path-*insensitive*: one command registered under two
+   * parents is listed under both, and its own subtree is listed under whichever
+   * path the walk reached first. Written down rather than fixed, because a
+   * path-keyed guard would be unbounded on a cycle again.
+   */
+  const seen = new Set<InternalCommand>();
 
-	/**
-	 * Lists one command's subcommands, then theirs.
-	 *
-	 * @param cmd - The command whose registry to read.
-	 * @param path - The argv path that reaches it, from the root.
-	 * @param above - `cmd`'s own ancestors, innermost first, so that a child's
-	 *   chain is the one `parse()` would build for it -- which is what
-	 *   `slotsFor()` has to read, since a required option on an ancestor is
-	 *   enforced when a subcommand runs.
-	 */
-	function walk(
-		cmd: InternalCommand,
-		path: string[],
-		argv: string[],
-		above: InternalCommand[]
-	): void {
-		if (seen.has(cmd)) {
-			return;
-		}
-		seen.add(cmd);
+  /**
+   * Lists one command's subcommands, then theirs.
+   *
+   * @param cmd - The command whose registry to read.
+   * @param path - The argv path that reaches it, from the root.
+   * @param above - `cmd`'s own ancestors, innermost first, so that a child's
+   *   chain is the one `parse()` would build for it -- which is what
+   *   `slotsFor()` has to read, since a required option on an ancestor is
+   *   enforced when a subcommand runs.
+   */
+  function walk(
+    cmd: InternalCommand,
+    path: string[],
+    argv: string[],
+    above: InternalCommand[]
+  ): void {
+    if (seen.has(cmd)) {
+      return;
+    }
+    seen.add(cmd);
 
-		const children = [...cmd[Internal].commands.values()].sort((a, b) =>
-			a.name.localeCompare(b.name)
-		);
+    const children = [...cmd[Internal].commands.values()].sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
 
-		for (const child of children) {
-			if (child.hidden) {
-				continue;
-			}
+    for (const child of children) {
+      if (child.hidden) {
+        continue;
+      }
 
-			const here = [...path, child.name];
-			// what is *shown* is the canonical name and what is *dispatched* is the
-			// name argv reaches the command by, and the two part company above a
-			// renamed context -- see `matchedName()`. For a child they agree, since
-			// a registry is keyed by `cmd.name` and nothing has renamed one yet
-			const reach = [...argv, child.name];
-			const key = here.join(' ');
-			const internal = child[Internal];
-			const deferred = isDeferred(child);
+      const here = [...path, child.name];
+      // what is *shown* is the canonical name and what is *dispatched* is the
+      // name argv reaches the command by, and the two part company above a
+      // renamed context -- see `matchedName()`. For a child they agree, since
+      // a registry is keyed by `cmd.name` and nothing has renamed one yet
+      const reach = [...argv, child.name];
+      const key = here.join(' ');
+      const internal = child[Internal];
+      const deferred = isDeferred(child);
 
-			// a namespace is a command that holds others and runs nothing, which is
-			// noise in a list whose job is to be short. Whether a *deferred* command
-			// has a `run` is unknowable until its module is read, so one is listed on
-			// the chance that it has -- which is what help does with the same
-			// question, and which is reachable: a placeholder may declare subcommands
-			// inline, so it holds others and has no `run` and is not a namespace
-			const namespace = !deferred && typeof child.run !== 'function' && internal.commands.size > 0;
+      // a namespace is a command that holds others and runs nothing, which is
+      // noise in a list whose job is to be short. Whether a *deferred* command
+      // has a `run` is unknowable until its module is read, so one is listed on
+      // the chance that it has -- which is what help does with the same
+      // question, and which is reachable: a placeholder may declare subcommands
+      // inline, so it holds others and has no `run` and is not a namespace
+      const namespace = !deferred && typeof child.run !== 'function' && internal.commands.size > 0;
 
-			if (opts.namespaces || !namespace) {
-				const aliases = [...internal.aliases].sort();
-				entries.push({
-					aliases,
-					cmd: child,
-					deferred,
-					desc: typeof child.desc === 'string' ? child.desc : undefined,
-					label: key,
-					path: reach,
-					search: aliases.length > 0 ? `${key} ${aliases.join(' ')}` : key,
-					slots: slotsFor([child, cmd, ...above], env),
-				});
-			}
+      if (opts.namespaces || !namespace) {
+        const aliases = [...internal.aliases].sort();
+        entries.push({
+          aliases,
+          cmd: child,
+          deferred,
+          desc: typeof child.desc === 'string' ? child.desc : undefined,
+          label: key,
+          path: reach,
+          search: aliases.length > 0 ? `${key} ${aliases.join(' ')}` : key,
+          slots: slotsFor([child, cmd, ...above], env),
+        });
+      }
 
-			// whatever its registry holds, which for a placeholder is either nothing
-			// -- a directory nobody has walked -- or the subcommands it declared
-			// inline, and those are real. There was a `!deferred` guard here and a
-			// sabotage said it could not change an answer in the first case and hid
-			// real commands in the second
-			walk(child, here, reach, [cmd, ...above]);
-		}
-	}
+      // whatever its registry holds, which for a placeholder is either nothing
+      // -- a directory nobody has walked -- or the subcommands it declared
+      // inline, and those are real. There was a `!deferred` guard here and a
+      // sabotage said it could not change an answer in the first case and hid
+      // real commands in the second
+      walk(child, here, reach, [cmd, ...above]);
+    }
+  }
 
-	for (const [depth, ctx] of contexts.entries()) {
-		// the path to this context: the chain is innermost-first and ends at the
-		// root, whose name is the schema's and is not part of argv
-		const chain = contexts.slice(depth, -1).reverse();
+  for (const [depth, ctx] of contexts.entries()) {
+    // the path to this context: the chain is innermost-first and ends at the
+    // root, whose name is the schema's and is not part of argv
+    const chain = contexts.slice(depth, -1).reverse();
 
-		walk(
-			ctx,
-			chain.map((c) => c.name),
-			chain.map((c) => matchedName(c, named)),
-			contexts.slice(depth + 1)
-		);
-	}
+    walk(
+      ctx,
+      chain.map((c) => c.name),
+      chain.map((c) => matchedName(c, named)),
+      contexts.slice(depth + 1)
+    );
+  }
 
-	return entries;
+  return entries;
 }

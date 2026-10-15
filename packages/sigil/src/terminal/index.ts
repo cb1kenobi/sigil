@@ -1,53 +1,53 @@
 import { DEFAULT_WIDTH, terminalWidth } from '../wrap/index.js';
 import {
-	DISABLE_MOUSE_BUTTONS,
-	DISABLE_MOUSE_MOTION,
-	DISABLE_MOUSE_SGR,
-	DISABLE_PASTE,
-	ENABLE_MOUSE_BUTTONS,
-	ENABLE_MOUSE_MOTION,
-	ENABLE_MOUSE_SGR,
-	ENABLE_PASTE,
-	ENTER_ALT_SCREEN,
-	HIDE_CURSOR,
-	LEAVE_ALT_SCREEN,
-	SHOW_CURSOR,
+  DISABLE_MOUSE_BUTTONS,
+  DISABLE_MOUSE_MOTION,
+  DISABLE_MOUSE_SGR,
+  DISABLE_PASTE,
+  ENABLE_MOUSE_BUTTONS,
+  ENABLE_MOUSE_MOTION,
+  ENABLE_MOUSE_SGR,
+  ENABLE_PASTE,
+  ENTER_ALT_SCREEN,
+  HIDE_CURSOR,
+  LEAVE_ALT_SCREEN,
+  SHOW_CURSOR,
 } from './sequences.js';
 
 export {
-	CLIPBOARD_LIMIT,
-	type ClipboardCopy,
-	type ClipboardOptions,
-	type ClipboardRefusal,
-	type ClipboardSequence,
-	clipboardSequence,
-	type ClipboardTarget,
-	copyToClipboard,
+  CLIPBOARD_LIMIT,
+  type ClipboardCopy,
+  type ClipboardOptions,
+  type ClipboardRefusal,
+  type ClipboardSequence,
+  clipboardSequence,
+  type ClipboardTarget,
+  copyToClipboard,
 } from './clipboard.js';
 export { createLiveRegion, frameHeight, type LiveRegion, type LiveRegionOptions } from './live.js';
 export {
-	CURSOR_HOME,
-	CURSOR_TOP_LEFT,
-	cursorDown,
-	cursorRight,
-	cursorUp,
-	DISABLE_MOUSE_BUTTONS,
-	DISABLE_MOUSE_MOTION,
-	DISABLE_MOUSE_SGR,
-	DISABLE_PASTE,
-	ENABLE_MOUSE_BUTTONS,
-	ENABLE_MOUSE_MOTION,
-	ENABLE_MOUSE_SGR,
-	ENABLE_PASTE,
-	ENTER_ALT_SCREEN,
-	ERASE_DOWN,
-	ERASE_LINE,
-	ERASE_LINE_END,
-	HIDE_CURSOR,
-	LEAVE_ALT_SCREEN,
-	PASTE_END,
-	PASTE_START,
-	SHOW_CURSOR,
+  CURSOR_HOME,
+  CURSOR_TOP_LEFT,
+  cursorDown,
+  cursorRight,
+  cursorUp,
+  DISABLE_MOUSE_BUTTONS,
+  DISABLE_MOUSE_MOTION,
+  DISABLE_MOUSE_SGR,
+  DISABLE_PASTE,
+  ENABLE_MOUSE_BUTTONS,
+  ENABLE_MOUSE_MOTION,
+  ENABLE_MOUSE_SGR,
+  ENABLE_PASTE,
+  ENTER_ALT_SCREEN,
+  ERASE_DOWN,
+  ERASE_LINE,
+  ERASE_LINE_END,
+  HIDE_CURSOR,
+  LEAVE_ALT_SCREEN,
+  PASTE_END,
+  PASTE_START,
+  SHOW_CURSOR,
 } from './sequences.js';
 
 /** What a terminal is assumed to be tall when there is no terminal to ask. */
@@ -68,171 +68,171 @@ const GONE = new Set(['EPIPE', 'ERR_STREAM_DESTROYED', 'ERR_STREAM_WRITE_AFTER_E
 
 /** Only what a terminal actually asks of an output stream. */
 export interface OutputStream {
-	columns?: number;
-	isTTY?: boolean;
-	rows?: number;
-	on?(event: string, listener: (...args: unknown[]) => void): unknown;
-	removeListener?(event: string, listener: (...args: unknown[]) => void): unknown;
-	write(chunk: string): boolean;
+  columns?: number;
+  isTTY?: boolean;
+  rows?: number;
+  on?(event: string, listener: (...args: unknown[]) => void): unknown;
+  removeListener?(event: string, listener: (...args: unknown[]) => void): unknown;
+  write(chunk: string): boolean;
 }
 
 /** Only what a terminal actually asks of an input stream. */
 export interface InputStream {
-	isTTY?: boolean;
-	setRawMode?(mode: boolean): unknown;
+  isTTY?: boolean;
+  setRawMode?(mode: boolean): unknown;
 }
 
 /** Only what a terminal actually asks of the process. */
 export interface ProcessLike {
-	listenerCount?(event: string): number;
-	on(event: string, listener: (...args: unknown[]) => void): unknown;
-	pid?: number;
-	kill?(pid: number, signal: string): unknown;
-	removeListener(event: string, listener: (...args: unknown[]) => void): unknown;
+  listenerCount?(event: string): number;
+  on(event: string, listener: (...args: unknown[]) => void): unknown;
+  pid?: number;
+  kill?(pid: number, signal: string): unknown;
+  removeListener(event: string, listener: (...args: unknown[]) => void): unknown;
 }
 
 export interface TerminalOptions {
-	/** The environment to read `COLUMNS` from. Defaults to `process.env`. */
-	env?: Record<string, string | undefined>;
-	/** Overrides TTY detection, which is otherwise the output stream's. */
-	isTTY?: boolean;
-	/** The process to install signal and exit handlers on. Defaults to `process`. */
-	proc?: ProcessLike;
-	/** Defaults to `process.stderr`. */
-	stderr?: OutputStream;
-	/** Defaults to `process.stdin`. */
-	stdin?: InputStream;
-	/** Defaults to `process.stdout`. */
-	stdout?: OutputStream;
+  /** The environment to read `COLUMNS` from. Defaults to `process.env`. */
+  env?: Record<string, string | undefined>;
+  /** Overrides TTY detection, which is otherwise the output stream's. */
+  isTTY?: boolean;
+  /** The process to install signal and exit handlers on. Defaults to `process`. */
+  proc?: ProcessLike;
+  /** Defaults to `process.stderr`. */
+  stderr?: OutputStream;
+  /** Defaults to `process.stdin`. */
+  stdin?: InputStream;
+  /** Defaults to `process.stdout`. */
+  stdout?: OutputStream;
 }
 
 /** A hold on the one region of the screen that may be repainted in place. */
 export interface LiveClaim {
-	/** `false` once something else has claimed the region, or it was released. */
-	readonly active: boolean;
-	/** Gives the region up. Idempotent, and does not evict a later claim. */
-	release(): void;
+  /** `false` once something else has claimed the region, or it was released. */
+  readonly active: boolean;
+  /** Gives the region up. Idempotent, and does not evict a later claim. */
+  release(): void;
 }
 
 export interface Terminal {
-	/**
-	 * Takes the live region, evicting whoever held it.
-	 *
-	 * Only one thing may repaint the bottom of the screen: a spinner still
-	 * ticking underneath a prompt writes over it on its next frame. The previous
-	 * holder's `onEvict` runs first and is expected to clear what it drew, so the
-	 * new holder starts on a clean line.
-	 *
-	 * @param onEvict - Called if something else claims the region.
-	 * @returns The claim.
-	 */
-	claimLive(onEvict?: () => void): LiveClaim;
-	/** Whether the far end has gone away, after which writes do nothing. */
-	readonly closed: boolean;
-	/**
-	 * Switches to the alternate screen, and registers to switch back however the
-	 * process ends.
-	 *
-	 * The switching back is the whole reason this lives here rather than in a
-	 * backend writing the sequence itself: a CLI that dies on the alternate
-	 * buffer and never comes back has eaten the user's terminal, and `restore()`
-	 * is what already runs on a signal, on `exit`, and on the way out of an
-	 * uncaught throw.
-	 *
-	 * @returns Whether this call is what switched, mirroring `hideCursor()`.
-	 * `false` when something had already switched or there is no terminal to
-	 * switch -- either way the caller owes no `leaveAltScreen()`.
-	 */
-	enterAltScreen(): boolean;
-	/** Rows, from the stream, or 24 when there is nothing to ask. */
-	readonly height: number;
-	/**
-	 * Hides the cursor, and registers to show it again however the process ends.
-	 *
-	 * @returns Whether this call is what hid it. `false` when something had
-	 * already hidden it, or when there is no terminal to hide one on -- either
-	 * way the caller owes no `showCursor()`, because showing it would put back a
-	 * cursor somebody else is still hiding.
-	 */
-	hideCursor(): boolean;
-	/** Whether this is a terminal, and so whether repainting means anything. */
-	readonly isTTY: boolean;
-	/** Returns to the main screen, if this terminal is what left it. */
-	leaveAltScreen(): void;
-	/**
-	 * Asks the terminal to wrap a paste in markers, and registers to stop asking
-	 * however the process ends.
-	 *
-	 * On the restore list for the same reason the alternate screen is: a CLI that
-	 * dies with this left on hands the user a shell that puts `ESC [ 200 ~` into
-	 * every paste, which is a terminal that has to be reset by hand.
-	 *
-	 * @returns Whether this call is what turned it on, mirroring `hideCursor()`.
-	 */
-	enableBracketedPaste(): boolean;
-	/** Stops the markers, if this terminal is what asked for them. */
-	disableBracketedPaste(): void;
-	/**
-	 * Asks the terminal to report the mouse, and registers to stop asking however
-	 * the process ends.
-	 *
-	 * On the restore list, and it is the entry with the loudest failure: a shell
-	 * left in a tracking mode prints `ESC [ < 35 ; 40 ; 12 M` into whatever the
-	 * user types next every time they move the pointer over the window, which has
-	 * to be reset by hand. That is worse than the paste markers and much worse
-	 * than a hidden cursor.
-	 *
-	 * Always SGR, and the tracking mode is written after it -- so there is never a
-	 * moment in which the mouse is being reported in an encoding nothing reads.
-	 *
-	 * @param opts - `motion` asks for every cell the pointer crosses rather than
-	 *   only motion while a button is held. Off by default, because on it is a
-	 *   report per cell of pointer travel for as long as the app runs.
-	 * @returns Whether this call is what turned it on, mirroring `hideCursor()`.
-	 *   `false` when tracking was already on -- including when it was on in the
-	 *   *other* mode, because the caller that turned it on owns which one it is.
-	 */
-	enableMouse(opts?: { motion?: boolean }): boolean;
-	/** Stops mouse reporting, if this terminal is what asked for it. */
-	disableMouse(): void;
-	/**
-	 * Subscribes to resizes.
-	 *
-	 * @param fn - Called with the new size.
-	 * @returns Unsubscribes.
-	 */
-	onResize(fn: (size: { height: number; width: number }) => void): () => void;
-	/** Puts back everything this terminal changed. Idempotent. */
-	restore(): void;
-	/** Enters or leaves raw mode, if the input stream is a TTY. */
-	/**
-	 * Puts the terminal in or out of raw mode.
-	 *
-	 * @param raw - Whether keys should arrive unbuffered and unechoed.
-	 * @returns Whether this call is what changed it, mirroring `hideCursor()`.
-	 *   A prompt inside a full-screen app that is already raw must not turn raw
-	 *   mode off when it is answered: the app is still reading keys, and what it
-	 *   gets back is a cooked stream that echoes.
-	 */
-	setRawMode(raw: boolean): boolean;
-	/** Shows the cursor. */
-	showCursor(): void;
-	readonly stderr: OutputStream;
-	readonly stdin: InputStream | undefined;
-	readonly stdout: OutputStream;
-	/**
-	 * Columns, from `COLUMNS`, then the stream, then 80.
-	 *
-	 * Uncapped, unlike `terminalWidth()`, which stops at `MAX_WIDTH` because a
-	 * line of prose is hard to read much past it. That cap is about generated
-	 * text; this is the number the cursor math needs, and a progress bar told the
-	 * screen is 100 columns when it is 200 erases the wrong amount.
-	 */
-	readonly width: number;
-	/** Writes to stderr. Never throws; returns `false` once the far end is gone. */
-	writeErr(chunk: string): boolean;
-	/** Writes to stdout. Never throws; returns `false` once the far end is gone. */
-	write(chunk: string): boolean;
+  /**
+   * Takes the live region, evicting whoever held it.
+   *
+   * Only one thing may repaint the bottom of the screen: a spinner still
+   * ticking underneath a prompt writes over it on its next frame. The previous
+   * holder's `onEvict` runs first and is expected to clear what it drew, so the
+   * new holder starts on a clean line.
+   *
+   * @param onEvict - Called if something else claims the region.
+   * @returns The claim.
+   */
+  claimLive(onEvict?: () => void): LiveClaim;
+  /** Whether the far end has gone away, after which writes do nothing. */
+  readonly closed: boolean;
+  /**
+   * Switches to the alternate screen, and registers to switch back however the
+   * process ends.
+   *
+   * The switching back is the whole reason this lives here rather than in a
+   * backend writing the sequence itself: a CLI that dies on the alternate
+   * buffer and never comes back has eaten the user's terminal, and `restore()`
+   * is what already runs on a signal, on `exit`, and on the way out of an
+   * uncaught throw.
+   *
+   * @returns Whether this call is what switched, mirroring `hideCursor()`.
+   * `false` when something had already switched or there is no terminal to
+   * switch -- either way the caller owes no `leaveAltScreen()`.
+   */
+  enterAltScreen(): boolean;
+  /** Rows, from the stream, or 24 when there is nothing to ask. */
+  readonly height: number;
+  /**
+   * Hides the cursor, and registers to show it again however the process ends.
+   *
+   * @returns Whether this call is what hid it. `false` when something had
+   * already hidden it, or when there is no terminal to hide one on -- either
+   * way the caller owes no `showCursor()`, because showing it would put back a
+   * cursor somebody else is still hiding.
+   */
+  hideCursor(): boolean;
+  /** Whether this is a terminal, and so whether repainting means anything. */
+  readonly isTTY: boolean;
+  /** Returns to the main screen, if this terminal is what left it. */
+  leaveAltScreen(): void;
+  /**
+   * Asks the terminal to wrap a paste in markers, and registers to stop asking
+   * however the process ends.
+   *
+   * On the restore list for the same reason the alternate screen is: a CLI that
+   * dies with this left on hands the user a shell that puts `ESC [ 200 ~` into
+   * every paste, which is a terminal that has to be reset by hand.
+   *
+   * @returns Whether this call is what turned it on, mirroring `hideCursor()`.
+   */
+  enableBracketedPaste(): boolean;
+  /** Stops the markers, if this terminal is what asked for them. */
+  disableBracketedPaste(): void;
+  /**
+   * Asks the terminal to report the mouse, and registers to stop asking however
+   * the process ends.
+   *
+   * On the restore list, and it is the entry with the loudest failure: a shell
+   * left in a tracking mode prints `ESC [ < 35 ; 40 ; 12 M` into whatever the
+   * user types next every time they move the pointer over the window, which has
+   * to be reset by hand. That is worse than the paste markers and much worse
+   * than a hidden cursor.
+   *
+   * Always SGR, and the tracking mode is written after it -- so there is never a
+   * moment in which the mouse is being reported in an encoding nothing reads.
+   *
+   * @param opts - `motion` asks for every cell the pointer crosses rather than
+   *   only motion while a button is held. Off by default, because on it is a
+   *   report per cell of pointer travel for as long as the app runs.
+   * @returns Whether this call is what turned it on, mirroring `hideCursor()`.
+   *   `false` when tracking was already on -- including when it was on in the
+   *   *other* mode, because the caller that turned it on owns which one it is.
+   */
+  enableMouse(opts?: { motion?: boolean }): boolean;
+  /** Stops mouse reporting, if this terminal is what asked for it. */
+  disableMouse(): void;
+  /**
+   * Subscribes to resizes.
+   *
+   * @param fn - Called with the new size.
+   * @returns Unsubscribes.
+   */
+  onResize(fn: (size: { height: number; width: number }) => void): () => void;
+  /** Puts back everything this terminal changed. Idempotent. */
+  restore(): void;
+  /** Enters or leaves raw mode, if the input stream is a TTY. */
+  /**
+   * Puts the terminal in or out of raw mode.
+   *
+   * @param raw - Whether keys should arrive unbuffered and unechoed.
+   * @returns Whether this call is what changed it, mirroring `hideCursor()`.
+   *   A prompt inside a full-screen app that is already raw must not turn raw
+   *   mode off when it is answered: the app is still reading keys, and what it
+   *   gets back is a cooked stream that echoes.
+   */
+  setRawMode(raw: boolean): boolean;
+  /** Shows the cursor. */
+  showCursor(): void;
+  readonly stderr: OutputStream;
+  readonly stdin: InputStream | undefined;
+  readonly stdout: OutputStream;
+  /**
+   * Columns, from `COLUMNS`, then the stream, then 80.
+   *
+   * Uncapped, unlike `terminalWidth()`, which stops at `MAX_WIDTH` because a
+   * line of prose is hard to read much past it. That cap is about generated
+   * text; this is the number the cursor math needs, and a progress bar told the
+   * screen is 100 columns when it is 200 erases the wrong amount.
+   */
+  readonly width: number;
+  /** Writes to stderr. Never throws; returns `false` once the far end is gone. */
+  writeErr(chunk: string): boolean;
+  /** Writes to stdout. Never throws; returns `false` once the far end is gone. */
+  write(chunk: string): boolean;
 }
 
 /**
@@ -248,419 +248,419 @@ export interface Terminal {
  * @returns The terminal.
  */
 export function createTerminal(opts: TerminalOptions = {}): Terminal {
-	const stdout = opts.stdout ?? process.stdout;
-	const stderr = opts.stderr ?? process.stderr;
-	const stdin = 'stdin' in opts ? opts.stdin : process.stdin;
-	const proc = opts.proc ?? (process as unknown as ProcessLike);
-	const env = opts.env ?? process.env;
+  const stdout = opts.stdout ?? process.stdout;
+  const stderr = opts.stderr ?? process.stderr;
+  const stdin = 'stdin' in opts ? opts.stdin : process.stdin;
+  const proc = opts.proc ?? (process as unknown as ProcessLike);
+  const env = opts.env ?? process.env;
 
-	const isTTY = opts.isTTY ?? !!stdout.isTTY;
+  const isTTY = opts.isTTY ?? !!stdout.isTTY;
 
-	let closed = false;
-	let altScreen = false;
-	let bracketedPaste = false;
-	let cursorHidden = false;
-	let rawMode = false;
-	/** Which tracking mode is on, so that the right one is turned back off. */
-	let mouse: 'buttons' | 'motion' | undefined;
-	let claim: InternalClaim | undefined;
+  let closed = false;
+  let altScreen = false;
+  let bracketedPaste = false;
+  let cursorHidden = false;
+  let rawMode = false;
+  /** Which tracking mode is on, so that the right one is turned back off. */
+  let mouse: 'buttons' | 'motion' | undefined;
+  let claim: InternalClaim | undefined;
 
-	// what has been attached to the process and to the streams, so that each is
-	// attached once and removed when the last reason for it goes away
-	let restoreAttached = false;
-	const resizeListeners = new Set<(size: { height: number; width: number }) => void>();
-	let resizeAttached = false;
+  // what has been attached to the process and to the streams, so that each is
+  // attached once and removed when the last reason for it goes away
+  let restoreAttached = false;
+  const resizeListeners = new Set<(size: { height: number; width: number }) => void>();
+  let resizeAttached = false;
 
-	interface InternalClaim extends LiveClaim {
-		evict(): void;
-	}
+  interface InternalClaim extends LiveClaim {
+    evict(): void;
+  }
 
-	function width(): number {
-		// `max: Infinity` because the cap `terminalWidth()` applies by default is a
-		// readability limit on generated prose, and this is the width of the actual
-		// screen -- erasing a wrapped line needs the real number
-		return terminalWidth({ env, fallback: DEFAULT_WIDTH, max: Infinity, stream: stdout });
-	}
+  function width(): number {
+    // `max: Infinity` because the cap `terminalWidth()` applies by default is a
+    // readability limit on generated prose, and this is the width of the actual
+    // screen -- erasing a wrapped line needs the real number
+    return terminalWidth({ env, fallback: DEFAULT_WIDTH, max: Infinity, stream: stdout });
+  }
 
-	function height(): number {
-		const rows = stdout.rows;
-		return typeof rows === 'number' && rows > 0 ? Math.floor(rows) : DEFAULT_HEIGHT;
-	}
+  function height(): number {
+    const rows = stdout.rows;
+    return typeof rows === 'number' && rows > 0 ? Math.floor(rows) : DEFAULT_HEIGHT;
+  }
 
-	function writeTo(stream: OutputStream, chunk: string): boolean {
-		if (closed || chunk === '') {
-			return !closed;
-		}
+  function writeTo(stream: OutputStream, chunk: string): boolean {
+    if (closed || chunk === '') {
+      return !closed;
+    }
 
-		// before the write rather than after it: an `EPIPE` this very write
-		// provokes arrives as an event, and one with no listener is the uncaught
-		// exception the guard exists to prevent
-		guard(stream);
+    // before the write rather than after it: an `EPIPE` this very write
+    // provokes arrives as an event, and one with no listener is the uncaught
+    // exception the guard exists to prevent
+    guard(stream);
 
-		try {
-			stream.write(chunk);
-			return true;
-		} catch (err) {
-			// a synchronous throw is the pipe being gone already. Anything else is a
-			// real fault and is not this module's to swallow
-			if (GONE.has((err as NodeJS.ErrnoException)?.code as string)) {
-				closed = true;
-				return false;
-			}
-			throw err;
-		}
-	}
+    try {
+      stream.write(chunk);
+      return true;
+    } catch (err) {
+      // a synchronous throw is the pipe being gone already. Anything else is a
+      // real fault and is not this module's to swallow
+      if (GONE.has((err as NodeJS.ErrnoException)?.code as string)) {
+        closed = true;
+        return false;
+      }
+      throw err;
+    }
+  }
 
-	/**
-	 * Swallows the far end going away.
-	 *
-	 * `EPIPE` usually arrives as an `error` event rather than a throw, and an
-	 * `error` event with no listener is an uncaught exception -- which is how
-	 * `mycli --help | head -1` kills a CLI that did nothing wrong. Attached to the
-	 * stream being written and on the first write to it, since a stream nothing
-	 * writes to cannot produce one, and removed by `restore()` along with the
-	 * process handlers.
-	 */
-	const guards = new Map<OutputStream, (...args: unknown[]) => void>();
+  /**
+   * Swallows the far end going away.
+   *
+   * `EPIPE` usually arrives as an `error` event rather than a throw, and an
+   * `error` event with no listener is an uncaught exception -- which is how
+   * `mycli --help | head -1` kills a CLI that did nothing wrong. Attached to the
+   * stream being written and on the first write to it, since a stream nothing
+   * writes to cannot produce one, and removed by `restore()` along with the
+   * process handlers.
+   */
+  const guards = new Map<OutputStream, (...args: unknown[]) => void>();
 
-	function guard(stream: OutputStream): void {
-		if (guards.has(stream)) {
-			return;
-		}
+  function guard(stream: OutputStream): void {
+    if (guards.has(stream)) {
+      return;
+    }
 
-		const onStreamError = (...args: unknown[]) => {
-			const err = args[0] as NodeJS.ErrnoException | undefined;
-			if (GONE.has(err?.code as string)) {
-				closed = true;
-			}
-		};
+    const onStreamError = (...args: unknown[]) => {
+      const err = args[0] as NodeJS.ErrnoException | undefined;
+      if (GONE.has(err?.code as string)) {
+        closed = true;
+      }
+    };
 
-		guards.set(stream, onStreamError);
-		stream.on?.('error', onStreamError);
-	}
+    guards.set(stream, onStreamError);
+    stream.on?.('error', onStreamError);
+  }
 
-	function detachGuards(): void {
-		for (const [stream, onStreamError] of guards) {
-			stream.removeListener?.('error', onStreamError);
-		}
-		guards.clear();
-	}
+  function detachGuards(): void {
+    for (const [stream, onStreamError] of guards) {
+      stream.removeListener?.('error', onStreamError);
+    }
+    guards.clear();
+  }
 
-	function onExit(): void {
-		restore();
-	}
+  function onExit(): void {
+    restore();
+  }
 
-	function onSignal(signal: string): void {
-		restore();
+  function onSignal(signal: string): void {
+    restore();
 
-		// a listener on a signal replaces the default action, so a CLI that hid its
-		// cursor would stop dying on Ctrl-C -- which is a far worse bug than the
-		// one this is fixing. Stand down and let the signal land the way it would
-		// have: our own listeners are gone by now, so if nothing else is waiting on
-		// it, re-raising gets the default
-		detachRestore();
-		if (proc.listenerCount?.(signal) === 0) {
-			proc.kill?.(proc.pid as number, signal);
-		}
-	}
+    // a listener on a signal replaces the default action, so a CLI that hid its
+    // cursor would stop dying on Ctrl-C -- which is a far worse bug than the
+    // one this is fixing. Stand down and let the signal land the way it would
+    // have: our own listeners are gone by now, so if nothing else is waiting on
+    // it, re-raising gets the default
+    detachRestore();
+    if (proc.listenerCount?.(signal) === 0) {
+      proc.kill?.(proc.pid as number, signal);
+    }
+  }
 
-	const signalHandlers = new Map<string, () => void>();
+  const signalHandlers = new Map<string, () => void>();
 
-	function attachRestore(): void {
-		if (restoreAttached) {
-			return;
-		}
-		restoreAttached = true;
+  function attachRestore(): void {
+    if (restoreAttached) {
+      return;
+    }
+    restoreAttached = true;
 
-		proc.on('exit', onExit);
-		for (const signal of SIGNALS) {
-			const handler = () => onSignal(signal);
-			signalHandlers.set(signal, handler);
-			proc.on(signal, handler);
-		}
-	}
+    proc.on('exit', onExit);
+    for (const signal of SIGNALS) {
+      const handler = () => onSignal(signal);
+      signalHandlers.set(signal, handler);
+      proc.on(signal, handler);
+    }
+  }
 
-	function detachRestore(): void {
-		if (!restoreAttached) {
-			return;
-		}
-		restoreAttached = false;
+  function detachRestore(): void {
+    if (!restoreAttached) {
+      return;
+    }
+    restoreAttached = false;
 
-		proc.removeListener('exit', onExit);
-		for (const [signal, handler] of signalHandlers) {
-			proc.removeListener(signal, handler);
-		}
-		signalHandlers.clear();
-	}
+    proc.removeListener('exit', onExit);
+    for (const [signal, handler] of signalHandlers) {
+      proc.removeListener(signal, handler);
+    }
+    signalHandlers.clear();
+  }
 
-	/**
-	 * Attaches or detaches the restore handlers to match whether there is
-	 * anything to restore, so a terminal that has gone back to normal stops
-	 * holding the process's signal handling.
-	 */
-	function syncRestore(): void {
-		if (altScreen || bracketedPaste || cursorHidden || mouse || rawMode || claim?.active) {
-			attachRestore();
-		} else {
-			detachRestore();
-		}
-	}
+  /**
+   * Attaches or detaches the restore handlers to match whether there is
+   * anything to restore, so a terminal that has gone back to normal stops
+   * holding the process's signal handling.
+   */
+  function syncRestore(): void {
+    if (altScreen || bracketedPaste || cursorHidden || mouse || rawMode || claim?.active) {
+      attachRestore();
+    } else {
+      detachRestore();
+    }
+  }
 
-	function onStreamResize(): void {
-		const size = { height: height(), width: width() };
+  function onStreamResize(): void {
+    const size = { height: height(), width: width() };
 
-		// a copy, and `has`. The copy is not for the reason this used to give: a
-		// listener *unsubscribing* during the walk is handled by a bare `Set`
-		// iterator, which skips an entry removed before it is reached. It is for
-		// the other direction -- a listener that subscribes another would otherwise
-		// have that one notified about a resize it was not yet listening for -- and
-		// the copy then costs the first half back, since a snapshot still holds the
-		// listener that has just gone. Asking the live set is what keeps both. The
-		// same rule as the input router's, written there at length
-		// eslint-disable-next-line unicorn/no-useless-spread
-		for (const fn of [...resizeListeners]) {
-			if (!resizeListeners.has(fn)) {
-				continue;
-			}
-			fn(size);
-		}
-	}
+    // a copy, and `has`. The copy is not for the reason this used to give: a
+    // listener *unsubscribing* during the walk is handled by a bare `Set`
+    // iterator, which skips an entry removed before it is reached. It is for
+    // the other direction -- a listener that subscribes another would otherwise
+    // have that one notified about a resize it was not yet listening for -- and
+    // the copy then costs the first half back, since a snapshot still holds the
+    // listener that has just gone. Asking the live set is what keeps both. The
+    // same rule as the input router's, written there at length
+    // eslint-disable-next-line unicorn/no-useless-spread
+    for (const fn of [...resizeListeners]) {
+      if (!resizeListeners.has(fn)) {
+        continue;
+      }
+      fn(size);
+    }
+  }
 
-	function syncResize(): void {
-		const want = resizeListeners.size > 0;
-		if (want === resizeAttached) {
-			return;
-		}
-		resizeAttached = want;
+  function syncResize(): void {
+    const want = resizeListeners.size > 0;
+    if (want === resizeAttached) {
+      return;
+    }
+    resizeAttached = want;
 
-		// a TTY write stream emits `resize` itself, which is the same event
-		// `SIGWINCH` would carry and is scoped to the stream rather than to the
-		// process. Nothing to fall back to when the stream cannot be asked: a
-		// stream that is not a terminal has no size to change
-		if (want) {
-			stdout.on?.('resize', onStreamResize);
-		} else {
-			stdout.removeListener?.('resize', onStreamResize);
-		}
-	}
+    // a TTY write stream emits `resize` itself, which is the same event
+    // `SIGWINCH` would carry and is scoped to the stream rather than to the
+    // process. Nothing to fall back to when the stream cannot be asked: a
+    // stream that is not a terminal has no size to change
+    if (want) {
+      stdout.on?.('resize', onStreamResize);
+    } else {
+      stdout.removeListener?.('resize', onStreamResize);
+    }
+  }
 
-	/**
-	 * Turns the tracking mode off and then the encoding, which is the reverse of
-	 * the order they went on in: the mouse stops being reported before the thing
-	 * that says how to read a report does.
-	 *
-	 * @returns Whether there was anything to turn off.
-	 */
-	function stopMouse(): boolean {
-		if (!mouse) {
-			return false;
-		}
-		const was = mouse;
-		mouse = undefined;
-		writeTo(
-			stdout,
-			(was === 'motion' ? DISABLE_MOUSE_MOTION : DISABLE_MOUSE_BUTTONS) + DISABLE_MOUSE_SGR
-		);
-		return true;
-	}
+  /**
+   * Turns the tracking mode off and then the encoding, which is the reverse of
+   * the order they went on in: the mouse stops being reported before the thing
+   * that says how to read a report does.
+   *
+   * @returns Whether there was anything to turn off.
+   */
+  function stopMouse(): boolean {
+    if (!mouse) {
+      return false;
+    }
+    const was = mouse;
+    mouse = undefined;
+    writeTo(
+      stdout,
+      (was === 'motion' ? DISABLE_MOUSE_MOTION : DISABLE_MOUSE_BUTTONS) + DISABLE_MOUSE_SGR
+    );
+    return true;
+  }
 
-	function restore(): void {
-		if (claim?.active) {
-			claim.evict();
-		}
+  function restore(): void {
+    if (claim?.active) {
+      claim.evict();
+    }
 
-		if (rawMode) {
-			rawMode = false;
-			stdin?.setRawMode?.(false);
-		}
+    if (rawMode) {
+      rawMode = false;
+      stdin?.setRawMode?.(false);
+    }
 
-		// before the paste markers and for the same reason, only more so: a shell
-		// left in a tracking mode puts a report into the user's next command line
-		// every time the pointer crosses the window
-		stopMouse();
+    // before the paste markers and for the same reason, only more so: a shell
+    // left in a tracking mode puts a report into the user's next command line
+    // every time the pointer crosses the window
+    stopMouse();
 
-		if (bracketedPaste) {
-			bracketedPaste = false;
-			writeTo(stdout, DISABLE_PASTE);
-		}
+    if (bracketedPaste) {
+      bracketedPaste = false;
+      writeTo(stdout, DISABLE_PASTE);
+    }
 
-		// the alternate screen goes back first, so that a cursor hidden while it was
-		// up is shown again on the screen that is about to be looked at
-		if (altScreen) {
-			altScreen = false;
-			writeTo(stdout, LEAVE_ALT_SCREEN);
-		}
+    // the alternate screen goes back first, so that a cursor hidden while it was
+    // up is shown again on the screen that is about to be looked at
+    if (altScreen) {
+      altScreen = false;
+      writeTo(stdout, LEAVE_ALT_SCREEN);
+    }
 
-		if (cursorHidden) {
-			cursorHidden = false;
-			writeTo(stdout, SHOW_CURSOR);
-		}
+    if (cursorHidden) {
+      cursorHidden = false;
+      writeTo(stdout, SHOW_CURSOR);
+    }
 
-		detachRestore();
+    detachRestore();
 
-		// after the writes above, since each of them re-guards the stream it goes
-		// to. Only `restore()` does this and never `syncRestore()`: a terminal with
-		// nothing left to put back is still a terminal being written to, and
-		// dropping the guard there would take it off in the window where an `EPIPE`
-		// from the write that just happened is still on its way
-		detachGuards();
-	}
+    // after the writes above, since each of them re-guards the stream it goes
+    // to. Only `restore()` does this and never `syncRestore()`: a terminal with
+    // nothing left to put back is still a terminal being written to, and
+    // dropping the guard there would take it off in the window where an `EPIPE`
+    // from the write that just happened is still on its way
+    detachGuards();
+  }
 
-	return {
-		claimLive(onEvict?: () => void): LiveClaim {
-			const previous = claim;
-			previous?.evict();
+  return {
+    claimLive(onEvict?: () => void): LiveClaim {
+      const previous = claim;
+      previous?.evict();
 
-			let active = true;
-			const it: InternalClaim = {
-				get active() {
-					return active;
-				},
-				evict() {
-					if (active) {
-						active = false;
-						onEvict?.();
-					}
-				},
-				release() {
-					if (active) {
-						active = false;
-						// only if still the holder: releasing a claim something else has
-						// already taken would hand the region to nobody
-						if (claim === it) {
-							claim = undefined;
-							syncRestore();
-						}
-					}
-				},
-			};
+      let active = true;
+      const it: InternalClaim = {
+        get active() {
+          return active;
+        },
+        evict() {
+          if (active) {
+            active = false;
+            onEvict?.();
+          }
+        },
+        release() {
+          if (active) {
+            active = false;
+            // only if still the holder: releasing a claim something else has
+            // already taken would hand the region to nobody
+            if (claim === it) {
+              claim = undefined;
+              syncRestore();
+            }
+          }
+        },
+      };
 
-			claim = it;
-			syncRestore();
-			return it;
-		},
+      claim = it;
+      syncRestore();
+      return it;
+    },
 
-		get closed() {
-			return closed;
-		},
+    get closed() {
+      return closed;
+    },
 
-		disableBracketedPaste(): void {
-			if (bracketedPaste) {
-				bracketedPaste = false;
-				writeTo(stdout, DISABLE_PASTE);
-				syncRestore();
-			}
-		},
+    disableBracketedPaste(): void {
+      if (bracketedPaste) {
+        bracketedPaste = false;
+        writeTo(stdout, DISABLE_PASTE);
+        syncRestore();
+      }
+    },
 
-		disableMouse(): void {
-			if (stopMouse()) {
-				syncRestore();
-			}
-		},
+    disableMouse(): void {
+      if (stopMouse()) {
+        syncRestore();
+      }
+    },
 
-		enableBracketedPaste(): boolean {
-			if (bracketedPaste || !isTTY) {
-				return false;
-			}
-			bracketedPaste = true;
-			attachRestore();
-			writeTo(stdout, ENABLE_PASTE);
-			return true;
-		},
+    enableBracketedPaste(): boolean {
+      if (bracketedPaste || !isTTY) {
+        return false;
+      }
+      bracketedPaste = true;
+      attachRestore();
+      writeTo(stdout, ENABLE_PASTE);
+      return true;
+    },
 
-		enableMouse(mouseOpts: { motion?: boolean } = {}): boolean {
-			if (mouse || !isTTY) {
-				return false;
-			}
-			mouse = mouseOpts.motion === true ? 'motion' : 'buttons';
-			attachRestore();
-			writeTo(
-				stdout,
-				ENABLE_MOUSE_SGR + (mouse === 'motion' ? ENABLE_MOUSE_MOTION : ENABLE_MOUSE_BUTTONS)
-			);
-			return true;
-		},
+    enableMouse(mouseOpts: { motion?: boolean } = {}): boolean {
+      if (mouse || !isTTY) {
+        return false;
+      }
+      mouse = mouseOpts.motion === true ? 'motion' : 'buttons';
+      attachRestore();
+      writeTo(
+        stdout,
+        ENABLE_MOUSE_SGR + (mouse === 'motion' ? ENABLE_MOUSE_MOTION : ENABLE_MOUSE_BUTTONS)
+      );
+      return true;
+    },
 
-		enterAltScreen(): boolean {
-			if (altScreen || !isTTY) {
-				return false;
-			}
-			altScreen = true;
-			attachRestore();
-			writeTo(stdout, ENTER_ALT_SCREEN);
-			return true;
-		},
+    enterAltScreen(): boolean {
+      if (altScreen || !isTTY) {
+        return false;
+      }
+      altScreen = true;
+      attachRestore();
+      writeTo(stdout, ENTER_ALT_SCREEN);
+      return true;
+    },
 
-		get height() {
-			return height();
-		},
+    get height() {
+      return height();
+    },
 
-		hideCursor(): boolean {
-			if (cursorHidden || !isTTY) {
-				return false;
-			}
-			cursorHidden = true;
-			attachRestore();
-			writeTo(stdout, HIDE_CURSOR);
-			return true;
-		},
+    hideCursor(): boolean {
+      if (cursorHidden || !isTTY) {
+        return false;
+      }
+      cursorHidden = true;
+      attachRestore();
+      writeTo(stdout, HIDE_CURSOR);
+      return true;
+    },
 
-		isTTY,
+    isTTY,
 
-		leaveAltScreen(): void {
-			if (altScreen) {
-				altScreen = false;
-				writeTo(stdout, LEAVE_ALT_SCREEN);
-				syncRestore();
-			}
-		},
+    leaveAltScreen(): void {
+      if (altScreen) {
+        altScreen = false;
+        writeTo(stdout, LEAVE_ALT_SCREEN);
+        syncRestore();
+      }
+    },
 
-		onResize(fn: (size: { height: number; width: number }) => void): () => void {
-			resizeListeners.add(fn);
-			syncResize();
+    onResize(fn: (size: { height: number; width: number }) => void): () => void {
+      resizeListeners.add(fn);
+      syncResize();
 
-			return () => {
-				resizeListeners.delete(fn);
-				syncResize();
-			};
-		},
+      return () => {
+        resizeListeners.delete(fn);
+        syncResize();
+      };
+    },
 
-		restore,
+    restore,
 
-		setRawMode(raw: boolean): boolean {
-			if (raw === rawMode || !stdin?.isTTY || typeof stdin.setRawMode !== 'function') {
-				return false;
-			}
-			rawMode = raw;
-			stdin.setRawMode(raw);
-			syncRestore();
-			return true;
-		},
+    setRawMode(raw: boolean): boolean {
+      if (raw === rawMode || !stdin?.isTTY || typeof stdin.setRawMode !== 'function') {
+        return false;
+      }
+      rawMode = raw;
+      stdin.setRawMode(raw);
+      syncRestore();
+      return true;
+    },
 
-		showCursor(): void {
-			if (cursorHidden) {
-				cursorHidden = false;
-				writeTo(stdout, SHOW_CURSOR);
-				syncRestore();
-			}
-		},
+    showCursor(): void {
+      if (cursorHidden) {
+        cursorHidden = false;
+        writeTo(stdout, SHOW_CURSOR);
+        syncRestore();
+      }
+    },
 
-		stderr,
-		stdin,
-		stdout,
+    stderr,
+    stdin,
+    stdout,
 
-		get width() {
-			return width();
-		},
+    get width() {
+      return width();
+    },
 
-		write(chunk: string): boolean {
-			return writeTo(stdout, chunk);
-		},
+    write(chunk: string): boolean {
+      return writeTo(stdout, chunk);
+    },
 
-		writeErr(chunk: string): boolean {
-			return writeTo(stderr, chunk);
-		},
-	};
+    writeErr(chunk: string): boolean {
+      return writeTo(stderr, chunk);
+    },
+  };
 }
 
 /**

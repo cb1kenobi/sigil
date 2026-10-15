@@ -21,235 +21,235 @@ import { describe, expect, it } from 'vitest';
 const ESC = String.fromCharCode(0x1b);
 
 interface Harness {
-	feed: (chunk: string) => void;
-	screen: Screen;
-	terminal: Terminal;
+  feed: (chunk: string) => void;
+  screen: Screen;
+  terminal: Terminal;
 }
 
 /** A terminal whose output is a screen model and whose input is a TTY. */
 function harness(width = 30, height = 12): Harness {
-	const screen = new Screen(width, height);
-	const stream = screenStream(screen);
-	const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
+  const screen = new Screen(width, height);
+  const stream = screenStream(screen);
+  const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
 
-	const stdin = {
-		isTTY: true,
-		off(event: string, fn: (...args: unknown[]) => void) {
-			listeners.get(event)?.delete(fn);
-			return this;
-		},
-		on(event: string, fn: (...args: unknown[]) => void) {
-			let set = listeners.get(event);
-			if (!set) {
-				set = new Set();
-				listeners.set(event, set);
-			}
-			set.add(fn);
-			return this;
-		},
-		pause() {
-			return this;
-		},
-		resume() {
-			return this;
-		},
-		setEncoding() {
-			return this;
-		},
-		setRawMode() {
-			return this;
-		},
-	};
+  const stdin = {
+    isTTY: true,
+    off(event: string, fn: (...args: unknown[]) => void) {
+      listeners.get(event)?.delete(fn);
+      return this;
+    },
+    on(event: string, fn: (...args: unknown[]) => void) {
+      let set = listeners.get(event);
+      if (!set) {
+        set = new Set();
+        listeners.set(event, set);
+      }
+      set.add(fn);
+      return this;
+    },
+    pause() {
+      return this;
+    },
+    resume() {
+      return this;
+    },
+    setEncoding() {
+      return this;
+    },
+    setRawMode() {
+      return this;
+    },
+  };
 
-	const terminal = createTerminal({
-		env: {},
-		isTTY: true,
-		proc: { on() {}, pid: 1, removeListener() {} } as never,
-		stderr: stream as never,
-		stdin: stdin as never,
-		stdout: stream as never,
-	});
+  const terminal = createTerminal({
+    env: {},
+    isTTY: true,
+    proc: { on() {}, pid: 1, removeListener() {} } as never,
+    stderr: stream as never,
+    stdin: stdin as never,
+    stdout: stream as never,
+  });
 
-	return {
-		feed(chunk: string) {
-			for (const fn of listeners.get('data') ?? []) {
-				fn(chunk);
-			}
-		},
-		screen,
-		terminal,
-	};
+  return {
+    feed(chunk: string) {
+      for (const fn of listeners.get('data') ?? []) {
+        fn(chunk);
+      }
+    },
+    screen,
+    terminal,
+  };
 }
 
 /** Answers the cursor report the backend is waiting for, from the model. */
 function answerCursor(h: Harness): void {
-	h.feed(`${ESC}[${h.screen.row + 1};${h.screen.column + 1}R`);
+  h.feed(`${ESC}[${h.screen.row + 1};${h.screen.column + 1}R`);
 }
 
 /** Lets the microtasks a settled probe queues run. */
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('the mouse over a rendered tree', () => {
-	it('should reach the element that was painted where the report says', async () => {
-		const h = harness();
-		// two rows of log above the region, so the canvas's own rows are nowhere near
-		// the top of the screen and the origin is a number only a probe can supply
-		h.terminal.write('building...\r\nstill building...\r\n');
+  it('should reach the element that was painted where the report says', async () => {
+    const h = harness();
+    // two rows of log above the region, so the canvas's own rows are nowhere near
+    // the top of the screen and the origin is a number only a probe can supply
+    h.terminal.write('building...\r\nstill building...\r\n');
 
-		const rows: Element[] = ['one', 'two', 'three'].map((name) =>
-			box({ height: 1, id: name, width: 12 }, text(name))
-		);
-		const backend = createInlineCanvas({ height: 3, terminal: h.terminal, width: 12 });
-		const view = render(() => box({ 'flex-direction': 'column', id: 'app' }, ...rows), {
-			backend,
-			terminal: h.terminal,
-		});
+    const rows: Element[] = ['one', 'two', 'three'].map((name) =>
+      box({ height: 1, id: name, width: 12 }, text(name))
+    );
+    const backend = createInlineCanvas({ height: 3, terminal: h.terminal, width: 12 });
+    const view = render(() => box({ 'flex-direction': 'column', id: 'app' }, ...rows), {
+      backend,
+      terminal: h.terminal,
+    });
 
-		const seen: string[] = [];
-		for (const row of rows) {
-			row.onMouse = (event) => void seen.push(`${row.id}:${event.kind}`);
-		}
+    const seen: string[] = [];
+    for (const row of rows) {
+      row.onMouse = (event) => void seen.push(`${row.id}:${event.kind}`);
+    }
 
-		const input = createInput({
-			mouse: { surface: view.backend },
-			root: view.root,
-			terminal: h.terminal,
-		});
-		answerCursor(h);
-		await flush();
+    const input = createInput({
+      mouse: { surface: view.backend },
+      root: view.root,
+      terminal: h.terminal,
+    });
+    answerCursor(h);
+    await flush();
 
-		// the frame really is where the model says, which is what the report names
-		expect(h.screen.written).toEqual(['building...', 'still building...', 'one', 'two', 'three']);
+    // the frame really is where the model says, which is what the report names
+    expect(h.screen.written).toEqual(['building...', 'still building...', 'one', 'two', 'three']);
 
-		// screen row 4 is `two`, one-based, which is the second row of a canvas that
-		// starts on screen row 3
-		h.feed(`${ESC}[<0;1;4M`);
-		h.feed(`${ESC}[<0;1;4m`);
+    // screen row 4 is `two`, one-based, which is the second row of a canvas that
+    // starts on screen row 3
+    h.feed(`${ESC}[<0;1;4M`);
+    h.feed(`${ESC}[<0;1;4m`);
 
-		expect(seen).toEqual(['two:mousedown', 'two:mouseup', 'two:click']);
-		input.stop();
-		view.dispose();
-	});
+    expect(seen).toEqual(['two:mousedown', 'two:mouseup', 'two:click']);
+    input.stop();
+    view.dispose();
+  });
 
-	it('should learn where the canvas moved to after a line was written above it', async () => {
-		const h = harness();
-		const target = box({ height: 1, id: 'target', width: 12 }, text('here'));
-		const backend = createInlineCanvas({ height: 1, terminal: h.terminal, width: 12 });
-		const view = render(() => box({ id: 'app' }, target), {
-			backend,
-			terminal: h.terminal,
-		});
+  it('should learn where the canvas moved to after a line was written above it', async () => {
+    const h = harness();
+    const target = box({ height: 1, id: 'target', width: 12 }, text('here'));
+    const backend = createInlineCanvas({ height: 1, terminal: h.terminal, width: 12 });
+    const view = render(() => box({ id: 'app' }, target), {
+      backend,
+      terminal: h.terminal,
+    });
 
-		const seen: string[] = [];
-		target.onMouse = (event) => void seen.push(event.kind);
+    const seen: string[] = [];
+    target.onMouse = (event) => void seen.push(event.kind);
 
-		const input = createInput({
-			mouse: { surface: view.backend },
-			root: view.root,
-			terminal: h.terminal,
-		});
-		answerCursor(h);
-		await flush();
+    const input = createInput({
+      mouse: { surface: view.backend },
+      root: view.root,
+      terminal: h.terminal,
+    });
+    answerCursor(h);
+    await flush();
 
-		h.feed(`${ESC}[<0;1;1M`);
-		expect(seen).toEqual(['mousedown']);
+    h.feed(`${ESC}[<0;1;1M`);
+    expect(seen).toEqual(['mousedown']);
 
-		// a line above the region is one of the three things that throws the anchor
-		// away, and the canvas is a row further down afterwards
-		view.backend.write('a log line');
-		expect(view.backend.origin).toBeUndefined();
+    // a line above the region is one of the three things that throws the anchor
+    // away, and the canvas is a row further down afterwards
+    view.backend.write('a log line');
+    expect(view.backend.origin).toBeUndefined();
 
-		// the report that finds out is the one that pays for it
-		seen.length = 0;
-		h.feed(`${ESC}[<0;1;2M`);
-		expect(seen).toEqual([]);
+    // the report that finds out is the one that pays for it
+    seen.length = 0;
+    h.feed(`${ESC}[<0;1;2M`);
+    expect(seen).toEqual([]);
 
-		answerCursor(h);
-		await flush();
-		h.feed(`${ESC}[<0;1;2M`);
-		expect(seen).toEqual(['mousedown']);
+    answerCursor(h);
+    await flush();
+    h.feed(`${ESC}[<0;1;2M`);
+    expect(seen).toEqual(['mousedown']);
 
-		input.stop();
-		view.dispose();
-	});
+    input.stop();
+    view.dispose();
+  });
 
-	it('should restyle and repaint from a hover, with no component code at all', async () => {
-		const h = harness(14, 10);
-		const sheet = parseStylesheet('#tile { color: gray } #tile:hover { color: red }');
-		const tile = box({ height: 1, id: 'tile', width: 4 }, text('tile'));
-		const backend = createInlineCanvas({ height: 1, terminal: h.terminal, width: 4 });
-		const view = render(() => box({ id: 'app' }, tile), {
-			backend,
-			cascade: new Cascade([sheet]),
-			colorLevel: 1,
-			terminal: h.terminal,
-		});
+  it('should restyle and repaint from a hover, with no component code at all', async () => {
+    const h = harness(14, 10);
+    const sheet = parseStylesheet('#tile { color: gray } #tile:hover { color: red }');
+    const tile = box({ height: 1, id: 'tile', width: 4 }, text('tile'));
+    const backend = createInlineCanvas({ height: 1, terminal: h.terminal, width: 4 });
+    const view = render(() => box({ id: 'app' }, tile), {
+      backend,
+      cascade: new Cascade([sheet]),
+      colorLevel: 1,
+      terminal: h.terminal,
+    });
 
-		const input = createInput({
-			mouse: { motion: true, surface: view.backend },
-			root: view.root,
-			terminal: h.terminal,
-		});
-		answerCursor(h);
-		await flush();
+    const input = createInput({
+      mouse: { motion: true, surface: view.backend },
+      root: view.root,
+      terminal: h.terminal,
+    });
+    answerCursor(h);
+    await flush();
 
-		const before = tile.style.color;
-		h.feed(`${ESC}[<35;1;1M`);
-		// the hit test set a state, the state marked the tree, and the frame the mark
-		// asked for re-matched the sheet. Nothing in between is a component's
-		view.frame();
+    const before = tile.style.color;
+    h.feed(`${ESC}[<35;1;1M`);
+    // the hit test set a state, the state marked the tree, and the frame the mark
+    // asked for re-matched the sheet. Nothing in between is a component's
+    view.frame();
 
-		// the innermost element under the pointer is the text inside the tile, and the
-		// tile is hovered too -- `:hover` is set on the whole chain, because in CSS the
-		// pointer is inside every box that contains it
-		expect(input.hovered?.type).toBe('text');
-		expect(tile.states).toContain('hover');
-		expect(tile.style.color).not.toBe(before);
+    // the innermost element under the pointer is the text inside the tile, and the
+    // tile is hovered too -- `:hover` is set on the whole chain, because in CSS the
+    // pointer is inside every box that contains it
+    expect(input.hovered?.type).toBe('text');
+    expect(tile.states).toContain('hover');
+    expect(tile.style.color).not.toBe(before);
 
-		input.stop();
-		view.dispose();
-	});
+    input.stop();
+    view.dispose();
+  });
 });
 
 describe('selection over a rendered tree', () => {
-	it('should turn a real drag into the text it covered and put it on the clipboard', async () => {
-		// the half neither the geometry tests nor the driver tests can say: a report
-		// naming a *screen* cell, translated through an inline canvas's learnt
-		// origin, selecting the cells that were painted there, and the bytes
-		// reaching a terminal that models what a clipboard write means
-		const h = harness();
-		h.terminal.write('building...\r\n');
+  it('should turn a real drag into the text it covered and put it on the clipboard', async () => {
+    // the half neither the geometry tests nor the driver tests can say: a report
+    // naming a *screen* cell, translated through an inline canvas's learnt
+    // origin, selecting the cells that were painted there, and the bytes
+    // reaching a terminal that models what a clipboard write means
+    const h = harness();
+    h.terminal.write('building...\r\n');
 
-		const backend = createInlineCanvas({ height: 2, terminal: h.terminal, width: 12 });
-		const view = render(
-			() => box({ 'flex-direction': 'column' }, text('hello world'), text('second line')),
-			{ backend, colorLevel: 3, terminal: h.terminal }
-		);
+    const backend = createInlineCanvas({ height: 2, terminal: h.terminal, width: 12 });
+    const view = render(
+      () => box({ 'flex-direction': 'column' }, text('hello world'), text('second line')),
+      { backend, colorLevel: 3, terminal: h.terminal }
+    );
 
-		const input = createInput({
-			mouse: { surface: view.backend },
-			root: view.root,
-			terminal: h.terminal,
-		});
-		const selection = enableSelection(view, input);
-		answerCursor(h);
-		await flush();
+    const input = createInput({
+      mouse: { surface: view.backend },
+      root: view.root,
+      terminal: h.terminal,
+    });
+    const selection = enableSelection(view, input);
+    answerCursor(h);
+    await flush();
 
-		expect(h.screen.written).toEqual(['building...', 'hello world', 'second line']);
+    expect(h.screen.written).toEqual(['building...', 'hello world', 'second line']);
 
-		// the canvas starts on screen row 2, so screen row 2 is canvas row 0. Column
-		// 7 one-based is canvas column 6, which is the `w` of `world`
-		h.feed(`${ESC}[<0;7;2M`);
-		h.feed(`${ESC}[<32;11;2M`);
-		view.frame();
+    // the canvas starts on screen row 2, so screen row 2 is canvas row 0. Column
+    // 7 one-based is canvas column 6, which is the `w` of `world`
+    h.feed(`${ESC}[<0;7;2M`);
+    h.feed(`${ESC}[<32;11;2M`);
+    view.frame();
 
-		expect(selection.text()).toBe('world');
+    expect(selection.text()).toBe('world');
 
-		const copy = selection.copy();
-		expect(copy.written).toBe(true);
-		expect(h.screen.clipboard).toEqual([{ selection: 'c', text: 'world' }]);
+    const copy = selection.copy();
+    expect(copy.written).toBe(true);
+    expect(h.screen.clipboard).toEqual([{ selection: 'c', text: 'world' }]);
 
-		input.stop();
-		view.dispose();
-	});
+    input.stop();
+    view.dispose();
+  });
 });

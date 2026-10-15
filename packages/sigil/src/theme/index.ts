@@ -25,14 +25,14 @@
 
 import type { Ansi, ColorLevel } from '../ansi/index.js';
 import {
-	Cascade,
-	type ColorScheme,
-	DEFAULT_MEDIA,
-	forcedMotion,
-	parseStylesheet,
-	type ReducedMotion,
-	schemeFromEnv,
-	type Stylesheet,
+  Cascade,
+  type ColorScheme,
+  DEFAULT_MEDIA,
+  forcedMotion,
+  parseStylesheet,
+  type ReducedMotion,
+  schemeFromEnv,
+  type Stylesheet,
 } from '../style/index.js';
 
 /**
@@ -242,8 +242,8 @@ export const FRAMEWORK_CSS = `
  * lines further down than the character that caused it.
  */
 @media (prefers-color-scheme: light) {
-	.sigil-muted { dim: false; color: gray }
-	.sigil-debug { background-color: white }
+  .sigil-muted { dim: false; color: gray }
+  .sigil-debug { background-color: white }
 }
 
 `;
@@ -263,8 +263,8 @@ let framework: Stylesheet | undefined;
  * @returns The sheet, at origin `framework`.
  */
 export function frameworkSheet(): Stylesheet {
-	framework ??= parseStylesheet(FRAMEWORK_CSS, { origin: 'framework' });
-	return framework;
+  framework ??= parseStylesheet(FRAMEWORK_CSS, { origin: 'framework' });
+  return framework;
 }
 
 /**
@@ -274,24 +274,24 @@ export function frameworkSheet(): Stylesheet {
  * @returns The sheet, at origin `theme`.
  */
 export function parseTheme(css: string): Stylesheet {
-	return parseStylesheet(css, { origin: 'theme' });
+  return parseStylesheet(css, { origin: 'theme' });
 }
 
 /** What everything that draws a built-in accepts, for restyling it. */
 export interface ThemeOptions {
-	/**
-	 * Extra rules, at origin `app`, which beat both the defaults and the theme.
-	 *
-	 * For a caller that has sheets of its own already parsed. Source text is read
-	 * as an app sheet too, since that is where a rule somebody wrote by hand
-	 * belongs.
-	 */
-	sheets?: readonly (Stylesheet | string)[];
-	/**
-	 * A theme: rules at origin `theme`, over the framework's defaults and under
-	 * the app's own.
-	 */
-	theme?: Stylesheet | string;
+  /**
+   * Extra rules, at origin `app`, which beat both the defaults and the theme.
+   *
+   * For a caller that has sheets of its own already parsed. Source text is read
+   * as an app sheet too, since that is where a rule somebody wrote by hand
+   * belongs.
+   */
+  sheets?: readonly (Stylesheet | string)[];
+  /**
+   * A theme: rules at origin `theme`, over the framework's defaults and under
+   * the app's own.
+   */
+  theme?: Stylesheet | string;
 }
 
 /**
@@ -304,32 +304,32 @@ export interface ThemeOptions {
  * whatever the process's own styler detected.
  */
 export interface StyledOptions extends ThemeOptions {
-	/**
-	 * Whether the output is read against a light background or a dark one.
-	 *
-	 * Defaults to what the environment knew -- `SIGIL_COLOR_SCHEME`, then
-	 * `COLORFGBG` -- and to dark when it knew nothing. A built-in drawn through
-	 * `mountLive()` has this refined by an OSC 11 reply where the app called
-	 * `Renderer.detect()`; a built-in printed as a string does not, because a string
-	 * being built has no screen to ask about.
-	 */
-	colorScheme?: ColorScheme;
-	/**
-	 * The styler whose colour level to draw at. Defaults to the process's.
-	 *
-	 * Only the level is read. Colour is a stylesheet's now, so what is left of an
-	 * `Ansi` here is the one thing it answers that the cascade cannot work out.
-	 */
-	ansi?: Ansi;
-	/** How much colour to resolve for. Defaults to the styler's level. */
-	colorLevel?: ColorLevel;
-	/**
-	 * Whether animations run. Defaults to `SIGIL_REDUCED_MOTION`, else nothing
-	 * said -- and a built-in drawn through `mountLive()` has the renderer answer
-	 * for the terminal on top of that, since whether there is a screen to animate
-	 * on is not something a cascade can know.
-	 */
-	reducedMotion?: ReducedMotion;
+  /**
+   * Whether the output is read against a light background or a dark one.
+   *
+   * Defaults to what the environment knew -- `SIGIL_COLOR_SCHEME`, then
+   * `COLORFGBG` -- and to dark when it knew nothing. A built-in drawn through
+   * `mountLive()` has this refined by an OSC 11 reply where the app called
+   * `Renderer.detect()`; a built-in printed as a string does not, because a string
+   * being built has no screen to ask about.
+   */
+  colorScheme?: ColorScheme;
+  /**
+   * The styler whose colour level to draw at. Defaults to the process's.
+   *
+   * Only the level is read. Colour is a stylesheet's now, so what is left of an
+   * `Ansi` here is the one thing it answers that the cascade cannot work out.
+   */
+  ansi?: Ansi;
+  /** How much colour to resolve for. Defaults to the styler's level. */
+  colorLevel?: ColorLevel;
+  /**
+   * Whether animations run. Defaults to `SIGIL_REDUCED_MOTION`, else nothing
+   * said -- and a built-in drawn through `mountLive()` has the renderer answer
+   * for the terminal on top of that, since whether there is a screen to animate
+   * on is not something a cascade can know.
+   */
+  reducedMotion?: ReducedMotion;
 }
 
 /**
@@ -343,29 +343,29 @@ export interface StyledOptions extends ThemeOptions {
  * @returns The cascade: framework defaults, then the theme, then the app's.
  */
 export function themedCascade(opts: StyledOptions = {}): Cascade {
-	const sheets: Stylesheet[] = [frameworkSheet()];
+  const sheets: Stylesheet[] = [frameworkSheet()];
 
-	if (opts.theme !== undefined) {
-		sheets.push(typeof opts.theme === 'string' ? parseTheme(opts.theme) : opts.theme);
-	}
+  if (opts.theme !== undefined) {
+    sheets.push(typeof opts.theme === 'string' ? parseTheme(opts.theme) : opts.theme);
+  }
 
-	for (const sheet of opts.sheets ?? []) {
-		sheets.push(typeof sheet === 'string' ? parseStylesheet(sheet) : sheet);
-	}
+  for (const sheet of opts.sheets ?? []) {
+    sheets.push(typeof sheet === 'string' ? parseStylesheet(sheet) : sheet);
+  }
 
-	// the media context is set here rather than left at `DEFAULT_MEDIA`, because
-	// this is the one place every built-in's cascade comes from and the scheme is
-	// free to learn: an environment read, no round trip, available before anything
-	// mounts. Without it `table()` and the help screen would resolve the sheet above
-	// at the frozen default and a light terminal would get the dark half, which is
-	// the bug this feature is for arriving through the door nobody watched
-	return new Cascade(sheets, {
-		...DEFAULT_MEDIA,
-		colorScheme: opts.colorScheme ?? schemeFromEnv() ?? DEFAULT_MEDIA.colorScheme,
-		// the same reasoning one feature along, and the terminal is deliberately not
-		// in it: this call is reached by `renderToString()` as well as by a mount,
-		// and a string render has no terminal to ask about. `render()` is where the
-		// screen joins the chain
-		reducedMotion: opts.reducedMotion ?? forcedMotion() ?? DEFAULT_MEDIA.reducedMotion,
-	});
+  // the media context is set here rather than left at `DEFAULT_MEDIA`, because
+  // this is the one place every built-in's cascade comes from and the scheme is
+  // free to learn: an environment read, no round trip, available before anything
+  // mounts. Without it `table()` and the help screen would resolve the sheet above
+  // at the frozen default and a light terminal would get the dark half, which is
+  // the bug this feature is for arriving through the door nobody watched
+  return new Cascade(sheets, {
+    ...DEFAULT_MEDIA,
+    colorScheme: opts.colorScheme ?? schemeFromEnv() ?? DEFAULT_MEDIA.colorScheme,
+    // the same reasoning one feature along, and the terminal is deliberately not
+    // in it: this call is reached by `renderToString()` as well as by a mount,
+    // and a string render has no terminal to ask about. `render()` is where the
+    // screen joins the chain
+    reducedMotion: opts.reducedMotion ?? forcedMotion() ?? DEFAULT_MEDIA.reducedMotion,
+  });
 }

@@ -30,15 +30,15 @@
  */
 
 import {
-	CONFIG_FILE,
-	DEFAULT_REGISTRY,
-	findAppRoot,
-	loadRegistry,
-	parseSpec,
-	type Plan,
-	planAdd,
-	readConfig,
-	type Registry,
+  CONFIG_FILE,
+  DEFAULT_REGISTRY,
+  findAppRoot,
+  loadRegistry,
+  parseSpec,
+  type Plan,
+  planAdd,
+  readConfig,
+  type Registry,
 } from '../registry/index.ts';
 import { writeNote } from '../report.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
@@ -55,25 +55,25 @@ import { dirname, join } from 'node:path';
  * @param registry - The registry to describe.
  */
 function list(registry: Registry): void {
-	const rows = Object.entries(registry.manifest.entries)
-		.sort(([a], [b]) => a.localeCompare(b))
-		.map(([name, entry]) => ({ Component: name, Description: entry.desc }));
+  const rows = Object.entries(registry.manifest.entries)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, entry]) => ({ Component: name, Description: entry.desc }));
 
-	process.stdout.write(
-		`\n${registry.pkg} ${registry.manifest.version}\n\n${table(rows)}\n\n` +
-			`Add one with \`sigil add <component>\`.\n\n`
-	);
+  process.stdout.write(
+    `\n${registry.pkg} ${registry.manifest.version}\n\n${table(rows)}\n\n` +
+      `Add one with \`sigil add <component>\`.\n\n`
+  );
 
-	// wrapped to the terminal rather than broken by hand at about seventy columns,
-	// which is what this was and which is ragged at forty and narrow at two hundred
-	writeNote(
-		[
-			'Most customization does not need one. A built-in is restyled with an',
-			'ordinary rule against the classes it draws with, which keeps it up to',
-			'date; ejecting is for when the structure or the behaviour has to change.',
-		],
-		process.stdout
-	);
+  // wrapped to the terminal rather than broken by hand at about seventy columns,
+  // which is what this was and which is ragged at forty and narrow at two hundred
+  writeNote(
+    [
+      'Most customization does not need one. A built-in is restyled with an',
+      'ordinary rule against the classes it draws with, which keeps it up to',
+      'date; ejecting is for when the structure or the behaviour has to change.',
+    ],
+    process.stdout
+  );
 }
 
 /**
@@ -88,136 +88,136 @@ function list(registry: Registry): void {
  * @param target - Where it lands, for the heading.
  */
 function describe(plan: Plan, registry: Registry, target: string): void {
-	process.stdout.write(`\nFrom ${registry.pkg} ${registry.manifest.version} into ${target}:\n\n`);
+  process.stdout.write(`\nFrom ${registry.pkg} ${registry.manifest.version} into ${target}:\n\n`);
 
-	for (const file of plan.files) {
-		const note = file.exists ? '  (overwrites)' : '';
-		process.stdout.write(`  ${file.shown}${note}\n`);
-	}
+  for (const file of plan.files) {
+    const note = file.exists ? '  (overwrites)' : '';
+    process.stdout.write(`  ${file.shown}${note}\n`);
+  }
 
-	if (plan.pulled.length > 0) {
-		process.stdout.write(`\nAlso needed: ${plan.pulled.join(', ')}\n`);
-	}
+  if (plan.pulled.length > 0) {
+    process.stdout.write(`\nAlso needed: ${plan.pulled.join(', ')}\n`);
+  }
 
-	const classes = plan.entries
-		.flatMap((name) => registry.manifest.entries[name]?.classes ?? [])
-		.sort();
+  const classes = plan.entries
+    .flatMap((name) => registry.manifest.entries[name]?.classes ?? [])
+    .sort();
 
-	if (classes.length > 0) {
-		process.stdout.write('\n');
-		writeNote(
-			[
-				`These draw with ${classes.map((c) => `.${c}`).join(', ')} --`,
-				'restyling those needs no copy, and keeps the component up to date.',
-			],
-			process.stdout
-		);
-	}
+  if (classes.length > 0) {
+    process.stdout.write('\n');
+    writeNote(
+      [
+        `These draw with ${classes.map((c) => `.${c}`).join(', ')} --`,
+        'restyling those needs no copy, and keeps the component up to date.',
+      ],
+      process.stdout
+    );
+  }
 }
 
 /** Writes the plan, making directories as it goes. */
 function apply(plan: Plan): void {
-	for (const file of plan.files) {
-		mkdirSync(dirname(file.to), { recursive: true });
-		copyFileSync(file.from, file.to);
-	}
+  for (const file of plan.files) {
+    mkdirSync(dirname(file.to), { recursive: true });
+    copyFileSync(file.from, file.to);
+  }
 }
 
 const add: AnyCommand = command({
-	args: [
-		{
-			desc: 'The components to copy in. With none, lists what the registry has',
-			multiple: true,
-			name: '[components...]',
-		},
-	],
-	desc: 'Copy a component into your app, so you own it',
-	options: {
-		'--dir [path]': {
-			desc: `Where they land, overriding ${CONFIG_FILE} and the convention`,
-		},
-		'--force': {
-			desc: 'Overwrite a file that is already there',
-			type: 'bool',
-		},
-		'-y, --yes': {
-			desc: 'Write without asking',
-			type: 'bool',
-		},
-	},
+  args: [
+    {
+      desc: 'The components to copy in. With none, lists what the registry has',
+      multiple: true,
+      name: '[components...]',
+    },
+  ],
+  desc: 'Copy a component into your app, so you own it',
+  options: {
+    '--dir [path]': {
+      desc: `Where they land, overriding ${CONFIG_FILE} and the convention`,
+    },
+    '--force': {
+      desc: 'Overwrite a file that is already there',
+      type: 'bool',
+    },
+    '-y, --yes': {
+      desc: 'Write without asking',
+      type: 'bool',
+    },
+  },
 
-	async run({ argv }) {
-		const root = findAppRoot(process.cwd());
-		const specs = (argv.components as string[] | undefined) ?? [];
+  async run({ argv }) {
+    const root = findAppRoot(process.cwd());
+    const specs = (argv.components as string[] | undefined) ?? [];
 
-		// with nothing named there is nothing to resolve a package from, so the
-		// listing is the default registry's
-		if (specs.length === 0) {
-			list(loadRegistry(root, DEFAULT_REGISTRY));
-			return;
-		}
+    // with nothing named there is nothing to resolve a package from, so the
+    // listing is the default registry's
+    if (specs.length === 0) {
+      list(loadRegistry(root, DEFAULT_REGISTRY));
+      return;
+    }
 
-		// every spec has to name the same registry: two registries in one plan
-		// means two `registryDeps` namespaces, and a dep that resolves in one and
-		// not the other is a failure nobody could read. One call per registry is
-		// the answer, and it is what the error says.
-		const parsed = specs.map((spec) => parseSpec(spec));
-		const packages = [...new Set(parsed.map((p) => p.pkg))];
+    // every spec has to name the same registry: two registries in one plan
+    // means two `registryDeps` namespaces, and a dep that resolves in one and
+    // not the other is a failure nobody could read. One call per registry is
+    // the answer, and it is what the error says.
+    const parsed = specs.map((spec) => parseSpec(spec));
+    const packages = [...new Set(parsed.map((p) => p.pkg))];
 
-		if (packages.length > 1) {
-			throw new Error(
-				`One registry at a time, and this names ${packages.join(' and ')}. ` +
-					`Run \`sigil add\` once per registry.`
-			);
-		}
+    if (packages.length > 1) {
+      throw new Error(
+        `One registry at a time, and this names ${packages.join(' and ')}. ` +
+          `Run \`sigil add\` once per registry.`
+      );
+    }
 
-		const registry = loadRegistry(root, packages[0] as string);
-		const config = readTarget(root, argv.dir as string | undefined);
-		const plan = planAdd(
-			registry,
-			parsed.map((p) => p.entry),
-			config.target,
-			root
-		);
+    const registry = loadRegistry(root, packages[0] as string);
+    const config = readTarget(root, argv.dir as string | undefined);
+    const plan = planAdd(
+      registry,
+      parsed.map((p) => p.entry),
+      config.target,
+      root
+    );
 
-		if (plan.missing.length > 0) {
-			const have = Object.keys(registry.manifest.entries).sort().join(', ');
-			throw new Error(
-				`${registry.pkg} has no ${plan.missing.map((n) => `"${n}"`).join(' or ')}. It has: ${have}`
-			);
-		}
+    if (plan.missing.length > 0) {
+      const have = Object.keys(registry.manifest.entries).sort().join(', ');
+      throw new Error(
+        `${registry.pkg} has no ${plan.missing.map((n) => `"${n}"`).join(' or ')}. It has: ${have}`
+      );
+    }
 
-		const clashes = plan.files.filter((file) => file.exists);
+    const clashes = plan.files.filter((file) => file.exists);
 
-		if (clashes.length > 0 && !argv.force) {
-			throw new Error(
-				`${clashes.map((f) => f.shown).join(', ')} already ${clashes.length === 1 ? 'exists' : 'exist'}. ` +
-					`Pass --force to overwrite, having looked at what is there.`
-			);
-		}
+    if (clashes.length > 0 && !argv.force) {
+      throw new Error(
+        `${clashes.map((f) => f.shown).join(', ')} already ${clashes.length === 1 ? 'exists' : 'exist'}. ` +
+          `Pass --force to overwrite, having looked at what is there.`
+      );
+    }
 
-		describe(plan, registry, config.shown);
+    describe(plan, registry, config.shown);
 
-		if (!argv.yes) {
-			process.stdout.write('\n');
-			if (!(await confirm({ message: 'Write these files?' }))) {
-				process.stdout.write('Nothing written.\n');
-				return;
-			}
-		}
+    if (!argv.yes) {
+      process.stdout.write('\n');
+      if (!(await confirm({ message: 'Write these files?' }))) {
+        process.stdout.write('Nothing written.\n');
+        return;
+      }
+    }
 
-		apply(plan);
+    apply(plan);
 
-		process.stdout.write('\n');
-		writeNote(
-			[
-				`Copied ${plan.files.length} file${plan.files.length === 1 ? '' : 's'}.`,
-				'They are yours now -- edit them freely, and note that they no longer',
-				`follow ${registry.pkg} when it changes.`,
-			],
-			process.stdout
-		);
-	},
+    process.stdout.write('\n');
+    writeNote(
+      [
+        `Copied ${plan.files.length} file${plan.files.length === 1 ? '' : 's'}.`,
+        'They are yours now -- edit them freely, and note that they no longer',
+        `follow ${registry.pkg} when it changes.`,
+      ],
+      process.stdout
+    );
+  },
 });
 
 /**
@@ -232,16 +232,16 @@ const add: AnyCommand = command({
  * @returns The absolute target and the way to print it.
  */
 function readTarget(root: string, dir: string | undefined): { shown: string; target: string } {
-	if (dir !== undefined) {
-		return { shown: dir, target: join(root, dir) };
-	}
+  if (dir !== undefined) {
+    return { shown: dir, target: join(root, dir) };
+  }
 
-	const config = readConfig(root);
+  const config = readConfig(root);
 
-	return {
-		shown: config.declared ? config.components : `${config.components} (no ${CONFIG_FILE})`,
-		target: join(root, config.components),
-	};
+  return {
+    shown: config.declared ? config.components : `${config.components} (no ${CONFIG_FILE})`,
+    target: join(root, config.components),
+  };
 }
 
 export default add;

@@ -48,12 +48,12 @@ export type Reactive<T> = T | (() => T);
  * which is what a template literal type can do.
  */
 type Kebab<S extends string> = S extends `${infer Head}${infer Tail}`
-	? Head extends Uppercase<Head>
-		? Head extends Lowercase<Head>
-			? `${Head}${Kebab<Tail>}`
-			: `-${Lowercase<Head>}${Kebab<Tail>}`
-		: `${Head}${Kebab<Tail>}`
-	: S;
+  ? Head extends Uppercase<Head>
+    ? Head extends Lowercase<Head>
+      ? `${Head}${Kebab<Tail>}`
+      : `-${Lowercase<Head>}${Kebab<Tail>}`
+    : `${Head}${Kebab<Tail>}`
+  : S;
 
 /**
  * The properties whose value is a colour.
@@ -79,8 +79,8 @@ type ColorPropertyName = (typeof COLOR_PROP_NAMES)[number];
  * made `<box flexFlow="column" />` a type error and a runtime success.
  */
 type Camel<S extends string> = S extends `${infer Head}-${infer Tail}`
-	? `${Head}${Capitalize<Camel<Tail>>}`
-	: S;
+  ? `${Head}${Capitalize<Camel<Tail>>}`
+  : S;
 
 /**
  * What an author may write for property `K`.
@@ -91,25 +91,25 @@ type Camel<S extends string> = S extends `${infer Head}-${infer Tail}`
  * well -- `padding={1}` is what everybody writes.
  */
 type Authored<K extends keyof Style> = K extends ColorPropertyName
-	? string
-	: Style[K] extends string
-		? Style[K]
-		: Style[K] extends Length
-			? number | string
-			: Style[K] extends number
-				? number | string
-				: Style[K] extends boolean
-					? boolean | string
-					: never;
+  ? string
+  : Style[K] extends string
+    ? Style[K]
+    : Style[K] extends Length
+      ? number | string
+      : Style[K] extends number
+        ? number | string
+        : Style[K] extends boolean
+          ? boolean | string
+          : never;
 
 /** Every longhand, camelCase, as an author may write it. */
 type LonghandProps = {
-	[K in keyof Style]?: Reactive<Authored<K>>;
+  [K in keyof Style]?: Reactive<Authored<K>>;
 };
 
 /** Every longhand again, kebab-case, which is the stylesheet spelling. */
 type KebabProps = {
-	[K in keyof Style as Kebab<K & string>]?: Reactive<Authored<K>>;
+  [K in keyof Style as Kebab<K & string>]?: Reactive<Authored<K>>;
 };
 
 /**
@@ -121,7 +121,7 @@ type KebabProps = {
  * is what everyone writes.
  */
 type ShorthandProps = {
-	[K in AliasName | Camel<AliasName | ShorthandName> | ShorthandName]?: Reactive<number | string>;
+  [K in AliasName | Camel<AliasName | ShorthandName> | ShorthandName]?: Reactive<number | string>;
 };
 
 /**
@@ -132,16 +132,16 @@ type ShorthandProps = {
  * them.
  */
 export interface ReservedProps {
-	class?: Reactive<readonly string[] | string>;
-	/** Whether the focus ring stops here. A `tabindex` implies it. */
-	focusable?: Reactive<boolean>;
-	id?: Reactive<string>;
-	/** Identity across renders, which is what a keyed list diff matches on. */
-	key?: number | string;
-	/** Whether this element's content may be selected and copied. Inherits. */
-	selectable?: Reactive<boolean>;
-	/** Where in the ring, for an element that should not be in document order. */
-	tabindex?: Reactive<number>;
+  class?: Reactive<readonly string[] | string>;
+  /** Whether the focus ring stops here. A `tabindex` implies it. */
+  focusable?: Reactive<boolean>;
+  id?: Reactive<string>;
+  /** Identity across renders, which is what a keyed list diff matches on. */
+  key?: number | string;
+  /** Whether this element's content may be selected and copied. Inherits. */
+  selectable?: Reactive<boolean>;
+  /** Where in the ring, for an element that should not be in document order. */
+  tabindex?: Reactive<number>;
 }
 
 /** The style half of what a host element takes, in both spellings. */

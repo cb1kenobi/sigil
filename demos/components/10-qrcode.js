@@ -50,8 +50,8 @@ const url = 'https://github.com/cb1kenobi/sigil';
  * @returns {string} The size, as columns by lines.
  */
 function sizeOf(drawn) {
-	const lines = drawn.split('\n');
-	return `${stringWidth(strip(lines[0]))} columns by ${lines.length} lines`;
+  const lines = drawn.split('\n');
+  return `${stringWidth(strip(lines[0]))} columns by ${lines.length} lines`;
 }
 
 console.log(`
@@ -93,13 +93,13 @@ console.log(`
 // for a commit
 console.log('  what each error-correction level costs, for this payload:\n');
 for (const ecc of ['L', 'M', 'Q', 'H']) {
-	const one = encodeQr(url, { ecc });
-	const drawn = qrcode(url, { ecc });
-	console.log(
-		`    ${ecc}  version ${String(one.version).padStart(2)}, ` +
-			`${String(one.size).padStart(3)} modules square, ` +
-			sizeOf(drawn)
-	);
+  const one = encodeQr(url, { ecc });
+  const drawn = qrcode(url, { ecc });
+  console.log(
+    `    ${ecc}  version ${String(one.version).padStart(2)}, ` +
+      `${String(one.size).padStart(3)} modules square, ` +
+      sizeOf(drawn)
+  );
 }
 
 // the quiet zone, which is the thing most hand-rolled terminal QR renderers lose.

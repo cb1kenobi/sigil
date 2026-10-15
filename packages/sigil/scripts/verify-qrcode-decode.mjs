@@ -37,15 +37,15 @@ import { resolve } from 'node:path';
 
 const where = process.argv[2];
 if (where === undefined) {
-	// and `exit` rather than a flag, because what follows resolves `jsqr` out of
-	// that directory: setting the exit code and carrying on printed the usage and
-	// then a module-not-found stack under it, which is a worse answer than either
-	process.stderr.write(
-		'Pass the directory jsqr was installed into:\n' +
-			'  cd "$(mktemp -d)" && npm install jsqr@1.4.0\n' +
-			'  node packages/sigil/scripts/verify-qrcode-decode.mjs <that directory>\n'
-	);
-	process.exit(1);
+  // and `exit` rather than a flag, because what follows resolves `jsqr` out of
+  // that directory: setting the exit code and carrying on printed the usage and
+  // then a module-not-found stack under it, which is a worse answer than either
+  process.stderr.write(
+    'Pass the directory jsqr was installed into:\n' +
+      '  cd "$(mktemp -d)" && npm install jsqr@1.4.0\n' +
+      '  node packages/sigil/scripts/verify-qrcode-decode.mjs <that directory>\n'
+  );
+  process.exit(1);
 }
 
 /** How many pixels a module becomes, which only has to be enough for the decoder. */
@@ -66,31 +66,31 @@ const SCALE = 6;
  * @returns {boolean[][]} The pixels.
  */
 function pixels(lines, form, invert) {
-	const columns = [...lines[0]].length;
-	const rows = form === 'large' ? lines.length : lines.length * 2;
-	const wide = form === 'large' ? columns / 2 : columns;
-	const grid = Array.from({ length: rows }, () => Array.from({ length: wide }, () => false));
+  const columns = [...lines[0]].length;
+  const rows = form === 'large' ? lines.length : lines.length * 2;
+  const wide = form === 'large' ? columns / 2 : columns;
+  const grid = Array.from({ length: rows }, () => Array.from({ length: wide }, () => false));
 
-	for (const [y, line] of lines.entries()) {
-		const cells = [...line];
-		for (let x = 0; x < cells.length; x++) {
-			const cell = cells[x];
-			if (form === 'large') {
-				// two columns per module, so only the first of each pair is read
-				if (x % 2 !== 0) {
-					continue;
-				}
-				grid[y][x / 2] = (cell === '█') !== invert;
-			} else {
-				grid[y * 2][x] = (cell === '█' || cell === '▀') !== invert;
-				if (y * 2 + 1 < rows) {
-					grid[y * 2 + 1][x] = (cell === '█' || cell === '▄') !== invert;
-				}
-			}
-		}
-	}
+  for (const [y, line] of lines.entries()) {
+    const cells = [...line];
+    for (let x = 0; x < cells.length; x++) {
+      const cell = cells[x];
+      if (form === 'large') {
+        // two columns per module, so only the first of each pair is read
+        if (x % 2 !== 0) {
+          continue;
+        }
+        grid[y][x / 2] = (cell === '█') !== invert;
+      } else {
+        grid[y * 2][x] = (cell === '█' || cell === '▀') !== invert;
+        if (y * 2 + 1 < rows) {
+          grid[y * 2 + 1][x] = (cell === '█' || cell === '▄') !== invert;
+        }
+      }
+    }
+  }
 
-	return grid;
+  return grid;
 }
 
 /**
@@ -101,29 +101,29 @@ function pixels(lines, form, invert) {
  * @returns {{ data: Uint8ClampedArray, height: number, width: number }} The image.
  */
 function rgba(grid, surround) {
-	const pad = surround === undefined ? 0 : 6;
-	const high = grid.length + pad * 2;
-	const wide = grid[0].length + pad * 2;
-	const height = high * SCALE;
-	const width = wide * SCALE;
-	const data = new Uint8ClampedArray(width * height * 4);
+  const pad = surround === undefined ? 0 : 6;
+  const high = grid.length + pad * 2;
+  const wide = grid[0].length + pad * 2;
+  const height = high * SCALE;
+  const width = wide * SCALE;
+  const data = new Uint8ClampedArray(width * height * 4);
 
-	for (let y = 0; y < height; y++) {
-		for (let x = 0; x < width; x++) {
-			const mx = Math.floor(x / SCALE) - pad;
-			const my = Math.floor(y / SCALE) - pad;
-			const outside = mx < 0 || my < 0 || mx >= grid[0].length || my >= grid.length;
-			const dark = outside ? surround === true : grid[my][mx];
-			const value = dark ? 0 : 255;
-			const at = (y * width + x) * 4;
-			data[at] = value;
-			data[at + 1] = value;
-			data[at + 2] = value;
-			data[at + 3] = 255;
-		}
-	}
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const mx = Math.floor(x / SCALE) - pad;
+      const my = Math.floor(y / SCALE) - pad;
+      const outside = mx < 0 || my < 0 || mx >= grid[0].length || my >= grid.length;
+      const dark = outside ? surround === true : grid[my][mx];
+      const value = dark ? 0 : 255;
+      const at = (y * width + x) * 4;
+      data[at] = value;
+      data[at + 1] = value;
+      data[at + 2] = value;
+      data[at + 3] = 255;
+    }
+  }
 
-	return { data, height, width };
+  return { data, height, width };
 }
 
 const require = createRequire(`${resolve(where ?? '.')}/`);
@@ -132,34 +132,34 @@ const jsQR = require('jsqr');
 
 /** Reads a drawn code back, and whether it came out as what went in. */
 function reads(text, opts, form, invert, surround) {
-	const lines = qrcode(text, { form, ...opts })
-		.split('\n')
-		.map((line) => strip(line));
-	// the string renderer drops a trailing run of blanks that paint nothing, so
-	// the right-hand quiet zone has to be put back before the image is built --
-	// which on a terminal the background provides
-	const width = Math.max(...lines.map((line) => [...line].length));
-	const padded = lines.map((line) => line + ' '.repeat(width - [...line].length));
-	const image = rgba(pixels(padded, form, invert), surround);
-	// `dontInvert` rather than jsqr's default of attempting both, which is what
-	// makes this a check of the **polarity** rather than only of the modules: the
-	// `invert` argument says which modules the component is expected to have
-	// drawn, and with both attempted a component drawing the opposite ones builds
-	// a negative image that jsqr reads anyway. Measured -- with the default, the
-	// level-3 row went on passing after painting stopped being the default and
-	// its `invert` flag had gone stale
-	const read = jsQR(image.data, image.width, image.height, { inversionAttempts: 'dontInvert' });
-	return read !== null && read.data === text;
+  const lines = qrcode(text, { form, ...opts })
+    .split('\n')
+    .map((line) => strip(line));
+  // the string renderer drops a trailing run of blanks that paint nothing, so
+  // the right-hand quiet zone has to be put back before the image is built --
+  // which on a terminal the background provides
+  const width = Math.max(...lines.map((line) => [...line].length));
+  const padded = lines.map((line) => line + ' '.repeat(width - [...line].length));
+  const image = rgba(pixels(padded, form, invert), surround);
+  // `dontInvert` rather than jsqr's default of attempting both, which is what
+  // makes this a check of the **polarity** rather than only of the modules: the
+  // `invert` argument says which modules the component is expected to have
+  // drawn, and with both attempted a component drawing the opposite ones builds
+  // a negative image that jsqr reads anyway. Measured -- with the default, the
+  // level-3 row went on passing after painting stopped being the default and
+  // its `invert` flag had gone stale
+  const read = jsQR(image.data, image.width, image.height, { inversionAttempts: 'dontInvert' });
+  return read !== null && read.data === text;
 }
 
 const PAYLOADS = [
-	'https://github.com/cb1kenobi/sigil',
-	'01234567',
-	'HELLO WORLD',
-	'otpauth://totp/Example:alice@example.com?secret=JBSWY3DPEHPK3PXP&issuer=Example',
-	'café naïve \u{1F600}',
-	'7'.repeat(400),
-	'z'.repeat(900),
+  'https://github.com/cb1kenobi/sigil',
+  '01234567',
+  'HELLO WORLD',
+  'otpauth://totp/Example:alice@example.com?secret=JBSWY3DPEHPK3PXP&issuer=Example',
+  'café naïve \u{1F600}',
+  '7'.repeat(400),
+  'z'.repeat(900),
 ];
 
 /**
@@ -172,29 +172,29 @@ const PAYLOADS = [
  * answer depend on the machine this is run on.
  */
 const DESTINATIONS = [
-	[{ colorScheme: 'dark' }, true],
-	[{ colorScheme: 'light' }, false],
-	[{ paint: true, colorLevel: 3, colorScheme: 'dark' }, false],
+  [{ colorScheme: 'dark' }, true],
+  [{ colorScheme: 'light' }, false],
+  [{ paint: true, colorLevel: 3, colorScheme: 'dark' }, false],
 ];
 
 let pass = 0;
 let fail = 0;
 
 for (const text of PAYLOADS) {
-	for (const ecc of ['L', 'M', 'Q', 'H']) {
-		for (const form of ['compact', 'large']) {
-			for (const [opts, invert] of DESTINATIONS) {
-				if (reads(text, { ecc, ...opts }, form, invert)) {
-					pass++;
-				} else {
-					fail++;
-					process.stdout.write(
-						`FAILED ${ecc} ${form} ${JSON.stringify(opts)} ${JSON.stringify(text).slice(0, 30)}\n`
-					);
-				}
-			}
-		}
-	}
+  for (const ecc of ['L', 'M', 'Q', 'H']) {
+    for (const form of ['compact', 'large']) {
+      for (const [opts, invert] of DESTINATIONS) {
+        if (reads(text, { ecc, ...opts }, form, invert)) {
+          pass++;
+        } else {
+          fail++;
+          process.stdout.write(
+            `FAILED ${ecc} ${form} ${JSON.stringify(opts)} ${JSON.stringify(text).slice(0, 30)}\n`
+          );
+        }
+      }
+    }
+  }
 }
 
 process.stdout.write(`\ndecoded ${pass} of ${pass + fail}\n`);
@@ -203,15 +203,15 @@ process.stdout.write(`\ndecoded ${pass} of ${pass + fail}\n`);
 process.stdout.write('\nwhat the quiet zone buys, against a field of dark cells:\n');
 const url = PAYLOADS[0];
 for (const quietZone of [0, 1, 2, 3, 4]) {
-	// the unpainted dark form, which is the case the claim is about: a painted
-	// code brings its own white and is never against the field at all
-	const opts = { colorScheme: 'dark', quietZone };
-	const light = reads(url, opts, 'large', true, false);
-	const dark = reads(url, opts, 'large', true, true);
-	process.stdout.write(
-		`  ${quietZone}: surrounded by light ${light ? 'decoded' : 'NOT decoded'}, ` +
-			`by dark ${dark ? 'decoded' : 'NOT decoded'}\n`
-	);
+  // the unpainted dark form, which is the case the claim is about: a painted
+  // code brings its own white and is never against the field at all
+  const opts = { colorScheme: 'dark', quietZone };
+  const light = reads(url, opts, 'large', true, false);
+  const dark = reads(url, opts, 'large', true, true);
+  process.stdout.write(
+    `  ${quietZone}: surrounded by light ${light ? 'decoded' : 'NOT decoded'}, ` +
+      `by dark ${dark ? 'decoded' : 'NOT decoded'}\n`
+  );
 }
 
 // the braille form this component refuses to offer, drawn as a terminal would:
@@ -228,27 +228,27 @@ const STEP = DOT * 2;
 const wide = span * STEP;
 const braille = new Uint8ClampedArray(wide * wide * 4).fill(255);
 for (let my = 0; my < span; my++) {
-	for (let mx = 0; mx < span; mx++) {
-		const inside = mx >= quiet && my >= quiet && mx < quiet + code.size && my < quiet + code.size;
-		if (!(inside && code.modules[my - quiet][mx - quiet])) {
-			continue;
-		}
-		for (let dy = 0; dy < DOT; dy++) {
-			for (let dx = 0; dx < DOT; dx++) {
-				const at = ((my * STEP + 1 + dy) * wide + mx * STEP + 1 + dx) * 4;
-				braille[at] = 0;
-				braille[at + 1] = 0;
-				braille[at + 2] = 0;
-			}
-		}
-	}
+  for (let mx = 0; mx < span; mx++) {
+    const inside = mx >= quiet && my >= quiet && mx < quiet + code.size && my < quiet + code.size;
+    if (!(inside && code.modules[my - quiet][mx - quiet])) {
+      continue;
+    }
+    for (let dy = 0; dy < DOT; dy++) {
+      for (let dx = 0; dx < DOT; dx++) {
+        const at = ((my * STEP + 1 + dy) * wide + mx * STEP + 1 + dx) * 4;
+        braille[at] = 0;
+        braille[at + 1] = 0;
+        braille[at + 2] = 0;
+      }
+    }
+  }
 }
 const dots = jsQR(braille, wide, wide);
 process.stdout.write(
-	`  a dot grid with a gap the size of the dot: ${dots ? 'decoded' : 'NOT decoded'} ` +
-		`(${wide}x${wide} pixels)\n`
+  `  a dot grid with a gap the size of the dot: ${dots ? 'decoded' : 'NOT decoded'} ` +
+    `(${wide}x${wide} pixels)\n`
 );
 
 if (fail > 0) {
-	process.exitCode = 1;
+  process.exitCode = 1;
 }

@@ -59,51 +59,51 @@ export const TAG_EXPORT = 'ui';
 
 /** One template found in a module. */
 export interface FoundTemplate {
-	/**
-	 * Where the tagged template ends in the module, exclusive.
-	 *
-	 * With `start`, the span to replace: `source.slice(start, end)` is the whole
-	 * template including its tag.
-	 */
-	readonly end: number;
-	/**
-	 * Each interpolation's source, exactly as written, in order.
-	 *
-	 * Each becomes an `Expr` on the way into `parse()`. Taken verbatim because
-	 * an expression is never rewritten -- a thunk is what makes a prop reactive,
-	 * and a compiler that touched one would stop being a pure optimizer.
-	 */
-	readonly expressions: readonly string[];
-	/** One-based column the template starts at. */
-	readonly column: number;
-	/** One-based line the template starts on. */
-	readonly line: number;
-	/**
-	 * The literal's static parts, cooked.
-	 *
-	 * Cooked rather than raw, because that is what a tag function receives and
-	 * the whole point is that the compiled path reads what the interpreted path
-	 * would have: `\\n` in a template is a newline to `ui` and has to be one
-	 * here.
-	 */
-	readonly quasis: readonly string[];
-	/** Where the tagged template starts in the module. */
-	readonly start: number;
-	/**
-	 * The expression the tag was reached by, as the module wrote it.
-	 *
-	 * A local name for a named import, alias included -- `html` for
-	 * `import { ui as html }` -- and `t.ui` for a namespace import's member.
-	 */
-	readonly tag: string;
+  /**
+   * Where the tagged template ends in the module, exclusive.
+   *
+   * With `start`, the span to replace: `source.slice(start, end)` is the whole
+   * template including its tag.
+   */
+  readonly end: number;
+  /**
+   * Each interpolation's source, exactly as written, in order.
+   *
+   * Each becomes an `Expr` on the way into `parse()`. Taken verbatim because
+   * an expression is never rewritten -- a thunk is what makes a prop reactive,
+   * and a compiler that touched one would stop being a pure optimizer.
+   */
+  readonly expressions: readonly string[];
+  /** One-based column the template starts at. */
+  readonly column: number;
+  /** One-based line the template starts on. */
+  readonly line: number;
+  /**
+   * The literal's static parts, cooked.
+   *
+   * Cooked rather than raw, because that is what a tag function receives and
+   * the whole point is that the compiled path reads what the interpreted path
+   * would have: `\\n` in a template is a newline to `ui` and has to be one
+   * here.
+   */
+  readonly quasis: readonly string[];
+  /** Where the tagged template starts in the module. */
+  readonly start: number;
+  /**
+   * The expression the tag was reached by, as the module wrote it.
+   *
+   * A local name for a named import, alias included -- `html` for
+   * `import { ui as html }` -- and `t.ui` for a namespace import's member.
+   */
+  readonly tag: string;
 }
 
 /** Which tag to look for. */
 export interface TemplatesOptions {
-	/** The module it is imported from. Defaults to `@ttylabs/sigil/template`. */
-	readonly from?: string;
-	/** The name it is exported as. Defaults to `ui`. */
-	readonly name?: string;
+  /** The module it is imported from. Defaults to `@ttylabs/sigil/template`. */
+  readonly from?: string;
+  /** The name it is exported as. Defaults to `ui`. */
+  readonly name?: string;
 }
 
 /**
@@ -116,11 +116,11 @@ export interface TemplatesOptions {
  * @throws If the source does not parse.
  */
 export function findTemplates(
-	file: string,
-	source: string,
-	options: TemplatesOptions = {}
+  file: string,
+  source: string,
+  options: TemplatesOptions = {}
 ): readonly FoundTemplate[] {
-	return templatesIn(parseModule(file, source), options);
+  return templatesIn(parseModule(file, source), options);
 }
 
 /**
@@ -135,42 +135,42 @@ export function findTemplates(
  * @returns One entry per template, in source order.
  */
 export function templatesIn(
-	parsed: ParsedModule,
-	options: TemplatesOptions = {}
+  parsed: ParsedModule,
+  options: TemplatesOptions = {}
 ): readonly FoundTemplate[] {
-	// an import is a binding rather than a spelling, and the shapes that counts
-	// -- an alias, a namespace member, a name the module binds again -- are
-	// `bindings.ts`'s, shared with the pass that shakes a stylesheet
-	const tags = importBindings(parsed, options.from ?? TAG_MODULE, options.name ?? TAG_EXPORT);
+  // an import is a binding rather than a spelling, and the shapes that counts
+  // -- an alias, a namespace member, a name the module binds again -- are
+  // `bindings.ts`'s, shared with the pass that shakes a stylesheet
+  const tags = importBindings(parsed, options.from ?? TAG_MODULE, options.name ?? TAG_EXPORT);
 
-	if (!reachable(tags)) {
-		return [];
-	}
+  if (!reachable(tags)) {
+    return [];
+  }
 
-	const found: FoundTemplate[] = [];
+  const found: FoundTemplate[] = [];
 
-	walk(parsed.program, (node) => {
-		if (node.type !== 'TaggedTemplateExpression') {
-			return true;
-		}
+  walk(parsed.program, (node) => {
+    if (node.type !== 'TaggedTemplateExpression') {
+      return true;
+    }
 
-		const reached = bindingName(node.tag, tags);
-		if (reached === undefined) {
-			return true;
-		}
+    const reached = bindingName(node.tag, tags);
+    if (reached === undefined) {
+      return true;
+    }
 
-		found.push(describe(parsed, node, reached));
+    found.push(describe(parsed, node, reached));
 
-		// claimed: an inner template is inside an expression this one carries
-		// verbatim, so descending would find one that is going to be printed back
-		// as source anyway
-		return false;
-	});
+    // claimed: an inner template is inside an expression this one carries
+    // verbatim, so descending would find one that is going to be printed back
+    // as source anyway
+    return false;
+  });
 
-	// source order, because `compile()` is handed a module's templates and the
-	// caller writes each of `sources` back where its template was -- an order
-	// that does not match the file is an off-by-one nobody can see
-	return found.sort((one, other) => one.start - other.start);
+  // source order, because `compile()` is handed a module's templates and the
+  // caller writes each of `sources` back where its template was -- an order
+  // that does not match the file is an off-by-one nobody can see
+  return found.sort((one, other) => one.start - other.start);
 }
 
 /**
@@ -182,27 +182,27 @@ export function templatesIn(
  * @returns The template.
  */
 function describe(
-	parsed: ParsedModule,
-	node: TaggedTemplateExpression,
-	tag: string
+  parsed: ParsedModule,
+  node: TaggedTemplateExpression,
+  tag: string
 ): FoundTemplate {
-	const { quasi } = node;
-	const { column, line } = position(parsed.source, node.start);
+  const { quasi } = node;
+  const { column, line } = position(parsed.source, node.start);
 
-	return {
-		column,
-		end: node.end,
-		// verbatim, which is the whole contract: `${() => count()}` is printed
-		// back exactly as written or the compiler is not a pure optimizer
-		expressions: quasi.expressions.map((expression: Expression) =>
-			parsed.source.slice(expression.start, expression.end)
-		),
-		line,
-		// `cooked` is null only for an invalid escape in a tagged template, which
-		// is legal syntax that hands the tag `undefined` -- the raw text is the
-		// honest answer there, and it is what the runtime tag would have shown
-		quasis: quasi.quasis.map((element) => element.value.cooked ?? element.value.raw),
-		start: node.start,
-		tag,
-	};
+  return {
+    column,
+    end: node.end,
+    // verbatim, which is the whole contract: `${() => count()}` is printed
+    // back exactly as written or the compiler is not a pure optimizer
+    expressions: quasi.expressions.map((expression: Expression) =>
+      parsed.source.slice(expression.start, expression.end)
+    ),
+    line,
+    // `cooked` is null only for an invalid escape in a tagged template, which
+    // is legal syntax that hands the tag `undefined` -- the raw text is the
+    // honest answer there, and it is what the runtime tag would have shown
+    quasis: quasi.quasis.map((element) => element.value.cooked ?? element.value.raw),
+    start: node.start,
+    tag,
+  };
 }

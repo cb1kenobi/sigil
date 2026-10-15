@@ -43,17 +43,17 @@ const target = join(root, 'i18n', 'index.ts');
 
 /** Every module under `src/`, the i18n module itself excluded. */
 function* modules(dir) {
-	for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
-		a.name < b.name ? -1 : 1
-	)) {
-		const path = join(dir, entry.name);
+  for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
+    a.name < b.name ? -1 : 1
+  )) {
+    const path = join(dir, entry.name);
 
-		if (entry.isDirectory()) {
-			yield* modules(path);
-		} else if (MODULE_RE.test(entry.name) && path !== target && path !== out) {
-			yield path;
-		}
-	}
+    if (entry.isDirectory()) {
+      yield* modules(path);
+    } else if (MODULE_RE.test(entry.name) && path !== target && path !== out) {
+      yield path;
+    }
+  }
 }
 
 /**
@@ -61,26 +61,26 @@ function* modules(dir) {
  * on where the module sits.
  */
 function specifierFrom(file) {
-	const rel = relative(dirname(file), target).replaceAll('\\', '/').replace(/\.ts$/, '.js');
+  const rel = relative(dirname(file), target).replaceAll('\\', '/').replace(/\.ts$/, '.js');
 
-	return rel.startsWith('.') ? rel : `./${rel}`;
+  return rel.startsWith('.') ? rel : `./${rel}`;
 }
 
 const strings = new Set();
 const plurals = new Set();
 
 for (const file of modules(root)) {
-	const source = readFileSync(file, 'utf8');
+  const source = readFileSync(file, 'utf8');
 
-	// a substring test first, so the overwhelming majority of modules are not
-	// parsed at all -- the same filter the template pass takes, for its reason
-	if (!source.includes('__`') && !source.includes('__n(')) {
-		continue;
-	}
+  // a substring test first, so the overwhelming majority of modules are not
+  // parsed at all -- the same filter the template pass takes, for its reason
+  if (!source.includes('__`') && !source.includes('__n(')) {
+    continue;
+  }
 
-	for (const found of keysIn(parseModule(file, source), { from: specifierFrom(file) })) {
-		(found.kind === 'plural' ? plurals : strings).add(found.key);
-	}
+  for (const found of keysIn(parseModule(file, source), { from: specifierFrom(file) })) {
+    (found.kind === 'plural' ? plurals : strings).add(found.key);
+  }
 }
 
 const sorted = [...new Set([...strings, ...plurals])].sort();

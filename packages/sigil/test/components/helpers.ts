@@ -1,9 +1,9 @@
 import { type Ansi, createAnsi } from '../../src/ansi/index.js';
 import {
-	createTerminal,
-	type InputStream,
-	type OutputStream,
-	type Terminal,
+  createTerminal,
+  type InputStream,
+  type OutputStream,
+  type Terminal,
 } from '../../src/terminal/index.js';
 import { createLiveRegion, type LiveRegion } from '../../src/terminal/live.js';
 import { Screen, screenStream } from '../../src/testing/screen.js';
@@ -19,80 +19,80 @@ import { PassThrough } from 'node:stream';
  * @returns The text a person would see.
  */
 function strip(text: string): string {
-	// eslint-disable-next-line no-control-regex
-	return text.replace(/\[[\d;?]*[A-Za-z]/g, '').replace(/\r/g, '');
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/\[[\d;?]*[A-Za-z]/g, '').replace(/\r/g, '');
 }
 
 export interface FakeStream {
-	columns: number | undefined;
-	emit(event: string): void;
-	/** Only the most recent frame, stripped. */
-	readonly frame: string;
-	isTTY: boolean;
-	on(event: string, listener: (...args: unknown[]) => void): FakeStream;
-	/** Everything written, exactly as it was written. */
-	readonly output: string;
-	removeListener(event: string, listener: (...args: unknown[]) => void): FakeStream;
-	/** Everything written, stripped. */
-	readonly text: string;
-	write(chunk: string): boolean;
-	written: string[];
+  columns: number | undefined;
+  emit(event: string): void;
+  /** Only the most recent frame, stripped. */
+  readonly frame: string;
+  isTTY: boolean;
+  on(event: string, listener: (...args: unknown[]) => void): FakeStream;
+  /** Everything written, exactly as it was written. */
+  readonly output: string;
+  removeListener(event: string, listener: (...args: unknown[]) => void): FakeStream;
+  /** Everything written, stripped. */
+  readonly text: string;
+  write(chunk: string): boolean;
+  written: string[];
 }
 
 /** A stream that records what was written, standing in for stdout. */
 export function createStream(opts: { columns?: number; isTTY?: boolean } = {}): FakeStream {
-	const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
+  const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
 
-	const stream: FakeStream = {
-		columns: opts.columns ?? 80,
-		isTTY: opts.isTTY ?? true,
-		written: [],
+  const stream: FakeStream = {
+    columns: opts.columns ?? 80,
+    isTTY: opts.isTTY ?? true,
+    written: [],
 
-		get output(): string {
-			return stream.written.join('');
-		},
+    get output(): string {
+      return stream.written.join('');
+    },
 
-		get text(): string {
-			return strip(stream.output);
-		},
+    get text(): string {
+      return strip(stream.output);
+    },
 
-		/**
-		 * Frames are separated by the sequences that erase the last one rather than
-		 * by newlines -- a repaint is `\r ESC[0J <frame>` -- so splitting the output
-		 * on a newline finds the lines of one frame, not the frames themselves.
-		 */
-		get frame(): string {
-			return strip(stream.written.at(-1) ?? '');
-		},
+    /**
+     * Frames are separated by the sequences that erase the last one rather than
+     * by newlines -- a repaint is `\r ESC[0J <frame>` -- so splitting the output
+     * on a newline finds the lines of one frame, not the frames themselves.
+     */
+    get frame(): string {
+      return strip(stream.written.at(-1) ?? '');
+    },
 
-		on(event: string, listener: (...args: unknown[]) => void): FakeStream {
-			let set = listeners.get(event);
-			if (!set) {
-				listeners.set(event, (set = new Set()));
-			}
-			set.add(listener);
-			return stream;
-		},
+    on(event: string, listener: (...args: unknown[]) => void): FakeStream {
+      let set = listeners.get(event);
+      if (!set) {
+        listeners.set(event, (set = new Set()));
+      }
+      set.add(listener);
+      return stream;
+    },
 
-		removeListener(event: string, listener: (...args: unknown[]) => void): FakeStream {
-			listeners.get(event)?.delete(listener);
-			return stream;
-		},
+    removeListener(event: string, listener: (...args: unknown[]) => void): FakeStream {
+      listeners.get(event)?.delete(listener);
+      return stream;
+    },
 
-		emit(event: string): void {
-			// eslint-disable-next-line unicorn/no-useless-spread
-			for (const listener of [...(listeners.get(event) ?? [])]) {
-				listener();
-			}
-		},
+    emit(event: string): void {
+      // eslint-disable-next-line unicorn/no-useless-spread
+      for (const listener of [...(listeners.get(event) ?? [])]) {
+        listener();
+      }
+    },
 
-		write(chunk: string): boolean {
-			stream.written.push(chunk);
-			return true;
-		},
-	};
+    write(chunk: string): boolean {
+      stream.written.push(chunk);
+      return true;
+    },
+  };
 
-	return stream;
+  return stream;
 }
 
 /**
@@ -104,11 +104,11 @@ export function createStream(opts: { columns?: number; isTTY?: boolean } = {}): 
  * `process.stdin` destroyed and the next prompt with nothing to read.
  */
 export interface FakeInput extends PassThrough {
-	isTTY: boolean;
-	rawMode: boolean;
-	/** Sends a chunk to whatever is reading. */
-	send(chunk: string): void;
-	setRawMode(mode: boolean): FakeInput;
+  isTTY: boolean;
+  rawMode: boolean;
+  /** Sends a chunk to whatever is reading. */
+  send(chunk: string): void;
+  setRawMode(mode: boolean): FakeInput;
 }
 
 /**
@@ -118,29 +118,29 @@ export interface FakeInput extends PassThrough {
  * @returns The input.
  */
 export function createInput(opts: { isTTY?: boolean } = {}): FakeInput {
-	const input = new PassThrough() as FakeInput;
+  const input = new PassThrough() as FakeInput;
 
-	input.isTTY = opts.isTTY ?? true;
-	input.rawMode = false;
+  input.isTTY = opts.isTTY ?? true;
+  input.rawMode = false;
 
-	input.setRawMode = (mode: boolean): FakeInput => {
-		input.rawMode = mode;
-		return input;
-	};
+  input.setRawMode = (mode: boolean): FakeInput => {
+    input.rawMode = mode;
+    return input;
+  };
 
-	input.send = (chunk: string): void => {
-		input.write(chunk);
-	};
+  input.send = (chunk: string): void => {
+    input.write(chunk);
+  };
 
-	return input;
+  return input;
 }
 
 export interface Harness {
-	ansi: Ansi;
-	region: LiveRegion;
-	stdin: FakeInput;
-	stdout: FakeStream;
-	terminal: Terminal;
+  ansi: Ansi;
+  region: LiveRegion;
+  stdin: FakeInput;
+  stdout: FakeStream;
+  terminal: Terminal;
 }
 
 /**
@@ -150,37 +150,37 @@ export interface Harness {
  * @returns The harness.
  */
 export function setup(
-	opts: { columns?: number; inputTTY?: boolean; isTTY?: boolean } = {}
+  opts: { columns?: number; inputTTY?: boolean; isTTY?: boolean } = {}
 ): Harness {
-	const stdout = createStream(opts);
-	const stdin = createInput({ isTTY: opts.inputTTY ?? opts.isTTY ?? true });
-	const proc = {
-		listenerCount: (): number => 0,
-		on: (): void => {},
-		removeListener: (): void => {},
-	};
+  const stdout = createStream(opts);
+  const stdin = createInput({ isTTY: opts.inputTTY ?? opts.isTTY ?? true });
+  const proc = {
+    listenerCount: (): number => 0,
+    on: (): void => {},
+    removeListener: (): void => {},
+  };
 
-	const terminal = createTerminal({
-		env: {},
-		isTTY: opts.isTTY ?? true,
-		proc,
-		// the fake stream stands in for both, so that the guard a terminal puts on
-		// its streams lands here rather than on the process's own stderr -- a
-		// listener per terminal, and a suite builds a great many of them
-		stderr: stdout as unknown as OutputStream,
-		stdin: stdin as unknown as InputStream,
-		stdout: stdout as unknown as OutputStream,
-	});
+  const terminal = createTerminal({
+    env: {},
+    isTTY: opts.isTTY ?? true,
+    proc,
+    // the fake stream stands in for both, so that the guard a terminal puts on
+    // its streams lands here rather than on the process's own stderr -- a
+    // listener per terminal, and a suite builds a great many of them
+    stderr: stdout as unknown as OutputStream,
+    stdin: stdin as unknown as InputStream,
+    stdout: stdout as unknown as OutputStream,
+  });
 
-	return {
-		// level 0, so what a test reads is the text rather than the styling. The
-		// styling has tests of its own
-		ansi: createAnsi({ level: 0 }),
-		region: createLiveRegion({ terminal }),
-		stdin,
-		stdout,
-		terminal,
-	};
+  return {
+    // level 0, so what a test reads is the text rather than the styling. The
+    // styling has tests of its own
+    ansi: createAnsi({ level: 0 }),
+    region: createLiveRegion({ terminal }),
+    stdin,
+    stdout,
+    terminal,
+  };
 }
 
 /**
@@ -190,27 +190,27 @@ export function setup(
  * @returns Settled.
  */
 export async function tick(times = 2): Promise<void> {
-	// `setImmediate` and not a chain of resolved promises: a real stream delivers
-	// `data` on the macrotask queue, so draining microtasks alone would look at
-	// the prompt before it had seen the keys
-	for (let i = 0; i < times; i++) {
-		await new Promise((resolve) => setImmediate(resolve));
-	}
+  // `setImmediate` and not a chain of resolved promises: a real stream delivers
+  // `data` on the macrotask queue, so draining microtasks alone would look at
+  // the prompt before it had seen the keys
+  for (let i = 0; i < times; i++) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
 }
 
 export interface ScreenHarness {
-	ansi: Ansi;
-	/** The last row a frame was drawn on, trailing spaces trimmed. */
-	readonly frame: string;
-	/** Everything the main buffer has held, trailing blank lines dropped. */
-	readonly log: string[];
-	/** Everything written, sequences and all, for the few claims that are bytes. */
-	readonly output: string;
-	screen: Screen;
-	stdin: FakeInput;
-	terminal: Terminal;
-	/** The raw chunks, so a test can ask about only what a frame changed. */
-	written: string[];
+  ansi: Ansi;
+  /** The last row a frame was drawn on, trailing spaces trimmed. */
+  readonly frame: string;
+  /** Everything the main buffer has held, trailing blank lines dropped. */
+  readonly log: string[];
+  /** Everything written, sequences and all, for the few claims that are bytes. */
+  readonly output: string;
+  screen: Screen;
+  stdin: FakeInput;
+  terminal: Terminal;
+  /** The raw chunks, so a test can ask about only what a frame changed. */
+  written: string[];
 }
 
 /**
@@ -227,59 +227,59 @@ export interface ScreenHarness {
  * @returns The harness.
  */
 export function screenSetup(
-	opts: { columns?: number; inputTTY?: boolean; isTTY?: boolean; rows?: number } = {}
+  opts: { columns?: number; inputTTY?: boolean; isTTY?: boolean; rows?: number } = {}
 ): ScreenHarness {
-	const screen = new Screen(opts.columns ?? 40, opts.rows ?? 8);
-	const stream = screenStream(screen);
-	const written: string[] = [];
-	const paint = stream.write.bind(stream);
-	stream.write = (chunk: string): boolean => {
-		written.push(chunk);
-		return paint(chunk);
-	};
-	const stdin = createInput({ isTTY: opts.inputTTY ?? opts.isTTY ?? true });
-	const proc = {
-		listenerCount: (): number => 0,
-		on: (): void => {},
-		removeListener: (): void => {},
-	};
+  const screen = new Screen(opts.columns ?? 40, opts.rows ?? 8);
+  const stream = screenStream(screen);
+  const written: string[] = [];
+  const paint = stream.write.bind(stream);
+  stream.write = (chunk: string): boolean => {
+    written.push(chunk);
+    return paint(chunk);
+  };
+  const stdin = createInput({ isTTY: opts.inputTTY ?? opts.isTTY ?? true });
+  const proc = {
+    listenerCount: (): number => 0,
+    on: (): void => {},
+    removeListener: (): void => {},
+  };
 
-	const terminal = createTerminal({
-		env: {},
-		isTTY: opts.isTTY ?? true,
-		proc,
-		stderr: stream as unknown as OutputStream,
-		stdin: stdin as unknown as InputStream,
-		stdout: stream as unknown as OutputStream,
-	});
+  const terminal = createTerminal({
+    env: {},
+    isTTY: opts.isTTY ?? true,
+    proc,
+    stderr: stream as unknown as OutputStream,
+    stdin: stdin as unknown as InputStream,
+    stdout: stream as unknown as OutputStream,
+  });
 
-	return {
-		ansi: createAnsi({ level: 0 }),
+  return {
+    ansi: createAnsi({ level: 0 }),
 
-		get frame(): string {
-			return trimmed(screen.log).at(-1) ?? '';
-		},
+    get frame(): string {
+      return trimmed(screen.log).at(-1) ?? '';
+    },
 
-		get log(): string[] {
-			return trimmed(screen.log);
-		},
+    get log(): string[] {
+      return trimmed(screen.log);
+    },
 
-		get output(): string {
-			return written.join('');
-		},
+    get output(): string {
+      return written.join('');
+    },
 
-		screen,
-		stdin,
-		terminal,
-		written,
-	};
+    screen,
+    stdin,
+    terminal,
+    written,
+  };
 }
 
 /** The log with the blank rows below the last written one dropped. */
 function trimmed(log: string[]): string[] {
-	const lines = [...log];
-	while (lines.length > 0 && lines.at(-1) === '') {
-		lines.pop();
-	}
-	return lines;
+  const lines = [...log];
+  while (lines.length > 0 && lines.at(-1) === '') {
+    lines.pop();
+  }
+  return lines;
 }

@@ -19,18 +19,18 @@
 
 import type { ColorLevel } from '../ansi/color-support.js';
 import {
-	ATTR,
-	BLANK,
-	CellBuffer,
-	CONTINUATION,
-	DEFAULT_COLOR,
-	DEFAULT_STYLE,
-	LINK_OFF,
-	Painter,
-	RESET,
-	type Style as CellStyle,
-	StyleTable,
-	transition,
+  ATTR,
+  BLANK,
+  CellBuffer,
+  CONTINUATION,
+  DEFAULT_COLOR,
+  DEFAULT_STYLE,
+  LINK_OFF,
+  Painter,
+  RESET,
+  type Style as CellStyle,
+  StyleTable,
+  transition,
 } from '../canvas/index.js';
 import { measureNode } from '../layout/index.js';
 import { Cascade, type ColorScheme, Restyler } from '../style/index.js';
@@ -51,44 +51,44 @@ import { arrange, arrangedExtent, paint, settleResized, settleStyles } from './p
 const PAINTS_A_BLANK = ATTR.underline | ATTR.strikethrough | ATTR.overline | ATTR.inverse;
 
 export interface RenderStringOptions {
-	/**
-	 * The stylesheets, and what the media queries are asked about.
-	 *
-	 * Defaults to none, which is props and inheritance. The cascade's own
-	 * `media` is left alone apart from the two things this call is the authority
-	 * on -- the width it is laying out in, and the colour depth -- because the
-	 * other half of a query is "how much screen is there", and a string being
-	 * built has no answer to that which the caller does not already have.
-	 */
-	cascade?: Cascade;
-	/**
-	 * Whether the output is read against a light background or a dark one.
-	 *
-	 * A value the caller may pass, never one this path goes and asks for: a string
-	 * being built has no screen, and the media queries are the caller's apart from
-	 * the width and the colour depth this call is the authority on. When nobody
-	 * says, the cascade's own answer stands -- which for `themedCascade()` is what
-	 * the environment knew and for a bare `Cascade` is `DEFAULT_MEDIA`'s dark.
-	 */
-	colorScheme?: ColorScheme;
-	/**
-	 * How much colour to resolve for. Defaults to truecolor.
-	 *
-	 * The same number `@media (color-level: N)` reads and the depth the cascade
-	 * degrades to. A caller writing to something that is not a terminal passes
-	 * `0`, which drops colour rather than emitting sequences into a file.
-	 */
-	colorLevel?: ColorLevel;
-	/**
-	 * How many rows to lay out in. Defaults to what the tree measures.
-	 *
-	 * A string is not bounded by a screen, so the default is the height the
-	 * content asked for -- which is what `measureNode()` answers and what a fixed
-	 * height would refuse.
-	 */
-	height?: number;
-	/** How many columns to lay out in. */
-	width: number;
+  /**
+   * The stylesheets, and what the media queries are asked about.
+   *
+   * Defaults to none, which is props and inheritance. The cascade's own
+   * `media` is left alone apart from the two things this call is the authority
+   * on -- the width it is laying out in, and the colour depth -- because the
+   * other half of a query is "how much screen is there", and a string being
+   * built has no answer to that which the caller does not already have.
+   */
+  cascade?: Cascade;
+  /**
+   * Whether the output is read against a light background or a dark one.
+   *
+   * A value the caller may pass, never one this path goes and asks for: a string
+   * being built has no screen, and the media queries are the caller's apart from
+   * the width and the colour depth this call is the authority on. When nobody
+   * says, the cascade's own answer stands -- which for `themedCascade()` is what
+   * the environment knew and for a bare `Cascade` is `DEFAULT_MEDIA`'s dark.
+   */
+  colorScheme?: ColorScheme;
+  /**
+   * How much colour to resolve for. Defaults to truecolor.
+   *
+   * The same number `@media (color-level: N)` reads and the depth the cascade
+   * degrades to. A caller writing to something that is not a terminal passes
+   * `0`, which drops colour rather than emitting sequences into a file.
+   */
+  colorLevel?: ColorLevel;
+  /**
+   * How many rows to lay out in. Defaults to what the tree measures.
+   *
+   * A string is not bounded by a screen, so the default is the height the
+   * content asked for -- which is what `measureNode()` answers and what a fixed
+   * height would refuse.
+   */
+  height?: number;
+  /** How many columns to lay out in. */
+  width: number;
 }
 
 /**
@@ -99,106 +99,106 @@ export interface RenderStringOptions {
  * @returns One string per row, each ending in the state it started in.
  */
 export function renderToLines(root: Element, opts: RenderStringOptions): string[] {
-	const width = Math.max(1, Math.floor(opts.width));
-	const colorLevel = opts.colorLevel ?? 3;
-	const cascade = opts.cascade ?? new Cascade([]);
+  const width = Math.max(1, Math.floor(opts.width));
+  const colorLevel = opts.colorLevel ?? 3;
+  const cascade = opts.cascade ?? new Cascade([]);
 
-	// the cascade is the caller's, so what is borrowed is put back: a `table()`
-	// inside a running app shares its sheets with the frame loop, and a media
-	// context left behind would be the next frame's answer to a question about a
-	// screen this render was never about
-	const previousMedia = cascade.media;
-	cascade.media = {
-		...previousMedia,
-		colorLevel,
-		...(opts.colorScheme === undefined ? {} : { colorScheme: opts.colorScheme }),
-		width,
-	};
+  // the cascade is the caller's, so what is borrowed is put back: a `table()`
+  // inside a running app shares its sheets with the frame loop, and a media
+  // context left behind would be the next frame's answer to a question about a
+  // screen this render was never about
+  const previousMedia = cascade.media;
+  cascade.media = {
+    ...previousMedia,
+    colorLevel,
+    ...(opts.colorScheme === undefined ? {} : { colorScheme: opts.colorScheme }),
+    width,
+  };
 
-	let height: number;
-	let grid: number;
-	try {
-		settleStyles(root, new Restyler(cascade));
+  let height: number;
+  let grid: number;
+  try {
+    settleStyles(root, new Restyler(cascade));
 
-		height = Math.max(1, Math.floor(opts.height ?? measureNode(root, width).height));
+    height = Math.max(1, Math.floor(opts.height ?? measureNode(root, width).height));
 
-		// what the last layout gave a size nothing has been told about, which is what a
-		// windowed list is told so that it can rebuild a window the viewport's height
-		// has moved out from under. Cleared here rather than by `arrange()`, because the
-		// growth pass below lays out twice and the two answers are one answer
-		const resized = new Set<Element>();
-		const layoutOnce = (): { height: number; width: number } => {
-			resized.clear();
-			return arrangedExtent(arrange(root, { height, width }, resized));
-		};
+    // what the last layout gave a size nothing has been told about, which is what a
+    // windowed list is told so that it can rebuild a window the viewport's height
+    // has moved out from under. Cleared here rather than by `arrange()`, because the
+    // growth pass below lays out twice and the two answers are one answer
+    const resized = new Set<Element>();
+    const layoutOnce = (): { height: number; width: number } => {
+      resized.clear();
+      return arrangedExtent(arrange(root, { height, width }, resized));
+    };
 
-		// laid out again where it reached further down than it measured. A row whose
-		// children flex is measured with each child offered the whole content box
-		// and placed with each given a share, so a description that wraps to three
-		// lines in its share was two lines in the room it was offered -- and the
-		// rows after it were painted over. Only where the caller did not name a
-		// height, since a caller that did is describing a box rather than asking
-		// how big one is
-		//
-		// Asked after **every** layout rather than only after the first, because a
-		// resize handler can grow the tree too and the grid is allocated from `height`
-		// rather than from the extent. Measured: a root whose `onResize` appended an
-		// eight-row child came back as **one line**, since the measure saw an empty
-		// root and nothing asked again. A `ScrollBox` cannot reach it -- it clips, so
-		// `arrangedExtent()` stops at its border box, and its spacers give the measure
-		// the whole list's height before any handler runs -- which is why it took a
-		// review round rather than a test
-		const grow = (): void => {
-			if (opts.height === undefined && extent.height > height) {
-				height = extent.height;
-				extent = arrangedExtent(arrange(root, { height, width }, resized));
-			}
-		};
+    // laid out again where it reached further down than it measured. A row whose
+    // children flex is measured with each child offered the whole content box
+    // and placed with each given a share, so a description that wraps to three
+    // lines in its share was two lines in the room it was offered -- and the
+    // rows after it were painted over. Only where the caller did not name a
+    // height, since a caller that did is describing a box rather than asking
+    // how big one is
+    //
+    // Asked after **every** layout rather than only after the first, because a
+    // resize handler can grow the tree too and the grid is allocated from `height`
+    // rather than from the extent. Measured: a root whose `onResize` appended an
+    // eight-row child came back as **one line**, since the measure saw an empty
+    // root and nothing asked again. A `ScrollBox` cannot reach it -- it clips, so
+    // `arrangedExtent()` stops at its border box, and its spacers give the measure
+    // the whole list's height before any handler runs -- which is why it took a
+    // review round rather than a test
+    const grow = (): void => {
+      if (opts.height === undefined && extent.height > height) {
+        height = extent.height;
+        extent = arrangedExtent(arrange(root, { height, width }, resized));
+      }
+    };
 
-		let extent = layoutOnce();
-		grow();
+    let extent = layoutOnce();
+    grow();
 
-		// and again where the layout told something a size it did not know about and
-		// that changed the tree, which is the same second pass one line up with a
-		// different question behind it: that one asks how tall the answer came out,
-		// this one asks who needs rebuilding now that there is a box to read.
-		//
-		// A **fresh** restyler, which is a full re-match and is what this path has to
-		// pay: a kept one is marks-driven, and there is no `Tree` here for `setProp()`
-		// to record a mark on -- so a spacer whose height a new window just wrote
-		// would keep the style it resolved to before, and the content box's extent
-		// would describe a window that is not there. Measured as exactly that: a
-		// range of 500 where it should have been 492, with the rows painted correctly
-		// on top of it. The renderer has a tree and narrows this to what the handlers
-		// touched; nothing here can
-		settleResized(resized, () => {
-			settleStyles(root, new Restyler(cascade));
-			extent = layoutOnce();
-			grow();
-		});
+    // and again where the layout told something a size it did not know about and
+    // that changed the tree, which is the same second pass one line up with a
+    // different question behind it: that one asks how tall the answer came out,
+    // this one asks who needs rebuilding now that there is a box to read.
+    //
+    // A **fresh** restyler, which is a full re-match and is what this path has to
+    // pay: a kept one is marks-driven, and there is no `Tree` here for `setProp()`
+    // to record a mark on -- so a spacer whose height a new window just wrote
+    // would keep the style it resolved to before, and the content box's extent
+    // would describe a window that is not there. Measured as exactly that: a
+    // range of 500 where it should have been 492, with the rows painted correctly
+    // on top of it. The renderer has a tree and narrows this to what the handlers
+    // touched; nothing here can
+    settleResized(resized, () => {
+      settleStyles(root, new Restyler(cascade));
+      extent = layoutOnce();
+      grow();
+    });
 
-		// and painted into a grid as wide as what the layout came to rather than as
-		// wide as it was laid out in. The two part company only where something
-		// genuinely does not fit -- a flag name longer than the terminal, which help
-		// prints whole on the rule that the name surviving beats the line being tidy
-		// -- and a grid the width it was asked for has no columns to put it in, so
-		// it would be cut off with nothing to say so. This is the width half of what
-		// the height already does, for the same reason: a string is not bounded by a
-		// screen
-		grid = Math.max(width, Math.ceil(extent.width));
-	} finally {
-		cascade.media = previousMedia;
-	}
+    // and painted into a grid as wide as what the layout came to rather than as
+    // wide as it was laid out in. The two part company only where something
+    // genuinely does not fit -- a flag name longer than the terminal, which help
+    // prints whole on the rule that the name surviving beats the line being tidy
+    // -- and a grid the width it was asked for has no columns to put it in, so
+    // it would be cut off with nothing to say so. This is the width half of what
+    // the height already does, for the same reason: a string is not bounded by a
+    // screen
+    grid = Math.max(width, Math.ceil(extent.width));
+  } finally {
+    cascade.media = previousMedia;
+  }
 
-	const styles = new StyleTable();
-	const buffer = new CellBuffer(grid, height);
-	paint(root, new Painter(buffer, styles));
+  const styles = new StyleTable();
+  const buffer = new CellBuffer(grid, height);
+  paint(root, new Painter(buffer, styles));
 
-	const lines: string[] = [];
-	for (let y = 0; y < height; y++) {
-		lines.push(lineOf(buffer, styles, y, grid));
-	}
-	return lines;
+  const lines: string[] = [];
+  for (let y = 0; y < height; y++) {
+    lines.push(lineOf(buffer, styles, y, grid));
+  }
+  return lines;
 }
 
 /**
@@ -209,7 +209,7 @@ export function renderToLines(root: Element, opts: RenderStringOptions): string[
  * @returns The lines, joined by newlines, with no trailing one.
  */
 export function renderToString(root: Element, opts: RenderStringOptions): string {
-	return renderToLines(root, opts).join('\n');
+  return renderToLines(root, opts).join('\n');
 }
 
 /**
@@ -222,56 +222,56 @@ export function renderToString(root: Element, opts: RenderStringOptions): string
  * @returns The line.
  */
 function lineOf(buffer: CellBuffer, styles: StyleTable, y: number, width: number): string {
-	let end = width;
-	while (end > 0 && isTrailingBlank(buffer, styles, end - 1, y)) {
-		end--;
-	}
+  let end = width;
+  while (end > 0 && isTrailingBlank(buffer, styles, end - 1, y)) {
+    end--;
+  }
 
-	let out = '';
-	let current = DEFAULT_STYLE;
+  let out = '';
+  let current = DEFAULT_STYLE;
 
-	for (let x = 0; x < end; x++) {
-		const char = buffer.charAt(x, y);
+  for (let x = 0; x < end; x++) {
+    const char = buffer.charAt(x, y);
 
-		// a continuation carries no grapheme: its lead cell wrote the whole cluster
-		// and the terminal's own cursor covers the second column, so writing here
-		// would be writing it twice
-		if (char === CONTINUATION) {
-			continue;
-		}
+    // a continuation carries no grapheme: its lead cell wrote the whole cluster
+    // and the terminal's own cursor covers the second column, so writing here
+    // would be writing it twice
+    if (char === CONTINUATION) {
+      continue;
+    }
 
-		const next = styles.get(buffer.styleAt(x, y));
+    const next = styles.get(buffer.styleAt(x, y));
 
-		// a blank that shows nothing is written in whatever is already open, as
-		// long as that also shows nothing on a blank. A paragraph is a row of
-		// one-word elements and the gap between two of them is an unpainted cell,
-		// so closing and reopening at every space turned one dim parenthetical
-		// into a sequence per word -- identical on screen and three times the
-		// bytes. A background or an underline is a different matter and is the
-		// reason this is a test rather than a blanket skip
-		if (invisibleOnBlank(char, next) && invisibleOnBlank(BLANK, current)) {
-			out += char;
-			continue;
-		}
+    // a blank that shows nothing is written in whatever is already open, as
+    // long as that also shows nothing on a blank. A paragraph is a row of
+    // one-word elements and the gap between two of them is an unpainted cell,
+    // so closing and reopening at every space turned one dim parenthetical
+    // into a sequence per word -- identical on screen and three times the
+    // bytes. A background or an underline is a different matter and is the
+    // reason this is a test rather than a blanket skip
+    if (invisibleOnBlank(char, next) && invisibleOnBlank(BLANK, current)) {
+      out += char;
+      continue;
+    }
 
-		out += transition(current, next);
-		current = next;
-		out += char;
-	}
+    out += transition(current, next);
+    current = next;
+    out += char;
+  }
 
-	// every line ends where it began, which is what makes the lines independent:
-	// one joined onto another, or written into a log beside something else, must
-	// not carry its colour into what follows. The link is closed separately
-	// because SGR and OSC are separate state -- `RESET` puts the colours back and
-	// leaves an OSC 8 open over whatever is written next
-	if (current.link !== '') {
-		out += LINK_OFF;
-	}
-	if (current.attrs !== 0 || current.fg !== DEFAULT_COLOR || current.bg !== DEFAULT_COLOR) {
-		out += RESET;
-	}
+  // every line ends where it began, which is what makes the lines independent:
+  // one joined onto another, or written into a log beside something else, must
+  // not carry its colour into what follows. The link is closed separately
+  // because SGR and OSC are separate state -- `RESET` puts the colours back and
+  // leaves an OSC 8 open over whatever is written next
+  if (current.link !== '') {
+    out += LINK_OFF;
+  }
+  if (current.attrs !== 0 || current.fg !== DEFAULT_COLOR || current.bg !== DEFAULT_COLOR) {
+    out += RESET;
+  }
 
-	return out;
+  return out;
 }
 
 /**
@@ -284,11 +284,11 @@ function lineOf(buffer: CellBuffer, styles: StyleTable, y: number, width: number
  * @returns Whether it shows nothing.
  */
 function isTrailingBlank(buffer: CellBuffer, styles: StyleTable, x: number, y: number): boolean {
-	const char = buffer.charAt(x, y);
-	return (
-		(char === BLANK || char === CONTINUATION) &&
-		invisibleOnBlank(char, styles.get(buffer.styleAt(x, y)))
-	);
+  const char = buffer.charAt(x, y);
+  return (
+    (char === BLANK || char === CONTINUATION) &&
+    invisibleOnBlank(char, styles.get(buffer.styleAt(x, y)))
+  );
 }
 
 /**
@@ -305,10 +305,10 @@ function isTrailingBlank(buffer: CellBuffer, styles: StyleTable, x: number, y: n
  * @returns Whether the cell is invisible.
  */
 function invisibleOnBlank(char: string, style: CellStyle): boolean {
-	return (
-		(char === BLANK || char === CONTINUATION) &&
-		style.bg === DEFAULT_COLOR &&
-		(style.attrs & PAINTS_A_BLANK) === 0 &&
-		style.link === ''
-	);
+  return (
+    (char === BLANK || char === CONTINUATION) &&
+    style.bg === DEFAULT_COLOR &&
+    (style.attrs & PAINTS_A_BLANK) === 0 &&
+    style.link === ''
+  );
 }

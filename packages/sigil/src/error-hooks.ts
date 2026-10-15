@@ -9,9 +9,9 @@ const { log } = debug('sigil:error');
  * in the context chain.
  */
 type HookSource = {
-	hooks?: {
-		beforeError?: BeforeErrorHook;
-	};
+  hooks?: {
+    beforeError?: BeforeErrorHook;
+  };
 };
 
 /**
@@ -23,20 +23,20 @@ type HookSource = {
  * @param state - The state that was in flight, if there was one.
  */
 export function attachState(err: unknown, state: ParseState | undefined): void {
-	if (!state || err === null || (typeof err !== 'object' && typeof err !== 'function')) {
-		return;
-	}
+  if (!state || err === null || (typeof err !== 'object' && typeof err !== 'function')) {
+    return;
+  }
 
-	try {
-		Object.defineProperty(err, ErrorState, {
-			configurable: true,
-			enumerable: false,
-			value: state,
-			writable: true,
-		});
-	} catch {
-		// a frozen error keeps its own counsel
-	}
+  try {
+    Object.defineProperty(err, ErrorState, {
+      configurable: true,
+      enumerable: false,
+      value: state,
+      writable: true,
+    });
+  } catch {
+    // a frozen error keeps its own counsel
+  }
 }
 
 /**
@@ -46,11 +46,11 @@ export function attachState(err: unknown, state: ParseState | undefined): void {
  * @returns The state that was in flight, if there was one.
  */
 export function stateFromError(err: unknown): ParseState | undefined {
-	try {
-		return (err as { [ErrorState]?: ParseState } | null | undefined)?.[ErrorState];
-	} catch {
-		return undefined;
-	}
+  try {
+    return (err as { [ErrorState]?: ParseState } | null | undefined)?.[ErrorState];
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -68,34 +68,34 @@ export function stateFromError(err: unknown): ParseState | undefined {
  * @returns The hooks to fire, in order, each one only once.
  */
 function collectHooks(
-	state: ParseState | undefined,
-	schema: Schema | undefined
+  state: ParseState | undefined,
+  schema: Schema | undefined
 ): BeforeErrorHook[] {
-	// the innermost context is an initialized command, the outermost is the
-	// schema itself -- but as the proxy `initCommand()` wrapped it in, so the
-	// schema is worth visiting again and a set of the hooks themselves, not of
-	// their sources, is what keeps them from firing twice
-	const sources: HookSource[] = [...(state?.contexts ?? []), state?.schema ?? schema].filter(
-		(source) => !!source
-	) as HookSource[];
-	const hooks = new Set<BeforeErrorHook>();
+  // the innermost context is an initialized command, the outermost is the
+  // schema itself -- but as the proxy `initCommand()` wrapped it in, so the
+  // schema is worth visiting again and a set of the hooks themselves, not of
+  // their sources, is what keeps them from firing twice
+  const sources: HookSource[] = [...(state?.contexts ?? []), state?.schema ?? schema].filter(
+    (source) => !!source
+  ) as HookSource[];
+  const hooks = new Set<BeforeErrorHook>();
 
-	for (const source of sources) {
-		let hook: BeforeErrorHook | undefined;
+  for (const source of sources) {
+    let hook: BeforeErrorHook | undefined;
 
-		try {
-			hook = source.hooks?.beforeError;
-		} catch {
-			// a throwing getter has nothing to contribute
-			continue;
-		}
+    try {
+      hook = source.hooks?.beforeError;
+    } catch {
+      // a throwing getter has nothing to contribute
+      continue;
+    }
 
-		if (typeof hook === 'function') {
-			hooks.add(hook);
-		}
-	}
+    if (typeof hook === 'function') {
+      hooks.add(hook);
+    }
+  }
 
-	return [...hooks];
+  return [...hooks];
 }
 
 /**
@@ -114,30 +114,30 @@ function collectHooks(
  * @returns The error to report, which is `err` unless a hook replaced it.
  */
 export async function fireBeforeError(
-	err: unknown,
-	state: ParseState | undefined,
-	schema?: Schema
+  err: unknown,
+  state: ParseState | undefined,
+  schema?: Schema
 ): Promise<unknown> {
-	let current = err;
+  let current = err;
 
-	for (const hook of collectHooks(state, schema)) {
-		let result: unknown;
+  for (const hook of collectHooks(state, schema)) {
+    let result: unknown;
 
-		try {
-			result = await hook(current, state);
-		} catch (hookErr) {
-			// `DEBUG=sigil:error` is where a broken hook confesses
-			safeLog(log, hookErr);
-			continue;
-		}
+    try {
+      result = await hook(current, state);
+    } catch (hookErr) {
+      // `DEBUG=sigil:error` is where a broken hook confesses
+      safeLog(log, hookErr);
+      continue;
+    }
 
-		if (result !== undefined && result !== current) {
-			current = result;
-			// the replacement has to carry the state too, otherwise swapping the
-			// error out costs the renderer its usage line
-			attachState(current, state);
-		}
-	}
+    if (result !== undefined && result !== current) {
+      current = result;
+      // the replacement has to carry the state too, otherwise swapping the
+      // error out costs the renderer its usage line
+      attachState(current, state);
+    }
+  }
 
-	return current;
+  return current;
 }

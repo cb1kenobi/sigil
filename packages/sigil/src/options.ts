@@ -53,5 +53,5 @@ import { type OptionDeclarations } from './types.js';
  * @returns The same object.
  */
 export function options<const T extends OptionDeclarations>(decl: T): T {
-	return decl;
+  return decl;
 }

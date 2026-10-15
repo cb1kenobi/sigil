@@ -13,10 +13,10 @@ import { main } from '@ttylabs/sigil';
 import { join } from 'node:path';
 
 await main({
-	argv: process.argv.length > 2 ? undefined : ['deploy', 'staging', '--dry-run'],
-	schema: {
-		name: 'lazy',
-		desc: 'Commands read from a directory',
-		commands: join(import.meta.dirname, 'commands'),
-	},
+  argv: process.argv.length > 2 ? undefined : ['deploy', 'staging', '--dry-run'],
+  schema: {
+    name: 'lazy',
+    desc: 'Commands read from a directory',
+    commands: join(import.meta.dirname, 'commands'),
+  },
 });

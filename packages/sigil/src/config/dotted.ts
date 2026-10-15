@@ -35,7 +35,7 @@ const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 /** Whether a key is one of the three. */
 export function isUnsafeKey(key: string): boolean {
-	return UNSAFE_KEYS.has(key);
+  return UNSAFE_KEYS.has(key);
 }
 
 /**
@@ -52,22 +52,22 @@ export function isUnsafeKey(key: string): boolean {
  * @throws If a segment is unsafe or empty.
  */
 export function segments(path: string | undefined): string[] {
-	if (!path) {
-		return [];
-	}
+  if (!path) {
+    return [];
+  }
 
-	const parts = path.split('.');
+  const parts = path.split('.');
 
-	for (const part of parts) {
-		if (!part) {
-			throw new Error(`Invalid config path "${path}": it has an empty segment`);
-		}
-		if (isUnsafeKey(part)) {
-			throw new Error(`Invalid config path "${path}": "${part}" is not a safe key`);
-		}
-	}
+  for (const part of parts) {
+    if (!part) {
+      throw new Error(`Invalid config path "${path}": it has an empty segment`);
+    }
+    if (isUnsafeKey(part)) {
+      throw new Error(`Invalid config path "${path}": "${part}" is not a safe key`);
+    }
+  }
 
-	return parts;
+  return parts;
 }
 
 /**
@@ -83,11 +83,11 @@ export function segments(path: string | undefined): string[] {
  * @returns Whether it is a plain object.
  */
 export function isPlainObject(value: unknown): value is Record<string, unknown> {
-	if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-		return false;
-	}
-	const proto = Object.getPrototypeOf(value) as object | null;
-	return proto === Object.prototype || proto === null;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const proto = Object.getPrototypeOf(value) as object | null;
+  return proto === Object.prototype || proto === null;
 }
 
 /**
@@ -98,16 +98,16 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
  * @returns What is there, or `undefined`.
  */
 export function readPath(root: unknown, parts: readonly string[]): unknown {
-	let at = root;
+  let at = root;
 
-	for (const part of parts) {
-		if (!isPlainObject(at) || !Object.hasOwn(at, part)) {
-			return undefined;
-		}
-		at = at[part];
-	}
+  for (const part of parts) {
+    if (!isPlainObject(at) || !Object.hasOwn(at, part)) {
+      return undefined;
+    }
+    at = at[part];
+  }
 
-	return at;
+  return at;
 }
 
 /**
@@ -150,21 +150,21 @@ export function readPath(root: unknown, parts: readonly string[]): unknown {
  * @param value - The value.
  */
 export function writePath(
-	root: Record<string, unknown>,
-	parts: readonly string[],
-	value: unknown
+  root: Record<string, unknown>,
+  parts: readonly string[],
+  value: unknown
 ): void {
-	let at = root;
+  let at = root;
 
-	for (const part of parts.slice(0, -1)) {
-		const next = Object.hasOwn(at, part) ? at[part] : undefined;
-		if (!isPlainObject(next)) {
-			at[part] = {};
-		}
-		at = at[part] as Record<string, unknown>;
-	}
+  for (const part of parts.slice(0, -1)) {
+    const next = Object.hasOwn(at, part) ? at[part] : undefined;
+    if (!isPlainObject(next)) {
+      at[part] = {};
+    }
+    at = at[part] as Record<string, unknown>;
+  }
 
-	at[parts[parts.length - 1] as string] = value;
+  at[parts[parts.length - 1] as string] = value;
 }
 
 /**
@@ -180,33 +180,33 @@ export function writePath(
  * @returns Whether anything was removed.
  */
 export function deletePath(root: Record<string, unknown>, parts: readonly string[]): boolean {
-	// the chain of objects on the way down, so that the walk back up can prune
-	// each one that the delete emptied
-	const chain: Record<string, unknown>[] = [root];
-	let at: Record<string, unknown> = root;
+  // the chain of objects on the way down, so that the walk back up can prune
+  // each one that the delete emptied
+  const chain: Record<string, unknown>[] = [root];
+  let at: Record<string, unknown> = root;
 
-	for (const part of parts.slice(0, -1)) {
-		const next = Object.hasOwn(at, part) ? at[part] : undefined;
-		if (!isPlainObject(next)) {
-			return false;
-		}
-		at = next;
-		chain.push(next);
-	}
+  for (const part of parts.slice(0, -1)) {
+    const next = Object.hasOwn(at, part) ? at[part] : undefined;
+    if (!isPlainObject(next)) {
+      return false;
+    }
+    at = next;
+    chain.push(next);
+  }
 
-	const last = parts[parts.length - 1] as string;
-	if (!Object.hasOwn(at, last)) {
-		return false;
-	}
-	delete at[last];
+  const last = parts[parts.length - 1] as string;
+  if (!Object.hasOwn(at, last)) {
+    return false;
+  }
+  delete at[last];
 
-	for (let i = chain.length - 1; i > 0; i--) {
-		const node = chain[i] as Record<string, unknown>;
-		if (Object.keys(node).length > 0) {
-			break;
-		}
-		delete (chain[i - 1] as Record<string, unknown>)[parts[i - 1] as string];
-	}
+  for (let i = chain.length - 1; i > 0; i--) {
+    const node = chain[i] as Record<string, unknown>;
+    if (Object.keys(node).length > 0) {
+      break;
+    }
+    delete (chain[i - 1] as Record<string, unknown>)[parts[i - 1] as string];
+  }
 
-	return true;
+  return true;
 }

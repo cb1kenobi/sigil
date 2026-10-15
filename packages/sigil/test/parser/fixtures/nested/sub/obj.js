@@ -1,3 +1,3 @@
 export default {
-	desc: 'reached by the object form',
+  desc: 'reached by the object form',
 };

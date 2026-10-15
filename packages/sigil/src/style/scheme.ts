@@ -39,22 +39,22 @@ export type ColorScheme = 'dark' | 'light';
  * `8` light, and it is a grey dark enough to put text on.
  */
 const BACKGROUNDS: readonly ColorScheme[] = [
-	'dark', // 0 black
-	'dark', // 1 red
-	'dark', // 2 green
-	'dark', // 3 yellow
-	'dark', // 4 blue
-	'dark', // 5 magenta
-	'dark', // 6 cyan
-	'light', // 7 white
-	'dark', // 8 bright black, which is a grey
-	'light', // 9 bright red
-	'light', // 10 bright green
-	'light', // 11 bright yellow
-	'light', // 12 bright blue
-	'light', // 13 bright magenta
-	'light', // 14 bright cyan
-	'light', // 15 bright white
+  'dark', // 0 black
+  'dark', // 1 red
+  'dark', // 2 green
+  'dark', // 3 yellow
+  'dark', // 4 blue
+  'dark', // 5 magenta
+  'dark', // 6 cyan
+  'light', // 7 white
+  'dark', // 8 bright black, which is a grey
+  'light', // 9 bright red
+  'light', // 10 bright green
+  'light', // 11 bright yellow
+  'light', // 12 bright blue
+  'light', // 13 bright magenta
+  'light', // 14 bright cyan
+  'light', // 15 bright white
 ];
 
 /**
@@ -85,7 +85,7 @@ export const SCHEME_MIDPOINT: number = 127.5;
  * @returns The brightness, 0-255.
  */
 export function luminance(r: number, g: number, b: number): number {
-	return (r * 299 + g * 587 + b * 114) / 1000;
+  return (r * 299 + g * 587 + b * 114) / 1000;
 }
 
 /**
@@ -97,7 +97,7 @@ export function luminance(r: number, g: number, b: number): number {
  * @returns `'light'` for a background brighter than the midpoint.
  */
 export function schemeForBackground(r: number, g: number, b: number): ColorScheme {
-	return luminance(r, g, b) > SCHEME_MIDPOINT ? 'light' : 'dark';
+  return luminance(r, g, b) > SCHEME_MIDPOINT ? 'light' : 'dark';
 }
 
 /**
@@ -119,10 +119,10 @@ export function schemeForBackground(r: number, g: number, b: number): ColorSchem
  * @returns The forced scheme, or `undefined` when nothing forced one.
  */
 export function forcedScheme(
-	env: Record<string, string | undefined> = process.env
+  env: Record<string, string | undefined> = process.env
 ): ColorScheme | undefined {
-	const forced = env.SIGIL_COLOR_SCHEME?.trim().toLowerCase();
-	return forced === 'light' || forced === 'dark' ? forced : undefined;
+  const forced = env.SIGIL_COLOR_SCHEME?.trim().toLowerCase();
+  return forced === 'light' || forced === 'dark' ? forced : undefined;
 }
 
 /**
@@ -146,20 +146,20 @@ export function forcedScheme(
  * @returns The scheme the background index implies, or `undefined`.
  */
 export function schemeFromTerminalEnv(
-	env: Record<string, string | undefined> = process.env
+  env: Record<string, string | undefined> = process.env
 ): ColorScheme | undefined {
-	const fgbg = env.COLORFGBG;
-	if (fgbg === undefined || fgbg.trim() === '') {
-		return undefined;
-	}
+  const fgbg = env.COLORFGBG;
+  if (fgbg === undefined || fgbg.trim() === '') {
+    return undefined;
+  }
 
-	const fields = fgbg.split(';');
-	const background = fields[fields.length - 1].trim();
-	if (!/^\d+$/.test(background)) {
-		return undefined;
-	}
+  const fields = fgbg.split(';');
+  const background = fields[fields.length - 1].trim();
+  if (!/^\d+$/.test(background)) {
+    return undefined;
+  }
 
-	return BACKGROUNDS[Number.parseInt(background, 10)];
+  return BACKGROUNDS[Number.parseInt(background, 10)];
 }
 
 /**
@@ -174,7 +174,7 @@ export function schemeFromTerminalEnv(
  * @returns The scheme, or `undefined` when nothing said.
  */
 export function schemeFromEnv(
-	env: Record<string, string | undefined> = process.env
+  env: Record<string, string | undefined> = process.env
 ): ColorScheme | undefined {
-	return forcedScheme(env) ?? schemeFromTerminalEnv(env);
+  return forcedScheme(env) ?? schemeFromTerminalEnv(env);
 }

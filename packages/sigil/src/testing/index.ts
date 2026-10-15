@@ -30,19 +30,19 @@
 export { runCommand, type RanCommand } from './command.js';
 export { Screen, screenStream, type ScreenStream } from './screen.js';
 export {
-	runOnTerminal,
-	type FakeableStream,
-	type RanOnTerminal,
-	type TerminalRunOptions,
+  runOnTerminal,
+  type FakeableStream,
+  type RanOnTerminal,
+  type TerminalRunOptions,
 } from './spawn.js';
 export {
-	alt,
-	createTestTerminal,
-	ctrl,
-	KEYS,
-	type TestInput,
-	type TestKeyName,
-	type TestTerminal,
-	type TestTerminalOptions,
-	tick,
+  alt,
+  createTestTerminal,
+  ctrl,
+  KEYS,
+  type TestInput,
+  type TestKeyName,
+  type TestTerminal,
+  type TestTerminalOptions,
+  tick,
 } from './terminal.js';

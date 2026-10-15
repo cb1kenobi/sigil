@@ -1,4 +1,4 @@
 export default {
-	name: 'conditions',
-	desc: 'Conditions command',
+  name: 'conditions',
+  desc: 'Conditions command',
 };

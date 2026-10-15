@@ -54,33 +54,33 @@ const closes: string[] = [];
 let failClose = false;
 
 vi.mock('rolldown', async (importOriginal) => {
-	const real = await importOriginal<typeof import('rolldown')>();
+  const real = await importOriginal<typeof import('rolldown')>();
 
-	return {
-		...real,
-		async rolldown(options: Parameters<typeof real.rolldown>[0]) {
-			const bundle = await real.rolldown(options);
-			const close = bundle.close.bind(bundle);
+  return {
+    ...real,
+    async rolldown(options: Parameters<typeof real.rolldown>[0]) {
+      const bundle = await real.rolldown(options);
+      const close = bundle.close.bind(bundle);
 
-			// defined on the instance rather than handed back behind a `Proxy`:
-			// rolldown's bundle reads private fields off `this`, so a `Proxy`
-			// receiver fails `write()` with `Receiver must be an instance of class`
-			// -- measured, and the reason this is a property assignment
-			Object.defineProperty(bundle, 'close', {
-				configurable: true,
-				value: async () => {
-					await close();
-					if (failClose) {
-						closes.push('close:threw');
-						throw new Error('closeBundle exploded');
-					}
-					closes.push('close');
-				},
-			});
+      // defined on the instance rather than handed back behind a `Proxy`:
+      // rolldown's bundle reads private fields off `this`, so a `Proxy`
+      // receiver fails `write()` with `Receiver must be an instance of class`
+      // -- measured, and the reason this is a property assignment
+      Object.defineProperty(bundle, 'close', {
+        configurable: true,
+        value: async () => {
+          await close();
+          if (failClose) {
+            closes.push('close:threw');
+            throw new Error('closeBundle exploded');
+          }
+          closes.push('close');
+        },
+      });
 
-			return bundle;
-		},
-	};
+      return bundle;
+    },
+  };
 });
 
 const { bundleApp } = await import('../../src/build/bundle.js');
@@ -97,81 +97,81 @@ const fixture = resolve(dirname(fileURLToPath(import.meta.url)), '../fixtures/bu
  * @returns The rejection's message, or `(the build succeeded)`.
  */
 async function build(out: string, closeFails = false): Promise<string> {
-	closes.length = 0;
-	failClose = closeFails;
+  closes.length = 0;
+  failClose = closeFails;
 
-	const app = discoverApp(fixture);
-	const tree = resolveCommandTree(join(fixture, 'src', 'commands'));
+  const app = discoverApp(fixture);
+  const tree = resolveCommandTree(join(fixture, 'src', 'commands'));
 
-	return bundleApp({ app, binName: 'buildable', out, tree }).then(
-		// spelled out rather than `rejects.toThrow`, so a build that *succeeded*
-		// fails with a sentence rather than with chai complaining about
-		// `undefined` -- the same shape the unresolved-import test uses
-		() => '(the build succeeded)',
-		(error: unknown) => (error as Error).message
-	);
+  return bundleApp({ app, binName: 'buildable', out, tree }).then(
+    // spelled out rather than `rejects.toThrow`, so a build that *succeeded*
+    // fails with a sentence rather than with chai complaining about
+    // `undefined` -- the same shape the unresolved-import test uses
+    () => '(the build succeeded)',
+    (error: unknown) => (error as Error).message
+  );
 }
 
 /** An `--out` that is an existing file, which is what makes `write()` reject. */
 function outIsAFile(): string {
-	const file = join(mkdtempSync(join(tmpdir(), 'sigil-close-')), 'afile');
-	writeFileSync(file, 'x');
-	return file;
+  const file = join(mkdtempSync(join(tmpdir(), 'sigil-close-')), 'afile');
+  writeFileSync(file, 'x');
+  return file;
 }
 
 describe('closing the bundle', () => {
-	it('should close the bundle when the write threw', async () => {
-		// the defect: the one path that needs `close()` most -- where rolldown has
-		// a graph built and a native handle open and no output to show for it --
-		// was the path that skipped it, because the call was the statement after
-		// the write
-		const out = outIsAFile();
-		const failure = await build(out);
+  it('should close the bundle when the write threw', async () => {
+    // the defect: the one path that needs `close()` most -- where rolldown has
+    // a graph built and a native handle open and no output to show for it --
+    // was the path that skipped it, because the call was the statement after
+    // the write
+    const out = outIsAFile();
+    const failure = await build(out);
 
-		// named, and naming the directory as well, so the test cannot pass because
-		// something else went wrong on the way to the write -- and so that a
-		// harness faking rolldown's message would have to fake the path too
-		expect(failure).toContain('Could not create directory');
-		expect(failure).toContain(out);
-		expect(closes).toStrictEqual(['close']);
-	}, 60_000);
+    // named, and naming the directory as well, so the test cannot pass because
+    // something else went wrong on the way to the write -- and so that a
+    // harness faking rolldown's message would have to fake the path too
+    expect(failure).toContain('Could not create directory');
+    expect(failure).toContain(out);
+    expect(closes).toStrictEqual(['close']);
+  }, 60_000);
 
-	it('should close the bundle exactly once when the build worked', async () => {
-		// the other half: the `finally` replaced the eager call rather than joining
-		// it, because two closes is two answers even where the second is a no-op
-		const out = mkdtempSync(join(tmpdir(), 'sigil-close-ok-'));
-		const failure = await build(out);
+  it('should close the bundle exactly once when the build worked', async () => {
+    // the other half: the `finally` replaced the eager call rather than joining
+    // it, because two closes is two answers even where the second is a no-op
+    const out = mkdtempSync(join(tmpdir(), 'sigil-close-ok-'));
+    const failure = await build(out);
 
-		expect(failure).toBe('(the build succeeded)');
-		expect(existsSync(join(out, 'buildable.mjs'))).toBe(true);
-		expect(closes).toStrictEqual(['close']);
-	}, 60_000);
+    expect(failure).toBe('(the build succeeded)');
+    expect(existsSync(join(out, 'buildable.mjs'))).toBe(true);
+    expect(closes).toStrictEqual(['close']);
+  }, 60_000);
 
-	it('should not let a close that throws replace the error the build was reporting', async () => {
-		// what `close()` must never do, and the same rule `undo()` follows one
-		// function along: a `finally` that rethrows swaps the real diagnostic for
-		// one about releasing a handle. `closeBundle exploded` is what a plugin
-		// hook that throws produces -- measured against rolldown 1.2.11, that
-		// really does come out of `close()`
-		const failure = await build(outIsAFile(), true);
+  it('should not let a close that throws replace the error the build was reporting', async () => {
+    // what `close()` must never do, and the same rule `undo()` follows one
+    // function along: a `finally` that rethrows swaps the real diagnostic for
+    // one about releasing a handle. `closeBundle exploded` is what a plugin
+    // hook that throws produces -- measured against rolldown 1.2.11, that
+    // really does come out of `close()`
+    const failure = await build(outIsAFile(), true);
 
-		expect(failure).toContain('Could not create directory');
-		expect(failure).not.toContain('closeBundle exploded');
-		// the premise, so that arming the failure is load-bearing rather than
-		// decoration: without this the test passes on a `close()` that never threw
-		expect(closes).toStrictEqual(['close:threw']);
-	}, 60_000);
+    expect(failure).toContain('Could not create directory');
+    expect(failure).not.toContain('closeBundle exploded');
+    // the premise, so that arming the failure is load-bearing rather than
+    // decoration: without this the test passes on a `close()` that never threw
+    expect(closes).toStrictEqual(['close:threw']);
+  }, 60_000);
 
-	it('should not fail a build that worked because the bundle would not close', async () => {
-		// swallowed on the success path too, rather than raised there: the
-		// asymmetry would have to be stated as "releasing the bundle is fatal only
-		// when everything else worked", and what it produces is a refused build
-		// beside a bundle that is complete, escaped and executable
-		const out = mkdtempSync(join(tmpdir(), 'sigil-close-late-'));
-		const failure = await build(out, true);
+  it('should not fail a build that worked because the bundle would not close', async () => {
+    // swallowed on the success path too, rather than raised there: the
+    // asymmetry would have to be stated as "releasing the bundle is fatal only
+    // when everything else worked", and what it produces is a refused build
+    // beside a bundle that is complete, escaped and executable
+    const out = mkdtempSync(join(tmpdir(), 'sigil-close-late-'));
+    const failure = await build(out, true);
 
-		expect(failure).toBe('(the build succeeded)');
-		expect(existsSync(join(out, 'buildable.mjs'))).toBe(true);
-		expect(closes).toStrictEqual(['close:threw']);
-	}, 60_000);
+    expect(failure).toBe('(the build succeeded)');
+    expect(existsSync(join(out, 'buildable.mjs'))).toBe(true);
+    expect(closes).toStrictEqual(['close:threw']);
+  }, 60_000);
 });

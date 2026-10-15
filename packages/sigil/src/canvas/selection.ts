@@ -27,8 +27,8 @@ import { ATTR, type Style } from './style.js';
 
 /** A cell, in the canvas's own zero-based coordinates. */
 export interface Cell {
-	readonly x: number;
-	readonly y: number;
+  readonly x: number;
+  readonly y: number;
 }
 
 /**
@@ -42,16 +42,16 @@ export interface Cell {
 export type SelectionMode = 'block' | 'linear';
 
 export interface Selection {
-	readonly anchor: Cell;
-	readonly focus: Cell;
-	readonly mode: SelectionMode;
+  readonly anchor: Cell;
+  readonly focus: Cell;
+  readonly mode: SelectionMode;
 }
 
 /** One row's worth of a selection: where it starts and how many columns. */
 export interface SelectionRun {
-	readonly length: number;
-	readonly x: number;
-	readonly y: number;
+  readonly length: number;
+  readonly x: number;
+  readonly y: number;
 }
 
 /**
@@ -77,27 +77,27 @@ export type Selectable = (x: number, y: number) => boolean;
  * @returns The selection.
  */
 export function createSelection(
-	anchor: Cell,
-	focus: Cell = anchor,
-	mode: SelectionMode = 'linear'
+  anchor: Cell,
+  focus: Cell = anchor,
+  mode: SelectionMode = 'linear'
 ): Selection {
-	return Object.freeze({
-		anchor: Object.freeze({ x: Math.trunc(anchor.x), y: Math.trunc(anchor.y) }),
-		focus: Object.freeze({ x: Math.trunc(focus.x), y: Math.trunc(focus.y) }),
-		mode,
-	});
+  return Object.freeze({
+    anchor: Object.freeze({ x: Math.trunc(anchor.x), y: Math.trunc(anchor.y) }),
+    focus: Object.freeze({ x: Math.trunc(focus.x), y: Math.trunc(focus.y) }),
+    mode,
+  });
 }
 
 /** The two cells in reading order, whichever way round they were made. */
 function ordered(sel: Selection): [Cell, Cell] {
-	const { anchor, focus } = sel;
-	const after = focus.y > anchor.y || (focus.y === anchor.y && focus.x >= anchor.x);
-	return after ? [anchor, focus] : [focus, anchor];
+  const { anchor, focus } = sel;
+  const after = focus.y > anchor.y || (focus.y === anchor.y && focus.x >= anchor.x);
+  return after ? [anchor, focus] : [focus, anchor];
 }
 
 /** A number clamped into a half-open range. */
 function clamp(value: number, limit: number): number {
-	return Math.max(0, Math.min(limit - 1, value));
+  return Math.max(0, Math.min(limit - 1, value));
 }
 
 /**
@@ -113,44 +113,44 @@ function clamp(value: number, limit: number): number {
  * @returns One run per row, top to bottom. Empty for a grid with no cells.
  */
 export function selectionRuns(
-	sel: Selection,
-	width: number,
-	height: number
+  sel: Selection,
+  width: number,
+  height: number
 ): readonly SelectionRun[] {
-	if (width <= 0 || height <= 0) {
-		return [];
-	}
+  if (width <= 0 || height <= 0) {
+    return [];
+  }
 
-	const [start, end] = ordered(sel);
-	const top = clamp(start.y, height);
-	const bottom = clamp(end.y, height);
-	const runs: SelectionRun[] = [];
+  const [start, end] = ordered(sel);
+  const top = clamp(start.y, height);
+  const bottom = clamp(end.y, height);
+  const runs: SelectionRun[] = [];
 
-	if (sel.mode === 'block') {
-		// the rectangle the two cells span, which reads the columns independently of
-		// the rows -- so the anchor being the *lower* of the two says nothing about
-		// which column it is
-		const left = Math.min(clamp(sel.anchor.x, width), clamp(sel.focus.x, width));
-		const right = Math.max(clamp(sel.anchor.x, width), clamp(sel.focus.x, width));
-		for (let y = top; y <= bottom; y++) {
-			runs.push({ length: right - left + 1, x: left, y });
-		}
-		return runs;
-	}
+  if (sel.mode === 'block') {
+    // the rectangle the two cells span, which reads the columns independently of
+    // the rows -- so the anchor being the *lower* of the two says nothing about
+    // which column it is
+    const left = Math.min(clamp(sel.anchor.x, width), clamp(sel.focus.x, width));
+    const right = Math.max(clamp(sel.anchor.x, width), clamp(sel.focus.x, width));
+    for (let y = top; y <= bottom; y++) {
+      runs.push({ length: right - left + 1, x: left, y });
+    }
+    return runs;
+  }
 
-	const from = clamp(start.x, width);
-	const to = clamp(end.x, width);
+  const from = clamp(start.x, width);
+  const to = clamp(end.x, width);
 
-	if (top === bottom) {
-		return [{ length: to - from + 1, x: from, y: top }];
-	}
+  if (top === bottom) {
+    return [{ length: to - from + 1, x: from, y: top }];
+  }
 
-	runs.push({ length: width - from, x: from, y: top });
-	for (let y = top + 1; y < bottom; y++) {
-		runs.push({ length: width, x: 0, y });
-	}
-	runs.push({ length: to + 1, x: 0, y: bottom });
-	return runs;
+  runs.push({ length: width - from, x: from, y: top });
+  for (let y = top + 1; y < bottom; y++) {
+    runs.push({ length: width, x: 0, y });
+  }
+  runs.push({ length: to + 1, x: 0, y: bottom });
+  return runs;
 }
 
 /**
@@ -175,20 +175,20 @@ export function selectionRuns(
  * @returns Whether it is in.
  */
 export function inSelection(
-	sel: Selection,
-	cell: Cell,
-	grid: { height: number; width: number }
+  sel: Selection,
+  cell: Cell,
+  grid: { height: number; width: number }
 ): boolean {
-	const x = Math.trunc(cell.x);
-	const y = Math.trunc(cell.y);
+  const x = Math.trunc(cell.x);
+  const y = Math.trunc(cell.y);
 
-	// one run per row, so the row that matches is the whole answer
-	for (const run of selectionRuns(sel, grid.width, grid.height)) {
-		if (run.y === y) {
-			return x >= run.x && x < run.x + run.length;
-		}
-	}
-	return false;
+  // one run per row, so the row that matches is the whole answer
+  for (const run of selectionRuns(sel, grid.width, grid.height)) {
+    if (run.y === y) {
+      return x >= run.x && x < run.x + run.length;
+    }
+  }
+  return false;
 }
 
 /**
@@ -216,33 +216,33 @@ export function inSelection(
  * @returns The text, rows joined by newlines.
  */
 export function selectionText(
-	buffer: CellBuffer,
-	sel: Selection,
-	opts: { selectable?: Selectable } = {}
+  buffer: CellBuffer,
+  sel: Selection,
+  opts: { selectable?: Selectable } = {}
 ): string {
-	const { selectable } = opts;
-	const lines: string[] = [];
+  const { selectable } = opts;
+  const lines: string[] = [];
 
-	for (const run of selectionRuns(sel, buffer.width, buffer.height)) {
-		let line = '';
-		let from = run.x;
-		if (from > 0 && buffer.charAt(from, run.y) === CONTINUATION) {
-			from--;
-		}
+  for (const run of selectionRuns(sel, buffer.width, buffer.height)) {
+    let line = '';
+    let from = run.x;
+    if (from > 0 && buffer.charAt(from, run.y) === CONTINUATION) {
+      from--;
+    }
 
-		for (let x = from; x < run.x + run.length; x++) {
-			const cell = buffer.charAt(x, run.y);
-			if (cell === CONTINUATION) {
-				continue;
-			}
-			line +=
-				selectable && !selectable(x, run.y) ? BLANK.repeat(Math.max(1, cellWidth(cell))) : cell;
-		}
+    for (let x = from; x < run.x + run.length; x++) {
+      const cell = buffer.charAt(x, run.y);
+      if (cell === CONTINUATION) {
+        continue;
+      }
+      line +=
+        selectable && !selectable(x, run.y) ? BLANK.repeat(Math.max(1, cellWidth(cell))) : cell;
+    }
 
-		lines.push(line.replace(/ +$/, ''));
-	}
+    lines.push(line.replace(/ +$/, ''));
+  }
 
-	return lines.join('\n');
+  return lines.join('\n');
 }
 
 /**
@@ -258,7 +258,7 @@ export function selectionText(
  * @returns What it should look like while selected.
  */
 export function selectedStyle(style: Style): Partial<Style> {
-	return { ...style, attrs: style.attrs ^ ATTR.inverse };
+  return { ...style, attrs: style.attrs ^ ATTR.inverse };
 }
 
 /**
@@ -277,14 +277,14 @@ export function selectedStyle(style: Style): Partial<Style> {
  * @param opts - The grid's size, and what may be copied.
  */
 export function paintSelection(
-	painter: Painter,
-	sel: Selection,
-	opts: { height: number; selectable?: Selectable; width: number }
+  painter: Painter,
+  sel: Selection,
+  opts: { height: number; selectable?: Selectable; width: number }
 ): void {
-	const { selectable } = opts;
-	for (const run of selectionRuns(sel, opts.width, opts.height)) {
-		painter.overlay(run.x, run.y, run.length, (style, x, y) =>
-			selectable && !selectable(x, y) ? undefined : selectedStyle(style)
-		);
-	}
+  const { selectable } = opts;
+  for (const run of selectionRuns(sel, opts.width, opts.height)) {
+    painter.overlay(run.x, run.y, run.length, (style, x, y) =>
+      selectable && !selectable(x, y) ? undefined : selectedStyle(style)
+    );
+  }
 }

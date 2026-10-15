@@ -37,20 +37,20 @@ import { dirname, join, resolve } from 'node:path';
 
 /** Whether a path is a file, answering `false` for anything unreadable. */
 function isFile(path: string): boolean {
-	try {
-		return statSync(path).isFile();
-	} catch {
-		return false;
-	}
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
 }
 
 /** Whether a path is a directory, answering `false` for anything unreadable. */
 function isDirectory(path: string): boolean {
-	try {
-		return statSync(path).isDirectory();
-	} catch {
-		return false;
-	}
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 /** The package a registry lives in when a spec does not name one. */
@@ -58,48 +58,48 @@ export const DEFAULT_REGISTRY = '@ttylabs/sigil';
 
 /** One file an entry brings, and where it lands relative to the target directory. */
 export interface EntryFile {
-	/** The file's name inside the registry directory. */
-	readonly from: string;
-	/** Where it lands, relative to the configured component directory. */
-	readonly to: string;
+  /** The file's name inside the registry directory. */
+  readonly from: string;
+  /** Where it lands, relative to the configured component directory. */
+  readonly to: string;
 }
 
 /** One thing that can be ejected. */
 export interface RegistryEntry {
-	/** The classes it draws with, which is what a theme may restyle. */
-	readonly classes: readonly string[];
-	/** What it is, for the listing and the plan. */
-	readonly desc: string;
-	/** Its files. */
-	readonly files: readonly EntryFile[];
-	/** The package subpaths it imports, all of which must resolve in the app. */
-	readonly imports: readonly string[];
-	/** Other entries in the same registry it needs, resolved transitively. */
-	readonly registryDeps: readonly string[];
+  /** The classes it draws with, which is what a theme may restyle. */
+  readonly classes: readonly string[];
+  /** What it is, for the listing and the plan. */
+  readonly desc: string;
+  /** Its files. */
+  readonly files: readonly EntryFile[];
+  /** The package subpaths it imports, all of which must resolve in the app. */
+  readonly imports: readonly string[];
+  /** Other entries in the same registry it needs, resolved transitively. */
+  readonly registryDeps: readonly string[];
 }
 
 /** A registry, as its package ships it. */
 export interface RegistryManifest {
-	readonly entries: Record<string, RegistryEntry>;
-	readonly name: string;
-	readonly version: string;
+  readonly entries: Record<string, RegistryEntry>;
+  readonly name: string;
+  readonly version: string;
 }
 
 /** A registry that has been found on disk. */
 export interface Registry {
-	/** The directory its files are read from. */
-	readonly dir: string;
-	readonly manifest: RegistryManifest;
-	/** The package it came from. */
-	readonly pkg: string;
+  /** The directory its files are read from. */
+  readonly dir: string;
+  readonly manifest: RegistryManifest;
+  /** The package it came from. */
+  readonly pkg: string;
 }
 
 /** Where an app keeps what it has ejected, and what it was told rather than guessed. */
 export interface AddConfig {
-	/** Where components land, relative to the app root. */
-	readonly components: string;
-	/** Whether the app has a `sigil.json` saying so, or this was worked out. */
-	readonly declared: boolean;
+  /** Where components land, relative to the app root. */
+  readonly components: string;
+  /** Whether the app has a `sigil.json` saying so, or this was worked out. */
+  readonly declared: boolean;
 }
 
 export { CONFIG_FILE } from '../config.ts';
@@ -120,21 +120,21 @@ export { CONFIG_FILE } from '../config.ts';
  * @throws If there is no manifest at or above it.
  */
 export function findAppRoot(cwd: string): string {
-	let dir = resolve(cwd);
+  let dir = resolve(cwd);
 
-	for (;;) {
-		if (isFile(join(dir, 'package.json'))) {
-			return dir;
-		}
+  for (;;) {
+    if (isFile(join(dir, 'package.json'))) {
+      return dir;
+    }
 
-		const up = dirname(dir);
-		// `dirname('/')` is `'/'`, so a loop that relies on finding something is
-		// one that can run off the top of the filesystem
-		if (up === dir) {
-			throw new Error(`No package.json at or above ${displayPath(cwd)}`);
-		}
-		dir = up;
-	}
+    const up = dirname(dir);
+    // `dirname('/')` is `'/'`, so a loop that relies on finding something is
+    // one that can run off the top of the filesystem
+    if (up === dir) {
+      throw new Error(`No package.json at or above ${displayPath(cwd)}`);
+    }
+    dir = up;
+  }
 }
 
 /**
@@ -152,19 +152,19 @@ export function findAppRoot(cwd: string): string {
  * @returns The configured or conventional directory, and which it was.
  */
 export function readConfig(root: string): AddConfig {
-	// through `readSigilConfig()` rather than reading the file again: one file
-	// with two readers is two ideas of what it may contain, and the second one
-	// to grow a field is the one that silently ignores the other's
-	const { components } = readSigilConfig(root);
+  // through `readSigilConfig()` rather than reading the file again: one file
+  // with two readers is two ideas of what it may contain, and the second one
+  // to grow a field is the one that silently ignores the other's
+  const { components } = readSigilConfig(root);
 
-	if (components !== undefined) {
-		return { components, declared: true };
-	}
+  if (components !== undefined) {
+    return { components, declared: true };
+  }
 
-	return {
-		components: isDirectory(join(root, 'src')) ? join('src', 'components') : 'components',
-		declared: false,
-	};
+  return {
+    components: isDirectory(join(root, 'src')) ? join('src', 'components') : 'components',
+    declared: false,
+  };
 }
 
 /**
@@ -179,19 +179,19 @@ export function readConfig(root: string): AddConfig {
  * @returns The package to resolve, and the entry inside it.
  */
 export function parseSpec(spec: string): { entry: string; pkg: string } {
-	const parts = spec.split('/');
+  const parts = spec.split('/');
 
-	if (parts.length === 1) {
-		return { entry: spec, pkg: DEFAULT_REGISTRY };
-	}
+  if (parts.length === 1) {
+    return { entry: spec, pkg: DEFAULT_REGISTRY };
+  }
 
-	const take = spec.startsWith('@') ? 2 : 1;
+  const take = spec.startsWith('@') ? 2 : 1;
 
-	if (parts.length <= take) {
-		throw new Error(`"${spec}" names a package but no entry inside it`);
-	}
+  if (parts.length <= take) {
+    throw new Error(`"${spec}" names a package but no entry inside it`);
+  }
 
-	return { entry: parts.slice(take).join('/'), pkg: parts.slice(0, take).join('/') };
+  return { entry: parts.slice(take).join('/'), pkg: parts.slice(0, take).join('/') };
 }
 
 /**
@@ -208,58 +208,58 @@ export function parseSpec(spec: string): { entry: string; pkg: string } {
  * @throws If the package is not installed, or carries no registry.
  */
 export function loadRegistry(root: string, pkg: string): Registry {
-	const require = createRequire(join(root, 'package.json'));
-	let manifestPath: string;
+  const require = createRequire(join(root, 'package.json'));
+  let manifestPath: string;
 
-	try {
-		manifestPath = require.resolve(`${pkg}/package.json`);
-	} catch {
-		throw new Error(
-			`${pkg} is not installed in ${displayPath(root)}. ` +
-				`A registry is an ordinary dependency, so install it first.`
-		);
-	}
+  try {
+    manifestPath = require.resolve(`${pkg}/package.json`);
+  } catch {
+    throw new Error(
+      `${pkg} is not installed in ${displayPath(root)}. ` +
+        `A registry is an ordinary dependency, so install it first.`
+    );
+  }
 
-	const dir = join(dirname(manifestPath), 'registry');
-	const path = join(dir, 'registry.json');
+  const dir = join(dirname(manifestPath), 'registry');
+  const path = join(dir, 'registry.json');
 
-	if (!isFile(path)) {
-		throw new Error(`${pkg} is installed but ships no registry, so it has nothing to add`);
-	}
+  if (!isFile(path)) {
+    throw new Error(`${pkg} is installed but ships no registry, so it has nothing to add`);
+  }
 
-	const manifest = JSON.parse(readFileSync(path, 'utf-8')) as RegistryManifest;
+  const manifest = JSON.parse(readFileSync(path, 'utf-8')) as RegistryManifest;
 
-	if (!manifest.entries || typeof manifest.entries !== 'object') {
-		throw new Error(`${pkg} ships a registry with no entries in it`);
-	}
+  if (!manifest.entries || typeof manifest.entries !== 'object') {
+    throw new Error(`${pkg} ships a registry with no entries in it`);
+  }
 
-	return { dir, manifest, pkg };
+  return { dir, manifest, pkg };
 }
 
 /** One file the plan will write. */
 export interface PlannedFile {
-	/** The entry that brought it, which may not be one that was asked for. */
-	readonly entry: string;
-	/** Whether something is already there. */
-	readonly exists: boolean;
-	/** Where it is read from. */
-	readonly from: string;
-	/** Where it lands, absolute. */
-	readonly to: string;
-	/** Where it lands, relative to the app, for printing. */
-	readonly shown: string;
+  /** The entry that brought it, which may not be one that was asked for. */
+  readonly entry: string;
+  /** Whether something is already there. */
+  readonly exists: boolean;
+  /** Where it is read from. */
+  readonly from: string;
+  /** Where it lands, absolute. */
+  readonly to: string;
+  /** Where it lands, relative to the app, for printing. */
+  readonly shown: string;
 }
 
 /** What `add` would do, worked out before anything is written. */
 export interface Plan {
-	/** Every entry being ejected, including ones pulled in as dependencies. */
-	readonly entries: readonly string[];
-	/** The files, in the order they would be written. */
-	readonly files: readonly PlannedFile[];
-	/** Entries asked for that the registry does not have. */
-	readonly missing: readonly string[];
-	/** Entries pulled in because something else needed them. */
-	readonly pulled: readonly string[];
+  /** Every entry being ejected, including ones pulled in as dependencies. */
+  readonly entries: readonly string[];
+  /** The files, in the order they would be written. */
+  readonly files: readonly PlannedFile[];
+  /** Entries asked for that the registry does not have. */
+  readonly missing: readonly string[];
+  /** Entries pulled in because something else needed them. */
+  readonly pulled: readonly string[];
 }
 
 /**
@@ -277,73 +277,73 @@ export interface Plan {
  * @returns The plan.
  */
 export function planAdd(
-	registry: Registry,
-	wanted: readonly string[],
-	target: string,
-	root: string
+  registry: Registry,
+  wanted: readonly string[],
+  target: string,
+  root: string
 ): Plan {
-	const entries: string[] = [];
-	const missing: string[] = [];
-	const pulled: string[] = [];
-	const files: PlannedFile[] = [];
-	const seen = new Set<string>();
+  const entries: string[] = [];
+  const missing: string[] = [];
+  const pulled: string[] = [];
+  const files: PlannedFile[] = [];
+  const seen = new Set<string>();
 
-	/** Depth-first so that a dependency is written before what needed it. */
-	const visit = (name: string, asked: boolean): void => {
-		if (seen.has(name)) {
-			return;
-		}
+  /** Depth-first so that a dependency is written before what needed it. */
+  const visit = (name: string, asked: boolean): void => {
+    if (seen.has(name)) {
+      return;
+    }
 
-		const entry = registry.manifest.entries[name];
-		if (!entry) {
-			// only what the user actually typed is reported as missing; a broken
-			// `registryDeps` is the registry's bug and says so separately
-			if (asked) {
-				missing.push(name);
-			} else {
-				throw new Error(
-					`${registry.pkg} says "${name}" is needed but does not have it, which is a bug in the registry`
-				);
-			}
-			return;
-		}
+    const entry = registry.manifest.entries[name];
+    if (!entry) {
+      // only what the user actually typed is reported as missing; a broken
+      // `registryDeps` is the registry's bug and says so separately
+      if (asked) {
+        missing.push(name);
+      } else {
+        throw new Error(
+          `${registry.pkg} says "${name}" is needed but does not have it, which is a bug in the registry`
+        );
+      }
+      return;
+    }
 
-		seen.add(name);
+    seen.add(name);
 
-		// dependencies first, so a file is never written before the thing it
-		// imports and a half-applied plan is still in a sensible order
-		for (const dep of entry.registryDeps) {
-			visit(dep, false);
-		}
+    // dependencies first, so a file is never written before the thing it
+    // imports and a half-applied plan is still in a sensible order
+    for (const dep of entry.registryDeps) {
+      visit(dep, false);
+    }
 
-		entries.push(name);
-		if (!asked) {
-			pulled.push(name);
-		}
+    entries.push(name);
+    if (!asked) {
+      pulled.push(name);
+    }
 
-		for (const file of entry.files) {
-			const to = join(target, file.to);
-			files.push({
-				entry: name,
-				exists: existsSync(to),
-				from: join(registry.dir, file.from),
-				shown: displayPath(join(relativeTo(root, to))),
-				to,
-			});
-		}
-	};
+    for (const file of entry.files) {
+      const to = join(target, file.to);
+      files.push({
+        entry: name,
+        exists: existsSync(to),
+        from: join(registry.dir, file.from),
+        shown: displayPath(join(relativeTo(root, to))),
+        to,
+      });
+    }
+  };
 
-	for (const name of wanted) {
-		visit(name, true);
-	}
+  for (const name of wanted) {
+    visit(name, true);
+  }
 
-	return { entries, files, missing, pulled };
+  return { entries, files, missing, pulled };
 }
 
 /** A path relative to the app, kept readable when it escapes the root. */
 function relativeTo(root: string, path: string): string {
-	const rel = resolve(path).startsWith(resolve(root))
-		? resolve(path).slice(resolve(root).length + 1)
-		: path;
-	return rel || path;
+  const rel = resolve(path).startsWith(resolve(root))
+    ? resolve(path).slice(resolve(root).length + 1)
+    : path;
+  return rel || path;
 }

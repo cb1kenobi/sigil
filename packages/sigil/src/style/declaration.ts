@@ -8,12 +8,12 @@
  */
 
 import {
-	INHERITED,
-	parseDeclaration,
-	propertyLonghands,
-	PROPERTIES,
-	type PropertyName,
-	type Style,
+  INHERITED,
+  parseDeclaration,
+  propertyLonghands,
+  PROPERTIES,
+  type PropertyName,
+  type Style,
 } from './properties.js';
 import { expandShorthand, isShorthand, shorthandLonghands } from './shorthand.js';
 import { StyleError } from './value.js';
@@ -37,9 +37,9 @@ const KEYWORDS: readonly string[] = ['inherit', 'initial', 'unset'];
  * resolves later.
  */
 export interface Setting {
-	readonly keyword?: WideKeyword;
-	readonly property: PropertyName;
-	readonly value?: unknown;
+  readonly keyword?: WideKeyword;
+  readonly property: PropertyName;
+  readonly value?: unknown;
 }
 
 /**
@@ -49,8 +49,8 @@ export interface Setting {
  * @returns The keyword, or `undefined` for an ordinary value.
  */
 export function wideKeyword(value: string): WideKeyword | undefined {
-	const text = value.trim().toLowerCase();
-	return KEYWORDS.includes(text) ? (text as WideKeyword) : undefined;
+  const text = value.trim().toLowerCase();
+  return KEYWORDS.includes(text) ? (text as WideKeyword) : undefined;
 }
 
 /**
@@ -64,11 +64,11 @@ export function wideKeyword(value: string): WideKeyword | undefined {
  * @returns The longhands it covers.
  */
 export function longhandsFor(name: string): readonly PropertyName[] {
-	const longhands = shorthandLonghands(name) ?? propertyLonghands(name);
-	if (!longhands) {
-		throw new StyleError(`Unknown property "${name}"`);
-	}
-	return longhands;
+  const longhands = shorthandLonghands(name) ?? propertyLonghands(name);
+  if (!longhands) {
+    throw new StyleError(`Unknown property "${name}"`);
+  }
+  return longhands;
 }
 
 /**
@@ -79,25 +79,25 @@ export function longhandsFor(name: string): readonly PropertyName[] {
  * @returns One setting per longhand, in the order the expansion produced them.
  */
 export function readSettings(name: string, value: string): Setting[] {
-	const keyword = wideKeyword(value);
-	if (keyword) {
-		// a wide keyword covers every longhand the name covers, including the ones
-		// an ordinary use of the shorthand would have left to a default -- it is
-		// the shorthand's own rule, asked before there is a value to expand
-		return longhandsFor(name).map((property) => ({ keyword, property }));
-	}
+  const keyword = wideKeyword(value);
+  if (keyword) {
+    // a wide keyword covers every longhand the name covers, including the ones
+    // an ordinary use of the shorthand would have left to a default -- it is
+    // the shorthand's own rule, asked before there is a value to expand
+    return longhandsFor(name).map((property) => ({ keyword, property }));
+  }
 
-	if (isShorthand(name)) {
-		return expandShorthand(name, value).map(([property, raw]) => ({
-			property,
-			value: PROPERTIES[property].parse(raw),
-		}));
-	}
+  if (isShorthand(name)) {
+    return expandShorthand(name, value).map(([property, raw]) => ({
+      property,
+      value: PROPERTIES[property].parse(raw),
+    }));
+  }
 
-	return parseDeclaration(name, value).map(([property, parsed]) => ({
-		property,
-		value: parsed,
-	}));
+  return parseDeclaration(name, value).map(([property, parsed]) => ({
+    property,
+    value: parsed,
+  }));
 }
 
 /**
@@ -114,13 +114,13 @@ export function readSettings(name: string, value: string): Setting[] {
  * @returns The value.
  */
 export function resolveKeyword(
-	keyword: WideKeyword,
-	property: PropertyName,
-	parent: Style | undefined
+  keyword: WideKeyword,
+  property: PropertyName,
+  parent: Style | undefined
 ): unknown {
-	const inherits = keyword === 'inherit' || (keyword === 'unset' && INHERITED.includes(property));
-	if (!inherits) {
-		return PROPERTIES[property].initial;
-	}
-	return parent ? parent[property] : PROPERTIES[property].initial;
+  const inherits = keyword === 'inherit' || (keyword === 'unset' && INHERITED.includes(property));
+  if (!inherits) {
+    return PROPERTIES[property].initial;
+  }
+  return parent ? parent[property] : PROPERTIES[property].initial;
 }

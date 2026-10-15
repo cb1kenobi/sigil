@@ -54,37 +54,37 @@ import { Cascade, parseStylesheet } from '@ttylabs/sigil/style';
 // stdin is a TTY and stdout is a pipe, and what reached the screen was half a
 // frame and then an `InputError` stack over a minified module
 if (!process.stdin.isTTY || !process.stdout.isTTY) {
-	console.log('This demo reads keys and draws frames, so it needs a terminal on both sides.');
-	process.exit(0);
+  console.log('This demo reads keys and draws frames, so it needs a terminal on both sides.');
+  process.exit(0);
 }
 
 const sheet = parseStylesheet(`
-	.app { flex-direction: column; width: 56; border: round; border-color: gray; padding: 1 }
-	.head { font-weight: bold }
-	.tally { color: gray }
-	.hint { color: gray }
-	.rows { flex-direction: column }
-	.task { flex-direction: column; padding-left: 1 }
-	.line { }
-	.task:focus .title { color: cyan; font-weight: bold }
-	.task:focus .mark { color: cyan }
-	.mark { padding-right: 1 }
-	.done .title { color: gray; text-decoration: strikethrough }
-	.notes { flex-direction: column; padding-left: 4 }
-	.note { color: gray; font-style: italic }
-	.moves { color: magenta; padding-left: 1 }
-	.empty { color: gray; font-style: italic; padding-left: 1 }
-	.panel { flex-direction: column; border: single; border-color: yellow; padding-left: 1 }
-	.panel-title { color: yellow; font-weight: bold }
-	.panel-note { color: gray }
+  .app { flex-direction: column; width: 56; border: round; border-color: gray; padding: 1 }
+  .head { font-weight: bold }
+  .tally { color: gray }
+  .hint { color: gray }
+  .rows { flex-direction: column }
+  .task { flex-direction: column; padding-left: 1 }
+  .line { }
+  .task:focus .title { color: cyan; font-weight: bold }
+  .task:focus .mark { color: cyan }
+  .mark { padding-right: 1 }
+  .done .title { color: gray; text-decoration: strikethrough }
+  .notes { flex-direction: column; padding-left: 4 }
+  .note { color: gray; font-style: italic }
+  .moves { color: magenta; padding-left: 1 }
+  .empty { color: gray; font-style: italic; padding-left: 1 }
+  .panel { flex-direction: column; border: single; border-color: yellow; padding-left: 1 }
+  .panel-title { color: yellow; font-weight: bold }
+  .panel-note { color: gray }
 `);
 
 /** The data. Rows are keyed on these objects, so they are never replaced. */
 const tasks = new State([
-	{ done: true, notes: ['the multi-pass walk', 'and the registries'], title: 'write the parser' },
-	{ done: false, notes: ['80 columns', 'then a theme'], title: 'draw the help screen' },
-	{ done: false, notes: ['keyed, so a move keeps the row'], title: 'port the component set' },
-	{ done: false, notes: [], title: 'ship 1.0' },
+  { done: true, notes: ['the multi-pass walk', 'and the registries'], title: 'write the parser' },
+  { done: false, notes: ['80 columns', 'then a theme'], title: 'draw the help screen' },
+  { done: false, notes: ['keyed, so a move keeps the row'], title: 'port the component set' },
+  { done: false, notes: [], title: 'ship 1.0' },
 ]);
 
 const FILTERS = ['all', 'open', 'done'];
@@ -102,8 +102,8 @@ const inspecting = new State(undefined);
 
 /** Read by `For`, so a filter change is a reconcile rather than a rebuild. */
 function visible() {
-	const mode = filter.get();
-	return tasks.get().filter((task) => mode === 'all' || (mode === 'done') === task.done);
+  const mode = filter.get();
+  return tasks.get().filter((task) => mode === 'all' || (mode === 'done') === task.done);
 }
 
 /**
@@ -114,15 +114,15 @@ function visible() {
  * @returns Whether the list changed.
  */
 function move(task, by) {
-	const list = [...tasks.get()];
-	const at = list.indexOf(task);
-	const to = at + by;
-	if (at === -1 || to < 0 || to >= list.length) {
-		return false;
-	}
-	list.splice(to, 0, ...list.splice(at, 1));
-	tasks.set(list);
-	return true;
+  const list = [...tasks.get()];
+  const at = list.indexOf(task);
+  const to = at + by;
+  if (at === -1 || to < 0 || to >= list.length) {
+    return false;
+  }
+  list.splice(to, 0, ...list.splice(at, 1));
+  tasks.set(list);
+  return true;
 }
 
 /**
@@ -135,185 +135,185 @@ function move(task, by) {
  * @returns The row.
  */
 function Task(item, index) {
-	/** Row-local, and the point of the demo: nothing above can see either. */
-	const expanded = new State(false);
-	const moves = new State(0);
+  /** Row-local, and the point of the demo: nothing above can see either. */
+  const expanded = new State(false);
+  const moves = new State(0);
 
-	const title = text('', { class: 'title' });
-	const mark = text('', { class: 'mark' });
-	const moved = text('', { class: 'moves' });
+  const title = text('', { class: 'title' });
+  const mark = text('', { class: 'mark' });
+  const moved = text('', { class: 'moves' });
 
-	createEffect(() => {
-		title.setText(`${index() + 1}. ${item.title}`);
-	});
-	// two effects over one row rather than one over both, because they read
-	// different things: the title follows the position, the mark follows `done`.
-	// A signal change runs the one effect that read it
-	createEffect(() => {
-		mark.setText(tasks.get().includes(item) && item.done ? '[x]' : '[ ]');
-	});
-	createEffect(() => {
-		const count = moves.get();
-		moved.setText(count === 0 ? '' : `moved ${count}x`);
-	});
+  createEffect(() => {
+    title.setText(`${index() + 1}. ${item.title}`);
+  });
+  // two effects over one row rather than one over both, because they read
+  // different things: the title follows the position, the mark follows `done`.
+  // A signal change runs the one effect that read it
+  createEffect(() => {
+    mark.setText(tasks.get().includes(item) && item.done ? '[x]' : '[ ]');
+  });
+  createEffect(() => {
+    const count = moves.get();
+    moved.setText(count === 0 ? '' : `moved ${count}x`);
+  });
 
-	// a row that goes away says so, which is the branch being disposed -- and is
-	// how an app cancels whatever the row had in flight
-	onCleanup(() => {
-		if (process.env.SIGIL_DEMO_TRACE) {
-			console.error(`disposed: ${item.title}`);
-		}
-	});
+  // a row that goes away says so, which is the branch being disposed -- and is
+  // how an app cancels whatever the row had in flight
+  onCleanup(() => {
+    if (process.env.SIGIL_DEMO_TRACE) {
+      console.error(`disposed: ${item.title}`);
+    }
+  });
 
-	const row = box({ class: 'task', focusable: true });
-	row.append(
-		box({ class: 'line' }, mark, title, moved),
-		// the notes hang off the row's *own* state, so expanding one row says
-		// nothing about any other. Each wrapper is told the layout the branch would
-		// have had and *only* that, which is the tax every `Show` and `For` charges
-		// here: `.notes` carries the indent, so it goes on exactly one of the two.
-		// It was on both for a review round, and the notes were indented twice
-		Show({
-			children: () =>
-				For({
-					children: (note) => text(`- ${note}`, { class: 'note' }),
-					each: () => item.notes,
-					// a task with no notes still has something to say, so that `space`
-					// is never a key that does nothing
-					fallback: () => text('(no notes)', { class: 'note' }),
-					props: { class: 'notes' },
-				}),
-			props: { 'flex-direction': 'column' },
-			when: () => expanded.get(),
-		})
-	);
+  const row = box({ class: 'task', focusable: true });
+  row.append(
+    box({ class: 'line' }, mark, title, moved),
+    // the notes hang off the row's *own* state, so expanding one row says
+    // nothing about any other. Each wrapper is told the layout the branch would
+    // have had and *only* that, which is the tax every `Show` and `For` charges
+    // here: `.notes` carries the indent, so it goes on exactly one of the two.
+    // It was on both for a review round, and the notes were indented twice
+    Show({
+      children: () =>
+        For({
+          children: (note) => text(`- ${note}`, { class: 'note' }),
+          each: () => item.notes,
+          // a task with no notes still has something to say, so that `space`
+          // is never a key that does nothing
+          fallback: () => text('(no notes)', { class: 'note' }),
+          props: { class: 'notes' },
+        }),
+      props: { 'flex-direction': 'column' },
+      when: () => expanded.get(),
+    })
+  );
 
-	createEffect(() => {
-		row.toggleClass('done', tasks.get().includes(item) && item.done);
-	});
+  createEffect(() => {
+    row.toggleClass('done', tasks.get().includes(item) && item.done);
+  });
 
-	row.onKey = (event) => {
-		const { key } = event;
-		if (key.name === 'space') {
-			event.stop();
-			expanded.set(!expanded.get());
-		} else if (key.name === 'e') {
-			event.stop();
-			// one truthy value replacing another, which is the case the panel's
-			// `Show` is here to keep honest
-			inspecting.set(inspecting.get() === item ? undefined : item);
-		} else if (key.name === 'x') {
-			event.stop();
-			item.done = !item.done;
-			// the data is not a signal, so say what changed: the array identity is
-			// what the effects above are watching
-			tasks.set([...tasks.get()]);
-		} else if (key.sequence === 'J' || key.sequence === 'K') {
-			event.stop();
-			// counted only where the list changed, or the row at an end reports a
-			// move it did not make -- and the whole point of the counter is that it
-			// is a true record of what happened to *this* row
-			if (move(item, key.sequence === 'J' ? 1 : -1)) {
-				moves.set(moves.get() + 1);
-			}
-		}
-	};
+  row.onKey = (event) => {
+    const { key } = event;
+    if (key.name === 'space') {
+      event.stop();
+      expanded.set(!expanded.get());
+    } else if (key.name === 'e') {
+      event.stop();
+      // one truthy value replacing another, which is the case the panel's
+      // `Show` is here to keep honest
+      inspecting.set(inspecting.get() === item ? undefined : item);
+    } else if (key.name === 'x') {
+      event.stop();
+      item.done = !item.done;
+      // the data is not a signal, so say what changed: the array identity is
+      // what the effects above are watching
+      tasks.set([...tasks.get()]);
+    } else if (key.sequence === 'J' || key.sequence === 'K') {
+      event.stop();
+      // counted only where the list changed, or the row at an end reports a
+      // move it did not make -- and the whole point of the counter is that it
+      // is a true record of what happened to *this* row
+      if (move(item, key.sequence === 'J' ? 1 : -1)) {
+        moves.set(moves.get() + 1);
+      }
+    }
+  };
 
-	return row;
+  return row;
 }
 
 function App() {
-	const tally = text('', { class: 'tally' });
-	createEffect(() => {
-		const list = tasks.get();
-		const open = list.filter((task) => !task.done).length;
-		tally.setText(`${open} of ${list.length} open - filter: ${filter.get()}`);
-	});
+  const tally = text('', { class: 'tally' });
+  createEffect(() => {
+    const list = tasks.get();
+    const open = list.filter((task) => !task.done).length;
+    tally.setText(`${open} of ${list.length} open - filter: ${filter.get()}`);
+  });
 
-	return box(
-		{ class: 'app' },
-		box({ class: 'line' }, text('tasks', { class: 'head' })),
-		tally,
-		// collapsing the list disposes every row, which is what `Show` means: a
-		// hidden branch is still a branch, so it is not hidden, it is gone
-		Show({
-			children: () =>
-				For({
-					children: Task,
-					each: visible,
-					fallback: () => text('nothing matches this filter', { class: 'empty' }),
-					props: { class: 'rows' },
-				}),
-			fallback: () => text('list collapsed', { class: 'empty' }),
-			props: { class: 'rows' },
-			when: () => listOpen.get(),
-		}),
-		// a detail pane over a value rather than a boolean. `task` is an accessor,
-		// so the one effect below is what makes the panel follow a different task
-		// without the branch -- and anything it held -- being thrown away
-		Show({
-			children: (task) => {
-				const title = text('', { class: 'panel-title' });
-				const note = text('', { class: 'panel-note' });
-				createEffect(() => {
-					title.setText(task().title);
-				});
-				createEffect(() => {
-					const count = task().notes.length;
-					note.setText(`${count} note${count === 1 ? '' : 's'} - e again to close`);
-				});
-				return box({ class: 'panel' }, title, note);
-			},
-			props: { class: 'rows' },
-			when: () => inspecting.get(),
-		}),
-		text('j/k move  space notes  e inspect  x done  J/K reorder  f filter  n collapse  q quit', {
-			class: 'hint',
-		})
-	);
+  return box(
+    { class: 'app' },
+    box({ class: 'line' }, text('tasks', { class: 'head' })),
+    tally,
+    // collapsing the list disposes every row, which is what `Show` means: a
+    // hidden branch is still a branch, so it is not hidden, it is gone
+    Show({
+      children: () =>
+        For({
+          children: Task,
+          each: visible,
+          fallback: () => text('nothing matches this filter', { class: 'empty' }),
+          props: { class: 'rows' },
+        }),
+      fallback: () => text('list collapsed', { class: 'empty' }),
+      props: { class: 'rows' },
+      when: () => listOpen.get(),
+    }),
+    // a detail pane over a value rather than a boolean. `task` is an accessor,
+    // so the one effect below is what makes the panel follow a different task
+    // without the branch -- and anything it held -- being thrown away
+    Show({
+      children: (task) => {
+        const title = text('', { class: 'panel-title' });
+        const note = text('', { class: 'panel-note' });
+        createEffect(() => {
+          title.setText(task().title);
+        });
+        createEffect(() => {
+          const count = task().notes.length;
+          note.setText(`${count} note${count === 1 ? '' : 's'} - e again to close`);
+        });
+        return box({ class: 'panel' }, title, note);
+      },
+      props: { class: 'rows' },
+      when: () => inspecting.get(),
+    }),
+    text('j/k move  space notes  e inspect  x done  J/K reorder  f filter  n collapse  q quit', {
+      class: 'hint',
+    })
+  );
 }
 
 const view = render(App, { cascade: new Cascade([sheet]) });
 const input = createInput({ root: view.root });
 
 input.bind((event) => {
-	const { key } = event;
-	if (isAbort(key) || key.name === 'q') {
-		event.stop();
-		view.dispose();
-		input.stop();
-		process.exit(0);
-	}
+  const { key } = event;
+  if (isAbort(key) || key.name === 'q') {
+    event.stop();
+    view.dispose();
+    input.stop();
+    process.exit(0);
+  }
 
-	// the rows claim what is theirs first, so these only ever see what is left
-	if (key.name === 'j') {
-		event.stop();
-		input.focus.next();
-	} else if (key.name === 'k') {
-		event.stop();
-		input.focus.previous();
-	} else if (key.name === 'f') {
-		event.stop();
-		filter.set(FILTERS[(FILTERS.indexOf(filter.get()) + 1) % FILTERS.length]);
-	} else if (key.name === 'n') {
-		event.stop();
-		const open = !listOpen.get();
-		listOpen.set(open);
-		// collapsing disposes every row, so the focus goes with them -- and nothing
-		// focused is a legitimate state the ring will not repair, since the element
-		// it would repair *to* is exactly what has gone. So an app that collapses
-		// focusable content has to put the focus back itself, or the next keystroke
-		// reaches the bindings and nowhere else
-		if (open) {
-			// and the frame has to be forced first, which is the friction worth
-			// knowing: `listOpen.set()` only *marks* the branch stale, so the rows do
-			// not exist until a frame has settled -- and `focusables()` walks the
-			// tree, so focusing before that walks a tree with no rows in it and
-			// lands on nothing
-			view.frame();
-			input.focus.next();
-		}
-	}
+  // the rows claim what is theirs first, so these only ever see what is left
+  if (key.name === 'j') {
+    event.stop();
+    input.focus.next();
+  } else if (key.name === 'k') {
+    event.stop();
+    input.focus.previous();
+  } else if (key.name === 'f') {
+    event.stop();
+    filter.set(FILTERS[(FILTERS.indexOf(filter.get()) + 1) % FILTERS.length]);
+  } else if (key.name === 'n') {
+    event.stop();
+    const open = !listOpen.get();
+    listOpen.set(open);
+    // collapsing disposes every row, so the focus goes with them -- and nothing
+    // focused is a legitimate state the ring will not repair, since the element
+    // it would repair *to* is exactly what has gone. So an app that collapses
+    // focusable content has to put the focus back itself, or the next keystroke
+    // reaches the bindings and nowhere else
+    if (open) {
+      // and the frame has to be forced first, which is the friction worth
+      // knowing: `listOpen.set()` only *marks* the branch stale, so the rows do
+      // not exist until a frame has settled -- and `focusables()` walks the
+      // tree, so focusing before that walks a tree with no rows in it and
+      // lands on nothing
+      view.frame();
+      input.focus.next();
+    }
+  }
 });
 
 input.focus.next();

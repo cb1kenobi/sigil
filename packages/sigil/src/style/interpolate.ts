@@ -43,38 +43,38 @@ import { cells, type Length, percent } from './value.js';
  * @returns The value.
  */
 export function interpolate(
-	property: PropertyName,
-	from: unknown,
-	to: unknown,
-	t: number,
-	level: ColorLevel
+  property: PropertyName,
+  from: unknown,
+  to: unknown,
+  t: number,
+  level: ColorLevel
 ): unknown {
-	switch (INTERPOLATION.get(property)) {
-		case 'color':
-			return mixColor(from as Color, to as Color, t, level);
-		case 'integer':
-			return Math.round(mix(from as number, to as number, t));
-		case 'length':
-			return mixLength(from as Length, to as Length, t);
-		case 'number':
-			return mix(from as number, to as number, t);
-		default:
-			// `discrete` and `none` alike. CSS flips a non-interpolable property at
-			// the midpoint, and a property that does not animate at all should never
-			// have been asked -- answering with the endpoint rather than throwing,
-			// because a `transition-property` naming one is refused where it is
-			// written and a throw here would be a second guard over the same thing
-			return discrete(from, to, t);
-	}
+  switch (INTERPOLATION.get(property)) {
+    case 'color':
+      return mixColor(from as Color, to as Color, t, level);
+    case 'integer':
+      return Math.round(mix(from as number, to as number, t));
+    case 'length':
+      return mixLength(from as Length, to as Length, t);
+    case 'number':
+      return mix(from as number, to as number, t);
+    default:
+      // `discrete` and `none` alike. CSS flips a non-interpolable property at
+      // the midpoint, and a property that does not animate at all should never
+      // have been asked -- answering with the endpoint rather than throwing,
+      // because a `transition-property` naming one is refused where it is
+      // written and a throw here would be a second guard over the same thing
+      return discrete(from, to, t);
+  }
 }
 
 /** The midpoint rule, which is what CSS does with anything it cannot interpolate. */
 function discrete(from: unknown, to: unknown, t: number): unknown {
-	return t < 0.5 ? from : to;
+  return t < 0.5 ? from : to;
 }
 
 function mix(from: number, to: number, t: number): number {
-	return from + (to - from) * t;
+  return from + (to - from) * t;
 }
 
 /**
@@ -95,18 +95,18 @@ function mix(from: number, to: number, t: number): number {
  * this one.
  */
 function mixLength(from: Length, to: Length, t: number): Length {
-	if (from.type !== to.type) {
-		return discrete(from, to, t) as Length;
-	}
-	if (from.type === 'cells' && to.type === 'cells') {
-		return cells(Math.round(mix(from.value, to.value, t)));
-	}
-	if (from.type === 'percent' && to.type === 'percent') {
-		return percent(mix(from.value, to.value, t));
-	}
-	// `auto` to `auto` and `none` to `none`: the same value either way, and the
-	// frozen one rather than a new object, so `difference()` answers with `===`
-	return from;
+  if (from.type !== to.type) {
+    return discrete(from, to, t) as Length;
+  }
+  if (from.type === 'cells' && to.type === 'cells') {
+    return cells(Math.round(mix(from.value, to.value, t)));
+  }
+  if (from.type === 'percent' && to.type === 'percent') {
+    return percent(mix(from.value, to.value, t));
+  }
+  // `auto` to `auto` and `none` to `none`: the same value either way, and the
+  // frozen one rather than a new object, so `difference()` answers with `===`
+  return from;
 }
 
 /**
@@ -118,9 +118,9 @@ function mixLength(from: Length, to: Length, t: number): Length {
  * is not invented.
  */
 function mixColor(from: Color, to: Color, t: number, level: ColorLevel): Color {
-	const mixed = mixColors(from, to, t);
-	if (mixed === undefined) {
-		return discrete(from, to, t) as Color;
-	}
-	return degradeColor(mixed, level);
+  const mixed = mixColors(from, to, t);
+  if (mixed === undefined) {
+    return discrete(from, to, t) as Color;
+  }
+  return degradeColor(mixed, level);
 }

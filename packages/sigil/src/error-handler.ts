@@ -23,7 +23,7 @@ const fallbackMessage = 'Unknown error';
  * @param value - The value to log.
  */
 function safeLog(value: unknown): void {
-	safeLogTo(log, value);
+  safeLogTo(log, value);
 }
 
 /**
@@ -34,12 +34,12 @@ function safeLog(value: unknown): void {
  * @returns The value, when it is a non-empty string.
  */
 function readString(obj: object, key: 'message' | 'name'): string | undefined {
-	try {
-		const value = (obj as Record<string, unknown>)[key];
-		return typeof value === 'string' && value ? value : undefined;
-	} catch {
-		return undefined;
-	}
+  try {
+    const value = (obj as Record<string, unknown>)[key];
+    return typeof value === 'string' && value ? value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -50,11 +50,11 @@ function readString(obj: object, key: 'message' | 'name'): string | undefined {
  * @returns The coerced string, or the fallback message.
  */
 function stringify(value: unknown): string {
-	try {
-		return String(value) || fallbackMessage;
-	} catch {
-		return fallbackMessage;
-	}
+  try {
+    return String(value) || fallbackMessage;
+  } catch {
+    return fallbackMessage;
+  }
 }
 
 /**
@@ -69,21 +69,21 @@ function stringify(value: unknown): string {
  * @returns A single-line-ish message, never empty.
  */
 function errorMessage(err: unknown): string {
-	if (typeof err === 'string') {
-		return err || fallbackMessage;
-	}
+  if (typeof err === 'string') {
+    return err || fallbackMessage;
+  }
 
-	if (err === null || err === undefined) {
-		return fallbackMessage;
-	}
+  if (err === null || err === undefined) {
+    return fallbackMessage;
+  }
 
-	if (typeof err === 'object') {
-		// `message` first, then `name` for an error thrown with neither a
-		// message nor a subclass of its own
-		return readString(err, 'message') ?? readString(err, 'name') ?? stringify(err);
-	}
+  if (typeof err === 'object') {
+    // `message` first, then `name` for an error thrown with neither a
+    // message nor a subclass of its own
+    return readString(err, 'message') ?? readString(err, 'name') ?? stringify(err);
+  }
 
-	return stringify(err);
+  return stringify(err);
 }
 
 /**
@@ -103,7 +103,7 @@ function errorMessage(err: unknown): string {
  * @returns The text to write to stderr.
  */
 export function renderError(err: unknown): string {
-	return __`Error: ${errorMessage(err)}`;
+  return __`Error: ${errorMessage(err)}`;
 }
 
 /**
@@ -119,17 +119,17 @@ export function renderError(err: unknown): string {
  * @returns The exit code to set.
  */
 export function errorExitCode(err: unknown, fallback: number = defaultExitCode): number {
-	let code: unknown;
+  let code: unknown;
 
-	try {
-		code = (err as { exitCode?: unknown } | null | undefined)?.exitCode;
-	} catch {
-		return fallback;
-	}
+  try {
+    code = (err as { exitCode?: unknown } | null | undefined)?.exitCode;
+  } catch {
+    return fallback;
+  }
 
-	return typeof code === 'number' && Number.isInteger(code) && code >= 0 && code <= 255
-		? code
-		: fallback;
+  return typeof code === 'number' && Number.isInteger(code) && code >= 0 && code <= 255
+    ? code
+    : fallback;
 }
 
 /**
@@ -144,33 +144,33 @@ export function errorExitCode(err: unknown, fallback: number = defaultExitCode):
  * `ParseState` to hand it, and the stream to write to.
  */
 export function errorHandler(err: unknown, opts: ErrorHandlerOptions = {}): void {
-	const render = opts.render ?? renderError;
-	const stderr = opts.stderr ?? process.stderr;
-	const ctx: ErrorContext = { state: opts.state };
+  const render = opts.render ?? renderError;
+  const stderr = opts.stderr ?? process.stderr;
+  const ctx: ErrorContext = { state: opts.state };
 
-	// the full error, stack and all, is one `DEBUG=sigil:error` away
-	safeLog(err);
+  // the full error, stack and all, is one `DEBUG=sigil:error` away
+  safeLog(err);
 
-	let text: string;
-	try {
-		text = String(render(err, ctx));
-	} catch (renderErr) {
-		// a renderer that throws must not replace the error it was given.
-		// `renderError` cannot throw, so this fallback always produces text.
-		safeLog(renderErr);
-		text = renderError(err);
-	}
+  let text: string;
+  try {
+    text = String(render(err, ctx));
+  } catch (renderErr) {
+    // a renderer that throws must not replace the error it was given.
+    // `renderError` cannot throw, so this fallback always produces text.
+    safeLog(renderErr);
+    text = renderError(err);
+  }
 
-	// a stream that is already gone -- a destroyed socket, a closed pipe --
-	// must not turn rendering an error into a second, worse error. This only
-	// covers a throwing `write`; an asynchronous EPIPE arrives as an `error`
-	// event on the stream, which is the terminal wrapper's job once there is
-	// one again.
-	try {
-		stderr.write(`${text.replace(/[\r\n]+$/, '')}\n`);
-	} catch (writeErr) {
-		safeLog(writeErr);
-	}
+  // a stream that is already gone -- a destroyed socket, a closed pipe --
+  // must not turn rendering an error into a second, worse error. This only
+  // covers a throwing `write`; an asynchronous EPIPE arrives as an `error`
+  // event on the stream, which is the terminal wrapper's job once there is
+  // one again.
+  try {
+    stderr.write(`${text.replace(/[\r\n]+$/, '')}\n`);
+  } catch (writeErr) {
+    safeLog(writeErr);
+  }
 
-	process.exitCode = errorExitCode(err);
+  process.exitCode = errorExitCode(err);
 }

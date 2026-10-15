@@ -39,8 +39,8 @@ await decrypt('機密 — \u{1F1EC}\u{1F1E7} secrets \u{1F468}‍\u{1F469}‍\u{
 // several lines are one text: the breaks are whitespace, so they stay where they
 // are and the block keeps its shape throughout
 await decrypt(
-	['  ACCESS GRANTED', '  cooper, d.    ****  cleared', '  bishop, m.    ****  cleared'].join('\n'),
-	pace
+  ['  ACCESS GRANTED', '  cooper, d.    ****  cleared', '  bishop, m.    ****  cleared'].join('\n'),
+  pace
 );
 
 // and the colours are an app sheet's rather than an option's, because a built-in
@@ -55,13 +55,13 @@ await decrypt(
 // moment it lands rather than the whole line turning when the last one does. Watch
 // one word rather than the line and it is the clearer of the two.
 await decrypt('The quick brown fox jumps over the lazy dog', {
-	...pace,
-	sheets: [
-		`
-			.sigil-decrypt-plain { color: green }
-			.sigil-decrypt-cipher { color: cyan; dim: false }
-		`,
-	],
+  ...pace,
+  sheets: [
+    `
+      .sigil-decrypt-plain { color: green }
+      .sigil-decrypt-cipher { color: cyan; dim: false }
+    `,
+  ],
 });
 
 // and `text-overflow`, which is honoured the way it is on any other text -- so a
@@ -71,17 +71,17 @@ await decrypt('The quick brown fox jumps over the lazy dog', {
 // overflows, which is what `nowrap` is here for, and the mark is drawn in the colour
 // of the cell it hides -- so it is cipher-coloured until that cell lands.
 await decrypt('/Users/you/projects/sigil/packages/sigil/src/components/decrypt.ts', {
-	...pace,
-	sheets: [
-		`
-			.sigil-decrypt-plain { color: green }
-			.sigil-decrypt-cipher {
-				color: cyan;
-				dim: false;
-				text-overflow: ellipsis-middle;
-				white-space: nowrap;
-				width: 40
-			}
-		`,
-	],
+  ...pace,
+  sheets: [
+    `
+      .sigil-decrypt-plain { color: green }
+      .sigil-decrypt-cipher {
+        color: cyan;
+        dim: false;
+        text-overflow: ellipsis-middle;
+        white-space: nowrap;
+        width: 40
+      }
+    `,
+  ],
 });

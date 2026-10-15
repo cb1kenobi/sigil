@@ -2,17 +2,17 @@ import debug from '../debug/index.js';
 import { attachState, fireBeforeError } from '../error-hooks.js';
 import { __ } from '../i18n/index.js';
 import {
-	Internal,
-	InternalArgument,
-	InternalCommand,
-	InternalOption,
-	ParsedBase,
-	ParsedOption,
-	ParsedUnknownOption,
-	ParsedValue,
-	ParseOptions,
-	ParseState,
-	Schema,
+  Internal,
+  InternalArgument,
+  InternalCommand,
+  InternalOption,
+  ParsedBase,
+  ParsedOption,
+  ParsedUnknownOption,
+  ParsedValue,
+  ParseOptions,
+  ParseState,
+  Schema,
 } from '../types.js';
 import { camelCase } from '../util/camel-case.js';
 import { envValue } from '../util/env-value.js';
@@ -46,157 +46,157 @@ const unknownOptionRE = /^(?:--(\w[\w-]*)|-(\w))$/;
  * @returns The resolved parse state.
  */
 export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
-	let schema: Schema | undefined;
-	let state: ParseState | undefined;
+  let schema: Schema | undefined;
+  let state: ParseState | undefined;
 
-	try {
-		if (opts !== undefined && (opts === null || typeof opts !== 'object')) {
-			throw new TypeError('Expected parse options to be an object');
-		}
+  try {
+    if (opts !== undefined && (opts === null || typeof opts !== 'object')) {
+      throw new TypeError('Expected parse options to be an object');
+    }
 
-		// the schema comes first because it is where the `beforeError` hooks
-		// live: reading anything else off the options ahead of it would leave a
-		// getter of the caller's own able to throw past its own hooks. Only an
-		// absent schema gets the empty default; `null` is an error
-		schema = opts.schema === undefined ? {} : opts.schema;
+    // the schema comes first because it is where the `beforeError` hooks
+    // live: reading anything else off the options ahead of it would leave a
+    // getter of the caller's own able to throw past its own hooks. Only an
+    // absent schema gets the empty default; `null` is an error
+    schema = opts.schema === undefined ? {} : opts.schema;
 
-		const { argv, env = {} } = opts;
+    const { argv, env = {} } = opts;
 
-		if (!schema || typeof schema !== 'object') {
-			throw new TypeError('Expected schema to be an object');
-		}
+    if (!schema || typeof schema !== 'object') {
+      throw new TypeError('Expected schema to be an object');
+    }
 
-		if (schema.name !== undefined && (!schema.name || typeof schema.name !== 'string')) {
-			throw new TypeError('Expected schema name to be a non-empty string');
-		}
+    if (schema.name !== undefined && (!schema.name || typeof schema.name !== 'string')) {
+      throw new TypeError('Expected schema name to be a non-empty string');
+    }
 
-		if (schema.hooks && typeof schema.hooks !== 'object') {
-			throw new TypeError('Expected hooks to be an object of hook names and callbacks');
-		}
-		for (const [name, hook] of Object.entries(schema.hooks ?? {})) {
-			if (hook !== undefined && typeof hook !== 'function') {
-				throw new TypeError(`Expected "${name}" hook to be a function`);
-			}
-		}
+    if (schema.hooks && typeof schema.hooks !== 'object') {
+      throw new TypeError('Expected hooks to be an object of hook names and callbacks');
+    }
+    for (const [name, hook] of Object.entries(schema.hooks ?? {})) {
+      if (hook !== undefined && typeof hook !== 'function') {
+        throw new TypeError(`Expected "${name}" hook to be a function`);
+      }
+    }
 
-		if (argv !== undefined && !Array.isArray(argv)) {
-			throw new TypeError('Expected argv to be an array');
-		}
+    if (argv !== undefined && !Array.isArray(argv)) {
+      throw new TypeError('Expected argv to be an array');
+    }
 
-		if (!env || typeof env !== 'object') {
-			throw new TypeError('Expected environment option to be an object');
-		}
+    if (!env || typeof env !== 'object') {
+      throw new TypeError('Expected environment option to be an object');
+    }
 
-		state = {
-			$: [],
-			$orig: argv || [],
-			_: [],
-			argv: {},
-			cmd: undefined,
-			// the root context is built from a copy of the schema, never by writing
-			// a default name onto the caller's object
-			contexts: [
-				// `baseDir` is the schema's own: an inline declaration has no file to
-				// be relative to, so this is the only way its relative paths can mean
-				// what the build already takes them to mean
-				await initCommand({ ...schema, name: schema.name ?? 'global' }, undefined, schema.baseDir),
-			],
-			env,
-			schema,
-			settings: opts.settings || {},
-		};
+    state = {
+      $: [],
+      $orig: argv || [],
+      _: [],
+      argv: {},
+      cmd: undefined,
+      // the root context is built from a copy of the schema, never by writing
+      // a default name onto the caller's object
+      contexts: [
+        // `baseDir` is the schema's own: an inline declaration has no file to
+        // be relative to, so this is the only way its relative paths can mean
+        // what the build already takes them to mean
+        await initCommand({ ...schema, name: schema.name ?? 'global' }, undefined, schema.baseDir),
+      ],
+      env,
+      schema,
+      settings: opts.settings || {},
+    };
 
-		const handles = await registerHelp(state.contexts[0], schema);
-		const versionHandles = await registerVersion(state.contexts[0], schema.version);
-		// nothing is *detected* for it, because a command needs no detecting:
-		// `--help` and `--version` are flags, and something has to decide that a
-		// flag meant argv was asking a question rather than for work. What
-		// `completion` does need is the other half of what `state.help` buys --
-		// a missing required value is not an error for a command that answers out
-		// of the schema -- and it carries `needsNoValues` for that, which the two
-		// validators below read
-		await registerCompletion(state.contexts[0], schema);
+    const handles = await registerHelp(state.contexts[0], schema);
+    const versionHandles = await registerVersion(state.contexts[0], schema.version);
+    // nothing is *detected* for it, because a command needs no detecting:
+    // `--help` and `--version` are flags, and something has to decide that a
+    // flag meant argv was asking a question rather than for work. What
+    // `completion` does need is the other half of what `state.help` buys --
+    // a missing required value is not an error for a command that answers out
+    // of the schema -- and it carries `needsNoValues` for that, which the two
+    // validators below read
+    await registerCompletion(state.contexts[0], schema);
 
-		await initArgv(state);
-		await parseArgv(state);
+    await initArgv(state);
+    await parseArgv(state);
 
-		// before anything is validated: help wins over a missing required option,
-		// which is a parser-ordering concern and not a rendering one
-		state.help = await detectHelp(state, handles);
+    // before anything is validated: help wins over a missing required option,
+    // which is a parser-ordering concern and not a rendering one
+    state.help = await detectHelp(state, handles);
 
-		// after help and only when help was not asked for, because being asked
-		// what a program does and answering with a version string is not an answer
-		if (!state.help && detectVersion(state, versionHandles)) {
-			// resolved here rather than where the schema was read, because a
-			// function is the spelling that exists to *not* be called on a run
-			// that never asks
-			state.version = typeof schema.version === 'function' ? schema.version() : schema.version;
-		}
+    // after help and only when help was not asked for, because being asked
+    // what a program does and answering with a version string is not an answer
+    if (!state.help && detectVersion(state, versionHandles)) {
+      // resolved here rather than where the schema was read, because a
+      // function is the spelling that exists to *not* be called on a run
+      // that never asks
+      state.version = typeof schema.version === 'function' ? schema.version() : schema.version;
+    }
 
-		await processArgs(state);
-		await processOptions(state);
+    await processArgs(state);
+    await processOptions(state);
 
-		// after every value exists and before any of them is judged, which is where
-		// this hook has always been documented to fire -- "after, before validation
-		// results are returned" -- and where it could not usefully fire, because it
-		// ran at the end of `parseArgv()`: before `processArgs()` and
-		// `processOptions()`, which are the two that write `state.argv`. So a hook
-		// named "after parse" saw `{}` while `state.$` was fully populated, and the
-		// one thing it is for was the one thing it could not do. Producing the
-		// values and judging them are two steps now rather than one, and this is
-		// what goes between them
-		await state.schema.hooks?.afterParse?.(state);
+    // after every value exists and before any of them is judged, which is where
+    // this hook has always been documented to fire -- "after, before validation
+    // results are returned" -- and where it could not usefully fire, because it
+    // ran at the end of `parseArgv()`: before `processArgs()` and
+    // `processOptions()`, which are the two that write `state.argv`. So a hook
+    // named "after parse" saw `{}` while `state.$` was fully populated, and the
+    // one thing it is for was the one thing it could not do. Producing the
+    // values and judging them are two steps now rather than one, and this is
+    // what goes between them
+    await state.schema.hooks?.afterParse?.(state);
 
-		validateArgs(state);
-		validateOptions(state);
+    validateArgs(state);
+    validateOptions(state);
 
-		return state;
-	} catch (err) {
-		attachState(err, state);
-		// a hook may replace the error, never swallow it, so this always throws
-		throw await fireBeforeError(err, state, schema);
-	}
+    return state;
+  } catch (err) {
+    attachState(err, state);
+    // a hook may replace the error, never swallow it, so this always throws
+    throw await fireBeforeError(err, state, schema);
+  }
 }
 
 export default parse;
 
 async function initArgv(state: ParseState): Promise<void> {
-	const argv = state.$orig;
-	log(
-		`Processing ${argv.length} argument${argv.length === 1 ? '' : 's'}${argv.length ? `: ${argv.join(', ')}` : ''}`
-	);
+  const argv = state.$orig;
+  log(
+    `Processing ${argv.length} argument${argv.length === 1 ? '' : 's'}${argv.length ? `: ${argv.join(', ')}` : ''}`
+  );
 
-	for (let arg of argv) {
-		const inputs = [arg];
+  for (let arg of argv) {
+    const inputs = [arg];
 
-		if (optionLikeRE.test(arg)) {
-			// check if we have --option=value
-			const p = arg.indexOf('=');
-			if (p > 0) {
-				// only the name is trimmed. The value is taken exactly as it was
-				// typed, because whitespace in a value is the caller's: `--name=`
-				// with a single space said a space, and trimming made it `''` --
-				// which for a `<value>` option then failed as a missing value. A
-				// value in the following token was never trimmed, so the two
-				// spellings of the same thing disagreed
-				inputs[0] = arg.slice(0, p).trim();
-				inputs.push(arg.slice(p + 1));
-			} else {
-				// check if we have --option"value"
-				const m = arg.match(optionNoSpaceRE);
-				if (m) {
-					inputs[0] = m[1];
-					inputs.push(m[3]);
-				}
-			}
-		}
+    if (optionLikeRE.test(arg)) {
+      // check if we have --option=value
+      const p = arg.indexOf('=');
+      if (p > 0) {
+        // only the name is trimmed. The value is taken exactly as it was
+        // typed, because whitespace in a value is the caller's: `--name=`
+        // with a single space said a space, and trimming made it `''` --
+        // which for a `<value>` option then failed as a missing value. A
+        // value in the following token was never trimmed, so the two
+        // spellings of the same thing disagreed
+        inputs[0] = arg.slice(0, p).trim();
+        inputs.push(arg.slice(p + 1));
+      } else {
+        // check if we have --option"value"
+        const m = arg.match(optionNoSpaceRE);
+        if (m) {
+          inputs[0] = m[1];
+          inputs.push(m[3]);
+        }
+      }
+    }
 
-		state.$.push({
-			inputs,
-			orig: arg,
-			type: 'Unknown',
-		});
-	}
+    state.$.push({
+      inputs,
+      orig: arg,
+      type: 'Unknown',
+    });
+  }
 }
 
 /**
@@ -208,12 +208,12 @@ async function initArgv(state: ParseState): Promise<void> {
  * @returns The option, if any context declares it.
  */
 function findOption(contexts: InternalCommand[], name?: string): InternalOption | undefined {
-	for (const ctx of contexts) {
-		const option = ctx[Internal].options.find(name);
-		if (option) {
-			return option;
-		}
-	}
+  for (const ctx of contexts) {
+    const option = ctx[Internal].options.find(name);
+    if (option) {
+      return option;
+    }
+  }
 }
 
 /**
@@ -226,57 +226,57 @@ function findOption(contexts: InternalCommand[], name?: string): InternalOption 
  * @returns The expanded entries, or `undefined` if the group did not resolve.
  */
 function expandGroup(contexts: InternalCommand[], entry: ParsedBase): ParsedValue[] | undefined {
-	const m = entry.inputs[0]?.match(optionGroupRE);
-	if (!m) {
-		return;
-	}
+  const m = entry.inputs[0]?.match(optionGroupRE);
+  if (!m) {
+    return;
+  }
 
-	const chars = m[1];
-	const explicit = entry.inputs[1];
-	const expanded: ParsedValue[] = [];
+  const chars = m[1];
+  const explicit = entry.inputs[1];
+  const expanded: ParsedValue[] = [];
 
-	for (let i = 0; i < chars.length; i++) {
-		const name = `-${chars[i]}`;
-		const option = findOption(contexts, name);
+  for (let i = 0; i < chars.length; i++) {
+    const name = `-${chars[i]}`;
+    const option = findOption(contexts, name);
 
-		if (!option) {
-			// nothing resolved at all, leave the token for a later context pass
-			if (i === 0) {
-				return;
-			}
+    if (!option) {
+      // nothing resolved at all, leave the token for a later context pass
+      if (i === 0) {
+        return;
+      }
 
-			// partially resolved, so defer whatever is left
-			const rest: (string | undefined)[] = [`-${chars.slice(i)}`];
-			if (explicit !== undefined) {
-				rest.push(explicit);
-			}
-			expanded.push({ inputs: rest, type: 'Unknown' });
-			return expanded;
-		}
+      // partially resolved, so defer whatever is left
+      const rest: (string | undefined)[] = [`-${chars.slice(i)}`];
+      if (explicit !== undefined) {
+        rest.push(explicit);
+      }
+      expanded.push({ inputs: rest, type: 'Unknown' });
+      return expanded;
+    }
 
-		if (option[Internal].isFlag) {
-			expanded.push({ inputs: [name], type: 'Unknown' });
-			continue;
-		}
+    if (option[Internal].isFlag) {
+      expanded.push({ inputs: [name], type: 'Unknown' });
+      continue;
+    }
 
-		// this option takes a value, so the rest of the group is that value
-		const rest = chars.slice(i + 1);
-		const inputs: (string | undefined)[] = [name];
-		if (rest) {
-			inputs.push(rest);
-		} else if (explicit !== undefined) {
-			inputs.push(explicit);
-		}
-		expanded.push({ inputs, type: 'Unknown' });
-		return expanded;
-	}
+    // this option takes a value, so the rest of the group is that value
+    const rest = chars.slice(i + 1);
+    const inputs: (string | undefined)[] = [name];
+    if (rest) {
+      inputs.push(rest);
+    } else if (explicit !== undefined) {
+      inputs.push(explicit);
+    }
+    expanded.push({ inputs, type: 'Unknown' });
+    return expanded;
+  }
 
-	// every character was a flag, so an explicit value belongs to the last one
-	if (explicit !== undefined && expanded.length) {
-		expanded[expanded.length - 1].inputs.push(explicit);
-	}
+  // every character was a flag, so an explicit value belongs to the last one
+  if (explicit !== undefined && expanded.length) {
+    expanded[expanded.length - 1].inputs.push(explicit);
+  }
 
-	return expanded;
+  return expanded;
 }
 
 /**
@@ -292,13 +292,13 @@ function expandGroup(contexts: InternalCommand[], entry: ParsedBase): ParsedValu
  * @returns `true` when the token means off.
  */
 function isNegated(option: InternalOption, subject?: string): boolean {
-	if (option.negate === false) {
-		return false;
-	}
-	if (option.negate) {
-		return subject !== `--${option.name}`;
-	}
-	return negatedRE.test(`${subject}`);
+  if (option.negate === false) {
+    return false;
+  }
+  if (option.negate) {
+    return subject !== `--${option.name}`;
+  }
+  return negatedRE.test(`${subject}`);
 }
 
 /**
@@ -315,24 +315,24 @@ function isNegated(option: InternalOption, subject?: string): boolean {
  * @returns `true` when the entry can be consumed as a value.
  */
 function canBeValue(contexts: InternalCommand[], entry?: ParsedValue): boolean {
-	if (entry?.type !== 'Unknown') {
-		return false;
-	}
+  if (entry?.type !== 'Unknown') {
+    return false;
+  }
 
-	const subject = entry.inputs[0];
+  const subject = entry.inputs[0];
 
-	// the terminator belongs to the argv stream, never to an option
-	if (subject === '--') {
-		return false;
-	}
+  // the terminator belongs to the argv stream, never to an option
+  if (subject === '--') {
+    return false;
+  }
 
-	// a plain value is always fair game; only an option-like token has to prove
-	// it is not a declared option first
-	if (!subject || !optionLikeRE.test(subject)) {
-		return true;
-	}
+  // a plain value is always fair game; only an option-like token has to prove
+  // it is not a declared option first
+  if (!subject || !optionLikeRE.test(subject)) {
+    return true;
+  }
 
-	return !findOption(contexts, subject) && !expandGroup(contexts, entry);
+  return !findOption(contexts, subject) && !expandGroup(contexts, entry);
 }
 
 /**
@@ -346,7 +346,7 @@ function canBeValue(contexts: InternalCommand[], entry?: ParsedValue): boolean {
  * @returns The value actually parsed, or `undefined`.
  */
 function resolved(state: ParseState, dest: string): unknown {
-	return Object.hasOwn(state.argv, dest) ? state.argv[dest] : undefined;
+  return Object.hasOwn(state.argv, dest) ? state.argv[dest] : undefined;
 }
 
 /**
@@ -372,11 +372,11 @@ const producers = new WeakMap<ParseState, Map<string, InternalOption | InternalA
  * @param by - The option or argument that wrote it.
  */
 function produced(state: ParseState, dest: string, by: InternalOption | InternalArgument): void {
-	let map = producers.get(state);
-	if (!map) {
-		producers.set(state, (map = new Map()));
-	}
-	map.set(dest, by);
+  let map = producers.get(state);
+  if (!map) {
+    producers.set(state, (map = new Map()));
+  }
+  map.set(dest, by);
 }
 
 /**
@@ -389,7 +389,7 @@ function produced(state: ParseState, dest: string, by: InternalOption | Internal
  * @returns `true` when the value on the destination is this declaration's.
  */
 function wrote(state: ParseState, it: InternalOption | InternalArgument): boolean {
-	return producers.get(state)?.get(it[Internal].dest) === it;
+  return producers.get(state)?.get(it[Internal].dest) === it;
 }
 
 /**
@@ -404,19 +404,19 @@ function wrote(state: ParseState, it: InternalOption | InternalArgument): boolea
  * @returns The declarations.
  */
 function liveDeclarations(state: ParseState): Set<InternalOption | InternalArgument> {
-	const live = new Set<InternalOption | InternalArgument>();
+  const live = new Set<InternalOption | InternalArgument>();
 
-	for (const context of state.contexts) {
-		for (const opt of context[Internal].options.values()) {
-			live.add(opt);
-		}
-	}
+  for (const context of state.contexts) {
+    for (const opt of context[Internal].options.values()) {
+      live.add(opt);
+    }
+  }
 
-	for (const arg of state.contexts[0][Internal].args) {
-		live.add(arg);
-	}
+  for (const arg of state.contexts[0][Internal].args) {
+    live.add(arg);
+  }
 
-	return live;
+  return live;
 }
 
 /**
@@ -434,13 +434,13 @@ function liveDeclarations(state: ParseState): Set<InternalOption | InternalArgum
  * @returns `true` when an option in the chain or an argument of this context owns it.
  */
 function declares(state: ParseState, dest: string): boolean {
-	for (const it of liveDeclarations(state)) {
-		if (it[Internal].dest === dest) {
-			return true;
-		}
-	}
+  for (const it of liveDeclarations(state)) {
+    if (it[Internal].dest === dest) {
+      return true;
+    }
+  }
 
-	return false;
+  return false;
 }
 
 /**
@@ -461,12 +461,12 @@ function declares(state: ParseState, dest: string): boolean {
  * @returns `true` when this declaration should validate what is on its destination.
  */
 function validates(
-	state: ParseState,
-	it: InternalOption | InternalArgument,
-	live: ReadonlySet<InternalOption | InternalArgument>
+  state: ParseState,
+  it: InternalOption | InternalArgument,
+  live: ReadonlySet<InternalOption | InternalArgument>
 ): boolean {
-	const writer = producers.get(state)?.get(it[Internal].dest);
-	return writer === undefined || writer === it || !live.has(writer);
+  const writer = producers.get(state)?.get(it[Internal].dest);
+  return writer === undefined || writer === it || !live.has(writer);
 }
 
 /**
@@ -487,39 +487,39 @@ function validates(
  * @param value - The fallback value, if there is one.
  */
 function applyFallback(
-	state: ParseState,
-	it: InternalOption | InternalArgument,
-	value: unknown
+  state: ParseState,
+  it: InternalOption | InternalArgument,
+  value: unknown
 ): void {
-	const { dest } = it[Internal];
-	const { multiple, type } = it;
+  const { dest } = it[Internal];
+  const { multiple, type } = it;
 
-	if (value === undefined || resolved(state, dest) !== undefined) {
-		return;
-	}
+  if (value === undefined || resolved(state, dest) !== undefined) {
+    return;
+  }
 
-	// what arrived decides how many values it is, before coercion has a say: a string
-	// is one value even when it parses to an array, so `ITEMS='[1,2]'` on a `json`
-	// option is the one value `[1, 2]` -- the same as `--items '[1,2]'` -- rather than
-	// two. An array `default` is the list itself and stays as it is.
-	const one = !Array.isArray(value);
+  // what arrived decides how many values it is, before coercion has a say: a string
+  // is one value even when it parses to an array, so `ITEMS='[1,2]'` on a `json`
+  // option is the one value `[1, 2]` -- the same as `--items '[1,2]'` -- rather than
+  // two. An array `default` is the list itself and stays as it is.
+  const one = !Array.isArray(value);
 
-	if (typeof value === 'string') {
-		value = transformValue(value, type);
-	} else if (Array.isArray(value)) {
-		// an array `default` belongs to the caller; handing it straight to
-		// `argv` would let a consumer's `push` reach back into the schema and
-		// change what the next parse defaults to
-		value = [...value];
-	}
+  if (typeof value === 'string') {
+    value = transformValue(value, type);
+  } else if (Array.isArray(value)) {
+    // an array `default` belongs to the caller; handing it straight to
+    // `argv` would let a consumer's `push` reach back into the schema and
+    // change what the next parse defaults to
+    value = [...value];
+  }
 
-	// a counter is never wrapped, whatever it says: `processArgs()` counts and does
-	// not look at `multiple`, so wrapping here is what made the value's shape depend
-	// on whether argv used the flag -- `2` used and `[0]` unused. `initOption()`
-	// refuses the pair outright, and this is the invariant rather than the guard:
-	// `multiple` stays editable after init, so a hook could otherwise put it back
-	state.argv[dest] = multiple && type !== 'count' && one ? [value] : value;
-	produced(state, dest, it);
+  // a counter is never wrapped, whatever it says: `processArgs()` counts and does
+  // not look at `multiple`, so wrapping here is what made the value's shape depend
+  // on whether argv used the flag -- `2` used and `[0]` unused. `initOption()`
+  // refuses the pair outright, and this is the invariant rather than the guard:
+  // `multiple` stays editable after init, so a hook could otherwise put it back
+  state.argv[dest] = multiple && type !== 'count' && one ? [value] : value;
+  produced(state, dest, it);
 }
 
 /**
@@ -540,191 +540,191 @@ function applyFallback(
  * @returns `true` when a default command joined the chain.
  */
 async function dispatchDefaultCommand(
-	state: ParseState,
-	visited: Set<InternalCommand>
+  state: ParseState,
+  visited: Set<InternalCommand>
 ): Promise<boolean> {
-	const cmd = state.contexts[0][Internal].commands.default;
+  const cmd = state.contexts[0][Internal].commands.default;
 
-	if (!cmd || visited.has(cmd)) {
-		return false;
-	}
-	visited.add(cmd);
+  if (!cmd || visited.has(cmd)) {
+    return false;
+  }
+  visited.add(cmd);
 
-	log(`Dispatching default command "${cmd.name}"`);
+  log(`Dispatching default command "${cmd.name}"`);
 
-	// matched before loaded, same as a typed command: a module that will not
-	// load is an error this command's own `beforeError` hooks should still see
-	// the parent is read before the unshift puts `cmd` in front of it
-	const parent = state.contexts[0];
+  // matched before loaded, same as a typed command: a module that will not
+  // load is an error this command's own `beforeError` hooks should still see
+  // the parent is read before the unshift puts `cmd` in front of it
+  const parent = state.contexts[0];
 
-	state.contexts.unshift(cmd);
-	state.cmd = cmd;
+  state.contexts.unshift(cmd);
+  state.cmd = cmd;
 
-	const loaded = await loadCommand(cmd, parent);
-	if (loaded !== cmd) {
-		state.contexts[0] = loaded;
-		state.cmd = loaded;
-		visited.add(loaded);
-	}
+  const loaded = await loadCommand(cmd, parent);
+  if (loaded !== cmd) {
+    state.contexts[0] = loaded;
+    state.cmd = loaded;
+    visited.add(loaded);
+  }
 
-	await loaded.hooks?.parse?.({ cmd: loaded, ...loaded[Internal] });
+  await loaded.hooks?.parse?.({ cmd: loaded, ...loaded[Internal] });
 
-	return true;
+  return true;
 }
 
 async function parseArgv(state: ParseState): Promise<void> {
-	const { $, contexts } = state;
-	const defaults = new Set<InternalCommand>();
+  const { $, contexts } = state;
+  const defaults = new Set<InternalCommand>();
 
-	await state.schema.hooks?.beforeParse?.(state);
+  await state.schema.hooks?.beforeParse?.(state);
 
-	// Options may appear before the command that declares them, so keep making
-	// passes for as long as new command contexts keep turning up.
-	for (let pass = 0; pass < contexts.length; pass++) {
-		log(`Parsing argv with context "${contexts[0].name}"`);
+  // Options may appear before the command that declares them, so keep making
+  // passes for as long as new command contexts keep turning up.
+  for (let pass = 0; pass < contexts.length; pass++) {
+    log(`Parsing argv with context "${contexts[0].name}"`);
 
-		for (let j = 0; j < $.length; j++) {
-			const arg = $[j];
+    for (let j = 0; j < $.length; j++) {
+      const arg = $[j];
 
-			if (arg.type !== 'Unknown') {
-				continue;
-			}
+      if (arg.type !== 'Unknown') {
+        continue;
+      }
 
-			const subject = arg.inputs[0];
+      const subject = arg.inputs[0];
 
-			if (subject === '--') {
-				$[j] = {
-					inputs: $.splice(j, $.length)
-						.slice(1)
-						// what follows the terminator is not argv's to read, so each
-						// token goes through whole. `inputs` is the split form --
-						// `--foo=bar` was taken apart into a name and a value before
-						// anything knew a terminator preceded it -- and flattening that
-						// turned one extra argument into two
-						.flatMap((a) => (a.orig === undefined ? a.inputs : [a.orig])),
-					type: 'Extra',
-				};
-				break;
-			}
+      if (subject === '--') {
+        $[j] = {
+          inputs: $.splice(j, $.length)
+            .slice(1)
+            // what follows the terminator is not argv's to read, so each
+            // token goes through whole. `inputs` is the split form --
+            // `--foo=bar` was taken apart into a name and a value before
+            // anything knew a terminator preceded it -- and flattening that
+            // turned one extra argument into two
+            .flatMap((a) => (a.orig === undefined ? a.inputs : [a.orig])),
+          type: 'Extra',
+        };
+        break;
+      }
 
-			// commands only resolve against the innermost context, otherwise a
-			// token repeating a command name would match a second time
-			const cmd = contexts[0][Internal].commands.find(subject);
-			if (cmd) {
-				log(`Found command "${cmd.name}"`);
+      // commands only resolve against the innermost context, otherwise a
+      // token repeating a command name would match a second time
+      const cmd = contexts[0][Internal].commands.find(subject);
+      if (cmd) {
+        log(`Found command "${cmd.name}"`);
 
-				// the command has matched, so it joins the chain before the module
-				// behind it is loaded -- a module that will not load is an error
-				// this command's own `beforeError` hooks should still see
-				// the parent is the context the command was found in, read before
-				// the unshift puts `cmd` in front of it
-				const parent = contexts[0]!;
+        // the command has matched, so it joins the chain before the module
+        // behind it is loaded -- a module that will not load is an error
+        // this command's own `beforeError` hooks should still see
+        // the parent is the context the command was found in, read before
+        // the unshift puts `cmd` in front of it
+        const parent = contexts[0]!;
 
-				contexts.unshift(cmd);
-				state.cmd = cmd;
+        contexts.unshift(cmd);
+        state.cmd = cmd;
 
-				const loaded = await loadCommand(cmd, parent);
-				if (loaded !== cmd) {
-					// loading merged the module's exports into a new command object
-					contexts[0] = loaded;
-					state.cmd = loaded;
-				}
+        const loaded = await loadCommand(cmd, parent);
+        if (loaded !== cmd) {
+          // loading merged the module's exports into a new command object
+          contexts[0] = loaded;
+          state.cmd = loaded;
+        }
 
-				$[j] = {
-					cmd: loaded,
-					inputs: arg.inputs,
-					type: 'Command',
-				};
+        $[j] = {
+          cmd: loaded,
+          inputs: arg.inputs,
+          type: 'Command',
+        };
 
-				await loaded.hooks?.parse?.({ cmd: loaded, ...loaded[Internal] });
+        await loaded.hooks?.parse?.({ cmd: loaded, ...loaded[Internal] });
 
-				continue;
-			}
+        continue;
+      }
 
-			// options resolve against the whole chain so that a subcommand can
-			// use its parents' options, but only option-like tokens get to look:
-			// the registry also indexes bare names, so an unguarded lookup would
-			// resolve the positional value `foo` as the option `--foo`
-			const option = optionLikeRE.test(`${subject}`) ? findOption(contexts, subject) : undefined;
+      // options resolve against the whole chain so that a subcommand can
+      // use its parents' options, but only option-like tokens get to look:
+      // the registry also indexes bare names, so an unguarded lookup would
+      // resolve the positional value `foo` as the option `--foo`
+      const option = optionLikeRE.test(`${subject}`) ? findOption(contexts, subject) : undefined;
 
-			if (!option) {
-				const expanded = expandGroup(contexts, arg);
-				if (expanded) {
-					// reprocess starting at the first expanded entry
-					$.splice(j--, 1, ...expanded);
-				}
-				continue;
-			}
+      if (!option) {
+        const expanded = expandGroup(contexts, arg);
+        if (expanded) {
+          // reprocess starting at the first expanded entry
+          $.splice(j--, 1, ...expanded);
+        }
+        continue;
+      }
 
-			const { inputs } = arg;
-			const { type } = option;
-			const { isFlag, label } = option[Internal];
-			let value: unknown;
+      const { inputs } = arg;
+      const { type } = option;
+      const { isFlag, label } = option[Internal];
+      let value: unknown;
 
-			log(`Found ${label}`);
+      log(`Found ${label}`);
 
-			if (isFlag && type === 'count' && inputs.length > 1) {
-				// a counter reached with a value takes that value, the same way an
-				// explicit `--foo=false` beats the name a bool flag was reached by.
-				// Read as a `bool` it was either rejected for saying a number --
-				// `-v=2` threw `Invalid boolean: "2"` -- or accepted and then thrown
-				// away, because the counting path increments and never looks at the
-				// value, so `-v=false` counted up to 1
-				value = transformValue(`${inputs[1]}`, 'count');
-			} else if (isFlag) {
-				// `--foo` is true and `--no-foo` is false, but an explicit
-				// `--foo=false` beats the name it was reached by
-				const bool = inputs.length > 1 ? transformValue(`${inputs[1]}`, 'bool') : true;
-				value = isNegated(option, subject) ? !bool : bool;
-			} else {
-				const next = $[j + 1];
+      if (isFlag && type === 'count' && inputs.length > 1) {
+        // a counter reached with a value takes that value, the same way an
+        // explicit `--foo=false` beats the name a bool flag was reached by.
+        // Read as a `bool` it was either rejected for saying a number --
+        // `-v=2` threw `Invalid boolean: "2"` -- or accepted and then thrown
+        // away, because the counting path increments and never looks at the
+        // value, so `-v=false` counted up to 1
+        value = transformValue(`${inputs[1]}`, 'count');
+      } else if (isFlag) {
+        // `--foo` is true and `--no-foo` is false, but an explicit
+        // `--foo=false` beats the name it was reached by
+        const bool = inputs.length > 1 ? transformValue(`${inputs[1]}`, 'bool') : true;
+        value = isNegated(option, subject) ? !bool : bool;
+      } else {
+        const next = $[j + 1];
 
-				if (inputs.length > 1) {
-					value = inputs[1];
-				} else if (next && canBeValue(contexts, next)) {
-					value = next.orig ?? next.inputs[0];
-					inputs.push(value as string);
-					$.splice(j + 1, 1);
-				} else {
-					// an option that takes a value was given none. Required or not is a
-					// question about the *option* -- `<value>` means the option itself
-					// must appear, `[value]` means it need not -- and neither says the
-					// value may be left out. `--port=` is the way to give an empty one,
-					// and then the data type decides whether empty is a value it has
-					throw new Error(__`Missing value for option ${label}`);
-				}
-			}
+        if (inputs.length > 1) {
+          value = inputs[1];
+        } else if (next && canBeValue(contexts, next)) {
+          value = next.orig ?? next.inputs[0];
+          inputs.push(value as string);
+          $.splice(j + 1, 1);
+        } else {
+          // an option that takes a value was given none. Required or not is a
+          // question about the *option* -- `<value>` means the option itself
+          // must appear, `[value]` means it need not -- and neither says the
+          // value may be left out. `--port=` is the way to give an empty one,
+          // and then the data type decides whether empty is a value it has
+          throw new Error(__`Missing value for option ${label}`);
+        }
+      }
 
-			if (typeof option.transform === 'function') {
-				const result = await option.transform(value, state);
-				if (result !== undefined) {
-					value = result;
-				}
-			}
+      if (typeof option.transform === 'function') {
+        const result = await option.transform(value, state);
+        if (result !== undefined) {
+          value = result;
+        }
+      }
 
-			if (typeof value === 'string') {
-				value = transformValue(value, type);
-			}
+      if (typeof value === 'string') {
+        value = transformValue(value, type);
+      }
 
-			$[j] = {
-				inputs,
-				option,
-				type: 'Option',
-				value,
-			};
-		}
+      $[j] = {
+        inputs,
+        option,
+        type: 'Option',
+        value,
+      };
+    }
 
-		// this pass turned up no new context, so argv has named every command it
-		// is going to: whatever the innermost context calls its default command
-		// now stands in for the name that was never typed. Adopting it grows the
-		// chain, so the loop makes one more pass and resolves the options it
-		// declares -- and then asks it for a default of its own
-		if (pass === contexts.length - 1) {
-			await dispatchDefaultCommand(state, defaults);
-		}
-	}
+    // this pass turned up no new context, so argv has named every command it
+    // is going to: whatever the innermost context calls its default command
+    // now stands in for the name that was never typed. Adopting it grows the
+    // chain, so the loop makes one more pass and resolves the options it
+    // declares -- and then asks it for a default of its own
+    if (pass === contexts.length - 1) {
+      await dispatchDefaultCommand(state, defaults);
+    }
+  }
 
-	parseUnknownOptions(state);
+  parseUnknownOptions(state);
 }
 
 /**
@@ -740,56 +740,56 @@ async function parseArgv(state: ParseState): Promise<void> {
  * @param state - The parse state.
  */
 function parseUnknownOptions(state: ParseState): void {
-	const { $ } = state;
-	const allowed = state.settings?.allowUnknownOptions !== false;
+  const { $ } = state;
+  const allowed = state.settings?.allowUnknownOptions !== false;
 
-	for (let j = 0; j < $.length; j++) {
-		const arg = $[j];
+  for (let j = 0; j < $.length; j++) {
+    const arg = $[j];
 
-		if (arg.type !== 'Unknown') {
-			continue;
-		}
+    if (arg.type !== 'Unknown') {
+      continue;
+    }
 
-		const subject = arg.inputs[0];
-		const m = subject?.match(unknownOptionRE);
-		if (!m) {
-			continue;
-		}
+    const subject = arg.inputs[0];
+    const m = subject?.match(unknownOptionRE);
+    if (!m) {
+      continue;
+    }
 
-		if (!allowed) {
-			throw new Error(unknownOption(subject, state.contexts, state.settings));
-		}
+    if (!allowed) {
+      throw new Error(unknownOption(subject, state.contexts, state.settings));
+    }
 
-		log(`Found unknown option "${subject}"`);
+    log(`Found unknown option "${subject}"`);
 
-		const { inputs } = arg;
-		let value: unknown = true;
+    const { inputs } = arg;
+    let value: unknown = true;
 
-		if (inputs.length > 1) {
-			value = inputs[1];
-		} else {
-			const next = j + 1 < $.length ? $[j + 1] : undefined;
-			const following = next?.inputs[0];
-			if (next?.type === 'Unknown' && following !== '--' && !optionLikeRE.test(`${following}`)) {
-				value = next.orig ?? following;
-				inputs.push(value as string);
-				$.splice(j + 1, 1);
-			}
-		}
+    if (inputs.length > 1) {
+      value = inputs[1];
+    } else {
+      const next = j + 1 < $.length ? $[j + 1] : undefined;
+      const following = next?.inputs[0];
+      if (next?.type === 'Unknown' && following !== '--' && !optionLikeRE.test(`${following}`)) {
+        value = next.orig ?? following;
+        inputs.push(value as string);
+        $.splice(j + 1, 1);
+      }
+    }
 
-		if (typeof value === 'string') {
-			// nothing declared a data type for this, so guess at one
-			value = transformValue(value, 'auto');
-		}
+    if (typeof value === 'string') {
+      // nothing declared a data type for this, so guess at one
+      value = transformValue(value, 'auto');
+    }
 
-		$[j] = {
-			dest: camelCase(m[1] ?? m[2]),
-			inputs,
-			orig: arg.orig,
-			type: 'UnknownOption',
-			value,
-		};
-	}
+    $[j] = {
+      dest: camelCase(m[1] ?? m[2]),
+      inputs,
+      orig: arg.orig,
+      type: 'UnknownOption',
+      value,
+    };
+  }
 }
 
 /**
@@ -800,126 +800,126 @@ function parseUnknownOptions(state: ParseState): void {
  * @param state - The parse state.
  */
 export async function processArgs(state: ParseState): Promise<void> {
-	const ctx = state.contexts[0];
-	const internal = ctx[Internal];
+  const ctx = state.contexts[0];
+  const internal = ctx[Internal];
 
-	let argIdx = 0;
+  let argIdx = 0;
 
-	// loop through all parsed args and populate argv
-	for (let i = 0; i < state.$.length; i++) {
-		const parsed: ParsedBase = state.$[i];
-		const parsedType = parsed.type;
-		let inputs: unknown[] = parsed.inputs;
+  // loop through all parsed args and populate argv
+  for (let i = 0; i < state.$.length; i++) {
+    const parsed: ParsedBase = state.$[i];
+    const parsedType = parsed.type;
+    let inputs: unknown[] = parsed.inputs;
 
-		if (parsedType === 'Unknown') {
-			const arg = internal.args[argIdx++];
+    if (parsedType === 'Unknown') {
+      const arg = internal.args[argIdx++];
 
-			if (!state.settings?.allowUnexpectedArguments && !arg) {
-				throw new Error(unexpectedArgument(inputs[0], ctx, state.settings));
-			}
+      if (!state.settings?.allowUnexpectedArguments && !arg) {
+        throw new Error(unexpectedArgument(inputs[0], ctx, state.settings));
+      }
 
-			if (arg) {
-				const { multiple, type } = arg;
-				const { dest } = arg[Internal];
-				if (multiple) {
-					// gobble every remaining positional value, but with its own
-					// index: advancing `i` here would run the outer loop off the
-					// end and silently drop every option that follows
-					for (let k = i + 1; k < state.$.length; k++) {
-						const next: ParsedBase = state.$[k];
-						if (next.type === 'Unknown') {
-							inputs.push(...next.inputs);
-							state.$.splice(k--, 1);
-						}
-					}
-				}
+      if (arg) {
+        const { multiple, type } = arg;
+        const { dest } = arg[Internal];
+        if (multiple) {
+          // gobble every remaining positional value, but with its own
+          // index: advancing `i` here would run the outer loop off the
+          // end and silently drop every option that follows
+          for (let k = i + 1; k < state.$.length; k++) {
+            const next: ParsedBase = state.$[k];
+            if (next.type === 'Unknown') {
+              inputs.push(...next.inputs);
+              state.$.splice(k--, 1);
+            }
+          }
+        }
 
-				if (typeof arg.transform === 'function') {
-					const result = await arg.transform(multiple ? inputs : inputs[0], state);
-					if (result !== undefined) {
-						inputs = multiple && Array.isArray(result) ? result : [result];
-					}
-				}
+        if (typeof arg.transform === 'function') {
+          const result = await arg.transform(multiple ? inputs : inputs[0], state);
+          if (result !== undefined) {
+            inputs = multiple && Array.isArray(result) ? result : [result];
+          }
+        }
 
-				for (let i = 0, len = inputs.length; i < len; i++) {
-					if (typeof inputs[i] === 'string') {
-						inputs[i] = transformValue(inputs[i] as string, type);
-					}
-				}
+        for (let i = 0, len = inputs.length; i < len; i++) {
+          if (typeof inputs[i] === 'string') {
+            inputs[i] = transformValue(inputs[i] as string, type);
+          }
+        }
 
-				state.argv[dest] = multiple || !Array.isArray(inputs) ? inputs : inputs[0];
-				produced(state, dest, arg);
-			}
+        state.argv[dest] = multiple || !Array.isArray(inputs) ? inputs : inputs[0];
+        produced(state, dest, arg);
+      }
 
-			state._.push(...inputs);
-		} else if (parsedType === 'Extra') {
-			if (state.settings?.allowExtraArguments) {
-				state._.push(...inputs);
-			} else {
-				throw new Error(__`Extra arguments are not allowed: ${inputs.join(' ')}`);
-			}
-		} else if (parsedType === 'Option') {
-			const { option, value } = parsed as ParsedOption;
-			const { dest, isFlag, parserOwned } = option[Internal];
+      state._.push(...inputs);
+    } else if (parsedType === 'Extra') {
+      if (state.settings?.allowExtraArguments) {
+        state._.push(...inputs);
+      } else {
+        throw new Error(__`Extra arguments are not allowed: ${inputs.join(' ')}`);
+      }
+    } else if (parsedType === 'Option') {
+      const { option, value } = parsed as ParsedOption;
+      const { dest, isFlag, parserOwned } = option[Internal];
 
-			if (parserOwned) {
-				// the parser reads this one off `state.$`; it is not the app's value
-				continue;
-			}
+      if (parserOwned) {
+        // the parser reads this one off `state.$`; it is not the app's value
+        continue;
+      }
 
-			// accumulating reads the destination back, so it has to be this option's
-			// own value it reads: a destination can be shared -- a positional argument
-			// of the same name, a negated twin -- and the rule everywhere else is that
-			// the last writer wins rather than extends. A counter that incremented a
-			// positional's `10` made `-v` mean 11, and a `multiple` option that
-			// appended to a variadic argument's array made one list out of two
-			// declarations and then validated all of it against its own `choices`.
-			const mine = wrote(state, option);
+      // accumulating reads the destination back, so it has to be this option's
+      // own value it reads: a destination can be shared -- a positional argument
+      // of the same name, a negated twin -- and the rule everywhere else is that
+      // the last writer wins rather than extends. A counter that incremented a
+      // positional's `10` made `-v` mean 11, and a `multiple` option that
+      // appended to a variadic argument's array made one list out of two
+      // declarations and then validated all of it against its own `choices`.
+      const mine = wrote(state, option);
 
-			if (isFlag && option.type === 'count') {
-				// a counter reached with an explicit value was set by it rather than
-				// incremented, so `-v -v=5 -v` is 6 and not 3
-				if (typeof value === 'number') {
-					state.argv[dest] = value;
-				} else {
-					const count = mine ? resolved(state, dest) : undefined;
-					state.argv[dest] = typeof count !== 'number' ? 1 : count + 1;
-				}
-			} else if (option.multiple) {
-				if (mine && Array.isArray(resolved(state, dest))) {
-					(state.argv[dest] as unknown[]).push(value);
-				} else {
-					state.argv[dest] = [value];
-				}
-			} else {
-				state.argv[dest] = value;
-			}
+      if (isFlag && option.type === 'count') {
+        // a counter reached with an explicit value was set by it rather than
+        // incremented, so `-v -v=5 -v` is 6 and not 3
+        if (typeof value === 'number') {
+          state.argv[dest] = value;
+        } else {
+          const count = mine ? resolved(state, dest) : undefined;
+          state.argv[dest] = typeof count !== 'number' ? 1 : count + 1;
+        }
+      } else if (option.multiple) {
+        if (mine && Array.isArray(resolved(state, dest))) {
+          (state.argv[dest] as unknown[]).push(value);
+        } else {
+          state.argv[dest] = [value];
+        }
+      } else {
+        state.argv[dest] = value;
+      }
 
-			produced(state, dest, option);
-		} else if (parsedType === 'UnknownOption') {
-			const { dest, value } = parsed as ParsedUnknownOption;
+      produced(state, dest, option);
+    } else if (parsedType === 'UnknownOption') {
+      const { dest, value } = parsed as ParsedUnknownOption;
 
-			// an undeclared option never overwrites a destination a declared one owns.
-			// Its value was guessed with `auto`, and it reached here without the
-			// declared data type, `choices`, `multiple`, or `transform` -- so writing it
-			// would replace a value the schema described with one nothing described.
-			// What was typed is still on `state.$` for anything that wants it.
-			// asked here rather than once before the loop: an argument's `transform`
-			// runs inside it and may add an option, which the registries allow, and a
-			// set built up front would not know about it -- so the destination it now
-			// owns would take an undeclared write after all
-			if (!declares(state, dest)) {
-				state.argv[dest] = value;
-			}
-		}
-	}
+      // an undeclared option never overwrites a destination a declared one owns.
+      // Its value was guessed with `auto`, and it reached here without the
+      // declared data type, `choices`, `multiple`, or `transform` -- so writing it
+      // would replace a value the schema described with one nothing described.
+      // What was typed is still on `state.$` for anything that wants it.
+      // asked here rather than once before the loop: an argument's `transform`
+      // runs inside it and may add an option, which the registries allow, and a
+      // set built up front would not know about it -- so the destination it now
+      // owns would take an undeclared write after all
+      if (!declares(state, dest)) {
+        state.argv[dest] = value;
+      }
+    }
+  }
 
-	// every slot argv did not fill takes its environment variable, else its default
-	for (let i = internal.args.length - 1; i >= argIdx; i--) {
-		const arg = internal.args[i];
-		const { envs } = arg[Internal];
-		applyFallback(state, arg, envValue(state.env, envs) ?? arg.default);
-	}
+  // every slot argv did not fill takes its environment variable, else its default
+  for (let i = internal.args.length - 1; i >= argIdx; i--) {
+    const arg = internal.args[i];
+    const { envs } = arg[Internal];
+    applyFallback(state, arg, envValue(state.env, envs) ?? arg.default);
+  }
 }
 
 /**
@@ -950,69 +950,69 @@ export async function processArgs(state: ParseState): Promise<void> {
  * @returns Whether a missing required value should be let through.
  */
 function asked(state: ParseState): boolean {
-	return Boolean(state.help) || state.contexts[0][Internal].needsNoValues === true;
+  return Boolean(state.help) || state.contexts[0][Internal].needsNoValues === true;
 }
 
 export function validateArgs(state: ParseState): void {
-	const internal = state.contexts[0][Internal];
-	const missingArguments: string[] = [];
+  const internal = state.contexts[0][Internal];
+  const missingArguments: string[] = [];
 
-	for (let i = internal.args.length - 1; i >= 0; i--) {
-		const arg = internal.args[i];
-		const { name, required } = arg;
-		const { dest } = arg[Internal];
+  for (let i = internal.args.length - 1; i >= 0; i--) {
+    const arg = internal.args[i];
+    const { name, required } = arg;
+    const { dest } = arg[Internal];
 
-		// only a slot that is required and still empty. The walk is backwards, and it
-		// used to report every argument before one it had already found missing, to
-		// collect the trailing run of them -- which is the promotion rule said a
-		// second time and said less accurately. `initArgs()` already makes an
-		// optional argument sitting before a required one required, so each slot
-		// answers for itself, while the run also named a slot `applyFallback()` had
-		// just filled: `<a>` with a `default` and `<b>` with nothing reported both,
-		// and asked for a value the user had supplied
-		if (required && resolved(state, dest) === undefined) {
-			missingArguments.unshift(`<${name}>`);
-		}
-	}
+    // only a slot that is required and still empty. The walk is backwards, and it
+    // used to report every argument before one it had already found missing, to
+    // collect the trailing run of them -- which is the promotion rule said a
+    // second time and said less accurately. `initArgs()` already makes an
+    // optional argument sitting before a required one required, so each slot
+    // answers for itself, while the run also named a slot `applyFallback()` had
+    // just filled: `<a>` with a `default` and `<b>` with nothing reported both,
+    // and asked for a value the user had supplied
+    if (required && resolved(state, dest) === undefined) {
+      missingArguments.unshift(`<${name}>`);
+    }
+  }
 
-	if (missingArguments.length && !asked(state)) {
-		throw new Error(__`Missing required arguments: ${missingArguments.join(' ')}`);
-	}
+  if (missingArguments.length && !asked(state)) {
+    throw new Error(__`Missing required arguments: ${missingArguments.join(' ')}`);
+  }
 
-	// only what this argument produced: an option can share the destination, and its
-	// value answers to its own `choices` rather than to these
-	const live = liveDeclarations(state);
+  // only what this argument produced: an option can share the destination, and its
+  // value answers to its own `choices` rather than to these
+  const live = liveDeclarations(state);
 
-	for (const arg of internal.args) {
-		if (validates(state, arg, live)) {
-			assertChoices(arg.choices, resolved(state, arg[Internal].dest), __`argument <${arg.name}>`);
-		}
-	}
+  for (const arg of internal.args) {
+    if (validates(state, arg, live)) {
+      assertChoices(arg.choices, resolved(state, arg[Internal].dest), __`argument <${arg.name}>`);
+    }
+  }
 }
 
 export async function processOptions(state: ParseState): Promise<void> {
-	const all = state.contexts.flatMap((ctx) => [...ctx[Internal].options.values()]);
+  const all = state.contexts.flatMap((ctx) => [...ctx[Internal].options.values()]);
 
-	// every environment fallback is applied before any default, and both before
-	// anything is validated, so that a destination two options share — a valued
-	// option and its negated twin — keeps the same argv, then environment, then
-	// default precedence a lone option has, and is not reported missing just
-	// because the option that fills it comes second
-	for (const opt of all) {
-		const { envs, parserOwned } = opt[Internal];
-		if (!parserOwned) {
-			applyFallback(state, opt, envValue(state.env, envs));
-		}
-	}
+  // every environment fallback is applied before any default, and both before
+  // anything is validated, so that a destination two options share — a valued
+  // option and its negated twin — keeps the same argv, then environment, then
+  // default precedence a lone option has, and is not reported missing just
+  // because the option that fills it comes second
+  for (const opt of all) {
+    const { envs, parserOwned } = opt[Internal];
+    if (!parserOwned) {
+      applyFallback(state, opt, envValue(state.env, envs));
+    }
+  }
 
-	for (const opt of all) {
-		const { parserOwned, skipDefault } = opt[Internal];
+  for (const opt of all) {
+    const { parserOwned, skipDefault } = opt[Internal];
 
-		// the valued twin owns the default of the destination the two share
-		if (!skipDefault && !parserOwned) {
-			applyFallback(state, opt, opt.default);
-		}
-	}
+    // the valued twin owns the default of the destination the two share
+    if (!skipDefault && !parserOwned) {
+      applyFallback(state, opt, opt.default);
+    }
+  }
 }
 
 /**
@@ -1022,30 +1022,30 @@ export async function processOptions(state: ParseState): Promise<void> {
  * @param state - The parse state.
  */
 export function validateOptions(state: ParseState): void {
-	const missingOptions: string[] = [];
-	const all = state.contexts.flatMap((ctx) => [...ctx[Internal].options.values()]);
-	const live = liveDeclarations(state);
+  const missingOptions: string[] = [];
+  const all = state.contexts.flatMap((ctx) => [...ctx[Internal].options.values()]);
+  const live = liveDeclarations(state);
 
-	for (const opt of all) {
-		const { choices, required } = opt;
-		const { dest, label } = opt[Internal];
-		const value = resolved(state, dest);
-		const typed = state.$.some((parsed) => parsed.type === 'Option' && parsed.option === opt);
+  for (const opt of all) {
+    const { choices, required } = opt;
+    const { dest, label } = opt[Internal];
+    const value = resolved(state, dest);
+    const typed = state.$.some((parsed) => parsed.type === 'Option' && parsed.option === opt);
 
-		if (required && !typed && value === undefined) {
-			missingOptions.unshift(label);
-		}
+    if (required && !typed && value === undefined) {
+      missingOptions.unshift(label);
+    }
 
-		// only what this option produced. A destination can have more than one
-		// writer -- a negated twin, a positional argument of the same name, a
-		// nearer context's option of the same destination -- and each of them has
-		// its own `choices`, so a value belongs to whichever one wrote it
-		if (validates(state, opt, live)) {
-			assertChoices(choices, value, __`option ${label}`);
-		}
-	}
+    // only what this option produced. A destination can have more than one
+    // writer -- a negated twin, a positional argument of the same name, a
+    // nearer context's option of the same destination -- and each of them has
+    // its own `choices`, so a value belongs to whichever one wrote it
+    if (validates(state, opt, live)) {
+      assertChoices(choices, value, __`option ${label}`);
+    }
+  }
 
-	if (missingOptions.length && !asked(state)) {
-		throw new Error(__`Missing required options: ${missingOptions.join(' ')}`);
-	}
+  if (missingOptions.length && !asked(state)) {
+    throw new Error(__`Missing required options: ${missingOptions.join(' ')}`);
+  }
 }

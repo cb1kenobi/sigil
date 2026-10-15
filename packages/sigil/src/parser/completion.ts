@@ -70,73 +70,73 @@ import { initCommand } from './command/init-command.js';
  * @param schema - The schema, for `completion: false`.
  */
 export async function registerCompletion(root: InternalCommand, schema: Schema): Promise<void> {
-	if (schema.completion === false) {
-		return;
-	}
+  if (schema.completion === false) {
+    return;
+  }
 
-	const internal = root[Internal];
+  const internal = root[Internal];
 
-	// `find()` answers about the aliases as well as the name, which is what has
-	// to be free: an app whose `shell` command is aliased `completion` would
-	// otherwise have that alias quietly repointed at this one
-	if (internal.commands.find('completion')) {
-		return;
-	}
+  // `find()` answers about the aliases as well as the name, which is what has
+  // to be free: an app whose `shell` command is aliased `completion` would
+  // otherwise have that alias quietly repointed at this one
+  if (internal.commands.find('completion')) {
+    return;
+  }
 
-	const command = await initCommand({
-		args: [
-			{
-				choices: SHELL_NAMES,
-				desc: __`The shell to generate for`,
-				// optional, because `Missing required arguments: <shell>` is the
-				// worst answer available to "set up completion for me": it names
-				// the grammar rather than the thing to do, and the reader does not
-				// necessarily know which shell they are in. Named, it prints the
-				// script; omitted, it says how to install one for the shell it
-				// found. An invalid name is still an error, because `choices` is
-				// judged on the way in
-				name: '[shell]',
-			},
-		],
-		desc: __`Print a shell completion script`,
-		name: 'completion',
+  const command = await initCommand({
+    args: [
+      {
+        choices: SHELL_NAMES,
+        desc: __`The shell to generate for`,
+        // optional, because `Missing required arguments: <shell>` is the
+        // worst answer available to "set up completion for me": it names
+        // the grammar rather than the thing to do, and the reader does not
+        // necessarily know which shell they are in. Named, it prints the
+        // script; omitted, it says how to install one for the shell it
+        // found. An invalid name is still an error, because `choices` is
+        // judged on the way in
+        name: '[shell]',
+      },
+    ],
+    desc: __`Print a shell completion script`,
+    name: 'completion',
 
-		async run(state: ParseState) {
-			const { completionScript } = await import('../completion/index.js');
-			const { detectShell, instructions } = await import('../completion/install.js');
+    async run(state: ParseState) {
+      const { completionScript } = await import('../completion/index.js');
+      const { detectShell, instructions } = await import('../completion/install.js');
 
-			// `choices` has judged it by the time any `run` is reached, so a string
-			// here is one of the shells
-			const named = state.argv.shell;
-			if (typeof named === 'string') {
-				process.stdout.write(await completionScript(state, named));
-				return;
-			}
+      // `choices` has judged it by the time any `run` is reached, so a string
+      // here is one of the shells
+      const named = state.argv.shell;
+      if (typeof named === 'string') {
+        process.stdout.write(await completionScript(state, named));
+        return;
+      }
 
-			const program = state.schema.name ?? 'app';
-			const shell = detectShell(process.env);
+      const program = state.schema.name ?? 'app';
+      const shell = detectShell(process.env);
 
-			// stderr and a non-zero exit, because this is the better *error*
-			// rather than an answer: `app completion > file` must not write
-			// instructions into what the reader wanted a script in, and a script
-			// that checked the exit code still sees that no shell was named. What
-			// makes it exit zero is having actually installed something, which is
-			// the installer's to do
-			process.stderr.write(
-				shell
-					? `${__`Set up completion for ${program}, detected ${shell}:`}\n\n${instructions(shell, program)}`
-					: `${__`Name a shell to set up completion for ${program}:`}\n\n${SHELL_NAMES.map(
-							(name) => `    ${program} completion ${name}\n`
-						).join('')}\n`
-			);
-			process.exitCode = 1;
-		},
-	});
+      // stderr and a non-zero exit, because this is the better *error*
+      // rather than an answer: `app completion > file` must not write
+      // instructions into what the reader wanted a script in, and a script
+      // that checked the exit code still sees that no shell was named. What
+      // makes it exit zero is having actually installed something, which is
+      // the installer's to do
+      process.stderr.write(
+        shell
+          ? `${__`Set up completion for ${program}, detected ${shell}:`}\n\n${instructions(shell, program)}`
+          : `${__`Name a shell to set up completion for ${program}:`}\n\n${SHELL_NAMES.map(
+              (name) => `    ${program} completion ${name}\n`
+            ).join('')}\n`
+      );
+      process.exitCode = 1;
+    },
+  });
 
-	// what makes `app completion zsh` reachable on an app with a required global
-	// option: the script is a function of the schema, so a value argv did not
-	// carry is not missing from anything. See `needsNoValues`
-	command[Internal].needsNoValues = true;
+  // what makes `app completion zsh` reachable on an app with a required global
+  // option: the script is a function of the schema, so a value argv did not
+  // carry is not missing from anything. See `needsNoValues`
+  command[Internal].needsNoValues = true;
 
-	internal.commands.add(command);
+  internal.commands.add(command);
 }

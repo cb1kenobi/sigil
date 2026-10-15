@@ -32,14 +32,14 @@ export type { Reactive };
 
 /** What may appear as a child. A function child is reactive text. */
 export type Children =
-	| Children[]
-	| SigilElement
-	| boolean
-	| null
-	| number
-	| string
-	| undefined
-	| (() => unknown);
+  | Children[]
+  | SigilElement
+  | boolean
+  | null
+  | number
+  | string
+  | undefined
+  | (() => unknown);
 
 /**
  * What a host element accepts: its children, and every style property.
@@ -50,7 +50,7 @@ export type Children =
  * listed, so this stays true as properties are added.
  */
 export type HostProps = StyleHostProps & {
-	children?: Children;
+  children?: Children;
 };
 
 /**
@@ -62,11 +62,11 @@ export type HostProps = StyleHostProps & {
  * @returns The element.
  */
 export function jsx(
-	type: ComponentRef | string,
-	props: Record<string, unknown>,
-	key?: number | string
+  type: ComponentRef | string,
+  props: Record<string, unknown>,
+  key?: number | string
 ): SigilElement {
-	return build(type, props, key, false);
+  return build(type, props, key, false);
 }
 
 /**
@@ -80,30 +80,30 @@ export function jsx(
  * @returns The element.
  */
 export function build(
-	type: ComponentRef | string,
-	props: Record<string, unknown>,
-	key: number | string | undefined,
-	many: boolean,
-	loc?: SourceLocation
+  type: ComponentRef | string,
+  props: Record<string, unknown>,
+  key: number | string | undefined,
+  many: boolean,
+  loc?: SourceLocation
 ): SigilElement {
-	const { children, ...rest } = props;
-	const irProps: IRProp[] = Object.entries(rest).map(([name, value]) => ({ name, value }));
+  const { children, ...rest } = props;
+  const irProps: IRProp[] = Object.entries(rest).map(([name, value]) => ({ name, value }));
 
-	if (key !== undefined) {
-		irProps.push({ name: 'key', value: key });
-	}
+  if (key !== undefined) {
+    irProps.push({ name: 'key', value: key });
+  }
 
-	const list = many && Array.isArray(children) ? children : [children];
-	const kids = children === undefined ? [] : list.flatMap((child) => toChildren(child, loc));
+  const list = many && Array.isArray(children) ? children : [children];
+  const kids = children === undefined ? [] : list.flatMap((child) => toChildren(child, loc));
 
-	return emit({ children: kids, kind: 'element', loc, props: irProps, type });
+  return emit({ children: kids, kind: 'element', loc, props: irProps, type });
 }
 
 /** What the transform calls, whichever of the three names it picks. */
 export type JsxFactory = (
-	type: ComponentRef | string,
-	props: Record<string, unknown>,
-	key?: number | string
+  type: ComponentRef | string,
+  props: Record<string, unknown>,
+  key?: number | string
 ) => SigilElement;
 
 /**
@@ -133,10 +133,10 @@ export const jsxDEV: JsxFactory = jsx;
  * @throws Always.
  */
 export function Fragment(): never {
-	throw new Error(
-		'sigil has no fragment: a component produces exactly one node. ' +
-			'Wrap the group in <box> and give it the layout it would have had.'
-	);
+  throw new Error(
+    'sigil has no fragment: a component produces exactly one node. ' +
+      'Wrap the group in <box> and give it the layout it would have had.'
+  );
 }
 
 /**
@@ -147,18 +147,18 @@ export function Fragment(): never {
  * @returns The children as IR.
  */
 function toChildren(child: unknown, loc: SourceLocation | undefined): IRNode[] {
-	if (child === undefined) {
-		return [];
-	}
+  if (child === undefined) {
+    return [];
+  }
 
-	// an array is *one* child here: `jsxs` has already spread the list it was
-	// given, so anything still an array is a value the author wrote, and
-	// `appendValue()` flattens it the same way the tag's `${[a, b]}` is flattened
-	if (typeof child === 'string') {
-		return [{ kind: 'text', loc, value: child }];
-	}
+  // an array is *one* child here: `jsxs` has already spread the list it was
+  // given, so anything still an array is a value the author wrote, and
+  // `appendValue()` flattens it the same way the tag's `${[a, b]}` is flattened
+  if (typeof child === 'string') {
+    return [{ kind: 'text', loc, value: child }];
+  }
 
-	return [{ kind: 'slot', loc, value: child }];
+  return [{ kind: 'slot', loc, value: child }];
 }
 
 /**
@@ -167,21 +167,21 @@ function toChildren(child: unknown, loc: SourceLocation | undefined): IRNode[] {
  * Type-only, so it erases to nothing.
  */
 export declare namespace JSX {
-	/** What an expression in JSX position produces. */
-	type Element = SigilElement;
+  /** What an expression in JSX position produces. */
+  type Element = SigilElement;
 
-	/** The prop `children` arrives under. */
-	interface ElementChildrenAttribute {
-		children: Record<string, never>;
-	}
+  /** The prop `children` arrives under. */
+  interface ElementChildrenAttribute {
+    children: Record<string, never>;
+  }
 
-	/** The host types, and nothing else -- a typo is an error rather than a guess. */
-	interface IntrinsicElements {
-		box: HostProps;
-		raw: HostProps & {
-			measure: (availableWidth: number) => Measurement;
-			paint: (...args: never[]) => void;
-		};
-		text: HostProps;
-	}
+  /** The host types, and nothing else -- a typo is an error rather than a guess. */
+  interface IntrinsicElements {
+    box: HostProps;
+    raw: HostProps & {
+      measure: (availableWidth: number) => Measurement;
+      paint: (...args: never[]) => void;
+    };
+    text: HostProps;
+  }
 }

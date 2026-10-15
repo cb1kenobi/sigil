@@ -23,17 +23,17 @@ const count = new State(1);
 const items = new State(['parser', 'canvas']);
 
 const frames = createRoot((dispose) => {
-	const element = Counter({ count, items });
-	flush();
-	const before = renderToString(element, { colorLevel: 0, width: 30 });
+  const element = Counter({ count, items });
+  flush();
+  const before = renderToString(element, { colorLevel: 0, width: 30 });
 
-	count.set(3);
-	items.set(['parser', 'canvas', 'layout']);
-	flush();
-	const after = renderToString(element, { colorLevel: 0, width: 30 });
+  count.set(3);
+  items.set(['parser', 'canvas', 'layout']);
+  flush();
+  const after = renderToString(element, { colorLevel: 0, width: 30 });
 
-	dispose();
-	return { after, before };
+  dispose();
+  return { after, before };
 });
 
 console.log(JSON.stringify(frames));

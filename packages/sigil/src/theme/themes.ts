@@ -83,7 +83,7 @@ export const MONO = `
 .sigil-info { color: initial; italic: true }
 
 @media (prefers-color-scheme: light) {
-	.sigil-muted { color: gray; dim: false }
+  .sigil-muted { color: gray; dim: false }
 }
 `;
 
@@ -103,23 +103,23 @@ export const PHOSPHOR = `
 .sigil-info { color: cyan }
 
 @media (min-color-level: 2) {
-	.sigil-accent { color: palette(46) }
-	.sigil-muted { color: palette(243) }
-	.sigil-heading { color: palette(83) }
-	.sigil-success { color: palette(46) }
-	.sigil-error { color: palette(203) }
-	.sigil-warn { color: palette(227) }
-	.sigil-info { color: palette(51) }
+  .sigil-accent { color: palette(46) }
+  .sigil-muted { color: palette(243) }
+  .sigil-heading { color: palette(83) }
+  .sigil-success { color: palette(46) }
+  .sigil-error { color: palette(203) }
+  .sigil-warn { color: palette(227) }
+  .sigil-info { color: palette(51) }
 }
 
 @media (min-color-level: 2) and (prefers-color-scheme: light) {
-	.sigil-accent { color: palette(28) }
-	.sigil-muted { color: palette(241) }
-	.sigil-heading { color: palette(22) }
-	.sigil-success { color: palette(28) }
-	.sigil-error { color: palette(160) }
-	.sigil-warn { color: palette(130) }
-	.sigil-info { color: palette(30) }
+  .sigil-accent { color: palette(28) }
+  .sigil-muted { color: palette(241) }
+  .sigil-heading { color: palette(22) }
+  .sigil-success { color: palette(28) }
+  .sigil-error { color: palette(160) }
+  .sigil-warn { color: palette(130) }
+  .sigil-info { color: palette(30) }
 }
 `;
 
@@ -136,23 +136,23 @@ export const VIOLET = `
 .sigil-info { color: blue }
 
 @media (min-color-level: 2) {
-	.sigil-accent { color: palette(171) }
-	.sigil-muted { color: palette(243) }
-	.sigil-heading { color: palette(183) }
-	.sigil-success { color: palette(120) }
-	.sigil-error { color: palette(203) }
-	.sigil-warn { color: palette(221) }
-	.sigil-info { color: palette(111) }
+  .sigil-accent { color: palette(171) }
+  .sigil-muted { color: palette(243) }
+  .sigil-heading { color: palette(183) }
+  .sigil-success { color: palette(120) }
+  .sigil-error { color: palette(203) }
+  .sigil-warn { color: palette(221) }
+  .sigil-info { color: palette(111) }
 }
 
 @media (min-color-level: 2) and (prefers-color-scheme: light) {
-	.sigil-accent { color: palette(127) }
-	.sigil-muted { color: palette(241) }
-	.sigil-heading { color: palette(90) }
-	.sigil-success { color: palette(28) }
-	.sigil-error { color: palette(160) }
-	.sigil-warn { color: palette(130) }
-	.sigil-info { color: palette(26) }
+  .sigil-accent { color: palette(127) }
+  .sigil-muted { color: palette(241) }
+  .sigil-heading { color: palette(90) }
+  .sigil-success { color: palette(28) }
+  .sigil-error { color: palette(160) }
+  .sigil-warn { color: palette(130) }
+  .sigil-info { color: palette(26) }
 }
 `;
 
@@ -170,23 +170,23 @@ export const AMBER = `
 .sigil-info { color: magenta }
 
 @media (min-color-level: 2) {
-	.sigil-accent { color: palette(214) }
-	.sigil-muted { color: palette(243) }
-	.sigil-heading { color: palette(222) }
-	.sigil-success { color: palette(148) }
-	.sigil-error { color: palette(203) }
-	.sigil-warn { color: palette(220) }
-	.sigil-info { color: palette(176) }
+  .sigil-accent { color: palette(214) }
+  .sigil-muted { color: palette(243) }
+  .sigil-heading { color: palette(222) }
+  .sigil-success { color: palette(148) }
+  .sigil-error { color: palette(203) }
+  .sigil-warn { color: palette(220) }
+  .sigil-info { color: palette(176) }
 }
 
 @media (min-color-level: 2) and (prefers-color-scheme: light) {
-	.sigil-accent { color: palette(166) }
-	.sigil-muted { color: palette(241) }
-	.sigil-heading { color: palette(130) }
-	.sigil-success { color: palette(28) }
-	.sigil-error { color: palette(160) }
-	.sigil-warn { color: palette(94) }
-	.sigil-info { color: palette(97) }
+  .sigil-accent { color: palette(166) }
+  .sigil-muted { color: palette(241) }
+  .sigil-heading { color: palette(130) }
+  .sigil-success { color: palette(28) }
+  .sigil-error { color: palette(160) }
+  .sigil-warn { color: palette(94) }
+  .sigil-info { color: palette(97) }
 }
 `;
 
@@ -208,22 +208,22 @@ export const NEON = `
 .sigil-info { color: cyan }
 
 @media (min-color-level: 2) {
-	.sigil-accent { color: palette(201) }
-	.sigil-muted { color: palette(243) }
-	.sigil-heading { color: palette(51) }
-	.sigil-success { color: palette(118) }
-	.sigil-error { color: palette(203) }
-	.sigil-warn { color: palette(227) }
-	.sigil-info { color: palette(45) }
+  .sigil-accent { color: palette(201) }
+  .sigil-muted { color: palette(243) }
+  .sigil-heading { color: palette(51) }
+  .sigil-success { color: palette(118) }
+  .sigil-error { color: palette(203) }
+  .sigil-warn { color: palette(227) }
+  .sigil-info { color: palette(45) }
 }
 
 @media (min-color-level: 2) and (prefers-color-scheme: light) {
-	.sigil-accent { color: palette(162) }
-	.sigil-muted { color: palette(241) }
-	.sigil-heading { color: palette(31) }
-	.sigil-success { color: palette(28) }
-	.sigil-error { color: palette(160) }
-	.sigil-warn { color: palette(130) }
-	.sigil-info { color: palette(24) }
+  .sigil-accent { color: palette(162) }
+  .sigil-muted { color: palette(241) }
+  .sigil-heading { color: palette(31) }
+  .sigil-success { color: palette(28) }
+  .sigil-error { color: palette(160) }
+  .sigil-warn { color: palette(130) }
+  .sigil-info { color: palette(24) }
 }
 `;

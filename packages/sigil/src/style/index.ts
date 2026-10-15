@@ -30,155 +30,155 @@
 
 import { readSettings, resolveKeyword } from './declaration.js';
 import {
-	initialStyle,
-	inheritFrom,
-	isProperty,
-	type PropertyName,
-	type Style,
+  initialStyle,
+  inheritFrom,
+  isProperty,
+  type PropertyName,
+  type Style,
 } from './properties.js';
 import { isShorthand } from './shorthand.js';
 
 export {
-	type AliasName,
-	type AlignContent,
-	ANIMATABLE_PROPERTIES,
-	type AnimationDirection,
-	type AnimationFillMode,
-	type AlignItems,
-	type AlignSelf,
-	type BoxSizing,
-	type BorderStyle,
-	type Display,
-	type FlexDirection,
-	type FlexWrap,
-	COLOR_PROPERTIES,
-	LAYOUT_PROPERTIES,
-	inheritFrom,
-	INHERITED,
-	initialStyle,
-	INTERPOLATION,
-	type Interpolation,
-	isProperty,
-	type JustifyContent,
-	kebab,
-	type Overflow,
-	parseDeclaration,
-	type Position,
-	PROPERTIES,
-	PROPERTY_NAMES,
-	type PropertyName,
-	type Style,
-	type TextAlign,
-	type TextOverflow,
-	type TextTransform,
-	type TransitionProperty,
-	type Visibility,
-	type WhiteSpace,
+  type AliasName,
+  type AlignContent,
+  ANIMATABLE_PROPERTIES,
+  type AnimationDirection,
+  type AnimationFillMode,
+  type AlignItems,
+  type AlignSelf,
+  type BoxSizing,
+  type BorderStyle,
+  type Display,
+  type FlexDirection,
+  type FlexWrap,
+  COLOR_PROPERTIES,
+  LAYOUT_PROPERTIES,
+  inheritFrom,
+  INHERITED,
+  initialStyle,
+  INTERPOLATION,
+  type Interpolation,
+  isProperty,
+  type JustifyContent,
+  kebab,
+  type Overflow,
+  parseDeclaration,
+  type Position,
+  PROPERTIES,
+  PROPERTY_NAMES,
+  type PropertyName,
+  type Style,
+  type TextAlign,
+  type TextOverflow,
+  type TextTransform,
+  type TransitionProperty,
+  type Visibility,
+  type WhiteSpace,
 } from './properties.js';
 export {
-	Cascade,
-	type CascadeResult,
-	type Matched,
-	type PropValues,
-	type ResolveOptions,
-	applyProps,
+  Cascade,
+  type CascadeResult,
+  type Matched,
+  type PropValues,
+  type ResolveOptions,
+  applyProps,
 } from './cascade.js';
 export { type AnimationFrame, Animator } from './animate.js';
 export {
-	degradeColor,
-	degradeInto,
-	degradeStyle,
-	mixColors,
-	oklab,
-	paletteRgb,
-	rgbFromOklab,
+  degradeColor,
+  degradeInto,
+  degradeStyle,
+  mixColors,
+  oklab,
+  paletteRgb,
+  rgbFromOklab,
 } from './degrade.js';
 export { ease, type Easing, LINEAR, parseEasing, type StepPosition } from './easing.js';
 export { interpolate } from './interpolate.js';
 export { forcedMotion, type ReducedMotion } from './motion.js';
 export {
-	type ColorScheme,
-	forcedScheme,
-	luminance,
-	SCHEME_MIDPOINT,
-	schemeForBackground,
-	schemeFromEnv,
-	schemeFromTerminalEnv,
+  type ColorScheme,
+  forcedScheme,
+  luminance,
+  SCHEME_MIDPOINT,
+  schemeForBackground,
+  schemeFromEnv,
+  schemeFromTerminalEnv,
 } from './scheme.js';
 export {
-	type Dirty,
-	DIRTY_ORDER,
-	type StyleTarget,
-	type Update,
-	difference,
-	Restyler,
+  type Dirty,
+  DIRTY_ORDER,
+  type StyleTarget,
+  type Update,
+  difference,
+  Restyler,
 } from './invalidate.js';
 export {
-	type Setting,
-	type WideKeyword,
-	longhandsFor,
-	readSettings,
-	resolveKeyword,
-	wideKeyword,
+  type Setting,
+  type WideKeyword,
+  longhandsFor,
+  readSettings,
+  resolveKeyword,
+  wideKeyword,
 } from './declaration.js';
 export {
-	type Combinator,
-	type Compound,
-	type Selector,
-	type Simple,
-	type Specificity,
-	type Step,
-	type StyleNode,
-	type StyleState,
-	compareSpecificity,
-	keysFor,
-	matches,
-	parseSelector,
-	parseSelectorList,
-	STATES,
-	UNIVERSAL_KEY,
+  type Combinator,
+  type Compound,
+  type Selector,
+  type Simple,
+  type Specificity,
+  type Step,
+  type StyleNode,
+  type StyleState,
+  compareSpecificity,
+  keysFor,
+  matches,
+  parseSelector,
+  parseSelectorList,
+  STATES,
+  UNIVERSAL_KEY,
 } from './selector.js';
 export {
-	expandShorthand,
-	isShorthand,
-	SHORTHAND_NAMES,
-	type ShorthandName,
-	shorthandLonghands,
+  expandShorthand,
+  isShorthand,
+  SHORTHAND_NAMES,
+  type ShorthandName,
+  shorthandLonghands,
 } from './shorthand.js';
 export {
-	type Keyframe,
-	type Keyframes,
-	type Layer,
-	type MediaCondition,
-	type MediaContext,
-	type MediaFeature,
-	type MediaQuery,
-	type MediaQueryList,
-	type Origin,
-	type Rule,
-	type RuleDeclaration,
-	type Stylesheet,
-	type StylesheetOptions,
-	DEFAULT_MEDIA,
-	LAYERS,
-	matchesMedia,
-	ORIGINS,
-	parseMediaQueryList,
-	parseStylesheet,
+  type Keyframe,
+  type Keyframes,
+  type Layer,
+  type MediaCondition,
+  type MediaContext,
+  type MediaFeature,
+  type MediaQuery,
+  type MediaQueryList,
+  type Origin,
+  type Rule,
+  type RuleDeclaration,
+  type Stylesheet,
+  type StylesheetOptions,
+  DEFAULT_MEDIA,
+  LAYERS,
+  matchesMedia,
+  ORIGINS,
+  parseMediaQueryList,
+  parseStylesheet,
 } from './stylesheet.js';
 export {
-	AUTO,
-	cells,
-	type Length,
-	NONE,
-	parseBoolean,
-	parseColor,
-	parseInteger,
-	parseIterations,
-	parseLength,
-	parseTime,
-	percent,
-	StyleError,
+  AUTO,
+  cells,
+  type Length,
+  NONE,
+  parseBoolean,
+  parseColor,
+  parseInteger,
+  parseIterations,
+  parseLength,
+  parseTime,
+  percent,
+  StyleError,
 } from './value.js';
 export { UTILITY_CSS } from './utilities.js';
 import { parseStylesheet, type Stylesheet } from './stylesheet.js';
@@ -219,8 +219,8 @@ let utility: Stylesheet | undefined;
  * @returns The utility sheet.
  */
 export function utilitySheet(): Stylesheet {
-	utility ??= parseStylesheet(UTILITY_CSS);
-	return utility;
+  utility ??= parseStylesheet(UTILITY_CSS);
+  return utility;
 }
 
 /** One declaration, as written: a property or shorthand, and its value. */
@@ -242,22 +242,22 @@ export type Declarations = Record<string, string>;
  * @returns The properties and their parsed values.
  */
 export function readDeclarations(
-	declarations: Declarations
+  declarations: Declarations
 ): Partial<Record<PropertyName, unknown>> {
-	const out: Partial<Record<PropertyName, unknown>> = {};
+  const out: Partial<Record<PropertyName, unknown>> = {};
 
-	for (const [name, value] of Object.entries(declarations)) {
-		for (const setting of readSettings(name, value)) {
-			if (setting.keyword) {
-				throw new StyleError(
-					`"${setting.keyword}" is a cascade keyword: it means nothing without a cascade to resolve it against`
-				);
-			}
-			out[setting.property] = setting.value;
-		}
-	}
+  for (const [name, value] of Object.entries(declarations)) {
+    for (const setting of readSettings(name, value)) {
+      if (setting.keyword) {
+        throw new StyleError(
+          `"${setting.keyword}" is a cascade keyword: it means nothing without a cascade to resolve it against`
+        );
+      }
+      out[setting.property] = setting.value;
+    }
+  }
 
-	return out;
+  return out;
 }
 
 /**
@@ -274,15 +274,15 @@ export function readDeclarations(
  * @returns The resolved style.
  */
 export function declare(declarations: Declarations = {}, parent?: Style): Style {
-	const style = (parent ? inheritFrom(parent) : initialStyle()) as Record<PropertyName, unknown>;
-	for (const [name, value] of Object.entries(declarations)) {
-		for (const setting of readSettings(name, value)) {
-			style[setting.property] = setting.keyword
-				? resolveKeyword(setting.keyword, setting.property, parent)
-				: setting.value;
-		}
-	}
-	return style as Style;
+  const style = (parent ? inheritFrom(parent) : initialStyle()) as Record<PropertyName, unknown>;
+  for (const [name, value] of Object.entries(declarations)) {
+    for (const setting of readSettings(name, value)) {
+      style[setting.property] = setting.keyword
+        ? resolveKeyword(setting.keyword, setting.property, parent)
+        : setting.value;
+    }
+  }
+  return style as Style;
 }
 
 /**
@@ -292,9 +292,9 @@ export function declare(declarations: Declarations = {}, parent?: Style): Style 
  * @returns Whether a declaration of it would be read.
  */
 export function isKnownProperty(name: string): boolean {
-	// asked directly rather than by parsing an empty value and reading the error
-	// message, which is what this used to do: that made the answer depend on the
-	// exact wording of a string in another module, and on no property's parser
-	// ever failing for a different reason that happened to read the same way
-	return isShorthand(name) || isProperty(name);
+  // asked directly rather than by parsing an empty value and reading the error
+  // message, which is what this used to do: that made the answer depend on the
+  // exact wording of a string in another module, and on no property's parser
+  // ever failing for a different reason that happened to read the same way
+  return isShorthand(name) || isProperty(name);
 }

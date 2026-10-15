@@ -32,12 +32,12 @@
 import { strip } from '../ansi/index.js';
 import { cellWidth, type Random, seeded } from '../canvas/index.js';
 import {
-	box,
-	cellStyle,
-	type Element,
-	raw,
-	type RawPaint,
-	toDisplayText,
+  box,
+  cellStyle,
+  type Element,
+  raw,
+  type RawPaint,
+  toDisplayText,
 } from '../element/index.js';
 import { createEffect, onCleanup } from '../renderer/index.js';
 import { State } from '../signals/index.js';
@@ -101,10 +101,10 @@ export { type Random, seeded };
  * character being hidden where two read as two.
  */
 export interface MaskAlphabet {
-	/** Glyphs that occupy one column. */
-	readonly narrow: readonly string[];
-	/** Strings that occupy two. One wide glyph, or two narrow ones. */
-	readonly wide: readonly string[];
+  /** Glyphs that occupy one column. */
+  readonly narrow: readonly string[];
+  /** Strings that occupy two. One wide glyph, or two narrow ones. */
+  readonly wide: readonly string[];
 }
 
 /**
@@ -124,14 +124,14 @@ export interface MaskAlphabet {
  * is the width its half promises, and no entry is repeated.
  */
 export const CP437: MaskAlphabet = {
-	narrow: [
-		...'░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀',
-		...'αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■',
-		...'!#$%&*+/<=>?@\\^~',
-	],
-	wide: [
-		...'！＃＄％＆＊＋／＜＝＞？＠＼＾～０１２３４５６７８９ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺ',
-	],
+  narrow: [
+    ...'░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀',
+    ...'αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■',
+    ...'!#$%&*+/<=>?@\\^~',
+  ],
+  wide: [
+    ...'！＃＄％＆＊＋／＜＝＞？＠＼＾～０１２３４５６７８９ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺ',
+  ],
 };
 
 /**
@@ -142,8 +142,8 @@ export const CP437: MaskAlphabet = {
  * `MaskAlphabet` gives -- no printable ASCII character is two columns.
  */
 export const ASCII: MaskAlphabet = {
-	narrow: [...'!#$%&*+-/0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_{|}~'],
-	wide: ['##', '%%', '&&', '**', '++', '//', '<>', '==', '?@', '[]', '{}', '~~', '$$', '@@', '&%'],
+  narrow: [...'!#$%&*+-/0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_{|}~'],
+  wide: ['##', '%%', '&&', '**', '++', '//', '<>', '==', '?@', '[]', '{}', '~~', '$$', '@@', '&%'],
 };
 
 /**
@@ -166,8 +166,8 @@ export const ASCII: MaskAlphabet = {
  * @returns A number in `[0, 1]`.
  */
 function unit(random: Random): number {
-	const value = random();
-	return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0;
+  const value = random();
+  return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0;
 }
 
 /**
@@ -178,7 +178,7 @@ function unit(random: Random): number {
  * @returns The entry.
  */
 function pick<T>(list: readonly T[], fraction: number): T {
-	return list[Math.min(list.length - 1, Math.floor(fraction * list.length))] as T;
+  return list[Math.min(list.length - 1, Math.floor(fraction * list.length))] as T;
 }
 
 /**
@@ -197,39 +197,39 @@ function pick<T>(list: readonly T[], fraction: number): T {
  * @returns The duration.
  */
 function ms(value: number | undefined, fallback: number): number {
-	return value !== undefined && Number.isFinite(value) && value >= 0 ? value : fallback;
+  return value !== undefined && Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
 /** One cell of the text: what it really is, and when it stops hiding. */
 export interface DecryptCell {
-	/** The real grapheme cluster. */
-	readonly cluster: string;
-	/** Whether anything hides it at all. */
-	readonly hidden: boolean;
-	/** When it resolves, in milliseconds from the start. Zero when nothing hides it. */
-	readonly reveal: number;
-	/** How many columns it occupies: one, or two. */
-	readonly width: number;
+  /** The real grapheme cluster. */
+  readonly cluster: string;
+  /** Whether anything hides it at all. */
+  readonly hidden: boolean;
+  /** When it resolves, in milliseconds from the start. Zero when nothing hides it. */
+  readonly reveal: number;
+  /** How many columns it occupies: one, or two. */
+  readonly width: number;
 }
 
 /** The schedule a frame is read off: the cells, and when the last one resolves. */
 export interface DecryptPlan {
-	/** When everything has resolved, in milliseconds. Zero when nothing is hidden. */
-	readonly duration: number;
-	/** The cells, one list per line. */
-	readonly lines: readonly (readonly DecryptCell[])[];
-	/** The text the plan is of, with any escape sequences taken out. */
-	readonly text: string;
+  /** When everything has resolved, in milliseconds. Zero when nothing is hidden. */
+  readonly duration: number;
+  /** The cells, one list per line. */
+  readonly lines: readonly (readonly DecryptCell[])[];
+  /** The text the plan is of, with any escape sequences taken out. */
+  readonly text: string;
 }
 
 /** How long each phase lasts, and where the randomness comes from. */
 export interface DecryptPlanOptions {
-	/** How long the jumble lasts before anything resolves. Defaults to 2000ms. */
-	jumble?: number;
-	/** Randomness in `[0, 1)`. Defaults to `Math.random`. */
-	random?: Random;
-	/** How long the resolutions are spread over. Defaults to 5000ms. */
-	reveal?: number;
+  /** How long the jumble lasts before anything resolves. Defaults to 2000ms. */
+  jumble?: number;
+  /** Randomness in `[0, 1)`. Defaults to `Math.random`. */
+  random?: Random;
+  /** How long the resolutions are spread over. Defaults to 5000ms. */
+  reveal?: number;
 }
 
 /**
@@ -269,7 +269,7 @@ const WHITESPACE = /^\s+$/u;
  * @returns What the cells are built from.
  */
 function said(text: string): string {
-	return toDisplayText(strip(text));
+  return toDisplayText(strip(text));
 }
 
 /**
@@ -296,65 +296,65 @@ function said(text: string): string {
  * @returns The plan.
  */
 export function decryptPlan(text: string, opts: DecryptPlanOptions = {}): DecryptPlan {
-	const clean = said(text);
-	const random = opts.random ?? Math.random;
-	const jumble = ms(opts.jumble, JUMBLE);
-	const spread = ms(opts.reveal, REVEAL);
-	const lines: DecryptCell[][] = [];
-	let duration = 0;
+  const clean = said(text);
+  const random = opts.random ?? Math.random;
+  const jumble = ms(opts.jumble, JUMBLE);
+  const spread = ms(opts.reveal, REVEAL);
+  const lines: DecryptCell[][] = [];
+  let duration = 0;
 
-	for (const line of clean.split('\n')) {
-		const cells: DecryptCell[] = [];
+  for (const line of clean.split('\n')) {
+    const cells: DecryptCell[] = [];
 
-		for (const cluster of graphemes(line)) {
-			const width = cellWidth(cluster);
-			const hidden = width > 0 && !WHITESPACE.test(cluster);
-			// drawn only for a cell that hides, so that the stream a seed produces
-			// does not shift when the whitespace in a text does -- and so that a
-			// text with nothing to hide consumes nothing at all
-			const reveal = hidden ? jumble + unit(random) * spread : 0;
+    for (const cluster of graphemes(line)) {
+      const width = cellWidth(cluster);
+      const hidden = width > 0 && !WHITESPACE.test(cluster);
+      // drawn only for a cell that hides, so that the stream a seed produces
+      // does not shift when the whitespace in a text does -- and so that a
+      // text with nothing to hide consumes nothing at all
+      const reveal = hidden ? jumble + unit(random) * spread : 0;
 
-			cells.push({ cluster, hidden, reveal, width });
-			duration = Math.max(duration, reveal);
-		}
+      cells.push({ cluster, hidden, reveal, width });
+      duration = Math.max(duration, reveal);
+    }
 
-		lines.push(cells);
-	}
+    lines.push(cells);
+  }
 
-	return { duration, lines, text: clean };
+  return { duration, lines, text: clean };
 }
 
 /** One cell as it is drawn this frame. */
 export interface DecryptFrameCell {
-	/** Whether what is drawn is a mask rather than the real cluster. */
-	readonly hidden: boolean;
-	/** What is drawn: the real cluster, or the glyph hiding it. */
-	readonly text: string;
-	/** How many columns it occupies: one, or two. */
-	readonly width: number;
+  /** Whether what is drawn is a mask rather than the real cluster. */
+  readonly hidden: boolean;
+  /** What is drawn: the real cluster, or the glyph hiding it. */
+  readonly text: string;
+  /** How many columns it occupies: one, or two. */
+  readonly width: number;
 }
 
 /** What is on screen, and whether any of it is still hidden. */
 export interface DecryptFrame {
-	/**
-	 * What each cell is drawing, one list per line.
-	 *
-	 * The frame said per *cell* rather than only as a string, which is what lets
-	 * the view colour a character the moment it lands: two elements over one
-	 * rectangle paint the hidden cells and the resolved ones separately, and each
-	 * resolves its own style. Which cells are which is a question only this
-	 * function can answer -- it is the one place that knows, because it is the
-	 * thing deciding.
-	 *
-	 * `text` stays beside it rather than being derived from it by every reader: it
-	 * is what the no-terminal path writes in one go, and a line is what most of
-	 * what is asserted about this component is asserted on.
-	 */
-	readonly lines: readonly (readonly DecryptFrameCell[])[];
-	/** Whether any cell is still showing a glyph that is not its own. */
-	readonly masked: boolean;
-	/** What to draw, newlines and all. */
-	readonly text: string;
+  /**
+   * What each cell is drawing, one list per line.
+   *
+   * The frame said per *cell* rather than only as a string, which is what lets
+   * the view colour a character the moment it lands: two elements over one
+   * rectangle paint the hidden cells and the resolved ones separately, and each
+   * resolves its own style. Which cells are which is a question only this
+   * function can answer -- it is the one place that knows, because it is the
+   * thing deciding.
+   *
+   * `text` stays beside it rather than being derived from it by every reader: it
+   * is what the no-terminal path writes in one go, and a line is what most of
+   * what is asserted about this component is asserted on.
+   */
+  readonly lines: readonly (readonly DecryptFrameCell[])[];
+  /** Whether any cell is still showing a glyph that is not its own. */
+  readonly masked: boolean;
+  /** What to draw, newlines and all. */
+  readonly text: string;
 }
 
 /**
@@ -371,18 +371,18 @@ export interface DecryptFrame {
  * @returns The frame.
  */
 export function decryptedFrame(text: string): DecryptFrame {
-	const clean = said(text);
-	const lines: DecryptFrameCell[][] = [];
+  const clean = said(text);
+  const lines: DecryptFrameCell[][] = [];
 
-	for (const line of clean.split('\n')) {
-		const cells: DecryptFrameCell[] = [];
-		for (const cluster of graphemes(line)) {
-			cells.push({ hidden: false, text: cluster, width: cellWidth(cluster) });
-		}
-		lines.push(cells);
-	}
+  for (const line of clean.split('\n')) {
+    const cells: DecryptFrameCell[] = [];
+    for (const cluster of graphemes(line)) {
+      cells.push({ hidden: false, text: cluster, width: cellWidth(cluster) });
+    }
+    lines.push(cells);
+  }
 
-	return { lines, masked: false, text: clean };
+  return { lines, masked: false, text: clean };
 }
 
 /**
@@ -400,61 +400,61 @@ export function decryptedFrame(text: string): DecryptFrame {
  * @returns The frame.
  */
 export function decryptFrameAt(
-	plan: DecryptPlan,
-	at: number,
-	alphabet: MaskAlphabet = CP437,
-	random: Random = Math.random
+  plan: DecryptPlan,
+  at: number,
+  alphabet: MaskAlphabet = CP437,
+  random: Random = Math.random
 ): DecryptFrame {
-	// an empty list would make `pick()` answer `undefined`, which reaches the
-	// screen as the word rather than as a glyph. Falling back to the default is
-	// the only answer that still draws the effect, and it is per half: a caller
-	// with narrow glyphs and no wide ones gets the default's wide ones
-	const narrow = alphabet.narrow.length > 0 ? alphabet.narrow : CP437.narrow;
-	const wide = alphabet.wide.length > 0 ? alphabet.wide : CP437.wide;
-	const lines: DecryptFrameCell[][] = [];
-	const text: string[] = [];
-	let masked = false;
+  // an empty list would make `pick()` answer `undefined`, which reaches the
+  // screen as the word rather than as a glyph. Falling back to the default is
+  // the only answer that still draws the effect, and it is per half: a caller
+  // with narrow glyphs and no wide ones gets the default's wide ones
+  const narrow = alphabet.narrow.length > 0 ? alphabet.narrow : CP437.narrow;
+  const wide = alphabet.wide.length > 0 ? alphabet.wide : CP437.wide;
+  const lines: DecryptFrameCell[][] = [];
+  const text: string[] = [];
+  let masked = false;
 
-	for (const cells of plan.lines) {
-		const row: DecryptFrameCell[] = [];
-		let line = '';
+  for (const cells of plan.lines) {
+    const row: DecryptFrameCell[] = [];
+    let line = '';
 
-		for (const cell of cells) {
-			// the generator is drawn from for a hidden cell and for nothing else, so
-			// what a seed produces does not shift when a resolved cell is written a
-			// second way
-			const hiding = cell.hidden && at < cell.reveal;
-			const drawn = hiding
-				? cell.width === 2
-					? pick(wide, unit(random))
-					: pick(narrow, unit(random))
-				: cell.cluster;
+    for (const cell of cells) {
+      // the generator is drawn from for a hidden cell and for nothing else, so
+      // what a seed produces does not shift when a resolved cell is written a
+      // second way
+      const hiding = cell.hidden && at < cell.reveal;
+      const drawn = hiding
+        ? cell.width === 2
+          ? pick(wide, unit(random))
+          : pick(narrow, unit(random))
+        : cell.cluster;
 
-			masked ||= hiding;
-			row.push({ hidden: hiding, text: drawn, width: cell.width });
-			line += drawn;
-		}
+      masked ||= hiding;
+      row.push({ hidden: hiding, text: drawn, width: cell.width });
+      line += drawn;
+    }
 
-		lines.push(row);
-		text.push(line);
-	}
+    lines.push(row);
+    text.push(line);
+  }
 
-	return { lines, masked, text: text.join('\n') };
+  return { lines, masked, text: text.join('\n') };
 }
 
 /** What a decrypt's tree is driven by, and what the driver writes to. */
 export interface DecryptState {
-	/**
-	 * The frame on screen.
-	 *
-	 * One signal holding both halves rather than two beside each other, because
-	 * "what is drawn" and "is any of it still hidden" are one answer: the second
-	 * is read off the first while it is being built, and two signals written
-	 * together are two things that can come to disagree about the same frame.
-	 */
-	readonly frame: State<DecryptFrame>;
-	/** The real text. */
-	readonly text: State<string>;
+  /**
+   * The frame on screen.
+   *
+   * One signal holding both halves rather than two beside each other, because
+   * "what is drawn" and "is any of it still hidden" are one answer: the second
+   * is read off the first while it is being built, and two signals written
+   * together are two things that can come to disagree about the same frame.
+   */
+  readonly frame: State<DecryptFrame>;
+  /** The real text. */
+  readonly text: State<string>;
 }
 
 /**
@@ -464,18 +464,18 @@ export interface DecryptState {
  * @returns The signals.
  */
 export function decryptState(text = ''): DecryptState {
-	return {
-		// nothing rather than the text, which is `typewriterState()`'s own `revealed:
-		// 0` and is the safer of the two by exactly the thing this component is for: a
-		// state whose first frame is the plaintext is one that leaks it to anything
-		// that draws before the driver has run. Nothing can observe the blank through
-		// `createDecrypt()`, because the driver's effect runs as the tree is built and
-		// has already written a frame by the time the view's effect reads one -- so
-		// this is about an app that builds its own tree and wires the two up in the
-		// other order
-		frame: new State<DecryptFrame>(decryptedFrame('')),
-		text: new State(text),
-	};
+  return {
+    // nothing rather than the text, which is `typewriterState()`'s own `revealed:
+    // 0` and is the safer of the two by exactly the thing this component is for: a
+    // state whose first frame is the plaintext is one that leaks it to anything
+    // that draws before the driver has run. Nothing can observe the blank through
+    // `createDecrypt()`, because the driver's effect runs as the tree is built and
+    // has already written a frame by the time the view's effect reads one -- so
+    // this is about an app that builds its own tree and wires the two up in the
+    // other order
+    frame: new State<DecryptFrame>(decryptedFrame('')),
+    text: new State(text),
+  };
 }
 
 /**
@@ -489,41 +489,41 @@ const CONTROL = /\p{Cc}/u;
 
 /** A cell and where the block put it. */
 interface PlacedCell {
-	/** What it draws, and whether that is a mask. */
-	readonly cell: DecryptFrameCell;
-	/**
-	 * Whether it is drawn at all.
-	 *
-	 * Two conditions, and only one of them is load bearing. **A control character
-	 * is refused**, because `CellBuffer.put()` *throws* on one rather than dropping
-	 * it and a throw from inside paint takes the frame and the renderer with it.
-	 * The only way a cell can carry one is a caller's own alphabet -- every C0, DEL
-	 * and C1 character measures zero columns, verified over all of them, so no real
-	 * cluster this draws can -- which makes it a tripwire rather than a case
-	 * anybody has.
-	 *
-	 * **A cell of no width is skipped**, which is the same answer `decryptPlan()`
-	 * already gives it by never hiding it: a tab, a lone combining mark, a stray
-	 * control character. That one is a fast path rather than a claim and it says so
-	 * because it survived its sabotage: `put()` refuses a zero-width cluster a cell
-	 * of its own, so what it saves is a `painter.text()` call per such cell rather
-	 * than an answer. It is kept because a tab is common and because the rule it
-	 * states -- a cell with no column has nothing to paint in -- is the one this
-	 * component reasons in.
-	 */
-	readonly draw: boolean;
-	/** The column it starts at, relative to the block's left edge. */
-	readonly x: number;
+  /** What it draws, and whether that is a mask. */
+  readonly cell: DecryptFrameCell;
+  /**
+   * Whether it is drawn at all.
+   *
+   * Two conditions, and only one of them is load bearing. **A control character
+   * is refused**, because `CellBuffer.put()` *throws* on one rather than dropping
+   * it and a throw from inside paint takes the frame and the renderer with it.
+   * The only way a cell can carry one is a caller's own alphabet -- every C0, DEL
+   * and C1 character measures zero columns, verified over all of them, so no real
+   * cluster this draws can -- which makes it a tripwire rather than a case
+   * anybody has.
+   *
+   * **A cell of no width is skipped**, which is the same answer `decryptPlan()`
+   * already gives it by never hiding it: a tab, a lone combining mark, a stray
+   * control character. That one is a fast path rather than a claim and it says so
+   * because it survived its sabotage: `put()` refuses a zero-width cluster a cell
+   * of its own, so what it saves is a `painter.text()` call per such cell rather
+   * than an answer. It is kept because a tab is common and because the rule it
+   * states -- a cell with no column has nothing to paint in -- is the one this
+   * component reasons in.
+   */
+  readonly draw: boolean;
+  /** The column it starts at, relative to the block's left edge. */
+  readonly x: number;
 }
 
 /** A run of cells with no break opportunity inside it. */
 interface CellRun {
-	/** The cells, in order. */
-	readonly cells: readonly DecryptFrameCell[];
-	/** Whether it is whitespace, and therefore a place a line may break. */
-	readonly space: boolean;
-	/** How many columns it occupies. */
-	readonly width: number;
+  /** The cells, in order. */
+  readonly cells: readonly DecryptFrameCell[];
+  /** Whether it is whitespace, and therefore a place a line may break. */
+  readonly space: boolean;
+  /** How many columns it occupies. */
+  readonly width: number;
 }
 
 /**
@@ -540,27 +540,27 @@ interface CellRun {
  * @returns The runs, in order.
  */
 function cellRuns(cells: readonly DecryptFrameCell[]): CellRun[] {
-	const runs: CellRun[] = [];
-	let current: DecryptFrameCell[] = [];
-	let space = false;
-	let width = 0;
+  const runs: CellRun[] = [];
+  let current: DecryptFrameCell[] = [];
+  let space = false;
+  let width = 0;
 
-	for (const cell of cells) {
-		const blank = !cell.hidden && WHITESPACE.test(cell.text);
-		if (current.length > 0 && blank !== space) {
-			runs.push({ cells: current, space, width });
-			current = [];
-			width = 0;
-		}
-		space = blank;
-		current.push(cell);
-		width += cell.width;
-	}
-	if (current.length > 0) {
-		runs.push({ cells: current, space, width });
-	}
+  for (const cell of cells) {
+    const blank = !cell.hidden && WHITESPACE.test(cell.text);
+    if (current.length > 0 && blank !== space) {
+      runs.push({ cells: current, space, width });
+      current = [];
+      width = 0;
+    }
+    space = blank;
+    current.push(cell);
+    width += cell.width;
+  }
+  if (current.length > 0) {
+    runs.push({ cells: current, space, width });
+  }
 
-	return runs;
+  return runs;
 }
 
 /**
@@ -587,61 +587,61 @@ function cellRuns(cells: readonly DecryptFrameCell[]): CellRun[] {
  * @returns The rows, each holding where its cells start.
  */
 function placeCells(
-	lines: readonly (readonly DecryptFrameCell[])[],
-	limit: number
+  lines: readonly (readonly DecryptFrameCell[])[],
+  limit: number
 ): PlacedCell[][] {
-	const rows: PlacedCell[][] = [];
+  const rows: PlacedCell[][] = [];
 
-	for (const cells of lines) {
-		const start = rows.length;
-		let row: PlacedCell[] = [];
-		let x = 0;
+  for (const cells of lines) {
+    const start = rows.length;
+    let row: PlacedCell[] = [];
+    let x = 0;
 
-		const place = (cell: DecryptFrameCell): void => {
-			row.push({ cell, draw: cell.width > 0 && !CONTROL.test(cell.text), x });
-			x += cell.width;
-		};
-		const next = (): void => {
-			rows.push(row);
-			row = [];
-			x = 0;
-		};
-		/** The whitespace since the last word, which a break throws away. */
-		let gap: CellRun | undefined;
+    const place = (cell: DecryptFrameCell): void => {
+      row.push({ cell, draw: cell.width > 0 && !CONTROL.test(cell.text), x });
+      x += cell.width;
+    };
+    const next = (): void => {
+      rows.push(row);
+      row = [];
+      x = 0;
+    };
+    /** The whitespace since the last word, which a break throws away. */
+    let gap: CellRun | undefined;
 
-		for (const run of cellRuns(cells)) {
-			if (run.space) {
-				gap = run;
-				continue;
-			}
+    for (const run of cellRuns(cells)) {
+      if (run.space) {
+        gap = run;
+        continue;
+      }
 
-			if (x > 0 && x + (gap?.width ?? 0) + run.width > limit) {
-				next();
-			} else if (gap) {
-				for (const cell of gap.cells) {
-					place(cell);
-				}
-			}
-			gap = undefined;
+      if (x > 0 && x + (gap?.width ?? 0) + run.width > limit) {
+        next();
+      } else if (gap) {
+        for (const cell of gap.cells) {
+          place(cell);
+        }
+      }
+      gap = undefined;
 
-			for (const cell of run.cells) {
-				// only reachable for a word that did not fit a line of its own, since
-				// the row was broken for one that did: this is where it is cut
-				if (x > 0 && x + cell.width > limit) {
-					next();
-				}
-				place(cell);
-			}
-		}
+      for (const cell of run.cells) {
+        // only reachable for a word that did not fit a line of its own, since
+        // the row was broken for one that did: this is where it is cut
+        if (x > 0 && x + cell.width > limit) {
+          next();
+        }
+        place(cell);
+      }
+    }
 
-		// a line with nothing on it is still a line, so that the one after it is
-		// drawn below rather than over it
-		if (row.length > 0 || rows.length === start) {
-			rows.push(row);
-		}
-	}
+    // a line with nothing on it is still a line, so that the one after it is
+    // drawn below rather than over it
+    if (row.length > 0 || rows.length === start) {
+      rows.push(row);
+    }
+  }
 
-	return rows;
+  return rows;
 }
 
 /**
@@ -691,53 +691,53 @@ function placeCells(
  * @returns The cells to draw, at the columns to draw them in.
  */
 function cutRow(row: PlacedCell[], width: number, mode: TruncateMode): PlacedCell[] {
-	const last = row.at(-1);
-	const used = last ? last.x + last.cell.width : 0;
-	if (used <= width) {
-		return row;
-	}
+  const last = row.at(-1);
+  const used = last ? last.x + last.cell.width : 0;
+  if (used <= width) {
+    return row;
+  }
 
-	const { head, marker, tail } = cutAt(width, mode);
-	const out: PlacedCell[] = [];
-	/** Where the next piece goes, since the three are laid down end to end. */
-	let x = 0;
-	/** The first cell the marker hides, whose state it takes. */
-	let hides: DecryptFrameCell | undefined;
+  const { head, marker, tail } = cutAt(width, mode);
+  const out: PlacedCell[] = [];
+  /** Where the next piece goes, since the three are laid down end to end. */
+  let x = 0;
+  /** The first cell the marker hides, whose state it takes. */
+  let hides: DecryptFrameCell | undefined;
 
-	// the longest run of whole cells that fits the head, which is `take()`'s own
-	// condition asked of a cell rather than of a cluster
-	for (const placed of row) {
-		if (placed.x + placed.cell.width <= head) {
-			out.push(placed);
-			x = placed.x + placed.cell.width;
-			continue;
-		}
-		// the first cell that does not fit is where the cut falls, and everything
-		// after it is behind the mark
-		hides = placed.cell;
-		break;
-	}
+  // the longest run of whole cells that fits the head, which is `take()`'s own
+  // condition asked of a cell rather than of a cluster
+  for (const placed of row) {
+    if (placed.x + placed.cell.width <= head) {
+      out.push(placed);
+      x = placed.x + placed.cell.width;
+      continue;
+    }
+    // the first cell that does not fit is where the cut falls, and everything
+    // after it is behind the mark
+    hides = placed.cell;
+    break;
+  }
 
-	if (marker !== '') {
-		const cell = { hidden: hides?.hidden ?? false, text: marker, width: cellWidth(marker) };
-		out.push({ cell, draw: true, x });
-		x += cell.width;
-	}
+  if (marker !== '') {
+    const cell = { hidden: hides?.hidden ?? false, text: marker, width: cellWidth(marker) };
+    out.push({ cell, draw: true, x });
+    x += cell.width;
+  }
 
-	if (tail > 0) {
-		// and the longest *suffix* of whole cells that fits, which is `takeEnd()`'s
-		// condition said as a column: the suffix from here is `used - placed.x` wide,
-		// so it fits exactly where that is no more than the tail
-		const from = used - tail;
-		for (const placed of row) {
-			if (placed.x >= from) {
-				out.push({ ...placed, x });
-				x += placed.cell.width;
-			}
-		}
-	}
+  if (tail > 0) {
+    // and the longest *suffix* of whole cells that fits, which is `takeEnd()`'s
+    // condition said as a column: the suffix from here is `used - placed.x` wide,
+    // so it fits exactly where that is no more than the tail
+    const from = used - tail;
+    for (const placed of row) {
+      if (placed.x >= from) {
+        out.push({ ...placed, x });
+        x += placed.cell.width;
+      }
+    }
+  }
 
-	return out;
+  return out;
 }
 
 /**
@@ -791,245 +791,245 @@ function cutRow(row: PlacedCell[], width: number, mode: TruncateMode): PlacedCel
  * @returns The tree.
  */
 export function decryptView(state: DecryptState): Element {
-	/**
-	 * The frame on screen, as a plain field rather than as a signal read.
-	 *
-	 * The measure and the paint are called by the frame rather than from inside an
-	 * effect, and reading a signal from a place that might be tracking is how an
-	 * unrelated effect comes to subscribe to this one. The effect below is the one
-	 * reader, and it runs as it is created, so nothing ever draws this blank.
-	 */
-	let frame = decryptedFrame('');
-	/** The last placement, which the measure reads and which only a frame changes. */
-	let placed: { limit: number; of: DecryptFrame; rows: PlacedCell[][] } | undefined;
-	/** And the last placement *as drawn*, which both layers read. */
-	let drawn:
-		| { mode: TruncateMode; of: DecryptFrame; rows: PlacedCell[][]; width: number }
-		| undefined;
+  /**
+   * The frame on screen, as a plain field rather than as a signal read.
+   *
+   * The measure and the paint are called by the frame rather than from inside an
+   * effect, and reading a signal from a place that might be tracking is how an
+   * unrelated effect comes to subscribe to this one. The effect below is the one
+   * reader, and it runs as it is created, so nothing ever draws this blank.
+   */
+  let frame = decryptedFrame('');
+  /** The last placement, which the measure reads and which only a frame changes. */
+  let placed: { limit: number; of: DecryptFrame; rows: PlacedCell[][] } | undefined;
+  /** And the last placement *as drawn*, which both layers read. */
+  let drawn:
+    | { mode: TruncateMode; of: DecryptFrame; rows: PlacedCell[][]; width: number }
+    | undefined;
 
-	/**
-	 * The width to wrap at, which is the box unless a sheet said not to wrap.
-	 *
-	 * `white-space: nowrap` is honoured because the one-element view honoured it for
-	 * free and a property that quietly stopped working is worse than one that never
-	 * did. `text-overflow` is honoured for the same reason, by `cutRow()`, and the
-	 * two are read off the *cipher* because that is the layer in flow and the one
-	 * whose box both layers draw into -- which is also where an app writes them, as
-	 * it writes them on a `text` rather than on the box around one.
-	 *
-	 * A width of zero is no width to wrap at rather than a width of one, which is
-	 * the rule a text keeps: wrapping there is one row per character, and the
-	 * measure that comes back is a shape nothing asked for.
-	 */
-	function limitAt(width: number): number {
-		return cipher.style.whiteSpace === 'nowrap' || width <= 0 ? Number.POSITIVE_INFINITY : width;
-	}
+  /**
+   * The width to wrap at, which is the box unless a sheet said not to wrap.
+   *
+   * `white-space: nowrap` is honoured because the one-element view honoured it for
+   * free and a property that quietly stopped working is worse than one that never
+   * did. `text-overflow` is honoured for the same reason, by `cutRow()`, and the
+   * two are read off the *cipher* because that is the layer in flow and the one
+   * whose box both layers draw into -- which is also where an app writes them, as
+   * it writes them on a `text` rather than on the box around one.
+   *
+   * A width of zero is no width to wrap at rather than a width of one, which is
+   * the rule a text keeps: wrapping there is one row per character, and the
+   * measure that comes back is a shape nothing asked for.
+   */
+  function limitAt(width: number): number {
+    return cipher.style.whiteSpace === 'nowrap' || width <= 0 ? Number.POSITIVE_INFINITY : width;
+  }
 
-	/** Where the frame's cells land at a width, before anything is cut. */
-	function rowsAt(width: number): PlacedCell[][] {
-		const limit = limitAt(width);
-		if (placed?.of !== frame || placed.limit !== limit) {
-			placed = { limit, of: frame, rows: placeCells(frame.lines, limit) };
-		}
-		return placed.rows;
-	}
+  /** Where the frame's cells land at a width, before anything is cut. */
+  function rowsAt(width: number): PlacedCell[][] {
+    const limit = limitAt(width);
+    if (placed?.of !== frame || placed.limit !== limit) {
+      placed = { limit, of: frame, rows: placeCells(frame.lines, limit) };
+    }
+    return placed.rows;
+  }
 
-	/**
-	 * And as they are drawn in a box of that width, worked out once for both layers.
-	 *
-	 * Separate from the placement rather than folded into it, because the *measure*
-	 * must read the uncut rows: `text-overflow` says what is drawn and never what a
-	 * block wants, so a measure that reported the cut width would make the box as
-	 * narrow as the cut it provoked. That is the split `paintText()` already keeps --
-	 * it measures through `element.wrapped()` and cuts in the paint -- and it is why
-	 * the cut cannot live in `placeCells()` at all: under `nowrap` the limit is
-	 * `Infinity` while the box is whatever it is, so the two widths are not the same
-	 * number.
-	 */
-	function drawnAt(width: number): PlacedCell[][] {
-		const mode = cipher.style.textOverflow;
-		if (drawn?.of !== frame || drawn.mode !== mode || drawn.width !== width) {
-			const rows = rowsAt(width).map((row) => cutRow(row, width, mode));
-			drawn = { mode, of: frame, rows, width };
-		}
-		return drawn.rows;
-	}
+  /**
+   * And as they are drawn in a box of that width, worked out once for both layers.
+   *
+   * Separate from the placement rather than folded into it, because the *measure*
+   * must read the uncut rows: `text-overflow` says what is drawn and never what a
+   * block wants, so a measure that reported the cut width would make the box as
+   * narrow as the cut it provoked. That is the split `paintText()` already keeps --
+   * it measures through `element.wrapped()` and cuts in the paint -- and it is why
+   * the cut cannot live in `placeCells()` at all: under `nowrap` the limit is
+   * `Infinity` while the box is whatever it is, so the two widths are not the same
+   * number.
+   */
+  function drawnAt(width: number): PlacedCell[][] {
+    const mode = cipher.style.textOverflow;
+    if (drawn?.of !== frame || drawn.mode !== mode || drawn.width !== width) {
+      const rows = rowsAt(width).map((row) => cutRow(row, width, mode));
+      drawn = { mode, of: frame, rows, width };
+    }
+    return drawn.rows;
+  }
 
-	/** What the block takes at a width: the widest row, and a row per line it wrapped into. */
-	function measure(width: number): {
-		height: number;
-		minHeight: number;
-		minWidth: number;
-		width: number;
-	} {
-		const rows = rowsAt(width);
-		let widest = 0;
-		for (const row of rows) {
-			const last = row.at(-1);
-			widest = Math.max(widest, last ? last.x + last.cell.width : 0);
-		}
+  /** What the block takes at a width: the widest row, and a row per line it wrapped into. */
+  function measure(width: number): {
+    height: number;
+    minHeight: number;
+    minWidth: number;
+    width: number;
+  } {
+    const rows = rowsAt(width);
+    let widest = 0;
+    for (const row of rows) {
+      const last = row.at(-1);
+      widest = Math.max(widest, last ? last.x + last.cell.width : 0);
+    }
 
-		// the narrowest it can be is its widest word, which is what a text reports
-		// and is the number `min-width: 0` is written to override
-		let word = 0;
-		for (const cells of frame.lines) {
-			for (const run of cellRuns(cells)) {
-				word = run.space ? word : Math.max(word, run.width);
-			}
-		}
+    // the narrowest it can be is its widest word, which is what a text reports
+    // and is the number `min-width: 0` is written to override
+    let word = 0;
+    for (const cells of frame.lines) {
+      for (const run of cellRuns(cells)) {
+        word = run.space ? word : Math.max(word, run.width);
+      }
+    }
 
-		// as short as it can be at the width it was given: wrapping it narrower
-		// makes it taller rather than shorter
-		return { height: rows.length, minHeight: rows.length, minWidth: word, width: widest };
-	}
+    // as short as it can be at the width it was given: wrapping it narrower
+    // makes it taller rather than shorter
+    return { height: rows.length, minHeight: rows.length, minWidth: word, width: widest };
+  }
 
-	/**
-	 * Draws one half of the frame into the rectangle the cipher was given.
-	 *
-	 * The two axes are two rules, as they are in `paintText()`. A row past the
-	 * bottom of the box is not drawn, because painting it would draw over whatever
-	 * the layout put underneath -- which is the box's `overflow` to decide and not
-	 * this pass's to invent a policy for. A row too wide for the box is cut by
-	 * `drawnAt()`, because `text-overflow` says how; so every cell that arrives here
-	 * is one that fits, and a per-cell width test beside this would be a second
-	 * answer to a question that already has one.
-	 */
-	const layer =
-		(hidden: boolean): RawPaint =>
-		(painter, area, element) => {
-			const style = cellStyle(element.style);
-			const rows = drawnAt(area.width);
+  /**
+   * Draws one half of the frame into the rectangle the cipher was given.
+   *
+   * The two axes are two rules, as they are in `paintText()`. A row past the
+   * bottom of the box is not drawn, because painting it would draw over whatever
+   * the layout put underneath -- which is the box's `overflow` to decide and not
+   * this pass's to invent a policy for. A row too wide for the box is cut by
+   * `drawnAt()`, because `text-overflow` says how; so every cell that arrives here
+   * is one that fits, and a per-cell width test beside this would be a second
+   * answer to a question that already has one.
+   */
+  const layer =
+    (hidden: boolean): RawPaint =>
+    (painter, area, element) => {
+      const style = cellStyle(element.style);
+      const rows = drawnAt(area.width);
 
-			for (const [row, cells] of rows.entries()) {
-				if (row >= area.height) {
-					break;
-				}
-				for (const { cell, draw, x } of cells) {
-					if (cell.hidden !== hidden || !draw) {
-						continue;
-					}
-					painter.text(area.x + x, area.y + row, cell.text, style);
-				}
-			}
-		};
+      for (const [row, cells] of rows.entries()) {
+        if (row >= area.height) {
+          break;
+        }
+        for (const { cell, draw, x } of cells) {
+          if (cell.hidden !== hidden || !draw) {
+            continue;
+          }
+          painter.text(area.x + x, area.y + row, cell.text, style);
+        }
+      }
+    };
 
-	// `drawsText` rather than `selectable: true`, which is what the first version of
-	// this said and is an *answer* rather than a default -- so it stopped an
-	// ancestor's `selectable={false}` reaching the block at all. These cells are the
-	// text, so they want exactly what a `text` gets: copyable unless something above
-	// said otherwise
-	const cipher = raw(
-		{ drawsText: true, measure, paint: layer(true) },
-		{ class: 'sigil-decrypt-cipher sigil-muted', 'min-width': 0 }
-	);
+  // `drawsText` rather than `selectable: true`, which is what the first version of
+  // this said and is an *answer* rather than a default -- so it stopped an
+  // ancestor's `selectable={false}` reaching the block at all. These cells are the
+  // text, so they want exactly what a `text` gets: copyable unless something above
+  // said otherwise
+  const cipher = raw(
+    { drawsText: true, measure, paint: layer(true) },
+    { class: 'sigil-decrypt-cipher sigil-muted', 'min-width': 0 }
+  );
 
-	const resolved = layer(false);
-	const plain = raw(
-		{
-			drawsText: true,
-			// never asked, because a box given two insets on an axis is as big as they
-			// say: the same thing `noSize()` means in the scroll bar
-			measure: () => ({ height: 0, width: 0 }),
-			// its own rectangle is deliberately not what it draws into: the cipher's is
-			paint: (painter, _area, element) => {
-				const area = cipher.content ?? cipher.box;
-				if (area) {
-					resolved(painter, area, element);
-				}
-			},
-		},
-		{
-			bottom: 0,
-			class: 'sigil-decrypt-plain',
-			left: 0,
-			position: 'absolute',
-			right: 0,
-			top: 0,
-		}
-	);
+  const resolved = layer(false);
+  const plain = raw(
+    {
+      drawsText: true,
+      // never asked, because a box given two insets on an axis is as big as they
+      // say: the same thing `noSize()` means in the scroll bar
+      measure: () => ({ height: 0, width: 0 }),
+      // its own rectangle is deliberately not what it draws into: the cipher's is
+      paint: (painter, _area, element) => {
+        const area = cipher.content ?? cipher.box;
+        if (area) {
+          resolved(painter, area, element);
+        }
+      },
+    },
+    {
+      bottom: 0,
+      class: 'sigil-decrypt-plain',
+      left: 0,
+      position: 'absolute',
+      right: 0,
+      top: 0,
+    }
+  );
 
-	createEffect(() => {
-		frame = state.frame.get();
-		// the cipher is what measures the block, so a new frame is a new size; the
-		// plain layer's rectangle is its insets and cannot move, so all it needs is to
-		// be drawn again. A frame coalesces the two -- a layout mark repaints
-		// everything -- so each of these says what changed about its own element
-		// rather than what the frame will do about it, which is the contract
-		// `invalidateMeasure()` and `invalidatePaint()` are each written for.
-		//
-		// Per tick, which is not a regression: the one-element view wrote the frame
-		// with `setText()`, and that marks layout on every value it has not already
-		// got -- which while jumbling is every tick.
-		cipher.invalidateMeasure();
-		plain.invalidatePaint();
-	});
+  createEffect(() => {
+    frame = state.frame.get();
+    // the cipher is what measures the block, so a new frame is a new size; the
+    // plain layer's rectangle is its insets and cannot move, so all it needs is to
+    // be drawn again. A frame coalesces the two -- a layout mark repaints
+    // everything -- so each of these says what changed about its own element
+    // rather than what the frame will do about it, which is the contract
+    // `invalidateMeasure()` and `invalidatePaint()` are each written for.
+    //
+    // Per tick, which is not a regression: the one-element view wrote the frame
+    // with `setText()`, and that marks layout on every value it has not already
+    // got -- which while jumbling is every tick.
+    cipher.invalidateMeasure();
+    plain.invalidatePaint();
+  });
 
-	// `position: relative` with no insets moves nothing and is what gives the plain
-	// layer a containing block to resolve its own against, which is the same line
-	// the scroll bar's own box carries
-	return box({ class: 'sigil-decrypt', position: 'relative' }, cipher, plain);
+  // `position: relative` with no insets moves nothing and is what gives the plain
+  // layer a containing block to resolve its own against, which is the same line
+  // the scroll bar's own box carries
+  return box({ class: 'sigil-decrypt', position: 'relative' }, cipher, plain);
 }
 
 export interface DecryptRevealOptions extends DecryptPlanOptions {
-	/**
-	 * The glyphs to hide a cell with. `CP437` by default.
-	 */
-	alphabet?: MaskAlphabet;
-	/**
-	 * Whether the effect runs, or the text simply appears.
-	 *
-	 * False for a pipe, a file, a CI log and a reduced-motion opt-out, which is
-	 * one question rather than four: `mountLive()` hands the build what the
-	 * renderer resolved, and the renderer's own answer already folds a missing
-	 * terminal in. A build log gets the line it would have got anyway.
-	 *
-	 * A function rather than a boolean because it is also what says the animation
-	 * is *running*: turning it off is how `stop()` snaps to the finished text,
-	 * through the one path that finishes rather than through a second mechanism
-	 * beside it.
-	 */
-	animate: () => boolean;
-	/**
-	 * Whether the driving timer keeps the process alive. False by default.
-	 *
-	 * The timer is unref'd otherwise, which is the spinner's rule and is right for
-	 * a component driving its own tree: that app stays alive on its own -- stdin,
-	 * its own frame loop -- and a decrypt somebody forgot to stop must not be what
-	 * holds a finished program open.
-	 *
-	 * It is wrong for an **awaited** run, and that is the one case this exists for.
-	 * `await decrypt(text)` is the headline API, so the caller is waiting and the
-	 * program has *not* finished -- with the timer unref'd there is nothing ref'd
-	 * left for the loop to do, so node exits before the animation can settle the
-	 * promise. Measured: `node demos/components/09-decrypt.js` on a terminal exited
-	 * **13** with `Detected unsettled top-level await` at the first `await`, having
-	 * drawn nothing, while the identical run piped was fine -- because the piped
-	 * path never schedules a timer at all. A no-op ref'd timer beside this one was
-	 * the alternative and is worse: it is a second thing to clear on every exit,
-	 * and it says "stay alive" in a place that knows nothing about whether there is
-	 * animating left to do.
-	 *
-	 * What it costs is that a run nobody awaits keeps the process alive until it
-	 * finishes, which is a bounded couple of seconds rather than a spinner's
-	 * forever, and which `stop()` and `cancel()` both end at once.
-	 */
-	hold?: boolean;
-	/** How often a hidden cell redraws while jumbling. Defaults to 35ms. */
-	interval?: number;
-	/** What time it is. Defaults to `Date.now`. */
-	now?: () => number;
-	/**
-	 * Called when a pass has nothing hidden left, which is **once per pass** rather
-	 * than once per component.
-	 *
-	 * The effect re-runs whenever the text moves, so a text replaced with one that
-	 * has nothing to hide calls this again -- measured, three times over three
-	 * changes. Making it once is the facade's, because "once" is a fact about a
-	 * *run* and only the thing holding the promise knows where a run begins.
-	 */
-	onDone?: () => void;
-	/** How often a hidden cell redraws once cells are resolving. Defaults to 50ms. */
-	revealInterval?: number;
+  /**
+   * The glyphs to hide a cell with. `CP437` by default.
+   */
+  alphabet?: MaskAlphabet;
+  /**
+   * Whether the effect runs, or the text simply appears.
+   *
+   * False for a pipe, a file, a CI log and a reduced-motion opt-out, which is
+   * one question rather than four: `mountLive()` hands the build what the
+   * renderer resolved, and the renderer's own answer already folds a missing
+   * terminal in. A build log gets the line it would have got anyway.
+   *
+   * A function rather than a boolean because it is also what says the animation
+   * is *running*: turning it off is how `stop()` snaps to the finished text,
+   * through the one path that finishes rather than through a second mechanism
+   * beside it.
+   */
+  animate: () => boolean;
+  /**
+   * Whether the driving timer keeps the process alive. False by default.
+   *
+   * The timer is unref'd otherwise, which is the spinner's rule and is right for
+   * a component driving its own tree: that app stays alive on its own -- stdin,
+   * its own frame loop -- and a decrypt somebody forgot to stop must not be what
+   * holds a finished program open.
+   *
+   * It is wrong for an **awaited** run, and that is the one case this exists for.
+   * `await decrypt(text)` is the headline API, so the caller is waiting and the
+   * program has *not* finished -- with the timer unref'd there is nothing ref'd
+   * left for the loop to do, so node exits before the animation can settle the
+   * promise. Measured: `node demos/components/09-decrypt.js` on a terminal exited
+   * **13** with `Detected unsettled top-level await` at the first `await`, having
+   * drawn nothing, while the identical run piped was fine -- because the piped
+   * path never schedules a timer at all. A no-op ref'd timer beside this one was
+   * the alternative and is worse: it is a second thing to clear on every exit,
+   * and it says "stay alive" in a place that knows nothing about whether there is
+   * animating left to do.
+   *
+   * What it costs is that a run nobody awaits keeps the process alive until it
+   * finishes, which is a bounded couple of seconds rather than a spinner's
+   * forever, and which `stop()` and `cancel()` both end at once.
+   */
+  hold?: boolean;
+  /** How often a hidden cell redraws while jumbling. Defaults to 35ms. */
+  interval?: number;
+  /** What time it is. Defaults to `Date.now`. */
+  now?: () => number;
+  /**
+   * Called when a pass has nothing hidden left, which is **once per pass** rather
+   * than once per component.
+   *
+   * The effect re-runs whenever the text moves, so a text replaced with one that
+   * has nothing to hide calls this again -- measured, three times over three
+   * changes. Making it once is the facade's, because "once" is a fact about a
+   * *run* and only the thing holding the promise knows where a run begins.
+   */
+  onDone?: () => void;
+  /** How often a hidden cell redraws once cells are resolving. Defaults to 50ms. */
+  revealInterval?: number;
 }
 
 /**
@@ -1055,57 +1055,57 @@ export interface DecryptRevealOptions extends DecryptPlanOptions {
  * @param opts - Whether to animate, how long each phase is, and what to hide with.
  */
 export function decryptReveal(state: DecryptState, opts: DecryptRevealOptions): void {
-	const alphabet = opts.alphabet ?? CP437;
-	const random = opts.random ?? Math.random;
-	const now = opts.now ?? Date.now;
-	const jumble = ms(opts.jumble, JUMBLE);
-	const fast = ms(opts.interval, JUMBLE_TICK);
-	const slow = ms(opts.revealInterval, REVEAL_TICK);
+  const alphabet = opts.alphabet ?? CP437;
+  const random = opts.random ?? Math.random;
+  const now = opts.now ?? Date.now;
+  const jumble = ms(opts.jumble, JUMBLE);
+  const fast = ms(opts.interval, JUMBLE_TICK);
+  const slow = ms(opts.revealInterval, REVEAL_TICK);
 
-	createEffect(() => {
-		const value = state.text.get();
+  createEffect(() => {
+    const value = state.text.get();
 
-		if (!opts.animate()) {
-			// asked before the plan is built rather than after, so a pipe neither draws
-			// from the generator nor works out a reveal time for a text it is about to
-			// print in one go. It still builds a cell per cluster, because the view
-			// draws cells and a frame with none of them is one it cannot draw -- which
-			// is what two layers over one rectangle cost the path that does not animate
-			state.frame.set(decryptedFrame(value));
-			opts.onDone?.();
-			return;
-		}
+    if (!opts.animate()) {
+      // asked before the plan is built rather than after, so a pipe neither draws
+      // from the generator nor works out a reveal time for a text it is about to
+      // print in one go. It still builds a cell per cluster, because the view
+      // draws cells and a frame with none of them is one it cannot draw -- which
+      // is what two layers over one rectangle cost the path that does not animate
+      state.frame.set(decryptedFrame(value));
+      opts.onDone?.();
+      return;
+    }
 
-		const plan = decryptPlan(value, { ...opts, random });
-		const start = now();
-		let timer: ReturnType<typeof setTimeout> | undefined;
+    const plan = decryptPlan(value, { ...opts, random });
+    const start = now();
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
-		const step = (): void => {
-			const at = now() - start;
-			const frame = decryptFrameAt(plan, at, alphabet, random);
-			state.frame.set(frame);
+    const step = (): void => {
+      const at = now() - start;
+      const frame = decryptFrameAt(plan, at, alphabet, random);
+      state.frame.set(frame);
 
-			if (!frame.masked) {
-				// nothing left to hide, so nothing is scheduled: this is both how the
-				// animation ends and why a text with no hidden cell in it -- empty,
-				// whitespace, a lone combining mark -- costs no timer at all
-				opts.onDone?.();
-				return;
-			}
+      if (!frame.masked) {
+        // nothing left to hide, so nothing is scheduled: this is both how the
+        // animation ends and why a text with no hidden cell in it -- empty,
+        // whitespace, a lone combining mark -- costs no timer at all
+        opts.onDone?.();
+        return;
+      }
 
-			timer = setTimeout(step, at < jumble ? fast : slow);
-			if (!opts.hold) {
-				// a decrypt is not a reason to stay alive -- unless somebody is awaiting
-				// this one, which is what `hold` says and why it is the facade that sets it
-				timer.unref?.();
-			}
-		};
+      timer = setTimeout(step, at < jumble ? fast : slow);
+      if (!opts.hold) {
+        // a decrypt is not a reason to stay alive -- unless somebody is awaiting
+        // this one, which is what `hold` says and why it is the facade that sets it
+        timer.unref?.();
+      }
+    };
 
-		// the first frame now rather than one tick from now: a decrypt that showed
-		// the real text for one frame before hiding it has given the answer away
-		step();
-		onCleanup(() => clearTimeout(timer));
-	});
+    // the first frame now rather than one tick from now: a decrypt that showed
+    // the real text for one frame before hiding it has given the answer away
+    step();
+    onCleanup(() => clearTimeout(timer));
+  });
 }
 
 /**
@@ -1117,61 +1117,61 @@ export function decryptReveal(state: DecryptState, opts: DecryptRevealOptions): 
  * frames of noise in a CI log.
  */
 export interface DecryptOptions
-	extends MountOptions, Omit<DecryptRevealOptions, 'animate' | 'onDone'> {
-	/**
-	 * Aborts the animation, which erases and resolves.
-	 *
-	 * A signal rather than only a method because the thing that aborts a decrypt
-	 * is usually somewhere else -- a key handler, a shutdown path -- and an
-	 * already-aborted one is handled too, so a caller does not have to check.
-	 * The listener is removed when the animation ends however it ended, which is
-	 * the rule every other listener in this library keeps: put back what you
-	 * attached.
-	 */
-	signal?: AbortSignal;
-	/** What to decrypt. */
-	text?: string;
+  extends MountOptions, Omit<DecryptRevealOptions, 'animate' | 'onDone'> {
+  /**
+   * Aborts the animation, which erases and resolves.
+   *
+   * A signal rather than only a method because the thing that aborts a decrypt
+   * is usually somewhere else -- a key handler, a shutdown path -- and an
+   * already-aborted one is handled too, so a caller does not have to check.
+   * The listener is removed when the animation ends however it ended, which is
+   * the rule every other listener in this library keeps: put back what you
+   * attached.
+   */
+  signal?: AbortSignal;
+  /** What to decrypt. */
+  text?: string;
 }
 
 export interface Decrypt {
-	/**
-	 * Erases what was drawn, leaves nothing behind, and resolves.
-	 *
-	 * What `stop()` is on a spinner and a typewriter. It is spelled differently
-	 * here because this animation is *finite*: "stop" is what somebody says when
-	 * they want it over with rather than gone, and what they wanted was the text.
-	 */
-	cancel(): void;
-	/** Whether anything is still hidden. */
-	readonly decrypting: boolean;
-	/**
-	 * Resolves when the animation is over, however it ended.
-	 *
-	 * Over rather than *finished*: `cancel()` and an abort resolve it too. A
-	 * promise that rejected on an abort would make `await decrypt(text)` a thing
-	 * every caller has to wrap, for an outcome nobody considers an error -- and a
-	 * rejection out of a command's `run()` is a message and a non-zero exit code,
-	 * which a Ctrl-C is not.
-	 *
-	 * A fresh one per run, so a `start()` after a settled animation is awaitable
-	 * again.
-	 */
-	readonly done: Promise<void>;
-	/** Starts, optionally replacing the text first. */
-	start(text?: string): Decrypt;
-	/** Snaps to the finished text, leaves it behind, and resolves. */
-	stop(): void;
-	/**
-	 * What is being decrypted. Assigning restarts the effect over the new text.
-	 *
-	 * Which is also what `done` then answers for: a text replaced mid-run is a new
-	 * animation, so the promise resolves when *that* one is over -- and a
-	 * replacement with nothing to hide resolves it at once, because there is
-	 * nothing left to decrypt.
-	 */
-	text: string;
-	/** Writes a line that stays, above the frame. */
-	write(text: string): void;
+  /**
+   * Erases what was drawn, leaves nothing behind, and resolves.
+   *
+   * What `stop()` is on a spinner and a typewriter. It is spelled differently
+   * here because this animation is *finite*: "stop" is what somebody says when
+   * they want it over with rather than gone, and what they wanted was the text.
+   */
+  cancel(): void;
+  /** Whether anything is still hidden. */
+  readonly decrypting: boolean;
+  /**
+   * Resolves when the animation is over, however it ended.
+   *
+   * Over rather than *finished*: `cancel()` and an abort resolve it too. A
+   * promise that rejected on an abort would make `await decrypt(text)` a thing
+   * every caller has to wrap, for an outcome nobody considers an error -- and a
+   * rejection out of a command's `run()` is a message and a non-zero exit code,
+   * which a Ctrl-C is not.
+   *
+   * A fresh one per run, so a `start()` after a settled animation is awaitable
+   * again.
+   */
+  readonly done: Promise<void>;
+  /** Starts, optionally replacing the text first. */
+  start(text?: string): Decrypt;
+  /** Snaps to the finished text, leaves it behind, and resolves. */
+  stop(): void;
+  /**
+   * What is being decrypted. Assigning restarts the effect over the new text.
+   *
+   * Which is also what `done` then answers for: a text replaced mid-run is a new
+   * animation, so the promise resolves when *that* one is over -- and a
+   * replacement with nothing to hide resolves it at once, because there is
+   * nothing left to decrypt.
+   */
+  text: string;
+  /** Writes a line that stays, above the frame. */
+  write(text: string): void;
 }
 
 /**
@@ -1192,223 +1192,223 @@ export interface Decrypt {
  * @returns The decrypt, not yet started.
  */
 export function createDecrypt(opts: DecryptOptions = {}): Decrypt {
-	const state = decryptState(opts.text ?? '');
-	const terminal = opts.terminal ?? defaultTerminal;
-	const running = new State(false);
+  const state = decryptState(opts.text ?? '');
+  const terminal = opts.terminal ?? defaultTerminal;
+  const running = new State(false);
 
-	let mounted: Mounted | undefined;
-	/** Resolves the current run, or `undefined` once that run has settled. */
-	let settle: (() => void) | undefined;
-	/** Taken off the caller's signal when the run is over, however it ended. */
-	let listening: (() => void) | undefined;
-	/**
-	 * Which run is current, so that a settled one's teardown stays its own.
-	 *
-	 * The teardown below is queued on a microtask, and a `start()` in that window
-	 * is a second run with its own renderer -- which the first run's teardown would
-	 * otherwise dispose, because the only thing it had to go on was whether
-	 * anything was mounted and something is. A counter rather than capturing the
-	 * mount, because what has to be compared is "is this still the current run"
-	 * rather than "is this the same renderer": the two part company the moment a
-	 * run is started, torn down and started again inside one tick.
-	 */
-	let run = 0;
+  let mounted: Mounted | undefined;
+  /** Resolves the current run, or `undefined` once that run has settled. */
+  let settle: (() => void) | undefined;
+  /** Taken off the caller's signal when the run is over, however it ended. */
+  let listening: (() => void) | undefined;
+  /**
+   * Which run is current, so that a settled one's teardown stays its own.
+   *
+   * The teardown below is queued on a microtask, and a `start()` in that window
+   * is a second run with its own renderer -- which the first run's teardown would
+   * otherwise dispose, because the only thing it had to go on was whether
+   * anything was mounted and something is. A counter rather than capturing the
+   * mount, because what has to be compared is "is this still the current run"
+   * rather than "is this the same renderer": the two part company the moment a
+   * run is started, torn down and started again inside one tick.
+   */
+  let run = 0;
 
-	/**
-	 * Leaves the last frame where it was drawn and gives the screen back.
-	 *
-	 * On the microtask after the run settled rather than inside it, because the
-	 * animation finishes from inside the effect that is drawing it -- the timer's
-	 * own `step()`, or the effect body for a text with nothing to hide -- and
-	 * disposing a renderer from inside its own frame is not a thing to do. What
-	 * the caller sees is still ordered, because `done` is this promise: by the
-	 * time `await decrypt(text)` returns, the screen has been given back and an
-	 * ordinary `console.log()` lands below the frame rather than inside it.
-	 *
-	 * Idempotent through `mounted`, which is what lets `stop()` and `cancel()` do
-	 * the screen themselves and stay synchronous -- a caller writing a line
-	 * straight after either of those must not race a teardown.
-	 *
-	 * It deliberately does **not** turn `running` off, and a `running.set(false)`
-	 * here was written and deleted again for failing its sabotage. `stop()` and
-	 * `cancel()` each do it themselves -- which is load bearing there, because a
-	 * `stop()` after the animation finished mounts a fresh renderer whose effect
-	 * would read it as still animating and mask the text all over again -- so the
-	 * only path through here is a run that finished, where nothing reads it: the
-	 * frame says nothing is hidden, so `decrypting` is already false, and the next
-	 * `start()` sets it on and builds a renderer of its own.
-	 */
-	function leave(): void {
-		const it = mounted;
-		if (it === undefined) {
-			return;
-		}
-		mounted = undefined;
-		// painted before the screen is given back, because `done()` leaves what is
-		// on screen where it is and what is on screen is still the frame before this
-		it.frame();
-		it.done();
-	}
+  /**
+   * Leaves the last frame where it was drawn and gives the screen back.
+   *
+   * On the microtask after the run settled rather than inside it, because the
+   * animation finishes from inside the effect that is drawing it -- the timer's
+   * own `step()`, or the effect body for a text with nothing to hide -- and
+   * disposing a renderer from inside its own frame is not a thing to do. What
+   * the caller sees is still ordered, because `done` is this promise: by the
+   * time `await decrypt(text)` returns, the screen has been given back and an
+   * ordinary `console.log()` lands below the frame rather than inside it.
+   *
+   * Idempotent through `mounted`, which is what lets `stop()` and `cancel()` do
+   * the screen themselves and stay synchronous -- a caller writing a line
+   * straight after either of those must not race a teardown.
+   *
+   * It deliberately does **not** turn `running` off, and a `running.set(false)`
+   * here was written and deleted again for failing its sabotage. `stop()` and
+   * `cancel()` each do it themselves -- which is load bearing there, because a
+   * `stop()` after the animation finished mounts a fresh renderer whose effect
+   * would read it as still animating and mask the text all over again -- so the
+   * only path through here is a run that finished, where nothing reads it: the
+   * frame says nothing is hidden, so `decrypting` is already false, and the next
+   * `start()` sets it on and builds a renderer of its own.
+   */
+  function leave(): void {
+    const it = mounted;
+    if (it === undefined) {
+      return;
+    }
+    mounted = undefined;
+    // painted before the screen is given back, because `done()` leaves what is
+    // on screen where it is and what is on screen is still the frame before this
+    it.frame();
+    it.done();
+  }
 
-	/**
-	 * A promise for one run, with the screen given back before it resolves.
-	 *
-	 * Chained rather than resolved after a `queueMicrotask(leave)`, because the two
-	 * differ in where a failure goes: a throw out of the renderer's own disposal is
-	 * a rejection here, which whoever awaited `done` sees, and would be an uncaught
-	 * exception out of a bare microtask -- which is the one thing a CLI must not do.
-	 *
-	 * @returns The promise, with `settle` armed to resolve it.
-	 */
-	function begin(): Promise<void> {
-		const mine = ++run;
-		return new Promise<void>((resolve) => {
-			settle = resolve;
-		}).then(() => {
-			if (mine === run) {
-				leave();
-			}
-		});
-	}
+  /**
+   * A promise for one run, with the screen given back before it resolves.
+   *
+   * Chained rather than resolved after a `queueMicrotask(leave)`, because the two
+   * differ in where a failure goes: a throw out of the renderer's own disposal is
+   * a rejection here, which whoever awaited `done` sees, and would be an uncaught
+   * exception out of a bare microtask -- which is the one thing a CLI must not do.
+   *
+   * @returns The promise, with `settle` armed to resolve it.
+   */
+  function begin(): Promise<void> {
+    const mine = ++run;
+    return new Promise<void>((resolve) => {
+      settle = resolve;
+    }).then(() => {
+      if (mine === run) {
+        leave();
+      }
+    });
+  }
 
-	let done = begin();
+  let done = begin();
 
-	/** Settles the run, once, and detaches whatever it attached. */
-	function finish(): void {
-		if (settle === undefined) {
-			return;
-		}
-		listening?.();
-		listening = undefined;
-		const resolve = settle;
-		settle = undefined;
-		resolve();
-	}
+  /** Settles the run, once, and detaches whatever it attached. */
+  function finish(): void {
+    if (settle === undefined) {
+      return;
+    }
+    listening?.();
+    listening = undefined;
+    const resolve = settle;
+    settle = undefined;
+    resolve();
+  }
 
-	function mount(): Mounted {
-		mounted ??= mountLive(
-			(live, motion) => {
-				const moving = live && motion !== 'reduce';
-				decryptReveal(state, {
-					...opts,
-					// gated on `running` as well, which is what makes `stop()` snap to the
-					// finished text rather than needing to write the frame itself -- and
-					// what makes a decrypt stopped before it ever started leave its text
-					animate: () => moving && running.get(),
-					// this facade is the one that hands back a promise, so its timer is
-					// what has to keep the loop alive long enough to settle it
-					hold: true,
-					onDone: finish,
-				});
-				return decryptView(state);
-			},
-			{ ...opts, terminal }
-		);
-		return mounted;
-	}
+  function mount(): Mounted {
+    mounted ??= mountLive(
+      (live, motion) => {
+        const moving = live && motion !== 'reduce';
+        decryptReveal(state, {
+          ...opts,
+          // gated on `running` as well, which is what makes `stop()` snap to the
+          // finished text rather than needing to write the frame itself -- and
+          // what makes a decrypt stopped before it ever started leave its text
+          animate: () => moving && running.get(),
+          // this facade is the one that hands back a promise, so its timer is
+          // what has to keep the loop alive long enough to settle it
+          hold: true,
+          onDone: finish,
+        });
+        return decryptView(state);
+      },
+      { ...opts, terminal }
+    );
+    return mounted;
+  }
 
-	const decrypt: Decrypt = {
-		cancel(): void {
-			// off before the mount is dropped, which is what keeps a `stop()` after
-			// this from reading it as still animating
-			running.set(false);
-			// the screen before the settle reads as the thing that matters and is not:
-			// a promise resolves on a later turn, so the caller cannot run until this
-			// method has returned and both orders look the same from outside. What is
-			// load bearing is that the erase happens here at all rather than being
-			// left to the teardown the settle queues, which is a microtask away
-			mounted?.stop();
-			mounted = undefined;
-			finish();
-		},
+  const decrypt: Decrypt = {
+    cancel(): void {
+      // off before the mount is dropped, which is what keeps a `stop()` after
+      // this from reading it as still animating
+      running.set(false);
+      // the screen before the settle reads as the thing that matters and is not:
+      // a promise resolves on a later turn, so the caller cannot run until this
+      // method has returned and both orders look the same from outside. What is
+      // load bearing is that the erase happens here at all rather than being
+      // left to the teardown the settle queues, which is a microtask away
+      mounted?.stop();
+      mounted = undefined;
+      finish();
+    },
 
-		get decrypting() {
-			return running.get() && state.frame.get().masked;
-		},
+    get decrypting() {
+      return running.get() && state.frame.get().masked;
+    },
 
-		get done() {
-			return done;
-		},
+    get done() {
+      return done;
+    },
 
-		start(next?: string): Decrypt {
-			if (settle === undefined) {
-				// the run that settled gives its screen back here rather than on the
-				// microtask it queued, because `mount()` below reuses whatever is
-				// mounted: a second run over the first one's renderer finds an effect
-				// that is not dirty, so nothing animates and nothing ever resolves.
-				// Measured as a hang rather than reasoned about.
-				//
-				// Before the new text is written rather than after, which is the other
-				// half of the same ordering: leaving a frame re-runs the effect, so a
-				// text set first was the text the *previous* run left behind -- two
-				// lines in the log both saying what the second one says
-				leave();
-				done = begin();
-			}
-			if (next !== undefined) {
-				state.text.set(next);
-			}
+    start(next?: string): Decrypt {
+      if (settle === undefined) {
+        // the run that settled gives its screen back here rather than on the
+        // microtask it queued, because `mount()` below reuses whatever is
+        // mounted: a second run over the first one's renderer finds an effect
+        // that is not dirty, so nothing animates and nothing ever resolves.
+        // Measured as a hang rather than reasoned about.
+        //
+        // Before the new text is written rather than after, which is the other
+        // half of the same ordering: leaving a frame re-runs the effect, so a
+        // text set first was the text the *previous* run left behind -- two
+        // lines in the log both saying what the second one says
+        leave();
+        done = begin();
+      }
+      if (next !== undefined) {
+        state.text.set(next);
+      }
 
-			const signal = opts.signal;
-			if (signal !== undefined && listening === undefined) {
-				if (signal.aborted) {
-					// nothing is mounted, so nothing is drawn and nothing has to be
-					// erased: a decrypt aborted before it began is one that never
-					// claimed the screen, and `done` still answers
-					decrypt.cancel();
-					return decrypt;
-				}
-				const abort = (): void => decrypt.cancel();
-				signal.addEventListener('abort', abort, { once: true });
-				listening = () => signal.removeEventListener('abort', abort);
-			}
+      const signal = opts.signal;
+      if (signal !== undefined && listening === undefined) {
+        if (signal.aborted) {
+          // nothing is mounted, so nothing is drawn and nothing has to be
+          // erased: a decrypt aborted before it began is one that never
+          // claimed the screen, and `done` still answers
+          decrypt.cancel();
+          return decrypt;
+        }
+        const abort = (): void => decrypt.cancel();
+        signal.addEventListener('abort', abort, { once: true });
+        listening = () => signal.removeEventListener('abort', abort);
+      }
 
-			// no guard against starting twice, for the reason the typewriter has
-			// none: the signal refuses an equal write, so the effect is not re-run
-			// and the frame after it has nothing new to draw
-			running.set(true);
-			mount().frame();
-			return decrypt;
-		},
+      // no guard against starting twice, for the reason the typewriter has
+      // none: the signal refuses an equal write, so the effect is not re-run
+      // and the frame after it has nothing new to draw
+      running.set(true);
+      mount().frame();
+      return decrypt;
+    },
 
-		stop(): void {
-			// turning it off is what snaps to the finished text, through the one path
-			// that does: writing the frame here as well would be a second answer to
-			// "how does a decrypt finish", and the two would come to disagree
-			running.set(false);
+    stop(): void {
+      // turning it off is what snaps to the finished text, through the one path
+      // that does: writing the frame here as well would be a second answer to
+      // "how does a decrypt finish", and the two would come to disagree
+      running.set(false);
 
-			// mounted even if it never ran, which is what a `stop()` on a decrypt
-			// nobody started means: the text is what it had to say
-			const it = mount();
-			it.frame();
-			it.done();
-			mounted = undefined;
-			// after the screen for the reason `cancel()` records, which is that the
-			// order is not what matters: the settle is what makes `done` resolve, and
-			// the teardown it queues then finds nothing mounted
-			finish();
-		},
+      // mounted even if it never ran, which is what a `stop()` on a decrypt
+      // nobody started means: the text is what it had to say
+      const it = mount();
+      it.frame();
+      it.done();
+      mounted = undefined;
+      // after the screen for the reason `cancel()` records, which is that the
+      // order is not what matters: the settle is what makes `done` resolve, and
+      // the teardown it queues then finds nothing mounted
+      finish();
+    },
 
-		get text() {
-			return state.text.get();
-		},
+    get text() {
+      return state.text.get();
+    },
 
-		set text(next: string) {
-			state.text.set(next);
-			mounted?.frame();
-		},
+    set text(next: string) {
+      state.text.set(next);
+      mounted?.frame();
+    },
 
-		write(line: string): void {
-			if (mounted) {
-				mounted.write(line);
-				return;
-			}
-			// nothing has claimed the screen, so there is nothing to write above
-			terminal.write(line.endsWith('\n') ? line : `${line}\n`);
-		},
-	};
+    write(line: string): void {
+      if (mounted) {
+        mounted.write(line);
+        return;
+      }
+      // nothing has claimed the screen, so there is nothing to write above
+      terminal.write(line.endsWith('\n') ? line : `${line}\n`);
+    },
+  };
 
-	return decrypt;
+  return decrypt;
 }
 
 /**
@@ -1426,5 +1426,5 @@ export function createDecrypt(opts: DecryptOptions = {}): Decrypt {
  * @returns Over.
  */
 export function decrypt(text: string, opts: DecryptOptions = {}): Promise<void> {
-	return createDecrypt({ ...opts, text }).start().done;
+  return createDecrypt({ ...opts, text }).start().done;
 }

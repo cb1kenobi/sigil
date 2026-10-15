@@ -22,19 +22,19 @@ import { ESC } from './codes.js';
  * bytes survive as text rather than real text being eaten.
  */
 const sequences = [
-	// OSC -- ESC ] ... terminated by BEL or ST. Used for hyperlinks and window
-	// titles, and the payload may contain `;` and spaces.
-	string('\\u001B\\]|\\u009D'),
+  // OSC -- ESC ] ... terminated by BEL or ST. Used for hyperlinks and window
+  // titles, and the payload may contain `;` and spaces.
+  string('\\u001B\\]|\\u009D'),
 
-	// DCS, SOS, PM, and APC -- ESC P/X/^/_ ... terminated by ST
-	string('\\u001B[P^_X]|[\\u0090\\u0098\\u009E\\u009F]'),
+  // DCS, SOS, PM, and APC -- ESC P/X/^/_ ... terminated by ST
+  string('\\u001B[P^_X]|[\\u0090\\u0098\\u009E\\u009F]'),
 
-	// CSI -- ESC [ parameters intermediates final. SGR is the one that matters
-	// here, but cursor movement and erase share the shape.
-	'(?:\\u001B\\[|\\u009B)[0-?]*[ -/]*(?:[@-~]|$)',
+  // CSI -- ESC [ parameters intermediates final. SGR is the one that matters
+  // here, but cursor movement and erase share the shape.
+  '(?:\\u001B\\[|\\u009B)[0-?]*[ -/]*(?:[@-~]|$)',
 
-	// everything else -- ESC, optional intermediates, one final byte
-	'\\u001B[ -/]*[0-~]?',
+  // everything else -- ESC, optional intermediates, one final byte
+  '\\u001B[ -/]*[0-~]?',
 ].join('|');
 
 /**
@@ -45,10 +45,10 @@ const sequences = [
  * @returns The pattern source.
  */
 function string(introducer: string): string {
-	// the payload runs until something ends it, and the empty alternative at the
-	// end of the terminator group is what lets an ESC that is not `ESC \` end the
-	// payload without being consumed by it
-	return `(?:${introducer})[^\\u0007\\u0018\\u001A\\u001B\\u009C]*(?:\\u0007|\\u001B\\\\|\\u009C|\\u0018|\\u001A|)`;
+  // the payload runs until something ends it, and the empty alternative at the
+  // end of the terminator group is what lets an ESC that is not `ESC \` end the
+  // payload without being consumed by it
+  return `(?:${introducer})[^\\u0007\\u0018\\u001A\\u001B\\u009C]*(?:\\u0007|\\u001B\\\\|\\u009C|\\u0018|\\u001A|)`;
 }
 
 /**
@@ -66,7 +66,7 @@ function string(introducer: string): string {
  * @returns The matcher.
  */
 export function matcher(): RegExp {
-	return new RegExp(sequences, 'g');
+  return new RegExp(sequences, 'g');
 }
 
 /**
@@ -83,7 +83,7 @@ export function matcher(): RegExp {
  * @returns The string with no escape sequences left in it.
  */
 export function strip(str: string): string {
-	return str.includes(ESC) || hasC1(str) ? str.replace(matcher(), '') : str;
+  return str.includes(ESC) || hasC1(str) ? str.replace(matcher(), '') : str;
 }
 
 /**
@@ -93,7 +93,7 @@ export function strip(str: string): string {
  * @returns `true` when at least one sequence is present.
  */
 export function hasAnsi(str: string): boolean {
-	return matcher().test(str);
+  return matcher().test(str);
 }
 
 /**
@@ -106,11 +106,11 @@ export function hasAnsi(str: string): boolean {
  * @returns `true` when the string contains a C1 introducer.
  */
 function hasC1(str: string): boolean {
-	for (let i = 0; i < str.length; i++) {
-		const code = str.charCodeAt(i);
-		if (code >= 0x80 && code <= 0x9f) {
-			return true;
-		}
-	}
-	return false;
+  for (let i = 0; i < str.length; i++) {
+    const code = str.charCodeAt(i);
+    if (code >= 0x80 && code <= 0x9f) {
+      return true;
+    }
+  }
+  return false;
 }

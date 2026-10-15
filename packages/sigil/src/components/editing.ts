@@ -56,10 +56,10 @@ const LINE_BREAK = /\r\n|\r|\n/gu;
 
 /** What an edit leaves behind: the value, and where the cursor ended up. */
 export interface Edit {
-	/** Where the cursor is, as an offset into `value`. */
-	cursor: number;
-	/** What has been typed. */
-	value: string;
+  /** Where the cursor is, as an offset into `value`. */
+  cursor: number;
+  /** What has been typed. */
+  value: string;
 }
 
 /**
@@ -69,7 +69,7 @@ export interface Edit {
  * @returns Whether it is one.
  */
 export function isControlChar(cluster: string): boolean {
-	return CONTROL_CHAR.test(cluster);
+  return CONTROL_CHAR.test(cluster);
 }
 
 /**
@@ -79,7 +79,7 @@ export function isControlChar(cluster: string): boolean {
  * @returns Whether it is.
  */
 export function isSpaceCluster(cluster: string): boolean {
-	return SPACE_CLUSTER.test(cluster);
+  return SPACE_CLUSTER.test(cluster);
 }
 
 /**
@@ -101,24 +101,24 @@ export function isSpaceCluster(cluster: string): boolean {
  * @returns The offset, clamped to the ends of the value.
  */
 export function boundary(value: string, at: number, direction: -1 | 1): number {
-	let offset = 0;
-	let previous = 0;
+  let offset = 0;
+  let previous = 0;
 
-	for (const cluster of graphemes(value)) {
-		offset += cluster.length;
+  for (const cluster of graphemes(value)) {
+    offset += cluster.length;
 
-		if (direction === 1) {
-			if (offset > at) {
-				return offset;
-			}
-		} else if (offset >= at) {
-			return previous;
-		}
+    if (direction === 1) {
+      if (offset > at) {
+        return offset;
+      }
+    } else if (offset >= at) {
+      return previous;
+    }
 
-		previous = offset;
-	}
+    previous = offset;
+  }
 
-	return direction === 1 ? value.length : previous;
+  return direction === 1 ? value.length : previous;
 }
 
 /**
@@ -138,16 +138,16 @@ export function boundary(value: string, at: number, direction: -1 | 1): number {
  *   fell inside.
  */
 export function snap(value: string, at: number): number {
-	let offset = 0;
+  let offset = 0;
 
-	for (const cluster of graphemes(value)) {
-		if (offset >= at) {
-			return offset;
-		}
-		offset += cluster.length;
-	}
+  for (const cluster of graphemes(value)) {
+    if (offset >= at) {
+      return offset;
+    }
+    offset += cluster.length;
+  }
 
-	return value.length;
+  return value.length;
 }
 
 /**
@@ -159,12 +159,12 @@ export function snap(value: string, at: number): number {
  * @returns The value and the cursor after it.
  */
 export function insertAt(value: string, cursor: number, input: string): Edit {
-	if (input === '') {
-		return { cursor, value };
-	}
+  if (input === '') {
+    return { cursor, value };
+  }
 
-	const next = value.slice(0, cursor) + input + value.slice(cursor);
-	return { cursor: snap(next, cursor + input.length), value: next };
+  const next = value.slice(0, cursor) + input + value.slice(cursor);
+  return { cursor: snap(next, cursor + input.length), value: next };
 }
 
 /**
@@ -192,13 +192,13 @@ export function insertAt(value: string, cursor: number, input: string): Edit {
  * @returns The value and the cursor after it.
  */
 export function deleteRange(value: string, from: number, to: number): Edit {
-	const start = Math.max(0, Math.min(from, to));
-	const end = Math.min(value.length, Math.max(from, to));
-	if (start >= end) {
-		return { cursor: start, value };
-	}
-	const next = value.slice(0, start) + value.slice(end);
-	return { cursor: snap(next, start), value: next };
+  const start = Math.max(0, Math.min(from, to));
+  const end = Math.min(value.length, Math.max(from, to));
+  if (start >= end) {
+    return { cursor: start, value };
+  }
+  const next = value.slice(0, start) + value.slice(end);
+  return { cursor: snap(next, start), value: next };
 }
 
 /**
@@ -209,7 +209,7 @@ export function deleteRange(value: string, from: number, to: number): Edit {
  * @returns The value and the cursor after it.
  */
 export function deleteBefore(value: string, cursor: number): Edit {
-	return deleteRange(value, boundary(value, cursor, -1), cursor);
+  return deleteRange(value, boundary(value, cursor, -1), cursor);
 }
 
 /**
@@ -221,7 +221,7 @@ export function deleteBefore(value: string, cursor: number): Edit {
  *   two clusters either side of what went turned out to be one.
  */
 export function deleteAfter(value: string, cursor: number): Edit {
-	return deleteRange(value, cursor, boundary(value, cursor, 1));
+  return deleteRange(value, cursor, boundary(value, cursor, 1));
 }
 
 /**
@@ -242,31 +242,31 @@ export function deleteAfter(value: string, cursor: number): Edit {
  * @returns The offset, which is a cluster boundary.
  */
 export function wordBefore(value: string, at: number): number {
-	const limit = Math.max(0, Math.min(at, value.length));
-	/** The start offset of each cluster that begins before `limit`. */
-	const starts: number[] = [];
-	/** Whether each of those is whitespace. */
-	const blanks: boolean[] = [];
-	let offset = 0;
+  const limit = Math.max(0, Math.min(at, value.length));
+  /** The start offset of each cluster that begins before `limit`. */
+  const starts: number[] = [];
+  /** Whether each of those is whitespace. */
+  const blanks: boolean[] = [];
+  let offset = 0;
 
-	for (const cluster of graphemes(value)) {
-		if (offset >= limit) {
-			break;
-		}
-		starts.push(offset);
-		blanks.push(SPACE_CLUSTER.test(cluster));
-		offset += cluster.length;
-	}
+  for (const cluster of graphemes(value)) {
+    if (offset >= limit) {
+      break;
+    }
+    starts.push(offset);
+    blanks.push(SPACE_CLUSTER.test(cluster));
+    offset += cluster.length;
+  }
 
-	let i = starts.length;
-	while (i > 0 && blanks[i - 1]) {
-		i--;
-	}
-	while (i > 0 && !blanks[i - 1]) {
-		i--;
-	}
+  let i = starts.length;
+  while (i > 0 && blanks[i - 1]) {
+    i--;
+  }
+  while (i > 0 && !blanks[i - 1]) {
+    i--;
+  }
 
-	return starts[i] ?? limit;
+  return starts[i] ?? limit;
 }
 
 /**
@@ -281,31 +281,31 @@ export function wordBefore(value: string, at: number): number {
  * @returns The offset, which is a cluster boundary.
  */
 export function wordAfter(value: string, at: number): number {
-	const from = Math.max(0, Math.min(at, value.length));
-	let offset = 0;
-	/** Whether a word has been entered, which is when its end is worth stopping at. */
-	let inWord = false;
+  const from = Math.max(0, Math.min(at, value.length));
+  let offset = 0;
+  /** Whether a word has been entered, which is when its end is worth stopping at. */
+  let inWord = false;
 
-	for (const cluster of graphemes(value)) {
-		const end = offset + cluster.length;
+  for (const cluster of graphemes(value)) {
+    const end = offset + cluster.length;
 
-		// a cluster `from` falls inside has already been passed: the cursor is on a
-		// boundary by construction, and a value handed in by a caller is the one
-		// place it may not be
-		if (end > from) {
-			if (SPACE_CLUSTER.test(cluster)) {
-				if (inWord) {
-					return offset;
-				}
-			} else {
-				inWord = true;
-			}
-		}
+    // a cluster `from` falls inside has already been passed: the cursor is on a
+    // boundary by construction, and a value handed in by a caller is the one
+    // place it may not be
+    if (end > from) {
+      if (SPACE_CLUSTER.test(cluster)) {
+        if (inWord) {
+          return offset;
+        }
+      } else {
+        inWord = true;
+      }
+    }
 
-		offset = end;
-	}
+    offset = end;
+  }
 
-	return value.length;
+  return value.length;
 }
 
 /**
@@ -327,15 +327,15 @@ export function wordAfter(value: string, at: number): number {
  * @returns What to insert, or `undefined`.
  */
 export function typedText(k: Key): string | undefined {
-	if (k.ctrl || k.meta) {
-		return undefined;
-	}
-	if (k.name !== 'space' && k.name !== k.sequence) {
-		return undefined;
-	}
+  if (k.ctrl || k.meta) {
+    return undefined;
+  }
+  if (k.name !== 'space' && k.name !== k.sequence) {
+    return undefined;
+  }
 
-	const ch = k.name === 'space' ? ' ' : k.sequence;
-	return isControlChar(ch) ? undefined : ch;
+  const ch = k.name === 'space' ? ' ' : k.sequence;
+  return isControlChar(ch) ? undefined : ch;
 }
 
 /**
@@ -357,9 +357,9 @@ export function typedText(k: Key): string | undefined {
  * @returns What to insert.
  */
 export function pastedLine(block: string): string {
-	return [...graphemes(block.replaceAll(PASTED_BREAK, ' '))]
-		.filter((cluster) => !isControlChar(cluster))
-		.join('');
+  return [...graphemes(block.replaceAll(PASTED_BREAK, ' '))]
+    .filter((cluster) => !isControlChar(cluster))
+    .join('');
 }
 
 /**
@@ -382,7 +382,7 @@ export function pastedLine(block: string): string {
  * @returns What to insert.
  */
 export function pastedBlock(block: string): string {
-	return [...graphemes(block.replaceAll(LINE_BREAK, '\n'))]
-		.filter((cluster) => cluster === '\n' || cluster === '\t' || !isControlChar(cluster))
-		.join('');
+  return [...graphemes(block.replaceAll(LINE_BREAK, '\n'))]
+    .filter((cluster) => cluster === '\n' || cluster === '\t' || !isControlChar(cluster))
+    .join('');
 }

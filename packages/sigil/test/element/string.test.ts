@@ -1,11 +1,11 @@
 import { ATTR, DEFAULT_COLOR, palette } from '../../src/canvas/index.js';
 import {
-	box,
-	type Element,
-	paragraph,
-	renderToLines,
-	renderToString,
-	text,
+  box,
+  type Element,
+  paragraph,
+  renderToLines,
+  renderToString,
+  text,
 } from '../../src/element/index.js';
 import { Cascade, parseStylesheet } from '../../src/style/index.js';
 import { describe, expect, it } from 'vitest';
@@ -24,458 +24,458 @@ const ESC = String.fromCharCode(0x1b);
 
 /** A cascade over one sheet, so a test can say what something should look like. */
 function sheets(css: string): Cascade {
-	return new Cascade([parseStylesheet(css)]);
+  return new Cascade([parseStylesheet(css)]);
 }
 
 describe('renderToString()', () => {
-	it('should lay a tree out and read it back', () => {
-		const tree = box({ 'flex-direction': 'column' }, text('one'), text('two'));
+  it('should lay a tree out and read it back', () => {
+    const tree = box({ 'flex-direction': 'column' }, text('one'), text('two'));
 
-		expect(renderToString(tree, { colorLevel: 0, width: 20 })).to.equal('one\ntwo');
-	});
+    expect(renderToString(tree, { colorLevel: 0, width: 20 })).to.equal('one\ntwo');
+  });
 
-	it('should measure its own height when none is given', () => {
-		const tree = box({ 'flex-direction': 'column' }, text('a'), text('b'), text('c'));
+  it('should measure its own height when none is given', () => {
+    const tree = box({ 'flex-direction': 'column' }, text('a'), text('b'), text('c'));
 
-		expect(renderToLines(tree, { colorLevel: 0, width: 10 })).to.have.length(3);
-	});
+    expect(renderToLines(tree, { colorLevel: 0, width: 10 })).to.have.length(3);
+  });
 
-	it('should keep to a height it was given', () => {
-		const tree = box({ 'flex-direction': 'column' }, text('a'), text('b'), text('c'));
+  it('should keep to a height it was given', () => {
+    const tree = box({ 'flex-direction': 'column' }, text('a'), text('b'), text('c'));
 
-		expect(renderToLines(tree, { colorLevel: 0, height: 2, width: 10 })).to.deep.equal(['a', 'b']);
-	});
+    expect(renderToLines(tree, { colorLevel: 0, height: 2, width: 10 })).to.deep.equal(['a', 'b']);
+  });
 
-	// a line that ends in spaces copies wrong and takes more of the screen than
-	// it shows
-	it('should drop the blanks off the end of a line', () => {
-		const tree = box({ 'flex-direction': 'row', width: 20 }, text('hi', { width: 10 }));
+  // a line that ends in spaces copies wrong and takes more of the screen than
+  // it shows
+  it('should drop the blanks off the end of a line', () => {
+    const tree = box({ 'flex-direction': 'row', width: 20 }, text('hi', { width: 10 }));
 
-		expect(renderToString(tree, { colorLevel: 0, width: 20 })).to.equal('hi');
-	});
+    expect(renderToString(tree, { colorLevel: 0, width: 20 })).to.equal('hi');
+  });
 
-	// a blank carrying a background is part of the picture, not padding
-	it('should keep a trailing blank that shows something', () => {
-		const tree = box({ 'flex-direction': 'row', width: 20 }, text('hi', { width: 4 }));
+  // a blank carrying a background is part of the picture, not padding
+  it('should keep a trailing blank that shows something', () => {
+    const tree = box({ 'flex-direction': 'row', width: 20 }, text('hi', { width: 4 }));
 
-		const line = renderToString(tree, {
-			cascade: sheets('text { background-color: blue }'),
-			colorLevel: 1,
-			width: 20,
-		});
+    const line = renderToString(tree, {
+      cascade: sheets('text { background-color: blue }'),
+      colorLevel: 1,
+      width: 20,
+    });
 
-		expect(line).to.contain('hi  ');
-	});
+    expect(line).to.contain('hi  ');
+  });
 
-	// one line joined onto another, or written into a log beside something else,
-	// must not carry its colour into what follows
-	it('should end every line in the state it began in', () => {
-		const tree = box({ 'flex-direction': 'column' }, text('red', { class: 'a' }), text('plain'));
+  // one line joined onto another, or written into a log beside something else,
+  // must not carry its colour into what follows
+  it('should end every line in the state it began in', () => {
+    const tree = box({ 'flex-direction': 'column' }, text('red', { class: 'a' }), text('plain'));
 
-		const [first, second] = renderToLines(tree, {
-			cascade: sheets('.a { color: red }'),
-			colorLevel: 1,
-			width: 10,
-		});
+    const [first, second] = renderToLines(tree, {
+      cascade: sheets('.a { color: red }'),
+      colorLevel: 1,
+      width: 10,
+    });
 
-		expect(first).to.equal(`${ESC}[31mred${ESC}[0m`);
-		expect(second).to.equal('plain');
-	});
+    expect(first).to.equal(`${ESC}[31mred${ESC}[0m`);
+    expect(second).to.equal('plain');
+  });
 
-	// a paragraph is a row of one-word elements, so the gap between two of them
-	// is an unpainted cell -- and closing the style at every space turned one dim
-	// parenthetical into a sequence per word
-	it('should not close a style over a blank that shows nothing', () => {
-		const tree = paragraph([{ class: 'note', text: 'two dim words' }]);
+  // a paragraph is a row of one-word elements, so the gap between two of them
+  // is an unpainted cell -- and closing the style at every space turned one dim
+  // parenthetical into a sequence per word
+  it('should not close a style over a blank that shows nothing', () => {
+    const tree = paragraph([{ class: 'note', text: 'two dim words' }]);
 
-		expect(
-			renderToString(tree, { cascade: sheets('.note { dim: true }'), colorLevel: 1, width: 40 })
-		).to.equal(`${ESC}[2mtwo dim words${ESC}[0m`);
-	});
+    expect(
+      renderToString(tree, { cascade: sheets('.note { dim: true }'), colorLevel: 1, width: 40 })
+    ).to.equal(`${ESC}[2mtwo dim words${ESC}[0m`);
+  });
 
-	// a flag name longer than the terminal is printed whole, on the rule that the
-	// name surviving beats the line being tidy -- and a grid the width of the
-	// screen has no columns to put it in
-	it('should widen the grid to what did not fit', () => {
-		const tree = box({}, text('--an-extremely-long-option-name', { 'white-space': 'nowrap' }));
+  // a flag name longer than the terminal is printed whole, on the rule that the
+  // name surviving beats the line being tidy -- and a grid the width of the
+  // screen has no columns to put it in
+  it('should widen the grid to what did not fit', () => {
+    const tree = box({}, text('--an-extremely-long-option-name', { 'white-space': 'nowrap' }));
 
-		expect(renderToString(tree, { colorLevel: 0, width: 10 })).to.equal(
-			'--an-extremely-long-option-name'
-		);
-	});
+    expect(renderToString(tree, { colorLevel: 0, width: 10 })).to.equal(
+      '--an-extremely-long-option-name'
+    );
+  });
 
-	// the same read is what a childless root's own relative offset needs, and it
-	// was wrong here on `main` too: `layout()` applies that offset itself, since
-	// every other node's is applied by the parent that places it, so reading the
-	// root's *size* back drew the one row at row two of a one-row grid -- which is
-	// to say nowhere. Found by review round 2 on the clipping root beside it
-	it('should widen the grid to where a childless root was offset to', () => {
-		const tree = text('x', { position: 'relative', top: 2, 'white-space': 'nowrap' });
+  // the same read is what a childless root's own relative offset needs, and it
+  // was wrong here on `main` too: `layout()` applies that offset itself, since
+  // every other node's is applied by the parent that places it, so reading the
+  // root's *size* back drew the one row at row two of a one-row grid -- which is
+  // to say nowhere. Found by review round 2 on the clipping root beside it
+  it('should widen the grid to where a childless root was offset to', () => {
+    const tree = text('x', { position: 'relative', top: 2, 'white-space': 'nowrap' });
 
-		expect(renderToLines(tree, { colorLevel: 0, width: 5 })).to.deep.equal(['', '', 'x']);
-	});
+    expect(renderToLines(tree, { colorLevel: 0, width: 5 })).to.deep.equal(['', '', 'x']);
+  });
 
-	// the same rule for a root with nothing in it, which is the one case where the
-	// extent is read off the root's own box -- and a *declared* width is the only
-	// thing that puts that box past the room it was offered, since `layout()`
-	// honours the root's own size and an undeclared root simply fills what it was
-	// given. Pre-existing and uncovered: with the extent read off the walk instead
-	// the grid comes out six columns and `text-overflow` cuts the rest off
-	it('should widen the grid to a childless root that declared more', () => {
-		const tree = text('abcdefghijklmnop', { 'white-space': 'nowrap', width: 16 });
+  // the same rule for a root with nothing in it, which is the one case where the
+  // extent is read off the root's own box -- and a *declared* width is the only
+  // thing that puts that box past the room it was offered, since `layout()`
+  // honours the root's own size and an undeclared root simply fills what it was
+  // given. Pre-existing and uncovered: with the extent read off the walk instead
+  // the grid comes out six columns and `text-overflow` cuts the rest off
+  it('should widen the grid to a childless root that declared more', () => {
+    const tree = text('abcdefghijklmnop', { 'white-space': 'nowrap', width: 16 });
 
-		expect(renderToString(tree, { colorLevel: 0, width: 6 })).to.equal('abcdefghijklmnop');
-	});
+    expect(renderToString(tree, { colorLevel: 0, width: 6 })).to.equal('abcdefghijklmnop');
+  });
 
-	// a label-and-description row: the description is placed in the column flexing
-	// gives it, and the row has to be as tall as that comes to. This test used to
-	// expect four lines with no blank among them, which is the defect rather than
-	// the grid growing -- the row reserved two rows, its description took three,
-	// and the `row-gap` between the row and `after` was silently eaten by the
-	// overflow. So it went green on exactly the behaviour it was named for
-	// catching. See SIG-125
-	it('should be as tall as the layout turned out to be', () => {
-		const tree = box(
-			{ 'flex-direction': 'column', 'row-gap': 1 },
-			box(
-				{ 'column-gap': 1, 'flex-direction': 'row' },
-				text('label', { 'flex-shrink': 0, 'white-space': 'nowrap' }),
-				paragraph(['one two three four five six seven'], { 'flex-basis': 0, 'flex-grow': 1 })
-			),
-			text('after')
-		);
+  // a label-and-description row: the description is placed in the column flexing
+  // gives it, and the row has to be as tall as that comes to. This test used to
+  // expect four lines with no blank among them, which is the defect rather than
+  // the grid growing -- the row reserved two rows, its description took three,
+  // and the `row-gap` between the row and `after` was silently eaten by the
+  // overflow. So it went green on exactly the behaviour it was named for
+  // catching. See SIG-125
+  it('should be as tall as the layout turned out to be', () => {
+    const tree = box(
+      { 'flex-direction': 'column', 'row-gap': 1 },
+      box(
+        { 'column-gap': 1, 'flex-direction': 'row' },
+        text('label', { 'flex-shrink': 0, 'white-space': 'nowrap' }),
+        paragraph(['one two three four five six seven'], { 'flex-basis': 0, 'flex-grow': 1 })
+      ),
+      text('after')
+    );
 
-		expect(renderToLines(tree, { colorLevel: 0, width: 20 })).to.deep.equal([
-			'label one two three',
-			'      four five six',
-			'      seven',
-			'',
-			'after',
-		]);
-	});
+    expect(renderToLines(tree, { colorLevel: 0, width: 20 })).to.deep.equal([
+      'label one two three',
+      '      four five six',
+      '      seven',
+      '',
+      'after',
+    ]);
+  });
 
-	// the same tree with the column said out loud, which is what the help template,
-	// `report.ts` and the prompt head each still do -- for reasons that turned out to
-	// have nothing to do with this defect, and are written down where each of them is.
-	// The two spellings are asserted against each other rather than separately,
-	// because a declared width was the *way round* the defect: the automatic answer
-	// agreeing with it line for line is what says the way round is no longer needed
-	it('should reserve the same rows whether or not the column was declared', () => {
-		const row = (description: ReturnType<typeof paragraph>) =>
-			box(
-				{ 'flex-direction': 'column', 'row-gap': 1 },
-				box(
-					{ 'column-gap': 1, 'flex-direction': 'row' },
-					text('label', { 'flex-shrink': 0, 'white-space': 'nowrap' }),
-					description
-				),
-				text('after')
-			);
-		const words = ['one two three four five six seven'];
+  // the same tree with the column said out loud, which is what the help template,
+  // `report.ts` and the prompt head each still do -- for reasons that turned out to
+  // have nothing to do with this defect, and are written down where each of them is.
+  // The two spellings are asserted against each other rather than separately,
+  // because a declared width was the *way round* the defect: the automatic answer
+  // agreeing with it line for line is what says the way round is no longer needed
+  it('should reserve the same rows whether or not the column was declared', () => {
+    const row = (description: ReturnType<typeof paragraph>) =>
+      box(
+        { 'flex-direction': 'column', 'row-gap': 1 },
+        box(
+          { 'column-gap': 1, 'flex-direction': 'row' },
+          text('label', { 'flex-shrink': 0, 'white-space': 'nowrap' }),
+          description
+        ),
+        text('after')
+      );
+    const words = ['one two three four five six seven'];
 
-		const declared = renderToLines(row(paragraph(words, { 'flex-shrink': 0, width: 13 })), {
-			colorLevel: 0,
-			width: 20,
-		});
+    const declared = renderToLines(row(paragraph(words, { 'flex-shrink': 0, width: 13 })), {
+      colorLevel: 0,
+      width: 20,
+    });
 
-		expect(declared).to.deep.equal([
-			'label one two three',
-			'      four five six',
-			'      seven',
-			'',
-			'after',
-		]);
-		expect(
-			renderToLines(row(paragraph(words, { 'flex-basis': 0, 'flex-grow': 1 })), {
-				colorLevel: 0,
-				width: 20,
-			})
-		).to.deep.equal(declared);
-	});
+    expect(declared).to.deep.equal([
+      'label one two three',
+      '      four five six',
+      '      seven',
+      '',
+      'after',
+    ]);
+    expect(
+      renderToLines(row(paragraph(words, { 'flex-basis': 0, 'flex-grow': 1 })), {
+        colorLevel: 0,
+        width: 20,
+      })
+    ).to.deep.equal(declared);
+  });
 
-	// SIG-130: the clip was right and the grid was not. Only `r1` is drawn, and
-	// this used to come back as `['r1', '', '', '']` -- four rows, three of them
-	// blank, reserved for a box nobody can see. What the grid is sized to is what
-	// the drawing reaches, and a box an ancestor's `overflow` hides reaches
-	// nothing
-	it('should not reserve rows a clip hides', () => {
-		const pane = box(
-			{ height: 1, overflow: 'hidden', width: 6 },
-			box(
-				{ 'flex-direction': 'column', 'flex-shrink': 0 },
-				text('r1'),
-				text('r2'),
-				text('r3'),
-				text('r4')
-			)
-		);
+  // SIG-130: the clip was right and the grid was not. Only `r1` is drawn, and
+  // this used to come back as `['r1', '', '', '']` -- four rows, three of them
+  // blank, reserved for a box nobody can see. What the grid is sized to is what
+  // the drawing reaches, and a box an ancestor's `overflow` hides reaches
+  // nothing
+  it('should not reserve rows a clip hides', () => {
+    const pane = box(
+      { height: 1, overflow: 'hidden', width: 6 },
+      box(
+        { 'flex-direction': 'column', 'flex-shrink': 0 },
+        text('r1'),
+        text('r2'),
+        text('r3'),
+        text('r4')
+      )
+    );
 
-		expect(
-			renderToLines(box({ 'flex-direction': 'column' }, pane), {
-				colorLevel: 0,
-				width: 40,
-			})
-		).to.deep.equal(['r1']);
-	});
+    expect(
+      renderToLines(box({ 'flex-direction': 'column' }, pane), {
+        colorLevel: 0,
+        width: 40,
+      })
+    ).to.deep.equal(['r1']);
+  });
 
-	// the sheets are the caller's, and a media context left behind would be the
-	// next frame's answer to a question about a screen this render was not about
-	it('should put the cascade back the way it found it', () => {
-		const cascade = sheets('text { color: red }');
-		cascade.media = {
-			colorLevel: 3,
-			colorScheme: 'dark',
-			height: 24,
-			reducedMotion: 'no-preference',
-			width: 80,
-		};
+  // the sheets are the caller's, and a media context left behind would be the
+  // next frame's answer to a question about a screen this render was not about
+  it('should put the cascade back the way it found it', () => {
+    const cascade = sheets('text { color: red }');
+    cascade.media = {
+      colorLevel: 3,
+      colorScheme: 'dark',
+      height: 24,
+      reducedMotion: 'no-preference',
+      width: 80,
+    };
 
-		renderToString(text('x'), { cascade, colorLevel: 0, width: 5 });
+    renderToString(text('x'), { cascade, colorLevel: 0, width: 5 });
 
-		expect(cascade.media).to.deep.equal({
-			colorLevel: 3,
-			colorScheme: 'dark',
-			height: 24,
-			reducedMotion: 'no-preference',
-			width: 80,
-		});
-	});
+    expect(cascade.media).to.deep.equal({
+      colorLevel: 3,
+      colorScheme: 'dark',
+      height: 24,
+      reducedMotion: 'no-preference',
+      width: 80,
+    });
+  });
 
-	// level 0 is plain text, attributes included, which is what the styler has
-	// always meant by it
-	it('should draw no styling at all at level 0', () => {
-		const tree = text('loud', { class: 'a' });
+  // level 0 is plain text, attributes included, which is what the styler has
+  // always meant by it
+  it('should draw no styling at all at level 0', () => {
+    const tree = text('loud', { class: 'a' });
 
-		expect(
-			renderToString(tree, {
-				cascade: sheets('.a { color: red; font-weight: bold }'),
-				colorLevel: 0,
-				width: 10,
-			})
-		).to.equal('loud');
-	});
+    expect(
+      renderToString(tree, {
+        cascade: sheets('.a { color: red; font-weight: bold }'),
+        colorLevel: 0,
+        width: 10,
+      })
+    ).to.equal('loud');
+  });
 });
 
 describe('text-overflow', () => {
-	const cut = (mode: string) =>
-		renderToString(
-			box({}, text('abcdefgh', { 'text-overflow': mode, 'white-space': 'nowrap', width: 4 })),
-			{
-				colorLevel: 0,
-				width: 20,
-			}
-		);
+  const cut = (mode: string) =>
+    renderToString(
+      box({}, text('abcdefgh', { 'text-overflow': mode, 'white-space': 'nowrap', width: 4 })),
+      {
+        colorLevel: 0,
+        width: 20,
+      }
+    );
 
-	it('should cut at the end by default', () => {
-		expect(cut('clip')).to.equal('abcd');
-	});
+  it('should cut at the end by default', () => {
+    expect(cut('clip')).to.equal('abcd');
+  });
 
-	it('should mark where it cut', () => {
-		expect(cut('ellipsis')).to.equal('abc…');
-		expect(cut('ellipsis-start')).to.equal('…fgh');
-		expect(cut('ellipsis-middle')).to.equal('ab…h');
-	});
+  it('should mark where it cut', () => {
+    expect(cut('ellipsis')).to.equal('abc…');
+    expect(cut('ellipsis-start')).to.equal('…fgh');
+    expect(cut('ellipsis-middle')).to.equal('ab…h');
+  });
 
-	it('should leave a line that fits alone', () => {
-		const tree = box(
-			{},
-			text('abc', { 'text-overflow': 'ellipsis', 'white-space': 'nowrap', width: 8 })
-		);
+  it('should leave a line that fits alone', () => {
+    const tree = box(
+      {},
+      text('abc', { 'text-overflow': 'ellipsis', 'white-space': 'nowrap', width: 8 })
+    );
 
-		expect(renderToString(tree, { colorLevel: 0, width: 20 })).to.equal('abc');
-	});
+    expect(renderToString(tree, { colorLevel: 0, width: 20 })).to.equal('abc');
+  });
 });
 
 describe('paragraph()', () => {
-	it('should wrap its words like prose', () => {
-		expect(
-			renderToString(paragraph(['one two three four'], { width: 9 }), {
-				colorLevel: 0,
-				width: 20,
-			})
-		).to.equal('one two\nthree\nfour');
-	});
+  it('should wrap its words like prose', () => {
+    expect(
+      renderToString(paragraph(['one two three four'], { width: 9 }), {
+        colorLevel: 0,
+        width: 20,
+      })
+    ).to.equal('one two\nthree\nfour');
+  });
 
-	it('should style each run on its own', () => {
-		const tree = paragraph([{ text: 'plain' }, { class: 'note', text: 'dim' }], { width: 20 });
+  it('should style each run on its own', () => {
+    const tree = paragraph([{ text: 'plain' }, { class: 'note', text: 'dim' }], { width: 20 });
 
-		expect(
-			renderToString(tree, { cascade: sheets('.note { dim: true }'), colorLevel: 1, width: 20 })
-		).to.equal(`plain ${ESC}[2mdim${ESC}[0m`);
-	});
+    expect(
+      renderToString(tree, { cascade: sheets('.note { dim: true }'), colorLevel: 1, width: 20 })
+    ).to.equal(`plain ${ESC}[2mdim${ESC}[0m`);
+  });
 
-	// `wrap()` breaks a word that cannot fit, and a paragraph that disagreed with
-	// the wrapper about that would be a block wider than it was asked to be. What
-	// does differ is what follows the break: a broken word is one item and an item
-	// is a rectangle, so the next word starts on the line after it rather than
-	// beside the last of its rows -- which is the same thing having no inline
-	// layout costs everywhere else here
-	it('should break a word too long for the line', () => {
-		expect(
-			renderToString(paragraph(['a supercalifragilistic b'], { width: 8 }), {
-				colorLevel: 0,
-				width: 8,
-			})
-		).to.equal('a\nsupercal\nifragili\nstic\nb');
-	});
+  // `wrap()` breaks a word that cannot fit, and a paragraph that disagreed with
+  // the wrapper about that would be a block wider than it was asked to be. What
+  // does differ is what follows the break: a broken word is one item and an item
+  // is a rectangle, so the next word starts on the line after it rather than
+  // beside the last of its rows -- which is the same thing having no inline
+  // layout costs everywhere else here
+  it('should break a word too long for the line', () => {
+    expect(
+      renderToString(paragraph(['a supercalifragilistic b'], { width: 8 }), {
+        colorLevel: 0,
+        width: 8,
+      })
+    ).to.equal('a\nsupercal\nifragili\nstic\nb');
+  });
 
-	it('should ignore a run with nothing in it', () => {
-		expect(
-			renderToString(paragraph(['a', '', '  ', 'b'], { width: 20 }), { colorLevel: 0, width: 20 })
-		).to.equal('a b');
-	});
+  it('should ignore a run with nothing in it', () => {
+    expect(
+      renderToString(paragraph(['a', '', '  ', 'b'], { width: 20 }), { colorLevel: 0, width: 20 })
+    ).to.equal('a b');
+  });
 
-	// the attributes that show on a space, which is what decides both whether a
-	// trailing blank may be cut and whether one may be left in an open style
-	it('should keep an underlined blank between two words', () => {
-		const tree = paragraph([{ class: 'u', text: 'a b' }], { width: 20 });
-		const line = renderToString(tree, {
-			cascade: sheets('.u { text-decoration: underline }'),
-			colorLevel: 1,
-			width: 20,
-		});
+  // the attributes that show on a space, which is what decides both whether a
+  // trailing blank may be cut and whether one may be left in an open style
+  it('should keep an underlined blank between two words', () => {
+    const tree = paragraph([{ class: 'u', text: 'a b' }], { width: 20 });
+    const line = renderToString(tree, {
+      cascade: sheets('.u { text-decoration: underline }'),
+      colorLevel: 1,
+      width: 20,
+    });
 
-		// the space is written outside the underline rather than inside it, which
-		// is the other half of the rule above: an underlined blank shows
-		expect(line).to.equal(`${ESC}[4ma${ESC}[24m ${ESC}[4mb${ESC}[0m`);
-	});
+    // the space is written outside the underline rather than inside it, which
+    // is the other half of the rule above: an underlined blank shows
+    expect(line).to.equal(`${ESC}[4ma${ESC}[24m ${ESC}[4mb${ESC}[0m`);
+  });
 });
 
 describe('the cell styles a resolved style paints with', () => {
-	it('should be the attributes and the colours', () => {
-		// pinned here because `renderToString()` is the shortest path from a
-		// stylesheet to bytes, and these are the two halves of what a cell holds
-		expect(ATTR.bold).to.be.a('number');
-		expect(palette(1)).to.not.equal(DEFAULT_COLOR);
-	});
+  it('should be the attributes and the colours', () => {
+    // pinned here because `renderToString()` is the shortest path from a
+    // stylesheet to bytes, and these are the two halves of what a cell holds
+    expect(ATTR.bold).to.be.a('number');
+    expect(palette(1)).to.not.equal(DEFAULT_COLOR);
+  });
 });
 
 describe('laying out again for what the layout resized', () => {
-	/**
-	 * A box that counts what it was told and says whether it changed anything.
-	 *
-	 * `grows` makes its box a different size on **every** layout, which is what makes
-	 * the count a count of *layouts* rather than of boxes that moved: an element whose
-	 * size settles is collected once and tells nothing after that, so a guard about
-	 * how many times a frame lays out would be invisible without one that never
-	 * settles.
-	 */
-	function counter(opts: { grows?: boolean; says: boolean | 'once' }): {
-		calls: () => number;
-		element: Element;
-	} {
-		let calls = 0;
-		let height = 1;
-		const element = box({ 'flex-shrink': 0, height }, text('x'));
-		element.onResize = () => {
-			calls++;
-			if (opts.grows) {
-				height = height === 1 ? 2 : 1;
-				element.setProp('height', height);
-			}
-			return opts.says === 'once' ? calls === 1 : opts.says;
-		};
-		return { calls: () => calls, element };
-	}
+  /**
+   * A box that counts what it was told and says whether it changed anything.
+   *
+   * `grows` makes its box a different size on **every** layout, which is what makes
+   * the count a count of *layouts* rather than of boxes that moved: an element whose
+   * size settles is collected once and tells nothing after that, so a guard about
+   * how many times a frame lays out would be invisible without one that never
+   * settles.
+   */
+  function counter(opts: { grows?: boolean; says: boolean | 'once' }): {
+    calls: () => number;
+    element: Element;
+  } {
+    let calls = 0;
+    let height = 1;
+    const element = box({ 'flex-shrink': 0, height }, text('x'));
+    element.onResize = () => {
+      calls++;
+      if (opts.grows) {
+        height = height === 1 ? 2 : 1;
+        element.setProp('height', height);
+      }
+      return opts.says === 'once' ? calls === 1 : opts.says;
+    };
+    return { calls: () => calls, element };
+  }
 
-	it('should lay out again only where a handler said it changed the tree', () => {
-		// the exit, and it is a cost guard rather than a claim about what is drawn:
-		// without it every frame over a tree holding one of these lays out `RESIZE_PASSES`
-		// times. A handler whose box never settles is what makes that countable --
-		// one that settles is collected once however many times the frame laid out
-		const c = counter({ grows: true, says: false });
-		renderToLines(box({ 'flex-direction': 'column' }, c.element), { height: 4, width: 8 });
-		expect(c.calls()).toBe(1);
-	});
+  it('should lay out again only where a handler said it changed the tree', () => {
+    // the exit, and it is a cost guard rather than a claim about what is drawn:
+    // without it every frame over a tree holding one of these lays out `RESIZE_PASSES`
+    // times. A handler whose box never settles is what makes that countable --
+    // one that settles is collected once however many times the frame laid out
+    const c = counter({ grows: true, says: false });
+    renderToLines(box({ 'flex-direction': 'column' }, c.element), { height: 4, width: 8 });
+    expect(c.calls()).toBe(1);
+  });
 
-	it('should give up rather than laying out for ever', () => {
-		// the bound, which is a cycle breaker rather than a budget: a handler that
-		// reports a change every time it is asked is a configuration that does not
-		// converge, and the frame is drawn at the last window it reached
-		const c = counter({ grows: true, says: true });
-		renderToLines(box({ 'flex-direction': 'column' }, c.element), { height: 4, width: 8 });
-		expect(c.calls()).toBe(4);
-	});
+  it('should give up rather than laying out for ever', () => {
+    // the bound, which is a cycle breaker rather than a budget: a handler that
+    // reports a change every time it is asked is a configuration that does not
+    // converge, and the frame is drawn at the last window it reached
+    const c = counter({ grows: true, says: true });
+    renderToLines(box({ 'flex-direction': 'column' }, c.element), { height: 4, width: 8 });
+    expect(c.calls()).toBe(4);
+  });
 
-	it('should tell nothing where no box changed size', () => {
-		// the hook's own contract, and the reason `arrange()` compares rather than
-		// collecting every element that carries one: `onResize` means "your size moved",
-		// so a second render at the same size tells nothing at all. A handler that read
-		// it as "a layout happened" would be reading a different hook
-		const c = counter({ says: false });
-		const tree = box({ 'flex-direction': 'column' }, c.element);
-		renderToLines(tree, { height: 4, width: 8 });
-		expect(c.calls(), 'the first layout is a change: there was no box and now there is').toBe(1);
-		renderToLines(tree, { height: 4, width: 8 });
-		expect(c.calls()).toBe(1);
-		renderToLines(tree, { height: 4, width: 9 });
-		expect(c.calls(), 'a width that moved is a size that moved').toBe(2);
-	});
+  it('should tell nothing where no box changed size', () => {
+    // the hook's own contract, and the reason `arrange()` compares rather than
+    // collecting every element that carries one: `onResize` means "your size moved",
+    // so a second render at the same size tells nothing at all. A handler that read
+    // it as "a layout happened" would be reading a different hook
+    const c = counter({ says: false });
+    const tree = box({ 'flex-direction': 'column' }, c.element);
+    renderToLines(tree, { height: 4, width: 8 });
+    expect(c.calls(), 'the first layout is a change: there was no box and now there is').toBe(1);
+    renderToLines(tree, { height: 4, width: 8 });
+    expect(c.calls()).toBe(1);
+    renderToLines(tree, { height: 4, width: 9 });
+    expect(c.calls(), 'a width that moved is a size that moved').toBe(2);
+  });
 
-	it('should tell every element that resized, not only the first to answer', () => {
-		// two of them, because a frame holding two windowed lists has to rebuild both:
-		// stopping at the first handler that reports a change leaves the second
-		// describing a viewport that is not there
-		const a = counter({ says: 'once' });
-		const b = counter({ says: 'once' });
-		renderToLines(box({ 'flex-direction': 'column' }, a.element, b.element), {
-			height: 4,
-			width: 8,
-		});
-		expect([a.calls(), b.calls()]).toStrictEqual([1, 1]);
-	});
+  it('should tell every element that resized, not only the first to answer', () => {
+    // two of them, because a frame holding two windowed lists has to rebuild both:
+    // stopping at the first handler that reports a change leaves the second
+    // describing a viewport that is not there
+    const a = counter({ says: 'once' });
+    const b = counter({ says: 'once' });
+    renderToLines(box({ 'flex-direction': 'column' }, a.element, b.element), {
+      height: 4,
+      width: 8,
+    });
+    expect([a.calls(), b.calls()]).toStrictEqual([1, 1]);
+  });
 
-	it('should not tell an element twice for one layout', () => {
-		// the collector is cleared where the layout begins rather than by `arrange()`,
-		// because the growth pass lays out twice and the two answers are one answer --
-		// so what is left is that the *next* pass starts from nothing. Left uncleared,
-		// a handler that reported a change is asked again about a box that has not moved
-		const c = counter({ says: 'once' });
-		renderToLines(box({ 'flex-direction': 'column' }, c.element), { height: 4, width: 8 });
-		expect(c.calls()).toBe(1);
-	});
+  it('should not tell an element twice for one layout', () => {
+    // the collector is cleared where the layout begins rather than by `arrange()`,
+    // because the growth pass lays out twice and the two answers are one answer --
+    // so what is left is that the *next* pass starts from nothing. Left uncleared,
+    // a handler that reported a change is asked again about a box that has not moved
+    const c = counter({ says: 'once' });
+    renderToLines(box({ 'flex-direction': 'column' }, c.element), { height: 4, width: 8 });
+    expect(c.calls()).toBe(1);
+  });
 
-	it('should grow the grid for what a handler built, not only for what it measured', () => {
-		// the growth pass runs after **every** layout rather than only after the first,
-		// because a handler can grow the tree too and the grid is allocated from the
-		// height rather than from the extent. Found by review: an empty root measures
-		// one row, so a handler that appends an eight-row child used to come back as
-		// one line with seven rows of content nowhere. A `ScrollBox` cannot reach it,
-		// which is why no test did -- it clips, so `arrangedExtent()` stops at its
-		// border box, and its spacers give the measure the whole list's height before
-		// any handler runs
-		const host = box({ 'flex-direction': 'column' });
-		let built = false;
-		host.onResize = () => {
-			if (built) {
-				return false;
-			}
-			built = true;
-			host.append(box({ 'flex-shrink': 0, height: 8 }, text('deep')));
-			return true;
-		};
+  it('should grow the grid for what a handler built, not only for what it measured', () => {
+    // the growth pass runs after **every** layout rather than only after the first,
+    // because a handler can grow the tree too and the grid is allocated from the
+    // height rather than from the extent. Found by review: an empty root measures
+    // one row, so a handler that appends an eight-row child used to come back as
+    // one line with seven rows of content nowhere. A `ScrollBox` cannot reach it,
+    // which is why no test did -- it clips, so `arrangedExtent()` stops at its
+    // border box, and its spacers give the measure the whole list's height before
+    // any handler runs
+    const host = box({ 'flex-direction': 'column' });
+    let built = false;
+    host.onResize = () => {
+      if (built) {
+        return false;
+      }
+      built = true;
+      host.append(box({ 'flex-shrink': 0, height: 8 }, text('deep')));
+      return true;
+    };
 
-		expect(renderToLines(host, { width: 8 })).toHaveLength(8);
-	});
+    expect(renderToLines(host, { width: 8 })).toHaveLength(8);
+  });
 
-	it('should restyle what a handler built before laying it out', () => {
-		// the whole reason the dispatch is a frame's rather than `arrange()`'s: an
-		// element built below the cascade carries none of its props -- measured, a box
-		// declaring `height: 3` has `height: auto` and `flex-shrink: 1` until something
-		// resolves it -- so a handler that builds one needs a restyle before the layout
-		// that places it
-		const host = box({ 'flex-direction': 'column' });
-		let built = false;
-		host.onResize = () => {
-			if (built) {
-				return false;
-			}
-			built = true;
-			host.append(box({ 'flex-shrink': 0, height: 3 }, text('deep')));
-			return true;
-		};
+  it('should restyle what a handler built before laying it out', () => {
+    // the whole reason the dispatch is a frame's rather than `arrange()`'s: an
+    // element built below the cascade carries none of its props -- measured, a box
+    // declaring `height: 3` has `height: auto` and `flex-shrink: 1` until something
+    // resolves it -- so a handler that builds one needs a restyle before the layout
+    // that places it
+    const host = box({ 'flex-direction': 'column' });
+    let built = false;
+    host.onResize = () => {
+      if (built) {
+        return false;
+      }
+      built = true;
+      host.append(box({ 'flex-shrink': 0, height: 3 }, text('deep')));
+      return true;
+    };
 
-		renderToLines(host, { height: 6, width: 8 });
-		expect(host.children[0]?.box?.height, 'the box a handler built was laid out unstyled').toBe(3);
-	});
+    renderToLines(host, { height: 6, width: 8 });
+    expect(host.children[0]?.box?.height, 'the box a handler built was laid out unstyled').toBe(3);
+  });
 });

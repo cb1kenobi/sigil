@@ -65,33 +65,33 @@ import type { ObjectExpression } from 'oxc-parser';
 
 /** What a command module says about itself, read statically. */
 export interface CommandFacts {
-	/**
-	 * Its description, when the module wrote one as a literal.
-	 *
-	 * `undefined` covers two different situations on purpose, and the
-	 * diagnostics are what tell them apart: the module wrote no `desc`, or it
-	 * wrote one this cannot read.
-	 */
-	readonly desc?: string;
-	/**
-	 * Whether `desc` is a catalog key rather than the description itself.
-	 *
-	 * Set for a `` desc: __`Build the app` ``, which a build reads exactly as it
-	 * reads a template literal with no substitutions -- so the generated tree
-	 * carries `` () => __`Build the app` `` and the built app renders it through
-	 * its own catalog. Without it the lift would bake the English, and a
-	 * translated app's command list would be the one part of help that is not
-	 * translated.
-	 */
-	readonly descTranslated?: boolean;
-	/** Whether it hides itself, when the module wrote a boolean literal. */
-	readonly hidden?: boolean;
+  /**
+   * Its description, when the module wrote one as a literal.
+   *
+   * `undefined` covers two different situations on purpose, and the
+   * diagnostics are what tell them apart: the module wrote no `desc`, or it
+   * wrote one this cannot read.
+   */
+  readonly desc?: string;
+  /**
+   * Whether `desc` is a catalog key rather than the description itself.
+   *
+   * Set for a `` desc: __`Build the app` ``, which a build reads exactly as it
+   * reads a template literal with no substitutions -- so the generated tree
+   * carries `` () => __`Build the app` `` and the built app renders it through
+   * its own catalog. Without it the lift would bake the English, and a
+   * translated app's command list would be the one part of help that is not
+   * translated.
+   */
+  readonly descTranslated?: boolean;
+  /** Whether it hides itself, when the module wrote a boolean literal. */
+  readonly hidden?: boolean;
 }
 
 /** One module's facts, and what reading it turned up. */
 export interface Extracted {
-	readonly diagnostics: readonly Diagnostic[];
-	readonly facts: CommandFacts;
+  readonly diagnostics: readonly Diagnostic[];
+  readonly facts: CommandFacts;
 }
 
 /** The keys this lifts, so the set is one list rather than several checks. */
@@ -107,7 +107,7 @@ const LIFTED = ['desc', 'hidden'] as const;
  *   thing to warn about and carry on from.
  */
 export function extractCommand(file: string, source: string): Extracted {
-	return factsOf(parseModule(file, source));
+  return factsOf(parseModule(file, source));
 }
 
 /**
@@ -122,98 +122,98 @@ export function extractCommand(file: string, source: string): Extracted {
  * @returns Its facts and every diagnostic reading it produced.
  */
 export function factsOf(parsed: ParsedModule): Extracted {
-	const diagnostics: Diagnostic[] = [];
-	const at = (offset?: number) => locate(parsed, offset);
+  const diagnostics: Diagnostic[] = [];
+  const at = (offset?: number) => locate(parsed, offset);
 
-	const object = defaultObject(parsed, diagnostics);
-	if (!object) {
-		return { diagnostics, facts: {} };
-	}
+  const object = defaultObject(parsed, diagnostics);
+  if (!object) {
+    return { diagnostics, facts: {} };
+  }
 
-	const facts: { desc?: string; descTranslated?: boolean; hidden?: boolean } = {};
-	let spread: number | undefined;
+  const facts: { desc?: string; descTranslated?: boolean; hidden?: boolean } = {};
+  let spread: number | undefined;
 
-	for (const property of object.properties) {
-		if (property.type === 'SpreadElement') {
-			spread ??= property.start;
-			continue;
-		}
+  for (const property of object.properties) {
+    if (property.type === 'SpreadElement') {
+      spread ??= property.start;
+      continue;
+    }
 
-		const key = propertyKey(property);
-		if (!key || !(LIFTED as readonly string[]).includes(key)) {
-			continue;
-		}
+    const key = propertyKey(property);
+    if (!key || !(LIFTED as readonly string[]).includes(key)) {
+      continue;
+    }
 
-		// a getter or a setter is a function, whatever it would have returned, and
-		// a method shorthand is the same thing written differently
-		if (property.kind !== 'init' || property.method) {
-			diagnostics.push({
-				...at(property.start),
-				message: `"${key}" is an accessor rather than a value, so it cannot be read at build time; help will fall back to loading the module`,
-				severity: 'warning',
-			});
-			continue;
-		}
+    // a getter or a setter is a function, whatever it would have returned, and
+    // a method shorthand is the same thing written differently
+    if (property.kind !== 'init' || property.method) {
+      diagnostics.push({
+        ...at(property.start),
+        message: `"${key}" is an accessor rather than a value, so it cannot be read at build time; help will fall back to loading the module`,
+        severity: 'warning',
+      });
+      continue;
+    }
 
-		const value = property.value;
+    const value = property.value;
 
-		if (key === 'desc') {
-			const text = literalString(value);
-			if (text !== undefined) {
-				facts.desc = text;
-				continue;
-			}
+    if (key === 'desc') {
+      const text = literalString(value);
+      if (text !== undefined) {
+        facts.desc = text;
+        continue;
+      }
 
-			// a `__` tag is a description written to be translated, and its key is
-			// in the source -- so it is readable for exactly the reason a template
-			// literal with no substitutions is. What is lifted is the key; see
-			// `translatedKey()` for what the generated tree then carries
-			const translated = translatedKey(parsed, value);
-			if (translated?.key !== undefined) {
-				facts.desc = translated.key;
-				facts.descTranslated = true;
-				continue;
-			}
+      // a `__` tag is a description written to be translated, and its key is
+      // in the source -- so it is readable for exactly the reason a template
+      // literal with no substitutions is. What is lifted is the key; see
+      // `translatedKey()` for what the generated tree then carries
+      const translated = translatedKey(parsed, value);
+      if (translated?.key !== undefined) {
+        facts.desc = translated.key;
+        facts.descTranslated = true;
+        continue;
+      }
 
-			// said separately, because "computed rather than a string literal" about
-			// a `__` tag whose neighbour lifted perfectly well names nothing the
-			// author can act on
-			diagnostics.push({
-				...at(value.start),
-				message: translated
-					? '"desc" is a translated string with a value interpolated into it, so it cannot be read at build time; help will list this command by name alone until its module loads'
-					: '"desc" is computed rather than a string literal, so it cannot be read at build time; help will list this command by name alone',
-				severity: 'warning',
-			});
-			continue;
-		}
+      // said separately, because "computed rather than a string literal" about
+      // a `__` tag whose neighbour lifted perfectly well names nothing the
+      // author can act on
+      diagnostics.push({
+        ...at(value.start),
+        message: translated
+          ? '"desc" is a translated string with a value interpolated into it, so it cannot be read at build time; help will list this command by name alone until its module loads'
+          : '"desc" is computed rather than a string literal, so it cannot be read at build time; help will list this command by name alone',
+        severity: 'warning',
+      });
+      continue;
+    }
 
-		const flag = literalBoolean(value);
-		if (flag === undefined) {
-			diagnostics.push({
-				...at(value.start),
-				message:
-					'"hidden" is computed rather than a boolean literal, so it cannot be read at build time; this command will be listed in help until its module loads',
-				severity: 'warning',
-			});
-			continue;
-		}
-		facts.hidden = flag;
-	}
+    const flag = literalBoolean(value);
+    if (flag === undefined) {
+      diagnostics.push({
+        ...at(value.start),
+        message:
+          '"hidden" is computed rather than a boolean literal, so it cannot be read at build time; this command will be listed in help until its module loads',
+        severity: 'warning',
+      });
+      continue;
+    }
+    facts.hidden = flag;
+  }
 
-	// a spread can carry anything, so an absent key beside one is unknown rather
-	// than absent -- which is the whole difference between a description the
-	// build missed and one nobody wrote
-	if (spread !== undefined && facts.desc === undefined) {
-		diagnostics.push({
-			...at(spread),
-			message:
-				'the default export spreads another object, which may carry a "desc" this cannot see; write "desc" on the exported object to have it appear in help',
-			severity: 'warning',
-		});
-	}
+  // a spread can carry anything, so an absent key beside one is unknown rather
+  // than absent -- which is the whole difference between a description the
+  // build missed and one nobody wrote
+  if (spread !== undefined && facts.desc === undefined) {
+    diagnostics.push({
+      ...at(spread),
+      message:
+        'the default export spreads another object, which may carry a "desc" this cannot see; write "desc" on the exported object to have it appear in help',
+      severity: 'warning',
+    });
+  }
 
-	return { diagnostics, facts };
+  return { diagnostics, facts };
 }
 
 /**
@@ -225,64 +225,64 @@ export function factsOf(parsed: ParsedModule): Extracted {
  * @returns The object expression.
  */
 function defaultObject(
-	parsed: ParsedModule,
-	diagnostics: Diagnostic[]
+  parsed: ParsedModule,
+  diagnostics: Diagnostic[]
 ): ObjectExpression | undefined {
-	const exported = parsed.program.body.find((node) => node.type === 'ExportDefaultDeclaration');
+  const exported = parsed.program.body.find((node) => node.type === 'ExportDefaultDeclaration');
 
-	if (!exported) {
-		// `export { cmd as default }` is a default export the runtime is perfectly
-		// happy with, so this is about what *this pass* can read rather than about
-		// the module being wrong -- which is why it is not the error below
-		const indirect = parsed.program.body
-			.filter((node) => node.type === 'ExportNamedDeclaration')
-			.flatMap((node) => node.specifiers)
-			.find((spec) => spec.exported.type === 'Identifier' && spec.exported.name === 'default');
+  if (!exported) {
+    // `export { cmd as default }` is a default export the runtime is perfectly
+    // happy with, so this is about what *this pass* can read rather than about
+    // the module being wrong -- which is why it is not the error below
+    const indirect = parsed.program.body
+      .filter((node) => node.type === 'ExportNamedDeclaration')
+      .flatMap((node) => node.specifiers)
+      .find((spec) => spec.exported.type === 'Identifier' && spec.exported.name === 'default');
 
-		if (indirect && indirect.local.type === 'Identifier') {
-			const resolved = bindingObject(parsed, indirect.local.name);
-			if (resolved) {
-				return resolved;
-			}
-		}
+    if (indirect && indirect.local.type === 'Identifier') {
+      const resolved = bindingObject(parsed, indirect.local.name);
+      if (resolved) {
+        return resolved;
+      }
+    }
 
-		diagnostics.push({
-			file: parsed.file,
-			message: indirect
-				? 'the default export is a reference rather than an object literal, so it cannot be read at build time; help will list this command by name alone'
-				: 'no default export found; a command module must default-export a command object',
-			severity: indirect ? 'warning' : 'error',
-		});
-		return undefined;
-	}
+    diagnostics.push({
+      file: parsed.file,
+      message: indirect
+        ? 'the default export is a reference rather than an object literal, so it cannot be read at build time; help will list this command by name alone'
+        : 'no default export found; a command module must default-export a command object',
+      severity: indirect ? 'warning' : 'error',
+    });
+    return undefined;
+  }
 
-	const declaration = objectLiteral(exported.declaration as never);
+  const declaration = objectLiteral(exported.declaration as never);
 
-	if (declaration) {
-		return declaration;
-	}
+  if (declaration) {
+    return declaration;
+  }
 
-	// `export default cmd`, where `cmd` is a `const` in this module. Worth
-	// following rather than warning about, because it is not a style somebody
-	// chose: `--isolatedDeclarations` refuses to infer a default export, so an
-	// app that has it on *cannot* write the literal inline, and this repo is one
-	// of those apps -- every command module in the toolchain ends this way. A
-	// lift that cannot read the code its own conventions produce is a lift that
-	// reports "help will list this command by name alone" about itself.
-	if (exported.declaration.type === 'Identifier') {
-		const resolved = bindingObject(parsed, exported.declaration.name);
-		if (resolved) {
-			return resolved;
-		}
-	}
+  // `export default cmd`, where `cmd` is a `const` in this module. Worth
+  // following rather than warning about, because it is not a style somebody
+  // chose: `--isolatedDeclarations` refuses to infer a default export, so an
+  // app that has it on *cannot* write the literal inline, and this repo is one
+  // of those apps -- every command module in the toolchain ends this way. A
+  // lift that cannot read the code its own conventions produce is a lift that
+  // reports "help will list this command by name alone" about itself.
+  if (exported.declaration.type === 'Identifier') {
+    const resolved = bindingObject(parsed, exported.declaration.name);
+    if (resolved) {
+      return resolved;
+    }
+  }
 
-	diagnostics.push({
-		...locate(parsed, exported.declaration.start),
-		message:
-			'the default export is not an object literal, so it cannot be read at build time; help will list this command by name alone',
-		severity: 'warning',
-	});
-	return undefined;
+  diagnostics.push({
+    ...locate(parsed, exported.declaration.start),
+    message:
+      'the default export is not an object literal, so it cannot be read at build time; help will list this command by name alone',
+    severity: 'warning',
+  });
+  return undefined;
 }
 
 /**
@@ -300,26 +300,26 @@ function defaultObject(
  * @returns The object expression, or `undefined` when it is not one.
  */
 function bindingObject(parsed: ParsedModule, name: string): ObjectExpression | undefined {
-	for (const node of parsed.program.body) {
-		const declaration =
-			node.type === 'VariableDeclaration'
-				? node
-				: node.type === 'ExportNamedDeclaration' && node.declaration?.type === 'VariableDeclaration'
-					? node.declaration
-					: undefined;
+  for (const node of parsed.program.body) {
+    const declaration =
+      node.type === 'VariableDeclaration'
+        ? node
+        : node.type === 'ExportNamedDeclaration' && node.declaration?.type === 'VariableDeclaration'
+          ? node.declaration
+          : undefined;
 
-		if (declaration?.kind !== 'const') {
-			continue;
-		}
+    if (declaration?.kind !== 'const') {
+      continue;
+    }
 
-		for (const declarator of declaration.declarations) {
-			if (declarator.id.type === 'Identifier' && declarator.id.name === name && declarator.init) {
-				return objectLiteral(declarator.init as never);
-			}
-		}
-	}
+    for (const declarator of declaration.declarations) {
+      if (declarator.id.type === 'Identifier' && declarator.id.name === name && declarator.init) {
+        return objectLiteral(declarator.init as never);
+      }
+    }
+  }
 
-	return undefined;
+  return undefined;
 }
 
 /**
@@ -330,13 +330,13 @@ function bindingObject(parsed: ParsedModule, name: string): ObjectExpression | u
  * @returns The file, and the line and column when there is an offset.
  */
 function locate(
-	parsed: ParsedModule,
-	offset?: number
+  parsed: ParsedModule,
+  offset?: number
 ): { column?: number; file: string; line?: number } {
-	if (offset === undefined) {
-		return { file: parsed.file };
-	}
+  if (offset === undefined) {
+    return { file: parsed.file };
+  }
 
-	const { column, line } = position(parsed.source, offset);
-	return { column, file: parsed.file, line };
+  const { column, line } = position(parsed.source, offset);
+  return { column, file: parsed.file, line };
 }

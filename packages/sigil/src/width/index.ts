@@ -50,8 +50,8 @@ const emoji = /^\p{Emoji}$/u;
  * This is the same special case every `wcwidth` carries.
  */
 const hangulZeroWidth = [
-	[0x1160, 0x11ff], // Hangul Jamo: medial vowels and final consonants
-	[0xd7b0, 0xd7ff], // Hangul Jamo Extended-B: the same two, and unassigned tail
+  [0x1160, 0x11ff], // Hangul Jamo: medial vowels and final consonants
+  [0xd7b0, 0xd7ff], // Hangul Jamo Extended-B: the same two, and unassigned tail
 ] as const;
 
 /** Nothing outside printable ASCII, where one code unit is one column. */
@@ -81,21 +81,21 @@ let segmenter: Intl.Segmenter | undefined;
  * @returns The number of columns.
  */
 export function stringWidth(str: string): number {
-	if (asciiOnly.test(str)) {
-		// the overwhelmingly common case, and no segmentation can change it
-		return str.length;
-	}
+  if (asciiOnly.test(str)) {
+    // the overwhelmingly common case, and no segmentation can change it
+    return str.length;
+  }
 
-	const text = strip(str);
-	if (asciiOnly.test(text)) {
-		return text.length;
-	}
+  const text = strip(str);
+  if (asciiOnly.test(text)) {
+    return text.length;
+  }
 
-	let width = 0;
-	for (const cluster of graphemes(text)) {
-		width += graphemeWidth(cluster);
-	}
-	return width;
+  let width = 0;
+  for (const cluster of graphemes(text)) {
+    width += graphemeWidth(cluster);
+  }
+  return width;
 }
 
 /**
@@ -114,12 +114,12 @@ export function stringWidth(str: string): number {
  * @returns The clusters, in order.
  */
 export function graphemes(str: string): string[] {
-	segmenter ??= new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-	const clusters: string[] = [];
-	for (const { segment } of segmenter.segment(str)) {
-		clusters.push(segment);
-	}
-	return clusters;
+  segmenter ??= new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+  const clusters: string[] = [];
+  for (const { segment } of segmenter.segment(str)) {
+    clusters.push(segment);
+  }
+  return clusters;
 }
 
 /**
@@ -145,21 +145,21 @@ export function graphemes(str: string): string[] {
  * @returns The number of columns.
  */
 export function graphemeWidth(cluster: string): number {
-	const first = cluster.codePointAt(0);
+  const first = cluster.codePointAt(0);
 
-	if (first === undefined) {
-		return 0;
-	}
+  if (first === undefined) {
+    return 0;
+  }
 
-	if (isEmoji(cluster, first)) {
-		return 2;
-	}
+  if (isEmoji(cluster, first)) {
+    return 2;
+  }
 
-	let width = 0;
-	for (const char of cluster) {
-		width += charWidth(char.codePointAt(0)!);
-	}
-	return width;
+  let width = 0;
+  for (const char of cluster) {
+    width += charWidth(char.codePointAt(0)!);
+  }
+  return width;
 }
 
 /**
@@ -179,13 +179,13 @@ export function graphemeWidth(cluster: string): number {
  * @returns `true` when the cluster is one emoji.
  */
 function isEmoji(cluster: string, first: number): boolean {
-	const base = String.fromCodePoint(first);
+  const base = String.fromCodePoint(first);
 
-	if (emojiPresentation.test(base)) {
-		return true;
-	}
+  if (emojiPresentation.test(base)) {
+    return true;
+  }
 
-	return emoji.test(base) && cluster.codePointAt(base.length) === VS16;
+  return emoji.test(base) && cluster.codePointAt(base.length) === VS16;
 }
 
 /**
@@ -198,28 +198,28 @@ function isEmoji(cluster: string, first: number): boolean {
  * @returns 0, 1, or 2.
  */
 export function charWidth(codePoint: number): number {
-	// ASCII first: it is most of every string a CLI prints
-	if (codePoint >= 0x20 && codePoint < 0x7f) {
-		return 1;
-	}
+  // ASCII first: it is most of every string a CLI prints
+  if (codePoint >= 0x20 && codePoint < 0x7f) {
+    return 1;
+  }
 
-	const char = String.fromCodePoint(codePoint);
+  const char = String.fromCodePoint(codePoint);
 
-	if (zeroWidth.test(char)) {
-		return 0;
-	}
+  if (zeroWidth.test(char)) {
+    return 0;
+  }
 
-	for (const [start, end] of hangulZeroWidth) {
-		if (codePoint >= start && codePoint <= end) {
-			return 0;
-		}
-	}
+  for (const [start, end] of hangulZeroWidth) {
+    if (codePoint >= start && codePoint <= end) {
+      return 0;
+    }
+  }
 
-	if (emojiPresentation.test(char) || isWide(codePoint)) {
-		return 2;
-	}
+  if (emojiPresentation.test(char) || isWide(codePoint)) {
+    return 2;
+  }
 
-	return 1;
+  return 1;
 }
 
 /**
@@ -230,22 +230,22 @@ export function charWidth(codePoint: number): number {
  * @returns `true` when it occupies two columns.
  */
 function isWide(codePoint: number): boolean {
-	let low = 0;
-	let high = wideRanges.length / 2 - 1;
+  let low = 0;
+  let high = wideRanges.length / 2 - 1;
 
-	while (low <= high) {
-		const mid = (low + high) >> 1;
-		const start = wideRanges[mid * 2]!;
-		const end = wideRanges[mid * 2 + 1]!;
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    const start = wideRanges[mid * 2]!;
+    const end = wideRanges[mid * 2 + 1]!;
 
-		if (codePoint < start) {
-			high = mid - 1;
-		} else if (codePoint > end) {
-			low = mid + 1;
-		} else {
-			return true;
-		}
-	}
+    if (codePoint < start) {
+      high = mid - 1;
+    } else if (codePoint > end) {
+      low = mid + 1;
+    } else {
+      return true;
+    }
+  }
 
-	return false;
+  return false;
 }

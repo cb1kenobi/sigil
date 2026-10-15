@@ -36,56 +36,56 @@ import { DEFAULT_STYLE, LINK_OFF, RESET, type Style, StyleTable, transition } fr
 const GAP = 4;
 
 export interface DiffOptions {
-	/**
-	 * Ignore the previous frame and repaint every cell.
-	 *
-	 * What a resize needs: the grid that was on screen described a terminal that
-	 * no longer exists, so there is nothing to diff against and pretending
-	 * otherwise leaves fragments of the old layout behind.
-	 */
-	full?: boolean;
-	/** The styles both grids were painted with. */
-	styles: StyleTable;
+  /**
+   * Ignore the previous frame and repaint every cell.
+   *
+   * What a resize needs: the grid that was on screen described a terminal that
+   * no longer exists, so there is nothing to diff against and pretending
+   * otherwise leaves fragments of the old layout behind.
+   */
+  full?: boolean;
+  /** The styles both grids were painted with. */
+  styles: StyleTable;
 }
 
 /** Where the cursor is left, so the caller can put it somewhere sensible. */
 export interface DiffResult {
-	/**
-	 * The column, relative to the canvas's left edge, and never past the last
-	 * one. A terminal writing the final column does not advance the cursor past
-	 * it -- it sets a pending-wrap flag instead and stays put -- so reporting
-	 * `width` would name a column that does not exist and put any backend
-	 * computing a relative move one out.
-	 */
-	/**
-	 * How many cells were drawn, which is the honest measure of a frame's cost.
-	 *
-	 * `output.length` is bytes and counts the cursor moves and the SGR
-	 * transitions along with the glyphs; this counts the cells a terminal was
-	 * asked to repaint. Here rather than worked out by a caller because this is
-	 * the loop that already walks them -- a second count over the same grid would
-	 * be a second answer to one question, and a count derived from the output
-	 * would have to parse it back.
-	 *
-	 * A wide cluster is **one** cell, because one glyph was written. The
-	 * continuation beside it is drawn by its lead and is never written on its own.
-	 */
-	cells: number;
-	column: number;
-	/** The row, relative to the canvas's top edge. */
-	row: number;
-	/** The sequence that reconciles the two grids. Empty when nothing changed. */
-	output: string;
-	/**
-	 * Whether the last thing written was the final column of a row, leaving the
-	 * terminal's deferred wrap armed.
-	 *
-	 * It is cleared by any cursor movement, so a backend that repositions before
-	 * writing anything can ignore this. One that writes straight after -- a
-	 * newline, or the app's own output -- cannot: on a terminal that wraps
-	 * immediately rather than deferring, that write lands on the next row.
-	 */
-	wrapPending: boolean;
+  /**
+   * The column, relative to the canvas's left edge, and never past the last
+   * one. A terminal writing the final column does not advance the cursor past
+   * it -- it sets a pending-wrap flag instead and stays put -- so reporting
+   * `width` would name a column that does not exist and put any backend
+   * computing a relative move one out.
+   */
+  /**
+   * How many cells were drawn, which is the honest measure of a frame's cost.
+   *
+   * `output.length` is bytes and counts the cursor moves and the SGR
+   * transitions along with the glyphs; this counts the cells a terminal was
+   * asked to repaint. Here rather than worked out by a caller because this is
+   * the loop that already walks them -- a second count over the same grid would
+   * be a second answer to one question, and a count derived from the output
+   * would have to parse it back.
+   *
+   * A wide cluster is **one** cell, because one glyph was written. The
+   * continuation beside it is drawn by its lead and is never written on its own.
+   */
+  cells: number;
+  column: number;
+  /** The row, relative to the canvas's top edge. */
+  row: number;
+  /** The sequence that reconciles the two grids. Empty when nothing changed. */
+  output: string;
+  /**
+   * Whether the last thing written was the final column of a row, leaving the
+   * terminal's deferred wrap armed.
+   *
+   * It is cleared by any cursor movement, so a backend that repositions before
+   * writing anything can ignore this. One that writes straight after -- a
+   * newline, or the app's own output -- cannot: on a terminal that wraps
+   * immediately rather than deferring, that write lands on the next row.
+   */
+  wrapPending: boolean;
 }
 
 /**
@@ -101,9 +101,9 @@ export interface DiffResult {
  * @returns Whether it changed.
  */
 function changed(a: CellBuffer, b: CellBuffer, index: number): boolean {
-	return (
-		a.rawChars()[index] !== b.rawChars()[index] || a.rawStyles()[index] !== b.rawStyles()[index]
-	);
+  return (
+    a.rawChars()[index] !== b.rawChars()[index] || a.rawStyles()[index] !== b.rawStyles()[index]
+  );
 }
 
 /**
@@ -119,7 +119,7 @@ function changed(a: CellBuffer, b: CellBuffer, index: number): boolean {
  * @returns The column the cluster starts at.
  */
 function clusterStart(buffer: CellBuffer, x: number, y: number): number {
-	return x > 0 && buffer.charAt(x, y) === CONTINUATION ? x - 1 : x;
+  return x > 0 && buffer.charAt(x, y) === CONTINUATION ? x - 1 : x;
 }
 
 /**
@@ -134,126 +134,126 @@ function clusterStart(buffer: CellBuffer, x: number, y: number): number {
  * @returns The sequence and the final cursor position.
  */
 export function diff(previous: CellBuffer, next: CellBuffer, opts: DiffOptions): DiffResult {
-	const { styles } = opts;
-	const width = next.width;
-	const height = next.height;
-	const full = opts.full || previous.width !== width || previous.height !== height;
+  const { styles } = opts;
+  const width = next.width;
+  const height = next.height;
+  const full = opts.full || previous.width !== width || previous.height !== height;
 
-	let output = '';
-	let cells = 0;
-	let cursorRow = 0;
-	let cursorColumn = 0;
-	let style: Style = DEFAULT_STYLE;
-	let styleIndex = StyleTable.DEFAULT;
+  let output = '';
+  let cells = 0;
+  let cursorRow = 0;
+  let cursorColumn = 0;
+  let style: Style = DEFAULT_STYLE;
+  let styleIndex = StyleTable.DEFAULT;
 
-	/** Moves the cursor to a cell, by the shortest route. */
-	const moveTo = (row: number, column: number): void => {
-		if (row !== cursorRow) {
-			output += row > cursorRow ? cursorDown(row - cursorRow) : cursorUp(cursorRow - row);
-			cursorRow = row;
-		}
-		if (column !== cursorColumn) {
-			// a carriage return then a jump right is shorter than a long jump left,
-			// and is understood by terminals that do not implement CHA
-			if (column < cursorColumn) {
-				output += '\r';
-				cursorColumn = 0;
-			}
-			output += cursorRight(column - cursorColumn);
-			cursorColumn = column;
-		}
-	};
+  /** Moves the cursor to a cell, by the shortest route. */
+  const moveTo = (row: number, column: number): void => {
+    if (row !== cursorRow) {
+      output += row > cursorRow ? cursorDown(row - cursorRow) : cursorUp(cursorRow - row);
+      cursorRow = row;
+    }
+    if (column !== cursorColumn) {
+      // a carriage return then a jump right is shorter than a long jump left,
+      // and is understood by terminals that do not implement CHA
+      if (column < cursorColumn) {
+        output += '\r';
+        cursorColumn = 0;
+      }
+      output += cursorRight(column - cursorColumn);
+      cursorColumn = column;
+    }
+  };
 
-	/** Applies a style, emitting only the difference from what is in effect. */
-	const useStyle = (index: number): void => {
-		if (index === styleIndex) {
-			return;
-		}
-		const wanted = styles.get(index);
-		output += transition(style, wanted);
-		style = wanted;
-		styleIndex = index;
-	};
+  /** Applies a style, emitting only the difference from what is in effect. */
+  const useStyle = (index: number): void => {
+    if (index === styleIndex) {
+      return;
+    }
+    const wanted = styles.get(index);
+    output += transition(style, wanted);
+    style = wanted;
+    styleIndex = index;
+  };
 
-	for (let y = 0; y < height; y++) {
-		let x = 0;
+  for (let y = 0; y < height; y++) {
+    let x = 0;
 
-		while (x < width) {
-			if (!full && !changed(previous, next, y * width + x)) {
-				x++;
-				continue;
-			}
+    while (x < width) {
+      if (!full && !changed(previous, next, y * width + x)) {
+        x++;
+        continue;
+      }
 
-			// a run begins at the start of whatever cluster this cell belongs to
-			let runStart = clusterStart(next, x, y);
-			if (runStart < x) {
-				// the lead may itself be unchanged; it still has to be rewritten,
-				// because the half of it that did change cannot be drawn alone
-				x = runStart;
-			}
+      // a run begins at the start of whatever cluster this cell belongs to
+      let runStart = clusterStart(next, x, y);
+      if (runStart < x) {
+        // the lead may itself be unchanged; it still has to be rewritten,
+        // because the half of it that did change cannot be drawn alone
+        x = runStart;
+      }
 
-			// extend through changed cells, hopping gaps too short to be worth a
-			// cursor move
-			let runEnd = x;
-			let scan = x;
-			let gap = 0;
-			while (scan < width) {
-				if (full || changed(previous, next, y * width + scan)) {
-					runEnd = scan;
-					gap = 0;
-				} else if (++gap > GAP) {
-					break;
-				}
-				scan++;
-			}
+      // extend through changed cells, hopping gaps too short to be worth a
+      // cursor move
+      let runEnd = x;
+      let scan = x;
+      let gap = 0;
+      while (scan < width) {
+        if (full || changed(previous, next, y * width + scan)) {
+          runEnd = scan;
+          gap = 0;
+        } else if (++gap > GAP) {
+          break;
+        }
+        scan++;
+      }
 
-			// never stop in the middle of a wide cluster
-			if (next.charAt(runEnd, y) !== CONTINUATION && cellWidth(next.charAt(runEnd, y)) === 2) {
-				runEnd++;
-			}
+      // never stop in the middle of a wide cluster
+      if (next.charAt(runEnd, y) !== CONTINUATION && cellWidth(next.charAt(runEnd, y)) === 2) {
+        runEnd++;
+      }
 
-			moveTo(y, runStart);
+      moveTo(y, runStart);
 
-			for (let column = runStart; column <= runEnd && column < width;) {
-				const cell = next.charAt(column, y);
-				if (cell === CONTINUATION) {
-					// drawn by its lead in the previous iteration
-					column++;
-					continue;
-				}
+      for (let column = runStart; column <= runEnd && column < width;) {
+        const cell = next.charAt(column, y);
+        if (cell === CONTINUATION) {
+          // drawn by its lead in the previous iteration
+          column++;
+          continue;
+        }
 
-				useStyle(next.styleAt(column, y));
-				output += cell;
-				cells++;
+        useStyle(next.styleAt(column, y));
+        output += cell;
+        cells++;
 
-				const consumed = Math.max(1, cellWidth(cell));
-				cursorColumn += consumed;
-				column += consumed;
-			}
+        const consumed = Math.max(1, cellWidth(cell));
+        cursorColumn += consumed;
+        column += consumed;
+      }
 
-			x = runEnd + 1;
-		}
-	}
+      x = runEnd + 1;
+    }
+  }
 
-	if (output && styleIndex !== StyleTable.DEFAULT) {
-		// never hand the terminal back with a style still open: the next thing
-		// written is the app's own output, and it did not ask to be coloured
-		if (style.link) {
-			// and `RESET` will not do it -- SGR and OSC are separate state, so a
-			// link left open swallows the app's next line into the last cell's URL
-			output += LINK_OFF;
-		}
-		output += RESET;
-		style = DEFAULT_STYLE;
-		styleIndex = StyleTable.DEFAULT;
-	}
+  if (output && styleIndex !== StyleTable.DEFAULT) {
+    // never hand the terminal back with a style still open: the next thing
+    // written is the app's own output, and it did not ask to be coloured
+    if (style.link) {
+      // and `RESET` will not do it -- SGR and OSC are separate state, so a
+      // link left open swallows the app's next line into the last cell's URL
+      output += LINK_OFF;
+    }
+    output += RESET;
+    style = DEFAULT_STYLE;
+    styleIndex = StyleTable.DEFAULT;
+  }
 
-	const wrapPending = cursorColumn >= width && width > 0;
-	return {
-		cells,
-		column: wrapPending ? width - 1 : cursorColumn,
-		output,
-		row: cursorRow,
-		wrapPending,
-	};
+  const wrapPending = cursorColumn >= width && width > 0;
+  return {
+    cells,
+    column: wrapPending ? width - 1 : cursorColumn,
+    output,
+    row: cursorRow,
+    wrapPending,
+  };
 }

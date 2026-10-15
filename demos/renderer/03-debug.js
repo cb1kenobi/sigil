@@ -40,10 +40,10 @@
  */
 import { createFullscreenCanvas } from '@ttylabs/sigil/canvas';
 import {
-	captureConsole,
-	createLogRing,
-	enableDebugOverlay,
-	themedCascade,
+  captureConsole,
+  createLogRing,
+  enableDebugOverlay,
+  themedCascade,
 } from '@ttylabs/sigil/components';
 import { box, text } from '@ttylabs/sigil/element';
 import { createInput, isAbort } from '@ttylabs/sigil/input';
@@ -51,88 +51,88 @@ import { createEffect, render } from '@ttylabs/sigil/renderer';
 import { State } from '@ttylabs/sigil/signals';
 
 if (!process.stdin.isTTY || !process.stdout.isTTY) {
-	console.log('This demo takes the whole screen and reads keys, so it needs a terminal.');
-	console.log('Run it without a pipe: node demos/renderer/03-debug.js');
+  console.log('This demo takes the whole screen and reads keys, so it needs a terminal.');
+  console.log('Run it without a pipe: node demos/renderer/03-debug.js');
 }
 
 if (process.stdin.isTTY && process.stdout.isTTY) {
-	const count = new State(0);
-	const log = createLogRing({ capacity: 300 });
+  const count = new State(0);
+  const log = createLogRing({ capacity: 300 });
 
-	// the console goes into the ring, and is put back on the way out. A global
-	// patch follows the rule the alternate screen and bracketed paste follow:
-	// put back what you attached, and say whether this call was the one that
-	// changed it
-	const capture = captureConsole(log);
+  // the console goes into the ring, and is put back on the way out. A global
+  // patch follows the rule the alternate screen and bracketed paste follow:
+  // put back what you attached, and say whether this call was the one that
+  // changed it
+  const capture = captureConsole(log);
 
-	const backend = createFullscreenCanvas();
-	const view = render(
-		() => {
-			const label = text('', { class: 'sigil-heading' });
-			const hint = text('space tick   l log   c clear   ctrl-g pane   q quit', {
-				class: 'sigil-muted',
-			});
-			createEffect(() => {
-				label.setText(`ticks: ${count.get()}`);
-				// a log line from inside an effect, which is the case the whole thing
-				// is written around: this asks for no frame of its own
-				console.log(`tick ${count.get()}`);
-			});
-			return box({ 'flex-direction': 'column', padding: 1, 'row-gap': 1 }, label, hint);
-		},
-		{
-			backend,
-			cascade: themedCascade(),
-			// off by default, because a frame nobody asks about pays nothing
-			gatherStats: true,
-		}
-	);
+  const backend = createFullscreenCanvas();
+  const view = render(
+    () => {
+      const label = text('', { class: 'sigil-heading' });
+      const hint = text('space tick   l log   c clear   ctrl-g pane   q quit', {
+        class: 'sigil-muted',
+      });
+      createEffect(() => {
+        label.setText(`ticks: ${count.get()}`);
+        // a log line from inside an effect, which is the case the whole thing
+        // is written around: this asks for no frame of its own
+        console.log(`tick ${count.get()}`);
+      });
+      return box({ 'flex-direction': 'column', padding: 1, 'row-gap': 1 }, label, hint);
+    },
+    {
+      backend,
+      cascade: themedCascade(),
+      // off by default, because a frame nobody asks about pays nothing
+      gatherStats: true,
+    }
+  );
 
-	const input = createInput({ root: view.root });
-	// a predicate rather than a name, which is what the option takes: there is no
-	// chord grammar to write and no name to get wrong -- this decoder names the
-	// arrows and the paging keys and nothing else, so `f12` is not a `Key.name`
-	// that exists
-	const overlay = enableDebugOverlay(view, {
-		height: 12,
-		input,
-		key: (key) => key.ctrl && key.name === 'g',
-		log,
-	});
+  const input = createInput({ root: view.root });
+  // a predicate rather than a name, which is what the option takes: there is no
+  // chord grammar to write and no name to get wrong -- this decoder names the
+  // arrows and the paging keys and nothing else, so `f12` is not a `Key.name`
+  // that exists
+  const overlay = enableDebugOverlay(view, {
+    height: 12,
+    input,
+    key: (key) => key.ctrl && key.name === 'g',
+    log,
+  });
 
-	input.bind((event) => {
-		if (isAbort(event.key) || event.key.name === 'q') {
-			event.stop();
-			input.stop();
-			overlay.dispose();
-			// the screen goes back before anything is printed, and the console goes
-			// back with it: what was captured belongs on the screen somebody is about
-			// to be looking at
-			view.dispose();
-			capture.restore();
-			for (const entry of log.entries().slice(-5)) {
-				console.log(`  ${entry.level}: ${entry.text}`);
-			}
-			console.log(`  ${log.size} lines held, ${log.dropped} dropped off the front`);
-			process.stdin.unref();
-			return;
-		}
-		if (event.key.name === 'space') {
-			event.stop();
-			count.set(count.get() + 1);
-		}
-		if (event.key.name === 'l') {
-			event.stop();
-			// deliberately not followed by anything that asks for a frame: the line
-			// waits for the next frame something else causes, which is the rule
-			console.warn(`a line nobody asked a frame for (${log.size})`);
-		}
-		if (event.key.name === 'c') {
-			event.stop();
-			log.clear();
-			// a clear does need a frame, and it is the app that asks: the ring is
-			// inert by construction, so nothing inside it can
-			view.invalidate();
-		}
-	});
+  input.bind((event) => {
+    if (isAbort(event.key) || event.key.name === 'q') {
+      event.stop();
+      input.stop();
+      overlay.dispose();
+      // the screen goes back before anything is printed, and the console goes
+      // back with it: what was captured belongs on the screen somebody is about
+      // to be looking at
+      view.dispose();
+      capture.restore();
+      for (const entry of log.entries().slice(-5)) {
+        console.log(`  ${entry.level}: ${entry.text}`);
+      }
+      console.log(`  ${log.size} lines held, ${log.dropped} dropped off the front`);
+      process.stdin.unref();
+      return;
+    }
+    if (event.key.name === 'space') {
+      event.stop();
+      count.set(count.get() + 1);
+    }
+    if (event.key.name === 'l') {
+      event.stop();
+      // deliberately not followed by anything that asks for a frame: the line
+      // waits for the next frame something else causes, which is the rule
+      console.warn(`a line nobody asked a frame for (${log.size})`);
+    }
+    if (event.key.name === 'c') {
+      event.stop();
+      log.clear();
+      // a clear does need a frame, and it is the app that asks: the ring is
+      // inert by construction, so nothing inside it can
+      view.invalidate();
+    }
+  });
 }

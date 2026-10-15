@@ -18,7 +18,7 @@ get cwd(): string {
 
   set cwd(v: string) {
     process.chdir(v);
-	}
+  }
 */
 
 /**
@@ -37,93 +37,93 @@ get cwd(): string {
  * handled.
  */
 export async function main(opts: AppOptions = {}): Promise<ParseState | unknown> {
-	let state: ParseState | undefined;
-	let hooksFired = false;
+  let state: ParseState | undefined;
+  let hooksFired = false;
 
-	try {
-		if (opts?.settings?.assertCwd !== false) {
-			assertCwd();
-		}
+  try {
+    if (opts?.settings?.assertCwd !== false) {
+      assertCwd();
+    }
 
-		// before `parse()`, because `__` renders where it is called and a parse
-		// error is the first thing that can be printed. It follows that a locale
-		// set later -- by `setLocale()`, once the app has read its config -- cannot
-		// reach a message already rendered, so a parse error and `--help` are
-		// always in the environment's locale. That is the right answer rather than
-		// a gap: an app whose parse failed never got to read its config.
-		await loadCatalog(opts.schema?.locales, process.env, opts.locale, opts.schema?.defaultLocale);
+    // before `parse()`, because `__` renders where it is called and a parse
+    // error is the first thing that can be printed. It follows that a locale
+    // set later -- by `setLocale()`, once the app has read its config -- cannot
+    // reach a message already rendered, so a parse error and `--help` are
+    // always in the environment's locale. That is the right answer rather than
+    // a gap: an app whose parse failed never got to read its config.
+    await loadCatalog(opts.schema?.locales, process.env, opts.locale, opts.schema?.defaultLocale);
 
-		const { parse } = await import('./parser/parse.js');
+    const { parse } = await import('./parser/parse.js');
 
-		// read the app options before the catch below, which speaks only for
-		// `parse()`: a property of the caller's own that throws on the way in
-		// has not been through the hooks yet
-		const parseOpts = {
-			argv: opts.argv || process.argv.slice(2),
-			env: process.env,
-			schema: opts.schema,
-			settings: opts.settings,
-		};
+    // read the app options before the catch below, which speaks only for
+    // `parse()`: a property of the caller's own that throws on the way in
+    // has not been through the hooks yet
+    const parseOpts = {
+      argv: opts.argv || process.argv.slice(2),
+      env: process.env,
+      schema: opts.schema,
+      settings: opts.settings,
+    };
 
-		try {
-			state = await parse(parseOpts);
-		} catch (err) {
-			// `parse()` owns its own error path and has already fired the hooks
-			// on whatever it throws -- firing them again here would double up
-			hooksFired = true;
-			throw err;
-		}
+    try {
+      state = await parse(parseOpts);
+    } catch (err) {
+      // `parse()` owns its own error path and has already fired the hooks
+      // on whatever it throws -- firing them again here would double up
+      hooksFired = true;
+      throw err;
+    }
 
-		if (state.help) {
-			await printHelp(state);
-			return state;
-		}
+    if (state.help) {
+      await printHelp(state);
+      return state;
+    }
 
-		// after help, which outranks it, and before the command runs: `--version`
-		// is a question about the program rather than work to do
-		if (state.version !== undefined) {
-			process.stdout.write(`${state.version}\n`);
-			return state;
-		}
+    // after help, which outranks it, and before the command runs: `--version`
+    // is a question about the program rather than work to do
+    if (state.version !== undefined) {
+      process.stdout.write(`${state.version}\n`);
+      return state;
+    }
 
-		const { cmd } = state;
-		if (cmd?.run) {
-			log(`Executing command "${cmd.name}"`);
-			return (await cmd.run(state)) ?? state;
-		}
+    const { cmd } = state;
+    if (cmd?.run) {
+      log(`Executing command "${cmd.name}"`);
+      return (await cmd.run(state)) ?? state;
+    }
 
-		// nothing ran and there was nothing to run: a CLI that is all subcommands
-		// has nothing to do without one, and printing nothing at all tells the
-		// reader neither what went wrong nor what is available. It goes to stdout
-		// and exits zero like `--help`, because being asked what the program does
-		// and answering is not a failure.
-		//
-		// In `main()` rather than in the app's own bin, which is where the
-		// toolchain used to do it: `sigil build` generates the executable and
-		// calls `main()`, so anything an app wrapped around it is not in the
-		// bundle -- and a built CLI printed nothing at all where the same source
-		// printed help.
-		//
-		// Three things have to be true, and each was a test saying so. The app
-		// declared `commands`, because a schema that declares none is one being
-		// used as a parser and a help screen is not what its caller asked for --
-		// the `help` command this adds to every schema means the *registry* is
-		// never empty, so the declaration is what has to be asked about. Help is
-		// not turned off, since `help: false` means this app answers for what
-		// help means. And nothing already answered: a command with a `run`, a
-		// `default` command, `--help` and `--version` all leave before here.
-		const declaredCommands = state.schema.commands !== undefined;
+    // nothing ran and there was nothing to run: a CLI that is all subcommands
+    // has nothing to do without one, and printing nothing at all tells the
+    // reader neither what went wrong nor what is available. It goes to stdout
+    // and exits zero like `--help`, because being asked what the program does
+    // and answering is not a failure.
+    //
+    // In `main()` rather than in the app's own bin, which is where the
+    // toolchain used to do it: `sigil build` generates the executable and
+    // calls `main()`, so anything an app wrapped around it is not in the
+    // bundle -- and a built CLI printed nothing at all where the same source
+    // printed help.
+    //
+    // Three things have to be true, and each was a test saying so. The app
+    // declared `commands`, because a schema that declares none is one being
+    // used as a parser and a help screen is not what its caller asked for --
+    // the `help` command this adds to every schema means the *registry* is
+    // never empty, so the declaration is what has to be asked about. Help is
+    // not turned off, since `help: false` means this app answers for what
+    // help means. And nothing already answered: a command with a `run`, a
+    // `default` command, `--help` and `--version` all leave before here.
+    const declaredCommands = state.schema.commands !== undefined;
 
-		if (declaredCommands && state.schema.help !== false && state.version === undefined) {
-			await printHelp({ ...state, help: { contexts: state.contexts, via: 'empty' } });
-		}
+    if (declaredCommands && state.schema.help !== false && state.version === undefined) {
+      await printHelp({ ...state, help: { contexts: state.contexts, via: 'empty' } });
+    }
 
-		return state;
-	} catch (err) {
-		// a parse error never got to return a state, but it carries the one it
-		// died with, which is where the matched command comes from
-		return await handleError(err, state ?? stateFromError(err), opts, hooksFired);
-	}
+    return state;
+  } catch (err) {
+    // a parse error never got to return a state, but it carries the one it
+    // died with, which is where the matched command comes from
+    return await handleError(err, state ?? stateFromError(err), opts, hooksFired);
+  }
 }
 
 /**
@@ -136,10 +136,10 @@ export async function main(opts: AppOptions = {}): Promise<ParseState | unknown>
  * @param state - The parse state, carrying the request.
  */
 async function printHelp(state: ParseState): Promise<void> {
-	const { resolveHelp } = await import('./help/index.js');
-	log(`Printing help for "${state.help?.contexts[0]?.name}"`);
-	process.stdout.write(`${await resolveHelp(state)}\n`);
-	process.exitCode = exitCode(state.settings.helpExitCode);
+  const { resolveHelp } = await import('./help/index.js');
+  log(`Printing help for "${state.help?.contexts[0]?.name}"`);
+  process.stdout.write(`${await resolveHelp(state)}\n`);
+  process.exitCode = exitCode(state.settings.helpExitCode);
 }
 
 /**
@@ -153,7 +153,7 @@ async function printHelp(state: ParseState): Promise<void> {
  * @returns The code to set.
  */
 function exitCode(code: number | undefined): number {
-	return Number.isInteger(code) && code! >= 0 && code! < 256 ? code! : 0;
+  return Number.isInteger(code) && code! >= 0 && code! < 256 ? code! : 0;
 }
 
 /**
@@ -167,28 +167,28 @@ function exitCode(code: number | undefined): number {
  * is every error `parse()` threw.
  */
 async function handleError(
-	err: unknown,
-	state: ParseState | undefined,
-	opts: AppOptions,
-	hooksFired = false
+  err: unknown,
+  state: ParseState | undefined,
+  opts: AppOptions,
+  hooksFired = false
 ): Promise<undefined> {
-	// the hooks fire before anything is rendered and before the opt-out below,
-	// so the error a hook replaced is the one that gets rendered, handed to a
-	// custom handler, or rethrown -- the same error whichever way it leaves
-	const reported = hooksFired ? err : await fireBeforeError(err, state, appSchema(opts));
+  // the hooks fire before anything is rendered and before the opt-out below,
+  // so the error a hook replaced is the one that gets rendered, handed to a
+  // custom handler, or rethrown -- the same error whichever way it leaves
+  const reported = hooksFired ? err : await fireBeforeError(err, state, appSchema(opts));
 
-	const handler = errorHandlerSetting(opts);
+  const handler = errorHandlerSetting(opts);
 
-	if (handler === false) {
-		throw reported;
-	}
+  if (handler === false) {
+    throw reported;
+  }
 
-	if (typeof handler === 'function') {
-		await handler(reported, { state });
-		return;
-	}
+  if (typeof handler === 'function') {
+    await handler(reported, { state });
+    return;
+  }
 
-	errorHandler(reported, { state });
+  errorHandler(reported, { state });
 }
 
 /**
@@ -200,11 +200,11 @@ async function handleError(
  * @returns The configured handler, or `undefined` for the built-in one.
  */
 function errorHandlerSetting(opts: AppOptions): Settings['errorHandler'] {
-	try {
-		return opts?.settings?.errorHandler;
-	} catch {
-		return undefined;
-	}
+  try {
+    return opts?.settings?.errorHandler;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -216,21 +216,21 @@ function errorHandlerSetting(opts: AppOptions): Settings['errorHandler'] {
  * @returns The schema, if the options carry a readable one.
  */
 function appSchema(opts: AppOptions): Schema | undefined {
-	try {
-		return opts?.schema;
-	} catch {
-		return undefined;
-	}
+  try {
+    return opts?.schema;
+  } catch {
+    return undefined;
+  }
 }
 
 function assertCwd() {
-	try {
-		process.cwd();
-	} catch (err) {
-		if (err instanceof Error && err.message.includes('uv_cwd')) {
-			throw new Error('Current working directory does not exist');
-		}
-	}
+  try {
+    process.cwd();
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('uv_cwd')) {
+      throw new Error('Current working directory does not exist');
+    }
+  }
 }
 
 export default main;

@@ -16,12 +16,12 @@ import { ui } from '@ttylabs/sigil/template';
  * construction.
  */
 export function Panel({ who }: { who: string }): Element {
-	return (
-		<box flex-direction="column">
-			<text class="hello">Hello, {who}!</text>
-			<text>from a compiled JSX element</text>
-		</box>
-	);
+  return (
+    <box flex-direction="column">
+      <text class="hello">Hello, {who}!</text>
+      <text>from a compiled JSX element</text>
+    </box>
+  );
 }
 
 /**
@@ -36,5 +36,5 @@ export function Panel({ who }: { who: string }): Element {
  * in one app; this is that, in one file.
  */
 export function tagged(who: string): Element {
-	return ui`<text class="tagged">Hello again, ${who}!</text>`;
+  return ui`<text class="tagged">Hello again, ${who}!</text>`;
 }

@@ -1,4 +1,4 @@
 export default {
-	args: ['<rest...>', '[extra]'],
-	desc: 'bad args',
+  args: ['<rest...>', '[extra]'],
+  desc: 'bad args',
 };

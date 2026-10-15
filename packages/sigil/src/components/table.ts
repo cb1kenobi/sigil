@@ -1,10 +1,10 @@
 import { ansi as defaultAnsi } from '../ansi/index.js';
 import {
-	box,
-	type Element,
-	renderToString,
-	text as textNode,
-	toDisplayText,
+  box,
+  type Element,
+  renderToString,
+  text as textNode,
+  toDisplayText,
 } from '../element/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { stringWidth } from '../width/index.js';
@@ -12,25 +12,25 @@ import { stringWidth } from '../width/index.js';
 export type Align = 'left' | 'right' | 'center';
 
 export interface Column {
-	/** How the cell is lined up. Defaults to `left`. */
-	align?: Align;
-	/** The heading. */
-	header?: string;
-	/** The widest the column may get before its cells are truncated. */
-	maxWidth?: number;
-	/** Which property of a row object this column shows. */
-	key?: string;
+  /** How the cell is lined up. Defaults to `left`. */
+  align?: Align;
+  /** The heading. */
+  header?: string;
+  /** The widest the column may get before its cells are truncated. */
+  maxWidth?: number;
+  /** Which property of a row object this column shows. */
+  key?: string;
 }
 
 export interface TableOptions extends StyledOptions {
-	/** The columns. Inferred from the first row's keys when not given. */
-	columns?: (Column | string)[];
-	/** The columns between one column and the next. Defaults to 2. */
-	gap?: number;
-	/** How far the whole table is indented. Defaults to 0. */
-	indent?: number;
-	/** Whether to print the header row. Defaults to true when any column has one. */
-	head?: boolean;
+  /** The columns. Inferred from the first row's keys when not given. */
+  columns?: (Column | string)[];
+  /** The columns between one column and the next. Defaults to 2. */
+  gap?: number;
+  /** How far the whole table is indented. Defaults to 0. */
+  indent?: number;
+  /** Whether to print the header row. Defaults to true when any column has one. */
+  head?: boolean;
 }
 
 /** A row, however it was given. */
@@ -44,29 +44,29 @@ export type TableRow = readonly unknown[] | Record<string, unknown>;
  * @returns The columns, their cells, and their headings.
  */
 function readRows(
-	rows: readonly TableRow[],
-	opts: TableOptions
+  rows: readonly TableRow[],
+  opts: TableOptions
 ): { cells: string[][]; columns: Column[]; headers: string[] } {
-	// a column may be a name, a declaration, or nothing at all -- in which case
-	// the first row says what the columns are
-	const first = rows[0];
-	const columns: Column[] = (
-		opts.columns ??
-		(Array.isArray(first)
-			? first.map(() => ({}))
-			: Object.keys(first as Record<string, unknown>).map((key) => ({ header: key, key })))
-	).map((column) => (typeof column === 'string' ? { header: column, key: column } : column));
+  // a column may be a name, a declaration, or nothing at all -- in which case
+  // the first row says what the columns are
+  const first = rows[0];
+  const columns: Column[] = (
+    opts.columns ??
+    (Array.isArray(first)
+      ? first.map(() => ({}))
+      : Object.keys(first as Record<string, unknown>).map((key) => ({ header: key, key })))
+  ).map((column) => (typeof column === 'string' ? { header: column, key: column } : column));
 
-	const cells = rows.map((row) =>
-		columns.map((column, i) => {
-			const value = Array.isArray(row)
-				? row[i]
-				: (row as Record<string, unknown>)[column.key ?? String(i)];
-			return value === undefined || value === null ? '' : cellText(String(value));
-		})
-	);
+  const cells = rows.map((row) =>
+    columns.map((column, i) => {
+      const value = Array.isArray(row)
+        ? row[i]
+        : (row as Record<string, unknown>)[column.key ?? String(i)];
+      return value === undefined || value === null ? '' : cellText(String(value));
+    })
+  );
 
-	return { cells, columns, headers: columns.map((column) => cellText(column.header ?? '')) };
+  return { cells, columns, headers: columns.map((column) => cellText(column.header ?? '')) };
 }
 
 /**
@@ -83,7 +83,7 @@ function readRows(
  * @returns The cell, on one line, as it will be drawn.
  */
 function cellText(value: string): string {
-	return toDisplayText(value).replaceAll('\n', ' ');
+  return toDisplayText(value).replaceAll('\n', ' ');
 }
 
 /**
@@ -103,18 +103,18 @@ function cellText(value: string): string {
  * @returns One width per column.
  */
 function columnWidths(
-	headers: string[],
-	cells: string[][],
-	columns: Column[],
-	head: boolean
+  headers: string[],
+  cells: string[][],
+  columns: Column[],
+  head: boolean
 ): number[] {
-	return columns.map((column, i) => {
-		const widest = Math.max(
-			head ? stringWidth(headers[i]) : 0,
-			...cells.map((row) => stringWidth(row[i]))
-		);
-		return column.maxWidth && column.maxWidth > 0 ? Math.min(widest, column.maxWidth) : widest;
-	});
+  return columns.map((column, i) => {
+    const widest = Math.max(
+      head ? stringWidth(headers[i]) : 0,
+      ...cells.map((row) => stringWidth(row[i]))
+    );
+    return column.maxWidth && column.maxWidth > 0 ? Math.min(widest, column.maxWidth) : widest;
+  });
 }
 
 /**
@@ -135,29 +135,29 @@ function columnWidths(
  * @returns The row.
  */
 function rowOf(
-	values: string[],
-	widths: number[],
-	columns: Column[],
-	gap: number,
-	classes: string
+  values: string[],
+  widths: number[],
+  columns: Column[],
+  gap: number,
+  classes: string
 ): Element {
-	return box(
-		{ class: 'sigil-table-row', 'column-gap': gap, 'flex-shrink': 0 },
-		...values.map((value, i) =>
-			textNode(value, {
-				class: classes,
-				// the declared width is kept whatever the row adds up to: a table is
-				// sized to its content and a narrow terminal is allowed to wrap it,
-				// which is what it has always done. Shrinking instead would put the
-				// columns of one row somewhere the next row's are not
-				'flex-shrink': 0,
-				'text-align': columns[i].align ?? 'left',
-				'text-overflow': 'ellipsis',
-				'white-space': 'nowrap',
-				width: widths[i],
-			})
-		)
-	);
+  return box(
+    { class: 'sigil-table-row', 'column-gap': gap, 'flex-shrink': 0 },
+    ...values.map((value, i) =>
+      textNode(value, {
+        class: classes,
+        // the declared width is kept whatever the row adds up to: a table is
+        // sized to its content and a narrow terminal is allowed to wrap it,
+        // which is what it has always done. Shrinking instead would put the
+        // columns of one row somewhere the next row's are not
+        'flex-shrink': 0,
+        'text-align': columns[i].align ?? 'left',
+        'text-overflow': 'ellipsis',
+        'white-space': 'nowrap',
+        width: widths[i],
+      })
+    )
+  );
 }
 
 /**
@@ -168,34 +168,34 @@ function rowOf(
  * @returns The tree, and how wide it wants to be.
  */
 export function tableView(
-	rows: readonly TableRow[],
-	opts: TableOptions = {}
+  rows: readonly TableRow[],
+  opts: TableOptions = {}
 ): { element: Element; width: number } {
-	const gap = opts.gap === undefined ? 2 : Math.max(0, Math.floor(opts.gap));
-	const indent = Math.max(0, Math.floor(opts.indent ?? 0));
-	const { cells, columns, headers } = readRows(rows, opts);
-	const head = opts.head ?? columns.some((column) => column.header !== undefined);
-	const widths = columnWidths(headers, cells, columns, head);
+  const gap = opts.gap === undefined ? 2 : Math.max(0, Math.floor(opts.gap));
+  const indent = Math.max(0, Math.floor(opts.indent ?? 0));
+  const { cells, columns, headers } = readRows(rows, opts);
+  const head = opts.head ?? columns.some((column) => column.header !== undefined);
+  const widths = columnWidths(headers, cells, columns, head);
 
-	const body = rows.length
-		? cells.map((row) => rowOf(row, widths, columns, gap, 'sigil-table-cell'))
-		: [];
-	const children = head
-		? [rowOf(headers, widths, columns, gap, 'sigil-table-head sigil-heading'), ...body]
-		: body;
+  const body = rows.length
+    ? cells.map((row) => rowOf(row, widths, columns, gap, 'sigil-table-cell'))
+    : [];
+  const children = head
+    ? [rowOf(headers, widths, columns, gap, 'sigil-table-head sigil-heading'), ...body]
+    : body;
 
-	const natural =
-		indent +
-		widths.reduce((total, width) => total + width, 0) +
-		gap * Math.max(0, widths.length - 1);
+  const natural =
+    indent +
+    widths.reduce((total, width) => total + width, 0) +
+    gap * Math.max(0, widths.length - 1);
 
-	return {
-		element: box(
-			{ class: 'sigil-table', 'flex-direction': 'column', 'padding-left': indent },
-			...children
-		),
-		width: Math.max(1, natural),
-	};
+  return {
+    element: box(
+      { class: 'sigil-table', 'flex-direction': 'column', 'padding-left': indent },
+      ...children
+    ),
+    width: Math.max(1, natural),
+  };
 }
 
 /**
@@ -216,19 +216,19 @@ export function tableView(
  * @returns The table, with no trailing newline.
  */
 export function table(rows: readonly TableRow[], opts: TableOptions = {}): string {
-	if (!rows.length) {
-		return '';
-	}
+  if (!rows.length) {
+    return '';
+  }
 
-	const { element, width } = tableView(rows, opts);
+  const { element, width } = tableView(rows, opts);
 
-	// as wide as it came out, which is what a table has always been: a cell longer
-	// than the terminal runs past the edge and the terminal wraps it, rather than
-	// every other column being squeezed for its benefit. A caller that wants a
-	// column bounded says so with that column's `maxWidth`
-	return renderToString(element, {
-		cascade: themedCascade(opts),
-		colorLevel: opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level,
-		width,
-	});
+  // as wide as it came out, which is what a table has always been: a cell longer
+  // than the terminal runs past the edge and the terminal wraps it, rather than
+  // every other column being squeezed for its benefit. A caller that wants a
+  // column bounded says so with that column's `maxWidth`
+  return renderToString(element, {
+    cascade: themedCascade(opts),
+    colorLevel: opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level,
+    width,
+  });
 }

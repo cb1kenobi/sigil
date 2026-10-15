@@ -9,25 +9,25 @@ import { ui } from '@ttylabs/sigil/template';
  * module ends up being.
  */
 function view(who: string) {
-	return ui`<box class="flex-col gap-1">
-		<text class="bold text-green">${who}</text>
-		<text class="dim">from a template and a shaken sheet</text>
-	</box>`;
+  return ui`<box class="flex-col gap-1">
+    <text class="bold text-green">${who}</text>
+    <text class="dim">from a template and a shaken sheet</text>
+  </box>`;
 }
 
 const tpl: AnyCommand = command({
-	args: [{ desc: 'Who to greet', name: '[who]' }],
-	desc: 'Draw a template styled with utility classes',
+  args: [{ desc: 'Who to greet', name: '[who]' }],
+  desc: 'Draw a template styled with utility classes',
 
-	run({ argv }) {
-		process.stdout.write(
-			`${renderToString(view(String(argv.who ?? 'world')), {
-				cascade: new Cascade([utilitySheet()]),
-				colorLevel: 3,
-				width: 40,
-			})}\n`
-		);
-	},
+  run({ argv }) {
+    process.stdout.write(
+      `${renderToString(view(String(argv.who ?? 'world')), {
+        cascade: new Cascade([utilitySheet()]),
+        colorLevel: 3,
+        width: 40,
+      })}\n`
+    );
+  },
 });
 
 export default tpl;

@@ -1,9 +1,9 @@
 import {
-	type Box,
-	type LayoutNode,
-	type LayoutResult,
-	layout,
-	resolve,
+  type Box,
+  type LayoutNode,
+  type LayoutResult,
+  layout,
+  resolve,
 } from '../../src/layout/index.js';
 import { declare, type Declarations, type Style } from '../../src/style/index.js';
 import { stringWidth } from '../../src/width/index.js';
@@ -19,7 +19,7 @@ import { wrap } from '../../src/wrap/index.js';
 
 /** Builds a node from declarations, so a test reads like a stylesheet. */
 export function box(declarations: Declarations, ...children: LayoutNode[]): LayoutNode {
-	return { children, style: declare(declarations) };
+  return { children, style: declare(declarations) };
 }
 
 /**
@@ -31,34 +31,34 @@ export function box(declarations: Declarations, ...children: LayoutNode[]): Layo
  * @returns The node.
  */
 export function text(content: string, declarations: Declarations = {}): LayoutNode {
-	const style: Style = declare(declarations);
-	return {
-		measure(availableWidth: number) {
-			const longestWord = Math.max(
-				0,
-				...content
-					.split(/\s+/)
-					.filter(Boolean)
-					.map((word) => stringWidth(word))
-			);
+  const style: Style = declare(declarations);
+  return {
+    measure(availableWidth: number) {
+      const longestWord = Math.max(
+        0,
+        ...content
+          .split(/\s+/)
+          .filter(Boolean)
+          .map((word) => stringWidth(word))
+      );
 
-			if (style.whiteSpace === 'nowrap' || availableWidth <= 0) {
-				return { height: 1, minHeight: 1, minWidth: longestWord, width: stringWidth(content) };
-			}
+      if (style.whiteSpace === 'nowrap' || availableWidth <= 0) {
+        return { height: 1, minHeight: 1, minWidth: longestWord, width: stringWidth(content) };
+      }
 
-			const wrapped = wrap(content, { width: availableWidth });
-			const lines = wrapped.split('\n');
-			return {
-				height: lines.length,
-				// text is as short as it can be at the width it was given: wrapping
-				// it narrower makes it taller, not shorter
-				minHeight: lines.length,
-				minWidth: longestWord,
-				width: Math.max(0, ...lines.map((line) => stringWidth(line))),
-			};
-		},
-		style,
-	};
+      const wrapped = wrap(content, { width: availableWidth });
+      const lines = wrapped.split('\n');
+      return {
+        height: lines.length,
+        // text is as short as it can be at the width it was given: wrapping
+        // it narrower makes it taller, not shorter
+        minHeight: lines.length,
+        minWidth: longestWord,
+        width: Math.max(0, ...lines.map((line) => stringWidth(line))),
+      };
+    },
+    style,
+  };
 }
 
 /**
@@ -75,34 +75,34 @@ export function text(content: string, declarations: Declarations = {}): LayoutNo
  * @returns The grid, one string per row.
  */
 export function render(
-	result: LayoutResult,
-	width: number,
-	height: number,
-	marks = 'abcdefghijklmnopqrstuvwxyz'
+  result: LayoutResult,
+  width: number,
+  height: number,
+  marks = 'abcdefghijklmnopqrstuvwxyz'
 ): string {
-	const rows = Array.from({ length: height }, () => Array.from({ length: width }, () => '.'));
-	let index = 0;
+  const rows = Array.from({ length: height }, () => Array.from({ length: width }, () => '.'));
+  let index = 0;
 
-	const paint = (node: LayoutResult): void => {
-		const mark = marks[index % marks.length];
-		index++;
+  const paint = (node: LayoutResult): void => {
+    const mark = marks[index % marks.length];
+    index++;
 
-		const { box: area } = node;
-		for (let y = area.y; y < area.y + area.height; y++) {
-			for (let x = area.x; x < area.x + area.width; x++) {
-				if (y >= 0 && y < height && x >= 0 && x < width) {
-					rows[y][x] = mark;
-				}
-			}
-		}
+    const { box: area } = node;
+    for (let y = area.y; y < area.y + area.height; y++) {
+      for (let x = area.x; x < area.x + area.width; x++) {
+        if (y >= 0 && y < height && x >= 0 && x < width) {
+          rows[y][x] = mark;
+        }
+      }
+    }
 
-		for (const child of node.children) {
-			paint(child);
-		}
-	};
+    for (const child of node.children) {
+      paint(child);
+    }
+  };
 
-	paint(result);
-	return rows.map((row) => row.join('')).join('\n');
+  paint(result);
+  return rows.map((row) => row.join('')).join('\n');
 }
 
 /**
@@ -114,22 +114,22 @@ export function render(
  * @returns The picture.
  */
 export function picture(node: LayoutNode, width: number, height: number): string {
-	return render(layout(node, { height, width }), width, height);
+  return render(layout(node, { height, width }), width, height);
 }
 
 /** Every node's box, depth-first, for the assertions a picture cannot make. */
 export function boxes(
-	result: LayoutResult
+  result: LayoutResult
 ): { height: number; width: number; x: number; y: number }[] {
-	const out: { height: number; width: number; x: number; y: number }[] = [];
-	const walk = (node: LayoutResult): void => {
-		out.push({ ...node.box });
-		for (const child of node.children) {
-			walk(child);
-		}
-	};
-	walk(result);
-	return out;
+  const out: { height: number; width: number; x: number; y: number }[] = [];
+  const walk = (node: LayoutResult): void => {
+    out.push({ ...node.box });
+    for (const child of node.children) {
+      walk(child);
+    }
+  };
+  walk(result);
+  return out;
 }
 
 /**
@@ -148,27 +148,27 @@ export function boxes(
  * @returns The cells it was moved by, which is `0, 0` for a box that stayed.
  */
 function offsetOf(node: LayoutResult, content: Box): { x: number; y: number } {
-	const { style } = node.node;
-	if (style.position !== 'relative') {
-		return { x: 0, y: 0 };
-	}
+  const { style } = node.node;
+  if (style.position !== 'relative') {
+    return { x: 0, y: 0 };
+  }
 
-	// `top` beats `bottom` and `left` beats `right`, as the engine resolves them
-	const left = resolve(style.left, content.width);
-	const right = resolve(style.right, content.width);
-	const top = resolve(style.top, content.height);
-	const bottom = resolve(style.bottom, content.height);
+  // `top` beats `bottom` and `left` beats `right`, as the engine resolves them
+  const left = resolve(style.left, content.width);
+  const right = resolve(style.right, content.width);
+  const top = resolve(style.top, content.height);
+  const bottom = resolve(style.bottom, content.height);
 
-	return {
-		x: left ?? (right === undefined ? 0 : -right),
-		y: top ?? (bottom === undefined ? 0 : -bottom),
-	};
+  return {
+    x: left ?? (right === undefined ? 0 : -right),
+    y: top ?? (bottom === undefined ? 0 : -bottom),
+  };
 }
 
 /** Whether `offsetOf()` came to anywhere other than where the flow put the box. */
 function isOffset(node: LayoutResult, content: Box): boolean {
-	const { x, y } = offsetOf(node, content);
-	return x !== 0 || y !== 0;
+  const { x, y } = offsetOf(node, content);
+  return x !== 0 || y !== 0;
 }
 
 /**
@@ -187,8 +187,8 @@ function isOffset(node: LayoutResult, content: Box): boolean {
  * @returns Whether the flow is answerable for where it is.
  */
 function unplaced(node: LayoutResult, content: Box): boolean {
-	const { position } = node.node.style;
-	return position === 'absolute' || position === 'fixed' || isOffset(node, content);
+  const { position } = node.node.style;
+  return position === 'absolute' || position === 'fixed' || isOffset(node, content);
 }
 
 /**
@@ -203,7 +203,7 @@ function unplaced(node: LayoutResult, content: Box): boolean {
  * @returns Whether adjacent items must abut.
  */
 function packsTogether(justify: Style['justifyContent']): boolean {
-	return justify === 'flex-start' || justify === 'flex-end' || justify === 'center';
+  return justify === 'flex-start' || justify === 'flex-end' || justify === 'center';
 }
 
 /**
@@ -226,78 +226,78 @@ function packsTogether(justify: Style['justifyContent']): boolean {
  * @param node - The container.
  */
 function checkPacking(node: LayoutResult): void {
-	const { style } = node.node;
-	const column = style.flexDirection === 'column' || style.flexDirection === 'column-reverse';
-	const reverse = style.flexDirection === 'row-reverse' || style.flexDirection === 'column-reverse';
+  const { style } = node.node;
+  const column = style.flexDirection === 'column' || style.flexDirection === 'column-reverse';
+  const reverse = style.flexDirection === 'row-reverse' || style.flexDirection === 'column-reverse';
 
-	if (style.flexWrap !== 'nowrap' || !packsTogether(style.justifyContent)) {
-		return;
-	}
+  if (style.flexWrap !== 'nowrap' || !packsTogether(style.justifyContent)) {
+    return;
+  }
 
-	// a percentage margin resolves against the containing block's width whichever
-	// axis it is on, which is what the engine does
-	const margin = (child: LayoutResult, end: boolean) => {
-		const own = child.node.style;
-		const length = column
-			? end
-				? own.marginBottom
-				: own.marginTop
-			: end
-				? own.marginRight
-				: own.marginLeft;
-		return length.type === 'auto' ? undefined : (resolve(length, node.content.width) ?? 0);
-	};
+  // a percentage margin resolves against the containing block's width whichever
+  // axis it is on, which is what the engine does
+  const margin = (child: LayoutResult, end: boolean) => {
+    const own = child.node.style;
+    const length = column
+      ? end
+        ? own.marginBottom
+        : own.marginTop
+      : end
+        ? own.marginRight
+        : own.marginLeft;
+    return length.type === 'auto' ? undefined : (resolve(length, node.content.width) ?? 0);
+  };
 
-	// out of flow is out of the packing rule as well: it took no space, so the
-	// gap between the two boxes either side of it is the gap between *them*
-	const visible = node.children.filter(
-		(child) =>
-			child.node.style.display !== 'none' &&
-			child.node.style.position !== 'absolute' &&
-			child.node.style.position !== 'fixed'
-	);
+  // out of flow is out of the packing rule as well: it took no space, so the
+  // gap between the two boxes either side of it is the gap between *them*
+  const visible = node.children.filter(
+    (child) =>
+      child.node.style.display !== 'none' &&
+      child.node.style.position !== 'absolute' &&
+      child.node.style.position !== 'fixed'
+  );
 
-	// placement order, which `order` and a reversed direction both change
-	const ordered = [...visible].sort((a, b) => a.node.style.order - b.node.style.order);
-	if (reverse) {
-		ordered.reverse();
-	}
+  // placement order, which `order` and a reversed direction both change
+  const ordered = [...visible].sort((a, b) => a.node.style.order - b.node.style.order);
+  if (reverse) {
+    ordered.reverse();
+  }
 
-	const gap = column ? style.rowGap : style.columnGap;
-	// the flow position rather than the painted one: `position: relative` moves a
-	// box without moving the space reserved for it, so its neighbour was placed
-	// against the hole and the packing rule still holds there. Taking the offset
-	// back off keeps the check live for an offset box instead of excusing the
-	// pair, which is what the containment and overlap checks have to do because
-	// there the offset box really may land anywhere
-	const start = (child: LayoutResult) => {
-		const offset = offsetOf(child, node.content);
-		return column ? child.box.y - offset.y : child.box.x - offset.x;
-	};
-	const size = (child: LayoutResult) => (column ? child.box.height : child.box.width);
+  const gap = column ? style.rowGap : style.columnGap;
+  // the flow position rather than the painted one: `position: relative` moves a
+  // box without moving the space reserved for it, so its neighbour was placed
+  // against the hole and the packing rule still holds there. Taking the offset
+  // back off keeps the check live for an offset box instead of excusing the
+  // pair, which is what the containment and overlap checks have to do because
+  // there the offset box really may land anywhere
+  const start = (child: LayoutResult) => {
+    const offset = offsetOf(child, node.content);
+    return column ? child.box.y - offset.y : child.box.x - offset.x;
+  };
+  const size = (child: LayoutResult) => (column ? child.box.height : child.box.width);
 
-	for (let i = 1; i < ordered.length; i++) {
-		const before = ordered[i - 1];
-		const after = ordered[i];
-		const ends = margin(before, true);
-		const starts = margin(after, false);
+  for (let i = 1; i < ordered.length; i++) {
+    const before = ordered[i - 1];
+    const after = ordered[i];
+    const ends = margin(before, true);
+    const starts = margin(after, false);
 
-		// an auto margin eats free space, so this pair is not packed -- but only
-		// this pair: every other gap on the line is still the declared one, which
-		// is why the whole container is not skipped over one auto margin
-		if (ends === undefined || starts === undefined) {
-			continue;
-		}
+    // an auto margin eats free space, so this pair is not packed -- but only
+    // this pair: every other gap on the line is still the declared one, which
+    // is why the whole container is not skipped over one auto margin
+    if (ends === undefined || starts === undefined) {
+      continue;
+    }
 
-		const expected = start(before) + size(before) + ends + gap + starts;
+    const expected = start(before) + size(before) + ends + gap + starts;
 
-		if (start(after) !== expected) {
-			throw new Error(
-				`sibling ${JSON.stringify(after.box)} starts at ${start(after)} where its neighbour ` +
-					`${JSON.stringify(before.box)} and a gap of ${gap} put it at ${expected}`
-			);
-		}
-	}
+    if (start(after) !== expected) {
+      throw new Error(
+        `sibling ${JSON.stringify(after.box)} starts at ${start(after)} where its neighbour ` +
+          `${JSON.stringify(before.box)} and a gap of ${gap} put it at ${expected}`
+      );
+    }
+  }
 }
 
 /**
@@ -322,58 +322,58 @@ function checkPacking(node: LayoutResult): void {
  * a declared size too big for its container legitimately produces.
  */
 export function checkInvariants(result: LayoutResult, opts: { overflow?: boolean } = {}): void {
-	const walk = (node: LayoutResult): void => {
-		if (node.box.width < 0 || node.box.height < 0) {
-			throw new Error(`negative box ${JSON.stringify(node.box)}`);
-		}
+  const walk = (node: LayoutResult): void => {
+    if (node.box.width < 0 || node.box.height < 0) {
+      throw new Error(`negative box ${JSON.stringify(node.box)}`);
+    }
 
-		const line: LayoutResult[] = [];
+    const line: LayoutResult[] = [];
 
-		for (const child of node.children) {
-			const offset = unplaced(child, node.content);
+    for (const child of node.children) {
+      const offset = unplaced(child, node.content);
 
-			// a box with no area paints nothing, so where it sits cannot be wrong.
-			// A gap still advances the cursor in a container with no room, which
-			// leaves a zero-size child one column past a zero-width content box
-			const occupies = child.box.width > 0 && child.box.height > 0;
+      // a box with no area paints nothing, so where it sits cannot be wrong.
+      // A gap still advances the cursor in a container with no room, which
+      // leaves a zero-size child one column past a zero-width content box
+      const occupies = child.box.width > 0 && child.box.height > 0;
 
-			if (!opts.overflow && occupies && !offset) {
-				const fitsX =
-					child.box.x >= node.content.x &&
-					child.box.x + child.box.width <= node.content.x + node.content.width;
-				const fitsY =
-					child.box.y >= node.content.y &&
-					child.box.y + child.box.height <= node.content.y + node.content.height;
+      if (!opts.overflow && occupies && !offset) {
+        const fitsX =
+          child.box.x >= node.content.x &&
+          child.box.x + child.box.width <= node.content.x + node.content.width;
+        const fitsY =
+          child.box.y >= node.content.y &&
+          child.box.y + child.box.height <= node.content.y + node.content.height;
 
-				if (!fitsX || !fitsY) {
-					throw new Error(
-						`child ${JSON.stringify(child.box)} escapes content ${JSON.stringify(node.content)}`
-					);
-				}
-			}
+        if (!fitsX || !fitsY) {
+          throw new Error(
+            `child ${JSON.stringify(child.box)} escapes content ${JSON.stringify(node.content)}`
+          );
+        }
+      }
 
-			for (const sibling of line) {
-				if (offset || unplaced(sibling, node.content)) {
-					continue;
-				}
-				const apart =
-					child.box.x >= sibling.box.x + sibling.box.width ||
-					sibling.box.x >= child.box.x + child.box.width ||
-					child.box.y >= sibling.box.y + sibling.box.height ||
-					sibling.box.y >= child.box.y + child.box.height;
-				if (!apart && child.box.width > 0 && child.box.height > 0) {
-					throw new Error(
-						`siblings overlap: ${JSON.stringify(child.box)} and ${JSON.stringify(sibling.box)}`
-					);
-				}
-			}
+      for (const sibling of line) {
+        if (offset || unplaced(sibling, node.content)) {
+          continue;
+        }
+        const apart =
+          child.box.x >= sibling.box.x + sibling.box.width ||
+          sibling.box.x >= child.box.x + child.box.width ||
+          child.box.y >= sibling.box.y + sibling.box.height ||
+          sibling.box.y >= child.box.y + child.box.height;
+        if (!apart && child.box.width > 0 && child.box.height > 0) {
+          throw new Error(
+            `siblings overlap: ${JSON.stringify(child.box)} and ${JSON.stringify(sibling.box)}`
+          );
+        }
+      }
 
-			line.push(child);
-			walk(child);
-		}
+      line.push(child);
+      walk(child);
+    }
 
-		checkPacking(node);
-	};
+    checkPacking(node);
+  };
 
-	walk(result);
+  walk(result);
 }

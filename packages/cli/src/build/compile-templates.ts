@@ -72,30 +72,30 @@ import MagicString from 'magic-string';
 
 /** What compiling a module's templates produced. */
 export interface CompiledModule {
-	/** The rewritten source. */
-	readonly code: string;
-	/** How many templates were compiled. */
-	readonly count: number;
-	/** The source map, as rolldown wants it. */
-	readonly map: ReturnType<MagicString['generateMap']>;
+  /** The rewritten source. */
+  readonly code: string;
+  /** How many templates were compiled. */
+  readonly count: number;
+  /** The source map, as rolldown wants it. */
+  readonly map: ReturnType<MagicString['generateMap']>;
 }
 
 /** Where a template that could not be compiled was. */
 export class TemplateCompileError extends Error {
-	/** One-based column. */
-	readonly column: number;
-	/** The module. */
-	readonly file: string;
-	/** One-based line. */
-	readonly line: number;
+  /** One-based column. */
+  readonly column: number;
+  /** The module. */
+  readonly file: string;
+  /** One-based line. */
+  readonly line: number;
 
-	constructor(file: string, line: number, column: number, message: string) {
-		super(`${file}:${line}:${column}: ${message}`);
-		this.name = 'TemplateCompileError';
-		this.column = column;
-		this.file = file;
-		this.line = line;
-	}
+  constructor(file: string, line: number, column: number, message: string) {
+    super(`${file}:${line}:${column}: ${message}`);
+    this.name = 'TemplateCompileError';
+    this.column = column;
+    this.file = file;
+    this.line = line;
+  }
 }
 
 /**
@@ -113,16 +113,16 @@ export class TemplateCompileError extends Error {
  * @returns A prefix the module does not contain.
  */
 export function choosePrefix(source: string): string {
-	if (!source.includes('$ui')) {
-		return '$ui';
-	}
+  if (!source.includes('$ui')) {
+    return '$ui';
+  }
 
-	for (let n = 0; ; n++) {
-		const candidate = `$ui${n}`;
-		if (!source.includes(candidate)) {
-			return candidate;
-		}
-	}
+  for (let n = 0; ; n++) {
+    const candidate = `$ui${n}`;
+    if (!source.includes(candidate)) {
+      return candidate;
+    }
+  }
 }
 
 /**
@@ -135,85 +135,85 @@ export function choosePrefix(source: string): string {
  * @throws {TemplateCompileError} If a template cannot be compiled, naming where.
  */
 export function compileTemplates(
-	file: string,
-	source: string,
-	options: TemplatesOptions = {}
+  file: string,
+  source: string,
+  options: TemplatesOptions = {}
 ): CompiledModule | undefined {
-	// a module that does not even mention the tag's module cannot hold a template,
-	// and a substring test answers that without a parse. This is the function's own
-	// fast path rather than the build's: `bundle.ts` narrows natively with a
-	// rolldown hook filter before it ever calls here, which is the cheaper place to
-	// do it, and this is what makes the same answer hold for any other caller.
-	// Same shape as `strip()`, which tests for an `ESC` before running its matcher,
-	// and for the same reason -- the common case has nothing to do
-	if (!source.includes(options.from ?? TAG_MODULE)) {
-		return undefined;
-	}
+  // a module that does not even mention the tag's module cannot hold a template,
+  // and a substring test answers that without a parse. This is the function's own
+  // fast path rather than the build's: `bundle.ts` narrows natively with a
+  // rolldown hook filter before it ever calls here, which is the cheaper place to
+  // do it, and this is what makes the same answer hold for any other caller.
+  // Same shape as `strip()`, which tests for an `ESC` before running its matcher,
+  // and for the same reason -- the common case has nothing to do
+  if (!source.includes(options.from ?? TAG_MODULE)) {
+    return undefined;
+  }
 
-	// parsed once and asked twice, which is what `templatesIn()` is separate from
-	// `findTemplates()` for
-	const found = templatesIn(parseModule(file, source), options);
+  // parsed once and asked twice, which is what `templatesIn()` is separate from
+  // `findTemplates()` for
+  const found = templatesIn(parseModule(file, source), options);
 
-	if (!found.length) {
-		return undefined;
-	}
+  if (!found.length) {
+    return undefined;
+  }
 
-	const prefix = choosePrefix(source);
+  const prefix = choosePrefix(source);
 
-	// every template's IR first, so that a template which cannot be compiled is
-	// reported before anything is rewritten -- a half-spliced module is a worse
-	// thing to hand a bundler than an error
-	const nodes: IRNode[] = found.map((template) => {
-		try {
-			return analyze(
-				parse(
-					template.quasis,
-					template.expressions.map((src) => new Expr(src))
-				)
-			);
-		} catch (e: unknown) {
-			throw new TemplateCompileError(file, template.line, template.column, (e as Error).message);
-		}
-	});
+  // every template's IR first, so that a template which cannot be compiled is
+  // reported before anything is rewritten -- a half-spliced module is a worse
+  // thing to hand a bundler than an error
+  const nodes: IRNode[] = found.map((template) => {
+    try {
+      return analyze(
+        parse(
+          template.quasis,
+          template.expressions.map((src) => new Expr(src))
+        )
+      );
+    } catch (e: unknown) {
+      throw new TemplateCompileError(file, template.line, template.column, (e as Error).message);
+    }
+  });
 
-	let compiled;
-	try {
-		compiled = compile(nodes, { prefix });
-	} catch (e: unknown) {
-		throw blame(file, found, nodes, prefix, e as Error);
-	}
+  let compiled;
+  try {
+    compiled = compile(nodes, { prefix });
+  } catch (e: unknown) {
+    throw blame(file, found, nodes, prefix, e as Error);
+  }
 
-	const edited = new MagicString(source);
+  const edited = new MagicString(source);
 
-	// each expression over the span its template occupied. `overwrite()` rather
-	// than a string splice, because the map is what makes this worth doing at all
-	found.forEach((template, at) => {
-		edited.overwrite(template.start, template.end, compiled.sources[at]!);
-	});
+  // each expression over the span its template occupied. `overwrite()` rather
+  // than a string splice, because the map is what makes this worth doing at all
+  found.forEach((template, at) => {
+    edited.overwrite(template.start, template.end, compiled.sources[at]!);
+  });
 
-	// the imports and the hoisted block at the top, in that order: a hoisted
-	// object is built from what the imports bring in, and both are module scope
-	const head = [renderImports(compiled.imports), ...compiled.hoisted.map((line) => `${line}\n`)];
+  // the imports and the hoisted block at the top, in that order: a hoisted
+  // object is built from what the imports bring in, and both are module scope
+  const head = [renderImports(compiled.imports), ...compiled.hoisted.map((line) => `${line}\n`)];
 
-	// after the shebang rather than before it, because `#!` is only a shebang on
-	// the first line -- an `import` in front of it leaves a module whose first line
-	// is a syntax error to node and which the kernel will not exec either. Only
-	// the *first* line counts, so this is the one directive-shaped thing that has
-	// to be stepped over; `'use strict'` does not, since a module is strict anyway
-	// and an import before it merely makes it an ordinary string expression
-	const shebang = source.startsWith('#!') ? source.indexOf('\n') + 1 : 0;
+  // after the shebang rather than before it, because `#!` is only a shebang on
+  // the first line -- an `import` in front of it leaves a module whose first line
+  // is a syntax error to node and which the kernel will not exec either. Only
+  // the *first* line counts, so this is the one directive-shaped thing that has
+  // to be stepped over; `'use strict'` does not, since a module is strict anyway
+  // and an import before it merely makes it an ordinary string expression
+  const shebang = source.startsWith('#!') ? source.indexOf('\n') + 1 : 0;
 
-	if (shebang > 0) {
-		edited.appendLeft(shebang, head.join(''));
-	} else {
-		edited.prepend(head.join(''));
-	}
+  if (shebang > 0) {
+    edited.appendLeft(shebang, head.join(''));
+  } else {
+    edited.prepend(head.join(''));
+  }
 
-	return {
-		code: edited.toString(),
-		count: found.length,
-		map: edited.generateMap({ hires: true, includeContent: true, source: file }),
-	};
+  return {
+    code: edited.toString(),
+    count: found.length,
+    map: edited.generateMap({ hires: true, includeContent: true, source: file }),
+  };
 }
 
 /**
@@ -263,34 +263,34 @@ export function compileTemplates(
  * @returns The error to throw, pointed at the template that caused it.
  */
 function blame(
-	file: string,
-	found: readonly FoundTemplate[],
-	nodes: readonly IRNode[],
-	prefix: string,
-	error: Error
+  file: string,
+  found: readonly FoundTemplate[],
+  nodes: readonly IRNode[],
+  prefix: string,
+  error: Error
 ): TemplateCompileError {
-	// what each template does on its own, once. Asked as two questions over one
-	// pass because the answers rank: a template throwing the *same* message is the
-	// one `compile()` was complaining about, while a template merely throwing
-	// something is a worse answer that still beats naming a template with nothing
-	// wrong with it
-	let exact: FoundTemplate | undefined;
-	let failing: FoundTemplate | undefined;
+  // what each template does on its own, once. Asked as two questions over one
+  // pass because the answers rank: a template throwing the *same* message is the
+  // one `compile()` was complaining about, while a template merely throwing
+  // something is a worse answer that still beats naming a template with nothing
+  // wrong with it
+  let exact: FoundTemplate | undefined;
+  let failing: FoundTemplate | undefined;
 
-	for (const [at, template] of found.entries()) {
-		try {
-			compile([nodes[at]!], { prefix });
-			continue;
-		} catch (e: unknown) {
-			failing ??= template;
-			if ((e as Error).message === error.message) {
-				exact = template;
-				break;
-			}
-		}
-	}
+  for (const [at, template] of found.entries()) {
+    try {
+      compile([nodes[at]!], { prefix });
+      continue;
+    } catch (e: unknown) {
+      failing ??= template;
+      if ((e as Error).message === error.message) {
+        exact = template;
+        break;
+      }
+    }
+  }
 
-	const culprit = exact ?? failing ?? found[0]!;
+  const culprit = exact ?? failing ?? found[0]!;
 
-	return new TemplateCompileError(file, culprit.line, culprit.column, error.message);
+  return new TemplateCompileError(file, culprit.line, culprit.column, error.message);
 }

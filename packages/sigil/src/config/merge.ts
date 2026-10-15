@@ -70,7 +70,7 @@ import { deletePath, isPlainObject, isUnsafeKey, readPath, segments, writePath }
  * @throws If any key anywhere in it is unsafe.
  */
 export function copyValue(value: unknown, where: string): unknown {
-	return copyInto(value, where, new WeakSet<object>(), false);
+  return copyInto(value, where, new WeakSet<object>(), false);
 }
 
 /**
@@ -94,7 +94,7 @@ export function copyValue(value: unknown, where: string): unknown {
  * @throws If any key anywhere in it is unsafe, or it refers back to itself.
  */
 export function copyDocument(value: unknown, where: string): unknown {
-	return copyInto(value, where, new WeakSet<object>(), true);
+  return copyInto(value, where, new WeakSet<object>(), true);
 }
 
 /**
@@ -122,48 +122,48 @@ export function copyDocument(value: unknown, where: string): unknown {
  * @returns A copy whose structure is this module's.
  */
 function copyInto(value: unknown, where: string, seen: WeakSet<object>, nulls: boolean): unknown {
-	const structure = Array.isArray(value) || isPlainObject(value);
+  const structure = Array.isArray(value) || isPlainObject(value);
 
-	if (structure) {
-		if (seen.has(value as object)) {
-			throw new Error(`A config value in ${where} refers back to itself`);
-		}
-		seen.add(value as object);
-	}
+  if (structure) {
+    if (seen.has(value as object)) {
+      throw new Error(`A config value in ${where} refers back to itself`);
+    }
+    seen.add(value as object);
+  }
 
-	try {
-		if (Array.isArray(value)) {
-			// a `null` **inside** an array is data rather than a format saying
-			// nothing, so an element is kept. So is an `undefined`, which no text
-			// format can produce and which a JSON round trip turns into `null` --
-			// the format's business rather than this module's
-			return value.map((item) => copyInto(item, where, seen, nulls));
-		}
+  try {
+    if (Array.isArray(value)) {
+      // a `null` **inside** an array is data rather than a format saying
+      // nothing, so an element is kept. So is an `undefined`, which no text
+      // format can produce and which a JSON round trip turns into `null` --
+      // the format's business rather than this module's
+      return value.map((item) => copyInto(item, where, seen, nulls));
+    }
 
-		if (!isPlainObject(value)) {
-			return value;
-		}
+    if (!isPlainObject(value)) {
+      return value;
+    }
 
-		const out: Record<string, unknown> = {};
-		for (const key of Object.keys(value)) {
-			if (isUnsafeKey(key)) {
-				throw new Error(__`Unsafe config key "${key}" in ${where}`);
-			}
-			// `undefined` beside `null`, because neither is a value: left in, a key
-			// whose value is `undefined` is one `Object.keys()` reports and `has()`
-			// answers `false` for -- a phantom key, which is what
-			// `config.set('x', argv.x)` with no `--x` used to make
-			if (value[key] === undefined || (value[key] === null && !nulls)) {
-				continue;
-			}
-			out[key] = copyInto(value[key], where, seen, nulls);
-		}
-		return out;
-	} finally {
-		if (structure) {
-			seen.delete(value as object);
-		}
-	}
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(value)) {
+      if (isUnsafeKey(key)) {
+        throw new Error(__`Unsafe config key "${key}" in ${where}`);
+      }
+      // `undefined` beside `null`, because neither is a value: left in, a key
+      // whose value is `undefined` is one `Object.keys()` reports and `has()`
+      // answers `false` for -- a phantom key, which is what
+      // `config.set('x', argv.x)` with no `--x` used to make
+      if (value[key] === undefined || (value[key] === null && !nulls)) {
+        continue;
+      }
+      out[key] = copyInto(value[key], where, seen, nulls);
+    }
+    return out;
+  } finally {
+    if (structure) {
+      seen.delete(value as object);
+    }
+  }
 }
 
 /**
@@ -189,36 +189,36 @@ function copyInto(value: unknown, where: string, seen: WeakSet<object>, nulls: b
  * @returns The merged value.
  */
 function mergeInto(
-	base: unknown,
-	over: unknown,
-	path: string,
-	concat: (path: string) => boolean,
-	where: string
+  base: unknown,
+  over: unknown,
+  path: string,
+  concat: (path: string) => boolean,
+  where: string
 ): unknown {
-	if (Array.isArray(base) && Array.isArray(over) && concat(path)) {
-		return [...base, ...over.map((item) => copyValue(item, where))];
-	}
+  if (Array.isArray(base) && Array.isArray(over) && concat(path)) {
+    return [...base, ...over.map((item) => copyValue(item, where))];
+  }
 
-	if (!isPlainObject(base) || !isPlainObject(over)) {
-		return copyValue(over, where);
-	}
+  if (!isPlainObject(base) || !isPlainObject(over)) {
+    return copyValue(over, where);
+  }
 
-	const out: Record<string, unknown> = { ...base };
-	for (const key of Object.keys(over)) {
-		const at = path ? `${path}.${key}` : key;
-		out[key] = Object.hasOwn(base, key)
-			? mergeInto(base[key], over[key], at, concat, where)
-			: copyValue(over[key], where);
-	}
-	return out;
+  const out: Record<string, unknown> = { ...base };
+  for (const key of Object.keys(over)) {
+    const at = path ? `${path}.${key}` : key;
+    out[key] = Object.hasOwn(base, key)
+      ? mergeInto(base[key], over[key], at, concat, where)
+      : copyValue(over[key], where);
+  }
+  return out;
 }
 
 /** One thing to merge, with where it came from for the message. */
 export interface MergeSource {
-	/** Where it came from, for the tripwire's message. */
-	label: string;
-	/** What to merge. */
-	value: unknown;
+  /** Where it came from, for the tripwire's message. */
+  label: string;
+  /** What to merge. */
+  value: unknown;
 }
 
 /**
@@ -229,18 +229,18 @@ export interface MergeSource {
  * @returns The merged view, not yet frozen.
  */
 export function mergeLayers(
-	sources: readonly MergeSource[],
-	concat: (path: string) => boolean
+  sources: readonly MergeSource[],
+  concat: (path: string) => boolean
 ): unknown {
-	let merged: unknown;
-	let first = true;
+  let merged: unknown;
+  let first = true;
 
-	for (const { label, value } of sources) {
-		merged = first ? copyValue(value, label) : mergeInto(merged, value, '', concat, label);
-		first = false;
-	}
+  for (const { label, value } of sources) {
+    merged = first ? copyValue(value, label) : mergeInto(merged, value, '', concat, label);
+    first = false;
+  }
 
-	return merged ?? {};
+  return merged ?? {};
 }
 
 /**
@@ -261,21 +261,21 @@ export function mergeLayers(
  * @returns The same value, deeply frozen.
  */
 export function deepFreeze<T>(value: T): T {
-	if (Array.isArray(value)) {
-		for (const item of value) {
-			deepFreeze(item);
-		}
-		return Object.freeze(value);
-	}
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      deepFreeze(item);
+    }
+    return Object.freeze(value);
+  }
 
-	if (isPlainObject(value)) {
-		for (const key of Object.keys(value)) {
-			deepFreeze(value[key]);
-		}
-		return Object.freeze(value);
-	}
+  if (isPlainObject(value)) {
+    for (const key of Object.keys(value)) {
+      deepFreeze(value[key]);
+    }
+    return Object.freeze(value);
+  }
 
-	return value;
+  return value;
 }
 
 /**
@@ -343,57 +343,57 @@ export function deepFreeze<T>(value: T): T {
  * @throws If a path cannot mean anything, or a value cannot be copied.
  */
 export function overlay(
-	into: Record<string, unknown>,
-	from: unknown,
-	paths: Iterable<string>,
-	where: string
+  into: Record<string, unknown>,
+  from: unknown,
+  paths: Iterable<string>,
+  where: string
 ): void {
-	for (const path of paths) {
-		const parts = segments(path);
+  for (const path of paths) {
+    const parts = segments(path);
 
-		if (parts.length === 0) {
-			continue;
-		}
+    if (parts.length === 0) {
+      continue;
+    }
 
-		const mine = readPath(from, parts);
+    const mine = readPath(from, parts);
 
-		if (mine === undefined) {
-			// a claimed **delete** whose ancestor is not an object is a no-op rather
-			// than the refusal a claimed set gets, which is an asymmetry and is the
-			// right way round: `deletePath()` has nothing to destroy, so it answers
-			// `false` and the file keeps what it had. A set in the same place would
-			// have to replace the ancestor to proceed, which is what it refuses for.
-			// So `write({}, { paths: ['items.0'] })` over `{ "items": [1,2,3] }`
-			// leaves the array alone while `write({ items: { 0: 9 } }, ...)` throws,
-			// and that is the dotted-paths-address-object-keys rule said twice rather
-			// than two answers to one question. `Config.delete()` is the same no-op
-			// for the same reason. Found by review, which offered throwing as the
-			// other option: it is refused because a delete that has nothing to delete
-			// is a no-op everywhere else here
-			deletePath(into, parts);
-			continue;
-		}
+    if (mine === undefined) {
+      // a claimed **delete** whose ancestor is not an object is a no-op rather
+      // than the refusal a claimed set gets, which is an asymmetry and is the
+      // right way round: `deletePath()` has nothing to destroy, so it answers
+      // `false` and the file keeps what it had. A set in the same place would
+      // have to replace the ancestor to proceed, which is what it refuses for.
+      // So `write({}, { paths: ['items.0'] })` over `{ "items": [1,2,3] }`
+      // leaves the array alone while `write({ items: { 0: 9 } }, ...)` throws,
+      // and that is the dotted-paths-address-object-keys rule said twice rather
+      // than two answers to one question. `Config.delete()` is the same no-op
+      // for the same reason. Found by review, which offered throwing as the
+      // other option: it is refused because a delete that has nothing to delete
+      // is a no-op everywhere else here
+      deletePath(into, parts);
+      continue;
+    }
 
-		// the ancestors, before anything is written: `writePath()` replaces a
-		// non-object on the way down, which for an array is three elements gone
-		let at: unknown = into;
+    // the ancestors, before anything is written: `writePath()` replaces a
+    // non-object on the way down, which for an array is three elements gone
+    let at: unknown = into;
 
-		for (const [i, part] of parts.slice(0, -1).entries()) {
-			at = isPlainObject(at) && Object.hasOwn(at, part) ? at[part] : undefined;
+    for (const [i, part] of parts.slice(0, -1).entries()) {
+      at = isPlainObject(at) && Object.hasOwn(at, part) ? at[part] : undefined;
 
-			// `null` is absent, because that is what it means everywhere in this
-			// module -- and **both** callers can see one: `#staged` overlays a
-			// `copyDocument()`, which keeps a key holding `null`, and the store
-			// overlays the parsed file, where one survives too. So this is the rule
-			// rather than a patch over a disagreement between them, which is what the
-			// comment here claimed for a commit. Dropping them in the store is not
-			// the answer either: it would drop a `null` the file holds for a key
-			// nobody claimed, and `editJsonc` would then remove it
-			if (at !== undefined && at !== null && !isPlainObject(at)) {
-				throw new Error(__`"${parts.slice(0, i + 1).join('.')}" in ${where} is not an object`);
-			}
-		}
+      // `null` is absent, because that is what it means everywhere in this
+      // module -- and **both** callers can see one: `#staged` overlays a
+      // `copyDocument()`, which keeps a key holding `null`, and the store
+      // overlays the parsed file, where one survives too. So this is the rule
+      // rather than a patch over a disagreement between them, which is what the
+      // comment here claimed for a commit. Dropping them in the store is not
+      // the answer either: it would drop a `null` the file holds for a key
+      // nobody claimed, and `editJsonc` would then remove it
+      if (at !== undefined && at !== null && !isPlainObject(at)) {
+        throw new Error(__`"${parts.slice(0, i + 1).join('.')}" in ${where} is not an object`);
+      }
+    }
 
-		writePath(into, parts, copyDocument(mine, where));
-	}
+    writePath(into, parts, copyDocument(mine, where));
+  }
 }

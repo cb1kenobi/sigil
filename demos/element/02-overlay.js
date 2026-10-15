@@ -18,17 +18,17 @@ import { arrange, box, paint, resolveStyles, text } from '@ttylabs/sigil/element
 import { Cascade, parseStylesheet, Restyler } from '@ttylabs/sigil/style';
 
 const sheet = parseStylesheet(`
-	.app { flex-direction: column; width: 34; height: 8; border: round; border-color: gray; padding: 1 }
-	.pane { flex-direction: column; overflow: hidden; height: 4 }
-	.row { color: gray }
-	.row.on { color: cyan; font-weight: bold }
-	.menu {
-		position: absolute; top: 1; left: 12; z-index: 1;
-		flex-direction: column; width: 18;
-		border: single; border-color: cyan; background-color: black;
-	}
-	.item { color: cyan }
-	.hint { color: gray }
+  .app { flex-direction: column; width: 34; height: 8; border: round; border-color: gray; padding: 1 }
+  .pane { flex-direction: column; overflow: hidden; height: 4 }
+  .row { color: gray }
+  .row.on { color: cyan; font-weight: bold }
+  .menu {
+    position: absolute; top: 1; left: 12; z-index: 1;
+    flex-direction: column; width: 18;
+    border: single; border-color: cyan; background-color: black;
+  }
+  .item { color: cyan }
+  .hint { color: gray }
 `);
 
 const LINES = ['parser', 'canvas', 'layout', 'cascade', 'element tree', 'renderer', 'templates'];
@@ -46,21 +46,21 @@ const restyler = new Restyler(new Cascade([sheet]));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const draw = () => {
-	resolveStyles(app, restyler);
-	arrange(app, { height: backend.height, width: backend.width });
-	backend.render((painter) => paint(app, painter));
+  resolveStyles(app, restyler);
+  arrange(app, { height: backend.height, width: backend.width });
+  backend.render((painter) => paint(app, painter));
 };
 
 for (let step = 0; step < 12; step++) {
-	// the pane scrolls under the overlay, and the overlay does not move with it:
-	// it is out of flow, so the scroll that moves the pane's children is not its
-	pane.scrollTo(0, step % (LINES.length - 2));
+  // the pane scrolls under the overlay, and the overlay does not move with it:
+  // it is out of flow, so the scroll that moves the pane's children is not its
+  pane.scrollTo(0, step % (LINES.length - 2));
 
-	if (step === 4) app.append(menu);
-	if (step === 9) menu.remove();
+  if (step === 4) app.append(menu);
+  if (step === 9) menu.remove();
 
-	draw();
-	await sleep(320);
+  draw();
+  await sleep(320);
 }
 
 backend.done();

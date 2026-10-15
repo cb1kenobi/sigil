@@ -36,22 +36,22 @@ const RGB_BASE = 0x100;
  * smaller failure than refusing to degrade at all.
  */
 const BASIC: readonly (readonly [number, number, number])[] = [
-	[0x00, 0x00, 0x00], // 0  black
-	[0xcd, 0x00, 0x00], // 1  red
-	[0x00, 0xcd, 0x00], // 2  green
-	[0xcd, 0xcd, 0x00], // 3  yellow
-	[0x00, 0x00, 0xee], // 4  blue
-	[0xcd, 0x00, 0xcd], // 5  magenta
-	[0x00, 0xcd, 0xcd], // 6  cyan
-	[0xe5, 0xe5, 0xe5], // 7  white
-	[0x7f, 0x7f, 0x7f], // 8  bright black
-	[0xff, 0x00, 0x00], // 9  bright red
-	[0x00, 0xff, 0x00], // 10 bright green
-	[0xff, 0xff, 0x00], // 11 bright yellow
-	[0x5c, 0x5c, 0xff], // 12 bright blue
-	[0xff, 0x00, 0xff], // 13 bright magenta
-	[0x00, 0xff, 0xff], // 14 bright cyan
-	[0xff, 0xff, 0xff], // 15 bright white
+  [0x00, 0x00, 0x00], // 0  black
+  [0xcd, 0x00, 0x00], // 1  red
+  [0x00, 0xcd, 0x00], // 2  green
+  [0xcd, 0xcd, 0x00], // 3  yellow
+  [0x00, 0x00, 0xee], // 4  blue
+  [0xcd, 0x00, 0xcd], // 5  magenta
+  [0x00, 0xcd, 0xcd], // 6  cyan
+  [0xe5, 0xe5, 0xe5], // 7  white
+  [0x7f, 0x7f, 0x7f], // 8  bright black
+  [0xff, 0x00, 0x00], // 9  bright red
+  [0x00, 0xff, 0x00], // 10 bright green
+  [0xff, 0xff, 0x00], // 11 bright yellow
+  [0x5c, 0x5c, 0xff], // 12 bright blue
+  [0xff, 0x00, 0xff], // 13 bright magenta
+  [0x00, 0xff, 0xff], // 14 bright cyan
+  [0xff, 0xff, 0xff], // 15 bright white
 ];
 
 /** The six levels each axis of the xterm colour cube takes. */
@@ -68,28 +68,28 @@ const CUBE_LEVELS: readonly number[] = [0, 95, 135, 175, 215, 255];
  * @returns The channels.
  */
 export function paletteRgb(index: number): readonly [number, number, number] {
-	if (index < 16) {
-		return BASIC[index];
-	}
-	if (index < 232) {
-		const n = index - 16;
-		return [
-			CUBE_LEVELS[Math.floor(n / 36) % 6],
-			CUBE_LEVELS[Math.floor(n / 6) % 6],
-			CUBE_LEVELS[n % 6],
-		];
-	}
-	const grey = 8 + (index - 232) * 10;
-	return [grey, grey, grey];
+  if (index < 16) {
+    return BASIC[index];
+  }
+  if (index < 232) {
+    const n = index - 16;
+    return [
+      CUBE_LEVELS[Math.floor(n / 36) % 6],
+      CUBE_LEVELS[Math.floor(n / 6) % 6],
+      CUBE_LEVELS[n % 6],
+    ];
+  }
+  const grey = 8 + (index - 232) * 10;
+  return [grey, grey, grey];
 }
 
 /** Pulls the channels out of a colour, whichever kind it is. */
 function channels(color: Color): readonly [number, number, number] {
-	if (color >= RGB_BASE) {
-		const packed = color - RGB_BASE;
-		return [(packed >> 16) & 0xff, (packed >> 8) & 0xff, packed & 0xff];
-	}
-	return paletteRgb(color);
+  if (color >= RGB_BASE) {
+    const packed = color - RGB_BASE;
+    return [(packed >> 16) & 0xff, (packed >> 8) & 0xff, packed & 0xff];
+  }
+  return paletteRgb(color);
 }
 
 /**
@@ -105,38 +105,38 @@ function channels(color: Color): readonly [number, number, number] {
  * @returns The Oklab coordinates.
  */
 export function oklab(
-	channel: readonly [number, number, number]
+  channel: readonly [number, number, number]
 ): readonly [number, number, number] {
-	const [r, g, b] = channel.map(linear) as [number, number, number];
+  const [r, g, b] = channel.map(linear) as [number, number, number];
 
-	const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
-	const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
-	const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
 
-	return [
-		0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
-		1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
-		// -0.8086758033 rather than Ottosson's published -0.808675766. For D65
-		// white the LMS rows each sum to one, so l, m and s are all 1 and the a and
-		// b rows have to sum to exactly zero or a grey acquires chroma. The a row
-		// does; the published b row leaves a residue of 3.7e-8, which is small but
-		// is a bias in one direction on every neutral colour there is. This is the
-		// value that makes the row sum zero, and `should give a grey no chroma`
-		// pins the property rather than the digits
-		0.0259040371 * l + 0.7827717662 * m - 0.8086758033 * s,
-	];
+  return [
+    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+    // -0.8086758033 rather than Ottosson's published -0.808675766. For D65
+    // white the LMS rows each sum to one, so l, m and s are all 1 and the a and
+    // b rows have to sum to exactly zero or a grey acquires chroma. The a row
+    // does; the published b row leaves a residue of 3.7e-8, which is small but
+    // is a bias in one direction on every neutral colour there is. This is the
+    // value that makes the row sum zero, and `should give a grey no chroma`
+    // pins the property rather than the digits
+    0.0259040371 * l + 0.7827717662 * m - 0.8086758033 * s,
+  ];
 }
 
 /** One sRGB channel, 0-255, to linear light. */
 function linear(value: number): number {
-	const v = value / 255;
-	return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  const v = value / 255;
+  return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
 }
 
 /** Linear light back to one sRGB channel, 0-255, rounded and clamped. */
 function encode(value: number): number {
-	const v = value <= 0.0031308 ? value * 12.92 : 1.055 * value ** (1 / 2.4) - 0.055;
-	return Math.min(255, Math.max(0, Math.round(v * 255)));
+  const v = value <= 0.0031308 ? value * 12.92 : 1.055 * value ** (1 / 2.4) - 0.055;
+  return Math.min(255, Math.max(0, Math.round(v * 255)));
 }
 
 /**
@@ -153,19 +153,19 @@ function encode(value: number): number {
  * @returns The sRGB channels, 0-255.
  */
 export function rgbFromOklab(
-	lab: readonly [number, number, number]
+  lab: readonly [number, number, number]
 ): readonly [number, number, number] {
-	const [l, a, b] = lab;
+  const [l, a, b] = lab;
 
-	const lc = (l + 0.3963377774 * a + 0.2158037573 * b) ** 3;
-	const mc = (l - 0.1055613458 * a - 0.0638541728 * b) ** 3;
-	const sc = (l - 0.0894841775 * a - 1.291485548 * b) ** 3;
+  const lc = (l + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+  const mc = (l - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+  const sc = (l - 0.0894841775 * a - 1.291485548 * b) ** 3;
 
-	return [
-		encode(4.0767416621 * lc - 3.3077115913 * mc + 0.2309699292 * sc),
-		encode(-1.2684380046 * lc + 2.6097574011 * mc - 0.3413193965 * sc),
-		encode(-0.0041960863 * lc - 0.7034186147 * mc + 1.707614701 * sc),
-	];
+  return [
+    encode(4.0767416621 * lc - 3.3077115913 * mc + 0.2309699292 * sc),
+    encode(-1.2684380046 * lc + 2.6097574011 * mc - 0.3413193965 * sc),
+    encode(-0.0041960863 * lc - 0.7034186147 * mc + 1.707614701 * sc),
+  ];
 }
 
 /**
@@ -193,29 +193,29 @@ export function rgbFromOklab(
  * @returns The mix, or `undefined` if either endpoint has no channels of its own.
  */
 export function mixColors(from: Color, to: Color, t: number): Color | undefined {
-	if (from < RGB_BASE || to < RGB_BASE) {
-		return undefined;
-	}
-	if (from === to) {
-		return from;
-	}
+  if (from < RGB_BASE || to < RGB_BASE) {
+    return undefined;
+  }
+  if (from === to) {
+    return from;
+  }
 
-	const a = oklab(channels(from));
-	const b = oklab(channels(to));
-	const [r, g, bl] = rgbFromOklab([
-		a[0] + (b[0] - a[0]) * t,
-		a[1] + (b[1] - a[1]) * t,
-		a[2] + (b[2] - a[2]) * t,
-	]);
-	return rgb(r, g, bl);
+  const a = oklab(channels(from));
+  const b = oklab(channels(to));
+  const [r, g, bl] = rgbFromOklab([
+    a[0] + (b[0] - a[0]) * t,
+    a[1] + (b[1] - a[1]) * t,
+    a[2] + (b[2] - a[2]) * t,
+  ]);
+  return rgb(r, g, bl);
 }
 
 /** Squared Oklab distance. Squared because only the ordering is used. */
 function distance(
-	a: readonly [number, number, number],
-	b: readonly [number, number, number]
+  a: readonly [number, number, number],
+  b: readonly [number, number, number]
 ): number {
-	return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2;
+  return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2;
 }
 
 /** The palette indices degradation is allowed to land on, per level. */
@@ -223,12 +223,12 @@ const TARGETS_256: readonly number[] = range(16, 256);
 const TARGETS_16: readonly number[] = range(0, 16);
 
 function range(from: number, to: number): number[] {
-	return Array.from({ length: to - from }, (_, i) => from + i);
+  return Array.from({ length: to - from }, (_, i) => from + i);
 }
 
 /** Every target's Oklab, computed once. */
 const OKLAB_OF: readonly (readonly [number, number, number])[] = range(0, 256).map((index) =>
-	oklab(paletteRgb(index))
+  oklab(paletteRgb(index))
 );
 
 /**
@@ -239,19 +239,19 @@ const OKLAB_OF: readonly (readonly [number, number, number])[] = range(0, 256).m
  * @returns The nearest index.
  */
 function nearest(color: Color, targets: readonly number[]): number {
-	const wanted = oklab(channels(color));
-	let best = targets[0];
-	let bestDistance = Number.POSITIVE_INFINITY;
+  const wanted = oklab(channels(color));
+  let best = targets[0];
+  let bestDistance = Number.POSITIVE_INFINITY;
 
-	for (const index of targets) {
-		const here = distance(wanted, OKLAB_OF[index]);
-		if (here < bestDistance) {
-			bestDistance = here;
-			best = index;
-		}
-	}
+  for (const index of targets) {
+    const here = distance(wanted, OKLAB_OF[index]);
+    if (here < bestDistance) {
+      bestDistance = here;
+      best = index;
+    }
+  }
 
-	return best;
+  return best;
 }
 
 /** One memo per lossy level. Level 3 is identity and level 0 has one answer. */
@@ -282,39 +282,39 @@ const MEMO: Map<number, Color>[] = [new Map(), new Map(), new Map(), new Map()];
  * @returns A colour the destination can emit.
  */
 export function degradeColor(color: Color, level: ColorLevel): Color {
-	// the terminal's own foreground survives every level: it is not a colour we
-	// chose, it is the absence of one
-	if (color === DEFAULT_COLOR || level >= 3) {
-		return color;
-	}
-	if (level <= 0) {
-		return DEFAULT_COLOR;
-	}
+  // the terminal's own foreground survives every level: it is not a colour we
+  // chose, it is the absence of one
+  if (color === DEFAULT_COLOR || level >= 3) {
+    return color;
+  }
+  if (level <= 0) {
+    return DEFAULT_COLOR;
+  }
 
-	const memo = MEMO[level];
-	const cached = memo.get(color);
-	if (cached !== undefined) {
-		return cached;
-	}
+  const memo = MEMO[level];
+  const cached = memo.get(color);
+  if (cached !== undefined) {
+    return cached;
+  }
 
-	// a palette colour the level can already emit is left exactly as declared.
-	// At 256 that is every palette index, the basic sixteen included: AGENTS.md
-	// records that a named colour stays a palette index, because those sixteen are
-	// whatever the user's theme says they are -- so rewriting a declared `blue`
-	// into the cube's #0000ff would override a choice they already made. Only a
-	// colour the level *cannot* emit is matched, and only ever onto the fixed part
-	// of the palette
-	const answer =
-		level === 2
-			? color < RGB_BASE
-				? color
-				: palette(nearest(color, TARGETS_256))
-			: color < 16
-				? color
-				: palette(nearest(color, TARGETS_16));
+  // a palette colour the level can already emit is left exactly as declared.
+  // At 256 that is every palette index, the basic sixteen included: AGENTS.md
+  // records that a named colour stays a palette index, because those sixteen are
+  // whatever the user's theme says they are -- so rewriting a declared `blue`
+  // into the cube's #0000ff would override a choice they already made. Only a
+  // colour the level *cannot* emit is matched, and only ever onto the fixed part
+  // of the palette
+  const answer =
+    level === 2
+      ? color < RGB_BASE
+        ? color
+        : palette(nearest(color, TARGETS_256))
+      : color < 16
+        ? color
+        : palette(nearest(color, TARGETS_16));
 
-	memo.set(color, answer);
-	return answer;
+  memo.set(color, answer);
+  return answer;
 }
 
 /**
@@ -328,32 +328,32 @@ export function degradeColor(color: Color, level: ColorLevel): Color {
  * @returns The same style.
  */
 export function degradeInto(style: Style, level: ColorLevel): Style {
-	if (level >= 3) {
-		return style;
-	}
-	// the table says which properties hold a colour, so the cast is a statement
-	// about that rather than about any particular property
-	const writable = style as unknown as Record<string, Color>;
-	for (const property of COLOR_PROPERTIES) {
-		writable[property] = degradeColor(writable[property], level);
-	}
+  if (level >= 3) {
+    return style;
+  }
+  // the table says which properties hold a colour, so the cast is a statement
+  // about that rather than about any particular property
+  const writable = style as unknown as Record<string, Color>;
+  for (const property of COLOR_PROPERTIES) {
+    writable[property] = degradeColor(writable[property], level);
+  }
 
-	// level 0 is plain text, attributes included, which is what the styler has
-	// always meant by it: `ansi.bold()` at level 0 hands back the string it was
-	// given. The two ways a process arrives at level 0 are a pipe and `NO_COLOR`,
-	// and neither wants `ESC[1m` in the file it is writing -- so a bold heading
-	// and a cyan one go together rather than the library deciding that one of
-	// them was too important to turn off. It is also what makes a prompt asked
-	// for plain text plain: the caret is `inverse`, and a caret drawn at level 0
-	// would be the one sequence nothing could switch off
-	if (level === 0) {
-		const attrs = style as unknown as Record<string, boolean>;
-		for (const property of ATTRIBUTE_PROPERTIES) {
-			attrs[property] = false;
-		}
-	}
+  // level 0 is plain text, attributes included, which is what the styler has
+  // always meant by it: `ansi.bold()` at level 0 hands back the string it was
+  // given. The two ways a process arrives at level 0 are a pipe and `NO_COLOR`,
+  // and neither wants `ESC[1m` in the file it is writing -- so a bold heading
+  // and a cyan one go together rather than the library deciding that one of
+  // them was too important to turn off. It is also what makes a prompt asked
+  // for plain text plain: the caret is `inverse`, and a caret drawn at level 0
+  // would be the one sequence nothing could switch off
+  if (level === 0) {
+    const attrs = style as unknown as Record<string, boolean>;
+    for (const property of ATTRIBUTE_PROPERTIES) {
+      attrs[property] = false;
+    }
+  }
 
-	return style;
+  return style;
 }
 
 /**
@@ -372,5 +372,5 @@ export function degradeInto(style: Style, level: ColorLevel): Style {
  * @returns A new style with its colours degraded.
  */
 export function degradeStyle(style: Style, level: ColorLevel): Style {
-	return level >= 3 ? style : degradeInto({ ...style }, level);
+  return level >= 3 ? style : degradeInto({ ...style }, level);
 }

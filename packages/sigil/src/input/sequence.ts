@@ -43,19 +43,19 @@ export type SequenceHandler = (keys: readonly Key[]) => void;
  * the key, which is the other four fields.
  */
 export interface KeyPattern {
-	ctrl: boolean;
-	/** Alt, which the wire calls meta and this grammar spells `alt`. */
-	meta: boolean;
-	name: string;
-	shift: boolean;
+  ctrl: boolean;
+  /** Alt, which the wire calls meta and this grammar spells `alt`. */
+  meta: boolean;
+  name: string;
+  shift: boolean;
 }
 
 /** Raised by `parseKeys()` for a spec that cannot be a key. */
 export class KeySpecError extends Error {
-	constructor(message: string) {
-		super(message);
-		this.name = 'KeySpecError';
-	}
+  constructor(message: string) {
+    super(message);
+    this.name = 'KeySpecError';
+  }
 }
 
 /** Which of a pattern's three boolean fields a modifier word sets. */
@@ -78,11 +78,11 @@ type Modifier = 'ctrl' | 'meta' | 'shift';
  * covered by the other.
  */
 const MODIFIERS: Record<string, Modifier> = {
-	alt: 'meta',
-	ctrl: 'ctrl',
-	meta: 'meta',
-	option: 'meta',
-	shift: 'shift',
+  alt: 'meta',
+  ctrl: 'ctrl',
+  meta: 'meta',
+  option: 'meta',
+  shift: 'shift',
 };
 // set afterwards rather than written as a `__proto__` key in the literal, which
 // is the rule the template's own tables record: that key makes TypeScript type
@@ -101,9 +101,9 @@ const ORDER: readonly Modifier[] = ['ctrl', 'meta', 'shift'];
  * tuple, so there is no untrusted name for one to defend against.
  */
 const PRINTED: Record<Modifier, string> = {
-	ctrl: 'ctrl',
-	meta: 'alt',
-	shift: 'shift',
+  ctrl: 'ctrl',
+  meta: 'alt',
+  shift: 'shift',
 };
 
 /**
@@ -118,13 +118,13 @@ const PRINTED: Record<Modifier, string> = {
  * @returns The canonical spelling, modifiers first in a fixed order.
  */
 export function formatKey(key: Key | KeyPattern): string {
-	let out = '';
-	for (const flag of ORDER) {
-		if (key[flag]) {
-			out += `${PRINTED[flag]}+`;
-		}
-	}
-	return out + key.name;
+  let out = '';
+  for (const flag of ORDER) {
+    if (key[flag]) {
+      out += `${PRINTED[flag]}+`;
+    }
+  }
+  return out + key.name;
 }
 
 /**
@@ -134,7 +134,7 @@ export function formatKey(key: Key | KeyPattern): string {
  * @returns One space between each, which is the separator a spec uses.
  */
 export function formatKeys(keys: readonly (Key | KeyPattern)[]): string {
-	return keys.map((key) => formatKey(key)).join(' ');
+  return keys.map((key) => formatKey(key)).join(' ');
 }
 
 /**
@@ -147,85 +147,85 @@ export function formatKeys(keys: readonly (Key | KeyPattern)[]): string {
  * whatever is left after the known prefixes is the name, `+` and `-` included.
  */
 function parseKey(token: string): KeyPattern {
-	const pattern: KeyPattern = { ctrl: false, meta: false, name: '', shift: false };
-	const seen = new Set<Modifier>();
-	let rest = token;
+  const pattern: KeyPattern = { ctrl: false, meta: false, name: '', shift: false };
+  const seen = new Set<Modifier>();
+  let rest = token;
 
-	for (;;) {
-		const plus = rest.indexOf('+');
-		// and this really is about `-1` rather than about `plus < 1`: with no `+`
-		// left, `slice(0, -1)` would ask whether the token minus its last character
-		// is a modifier, and for `ctrlX` it is -- which strips nothing and loops for
-		// ever. A `+` at position zero needs no test of its own, because the lookup
-		// below answers for the empty string
-		if (plus === -1) {
-			break;
-		}
-		// a keyword, so it is read in any case -- the rule a property name and
-		// `inherit` already follow, where a class is matched case-sensitively
-		// because it is a name somebody chose
-		const flag = MODIFIERS[rest.slice(0, plus).toLowerCase()];
-		if (flag === undefined) {
-			break;
-		}
-		if (seen.has(flag)) {
-			// a repeat is a typo, and `alt+meta+a` is the same typo spelled twice.
-			// Stripping it silently is the reading that says nothing
-			throw new KeySpecError(`Repeated modifier in key spec: "${token}"`);
-		}
-		seen.add(flag);
-		pattern[flag] = true;
-		rest = rest.slice(plus + 1);
-	}
+  for (;;) {
+    const plus = rest.indexOf('+');
+    // and this really is about `-1` rather than about `plus < 1`: with no `+`
+    // left, `slice(0, -1)` would ask whether the token minus its last character
+    // is a modifier, and for `ctrlX` it is -- which strips nothing and loops for
+    // ever. A `+` at position zero needs no test of its own, because the lookup
+    // below answers for the empty string
+    if (plus === -1) {
+      break;
+    }
+    // a keyword, so it is read in any case -- the rule a property name and
+    // `inherit` already follow, where a class is matched case-sensitively
+    // because it is a name somebody chose
+    const flag = MODIFIERS[rest.slice(0, plus).toLowerCase()];
+    if (flag === undefined) {
+      break;
+    }
+    if (seen.has(flag)) {
+      // a repeat is a typo, and `alt+meta+a` is the same typo spelled twice.
+      // Stripping it silently is the reading that says nothing
+      throw new KeySpecError(`Repeated modifier in key spec: "${token}"`);
+    }
+    seen.add(flag);
+    pattern[flag] = true;
+    rest = rest.slice(plus + 1);
+  }
 
-	if (rest === '') {
-		throw new KeySpecError(`Missing key name in key spec: "${token}"`);
-	}
+  if (rest === '') {
+    throw new KeySpecError(`Missing key name in key spec: "${token}"`);
+  }
 
-	const lower = rest.toLowerCase();
-	if (KEY_NAMES.has(lower)) {
-		pattern.name = lower;
-	} else if ([...rest].length === 1) {
-		// by code point rather than by code unit, so an emoji is one character and
-		// not two halves of one -- the rule `readOne()` already keeps where it reads
-		// `codePointAt` rather than `input[start]`
-		pattern.name = rest;
-	} else {
-		throw new KeySpecError(
-			`Unknown key name "${rest}" in key spec: "${token}". A name of more than one character has to be one the decoder produces: ${[
-				...KEY_NAMES,
-			]
-				.sort()
-				.join(', ')}`
-		);
-	}
+  const lower = rest.toLowerCase();
+  if (KEY_NAMES.has(lower)) {
+    pattern.name = lower;
+  } else if ([...rest].length === 1) {
+    // by code point rather than by code unit, so an emoji is one character and
+    // not two halves of one -- the rule `readOne()` already keeps where it reads
+    // `codePointAt` rather than `input[start]`
+    pattern.name = rest;
+  } else {
+    throw new KeySpecError(
+      `Unknown key name "${rest}" in key spec: "${token}". A name of more than one character has to be one the decoder produces: ${[
+        ...KEY_NAMES,
+      ]
+        .sort()
+        .join(', ')}`
+    );
+  }
 
-	if (pattern.shift && [...pattern.name].length === 1) {
-		// the legacy encoding never reports shift for a plain character: Shift-A
-		// arrives as `A` with the flag clear, so `shift+a` is a binding that can
-		// never fire. Refused where it is written, which is what `initOption()`
-		// does with a `...` hint on an option
-		throw new KeySpecError(
-			`A terminal does not report shift with a character: write "${pattern.name.toUpperCase()}" rather than "${token}"`
-		);
-	}
+  if (pattern.shift && [...pattern.name].length === 1) {
+    // the legacy encoding never reports shift for a plain character: Shift-A
+    // arrives as `A` with the flag clear, so `shift+a` is a binding that can
+    // never fire. Refused where it is written, which is what `initOption()`
+    // does with a `...` hint on an option
+    throw new KeySpecError(
+      `A terminal does not report shift with a character: write "${pattern.name.toUpperCase()}" rather than "${token}"`
+    );
+  }
 
-	if (pattern.ctrl && [...pattern.name].length === 1) {
-		// and it cannot tell Ctrl-X from Ctrl-Shift-X either -- the byte is the same
-		// one and `readOne()` names it from `code + 0x60`, which is always lower
-		// case. So the two spellings are one key press and normalizing is what they
-		// mean rather than a rewrite of what was asked for
-		pattern.name = pattern.name.toLowerCase();
-	}
+  if (pattern.ctrl && [...pattern.name].length === 1) {
+    // and it cannot tell Ctrl-X from Ctrl-Shift-X either -- the byte is the same
+    // one and `readOne()` names it from `code + 0x60`, which is always lower
+    // case. So the two spellings are one key press and normalizing is what they
+    // mean rather than a rewrite of what was asked for
+    pattern.name = pattern.name.toLowerCase();
+  }
 
-	// and `unknown` -- what the decoder calls a sequence it has no key for -- needs
-	// no guard of its own, which was written and deleted again for being
-	// unreachable: it is produced inline rather than out of either table, so it is
-	// not in `KEY_NAMES`, and the check above refuses it as a name of more than one
-	// character. The property is asserted rather than the branch, so that a name
-	// added to a table is still refused if it ever becomes reachable
+  // and `unknown` -- what the decoder calls a sequence it has no key for -- needs
+  // no guard of its own, which was written and deleted again for being
+  // unreachable: it is produced inline rather than out of either table, so it is
+  // not in `KEY_NAMES`, and the check above refuses it as a name of more than one
+  // character. The property is asserted rather than the branch, so that a name
+  // added to a table is still refused if it ever becomes reachable
 
-	return pattern;
+  return pattern;
 }
 
 /**
@@ -247,11 +247,11 @@ function parseKey(token: string): KeyPattern {
  * @returns One pattern per key, in order.
  */
 export function parseKeys(spec: string): KeyPattern[] {
-	const tokens = spec.split(/\s+/).filter((token) => token !== '');
-	if (tokens.length === 0) {
-		throw new KeySpecError('An empty key spec names no key');
-	}
-	return tokens.map((token) => parseKey(token));
+  const tokens = spec.split(/\s+/).filter((token) => token !== '');
+  if (tokens.length === 0) {
+    throw new KeySpecError('An empty key spec names no key');
+  }
+  return tokens.map((token) => parseKey(token));
 }
 
 /**
@@ -263,11 +263,11 @@ export function parseKeys(spec: string): KeyPattern[] {
  * has to wait to find out which.
  */
 export interface SequenceNode {
-	readonly children: Map<string, SequenceNode>;
-	readonly handlers: Set<SequenceHandler>;
-	readonly parent: SequenceNode | undefined;
-	/** The canonical spelling this node hangs off its parent by, for pruning. */
-	readonly spec: string;
+  readonly children: Map<string, SequenceNode>;
+  readonly handlers: Set<SequenceHandler>;
+  readonly parent: SequenceNode | undefined;
+  /** The canonical spelling this node hangs off its parent by, for pruning. */
+  readonly spec: string;
 }
 
 /**
@@ -276,7 +276,7 @@ export interface SequenceNode {
  * @returns The root, which is the node a sequence starts from.
  */
 export function createTrie(): SequenceNode {
-	return { children: new Map(), handlers: new Set(), parent: undefined, spec: '' };
+  return { children: new Map(), handlers: new Set(), parent: undefined, spec: '' };
 }
 
 /**
@@ -293,37 +293,37 @@ export function createTrie(): SequenceNode {
  * @returns Removes the binding.
  */
 export function addBinding(
-	root: SequenceNode,
-	patterns: readonly KeyPattern[],
-	handler: SequenceHandler
+  root: SequenceNode,
+  patterns: readonly KeyPattern[],
+  handler: SequenceHandler
 ): () => void {
-	let at = root;
-	for (const pattern of patterns) {
-		const spec = formatKey(pattern);
-		let next = at.children.get(spec);
-		if (!next) {
-			next = { children: new Map(), handlers: new Set(), parent: at, spec };
-			at.children.set(spec, next);
-		}
-		at = next;
-	}
+  let at = root;
+  for (const pattern of patterns) {
+    const spec = formatKey(pattern);
+    let next = at.children.get(spec);
+    if (!next) {
+      next = { children: new Map(), handlers: new Set(), parent: at, spec };
+      at.children.set(spec, next);
+    }
+    at = next;
+  }
 
-	const node = at;
-	node.handlers.add(handler);
+  const node = at;
+  node.handlers.add(handler);
 
-	let removed = false;
-	return () => {
-		if (removed) {
-			return;
-		}
-		removed = true;
-		node.handlers.delete(handler);
-		for (
-			let it: SequenceNode | undefined = node;
-			it?.parent && it.handlers.size === 0 && it.children.size === 0;
-			it = it.parent
-		) {
-			it.parent.children.delete(it.spec);
-		}
-	};
+  let removed = false;
+  return () => {
+    if (removed) {
+      return;
+    }
+    removed = true;
+    node.handlers.delete(handler);
+    for (
+      let it: SequenceNode | undefined = node;
+      it?.parent && it.handlers.size === 0 && it.children.size === 0;
+      it = it.parent
+    ) {
+      it.parent.children.delete(it.spec);
+    }
+  };
 }

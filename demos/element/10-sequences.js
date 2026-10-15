@@ -41,25 +41,25 @@ import { Cascade, parseStylesheet } from '@ttylabs/sigil/style';
 // output are terminals, because the keys arrive on one and the frame is drawn to
 // the other
 if (!process.stdin.isTTY || !process.stdout.isTTY) {
-	console.log('This demo reads keys and draws frames, so it needs a terminal on both sides.');
-	process.exit(0);
+  console.log('This demo reads keys and draws frames, so it needs a terminal on both sides.');
+  process.exit(0);
 }
 
 const sheet = parseStylesheet(`
-	.app { flex-direction: column; width: 52; border: round; border-color: gray; padding: 1 }
-	.title { font-weight: bold }
-	.hint { color: gray }
-	.log { color: cyan }
-	/* a gap rather than a trailing space in the label, because the wrapper trims
-	   one: a text of "pending: " measured and drew "pending:". And no backtick in
-	   this comment, which is the rule FRAMEWORK_CSS carries -- one inside a
-	   template literal ends the sheet, and what the parser then reports is a
-	   syntax error further down than the character that caused it */
-	.pending { flex-direction: row; padding-top: 1; column-gap: 1 }
-	.label { color: gray }
-	/* the pending keys, which is the whole of what an app renders about this */
-	.keys { color: yellow; font-weight: bold }
-	.waiting { color: gray; font-style: italic }
+  .app { flex-direction: column; width: 52; border: round; border-color: gray; padding: 1 }
+  .title { font-weight: bold }
+  .hint { color: gray }
+  .log { color: cyan }
+  /* a gap rather than a trailing space in the label, because the wrapper trims
+     one: a text of "pending: " measured and drew "pending:". And no backtick in
+     this comment, which is the rule FRAMEWORK_CSS carries -- one inside a
+     template literal ends the sheet, and what the parser then reports is a
+     syntax error further down than the character that caused it */
+  .pending { flex-direction: row; padding-top: 1; column-gap: 1 }
+  .label { color: gray }
+  /* the pending keys, which is the whole of what an app renders about this */
+  .keys { color: yellow; font-weight: bold }
+  .waiting { color: gray; font-style: italic }
 `);
 
 /** What the last binding to fire did, so that the screen says it happened. */
@@ -82,24 +82,24 @@ const pending = new State('');
 const waiting = new State(false);
 
 function App() {
-	const log = text('', { class: 'log' });
-	createEffect(() => log.setText(`last: ${last.get()}`));
+  const log = text('', { class: 'log' });
+  createEffect(() => log.setText(`last: ${last.get()}`));
 
-	const keys = text('', { class: 'keys' });
-	createEffect(() => keys.setText(pending.get() === '' ? '--' : pending.get()));
+  const keys = text('', { class: 'keys' });
+  createEffect(() => keys.setText(pending.get() === '' ? '--' : pending.get()));
 
-	const note = text('', { class: 'waiting' });
-	createEffect(() => note.setText(waiting.get() ? '(waiting on a deadline)' : ''));
+  const note = text('', { class: 'waiting' });
+  createEffect(() => note.setText(waiting.get() ? '(waiting on a deadline)' : ''));
 
-	return box(
-		{ class: 'app' },
-		text('Key sequences', { class: 'title' }),
-		text('g g, g, Space f, Space w w, Ctrl-X Ctrl-S', { class: 'hint' }),
-		text('Escape clears, Backspace pops one, Ctrl-C always quits', { class: 'hint' }),
-		log,
-		box({ class: 'pending' }, text('pending:', { class: 'label' }), keys, note),
-		text('q quits', { class: 'hint' })
-	);
+  return box(
+    { class: 'app' },
+    text('Key sequences', { class: 'title' }),
+    text('g g, g, Space f, Space w w, Ctrl-X Ctrl-S', { class: 'hint' }),
+    text('Escape clears, Backspace pops one, Ctrl-C always quits', { class: 'hint' }),
+    log,
+    box({ class: 'pending' }, text('pending:', { class: 'label' }), keys, note),
+    text('q quits', { class: 'hint' })
+  );
 }
 
 const view = render(App, { cascade: new Cascade([sheet]) });
@@ -109,13 +109,13 @@ const input = createInput({ root: view.root });
 // where quitting belongs and it is the whole Ctrl-C guarantee: no keystroke
 // whatsoever, pending sequence or not, can make this unreachable
 input.bind((event) => {
-	if (isAbort(event.key) || event.key.name === 'q') {
-		event.stop();
-		view.dispose();
-		input.stop();
-		console.log('one trie, one pending sequence, and Ctrl-C reachable throughout');
-		process.exit(0);
-	}
+  if (isAbort(event.key) || event.key.name === 'q') {
+    event.stop();
+    view.dispose();
+    input.stop();
+    console.log('one trie, one pending sequence, and Ctrl-C reachable throughout');
+    process.exit(0);
+  }
 });
 
 // `g` and `g g` are both bound, which is the only shape that waits
@@ -139,7 +139,7 @@ leader.bind('w w', (keys) => last.set(`${formatKeys(keys)} -- write`));
 // firing as well as every key -- which a redraw-on-keypress could not do, since
 // a sequence committing on a timeout is not a key
 createEffect(() => {
-	const keys = input.sequence.get();
-	pending.set(formatKeys(keys));
-	waiting.set(keys.length === 1 && keys[0]?.name === 'g');
+  const keys = input.sequence.get();
+  pending.set(formatKeys(keys));
+  waiting.set(keys.length === 1 && keys[0]?.name === 'g');
 });

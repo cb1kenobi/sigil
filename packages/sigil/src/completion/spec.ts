@@ -43,124 +43,124 @@ import { Internal, type InternalCommand, type InternalOption, type Schema } from
 
 /** Where the tree is, which is what a parse already produced. */
 export interface CompletionTarget {
-	/**
-	 * The command chain, innermost first, ending at the schema's root. Only the
-	 * root is read: a completion script describes the whole program rather than
-	 * wherever the invocation that asked for it happened to end up.
-	 */
-	contexts: InternalCommand[];
-	/** The schema, for the program's name. */
-	schema?: Schema;
+  /**
+   * The command chain, innermost first, ending at the schema's root. Only the
+   * root is read: a completion script describes the whole program rather than
+   * wherever the invocation that asked for it happened to end up.
+   */
+  contexts: InternalCommand[];
+  /** The schema, for the program's name. */
+  schema?: Schema;
 }
 
 /** One option, as a shell offers it. */
 export interface CompletionOption {
-	/** What it is for, on one line. */
-	readonly desc?: string;
-	/**
-	 * The dashed spellings argv reaches it by, long names before short ones.
-	 *
-	 * Spellings rather than the name, because that is what gets typed: an option
-	 * declared `'-p <n>'` is *named* `p` and answers to `-p` and not to `--p`.
-	 * A negated flag's positive spelling is in here too, since the registry
-	 * answers to both.
-	 */
-	readonly spellings: readonly string[];
-	/** Whether it consumes the next token, which is `!isFlag`. */
-	readonly takesValue: boolean;
-	/**
-	 * The values it accepts, when the declaration said: `choices` as written, or
-	 * the two words a `bool` or a `yesno` takes.
-	 *
-	 * Absent where there is nothing to offer, which is both "a value is anything
-	 * the type will coerce" and "the declaration named a list with nothing
-	 * typeable in it". One spelling, because every reader asks `?.length` and a
-	 * `[]` beside an `undefined` would be a distinction nothing observes.
-	 */
-	readonly values?: readonly string[];
+  /** What it is for, on one line. */
+  readonly desc?: string;
+  /**
+   * The dashed spellings argv reaches it by, long names before short ones.
+   *
+   * Spellings rather than the name, because that is what gets typed: an option
+   * declared `'-p <n>'` is *named* `p` and answers to `-p` and not to `--p`.
+   * A negated flag's positive spelling is in here too, since the registry
+   * answers to both.
+   */
+  readonly spellings: readonly string[];
+  /** Whether it consumes the next token, which is `!isFlag`. */
+  readonly takesValue: boolean;
+  /**
+   * The values it accepts, when the declaration said: `choices` as written, or
+   * the two words a `bool` or a `yesno` takes.
+   *
+   * Absent where there is nothing to offer, which is both "a value is anything
+   * the type will coerce" and "the declaration named a list with nothing
+   * typeable in it". One spelling, because every reader asks `?.length` and a
+   * `[]` beside an `undefined` would be a distinction nothing observes.
+   */
+  readonly values?: readonly string[];
 }
 
 /** One command, as a shell completes at it. */
 export interface CompletionCommand {
-	/**
-	 * Every value this command's positional arguments accept, in declaration
-	 * order and deduplicated.
-	 *
-	 * The union rather than one list per position, which is a deliberate
-	 * looseness: knowing *which* positional the cursor is at means counting the
-	 * non-option words after the command path and knowing which of them were
-	 * consumed as option values, and getting that wrong offers the wrong list.
-	 * The union over-offers for a command whose two arguments have different
-	 * choices and is right for every command with one, which is almost all of
-	 * them.
-	 */
-	readonly argValues: readonly string[];
-	/**
-	 * Every option reachable here: its own first, then each ancestor's outward.
-	 *
-	 * Options resolve across the whole context chain, so an ancestor's are
-	 * typable here and have to be offered. A nearer declaration of the same
-	 * spelling shadows an outer one, which is the order the registry lookup
-	 * already resolves in.
-	 */
-	readonly options: readonly CompletionOption[];
-	/**
-	 * The argv path from the root, empty for the root itself.
-	 *
-	 * Every emitter keys its arms on this joined by a space, which is the same
-	 * spelling `PaletteEntry.label` already uses -- and which a command whose own
-	 * *name* holds a space makes ambiguous: a root `my cmd` and a `cmd` under a
-	 * `my` join to the one key. A name like that comes only from a file called
-	 * `my cmd.js` and is already something a user has to quote to type at all, so
-	 * it is written down rather than worked around; there is no separator a route
-	 * name cannot contain.
-	 */
-	readonly path: readonly string[];
-	/** The direct subcommands, by the name argv reaches each one by. */
-	readonly subcommands: readonly CompletionSubcommand[];
+  /**
+   * Every value this command's positional arguments accept, in declaration
+   * order and deduplicated.
+   *
+   * The union rather than one list per position, which is a deliberate
+   * looseness: knowing *which* positional the cursor is at means counting the
+   * non-option words after the command path and knowing which of them were
+   * consumed as option values, and getting that wrong offers the wrong list.
+   * The union over-offers for a command whose two arguments have different
+   * choices and is right for every command with one, which is almost all of
+   * them.
+   */
+  readonly argValues: readonly string[];
+  /**
+   * Every option reachable here: its own first, then each ancestor's outward.
+   *
+   * Options resolve across the whole context chain, so an ancestor's are
+   * typable here and have to be offered. A nearer declaration of the same
+   * spelling shadows an outer one, which is the order the registry lookup
+   * already resolves in.
+   */
+  readonly options: readonly CompletionOption[];
+  /**
+   * The argv path from the root, empty for the root itself.
+   *
+   * Every emitter keys its arms on this joined by a space, which is the same
+   * spelling `PaletteEntry.label` already uses -- and which a command whose own
+   * *name* holds a space makes ambiguous: a root `my cmd` and a `cmd` under a
+   * `my` join to the one key. A name like that comes only from a file called
+   * `my cmd.js` and is already something a user has to quote to type at all, so
+   * it is written down rather than worked around; there is no separator a route
+   * name cannot contain.
+   */
+  readonly path: readonly string[];
+  /** The direct subcommands, by the name argv reaches each one by. */
+  readonly subcommands: readonly CompletionSubcommand[];
 }
 
 /** One subcommand, as a shell offers it. */
 export interface CompletionSubcommand {
-	/** What it is for, on one line. */
-	readonly desc?: string;
-	/**
-	 * The token that reaches it, which is the name its *registry* is keyed by
-	 * rather than whatever its module calls itself.
-	 *
-	 * The two part company for a `{ path }` or `{ load }` whose module declares
-	 * a different `name`: only the placeholder's name routes, so offering the
-	 * module's would be offering a token the parser refuses. That is
-	 * `matchedName()`'s lesson in the catalog, met from the other side -- here
-	 * the loaded command is read for its description and its options and never
-	 * for its name.
-	 */
-	readonly name: string;
-	/**
-	 * Every token that reaches it, the name first, then the aliases it answers
-	 * to -- asked of the registry rather than read off the command.
-	 *
-	 * An alias is a token the parser accepts, so it belongs in a list of what
-	 * can be typed: a `remove` aliased `rm` is unreachable by prefix, and
-	 * `mycli rm <TAB>` has to resolve to `remove`'s subtree or the rest of the
-	 * line completes against the wrong command. That is where this differs from
-	 * `PaletteEntry`, which keeps its aliases out of the label on purpose -- a
-	 * palette lists one row per *command*, and a completion menu lists *tokens*.
-	 *
-	 * Asked of the registry, because `find()` is what decides which command a
-	 * token reaches: an alias a sibling's name shadows resolves to the sibling,
-	 * so offering it here would offer a token that goes somewhere else. Nothing
-	 * refuses such a schema, so the only exact answer is the registry's own.
-	 */
-	readonly tokens: readonly string[];
+  /** What it is for, on one line. */
+  readonly desc?: string;
+  /**
+   * The token that reaches it, which is the name its *registry* is keyed by
+   * rather than whatever its module calls itself.
+   *
+   * The two part company for a `{ path }` or `{ load }` whose module declares
+   * a different `name`: only the placeholder's name routes, so offering the
+   * module's would be offering a token the parser refuses. That is
+   * `matchedName()`'s lesson in the catalog, met from the other side -- here
+   * the loaded command is read for its description and its options and never
+   * for its name.
+   */
+  readonly name: string;
+  /**
+   * Every token that reaches it, the name first, then the aliases it answers
+   * to -- asked of the registry rather than read off the command.
+   *
+   * An alias is a token the parser accepts, so it belongs in a list of what
+   * can be typed: a `remove` aliased `rm` is unreachable by prefix, and
+   * `mycli rm <TAB>` has to resolve to `remove`'s subtree or the rest of the
+   * line completes against the wrong command. That is where this differs from
+   * `PaletteEntry`, which keeps its aliases out of the label on purpose -- a
+   * palette lists one row per *command*, and a completion menu lists *tokens*.
+   *
+   * Asked of the registry, because `find()` is what decides which command a
+   * token reaches: an alias a sibling's name shadows resolves to the sibling,
+   * so offering it here would offer a token that goes somewhere else. Nothing
+   * refuses such a schema, so the only exact answer is the registry's own.
+   */
+  readonly tokens: readonly string[];
 }
 
 /** Everything a script needs. */
 export interface CompletionSpec {
-	/** Every command, the root first, parents before children. */
-	readonly commands: readonly CompletionCommand[];
-	/** The executable the script registers itself for. */
-	readonly program: string;
+  /** Every command, the root first, parents before children. */
+  readonly commands: readonly CompletionCommand[];
+  /** The executable the script registers itself for. */
+  readonly program: string;
 }
 
 /** Every control character, named rather than enumerated. */
@@ -194,12 +194,12 @@ const HAS_CONTROL = /\p{Cc}/u;
  * @returns One line, or nothing when there is nothing left to say.
  */
 export function oneLine(text: unknown): string | undefined {
-	if (typeof text !== 'string') {
-		return undefined;
-	}
+  if (typeof text !== 'string') {
+    return undefined;
+  }
 
-	const flat = text.replaceAll(/\s+/gu, ' ').replaceAll(CONTROL, '').trim();
-	return flat || undefined;
+  const flat = text.replaceAll(/\s+/gu, ' ').replaceAll(CONTROL, '').trim();
+  return flat || undefined;
 }
 
 /**
@@ -220,23 +220,23 @@ export function oneLine(text: unknown): string | undefined {
  * @returns The values, or nothing where a value is anything the type will take.
  */
 function valuesFor(type: string, choices: unknown): readonly string[] | undefined {
-	// a declared list is the whole answer, and the `return` is the load-bearing
-	// half: an empty `choices` is a list the parser refuses *every* value
-	// against, so falling through to the type's own two words would offer tokens
-	// the parse then rejects -- which is the divergence this whole file is
-	// written against. What an unusable list comes to is `undefined` rather than
-	// `[]`, which changes no answer and is one spelling for one meaning
-	if (Array.isArray(choices)) {
-		const values = dedupe(choices.map((choice) => tokenFor(choice, type)).filter(typeable));
-		return values.length > 0 ? values : undefined;
-	}
+  // a declared list is the whole answer, and the `return` is the load-bearing
+  // half: an empty `choices` is a list the parser refuses *every* value
+  // against, so falling through to the type's own two words would offer tokens
+  // the parse then rejects -- which is the divergence this whole file is
+  // written against. What an unusable list comes to is `undefined` rather than
+  // `[]`, which changes no answer and is one spelling for one meaning
+  if (Array.isArray(choices)) {
+    const values = dedupe(choices.map((choice) => tokenFor(choice, type)).filter(typeable));
+    return values.length > 0 ? values : undefined;
+  }
 
-	if (type === 'bool') {
-		return ['true', 'false'];
-	}
-	if (type === 'yesno') {
-		return ['yes', 'no'];
-	}
+  if (type === 'bool') {
+    return ['true', 'false'];
+  }
+  if (type === 'yesno') {
+    return ['yes', 'no'];
+  }
 }
 
 /**
@@ -258,7 +258,7 @@ function valuesFor(type: string, choices: unknown): readonly string[] | undefine
  * @returns Whether to offer it.
  */
 function typeable(value: string): boolean {
-	return value !== '' && !HAS_CONTROL.test(value);
+  return value !== '' && !HAS_CONTROL.test(value);
 }
 
 /**
@@ -278,10 +278,10 @@ function typeable(value: string): boolean {
  * @returns The token.
  */
 function tokenFor(choice: unknown, type: string): string {
-	if (typeof choice === 'boolean' && type === 'yesno') {
-		return choice ? 'yes' : 'no';
-	}
-	return String(choice);
+  if (typeof choice === 'boolean' && type === 'yesno') {
+    return choice ? 'yes' : 'no';
+  }
+  return String(choice);
 }
 
 /**
@@ -291,7 +291,7 @@ function tokenFor(choice: unknown, type: string): string {
  * @returns The values, deduplicated in order.
  */
 function dedupe(values: readonly string[]): string[] {
-	return [...new Set(values)];
+  return [...new Set(values)];
 }
 
 /**
@@ -306,8 +306,8 @@ function dedupe(values: readonly string[]): string[] {
  * @returns Its spellings.
  */
 function spellingsOf(opt: InternalOption): string[] {
-	const { long, short } = opt[Internal];
-	return dedupe([...long, ...short]);
+  const { long, short } = opt[Internal];
+  return dedupe([...long, ...short]);
 }
 
 /**
@@ -329,40 +329,40 @@ function spellingsOf(opt: InternalOption): string[] {
  * @returns The options, innermost first.
  */
 function optionsOf(chain: readonly InternalCommand[]): CompletionOption[] {
-	const options: CompletionOption[] = [];
-	const taken = new Set<string>();
+  const options: CompletionOption[] = [];
+  const taken = new Set<string>();
 
-	for (const cmd of chain) {
-		for (const opt of cmd[Internal].options.values()) {
-			if (opt.hidden) {
-				continue;
-			}
+  for (const cmd of chain) {
+    for (const opt of cmd[Internal].options.values()) {
+      if (opt.hidden) {
+        continue;
+      }
 
-			const spellings = spellingsOf(opt).filter(
-				(spelling) => typeable(spelling) && !taken.has(spelling)
-			);
-			if (spellings.length === 0) {
-				continue;
-			}
-			for (const spelling of spellings) {
-				taken.add(spelling);
-			}
+      const spellings = spellingsOf(opt).filter(
+        (spelling) => typeable(spelling) && !taken.has(spelling)
+      );
+      if (spellings.length === 0) {
+        continue;
+      }
+      for (const spelling of spellings) {
+        taken.add(spelling);
+      }
 
-			const takesValue = !opt[Internal].isFlag;
+      const takesValue = !opt[Internal].isFlag;
 
-			options.push({
-				desc: oneLine(opt.desc),
-				spellings,
-				takesValue,
-				// only where a value is taken: a flag's `choices` would be a list
-				// nothing can be typed into, since `initOption()` makes an option
-				// with `choices` take a value in the first place
-				...(takesValue ? { values: valuesFor(opt.type, opt.choices) } : {}),
-			});
-		}
-	}
+      options.push({
+        desc: oneLine(opt.desc),
+        spellings,
+        takesValue,
+        // only where a value is taken: a flag's `choices` would be a list
+        // nothing can be typed into, since `initOption()` makes an option
+        // with `choices` take a value in the first place
+        ...(takesValue ? { values: valuesFor(opt.type, opt.choices) } : {}),
+      });
+    }
+  }
 
-	return options;
+  return options;
 }
 
 /**
@@ -380,11 +380,11 @@ function optionsOf(chain: readonly InternalCommand[]): CompletionOption[] {
  * @returns The tokens, the name first and the aliases sorted after it.
  */
 function tokensFor(parent: InternalCommand, child: InternalCommand): string[] {
-	const registry = parent[Internal].commands;
+  const registry = parent[Internal].commands;
 
-	return [child.name, ...[...child[Internal].aliases].sort()].filter(
-		(token) => typeable(token) && registry.find(token) === child
-	);
+  return [child.name, ...[...child[Internal].aliases].sort()].filter(
+    (token) => typeable(token) && registry.find(token) === child
+  );
 }
 
 /**
@@ -406,13 +406,13 @@ function tokensFor(parent: InternalCommand, child: InternalCommand): string[] {
  * @returns The values, deduplicated, the command's own first.
  */
 function argValuesOf(cmd: InternalCommand, fallback?: InternalCommand): string[] {
-	const values: string[] = [];
+  const values: string[] = [];
 
-	for (const arg of [...cmd[Internal].args, ...(fallback?.[Internal].args ?? [])]) {
-		values.push(...(valuesFor(arg.type, arg.choices) ?? []));
-	}
+  for (const arg of [...cmd[Internal].args, ...(fallback?.[Internal].args ?? [])]) {
+    values.push(...(valuesFor(arg.type, arg.choices) ?? []));
+  }
 
-	return dedupe(values);
+  return dedupe(values);
 }
 
 /**
@@ -429,151 +429,151 @@ function argValuesOf(cmd: InternalCommand, fallback?: InternalCommand): string[]
  *   for something; or whatever loading a command module threw.
  */
 export async function completionSpec(target: CompletionTarget): Promise<CompletionSpec> {
-	const contexts = target?.contexts;
+  const contexts = target?.contexts;
 
-	if (!Array.isArray(contexts) || contexts.length === 0) {
-		throw new TypeError('Expected a context chain to build a completion spec from');
-	}
+  if (!Array.isArray(contexts) || contexts.length === 0) {
+    throw new TypeError('Expected a context chain to build a completion spec from');
+  }
 
-	const root = contexts[contexts.length - 1] as InternalCommand;
-	const program = oneLine(target.schema?.name);
+  const root = contexts[contexts.length - 1] as InternalCommand;
+  const program = oneLine(target.schema?.name);
 
-	// a script has to say which command it completes for, and it says so in
-	// three places -- `complete -F`, `compdef`, and zsh's `#compdef` first line,
-	// which is a *comment* that compinit reads and so cannot be quoted at all.
-	// `oneLine()` has already flattened any newline out of the name, which is
-	// what stops a second line being written into that comment; refusing the
-	// whitespace that is left is what makes the line safe by construction rather
-	// than by escaping.
-	//
-	// And a leading dash, because quoting does not help there either: quote
-	// removal happens before a builtin reads its words, so
-	// `complete -o default -F _x '-D'` is `complete: -D: invalid option` and the
-	// name is never registered -- measured. There is no `--` to put in front of
-	// it that `compdef` and `#compdef` would both take, and a command whose name
-	// begins with a dash is one no shell can invoke plainly anyway
-	if (!program || /\s/u.test(program) || program.startsWith('-')) {
-		throw new Error(
-			`Cannot generate a completion script: ${
-				program
-					? `"${program}" is not a name a shell can register for`
-					: 'this app declares no name'
-			}, and a script has to name the command it completes for. Set "name" on the schema to what a user types, which is one word and does not begin with a dash.`
-		);
-	}
+  // a script has to say which command it completes for, and it says so in
+  // three places -- `complete -F`, `compdef`, and zsh's `#compdef` first line,
+  // which is a *comment* that compinit reads and so cannot be quoted at all.
+  // `oneLine()` has already flattened any newline out of the name, which is
+  // what stops a second line being written into that comment; refusing the
+  // whitespace that is left is what makes the line safe by construction rather
+  // than by escaping.
+  //
+  // And a leading dash, because quoting does not help there either: quote
+  // removal happens before a builtin reads its words, so
+  // `complete -o default -F _x '-D'` is `complete: -D: invalid option` and the
+  // name is never registered -- measured. There is no `--` to put in front of
+  // it that `compdef` and `#compdef` would both take, and a command whose name
+  // begins with a dash is one no shell can invoke plainly anyway
+  if (!program || /\s/u.test(program) || program.startsWith('-')) {
+    throw new Error(
+      `Cannot generate a completion script: ${
+        program
+          ? `"${program}" is not a name a shell can register for`
+          : 'this app declares no name'
+      }, and a script has to name the command it completes for. Set "name" on the schema to what a user types, which is one word and does not begin with a dash.`
+    );
+  }
 
-	const commands: CompletionCommand[] = [];
+  const commands: CompletionCommand[] = [];
 
-	/**
-	 * The registry entries already walked.
-	 *
-	 * It bounds a cycle, which is reachable for the reason the catalog records:
-	 * a registry holds initialized commands and `initCommand()` hands one
-	 * straight back, so a declaration naming a command already in its own
-	 * subtree is a cycle rather than a copy. Keyed on the *placeholder*, which
-	 * is the object the registry holds -- the command a load produces is a
-	 * different object, so it would never be seen twice.
-	 */
-	const seen = new Set<InternalCommand>();
+  /**
+   * The registry entries already walked.
+   *
+   * It bounds a cycle, which is reachable for the reason the catalog records:
+   * a registry holds initialized commands and `initCommand()` hands one
+   * straight back, so a declaration naming a command already in its own
+   * subtree is a cycle rather than a copy. Keyed on the *placeholder*, which
+   * is the object the registry holds -- the command a load produces is a
+   * different object, so it would never be seen twice.
+   */
+  const seen = new Set<InternalCommand>();
 
-	/**
-	 * Reads one command, then its subcommands.
-	 *
-	 * @param cmd - The command, already loaded.
-	 * @param path - The argv path that reaches it, from the root.
-	 * @param above - Its ancestors, innermost first, so the option list is the
-	 *   one the parser would resolve against here.
-	 */
-	async function walk(
-		cmd: InternalCommand,
-		path: string[],
-		above: InternalCommand[]
-	): Promise<void> {
-		const chain = [cmd, ...above];
-		const subcommands: CompletionSubcommand[] = [];
-		const registry = cmd[Internal].commands;
+  /**
+   * Reads one command, then its subcommands.
+   *
+   * @param cmd - The command, already loaded.
+   * @param path - The argv path that reaches it, from the root.
+   * @param above - Its ancestors, innermost first, so the option list is the
+   *   one the parser would resolve against here.
+   */
+  async function walk(
+    cmd: InternalCommand,
+    path: string[],
+    above: InternalCommand[]
+  ): Promise<void> {
+    const chain = [cmd, ...above];
+    const subcommands: CompletionSubcommand[] = [];
+    const registry = cmd[Internal].commands;
 
-		/**
-		 * The default subcommand, once loaded, because its own options and
-		 * arguments are typable *here*.
-		 *
-		 * The loaded one rather than the registry's, which holds the placeholder
-		 * and so knows neither. A **hidden** default contributes nothing, which is
-		 * `hidden` taken at its word: it says do not list this command, and a
-		 * completion menu is a listing -- including of the values it would take.
-		 */
-		let fallback: InternalCommand | undefined;
+    /**
+     * The default subcommand, once loaded, because its own options and
+     * arguments are typable *here*.
+     *
+     * The loaded one rather than the registry's, which holds the placeholder
+     * and so knows neither. A **hidden** default contributes nothing, which is
+     * `hidden` taken at its word: it says do not list this command, and a
+     * completion menu is a listing -- including of the values it would take.
+     */
+    let fallback: InternalCommand | undefined;
 
-		const children = [...registry.values()].sort((a, b) => a.name.localeCompare(b.name));
+    const children = [...registry.values()].sort((a, b) => a.name.localeCompare(b.name));
 
-		for (const child of children) {
-			if (seen.has(child)) {
-				continue;
-			}
-			seen.add(child);
+    for (const child of children) {
+      if (seen.has(child)) {
+        continue;
+      }
+      seen.add(child);
 
-			// asked before the import as well as after it, and the two are not the
-			// same question. Before: a `!` name prefix or a lifted `hidden` is on
-			// the placeholder, so there is no reason to read a module whose command
-			// is not going to be offered. After: `hidden` is additive and a module
-			// may hide itself, which only an import can say -- so a routed command
-			// that hides itself in its own module is offered by the catalog, which
-			// never loads, and is not offered here
-			if (child.hidden) {
-				continue;
-			}
+      // asked before the import as well as after it, and the two are not the
+      // same question. Before: a `!` name prefix or a lifted `hidden` is on
+      // the placeholder, so there is no reason to read a module whose command
+      // is not going to be offered. After: `hidden` is additive and a module
+      // may hide itself, which only an import can say -- so a routed command
+      // that hides itself in its own module is offered by the catalog, which
+      // never loads, and is not offered here
+      if (child.hidden) {
+        continue;
+      }
 
-			// a name no shell can offer is a command completion cannot reach, which
-			// is two shapes rather than one. A control character in it is the
-			// `typeable()` rule met on a *name* -- `_describe` is line-oriented, so
-			// a newline in one breaks the element it is in, and an escape in one
-			// reaches the screen on every tab. And **no token at all** is the
-			// sharper of the two: `tokensFor()` drops a spelling a sibling answers
-			// to, so a command whose own name a sibling's alias shadows has nothing
-			// left -- and an empty pattern list is a `case` arm reading `) ... ;;`,
-			// which is a *syntax error* in the whole generated script rather than
-			// one command missing from it. Found by review
-			const tokens = tokensFor(cmd, child);
+      // a name no shell can offer is a command completion cannot reach, which
+      // is two shapes rather than one. A control character in it is the
+      // `typeable()` rule met on a *name* -- `_describe` is line-oriented, so
+      // a newline in one breaks the element it is in, and an escape in one
+      // reaches the screen on every tab. And **no token at all** is the
+      // sharper of the two: `tokensFor()` drops a spelling a sibling answers
+      // to, so a command whose own name a sibling's alias shadows has nothing
+      // left -- and an empty pattern list is a `case` arm reading `) ... ;;`,
+      // which is a *syntax error* in the whole generated script rather than
+      // one command missing from it. Found by review
+      const tokens = tokensFor(cmd, child);
 
-			if (tokens.length === 0) {
-				continue;
-			}
+      if (tokens.length === 0) {
+        continue;
+      }
 
-			const loaded = await loadCommand(child, cmd);
+      const loaded = await loadCommand(child, cmd);
 
-			if (loaded.hidden) {
-				continue;
-			}
+      if (loaded.hidden) {
+        continue;
+      }
 
-			if (registry.default === child) {
-				fallback = loaded;
-			}
+      if (registry.default === child) {
+        fallback = loaded;
+      }
 
-			subcommands.push({ desc: oneLine(loaded.desc), name: child.name, tokens });
-			await walk(loaded, [...path, child.name], chain);
-		}
+      subcommands.push({ desc: oneLine(loaded.desc), name: child.name, tokens });
+      await walk(loaded, [...path, child.name], chain);
+    }
 
-		commands.push({
-			argValues: argValuesOf(cmd, fallback),
-			// the default's options **last**, which is the measured order rather
-			// than the chain's: at a parent with a default subcommand the *parent's*
-			// declaration of a spelling is the one that resolves -- `sh --mode slow`
-			// takes the root's choices and `sh serve --mode fast` takes serve's,
-			// over the same two declarations -- so the default is the last resort
-			// here and the nearest once its name has been typed
-			options: optionsOf(fallback ? [...chain, fallback] : chain),
-			path,
-			subcommands,
-		});
-	}
+    commands.push({
+      argValues: argValuesOf(cmd, fallback),
+      // the default's options **last**, which is the measured order rather
+      // than the chain's: at a parent with a default subcommand the *parent's*
+      // declaration of a spelling is the one that resolves -- `sh --mode slow`
+      // takes the root's choices and `sh serve --mode fast` takes serve's,
+      // over the same two declarations -- so the default is the last resort
+      // here and the nearest once its name has been typed
+      options: optionsOf(fallback ? [...chain, fallback] : chain),
+      path,
+      subcommands,
+    });
+  }
 
-	await walk(root, [], []);
+  await walk(root, [], []);
 
-	// parents before children, which is the order a reader of the script expects
-	// and is not what the walk produces -- it pushes on the way back up
-	commands.sort(
-		(a, b) => a.path.length - b.path.length || a.path.join(' ').localeCompare(b.path.join(' '))
-	);
+  // parents before children, which is the order a reader of the script expects
+  // and is not what the walk produces -- it pushes on the way back up
+  commands.sort(
+    (a, b) => a.path.length - b.path.length || a.path.join(' ').localeCompare(b.path.join(' '))
+  );
 
-	return { commands, program };
+  return { commands, program };
 }

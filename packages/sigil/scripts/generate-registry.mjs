@@ -62,52 +62,52 @@ const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
  * is a refactor of the runtime rather than a decision about a registry.
  */
 const ENTRIES = [
-	{
-		desc: 'An animated spinner that settles into a success or failure line',
-		name: 'spinner',
-	},
-	{
-		desc: 'A progress bar that falls back to a percentage where there is no terminal',
-		name: 'progress',
-	},
-	{
-		desc: 'A table with measured column widths, alignment and truncation',
-		name: 'table',
-	},
-	{
-		desc: 'Banner text: a FIGlet renderer and the .flf format',
-		name: 'large-text',
-	},
-	{
-		desc: 'The six prompts: text, multiline, password, confirm, select and multiselect',
-		name: 'prompt',
-	},
-	{
-		desc: 'A scrolling viewport with a scrollbar, keyboard, wheel and a draggable thumb',
-		name: 'scroll-box',
-	},
-	{
-		desc: 'A typewriter that reveals text a grapheme, word or line at a time',
-		name: 'typewriter',
-	},
-	{
-		desc: 'A decrypt effect: text that jumbles and then resolves into itself',
-		name: 'decrypt',
-	},
-	{
-		desc: 'A debug overlay: captured console output and frame stats, inside the app',
-		name: 'debug-overlay',
-	},
-	{
-		desc: 'A QR code, encoded here and drawn in half blocks or in full cells',
-		name: 'qrcode',
-	},
+  {
+    desc: 'An animated spinner that settles into a success or failure line',
+    name: 'spinner',
+  },
+  {
+    desc: 'A progress bar that falls back to a percentage where there is no terminal',
+    name: 'progress',
+  },
+  {
+    desc: 'A table with measured column widths, alignment and truncation',
+    name: 'table',
+  },
+  {
+    desc: 'Banner text: a FIGlet renderer and the .flf format',
+    name: 'large-text',
+  },
+  {
+    desc: 'The six prompts: text, multiline, password, confirm, select and multiselect',
+    name: 'prompt',
+  },
+  {
+    desc: 'A scrolling viewport with a scrollbar, keyboard, wheel and a draggable thumb',
+    name: 'scroll-box',
+  },
+  {
+    desc: 'A typewriter that reveals text a grapheme, word or line at a time',
+    name: 'typewriter',
+  },
+  {
+    desc: 'A decrypt effect: text that jumbles and then resolves into itself',
+    name: 'decrypt',
+  },
+  {
+    desc: 'A debug overlay: captured console output and frame stats, inside the app',
+    name: 'debug-overlay',
+  },
+  {
+    desc: 'A QR code, encoded here and drawn in half blocks or in full cells',
+    name: 'qrcode',
+  },
 ];
 
 /** `./src/element/index.ts` -> `element`, read off the build's own entry list. */
 const subpaths = new Map();
 for (const [name, source] of Object.entries(entryMap())) {
-	subpaths.set(source.replace(/^\.\//, ''), name);
+  subpaths.set(source.replace(/^\.\//, ''), name);
 }
 
 /**
@@ -120,19 +120,19 @@ for (const [name, source] of Object.entries(entryMap())) {
  * @returns The entry name for each source path.
  */
 function entryMap() {
-	const source = readFileSync(join(root, 'tsdown.config.ts'), 'utf-8');
-	const block = source.slice(source.indexOf('entry: {'), source.indexOf('format:'));
-	const found = {};
+  const source = readFileSync(join(root, 'tsdown.config.ts'), 'utf-8');
+  const block = source.slice(source.indexOf('entry: {'), source.indexOf('format:'));
+  const found = {};
 
-	for (const [, name, path] of block.matchAll(/([\w'-]+):\s*'([^']+)'/g)) {
-		found[name.replaceAll("'", '')] = path;
-	}
+  for (const [, name, path] of block.matchAll(/([\w'-]+):\s*'([^']+)'/g)) {
+    found[name.replaceAll("'", '')] = path;
+  }
 
-	if (Object.keys(found).length === 0) {
-		throw new Error('Read no entries out of tsdown.config.ts');
-	}
+  if (Object.keys(found).length === 0) {
+    throw new Error('Read no entries out of tsdown.config.ts');
+  }
 
-	return found;
+  return found;
 }
 
 /**
@@ -142,36 +142,36 @@ function entryMap() {
  * @returns The published specifier, or `undefined` if it is already one.
  */
 function rewrite(spec) {
-	if (!spec.startsWith('.')) {
-		return undefined;
-	}
+  if (!spec.startsWith('.')) {
+    return undefined;
+  }
 
-	// a sibling: `./mount.js` is `src/components/mount.ts`, and what it exports
-	// is reached through the components subpath
-	if (spec.startsWith('./')) {
-		return `${manifest.name}/components`;
-	}
+  // a sibling: `./mount.js` is `src/components/mount.ts`, and what it exports
+  // is reached through the components subpath
+  if (spec.startsWith('./')) {
+    return `${manifest.name}/components`;
+  }
 
-	// `../element/index.js` -> `src/element/index.ts`
-	const source = `src/${spec.replace(/^\.\.\//, '').replace(/\.js$/, '.ts')}`;
-	const subpath = subpaths.get(source);
+  // `../element/index.js` -> `src/element/index.ts`
+  const source = `src/${spec.replace(/^\.\.\//, '').replace(/\.js$/, '.ts')}`;
+  const subpath = subpaths.get(source);
 
-	if (!subpath) {
-		throw new Error(
-			`"${spec}" resolves to ${source}, which no published subpath answers for. ` +
-				`A registry component may only import what the package exports.`
-		);
-	}
+  if (!subpath) {
+    throw new Error(
+      `"${spec}" resolves to ${source}, which no published subpath answers for. ` +
+        `A registry component may only import what the package exports.`
+    );
+  }
 
-	return subpath === 'index' ? manifest.name : `${manifest.name}/${subpath}`;
+  return subpath === 'index' ? manifest.name : `${manifest.name}/${subpath}`;
 }
 
 /** Every `from '...'` in a source file, rewritten. */
 function rewriteImports(source) {
-	return source.replaceAll(/(\bfrom\s*)'([^']+)'/g, (whole, from, spec) => {
-		const to = rewrite(spec);
-		return to === undefined ? whole : `${from}'${to}'`;
-	});
+  return source.replaceAll(/(\bfrom\s*)'([^']+)'/g, (whole, from, spec) => {
+    const to = rewrite(spec);
+    return to === undefined ? whole : `${from}'${to}'`;
+  });
 }
 
 rmSync(out, { force: true, recursive: true });
@@ -180,36 +180,36 @@ mkdirSync(out, { recursive: true });
 const entries = {};
 
 for (const { desc, name } of ENTRIES) {
-	const file = `${name}.ts`;
-	const source = rewriteImports(readFileSync(join(root, 'src', 'components', file), 'utf-8'));
+  const file = `${name}.ts`;
+  const source = rewriteImports(readFileSync(join(root, 'src', 'components', file), 'utf-8'));
 
-	// the check that the rewrite is total. A relative specifier left behind is a
-	// file that will not resolve once it is in somebody's app, and it would fail
-	// for them rather than here
-	const leftover = [...source.matchAll(/\bfrom\s*'(\.[^']*)'/g)].map(([, spec]) => spec);
-	if (leftover.length > 0) {
-		throw new Error(`${file} still imports ${leftover.join(', ')} relatively`);
-	}
+  // the check that the rewrite is total. A relative specifier left behind is a
+  // file that will not resolve once it is in somebody's app, and it would fail
+  // for them rather than here
+  const leftover = [...source.matchAll(/\bfrom\s*'(\.[^']*)'/g)].map(([, spec]) => spec);
+  if (leftover.length > 0) {
+    throw new Error(`${file} still imports ${leftover.join(', ')} relatively`);
+  }
 
-	writeFileSync(join(out, file), source);
+  writeFileSync(join(out, file), source);
 
-	entries[name] = {
-		classes: [...new Set(source.match(/sigil-[a-z-]+/g) ?? [])].sort(),
-		desc,
-		files: [{ from: file, to: file }],
-		imports: [...new Set([...source.matchAll(/\bfrom\s*'(@[^']+)'/g)].map(([, s]) => s))].sort(),
-		// nothing in the seed registry needs another entry: every import a
-		// built-in makes is answered by a published subpath, so there is no file
-		// to drag along. The field is here because a third-party registry will
-		// have them, and a shape that only describes the easy case is one that
-		// gets discovered to be wrong by somebody else
-		registryDeps: [],
-	};
+  entries[name] = {
+    classes: [...new Set(source.match(/sigil-[a-z-]+/g) ?? [])].sort(),
+    desc,
+    files: [{ from: file, to: file }],
+    imports: [...new Set([...source.matchAll(/\bfrom\s*'(@[^']+)'/g)].map(([, s]) => s))].sort(),
+    // nothing in the seed registry needs another entry: every import a
+    // built-in makes is answered by a published subpath, so there is no file
+    // to drag along. The field is here because a third-party registry will
+    // have them, and a shape that only describes the easy case is one that
+    // gets discovered to be wrong by somebody else
+    registryDeps: [],
+  };
 }
 
 writeFileSync(
-	join(out, 'registry.json'),
-	`${JSON.stringify({ entries, name: manifest.name, version: manifest.version }, undefined, 2)}\n`
+  join(out, 'registry.json'),
+  `${JSON.stringify({ entries, name: manifest.name, version: manifest.version }, undefined, 2)}\n`
 );
 
 process.stdout.write(`Wrote ${ENTRIES.length} registry entries to ${out}\n`);

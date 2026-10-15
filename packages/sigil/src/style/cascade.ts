@@ -18,23 +18,23 @@ import { readSettings, resolveKeyword } from './declaration.js';
 import { degradeInto } from './degrade.js';
 import { inheritFrom, initialStyle, type PropertyName, type Style } from './properties.js';
 import {
-	compareSpecificity,
-	keysFor,
-	matches,
-	type Selector,
-	type Specificity,
-	type StyleNode,
+  compareSpecificity,
+  keysFor,
+  matches,
+  type Selector,
+  type Specificity,
+  type StyleNode,
 } from './selector.js';
 import {
-	DEFAULT_MEDIA,
-	type Keyframes,
-	LAYERS,
-	matchesMedia,
-	type MediaContext,
-	ORIGINS,
-	type Origin,
-	type Rule,
-	type Stylesheet,
+  DEFAULT_MEDIA,
+  type Keyframes,
+  LAYERS,
+  matchesMedia,
+  type MediaContext,
+  ORIGINS,
+  type Origin,
+  type Rule,
+  type Stylesheet,
 } from './stylesheet.js';
 
 /**
@@ -59,39 +59,39 @@ export type PropValues = Record<string, boolean | number | string | undefined>;
  * how that survives the fast path.
  */
 export interface CascadeResult {
-	/**
-	 * The colour depth this was resolved at.
-	 *
-	 * Carried on the result rather than passed to `applyProps()` separately: a
-	 * prop can name a colour, so the fast path has to degrade too, and a `level`
-	 * argument defaulting to truecolor is a fast path that silently disagrees
-	 * with `resolve()` on exactly the terminals degradation exists for.
-	 */
-	readonly colorLevel: ColorLevel;
-	readonly locked: ReadonlySet<PropertyName>;
-	readonly style: Style;
+  /**
+   * The colour depth this was resolved at.
+   *
+   * Carried on the result rather than passed to `applyProps()` separately: a
+   * prop can name a colour, so the fast path has to degrade too, and a `level`
+   * argument defaulting to truecolor is a fast path that silently disagrees
+   * with `resolve()` on exactly the terminals degradation exists for.
+   */
+  readonly colorLevel: ColorLevel;
+  readonly locked: ReadonlySet<PropertyName>;
+  readonly style: Style;
 }
 
 export interface ResolveOptions {
-	/** The parent element's resolved style, for inheritance. */
-	readonly parent?: Style;
-	readonly props?: PropValues;
+  /** The parent element's resolved style, for inheritance. */
+  readonly parent?: Style;
+  readonly props?: PropValues;
 }
 
 /** A rule that matched, with the specificity of the selector that did it. */
 export interface Matched {
-	readonly order: number;
-	readonly origin: Origin;
-	readonly rule: Rule;
-	readonly specificity: Specificity;
+  readonly order: number;
+  readonly origin: Origin;
+  readonly rule: Rule;
+  readonly specificity: Specificity;
 }
 
 /** One rule filed under one of its selectors' buckets. */
 interface Candidate {
-	readonly order: number;
-	readonly origin: Origin;
-	readonly rule: Rule;
-	readonly selector: Selector;
+  readonly order: number;
+  readonly origin: Origin;
+  readonly rule: Rule;
+  readonly selector: Selector;
 }
 
 /**
@@ -108,11 +108,11 @@ interface Candidate {
  * Specificity and source order are never inverted, which is also CSS.
  */
 interface Precedence {
-	readonly band: number;
-	readonly layer: number;
-	readonly order: number;
-	readonly origin: number;
-	readonly specificity: Specificity;
+  readonly band: number;
+  readonly layer: number;
+  readonly order: number;
+  readonly origin: number;
+  readonly specificity: Specificity;
 }
 
 /** Normal declarations from a sheet: the bottom band. */
@@ -128,13 +128,13 @@ const NORMAL = 0;
 const IMPORTANT = 2;
 
 function compare(a: Precedence, b: Precedence): number {
-	return (
-		a.band - b.band ||
-		a.origin - b.origin ||
-		a.layer - b.layer ||
-		compareSpecificity(a.specificity, b.specificity) ||
-		a.order - b.order
-	);
+  return (
+    a.band - b.band ||
+    a.origin - b.origin ||
+    a.layer - b.layer ||
+    compareSpecificity(a.specificity, b.specificity) ||
+    a.order - b.order
+  );
 }
 
 /**
@@ -147,220 +147,220 @@ function compare(a: Precedence, b: Precedence): number {
  * hundred of each. Naive may simply be the permanent answer.
  */
 export class Cascade {
-	/** What the media queries are asked about. A renderer sets it on resize. */
-	media: MediaContext;
+  /** What the media queries are asked about. A renderer sets it on resize. */
+  media: MediaContext;
 
-	#buckets: Map<string, Candidate[]> | undefined;
-	#keyframes: Map<string, Keyframes> | undefined;
-	readonly #sheets: Stylesheet[] = [];
+  #buckets: Map<string, Candidate[]> | undefined;
+  #keyframes: Map<string, Keyframes> | undefined;
+  readonly #sheets: Stylesheet[] = [];
 
-	constructor(sheets: Iterable<Stylesheet> = [], media: MediaContext = DEFAULT_MEDIA) {
-		this.media = media;
-		for (const sheet of sheets) {
-			this.add(sheet);
-		}
-	}
+  constructor(sheets: Iterable<Stylesheet> = [], media: MediaContext = DEFAULT_MEDIA) {
+    this.media = media;
+    for (const sheet of sheets) {
+      this.add(sheet);
+    }
+  }
 
-	get sheets(): readonly Stylesheet[] {
-		return this.#sheets;
-	}
+  get sheets(): readonly Stylesheet[] {
+    return this.#sheets;
+  }
 
-	/**
-	 * Adds a stylesheet. Sheets are in source order, so a sheet added later
-	 * breaks ties against one added earlier -- within one origin and layer.
-	 *
-	 * @param sheet - The sheet.
-	 * @returns This cascade, for chaining.
-	 */
-	add(sheet: Stylesheet): this {
-		this.#sheets.push(sheet);
-		this.#buckets = undefined;
-		this.#keyframes = undefined;
-		return this;
-	}
+  /**
+   * Adds a stylesheet. Sheets are in source order, so a sheet added later
+   * breaks ties against one added earlier -- within one origin and layer.
+   *
+   * @param sheet - The sheet.
+   * @returns This cascade, for chaining.
+   */
+  add(sheet: Stylesheet): this {
+    this.#sheets.push(sheet);
+    this.#buckets = undefined;
+    this.#keyframes = undefined;
+    return this;
+  }
 
-	/**
-	 * The animation a name refers to, or `undefined` if nothing declares one.
-	 *
-	 * Resolved by origin and then by the order sheets were added, with the last
-	 * one winning -- which is the cascade's own ordering with the two axes it has
-	 * nothing to say about left out. Layers do not apply: a `@keyframes` is not a
-	 * declaration and has no property for a layer to break a tie over, so
-	 * `@layer utilities { @keyframes spin { ... } }` is the same animation as one
-	 * written outside. Specificity has nothing to apply to either, since a name
-	 * is matched rather than selected.
-	 *
-	 * Built on the first ask and thrown away when a sheet is added, the way the
-	 * bucket index is -- a theme swapped at runtime is a sheet added, and a
-	 * keyframes map kept across that would answer for a sheet nobody has.
-	 *
-	 * @param name - What `animation-name` said.
-	 * @returns The stops, or `undefined`.
-	 */
-	keyframes(name: string): Keyframes | undefined {
-		if (!this.#keyframes) {
-			const found = new Map<string, Keyframes>();
-			// origin first, then the order they were added, so that the last writer
-			// in cascade order is the one still in the map
-			for (const origin of ORIGINS) {
-				for (const sheet of this.#sheets) {
-					if (sheet.origin !== origin) {
-						continue;
-					}
-					for (const [key, frames] of sheet.keyframes) {
-						found.set(key, frames);
-					}
-				}
-			}
-			this.#keyframes = found;
-		}
-		return this.#keyframes.get(name);
-	}
+  /**
+   * The animation a name refers to, or `undefined` if nothing declares one.
+   *
+   * Resolved by origin and then by the order sheets were added, with the last
+   * one winning -- which is the cascade's own ordering with the two axes it has
+   * nothing to say about left out. Layers do not apply: a `@keyframes` is not a
+   * declaration and has no property for a layer to break a tie over, so
+   * `@layer utilities { @keyframes spin { ... } }` is the same animation as one
+   * written outside. Specificity has nothing to apply to either, since a name
+   * is matched rather than selected.
+   *
+   * Built on the first ask and thrown away when a sheet is added, the way the
+   * bucket index is -- a theme swapped at runtime is a sheet added, and a
+   * keyframes map kept across that would answer for a sheet nobody has.
+   *
+   * @param name - What `animation-name` said.
+   * @returns The stops, or `undefined`.
+   */
+  keyframes(name: string): Keyframes | undefined {
+    if (!this.#keyframes) {
+      const found = new Map<string, Keyframes>();
+      // origin first, then the order they were added, so that the last writer
+      // in cascade order is the one still in the map
+      for (const origin of ORIGINS) {
+        for (const sheet of this.#sheets) {
+          if (sheet.origin !== origin) {
+            continue;
+          }
+          for (const [key, frames] of sheet.keyframes) {
+            found.set(key, frames);
+          }
+        }
+      }
+      this.#keyframes = found;
+    }
+    return this.#keyframes.get(name);
+  }
 
-	/**
-	 * Every rule that matches an element, once per rule however many of its
-	 * selectors matched.
-	 *
-	 * A rule's selector list behaves as though the rule were written once per
-	 * selector, so the specificity reported is the highest among the selectors
-	 * that actually matched.
-	 *
-	 * @param node - The element.
-	 * @returns The matched rules, in no particular order.
-	 */
-	match(node: StyleNode): Matched[] {
-		const best = new Map<number, Matched>();
+  /**
+   * Every rule that matches an element, once per rule however many of its
+   * selectors matched.
+   *
+   * A rule's selector list behaves as though the rule were written once per
+   * selector, so the specificity reported is the highest among the selectors
+   * that actually matched.
+   *
+   * @param node - The element.
+   * @returns The matched rules, in no particular order.
+   */
+  match(node: StyleNode): Matched[] {
+    const best = new Map<number, Matched>();
 
-		for (const key of keysFor(node)) {
-			for (const candidate of this.#index().get(key) ?? []) {
-				const found = best.get(candidate.order);
-				if (found && compareSpecificity(found.specificity, candidate.selector.specificity) >= 0) {
-					continue;
-				}
-				if (!matchesMedia(candidate.rule.media, this.media)) {
-					continue;
-				}
-				if (!matches(candidate.selector, node)) {
-					continue;
-				}
-				best.set(candidate.order, {
-					order: candidate.order,
-					origin: candidate.origin,
-					rule: candidate.rule,
-					specificity: candidate.selector.specificity,
-				});
-			}
-		}
+    for (const key of keysFor(node)) {
+      for (const candidate of this.#index().get(key) ?? []) {
+        const found = best.get(candidate.order);
+        if (found && compareSpecificity(found.specificity, candidate.selector.specificity) >= 0) {
+          continue;
+        }
+        if (!matchesMedia(candidate.rule.media, this.media)) {
+          continue;
+        }
+        if (!matches(candidate.selector, node)) {
+          continue;
+        }
+        best.set(candidate.order, {
+          order: candidate.order,
+          origin: candidate.origin,
+          rule: candidate.rule,
+          specificity: candidate.selector.specificity,
+        });
+      }
+    }
 
-		return [...best.values()];
-	}
+    return [...best.values()];
+  }
 
-	/**
-	 * Resolves an element's style from the stylesheets alone.
-	 *
-	 * @param node - The element.
-	 * @param parent - The parent's resolved style, for inheritance.
-	 * @returns The style, and the properties props may not overwrite.
-	 */
-	resolveSheets(node: StyleNode, parent?: Style): CascadeResult {
-		const style = (parent ? inheritFrom(parent) : initialStyle()) as Record<PropertyName, unknown>;
-		const winners = new Map<PropertyName, Precedence>();
-		const locked = new Set<PropertyName>();
+  /**
+   * Resolves an element's style from the stylesheets alone.
+   *
+   * @param node - The element.
+   * @param parent - The parent's resolved style, for inheritance.
+   * @returns The style, and the properties props may not overwrite.
+   */
+  resolveSheets(node: StyleNode, parent?: Style): CascadeResult {
+    const style = (parent ? inheritFrom(parent) : initialStyle()) as Record<PropertyName, unknown>;
+    const winners = new Map<PropertyName, Precedence>();
+    const locked = new Set<PropertyName>();
 
-		for (const matched of this.match(node)) {
-			const layer = LAYERS.indexOf(matched.rule.layer);
-			const origin = ORIGINS.indexOf(matched.origin);
+    for (const matched of this.match(node)) {
+      const layer = LAYERS.indexOf(matched.rule.layer);
+      const origin = ORIGINS.indexOf(matched.origin);
 
-			for (const declaration of matched.rule.declarations) {
-				const here: Precedence = declaration.important
-					? {
-							band: IMPORTANT,
-							// read backwards inside the important band
-							layer: LAYERS.length - 1 - layer,
-							order: matched.order,
-							origin: ORIGINS.length - 1 - origin,
-							specificity: matched.specificity,
-						}
-					: {
-							band: NORMAL,
-							layer,
-							order: matched.order,
-							origin,
-							specificity: matched.specificity,
-						};
+      for (const declaration of matched.rule.declarations) {
+        const here: Precedence = declaration.important
+          ? {
+              band: IMPORTANT,
+              // read backwards inside the important band
+              layer: LAYERS.length - 1 - layer,
+              order: matched.order,
+              origin: ORIGINS.length - 1 - origin,
+              specificity: matched.specificity,
+            }
+          : {
+              band: NORMAL,
+              layer,
+              order: matched.order,
+              origin,
+              specificity: matched.specificity,
+            };
 
-				const winner = winners.get(declaration.property);
-				if (winner && compare(here, winner) < 0) {
-					continue;
-				}
+        const winner = winners.get(declaration.property);
+        if (winner && compare(here, winner) < 0) {
+          continue;
+        }
 
-				winners.set(declaration.property, here);
-				style[declaration.property] = declaration.keyword
-					? resolveKeyword(declaration.keyword, declaration.property, parent)
-					: declaration.value;
-				if (declaration.important) {
-					// nothing outside the important band can take it back, so this only
-					// ever grows
-					locked.add(declaration.property);
-				}
-			}
-		}
+        winners.set(declaration.property, here);
+        style[declaration.property] = declaration.keyword
+          ? resolveKeyword(declaration.keyword, declaration.property, parent)
+          : declaration.value;
+        if (declaration.important) {
+          // nothing outside the important band can take it back, so this only
+          // ever grows
+          locked.add(declaration.property);
+        }
+      }
+    }
 
-		// the last pass over a resolved style, so nothing downstream ever holds a
-		// colour the terminal cannot emit and the diff never compares a colour
-		// against its own approximation
-		const level = this.media.colorLevel as ColorLevel;
-		return { colorLevel: level, locked, style: degradeInto(style as Style, level) };
-	}
+    // the last pass over a resolved style, so nothing downstream ever holds a
+    // colour the terminal cannot emit and the diff never compares a colour
+    // against its own approximation
+    const level = this.media.colorLevel as ColorLevel;
+    return { colorLevel: level, locked, style: degradeInto(style as Style, level) };
+  }
 
-	/**
-	 * Resolves an element's style: the sheets, then its props over the top.
-	 *
-	 * @param node - The element.
-	 * @param opts - The parent's style, and the element's props.
-	 * @returns The resolved style.
-	 */
-	resolve(node: StyleNode, opts: ResolveOptions = {}): Style {
-		const result = this.resolveSheets(node, opts.parent);
-		// written into in place: the result is freshly built and nothing else holds
-		// it, so there is nothing to protect by copying it first
-		return opts.props
-			? applyPropsInto(result, opts.props, opts.parent, result.style)
-			: result.style;
-	}
+  /**
+   * Resolves an element's style: the sheets, then its props over the top.
+   *
+   * @param node - The element.
+   * @param opts - The parent's style, and the element's props.
+   * @returns The resolved style.
+   */
+  resolve(node: StyleNode, opts: ResolveOptions = {}): Style {
+    const result = this.resolveSheets(node, opts.parent);
+    // written into in place: the result is freshly built and nothing else holds
+    // it, so there is nothing to protect by copying it first
+    return opts.props
+      ? applyPropsInto(result, opts.props, opts.parent, result.style)
+      : result.style;
+  }
 
-	/** Builds the bucket index, once per change to the sheet set. */
-	#index(): Map<string, Candidate[]> {
-		if (this.#buckets) {
-			return this.#buckets;
-		}
+  /** Builds the bucket index, once per change to the sheet set. */
+  #index(): Map<string, Candidate[]> {
+    if (this.#buckets) {
+      return this.#buckets;
+    }
 
-		const buckets = new Map<string, Candidate[]>();
-		let order = 0;
+    const buckets = new Map<string, Candidate[]>();
+    let order = 0;
 
-		for (const sheet of this.#sheets) {
-			for (const rule of sheet.rules) {
-				const at = order++;
-				for (const selector of rule.selectors) {
-					const bucket = buckets.get(selector.key);
-					const candidate: Candidate = {
-						order: at,
-						origin: sheet.origin,
-						rule,
-						selector,
-					};
-					if (bucket) {
-						bucket.push(candidate);
-					} else {
-						buckets.set(selector.key, [candidate]);
-					}
-				}
-			}
-		}
+    for (const sheet of this.#sheets) {
+      for (const rule of sheet.rules) {
+        const at = order++;
+        for (const selector of rule.selectors) {
+          const bucket = buckets.get(selector.key);
+          const candidate: Candidate = {
+            order: at,
+            origin: sheet.origin,
+            rule,
+            selector,
+          };
+          if (bucket) {
+            bucket.push(candidate);
+          } else {
+            buckets.set(selector.key, [candidate]);
+          }
+        }
+      }
+    }
 
-		this.#buckets = buckets;
-		return buckets;
-	}
+    this.#buckets = buckets;
+    return buckets;
+  }
 }
 
 /**
@@ -377,7 +377,7 @@ export class Cascade {
  * @returns The style, props applied.
  */
 export function applyProps(result: CascadeResult, props: PropValues, parent?: Style): Style {
-	return applyPropsInto(result, props, parent, { ...result.style });
+  return applyPropsInto(result, props, parent, { ...result.style });
 }
 
 /**
@@ -388,32 +388,32 @@ export function applyProps(result: CascadeResult, props: PropValues, parent?: St
  * that a kept result answers again.
  */
 function applyPropsInto(
-	result: CascadeResult,
-	props: PropValues,
-	parent: Style | undefined,
-	into: Style
+  result: CascadeResult,
+  props: PropValues,
+  parent: Style | undefined,
+  into: Style
 ): Style {
-	const { colorLevel: level, locked } = result;
-	const target = into;
-	const style = target as Record<PropertyName, unknown>;
+  const { colorLevel: level, locked } = result;
+  const target = into;
+  const style = target as Record<PropertyName, unknown>;
 
-	for (const [name, raw] of Object.entries(props)) {
-		if (raw === undefined) {
-			continue;
-		}
-		for (const setting of readSettings(name, String(raw))) {
-			// an `!important` declaration outranks every prop, which is what makes a
-			// component that bakes a value into its template themeable at all
-			if (locked.has(setting.property)) {
-				continue;
-			}
-			style[setting.property] = setting.keyword
-				? resolveKeyword(setting.keyword, setting.property, parent)
-				: setting.value;
-		}
-	}
+  for (const [name, raw] of Object.entries(props)) {
+    if (raw === undefined) {
+      continue;
+    }
+    for (const setting of readSettings(name, String(raw))) {
+      // an `!important` declaration outranks every prop, which is what makes a
+      // component that bakes a value into its template themeable at all
+      if (locked.has(setting.property)) {
+        continue;
+      }
+      style[setting.property] = setting.keyword
+        ? resolveKeyword(setting.keyword, setting.property, parent)
+        : setting.value;
+    }
+  }
 
-	// a prop can name a colour too, so the fast path degrades as well -- three
-	// memoized lookups, which is what keeps it a fast path
-	return degradeInto(style as Style, level);
+  // a prop can name a colour too, so the fast path degrades as well -- three
+  // memoized lookups, which is what keeps it a fast path
+  return degradeInto(style as Style, level);
 }

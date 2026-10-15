@@ -17,12 +17,12 @@
 
 import { displayPath } from '../build/index.ts';
 import {
-	type Language,
-	type Layout,
-	type Linter,
-	nameProblem,
-	scaffold,
-	type ScaffoldFile,
+  type Language,
+  type Layout,
+  type Linter,
+  nameProblem,
+  scaffold,
+  type ScaffoldFile,
 } from '../scaffold/index.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
 import { confirm, select, text } from '@ttylabs/sigil/components';
@@ -34,11 +34,11 @@ import { dirname, join, relative, resolve } from 'node:path';
 
 /** This toolchain's own manifest, for the versions it writes. */
 function toolchainManifest(): { devDependencies: Record<string, string>; version: string } {
-	const path = new URL('../../package.json', import.meta.url);
-	return JSON.parse(readFileSync(path, 'utf-8')) as {
-		devDependencies: Record<string, string>;
-		version: string;
-	};
+  const path = new URL('../../package.json', import.meta.url);
+  return JSON.parse(readFileSync(path, 'utf-8')) as {
+    devDependencies: Record<string, string>;
+    version: string;
+  };
 }
 
 /**
@@ -72,124 +72,124 @@ type Manager = (typeof MANAGERS)[number];
  * @returns The manager to use.
  */
 async function askManager(argv: Record<string, unknown>, yes: boolean): Promise<Manager> {
-	if (typeof argv.pm === 'string') {
-		return argv.pm as Manager;
-	}
+  if (typeof argv.pm === 'string') {
+    return argv.pm as Manager;
+  }
 
-	const found = await Promise.all(
-		MANAGERS.map(async (name) => ((await which(name)) ? name : null))
-	);
-	const installed = found.filter((name): name is Manager => name !== null);
+  const found = await Promise.all(
+    MANAGERS.map(async (name) => ((await which(name)) ? name : null))
+  );
+  const installed = found.filter((name): name is Manager => name !== null);
 
-	// npm ships with node, so nothing found means a PATH this cannot see rather
-	// than a machine with no package manager on it -- and naming the one that is
-	// always there beats refusing to finish a scaffold that is already written
-	if (installed.length === 0) {
-		return 'npm';
-	}
-	if (installed.length === 1) {
-		return installed[0] as Manager;
-	}
+  // npm ships with node, so nothing found means a PATH this cannot see rather
+  // than a machine with no package manager on it -- and naming the one that is
+  // always there beats refusing to finish a scaffold that is already written
+  if (installed.length === 0) {
+    return 'npm';
+  }
+  if (installed.length === 1) {
+    return installed[0] as Manager;
+  }
 
-	const preferred: Manager = installed.includes('pnpm') ? 'pnpm' : 'npm';
+  const preferred: Manager = installed.includes('pnpm') ? 'pnpm' : 'npm';
 
-	if (yes) {
-		return preferred;
-	}
+  if (yes) {
+    return preferred;
+  }
 
-	return (await select({
-		choices: installed.map((name) => ({ label: name, value: name })),
-		initial: installed.indexOf(preferred),
-		message: 'Which package manager would you like to use?',
-	})) as Manager;
+  return (await select({
+    choices: installed.map((name) => ({ label: name, value: name })),
+    initial: installed.indexOf(preferred),
+    message: 'Which package manager would you like to use?',
+  })) as Manager;
 }
 
 /** Whether a directory is absent or empty, which is the only place to scaffold. */
 function usable(dir: string): boolean {
-	if (!existsSync(dir)) {
-		return true;
-	}
-	try {
-		// a lone `.git` is fine: `git init` then `sigil new` is an ordinary order
-		// to do things in, and refusing it would be refusing the case
-		return readdirSync(dir).filter((name) => name !== '.git').length === 0;
-	} catch {
-		return false;
-	}
+  if (!existsSync(dir)) {
+    return true;
+  }
+  try {
+    // a lone `.git` is fine: `git init` then `sigil new` is an ordinary order
+    // to do things in, and refusing it would be refusing the case
+    return readdirSync(dir).filter((name) => name !== '.git').length === 0;
+  } catch {
+    return false;
+  }
 }
 
 const newApp: AnyCommand = command({
-	args: [
-		{
-			desc: 'The directory to create, which is also the app name',
-			name: '[project-name]',
-		},
-	],
-	desc: 'Create a new app',
-	options: {
-		'--cwd [dir]': {
-			desc: 'Where to create it, defaulting to the working directory',
-		},
-		'--js': { desc: 'Generate JavaScript files instead of TypeScript', type: 'bool' },
-		'--lint [linter]': {
-			choices: ['oxlint', 'eslint', 'biome', 'none'],
-			desc: 'Which linter to set up',
-		},
-		'--no-git': { desc: 'Do not run git init' },
-		'--pm [manager]': {
-			choices: [...MANAGERS],
-			desc: 'Which package manager to set the app up with',
-		},
-		'--no-install': { desc: 'Do not install dependencies' },
-		'--single': { desc: 'One command rather than a commands directory', type: 'bool' },
-		'-y, --yes': { desc: 'Take the defaults for anything not passed', type: 'bool' },
-	},
+  args: [
+    {
+      desc: 'The directory to create, which is also the app name',
+      name: '[project-name]',
+    },
+  ],
+  desc: 'Create a new app',
+  options: {
+    '--cwd [dir]': {
+      desc: 'Where to create it, defaulting to the working directory',
+    },
+    '--js': { desc: 'Generate JavaScript files instead of TypeScript', type: 'bool' },
+    '--lint [linter]': {
+      choices: ['oxlint', 'eslint', 'biome', 'none'],
+      desc: 'Which linter to set up',
+    },
+    '--no-git': { desc: 'Do not run git init' },
+    '--pm [manager]': {
+      choices: [...MANAGERS],
+      desc: 'Which package manager to set the app up with',
+    },
+    '--no-install': { desc: 'Do not install dependencies' },
+    '--single': { desc: 'One command rather than a commands directory', type: 'bool' },
+    '-y, --yes': { desc: 'Take the defaults for anything not passed', type: 'bool' },
+  },
 
-	async run({ argv }) {
-		const yes = Boolean(argv.yes);
+  async run({ argv }) {
+    const yes = Boolean(argv.yes);
 
-		const name = await askName(argv.projectName as string | undefined, yes);
-		const problem = nameProblem(name);
-		if (problem) {
-			throw new Error(`${problem}: "${name}"`);
-		}
+    const name = await askName(argv.projectName as string | undefined, yes);
+    const problem = nameProblem(name);
+    if (problem) {
+      throw new Error(`${problem}: "${name}"`);
+    }
 
-		const dir = join(parentDir(argv.cwd as string | undefined), name);
-		if (!usable(dir)) {
-			throw new Error(`${displayPath(dir)} already exists and is not empty`);
-		}
+    const dir = join(parentDir(argv.cwd as string | undefined), name);
+    if (!usable(dir)) {
+      throw new Error(`${displayPath(dir)} already exists and is not empty`);
+    }
 
-		const language = await askLanguage(argv, yes);
-		const layout = await askLayout(argv, yes);
-		const linter = await askLinter(argv, yes);
-		const pm = await askManager(argv, yes);
+    const language = await askLanguage(argv, yes);
+    const layout = await askLayout(argv, yes);
+    const linter = await askLinter(argv, yes);
+    const pm = await askManager(argv, yes);
 
-		const own = toolchainManifest();
-		const files = scaffold({
-			language,
-			layout,
-			linter,
-			name,
-			version: own.version,
-			versions: own.devDependencies,
-		});
+    const own = toolchainManifest();
+    const files = scaffold({
+      language,
+      layout,
+      linter,
+      name,
+      version: own.version,
+      versions: own.devDependencies,
+    });
 
-		write(dir, files);
+    write(dir, files);
 
-		if (argv.git !== false) {
-			run('git', ['init', '--quiet'], dir);
-		}
-		if (argv.install !== false) {
-			process.stdout.write(`\nInstalling with ${pm}...\n`);
-			run(pm, ['install'], dir);
-		}
+    if (argv.git !== false) {
+      run('git', ['init', '--quiet'], dir);
+    }
+    if (argv.install !== false) {
+      process.stdout.write(`\nInstalling with ${pm}...\n`);
+      run(pm, ['install'], dir);
+    }
 
-		process.stdout.write(
-			`\nCreated ${name} in ${displayPath(dir)}.\n\n  cd ${displayPath(relative(process.cwd(), dir) || '.')}\n` +
-				(argv.install === false ? `  ${pm} install\n` : '') +
-				`  ${pm} run dev -- --help\n`
-		);
-	},
+    process.stdout.write(
+      `\nCreated ${name} in ${displayPath(dir)}.\n\n  cd ${displayPath(relative(process.cwd(), dir) || '.')}\n` +
+        (argv.install === false ? `  ${pm} install\n` : '') +
+        `  ${pm} run dev -- --help\n`
+    );
+  },
 });
 
 /**
@@ -214,84 +214,84 @@ const newApp: AnyCommand = command({
  * @returns The absolute directory to create the project inside.
  */
 function parentDir(cwd: string | undefined): string {
-	return cwd === undefined ? process.cwd() : resolve(process.cwd(), expand(cwd));
+  return cwd === undefined ? process.cwd() : resolve(process.cwd(), expand(cwd));
 }
 
 /** Asks for the name, or takes the one that was given. */
 async function askName(given: string | undefined, yes: boolean): Promise<string> {
-	if (given !== undefined) {
-		return given;
-	}
-	if (yes) {
-		throw new Error(
-			'A project name is required. Pass it as an argument, or drop --yes to be asked.'
-		);
-	}
+  if (given !== undefined) {
+    return given;
+  }
+  if (yes) {
+    throw new Error(
+      'A project name is required. Pass it as an argument, or drop --yes to be asked.'
+    );
+  }
 
-	return (await text({ message: 'What is it called?', placeholder: 'my-cli' })).trim();
+  return (await text({ message: 'What is it called?', placeholder: 'my-cli' })).trim();
 }
 
 /** Asks whether it is TypeScript, defaulting to yes. */
 async function askLanguage(argv: Record<string, unknown>, yes: boolean): Promise<Language> {
-	if (argv.js) {
-		return 'js';
-	}
-	if (yes) {
-		return 'ts';
-	}
+  if (argv.js) {
+    return 'js';
+  }
+  if (yes) {
+    return 'ts';
+  }
 
-	return (await confirm({ message: 'Would you like to use TypeScript?' })) ? 'ts' : 'js';
+  return (await confirm({ message: 'Would you like to use TypeScript?' })) ? 'ts' : 'js';
 }
 
 /** Asks whether there are subcommands, defaulting to yes. */
 async function askLayout(argv: Record<string, unknown>, yes: boolean): Promise<Layout> {
-	if (argv.single) {
-		return 'single';
-	}
-	if (yes) {
-		return 'multi';
-	}
+  if (argv.single) {
+    return 'single';
+  }
+  if (yes) {
+    return 'multi';
+  }
 
-	return (await select({
-		choices: [
-			{
-				hint: 'a commands/ directory, one file each',
-				label: 'Yes, several commands',
-				value: 'multi',
-			},
-			{ hint: 'the app itself is the command', label: 'No, a single command', value: 'single' },
-		],
-		message: 'Will it have subcommands?',
-	})) as Layout;
+  return (await select({
+    choices: [
+      {
+        hint: 'a commands/ directory, one file each',
+        label: 'Yes, several commands',
+        value: 'multi',
+      },
+      { hint: 'the app itself is the command', label: 'No, a single command', value: 'single' },
+    ],
+    message: 'Will it have subcommands?',
+  })) as Layout;
 }
 
 /** Asks which linter, defaulting to oxlint. */
 async function askLinter(argv: Record<string, unknown>, yes: boolean): Promise<Linter> {
-	if (typeof argv.lint === 'string') {
-		return argv.lint as Linter;
-	}
-	if (yes) {
-		return 'oxlint';
-	}
+  if (typeof argv.lint === 'string') {
+    return argv.lint as Linter;
+  }
+  if (yes) {
+    return 'oxlint';
+  }
 
-	return (await select({
-		choices: [
-			{ hint: 'fast, near-zero config', label: 'oxlint', value: 'oxlint' },
-			{ label: 'eslint', value: 'eslint' },
-			{ label: 'biome', value: 'biome' },
-			{ label: 'none', value: 'none' },
-		],
-		message: 'Which linter would you like to use?',
-	})) as Linter;
+  return (await select({
+    choices: [
+      { hint: 'fast, near-zero config', label: 'oxlint', value: 'oxlint' },
+      { label: 'eslint', value: 'eslint' },
+      { label: 'biome', value: 'biome' },
+      { label: 'none', value: 'none' },
+    ],
+    message: 'Which linter would you like to use?',
+  })) as Linter;
 }
 
 /** Writes the files, making directories as it goes. */
 function write(dir: string, files: readonly ScaffoldFile[]): void {
-	for (const file of files) {
-		const path = join(dir, file.path);
-		mkdirSync(dirname(path), { recursive: true });
-		writeFileSync(path, file.contents, file.executable ? { mode: 0o755 } : undefined);
-	}
+  for (const file of files) {
+    const path = join(dir, file.path);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, file.contents, file.executable ? { mode: 0o755 } : undefined);
+  }
 }
 
 /**
@@ -306,18 +306,18 @@ function write(dir: string, files: readonly ScaffoldFile[]): void {
  * @param cwd - Where to run it.
  */
 function run(cmd: string, argv: string[], cwd: string): void {
-	const result = spawnSync(cmd, argv, {
-		cwd,
-		encoding: 'utf-8',
-		shell: process.platform === 'win32',
-		stdio: 'inherit',
-	});
+  const result = spawnSync(cmd, argv, {
+    cwd,
+    encoding: 'utf-8',
+    shell: process.platform === 'win32',
+    stdio: 'inherit',
+  });
 
-	if (result.status !== 0) {
-		process.stderr.write(
-			`\n${cmd} ${argv.join(' ')} did not succeed; run it yourself in the new app.\n`
-		);
-	}
+  if (result.status !== 0) {
+    process.stderr.write(
+      `\n${cmd} ${argv.join(' ')} did not succeed; run it yourself in the new app.\n`
+    );
+  }
 }
 
 export default newApp;

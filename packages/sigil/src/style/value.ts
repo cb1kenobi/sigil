@@ -18,10 +18,10 @@ import { type Color, DEFAULT_COLOR, palette, rgb } from '../canvas/style.js';
  * inexpressible.
  */
 export type Length =
-	| { readonly type: 'auto' }
-	| { readonly type: 'cells'; readonly value: number }
-	| { readonly type: 'none' }
-	| { readonly type: 'percent'; readonly value: number };
+  | { readonly type: 'auto' }
+  | { readonly type: 'cells'; readonly value: number }
+  | { readonly type: 'none' }
+  | { readonly type: 'percent'; readonly value: number };
 
 /**
  * Frozen, and so is everything `cells()` and `percent()` build.
@@ -47,7 +47,7 @@ export const NONE: Length = Object.freeze({ type: 'none' });
  * @returns The length.
  */
 export function cells(value: number): Length {
-	return Object.freeze({ type: 'cells', value: Math.trunc(value) });
+  return Object.freeze({ type: 'cells', value: Math.trunc(value) });
 }
 
 /**
@@ -57,7 +57,7 @@ export function cells(value: number): Length {
  * @returns The length.
  */
 export function percent(value: number): Length {
-	return Object.freeze({ type: 'percent', value });
+  return Object.freeze({ type: 'percent', value });
 }
 
 /**
@@ -72,7 +72,7 @@ export function percent(value: number): Length {
  * @returns Whether there is nothing there.
  */
 function blank(text: string): boolean {
-	return text.trim() === '';
+  return text.trim() === '';
 }
 
 /**
@@ -102,20 +102,20 @@ const NUMBER = /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?$/i;
  * @returns The number, or `undefined` if it is not one.
  */
 export function readNumber(text: string): number | undefined {
-	const trimmed = text.trim();
-	if (!NUMBER.test(trimmed)) {
-		return undefined;
-	}
-	const value = Number(trimmed);
-	if (!Number.isFinite(value)) {
-		return undefined;
-	}
-	if (Number.isInteger(value) && !Number.isSafeInteger(value)) {
-		return undefined;
-	}
-	// `-0` is a number nobody writes on purpose, and it compares unequal to `0`
-	// under `Object.is` -- which is what a deep-equality assertion uses
-	return value + 0;
+  const trimmed = text.trim();
+  if (!NUMBER.test(trimmed)) {
+    return undefined;
+  }
+  const value = Number(trimmed);
+  if (!Number.isFinite(value)) {
+    return undefined;
+  }
+  if (Number.isInteger(value) && !Number.isSafeInteger(value)) {
+    return undefined;
+  }
+  // `-0` is a number nobody writes on purpose, and it compares unequal to `0`
+  // under `Object.is` -- which is what a deep-equality assertion uses
+  return value + 0;
 }
 
 /**
@@ -138,22 +138,22 @@ const FALSE = /^(?:false|f|no|n|off|0|)$/i;
  * @returns The value.
  */
 export function parseBoolean(input: string, name: string): boolean {
-	const text = input.trim();
-	if (TRUE.test(text)) {
-		return true;
-	}
-	if (FALSE.test(text)) {
-		return false;
-	}
-	throw new StyleError(`Invalid ${name} "${input}": expected true or false`);
+  const text = input.trim();
+  if (TRUE.test(text)) {
+    return true;
+  }
+  if (FALSE.test(text)) {
+    return false;
+  }
+  throw new StyleError(`Invalid ${name} "${input}": expected true or false`);
 }
 
 /** Thrown when a declaration cannot be read. Carries what was wrong, for help. */
 export class StyleError extends Error {
-	constructor(message: string) {
-		super(message);
-		this.name = 'StyleError';
-	}
+  constructor(message: string) {
+    super(message);
+    this.name = 'StyleError';
+  }
 }
 
 /**
@@ -165,28 +165,28 @@ export class StyleError extends Error {
  * specific RGB would override a choice the user already made.
  */
 const NAMED: Record<string, number> = {
-	// null-prototype, for the reason AGENTS.md gives under Conventions: on a plain
-	// object `constructor` reads back truthy, so `parseColor('constructor')`
-	// reached `palette()` with the Object constructor
-	__proto__: null,
-	black: 0,
-	red: 1,
-	green: 2,
-	yellow: 3,
-	blue: 4,
-	magenta: 5,
-	cyan: 6,
-	white: 7,
-	gray: 8,
-	grey: 8,
-	brightblack: 8,
-	brightred: 9,
-	brightgreen: 10,
-	brightyellow: 11,
-	brightblue: 12,
-	brightmagenta: 13,
-	brightcyan: 14,
-	brightwhite: 15,
+  // null-prototype, for the reason AGENTS.md gives under Conventions: on a plain
+  // object `constructor` reads back truthy, so `parseColor('constructor')`
+  // reached `palette()` with the Object constructor
+  __proto__: null,
+  black: 0,
+  red: 1,
+  green: 2,
+  yellow: 3,
+  blue: 4,
+  magenta: 5,
+  cyan: 6,
+  white: 7,
+  gray: 8,
+  grey: 8,
+  brightblack: 8,
+  brightred: 9,
+  brightgreen: 10,
+  brightyellow: 11,
+  brightblue: 12,
+  brightmagenta: 13,
+  brightcyan: 14,
+  brightwhite: 15,
 } as unknown as Record<string, number>;
 
 const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
@@ -203,52 +203,52 @@ const PALETTE_FN = /^(?:ansi|palette)\(\s*(\d+)\s*\)$/i;
  * @returns The colour.
  */
 export function parseColor(input: string): Color {
-	const text = input.trim();
-	const lower = text.toLowerCase();
+  const text = input.trim();
+  const lower = text.toLowerCase();
 
-	if (lower === 'default' || lower === 'transparent' || lower === 'none') {
-		return DEFAULT_COLOR;
-	}
+  if (lower === 'default' || lower === 'transparent' || lower === 'none') {
+    return DEFAULT_COLOR;
+  }
 
-	if (Object.hasOwn(NAMED, lower)) {
-		return palette(NAMED[lower]);
-	}
+  if (Object.hasOwn(NAMED, lower)) {
+    return palette(NAMED[lower]);
+  }
 
-	if (HEX.test(text)) {
-		const hex = text.slice(1);
-		const full =
-			hex.length === 3
-				? hex
-						.split('')
-						.map((c) => c + c)
-						.join('')
-				: hex;
-		return rgb(
-			Number.parseInt(full.slice(0, 2), 16),
-			Number.parseInt(full.slice(2, 4), 16),
-			Number.parseInt(full.slice(4, 6), 16)
-		);
-	}
+  if (HEX.test(text)) {
+    const hex = text.slice(1);
+    const full =
+      hex.length === 3
+        ? hex
+            .split('')
+            .map((c) => c + c)
+            .join('')
+        : hex;
+    return rgb(
+      Number.parseInt(full.slice(0, 2), 16),
+      Number.parseInt(full.slice(2, 4), 16),
+      Number.parseInt(full.slice(4, 6), 16)
+    );
+  }
 
-	const fn = RGB_FN.exec(text);
-	if (fn) {
-		const parts = [fn[1], fn[2], fn[3]].map(Number);
-		if (parts.some((n) => n < 0 || n > 255)) {
-			throw new StyleError(`Colour channel out of range in "${text}": each must be 0-255`);
-		}
-		return rgb(parts[0], parts[1], parts[2]);
-	}
+  const fn = RGB_FN.exec(text);
+  if (fn) {
+    const parts = [fn[1], fn[2], fn[3]].map(Number);
+    if (parts.some((n) => n < 0 || n > 255)) {
+      throw new StyleError(`Colour channel out of range in "${text}": each must be 0-255`);
+    }
+    return rgb(parts[0], parts[1], parts[2]);
+  }
 
-	const indexed = PALETTE_FN.exec(text);
-	if (indexed) {
-		const index = Number(indexed[1]);
-		if (index > 255) {
-			throw new StyleError(`Palette index out of range in "${text}": must be 0-255`);
-		}
-		return palette(index);
-	}
+  const indexed = PALETTE_FN.exec(text);
+  if (indexed) {
+    const index = Number(indexed[1]);
+    if (index > 255) {
+      throw new StyleError(`Palette index out of range in "${text}": must be 0-255`);
+    }
+    return palette(index);
+  }
 
-	throw new StyleError(`Invalid colour "${text}"`);
+  throw new StyleError(`Invalid colour "${text}"`);
 }
 
 /**
@@ -261,45 +261,45 @@ export function parseColor(input: string): Color {
  * @returns The length.
  */
 export function parseLength(input: string, opts: { none?: boolean } = {}): Length {
-	const text = input.trim().toLowerCase();
+  const text = input.trim().toLowerCase();
 
-	if (text === 'auto') {
-		return AUTO;
-	}
+  if (text === 'auto') {
+    return AUTO;
+  }
 
-	// only where "no limit" is a thing to say. Accepting it everywhere made
-	// `width: none` and `margin: none` parse and then behave as `auto` or as zero,
-	// which is not CSS and is not anything the author meant
-	if (text === 'none' && opts.none) {
-		return NONE;
-	}
+  // only where "no limit" is a thing to say. Accepting it everywhere made
+  // `width: none` and `margin: none` parse and then behave as `auto` or as zero,
+  // which is not CSS and is not anything the author meant
+  if (text === 'none' && opts.none) {
+    return NONE;
+  }
 
-	if (text.endsWith('%')) {
-		// not trimmed: `50 %` is two tokens in CSS, not a percentage
-		const digits = text.slice(0, -1);
-		if (digits !== digits.trimEnd()) {
-			throw new StyleError(`Invalid percentage "${input}"`);
-		}
-		const share = blank(digits) ? undefined : readNumber(digits);
-		if (share === undefined) {
-			throw new StyleError(`Invalid percentage "${input}"`);
-		}
-		return percent(share);
-	}
+  if (text.endsWith('%')) {
+    // not trimmed: `50 %` is two tokens in CSS, not a percentage
+    const digits = text.slice(0, -1);
+    if (digits !== digits.trimEnd()) {
+      throw new StyleError(`Invalid percentage "${input}"`);
+    }
+    const share = blank(digits) ? undefined : readNumber(digits);
+    if (share === undefined) {
+      throw new StyleError(`Invalid percentage "${input}"`);
+    }
+    return percent(share);
+  }
 
-	const bare = text.endsWith('ch') ? text.slice(0, -2) : text;
-	const value = blank(bare) ? undefined : readNumber(bare);
-	if (value === undefined) {
-		throw new StyleError(`Invalid length "${input}"`);
-	}
-	if (!Number.isInteger(value)) {
-		// refused rather than rounded: a terminal cannot draw half a cell, and
-		// silently rounding is how a layout ends up a column out with nobody able
-		// to say which declaration did it
-		throw new StyleError(`Length "${input}" is not a whole number of cells`);
-	}
+  const bare = text.endsWith('ch') ? text.slice(0, -2) : text;
+  const value = blank(bare) ? undefined : readNumber(bare);
+  if (value === undefined) {
+    throw new StyleError(`Invalid length "${input}"`);
+  }
+  if (!Number.isInteger(value)) {
+    // refused rather than rounded: a terminal cannot draw half a cell, and
+    // silently rounding is how a layout ends up a column out with nobody able
+    // to say which declaration did it
+    throw new StyleError(`Length "${input}" is not a whole number of cells`);
+  }
 
-	return cells(value);
+  return cells(value);
 }
 
 /**
@@ -310,11 +310,11 @@ export function parseLength(input: string, opts: { none?: boolean } = {}): Lengt
  * @returns The number.
  */
 export function parseCount(input: string, name: string): number {
-	const value = blank(input) ? undefined : readNumber(input);
-	if (value === undefined || !Number.isInteger(value) || value < 0) {
-		throw new StyleError(`Invalid ${name} "${input}": expected a whole number of 0 or more`);
-	}
-	return value;
+  const value = blank(input) ? undefined : readNumber(input);
+  if (value === undefined || !Number.isInteger(value) || value < 0) {
+    throw new StyleError(`Invalid ${name} "${input}": expected a whole number of 0 or more`);
+  }
+  return value;
 }
 
 /**
@@ -327,11 +327,11 @@ export function parseCount(input: string, name: string): number {
  * @returns The number.
  */
 export function parseFactor(input: string, name: string): number {
-	const value = blank(input) ? undefined : readNumber(input);
-	if (value === undefined || value < 0) {
-		throw new StyleError(`Invalid ${name} "${input}": expected a number of 0 or more`);
-	}
-	return value;
+  const value = blank(input) ? undefined : readNumber(input);
+  if (value === undefined || value < 0) {
+    throw new StyleError(`Invalid ${name} "${input}": expected a number of 0 or more`);
+  }
+  return value;
 }
 
 /**
@@ -342,11 +342,11 @@ export function parseFactor(input: string, name: string): number {
  * @returns The number.
  */
 export function parseInteger(input: string, name: string): number {
-	const value = blank(input) ? undefined : readNumber(input);
-	if (value === undefined || !Number.isInteger(value)) {
-		throw new StyleError(`Invalid ${name} "${input}": expected a whole number`);
-	}
-	return value;
+  const value = blank(input) ? undefined : readNumber(input);
+  if (value === undefined || !Number.isInteger(value)) {
+    throw new StyleError(`Invalid ${name} "${input}": expected a whole number`);
+  }
+  return value;
 }
 
 /**
@@ -369,23 +369,23 @@ export function parseInteger(input: string, name: string): number {
  * @returns The time in milliseconds.
  */
 export function parseTime(input: string, name: string, opts: { negative?: boolean } = {}): number {
-	const text = input.trim().toLowerCase();
-	const bare = text.endsWith('ms')
-		? text.slice(0, -2)
-		: text.endsWith('s')
-			? text.slice(0, -1)
-			: text;
-	const scale = !text.endsWith('ms') && text.endsWith('s') ? 1000 : 1;
-	const value = blank(bare) ? undefined : readNumber(bare);
+  const text = input.trim().toLowerCase();
+  const bare = text.endsWith('ms')
+    ? text.slice(0, -2)
+    : text.endsWith('s')
+      ? text.slice(0, -1)
+      : text;
+  const scale = !text.endsWith('ms') && text.endsWith('s') ? 1000 : 1;
+  const value = blank(bare) ? undefined : readNumber(bare);
 
-	if (value === undefined) {
-		throw new StyleError(`Invalid ${name} "${input}": expected a time in ms or s`);
-	}
-	if (value < 0 && !opts.negative) {
-		throw new StyleError(`Invalid ${name} "${input}": a duration cannot be negative`);
-	}
+  if (value === undefined) {
+    throw new StyleError(`Invalid ${name} "${input}": expected a time in ms or s`);
+  }
+  if (value < 0 && !opts.negative) {
+    throw new StyleError(`Invalid ${name} "${input}": a duration cannot be negative`);
+  }
 
-	return value * scale;
+  return value * scale;
 }
 
 /**
@@ -400,15 +400,15 @@ export function parseTime(input: string, name: string, opts: { negative?: boolea
  * @returns The count, or `Infinity`.
  */
 export function parseIterations(input: string, name: string): number {
-	const text = input.trim().toLowerCase();
-	if (text === 'infinite') {
-		return Number.POSITIVE_INFINITY;
-	}
-	const value = blank(text) ? undefined : readNumber(text);
-	if (value === undefined || value < 0) {
-		throw new StyleError(`Invalid ${name} "${input}": expected a number of 0 or more, or infinite`);
-	}
-	return value;
+  const text = input.trim().toLowerCase();
+  if (text === 'infinite') {
+    return Number.POSITIVE_INFINITY;
+  }
+  const value = blank(text) ? undefined : readNumber(text);
+  if (value === undefined || value < 0) {
+    throw new StyleError(`Invalid ${name} "${input}": expected a number of 0 or more, or infinite`);
+  }
+  return value;
 }
 
 /**
@@ -420,15 +420,15 @@ export function parseIterations(input: string, name: string): number {
  * @returns The keyword.
  */
 export function parseKeyword<T extends string>(
-	input: string,
-	allowed: readonly T[],
-	name: string
+  input: string,
+  allowed: readonly T[],
+  name: string
 ): T {
-	const text = input.trim().toLowerCase();
-	if ((allowed as readonly string[]).includes(text)) {
-		return text as T;
-	}
-	throw new StyleError(`Invalid ${name} "${input}": expected one of ${allowed.join(', ')}`);
+  const text = input.trim().toLowerCase();
+  if ((allowed as readonly string[]).includes(text)) {
+    return text as T;
+  }
+  throw new StyleError(`Invalid ${name} "${input}": expected one of ${allowed.join(', ')}`);
 }
 
 /**
@@ -439,31 +439,31 @@ export function parseKeyword<T extends string>(
  * @returns The parts.
  */
 export function parts(input: string): string[] {
-	const out: string[] = [];
-	let depth = 0;
-	let current = '';
+  const out: string[] = [];
+  let depth = 0;
+  let current = '';
 
-	for (const ch of input.trim()) {
-		if (ch === '(') {
-			depth++;
-		} else if (ch === ')') {
-			depth--;
-		}
+  for (const ch of input.trim()) {
+    if (ch === '(') {
+      depth++;
+    } else if (ch === ')') {
+      depth--;
+    }
 
-		if (depth === 0 && /\s/.test(ch)) {
-			if (current) {
-				out.push(current);
-				current = '';
-			}
-			continue;
-		}
+    if (depth === 0 && /\s/.test(ch)) {
+      if (current) {
+        out.push(current);
+        current = '';
+      }
+      continue;
+    }
 
-		current += ch;
-	}
+    current += ch;
+  }
 
-	if (current) {
-		out.push(current);
-	}
+  if (current) {
+    out.push(current);
+  }
 
-	return out;
+  return out;
 }

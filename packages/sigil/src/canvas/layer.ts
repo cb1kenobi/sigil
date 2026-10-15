@@ -22,20 +22,20 @@ import { type Mask, masked } from './mask.js';
  * different origin; there is no second shape for "a small layer".
  */
 export interface Layer {
-	/** The grid. Its own size is the layer's size. */
-	cells: CellBuffer;
-	/**
-	 * Which of its cells show, or every occupied one when there is none.
-	 *
-	 * The mask's coordinates are the layer's own, not the canvas's: a mask is
-	 * generated for a rectangle and the layer is what says where that rectangle
-	 * went, so moving a layer does not invalidate its mask.
-	 */
-	mask?: Mask;
-	/** Where its left edge sits, relative to the canvas's. */
-	x: number;
-	/** Where its top edge sits. */
-	y: number;
+  /** The grid. Its own size is the layer's size. */
+  cells: CellBuffer;
+  /**
+   * Which of its cells show, or every occupied one when there is none.
+   *
+   * The mask's coordinates are the layer's own, not the canvas's: a mask is
+   * generated for a rectangle and the layer is what says where that rectangle
+   * went, so moving a layer does not invalidate its mask.
+   */
+  mask?: Mask;
+  /** Where its left edge sits, relative to the canvas's. */
+  x: number;
+  /** Where its top edge sits. */
+  y: number;
 }
 
 /**
@@ -74,48 +74,48 @@ export interface Layer {
  * @param layer - The layer.
  */
 export function composite(dest: CellBuffer, layer: Layer): void {
-	const src = layer.cells;
-	if (src === dest) {
-		// refused rather than copied around, because a grid composited onto itself
-		// is not a thing anybody means and what it did instead is unreadable: the
-		// walk reads and writes the same arrays left to right, so a layer at
-		// `x: 1` reads the cell it wrote one column ago and smears the row --
-		// `['A','B','C']` came out `['A','A','A']`. A copy per row would make the
-		// aliasing *work*, which is inventing a feature; a throw names the mistake
-		// where it was made. Reachable because `Canvas.cells` and `Canvas.layers`
-		// are both public, and `cells` is documented for reading
-		throw new TypeError('Cannot composite a grid onto itself');
-	}
-	const chars = src.rawChars();
-	const styles = src.rawStyles();
-	const occupied = src.rawOccupied();
-	const { mask } = layer;
-	const width = src.width;
-	const height = src.height;
+  const src = layer.cells;
+  if (src === dest) {
+    // refused rather than copied around, because a grid composited onto itself
+    // is not a thing anybody means and what it did instead is unreadable: the
+    // walk reads and writes the same arrays left to right, so a layer at
+    // `x: 1` reads the cell it wrote one column ago and smears the row --
+    // `['A','B','C']` came out `['A','A','A']`. A copy per row would make the
+    // aliasing *work*, which is inventing a feature; a throw names the mistake
+    // where it was made. Reachable because `Canvas.cells` and `Canvas.layers`
+    // are both public, and `cells` is documented for reading
+    throw new TypeError('Cannot composite a grid onto itself');
+  }
+  const chars = src.rawChars();
+  const styles = src.rawStyles();
+  const occupied = src.rawOccupied();
+  const { mask } = layer;
+  const width = src.width;
+  const height = src.height;
 
-	for (let y = 0; y < height; y++) {
-		const row = y * width;
-		for (let x = 0; x < width; x++) {
-			const index = row + x;
-			if (occupied[index] === 0) {
-				// nothing painted here, which is the one question the characters and
-				// the styles cannot answer between them: a blank in the default style
-				// is what `clear()` leaves and also what a filled panel is made of
-				continue;
-			}
+  for (let y = 0; y < height; y++) {
+    const row = y * width;
+    for (let x = 0; x < width; x++) {
+      const index = row + x;
+      if (occupied[index] === 0) {
+        // nothing painted here, which is the one question the characters and
+        // the styles cannot answer between them: a blank in the default style
+        // is what `clear()` leaves and also what a filled panel is made of
+        continue;
+      }
 
-			const cluster = chars[index];
-			if (cluster === CONTINUATION) {
-				continue;
-			}
+      const cluster = chars[index];
+      if (cluster === CONTINUATION) {
+        continue;
+      }
 
-			if (mask && !masked(mask, x, y)) {
-				continue;
-			}
+      if (mask && !masked(mask, x, y)) {
+        continue;
+      }
 
-			dest.put(x + layer.x, y + layer.y, cluster, styles[index]);
-		}
-	}
+      dest.put(x + layer.x, y + layer.y, cluster, styles[index]);
+    }
+  }
 }
 
 /**
@@ -129,7 +129,7 @@ export function composite(dest: CellBuffer, layer: Layer): void {
  * @param layers - The stack.
  */
 export function compositeAll(dest: CellBuffer, layers: readonly Layer[]): void {
-	for (const layer of layers) {
-		composite(dest, layer);
-	}
+  for (const layer of layers) {
+    composite(dest, layer);
+  }
 }

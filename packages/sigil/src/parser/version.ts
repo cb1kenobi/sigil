@@ -32,7 +32,7 @@ import { Internal, type InternalCommand, type InternalOption, type ParseState } 
  * then this is empty.
  */
 export interface VersionHandles {
-	option?: InternalOption;
+  option?: InternalOption;
 }
 
 /**
@@ -53,35 +53,35 @@ export interface VersionHandles {
  * @returns What was added, so a parse can recognize it later.
  */
 export async function registerVersion(
-	root: InternalCommand,
-	version: string | (() => string) | undefined
+  root: InternalCommand,
+  version: string | (() => string) | undefined
 ): Promise<VersionHandles> {
-	if (version === undefined) {
-		return {};
-	}
+  if (version === undefined) {
+    return {};
+  }
 
-	const internal = root[Internal];
-	const handles: VersionHandles = {};
+  const internal = root[Internal];
+  const handles: VersionHandles = {};
 
-	// `find()` answers about spellings and `has()` about the key the registry
-	// stores an option under, which is its name -- both have to be free, for the
-	// reason the help wiring records: an option spelled `-x` and named `version`
-	// takes the key without answering to `--version`
-	if (internal.options.find('--version') || internal.options.has('version')) {
-		return handles;
-	}
+  // `find()` answers about spellings and `has()` about the key the registry
+  // stores an option under, which is its name -- both have to be free, for the
+  // reason the help wiring records: an option spelled `-x` and named `version`
+  // takes the key without answering to `--version`
+  if (internal.options.find('--version') || internal.options.has('version')) {
+    return handles;
+  }
 
-	const format = internal.options.find('-v') ? '--version' : '-v, --version';
-	await internal.options.add({ desc: __`Print the version`, format });
-	handles.option = internal.options.find('--version');
+  const format = internal.options.find('-v') ? '--version' : '-v, --version';
+  await internal.options.add({ desc: __`Print the version`, format });
+  handles.option = internal.options.find('--version');
 
-	if (handles.option) {
-		// a flag always has a value, and this one is not the app's: an app that
-		// never declared `--version` should not find `version: false` in its argv
-		handles.option[Internal].parserOwned = true;
-	}
+  if (handles.option) {
+    // a flag always has a value, and this one is not the app's: an app that
+    // never declared `--version` should not find `version: false` in its argv
+    handles.option[Internal].parserOwned = true;
+  }
 
-	return handles;
+  return handles;
 }
 
 /**
@@ -96,13 +96,13 @@ export async function registerVersion(
  * @returns Whether the version was asked for.
  */
 export function detectVersion(state: ParseState, handles: VersionHandles): boolean {
-	const { option } = handles;
+  const { option } = handles;
 
-	if (!option) {
-		return false;
-	}
+  if (!option) {
+    return false;
+  }
 
-	return state.$.some(
-		(parsed) => parsed.type === 'Option' && parsed.option === option && parsed.value === true
-	);
+  return state.$.some(
+    (parsed) => parsed.type === 'Option' && parsed.option === option && parsed.value === true
+  );
 }

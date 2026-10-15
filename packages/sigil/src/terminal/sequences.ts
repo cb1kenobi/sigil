@@ -47,7 +47,7 @@ export const CURSOR_HOME: string = `\r`;
  * @returns The sequence, or an empty string.
  */
 export function cursorUp(n: number): string {
-	return n > 0 ? `${ESC}[${n}A` : '';
+  return n > 0 ? `${ESC}[${n}A` : '';
 }
 
 /**
@@ -57,7 +57,7 @@ export function cursorUp(n: number): string {
  * @returns The sequence, or an empty string.
  */
 export function cursorDown(n: number): string {
-	return n > 0 ? `${ESC}[${n}B` : '';
+  return n > 0 ? `${ESC}[${n}B` : '';
 }
 
 /**
@@ -67,7 +67,7 @@ export function cursorDown(n: number): string {
  * @returns The sequence, or an empty string.
  */
 export function cursorRight(n: number): string {
-	return n > 0 ? `${ESC}[${n}C` : '';
+  return n > 0 ? `${ESC}[${n}C` : '';
 }
 
 /**

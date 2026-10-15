@@ -41,22 +41,22 @@
  */
 
 import {
-	bundleApp,
-	type BuiltChunk,
-	displayPath,
-	type InlinedPackage,
-	type ResolvedTree,
-	type ShakenStyles,
+  bundleApp,
+  type BuiltChunk,
+  displayPath,
+  type InlinedPackage,
+  type ResolvedTree,
+  type ShakenStyles,
 } from '../build/index.ts';
 import { readSigilConfig } from '../config.ts';
 import { reportLevel, writeNote, writeSummary } from '../report.ts';
 import {
-	appRuns,
-	countCommands,
-	failure,
-	inspect,
-	reportDiagnostics,
-	type Inspection,
+  appRuns,
+  countCommands,
+  failure,
+  inspect,
+  reportDiagnostics,
+  type Inspection,
 } from './_inspect.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
 import { table } from '@ttylabs/sigil/components';
@@ -68,138 +68,138 @@ const DEFAULT_OUT = 'dist';
 
 /** See `check.ts` for why this is annotated, and why `AnyCommand`. */
 const build: AnyCommand = command({
-	args: [{ desc: "The app's root, defaulting to the working directory", name: '[dir]' }],
-	desc: 'Build an app into a bundle that depends on nothing',
-	options: {
-		'--bin [file]': {
-			desc: 'An executable of your own, bundled instead of a generated one',
-		},
-		'--commands [dir]': {
-			desc: "The app's command directory, when its entry does not say",
-		},
-		'--entry [file]': {
-			desc: "The module declaring the app's schema, when the conventions find the wrong one",
-		},
-		'--external [pkg]': {
-			desc: 'A package to import rather than inline, for one carrying a native binding',
-			multiple: true,
-		},
-		'--name [name]': {
-			desc: 'What the built executable is called. Defaults to the name in package.json',
-		},
-		'--no-clean': {
-			desc: 'Keep what is already in the output directory',
-		},
-		'--no-shake': {
-			desc: 'Keep every utility rule, rather than only the ones the source can name',
-		},
-		'--no-sourcemap': {
-			desc: 'Skip the sourcemaps, which are several times the size of the code',
-		},
-		'--out [dir]': {
-			default: DEFAULT_OUT,
-			desc: 'Where the bundle goes, relative to the app',
-		},
-	},
+  args: [{ desc: "The app's root, defaulting to the working directory", name: '[dir]' }],
+  desc: 'Build an app into a bundle that depends on nothing',
+  options: {
+    '--bin [file]': {
+      desc: 'An executable of your own, bundled instead of a generated one',
+    },
+    '--commands [dir]': {
+      desc: "The app's command directory, when its entry does not say",
+    },
+    '--entry [file]': {
+      desc: "The module declaring the app's schema, when the conventions find the wrong one",
+    },
+    '--external [pkg]': {
+      desc: 'A package to import rather than inline, for one carrying a native binding',
+      multiple: true,
+    },
+    '--name [name]': {
+      desc: 'What the built executable is called. Defaults to the name in package.json',
+    },
+    '--no-clean': {
+      desc: 'Keep what is already in the output directory',
+    },
+    '--no-shake': {
+      desc: 'Keep every utility rule, rather than only the ones the source can name',
+    },
+    '--no-sourcemap': {
+      desc: 'Skip the sourcemaps, which are several times the size of the code',
+    },
+    '--out [dir]': {
+      default: DEFAULT_OUT,
+      desc: 'Where the bundle goes, relative to the app',
+    },
+  },
 
-	async run({ argv }) {
-		const found = inspect({
-			commands: argv.commands as string | undefined,
-			cwd: String(argv.dir ?? '.'),
-			entry: argv.entry as string | undefined,
-		});
+  async run({ argv }) {
+    const found = inspect({
+      commands: argv.commands as string | undefined,
+      cwd: String(argv.dir ?? '.'),
+      entry: argv.entry as string | undefined,
+    });
 
-		const counts = reportDiagnostics(found);
-		if (counts.fatal) {
-			throw failure(found, counts);
-		}
+    const counts = reportDiagnostics(found);
+    if (counts.fatal) {
+      throw failure(found, counts);
+    }
 
-		const bin = argv.bin === undefined ? undefined : resolve(found.app.root, String(argv.bin));
-		assertBuildable(found, bin);
+    const bin = argv.bin === undefined ? undefined : resolve(found.app.root, String(argv.bin));
+    assertBuildable(found, bin);
 
-		// a flag beats the file, which beats the default: `sigil.json` says what
-		// this app is always built with, and a flag says what this invocation
-		// wants. `--out` carries a `default:`, so what it holds when nobody
-		// passed it is that default rather than `undefined` -- which is why it is
-		// compared against rather than read for absence.
-		//
-		// The same imprecision is sharper for a **flag**, and it is worth saying
-		// rather than leaving to be found: a declared flag always has a value --
-		// `false`, or `true` when negated, never `undefined` -- so an explicit
-		// `--shake` is indistinguishable from the default and cannot beat a
-		// `"shake": false` in the file. `--no-shake` over a `"shake": true` works,
-		// which is the direction that matters, because off is the only thing
-		// either flag is offered for. Telling the two apart means re-reading argv
-		// for a spelling, which is a second parser disagreeing with the first over
-		// a case nobody has. `--sourcemap` is the same and always was.
-		const sigilConfig = readSigilConfig(found.app.root);
-		const config = sigilConfig.build ?? {};
-		const out = resolveOut(
-			found.app.root,
-			String(argv.out === DEFAULT_OUT ? (config.out ?? DEFAULT_OUT) : argv.out)
-		);
+    // a flag beats the file, which beats the default: `sigil.json` says what
+    // this app is always built with, and a flag says what this invocation
+    // wants. `--out` carries a `default:`, so what it holds when nobody
+    // passed it is that default rather than `undefined` -- which is why it is
+    // compared against rather than read for absence.
+    //
+    // The same imprecision is sharper for a **flag**, and it is worth saying
+    // rather than leaving to be found: a declared flag always has a value --
+    // `false`, or `true` when negated, never `undefined` -- so an explicit
+    // `--shake` is indistinguishable from the default and cannot beat a
+    // `"shake": false` in the file. `--no-shake` over a `"shake": true` works,
+    // which is the direction that matters, because off is the only thing
+    // either flag is offered for. Telling the two apart means re-reading argv
+    // for a spelling, which is a second parser disagreeing with the first over
+    // a case nobody has. `--sourcemap` is the same and always was.
+    const sigilConfig = readSigilConfig(found.app.root);
+    const config = sigilConfig.build ?? {};
+    const out = resolveOut(
+      found.app.root,
+      String(argv.out === DEFAULT_OUT ? (config.out ?? DEFAULT_OUT) : argv.out)
+    );
 
-		clean(out, found.app.root, argv.clean !== false);
+    clean(out, found.app.root, argv.clean !== false);
 
-		const result = await bundleApp({
-			app: found.app,
-			bin,
-			binName: binName(found, (argv.name as string | undefined) ?? config.name),
-			defaultLocale: sigilConfig.locale,
-			external: (argv.external as string[] | undefined) ?? config.external ?? [],
-			out,
-			safelist: config.safelist,
-			shake: argv.shake !== false && config.shake !== false,
-			sourcemap: argv.sourcemap !== false && config.sourcemap !== false,
-			tree: { commands: found.commands, diagnostics: [] } satisfies ResolvedTree,
-		});
+    const result = await bundleApp({
+      app: found.app,
+      bin,
+      binName: binName(found, (argv.name as string | undefined) ?? config.name),
+      defaultLocale: sigilConfig.locale,
+      external: (argv.external as string[] | undefined) ?? config.external ?? [],
+      out,
+      safelist: config.safelist,
+      shake: argv.shake !== false && config.shake !== false,
+      sourcemap: argv.sourcemap !== false && config.sourcemap !== false,
+      tree: { commands: found.commands, diagnostics: [] } satisfies ResolvedTree,
+    });
 
-		printSizes(result.chunks);
-		printInlined(result.inlined);
-		warnEmptyShake(result.styles);
+    printSizes(result.chunks);
+    printInlined(result.inlined);
+    warnEmptyShake(result.styles);
 
-		const total = countCommands(found.commands);
+    const total = countCommands(found.commands);
 
-		writeSummary(
-			[
-				...appRuns(found.app),
-				`${total} command${total === 1 ? '' : 's'}${
-					result.templates
-						? ` and ${result.templates} template${result.templates === 1 ? '' : 's'}`
-						: ''
-				} into`,
-				// the comma rides on this run rather than being one of its own,
-				// because a run is a *word*: a lone comma would be drawn with a space
-				// in front of it. And it is a comma rather than a parenthetical
-				// because the runs are joined by a space off a terminal, and `, N
-				// warnings` is what `main` wrote -- the byte-for-byte promise covers
-				// `build` as well as `check`
-				`${displayPath(relative(found.app.root, result.bin) || result.bin)}${
-					result.styles || counts.warnings ? ',' : ''
-				}`,
-				// only when a sheet was actually shaken, which is only when the app
-				// called `utilitySheet()`: saying nothing is the right answer for an
-				// app with no utility sheet in its bundle, and `383 of 383` would be
-				// a sentence about a sheet that is not there
-				...(result.styles
-					? [
-							`${result.styles.kept} of ${result.styles.total} utility rules${
-								counts.warnings ? ',' : ''
-							}`,
-						]
-					: []),
-				...(counts.warnings
-					? [
-							{
-								class: 'cli-warning sigil-warn',
-								text: `${counts.warnings} warning${counts.warnings === 1 ? '' : 's'}`,
-							},
-						]
-					: []),
-			],
-			process.stderr
-		);
-	},
+    writeSummary(
+      [
+        ...appRuns(found.app),
+        `${total} command${total === 1 ? '' : 's'}${
+          result.templates
+            ? ` and ${result.templates} template${result.templates === 1 ? '' : 's'}`
+            : ''
+        } into`,
+        // the comma rides on this run rather than being one of its own,
+        // because a run is a *word*: a lone comma would be drawn with a space
+        // in front of it. And it is a comma rather than a parenthetical
+        // because the runs are joined by a space off a terminal, and `, N
+        // warnings` is what `main` wrote -- the byte-for-byte promise covers
+        // `build` as well as `check`
+        `${displayPath(relative(found.app.root, result.bin) || result.bin)}${
+          result.styles || counts.warnings ? ',' : ''
+        }`,
+        // only when a sheet was actually shaken, which is only when the app
+        // called `utilitySheet()`: saying nothing is the right answer for an
+        // app with no utility sheet in its bundle, and `383 of 383` would be
+        // a sentence about a sheet that is not there
+        ...(result.styles
+          ? [
+              `${result.styles.kept} of ${result.styles.total} utility rules${
+                counts.warnings ? ',' : ''
+              }`,
+            ]
+          : []),
+        ...(counts.warnings
+          ? [
+              {
+                class: 'cli-warning sigil-warn',
+                text: `${counts.warnings} warning${counts.warnings === 1 ? '' : 's'}`,
+              },
+            ]
+          : []),
+      ],
+      process.stderr
+    );
+  },
 });
 
 export default build;
@@ -219,19 +219,19 @@ export default build;
  * @throws If the pair cannot produce a working app.
  */
 function assertBuildable(found: Inspection, bin: string | undefined): void {
-	if (!bin) {
-		return;
-	}
+  if (!bin) {
+    return;
+  }
 
-	// `kind` is `inline` for a command the schema wrote out and one of the route
-	// kinds for one a directory walk found -- so a walked tree beside a `--bin`
-	// is the router, which cannot survive bundling
-	const walked = found.commands.find((cmd) => cmd.kind !== 'inline');
-	if (walked) {
-		throw new Error(
-			`Cannot combine --bin with a filesystem command directory: "${walked.name}" was found by walking, and a built executable has no directories to walk. Write the commands out in the schema, or drop --bin and let the build generate the executable.`
-		);
-	}
+  // `kind` is `inline` for a command the schema wrote out and one of the route
+  // kinds for one a directory walk found -- so a walked tree beside a `--bin`
+  // is the router, which cannot survive bundling
+  const walked = found.commands.find((cmd) => cmd.kind !== 'inline');
+  if (walked) {
+    throw new Error(
+      `Cannot combine --bin with a filesystem command directory: "${walked.name}" was found by walking, and a built executable has no directories to walk. Write the commands out in the schema, or drop --bin and let the build generate the executable.`
+    );
+  }
 }
 
 /**
@@ -246,20 +246,20 @@ function assertBuildable(found: Inspection, bin: string | undefined): void {
  * @returns The name, without an extension.
  */
 function binName(found: Inspection, named: string | undefined): string {
-	if (named) {
-		return named;
-	}
+  if (named) {
+    return named;
+  }
 
-	// what the manifest's `bin` says, before what it calls itself: a scoped
-	// package's name is not its executable's -- `@ttylabs/cli` publishes `sigil`,
-	// and naming the file after the package writes one the manifest does not
-	// point at
-	const { bin, name } = found.app.manifest;
-	if (bin) {
-		return bin;
-	}
+  // what the manifest's `bin` says, before what it calls itself: a scoped
+  // package's name is not its executable's -- `@ttylabs/cli` publishes `sigil`,
+  // and naming the file after the package writes one the manifest does not
+  // point at
+  const { bin, name } = found.app.manifest;
+  if (bin) {
+    return bin;
+  }
 
-	return name ? (name.split('/').pop() ?? name) : 'cli';
+  return name ? (name.split('/').pop() ?? name) : 'cli';
 }
 
 /**
@@ -270,7 +270,7 @@ function binName(found: Inspection, named: string | undefined): string {
  * @returns The absolute directory.
  */
 function resolveOut(root: string, out: string): string {
-	return isAbsolute(out) ? out : resolve(root, out);
+  return isAbsolute(out) ? out : resolve(root, out);
 }
 
 /**
@@ -284,24 +284,24 @@ function resolveOut(root: string, out: string): string {
  * @param chunks - What was written, largest first.
  */
 function printSizes(chunks: readonly BuiltChunk[]): void {
-	const rows = chunks
-		.filter((chunk) => !chunk.name.endsWith('.map'))
-		.map((chunk) => [
-			chunk.name,
-			`${(chunk.size / 1024).toFixed(1)} kB`,
-			chunk.entry ? 'entry' : 'lazy',
-		]);
+  const rows = chunks
+    .filter((chunk) => !chunk.name.endsWith('.map'))
+    .map((chunk) => [
+      chunk.name,
+      `${(chunk.size / 1024).toFixed(1)} kB`,
+      chunk.entry ? 'entry' : 'lazy',
+    ]);
 
-	if (rows.length) {
-		process.stdout.write(
-			`${table(rows, {
-				// stdout's level rather than the process styler's, for the reason
-				// `printTree()` records: the default reads stdout whoever is asking
-				colorLevel: reportLevel(process.stdout),
-				columns: ['File', { align: 'right', header: 'Size' }, 'Loads'],
-			})}\n`
-		);
-	}
+  if (rows.length) {
+    process.stdout.write(
+      `${table(rows, {
+        // stdout's level rather than the process styler's, for the reason
+        // `printTree()` records: the default reads stdout whoever is asking
+        colorLevel: reportLevel(process.stdout),
+        columns: ['File', { align: 'right', header: 'Size' }, 'Loads'],
+      })}\n`
+    );
+  }
 }
 
 /**
@@ -322,19 +322,19 @@ function printSizes(chunks: readonly BuiltChunk[]): void {
  * @param inlined - The packages, largest first.
  */
 function printInlined(inlined: readonly InlinedPackage[]): void {
-	if (!inlined.length) {
-		return;
-	}
+  if (!inlined.length) {
+    return;
+  }
 
-	process.stdout.write(
-		`${table(
-			inlined.map((pkg) => [pkg.name, `${(pkg.bytes / 1024).toFixed(1)} kB`]),
-			{
-				colorLevel: reportLevel(process.stdout),
-				columns: ['Inlined', { align: 'right', header: 'Code' }],
-			}
-		)}\n`
-	);
+  process.stdout.write(
+    `${table(
+      inlined.map((pkg) => [pkg.name, `${(pkg.bytes / 1024).toFixed(1)} kB`]),
+      {
+        colorLevel: reportLevel(process.stdout),
+        columns: ['Inlined', { align: 'right', header: 'Code' }],
+      }
+    )}\n`
+  );
 }
 
 /**
@@ -356,19 +356,19 @@ function printInlined(inlined: readonly InlinedPackage[]): void {
  * @param styles - What shaking came to, or nothing when it did not shake.
  */
 function warnEmptyShake(styles: ShakenStyles | undefined): void {
-	if (!styles || styles.kept > 0) {
-		return;
-	}
+  if (!styles || styles.kept > 0) {
+    return;
+  }
 
-	writeNote(
-		[
-			{ class: 'cli-warning sigil-warn', text: 'No utility class is named anywhere in this app,' },
-			`so all ${styles.total} rules were dropped from the sheet it asked for.`,
-			'If its classes are built out of values that are never literals in the source,',
-			'name them in "build.safelist" in sigil.json, or pass --no-shake.',
-		],
-		process.stderr
-	);
+  writeNote(
+    [
+      { class: 'cli-warning sigil-warn', text: 'No utility class is named anywhere in this app,' },
+      `so all ${styles.total} rules were dropped from the sheet it asked for.`,
+      'If its classes are built out of values that are never literals in the source,',
+      'name them in "build.safelist" in sigil.json, or pass --no-shake.',
+    ],
+    process.stderr
+  );
 }
 
 /**
@@ -390,19 +390,19 @@ function warnEmptyShake(styles: ShakenStyles | undefined): void {
  * @throws If the directory is one that must not be emptied.
  */
 function clean(out: string, root: string, wanted: boolean): void {
-	if (!wanted || !existsSync(out)) {
-		return;
-	}
+  if (!wanted || !existsSync(out)) {
+    return;
+  }
 
-	const resolved = resolve(out);
-	const app = resolve(root);
+  const resolved = resolve(out);
+  const app = resolve(root);
 
-	if (resolved === app || app.startsWith(`${resolved}${sep}`)) {
-		throw new Error(
-			`Refusing to empty ${displayPath(resolved)}, which holds the app itself. ` +
-				`Name a directory inside it, or pass --no-clean.`
-		);
-	}
+  if (resolved === app || app.startsWith(`${resolved}${sep}`)) {
+    throw new Error(
+      `Refusing to empty ${displayPath(resolved)}, which holds the app itself. ` +
+        `Name a directory inside it, or pass --no-clean.`
+    );
+  }
 
-	rmSync(resolved, { force: true, recursive: true });
+  rmSync(resolved, { force: true, recursive: true });
 }

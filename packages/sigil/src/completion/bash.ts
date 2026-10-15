@@ -45,12 +45,12 @@ import type { CompletionCommand, CompletionSpec } from './spec.js';
  * @returns The quoted literal.
  */
 export function bashQuote(text: string): string {
-	return `'${text.replaceAll("'", "'\\''")}'`;
+  return `'${text.replaceAll("'", "'\\''")}'`;
 }
 
 /** The `case` pattern for a command path, `''` for the root. */
 function pathPattern(path: readonly string[]): string {
-	return bashQuote(path.join(' '));
+  return bashQuote(path.join(' '));
 }
 
 /**
@@ -65,17 +65,17 @@ function pathPattern(path: readonly string[]): string {
  * @returns The prefix.
  */
 export function bashPrefix(program: string): string {
-	return `__${program.replaceAll(/[^A-Za-z0-9_]/gu, '_')}`;
+  return `__${program.replaceAll(/[^A-Za-z0-9_]/gu, '_')}`;
 }
 
 /** The name of the completion function, which is what `complete -F` names. */
 export function bashFunction(program: string): string {
-	return `_${program.replaceAll(/[^A-Za-z0-9_]/gu, '_')}`;
+  return `_${program.replaceAll(/[^A-Za-z0-9_]/gu, '_')}`;
 }
 
 /** One `case` arm, or nothing when there is nothing to say for that path. */
 function arm(path: readonly string[], body: string): string {
-	return `\t\t${pathPattern(path)}) ${body} ;;\n`;
+  return `\t\t${pathPattern(path)}) ${body} ;;\n`;
 }
 
 /**
@@ -96,24 +96,24 @@ function arm(path: readonly string[], body: string): string {
  * @returns The arms.
  */
 function resolveArms(spec: CompletionSpec, pre: string): string {
-	let out = '';
+  let out = '';
 
-	for (const cmd of spec.commands) {
-		if (cmd.subcommands.length === 0) {
-			continue;
-		}
+  for (const cmd of spec.commands) {
+    if (cmd.subcommands.length === 0) {
+      continue;
+    }
 
-		let inner = '';
-		for (const sub of cmd.subcommands) {
-			const patterns = sub.tokens.map(bashQuote).join('|');
-			const reached = bashQuote([...cmd.path, sub.name].join(' '));
-			inner += `\t\t\t\t${patterns}) ${pre}_next=${reached} ;;\n`;
-		}
+    let inner = '';
+    for (const sub of cmd.subcommands) {
+      const patterns = sub.tokens.map(bashQuote).join('|');
+      const reached = bashQuote([...cmd.path, sub.name].join(' '));
+      inner += `\t\t\t\t${patterns}) ${pre}_next=${reached} ;;\n`;
+    }
 
-		out += `\t\t${pathPattern(cmd.path)})\n\t\t\tcase "$2" in\n${inner}\t\t\tesac\n\t\t\t;;\n`;
-	}
+    out += `\t\t${pathPattern(cmd.path)})\n\t\t\tcase "$2" in\n${inner}\t\t\tesac\n\t\t\t;;\n`;
+  }
 
-	return out;
+  return out;
 }
 
 /**
@@ -129,37 +129,37 @@ function resolveArms(spec: CompletionSpec, pre: string): string {
  * @returns The arms.
  */
 function subArms(spec: CompletionSpec, pre: string): string {
-	let out = '';
-	for (const cmd of spec.commands) {
-		if (cmd.subcommands.length > 0) {
-			const names = cmd.subcommands.flatMap((sub) => sub.tokens.map(bashQuote)).join(' ');
-			out += arm(cmd.path, `${pre}_add '' "$2" "$3" ${names}`);
-		}
-	}
-	return out;
+  let out = '';
+  for (const cmd of spec.commands) {
+    if (cmd.subcommands.length > 0) {
+      const names = cmd.subcommands.flatMap((sub) => sub.tokens.map(bashQuote)).join(' ');
+      out += arm(cmd.path, `${pre}_add '' "$2" "$3" ${names}`);
+    }
+  }
+  return out;
 }
 
 /** The arms that offer option spellings. */
 function optArms(spec: CompletionSpec, pre: string): string {
-	let out = '';
-	for (const cmd of spec.commands) {
-		const spellings = cmd.options.flatMap((opt) => opt.spellings);
-		if (spellings.length > 0) {
-			out += arm(cmd.path, `${pre}_add '' "$2" "$3" ${spellings.map(bashQuote).join(' ')}`);
-		}
-	}
-	return out;
+  let out = '';
+  for (const cmd of spec.commands) {
+    const spellings = cmd.options.flatMap((opt) => opt.spellings);
+    if (spellings.length > 0) {
+      out += arm(cmd.path, `${pre}_add '' "$2" "$3" ${spellings.map(bashQuote).join(' ')}`);
+    }
+  }
+  return out;
 }
 
 /** The arms that offer a command's positional choices. */
 function argArms(spec: CompletionSpec, pre: string): string {
-	let out = '';
-	for (const cmd of spec.commands) {
-		if (cmd.argValues.length > 0) {
-			out += arm(cmd.path, `${pre}_add '' "$2" "$3" ${cmd.argValues.map(bashQuote).join(' ')}`);
-		}
-	}
-	return out;
+  let out = '';
+  for (const cmd of spec.commands) {
+    if (cmd.argValues.length > 0) {
+      out += arm(cmd.path, `${pre}_add '' "$2" "$3" ${cmd.argValues.map(bashQuote).join(' ')}`);
+    }
+  }
+  return out;
 }
 
 /**
@@ -171,27 +171,27 @@ function argArms(spec: CompletionSpec, pre: string): string {
  * @returns The arm, or nothing when none of its options takes a value.
  */
 function valueArm(cmd: CompletionCommand, pre: string): string {
-	const valued = cmd.options.filter((opt) => opt.takesValue);
+  const valued = cmd.options.filter((opt) => opt.takesValue);
 
-	if (valued.length === 0) {
-		return '';
-	}
+  if (valued.length === 0) {
+    return '';
+  }
 
-	let inner = '';
-	for (const opt of valued) {
-		const patterns = opt.spellings.map(bashQuote).join('|');
-		const values = opt.values?.length
-			? `; ${pre}_vals=(${opt.values.map(bashQuote).join(' ')})`
-			: '';
-		inner += `\t\t\t\t${patterns}) ${pre}_takes=1${values} ;;\n`;
-	}
+  let inner = '';
+  for (const opt of valued) {
+    const patterns = opt.spellings.map(bashQuote).join('|');
+    const values = opt.values?.length
+      ? `; ${pre}_vals=(${opt.values.map(bashQuote).join(' ')})`
+      : '';
+    inner += `\t\t\t\t${patterns}) ${pre}_takes=1${values} ;;\n`;
+  }
 
-	return `\t\t${pathPattern(cmd.path)})\n\t\t\tcase "$2" in\n${inner}\t\t\tesac\n\t\t\t;;\n`;
+  return `\t\t${pathPattern(cmd.path)})\n\t\t\tcase "$2" in\n${inner}\t\t\tesac\n\t\t\t;;\n`;
 }
 
 /** The arms that say which options take a value. */
 function valueArms(spec: CompletionSpec, pre: string): string {
-	return spec.commands.map((cmd) => valueArm(cmd, pre)).join('');
+  return spec.commands.map((cmd) => valueArm(cmd, pre)).join('');
 }
 
 /**
@@ -201,12 +201,12 @@ function valueArms(spec: CompletionSpec, pre: string): string {
  * @returns The script, ending in a newline.
  */
 export function bashScript(spec: CompletionSpec): string {
-	const { program } = spec;
-	const pre = bashPrefix(program);
-	const fn = bashFunction(program);
-	const q = bashQuote(program);
+  const { program } = spec;
+  const pre = bashPrefix(program);
+  const fn = bashFunction(program);
+  const q = bashQuote(program);
 
-	return `# bash completion for \`${program}\`, generated by sigil.
+  return `# bash completion for \`${program}\`, generated by sigil.
 #
 # Save it somewhere your shell reads:
 ${installComment('bash', program)}

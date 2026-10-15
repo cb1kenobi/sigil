@@ -125,16 +125,16 @@ const OUT_PREFIX = 'sigil-output-forms-a-deliberately-long-directory-';
  * the answer for the piped runs as well.
  */
 const COLOUR_ENV = [
-	'CI',
-	'COLORTERM',
-	'FORCE_COLOR',
-	'GITEA_ACTIONS',
-	'GITHUB_ACTIONS',
-	'NO_COLOR',
-	'TEAMCITY_VERSION',
-	'TERM',
-	'TERM_PROGRAM',
-	'WT_SESSION',
+  'CI',
+  'COLORTERM',
+  'FORCE_COLOR',
+  'GITEA_ACTIONS',
+  'GITHUB_ACTIONS',
+  'NO_COLOR',
+  'TEAMCITY_VERSION',
+  'TERM',
+  'TERM_PROGRAM',
+  'WT_SESSION',
 ] as const;
 
 /**
@@ -148,31 +148,31 @@ const COLOUR_ENV = [
  * @returns A `data:` URL for `--import`.
  */
 function ttyPreload(streams: readonly ('stderr' | 'stdout')[]): string {
-	const source = streams
-		.map((s) => `Object.defineProperty(process.${s},"isTTY",{configurable:true,value:true});`)
-		.join('');
+  const source = streams
+    .map((s) => `Object.defineProperty(process.${s},"isTTY",{configurable:true,value:true});`)
+    .join('');
 
-	return `data:text/javascript,${encodeURIComponent(source)}`;
+  return `data:text/javascript,${encodeURIComponent(source)}`;
 }
 
 /** What a run of the binary came to. */
 interface Ran {
-	/** Its exit code. */
-	code: number | null;
-	/** What reached stderr: the diagnostics, the note and the summary. */
-	err: string;
-	/** What reached stdout: `--tree` and the chunk sizes. */
-	out: string;
+  /** Its exit code. */
+  code: number | null;
+  /** What reached stderr: the diagnostics, the note and the summary. */
+  err: string;
+  /** What reached stdout: `--tree` and the chunk sizes. */
+  out: string;
 }
 
 /** How to run it. */
 interface RunOptions {
-	/** The width to report, through `COLUMNS`. Defaults to 80. */
-	columns?: number;
-	/** Environment on top of the sanitised copy. */
-	env?: Record<string, string>;
-	/** Which streams claim to be a terminal. Defaults to none, which is a pipe. */
-	tty?: readonly ('stderr' | 'stdout')[];
+  /** The width to report, through `COLUMNS`. Defaults to 80. */
+  columns?: number;
+  /** Environment on top of the sanitised copy. */
+  env?: Record<string, string>;
+  /** Which streams claim to be a terminal. Defaults to none, which is a pipe. */
+  tty?: readonly ('stderr' | 'stdout')[];
 }
 
 /**
@@ -183,46 +183,46 @@ interface RunOptions {
  * @returns What it wrote and how it exited.
  */
 function sigil(argv: readonly string[], opts: RunOptions = {}): Promise<Ran> {
-	const { columns = WIDTH, env: extra = {}, tty = [] } = opts;
-	const env: Record<string, string | undefined> = { ...process.env };
-	for (const name of COLOUR_ENV) {
-		delete env[name];
-	}
-	env.COLUMNS = String(columns);
-	if (tty.length) {
-		// a terminal has a `TERM`, and without one a stream claiming to be a TTY
-		// still detects level 0 -- so a test asserting colour would be asserting the
-		// one thing that cannot happen
-		env.TERM = 'xterm-256color';
-	}
-	Object.assign(env, extra);
+  const { columns = WIDTH, env: extra = {}, tty = [] } = opts;
+  const env: Record<string, string | undefined> = { ...process.env };
+  for (const name of COLOUR_ENV) {
+    delete env[name];
+  }
+  env.COLUMNS = String(columns);
+  if (tty.length) {
+    // a terminal has a `TERM`, and without one a stream claiming to be a TTY
+    // still detects level 0 -- so a test asserting colour would be asserting the
+    // one thing that cannot happen
+    env.TERM = 'xterm-256color';
+  }
+  Object.assign(env, extra);
 
-	const args = tty.length ? ['--import', ttyPreload(tty), bin, ...argv] : [bin, ...argv];
+  const args = tty.length ? ['--import', ttyPreload(tty), bin, ...argv] : [bin, ...argv];
 
-	return new Promise<Ran>((settle, fail) => {
-		const child = spawn(process.execPath, args, {
-			cwd: pkg,
-			env,
-			stdio: ['ignore', 'pipe', 'pipe'],
-		});
-		let err = '';
-		let out = '';
-		const timer = setTimeout(() => {
-			child.kill('SIGKILL');
-			fail(new Error(`sigil ${argv.join(' ')} did not finish within 60s`));
-		}, 60_000);
+  return new Promise<Ran>((settle, fail) => {
+    const child = spawn(process.execPath, args, {
+      cwd: pkg,
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let err = '';
+    let out = '';
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      fail(new Error(`sigil ${argv.join(' ')} did not finish within 60s`));
+    }, 60_000);
 
-		child.stderr.on('data', (chunk: Buffer) => void (err += chunk.toString()));
-		child.stdout.on('data', (chunk: Buffer) => void (out += chunk.toString()));
-		child.on('error', (error) => {
-			clearTimeout(timer);
-			fail(error);
-		});
-		child.on('close', (code) => {
-			clearTimeout(timer);
-			settle({ code, err, out });
-		});
-	});
+    child.stderr.on('data', (chunk: Buffer) => void (err += chunk.toString()));
+    child.stdout.on('data', (chunk: Buffer) => void (out += chunk.toString()));
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      fail(error);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      settle({ code, err, out });
+    });
+  });
 }
 
 /** A diagnostic as the piped form writes one, which is what `awk -F:` reads. */
@@ -239,19 +239,19 @@ const STARTS = /^\S.*?: (?:error|warning):/;
 
 /** The lines with something on them. */
 function nonEmpty(text: string): string[] {
-	return text.split('\n').filter((line) => line !== '');
+  return text.split('\n').filter((line) => line !== '');
 }
 
 /** A rendered report with the sequences taken off, since a sequence takes no column. */
 function plain(text: string): string[] {
-	// `strip()` rather than a pattern of this file's own: what a sequence is has
-	// one implementation and it is the library's
-	return strip(text).split('\n');
+  // `strip()` rather than a pattern of this file's own: what a sequence is has
+  // one implementation and it is the library's
+  return strip(text).split('\n');
 }
 
 /** Every word a run wrote, with the wrapping and the colour taken out. */
 function words(text: string): string {
-	return strip(text).replaceAll(/\s+/g, ' ').trim();
+  return strip(text).replaceAll(/\s+/g, ' ').trim();
 }
 
 /**
@@ -267,19 +267,19 @@ function words(text: string): string {
  * @returns Every parameter it set.
  */
 function sgr(text: string): Set<number> {
-	// built from the exported `ESC` rather than written as an escape in a
-	// character class, which is this repo's rule twice over: no raw control
-	// character in source, and no `no-control-regex` suppression for a formatter
-	// to detach from the line it was written over
-	const sgrRE = new RegExp(`${ESC}\\[([\\d;]*)m`, 'g');
-	const found = new Set<number>();
-	for (const [, params] of text.matchAll(sgrRE)) {
-		for (const part of (params ?? '').split(';')) {
-			found.add(Number(part === '' ? '0' : part));
-		}
-	}
+  // built from the exported `ESC` rather than written as an escape in a
+  // character class, which is this repo's rule twice over: no raw control
+  // character in source, and no `no-control-regex` suppression for a formatter
+  // to detach from the line it was written over
+  const sgrRE = new RegExp(`${ESC}\\[([\\d;]*)m`, 'g');
+  const found = new Set<number>();
+  for (const [, params] of text.matchAll(sgrRE)) {
+    for (const part of (params ?? '').split(';')) {
+      found.add(Number(part === '' ? '0' : part));
+    }
+  }
 
-	return found;
+  return found;
 }
 
 /**
@@ -299,23 +299,23 @@ function sgr(text: string): Set<number> {
  * @returns The phrases, in order.
  */
 function wrapped(laidOut: string): string[] {
-	const lines = plain(laidOut);
-	const phrases: string[] = [];
+  const lines = plain(laidOut);
+  const phrases: string[] = [];
 
-	for (let i = 1; i < lines.length; i++) {
-		const above = lines[i - 1]!;
-		const below = lines[i]!;
-		if (!/^\s+\S/.test(below) || above.trim() === '') {
-			continue;
-		}
-		const last = above.trimEnd().split(/\s+/).at(-1);
-		const first = below.trim().split(/\s+/)[0];
-		if (last !== undefined && first !== undefined) {
-			phrases.push(`${last} ${first}`);
-		}
-	}
+  for (let i = 1; i < lines.length; i++) {
+    const above = lines[i - 1]!;
+    const below = lines[i]!;
+    if (!/^\s+\S/.test(below) || above.trim() === '') {
+      continue;
+    }
+    const last = above.trimEnd().split(/\s+/).at(-1);
+    const first = below.trim().split(/\s+/)[0];
+    if (last !== undefined && first !== undefined) {
+      phrases.push(`${last} ${first}`);
+    }
+  }
 
-	return phrases;
+  return phrases;
 }
 
 /**
@@ -336,474 +336,474 @@ let out3: string;
 
 /** One output directory, named long for the reason above. */
 function outDir(): string {
-	return mkdtempSync(join(tmpdir(), OUT_PREFIX));
+  return mkdtempSync(join(tmpdir(), OUT_PREFIX));
 }
 
 beforeAll(() => {
-	out = outDir();
-	out2 = outDir();
-	out3 = outDir();
+  out = outDir();
+  out2 = outDir();
+  out3 = outDir();
 });
 
 afterAll(() => {
-	for (const dir of [out, out2, out3]) {
-		rmSync(dir, { force: true, recursive: true });
-	}
+  for (const dir of [out, out2, out3]) {
+    rmSync(dir, { force: true, recursive: true });
+  }
 });
 
 describe('the built binary', () => {
-	it('should be there, because everything below spawns it', () => {
-		// loud rather than skipped: `it.runIf` on a missing `dist/` turns every
-		// assertion in this file into a pass, which is the failure a whole entry in
-		// AGENTS.md is written about -- a glob that matches nothing exits zero.
-		//
-		// A *stale* `dist/` is the other half and is deliberately not checked here,
-		// which is a decision rather than an oversight: two proxies for it were
-		// written, measured, and both fired on correct code.
-		//
-		// mtimes -- every output against every input -- fail in a way `pnpm build`
-		// cannot clear. A source file's timestamp moves without its content changing
-		// on a branch switch, a `git stash pop`, a revert or a `cp` restore; turbo's
-		// hash is then unchanged, so the rebuild the message asks for is a cache hit
-		// that does not touch `dist/` at all, the mtimes never move, and the failure
-		// is unsatisfiable. Measured on a pristine tree.
-		//
-		// Turbo's own hash is content-based and authoritative, and asking it
-		// (`turbo run build --dry-run=json`) is still worse here, though for one
-		// reason now rather than two. The reason that is gone: the hash used to be
-		// sensitive to *any* modified file in the workspace and not only to the
-		// task's declared `inputs`, so appending a comment to this very file flipped
-		// both builds from HIT to MISS with `src/` untouched -- the guard would have
-		// failed for whoever was editing the test, which is the one situation it runs
-		// in most. That was the root manifest's `workspace:` dependencies putting
-		// every file of both packages in turbo's global hash, it is fixed, and
-		// AGENTS.md records it; a test edit is a cache hit now.
-		//
-		// The reason that remains is enough on its own: turbo says MISS after
-		// `node src/sigil.ts build`, the package's own build command and the one to
-		// reach for while working on the toolchain, because turbo only records what
-		// turbo ran -- so the guard would fire on a `dist/` that is freshly and
-		// correctly built. Combining it with the mtime screen does not help, since
-		// that is the same build both of them misread.
-		//
-		// So there is no proxy available that is both satisfiable and quiet on correct
-		// code, and a check that fires on correct code teaches people to ignore
-		// checks -- which this file would be teaching about itself. What actually
-		// guarantees a fresh `dist/` is the `test` script building first, and the rule
-		// AGENTS.md already records: `@ttylabs/cli` needs a build before its tests
-		// mean anything. The residual hazard is a bare `pnpm vitest run` on this file
-		// after editing `src/` without rebuilding, which reads the previous binary and
-		// passes; every sabotage recorded for this file was run with a rebuild in
-		// between for exactly that reason.
-		expect(existsSync(bin), `${bin} is missing; run \`pnpm build\``).toBe(true);
-	});
+  it('should be there, because everything below spawns it', () => {
+    // loud rather than skipped: `it.runIf` on a missing `dist/` turns every
+    // assertion in this file into a pass, which is the failure a whole entry in
+    // AGENTS.md is written about -- a glob that matches nothing exits zero.
+    //
+    // A *stale* `dist/` is the other half and is deliberately not checked here,
+    // which is a decision rather than an oversight: two proxies for it were
+    // written, measured, and both fired on correct code.
+    //
+    // mtimes -- every output against every input -- fail in a way `pnpm build`
+    // cannot clear. A source file's timestamp moves without its content changing
+    // on a branch switch, a `git stash pop`, a revert or a `cp` restore; turbo's
+    // hash is then unchanged, so the rebuild the message asks for is a cache hit
+    // that does not touch `dist/` at all, the mtimes never move, and the failure
+    // is unsatisfiable. Measured on a pristine tree.
+    //
+    // Turbo's own hash is content-based and authoritative, and asking it
+    // (`turbo run build --dry-run=json`) is still worse here, though for one
+    // reason now rather than two. The reason that is gone: the hash used to be
+    // sensitive to *any* modified file in the workspace and not only to the
+    // task's declared `inputs`, so appending a comment to this very file flipped
+    // both builds from HIT to MISS with `src/` untouched -- the guard would have
+    // failed for whoever was editing the test, which is the one situation it runs
+    // in most. That was the root manifest's `workspace:` dependencies putting
+    // every file of both packages in turbo's global hash, it is fixed, and
+    // AGENTS.md records it; a test edit is a cache hit now.
+    //
+    // The reason that remains is enough on its own: turbo says MISS after
+    // `node src/sigil.ts build`, the package's own build command and the one to
+    // reach for while working on the toolchain, because turbo only records what
+    // turbo ran -- so the guard would fire on a `dist/` that is freshly and
+    // correctly built. Combining it with the mtime screen does not help, since
+    // that is the same build both of them misread.
+    //
+    // So there is no proxy available that is both satisfiable and quiet on correct
+    // code, and a check that fires on correct code teaches people to ignore
+    // checks -- which this file would be teaching about itself. What actually
+    // guarantees a fresh `dist/` is the `test` script building first, and the rule
+    // AGENTS.md already records: `@ttylabs/cli` needs a build before its tests
+    // mean anything. The residual hazard is a bare `pnpm vitest run` on this file
+    // after editing `src/` without rebuilding, which reads the previous binary and
+    // passes; every sabotage recorded for this file was run with a rebuild in
+    // between for exactly that reason.
+    expect(existsSync(bin), `${bin} is missing; run \`pnpm build\``).toBe(true);
+  });
 });
 
 describe('a pipe', () => {
-	/**
-	 * Each fixture and what its stderr is made of, line by line.
-	 *
-	 * Two counts rather than one because they say different things. `diagnostics`
-	 * is how many lines carry a `file:line:column: severity: message`; `lines` is
-	 * every non-empty line there is, so a wrap anywhere -- in a diagnostic, in the
-	 * note, in the summary -- adds one and fails here. Written out rather than
-	 * derived, because the numbers are the claim: one line per record.
-	 *
-	 * Neither survives a fixture growing a diagnostic, which is the right
-	 * trade-off: that is a change somebody makes on purpose, and the alternative
-	 * is a count derived from the output it is checking.
-	 */
-	const PIPED = [
-		{
-			// a `desc` nobody could read, then the no-tsconfig note, then the summary
-			code: 0,
-			diagnostics: 1,
-			dir: join(fixtures, 'app'),
-			lines: 3,
-		},
-		{
-			// a real `tsc` error and the `baseDir` warning, then what `errorHandler()`
-			// rendered. No note: this fixture is the one that is type-checked
-			code: 1,
-			diagnostics: 2,
-			dir: join(fixtures, 'typecheck', 'broken'),
-			lines: 3,
-		},
-		{
-			// a computed `commands`, the note, then the error
-			code: 1,
-			diagnostics: 1,
-			dir: join(fixtures, 'ts-app'),
-			lines: 3,
-		},
-	] as const;
+  /**
+   * Each fixture and what its stderr is made of, line by line.
+   *
+   * Two counts rather than one because they say different things. `diagnostics`
+   * is how many lines carry a `file:line:column: severity: message`; `lines` is
+   * every non-empty line there is, so a wrap anywhere -- in a diagnostic, in the
+   * note, in the summary -- adds one and fails here. Written out rather than
+   * derived, because the numbers are the claim: one line per record.
+   *
+   * Neither survives a fixture growing a diagnostic, which is the right
+   * trade-off: that is a change somebody makes on purpose, and the alternative
+   * is a count derived from the output it is checking.
+   */
+  const PIPED = [
+    {
+      // a `desc` nobody could read, then the no-tsconfig note, then the summary
+      code: 0,
+      diagnostics: 1,
+      dir: join(fixtures, 'app'),
+      lines: 3,
+    },
+    {
+      // a real `tsc` error and the `baseDir` warning, then what `errorHandler()`
+      // rendered. No note: this fixture is the one that is type-checked
+      code: 1,
+      diagnostics: 2,
+      dir: join(fixtures, 'typecheck', 'broken'),
+      lines: 3,
+    },
+    {
+      // a computed `commands`, the note, then the error
+      code: 1,
+      diagnostics: 1,
+      dir: join(fixtures, 'ts-app'),
+      lines: 3,
+    },
+  ] as const;
 
-	const ran = new Map<string, Ran>();
+  const ran = new Map<string, Ran>();
 
-	beforeAll(async () => {
-		const results = await Promise.all(PIPED.map((f) => sigil(['check', f.dir])));
-		for (const [i, result] of results.entries()) {
-			ran.set(PIPED[i]!.dir, result);
-		}
-	}, 60_000);
+  beforeAll(async () => {
+    const results = await Promise.all(PIPED.map((f) => sigil(['check', f.dir])));
+    for (const [i, result] of results.entries()) {
+      ran.set(PIPED[i]!.dir, result);
+    }
+  }, 60_000);
 
-	for (const fixture of PIPED) {
-		const name = fixture.dir.slice(fixtures.length + 1).replaceAll('\\', '/');
+  for (const fixture of PIPED) {
+    const name = fixture.dir.slice(fixtures.length + 1).replaceAll('\\', '/');
 
-		it(`should write one line per diagnostic for ${name}`, () => {
-			const { err } = ran.get(fixture.dir)!;
-			const lines = nonEmpty(err);
+    it(`should write one line per diagnostic for ${name}`, () => {
+      const { err } = ran.get(fixture.dir)!;
+      const lines = nonEmpty(err);
 
-			// every record starts at column zero and is whole, which is what `grep`
-			// and `awk -F:` rest on. A wrapped line would be an extra line here and
-			// would match none of the shapes below
-			expect(
-				lines.filter((line) => DIAGNOSTIC.test(line)),
-				err
-			).toHaveLength(fixture.diagnostics);
-			expect(lines, err).toHaveLength(fixture.lines);
-		});
+      // every record starts at column zero and is whole, which is what `grep`
+      // and `awk -F:` rest on. A wrapped line would be an extra line here and
+      // would match none of the shapes below
+      expect(
+        lines.filter((line) => DIAGNOSTIC.test(line)),
+        err
+      ).toHaveLength(fixture.diagnostics);
+      expect(lines, err).toHaveLength(fixture.lines);
+    });
 
-		it(`should keep every diagnostic parseable by awk -F: for ${name}`, () => {
-			const { err } = ran.get(fixture.dir)!;
-			const located = nonEmpty(err).filter((line) => DIAGNOSTIC.test(line));
+    it(`should keep every diagnostic parseable by awk -F: for ${name}`, () => {
+      const { err } = ran.get(fixture.dir)!;
+      const located = nonEmpty(err).filter((line) => DIAGNOSTIC.test(line));
 
-			// the count first, because a filter that matches nothing passes every
-			// assertion below it -- which is how a form that stopped being
-			// `file:line:column:` at all would pass a test named for reading it
-			expect(located, err).toHaveLength(fixture.diagnostics);
+      // the count first, because a filter that matches nothing passes every
+      // assertion below it -- which is how a form that stopped being
+      // `file:line:column:` at all would pass a test named for reading it
+      expect(located, err).toHaveLength(fixture.diagnostics);
 
-			for (const line of located) {
-				const fields = line.split(':');
-				expect(Number.isInteger(Number(fields[1])), line).toBe(true);
-				expect(Number.isInteger(Number(fields[2])), line).toBe(true);
-				expect(fields[3]?.trim(), line).toMatch(/^(error|warning)$/);
-			}
-		});
+      for (const line of located) {
+        const fields = line.split(':');
+        expect(Number.isInteger(Number(fields[1])), line).toBe(true);
+        expect(Number.isInteger(Number(fields[2])), line).toBe(true);
+        expect(fields[3]?.trim(), line).toMatch(/^(error|warning)$/);
+      }
+    });
 
-		it(`should carry no escape sequence for ${name}`, () => {
-			const { err, out: stdout } = ran.get(fixture.dir)!;
+    it(`should carry no escape sequence for ${name}`, () => {
+      const { err, out: stdout } = ran.get(fixture.dir)!;
 
-			expect(hasAnsi(err), err).toBe(false);
-			expect(hasAnsi(stdout), stdout).toBe(false);
-		});
+      expect(hasAnsi(err), err).toBe(false);
+      expect(hasAnsi(stdout), stdout).toBe(false);
+    });
 
-		it(`should end its lines with a bare newline for ${name}`, () => {
-			// asserted rather than tolerated. The first version of this file stripped a
-			// trailing `\r` on the way in, on the theory that a line ending is not what
-			// these tests are about -- which would have let a switch to CRLF pass in
-			// silence, and a `\r` on the last field is exactly what `awk -F:` hands back
-			// to whoever is reading it. A pipe gets `\n`, which is the rule the
-			// plain-text path already keeps: a carriage return in a log file is not a
-			// line ending anybody asked for
-			const { err, out: stdout } = ran.get(fixture.dir)!;
+    it(`should end its lines with a bare newline for ${name}`, () => {
+      // asserted rather than tolerated. The first version of this file stripped a
+      // trailing `\r` on the way in, on the theory that a line ending is not what
+      // these tests are about -- which would have let a switch to CRLF pass in
+      // silence, and a `\r` on the last field is exactly what `awk -F:` hands back
+      // to whoever is reading it. A pipe gets `\n`, which is the rule the
+      // plain-text path already keeps: a carriage return in a log file is not a
+      // line ending anybody asked for
+      const { err, out: stdout } = ran.get(fixture.dir)!;
 
-			expect(err, 'a carriage return reached stderr').not.toContain('\r');
-			expect(stdout, 'a carriage return reached stdout').not.toContain('\r');
-		});
+      expect(err, 'a carriage return reached stderr').not.toContain('\r');
+      expect(stdout, 'a carriage return reached stdout').not.toContain('\r');
+    });
 
-		it(`should exit ${fixture.code} for ${name}`, () => {
-			expect(ran.get(fixture.dir)!.code).toBe(fixture.code);
-		});
-	}
+    it(`should exit ${fixture.code} for ${name}`, () => {
+      expect(ran.get(fixture.dir)!.code).toBe(fixture.code);
+    });
+  }
 
-	it('should say what the app is and how it went, on one line', () => {
-		// the comma rather than a parenthetical, which is the one regression this
-		// has actually had: `build`'s summary went from `, 2 warnings` to
-		// ` (2 warnings)` and was written down as verified, because the byte
-		// comparison had only ever been run against `check`. The runs are joined by
-		// a space off a terminal, so the comma rides on the run before it
-		const { err } = ran.get(join(fixtures, 'app'))!;
+  it('should say what the app is and how it went, on one line', () => {
+    // the comma rather than a parenthetical, which is the one regression this
+    // has actually had: `build`'s summary went from `, 2 warnings` to
+    // ` (2 warnings)` and was written down as verified, because the byte
+    // comparison had only ever been run against `check`. The runs are joined by
+    // a space off a terminal, so the comma rides on the run before it
+    const { err } = ran.get(join(fixtures, 'app'))!;
 
-		expect(nonEmpty(err).at(-1)).toMatch(/^fixture-app \(index\.ts\): \d+ commands, 1 warning$/);
-	});
+    expect(nonEmpty(err).at(-1)).toMatch(/^fixture-app \(index\.ts\): \d+ commands, 1 warning$/);
+  });
 });
 
 describe('a terminal', () => {
-	const app = join(fixtures, 'app');
-	const broken = join(fixtures, 'typecheck', 'broken');
-	let laidOut: Ran;
-	let piped: Ran;
-	let stacked: Ran;
-	let brokenLaidOut: Ran;
-	let brokenPiped: Ran;
-	let colourless: Ran;
+  const app = join(fixtures, 'app');
+  const broken = join(fixtures, 'typecheck', 'broken');
+  let laidOut: Ran;
+  let piped: Ran;
+  let stacked: Ran;
+  let brokenLaidOut: Ran;
+  let brokenPiped: Ran;
+  let colourless: Ran;
 
-	beforeAll(async () => {
-		[laidOut, piped, stacked, brokenLaidOut, brokenPiped, colourless] = await Promise.all([
-			sigil(['check', app], { tty: ['stderr', 'stdout'] }),
-			sigil(['check', app]),
-			sigil(['check', app], { columns: NARROW, tty: ['stderr', 'stdout'] }),
-			sigil(['check', broken], { tty: ['stderr', 'stdout'] }),
-			sigil(['check', broken]),
-			sigil(['check', app], { env: { NO_COLOR: '1' }, tty: ['stderr', 'stdout'] }),
-		]);
-	}, 60_000);
+  beforeAll(async () => {
+    [laidOut, piped, stacked, brokenLaidOut, brokenPiped, colourless] = await Promise.all([
+      sigil(['check', app], { tty: ['stderr', 'stdout'] }),
+      sigil(['check', app]),
+      sigil(['check', app], { columns: NARROW, tty: ['stderr', 'stdout'] }),
+      sigil(['check', broken], { tty: ['stderr', 'stdout'] }),
+      sigil(['check', broken]),
+      sigil(['check', app], { env: { NO_COLOR: '1' }, tty: ['stderr', 'stdout'] }),
+    ]);
+  }, 60_000);
 
-	it('should wrap a message in the column it started in', () => {
-		const lines = plain(laidOut.err);
-		const first = lines.findIndex((line) => DIAGNOSTIC.test(line));
+  it('should wrap a message in the column it started in', () => {
+    const lines = plain(laidOut.err);
+    const first = lines.findIndex((line) => DIAGNOSTIC.test(line));
 
-		expect(first, laidOut.err).toBeGreaterThanOrEqual(0);
+    expect(first, laidOut.err).toBeGreaterThanOrEqual(0);
 
-		// the hanging indent: the message column starts where the location and the
-		// severity end, and every line after the first starts there too
-		const prefix = /^(\S+?:\d+:\d+: (?:error|warning): )/.exec(lines[first]!)![1]!;
-		const continuations = lines.slice(first + 1).filter((line) => /^\s+\S/.test(line));
+    // the hanging indent: the message column starts where the location and the
+    // severity end, and every line after the first starts there too
+    const prefix = /^(\S+?:\d+:\d+: (?:error|warning): )/.exec(lines[first]!)![1]!;
+    const continuations = lines.slice(first + 1).filter((line) => /^\s+\S/.test(line));
 
-		expect(continuations.length, laidOut.err).toBeGreaterThan(0);
-		for (const line of continuations) {
-			expect(line.slice(0, prefix.length), line).toBe(' '.repeat(prefix.length));
-			expect(line[prefix.length], line).not.toBe(' ');
-		}
-	});
+    expect(continuations.length, laidOut.err).toBeGreaterThan(0);
+    for (const line of continuations) {
+      expect(line.slice(0, prefix.length), line).toBe(' '.repeat(prefix.length));
+      expect(line[prefix.length], line).not.toBe(' ');
+    }
+  });
 
-	it('should keep a phrase the wrapping broke on one line in the pipe', () => {
-		// the 1-to-0 measurement, automated. `grep "a string literal"` stopped
-		// matching the moment the wrap fell between "string" and "literal", and
-		// these are every such phrase this render produced
-		const phrases = wrapped(laidOut.err);
+  it('should keep a phrase the wrapping broke on one line in the pipe', () => {
+    // the 1-to-0 measurement, automated. `grep "a string literal"` stopped
+    // matching the moment the wrap fell between "string" and "literal", and
+    // these are every such phrase this render produced
+    const phrases = wrapped(laidOut.err);
 
-		expect(phrases.length, laidOut.err).toBeGreaterThan(0);
-		for (const phrase of phrases) {
-			expect(strip(laidOut.err), `the terminal broke ${phrase}`).not.toContain(phrase);
-			expect(piped.err, `the pipe kept ${phrase}`).toContain(phrase);
-		}
-	});
+    expect(phrases.length, laidOut.err).toBeGreaterThan(0);
+    for (const phrase of phrases) {
+      expect(strip(laidOut.err), `the terminal broke ${phrase}`).not.toContain(phrase);
+      expect(piped.err, `the pipe kept ${phrase}`).toContain(phrase);
+    }
+  });
 
-	it('should colour the severity', () => {
-		const opened = sgr(laidOut.err);
+  it('should colour the severity', () => {
+    const opened = sgr(laidOut.err);
 
-		// 33 is yellow, which `.sigil-warn` sets, and 2 is the dim the location
-		// carries through `.sigil-muted`. Both were `.cli-*` rules of the toolchain's
-		// own until the role vocabulary deleted that sheet; the parameters did not
-		// move, which is why these two assertions stayed green over the change and
-		// the comment above them did not. Parameters rather than bytes, for the
-		// reason `sgr()` records
-		expect(opened, laidOut.err).toContain(33);
-		expect(opened, laidOut.err).toContain(2);
-	});
+    // 33 is yellow, which `.sigil-warn` sets, and 2 is the dim the location
+    // carries through `.sigil-muted`. Both were `.cli-*` rules of the toolchain's
+    // own until the role vocabulary deleted that sheet; the parameters did not
+    // move, which is why these two assertions stayed green over the change and
+    // the comment above them did not. Parameters rather than bytes, for the
+    // reason `sgr()` records
+    expect(opened, laidOut.err).toContain(33);
+    expect(opened, laidOut.err).toContain(2);
+  });
 
-	it('should colour an error differently from a warning', () => {
-		const opened = sgr(brokenLaidOut.err);
+  it('should colour an error differently from a warning', () => {
+    const opened = sgr(brokenLaidOut.err);
 
-		// 31 is red, which `.sigil-error` sets -- `.cli-error` until the roles landed.
-		// This fixture has one of each, so both are on screen at once and the two
-		// severities cannot have collapsed onto one role
-		expect(opened, brokenLaidOut.err).toContain(31);
-		expect(opened, brokenLaidOut.err).toContain(33);
-	});
+    // 31 is red, which `.sigil-error` sets -- `.cli-error` until the roles landed.
+    // This fixture has one of each, so both are on screen at once and the two
+    // severities cannot have collapsed onto one role
+    expect(opened, brokenLaidOut.err).toContain(31);
+    expect(opened, brokenLaidOut.err).toContain(33);
+  });
 
-	it('should never break a path across lines', () => {
-		// the case that has broken twice. The `baseDir` warning names the directory
-		// each side would resolve against, and a path broken mid-token is the one
-		// sentence whose whole job is to say which directory. It overflows the line
-		// instead, which is the rule the location prefix and help's own labels
-		// already follow -- and it is the overflow that makes "whole, on one line"
-		// the entire claim: a path that was broken appears on no line at all, and one
-		// that `text-overflow` cut appears on none either.
-		//
-		// The first version of this also asserted that the line was wider than the
-		// terminal, which is true here and is a claim about the *checkout's* own path
-		// length rather than about the report: the line is the 24-column hanging
-		// indent plus the path, so a repository at `/code/sigil` fails it on a build
-		// with nothing wrong. Measured, not guessed -- 56 characters of fixture path
-		// is where it turns over
-		const path = join(fixtures, 'typecheck', 'broken').replaceAll('\\', '/');
-		const holding = plain(brokenLaidOut.err).filter((line) => line.includes(path));
+  it('should never break a path across lines', () => {
+    // the case that has broken twice. The `baseDir` warning names the directory
+    // each side would resolve against, and a path broken mid-token is the one
+    // sentence whose whole job is to say which directory. It overflows the line
+    // instead, which is the rule the location prefix and help's own labels
+    // already follow -- and it is the overflow that makes "whole, on one line"
+    // the entire claim: a path that was broken appears on no line at all, and one
+    // that `text-overflow` cut appears on none either.
+    //
+    // The first version of this also asserted that the line was wider than the
+    // terminal, which is true here and is a claim about the *checkout's* own path
+    // length rather than about the report: the line is the 24-column hanging
+    // indent plus the path, so a repository at `/code/sigil` fails it on a build
+    // with nothing wrong. Measured, not guessed -- 56 characters of fixture path
+    // is where it turns over
+    const path = join(fixtures, 'typecheck', 'broken').replaceAll('\\', '/');
+    const holding = plain(brokenLaidOut.err).filter((line) => line.includes(path));
 
-		// this render really did wrap, or the whole assertion is about the piped form
-		// wearing the laid-out form's name
-		expect(wrapped(brokenLaidOut.err).length, brokenLaidOut.err).toBeGreaterThan(0);
-		expect(holding, brokenLaidOut.err).toHaveLength(1);
-	});
+    // this render really did wrap, or the whole assertion is about the piped form
+    // wearing the laid-out form's name
+    expect(wrapped(brokenLaidOut.err).length, brokenLaidOut.err).toBeGreaterThan(0);
+    expect(holding, brokenLaidOut.err).toHaveLength(1);
+  });
 
-	it('should stack the message under the location when two columns will not fit', () => {
-		// below `MIN_MESSAGE` the location takes the line on its own and the message
-		// is indented under it, which is what help's list does at the same threshold
-		const lines = plain(stacked.err);
-		const first = lines.findIndex((line) => STARTS.test(line));
+  it('should stack the message under the location when two columns will not fit', () => {
+    // below `MIN_MESSAGE` the location takes the line on its own and the message
+    // is indented under it, which is what help's list does at the same threshold
+    const lines = plain(stacked.err);
+    const first = lines.findIndex((line) => STARTS.test(line));
 
-		expect(first, stacked.err).toBeGreaterThanOrEqual(0);
-		expect(lines[first], stacked.err).toMatch(/: warning:$/);
-		expect(lines[first + 1], stacked.err).toMatch(/^ {2}\S/);
-	});
+    expect(first, stacked.err).toBeGreaterThanOrEqual(0);
+    expect(lines[first], stacked.err).toMatch(/: warning:$/);
+    expect(lines[first + 1], stacked.err).toMatch(/^ {2}\S/);
+  });
 
-	it('should say the same words as the pipe', () => {
-		// `report.ts`'s own claim: what differs is the wrapping and the colour. Take
-		// both out and the two forms are one report -- which is what catches either
-		// of them rewording on its own, and the location being rebuilt rather than
-		// coming from `diagnosticLocation()`
-		expect(words(laidOut.err)).toBe(words(piped.err));
-		expect(words(brokenLaidOut.err)).toBe(words(brokenPiped.err));
-		expect(words(stacked.err)).toBe(words(piped.err));
-	});
+  it('should say the same words as the pipe', () => {
+    // `report.ts`'s own claim: what differs is the wrapping and the colour. Take
+    // both out and the two forms are one report -- which is what catches either
+    // of them rewording on its own, and the location being rebuilt rather than
+    // coming from `diagnosticLocation()`
+    expect(words(laidOut.err)).toBe(words(piped.err));
+    expect(words(brokenLaidOut.err)).toBe(words(brokenPiped.err));
+    expect(words(stacked.err)).toBe(words(piped.err));
+  });
 
-	it('should still lay a report out under NO_COLOR', () => {
-		// the other half of the `FORCE_COLOR` case, and the direction AGENTS.md is
-		// most emphatic about: `NO_COLOR` on a real terminal means "no colour", not
-		// "no layout", and a report that unwrapped itself over it would be reading one
-		// setting as though it were another. So the wrapping is the terminal's and the
-		// colour is gone -- which is exactly what keying the layout on the colour
-		// level instead would break, and that tidy-up is the one the sheet says must
-		// not be taken
-		// laid out, asserted rather than assumed: with no terminal at all both sides
-		// are the piped form and the comparison below holds while saying nothing
-		expect(wrapped(colourless.err).length, colourless.err).toBeGreaterThan(0);
-		expect(hasAnsi(colourless.err), colourless.err).toBe(false);
-		expect(strip(laidOut.err)).toBe(colourless.err);
-	});
+  it('should still lay a report out under NO_COLOR', () => {
+    // the other half of the `FORCE_COLOR` case, and the direction AGENTS.md is
+    // most emphatic about: `NO_COLOR` on a real terminal means "no colour", not
+    // "no layout", and a report that unwrapped itself over it would be reading one
+    // setting as though it were another. So the wrapping is the terminal's and the
+    // colour is gone -- which is exactly what keying the layout on the colour
+    // level instead would break, and that tidy-up is the one the sheet says must
+    // not be taken
+    // laid out, asserted rather than assumed: with no terminal at all both sides
+    // are the piped form and the comparison below holds while saying nothing
+    expect(wrapped(colourless.err).length, colourless.err).toBeGreaterThan(0);
+    expect(hasAnsi(colourless.err), colourless.err).toBe(false);
+    expect(strip(laidOut.err)).toBe(colourless.err);
+  });
 
-	it('should exit the way the pipe does', () => {
-		expect(laidOut.code).toBe(piped.code);
-		expect(brokenLaidOut.code).toBe(brokenPiped.code);
-	});
+  it('should exit the way the pipe does', () => {
+    expect(laidOut.code).toBe(piped.code);
+    expect(brokenLaidOut.code).toBe(brokenPiped.code);
+  });
 });
 
 describe('--tree', () => {
-	const app = join(fixtures, 'app');
-	let piped: Ran;
-	let bare: Ran;
-	let forced: Ran;
-	let split: Ran;
+  const app = join(fixtures, 'app');
+  let piped: Ran;
+  let bare: Ran;
+  let forced: Ran;
+  let split: Ran;
 
-	beforeAll(async () => {
-		[piped, bare, forced, split] = await Promise.all([
-			sigil(['check', app, '--tree']),
-			sigil(['check', app]),
-			sigil(['check', app, '--tree'], { env: { FORCE_COLOR: '3' } }),
-			// a terminal on stdout and a pipe on stderr, which is `sigil check
-			// --tree 2>log.txt` run from a terminal
-			sigil(['check', app, '--tree'], { tty: ['stdout'] }),
-		]);
-	}, 60_000);
+  beforeAll(async () => {
+    [piped, bare, forced, split] = await Promise.all([
+      sigil(['check', app, '--tree']),
+      sigil(['check', app]),
+      sigil(['check', app, '--tree'], { env: { FORCE_COLOR: '3' } }),
+      // a terminal on stdout and a pipe on stderr, which is `sigil check
+      // --tree 2>log.txt` run from a terminal
+      sigil(['check', app, '--tree'], { tty: ['stdout'] }),
+    ]);
+  }, 60_000);
 
-	it('should put the tree on stdout and change nothing about stderr', () => {
-		// the tree is data somebody asked for and the diagnostics are not, so a tree
-		// can be piped without losing the problems -- and asking for one must not
-		// change the form the problems arrive in
-		expect(piped.out).toContain('Command');
-		expect(piped.err).toBe(bare.err);
-		expect(hasAnsi(piped.out), piped.out).toBe(false);
-	});
+  it('should put the tree on stdout and change nothing about stderr', () => {
+    // the tree is data somebody asked for and the diagnostics are not, so a tree
+    // can be piped without losing the problems -- and asking for one must not
+    // change the form the problems arrive in
+    expect(piped.out).toContain('Command');
+    expect(piped.err).toBe(bare.err);
+    expect(hasAnsi(piped.out), piped.out).toBe(false);
+  });
 
-	it('should colour the tree and not the diagnostics under FORCE_COLOR', () => {
-		// the two knobs are independent on purpose: layout follows `isTTY` and
-		// colour follows the level, so `FORCE_COLOR=3 sigil check --tree | cat` is a
-		// coloured table on stdout and plain one-line diagnostics on stderr. It
-		// looks like an inconsistency and is the opposite -- keying the laid-out
-		// form on the colour level would make `NO_COLOR` on a real terminal unwrap
-		// every diagnostic, which is reading one setting as though it were another
-		expect(sgr(forced.out), forced.out).toContain(1);
-		expect(hasAnsi(forced.err), forced.err).toBe(false);
-		expect(nonEmpty(forced.err).filter((line) => DIAGNOSTIC.test(line))).toHaveLength(1);
-		expect(nonEmpty(forced.err)).toHaveLength(3);
-	});
+  it('should colour the tree and not the diagnostics under FORCE_COLOR', () => {
+    // the two knobs are independent on purpose: layout follows `isTTY` and
+    // colour follows the level, so `FORCE_COLOR=3 sigil check --tree | cat` is a
+    // coloured table on stdout and plain one-line diagnostics on stderr. It
+    // looks like an inconsistency and is the opposite -- keying the laid-out
+    // form on the colour level would make `NO_COLOR` on a real terminal unwrap
+    // every diagnostic, which is reading one setting as though it were another
+    expect(sgr(forced.out), forced.out).toContain(1);
+    expect(hasAnsi(forced.err), forced.err).toBe(false);
+    expect(nonEmpty(forced.err).filter((line) => DIAGNOSTIC.test(line))).toHaveLength(1);
+    expect(nonEmpty(forced.err)).toHaveLength(3);
+  });
 
-	it('should ask the stream it is going to rather than the process', () => {
-		// stdout is a terminal here and stderr is not, so the table takes colour and
-		// the diagnostics stay one line each. `supportsColor()` defaults to
-		// `process.stdout` whoever is asking, so a report reaching for the process's
-		// own styler would fill that redirect with sequences while being perfectly
-		// right about the wrong stream
-		expect(hasAnsi(split.out), split.out).toBe(true);
-		expect(hasAnsi(split.err), split.err).toBe(false);
-		expect(nonEmpty(split.err)).toHaveLength(3);
-		expect(split.err).toBe(bare.err);
-	});
+  it('should ask the stream it is going to rather than the process', () => {
+    // stdout is a terminal here and stderr is not, so the table takes colour and
+    // the diagnostics stay one line each. `supportsColor()` defaults to
+    // `process.stdout` whoever is asking, so a report reaching for the process's
+    // own styler would fill that redirect with sequences while being perfectly
+    // right about the wrong stream
+    expect(hasAnsi(split.out), split.out).toBe(true);
+    expect(hasAnsi(split.err), split.err).toBe(false);
+    expect(nonEmpty(split.err)).toHaveLength(3);
+    expect(split.err).toBe(bare.err);
+  });
 });
 
 describe('sigil build', () => {
-	const app = join(fixtures, 'app');
-	const broken = join(fixtures, 'typecheck', 'broken');
-	let piped: Ran;
-	let laidOut: Ran;
-	let refused: Ran;
+  const app = join(fixtures, 'app');
+  const broken = join(fixtures, 'typecheck', 'broken');
+  let piped: Ran;
+  let laidOut: Ran;
+  let refused: Ran;
 
-	beforeAll(async () => {
-		// two of these build the *same* fixture at once, to different `--out`
-		// directories, which was a race until the generated entry got a directory
-		// per output: both builds wrote one `entry.mjs` and the one that wrote last
-		// won for both. It passed here anyway, because two builds of one app with
-		// one tree generate identical entries -- so what this file did was leave a
-		// torn read as the only way to see it, which is the shape of the one
-		// unexplained failure that went with it. Kept concurrent on purpose now:
-		// it is the cheapest standing exercise of the fix that exists
-		[piped, laidOut, refused] = await Promise.all([
-			sigil(['build', app, '--out', out]),
-			sigil(['build', app, '--out', out2], { tty: ['stderr', 'stdout'] }),
-			sigil(['build', broken, '--out', out3]),
-		]);
-	}, 60_000);
+  beforeAll(async () => {
+    // two of these build the *same* fixture at once, to different `--out`
+    // directories, which was a race until the generated entry got a directory
+    // per output: both builds wrote one `entry.mjs` and the one that wrote last
+    // won for both. It passed here anyway, because two builds of one app with
+    // one tree generate identical entries -- so what this file did was leave a
+    // torn read as the only way to see it, which is the shape of the one
+    // unexplained failure that went with it. Kept concurrent on purpose now:
+    // it is the cheapest standing exercise of the fix that exists
+    [piped, laidOut, refused] = await Promise.all([
+      sigil(['build', app, '--out', out]),
+      sigil(['build', app, '--out', out2], { tty: ['stderr', 'stdout'] }),
+      sigil(['build', broken, '--out', out3]),
+    ]);
+  }, 60_000);
 
-	it('should write one line per diagnostic and one summary', () => {
-		// the fixture's unreadable `desc`, the no-tsconfig note, then the summary
-		expect(
-			nonEmpty(piped.err).filter((line) => DIAGNOSTIC.test(line)),
-			piped.err
-		).toHaveLength(1);
-		expect(nonEmpty(piped.err), piped.err).toHaveLength(3);
-		expect(hasAnsi(piped.err), piped.err).toBe(false);
-		expect(piped.code).toBe(0);
-	});
+  it('should write one line per diagnostic and one summary', () => {
+    // the fixture's unreadable `desc`, the no-tsconfig note, then the summary
+    expect(
+      nonEmpty(piped.err).filter((line) => DIAGNOSTIC.test(line)),
+      piped.err
+    ).toHaveLength(1);
+    expect(nonEmpty(piped.err), piped.err).toHaveLength(3);
+    expect(hasAnsi(piped.err), piped.err).toBe(false);
+    expect(piped.code).toBe(0);
+  });
 
-	it('should end its summary with the comma form, not a parenthetical', () => {
-		// this is the line that regressed. `, N warnings` is what `main` printed and
-		// the runs are joined by a space off a terminal, so the comma rides on the
-		// run before it; ` (N warnings)` was the first version of the rendered form
-		// and it reached the pipe
-		expect(nonEmpty(piped.err).at(-1)).toMatch(/ into \S+, 1 warning$/);
-	});
+  it('should end its summary with the comma form, not a parenthetical', () => {
+    // this is the line that regressed. `, N warnings` is what `main` printed and
+    // the runs are joined by a space off a terminal, so the comma rides on the
+    // run before it; ` (N warnings)` was the first version of the rendered form
+    // and it reached the pipe
+    expect(nonEmpty(piped.err).at(-1)).toMatch(/ into \S+, 1 warning$/);
+  });
 
-	it('should say the same words as the terminal', () => {
-		// the two builds wrote to two directories, so the paths differ by exactly
-		// that and by nothing else -- taken out by the directory's *name*, because
-		// the summary reports it relative to the app and the absolute string is
-		// therefore not in the text at all when `TMPDIR` happens to sit under the
-		// fixture
-		const shorn = (text: string): string =>
-			words(text).replaceAll(new RegExp(`${OUT_PREFIX}[^/\\s]*`, 'g'), '<out>');
+  it('should say the same words as the terminal', () => {
+    // the two builds wrote to two directories, so the paths differ by exactly
+    // that and by nothing else -- taken out by the directory's *name*, because
+    // the summary reports it relative to the app and the absolute string is
+    // therefore not in the text at all when `TMPDIR` happens to sit under the
+    // fixture
+    const shorn = (text: string): string =>
+      words(text).replaceAll(new RegExp(`${OUT_PREFIX}[^/\\s]*`, 'g'), '<out>');
 
-		expect(shorn(piped.err)).toBe(shorn(laidOut.err));
-	});
+    expect(shorn(piped.err)).toBe(shorn(laidOut.err));
+  });
 
-	it('should never break the path it wrote to', () => {
-		// a summary ends in a path, and `paragraph()` would have broken it: it gives
-		// each word `min-width: 0` on purpose, so a word too long for the line is
-		// broken rather than left to run off the edge. That is right for prose and
-		// wrong for every line here
-		// the trailing comma is part of the word rather than one of its own, which is
-		// the same decision the summary's comma is: a run is a word, and a lone comma
-		// would be drawn with a space in front of it
-		const path = plain(laidOut.err)
-			.flatMap((line) => line.trim().split(/\s+/))
-			.find((word) => /fixture-app\.mjs,?$/.test(word));
+  it('should never break the path it wrote to', () => {
+    // a summary ends in a path, and `paragraph()` would have broken it: it gives
+    // each word `min-width: 0` on purpose, so a word too long for the line is
+    // broken rather than left to run off the edge. That is right for prose and
+    // wrong for every line here
+    // the trailing comma is part of the word rather than one of its own, which is
+    // the same decision the summary's comma is: a run is a word, and a lone comma
+    // would be drawn with a space in front of it
+    const path = plain(laidOut.err)
+      .flatMap((line) => line.trim().split(/\s+/))
+      .find((word) => /fixture-app\.mjs,?$/.test(word));
 
-		// the same guard the diagnostic's path test carries, and for the same reason:
-		// an unwrapped summary does not break a path either, so without this the
-		// assertion would hold of the piped form wearing the laid-out form's name
-		expect(wrapped(laidOut.err).length, laidOut.err).toBeGreaterThan(0);
-		// and the same claim, for the same reason: a path that was broken is a word
-		// ending in something else, so there is nothing to find. Asserting that the
-		// word is wider than the terminal looked safe here -- the directory is named
-		// long on purpose -- and is the same environment dependence one line along,
-		// because the summary reports the path *relative to the app*: with `TMPDIR`
-		// inside the fixture it comes to 72 columns and a correct build fails
-		expect(path, laidOut.err).toBeDefined();
-	});
+    // the same guard the diagnostic's path test carries, and for the same reason:
+    // an unwrapped summary does not break a path either, so without this the
+    // assertion would hold of the piped form wearing the laid-out form's name
+    expect(wrapped(laidOut.err).length, laidOut.err).toBeGreaterThan(0);
+    // and the same claim, for the same reason: a path that was broken is a word
+    // ending in something else, so there is nothing to find. Asserting that the
+    // word is wider than the terminal looked safe here -- the directory is named
+    // long on purpose -- and is the same environment dependence one line along,
+    // because the summary reports the path *relative to the app*: with `TMPDIR`
+    // inside the fixture it comes to 72 columns and a correct build fails
+    expect(path, laidOut.err).toBeDefined();
+  });
 
-	it('should refuse an app that does not check out, in the piped form', () => {
-		// `build` runs `check`'s pass, so its diagnostics are the same diagnostics
-		// and arrive in the same form -- which is what stops the two coming to
-		// disagree about what a valid app is
-		// two diagnostics and what `errorHandler()` rendered, which is three lines
-		expect(
-			nonEmpty(refused.err).filter((line) => DIAGNOSTIC.test(line)),
-			refused.err
-		).toHaveLength(2);
-		expect(nonEmpty(refused.err), refused.err).toHaveLength(3);
-		expect(refused.err).toContain('TS2322');
-		expect(hasAnsi(refused.err), refused.err).toBe(false);
-		expect(refused.code).toBe(1);
-	});
+  it('should refuse an app that does not check out, in the piped form', () => {
+    // `build` runs `check`'s pass, so its diagnostics are the same diagnostics
+    // and arrive in the same form -- which is what stops the two coming to
+    // disagree about what a valid app is
+    // two diagnostics and what `errorHandler()` rendered, which is three lines
+    expect(
+      nonEmpty(refused.err).filter((line) => DIAGNOSTIC.test(line)),
+      refused.err
+    ).toHaveLength(2);
+    expect(nonEmpty(refused.err), refused.err).toHaveLength(3);
+    expect(refused.err).toContain('TS2322');
+    expect(hasAnsi(refused.err), refused.err).toBe(false);
+    expect(refused.code).toBe(1);
+  });
 });

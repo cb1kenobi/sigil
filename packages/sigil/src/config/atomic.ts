@@ -1,16 +1,16 @@
 import { mkdirOwnerSync } from '../util/mkdir-owner-sync.js';
 import {
-	chmodSync,
-	chownSync,
-	closeSync,
-	fsyncSync,
-	openSync,
-	readlinkSync,
-	realpathSync,
-	renameSync,
-	statSync,
-	unlinkSync,
-	writeFileSync,
+  chmodSync,
+  chownSync,
+  closeSync,
+  fsyncSync,
+  openSync,
+  readlinkSync,
+  realpathSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
 } from 'node:fs';
 import { chmod, chown, open, rename, unlink } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, sep } from 'node:path';
@@ -75,9 +75,9 @@ import { basename, dirname, isAbsolute, join, sep } from 'node:path';
 
 /** What the target has that the replacement should keep. */
 interface Keep {
-	gid?: number;
-	mode?: number;
-	uid?: number;
+  gid?: number;
+  mode?: number;
+  uid?: number;
 }
 
 /** So that two saves in one process cannot pick the same temp name. */
@@ -103,7 +103,7 @@ const FLUSH_DECLINED = new Set(['EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EP
  * @returns Whether to carry on with the rename.
  */
 function declinesFlush(e: unknown): boolean {
-	return FLUSH_DECLINED.has((e as { code?: string }).code ?? '');
+  return FLUSH_DECLINED.has((e as { code?: string }).code ?? '');
 }
 
 /**
@@ -144,7 +144,7 @@ const NO_LINK = new Set(['EINVAL', 'ENOENT']);
  * @returns Whether the path it was asked about is where the write lands.
  */
 function endsChain(e: unknown): boolean {
-	return NO_LINK.has((e as { code?: string }).code ?? '');
+  return NO_LINK.has((e as { code?: string }).code ?? '');
 }
 
 /**
@@ -160,7 +160,7 @@ function endsChain(e: unknown): boolean {
  * @returns The two with one separator between them and no `..` resolved.
  */
 function rawJoin(dir: string, rest: string): string {
-	return dir.endsWith(sep) ? dir + rest : `${dir}${sep}${rest}`;
+  return dir.endsWith(sep) ? dir + rest : `${dir}${sep}${rest}`;
 }
 
 /**
@@ -190,42 +190,42 @@ function rawJoin(dir: string, rest: string): string {
  * @throws If a resolution failed for any reason but something not being there.
  */
 function physicalPath(raw: string): string {
-	let rest = '';
-	let at = raw;
+  let rest = '';
+  let at = raw;
 
-	for (;;) {
-		try {
-			const real = realpathSync.native(at);
-			return rest === '' ? real : join(real, rest);
-		} catch (e: unknown) {
-			if (!isMissing(e)) {
-				throw e;
-			}
-		}
+  for (;;) {
+    try {
+      const real = realpathSync.native(at);
+      return rest === '' ? real : join(real, rest);
+    } catch (e: unknown) {
+      if (!isMissing(e)) {
+        throw e;
+      }
+    }
 
-		const up = dirname(at);
-		if (up === at) {
-			// the file system root, which always exists -- so the return above has
-			// already answered and nothing reaches this. It is here because a loop
-			// that relies on finding something is one that can run off the top of
-			// the file system, which is the rule `mkdirOwnerSync()`'s own climb
-			// already follows
-			return raw;
-		}
+    const up = dirname(at);
+    if (up === at) {
+      // the file system root, which always exists -- so the return above has
+      // already answered and nothing reaches this. It is here because a loop
+      // that relies on finding something is one that can run off the top of
+      // the file system, which is the rule `mkdirOwnerSync()`'s own climb
+      // already follows
+      return raw;
+    }
 
-		rest = rest === '' ? basename(at) : join(basename(at), rest);
-		at = up;
-	}
+    rest = rest === '' ? basename(at) : join(basename(at), rest);
+    at = up;
+  }
 }
 
 /** Whether this process can hand a file to somebody else. */
 function isRoot(): boolean {
-	return process.getuid !== undefined && process.getuid() === 0;
+  return process.getuid !== undefined && process.getuid() === 0;
 }
 
 /** The temp file, beside the target so that the rename is a rename. */
 function tempFor(path: string): string {
-	return `${path}.${process.pid}-${seq++}.tmp`;
+  return `${path}.${process.pid}-${seq++}.tmp`;
 }
 
 /**
@@ -242,7 +242,7 @@ function tempFor(path: string): string {
  * @returns Whether to read it as nothing being there.
  */
 export function isMissing(e: unknown): boolean {
-	return (e as { code?: string }).code === 'ENOENT';
+  return (e as { code?: string }).code === 'ENOENT';
 }
 
 /**
@@ -323,43 +323,43 @@ export function isMissing(e: unknown): boolean {
  * @throws If a resolution failed for any reason but the file not being there.
  */
 function realPathOf(path: string): string {
-	try {
-		return realpathSync.native(path);
-	} catch (e: unknown) {
-		if (!isMissing(e)) {
-			throw e;
-		}
-	}
+  try {
+    return realpathSync.native(path);
+  } catch (e: unknown) {
+    if (!isMissing(e)) {
+      throw e;
+    }
+  }
 
-	let at = path;
-	for (let hops = 0; hops < MAX_LINKS; hops++) {
-		let target: string;
-		try {
-			target = readlinkSync(at);
-		} catch (e: unknown) {
-			if (endsChain(e)) {
-				// where the write lands -- which for a parent component that is not
-				// there is the error `mkdirOwnerSync()` is about to name
-				return at;
-			}
-			throw e;
-		}
+  let at = path;
+  for (let hops = 0; hops < MAX_LINKS; hops++) {
+    let target: string;
+    try {
+      target = readlinkSync(at);
+    } catch (e: unknown) {
+      if (endsChain(e)) {
+        // where the write lands -- which for a parent component that is not
+        // there is the error `mkdirOwnerSync()` is about to name
+        return at;
+      }
+      throw e;
+    }
 
-		// the base is resolved **first**, because a relative target is read from the
-		// directory that physically holds the link -- and then the pieces are joined
-		// un-collapsed, so that each platform's own `..` rule is the one applied.
-		// Both halves are load bearing and on different platforms: see below
-		at = physicalPath(
-			isAbsolute(target) ? target : rawJoin(realpathSync.native(dirname(at)), target)
-		);
-	}
+    // the base is resolved **first**, because a relative target is read from the
+    // directory that physically holds the link -- and then the pieces are joined
+    // un-collapsed, so that each platform's own `..` rule is the one applied.
+    // Both halves are load bearing and on different platforms: see below
+    at = physicalPath(
+      isAbsolute(target) ? target : rawJoin(realpathSync.native(dirname(at)), target)
+    );
+  }
 
-	// unreachable through any state the file system can be in, for the reason
-	// `MAX_LINKS` gives, so this is a tripwire rather than a case anybody has --
-	// and it is English rather than a catalog key for the same reason: what it
-	// stands in for is the `ELOOP` the file system itself would have raised, and
-	// node's own errors on this path are not translated either
-	throw new Error(`Too many levels of symbolic links: ${path}`);
+  // unreachable through any state the file system can be in, for the reason
+  // `MAX_LINKS` gives, so this is a tripwire rather than a case anybody has --
+  // and it is English rather than a catalog key for the same reason: what it
+  // stands in for is the `ELOOP` the file system itself would have raised, and
+  // node's own errors on this path are not translated either
+  throw new Error(`Too many levels of symbolic links: ${path}`);
 }
 
 /**
@@ -378,15 +378,15 @@ function realPathOf(path: string): string {
  * @throws If the stat failed for any reason but the file not being there.
  */
 function statOf(path: string): { gid: number; mode: number; uid: number } | undefined {
-	try {
-		const it = statSync(path);
-		return { gid: it.gid, mode: it.mode, uid: it.uid };
-	} catch (e: unknown) {
-		if (isMissing(e)) {
-			return undefined;
-		}
-		throw e;
-	}
+  try {
+    const it = statSync(path);
+    return { gid: it.gid, mode: it.mode, uid: it.uid };
+  } catch (e: unknown) {
+    if (isMissing(e)) {
+      return undefined;
+    }
+    throw e;
+  }
 }
 
 /**
@@ -396,26 +396,26 @@ function statOf(path: string): { gid: number; mode: number; uid: number } | unde
  * @returns The mode and, under sudo, the owner.
  */
 function keepOf(path: string): Keep {
-	const target = statOf(path);
-	const keep: Keep = {};
+  const target = statOf(path);
+  const keep: Keep = {};
 
-	if (target !== undefined) {
-		// the permission bits and not the setuid ones, for the reason above
-		keep.mode = target.mode & 0o777;
-	}
+  if (target !== undefined) {
+    // the permission bits and not the setuid ones, for the reason above
+    keep.mode = target.mode & 0o777;
+  }
 
-	if (isRoot()) {
-		// the target's own owner, or the directory's for a file that is new --
-		// which is the only thing there is to go on, and is what the directory this
-		// is writing into was itself given
-		const owner = target ?? statOf(dirname(path));
-		if (owner !== undefined) {
-			keep.gid = owner.gid;
-			keep.uid = owner.uid;
-		}
-	}
+  if (isRoot()) {
+    // the target's own owner, or the directory's for a file that is new --
+    // which is the only thing there is to go on, and is what the directory this
+    // is writing into was itself given
+    const owner = target ?? statOf(dirname(path));
+    if (owner !== undefined) {
+      keep.gid = owner.gid;
+      keep.uid = owner.uid;
+    }
+  }
 
-	return keep;
+  return keep;
 }
 
 /**
@@ -425,52 +425,52 @@ function keepOf(path: string): Keep {
  * @param text - What it should hold.
  */
 export async function writeAtomic(path: string, text: string): Promise<void> {
-	// resolved first, so a symlinked config is written **through** rather than
-	// replaced -- `realPathOf()` has the measurement. Synchronous for the reason
-	// `mkdirOwnerSync()` is: there is no async twin of that one, so the pair is
-	// two syscalls on the way in either way
-	const real = realPathOf(path);
+  // resolved first, so a symlinked config is written **through** rather than
+  // replaced -- `realPathOf()` has the measurement. Synchronous for the reason
+  // `mkdirOwnerSync()` is: there is no async twin of that one, so the pair is
+  // two syscalls on the way in either way
+  const real = realPathOf(path);
 
-	// synchronous because there is no async twin of it, which is how `updates/`
-	// already uses it. One directory creation per save is one `mkdir` syscall
-	mkdirOwnerSync(dirname(real));
+  // synchronous because there is no async twin of it, which is how `updates/`
+  // already uses it. One directory creation per save is one `mkdir` syscall
+  mkdirOwnerSync(dirname(real));
 
-	const keep = keepOf(real);
-	const temp = tempFor(real);
-	const handle = await open(temp, 'w', keep.mode ?? 0o666);
+  const keep = keepOf(real);
+  const temp = tempFor(real);
+  const handle = await open(temp, 'w', keep.mode ?? 0o666);
 
-	// one bracket around everything the temp file exists for, so that whatever
-	// fails there is no temp file left behind -- which is the rule
-	// `bundleApp()`'s own `finally` keeps about a handle it opened
-	try {
-		try {
-			// `writeFile` rather than one `write`, because a `write` may be short
-			// and a config half written into the temp file is the thing this is for
-			await handle.writeFile(text, 'utf8');
-			try {
-				await handle.sync();
-			} catch (e: unknown) {
-				if (!declinesFlush(e)) {
-					throw e;
-				}
-			}
-		} finally {
-			await handle.close();
-		}
+  // one bracket around everything the temp file exists for, so that whatever
+  // fails there is no temp file left behind -- which is the rule
+  // `bundleApp()`'s own `finally` keeps about a handle it opened
+  try {
+    try {
+      // `writeFile` rather than one `write`, because a `write` may be short
+      // and a config half written into the temp file is the thing this is for
+      await handle.writeFile(text, 'utf8');
+      try {
+        await handle.sync();
+      } catch (e: unknown) {
+        if (!declinesFlush(e)) {
+          throw e;
+        }
+      }
+    } finally {
+      await handle.close();
+    }
 
-		// after the close rather than through the handle, because the mode the open
-		// asked for went through the umask and this is the one that did not
-		if (keep.mode !== undefined) {
-			await chmod(temp, keep.mode);
-		}
-		if (keep.uid !== undefined && keep.gid !== undefined) {
-			await chown(temp, keep.uid, keep.gid);
-		}
-		await rename(temp, real);
-	} catch (e: unknown) {
-		await unlink(temp).catch(() => undefined);
-		throw e;
-	}
+    // after the close rather than through the handle, because the mode the open
+    // asked for went through the umask and this is the one that did not
+    if (keep.mode !== undefined) {
+      await chmod(temp, keep.mode);
+    }
+    if (keep.uid !== undefined && keep.gid !== undefined) {
+      await chown(temp, keep.uid, keep.gid);
+    }
+    await rename(temp, real);
+  } catch (e: unknown) {
+    await unlink(temp).catch(() => undefined);
+    throw e;
+  }
 }
 
 /**
@@ -484,41 +484,41 @@ export async function writeAtomic(path: string, text: string): Promise<void> {
  * @param text - What it should hold.
  */
 export function writeAtomicSync(path: string, text: string): void {
-	const real = realPathOf(path);
+  const real = realPathOf(path);
 
-	mkdirOwnerSync(dirname(real));
+  mkdirOwnerSync(dirname(real));
 
-	const keep = keepOf(real);
-	const temp = tempFor(real);
-	const fd = openSync(temp, 'w', keep.mode ?? 0o666);
+  const keep = keepOf(real);
+  const temp = tempFor(real);
+  const fd = openSync(temp, 'w', keep.mode ?? 0o666);
 
-	try {
-		try {
-			writeFileSync(fd, text);
-			try {
-				fsyncSync(fd);
-			} catch (e: unknown) {
-				if (!declinesFlush(e)) {
-					throw e;
-				}
-			}
-		} finally {
-			closeSync(fd);
-		}
+  try {
+    try {
+      writeFileSync(fd, text);
+      try {
+        fsyncSync(fd);
+      } catch (e: unknown) {
+        if (!declinesFlush(e)) {
+          throw e;
+        }
+      }
+    } finally {
+      closeSync(fd);
+    }
 
-		if (keep.mode !== undefined) {
-			chmodSync(temp, keep.mode);
-		}
-		if (keep.uid !== undefined && keep.gid !== undefined) {
-			chownSync(temp, keep.uid, keep.gid);
-		}
-		renameSync(temp, real);
-	} catch (e: unknown) {
-		try {
-			unlinkSync(temp);
-		} catch {
-			// nothing to clean up, which is the ordinary reason this fails
-		}
-		throw e;
-	}
+    if (keep.mode !== undefined) {
+      chmodSync(temp, keep.mode);
+    }
+    if (keep.uid !== undefined && keep.gid !== undefined) {
+      chownSync(temp, keep.uid, keep.gid);
+    }
+    renameSync(temp, real);
+  } catch (e: unknown) {
+    try {
+      unlinkSync(temp);
+    } catch {
+      // nothing to clean up, which is the ordinary reason this fails
+    }
+    throw e;
+  }
 }

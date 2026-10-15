@@ -11,41 +11,41 @@
 import { main } from '@ttylabs/sigil';
 
 await main({
-	argv: process.argv.length > 2 ? undefined : ['db', 'migrate', 'up', '--steps', '2'],
-	schema: {
-		name: 'stack',
-		desc: 'Commands inside commands',
+  argv: process.argv.length > 2 ? undefined : ['db', 'migrate', 'up', '--steps', '2'],
+  schema: {
+    name: 'stack',
+    desc: 'Commands inside commands',
 
-		// declared once at the root, and every command below can use it -- before
-		// or after the command name, either works
-		options: { '-v, --verbose': 'Say more' },
+    // declared once at the root, and every command below can use it -- before
+    // or after the command name, either works
+    options: { '-v, --verbose': 'Say more' },
 
-		commands: {
-			// the first bare label names the command, the rest are aliases
-			'db, d': {
-				desc: 'Database commands',
-				options: { '--url [dsn]': { default: 'postgres://localhost', desc: 'Connection string' } },
-				commands: {
-					'migrate, m': {
-						desc: 'Run migrations',
-						args: ['<direction>'],
-						options: { '--steps [n]': { default: 1, type: 'int' } },
-						run({ argv, contexts }) {
-							console.log('direction:', argv.direction, 'steps:', argv.steps);
-							// the whole chain is inherited, innermost first
-							console.log('url from the parent:', argv.url);
-							console.log('verbose from the root:', argv.verbose);
-							console.log('context chain:', contexts.map((c) => c.name).join(' <- '));
-						},
-					},
-				},
-			},
+    commands: {
+      // the first bare label names the command, the rest are aliases
+      'db, d': {
+        desc: 'Database commands',
+        options: { '--url [dsn]': { default: 'postgres://localhost', desc: 'Connection string' } },
+        commands: {
+          'migrate, m': {
+            desc: 'Run migrations',
+            args: ['<direction>'],
+            options: { '--steps [n]': { default: 1, type: 'int' } },
+            run({ argv, contexts }) {
+              console.log('direction:', argv.direction, 'steps:', argv.steps);
+              // the whole chain is inherited, innermost first
+              console.log('url from the parent:', argv.url);
+              console.log('verbose from the root:', argv.verbose);
+              console.log('context chain:', contexts.map((c) => c.name).join(' <- '));
+            },
+          },
+        },
+      },
 
-			// `!` keeps a command out of help without stopping it working
-			'!internal': {
-				desc: 'Not listed, still runs',
-				run: () => console.log('you found it'),
-			},
-		},
-	},
+      // `!` keeps a command out of help without stopping it working
+      '!internal': {
+        desc: 'Not listed, still runs',
+        run: () => console.log('you found it'),
+      },
+    },
+  },
 });

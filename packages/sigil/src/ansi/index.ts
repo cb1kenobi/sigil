@@ -1,10 +1,10 @@
 import {
-	assertColorLevel,
-	type ColorLevel,
-	type ColorSupportOptions,
-	getColorLevel,
-	setColorLevel,
-	supportsColor,
+  assertColorLevel,
+  type ColorLevel,
+  type ColorSupportOptions,
+  getColorLevel,
+  setColorLevel,
+  supportsColor,
 } from './color-support.js';
 import { hasAnsi, strip } from './strip.js';
 import { createStyler, type Styler } from './style.js';
@@ -19,27 +19,27 @@ export { type Styler, type Styles } from './style.js';
  * about one chain.
  */
 export interface Ansi extends Styler {
-	/**
-	 * How much color is written: `0` none, `1` the basic 16, `2` the 256-color
-	 * palette, `3` truecolor. Detected on first use; assigning overrides the
-	 * detection, and assigning `undefined` restores it.
-	 *
-	 * The level is read when text is rendered, so lowering it downsamples chains
-	 * that were built before the change rather than leaving them to write
-	 * sequences the terminal cannot render.
-	 *
-	 * Reading it always answers with a level; only the assignment accepts
-	 * `undefined`, so a caller never has to guard a read for a value it cannot
-	 * return.
-	 */
-	get level(): ColorLevel;
-	set level(level: ColorLevel | undefined);
-	/** Whether a string contains an escape sequence. */
-	hasAnsi(str: string): boolean;
-	/** Removes every escape sequence from a string. */
-	strip(str: string): string;
-	/** Detects the color level of a stream. */
-	supportsColor(opts?: ColorSupportOptions): ColorLevel;
+  /**
+   * How much color is written: `0` none, `1` the basic 16, `2` the 256-color
+   * palette, `3` truecolor. Detected on first use; assigning overrides the
+   * detection, and assigning `undefined` restores it.
+   *
+   * The level is read when text is rendered, so lowering it downsamples chains
+   * that were built before the change rather than leaving them to write
+   * sequences the terminal cannot render.
+   *
+   * Reading it always answers with a level; only the assignment accepts
+   * `undefined`, so a caller never has to guard a read for a value it cannot
+   * return.
+   */
+  get level(): ColorLevel;
+  set level(level: ColorLevel | undefined);
+  /** Whether a string contains an escape sequence. */
+  hasAnsi(str: string): boolean;
+  /** Removes every escape sequence from a string. */
+  strip(str: string): string;
+  /** Detects the color level of a stream. */
+  supportsColor(opts?: ColorSupportOptions): ColorLevel;
 }
 
 /**
@@ -62,16 +62,16 @@ export interface Ansi extends Styler {
  * zero-dependency library cannot install.
  */
 export const ansi: Ansi = decorate(createStyler(getColorLevel) as Ansi, {
-	get: getColorLevel,
-	set: setColorLevel,
+  get: getColorLevel,
+  set: setColorLevel,
 });
 
 export interface CreateAnsiOptions extends ColorSupportOptions {
-	/**
-	 * The level to render at, skipping detection. Equivalent to assigning
-	 * `level` straight after.
-	 */
-	level?: ColorLevel;
+  /**
+   * The level to render at, skipping detection. Equivalent to assigning
+   * `level` straight after.
+   */
+  level?: ColorLevel;
 }
 
 /**
@@ -92,25 +92,25 @@ export interface CreateAnsiOptions extends ColorSupportOptions {
  * @returns The styler.
  */
 export function createAnsi(opts: CreateAnsiOptions = {}): Ansi {
-	let override = opts.level;
-	let detected: ColorLevel | undefined;
+  let override = opts.level;
+  let detected: ColorLevel | undefined;
 
-	if (override !== undefined) {
-		assertColorLevel(override);
-	}
+  if (override !== undefined) {
+    assertColorLevel(override);
+  }
 
-	const get = (): ColorLevel => override ?? (detected ??= supportsColor(opts));
+  const get = (): ColorLevel => override ?? (detected ??= supportsColor(opts));
 
-	return decorate(createStyler(get) as Ansi, {
-		get,
-		set(level: ColorLevel | undefined) {
-			assertColorLevel(level);
-			override = level;
-			// a level that was detected before the override went on is stale once it
-			// comes back off, since the destination may have changed underneath
-			detected = undefined;
-		},
-	});
+  return decorate(createStyler(get) as Ansi, {
+    get,
+    set(level: ColorLevel | undefined) {
+      assertColorLevel(level);
+      override = level;
+      // a level that was detected before the override went on is stale once it
+      // comes back off, since the destination may have changed underneath
+      detected = undefined;
+    },
+  });
 }
 
 /**
@@ -121,15 +121,15 @@ export function createAnsi(opts: CreateAnsiOptions = {}): Ansi {
  * @returns The same styler.
  */
 function decorate(
-	styler: Ansi,
-	level: { get(): ColorLevel; set(level: ColorLevel | undefined): void }
+  styler: Ansi,
+  level: { get(): ColorLevel; set(level: ColorLevel | undefined): void }
 ): Ansi {
-	return Object.defineProperties(styler, {
-		hasAnsi: { configurable: true, value: hasAnsi, writable: true },
-		level: { configurable: true, get: level.get, set: level.set },
-		strip: { configurable: true, value: strip, writable: true },
-		supportsColor: { configurable: true, value: supportsColor, writable: true },
-	});
+  return Object.defineProperties(styler, {
+    hasAnsi: { configurable: true, value: hasAnsi, writable: true },
+    level: { configurable: true, get: level.get, set: level.set },
+    strip: { configurable: true, value: strip, writable: true },
+    supportsColor: { configurable: true, value: supportsColor, writable: true },
+  });
 }
 
 export default ansi;

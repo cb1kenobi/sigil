@@ -33,15 +33,15 @@ import { resolve } from 'node:path';
 
 /** Where to look, when the environment is not the answer. */
 export interface WhichOptions {
-	/**
-	 * What a relative `PATH` entry, and a relative name, resolve against.
-	 * Defaults to the working directory.
-	 */
-	readonly cwd?: string;
-	/** The search path. Defaults to `PATH`. */
-	readonly path?: string;
-	/** The Windows extension list. Defaults to `PATHEXT`. */
-	readonly pathExt?: string;
+  /**
+   * What a relative `PATH` entry, and a relative name, resolve against.
+   * Defaults to the working directory.
+   */
+  readonly cwd?: string;
+  /** The search path. Defaults to `PATH`. */
+  readonly path?: string;
+  /** The Windows extension list. Defaults to `PATHEXT`. */
+  readonly pathExt?: string;
 }
 
 /**
@@ -65,7 +65,7 @@ const DEFAULT_PATHEXT = '.COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC';
  * @returns Whether it names a path.
  */
 function isPathLike(name: string, windows: boolean): boolean {
-	return name.includes('/') || (windows && (name.includes('\\') || /^[a-z]:/i.test(name)));
+  return name.includes('/') || (windows && (name.includes('\\') || /^[a-z]:/i.test(name)));
 }
 
 /**
@@ -87,15 +87,15 @@ function isPathLike(name: string, windows: boolean): boolean {
  * @returns The extensions, in the order to try them.
  */
 function extensions(name: string, windows: boolean, pathExt: string | undefined): string[] {
-	if (!windows) {
-		return [''];
-	}
+  if (!windows) {
+    return [''];
+  }
 
-	const list = (pathExt ?? process.env.PATHEXT ?? DEFAULT_PATHEXT)
-		.split(';')
-		.filter((ext) => ext !== '');
+  const list = (pathExt ?? process.env.PATHEXT ?? DEFAULT_PATHEXT)
+    .split(';')
+    .filter((ext) => ext !== '');
 
-	return name.includes('.') ? ['', ...list] : list;
+  return name.includes('.') ? ['', ...list] : list;
 }
 
 /**
@@ -118,10 +118,10 @@ function extensions(name: string, windows: boolean, pathExt: string | undefined)
  * @returns The directories, in the order to search them.
  */
 function directories(windows: boolean, cwd: string, path: string | undefined): string[] {
-	const raw = (path ?? process.env.PATH ?? '').split(windows ? ';' : ':');
-	const dirs = windows ? [cwd, ...raw] : raw;
+  const raw = (path ?? process.env.PATH ?? '').split(windows ? ';' : ':');
+  const dirs = windows ? [cwd, ...raw] : raw;
 
-	return dirs.map((dir) => resolve(cwd, windows ? dir.replace(/^"|"$/g, '') : dir));
+  return dirs.map((dir) => resolve(cwd, windows ? dir.replace(/^"|"$/g, '') : dir));
 }
 
 /**
@@ -137,25 +137,25 @@ function directories(windows: boolean, cwd: string, path: string | undefined): s
  * @yields Each candidate path.
  */
 export function* candidates(name: string, opts: WhichOptions = {}): Generator<string> {
-	if (name === '') {
-		return;
-	}
+  if (name === '') {
+    return;
+  }
 
-	const windows = process.platform === 'win32';
-	const cwd = opts.cwd ?? process.cwd();
-	const exts = extensions(name, windows, opts.pathExt);
+  const windows = process.platform === 'win32';
+  const cwd = opts.cwd ?? process.cwd();
+  const exts = extensions(name, windows, opts.pathExt);
 
-	// a path names one file, so there is nowhere to search: it is its own base,
-	// and the extensions still apply because `./build` may be `./build.CMD`
-	const bases = isPathLike(name, windows)
-		? [resolve(cwd, name)]
-		: directories(windows, cwd, opts.path).map((dir) => resolve(dir, name));
+  // a path names one file, so there is nowhere to search: it is its own base,
+  // and the extensions still apply because `./build` may be `./build.CMD`
+  const bases = isPathLike(name, windows)
+    ? [resolve(cwd, name)]
+    : directories(windows, cwd, opts.path).map((dir) => resolve(dir, name));
 
-	for (const base of bases) {
-		for (const ext of exts) {
-			yield base + ext;
-		}
-	}
+  for (const base of bases) {
+    for (const ext of exts) {
+      yield base + ext;
+    }
+  }
 }
 
 /**
@@ -177,34 +177,34 @@ export function* candidates(name: string, opts: WhichOptions = {}): Generator<st
  * test; the extension is what decided it, and that already happened.
  */
 function executableSync(path: string, windows: boolean): boolean {
-	try {
-		if (!statSync(path).isFile()) {
-			return false;
-		}
-		if (windows) {
-			return true;
-		}
-		accessSync(path, constants.X_OK);
-		return true;
-	} catch {
-		return false;
-	}
+  try {
+    if (!statSync(path).isFile()) {
+      return false;
+    }
+    if (windows) {
+      return true;
+    }
+    accessSync(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** The asynchronous twin of `executableSync()`, which is the same rule. */
 async function executable(path: string, windows: boolean): Promise<boolean> {
-	try {
-		if (!(await fs.stat(path)).isFile()) {
-			return false;
-		}
-		if (windows) {
-			return true;
-		}
-		await fs.access(path, constants.X_OK);
-		return true;
-	} catch {
-		return false;
-	}
+  try {
+    if (!(await fs.stat(path)).isFile()) {
+      return false;
+    }
+    if (windows) {
+      return true;
+    }
+    await fs.access(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -215,15 +215,15 @@ async function executable(path: string, windows: boolean): Promise<boolean> {
  * @returns The first match, or `undefined`.
  */
 export function whichSync(name: string, opts: WhichOptions = {}): string | undefined {
-	const windows = process.platform === 'win32';
+  const windows = process.platform === 'win32';
 
-	for (const candidate of candidates(name, opts)) {
-		if (executableSync(candidate, windows)) {
-			return candidate;
-		}
-	}
+  for (const candidate of candidates(name, opts)) {
+    if (executableSync(candidate, windows)) {
+      return candidate;
+    }
+  }
 
-	return undefined;
+  return undefined;
 }
 
 /**
@@ -234,15 +234,15 @@ export function whichSync(name: string, opts: WhichOptions = {}): string | undef
  * @returns The first match, or `undefined`.
  */
 export async function which(name: string, opts: WhichOptions = {}): Promise<string | undefined> {
-	const windows = process.platform === 'win32';
+  const windows = process.platform === 'win32';
 
-	for (const candidate of candidates(name, opts)) {
-		if (await executable(candidate, windows)) {
-			return candidate;
-		}
-	}
+  for (const candidate of candidates(name, opts)) {
+    if (await executable(candidate, windows)) {
+      return candidate;
+    }
+  }
 
-	return undefined;
+  return undefined;
 }
 
 /**
@@ -257,16 +257,16 @@ export async function which(name: string, opts: WhichOptions = {}): Promise<stri
  * @returns Every match, in `PATH` order.
  */
 export function whichAllSync(name: string, opts: WhichOptions = {}): string[] {
-	const windows = process.platform === 'win32';
-	const found = new Set<string>();
+  const windows = process.platform === 'win32';
+  const found = new Set<string>();
 
-	for (const candidate of candidates(name, opts)) {
-		if (executableSync(candidate, windows)) {
-			found.add(candidate);
-		}
-	}
+  for (const candidate of candidates(name, opts)) {
+    if (executableSync(candidate, windows)) {
+      found.add(candidate);
+    }
+  }
 
-	return [...found];
+  return [...found];
 }
 
 /**
@@ -277,14 +277,14 @@ export function whichAllSync(name: string, opts: WhichOptions = {}): string[] {
  * @returns Every match, in `PATH` order.
  */
 export async function whichAll(name: string, opts: WhichOptions = {}): Promise<string[]> {
-	const windows = process.platform === 'win32';
-	const found = new Set<string>();
+  const windows = process.platform === 'win32';
+  const found = new Set<string>();
 
-	for (const candidate of candidates(name, opts)) {
-		if (await executable(candidate, windows)) {
-			found.add(candidate);
-		}
-	}
+  for (const candidate of candidates(name, opts)) {
+    if (await executable(candidate, windows)) {
+      found.add(candidate);
+    }
+  }
 
-	return [...found];
+  return [...found];
 }

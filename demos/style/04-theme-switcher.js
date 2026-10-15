@@ -80,9 +80,9 @@ const ROLES = ['accent', 'muted', 'heading', 'success', 'error', 'warn', 'info']
  * sheet: there is nothing to remove, so going back means saying them again.
  */
 const RESET = ROLES.map(
-	(role) =>
-		`.sigil-${role} { color: initial; dim: false; font-weight: normal; ` +
-		`text-decoration: none; inverse: false; italic: false }`
+  (role) =>
+    `.sigil-${role} { color: initial; dim: false; font-weight: normal; ` +
+    `text-decoration: none; inverse: false; italic: false }`
 ).join('\n');
 
 /** The framework's own defaults, restated so that the switcher can return to them. */
@@ -96,23 +96,23 @@ const SIGIL = `
 .sigil-info { color: blue }
 
 @media (prefers-color-scheme: light) {
-	.sigil-muted { color: gray; dim: false }
+  .sigil-muted { color: gray; dim: false }
 }
 `;
 
 /** What a number key selects. `sigil` first, because it is what you start on. */
 const THEMES = [
-	['sigil', SIGIL],
-	['mono', MONO],
-	['violet', VIOLET],
-	['phosphor', PHOSPHOR],
-	['amber', AMBER],
-	['neon', NEON],
+  ['sigil', SIGIL],
+  ['mono', MONO],
+  ['violet', VIOLET],
+  ['phosphor', PHOSPHOR],
+  ['amber', AMBER],
+  ['neon', NEON],
 ];
 
 const ROWS = [
-	{ file: 'dist/index.mjs', size: '12.4 kB', note: 'entry' },
-	{ file: 'dist/ansi.mjs', size: '4.9 kB', note: '' },
+  { file: 'dist/index.mjs', size: '12.4 kB', note: 'entry' },
+  { file: 'dist/ansi.mjs', size: '4.9 kB', note: '' },
 ];
 
 /**
@@ -127,28 +127,28 @@ const ROWS = [
  * never reaches the terminal branch below.
  */
 const layout = parseStylesheet(`
-	.panel { flex-direction: column; width: 54; border: round; padding: 1 }
-	.row { flex-direction: row; column-gap: 1 }
+  .panel { flex-direction: column; width: 54; border: round; padding: 1 }
+  .row { flex-direction: row; column-gap: 1 }
 
-	/*
-	 * Underline is what says "link" where the colour is the theme's to decide, and
-	 * it has to be said at origin app rather than in a theme. RESET below turns
-	 * text-decoration off on every role so that a switch cannot leak one, and the
-	 * link row wears .sigil-accent -- so the two are a real contest at equal
-	 * specificity, and app is the later origin.
-	 *
-	 * Which is not the same as source order, and the live branch is what says so:
-	 * it adds each theme to the cascade this sheet is already in, so within one
-	 * origin the reset arrives last and takes the underline with it. Measured --
-	 * the same sheet parsed at origin theme comes out underlined piped, where the
-	 * layout sheet is pushed after the theme, and plain the moment a key is
-	 * pressed. An origin cannot be reordered by who added a sheet when.
-	 *
-	 * A stylesheet is a template literal here, so it holds no backtick: one ends
-	 * the sheet, and what tsc then reports is a syntax error a long way below the
-	 * character that caused it.
-	 */
-	.link { text-decoration: underline }
+  /*
+   * Underline is what says "link" where the colour is the theme's to decide, and
+   * it has to be said at origin app rather than in a theme. RESET below turns
+   * text-decoration off on every role so that a switch cannot leak one, and the
+   * link row wears .sigil-accent -- so the two are a real contest at equal
+   * specificity, and app is the later origin.
+   *
+   * Which is not the same as source order, and the live branch is what says so:
+   * it adds each theme to the cascade this sheet is already in, so within one
+   * origin the reset arrives last and takes the underline with it. Measured --
+   * the same sheet parsed at origin theme comes out underlined piped, where the
+   * layout sheet is pushed after the theme, and plain the moment a key is
+   * pressed. An origin cannot be reordered by who added a sheet when.
+   *
+   * A stylesheet is a template literal here, so it holds no backtick: one ends
+   * the sheet, and what tsc then reports is a syntax error a long way below the
+   * character that caused it.
+   */
+  .link { text-decoration: underline }
 `);
 
 /** A theme as the switcher applies it: complete, whatever was applied before it. */
@@ -189,20 +189,20 @@ const sheetFor = (css) => parseTheme(`${RESET}\n${css}`);
  * @returns A one-line `raw`.
  */
 function hyperlink(label, url, props) {
-	const width = stringWidth(label);
+  const width = stringWidth(label);
 
-	return raw(
-		{
-			drawsText: true,
-			// one line at its own width, whatever room it is offered: half a URL is not
-			// a URL, so there is nothing for wrapping or a `min-width` to buy here
-			measure: () => ({ height: 1, minHeight: 1, minWidth: width, width }),
-			paint: (painter, area, element) => {
-				painter.text(area.x, area.y, label, { ...cellStyle(element.style), link: url });
-			},
-		},
-		props
-	);
+  return raw(
+    {
+      drawsText: true,
+      // one line at its own width, whatever room it is offered: half a URL is not
+      // a URL, so there is nothing for wrapping or a `min-width` to buy here
+      measure: () => ({ height: 1, minHeight: 1, minWidth: width, width }),
+      paint: (painter, area, element) => {
+        painter.text(area.x, area.y, label, { ...cellStyle(element.style), link: url });
+      },
+    },
+    props
+  );
 }
 
 /**
@@ -216,138 +216,138 @@ function hyperlink(label, url, props) {
 const ROW = { 'column-gap': 1, 'flex-direction': 'row' };
 
 function panel(name, keys) {
-	/*
-	 * One marked line. A mark of `undefined` reserves the column without drawing
-	 * in it, and `visibility: hidden` is the only way to do that: a `text` of
-	 * nothing but spaces measures **zero**, because `white-space: normal` collapses
-	 * a run of them, so the obvious `text(' ')` left every unmarked label one
-	 * column left of every marked one -- which is what the panel looked like until
-	 * a review round read it. Hidden content still takes its space, so the glyph
-	 * is a real one and the column is its own width rather than a guess at it.
-	 * `paintChoices()` reserves the pointer's column the same way, for the same
-	 * reason.
-	 */
-	const line = (mark, markClass, label, labelClass) =>
-		box(
-			{ class: 'row' },
-			text(mark ?? '·', {
-				class: markClass,
-				visibility: mark === undefined ? 'hidden' : 'visible',
-			}),
-			text(label, { class: labelClass ?? '' })
-		);
+  /*
+   * One marked line. A mark of `undefined` reserves the column without drawing
+   * in it, and `visibility: hidden` is the only way to do that: a `text` of
+   * nothing but spaces measures **zero**, because `white-space: normal` collapses
+   * a run of them, so the obvious `text(' ')` left every unmarked label one
+   * column left of every marked one -- which is what the panel looked like until
+   * a review round read it. Hidden content still takes its space, so the glyph
+   * is a real one and the column is its own width rather than a guess at it.
+   * `paintChoices()` reserves the pointer's column the same way, for the same
+   * reason.
+   */
+  const line = (mark, markClass, label, labelClass) =>
+    box(
+      { class: 'row' },
+      text(mark ?? '·', {
+        class: markClass,
+        visibility: mark === undefined ? 'hidden' : 'visible',
+      }),
+      text(label, { class: labelClass ?? '' })
+    );
 
-	const heading = text(`theme: ${name}`, { class: 'sigil-prompt-message sigil-heading' });
+  const heading = text(`theme: ${name}`, { class: 'sigil-prompt-message sigil-heading' });
 
-	/** One row of a choice list, as `select()` builds it. */
-	const choice = (on, label, hint) =>
-		box(
-			{ class: on ? 'sigil-choice is-active sigil-accent' : 'sigil-choice', ...ROW },
-			// `sigil-choice-pointer` and `visibility`, which is what `paintChoices()`
-			// emits: the pointer carries no role and takes the accent by inheritance
-			// from the row, and the column is reserved on every row whether or not
-			// there is a pointer in it
-			text('❯', {
-				class: on ? 'sigil-choice-pointer' : '',
-				visibility: on ? 'visible' : 'hidden',
-			}),
-			text(on ? '◉' : '◯', {
-				class: on ? 'sigil-choice-mark is-on sigil-success' : 'sigil-choice-mark',
-			}),
-			text(label, {}),
-			text(hint, { class: 'sigil-choice-hint sigil-muted' })
-		);
+  /** One row of a choice list, as `select()` builds it. */
+  const choice = (on, label, hint) =>
+    box(
+      { class: on ? 'sigil-choice is-active sigil-accent' : 'sigil-choice', ...ROW },
+      // `sigil-choice-pointer` and `visibility`, which is what `paintChoices()`
+      // emits: the pointer carries no role and takes the accent by inheritance
+      // from the row, and the column is reserved on every row whether or not
+      // there is a pointer in it
+      text('❯', {
+        class: on ? 'sigil-choice-pointer' : '',
+        visibility: on ? 'visible' : 'hidden',
+      }),
+      text(on ? '◉' : '◯', {
+        class: on ? 'sigil-choice-mark is-on sigil-success' : 'sigil-choice-mark',
+      }),
+      text(label, {}),
+      text(hint, { class: 'sigil-choice-hint sigil-muted' })
+    );
 
-	const view = box(
-		{ class: 'panel' },
-		heading,
-		text('', {}),
+  const view = box(
+    { class: 'panel' },
+    heading,
+    text('', {}),
 
-		// a prompt, answered and unanswered
-		line(
-			'?',
-			'sigil-symbol sigil-accent',
-			'what is your name?',
-			// `promptHead()` emits both: the message is a heading, so bold lives on the
-			// role rather than on the component class. Writing the component class
-			// alone is what the panel did until a review round compared it with the
-			// emission, and it came out normal weight on every theme
-			'sigil-prompt-message sigil-heading'
-		),
-		line(undefined, '', 'press enter to accept', 'sigil-prompt-hint sigil-muted'),
-		line(
-			'✔',
-			'sigil-symbol is-success sigil-success',
-			'name',
-			'sigil-prompt-message sigil-heading'
-		),
-		line(undefined, '', 'ada', 'sigil-prompt-answer sigil-muted'),
-		text('', {}),
+    // a prompt, answered and unanswered
+    line(
+      '?',
+      'sigil-symbol sigil-accent',
+      'what is your name?',
+      // `promptHead()` emits both: the message is a heading, so bold lives on the
+      // role rather than on the component class. Writing the component class
+      // alone is what the panel did until a review round compared it with the
+      // emission, and it came out normal weight on every theme
+      'sigil-prompt-message sigil-heading'
+    ),
+    line(undefined, '', 'press enter to accept', 'sigil-prompt-hint sigil-muted'),
+    line(
+      '✔',
+      'sigil-symbol is-success sigil-success',
+      'name',
+      'sigil-prompt-message sigil-heading'
+    ),
+    line(undefined, '', 'ada', 'sigil-prompt-answer sigil-muted'),
+    text('', {}),
 
-		// a choice list, which is where the accent and the success mark meet
-		choice(true, 'build', 'the default'),
-		choice(false, 'watch', 'rebuild on change'),
-		choice(false, 'clean', ''),
-		text('', {}),
+    // a choice list, which is where the accent and the success mark meet
+    choice(true, 'build', 'the default'),
+    choice(false, 'watch', 'rebuild on change'),
+    choice(false, 'clean', ''),
+    text('', {}),
 
-		// the four outcomes a spinner settles on
-		line('✔', 'sigil-symbol is-success sigil-success', 'built in 1.2s', 'sigil-spinner-text'),
-		line('✖', 'sigil-symbol is-error sigil-error', 'two type errors', 'sigil-spinner-text'),
-		line('▲', 'sigil-symbol is-warn sigil-warn', 'no baseDir declared', 'sigil-spinner-text'),
-		line(
-			'ℹ',
-			'sigil-symbol is-info sigil-info',
-			'cached from a previous run',
-			'sigil-spinner-text'
-		),
-		text('', {}),
+    // the four outcomes a spinner settles on
+    line('✔', 'sigil-symbol is-success sigil-success', 'built in 1.2s', 'sigil-spinner-text'),
+    line('✖', 'sigil-symbol is-error sigil-error', 'two type errors', 'sigil-spinner-text'),
+    line('▲', 'sigil-symbol is-warn sigil-warn', 'no baseDir declared', 'sigil-spinner-text'),
+    line(
+      'ℹ',
+      'sigil-symbol is-info sigil-info',
+      'cached from a previous run',
+      'sigil-spinner-text'
+    ),
+    text('', {}),
 
-		// a progress bar with its label and percentage, and a spinner mid-spin
-		box(
-			ROW,
-			text('bundling', { class: 'sigil-progress-label' }),
-			text('████████████░░░░░░░░░░', { class: 'sigil-progress-bar sigil-accent' }),
-			// no role, which is what `progressView()` emits: the percentage is the
-			// terminal's own foreground, and giving it `sigil-muted` here made the
-			// panel's bar read as dimmer than a real one
-			text('55%', { class: 'sigil-progress-percent' })
-		),
-		line('⠹', 'sigil-spinner-frame sigil-accent', 'resolving dependencies', 'sigil-spinner-text'),
-		text('', {}),
+    // a progress bar with its label and percentage, and a spinner mid-spin
+    box(
+      ROW,
+      text('bundling', { class: 'sigil-progress-label' }),
+      text('████████████░░░░░░░░░░', { class: 'sigil-progress-bar sigil-accent' }),
+      // no role, which is what `progressView()` emits: the percentage is the
+      // terminal's own foreground, and giving it `sigil-muted` here made the
+      // panel's bar read as dimmer than a real one
+      text('55%', { class: 'sigil-progress-percent' })
+    ),
+    line('⠹', 'sigil-spinner-frame sigil-accent', 'resolving dependencies', 'sigil-spinner-text'),
+    text('', {}),
 
-		// a real built-in rather than a hand-built row: `tableView()` emits
-		// `sigil-table-head sigil-heading`, so a theme reaches it without this demo
-		// having to know it exists
-		tableView(ROWS, { gap: 2 }).element,
-		text('', {}),
+    // a real built-in rather than a hand-built row: `tableView()` emits
+    // `sigil-table-head sigil-heading`, so a theme reaches it without this demo
+    // having to know it exists
+    tableView(ROWS, { gap: 2 }).element,
+    text('', {}),
 
-		// a diagnostic, which is what the toolchain's own reports look like
-		box(
-			ROW,
-			text('index.ts:1:35:', { class: 'cli-location sigil-muted' }),
-			text('warning:', { class: 'sigil-warn' }),
-			text('no baseDir', {})
-		),
-		text('', {}),
+    // a diagnostic, which is what the toolchain's own reports look like
+    box(
+      ROW,
+      text('index.ts:1:35:', { class: 'cli-location sigil-muted' }),
+      text('warning:', { class: 'sigil-warn' }),
+      text('no baseDir', {})
+    ),
+    text('', {}),
 
-		// a real hyperlink, wearing the accent role like everything else live on the
-		// panel -- so the theme colours it and only the OSC 8 is the raw's own
-		box(
-			ROW,
-			text('↗', { class: 'sigil-symbol sigil-accent' }),
-			hyperlink(REPO, REPO, { class: 'link sigil-accent' })
-		),
-		text('', {}),
+    // a real hyperlink, wearing the accent role like everything else live on the
+    // panel -- so the theme colours it and only the OSC 8 is the raw's own
+    box(
+      ROW,
+      text('↗', { class: 'sigil-symbol sigil-accent' }),
+      hyperlink(REPO, REPO, { class: 'link sigil-accent' })
+    ),
+    text('', {}),
 
-		text('(seven declarations, everything above)', { class: 'sigil-help-note sigil-muted' }),
-		// the keys, where there are keys to press. Wrapping `text`s rather than a row
-		// of them, so that adding a theme cannot push the line off the panel
-		...(keys === undefined
-			? []
-			: [text('', {}), ...keys.map((row) => text(row, { class: 'sigil-help-note sigil-muted' }))])
-	);
+    text('(seven declarations, everything above)', { class: 'sigil-help-note sigil-muted' }),
+    // the keys, where there are keys to press. Wrapping `text`s rather than a row
+    // of them, so that adding a theme cannot push the line off the panel
+    ...(keys === undefined
+      ? []
+      : [text('', {}), ...keys.map((row) => text(row, { class: 'sigil-help-note sigil-muted' }))])
+  );
 
-	return { heading, view };
+  return { heading, view };
 }
 
 /**
@@ -364,108 +364,108 @@ function panel(name, keys) {
  * like the others.
  */
 function keyHint() {
-	const entries = [...THEMES.map(([name], i) => `${String(i + 1)} ${name}`), 'q quit'];
-	const column = Math.max(...entries.map((entry) => entry.length)) + 2;
-	const rows = [];
+  const entries = [...THEMES.map(([name], i) => `${String(i + 1)} ${name}`), 'q quit'];
+  const column = Math.max(...entries.map((entry) => entry.length)) + 2;
+  const rows = [];
 
-	for (let at = 0; at < entries.length; at += 3) {
-		rows.push(
-			entries
-				.slice(at, at + 3)
-				.map((entry) => entry.padEnd(column))
-				.join('')
-				.trimEnd()
-		);
-	}
+  for (let at = 0; at < entries.length; at += 3) {
+    rows.push(
+      entries
+        .slice(at, at + 3)
+        .map((entry) => entry.padEnd(column))
+        .join('')
+        .trimEnd()
+    );
+  }
 
-	return rows;
+  return rows;
 }
 
 if (process.stdin.isTTY && process.stdout.isTTY) {
-	live();
+  live();
 } else {
-	piped();
+  piped();
 }
 
 /** Every theme, one after another -- which needs no terminal and no keys. */
 function piped() {
-	// a pipe has no colour and the whole point of this branch is seeing the themes
-	// side by side -- so the level is asked for a *terminal* rather than for this
-	// stream. That is `supportsColor()`'s own answer rather than a `3` written here,
-	// which is what keeps `NO_COLOR=1` and `FORCE_COLOR=0` working: both of those
-	// are a user saying something, where a pipe is only a destination. Said on both
-	// halves because `renderToString()` defaults to truecolor while `table()` asks
-	// the environment, so a block would otherwise disagree with itself
-	const colorLevel = supportsColor({
-		// `TERM` only where the environment has none, so that the one thing able to
-		// turn this off is the user
-		env: { TERM: 'xterm-256color', ...process.env },
-		stream: { columns: 80, isTTY: true },
-	});
+  // a pipe has no colour and the whole point of this branch is seeing the themes
+  // side by side -- so the level is asked for a *terminal* rather than for this
+  // stream. That is `supportsColor()`'s own answer rather than a `3` written here,
+  // which is what keeps `NO_COLOR=1` and `FORCE_COLOR=0` working: both of those
+  // are a user saying something, where a pipe is only a destination. Said on both
+  // halves because `renderToString()` defaults to truecolor while `table()` asks
+  // the environment, so a block would otherwise disagree with itself
+  const colorLevel = supportsColor({
+    // `TERM` only where the environment has none, so that the one thing able to
+    // turn this off is the user
+    env: { TERM: 'xterm-256color', ...process.env },
+    stream: { columns: 80, isTTY: true },
+  });
 
-	// the theme on its own rather than through `sheetFor()`, because this branch
-	// builds a *fresh* cascade per theme and so has nothing to reset -- which is the
-	// point: what an app gets is one theme at startup, and that is what should be on
-	// screen here. Prepending RESET made the two renders below disagree, and
-	// measurably: VIOLET sets only `color` on `.sigil-heading`, so RESET's
-	// `font-weight: normal` reached the panel's table head while the `table()` under
-	// it kept the framework's bold -- one theme printed two ways, under a header
-	// calling them the same
-	for (const [name, css] of THEMES) {
-		const cascade = themedCascade({ sheets: [layout], theme: css });
+  // the theme on its own rather than through `sheetFor()`, because this branch
+  // builds a *fresh* cascade per theme and so has nothing to reset -- which is the
+  // point: what an app gets is one theme at startup, and that is what should be on
+  // screen here. Prepending RESET made the two renders below disagree, and
+  // measurably: VIOLET sets only `color` on `.sigil-heading`, so RESET's
+  // `font-weight: normal` reached the panel's table head while the `table()` under
+  // it kept the framework's bold -- one theme printed two ways, under a header
+  // calling them the same
+  for (const [name, css] of THEMES) {
+    const cascade = themedCascade({ sheets: [layout], theme: css });
 
-		console.log(renderToString(panel(name).view, { cascade, colorLevel, width: 58 }));
-		console.log(table(ROWS, { colorLevel, indent: 2, sheets: [layout], theme: css }));
-		console.log();
-	}
+    console.log(renderToString(panel(name).view, { cascade, colorLevel, width: 58 }));
+    console.log(table(ROWS, { colorLevel, indent: 2, sheets: [layout], theme: css }));
+    console.log();
+  }
 
-	console.log(`On a terminal this is one panel instead, with ${keyHint().join('  ')}.`);
+  console.log(`On a terminal this is one panel instead, with ${keyHint().join('  ')}.`);
 }
 
 /** One tree, one renderer, and a number key swaps the sheet under it. */
 function live() {
-	let at = 0;
+  let at = 0;
 
-	// the cascade is kept, because switching is a sheet added to *this* one and a
-	// `touchSheets()` to say every rule it matched is stale. That is the one thing
-	// only the owner of a restyler can do, which is why the handle exposes it
-	const cascade = themedCascade({ sheets: [layout] });
-	cascade.add(sheetFor(SIGIL));
+  // the cascade is kept, because switching is a sheet added to *this* one and a
+  // `touchSheets()` to say every rule it matched is stale. That is the one thing
+  // only the owner of a restyler can do, which is why the handle exposes it
+  const cascade = themedCascade({ sheets: [layout] });
+  cascade.add(sheetFor(SIGIL));
 
-	let heading;
+  let heading;
 
-	function App() {
-		const built = panel(THEMES[at][0], keyHint());
-		heading = built.heading;
-		return built.view;
-	}
+  function App() {
+    const built = panel(THEMES[at][0], keyHint());
+    heading = built.heading;
+    return built.view;
+  }
 
-	const view = render(App, { cascade, width: 'auto' });
-	const input = createInput({ root: view.root });
+  const view = render(App, { cascade, width: 'auto' });
+  const input = createInput({ root: view.root });
 
-	input.bind((event) => {
-		const { key } = event;
+  input.bind((event) => {
+    const { key } = event;
 
-		if (isAbort(key) || key.name === 'q') {
-			event.stop();
-			view.dispose();
-			input.stop();
-			console.log(`stopped on ${THEMES[at][0]}`);
-			return;
-		}
+    if (isAbort(key) || key.name === 'q') {
+      event.stop();
+      view.dispose();
+      input.stop();
+      console.log(`stopped on ${THEMES[at][0]}`);
+      return;
+    }
 
-		const n = Number(key.name);
-		if (Number.isInteger(n) && n >= 1 && n <= THEMES.length) {
-			event.stop();
-			at = n - 1;
-			const [name, css] = THEMES[at];
+    const n = Number(key.name);
+    if (Number.isInteger(n) && n >= 1 && n <= THEMES.length) {
+      event.stop();
+      at = n - 1;
+      const [name, css] = THEMES[at];
 
-			cascade.add(sheetFor(css));
-			// the heading names the theme, so it is the one thing the switch has to
-			// write rather than restyle
-			heading.setText(`theme: ${name}`);
-			view.restyler.touchSheets();
-			view.frame();
-		}
-	});
+      cascade.add(sheetFor(css));
+      // the heading names the theme, so it is the one thing the switch has to
+      // write rather than restyle
+      heading.setText(`theme: ${name}`);
+      view.restyler.touchSheets();
+      view.frame();
+    }
+  });
 }

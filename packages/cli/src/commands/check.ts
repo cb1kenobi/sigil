@@ -31,12 +31,12 @@
 
 import { writeSummary } from '../report.ts';
 import {
-	appRuns,
-	countCommands,
-	failure,
-	inspect,
-	printTree,
-	reportDiagnostics,
+  appRuns,
+  countCommands,
+  failure,
+  inspect,
+  printTree,
+  reportDiagnostics,
 } from './_inspect.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
 
@@ -51,57 +51,57 @@ import { command, type AnyCommand } from '@ttylabs/sigil';
  * `run` takes the wide default, because a function parameter is contravariant.
  */
 const check: AnyCommand = command({
-	args: [{ desc: "The app's root, defaulting to the working directory", name: '[dir]' }],
-	desc: 'Check an app without building it',
-	options: {
-		'--commands [dir]': {
-			desc: "The app's command directory, when its entry does not say",
-		},
-		'--entry [file]': {
-			desc: "The module declaring the app's schema, when the conventions find the wrong one",
-		},
-		'--tree': {
-			desc: 'Print the command tree as it resolved',
-			type: 'bool',
-		},
-	},
+  args: [{ desc: "The app's root, defaulting to the working directory", name: '[dir]' }],
+  desc: 'Check an app without building it',
+  options: {
+    '--commands [dir]': {
+      desc: "The app's command directory, when its entry does not say",
+    },
+    '--entry [file]': {
+      desc: "The module declaring the app's schema, when the conventions find the wrong one",
+    },
+    '--tree': {
+      desc: 'Print the command tree as it resolved',
+      type: 'bool',
+    },
+  },
 
-	run({ argv }) {
-		const found = inspect({
-			commands: argv.commands as string | undefined,
-			cwd: String(argv.dir ?? '.'),
-			entry: argv.entry as string | undefined,
-		});
+  run({ argv }) {
+    const found = inspect({
+      commands: argv.commands as string | undefined,
+      cwd: String(argv.dir ?? '.'),
+      entry: argv.entry as string | undefined,
+    });
 
-		if (argv.tree) {
-			printTree(found.commands, found.app.root);
-		}
+    if (argv.tree) {
+      printTree(found.commands, found.app.root);
+    }
 
-		const counts = reportDiagnostics(found);
+    const counts = reportDiagnostics(found);
 
-		if (counts.fatal) {
-			throw failure(found, counts);
-		}
+    if (counts.fatal) {
+      throw failure(found, counts);
+    }
 
-		const total = countCommands(found.commands);
+    const total = countCommands(found.commands);
 
-		writeSummary(
-			[
-				...appRuns(found.app),
-				`${total} command${total === 1 ? '' : 's'},`,
-				// the verdict is the one run whose colour says something: a warning count
-				// is the same yellow a warning line carries, and a clean app is green,
-				// so the last word of a build log reads at a glance
-				counts.warnings
-					? {
-							class: 'cli-warning sigil-warn',
-							text: `${counts.warnings} warning${counts.warnings === 1 ? '' : 's'}`,
-						}
-					: { class: 'cli-ok sigil-success', text: 'no problems found' },
-			],
-			process.stderr
-		);
-	},
+    writeSummary(
+      [
+        ...appRuns(found.app),
+        `${total} command${total === 1 ? '' : 's'},`,
+        // the verdict is the one run whose colour says something: a warning count
+        // is the same yellow a warning line carries, and a clean app is green,
+        // so the last word of a build log reads at a glance
+        counts.warnings
+          ? {
+              class: 'cli-warning sigil-warn',
+              text: `${counts.warnings} warning${counts.warnings === 1 ? '' : 's'}`,
+            }
+          : { class: 'cli-ok sigil-success', text: 'no problems found' },
+      ],
+      process.stderr
+    );
+  },
 });
 
 export default check;

@@ -12,18 +12,18 @@ const commandsDir = join(app, 'commands');
 
 /** The command at a path through the tree, for reading one entry at a time. */
 function at(commands: readonly ResolvedCommand[], ...path: string[]): ResolvedCommand {
-	let here = commands;
-	let found: ResolvedCommand | undefined;
+  let here = commands;
+  let found: ResolvedCommand | undefined;
 
-	for (const name of path) {
-		found = here.find((command) => command.name === name);
-		if (!found) {
-			throw new Error(`no "${name}" in [${here.map((c) => c.name).join(', ')}]`);
-		}
-		here = found.commands;
-	}
+  for (const name of path) {
+    found = here.find((command) => command.name === name);
+    if (!found) {
+      throw new Error(`no "${name}" in [${here.map((c) => c.name).join(', ')}]`);
+    }
+    here = found.commands;
+  }
 
-	return found!;
+  return found!;
 }
 
 /**
@@ -36,463 +36,463 @@ function at(commands: readonly ResolvedCommand[], ...path: string[]): ResolvedCo
  * a module is baked in. Everything else is printing.
  */
 describe('resolving a command tree', () => {
-	it('should resolve the whole tree in one pass', () => {
-		const { commands } = resolveCommandTree(commandsDir);
+  it('should resolve the whole tree in one pass', () => {
+    const { commands } = resolveCommandTree(commandsDir);
 
-		expect(commands.map((command) => command.name)).to.deep.equal([
-			'build',
-			'computed',
-			'config',
-			'db',
-			'deploy',
-			'lint',
-			'routes-pkg',
-			'secret',
-		]);
-	});
+    expect(commands.map((command) => command.name)).to.deep.equal([
+      'build',
+      'computed',
+      'config',
+      'db',
+      'deploy',
+      'lint',
+      'routes-pkg',
+      'secret',
+    ]);
+  });
 
-	it('should agree with what the runtime walks', async () => {
-		// the whole reason the route rules live in `@ttylabs/sigil/routes`: an app
-		// that routed differently bundled and unbundled is the one divergence a
-		// user cannot debug, so the two walks are asserted against each other
-		// rather than each against its own expectation
-		const { commands } = resolveCommandTree(commandsDir, { facts: false });
-		const state = (await main({
-			argv: [],
-			schema: { commands: commandsDir, completion: false, help: false },
-		})) as ParseState;
-		const runtime = [...state.contexts[0]![Internal].commands.keys()];
+  it('should agree with what the runtime walks', async () => {
+    // the whole reason the route rules live in `@ttylabs/sigil/routes`: an app
+    // that routed differently bundled and unbundled is the one divergence a
+    // user cannot debug, so the two walks are asserted against each other
+    // rather than each against its own expectation
+    const { commands } = resolveCommandTree(commandsDir, { facts: false });
+    const state = (await main({
+      argv: [],
+      schema: { commands: commandsDir, completion: false, help: false },
+    })) as ParseState;
+    const runtime = [...state.contexts[0]![Internal].commands.keys()];
 
-		// the root level, which is where every route rule bites: the `.` and `_`
-		// prefixes, the `index` that is not a command of its own, the package that
-		// renames itself, and two routes claiming one name. Deeper levels go
-		// through the identical `readRoutes()` call, and that they route is what
-		// the end-to-end tests below assert by dispatching through them
-		//
-		// `completion: false` and `help: false` because the two walks answer
-		// different questions about those: the build resolves an app's *routes*,
-		// and `completion` and `help` are commands the parser adds to whatever it
-		// was handed -- so a built app grows them at run time exactly as an
-		// unbundled one does, and comparing the walks means comparing the routes
-		expect(commands.map((command) => command.name).sort()).to.deep.equal(runtime.sort());
-	});
+    // the root level, which is where every route rule bites: the `.` and `_`
+    // prefixes, the `index` that is not a command of its own, the package that
+    // renames itself, and two routes claiming one name. Deeper levels go
+    // through the identical `readRoutes()` call, and that they route is what
+    // the end-to-end tests below assert by dispatching through them
+    //
+    // `completion: false` and `help: false` because the two walks answer
+    // different questions about those: the build resolves an app's *routes*,
+    // and `completion` and `help` are commands the parser adds to whatever it
+    // was handed -- so a built app grows them at run time exactly as an
+    // unbundled one does, and comparing the walks means comparing the routes
+    expect(commands.map((command) => command.name).sort()).to.deep.equal(runtime.sort());
+  });
 
-	it('should bake a description the runtime could only get by importing', () => {
-		const { commands } = resolveCommandTree(commandsDir);
+  it('should bake a description the runtime could only get by importing', () => {
+    const { commands } = resolveCommandTree(commandsDir);
 
-		expect(at(commands, 'build').desc).to.equal('build the app');
-		expect(at(commands, 'lint').desc).to.equal('lint everything');
-		expect(at(commands, 'db', 'migrate', 'up').desc).to.equal('migrate up');
-	});
+    expect(at(commands, 'build').desc).to.equal('build the app');
+    expect(at(commands, 'lint').desc).to.equal('lint everything');
+    expect(at(commands, 'db', 'migrate', 'up').desc).to.equal('migrate up');
+  });
 
-	it('should bake a hidden flag, which has the same problem', () => {
-		const { commands } = resolveCommandTree(commandsDir);
-		expect(at(commands, 'secret').hidden).to.equal(true);
-		expect(at(commands, 'build').hidden).to.equal(undefined);
-	});
+  it('should bake a hidden flag, which has the same problem', () => {
+    const { commands } = resolveCommandTree(commandsDir);
+    expect(at(commands, 'secret').hidden).to.equal(true);
+    expect(at(commands, 'build').hidden).to.equal(undefined);
+  });
 
-	it("should read a subdirectory's index module as that subdirectory's command", () => {
-		const { commands } = resolveCommandTree(commandsDir);
-		const config = at(commands, 'config');
+  it("should read a subdirectory's index module as that subdirectory's command", () => {
+    const { commands } = resolveCommandTree(commandsDir);
+    const config = at(commands, 'config');
 
-		expect(config.desc).to.equal('configure the app');
-		expect(config.module).to.equal(join(commandsDir, 'config', 'index.js'));
-		expect(config.commands.map((c) => c.name)).to.deep.equal(['set']);
-	});
+    expect(config.desc).to.equal('configure the app');
+    expect(config.module).to.equal(join(commandsDir, 'config', 'index.js'));
+    expect(config.commands.map((c) => c.name)).to.deep.equal(['set']);
+  });
 
-	it('should leave a namespace with no module rather than inventing one', () => {
-		// `db/` has no index, so it matches, lists what is under it, and has
-		// nothing to run -- which is the runtime's rule, kept
-		const { commands } = resolveCommandTree(commandsDir);
-		const db = at(commands, 'db');
+  it('should leave a namespace with no module rather than inventing one', () => {
+    // `db/` has no index, so it matches, lists what is under it, and has
+    // nothing to run -- which is the runtime's rule, kept
+    const { commands } = resolveCommandTree(commandsDir);
+    const db = at(commands, 'db');
 
-		expect(db.module).to.equal(undefined);
-		expect(db.desc).to.equal(undefined);
-		expect(db.commands.map((c) => c.name)).to.deep.equal(['migrate']);
-	});
+    expect(db.module).to.equal(undefined);
+    expect(db.desc).to.equal(undefined);
+    expect(db.commands.map((c) => c.name)).to.deep.equal(['migrate']);
+  });
 
-	it('should recurse as deep as the tree goes', () => {
-		const { commands } = resolveCommandTree(commandsDir);
-		expect(at(commands, 'db', 'migrate').commands.map((c) => c.name)).to.deep.equal(['down', 'up']);
-	});
+  it('should recurse as deep as the tree goes', () => {
+    const { commands } = resolveCommandTree(commandsDir);
+    expect(at(commands, 'db', 'migrate').commands.map((c) => c.name)).to.deep.equal(['down', 'up']);
+  });
 
-	it('should describe a package from its manifest rather than its module', () => {
-		// a package describes itself in its `package.json`, which is the
-		// description the runtime uses -- reading its entry module would mean
-		// reading somebody's compiled output to answer a question already answered
-		const { commands } = resolveCommandTree(commandsDir);
-		const pkg = at(commands, 'routes-pkg');
+  it('should describe a package from its manifest rather than its module', () => {
+    // a package describes itself in its `package.json`, which is the
+    // description the runtime uses -- reading its entry module would mean
+    // reading somebody's compiled output to answer a question already answered
+    const { commands } = resolveCommandTree(commandsDir);
+    const pkg = at(commands, 'routes-pkg');
 
-		expect(pkg.kind).to.equal('package');
-		expect(pkg.desc).to.equal('a package that names itself');
-	});
+    expect(pkg.kind).to.equal('package');
+    expect(pkg.desc).to.equal('a package that names itself');
+  });
 
-	it('should keep an underscore-prefixed entry out of the tree', () => {
-		const { commands } = resolveCommandTree(commandsDir);
-		const names = commands.map((command) => command.name);
+  it('should keep an underscore-prefixed entry out of the tree', () => {
+    const { commands } = resolveCommandTree(commandsDir);
+    const names = commands.map((command) => command.name);
 
-		expect(names).to.not.contain('_helpers');
-		expect(names).to.not.contain('_shared');
-	});
+    expect(names).to.not.contain('_helpers');
+    expect(names).to.not.contain('_shared');
+  });
 
-	it('should report a description it cannot read, with the file it is in', () => {
-		const { diagnostics } = resolveCommandTree(commandsDir);
+  it('should report a description it cannot read, with the file it is in', () => {
+    const { diagnostics } = resolveCommandTree(commandsDir);
 
-		expect(diagnostics).to.have.lengthOf(1);
-		expect(diagnostics[0]!.file).to.equal(join(commandsDir, 'computed.js'));
-		expect(diagnostics[0]!.severity).to.equal('warning');
-		expect(diagnostics[0]!.message).to.contain('"desc" is computed');
-	});
+    expect(diagnostics).to.have.lengthOf(1);
+    expect(diagnostics[0]!.file).to.equal(join(commandsDir, 'computed.js'));
+    expect(diagnostics[0]!.severity).to.equal('warning');
+    expect(diagnostics[0]!.message).to.contain('"desc" is computed');
+  });
 
-	it('should read no modules at all when facts are off', () => {
-		const { commands, diagnostics } = resolveCommandTree(commandsDir, { facts: false });
+  it('should read no modules at all when facts are off', () => {
+    const { commands, diagnostics } = resolveCommandTree(commandsDir, { facts: false });
 
-		expect(diagnostics).to.deep.equal([]);
-		expect(at(commands, 'build').desc).to.equal(undefined);
-		// the shape is still the shape
-		expect(at(commands, 'db', 'migrate', 'up').name).to.equal('up');
-	});
+    expect(diagnostics).to.deep.equal([]);
+    expect(at(commands, 'build').desc).to.equal(undefined);
+    // the shape is still the shape
+    expect(at(commands, 'db', 'migrate', 'up').name).to.equal('up');
+  });
 
-	it('should refuse a directory that is itself a package', async () => {
-		// the runtime asks `readPackage()` first for an unnamed path, so such a
-		// directory is *one* command rather than a directory of them -- and a
-		// `commands/` carrying a `"type": "module"` manifest, which is how a
-		// package forces ESM on a directory, is one. Walking its routes instead
-		// emitted a whole tree where the runtime emits a single command, which is
-		// the divergence everything here exists to prevent
-		const root = join(__dirname, '../fixtures/pkg-root/commands');
+  it('should refuse a directory that is itself a package', async () => {
+    // the runtime asks `readPackage()` first for an unnamed path, so such a
+    // directory is *one* command rather than a directory of them -- and a
+    // `commands/` carrying a `"type": "module"` manifest, which is how a
+    // package forces ESM on a directory, is one. Walking its routes instead
+    // emitted a whole tree where the runtime emits a single command, which is
+    // the divergence everything here exists to prevent
+    const root = join(__dirname, '../fixtures/pkg-root/commands');
 
-		expect(() => resolveCommandTree(root)).to.throw(/makes it a package/);
+    expect(() => resolveCommandTree(root)).to.throw(/makes it a package/);
 
-		// ...and this is what it would have diverged from: one command, named by
-		// the package, with the modules beside it not being commands at all
-		const state = (await main({
-			argv: [],
-			schema: { commands: root, completion: false, help: false },
-		})) as ParseState;
-		expect([...state.contexts[0]![Internal].commands.keys()]).to.deep.equal(['everything']);
-		expect(
-			await main({
-				argv: ['everything'],
-				schema: { commands: root, completion: false, help: false },
-			})
-		).to.equal('one');
-	});
+    // ...and this is what it would have diverged from: one command, named by
+    // the package, with the modules beside it not being commands at all
+    const state = (await main({
+      argv: [],
+      schema: { commands: root, completion: false, help: false },
+    })) as ParseState;
+    expect([...state.contexts[0]![Internal].commands.keys()]).to.deep.equal(['everything']);
+    expect(
+      await main({
+        argv: ['everything'],
+        schema: { commands: root, completion: false, help: false },
+      })
+    ).to.equal('one');
+  });
 
-	it('should throw on a directory that is not there', () => {
-		expect(() => resolveCommandTree(join(app, 'nope'))).to.throw(/Command directory not found/);
-	});
+  it('should throw on a directory that is not there', () => {
+    expect(() => resolveCommandTree(join(app, 'nope'))).to.throw(/Command directory not found/);
+  });
 
-	it('should walk parents before children', () => {
-		const { commands } = resolveCommandTree(commandsDir, { facts: false });
-		const paths = [...walkTree(commands)].map(({ path }) => path.join(' '));
+  it('should walk parents before children', () => {
+    const { commands } = resolveCommandTree(commandsDir, { facts: false });
+    const paths = [...walkTree(commands)].map(({ path }) => path.join(' '));
 
-		expect(paths).to.contain('db');
-		expect(paths.indexOf('db')).to.be.lessThan(paths.indexOf('db migrate'));
-		expect(paths.indexOf('db migrate')).to.be.lessThan(paths.indexOf('db migrate up'));
-	});
+    expect(paths).to.contain('db');
+    expect(paths.indexOf('db')).to.be.lessThan(paths.indexOf('db migrate'));
+    expect(paths.indexOf('db migrate')).to.be.lessThan(paths.indexOf('db migrate up'));
+  });
 });
 
 describe('generating a command tree', () => {
-	it('should print a lazy import per command', () => {
-		const tree = resolveCommandTree(commandsDir);
-		const source = generateCommands(tree, { from: app });
+  it('should print a lazy import per command', () => {
+    const tree = resolveCommandTree(commandsDir);
+    const source = generateCommands(tree, { from: app });
 
-		expect(source).to.contain('export const commands = {');
-		expect(source).to.contain('build: {');
-		expect(source).to.contain('desc: "build the app"');
-		expect(source).to.contain('load: () => import("./commands/build.ts")');
-	});
+    expect(source).to.contain('export const commands = {');
+    expect(source).to.contain('build: {');
+    expect(source).to.contain('desc: "build the app"');
+    expect(source).to.contain('load: () => import("./commands/build.ts")');
+  });
 
-	it('should nest subcommands rather than flattening them', () => {
-		const tree = resolveCommandTree(commandsDir);
-		const source = generateCommands(tree, { from: app });
+  it('should nest subcommands rather than flattening them', () => {
+    const tree = resolveCommandTree(commandsDir);
+    const source = generateCommands(tree, { from: app });
 
-		expect(source).to.contain('load: () => import("./commands/db/migrate/up.js")');
-		expect(source).to.match(/db: \{[\s\S]*migrate: \{[\s\S]*up: \{/);
-	});
+    expect(source).to.contain('load: () => import("./commands/db/migrate/up.js")');
+    expect(source).to.match(/db: \{[\s\S]*migrate: \{[\s\S]*up: \{/);
+  });
 
-	it('should emit no load for a namespace, so nothing is ever imported for it', () => {
-		const tree = resolveCommandTree(commandsDir, { facts: false });
-		const db = at(tree.commands, 'db');
-		const source = generateCommands({ commands: [db], diagnostics: [] }, { from: app });
+  it('should emit no load for a namespace, so nothing is ever imported for it', () => {
+    const tree = resolveCommandTree(commandsDir, { facts: false });
+    const db = at(tree.commands, 'db');
+    const source = generateCommands({ commands: [db], diagnostics: [] }, { from: app });
 
-		expect(source).to.not.contain('import("./commands/db")');
-		expect(source).to.contain('migrate');
-	});
+    expect(source).to.not.contain('import("./commands/db")');
+    expect(source).to.contain('migrate');
+  });
 
-	it('should emit a hidden flag it read and nothing for one it did not', () => {
-		const tree = resolveCommandTree(commandsDir);
-		const source = generateCommands(tree, { from: app });
+  it('should emit a hidden flag it read and nothing for one it did not', () => {
+    const tree = resolveCommandTree(commandsDir);
+    const source = generateCommands(tree, { from: app });
 
-		expect(source).to.match(/secret: \{[^}]*hidden: true/);
-		// `computed.js` has a desc it could not read, so it gets neither
-		expect(source).to.match(/computed: \{\n\t\tload:/);
-	});
+    expect(source).to.match(/secret: \{[^}]*hidden: true/);
+    // `computed.js` has a desc it could not read, so it gets neither
+    expect(source).to.match(/computed: \{\n    load:/);
+  });
 
-	it('should emit no name, because the key is the name', () => {
-		const tree = resolveCommandTree(commandsDir, { facts: false });
-		expect(generateCommands(tree, { from: app })).to.not.contain('name:');
-	});
+  it('should emit no name, because the key is the name', () => {
+    const tree = resolveCommandTree(commandsDir, { facts: false });
+    expect(generateCommands(tree, { from: app })).to.not.contain('name:');
+  });
 
-	it('should quote a key that is not an identifier', () => {
-		// a command name is whatever a file was called, and `my-command` is the
-		// ordinary case rather than the exotic one
-		const source = generateCommands(
-			{
-				commands: [
-					{ commands: [], kind: 'module', module: '/app/commands/my-cmd.js', name: 'my-cmd' },
-				],
-				diagnostics: [],
-			},
-			{ from: '/app' }
-		);
-		expect(source).to.contain('"my-cmd": {');
-	});
+  it('should quote a key that is not an identifier', () => {
+    // a command name is whatever a file was called, and `my-command` is the
+    // ordinary case rather than the exotic one
+    const source = generateCommands(
+      {
+        commands: [
+          { commands: [], kind: 'module', module: '/app/commands/my-cmd.js', name: 'my-cmd' },
+        ],
+        diagnostics: [],
+      },
+      { from: '/app' }
+    );
+    expect(source).to.contain('"my-cmd": {');
+  });
 
-	it('should escape a description rather than trusting it', () => {
-		// a description is somebody's prose: a quote, a backslash and a newline
-		// are all things it may hold and all things that would break the literal
-		const source = generateCommands(
-			{
-				commands: [
-					{
-						commands: [],
-						desc: 'say "hi"\\ok\nand more',
-						kind: 'module',
-						module: '/app/commands/a.js',
-						name: 'a',
-					},
-				],
-				diagnostics: [],
-			},
-			{ from: '/app' }
-		);
+  it('should escape a description rather than trusting it', () => {
+    // a description is somebody's prose: a quote, a backslash and a newline
+    // are all things it may hold and all things that would break the literal
+    const source = generateCommands(
+      {
+        commands: [
+          {
+            commands: [],
+            desc: 'say "hi"\\ok\nand more',
+            kind: 'module',
+            module: '/app/commands/a.js',
+            name: 'a',
+          },
+        ],
+        diagnostics: [],
+      },
+      { from: '/app' }
+    );
 
-		expect(source).to.contain(String.raw`desc: "say \"hi\"\\ok\nand more"`);
-	});
+    expect(source).to.contain(String.raw`desc: "say \"hi\"\\ok\nand more"`);
+  });
 
-	it('should produce a literal that parses back to the same descriptions', () => {
-		// the end-to-end claim, and the only one that matters: what is generated is
-		// a schema the runtime reads, and help sees every description without a
-		// single module being imported
-		const tree = resolveCommandTree(commandsDir);
-		const source = generateCommands(tree, { from: app });
-		const commands = evaluate(source);
+  it('should produce a literal that parses back to the same descriptions', () => {
+    // the end-to-end claim, and the only one that matters: what is generated is
+    // a schema the runtime reads, and help sees every description without a
+    // single module being imported
+    const tree = resolveCommandTree(commandsDir);
+    const source = generateCommands(tree, { from: app });
+    const commands = evaluate(source);
 
-		expect(commands.build.desc).to.equal('build the app');
-		expect(commands.db.commands.migrate.commands.up.desc).to.equal('migrate up');
-		expect(commands.secret.hidden).to.equal(true);
-		expect(typeof commands.build.load).to.equal('function');
-	});
+    expect(commands.build.desc).to.equal('build the app');
+    expect(commands.db.commands.migrate.commands.up.desc).to.equal('migrate up');
+    expect(commands.secret.hidden).to.equal(true);
+    expect(typeof commands.build.load).to.equal('function');
+  });
 });
 
 /** A backtick, named rather than written, since this file is full of templates. */
 const BACKTICK = String.fromCharCode(96);
 
 describe('a translated description', () => {
-	/** A one-command tree whose description is whatever is handed in. */
-	const treeWith = (desc: string, descTranslated?: boolean) => ({
-		commands: [
-			{
-				commands: [],
-				desc,
-				descTranslated,
-				kind: 'module' as const,
-				module: '/app/commands/a.js',
-				name: 'a',
-			},
-		],
-		diagnostics: [],
-	});
+  /** A one-command tree whose description is whatever is handed in. */
+  const treeWith = (desc: string, descTranslated?: boolean) => ({
+    commands: [
+      {
+        commands: [],
+        desc,
+        descTranslated,
+        kind: 'module' as const,
+        module: '/app/commands/a.js',
+        name: 'a',
+      },
+    ],
+    diagnostics: [],
+  });
 
-	it('should print a thunk over the tag rather than the string', () => {
-		// the catalog is loaded after this module is evaluated, so a string here
-		// would bake the English in -- which is the whole of why `Command.desc`
-		// takes a function
-		const source = generateCommands(treeWith('build the app', true), { from: '/app' });
+  it('should print a thunk over the tag rather than the string', () => {
+    // the catalog is loaded after this module is evaluated, so a string here
+    // would bake the English in -- which is the whole of why `Command.desc`
+    // takes a function
+    const source = generateCommands(treeWith('build the app', true), { from: '/app' });
 
-		expect(source).to.contain('desc: () => __`build the app`');
-		expect(source).to.contain('import { __ } from "@ttylabs/sigil/i18n";');
-	});
+    expect(source).to.contain('desc: () => __`build the app`');
+    expect(source).to.contain('import { __ } from "@ttylabs/sigil/i18n";');
+  });
 
-	it('should import the tag from wherever the runtime is', () => {
-		const source = generateCommands(treeWith('build the app', true), {
-			from: '/app',
-			runtime: '@scope/runtime',
-		});
+  it('should import the tag from wherever the runtime is', () => {
+    const source = generateCommands(treeWith('build the app', true), {
+      from: '/app',
+      runtime: '@scope/runtime',
+    });
 
-		expect(source).to.contain('import { __ } from "@scope/runtime/i18n";');
-	});
+    expect(source).to.contain('import { __ } from "@scope/runtime/i18n";');
+  });
 
-	it('should import nothing when no description in the tree is a key', () => {
-		// a tree that names no tag should not name a module it never reads
-		const source = generateCommands(treeWith('build the app'), { from: '/app' });
+  it('should import nothing when no description in the tree is a key', () => {
+    // a tree that names no tag should not name a module it never reads
+    const source = generateCommands(treeWith('build the app'), { from: '/app' });
 
-		expect(source).to.contain('desc: "build the app"');
-		expect(source).to.not.contain('i18n');
-	});
+    expect(source).to.contain('desc: "build the app"');
+    expect(source).to.not.contain('i18n');
+  });
 
-	it('should import the tag for a key nested any distance down', () => {
-		const source = generateCommands(
-			{
-				commands: [
-					{
-						commands: [
-							{
-								commands: [],
-								desc: 'migrate up',
-								descTranslated: true,
-								kind: 'module',
-								module: '/app/commands/db/up.js',
-								name: 'up',
-							},
-						],
-						kind: 'directory',
-						name: 'db',
-					},
-				],
-				diagnostics: [],
-			},
-			{ from: '/app' }
-		);
+  it('should import the tag for a key nested any distance down', () => {
+    const source = generateCommands(
+      {
+        commands: [
+          {
+            commands: [
+              {
+                commands: [],
+                desc: 'migrate up',
+                descTranslated: true,
+                kind: 'module',
+                module: '/app/commands/db/up.js',
+                name: 'up',
+              },
+            ],
+            kind: 'directory',
+            name: 'db',
+          },
+        ],
+        diagnostics: [],
+      },
+      { from: '/app' }
+    );
 
-		expect(source).to.contain('import { __ } from "@ttylabs/sigil/i18n";');
-	});
+    expect(source).to.contain('import { __ } from "@ttylabs/sigil/i18n";');
+  });
 
-	it('should emit a key that cooks back to the key it was lifted from', () => {
-		// the property rather than a spelling, because what matters is exactness:
-		// the tag looks the *cooked* string up, so a key that did not round trip
-		// through the emitter would be a key no catalog has. A backtick would end
-		// the template, a `${` would open an interpolation, and a backslash would
-		// consume whatever came after it
-		const keys = [
-			'plain',
-			'a ' + BACKTICK + ' tick',
-			'a ${slot}',
-			'a \\ slash',
-			'two\nlines',
-			'a {0} brace',
-			'a \r carriage return',
-			'a \u2028 line separator',
-		];
+  it('should emit a key that cooks back to the key it was lifted from', () => {
+    // the property rather than a spelling, because what matters is exactness:
+    // the tag looks the *cooked* string up, so a key that did not round trip
+    // through the emitter would be a key no catalog has. A backtick would end
+    // the template, a `${` would open an interpolation, and a backslash would
+    // consume whatever came after it
+    const keys = [
+      'plain',
+      'a ' + BACKTICK + ' tick',
+      'a ${slot}',
+      'a \\ slash',
+      'two\nlines',
+      'a {0} brace',
+      'a \r carriage return',
+      'a \u2028 line separator',
+    ];
 
-		for (const key of keys) {
-			const source = generateCommands(treeWith(key, true), { from: '/app' });
+    for (const key of keys) {
+      const source = generateCommands(treeWith(key, true), { from: '/app' });
 
-			// the import is dropped rather than resolved, because `new Function`
-			// cannot have one -- and the tag is handed in, so what is measured is
-			// what the emitted template cooks to
-			const body = source.replace(/^import .*\n/, '').replace('export const', 'const');
-			// eslint-disable-next-line no-new-func
-			const cooked = new Function('__', `${body}\nreturn commands.a.desc();`)(
-				(parts: readonly string[]) => parts.join('')
-			) as string;
+      // the import is dropped rather than resolved, because `new Function`
+      // cannot have one -- and the tag is handed in, so what is measured is
+      // what the emitted template cooks to
+      const body = source.replace(/^import .*\n/, '').replace('export const', 'const');
+      // eslint-disable-next-line no-new-func
+      const cooked = new Function('__', `${body}\nreturn commands.a.desc();`)(
+        (parts: readonly string[]) => parts.join('')
+      ) as string;
 
-			expect(cooked, JSON.stringify(key)).to.equal(key);
-		}
-	});
+      expect(cooked, JSON.stringify(key)).to.equal(key);
+    }
+  });
 
-	it('should not leave a raw backtick in the template it printed', () => {
-		// the round trip above is the claim; this is the one spelling worth
-		// pinning, because an unescaped backtick is a syntax error rather than a
-		// wrong string and `new Function` would report it as one either way
-		const source = generateCommands(treeWith('a ' + BACKTICK + ' tick', true), { from: '/app' });
+  it('should not leave a raw backtick in the template it printed', () => {
+    // the round trip above is the claim; this is the one spelling worth
+    // pinning, because an unescaped backtick is a syntax error rather than a
+    // wrong string and `new Function` would report it as one either way
+    const source = generateCommands(treeWith('a ' + BACKTICK + ' tick', true), { from: '/app' });
 
-		expect(source).to.contain('\\' + BACKTICK);
-	});
+    expect(source).to.contain('\\' + BACKTICK);
+  });
 });
 
 describe('the generated executable', () => {
-	/** A one-command tree, so the entry has something to bake. */
-	const tree = {
-		commands: [{ commands: [], kind: 'module' as const, module: '/app/commands/a.js', name: 'a' }],
-		diagnostics: [],
-	};
+  /** A one-command tree, so the entry has something to bake. */
+  const tree = {
+    commands: [{ commands: [], kind: 'module' as const, module: '/app/commands/a.js', name: 'a' }],
+    diagnostics: [],
+  };
 
-	it('should bake the locale the config named as the bottom of the chain', () => {
-		// the runtime cannot read `sigil.json` -- reading a file at startup is what
-		// `Schema.locales` being a map rather than a directory convention exists to
-		// avoid -- so the build is the only thing that can carry it across
-		const source = generateBin({
-			defaultLocale: 'de',
-			from: '/app/out',
-			schemaModule: '/app/src/index.ts',
-			tree,
-		});
+  it('should bake the locale the config named as the bottom of the chain', () => {
+    // the runtime cannot read `sigil.json` -- reading a file at startup is what
+    // `Schema.locales` being a map rather than a directory convention exists to
+    // avoid -- so the build is the only thing that can carry it across
+    const source = generateBin({
+      defaultLocale: 'de',
+      from: '/app/out',
+      schemaModule: '/app/src/index.ts',
+      tree,
+    });
 
-		expect(source).to.contain('defaultLocale: "de"');
-	});
+    expect(source).to.contain('defaultLocale: "de"');
+  });
 
-	it('should import the tag from the runtime it imports `main` from', () => {
-		// the entry names one runtime, so the tag has to come from the same place:
-		// a tree printed against the default would import `@ttylabs/sigil/i18n`
-		// into a module whose `main` came from somewhere else
-		const source = generateBin({
-			from: '/app/out',
-			runtime: '@scope/runtime',
-			schemaModule: '/app/src/index.ts',
-			tree: {
-				commands: [
-					{
-						commands: [],
-						desc: 'build the app',
-						descTranslated: true,
-						kind: 'module',
-						module: '/app/commands/a.js',
-						name: 'a',
-					},
-				],
-				diagnostics: [],
-			},
-		});
+  it('should import the tag from the runtime it imports `main` from', () => {
+    // the entry names one runtime, so the tag has to come from the same place:
+    // a tree printed against the default would import `@ttylabs/sigil/i18n`
+    // into a module whose `main` came from somewhere else
+    const source = generateBin({
+      from: '/app/out',
+      runtime: '@scope/runtime',
+      schemaModule: '/app/src/index.ts',
+      tree: {
+        commands: [
+          {
+            commands: [],
+            desc: 'build the app',
+            descTranslated: true,
+            kind: 'module',
+            module: '/app/commands/a.js',
+            name: 'a',
+          },
+        ],
+        diagnostics: [],
+      },
+    });
 
-		expect(source).to.contain('import { main } from "@scope/runtime";');
-		expect(source).to.contain('import { __ } from "@scope/runtime/i18n";');
-	});
+    expect(source).to.contain('import { main } from "@scope/runtime";');
+    expect(source).to.contain('import { __ } from "@scope/runtime/i18n";');
+  });
 
-	it('should bake no locale when the config named none', () => {
-		const source = generateBin({ from: '/app/out', schemaModule: '/app/src/index.ts', tree });
+  it('should bake no locale when the config named none', () => {
+    const source = generateBin({ from: '/app/out', schemaModule: '/app/src/index.ts', tree });
 
-		expect(source).to.not.contain('defaultLocale');
-	});
+    expect(source).to.not.contain('defaultLocale');
+  });
 
-	it('should bake it after `commands`, so the app`s own schema does not win', () => {
-		// `commands` is last because the baked tree is the one property the build
-		// knows better than the app; the locale and the version are the other two
-		const source = generateBin({
-			defaultLocale: 'de',
-			from: '/app/out',
-			schemaModule: '/app/src/index.ts',
-			tree,
-			version: '1.2.3',
-		});
+  it('should bake it after `commands`, so the app`s own schema does not win', () => {
+    // `commands` is last because the baked tree is the one property the build
+    // knows better than the app; the locale and the version are the other two
+    const source = generateBin({
+      defaultLocale: 'de',
+      from: '/app/out',
+      schemaModule: '/app/src/index.ts',
+      tree,
+      version: '1.2.3',
+    });
 
-		expect(source).to.match(
-			/\.\.\.schema,\n\tcommands,\n\tversion: "1\.2\.3",\n\tdefaultLocale: "de",/
-		);
-	});
+    expect(source).to.match(
+      /\.\.\.schema,\n  commands,\n  version: "1\.2\.3",\n  defaultLocale: "de",/
+    );
+  });
 });
 
 describe('an import specifier', () => {
-	it('should be relative with an explicit ./', () => {
-		// a bare `commands/build.js` is a package specifier to every resolver
-		// there is, so it would be looked for in node_modules
-		expect(specifier('/app', '/app/commands/build.js')).to.equal('./commands/build.js');
-	});
+  it('should be relative with an explicit ./', () => {
+    // a bare `commands/build.js` is a package specifier to every resolver
+    // there is, so it would be looked for in node_modules
+    expect(specifier('/app', '/app/commands/build.js')).to.equal('./commands/build.js');
+  });
 
-	it('should reach upwards when it has to', () => {
-		expect(specifier('/app/out', '/app/commands/build.js')).to.equal('../commands/build.js');
-	});
+  it('should reach upwards when it has to', () => {
+    expect(specifier('/app/out', '/app/commands/build.js')).to.equal('../commands/build.js');
+  });
 
-	it('should use forward slashes whatever the platform separator is', () => {
-		// a backslash in a specifier is an escape rather than a separator, so a
-		// Windows build would emit `import("./commands\build.js")` and fail at run
-		// time on the machine that produced it
-		const written = specifier(commandsDir, join(commandsDir, 'db', 'migrate', 'up.js'));
-		expect(written).to.equal('./db/migrate/up.js');
-		expect(written).to.not.contain('\\');
-	});
+  it('should use forward slashes whatever the platform separator is', () => {
+    // a backslash in a specifier is an escape rather than a separator, so a
+    // Windows build would emit `import("./commands\build.js")` and fail at run
+    // time on the machine that produced it
+    const written = specifier(commandsDir, join(commandsDir, 'db', 'migrate', 'up.js'));
+    expect(written).to.equal('./db/migrate/up.js');
+    expect(written).to.not.contain('\\');
+  });
 });
 
 /**
@@ -505,81 +505,81 @@ describe('an import specifier', () => {
  * has every description without importing a thing.
  */
 describe('a generated tree at run time', () => {
-	const out = join(app, 'out');
-	const file = join(out, 'commands.mjs');
+  const out = join(app, 'out');
+  const file = join(out, 'commands.mjs');
 
-	/** Writes the fixture app's tree out and imports it. */
-	async function build(): Promise<Record<string, AnyCommand>> {
-		const tree = resolveCommandTree(commandsDir);
-		mkdirSync(out, { recursive: true });
-		writeFileSync(file, generateCommands(tree, { from: out }), 'utf-8');
+  /** Writes the fixture app's tree out and imports it. */
+  async function build(): Promise<Record<string, AnyCommand>> {
+    const tree = resolveCommandTree(commandsDir);
+    mkdirSync(out, { recursive: true });
+    writeFileSync(file, generateCommands(tree, { from: out }), 'utf-8');
 
-		// a cache buster, so a rebuilt tree is the one that gets imported rather
-		// than whatever the ESM loader is still holding from the last run
-		const mod = await import(`${pathToFileURL(file).href}?t=${Date.now()}`);
-		return mod.commands as Record<string, AnyCommand>;
-	}
+    // a cache buster, so a rebuilt tree is the one that gets imported rather
+    // than whatever the ESM loader is still holding from the last run
+    const mod = await import(`${pathToFileURL(file).href}?t=${Date.now()}`);
+    return mod.commands as Record<string, AnyCommand>;
+  }
 
-	it('should dispatch a command as deep as the tree goes', async () => {
-		const commands = await build();
-		expect(
-			await main({ argv: ['db', 'migrate', 'up'], schema: { commands, help: false } })
-		).to.equal('up');
-	});
+  it('should dispatch a command as deep as the tree goes', async () => {
+    const commands = await build();
+    expect(
+      await main({ argv: ['db', 'migrate', 'up'], schema: { commands, help: false } })
+    ).to.equal('up');
+  });
 
-	it("should dispatch a subdirectory's own index module", async () => {
-		const commands = await build();
-		expect(await main({ argv: ['config'], schema: { commands, help: false } })).to.equal(
-			'configured'
-		);
-	});
+  it("should dispatch a subdirectory's own index module", async () => {
+    const commands = await build();
+    expect(await main({ argv: ['config'], schema: { commands, help: false } })).to.equal(
+      'configured'
+    );
+  });
 
-	it('should dispatch a TypeScript command module', async () => {
-		const commands = await build();
-		expect(await main({ argv: ['build'], schema: { commands, help: false } })).to.equal('built');
-	});
+  it('should dispatch a TypeScript command module', async () => {
+    const commands = await build();
+    expect(await main({ argv: ['build'], schema: { commands, help: false } })).to.equal('built');
+  });
 
-	it('should describe every command without importing one', async () => {
-		// the whole point: `--help` over a routes tree used to list sixty commands
-		// by name alone, because a description lives inside a module and reading it
-		// means importing it
-		const commands = await build();
-		const state = (await main({ argv: [], schema: { commands, help: false } })) as ParseState;
-		const registry = state.contexts[0]![Internal].commands;
+  it('should describe every command without importing one', async () => {
+    // the whole point: `--help` over a routes tree used to list sixty commands
+    // by name alone, because a description lives inside a module and reading it
+    // means importing it
+    const commands = await build();
+    const state = (await main({ argv: [], schema: { commands, help: false } })) as ParseState;
+    const registry = state.contexts[0]![Internal].commands;
 
-		expect(registry.find('build')?.desc).to.equal('build the app');
-		expect(registry.find('config')?.desc).to.equal('configure the app');
-		expect(registry.find('routes-pkg')?.desc).to.equal('a package that names itself');
-		expect(registry.find('secret')?.hidden).to.equal(true);
+    expect(registry.find('build')?.desc).to.equal('build the app');
+    expect(registry.find('config')?.desc).to.equal('configure the app');
+    expect(registry.find('routes-pkg')?.desc).to.equal('a package that names itself');
+    expect(registry.find('secret')?.hidden).to.equal(true);
 
-		// ...and nothing was loaded to learn any of it
-		for (const command of registry.values()) {
-			expect(command[Internal].loaded, `${command.name} was loaded`).to.equal(false);
-		}
-	});
+    // ...and nothing was loaded to learn any of it
+    for (const command of registry.values()) {
+      expect(command[Internal].loaded, `${command.name} was loaded`).to.equal(false);
+    }
+  });
 
-	it('should leave a command whose description it could not read undescribed', async () => {
-		// exactly where an unbundled one is: described once its module loads, and
-		// the build said so at the time
-		const commands = await build();
-		const state = (await main({ argv: [], schema: { commands, help: false } })) as ParseState;
+  it('should leave a command whose description it could not read undescribed', async () => {
+    // exactly where an unbundled one is: described once its module loads, and
+    // the build said so at the time
+    const commands = await build();
+    const state = (await main({ argv: [], schema: { commands, help: false } })) as ParseState;
 
-		expect(state.contexts[0]![Internal].commands.find('computed')?.desc).to.equal(undefined);
-		expect(await main({ argv: ['computed'], schema: { commands, help: false } })).to.equal(
-			'computed'
-		);
-	});
+    expect(state.contexts[0]![Internal].commands.find('computed')?.desc).to.equal(undefined);
+    expect(await main({ argv: ['computed'], schema: { commands, help: false } })).to.equal(
+      'computed'
+    );
+  });
 
-	it('should not route an underscore-prefixed module', async () => {
-		const commands = await build();
-		await expect(
-			main({
-				argv: ['_helpers'],
-				schema: { commands, help: false },
-				settings: { errorHandler: false },
-			})
-		).rejects.toThrow('Unexpected argument "_helpers"');
-	});
+  it('should not route an underscore-prefixed module', async () => {
+    const commands = await build();
+    await expect(
+      main({
+        argv: ['_helpers'],
+        schema: { commands, help: false },
+        settings: { errorHandler: false },
+      })
+    ).rejects.toThrow('Unexpected argument "_helpers"');
+  });
 });
 
 /**
@@ -592,7 +592,7 @@ describe('a generated tree at run time', () => {
  * @returns The exported tree.
  */
 function evaluate(source: string): Record<string, any> {
-	const body = `${source}\nreturn commands;`;
-	// eslint-disable-next-line no-new-func
-	return new Function(body.replace('export const', 'const'))();
+  const body = `${source}\nreturn commands;`;
+  // eslint-disable-next-line no-new-func
+  return new Function(body.replace('export const', 'const'))();
 }

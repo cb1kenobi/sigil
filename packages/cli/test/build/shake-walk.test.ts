@@ -48,19 +48,19 @@ const dirs: string[] = [];
 const files: string[] = [];
 
 vi.mock('node:fs', async (importOriginal) => {
-	const real = await importOriginal<typeof import('node:fs')>();
+  const real = await importOriginal<typeof import('node:fs')>();
 
-	return {
-		...real,
-		readdirSync: (path: Parameters<typeof real.readdirSync>[0], ...rest: unknown[]) => {
-			dirs.push(String(path));
-			return (real.readdirSync as (...args: unknown[]) => unknown)(path, ...rest);
-		},
-		readFileSync: (path: Parameters<typeof real.readFileSync>[0], ...rest: unknown[]) => {
-			files.push(String(path));
-			return (real.readFileSync as (...args: unknown[]) => unknown)(path, ...rest);
-		},
-	};
+  return {
+    ...real,
+    readdirSync: (path: Parameters<typeof real.readdirSync>[0], ...rest: unknown[]) => {
+      dirs.push(String(path));
+      return (real.readdirSync as (...args: unknown[]) => unknown)(path, ...rest);
+    },
+    readFileSync: (path: Parameters<typeof real.readFileSync>[0], ...rest: unknown[]) => {
+      files.push(String(path));
+      return (real.readFileSync as (...args: unknown[]) => unknown)(path, ...rest);
+    },
+  };
 });
 
 const { scanClassEvidence } = await import('../../src/build/shake.ts');
@@ -68,23 +68,23 @@ const { scanClassEvidence } = await import('../../src/build/shake.ts');
 const made: string[] = [];
 
 afterEach(() => {
-	for (const dir of made.splice(0)) {
-		rmSync(dir, { force: true, recursive: true });
-	}
+  for (const dir of made.splice(0)) {
+    rmSync(dir, { force: true, recursive: true });
+  }
 });
 
 /** An app tree on disk, from a map of relative path to source. */
 function tree(sources: Record<string, string>): string {
-	const root = mkdtempSync(join(tmpdir(), 'sigil-walk-'));
-	made.push(root);
+  const root = mkdtempSync(join(tmpdir(), 'sigil-walk-'));
+  made.push(root);
 
-	for (const [path, source] of Object.entries(sources)) {
-		const file = join(root, path);
-		mkdirSync(dirname(file), { recursive: true });
-		writeFileSync(file, source);
-	}
+  for (const [path, source] of Object.entries(sources)) {
+    const file = join(root, path);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, source);
+  }
 
-	return root;
+  return root;
 }
 
 /**
@@ -99,102 +99,102 @@ function tree(sources: Record<string, string>): string {
  * @returns The directories and files read under it, in order.
  */
 function reads(root: string): { dirs: string[]; files: string[] } {
-	dirs.length = 0;
-	files.length = 0;
-	scanClassEvidence(root);
+  dirs.length = 0;
+  files.length = 0;
+  scanClassEvidence(root);
 
-	return {
-		dirs: dirs.filter((path) => path.startsWith(root)),
-		files: files.filter((path) => path.startsWith(root)),
-	};
+  return {
+    dirs: dirs.filter((path) => path.startsWith(root)),
+    files: files.filter((path) => path.startsWith(root)),
+  };
 }
 
 /** Twenty modules under `src/`, each naming a class, plus anything else asked for. */
 function app(extra: Record<string, string> = {}): Record<string, string> {
-	const sources: Record<string, string> = { ...extra };
-	for (let n = 0; n < 20; n++) {
-		sources[`src/m${n}.ts`] = `export const c${n} = 'p-${n} text-red flex-col';\n`;
-	}
-	return sources;
+  const sources: Record<string, string> = { ...extra };
+  for (let n = 0; n < 20; n++) {
+    sources[`src/m${n}.ts`] = `export const c${n} = 'p-${n} text-red flex-col';\n`;
+  }
+  return sources;
 }
 
 describe('the class-evidence walk', () => {
-	it('should read each directory once and each module once', () => {
-		// the baseline the loop is compared against, asserted absolutely so that the
-		// comparison below cannot be satisfied by both sides being wrong together
-		const read = reads(tree(app()));
+  it('should read each directory once and each module once', () => {
+    // the baseline the loop is compared against, asserted absolutely so that the
+    // comparison below cannot be satisfied by both sides being wrong together
+    const read = reads(tree(app()));
 
-		expect(read.dirs).toHaveLength(2);
-		expect(read.files).toHaveLength(20);
-		expect(new Set(read.dirs).size).toBe(read.dirs.length);
-		expect(new Set(read.files).size).toBe(read.files.length);
-	});
+    expect(read.dirs).toHaveLength(2);
+    expect(read.files).toHaveLength(20);
+    expect(new Set(read.dirs).size).toBe(read.dirs.length);
+    expect(new Set(read.files).size).toBe(read.files.length);
+  });
 
-	it('should walk a symlink loop once rather than once per level', () => {
-		// the claim, and it is exact: a link pointing back at the root is entered,
-		// found in `entered` by its real path, and returned from before its
-		// `readdir`. So a loop costs one `realpath` and changes no count at all,
-		// where without the guard every directory and every file would be read
-		// about thirty times over
-		const root = tree(app());
-		symlinkSync(root, join(root, 'src', 'loop'));
+  it('should walk a symlink loop once rather than once per level', () => {
+    // the claim, and it is exact: a link pointing back at the root is entered,
+    // found in `entered` by its real path, and returned from before its
+    // `readdir`. So a loop costs one `realpath` and changes no count at all,
+    // where without the guard every directory and every file would be read
+    // about thirty times over
+    const root = tree(app());
+    symlinkSync(root, join(root, 'src', 'loop'));
 
-		const read = reads(root);
+    const read = reads(root);
 
-		expect(read.dirs).toHaveLength(2);
-		expect(read.files).toHaveLength(20);
-		// no path twice, which is what "once rather than once per level" says
-		expect(new Set(read.dirs).size).toBe(read.dirs.length);
-		expect(new Set(read.files).size).toBe(read.files.length);
-	});
+    expect(read.dirs).toHaveLength(2);
+    expect(read.files).toHaveLength(20);
+    // no path twice, which is what "once rather than once per level" says
+    expect(new Set(read.dirs).size).toBe(read.dirs.length);
+    expect(new Set(read.files).size).toBe(read.files.length);
+  });
 
-	it('should read the same tree the same way whether or not the loop is there', () => {
-		// the differential, which is the form the timing test was reaching for and
-		// could only approximate. Paths are compared relative to each root, since
-		// the two trees are two `mkdtemp` directories
-		const plain = tree(app());
-		const looped = tree(app());
-		symlinkSync(looped, join(looped, 'src', 'loop'));
+  it('should read the same tree the same way whether or not the loop is there', () => {
+    // the differential, which is the form the timing test was reaching for and
+    // could only approximate. Paths are compared relative to each root, since
+    // the two trees are two `mkdtemp` directories
+    const plain = tree(app());
+    const looped = tree(app());
+    symlinkSync(looped, join(looped, 'src', 'loop'));
 
-		const relative = (root: string) => {
-			const read = reads(root);
-			return {
-				dirs: read.dirs.map((path) => path.slice(root.length)).sort(),
-				files: read.files.map((path) => path.slice(root.length)).sort(),
-			};
-		};
+    const relative = (root: string) => {
+      const read = reads(root);
+      return {
+        dirs: read.dirs.map((path) => path.slice(root.length)).sort(),
+        files: read.files.map((path) => path.slice(root.length)).sort(),
+      };
+    };
 
-		expect(relative(looped)).toEqual(relative(plain));
-	});
+    expect(relative(looped)).toEqual(relative(plain));
+  });
 
-	it('should follow a link to a directory outside the tree exactly once', () => {
-		// the other half of what `entered` is keyed on real paths for: two links to
-		// one directory are one directory, so a tree reaching the same place twice
-		// reads it once. Counted outside the root, which is where the target is
-		const target = tree({ 'deep/shared.ts': `const c = 'from-a-linked-dir';` });
-		const root = tree(app());
-		symlinkSync(join(target, 'deep'), join(root, 'src', 'one'));
-		symlinkSync(join(target, 'deep'), join(root, 'src', 'two'));
+  it('should follow a link to a directory outside the tree exactly once', () => {
+    // the other half of what `entered` is keyed on real paths for: two links to
+    // one directory are one directory, so a tree reaching the same place twice
+    // reads it once. Counted outside the root, which is where the target is
+    const target = tree({ 'deep/shared.ts': `const c = 'from-a-linked-dir';` });
+    const root = tree(app());
+    symlinkSync(join(target, 'deep'), join(root, 'src', 'one'));
+    symlinkSync(join(target, 'deep'), join(root, 'src', 'two'));
 
-		dirs.length = 0;
-		files.length = 0;
-		const evidence = scanClassEvidence(root);
+    dirs.length = 0;
+    files.length = 0;
+    const evidence = scanClassEvidence(root);
 
-		expect(evidence.mayName('from-a-linked-dir')).toBe(true);
-		// the file behind both links is read once
-		expect(files.filter((path) => path.endsWith('shared.ts'))).toHaveLength(1);
-		// and only one of the two links is entered. Asserted on the paths the walk
-		// *walked* rather than on the target's real path, because `join()` builds
-		// each path from the link it came through -- which is why the target's own
-		// spelling appears nowhere in what was read. Which of the two wins is
-		// `readdir` order and none of this test's business.
-		//
-		// Through `basename()` rather than a pattern ending in a separator, which is
-		// this repository's own Windows rule and was broken here on the first try: a
-		// regex of `/(?:one|two)$` matched nothing against the `src\one` that `join()`
-		// builds there, so the assertion failed on all three Windows jobs over a walk
-		// that had done exactly the right thing. A test must not spell a separator the
-		// subject did not hand it
-		expect(dirs.filter((path) => ['one', 'two'].includes(basename(path)))).toHaveLength(1);
-	});
+    expect(evidence.mayName('from-a-linked-dir')).toBe(true);
+    // the file behind both links is read once
+    expect(files.filter((path) => path.endsWith('shared.ts'))).toHaveLength(1);
+    // and only one of the two links is entered. Asserted on the paths the walk
+    // *walked* rather than on the target's real path, because `join()` builds
+    // each path from the link it came through -- which is why the target's own
+    // spelling appears nowhere in what was read. Which of the two wins is
+    // `readdir` order and none of this test's business.
+    //
+    // Through `basename()` rather than a pattern ending in a separator, which is
+    // this repository's own Windows rule and was broken here on the first try: a
+    // regex of `/(?:one|two)$` matched nothing against the `src\one` that `join()`
+    // builds there, so the assertion failed on all three Windows jobs over a walk
+    // that had done exactly the right thing. A test must not spell a separator the
+    // subject did not hand it
+    expect(dirs.filter((path) => ['one', 'two'].includes(basename(path)))).toHaveLength(1);
+  });
 });

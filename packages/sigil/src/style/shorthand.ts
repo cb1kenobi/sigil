@@ -29,40 +29,40 @@ type Edges = [top: PropertyName, right: PropertyName, bottom: PropertyName, left
  * @returns The longhand declarations, still as source text.
  */
 function edges(values: string[], edgeNames: Edges, name: string): [PropertyName, string][] {
-	const [top, right, bottom, left] = edgeNames;
+  const [top, right, bottom, left] = edgeNames;
 
-	switch (values.length) {
-		case 1:
-			return [
-				[top, values[0]],
-				[right, values[0]],
-				[bottom, values[0]],
-				[left, values[0]],
-			];
-		case 2:
-			return [
-				[top, values[0]],
-				[right, values[1]],
-				[bottom, values[0]],
-				[left, values[1]],
-			];
-		case 3:
-			return [
-				[top, values[0]],
-				[right, values[1]],
-				[bottom, values[2]],
-				[left, values[1]],
-			];
-		case 4:
-			return [
-				[top, values[0]],
-				[right, values[1]],
-				[bottom, values[2]],
-				[left, values[3]],
-			];
-		default:
-			throw new StyleError(`Invalid ${name}: expected one to four values`);
-	}
+  switch (values.length) {
+    case 1:
+      return [
+        [top, values[0]],
+        [right, values[0]],
+        [bottom, values[0]],
+        [left, values[0]],
+      ];
+    case 2:
+      return [
+        [top, values[0]],
+        [right, values[1]],
+        [bottom, values[0]],
+        [left, values[1]],
+      ];
+    case 3:
+      return [
+        [top, values[0]],
+        [right, values[1]],
+        [bottom, values[2]],
+        [left, values[1]],
+      ];
+    case 4:
+      return [
+        [top, values[0]],
+        [right, values[1]],
+        [bottom, values[2]],
+        [left, values[3]],
+      ];
+    default:
+      throw new StyleError(`Invalid ${name}: expected one to four values`);
+  }
 }
 
 const PADDING: Edges = ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft'];
@@ -73,19 +73,19 @@ const BORDER: readonly PropertyName[] = ['borderStyle', 'borderColor'];
 const FLEX: readonly PropertyName[] = ['flexGrow', 'flexShrink', 'flexBasis'];
 const FLEX_FLOW: readonly PropertyName[] = ['flexDirection', 'flexWrap'];
 const TRANSITION: readonly PropertyName[] = [
-	'transitionProperty',
-	'transitionDuration',
-	'transitionTimingFunction',
-	'transitionDelay',
+  'transitionProperty',
+  'transitionDuration',
+  'transitionTimingFunction',
+  'transitionDelay',
 ];
 const ANIMATION: readonly PropertyName[] = [
-	'animationName',
-	'animationDuration',
-	'animationTimingFunction',
-	'animationDelay',
-	'animationIterationCount',
-	'animationDirection',
-	'animationFillMode',
+  'animationName',
+  'animationDuration',
+  'animationTimingFunction',
+  'animationDelay',
+  'animationIterationCount',
+  'animationDirection',
+  'animationFillMode',
 ];
 
 type Expander = (values: string[]) => [PropertyName, string][];
@@ -100,13 +100,13 @@ type Expander = (values: string[]) => [PropertyName, string][];
  * and `inherit` needs the whole set before any value has been read.
  */
 interface Shorthand {
-	readonly expand: Expander;
-	readonly longhands: readonly PropertyName[];
+  readonly expand: Expander;
+  readonly longhands: readonly PropertyName[];
 }
 
 /** Builds one entry, so that each reads as a list and a reader. */
 function shorthand(longhands: readonly PropertyName[], expand: Expander): Shorthand {
-	return { expand, longhands };
+  return { expand, longhands };
 }
 
 /**
@@ -125,305 +125,305 @@ function shorthand(longhands: readonly PropertyName[], expand: Expander): Shorth
  * error. One fact, checked, in two places that cannot drift apart.
  */
 export type ShorthandName =
-	| 'animation'
-	| 'border'
-	| 'flex'
-	| 'flex-flow'
-	| 'gap'
-	| 'inset'
-	| 'margin'
-	| 'padding'
-	| 'transition';
+  | 'animation'
+  | 'border'
+  | 'flex'
+  | 'flex-flow'
+  | 'gap'
+  | 'inset'
+  | 'margin'
+  | 'padding'
+  | 'transition';
 
 const SHORTHANDS = {
-	padding: shorthand(PADDING, (v) => edges(v, PADDING, 'padding')),
-	margin: shorthand(MARGIN, (v) => edges(v, MARGIN, 'margin')),
-	inset: shorthand(INSET, (v) => edges(v, INSET, 'inset')),
+  padding: shorthand(PADDING, (v) => edges(v, PADDING, 'padding')),
+  margin: shorthand(MARGIN, (v) => edges(v, MARGIN, 'margin')),
+  inset: shorthand(INSET, (v) => edges(v, INSET, 'inset')),
 
-	gap: shorthand(GAP, (v) => {
-		if (v.length === 1) {
-			return [
-				['rowGap', v[0]],
-				['columnGap', v[0]],
-			];
-		}
-		if (v.length === 2) {
-			return [
-				['rowGap', v[0]],
-				['columnGap', v[1]],
-			];
-		}
-		throw new StyleError('Invalid gap: expected one or two values');
-	}),
+  gap: shorthand(GAP, (v) => {
+    if (v.length === 1) {
+      return [
+        ['rowGap', v[0]],
+        ['columnGap', v[0]],
+      ];
+    }
+    if (v.length === 2) {
+      return [
+        ['rowGap', v[0]],
+        ['columnGap', v[1]],
+      ];
+    }
+    throw new StyleError('Invalid gap: expected one or two values');
+  }),
 
-	/**
-	 * `border: <style> <color>`, in either order and either alone.
-	 *
-	 * No width. A terminal border is one cell and cannot be anything else, so a
-	 * width would be a number with exactly one legal value.
-	 */
-	// `none` is the one ambiguous token: a valid border-style *and* a valid way to
-	// spell "no colour". Style wins, because the first position is the style's
-	border: shorthand(BORDER, (v) => {
-		if (v.length === 0 || v.length > 2) {
-			throw new StyleError('Invalid border: expected a style, a colour, or both');
-		}
+  /**
+   * `border: <style> <color>`, in either order and either alone.
+   *
+   * No width. A terminal border is one cell and cannot be anything else, so a
+   * width would be a number with exactly one legal value.
+   */
+  // `none` is the one ambiguous token: a valid border-style *and* a valid way to
+  // spell "no colour". Style wins, because the first position is the style's
+  border: shorthand(BORDER, (v) => {
+    if (v.length === 0 || v.length > 2) {
+      throw new StyleError('Invalid border: expected a style, a colour, or both');
+    }
 
-		const out: [PropertyName, string][] = [];
-		let sawStyle = false;
-		let sawColor = false;
+    const out: [PropertyName, string][] = [];
+    let sawStyle = false;
+    let sawColor = false;
 
-		for (const part of v) {
-			let isStyle = false;
-			try {
-				PROPERTIES.borderStyle.parse(part);
-				isStyle = true;
-			} catch {
-				isStyle = false;
-			}
+    for (const part of v) {
+      let isStyle = false;
+      try {
+        PROPERTIES.borderStyle.parse(part);
+        isStyle = true;
+      } catch {
+        isStyle = false;
+      }
 
-			if (isStyle && !sawStyle) {
-				sawStyle = true;
-				out.push(['borderStyle', part]);
-				continue;
-			}
+      if (isStyle && !sawStyle) {
+        sawStyle = true;
+        out.push(['borderStyle', part]);
+        continue;
+      }
 
-			if (sawColor) {
-				throw new StyleError(`Invalid border "${v.join(' ')}": two colours`);
-			}
-			// left for the colour parser to reject, so the message names the colour
-			// rather than the shorthand
-			sawColor = true;
-			out.push(['borderColor', part]);
-		}
+      if (sawColor) {
+        throw new StyleError(`Invalid border "${v.join(' ')}": two colours`);
+      }
+      // left for the colour parser to reject, so the message names the colour
+      // rather than the shorthand
+      sawColor = true;
+      out.push(['borderColor', part]);
+    }
 
-		// a border given only a colour is still a border, which is the one thing
-		// CSS gets wrong here: `border-color` alone draws nothing
-		if (!sawStyle) {
-			out.unshift(['borderStyle', 'single']);
-		}
+    // a border given only a colour is still a border, which is the one thing
+    // CSS gets wrong here: `border-color` alone draws nothing
+    if (!sawStyle) {
+      out.unshift(['borderStyle', 'single']);
+    }
 
-		// a shorthand resets every longhand it covers, including the ones this use
-		// did not mention. That is what makes `border: single` after a
-		// `border-color: red` mean what it looks like it means
-		if (!sawColor) {
-			out.push(['borderColor', 'default']);
-		}
+    // a shorthand resets every longhand it covers, including the ones this use
+    // did not mention. That is what makes `border: single` after a
+    // `border-color: red` mean what it looks like it means
+    if (!sawColor) {
+      out.push(['borderColor', 'default']);
+    }
 
-		return out;
-	}),
+    return out;
+  }),
 
-	/**
-	 * `flex: <grow> <shrink> <basis>`, with the CSS shorthand's defaults.
-	 *
-	 * `flex: 1` means grow 1, shrink 1, basis 0 -- not basis auto. That surprises
-	 * people every time and it is the behavior everyone's muscle memory expects,
-	 * so it is what this does.
-	 */
-	flex: shorthand(FLEX, (v) => {
-		if (v.length === 0 || v.length > 3) {
-			throw new StyleError('Invalid flex: expected one to three values');
-		}
+  /**
+   * `flex: <grow> <shrink> <basis>`, with the CSS shorthand's defaults.
+   *
+   * `flex: 1` means grow 1, shrink 1, basis 0 -- not basis auto. That surprises
+   * people every time and it is the behavior everyone's muscle memory expects,
+   * so it is what this does.
+   */
+  flex: shorthand(FLEX, (v) => {
+    if (v.length === 0 || v.length > 3) {
+      throw new StyleError('Invalid flex: expected one to three values');
+    }
 
-		if (v.length === 1) {
-			const keyword = v[0].toLowerCase();
-			if (keyword === 'none') {
-				return [
-					['flexGrow', '0'],
-					['flexShrink', '0'],
-					['flexBasis', 'auto'],
-				];
-			}
-			if (keyword === 'initial') {
-				return [
-					['flexGrow', '0'],
-					['flexShrink', '1'],
-					['flexBasis', 'auto'],
-				];
-			}
-		}
+    if (v.length === 1) {
+      const keyword = v[0].toLowerCase();
+      if (keyword === 'none') {
+        return [
+          ['flexGrow', '0'],
+          ['flexShrink', '0'],
+          ['flexBasis', 'auto'],
+        ];
+      }
+      if (keyword === 'initial') {
+        return [
+          ['flexGrow', '0'],
+          ['flexShrink', '1'],
+          ['flexBasis', 'auto'],
+        ];
+      }
+    }
 
-		// CSS is `none | [ <grow> <shrink>? || <basis> ]`, so a part that is a
-		// length rather than a plain number is the basis wherever it sits.
-		// `flex: auto` is the second most typed value after `flex: 1` and used to
-		// throw as an invalid grow factor
-		const numbers: string[] = [];
-		let basis: string | undefined;
+    // CSS is `none | [ <grow> <shrink>? || <basis> ]`, so a part that is a
+    // length rather than a plain number is the basis wherever it sits.
+    // `flex: auto` is the second most typed value after `flex: 1` and used to
+    // throw as an invalid grow factor
+    const numbers: string[] = [];
+    let basis: string | undefined;
 
-		for (const part of v) {
-			if (NUMBER.test(part)) {
-				numbers.push(part);
-				continue;
-			}
-			if (basis === undefined && accepts('flexBasis', part)) {
-				basis = part;
-				continue;
-			}
-			throw new StyleError(`Invalid flex "${v.join(' ')}"`);
-		}
+    for (const part of v) {
+      if (NUMBER.test(part)) {
+        numbers.push(part);
+        continue;
+      }
+      if (basis === undefined && accepts('flexBasis', part)) {
+        basis = part;
+        continue;
+      }
+      throw new StyleError(`Invalid flex "${v.join(' ')}"`);
+    }
 
-		return [
-			['flexGrow', numbers[0] ?? '1'],
-			['flexShrink', numbers[1] ?? '1'],
-			// a bare `<number>` sets the basis to zero, which is the well-known
-			// "why doesn't flex: 1 behave the way I think" gotcha and is what
-			// everybody's muscle memory expects
-			['flexBasis', basis ?? (numbers.length > 0 ? '0' : 'auto')],
-		];
-	}),
+    return [
+      ['flexGrow', numbers[0] ?? '1'],
+      ['flexShrink', numbers[1] ?? '1'],
+      // a bare `<number>` sets the basis to zero, which is the well-known
+      // "why doesn't flex: 1 behave the way I think" gotcha and is what
+      // everybody's muscle memory expects
+      ['flexBasis', basis ?? (numbers.length > 0 ? '0' : 'auto')],
+    ];
+  }),
 
-	/**
-	 * `<flex-direction> || <flex-wrap>` -- either alone, in either order, which is
-	 * what CSS says and what the error message already promised. Only the
-	 * positional form was read, so `flex-flow: wrap` was rejected as an invalid
-	 * direction.
-	 */
-	'flex-flow': shorthand(FLEX_FLOW, (v) => {
-		if (v.length === 0 || v.length > 2) {
-			throw new StyleError('Invalid flex-flow: expected a direction, a wrap, or both');
-		}
+  /**
+   * `<flex-direction> || <flex-wrap>` -- either alone, in either order, which is
+   * what CSS says and what the error message already promised. Only the
+   * positional form was read, so `flex-flow: wrap` was rejected as an invalid
+   * direction.
+   */
+  'flex-flow': shorthand(FLEX_FLOW, (v) => {
+    if (v.length === 0 || v.length > 2) {
+      throw new StyleError('Invalid flex-flow: expected a direction, a wrap, or both');
+    }
 
-		let direction: string | undefined;
-		let wrap: string | undefined;
+    let direction: string | undefined;
+    let wrap: string | undefined;
 
-		for (const part of v) {
-			if (direction === undefined && accepts('flexDirection', part)) {
-				direction = part;
-				continue;
-			}
-			if (wrap === undefined && accepts('flexWrap', part)) {
-				wrap = part;
-				continue;
-			}
-			throw new StyleError(`Invalid flex-flow "${v.join(' ')}"`);
-		}
+    for (const part of v) {
+      if (direction === undefined && accepts('flexDirection', part)) {
+        direction = part;
+        continue;
+      }
+      if (wrap === undefined && accepts('flexWrap', part)) {
+        wrap = part;
+        continue;
+      }
+      throw new StyleError(`Invalid flex-flow "${v.join(' ')}"`);
+    }
 
-		// the omitted half is reset rather than left alone, for the same reason
-		// `border` resets its colour
-		return [
-			['flexDirection', direction ?? 'row'],
-			['flexWrap', wrap ?? 'nowrap'],
-		];
-	}),
+    // the omitted half is reset rather than left alone, for the same reason
+    // `border` resets its colour
+    return [
+      ['flexDirection', direction ?? 'row'],
+      ['flexWrap', wrap ?? 'nowrap'],
+    ];
+  }),
 
-	/**
-	 * `<property> || <duration> || <timing-function> || <delay>`, in any order,
-	 * with the first time being the duration and the second the delay.
-	 *
-	 * **A time in a shorthand carries its unit**, which is the one divergence from
-	 * the longhands, where a bare number is milliseconds. It is forced rather than
-	 * chosen: a bare number in `animation` is CSS's iteration count, so one
-	 * grammar cannot have both, and the two shorthands agreeing about it is worth
-	 * more than `transition: width 300` saving two characters.
-	 */
-	transition: shorthand(TRANSITION, (v) => {
-		noList(v, 'transition');
+  /**
+   * `<property> || <duration> || <timing-function> || <delay>`, in any order,
+   * with the first time being the duration and the second the delay.
+   *
+   * **A time in a shorthand carries its unit**, which is the one divergence from
+   * the longhands, where a bare number is milliseconds. It is forced rather than
+   * chosen: a bare number in `animation` is CSS's iteration count, so one
+   * grammar cannot have both, and the two shorthands agreeing about it is worth
+   * more than `transition: width 300` saving two characters.
+   */
+  transition: shorthand(TRANSITION, (v) => {
+    noList(v, 'transition');
 
-		let property: string | undefined;
-		let duration: string | undefined;
-		let delay: string | undefined;
-		let timing: string | undefined;
+    let property: string | undefined;
+    let duration: string | undefined;
+    let delay: string | undefined;
+    let timing: string | undefined;
 
-		for (const part of v) {
-			if (TIME.test(part)) {
-				if (duration === undefined) {
-					duration = part;
-				} else if (delay === undefined) {
-					delay = part;
-				} else {
-					throw new StyleError(
-						`Invalid transition "${v.join(' ')}": a transition has a duration and a delay, and no third time`
-					);
-				}
-				continue;
-			}
-			if (timing === undefined && accepts('transitionTimingFunction', part)) {
-				timing = part;
-				continue;
-			}
-			if (property === undefined && accepts('transitionProperty', part)) {
-				property = part;
-				continue;
-			}
-			throw bareTime(part, `Invalid transition "${v.join(' ')}"`);
-		}
+    for (const part of v) {
+      if (TIME.test(part)) {
+        if (duration === undefined) {
+          duration = part;
+        } else if (delay === undefined) {
+          delay = part;
+        } else {
+          throw new StyleError(
+            `Invalid transition "${v.join(' ')}": a transition has a duration and a delay, and no third time`
+          );
+        }
+        continue;
+      }
+      if (timing === undefined && accepts('transitionTimingFunction', part)) {
+        timing = part;
+        continue;
+      }
+      if (property === undefined && accepts('transitionProperty', part)) {
+        property = part;
+        continue;
+      }
+      throw bareTime(part, `Invalid transition "${v.join(' ')}"`);
+    }
 
-		// every longhand reset, including the ones this use did not mention, which
-		// is the shorthand rule `border` and `flex-flow` already follow
-		return [
-			['transitionProperty', property ?? 'all'],
-			['transitionDuration', duration ?? '0s'],
-			['transitionTimingFunction', timing ?? 'linear'],
-			['transitionDelay', delay ?? '0s'],
-		];
-	}),
+    // every longhand reset, including the ones this use did not mention, which
+    // is the shorthand rule `border` and `flex-flow` already follow
+    return [
+      ['transitionProperty', property ?? 'all'],
+      ['transitionDuration', duration ?? '0s'],
+      ['transitionTimingFunction', timing ?? 'linear'],
+      ['transitionDelay', delay ?? '0s'],
+    ];
+  }),
 
-	/**
-	 * `<duration> || <timing-function> || <delay> || <iteration-count> ||
-	 * <direction> || <fill-mode> || <name>`, in any order.
-	 *
-	 * An identifier is tried as a direction, then a fill mode, then the name --
-	 * which means `@keyframes normal` cannot be started from the shorthand, the
-	 * same reservation CSS has and for the same reason. `animation-name: normal`
-	 * still reaches it.
-	 */
-	animation: shorthand(ANIMATION, (v) => {
-		noList(v, 'animation');
+  /**
+   * `<duration> || <timing-function> || <delay> || <iteration-count> ||
+   * <direction> || <fill-mode> || <name>`, in any order.
+   *
+   * An identifier is tried as a direction, then a fill mode, then the name --
+   * which means `@keyframes normal` cannot be started from the shorthand, the
+   * same reservation CSS has and for the same reason. `animation-name: normal`
+   * still reaches it.
+   */
+  animation: shorthand(ANIMATION, (v) => {
+    noList(v, 'animation');
 
-		let name: string | undefined;
-		let duration: string | undefined;
-		let delay: string | undefined;
-		let timing: string | undefined;
-		let iterations: string | undefined;
-		let direction: string | undefined;
-		let fill: string | undefined;
+    let name: string | undefined;
+    let duration: string | undefined;
+    let delay: string | undefined;
+    let timing: string | undefined;
+    let iterations: string | undefined;
+    let direction: string | undefined;
+    let fill: string | undefined;
 
-		for (const part of v) {
-			if (TIME.test(part)) {
-				if (duration === undefined) {
-					duration = part;
-				} else if (delay === undefined) {
-					delay = part;
-				} else {
-					throw new StyleError(
-						`Invalid animation "${v.join(' ')}": an animation has a duration and a delay, and no third time`
-					);
-				}
-				continue;
-			}
-			if (iterations === undefined && COUNT.test(part)) {
-				iterations = part;
-				continue;
-			}
-			if (timing === undefined && accepts('animationTimingFunction', part)) {
-				timing = part;
-				continue;
-			}
-			if (direction === undefined && accepts('animationDirection', part)) {
-				direction = part;
-				continue;
-			}
-			if (fill === undefined && accepts('animationFillMode', part)) {
-				fill = part;
-				continue;
-			}
-			if (name === undefined && accepts('animationName', part)) {
-				name = part;
-				continue;
-			}
-			throw bareTime(part, `Invalid animation "${v.join(' ')}"`);
-		}
+    for (const part of v) {
+      if (TIME.test(part)) {
+        if (duration === undefined) {
+          duration = part;
+        } else if (delay === undefined) {
+          delay = part;
+        } else {
+          throw new StyleError(
+            `Invalid animation "${v.join(' ')}": an animation has a duration and a delay, and no third time`
+          );
+        }
+        continue;
+      }
+      if (iterations === undefined && COUNT.test(part)) {
+        iterations = part;
+        continue;
+      }
+      if (timing === undefined && accepts('animationTimingFunction', part)) {
+        timing = part;
+        continue;
+      }
+      if (direction === undefined && accepts('animationDirection', part)) {
+        direction = part;
+        continue;
+      }
+      if (fill === undefined && accepts('animationFillMode', part)) {
+        fill = part;
+        continue;
+      }
+      if (name === undefined && accepts('animationName', part)) {
+        name = part;
+        continue;
+      }
+      throw bareTime(part, `Invalid animation "${v.join(' ')}"`);
+    }
 
-		return [
-			['animationName', name ?? 'none'],
-			['animationDuration', duration ?? '0s'],
-			['animationTimingFunction', timing ?? 'linear'],
-			['animationDelay', delay ?? '0s'],
-			['animationIterationCount', iterations ?? '1'],
-			['animationDirection', direction ?? 'normal'],
-			['animationFillMode', fill ?? 'none'],
-		];
-	}),
+    return [
+      ['animationName', name ?? 'none'],
+      ['animationDuration', duration ?? '0s'],
+      ['animationTimingFunction', timing ?? 'linear'],
+      ['animationDelay', delay ?? '0s'],
+      ['animationIterationCount', iterations ?? '1'],
+      ['animationDirection', direction ?? 'normal'],
+      ['animationFillMode', fill ?? 'none'],
+    ];
+  }),
 } satisfies { readonly [K in ShorthandName]: Shorthand };
 
 /** A time with its unit, which is what a shorthand requires. */
@@ -439,12 +439,12 @@ const COUNT = /^(?:infinite|\d+(?:\.\d+)?|\.\d+)$/i;
  * and "invalid animation" on its own sends the reader looking at the keyframes.
  */
 function bareTime(part: string, prefix: string): StyleError {
-	if (/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/.test(part)) {
-		return new StyleError(
-			`${prefix}: "${part}" needs a unit here -- write ${part}ms or ${part}s, because a bare number in a shorthand is an iteration count`
-		);
-	}
-	return new StyleError(`${prefix}: "${part}" is not part of it`);
+  if (/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/.test(part)) {
+    return new StyleError(
+      `${prefix}: "${part}" needs a unit here -- write ${part}ms or ${part}s, because a bare number in a shorthand is an iteration count`
+    );
+  }
+  return new StyleError(`${prefix}: "${part}" is not part of it`);
 }
 
 /**
@@ -463,20 +463,20 @@ function bareTime(part: string, prefix: string): StyleError {
  * `transition-property` is itself a list.
  */
 function noList(values: readonly string[], name: string): void {
-	let depth = 0;
-	for (const part of values) {
-		for (const ch of part) {
-			if (ch === '(') {
-				depth++;
-			} else if (ch === ')') {
-				depth--;
-			} else if (ch === ',' && depth === 0) {
-				throw new StyleError(
-					`Invalid ${name} "${values.join(' ')}": one ${name} at a time -- a comma-separated list is not read here, and several properties at one duration is "${name}-property: a, b"`
-				);
-			}
-		}
-	}
+  let depth = 0;
+  for (const part of values) {
+    for (const ch of part) {
+      if (ch === '(') {
+        depth++;
+      } else if (ch === ')') {
+        depth--;
+      } else if (ch === ',' && depth === 0) {
+        throw new StyleError(
+          `Invalid ${name} "${values.join(' ')}": one ${name} at a time -- a comma-separated list is not read here, and several properties at one duration is "${name}-property: a, b"`
+        );
+      }
+    }
+  }
 }
 
 /** A plain `<number>`, for telling a flex factor from a basis. */
@@ -491,29 +491,29 @@ const NUMBER = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i;
  * @returns Whether it parses.
  */
 function accepts(property: PropertyName, value: string): boolean {
-	try {
-		PROPERTIES[property].parse(value);
-		return true;
-	} catch {
-		return false;
-	}
+  try {
+    PROPERTIES[property].parse(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** The shorthand a name refers to, in either spelling and any case. */
 function shorthandFor(name: string): Shorthand | undefined {
-	const trimmed = name.trim();
-	const kebab = trimmed.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
-	for (const candidate of [trimmed.toLowerCase(), kebab.toLowerCase()]) {
-		if (Object.hasOwn(SHORTHANDS, candidate)) {
-			return SHORTHANDS[candidate as ShorthandName];
-		}
-	}
-	return undefined;
+  const trimmed = name.trim();
+  const kebab = trimmed.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+  for (const candidate of [trimmed.toLowerCase(), kebab.toLowerCase()]) {
+    if (Object.hasOwn(SHORTHANDS, candidate)) {
+      return SHORTHANDS[candidate as ShorthandName];
+    }
+  }
+  return undefined;
 }
 
 /** Whether a name is a shorthand rather than a property. */
 export function isShorthand(name: string): boolean {
-	return shorthandFor(name) !== undefined;
+  return shorthandFor(name) !== undefined;
 }
 
 // null-prototype, for the reason AGENTS.md gives under Conventions: on a plain
@@ -539,11 +539,11 @@ export const SHORTHAND_NAMES: readonly ShorthandName[] = Object.keys(SHORTHANDS)
  * @returns The longhand declarations.
  */
 export function expandShorthand(name: string, value: string): [PropertyName, string][] {
-	const entry = shorthandFor(name);
-	if (!entry) {
-		throw new StyleError(`"${name}" is not a shorthand`);
-	}
-	return entry.expand(parts(value));
+  const entry = shorthandFor(name);
+  if (!entry) {
+    throw new StyleError(`"${name}" is not a shorthand`);
+  }
+  return entry.expand(parts(value));
 }
 
 /**
@@ -556,7 +556,7 @@ export function expandShorthand(name: string, value: string): [PropertyName, str
  * @returns The longhands, or `undefined` if the name is not a shorthand.
  */
 export function shorthandLonghands(name: string): readonly PropertyName[] | undefined {
-	return shorthandFor(name)?.longhands;
+  return shorthandFor(name)?.longhands;
 }
 
 // `transition-property: padding` has to reach all four edges, which means the

@@ -16,8 +16,8 @@ import { type ColorLevel } from './color-support.js';
  * that turned it off, and one sequence may carry several parameters at once.
  */
 interface Part {
-	close: number;
-	open: string | ((level: ColorLevel) => string);
+  close: number;
+  open: string | ((level: ColorLevel) => string);
 }
 
 const Parts: unique symbol = Symbol('sigil.ansi.parts');
@@ -30,20 +30,20 @@ const Level: unique symbol = Symbol('sigil.ansi.level');
  * `ansi.bold.red('x')` is the styled text.
  */
 export interface Styler {
-	(...text: unknown[]): string;
+  (...text: unknown[]): string;
 
-	/** The 256-color palette, by index. */
-	ansi256(code: number): Styler;
-	/** The 256-color palette as a background, by index. */
-	bgAnsi256(code: number): Styler;
-	/** A background color from a hex string, with or without the `#`. */
-	bgHex(hex: string): Styler;
-	/** A background color from 8-bit channel values. */
-	bgRgb(red: number, green: number, blue: number): Styler;
-	/** A foreground color from a hex string, with or without the `#`. */
-	hex(hex: string): Styler;
-	/** A foreground color from 8-bit channel values. */
-	rgb(red: number, green: number, blue: number): Styler;
+  /** The 256-color palette, by index. */
+  ansi256(code: number): Styler;
+  /** The 256-color palette as a background, by index. */
+  bgAnsi256(code: number): Styler;
+  /** A background color from a hex string, with or without the `#`. */
+  bgHex(hex: string): Styler;
+  /** A background color from 8-bit channel values. */
+  bgRgb(red: number, green: number, blue: number): Styler;
+  /** A foreground color from a hex string, with or without the `#`. */
+  hex(hex: string): Styler;
+  /** A foreground color from 8-bit channel values. */
+  rgb(red: number, green: number, blue: number): Styler;
 }
 
 export type Styles = { readonly [K in StyleName]: Styler };
@@ -51,9 +51,9 @@ export type Styles = { readonly [K in StyleName]: Styler };
 export interface Styler extends Styles {}
 
 interface InternalStyler extends Styler {
-	[Cache]: Map<StyleName, Styler>;
-	[Level]: () => ColorLevel;
-	[Parts]: Part[];
+  [Cache]: Map<StyleName, Styler>;
+  [Level]: () => ColorLevel;
+  [Parts]: Part[];
 }
 
 /**
@@ -63,46 +63,46 @@ interface InternalStyler extends Styler {
 const proto = Object.create(Function.prototype) as InternalStyler;
 
 for (const name of Object.keys(codes) as StyleName[]) {
-	const [open, close] = codes[name];
-	const part: Part = { close, open: sgr(open) };
+  const [open, close] = codes[name];
+  const part: Part = { close, open: sgr(open) };
 
-	Object.defineProperty(proto, name, {
-		configurable: true,
-		get(this: InternalStyler) {
-			return chain(this, name, part);
-		},
-	});
+  Object.defineProperty(proto, name, {
+    configurable: true,
+    get(this: InternalStyler) {
+      return chain(this, name, part);
+    },
+  });
 }
 
 Object.defineProperties(proto, {
-	ansi256: method(function (this: InternalStyler, code: number) {
-		const n = assertByte(code, 'color code');
-		return extend(this, {
-			close: 39,
-			open: (level) => (level >= 2 ? sgr(`38;5;${n}`) : sgr(rgbToBasic(...ansi256ToRgb(n), false))),
-		});
-	}),
-	bgAnsi256: method(function (this: InternalStyler, code: number) {
-		const n = assertByte(code, 'color code');
-		return extend(this, {
-			close: 49,
-			open: (level) => (level >= 2 ? sgr(`48;5;${n}`) : sgr(rgbToBasic(...ansi256ToRgb(n), true))),
-		});
-	}),
-	bgHex: method(function (this: InternalStyler, hex: string) {
-		const [r, g, b] = hexToRgb(hex);
-		return this.bgRgb(r, g, b);
-	}),
-	bgRgb: method(function (this: InternalStyler, red: number, green: number, blue: number) {
-		return rgbChain(this, red, green, blue, true);
-	}),
-	hex: method(function (this: InternalStyler, hex: string) {
-		const [r, g, b] = hexToRgb(hex);
-		return this.rgb(r, g, b);
-	}),
-	rgb: method(function (this: InternalStyler, red: number, green: number, blue: number) {
-		return rgbChain(this, red, green, blue, false);
-	}),
+  ansi256: method(function (this: InternalStyler, code: number) {
+    const n = assertByte(code, 'color code');
+    return extend(this, {
+      close: 39,
+      open: (level) => (level >= 2 ? sgr(`38;5;${n}`) : sgr(rgbToBasic(...ansi256ToRgb(n), false))),
+    });
+  }),
+  bgAnsi256: method(function (this: InternalStyler, code: number) {
+    const n = assertByte(code, 'color code');
+    return extend(this, {
+      close: 49,
+      open: (level) => (level >= 2 ? sgr(`48;5;${n}`) : sgr(rgbToBasic(...ansi256ToRgb(n), true))),
+    });
+  }),
+  bgHex: method(function (this: InternalStyler, hex: string) {
+    const [r, g, b] = hexToRgb(hex);
+    return this.bgRgb(r, g, b);
+  }),
+  bgRgb: method(function (this: InternalStyler, red: number, green: number, blue: number) {
+    return rgbChain(this, red, green, blue, true);
+  }),
+  hex: method(function (this: InternalStyler, hex: string) {
+    const [r, g, b] = hexToRgb(hex);
+    return this.rgb(r, g, b);
+  }),
+  rgb: method(function (this: InternalStyler, red: number, green: number, blue: number) {
+    return rgbChain(this, red, green, blue, false);
+  }),
 });
 
 /**
@@ -113,7 +113,7 @@ Object.defineProperties(proto, {
  * @returns The descriptor.
  */
 function method(value: (...args: never[]) => unknown): PropertyDescriptor {
-	return { configurable: true, value, writable: true };
+  return { configurable: true, value, writable: true };
 }
 
 /**
@@ -125,7 +125,7 @@ function method(value: (...args: never[]) => unknown): PropertyDescriptor {
  * @returns The styler.
  */
 export function createStyler(level: () => ColorLevel): Styler {
-	return build(level, []);
+  return build(level, []);
 }
 
 /**
@@ -136,12 +136,12 @@ export function createStyler(level: () => ColorLevel): Styler {
  * @returns The styler.
  */
 function build(level: () => ColorLevel, parts: Part[]): Styler {
-	const styler = ((...text: unknown[]) => render(level(), parts, text)) as InternalStyler;
-	Object.setPrototypeOf(styler, proto);
-	styler[Cache] = new Map();
-	styler[Level] = level;
-	styler[Parts] = parts;
-	return styler;
+  const styler = ((...text: unknown[]) => render(level(), parts, text)) as InternalStyler;
+  Object.setPrototypeOf(styler, proto);
+  styler[Cache] = new Map();
+  styler[Level] = level;
+  styler[Parts] = parts;
+  return styler;
 }
 
 /**
@@ -164,16 +164,16 @@ function build(level: () => ColorLevel, parts: Part[]): Styler {
  * @returns The extended styler.
  */
 function chain(parent: InternalStyler, name: StyleName, part: Part): Styler {
-	if (parent[Parts].includes(part)) {
-		return parent;
-	}
+  if (parent[Parts].includes(part)) {
+    return parent;
+  }
 
-	let styler = parent[Cache].get(name);
-	if (!styler) {
-		styler = extend(parent, part);
-		parent[Cache].set(name, styler);
-	}
-	return styler;
+  let styler = parent[Cache].get(name);
+  if (!styler) {
+    styler = extend(parent, part);
+    parent[Cache].set(name, styler);
+  }
+  return styler;
 }
 
 /**
@@ -184,7 +184,7 @@ function chain(parent: InternalStyler, name: StyleName, part: Part): Styler {
  * @returns The extended styler.
  */
 function extend(parent: InternalStyler, part: Part): Styler {
-	return build(parent[Level], [...parent[Parts], part]);
+  return build(parent[Level], [...parent[Parts], part]);
 }
 
 /**
@@ -198,29 +198,29 @@ function extend(parent: InternalStyler, part: Part): Styler {
  * @returns The extended styler.
  */
 function rgbChain(
-	parent: InternalStyler,
-	red: number,
-	green: number,
-	blue: number,
-	background: boolean
+  parent: InternalStyler,
+  red: number,
+  green: number,
+  blue: number,
+  background: boolean
 ): Styler {
-	const r = assertByte(red, 'red');
-	const g = assertByte(green, 'green');
-	const b = assertByte(blue, 'blue');
-	const prefix = background ? 48 : 38;
+  const r = assertByte(red, 'red');
+  const g = assertByte(green, 'green');
+  const b = assertByte(blue, 'blue');
+  const prefix = background ? 48 : 38;
 
-	return extend(parent, {
-		close: background ? 49 : 39,
-		open: (level) => {
-			if (level >= 3) {
-				return sgr(`${prefix};2;${r};${g};${b}`);
-			}
-			if (level === 2) {
-				return sgr(`${prefix};5;${rgbToAnsi256(r, g, b)}`);
-			}
-			return sgr(rgbToBasic(r, g, b, background));
-		},
-	});
+  return extend(parent, {
+    close: background ? 49 : 39,
+    open: (level) => {
+      if (level >= 3) {
+        return sgr(`${prefix};2;${r};${g};${b}`);
+      }
+      if (level === 2) {
+        return sgr(`${prefix};5;${rgbToAnsi256(r, g, b)}`);
+      }
+      return sgr(rgbToBasic(r, g, b, background));
+    },
+  });
 }
 
 /** Matches one SGR sequence, in either the ESC or the single-byte C1 form. */
@@ -250,34 +250,34 @@ const sgrPattern = new RegExp(`(?:${ESC}\\[|${CSI})([\\d;:]*)m`, 'g');
  * @returns The styled text.
  */
 function render(level: ColorLevel, parts: Part[], args: unknown[]): string {
-	let text = args.length === 1 ? String(args[0]) : args.map(String).join(' ');
+  let text = args.length === 1 ? String(args[0]) : args.map(String).join(' ');
 
-	if (level === 0 || parts.length === 0 || text === '') {
-		return text;
-	}
+  if (level === 0 || parts.length === 0 || text === '') {
+    return text;
+  }
 
-	let openAll = '';
-	let closeAll = '';
-	const opened: [close: number, open: string][] = [];
+  let openAll = '';
+  let closeAll = '';
+  const opened: [close: number, open: string][] = [];
 
-	for (const part of parts) {
-		const open = typeof part.open === 'string' ? part.open : part.open(level);
-		openAll += open;
-		closeAll = sgr(part.close) + closeAll;
-		opened.push([part.close, open]);
-	}
+  for (const part of parts) {
+    const open = typeof part.open === 'string' ? part.open : part.open(level);
+    openAll += open;
+    closeAll = sgr(part.close) + closeAll;
+    opened.push([part.close, open]);
+  }
 
-	if (text.includes(ESC) || text.includes(CSI)) {
-		text = text.replace(sgrPattern, (seq: string, params: string) =>
-			reopen(seq, params, opened, openAll)
-		);
-	}
+  if (text.includes(ESC) || text.includes(CSI)) {
+    text = text.replace(sgrPattern, (seq: string, params: string) =>
+      reopen(seq, params, opened, openAll)
+    );
+  }
 
-	if (text.includes('\n')) {
-		text = text.replace(/\r?\n/g, (newline) => `${closeAll}${newline}${openAll}`);
-	}
+  if (text.includes('\n')) {
+    text = text.replace(/\r?\n/g, (newline) => `${closeAll}${newline}${openAll}`);
+  }
 
-	return `${openAll}${text}${closeAll}`;
+  return `${openAll}${text}${closeAll}`;
 }
 
 /** The attributes that take a color rather than being one. */
@@ -311,13 +311,13 @@ const extendable = new Set([38, 48, 58]);
  * is neither.
  */
 function extendedLength(mode: number | undefined, space: string | undefined): number | undefined {
-	if (mode === 5) {
-		return 3;
-	}
-	if (mode === 2) {
-		return space === '' ? 6 : 5;
-	}
-	return undefined;
+  if (mode === 5) {
+    return 3;
+  }
+  if (mode === 2) {
+    return space === '' ? 6 : 5;
+  }
+  return undefined;
 }
 
 /**
@@ -337,53 +337,53 @@ function extendedLength(mode: number | undefined, space: string | undefined): nu
  * @returns The sequence, followed by whatever has to come back after it.
  */
 function reopen(
-	seq: string,
-	params: string,
-	opened: [close: number, open: string][],
-	openAll: string
+  seq: string,
+  params: string,
+  opened: [close: number, open: string][],
+  openAll: string
 ): string {
-	// an SGR carrying no parameters means the same as `0`
-	const parts = params === '' ? ['0'] : params.split(';');
-	const values = parts.map((p) => Number.parseInt(p, 10) || 0);
+  // an SGR carrying no parameters means the same as `0`
+  const parts = params === '' ? ['0'] : params.split(';');
+  const values = parts.map((p) => Number.parseInt(p, 10) || 0);
 
-	// only the parameters that are attributes, with the channels of an extended
-	// color dropped. In the semicolon form `38`, `48`, and `58` spread one color
-	// over the parameters that follow, and reading those as attributes of their
-	// own is what made a color turn a style back on over itself: `38;2;255;0;0`
-	// carries a `0` and was taken for a reset, so the whole outer chain reopened
-	// on top of the red and the text came out blue, and `38;5;39` carries the
-	// foreground's own close code and reopened the outer foreground the same way.
-	// The colon form -- `38:2:255:0:0` -- is one parameter already
-	const attrs: number[] = [];
-	for (let i = 0; i < values.length; i++) {
-		attrs.push(values[i]);
+  // only the parameters that are attributes, with the channels of an extended
+  // color dropped. In the semicolon form `38`, `48`, and `58` spread one color
+  // over the parameters that follow, and reading those as attributes of their
+  // own is what made a color turn a style back on over itself: `38;2;255;0;0`
+  // carries a `0` and was taken for a reset, so the whole outer chain reopened
+  // on top of the red and the text came out blue, and `38;5;39` carries the
+  // foreground's own close code and reopened the outer foreground the same way.
+  // The colon form -- `38:2:255:0:0` -- is one parameter already
+  const attrs: number[] = [];
+  for (let i = 0; i < values.length; i++) {
+    attrs.push(values[i]);
 
-		// the colon form -- `38:2:255:0:0` -- carries the whole color inside this one
-		// parameter, so there is nothing after it belonging to the color and nothing
-		// to skip. Skipping anyway swallowed whatever followed: `ESC[38:2:255:0:0;39m`
-		// lost its `39` and left the outer style closed
-		if (extendable.has(values[i]) && !parts[i].includes(':')) {
-			// a mode that is neither `5` nor `2` is malformed, and the rest of the
-			// sequence is the only safe reading -- the alternative leaves its tail to
-			// be read as attributes, which is the bug this is fixing
-			i += (extendedLength(values[i + 1], parts[i + 2]) ?? values.length - i) - 1;
-		}
-	}
+    // the colon form -- `38:2:255:0:0` -- carries the whole color inside this one
+    // parameter, so there is nothing after it belonging to the color and nothing
+    // to skip. Skipping anyway swallowed whatever followed: `ESC[38:2:255:0:0;39m`
+    // lost its `39` and left the outer style closed
+    if (extendable.has(values[i]) && !parts[i].includes(':')) {
+      // a mode that is neither `5` nor `2` is malformed, and the rest of the
+      // sequence is the only safe reading -- the alternative leaves its tail to
+      // be read as attributes, which is the bug this is fixing
+      i += (extendedLength(values[i + 1], parts[i + 2]) ?? values.length - i) - 1;
+    }
+  }
 
-	if (attrs.includes(0)) {
-		return seq + openAll;
-	}
+  if (attrs.includes(0)) {
+    return seq + openAll;
+  }
 
-	// outermost first, so the innermost style is opened last and is the one left
-	// in effect
-	let reopened = '';
-	for (const [close, open] of opened) {
-		if (attrs.includes(close)) {
-			reopened += open;
-		}
-	}
+  // outermost first, so the innermost style is opened last and is the one left
+  // in effect
+  let reopened = '';
+  for (const [close, open] of opened) {
+    if (attrs.includes(close)) {
+      reopened += open;
+    }
+  }
 
-	return seq + reopened;
+  return seq + reopened;
 }
 
 /**
@@ -393,17 +393,17 @@ function reopen(
  * @returns The channel values.
  */
 function hexToRgb(hex: string): [number, number, number] {
-	const match = /^#?(?:([\da-f]{3})|([\da-f]{6}))$/i.exec(String(hex));
+  const match = /^#?(?:([\da-f]{3})|([\da-f]{6}))$/i.exec(String(hex));
 
-	if (!match) {
-		throw new Error(`Invalid hex color "${hex}"`);
-	}
+  if (!match) {
+    throw new Error(`Invalid hex color "${hex}"`);
+  }
 
-	// `#abc` is `#aabbcc`, not `#0a0b0c`
-	const value = match[1] ? match[1].replace(/./g, '$&$&') : match[2]!;
-	const int = Number.parseInt(value, 16);
+  // `#abc` is `#aabbcc`, not `#0a0b0c`
+  const value = match[1] ? match[1].replace(/./g, '$&$&') : match[2]!;
+  const int = Number.parseInt(value, 16);
 
-	return [(int >> 16) & 0xff, (int >> 8) & 0xff, int & 0xff];
+  return [(int >> 16) & 0xff, (int >> 8) & 0xff, int & 0xff];
 }
 
 /**
@@ -415,22 +415,22 @@ function hexToRgb(hex: string): [number, number, number] {
  * color has to be measured against.
  */
 const basic16 = [
-	[0, 0, 0], // black
-	[128, 0, 0], // red
-	[0, 128, 0], // green
-	[128, 128, 0], // yellow
-	[0, 0, 128], // blue
-	[128, 0, 128], // magenta
-	[0, 128, 128], // cyan
-	[192, 192, 192], // white
-	[128, 128, 128], // bright black
-	[255, 0, 0], // bright red
-	[0, 255, 0], // bright green
-	[255, 255, 0], // bright yellow
-	[0, 0, 255], // bright blue
-	[255, 0, 255], // bright magenta
-	[0, 255, 255], // bright cyan
-	[255, 255, 255], // bright white
+  [0, 0, 0], // black
+  [128, 0, 0], // red
+  [0, 128, 0], // green
+  [128, 128, 0], // yellow
+  [0, 0, 128], // blue
+  [128, 0, 128], // magenta
+  [0, 128, 128], // cyan
+  [192, 192, 192], // white
+  [128, 128, 128], // bright black
+  [255, 0, 0], // bright red
+  [0, 255, 0], // bright green
+  [255, 255, 0], // bright yellow
+  [0, 0, 255], // bright blue
+  [255, 0, 255], // bright magenta
+  [0, 255, 255], // bright cyan
+  [255, 255, 255], // bright white
 ] as const;
 
 /**
@@ -451,16 +451,16 @@ const cubeSteps = [0, 95, 135, 175, 215, 255] as const;
  * @returns The weighted square of the distance between them.
  */
 function distance(
-	red: number,
-	green: number,
-	blue: number,
-	to: readonly [number, number, number]
+  red: number,
+  green: number,
+  blue: number,
+  to: readonly [number, number, number]
 ): number {
-	const mean = (red + to[0]) / 2;
-	const dr = red - to[0];
-	const dg = green - to[1];
-	const db = blue - to[2];
-	return (2 + mean / 256) * dr * dr + 4 * dg * dg + (2 + (255 - mean) / 256) * db * db;
+  const mean = (red + to[0]) / 2;
+  const dr = red - to[0];
+  const dg = green - to[1];
+  const db = blue - to[2];
+  return (2 + mean / 256) * dr * dr + 4 * dg * dg + (2 + (255 - mean) / 256) * db * db;
 }
 
 /**
@@ -480,19 +480,19 @@ function distance(
  * @returns The SGR parameter.
  */
 function rgbToBasic(red: number, green: number, blue: number, background: boolean): number {
-	let nearest = 0;
-	let shortest = Infinity;
+  let nearest = 0;
+  let shortest = Infinity;
 
-	for (let i = 0; i < basic16.length; i++) {
-		const d = distance(red, green, blue, basic16[i]!);
-		if (d < shortest) {
-			shortest = d;
-			nearest = i;
-		}
-	}
+  for (let i = 0; i < basic16.length; i++) {
+    const d = distance(red, green, blue, basic16[i]!);
+    if (d < shortest) {
+      shortest = d;
+      nearest = i;
+    }
+  }
 
-	const offset = background ? 10 : 0;
-	return nearest < 8 ? 30 + nearest + offset : 90 + (nearest - 8) + offset;
+  const offset = background ? 10 : 0;
+  return nearest < 8 ? 30 + nearest + offset : 90 + (nearest - 8) + offset;
 }
 
 /**
@@ -511,19 +511,19 @@ function rgbToBasic(red: number, green: number, blue: number, background: boolea
  * @returns The palette index.
  */
 function rgbToAnsi256(red: number, green: number, blue: number): number {
-	const r = nearestCubeStep(red);
-	const g = nearestCubeStep(green);
-	const b = nearestCubeStep(blue);
-	const cube = 16 + 36 * r + 6 * g + b;
-	const cubeDistance = distance(red, green, blue, [cubeSteps[r]!, cubeSteps[g]!, cubeSteps[b]!]);
+  const r = nearestCubeStep(red);
+  const g = nearestCubeStep(green);
+  const b = nearestCubeStep(blue);
+  const cube = 16 + 36 * r + 6 * g + b;
+  const cubeDistance = distance(red, green, blue, [cubeSteps[r]!, cubeSteps[g]!, cubeSteps[b]!]);
 
-	// the ramp runs 8 to 238 in steps of 10, as indices 232 to 255
-	const mean = (red + green + blue) / 3;
-	const step = Math.min(Math.max(Math.round((mean - 8) / 10), 0), 23);
-	const value = step * 10 + 8;
-	const rampDistance = distance(red, green, blue, [value, value, value]);
+  // the ramp runs 8 to 238 in steps of 10, as indices 232 to 255
+  const mean = (red + green + blue) / 3;
+  const step = Math.min(Math.max(Math.round((mean - 8) / 10), 0), 23);
+  const value = step * 10 + 8;
+  const rampDistance = distance(red, green, blue, [value, value, value]);
 
-	return rampDistance < cubeDistance ? 232 + step : cube;
+  return rampDistance < cubeDistance ? 232 + step : cube;
 }
 
 /**
@@ -533,18 +533,18 @@ function rgbToAnsi256(red: number, green: number, blue: number): number {
  * @returns The step index, 0-5.
  */
 function nearestCubeStep(value: number): number {
-	let nearest = 0;
-	let shortest = Infinity;
+  let nearest = 0;
+  let shortest = Infinity;
 
-	for (let i = 0; i < cubeSteps.length; i++) {
-		const d = Math.abs(value - cubeSteps[i]!);
-		if (d < shortest) {
-			shortest = d;
-			nearest = i;
-		}
-	}
+  for (let i = 0; i < cubeSteps.length; i++) {
+    const d = Math.abs(value - cubeSteps[i]!);
+    if (d < shortest) {
+      shortest = d;
+      nearest = i;
+    }
+  }
 
-	return nearest;
+  return nearest;
 }
 
 /**
@@ -554,21 +554,21 @@ function nearestCubeStep(value: number): number {
  * @returns The channel values.
  */
 function ansi256ToRgb(code: number): readonly [number, number, number] {
-	if (code < 16) {
-		return basic16[code]!;
-	}
+  if (code < 16) {
+    return basic16[code]!;
+  }
 
-	if (code >= 232) {
-		const value = (code - 232) * 10 + 8;
-		return [value, value, value];
-	}
+  if (code >= 232) {
+    const value = (code - 232) * 10 + 8;
+    return [value, value, value];
+  }
 
-	const index = code - 16;
-	return [
-		cubeSteps[Math.floor(index / 36)]!,
-		cubeSteps[Math.floor((index % 36) / 6)]!,
-		cubeSteps[index % 6]!,
-	];
+  const index = code - 16;
+  return [
+    cubeSteps[Math.floor(index / 36)]!,
+    cubeSteps[Math.floor((index % 36) / 6)]!,
+    cubeSteps[index % 6]!,
+  ];
 }
 
 /**
@@ -583,8 +583,8 @@ function ansi256ToRgb(code: number): readonly [number, number, number] {
  * @returns The value.
  */
 function assertByte(value: number, what: string): number {
-	if (!Number.isInteger(value) || value < 0 || value > 255) {
-		throw new Error(`Invalid ${what} "${value}"; expected an integer between 0 and 255`);
-	}
-	return value;
+  if (!Number.isInteger(value) || value < 0 || value > 255) {
+    throw new Error(`Invalid ${what} "${value}"; expected an integer between 0 and 255`);
+  }
+  return value;
 }

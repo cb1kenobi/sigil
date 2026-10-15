@@ -19,14 +19,14 @@ import type { DataType } from '../types.js';
  * increment.
  */
 export const DATA_TYPES: ReadonlySet<string> = new Set([
-	'auto',
-	'bool',
-	'date',
-	'int',
-	'json',
-	'number',
-	'string',
-	'yesno',
+  'auto',
+  'bool',
+  'date',
+  'int',
+  'json',
+  'number',
+  'string',
+  'yesno',
 ]);
 
 /** The data types an option may declare: every one above, plus `count`. */
@@ -35,7 +35,7 @@ export const OPTION_DATA_TYPES: ReadonlySet<string> = new Set([...DATA_TYPES, 'c
 const boolFalseRE = /^(false|f|no|n|off|0)$/i;
 const boolTrueRE = /^(true|t|yes|y|on|1)$/i;
 const dateRE =
-	/^\d{4}-\d{2}-\d{2}(T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|([+-]\d{2}):(\d{2}))?)?$/i;
+  /^\d{4}-\d{2}-\d{2}(T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|([+-]\d{2}):(\d{2}))?)?$/i;
 const dateIntRE = /^\d{13}$/;
 const dateInvalid = /^Invalid Date$/i;
 const hexRE = /^0x[A-Fa-f0-9]+$/;
@@ -71,7 +71,7 @@ const NO = 'no';
  * @returns The last day of that month.
  */
 function daysInMonth(year: number, month: number): number {
-	return new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
 /**
@@ -89,212 +89,212 @@ function daysInMonth(year: number, month: number): number {
  * @returns The date, or `undefined` if the match is not one.
  */
 function fromDateMatch(m: RegExpMatchArray): Date | undefined {
-	// `dateRE` only checks the shape, and `Date` overflows rather than refusing:
-	// `2024-02-30` came back as March 1st, so a day that does not exist produced
-	// the wrong day instead of the error `9999-99-99` already got. The calendar is
-	// checked here rather than by reading the parts back off the `Date`, because
-	// the getters that would read them are local while the value may be UTC --
-	// `2024-06-15T00:00:00Z` is the 14th in Chicago and the 15th in Auckland, so a
-	// round trip rejected real instants depending on where it ran
-	const [year, month, day] = m[0].split(/\D/, 3).map(Number);
+  // `dateRE` only checks the shape, and `Date` overflows rather than refusing:
+  // `2024-02-30` came back as March 1st, so a day that does not exist produced
+  // the wrong day instead of the error `9999-99-99` already got. The calendar is
+  // checked here rather than by reading the parts back off the `Date`, because
+  // the getters that would read them are local while the value may be UTC --
+  // `2024-06-15T00:00:00Z` is the 14th in Chicago and the 15th in Auckland, so a
+  // round trip rejected real instants depending on where it ran
+  const [year, month, day] = m[0].split(/\D/, 3).map(Number);
 
-	if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)) {
-		return;
-	}
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)) {
+    return;
+  }
 
-	// the clock overflows the same way the calendar does, and hour 24 is the
-	// overflow the `Invalid Date` guard below cannot see: `24` is a legal two-digit
-	// match and `2024-01-01T24:00:00` is a perfectly valid `Date` -- the next
-	// midnight -- so a value naming one day arrived as the day after it, exactly as
-	// `2024-02-30` arrived as March 1st. Minute and second 60 happen to be refused
-	// by `Date`, and are refused here anyway so that a leap second is this
-	// library's answer rather than an engine's
-	if (m[1] && (Number(m[2]) > 23 || Number(m[3]) > 59 || Number(m[4]) > 59)) {
-		return;
-	}
+  // the clock overflows the same way the calendar does, and hour 24 is the
+  // overflow the `Invalid Date` guard below cannot see: `24` is a legal two-digit
+  // match and `2024-01-01T24:00:00` is a perfectly valid `Date` -- the next
+  // midnight -- so a value naming one day arrived as the day after it, exactly as
+  // `2024-02-30` arrived as March 1st. Minute and second 60 happen to be refused
+  // by `Date`, and are refused here anyway so that a leap second is this
+  // library's answer rather than an engine's
+  if (m[1] && (Number(m[2]) > 23 || Number(m[3]) > 59 || Number(m[4]) > 59)) {
+    return;
+  }
 
-	// an offset is the rest of the clock and is read the same way: out of range it
-	// falls outside the one string format `Date` is specified to parse, and what an
-	// engine does with a string outside that format is its own business -- which is
-	// the reason none of this is left to `Date` to begin with
-	if (m[5] !== undefined && (Math.abs(Number(m[5])) > 23 || Number(m[6]) > 59)) {
-		return;
-	}
+  // an offset is the rest of the clock and is read the same way: out of range it
+  // falls outside the one string format `Date` is specified to parse, and what an
+  // engine does with a string outside that format is its own business -- which is
+  // the reason none of this is left to `Date` to begin with
+  if (m[5] !== undefined && (Math.abs(Number(m[5])) > 23 || Number(m[6]) > 59)) {
+    return;
+  }
 
-	// the shape still admits what the guards above do not cover, and `Date` answers
-	// that with an `Invalid Date` rather than by refusing -- an object whose
-	// `getTime()` is `NaN` with nothing having said so
-	const date = new Date(m[1] ? m[0] : `${m[0]}T00:00:00`);
+  // the shape still admits what the guards above do not cover, and `Date` answers
+  // that with an `Invalid Date` rather than by refusing -- an object whose
+  // `getTime()` is `NaN` with nothing having said so
+  const date = new Date(m[1] ? m[0] : `${m[0]}T00:00:00`);
 
-	return dateInvalid.test(date.toString()) ? undefined : date;
+  return dateInvalid.test(date.toString()) ? undefined : date;
 }
 
 export function transformValue(
-	value: string,
-	type: DataType | string
+  value: string,
+  type: DataType | string
 ): Date | number | boolean | string | unknown {
-	if (type === 'bool') {
-		// an omitted value is false, the same way `--num` with no value is 0
-		if (!value) {
-			return false;
-		}
-		if (boolTrueRE.test(value)) {
-			return true;
-		}
-		if (boolFalseRE.test(value)) {
-			return false;
-		}
-		throw new Error(__`Invalid boolean: "${value}"`);
-	}
+  if (type === 'bool') {
+    // an omitted value is false, the same way `--num` with no value is 0
+    if (!value) {
+      return false;
+    }
+    if (boolTrueRE.test(value)) {
+      return true;
+    }
+    if (boolFalseRE.test(value)) {
+      return false;
+    }
+    throw new Error(__`Invalid boolean: "${value}"`);
+  }
 
-	if (type === 'date') {
-		let date;
+  if (type === 'date') {
+    let date;
 
-		if (dateIntRE.test(value)) {
-			const num = Number(value);
-			if (!isNaN(num) && num > 0) {
-				date = new Date(num);
-			}
-		} else {
-			const m = value.match(dateRE);
-			if (m) {
-				date = fromDateMatch(m);
-			}
-		}
+    if (dateIntRE.test(value)) {
+      const num = Number(value);
+      if (!isNaN(num) && num > 0) {
+        date = new Date(num);
+      }
+    } else {
+      const m = value.match(dateRE);
+      if (m) {
+        date = fromDateMatch(m);
+      }
+    }
 
-		if (!date) {
-			throw new Error(__`Invalid date: "${value}"`);
-		}
+    if (!date) {
+      throw new Error(__`Invalid date: "${value}"`);
+    }
 
-		return date;
-	}
+    return date;
+  }
 
-	// a counter is an int that argv increments rather than writes, so a value that
-	// reaches it from anywhere else -- the environment, a string `default` -- is
-	// coerced and rejected the same way: without this it stayed a string, and
-	// `VERBOSE=lots` put the word "lots" on a destination the types call a number
-	if (type === 'int' || type === 'count') {
-		// a counter is a flag, and a flag with no value is off: `bool` reads an empty
-		// value as false, so an empty counter is 0 rather than an error. `VERBOSE=` in
-		// the environment means the variable is there and says nothing, which for a
-		// flag is a reading it has -- off.
-		//
-		// `int` is not a flag and has no such reading: empty is not an integer, so it
-		// is rejected the way `date` and `json` reject it. That is the whole rule --
-		// an empty value is a value only where the type has one, which is `string`
-		// and the two flag types
-		if (type === 'count' && !value) {
-			return 0;
-		}
+  // a counter is an int that argv increments rather than writes, so a value that
+  // reaches it from anywhere else -- the environment, a string `default` -- is
+  // coerced and rejected the same way: without this it stayed a string, and
+  // `VERBOSE=lots` put the word "lots" on a destination the types call a number
+  if (type === 'int' || type === 'count') {
+    // a counter is a flag, and a flag with no value is off: `bool` reads an empty
+    // value as false, so an empty counter is 0 rather than an error. `VERBOSE=` in
+    // the environment means the variable is there and says nothing, which for a
+    // flag is a reading it has -- off.
+    //
+    // `int` is not a flag and has no such reading: empty is not an integer, so it
+    // is rejected the way `date` and `json` reject it. That is the whole rule --
+    // an empty value is a value only where the type has one, which is `string`
+    // and the two flag types
+    if (type === 'count' && !value) {
+      return 0;
+    }
 
-		let num;
-		if ((!hexRE.test(value) && !intRE.test(value)) || isNaN((num = Number(value)))) {
-			// two keys rather than a noun interpolated into one: `Invalid {0}: {1}`
-			// would put the English word `count` through a slot, where what a
-			// translator needs is the whole sentence
-			throw new Error(
-				type === 'count' ? __`Invalid count: ${value}` : __`Invalid integer: ${value}`
-			);
-		}
+    let num;
+    if ((!hexRE.test(value) && !intRE.test(value)) || isNaN((num = Number(value)))) {
+      // two keys rather than a noun interpolated into one: `Invalid {0}: {1}`
+      // would put the English word `count` through a slot, where what a
+      // translator needs is the whole sentence
+      throw new Error(
+        type === 'count' ? __`Invalid count: ${value}` : __`Invalid integer: ${value}`
+      );
+    }
 
-		// past 2^53-1 a `number` is not the integer that was written -- `Number` maps
-		// `9007199254740993` to `...992` -- so an id given to an `int` option came back
-		// as a different id and nothing said so. Every other data type rejects input it
-		// cannot represent, and silently returning the wrong integer is the one failure
-		// a caller cannot detect
-		if (!Number.isSafeInteger(num)) {
-			throw new Error(
-				type === 'count'
-					? __`Count is too large to be exact: ${value}`
-					: __`Integer is too large to be exact: ${value}`
-			);
-		}
+    // past 2^53-1 a `number` is not the integer that was written -- `Number` maps
+    // `9007199254740993` to `...992` -- so an id given to an `int` option came back
+    // as a different id and nothing said so. Every other data type rejects input it
+    // cannot represent, and silently returning the wrong integer is the one failure
+    // a caller cannot detect
+    if (!Number.isSafeInteger(num)) {
+      throw new Error(
+        type === 'count'
+          ? __`Count is too large to be exact: ${value}`
+          : __`Integer is too large to be exact: ${value}`
+      );
+    }
 
-		return num;
-	}
+    return num;
+  }
 
-	if (type === 'json') {
-		try {
-			return JSON.parse(value);
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		} catch (e: any) {
-			throw new Error(__`Invalid JSON: ${e.message}`);
-		}
-	}
+  if (type === 'json') {
+    try {
+      return JSON.parse(value);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (e: any) {
+      throw new Error(__`Invalid JSON: ${e.message}`);
+    }
+  }
 
-	if (type === 'number') {
-		// `Number('')` and `Number(' ')` are both 0, which would make an empty or
-		// blank value parse as zero where every other valued type rejects it. Neither
-		// is a number somebody wrote
-		if (!value.trim()) {
-			throw new Error(__`Invalid number: ${value}`);
-		}
+  if (type === 'number') {
+    // `Number('')` and `Number(' ')` are both 0, which would make an empty or
+    // blank value parse as zero where every other valued type rejects it. Neither
+    // is a number somebody wrote
+    if (!value.trim()) {
+      throw new Error(__`Invalid number: ${value}`);
+    }
 
-		const num = Number(value);
-		if (isNaN(num)) {
-			throw new Error(__`Invalid number: ${value}`);
-		}
-		return num;
-	}
+    const num = Number(value);
+    if (isNaN(num)) {
+      throw new Error(__`Invalid number: ${value}`);
+    }
+    return num;
+  }
 
-	if (type === 'yesno') {
-		if (yesRE.test(value)) {
-			return true;
-		}
-		if (noRE.test(value)) {
-			return false;
-		}
-		throw new Error(__`Value must be "${YES}" or "${NO}"`);
-	}
+  if (type === 'yesno') {
+    if (yesRE.test(value)) {
+      return true;
+    }
+    if (noRE.test(value)) {
+      return false;
+    }
+    throw new Error(__`Value must be "${YES}" or "${NO}"`);
+  }
 
-	if (type === 'auto' && typeof value === 'string') {
-		// an empty or blank value is a string, not zero
-		if (!value.trim()) {
-			return value;
-		}
+  if (type === 'auto' && typeof value === 'string') {
+    // an empty or blank value is a string, not zero
+    if (!value.trim()) {
+      return value;
+    }
 
-		const lvalue = value.toLowerCase();
+    const lvalue = value.toLowerCase();
 
-		// try as a boolean
-		if (lvalue === 'true') {
-			return true;
-		}
+    // try as a boolean
+    if (lvalue === 'true') {
+      return true;
+    }
 
-		if (lvalue === 'false') {
-			return false;
-		}
+    if (lvalue === 'false') {
+      return false;
+    }
 
-		// try as a date. A date-shaped string that is not a date is not an error
-		// here the way it is for `date`: `auto` is a ladder of guesses that ends at
-		// the string it was handed -- it does not throw on JSON it cannot parse
-		// either -- so `2024-02-30` is simply not the date guess, and falls through
-		// to the string it always was. Throwing would fail the parse over an
-		// undeclared option, which is the default path `auto` sits on and the one
-		// place nobody asked for a date at all
-		const m = value.match(dateRE);
-		if (m) {
-			const date = fromDateMatch(m);
-			if (date) {
-				return date;
-			}
-		}
+    // try as a date. A date-shaped string that is not a date is not an error
+    // here the way it is for `date`: `auto` is a ladder of guesses that ends at
+    // the string it was handed -- it does not throw on JSON it cannot parse
+    // either -- so `2024-02-30` is simply not the date guess, and falls through
+    // to the string it always was. Throwing would fail the parse over an
+    // undeclared option, which is the default path `auto` sits on and the one
+    // place nobody asked for a date at all
+    const m = value.match(dateRE);
+    if (m) {
+      const date = fromDateMatch(m);
+      if (date) {
+        return date;
+      }
+    }
 
-		// try as a number
-		const num = Number(value);
-		if (!isNaN(num)) {
-			return num;
-		}
+    // try as a number
+    const num = Number(value);
+    if (!isNaN(num)) {
+      return num;
+    }
 
-		// try as json
-		try {
-			return JSON.parse(value);
-		} catch {
-			// nope
-		}
-	}
+    // try as json
+    try {
+      return JSON.parse(value);
+    } catch {
+      // nope
+    }
+  }
 
-	// return the original value
-	return value;
+  // return the original value
+  return value;
 }
 
 /**
@@ -314,19 +314,19 @@ export function transformValue(
  * @param label - The option, argument or setting named in the error message.
  */
 export function assertChoices(
-	choices: readonly unknown[] | undefined,
-	value: unknown,
-	label: string
+  choices: readonly unknown[] | undefined,
+  value: unknown,
+  label: string
 ): void {
-	if (!Array.isArray(choices) || value === undefined) {
-		return;
-	}
+  if (!Array.isArray(choices) || value === undefined) {
+    return;
+  }
 
-	for (const v of Array.isArray(value) ? value : [value]) {
-		if (!choices.includes(v)) {
-			throw new Error(__`Invalid value "${v}" for ${label}`);
-		}
-	}
+  for (const v of Array.isArray(value) ? value : [value]) {
+    if (!choices.includes(v)) {
+      throw new Error(__`Invalid value "${v}" for ${label}`);
+    }
+  }
 }
 
 /**
@@ -358,32 +358,32 @@ const INTEGER_TYPES = new Set(['count', 'int']);
  * @returns Something short enough to put in a sentence.
  */
 function show(value: unknown): string {
-	if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-		return String(value);
-	}
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
 
-	if (value === undefined) {
-		return 'undefined';
-	}
+  if (value === undefined) {
+    return 'undefined';
+  }
 
-	// a `Date` has a `toJSON` that answers `null` for an invalid one, so
-	// `JSON.stringify(new Date(NaN))` is the string `"null"` -- a message about a
-	// date that says nothing about a date. `String()` answers `Invalid Date`,
-	// which is the one thing a reader needs to see, and an ISO-ish string for a
-	// valid one. The one value kind in this vocabulary whose JSON lies about it
-	if (value instanceof Date) {
-		return String(value);
-	}
+  // a `Date` has a `toJSON` that answers `null` for an invalid one, so
+  // `JSON.stringify(new Date(NaN))` is the string `"null"` -- a message about a
+  // date that says nothing about a date. `String()` answers `Invalid Date`,
+  // which is the one thing a reader needs to see, and an ISO-ish string for a
+  // valid one. The one value kind in this vocabulary whose JSON lies about it
+  if (value instanceof Date) {
+    return String(value);
+  }
 
-	let text: string;
-	try {
-		text = JSON.stringify(value) ?? String(value);
-	} catch {
-		// a cycle, or a `BigInt`, which `JSON.stringify` throws on
-		text = Object.prototype.toString.call(value);
-	}
+  let text: string;
+  try {
+    text = JSON.stringify(value) ?? String(value);
+  } catch {
+    // a cycle, or a `BigInt`, which `JSON.stringify` throws on
+    text = Object.prototype.toString.call(value);
+  }
 
-	return text.length > 40 ? `${text.slice(0, 39)}\u2026` : text;
+  return text.length > 40 ? `${text.slice(0, 39)}\u2026` : text;
 }
 
 /**
@@ -415,103 +415,103 @@ function show(value: unknown): string {
  * @throws If the type cannot hold what arrived.
  */
 export function checkValue(value: unknown, type: DataType | string): unknown {
-	// a string is the one case the parser's own coercion already answers, and it
-	// answers it better than a second reading would
-	if (typeof value === 'string') {
-		return transformValue(value, type);
-	}
+  // a string is the one case the parser's own coercion already answers, and it
+  // answers it better than a second reading would
+  if (typeof value === 'string') {
+    return transformValue(value, type);
+  }
 
-	// `auto` is a ladder of guesses over a string, and a value that is already
-	// typed needs no guessing -- so there is nothing for it to check. `json` is
-	// the same statement about a different thing: what it means is "whatever
-	// `JSON.parse` produced", and this value is past that
-	if (type === 'auto' || type === 'json') {
-		return value;
-	}
+  // `auto` is a ladder of guesses over a string, and a value that is already
+  // typed needs no guessing -- so there is nothing for it to check. `json` is
+  // the same statement about a different thing: what it means is "whatever
+  // `JSON.parse` produced", and this value is past that
+  if (type === 'auto' || type === 'json') {
+    return value;
+  }
 
-	if (type === 'bool') {
-		if (typeof value !== 'boolean') {
-			throw new Error(__`Invalid boolean: "${show(value)}"`);
-		}
-		return value;
-	}
+  if (type === 'bool') {
+    if (typeof value !== 'boolean') {
+      throw new Error(__`Invalid boolean: "${show(value)}"`);
+    }
+    return value;
+  }
 
-	if (type === 'yesno') {
-		if (typeof value !== 'boolean') {
-			throw new Error(__`Value must be "${YES}" or "${NO}"`);
-		}
-		return value;
-	}
+  if (type === 'yesno') {
+    if (typeof value !== 'boolean') {
+      throw new Error(__`Value must be "${YES}" or "${NO}"`);
+    }
+    return value;
+  }
 
-	if (type === 'date') {
-		// a `Date` is what an object layer can hold and no text format can, and an
-		// epoch is what `transformValue()` already reads a 13-digit string as --
-		// so the two agree about what a number means rather than one of them
-		// having a second idea.
-		//
-		// Which took a review round to be true: the test was `isFinite(value) &&
-		// value > 0`, which is far wider than `dateIntRE`, so `8080` was a date in
-		// 1969 where `"8080"` throws -- and a *fraction* was one too, truncated to
-		// the epoch, which is a value no spelling of this type accepts. A file
-		// holding `"when": 8080` is a port somebody put on the wrong line, and the
-		// whole reason `checkValue()` exists is that a file and an option cannot
-		// come to disagree
-		if (value instanceof Date) {
-			if (Number.isNaN(value.getTime())) {
-				throw new Error(__`Invalid date: "${show(value)}"`);
-			}
-			return value;
-		}
-		if (Number.isInteger(value) && (value as number) >= 1e12 && (value as number) < 1e13) {
-			return new Date(value as number);
-		}
-		throw new Error(__`Invalid date: "${show(value)}"`);
-	}
+  if (type === 'date') {
+    // a `Date` is what an object layer can hold and no text format can, and an
+    // epoch is what `transformValue()` already reads a 13-digit string as --
+    // so the two agree about what a number means rather than one of them
+    // having a second idea.
+    //
+    // Which took a review round to be true: the test was `isFinite(value) &&
+    // value > 0`, which is far wider than `dateIntRE`, so `8080` was a date in
+    // 1969 where `"8080"` throws -- and a *fraction* was one too, truncated to
+    // the epoch, which is a value no spelling of this type accepts. A file
+    // holding `"when": 8080` is a port somebody put on the wrong line, and the
+    // whole reason `checkValue()` exists is that a file and an option cannot
+    // come to disagree
+    if (value instanceof Date) {
+      if (Number.isNaN(value.getTime())) {
+        throw new Error(__`Invalid date: "${show(value)}"`);
+      }
+      return value;
+    }
+    if (Number.isInteger(value) && (value as number) >= 1e12 && (value as number) < 1e13) {
+      return new Date(value as number);
+    }
+    throw new Error(__`Invalid date: "${show(value)}"`);
+  }
 
-	if (INTEGER_TYPES.has(type)) {
-		if (typeof value !== 'number' || !Number.isInteger(value)) {
-			throw new Error(
-				type === 'count' ? __`Invalid count: ${show(value)}` : __`Invalid integer: ${show(value)}`
-			);
-		}
-		// past 2^53-1 a `number` is not the integer that was written, which is the
-		// one failure a caller cannot detect -- the rule `transformValue()` already
-		// keeps for the string spelling of the same value
-		if (!Number.isSafeInteger(value)) {
-			throw new Error(
-				type === 'count'
-					? __`Count is too large to be exact: ${value}`
-					: __`Integer is too large to be exact: ${value}`
-			);
-		}
-		return value;
-	}
+  if (INTEGER_TYPES.has(type)) {
+    if (typeof value !== 'number' || !Number.isInteger(value)) {
+      throw new Error(
+        type === 'count' ? __`Invalid count: ${show(value)}` : __`Invalid integer: ${show(value)}`
+      );
+    }
+    // past 2^53-1 a `number` is not the integer that was written, which is the
+    // one failure a caller cannot detect -- the rule `transformValue()` already
+    // keeps for the string spelling of the same value
+    if (!Number.isSafeInteger(value)) {
+      throw new Error(
+        type === 'count'
+          ? __`Count is too large to be exact: ${value}`
+          : __`Integer is too large to be exact: ${value}`
+      );
+    }
+    return value;
+  }
 
-	if (type === 'number') {
-		// `NaN` and nothing else: `transformValue('Infinity', 'number')` is
-		// `Infinity`, so refusing it here would make the two spellings of one value
-		// disagree
-		if (typeof value !== 'number' || Number.isNaN(value)) {
-			throw new Error(__`Invalid number: ${show(value)}`);
-		}
-		return value;
-	}
+  if (type === 'number') {
+    // `NaN` and nothing else: `transformValue('Infinity', 'number')` is
+    // `Infinity`, so refusing it here would make the two spellings of one value
+    // disagree
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+      throw new Error(__`Invalid number: ${show(value)}`);
+    }
+    return value;
+  }
 
-	if (type === 'string') {
-		// every string already returned above, so anything reaching here is not
-		// one. Refused rather than coerced: a number where a string was declared is
-		// a mistake in the file worth reporting, and `String(value)` would turn it
-		// into a setting that looks right.
-		//
-		// The one new key this function needs, and it is new because the parser
-		// never had to refuse a *non-string* for a `string` option -- argv hands
-		// over nothing else
-		throw new Error(__`Invalid string: ${show(value)}`);
-	}
+  if (type === 'string') {
+    // every string already returned above, so anything reaching here is not
+    // one. Refused rather than coerced: a number where a string was declared is
+    // a mistake in the file worth reporting, and `String(value)` would turn it
+    // into a setting that looks right.
+    //
+    // The one new key this function needs, and it is new because the parser
+    // never had to refuse a *non-string* for a `string` option -- argv hands
+    // over nothing else
+    throw new Error(__`Invalid string: ${show(value)}`);
+  }
 
-	// an unrecognized type name is the caller's to refuse where the declaration
-	// was written -- `initOption()` does, with an anchored pattern, and
-	// `assertSettings()` does the same for a config schema. Returning the value
-	// untouched is what `transformValue()` does with one, so the two agree
-	return value;
+  // an unrecognized type name is the caller's to refuse where the declaration
+  // was written -- `initOption()` does, with an anchored pattern, and
+  // `assertSettings()` does the same for a config schema. Returning the value
+  // untouched is what `transformValue()` does with one, so the two agree
+  return value;
 }

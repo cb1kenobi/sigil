@@ -14,11 +14,11 @@
  * @returns A new object with the same properties.
  */
 export function copyDeclaration<T extends object>(it: T): T {
-	const copy = { ...it } as Record<string, unknown>;
-	for (const [key, value] of Object.entries(copy)) {
-		if (Array.isArray(value)) {
-			copy[key] = [...value];
-		}
-	}
-	return copy as T;
+  const copy = { ...it } as Record<string, unknown>;
+  for (const [key, value] of Object.entries(copy)) {
+    if (Array.isArray(value)) {
+      copy[key] = [...value];
+    }
+  }
+  return copy as T;
 }

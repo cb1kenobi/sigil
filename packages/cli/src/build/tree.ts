@@ -47,53 +47,53 @@ export type CommandKind = RouteKind | 'inline';
 
 /** One command in a resolved tree. */
 export interface ResolvedCommand {
-	/** Its subcommands, resolved the same way, sorted as the routes were. */
-	readonly commands: readonly ResolvedCommand[];
-	/** What it does, lifted from its module or read from its manifest. */
-	readonly desc?: string;
-	/**
-	 * Whether `desc` is a catalog key rather than the description itself. Never
-	 * set for a package, whose description is prose out of a manifest.
-	 */
-	readonly descTranslated?: boolean;
-	/** Whether it hides itself, lifted from its module. */
-	readonly hidden?: boolean;
-	/**
-	 * Which of the three things the route behind it was, or `inline` for one a
-	 * schema wrote out rather than a walk discovered.
-	 */
-	readonly kind: CommandKind;
-	/**
-	 * The module that *is* this command, if any.
-	 *
-	 * Absent for a directory with no `index` module, which is a namespace: it
-	 * matches, it lists what is under it, and it has nothing to run. That is the
-	 * runtime's rule and the generated tree keeps it -- a namespace emits no
-	 * `load`, so nothing is ever imported for it.
-	 */
-	readonly module?: string;
-	/** What the user types. */
-	readonly name: string;
+  /** Its subcommands, resolved the same way, sorted as the routes were. */
+  readonly commands: readonly ResolvedCommand[];
+  /** What it does, lifted from its module or read from its manifest. */
+  readonly desc?: string;
+  /**
+   * Whether `desc` is a catalog key rather than the description itself. Never
+   * set for a package, whose description is prose out of a manifest.
+   */
+  readonly descTranslated?: boolean;
+  /** Whether it hides itself, lifted from its module. */
+  readonly hidden?: boolean;
+  /**
+   * Which of the three things the route behind it was, or `inline` for one a
+   * schema wrote out rather than a walk discovered.
+   */
+  readonly kind: CommandKind;
+  /**
+   * The module that *is* this command, if any.
+   *
+   * Absent for a directory with no `index` module, which is a namespace: it
+   * matches, it lists what is under it, and it has nothing to run. That is the
+   * runtime's rule and the generated tree keeps it -- a namespace emits no
+   * `load`, so nothing is ever imported for it.
+   */
+  readonly module?: string;
+  /** What the user types. */
+  readonly name: string;
 }
 
 /** A whole tree, and everything reading it turned up. */
 export interface ResolvedTree {
-	/** The root's commands. */
-	readonly commands: readonly ResolvedCommand[];
-	/** Everything worth telling the author, in the order it was found. */
-	readonly diagnostics: readonly Diagnostic[];
+  /** The root's commands. */
+  readonly commands: readonly ResolvedCommand[];
+  /** Everything worth telling the author, in the order it was found. */
+  readonly diagnostics: readonly Diagnostic[];
 }
 
 /** How to resolve a tree. */
 export interface ResolveOptions {
-	/**
-	 * Whether to read each module's source for its `desc` and `hidden`.
-	 *
-	 * On by default, since it is the reason this exists. Off is for a caller
-	 * that only wants the shape -- listing the tree, say -- and would rather not
-	 * parse sixty files to get it.
-	 */
-	readonly facts?: boolean;
+  /**
+   * Whether to read each module's source for its `desc` and `hidden`.
+   *
+   * On by default, since it is the reason this exists. Off is for a caller
+   * that only wants the shape -- listing the tree, say -- and would rather not
+   * parse sixty files to get it.
+   */
+  readonly facts?: boolean;
 }
 
 /**
@@ -106,26 +106,26 @@ export interface ResolveOptions {
  *   Both are the runtime's errors, raised by the rules this shares with it.
  */
 export function resolveCommandTree(dir: string, options: ResolveOptions = {}): ResolvedTree {
-	// asked first, because the runtime asks first: an unnamed path that is a
-	// package is *one* command rather than a directory of them, and a `commands/`
-	// holding nothing but `{ "type": "module" }` -- which is how a package forces
-	// ESM on a directory -- is one. Left unasked, this walked the routes inside
-	// and emitted a tree where the runtime emits a single command, which is the
-	// divergence everything here exists to prevent
-	if (readPackage(dir)) {
-		throw new Error(
-			`Cannot resolve "${dir}" at build time: its package.json makes it a package rather ` +
-				'than a directory of commands, and the runtime names such a package from the module ' +
-				'it imports -- which the build cannot read without running it. Declare it under a ' +
-				'key to make it one named command, or remove the manifest to have its routes ' +
-				'become sibling commands.'
-		);
-	}
+  // asked first, because the runtime asks first: an unnamed path that is a
+  // package is *one* command rather than a directory of them, and a `commands/`
+  // holding nothing but `{ "type": "module" }` -- which is how a package forces
+  // ESM on a directory -- is one. Left unasked, this walked the routes inside
+  // and emitted a tree where the runtime emits a single command, which is the
+  // divergence everything here exists to prevent
+  if (readPackage(dir)) {
+    throw new Error(
+      `Cannot resolve "${dir}" at build time: its package.json makes it a package rather ` +
+        'than a directory of commands, and the runtime names such a package from the module ' +
+        'it imports -- which the build cannot read without running it. Declare it under a ' +
+        'key to make it one named command, or remove the manifest to have its routes ' +
+        'become sibling commands.'
+    );
+  }
 
-	const diagnostics: Diagnostic[] = [];
-	const commands = level(dir, diagnostics, options.facts ?? true);
+  const diagnostics: Diagnostic[] = [];
+  const commands = level(dir, diagnostics, options.facts ?? true);
 
-	return { commands, diagnostics };
+  return { commands, diagnostics };
 }
 
 /**
@@ -137,17 +137,17 @@ export function resolveCommandTree(dir: string, options: ResolveOptions = {}): R
  * @returns One command per route.
  */
 function level(dir: string, diagnostics: Diagnostic[], facts: boolean): ResolvedCommand[] {
-	const found = readRoutes(dir);
-	if (!found) {
-		throw new Error(`Command directory not found: ${dir}`);
-	}
+  const found = readRoutes(dir);
+  if (!found) {
+    throw new Error(`Command directory not found: ${dir}`);
+  }
 
-	// the root's own `index` is deliberately not read: a bare
-	// `commands: './commands'` has no directory command for an index to *be* --
-	// its own command is the schema -- which is the rule the runtime's walk
-	// already follows. A subdirectory's index is a different thing, and
-	// `resolve()` below is where it becomes that subdirectory's command
-	return found.routes.map((route) => resolve(route, diagnostics, facts));
+  // the root's own `index` is deliberately not read: a bare
+  // `commands: './commands'` has no directory command for an index to *be* --
+  // its own command is the schema -- which is the rule the runtime's walk
+  // already follows. A subdirectory's index is a different thing, and
+  // `resolve()` below is where it becomes that subdirectory's command
+  return found.routes.map((route) => resolve(route, diagnostics, facts));
 }
 
 /**
@@ -160,46 +160,46 @@ function level(dir: string, diagnostics: Diagnostic[], facts: boolean): Resolved
  * @returns The command.
  */
 function resolve(route: Route, diagnostics: Diagnostic[], facts: boolean): ResolvedCommand {
-	if (route.kind === 'directory') {
-		// read once and used twice, for its routes and for its index: reading it
-		// again per half is the cost the runtime's own walk is careful to pay only
-		// once, in the comment that says both halves come from one `readdir`
-		const inside = readRoutes(route.path);
-		if (!inside) {
-			throw new Error(`Command directory not found: ${route.path}`);
-		}
+  if (route.kind === 'directory') {
+    // read once and used twice, for its routes and for its index: reading it
+    // again per half is the cost the runtime's own walk is careful to pay only
+    // once, in the comment that says both halves come from one `readdir`
+    const inside = readRoutes(route.path);
+    if (!inside) {
+      throw new Error(`Command directory not found: ${route.path}`);
+    }
 
-		return {
-			commands: inside.routes.map((child) => resolve(child, diagnostics, facts)),
-			...(inside.index ? read(inside.index, diagnostics, facts) : {}),
-			kind: route.kind,
-			module: inside.index,
-			name: route.name,
-		};
-	}
+    return {
+      commands: inside.routes.map((child) => resolve(child, diagnostics, facts)),
+      ...(inside.index ? read(inside.index, diagnostics, facts) : {}),
+      kind: route.kind,
+      module: inside.index,
+      name: route.name,
+    };
+  }
 
-	// a package describes itself in its `package.json`, and that is the
-	// description the runtime uses -- so this takes the same one rather than
-	// reading its entry module. Reading it would mean reading somebody's
-	// compiled output for a `desc` that is very likely computed there, to answer
-	// a question its manifest has already answered
-	if (route.kind === 'package') {
-		return {
-			commands: [],
-			desc: route.desc,
-			kind: route.kind,
-			module: route.path,
-			name: route.name,
-		};
-	}
+  // a package describes itself in its `package.json`, and that is the
+  // description the runtime uses -- so this takes the same one rather than
+  // reading its entry module. Reading it would mean reading somebody's
+  // compiled output for a `desc` that is very likely computed there, to answer
+  // a question its manifest has already answered
+  if (route.kind === 'package') {
+    return {
+      commands: [],
+      desc: route.desc,
+      kind: route.kind,
+      module: route.path,
+      name: route.name,
+    };
+  }
 
-	return {
-		commands: [],
-		...read(route.path, diagnostics, facts),
-		kind: route.kind,
-		module: route.path,
-		name: route.name,
-	};
+  return {
+    commands: [],
+    ...read(route.path, diagnostics, facts),
+    kind: route.kind,
+    module: route.path,
+    name: route.name,
+  };
 }
 
 /**
@@ -211,16 +211,16 @@ function resolve(route: Route, diagnostics: Diagnostic[], facts: boolean): Resol
  * @returns Its facts, or nothing when reading is off.
  */
 function read(file: string, diagnostics: Diagnostic[], facts: boolean): CommandFacts {
-	if (!facts) {
-		return {};
-	}
+  if (!facts) {
+    return {};
+  }
 
-	const parsed = parseModule(file, readFileSync(file, 'utf-8'));
-	const extracted = factsOf(parsed);
+  const parsed = parseModule(file, readFileSync(file, 'utf-8'));
+  const extracted = factsOf(parsed);
 
-	diagnostics.push(...extracted.diagnostics);
+  diagnostics.push(...extracted.diagnostics);
 
-	return extracted.facts;
+  return extracted.facts;
 }
 
 /**
@@ -233,12 +233,12 @@ function read(file: string, diagnostics: Diagnostic[], facts: boolean): CommandF
  * @returns Each command, with the names above it.
  */
 export function* walkTree(
-	commands: readonly ResolvedCommand[],
-	path: readonly string[] = []
+  commands: readonly ResolvedCommand[],
+  path: readonly string[] = []
 ): Generator<{ command: ResolvedCommand; path: readonly string[] }> {
-	for (const command of commands) {
-		const here = [...path, command.name];
-		yield { command, path: here };
-		yield* walkTree(command.commands, here);
-	}
+  for (const command of commands) {
+    const here = [...path, command.name];
+    yield { command, path: here };
+    yield* walkTree(command.commands, here);
+  }
 }

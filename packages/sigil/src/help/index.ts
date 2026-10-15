@@ -1,23 +1,23 @@
 import { ansi as defaultAnsi } from '../ansi/index.js';
 import {
-	box,
-	type Element,
-	renderToString,
-	text as textNode,
-	type TextRun,
+  box,
+  type Element,
+  renderToString,
+  text as textNode,
+  type TextRun,
 } from '../element/index.js';
 import { __, __n } from '../i18n/index.js';
 import type { OptionRegistry } from '../parser/option/option-registry.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import {
-	type CommandExample,
-	type HelpRenderer,
-	Internal,
-	type InternalArgument,
-	type InternalCommand,
-	type InternalOption,
-	type ParseState,
-	type Schema,
+  type CommandExample,
+  type HelpRenderer,
+  Internal,
+  type InternalArgument,
+  type InternalCommand,
+  type InternalOption,
+  type ParseState,
+  type Schema,
 } from '../types.js';
 import { terminalWidth } from '../wrap/index.js';
 import { type BuiltSection, byGroup, createSections, withoutTwins } from './sections.js';
@@ -25,13 +25,13 @@ import { type Definition, hanging, heading, type ListOptions, section } from './
 import { basename } from 'node:path';
 
 export {
-	type Definition,
-	definitions,
-	hanging,
-	heading,
-	labelLines,
-	type ListOptions,
-	section,
+  type Definition,
+  definitions,
+  hanging,
+  heading,
+  labelLines,
+  type ListOptions,
+  section,
 } from './template.js';
 export { type BuiltSection, createSections } from './sections.js';
 
@@ -44,32 +44,32 @@ export { type BuiltSection, createSections } from './sections.js';
  * the options it inherits from each of them.
  */
 export interface HelpTarget {
-	/** The command chain, innermost first, ending at the schema's root. */
-	contexts: InternalCommand[];
-	/** The schema, for the program's name. */
-	schema?: Schema;
+  /** The command chain, innermost first, ending at the schema's root. */
+  contexts: InternalCommand[];
+  /** The schema, for the program's name. */
+  schema?: Schema;
 }
 
 export interface HelpOptions extends StyledOptions {
-	/** The columns between a label and its description. Defaults to 2. */
-	gap?: number;
-	/** How far the lists are indented. Defaults to 2. */
-	indent?: number;
-	/**
-	 * The widest a label column may get before descriptions start on their own
-	 * lines. Defaults to 28.
-	 */
-	maxLabel?: number;
-	/** The program's name, for the usage line. Defaults to the schema's name. */
-	name?: string;
-	/**
-	 * Titled sections to list after the command's own options and before the
-	 * inherited ones. `resolveHelp()` fills these in from the command's `help`
-	 * hooks; a caller rendering directly supplies its own or none.
-	 */
-	sections?: BuiltSection[];
-	/** The column to wrap at. Defaults to `terminalWidth()`. */
-	width?: number;
+  /** The columns between a label and its description. Defaults to 2. */
+  gap?: number;
+  /** How far the lists are indented. Defaults to 2. */
+  indent?: number;
+  /**
+   * The widest a label column may get before descriptions start on their own
+   * lines. Defaults to 28.
+   */
+  maxLabel?: number;
+  /** The program's name, for the usage line. Defaults to the schema's name. */
+  name?: string;
+  /**
+   * Titled sections to list after the command's own options and before the
+   * inherited ones. `resolveHelp()` fills these in from the command's `help`
+   * hooks; a caller rendering directly supplies its own or none.
+   */
+  sections?: BuiltSection[];
+  /** The column to wrap at. Defaults to `terminalWidth()`. */
+  width?: number;
 }
 
 /**
@@ -94,13 +94,13 @@ export interface HelpOptions extends StyledOptions {
  * @returns The help screen, with no trailing newline.
  */
 export function renderHelp(target: HelpTarget, opts: HelpOptions = {}): string {
-	const width = opts.width ?? terminalWidth();
+  const width = opts.width ?? terminalWidth();
 
-	return renderToString(helpView(target, opts), {
-		cascade: themedCascade(opts),
-		colorLevel: opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level,
-		width,
-	});
+  return renderToString(helpView(target, opts), {
+    cascade: themedCascade(opts),
+    colorLevel: opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level,
+    width,
+  });
 }
 
 /**
@@ -112,131 +112,131 @@ export function renderHelp(target: HelpTarget, opts: HelpOptions = {}): string {
  * @returns The tree.
  */
 export function helpView(target: HelpTarget, opts: HelpOptions = {}): Element {
-	const contexts = target?.contexts;
+  const contexts = target?.contexts;
 
-	if (!Array.isArray(contexts) || contexts.length === 0) {
-		throw new TypeError('Expected a context chain to render help for');
-	}
+  if (!Array.isArray(contexts) || contexts.length === 0) {
+    throw new TypeError('Expected a context chain to render help for');
+  }
 
-	const width = opts.width ?? terminalWidth();
-	const list: ListOptions = {
-		gap: opts.gap ?? 2,
-		indent: opts.indent ?? 2,
-		maxLabel: opts.maxLabel ?? 28,
-		width,
-	};
+  const width = opts.width ?? terminalWidth();
+  const list: ListOptions = {
+    gap: opts.gap ?? 2,
+    indent: opts.indent ?? 2,
+    maxLabel: opts.maxLabel ?? 28,
+    width,
+  };
 
-	// the visible options of each contributed section, read once: both the usage
-	// line and the sections themselves need to know what is actually in them
-	const contributed = (opts.sections ?? []).map((section_) => ({
-		args: section_.args,
-		options: optionsOf(section_.options),
-		title: section_.title,
-	}));
-	const cmd = contexts[0]!;
-	const internal = cmd[Internal];
-	const commands = shown(internal.commands.values()).sort((a, b) => a.name.localeCompare(b.name));
-	const options = optionsOf(internal.options);
-	const { groups, ungrouped } = byGroup(options);
+  // the visible options of each contributed section, read once: both the usage
+  // line and the sections themselves need to know what is actually in them
+  const contributed = (opts.sections ?? []).map((section_) => ({
+    args: section_.args,
+    options: optionsOf(section_.options),
+    title: section_.title,
+  }));
+  const cmd = contexts[0]!;
+  const internal = cmd[Internal];
+  const commands = shown(internal.commands.values()).sort((a, b) => a.name.localeCompare(b.name));
+  const options = optionsOf(internal.options);
+  const { groups, ungrouped } = byGroup(options);
 
-	// an option the command declares itself shadows the one above it -- the parser
-	// resolves options across the chain innermost first -- so listing the outer one
-	// under "Global options" would describe something that cannot be reached from
-	// here.
-	//
-	// Shadowing is by spelling and not by name, because a spelling is what gets
-	// typed: a command declaring a short-only `-x` does not shadow a root `--x`,
-	// and `mycli build --x` still reaches the root's. An outer option is left out
-	// only when every one of its spellings has been claimed by a nearer one.
-	//
-	// Every option claims, including a hidden one. Being hidden is about whether
-	// help lists it, not about whether it resolves -- a command with a hidden
-	// `--mode` is still the `--mode` that `mycli build --mode` reaches, so listing
-	// the root's under "Global options" would describe the wrong one.
-	const claimed = new Set([...internal.options.values()].flatMap(resolvable));
-	const reachable: InternalOption[] = [];
-	for (const ctx of contexts.slice(1)) {
-		for (const opt of ctx[Internal].options.values()) {
-			const spellings = resolvable(opt);
-			if (!spellings.every((spelling) => claimed.has(spelling))) {
-				reachable.push(opt);
-			}
-			for (const spelling of spellings) {
-				claimed.add(spelling);
-			}
-		}
-	}
-	const inherited = withoutTwins(shown(reachable));
-	const args = internal.args;
-	// a name that is nothing but an alias -- `'@b'` -- is its own alias, and the
-	// command is already named on the usage line
-	const aliases = [...internal.aliases].filter((alias) => alias !== cmd.name);
+  // an option the command declares itself shadows the one above it -- the parser
+  // resolves options across the chain innermost first -- so listing the outer one
+  // under "Global options" would describe something that cannot be reached from
+  // here.
+  //
+  // Shadowing is by spelling and not by name, because a spelling is what gets
+  // typed: a command declaring a short-only `-x` does not shadow a root `--x`,
+  // and `mycli build --x` still reaches the root's. An outer option is left out
+  // only when every one of its spellings has been claimed by a nearer one.
+  //
+  // Every option claims, including a hidden one. Being hidden is about whether
+  // help lists it, not about whether it resolves -- a command with a hidden
+  // `--mode` is still the `--mode` that `mycli build --mode` reaches, so listing
+  // the root's under "Global options" would describe the wrong one.
+  const claimed = new Set([...internal.options.values()].flatMap(resolvable));
+  const reachable: InternalOption[] = [];
+  for (const ctx of contexts.slice(1)) {
+    for (const opt of ctx[Internal].options.values()) {
+      const spellings = resolvable(opt);
+      if (!spellings.every((spelling) => claimed.has(spelling))) {
+        reachable.push(opt);
+      }
+      for (const spelling of spellings) {
+        claimed.add(spelling);
+      }
+    }
+  }
+  const inherited = withoutTwins(shown(reachable));
+  const args = internal.args;
+  // a name that is nothing but an alias -- `'@b'` -- is its own alias, and the
+  // command is already named on the usage line
+  const aliases = [...internal.aliases].filter((alias) => alias !== cmd.name);
 
-	const blocks: Element[] = [
-		usageLine({
-			args,
-			commands: commands.length > 0,
-			defaulted: internal.commands.default !== undefined,
-			name: programName(target, opts),
-			// a contributed section counts, but only when it has options in it: one
-			// that contributes arguments alone is not a reason to promise options
-			options:
-				options.length > 0 ||
-				inherited.length > 0 ||
-				contributed.some((section_) => section_.options.length > 0),
-			path: contexts
-				.slice(0, -1)
-				.reverse()
-				.map((ctx) => ctx.name),
-			width,
-		}),
-	];
+  const blocks: Element[] = [
+    usageLine({
+      args,
+      commands: commands.length > 0,
+      defaulted: internal.commands.default !== undefined,
+      name: programName(target, opts),
+      // a contributed section counts, but only when it has options in it: one
+      // that contributes arguments alone is not a reason to promise options
+      options:
+        options.length > 0 ||
+        inherited.length > 0 ||
+        contributed.some((section_) => section_.options.length > 0),
+      path: contexts
+        .slice(0, -1)
+        .reverse()
+        .map((ctx) => ctx.name),
+      width,
+    }),
+  ];
 
-	if (cmd.desc?.trim()) {
-		// a `text`, so that a description written over two lines stays two lines
-		blocks.push(textNode(cmd.desc));
-	}
+  if (cmd.desc?.trim()) {
+    // a `text`, so that a description written over two lines stays two lines
+    blocks.push(textNode(cmd.desc));
+  }
 
-	// the root context is the schema, and its aliases are nobody's business: what
-	// would be aliased is the program, and the program is not what it declares
-	if (aliases.length > 0 && contexts.length > 1) {
-		blocks.push(hanging(__n(aliases.length, 'Alias:', 'Aliases:'), [aliases.join(', ')], width));
-	}
+  // the root context is the schema, and its aliases are nobody's business: what
+  // would be aliased is the program, and the program is not what it declares
+  if (aliases.length > 0 && contexts.length > 1) {
+    blocks.push(hanging(__n(aliases.length, 'Alias:', 'Aliases:'), [aliases.join(', ')], width));
+  }
 
-	if (commands.length > 0) {
-		blocks.push(section(__`Commands:`, commands.map(commandRow), list));
-	}
+  if (commands.length > 0) {
+    blocks.push(section(__`Commands:`, commands.map(commandRow), list));
+  }
 
-	if (args.length > 0) {
-		blocks.push(section(__`Arguments:`, args.map(argRow), list));
-	}
+  if (args.length > 0) {
+    blocks.push(section(__`Arguments:`, args.map(argRow), list));
+  }
 
-	if (ungrouped.length > 0) {
-		blocks.push(section(__`Options:`, ungrouped.map(optionRow), list));
-	}
+  if (ungrouped.length > 0) {
+    blocks.push(section(__`Options:`, ungrouped.map(optionRow), list));
+  }
 
-	// the command's own groups, then the sections its hooks contributed: both are
-	// the command's, and both come before what it inherited
-	for (const group of groups) {
-		blocks.push(section(__`${group.title} options:`, group.options.map(optionRow), list));
-	}
+  // the command's own groups, then the sections its hooks contributed: both are
+  // the command's, and both come before what it inherited
+  for (const group of groups) {
+    blocks.push(section(__`${group.title} options:`, group.options.map(optionRow), list));
+  }
 
-	for (const section_ of contributed) {
-		blocks.push(...contributedBlocks(section_, list));
-	}
+  for (const section_ of contributed) {
+    blocks.push(...contributedBlocks(section_, list));
+  }
 
-	if (inherited.length > 0) {
-		blocks.push(section(__`Global options:`, inherited.map(optionRow), list));
-	}
+  if (inherited.length > 0) {
+    blocks.push(section(__`Global options:`, inherited.map(optionRow), list));
+  }
 
-	const examples = exampleList(cmd.examples);
-	if (examples.length > 0) {
-		blocks.push(exampleSection(examples, list));
-	}
+  const examples = exampleList(cmd.examples);
+  if (examples.length > 0) {
+    blocks.push(exampleSection(examples, list));
+  }
 
-	// one blank line between blocks, which is what `row-gap` is: the joining that
-	// used to be `.join('\n\n')` over strings
-	return box({ class: 'sigil-help', 'flex-direction': 'column', 'row-gap': 1 }, ...blocks);
+  // one blank line between blocks, which is what `row-gap` is: the joining that
+  // used to be `.join('\n\n')` over strings
+  return box({ class: 'sigil-help', 'flex-direction': 'column', 'row-gap': 1 }, ...blocks);
 }
 
 /**
@@ -246,7 +246,7 @@ export function helpView(target: HelpTarget, opts: HelpOptions = {}): Element {
  * @returns Everything not marked `hidden`.
  */
 function shown<T extends { hidden?: boolean }>(values: Iterable<T>): T[] {
-	return [...values].filter((item) => !item.hidden);
+  return [...values].filter((item) => !item.hidden);
 }
 
 /**
@@ -264,7 +264,7 @@ function shown<T extends { hidden?: boolean }>(values: Iterable<T>): T[] {
  * @returns The options to show.
  */
 function optionsOf(registry: OptionRegistry): InternalOption[] {
-	return withoutTwins(shown(registry.values()));
+  return withoutTwins(shown(registry.values()));
 }
 
 /**
@@ -279,21 +279,21 @@ function optionsOf(registry: OptionRegistry): InternalOption[] {
  * @returns The blocks.
  */
 function contributedBlocks(
-	section_: { args: InternalArgument[]; options: InternalOption[]; title: string },
-	list: ListOptions
+  section_: { args: InternalArgument[]; options: InternalOption[]; title: string },
+  list: ListOptions
 ): Element[] {
-	const blocks: Element[] = [];
-	const { args, options } = section_;
+  const blocks: Element[] = [];
+  const { args, options } = section_;
 
-	if (args.length > 0) {
-		blocks.push(section(__`${section_.title} arguments:`, args.map(argRow), list));
-	}
+  if (args.length > 0) {
+    blocks.push(section(__`${section_.title} arguments:`, args.map(argRow), list));
+  }
 
-	if (options.length > 0) {
-		blocks.push(section(__`${section_.title} options:`, options.map(optionRow), list));
-	}
+  if (options.length > 0) {
+    blocks.push(section(__`${section_.title} options:`, options.map(optionRow), list));
+  }
 
-	return blocks;
+  return blocks;
 }
 
 /**
@@ -309,19 +309,19 @@ function contributedBlocks(
  * @returns The name to print.
  */
 function programName(target: HelpTarget, opts: HelpOptions): string {
-	const script = process.argv[1] ? basename(process.argv[1]) : undefined;
-	return opts.name ?? target.schema?.name ?? script ?? 'cli';
+  const script = process.argv[1] ? basename(process.argv[1]) : undefined;
+  return opts.name ?? target.schema?.name ?? script ?? 'cli';
 }
 
 interface UsageParts {
-	args: InternalArgument[];
-	/** The column to wrap at. */
-	width: number;
-	commands: boolean;
-	defaulted: boolean;
-	name: string;
-	options: boolean;
-	path: string[];
+  args: InternalArgument[];
+  /** The column to wrap at. */
+  width: number;
+  commands: boolean;
+  defaulted: boolean;
+  name: string;
+  options: boolean;
+  path: string[];
 }
 
 /**
@@ -340,23 +340,23 @@ interface UsageParts {
  * @returns The usage line.
  */
 function usageLine(parts: UsageParts): Element {
-	const line = [parts.name, ...parts.path];
+  const line = [parts.name, ...parts.path];
 
-	if (parts.options) {
-		// metasyntax rather than an option name: nobody types the word, so unlike
-		// the `<entry>` beside it there is nothing here that has to stay English
-		line.push(__`[options]`);
-	}
+  if (parts.options) {
+    // metasyntax rather than an option name: nobody types the word, so unlike
+    // the `<entry>` beside it there is nothing here that has to stay English
+    line.push(__`[options]`);
+  }
 
-	if (parts.commands) {
-		line.push(parts.defaulted ? __`[command]` : __`<command>`);
-	}
+  if (parts.commands) {
+    line.push(parts.defaulted ? __`[command]` : __`<command>`);
+  }
 
-	for (const arg of parts.args) {
-		line.push(argSpelling(arg));
-	}
+  for (const arg of parts.args) {
+    line.push(argSpelling(arg));
+  }
 
-	return hanging(__`Usage:`, [line.join(' ')], parts.width);
+  return hanging(__`Usage:`, [line.join(' ')], parts.width);
 }
 
 /**
@@ -367,8 +367,8 @@ function usageLine(parts: UsageParts): Element {
  * @returns The spelling.
  */
 function argSpelling(arg: InternalArgument): string {
-	const name = arg.name + (arg.multiple ? '...' : '');
-	return arg.required ? `<${name}>` : `[${name}]`;
+  const name = arg.name + (arg.multiple ? '...' : '');
+  return arg.required ? `<${name}>` : `[${name}]`;
 }
 
 /**
@@ -379,10 +379,10 @@ function argSpelling(arg: InternalArgument): string {
  * @returns The row.
  */
 function commandRow(cmd: InternalCommand): Definition {
-	// a name that is nothing but an alias -- `'@b'` -- is both the name and an
-	// alias of itself, and printing it twice says nothing twice
-	const names = new Set([cmd.name, ...cmd[Internal].aliases]);
-	return { desc: cmd.desc ? [cmd.desc] : undefined, label: [...names].join(', ') };
+  // a name that is nothing but an alias -- `'@b'` -- is both the name and an
+  // alias of itself, and printing it twice says nothing twice
+  const names = new Set([cmd.name, ...cmd[Internal].aliases]);
+  return { desc: cmd.desc ? [cmd.desc] : undefined, label: [...names].join(', ') };
 }
 
 /**
@@ -392,10 +392,10 @@ function commandRow(cmd: InternalCommand): Definition {
  * @returns The row.
  */
 function argRow(arg: InternalArgument): Definition {
-	return {
-		desc: describe(arg.desc, arg.choices, arg.default),
-		label: argSpelling(arg),
-	};
+  return {
+    desc: describe(arg.desc, arg.choices, arg.default),
+    label: argSpelling(arg),
+  };
 }
 
 /**
@@ -409,25 +409,25 @@ function argRow(arg: InternalArgument): Definition {
  * @returns The row.
  */
 function optionRow(opt: InternalOption): Definition {
-	const internal = opt[Internal];
-	let label = spellingsOf(opt).join(', ');
+  const internal = opt[Internal];
+  let label = spellingsOf(opt).join(', ');
 
-	// the hint belongs to the option that takes the value, so it goes before the
-	// negated twin rather than after it: `--cheese [type], --no-cheese`, because
-	// it is not `--no-cheese` that takes a type
-	if (!internal.isFlag && opt.hint) {
-		label += opt.required ? ` <${opt.hint}>` : ` [${opt.hint}]`;
-	}
+  // the hint belongs to the option that takes the value, so it goes before the
+  // negated twin rather than after it: `--cheese [type], --no-cheese`, because
+  // it is not `--no-cheese` that takes a type
+  if (!internal.isFlag && opt.hint) {
+    label += opt.required ? ` <${opt.hint}>` : ` [${opt.hint}]`;
+  }
 
-	if (internal.negatedTwin && !internal.negatedTwin.hidden) {
-		label += `, ${spellingsOf(internal.negatedTwin).join(', ')}`;
-	}
+  if (internal.negatedTwin && !internal.negatedTwin.hidden) {
+    label += `, ${spellingsOf(internal.negatedTwin).join(', ')}`;
+  }
 
-	// a default the parser supplied is not worth printing: every flag has one, and
-	// "(default: false)" on each of them is noise rather than information
-	const dflt = internal.impliedDefault ? undefined : opt.default;
+  // a default the parser supplied is not worth printing: every flag has one, and
+  // "(default: false)" on each of them is noise rather than information
+  const dflt = internal.impliedDefault ? undefined : opt.default;
 
-	return { desc: describe(opt.desc, opt.choices, dflt), label };
+  return { desc: describe(opt.desc, opt.choices, dflt), label };
 }
 
 /**
@@ -441,13 +441,13 @@ function optionRow(opt: InternalOption): Definition {
  * @returns The spellings.
  */
 function resolvable(opt: InternalOption): string[] {
-	const internal = opt[Internal];
-	const twin = internal.negatedTwin;
-	return [
-		...internal.short,
-		...internal.long,
-		...(twin ? [...twin[Internal].short, ...twin[Internal].long] : []),
-	];
+  const internal = opt[Internal];
+  const twin = internal.negatedTwin;
+  return [
+    ...internal.short,
+    ...internal.long,
+    ...(twin ? [...twin[Internal].short, ...twin[Internal].long] : []),
+  ];
 }
 
 /**
@@ -462,10 +462,10 @@ function resolvable(opt: InternalOption): string[] {
  * @returns The spellings.
  */
 function spellingsOf(opt: InternalOption): string[] {
-	const internal = opt[Internal];
-	const positive = `--${opt.name}`;
-	const long = [...internal.long].filter((name) => !(opt.negate && name === positive));
-	return [...internal.short, ...long];
+  const internal = opt[Internal];
+  const positive = `--${opt.name}`;
+  const long = [...internal.long].filter((name) => !(opt.negate && name === positive));
+  return [...internal.short, ...long];
 }
 
 /**
@@ -483,24 +483,24 @@ function spellingsOf(opt: InternalOption): string[] {
  * @returns The runs.
  */
 function describe(
-	desc: string | undefined,
-	choices: readonly unknown[] | undefined,
-	dflt: unknown
+  desc: string | undefined,
+  choices: readonly unknown[] | undefined,
+  dflt: unknown
 ): TextRun[] {
-	const parts: TextRun[] = desc ? [{ text: desc }] : [];
+  const parts: TextRun[] = desc ? [{ text: desc }] : [];
 
-	if (Array.isArray(choices) && choices.length > 0) {
-		parts.push({
-			class: 'sigil-help-note sigil-muted',
-			text: __`(choices: ${choices.map(format).join(', ')})`,
-		});
-	}
+  if (Array.isArray(choices) && choices.length > 0) {
+    parts.push({
+      class: 'sigil-help-note sigil-muted',
+      text: __`(choices: ${choices.map(format).join(', ')})`,
+    });
+  }
 
-	if (dflt !== undefined) {
-		parts.push({ class: 'sigil-help-note sigil-muted', text: __`(default: ${format(dflt)})` });
-	}
+  if (dflt !== undefined) {
+    parts.push({ class: 'sigil-help-note sigil-muted', text: __`(default: ${format(dflt)})` });
+  }
 
-	return parts;
+  return parts;
 }
 
 /**
@@ -512,21 +512,21 @@ function describe(
  * @returns The text.
  */
 function format(value: unknown): string {
-	if (typeof value === 'string') {
-		// a string is printed as it is -- this is prose, not JSON -- unless printing
-		// it as it is would show nothing, or would not show where it begins and
-		// ends
-		return value === value.trim() && value !== '' ? value : JSON.stringify(value);
-	}
+  if (typeof value === 'string') {
+    // a string is printed as it is -- this is prose, not JSON -- unless printing
+    // it as it is would show nothing, or would not show where it begins and
+    // ends
+    return value === value.trim() && value !== '' ? value : JSON.stringify(value);
+  }
 
-	try {
-		// a default can be anything a schema put there, and a circular object or a
-		// BigInt makes `JSON.stringify` throw. Nothing in help is worth failing the
-		// whole screen over, so what cannot be written as JSON is written as itself.
-		return JSON.stringify(value) ?? String(value);
-	} catch {
-		return String(value);
-	}
+  try {
+    // a default can be anything a schema put there, and a circular object or a
+    // BigInt makes `JSON.stringify` throw. Nothing in help is worth failing the
+    // whole screen over, so what cannot be written as JSON is written as itself.
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
+  }
 }
 
 /**
@@ -536,13 +536,13 @@ function format(value: unknown): string {
  * @returns The examples worth printing.
  */
 function exampleList(examples: CommandExample | CommandExample[] | undefined): CommandExample[] {
-	if (!examples) {
-		return [];
-	}
+  if (!examples) {
+    return [];
+  }
 
-	return (Array.isArray(examples) ? examples : [examples]).filter(
-		(example) => example && typeof example === 'object' && example.text
-	);
+  return (Array.isArray(examples) ? examples : [examples]).filter(
+    (example) => example && typeof example === 'object' && example.text
+  );
 }
 
 /**
@@ -558,25 +558,25 @@ function exampleList(examples: CommandExample | CommandExample[] | undefined): C
  * @returns The block.
  */
 function exampleSection(examples: CommandExample[], list: ListOptions): Element {
-	return box(
-		{ 'flex-direction': 'column' },
-		heading(__`Examples:`),
-		// a blank line between two examples and none inside one, which is what a
-		// `row-gap` over a box per example says
-		box(
-			{ 'flex-direction': 'column', 'row-gap': 1 },
-			...examples.map((example) =>
-				box(
-					{ 'flex-direction': 'column' },
-					...(example.label ? [verbatim(example.label, list.indent)] : []),
-					// a `text` rather than a paragraph, because a command line is what
-					// somebody copies: a paragraph is words with one space between them,
-					// and the two spaces lining up a flag in an example are the author's
-					verbatim(example.text, list.indent * (example.label ? 2 : 1))
-				)
-			)
-		)
-	);
+  return box(
+    { 'flex-direction': 'column' },
+    heading(__`Examples:`),
+    // a blank line between two examples and none inside one, which is what a
+    // `row-gap` over a box per example says
+    box(
+      { 'flex-direction': 'column', 'row-gap': 1 },
+      ...examples.map((example) =>
+        box(
+          { 'flex-direction': 'column' },
+          ...(example.label ? [verbatim(example.label, list.indent)] : []),
+          // a `text` rather than a paragraph, because a command line is what
+          // somebody copies: a paragraph is words with one space between them,
+          // and the two spaces lining up a flag in an example are the author's
+          verbatim(example.text, list.indent * (example.label ? 2 : 1))
+        )
+      )
+    )
+  );
 }
 
 /**
@@ -587,7 +587,7 @@ function exampleSection(examples: CommandExample[], list: ListOptions): Element 
  * @returns The block.
  */
 function verbatim(content: string, indent: number): Element {
-	return textNode(content, { 'padding-left': indent });
+  return textNode(content, { 'padding-left': indent });
 }
 
 /**
@@ -605,29 +605,29 @@ function verbatim(content: string, indent: number): Element {
  * @returns The screen.
  */
 export async function resolveHelp(state: ParseState, opts: HelpOptions = {}): Promise<string> {
-	const target: HelpTarget = state.help
-		? { contexts: state.help.contexts, schema: state.schema }
-		: state;
-	const cmd = target.contexts[0]!;
-	const custom = cmd.help as string | HelpRenderer | undefined;
+  const target: HelpTarget = state.help
+    ? { contexts: state.help.contexts, schema: state.schema }
+    : state;
+  const cmd = target.contexts[0]!;
+  const custom = cmd.help as string | HelpRenderer | undefined;
 
-	// a string replaces the screen outright, so there is no screen to build and no
-	// hook to fire: a command that writes its own help should not be able to fail
-	// on the way to not using the generated one
-	if (typeof custom === 'string') {
-		return custom;
-	}
+  // a string replaces the screen outright, so there is no screen to build and no
+  // hook to fire: a command that writes its own help should not be able to fail
+  // on the way to not using the generated one
+  if (typeof custom === 'string') {
+    return custom;
+  }
 
-	const generated = renderHelp(target, {
-		...opts,
-		sections: opts.sections ?? (await contributedSections(cmd, state)),
-	});
-	if (typeof custom === 'function') {
-		const replacement = await custom({ cmd, generated, state });
-		return typeof replacement === 'string' ? replacement : generated;
-	}
+  const generated = renderHelp(target, {
+    ...opts,
+    sections: opts.sections ?? (await contributedSections(cmd, state)),
+  });
+  if (typeof custom === 'function') {
+    const replacement = await custom({ cmd, generated, state });
+    return typeof replacement === 'string' ? replacement : generated;
+  }
 
-	return generated;
+  return generated;
 }
 
 /**
@@ -642,43 +642,43 @@ export async function resolveHelp(state: ParseState, opts: HelpOptions = {}): Pr
  * @returns The sections, or `undefined` when there is no hook.
  */
 async function contributedSections(
-	cmd: InternalCommand,
-	state: ParseState
+  cmd: InternalCommand,
+  state: ParseState
 ): Promise<BuiltSection[] | undefined> {
-	const hook = cmd.hooks?.help;
+  const hook = cmd.hooks?.help;
 
-	if (typeof hook !== 'function') {
-		return undefined;
-	}
+  if (typeof hook !== 'function') {
+    return undefined;
+  }
 
-	// a hook is handed the state, which is everything `resolveHelp()` needs, so
-	// calling it from inside one is an easy mistake to make and a stack overflow is
-	// a poor way to find out. What a hook wanting the generated screen is looking
-	// for is `Command.help`, which is handed it.
-	if (rendering.has(cmd)) {
-		throw new Error(
-			`A help hook for "${cmd.name}" asked for the help it is contributing to; use Command.help to read the generated screen`
-		);
-	}
+  // a hook is handed the state, which is everything `resolveHelp()` needs, so
+  // calling it from inside one is an easy mistake to make and a stack overflow is
+  // a poor way to find out. What a hook wanting the generated screen is looking
+  // for is `Command.help`, which is handed it.
+  if (rendering.has(cmd)) {
+    throw new Error(
+      `A help hook for "${cmd.name}" asked for the help it is contributing to; use Command.help to read the generated screen`
+    );
+  }
 
-	const internal = cmd[Internal];
-	const sections = createSections();
-	rendering.add(cmd);
+  const internal = cmd[Internal];
+  const sections = createSections();
+  rendering.add(cmd);
 
-	try {
-		await hook({
-			args: internal.args,
-			cmd,
-			commands: internal.commands,
-			options: internal.options,
-			sections,
-			state,
-		});
-	} finally {
-		rendering.delete(cmd);
-	}
+  try {
+    await hook({
+      args: internal.args,
+      cmd,
+      commands: internal.commands,
+      options: internal.options,
+      sections,
+      state,
+    });
+  } finally {
+    rendering.delete(cmd);
+  }
 
-	return sections.list;
+  return sections.list;
 }
 
 /**

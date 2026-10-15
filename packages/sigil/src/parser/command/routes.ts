@@ -56,45 +56,45 @@ export type RouteKind = 'directory' | 'module' | 'package';
 
 /** One route in a command directory. */
 export interface Route {
-	/**
-	 * What the route says it does, which only a package can answer here.
-	 *
-	 * A package describes itself in its `package.json`, so its description is a
-	 * file read rather than an import. Every other kind keeps its description
-	 * inside the module, which is why it is `undefined` here and why the build
-	 * has to lift it statically.
-	 */
-	readonly desc?: string;
-	/** Which of the three things this route is. */
-	readonly kind: RouteKind;
-	/** The command name, after a package has had its say. */
-	readonly name: string;
-	/**
-	 * The module for a `module` or a `package`, the directory for a `directory`.
-	 *
-	 * A package resolves to its entry module rather than to its directory,
-	 * because its `exports` is what says which module is the command -- the
-	 * files beside it are internals and are never walked for routes.
-	 */
-	readonly path: string;
+  /**
+   * What the route says it does, which only a package can answer here.
+   *
+   * A package describes itself in its `package.json`, so its description is a
+   * file read rather than an import. Every other kind keeps its description
+   * inside the module, which is why it is `undefined` here and why the build
+   * has to lift it statically.
+   */
+  readonly desc?: string;
+  /** Which of the three things this route is. */
+  readonly kind: RouteKind;
+  /** The command name, after a package has had its say. */
+  readonly name: string;
+  /**
+   * The module for a `module` or a `package`, the directory for a `directory`.
+   *
+   * A package resolves to its entry module rather than to its directory,
+   * because its `exports` is what says which module is the command -- the
+   * files beside it are internals and are never walked for routes.
+   */
+  readonly path: string;
 }
 
 /** One level of a command directory, resolved. */
 export interface DirectoryRoutes {
-	/**
-	 * The `index` module, which is this directory's own command rather than one
-	 * inside it.
-	 */
-	readonly index?: string;
-	/** Every route inside, sorted, with no two claiming one name. */
-	readonly routes: readonly Route[];
+  /**
+   * The `index` module, which is this directory's own command rather than one
+   * inside it.
+   */
+  readonly index?: string;
+  /** Every route inside, sorted, with no two claiming one name. */
+  readonly routes: readonly Route[];
 }
 
 /** What a package says about itself, read rather than imported. */
 export interface PackageRoute {
-	readonly description?: string;
-	readonly entryFile: string;
-	readonly name?: string;
+  readonly description?: string;
+  readonly entryFile: string;
+  readonly name?: string;
 }
 
 /**
@@ -126,7 +126,7 @@ export interface PackageRoute {
  * @returns Whether to skip it.
  */
 export function isPrivateRoute(name: string): boolean {
-	return name.startsWith('.') || name.startsWith('_');
+  return name.startsWith('.') || name.startsWith('_');
 }
 
 /**
@@ -136,12 +136,12 @@ export function isPrivateRoute(name: string): boolean {
  * @returns Its entries, or `undefined`.
  */
 export function readDirectory(dir: string): Dirent[] | undefined {
-	try {
-		return readdirSync(dir, { withFileTypes: true });
-	} catch {
-		// not a directory, or not there
-		return undefined;
-	}
+  try {
+    return readdirSync(dir, { withFileTypes: true });
+  } catch {
+    // not a directory, or not there
+    return undefined;
+  }
 }
 
 /**
@@ -152,22 +152,22 @@ export function readDirectory(dir: string): Dirent[] | undefined {
  * @returns Whether to walk it.
  */
 export function isDirectoryEntry(entry: Dirent, dir: string): boolean {
-	if (entry.isDirectory()) {
-		return true;
-	}
+  if (entry.isDirectory()) {
+    return true;
+  }
 
-	// a `Dirent` reports a symlink as a symlink whatever it points at, and a
-	// symlinked directory of commands is still a directory of commands
-	if (entry.isSymbolicLink()) {
-		try {
-			return statSync(join(dir, entry.name)).isDirectory();
-		} catch {
-			// a broken link points at nothing
-			return false;
-		}
-	}
+  // a `Dirent` reports a symlink as a symlink whatever it points at, and a
+  // symlinked directory of commands is still a directory of commands
+  if (entry.isSymbolicLink()) {
+    try {
+      return statSync(join(dir, entry.name)).isDirectory();
+    } catch {
+      // a broken link points at nothing
+      return false;
+    }
+  }
 
-	return false;
+  return false;
 }
 
 /**
@@ -179,19 +179,19 @@ export function isDirectoryEntry(entry: Dirent, dir: string): boolean {
  * @returns The name, or `undefined` when the entry is not a route at all.
  */
 export function routeName(
-	entry: Dirent,
-	dir: string,
-	isDir: boolean = isDirectoryEntry(entry, dir)
+  entry: Dirent,
+  dir: string,
+  isDir: boolean = isDirectoryEntry(entry, dir)
 ): string | undefined {
-	if (isPrivateRoute(entry.name)) {
-		return undefined;
-	}
+  if (isPrivateRoute(entry.name)) {
+    return undefined;
+  }
 
-	if (isDir) {
-		return entry.name;
-	}
+  if (isDir) {
+    return entry.name;
+  }
 
-	return moduleName(entry.name);
+  return moduleName(entry.name);
 }
 
 /**
@@ -201,22 +201,22 @@ export function routeName(
  * @returns The name, without the extension.
  */
 export function moduleName(filename: string): string | undefined {
-	const { ext, name } = parse(filename);
+  const { ext, name } = parse(filename);
 
-	if (!name || !ext || !fileTypeRegExp.test(ext)) {
-		return undefined;
-	}
+  if (!name || !ext || !fileTypeRegExp.test(ext)) {
+    return undefined;
+  }
 
-	// `build.d.ts` parses as a name of `build.d` and an extension of `.ts`, so
-	// left alone a declaration file is a command called `build.d` -- and beside
-	// the `build.js` it describes it is a second claim on `build`, which is the
-	// collision error on a directory that has nothing wrong with it. Compiled
-	// output is the ordinary way to end up with both
-	if (tsTypeRegExp.test(ext) && name.endsWith('.d')) {
-		return undefined;
-	}
+  // `build.d.ts` parses as a name of `build.d` and an extension of `.ts`, so
+  // left alone a declaration file is a command called `build.d` -- and beside
+  // the `build.js` it describes it is a second claim on `build`, which is the
+  // collision error on a directory that has nothing wrong with it. Compiled
+  // output is the ordinary way to end up with both
+  if (tsTypeRegExp.test(ext) && name.endsWith('.d')) {
+    return undefined;
+  }
 
-	return name;
+  return name;
 }
 
 /**
@@ -227,26 +227,26 @@ export function moduleName(filename: string): string | undefined {
  * @returns The path to the index module, or `undefined`.
  */
 export function indexEntry(dir: string, entries: Dirent[]): string | undefined {
-	// `isPrivateRoute()` is asked here as well as in `routeName()`, and that is
-	// one rule with two readers rather than two rules: a `_index.js` is a helper
-	// somebody deliberately kept out of the tree, and the directory's own
-	// command is a route like any other -- so the prefix has to take it too, or
-	// `_` would hide a module from the listing and then load it as the
-	// directory itself
-	const found = entries.filter(
-		(entry) => !isPrivateRoute(entry.name) && moduleName(entry.name) === INDEX_NAME
-	);
+  // `isPrivateRoute()` is asked here as well as in `routeName()`, and that is
+  // one rule with two readers rather than two rules: a `_index.js` is a helper
+  // somebody deliberately kept out of the tree, and the directory's own
+  // command is a route like any other -- so the prefix has to take it too, or
+  // `_` would hide a module from the listing and then load it as the
+  // directory itself
+  const found = entries.filter(
+    (entry) => !isPrivateRoute(entry.name) && moduleName(entry.name) === INDEX_NAME
+  );
 
-	// two of them is the ambiguity two routes of one name already is, said about
-	// the directory itself: an `index.ts` beside a stale `index.js` is a
-	// directory with two answers, and picking one by a preference order is how
-	// somebody edits the file that is not being loaded
-	if (found.length > 1) {
-		const names = found.map((entry) => `"${entry.name}"`).sort();
-		throw new Error(`Directory "${dir}" has more than one index module: ${names.join(', ')}`);
-	}
+  // two of them is the ambiguity two routes of one name already is, said about
+  // the directory itself: an `index.ts` beside a stale `index.js` is a
+  // directory with two answers, and picking one by a preference order is how
+  // somebody edits the file that is not being loaded
+  if (found.length > 1) {
+    const names = found.map((entry) => `"${entry.name}"`).sort();
+    throw new Error(`Directory "${dir}" has more than one index module: ${names.join(', ')}`);
+  }
 
-	return found.length ? join(dir, found[0]!.name) : undefined;
+  return found.length ? join(dir, found[0]!.name) : undefined;
 }
 
 /**
@@ -273,35 +273,35 @@ export function indexEntry(dir: string, entries: Dirent[]): string | undefined {
  * @returns The relative paths, in the order they should be tried.
  */
 function resolveEntries(exports: unknown, subpath = true): string[] {
-	if (typeof exports === 'string') {
-		return [exports];
-	}
+  if (typeof exports === 'string') {
+    return [exports];
+  }
 
-	if (Array.isArray(exports)) {
-		return exports.flatMap((candidate) => resolveEntries(candidate, subpath));
-	}
+  if (Array.isArray(exports)) {
+    return exports.flatMap((candidate) => resolveEntries(candidate, subpath));
+  }
 
-	if (!exports || typeof exports !== 'object') {
-		return [];
-	}
+  if (!exports || typeof exports !== 'object') {
+    return [];
+  }
 
-	const map = exports as Record<string, unknown>;
+  const map = exports as Record<string, unknown>;
 
-	// a map whose keys are subpaths is a different thing from one whose keys are
-	// conditions, and `"."` is only a subpath at the top
-	if (subpath && Object.hasOwn(map, '.')) {
-		return resolveEntries(map['.'], false);
-	}
+  // a map whose keys are subpaths is a different thing from one whose keys are
+  // conditions, and `"."` is only a subpath at the top
+  if (subpath && Object.hasOwn(map, '.')) {
+    return resolveEntries(map['.'], false);
+  }
 
-	const entries: string[] = [];
-	for (const condition of ['import', 'node', 'default', 'require']) {
-		if (Object.hasOwn(map, condition)) {
-			entries.push(...resolveEntries(map[condition], false));
-		}
-	}
+  const entries: string[] = [];
+  for (const condition of ['import', 'node', 'default', 'require']) {
+    if (Object.hasOwn(map, condition)) {
+      entries.push(...resolveEntries(map[condition], false));
+    }
+  }
 
-	// one file reached through two conditions is still one file to try
-	return [...new Set(entries)];
+  // one file reached through two conditions is still one file to try
+  return [...new Set(entries)];
 }
 
 /**
@@ -316,55 +316,55 @@ function resolveEntries(exports: unknown, subpath = true): string[] {
  * @returns What it says, or `undefined` when it is not a package.
  */
 export function readPackage(dir: string): PackageRoute | undefined {
-	const pkgFile = join(dir, 'package.json');
+  const pkgFile = join(dir, 'package.json');
 
-	let json;
-	try {
-		json = readFileSync(pkgFile, 'utf-8');
-	} catch {
-		// no package.json, not a package
-		return;
-	}
+  let json;
+  try {
+    json = readFileSync(pkgFile, 'utf-8');
+  } catch {
+    // no package.json, not a package
+    return;
+  }
 
-	let pkgJson;
-	try {
-		pkgJson = JSON.parse(json);
-	} catch (err) {
-		throw new Error(`Failed to JSON parse ${pkgFile}: ${err instanceof Error ? err.message : err}`);
-	}
+  let pkgJson;
+  try {
+    pkgJson = JSON.parse(json);
+  } catch (err) {
+    throw new Error(`Failed to JSON parse ${pkgFile}: ${err instanceof Error ? err.message : err}`);
+  }
 
-	const { description, exports, main, name, type } = pkgJson;
+  const { description, exports, main, name, type } = pkgJson;
 
-	const entries = resolveEntries(exports);
-	if (!entries.length && typeof main === 'string') {
-		entries.push(main);
-	}
+  const entries = resolveEntries(exports);
+  if (!entries.length && typeof main === 'string') {
+    entries.push(main);
+  }
 
-	const filePaths = entries.length
-		? entries
-		: ['index.js', 'index.mjs', 'index.cjs', 'index.ts', 'index.mts', 'index.cts'];
-	let entryFile;
+  const filePaths = entries.length
+    ? entries
+    : ['index.js', 'index.mjs', 'index.cjs', 'index.ts', 'index.mts', 'index.cts'];
+  let entryFile;
 
-	for (const filepath of filePaths) {
-		try {
-			const file = join(dir, filepath);
-			const st = statSync(file);
-			if (st.isFile()) {
-				entryFile = file;
-				break;
-			}
-		} catch {
-			// not a file or does not exist
-		}
-	}
+  for (const filepath of filePaths) {
+    try {
+      const file = join(dir, filepath);
+      const st = statSync(file);
+      if (st.isFile()) {
+        entryFile = file;
+        break;
+      }
+    } catch {
+      // not a file or does not exist
+    }
+  }
 
-	if (!entryFile) {
-		throw new Error(
-			`Command package does not have a valid ${type === 'module' ? 'export' : 'main'}: ${dir}`
-		);
-	}
+  if (!entryFile) {
+    throw new Error(
+      `Command package does not have a valid ${type === 'module' ? 'export' : 'main'}: ${dir}`
+    );
+  }
 
-	return { description, entryFile, name };
+  return { description, entryFile, name };
 }
 
 /**
@@ -375,39 +375,39 @@ export function readPackage(dir: string): PackageRoute | undefined {
  * @returns The route.
  */
 function entryRoute(dir: string, entry: Dirent): Route | undefined {
-	const isDir = isDirectoryEntry(entry, dir);
-	const name = routeName(entry, dir, isDir);
+  const isDir = isDirectoryEntry(entry, dir);
+  const name = routeName(entry, dir, isDir);
 
-	// `index` is the directory's own command rather than one inside it. Where
-	// there is no directory command for it to be -- a bare
-	// `commands: './commands'`, whose own command is the schema -- it is
-	// nothing at all, which is why this is one rule rather than two
-	if (!name || name === INDEX_NAME) {
-		return undefined;
-	}
+  // `index` is the directory's own command rather than one inside it. Where
+  // there is no directory command for it to be -- a bare
+  // `commands: './commands'`, whose own command is the schema -- it is
+  // nothing at all, which is why this is one rule rather than two
+  if (!name || name === INDEX_NAME) {
+    return undefined;
+  }
 
-	const path = join(dir, entry.name);
+  const path = join(dir, entry.name);
 
-	if (!isDir) {
-		return { kind: 'module', name, path };
-	}
+  if (!isDir) {
+    return { kind: 'module', name, path };
+  }
 
-	// a package is not walked: its `exports` is what says which module is the
-	// command, so reading the directory would register its internals as
-	// commands. Its manifest is what names and describes it, which is a file
-	// read rather than an import -- so the name is known in time to match on and
-	// the module still waits for a match
-	const pkg = readPackage(path);
-	if (pkg) {
-		return {
-			desc: pkg.description,
-			kind: 'package',
-			name: pkg.name ?? name,
-			path: pkg.entryFile,
-		};
-	}
+  // a package is not walked: its `exports` is what says which module is the
+  // command, so reading the directory would register its internals as
+  // commands. Its manifest is what names and describes it, which is a file
+  // read rather than an import -- so the name is known in time to match on and
+  // the module still waits for a match
+  const pkg = readPackage(path);
+  if (pkg) {
+    return {
+      desc: pkg.description,
+      kind: 'package',
+      name: pkg.name ?? name,
+      path: pkg.entryFile,
+    };
+  }
 
-	return { kind: 'directory', name, path };
+  return { kind: 'directory', name, path };
 }
 
 /**
@@ -418,36 +418,36 @@ function entryRoute(dir: string, entry: Dirent): Route | undefined {
  * @returns One route per entry that is one, sorted, names unique.
  */
 export function resolveRoutes(dir: string, entries: Dirent[]): readonly Route[] {
-	const claimed = new Map<string, string>();
-	const routes: Route[] = [];
+  const claimed = new Map<string, string>();
+  const routes: Route[] = [];
 
-	// sorted, because `readdir` order is the file system's, and a registry whose
-	// order depends on that is the thing `CommandRegistry.add()` already sorts
-	// names to avoid reporting
-	for (const entry of [...entries].sort((a, b) => a.name.localeCompare(b.name))) {
-		const route = entryRoute(dir, entry);
-		if (!route) {
-			continue;
-		}
+  // sorted, because `readdir` order is the file system's, and a registry whose
+  // order depends on that is the thing `CommandRegistry.add()` already sorts
+  // names to avoid reporting
+  for (const entry of [...entries].sort((a, b) => a.name.localeCompare(b.name))) {
+    const route = entryRoute(dir, entry);
+    if (!route) {
+      continue;
+    }
 
-		// asked of the route rather than of the entry, because a package renames
-		// itself: a `pkg/` whose `package.json` says `foo` collides with a `foo.js`
-		// beside it, and the directory name would not have seen it
-		const previous = claimed.get(route.name);
-		if (previous !== undefined) {
-			// silently keeping one of them would keep whichever `readdir` handed
-			// over second, which is the file system's order deciding which command
-			// an app has
-			throw new Error(
-				`Two entries in "${dir}" both declare a "${route.name}" command: "${previous}" and "${entry.name}"`
-			);
-		}
-		claimed.set(route.name, entry.name);
+    // asked of the route rather than of the entry, because a package renames
+    // itself: a `pkg/` whose `package.json` says `foo` collides with a `foo.js`
+    // beside it, and the directory name would not have seen it
+    const previous = claimed.get(route.name);
+    if (previous !== undefined) {
+      // silently keeping one of them would keep whichever `readdir` handed
+      // over second, which is the file system's order deciding which command
+      // an app has
+      throw new Error(
+        `Two entries in "${dir}" both declare a "${route.name}" command: "${previous}" and "${entry.name}"`
+      );
+    }
+    claimed.set(route.name, entry.name);
 
-		routes.push(route);
-	}
+    routes.push(route);
+  }
 
-	return routes;
+  return routes;
 }
 
 /**
@@ -464,10 +464,10 @@ export function resolveRoutes(dir: string, entries: Dirent[]): readonly Route[] 
  *   is not a directory at all.
  */
 export function readRoutes(dir: string): DirectoryRoutes | undefined {
-	const entries = readDirectory(dir);
-	if (!entries) {
-		return undefined;
-	}
+  const entries = readDirectory(dir);
+  if (!entries) {
+    return undefined;
+  }
 
-	return { index: indexEntry(dir, entries), routes: resolveRoutes(dir, entries) };
+  return { index: indexEntry(dir, entries), routes: resolveRoutes(dir, entries) };
 }

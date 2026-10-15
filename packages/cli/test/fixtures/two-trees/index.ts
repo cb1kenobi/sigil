@@ -7,11 +7,11 @@
  * the wrong command rather than merely being byte-identical by luck.
  */
 export default {
-	// `baseDir` because the path is relative, and without it the build resolves it
-	// against this file while the runtime resolves it against the working
-	// directory -- a warning the toolchain raises on purpose, and a fixture should
-	// not be the thing demonstrating the mistake
-	baseDir: import.meta.dirname,
-	commands: './treeA',
-	name: 'two-trees',
+  // `baseDir` because the path is relative, and without it the build resolves it
+  // against this file while the runtime resolves it against the working
+  // directory -- a warning the toolchain raises on purpose, and a fixture should
+  // not be the thing demonstrating the mistake
+  baseDir: import.meta.dirname,
+  commands: './treeA',
+  name: 'two-trees',
 };

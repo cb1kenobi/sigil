@@ -5,15 +5,15 @@ import { resolveCommandTree } from '../../src/build/tree.js';
 import { readSigilConfig } from '../../src/config.js';
 import { spawnSync } from 'node:child_process';
 import {
-	cpSync,
-	existsSync,
-	mkdirSync,
-	mkdtempSync,
-	readFileSync,
-	readdirSync,
-	rmSync,
-	statSync,
-	writeFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -36,65 +36,65 @@ let chunks: readonly { entry: boolean; name: string; size: number }[];
  * reports a dependency an app does not have is worse than no test.
  */
 function bundleSpecifiers(dir_ = out): string[] {
-	const found: string[] = [];
+  const found: string[] = [];
 
-	const walk = (dir: string) => {
-		for (const entry of readdirSync(dir, { withFileTypes: true })) {
-			const path = join(dir, entry.name);
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
 
-			if (entry.isDirectory()) {
-				walk(path);
-				continue;
-			}
-			if (!path.endsWith('.mjs')) {
-				continue;
-			}
+      if (entry.isDirectory()) {
+        walk(path);
+        continue;
+      }
+      if (!path.endsWith('.mjs')) {
+        continue;
+      }
 
-			const source = readFileSync(path, 'utf-8');
-			const parsed = parseModule(path, source);
+      const source = readFileSync(path, 'utf-8');
+      const parsed = parseModule(path, source);
 
-			for (const imported of parsed.module.staticImports) {
-				found.push(imported.moduleRequest.value);
-			}
-			for (const exported of parsed.module.staticExports) {
-				for (const entry_ of exported.entries) {
-					if (entry_.moduleRequest) {
-						found.push(entry_.moduleRequest.value);
-					}
-				}
-			}
-			for (const dynamic of parsed.module.dynamicImports) {
-				// a dynamic import's request is a span rather than a value, because it
-				// need not be a literal at all -- and a computed one is not a
-				// dependency, it is code choosing a module at run time. Only a literal
-				// can name a package the app would have to have installed
-				const request = source.slice(dynamic.moduleRequest.start, dynamic.moduleRequest.end);
-				if (/^["']/.test(request)) {
-					found.push(request);
-				}
-			}
-		}
-	};
+      for (const imported of parsed.module.staticImports) {
+        found.push(imported.moduleRequest.value);
+      }
+      for (const exported of parsed.module.staticExports) {
+        for (const entry_ of exported.entries) {
+          if (entry_.moduleRequest) {
+            found.push(entry_.moduleRequest.value);
+          }
+        }
+      }
+      for (const dynamic of parsed.module.dynamicImports) {
+        // a dynamic import's request is a span rather than a value, because it
+        // need not be a literal at all -- and a computed one is not a
+        // dependency, it is code choosing a module at run time. Only a literal
+        // can name a package the app would have to have installed
+        const request = source.slice(dynamic.moduleRequest.start, dynamic.moduleRequest.end);
+        if (/^["']/.test(request)) {
+          found.push(request);
+        }
+      }
+    }
+  };
 
-	walk(dir_);
-	return found.map((specifier) => specifier.replace(/^["'`]|["'`]$/g, ''));
+  walk(dir_);
+  return found.map((specifier) => specifier.replace(/^["'`]|["'`]$/g, ''));
 }
 
 /** Runs the built executable. */
 function run(...argv: string[]) {
-	// through `node` rather than by executing the file, because a shebang is not
-	// how anything starts on Windows: `spawnSync(bin, ...)` there comes back with
-	// a null status and no stdout at all, so every assertion below failed on a
-	// bundle that was perfectly fine. The rule is already written down for the
-	// way the build invokes `tsc`; this is the same rule, applied to the build's
-	// own output.
-	//
-	// What that gives up is proof the shebang line works, which is what the
-	// test below is for.
-	//
-	// `cwd` somewhere unrelated on purpose: a built app must not depend on where
-	// it is run from, and the fixture's own directory would hide it if it did
-	return spawnSync(process.execPath, [bin, ...argv], { cwd: tmpdir(), encoding: 'utf-8' });
+  // through `node` rather than by executing the file, because a shebang is not
+  // how anything starts on Windows: `spawnSync(bin, ...)` there comes back with
+  // a null status and no stdout at all, so every assertion below failed on a
+  // bundle that was perfectly fine. The rule is already written down for the
+  // way the build invokes `tsc`; this is the same rule, applied to the build's
+  // own output.
+  //
+  // What that gives up is proof the shebang line works, which is what the
+  // test below is for.
+  //
+  // `cwd` somewhere unrelated on purpose: a built app must not depend on where
+  // it is run from, and the fixture's own directory would hide it if it did
+  return spawnSync(process.execPath, [bin, ...argv], { cwd: tmpdir(), encoding: 'utf-8' });
 }
 
 /**
@@ -105,895 +105,895 @@ function run(...argv: string[]) {
  * this reads source or prints it; this spawns the result.
  */
 describe('two builds of one app at once', () => {
-	const shared = resolve(__dirname, '../fixtures/two-trees');
-	const workDir = join(shared, 'node_modules', '.sigil');
+  const shared = resolve(__dirname, '../fixtures/two-trees');
+  const workDir = join(shared, 'node_modules', '.sigil');
 
-	/**
-	 * What a build left in the work directory.
-	 *
-	 * Absent and empty are the same answer -- the claim is that no *directory* is
-	 * left behind, and whether the parent happens to exist is incidental: a build
-	 * that threw before naming anything never creates it, and one that finished
-	 * leaves it empty.
-	 */
-	const leftBehind = () => (existsSync(workDir) ? readdirSync(workDir) : []);
+  /**
+   * What a build left in the work directory.
+   *
+   * Absent and empty are the same answer -- the claim is that no *directory* is
+   * left behind, and whether the parent happens to exist is incidental: a build
+   * that threw before naming anything never creates it, and one that finished
+   * leaves it empty.
+   */
+  const leftBehind = () => (existsSync(workDir) ? readdirSync(workDir) : []);
 
-	let outA: string;
-	let outB: string;
+  let outA: string;
+  let outB: string;
 
-	beforeAll(async () => {
-		outA = mkdtempSync(join(tmpdir(), 'sigil-two-a-'));
-		outB = mkdtempSync(join(tmpdir(), 'sigil-two-b-'));
+  beforeAll(async () => {
+    outA = mkdtempSync(join(tmpdir(), 'sigil-two-a-'));
+    outB = mkdtempSync(join(tmpdir(), 'sigil-two-b-'));
 
-		// cleared first, so that what is asserted afterwards is what *these* builds
-		// left rather than what the directory happened to hold. A stale entry from
-		// an older layout, or from a build somebody interrupted, is otherwise enough
-		// to fail a test about cleanup -- which would make it a test about the
-		// checkout
-		rmSync(workDir, { force: true, recursive: true });
+    // cleared first, so that what is asserted afterwards is what *these* builds
+    // left rather than what the directory happened to hold. A stale entry from
+    // an older layout, or from a build somebody interrupted, is otherwise enough
+    // to fail a test about cleanup -- which would make it a test about the
+    // checkout
+    rmSync(workDir, { force: true, recursive: true });
 
-		const found = discoverApp(shared);
+    const found = discoverApp(shared);
 
-		// the same app, two different trees, both builds in flight at once. In one
-		// process rather than two, which is enough and is the cheaper test: the
-		// entry is written *synchronously* and read later, during `bundle.write()`,
-		// so interleaving two awaited builds puts a write between the other's write
-		// and its read -- which is exactly the window two processes hit
-		await Promise.all([
-			bundleApp({
-				app: found,
-				binName: 'two-trees',
-				out: outA,
-				tree: resolveCommandTree(join(shared, 'treeA')),
-			}),
-			bundleApp({
-				app: found,
-				binName: 'two-trees',
-				out: outB,
-				tree: resolveCommandTree(join(shared, 'treeB')),
-			}),
-		]);
-	}, 60_000);
+    // the same app, two different trees, both builds in flight at once. In one
+    // process rather than two, which is enough and is the cheaper test: the
+    // entry is written *synchronously* and read later, during `bundle.write()`,
+    // so interleaving two awaited builds puts a write between the other's write
+    // and its read -- which is exactly the window two processes hit
+    await Promise.all([
+      bundleApp({
+        app: found,
+        binName: 'two-trees',
+        out: outA,
+        tree: resolveCommandTree(join(shared, 'treeA')),
+      }),
+      bundleApp({
+        app: found,
+        binName: 'two-trees',
+        out: outB,
+        tree: resolveCommandTree(join(shared, 'treeB')),
+      }),
+    ]);
+  }, 60_000);
 
-	afterAll(() => {
-		rmSync(outA, { force: true, recursive: true });
-		rmSync(outB, { force: true, recursive: true });
-	});
+  afterAll(() => {
+    rmSync(outA, { force: true, recursive: true });
+    rmSync(outB, { force: true, recursive: true });
+  });
 
-	it('should bake each build’s own command tree, not the other’s', () => {
-		// the defect this is named for was not a flaky failure but a **silently
-		// wrong bundle**: the generated entry went to one path per *app*, so the
-		// build that wrote last won for both. Measured before the fix, four runs out
-		// of four, with the winner flipping by scheduling -- and exit 0 either way,
-		// which is why nothing caught it
-		const a = readFileSync(join(outA, 'two-trees.mjs'), 'utf-8');
-		const b = readFileSync(join(outB, 'two-trees.mjs'), 'utf-8');
+  it('should bake each build’s own command tree, not the other’s', () => {
+    // the defect this is named for was not a flaky failure but a **silently
+    // wrong bundle**: the generated entry went to one path per *app*, so the
+    // build that wrote last won for both. Measured before the fix, four runs out
+    // of four, with the winner flipping by scheduling -- and exit 0 either way,
+    // which is why nothing caught it
+    const a = readFileSync(join(outA, 'two-trees.mjs'), 'utf-8');
+    const b = readFileSync(join(outB, 'two-trees.mjs'), 'utf-8');
 
-		expect(a).toContain('onlyA');
-		expect(a).not.toContain('onlyB');
-		expect(b).toContain('onlyB');
-		expect(b).not.toContain('onlyA');
-	});
+    expect(a).toContain('onlyA');
+    expect(a).not.toContain('onlyB');
+    expect(b).toContain('onlyB');
+    expect(b).not.toContain('onlyA');
+  });
 
-	it('should leave nothing behind when a throw lands between naming and writing', async () => {
-		// the window this closed: the entry used to be *written* before the `try`
-		// that removes its directory, so any throw in between leaked one. Provoked
-		// the way review round 2 found it -- an `external` that is not an array
-		// throws out of `flatMap` while the options object is still being built,
-		// which is after the name is chosen and before `write()`. `sigil build`
-		// cannot reach it (`--external` is `multiple: true`, so argv always gives an
-		// array) and `bundleApp` is not published, so this asserts the invariant
-		// rather than a user-facing path: no way out of this function leaves a
-		// directory
-		rmSync(workDir, { force: true, recursive: true });
+  it('should leave nothing behind when a throw lands between naming and writing', async () => {
+    // the window this closed: the entry used to be *written* before the `try`
+    // that removes its directory, so any throw in between leaked one. Provoked
+    // the way review round 2 found it -- an `external` that is not an array
+    // throws out of `flatMap` while the options object is still being built,
+    // which is after the name is chosen and before `write()`. `sigil build`
+    // cannot reach it (`--external` is `multiple: true`, so argv always gives an
+    // array) and `bundleApp` is not published, so this asserts the invariant
+    // rather than a user-facing path: no way out of this function leaves a
+    // directory
+    rmSync(workDir, { force: true, recursive: true });
 
-		const bad = mkdtempSync(join(tmpdir(), 'sigil-two-bad-'));
+    const bad = mkdtempSync(join(tmpdir(), 'sigil-two-bad-'));
 
-		await expect(
-			bundleApp({
-				app: discoverApp(shared),
-				binName: 'two-trees',
-				external: 'not-an-array' as unknown as string[],
-				out: bad,
-				tree: resolveCommandTree(join(shared, 'treeA')),
-			})
-		).rejects.toThrow();
+    await expect(
+      bundleApp({
+        app: discoverApp(shared),
+        binName: 'two-trees',
+        external: 'not-an-array' as unknown as string[],
+        out: bad,
+        tree: resolveCommandTree(join(shared, 'treeA')),
+      })
+    ).rejects.toThrow();
 
-		expect(leftBehind()).toStrictEqual([]);
+    expect(leftBehind()).toStrictEqual([]);
 
-		rmSync(bad, { force: true, recursive: true });
-	}, 60_000);
+    rmSync(bad, { force: true, recursive: true });
+  }, 60_000);
 
-	it('should leave nothing behind in the work directory', () => {
-		// the entry is this build's alone, so it is removed again -- the alternative
-		// is `node_modules/.sigil` accumulating one directory per output anybody
-		// ever built to
-		expect(leftBehind()).toStrictEqual([]);
-	});
+  it('should leave nothing behind in the work directory', () => {
+    // the entry is this build's alone, so it is removed again -- the alternative
+    // is `node_modules/.sigil` accumulating one directory per output anybody
+    // ever built to
+    expect(leftBehind()).toStrictEqual([]);
+  });
 
-	describe('where each build generates', () => {
-		/**
-		 * The generated entry's path, read back out of a build's sourcemap.
-		 *
-		 * The only place it is observable after the fact, because the directory is
-		 * removed on the way out -- and it is a real consumer's view of it rather
-		 * than a peek at an internal, since `sources` is what a debugger reads.
-		 */
-		async function entryPath(dir: string, tree = join(shared, 'treeA')) {
-			await bundleApp({
-				app: discoverApp(shared),
-				binName: 'two-trees',
-				out: dir,
-				sourcemap: true,
-				tree: resolveCommandTree(tree),
-			});
+  describe('where each build generates', () => {
+    /**
+     * The generated entry's path, read back out of a build's sourcemap.
+     *
+     * The only place it is observable after the fact, because the directory is
+     * removed on the way out -- and it is a real consumer's view of it rather
+     * than a peek at an internal, since `sources` is what a debugger reads.
+     */
+    async function entryPath(dir: string, tree = join(shared, 'treeA')) {
+      await bundleApp({
+        app: discoverApp(shared),
+        binName: 'two-trees',
+        out: dir,
+        sourcemap: true,
+        tree: resolveCommandTree(tree),
+      });
 
-			const map = JSON.parse(readFileSync(join(dir, 'two-trees.mjs.map'), 'utf-8')) as {
-				sources: string[];
-			};
+      const map = JSON.parse(readFileSync(join(dir, 'two-trees.mjs.map'), 'utf-8')) as {
+        sources: string[];
+      };
 
-			return map.sources.find((source) => source.includes('.sigil'))!;
-		}
+      return map.sources.find((source) => source.includes('.sigil'))!;
+    }
 
-		let mapped: string;
+    let mapped: string;
 
-		beforeAll(async () => {
-			mapped = await entryPath(outA);
-		}, 60_000);
+    beforeAll(async () => {
+      mapped = await entryPath(outA);
+    }, 60_000);
 
-		it('should name a directory per output, so two outputs cannot share one', async () => {
-			// what makes the tree test above true rather than lucky
-			expect(await entryPath(outB)).not.toStrictEqual(mapped);
-		}, 60_000);
+    it('should name a directory per output, so two outputs cannot share one', async () => {
+      // what makes the tree test above true rather than lucky
+      expect(await entryPath(outB)).not.toStrictEqual(mapped);
+    }, 60_000);
 
-		it('should put the generated entry in the map at all', () => {
-			// the two assertions below compare what `entryPath()` found, and it finds
-			// it with `.find()`: if no source matched, the reproducibility one would
-			// be comparing `undefined` to `undefined` and pass. The pair catches that
-			// between them -- the per-output test is a `not` -- but a test that holds
-			// only because of its neighbour is one somebody deletes
-			expect(mapped).toBeDefined();
-			expect(mapped).toContain('entry.mjs');
-		});
+    it('should put the generated entry in the map at all', () => {
+      // the two assertions below compare what `entryPath()` found, and it finds
+      // it with `.find()`: if no source matched, the reproducibility one would
+      // be comparing `undefined` to `undefined` and pass. The pair catches that
+      // between them -- the per-output test is a `not` -- but a test that holds
+      // only because of its neighbour is one somebody deletes
+      expect(mapped).toBeDefined();
+      expect(mapped).toContain('entry.mjs');
+    });
 
-		it('should name it widely enough that two real outputs cannot collide', () => {
-			// the width is the claim, not decoration. Twelve hex characters shipped
-			// first and is 48 bits: a search of twenty million paths found
-			// `/tmp/sigil-c-10001357` and `/tmp/sigil-c-11986969` sharing
-			// `94e17cf76917` in about ten seconds, and building two trees into those
-			// two outputs put the same one in both bundles -- this defect back, with
-			// two outputs sharing no file. Sixteen puts that search at 2^32
-			expect(mapped).toMatch(/[/\\]\.sigil[/\\][0-9a-f]{16}[/\\]entry\.mjs$/);
-		});
+    it('should name it widely enough that two real outputs cannot collide', () => {
+      // the width is the claim, not decoration. Twelve hex characters shipped
+      // first and is 48 bits: a search of twenty million paths found
+      // `/tmp/sigil-c-10001357` and `/tmp/sigil-c-11986969` sharing
+      // `94e17cf76917` in about ten seconds, and building two trees into those
+      // two outputs put the same one in both bundles -- this defect back, with
+      // two outputs sharing no file. Sixteen puts that search at 2^32
+      expect(mapped).toMatch(/[/\\]\.sigil[/\\][0-9a-f]{16}[/\\]entry\.mjs$/);
+    });
 
-		it('should name the same directory for the same output, so a build is reproducible', async () => {
-			// a random name closes the defect too -- `mkdtempSync` was the first
-			// version -- and costs this: the name reaches the sourcemap, so two
-			// identical builds would differ in bytes. This repo asserts its own build
-			// is a byte-identical fixed point, and it survived a random name only
-			// because the toolchain builds with `--no-sourcemap`
-			expect(await entryPath(outA)).toStrictEqual(mapped);
-		}, 60_000);
-	});
+    it('should name the same directory for the same output, so a build is reproducible', async () => {
+      // a random name closes the defect too -- `mkdtempSync` was the first
+      // version -- and costs this: the name reaches the sourcemap, so two
+      // identical builds would differ in bytes. This repo asserts its own build
+      // is a byte-identical fixed point, and it survived a random name only
+      // because the toolchain builds with `--no-sourcemap`
+      expect(await entryPath(outA)).toStrictEqual(mapped);
+    }, 60_000);
+  });
 });
 
 describe('bundling an app', () => {
-	beforeAll(async () => {
-		out = mkdtempSync(join(tmpdir(), 'sigil-build-'));
+  beforeAll(async () => {
+    out = mkdtempSync(join(tmpdir(), 'sigil-build-'));
 
-		const found = discoverApp(app);
-		const declared = readAppCommands(found);
-		const dir = declared.commands?.kind === 'directory' ? declared.commands.dir : '';
-		const tree = resolveCommandTree(dir);
+    const found = discoverApp(app);
+    const declared = readAppCommands(found);
+    const dir = declared.commands?.kind === 'directory' ? declared.commands.dir : '';
+    const tree = resolveCommandTree(dir);
 
-		const result = await bundleApp({ app: found, binName: 'buildable', out, tree });
-		bin = result.bin;
-		chunks = result.chunks;
-	}, 60_000);
+    const result = await bundleApp({ app: found, binName: 'buildable', out, tree });
+    bin = result.bin;
+    chunks = result.chunks;
+  }, 60_000);
 
-	it('should write a shebang', () => {
-		// asserted everywhere, because the line is in the file whoever built it:
-		// a bundle built on Windows and published from there still has to run on
-		// a machine that reads shebangs
-		expect(readFileSync(bin, 'utf-8').startsWith('#!/usr/bin/env node')).toBe(true);
-	});
+  it('should write a shebang', () => {
+    // asserted everywhere, because the line is in the file whoever built it:
+    // a bundle built on Windows and published from there still has to run on
+    // a machine that reads shebangs
+    expect(readFileSync(bin, 'utf-8').startsWith('#!/usr/bin/env node')).toBe(true);
+  });
 
-	it.skipIf(process.platform === 'win32')('should set the executable bit', () => {
-		// a shebang without the bit is a file nobody can run -- on a platform
-		// that has one. Windows has no execute bit, so `mode & 0o111` is always
-		// 0 there and the assertion was failing on a correct build; what makes a
-		// bin runnable on Windows is the shim npm writes, which is npm's to do
-		// and not this build's.
-		expect(statSync(bin).mode & 0o111).toBeGreaterThan(0);
-	});
+  it.skipIf(process.platform === 'win32')('should set the executable bit', () => {
+    // a shebang without the bit is a file nobody can run -- on a platform
+    // that has one. Windows has no execute bit, so `mode & 0o111` is always
+    // 0 there and the assertion was failing on a correct build; what makes a
+    // bin runnable on Windows is the shim npm writes, which is npm's to do
+    // and not this build's.
+    expect(statSync(bin).mode & 0o111).toBeGreaterThan(0);
+  });
 
-	it('should depend on nothing but itself and node', () => {
-		// the promise in the ticket's title. Every specifier is either a relative
-		// chunk or a node builtin -- a bare one would be a package the built app
-		// reaches for at run time, which is the whole thing this exists to avoid
-		const bare = bundleSpecifiers().filter(
-			(specifier) => !specifier.startsWith('.') && !specifier.startsWith('node:')
-		);
+  it('should depend on nothing but itself and node', () => {
+    // the promise in the ticket's title. Every specifier is either a relative
+    // chunk or a node builtin -- a bare one would be a package the built app
+    // reaches for at run time, which is the whole thing this exists to avoid
+    const bare = bundleSpecifiers().filter(
+      (specifier) => !specifier.startsWith('.') && !specifier.startsWith('node:')
+    );
 
-		expect(bare).toStrictEqual([]);
-	});
+    expect(bare).toStrictEqual([]);
+  });
 
-	it('should import nothing from outside the output directory', () => {
-		// a relative specifier that climbs out of the bundle is the same failure
-		// as a bare one wearing a different hat: the app would reach for a file
-		// that is not shipped with it
-		const escaping = bundleSpecifiers().filter((specifier) => specifier.startsWith('..'));
+  it('should import nothing from outside the output directory', () => {
+    // a relative specifier that climbs out of the bundle is the same failure
+    // as a bare one wearing a different hat: the app would reach for a file
+    // that is not shipped with it
+    const escaping = bundleSpecifiers().filter((specifier) => specifier.startsWith('..'));
 
-		expect(escaping).toStrictEqual([]);
-	});
+    expect(escaping).toStrictEqual([]);
+  });
 
-	it('should run with no node_modules anywhere near it', () => {
-		// the same claim from the other side: it was copied nowhere, but it is run
-		// from a directory with no package of any kind above it
-		const result = run('--help');
+  it('should run with no node_modules anywhere near it', () => {
+    // the same claim from the other side: it was copied nowhere, but it is run
+    // from a directory with no package of any kind above it
+    const result = run('--help');
 
-		expect(result.status).toBe(0);
-		expect(result.stdout).toContain('Usage: buildable');
-	});
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Usage: buildable');
+  });
 
-	it('should dispatch a command', () => {
-		expect(run('greet').stdout.trim()).toBe('hello world');
-	});
+  it('should dispatch a command', () => {
+    expect(run('greet').stdout.trim()).toBe('hello world');
+  });
 
-	it('should dispatch a command with an argument', () => {
-		expect(run('greet', 'sigil').stdout.trim()).toBe('hello sigil');
-	});
+  it('should dispatch a command with an argument', () => {
+    expect(run('greet', 'sigil').stdout.trim()).toBe('hello sigil');
+  });
 
-	it('should dispatch a subcommand', () => {
-		expect(run('db', 'migrate').stdout.trim()).toBe('migrated');
-	});
+  it('should dispatch a subcommand', () => {
+    expect(run('db', 'migrate').stdout.trim()).toBe('migrated');
+  });
 
-	it('should have compiled a TypeScript command module', () => {
-		// `greet.ts` has type annotations; nothing compiled it before the bundler
-		expect(run('greet').status).toBe(0);
-	});
+  it('should have compiled a TypeScript command module', () => {
+    // `greet.ts` has type annotations; nothing compiled it before the bundler
+    expect(run('greet').status).toBe(0);
+  });
 
-	it('should carry the descriptions it baked in', () => {
-		// the reason the static lift exists: help that lists commands by name
-		// alone is not help, and a built app reads no directories to find out
-		const help = run('--help').stdout;
+  it('should carry the descriptions it baked in', () => {
+    // the reason the static lift exists: help that lists commands by name
+    // alone is not help, and a built app reads no directories to find out
+    const help = run('--help').stdout;
 
-		expect(help).toContain('say hello');
-		expect(help).toContain('A fixture app that builds');
-	});
+    expect(help).toContain('say hello');
+    expect(help).toContain('A fixture app that builds');
+  });
 
-	it("should carry a subcommand's description as deep as the tree goes", () => {
-		// the root screen is the easy half: a nested `desc` is what the walk's
-		// recursion is for, and a lift that only reached the top level would look
-		// exactly like one that worked when read from `--help` alone
-		expect(run('db', '--help').stdout).toContain('run migrations');
-	});
+  it("should carry a subcommand's description as deep as the tree goes", () => {
+    // the root screen is the easy half: a nested `desc` is what the walk's
+    // recursion is for, and a lift that only reached the top level would look
+    // exactly like one that worked when read from `--help` alone
+    expect(run('db', '--help').stdout).toContain('run migrations');
+  });
 
-	it('should bake the descriptions into the entry rather than read them from the modules', () => {
-		// the claim `--help` rests on, from both sides: the entry carrying the
-		// description is what says the lift happened, and the entry *not* carrying
-		// the command body is what says the deferral survived it. A build that had
-		// flattened the modules in to read their descriptions would satisfy the
-		// first assertion and fail the second
-		const entry = readFileSync(bin, 'utf-8');
+  it('should bake the descriptions into the entry rather than read them from the modules', () => {
+    // the claim `--help` rests on, from both sides: the entry carrying the
+    // description is what says the lift happened, and the entry *not* carrying
+    // the command body is what says the deferral survived it. A build that had
+    // flattened the modules in to read their descriptions would satisfy the
+    // first assertion and fail the second
+    const entry = readFileSync(bin, 'utf-8');
 
-		expect(entry).toContain('run migrations');
-		expect(entry).not.toContain('migrated');
-	});
+    expect(entry).toContain('run migrations');
+    expect(entry).not.toContain('migrated');
+  });
 
-	it('should carry the root options the app declared', () => {
-		// the generated entry composes the app's schema with the baked tree, so
-		// everything the app said other than `commands` survives
-		expect(run('--help').stdout).toContain('Say more');
-	});
+  it('should carry the root options the app declared', () => {
+    // the generated entry composes the app's schema with the baked tree, so
+    // everything the app said other than `commands` survives
+    expect(run('--help').stdout).toContain('Say more');
+  });
 
-	it('should hide a command it read as hidden', () => {
-		const help = run('--help').stdout;
+  it('should hide a command it read as hidden', () => {
+    const help = run('--help').stdout;
 
-		expect(help).not.toContain('quiet');
-		// ...and it still runs, which is what hidden means
-		expect(run('quiet').stdout.trim()).toBe('quiet');
-	});
+    expect(help).not.toContain('quiet');
+    // ...and it still runs, which is what hidden means
+    expect(run('quiet').stdout.trim()).toBe('quiet');
+  });
 
-	it('should put every command in its own chunk', () => {
-		// a literal specifier inside a dynamic import is the one thing a bundler
-		// can see, follow and split on -- so the deferral survives bundling rather
-		// than being flattened into the entry
-		const lazy = chunks.filter((chunk) => !chunk.entry).map((chunk) => chunk.name);
+  it('should put every command in its own chunk', () => {
+    // a literal specifier inside a dynamic import is the one thing a bundler
+    // can see, follow and split on -- so the deferral survives bundling rather
+    // than being flattened into the entry
+    const lazy = chunks.filter((chunk) => !chunk.entry).map((chunk) => chunk.name);
 
-		expect(lazy.some((name) => name.includes('greet'))).toBe(true);
-		expect(lazy.some((name) => name.includes('migrate'))).toBe(true);
-	});
+    expect(lazy.some((name) => name.includes('greet'))).toBe(true);
+    expect(lazy.some((name) => name.includes('migrate'))).toBe(true);
+  });
 
-	it('should keep the entry small, because startup time is the metric', () => {
-		// what `--help` pays for is the entry plus what it reaches; the parser and
-		// the help renderer are chunks of their own, and no command body is in it
-		const entry = chunks.find((chunk) => chunk.entry)!;
+  it('should keep the entry small, because startup time is the metric', () => {
+    // what `--help` pays for is the entry plus what it reaches; the parser and
+    // the help renderer are chunks of their own, and no command body is in it
+    const entry = chunks.find((chunk) => chunk.entry)!;
 
-		expect(entry.size).toBeLessThan(16 * 1024);
-		expect(readFileSync(bin, 'utf-8')).not.toContain('hello ');
-	});
+    expect(entry.size).toBeLessThan(16 * 1024);
+    expect(readFileSync(bin, 'utf-8')).not.toContain('hello ');
+  });
 
-	it('should inline everything by default', async () => {
-		// the zero-dependency promise: what a built app ships is the app plus the
-		// runtime, and nothing it has to find at run time
-		const source = readFileSync(bin, 'utf-8');
-		expect(source).not.toMatch(/from\s*["'][^."'][^"']*["']/);
-	});
+  it('should inline everything by default', async () => {
+    // the zero-dependency promise: what a built app ships is the app plus the
+    // runtime, and nothing it has to find at run time
+    const source = readFileSync(bin, 'utf-8');
+    expect(source).not.toMatch(/from\s*["'][^."'][^"']*["']/);
+  });
 
-	it('should report a non-zero exit code from a command that failed', () => {
-		expect(run('nope').status).toBe(1);
-	});
+  it('should report a non-zero exit code from a command that failed', () => {
+    expect(run('nope').status).toBe(1);
+  });
 });
 
 describe('a package that cannot be inlined', () => {
-	// nothing inlines a `.node`, so a package that is JavaScript around one has
-	// to stay an import: its JS resolves perfectly well, gets inlined, and then
-	// looks for a binary beside a file that is no longer there -- a build that
-	// reports success and an executable that dies the first time it is used
-	let out: string;
+  // nothing inlines a `.node`, so a package that is JavaScript around one has
+  // to stay an import: its JS resolves perfectly well, gets inlined, and then
+  // looks for a binary beside a file that is no longer there -- a build that
+  // reports success and an executable that dies the first time it is used
+  let out: string;
 
-	beforeAll(() => {
-		out = mkdtempSync(join(tmpdir(), 'sigil-external-'));
-	});
+  beforeAll(() => {
+    out = mkdtempSync(join(tmpdir(), 'sigil-external-'));
+  });
 
-	afterAll(() => {
-		rmSync(out, { force: true, recursive: true });
-	});
+  afterAll(() => {
+    rmSync(out, { force: true, recursive: true });
+  });
 
-	it('should leave a named package as an import', async () => {
-		const found = discoverApp(app);
-		const tree = resolveCommandTree(join(app, 'src', 'commands'));
+  it('should leave a named package as an import', async () => {
+    const found = discoverApp(app);
+    const tree = resolveCommandTree(join(app, 'src', 'commands'));
 
-		const result = await bundleApp({
-			app: found,
-			binName: 'buildable',
-			external: ['node:zlib'],
-			out,
-			tree,
-		});
+    const result = await bundleApp({
+      app: found,
+      binName: 'buildable',
+      external: ['node:zlib'],
+      out,
+      tree,
+    });
 
-		expect(result.external).toStrictEqual(['node:zlib']);
-	});
+    expect(result.external).toStrictEqual(['node:zlib']);
+  });
 });
 
 describe('an app whose output is JSX', () => {
-	/**
-	 * JSX is the canonical syntax, and rolldown's default import source is
-	 * `react`.
-	 *
-	 * The fixture has no `tsconfig.json` on purpose: rolldown reads one when it
-	 * is there, so an app naming `jsxImportSource` always built correctly and the
-	 * defect was only ever the default. Left to it, this app built, reported
-	 * success, and died the first time the command was run with `Cannot find
-	 * package 'react'` -- the shape `--external` is written for, one option
-	 * along.
-	 */
-	let jsxOut: string;
-	let jsxBin: string;
-	let jsxTemplates: number;
+  /**
+   * JSX is the canonical syntax, and rolldown's default import source is
+   * `react`.
+   *
+   * The fixture has no `tsconfig.json` on purpose: rolldown reads one when it
+   * is there, so an app naming `jsxImportSource` always built correctly and the
+   * defect was only ever the default. Left to it, this app built, reported
+   * success, and died the first time the command was run with `Cannot find
+   * package 'react'` -- the shape `--external` is written for, one option
+   * along.
+   */
+  let jsxOut: string;
+  let jsxBin: string;
+  let jsxTemplates: number;
 
-	beforeAll(async () => {
-		jsxOut = mkdtempSync(join(tmpdir(), 'sigil-jsx-'));
+  beforeAll(async () => {
+    jsxOut = mkdtempSync(join(tmpdir(), 'sigil-jsx-'));
 
-		const jsxApp = resolve(__dirname, '../fixtures/jsx');
-		const found = discoverApp(jsxApp);
-		const tree = resolveCommandTree(join(jsxApp, 'src', 'commands'));
+    const jsxApp = resolve(__dirname, '../fixtures/jsx');
+    const found = discoverApp(jsxApp);
+    const tree = resolveCommandTree(join(jsxApp, 'src', 'commands'));
 
-		const result = await bundleApp({ app: found, binName: 'jsx', out: jsxOut, tree });
-		jsxBin = result.bin;
-		jsxTemplates = result.templates;
-	}, 60_000);
+    const result = await bundleApp({ app: found, binName: 'jsx', out: jsxOut, tree });
+    jsxBin = result.bin;
+    jsxTemplates = result.templates;
+  }, 60_000);
 
-	afterAll(() => {
-		rmSync(jsxOut, { force: true, recursive: true });
-	});
+  afterAll(() => {
+    rmSync(jsxOut, { force: true, recursive: true });
+  });
 
-	it('should compile JSX against the runtime rather than react', () => {
-		// the defect, named. `react/jsx-runtime` resolves in plenty of
-		// repositories and would then be *inlined*, so asserting the absence of
-		// the specifier is the check that holds wherever it runs
-		const bare = bundleSpecifiers(jsxOut).filter(
-			(specifier) => !specifier.startsWith('.') && !specifier.startsWith('node:')
-		);
+  it('should compile JSX against the runtime rather than react', () => {
+    // the defect, named. `react/jsx-runtime` resolves in plenty of
+    // repositories and would then be *inlined*, so asserting the absence of
+    // the specifier is the check that holds wherever it runs
+    const bare = bundleSpecifiers(jsxOut).filter(
+      (specifier) => !specifier.startsWith('.') && !specifier.startsWith('node:')
+    );
 
-		expect(bare).toStrictEqual([]);
-		// and said the other way, because an empty list is a check that passes
-		// for the wrong reason the day the walk stops finding files
-		expect(bundleSpecifiers(jsxOut).length).toBeGreaterThan(0);
-	});
+    expect(bare).toStrictEqual([]);
+    // and said the other way, because an empty list is a check that passes
+    // for the wrong reason the day the walk stops finding files
+    expect(bundleSpecifiers(jsxOut).length).toBeGreaterThan(0);
+  });
 
-	it('should run the JSX it compiled', () => {
-		// the claim only a spawned binary can make: the transform picked a runtime
-		// that is in the bundle, and what it built renders
-		const result = spawnSync(process.execPath, [jsxBin, 'greet', 'sigil'], {
-			cwd: tmpdir(),
-			encoding: 'utf-8',
-		});
+  it('should run the JSX it compiled', () => {
+    // the claim only a spawned binary can make: the transform picked a runtime
+    // that is in the bundle, and what it built renders
+    const result = spawnSync(process.execPath, [jsxBin, 'greet', 'sigil'], {
+      cwd: tmpdir(),
+      encoding: 'utf-8',
+    });
 
-		expect(result.status).toBe(0);
-		expect(result.stdout).toContain('Hello, sigil!');
-		expect(result.stdout).toContain('from a compiled JSX element');
-	});
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Hello, sigil!');
+    expect(result.stdout).toContain('from a compiled JSX element');
+  });
 
-	it('should not read compiled JSX as JSX that survived', () => {
-		// the false positive that would matter, asked against a bundle a real build
-		// really wrote rather than against a string: this app's whole output is JSX
-		// and every chunk of it has to come back clean. Two substring probes for
-		// JSX reported this bundle as holding some while the check was being
-		// written -- the runtime's error strings carry `<box>`, `<text>` and
-		// `<raw>`, and `panel.tsx`'s doc comment carries `jsxDEV` -- which is why
-		// the answer is a parse rather than a search.
-		//
-		// The assertion is a second line of defence rather than the only one, and
-		// it is worth knowing which: `beforeAll` already built this app *through*
-		// `bundleApp()`, so a gate that false-positived here would fail the hook
-		// and skip this test rather than fail on the `expect`. The suite still goes
-		// red either way; the line that reports it is the hook's
-		const files = readdirSync(jsxOut, { recursive: true, withFileTypes: true })
-			.filter((entry) => entry.isFile() && entry.name.endsWith('.mjs'))
-			.map((entry) => ({
-				fileName: relative(jsxOut, join(entry.parentPath, entry.name)),
-				type: 'chunk',
-			}));
+  it('should not read compiled JSX as JSX that survived', () => {
+    // the false positive that would matter, asked against a bundle a real build
+    // really wrote rather than against a string: this app's whole output is JSX
+    // and every chunk of it has to come back clean. Two substring probes for
+    // JSX reported this bundle as holding some while the check was being
+    // written -- the runtime's error strings carry `<box>`, `<text>` and
+    // `<raw>`, and `panel.tsx`'s doc comment carries `jsxDEV` -- which is why
+    // the answer is a parse rather than a search.
+    //
+    // The assertion is a second line of defence rather than the only one, and
+    // it is worth knowing which: `beforeAll` already built this app *through*
+    // `bundleApp()`, so a gate that false-positived here would fail the hook
+    // and skip this test rather than fail on the `expect`. The suite still goes
+    // red either way; the line that reports it is the hook's
+    const files = readdirSync(jsxOut, { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.mjs'))
+      .map((entry) => ({
+        fileName: relative(jsxOut, join(entry.parentPath, entry.name)),
+        type: 'chunk',
+      }));
 
-		// said the other way too, because an empty list is a check that passes for
-		// the wrong reason the day the walk stops finding files
-		expect(files.length).toBeGreaterThan(0);
-		expect(rawJsxIn(jsxOut, files)).toBeUndefined();
-	});
+    // said the other way too, because an empty list is a check that passes for
+    // the wrong reason the day the walk stops finding files
+    expect(files.length).toBeGreaterThan(0);
+    expect(rawJsxIn(jsxOut, files)).toBeUndefined();
+  });
 
-	it('should compile a template and the JSX beside it in one module', () => {
-		// two passes over one file, which is the shape AGENTS.md describes when it
-		// says the two syntaxes live side by side in one app. The plugin's
-		// `transform` runs before rolldown's own, so it is handed the module with
-		// its JSX intact; nothing checked that the two compose except a module that
-		// has both
-		expect(jsxTemplates).toBe(1);
+  it('should compile a template and the JSX beside it in one module', () => {
+    // two passes over one file, which is the shape AGENTS.md describes when it
+    // says the two syntaxes live side by side in one app. The plugin's
+    // `transform` runs before rolldown's own, so it is handed the module with
+    // its JSX intact; nothing checked that the two compose except a module that
+    // has both
+    expect(jsxTemplates).toBe(1);
 
-		const result = spawnSync(process.execPath, [jsxBin, 'greet', 'sigil'], {
-			cwd: tmpdir(),
-			encoding: 'utf-8',
-		});
+    const result = spawnSync(process.execPath, [jsxBin, 'greet', 'sigil'], {
+      cwd: tmpdir(),
+      encoding: 'utf-8',
+    });
 
-		expect(result.stdout).toContain('Hello again, sigil!');
-	});
+    expect(result.stdout).toContain('Hello again, sigil!');
+  });
 });
 
 describe('a translated app', () => {
-	/**
-	 * A command description that is both lifted and translated, which before the
-	 * thunk was a choice between two.
-	 *
-	 * A tagged template is not a string literal, so `` desc: __`Build the app` ``
-	 * was reported as computed and the command was listed by name alone --
-	 * meaning an app could have the static lift or a translated description and
-	 * not both. The lift reads the key and the emitter prints
-	 * `` () => __`Build the app` ``, so the built app renders it through its own
-	 * catalog.
-	 *
-	 * The locale is the other half: `"locale": "de"` in the fixture's
-	 * `sigil.json` is baked as `defaultLocale`, which the runtime cannot read for
-	 * itself, and it sits at the bottom of the chain -- so the environment is
-	 * cleared here rather than relied on.
-	 */
-	let i18nOut: string;
-	let i18nBin: string;
+  /**
+   * A command description that is both lifted and translated, which before the
+   * thunk was a choice between two.
+   *
+   * A tagged template is not a string literal, so `` desc: __`Build the app` ``
+   * was reported as computed and the command was listed by name alone --
+   * meaning an app could have the static lift or a translated description and
+   * not both. The lift reads the key and the emitter prints
+   * `` () => __`Build the app` ``, so the built app renders it through its own
+   * catalog.
+   *
+   * The locale is the other half: `"locale": "de"` in the fixture's
+   * `sigil.json` is baked as `defaultLocale`, which the runtime cannot read for
+   * itself, and it sits at the bottom of the chain -- so the environment is
+   * cleared here rather than relied on.
+   */
+  let i18nOut: string;
+  let i18nBin: string;
 
-	beforeAll(async () => {
-		i18nOut = mkdtempSync(join(tmpdir(), 'sigil-i18n-'));
+  beforeAll(async () => {
+    i18nOut = mkdtempSync(join(tmpdir(), 'sigil-i18n-'));
 
-		const i18nApp = resolve(__dirname, '../fixtures/i18n');
-		const found = discoverApp(i18nApp);
-		const tree = resolveCommandTree(join(i18nApp, 'commands'));
+    const i18nApp = resolve(__dirname, '../fixtures/i18n');
+    const found = discoverApp(i18nApp);
+    const tree = resolveCommandTree(join(i18nApp, 'commands'));
 
-		const result = await bundleApp({
-			app: found,
-			binName: 'i18n',
-			defaultLocale: readSigilConfig(i18nApp).locale,
-			out: i18nOut,
-			tree,
-		});
-		i18nBin = result.bin;
-	}, 60_000);
+    const result = await bundleApp({
+      app: found,
+      binName: 'i18n',
+      defaultLocale: readSigilConfig(i18nApp).locale,
+      out: i18nOut,
+      tree,
+    });
+    i18nBin = result.bin;
+  }, 60_000);
 
-	afterAll(() => {
-		rmSync(i18nOut, { force: true, recursive: true });
-	});
+  afterAll(() => {
+    rmSync(i18nOut, { force: true, recursive: true });
+  });
 
-	/** Runs the built binary with every locale variable cleared. */
-	function run(...argv: string[]) {
-		return spawnSync(process.execPath, [i18nBin, ...argv], {
-			cwd: tmpdir(),
-			encoding: 'utf-8',
-			env: {
-				...process.env,
-				LANG: undefined,
-				LC_ALL: undefined,
-				LC_MESSAGES: undefined,
-				SIGIL_LOCALE: undefined,
-			},
-		});
-	}
+  /** Runs the built binary with every locale variable cleared. */
+  function run(...argv: string[]) {
+    return spawnSync(process.execPath, [i18nBin, ...argv], {
+      cwd: tmpdir(),
+      encoding: 'utf-8',
+      env: {
+        ...process.env,
+        LANG: undefined,
+        LC_ALL: undefined,
+        LC_MESSAGES: undefined,
+        SIGIL_LOCALE: undefined,
+      },
+    });
+  }
 
-	it('should describe a command in the locale the config named, without importing it', () => {
-		const result = run('--help');
+  it('should describe a command in the locale the config named, without importing it', () => {
+    const result = run('--help');
 
-		expect(result.status).toBe(0);
-		// lifted, so it is on the root screen at all...
-		expect(result.stdout).toContain('build');
-		// ...and translated, which is the half a baked string could not be
-		expect(result.stdout).toContain('Die App bauen');
-		expect(result.stdout).not.toContain('Build the app');
-	});
+    expect(result.status).toBe(0);
+    // lifted, so it is on the root screen at all...
+    expect(result.stdout).toContain('build');
+    // ...and translated, which is the half a baked string could not be
+    expect(result.stdout).toContain('Die App bauen');
+    expect(result.stdout).not.toContain('Build the app');
+  });
 
-	it('should render the framework`s own chrome in it too', () => {
-		expect(run('--help').stdout).toContain('Verwendung:');
-	});
+  it('should render the framework`s own chrome in it too', () => {
+    expect(run('--help').stdout).toContain('Verwendung:');
+  });
 
-	it('should let the environment beat the config`s locale', () => {
-		// `defaultLocale` is the bottom of the chain, which is what makes it a
-		// default rather than a second `AppOptions.locale`
-		const result = spawnSync(process.execPath, [i18nBin, '--help'], {
-			cwd: tmpdir(),
-			encoding: 'utf-8',
-			env: { ...process.env, SIGIL_LOCALE: 'en' },
-		});
+  it('should let the environment beat the config`s locale', () => {
+    // `defaultLocale` is the bottom of the chain, which is what makes it a
+    // default rather than a second `AppOptions.locale`
+    const result = spawnSync(process.execPath, [i18nBin, '--help'], {
+      cwd: tmpdir(),
+      encoding: 'utf-8',
+      env: { ...process.env, SIGIL_LOCALE: 'en' },
+    });
 
-		expect(result.status).toBe(0);
-		expect(result.stdout).toContain('Build the app');
-		expect(result.stdout).toContain('Usage:');
-	});
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Build the app');
+    expect(result.stdout).toContain('Usage:');
+  });
 });
 
 describe('an import nothing can resolve', () => {
-	/**
-	 * The gate that had never fired.
-	 *
-	 * `rolldown()` builds nothing -- rolldown's own documentation says the module
-	 * graph is not built until a method on the bundle is called -- so the check
-	 * that used to sit between it and `write()` asked an empty array every time.
-	 * A *relative* specifier is a hard error from rolldown itself, which is why
-	 * this went unnoticed; a *bare* one is downgraded to "treating it as an
-	 * external dependency", which is exactly the shape the gate exists for: the
-	 * bundle reaches for a package at run time and the build says it succeeded.
-	 *
-	 * The case is the one AGENTS.md already records as what found the gate in the
-	 * first place -- "a fixture app with no real `node_modules` built
-	 * 'successfully' while importing `@ttylabs/sigil` at run time" -- reproduced
-	 * by copying an app somewhere with no workspace above it. Nothing is planted:
-	 * the unresolvable import is the runtime itself, which is what makes the
-	 * failure the real one rather than a contrived one.
-	 */
-	let out_: string;
-	let app_: string;
+  /**
+   * The gate that had never fired.
+   *
+   * `rolldown()` builds nothing -- rolldown's own documentation says the module
+   * graph is not built until a method on the bundle is called -- so the check
+   * that used to sit between it and `write()` asked an empty array every time.
+   * A *relative* specifier is a hard error from rolldown itself, which is why
+   * this went unnoticed; a *bare* one is downgraded to "treating it as an
+   * external dependency", which is exactly the shape the gate exists for: the
+   * bundle reaches for a package at run time and the build says it succeeded.
+   *
+   * The case is the one AGENTS.md already records as what found the gate in the
+   * first place -- "a fixture app with no real `node_modules` built
+   * 'successfully' while importing `@ttylabs/sigil` at run time" -- reproduced
+   * by copying an app somewhere with no workspace above it. Nothing is planted:
+   * the unresolvable import is the runtime itself, which is what makes the
+   * failure the real one rather than a contrived one.
+   */
+  let out_: string;
+  let app_: string;
 
-	beforeAll(() => {
-		out_ = mkdtempSync(join(tmpdir(), 'sigil-unresolved-out-'));
-		app_ = mkdtempSync(join(tmpdir(), 'sigil-unresolved-app-'));
-		cpSync(app, app_, { recursive: true });
-	});
+  beforeAll(() => {
+    out_ = mkdtempSync(join(tmpdir(), 'sigil-unresolved-out-'));
+    app_ = mkdtempSync(join(tmpdir(), 'sigil-unresolved-app-'));
+    cpSync(app, app_, { recursive: true });
+  });
 
-	afterAll(() => {
-		rmSync(out_, { force: true, recursive: true });
-		rmSync(app_, { force: true, recursive: true });
-	});
+  afterAll(() => {
+    rmSync(out_, { force: true, recursive: true });
+    rmSync(app_, { force: true, recursive: true });
+  });
 
-	it('should refuse the build and leave nothing behind', async () => {
-		const found = discoverApp(app_);
-		const tree = resolveCommandTree(join(app_, 'src', 'commands'));
+  it('should refuse the build and leave nothing behind', async () => {
+    const found = discoverApp(app_);
+    const tree = resolveCommandTree(join(app_, 'src', 'commands'));
 
-		const failure = await bundleApp({
-			app: found,
-			binName: 'buildable',
-			out: out_,
-			tree,
-		}).then(
-			// spelled out rather than `rejects.toThrow`, so that a build which
-			// *succeeded* fails the assertion with a sentence instead of with chai
-			// complaining about `undefined`
-			() => '(the build succeeded)',
-			(error: unknown) => (error as Error).message
-		);
+    const failure = await bundleApp({
+      app: found,
+      binName: 'buildable',
+      out: out_,
+      tree,
+    }).then(
+      // spelled out rather than `rejects.toThrow`, so that a build which
+      // *succeeded* fails the assertion with a sentence instead of with chai
+      // complaining about `undefined`
+      () => '(the build succeeded)',
+      (error: unknown) => (error as Error).message
+    );
 
-		// named rather than matched loosely, so the test cannot pass because
-		// something else went wrong on the way
-		expect(failure).toContain('could not be resolved');
-		expect(failure).toContain('@ttylabs/sigil');
+    // named rather than matched loosely, so the test cannot pass because
+    // something else went wrong on the way
+    expect(failure).toContain('could not be resolved');
+    expect(failure).toContain('@ttylabs/sigil');
 
-		// the other half, and the reason the check cannot simply be moved after
-		// the write and left there: a bundle that would die the first time it was
-		// run is what the refusal is about, so handing it over anyway would answer
-		// the question and then give the wrong answer
-		expect(readdirSync(out_)).toStrictEqual([]);
-	});
+    // the other half, and the reason the check cannot simply be moved after
+    // the write and left there: a bundle that would die the first time it was
+    // run is what the refusal is about, so handing it over anyway would answer
+    // the question and then give the wrong answer
+    expect(readdirSync(out_)).toStrictEqual([]);
+  });
 });
 
 describe('unwinding a refused build', () => {
-	/**
-	 * `undo()` is asserted directly, because rolldown will not produce the name
-	 * that reaches the guard.
-	 *
-	 * A reported `fileName` is joined onto the output directory and `join()`
-	 * normalises, so `../precious.txt` resolves to a file *beside* the output
-	 * directory -- and for one commit that file was deleted, because the
-	 * separator check written next to the unlink only protected the directory
-	 * climb. rolldown 1.2.11 refuses such a name before writing anything
-	 * (`INVALID_OPTION` for an entry, `FILE_NAME_OUTSIDE_OUTPUT_DIRECTORY` for a
-	 * chunk), so there is no build that demonstrates it and the only way to
-	 * assert the guard is to call the function.
-	 */
-	let base: string;
-	let out: string;
+  /**
+   * `undo()` is asserted directly, because rolldown will not produce the name
+   * that reaches the guard.
+   *
+   * A reported `fileName` is joined onto the output directory and `join()`
+   * normalises, so `../precious.txt` resolves to a file *beside* the output
+   * directory -- and for one commit that file was deleted, because the
+   * separator check written next to the unlink only protected the directory
+   * climb. rolldown 1.2.11 refuses such a name before writing anything
+   * (`INVALID_OPTION` for an entry, `FILE_NAME_OUTSIDE_OUTPUT_DIRECTORY` for a
+   * chunk), so there is no build that demonstrates it and the only way to
+   * assert the guard is to call the function.
+   */
+  let base: string;
+  let out: string;
 
-	beforeEach(() => {
-		base = mkdtempSync(join(tmpdir(), 'sigil-undo-'));
-		out = join(base, 'dist');
-		mkdirSync(join(out, 'chunks'), { recursive: true });
-	});
+  beforeEach(() => {
+    base = mkdtempSync(join(tmpdir(), 'sigil-undo-'));
+    out = join(base, 'dist');
+    mkdirSync(join(out, 'chunks'), { recursive: true });
+  });
 
-	afterEach(() => {
-		rmSync(base, { force: true, recursive: true });
-	});
+  afterEach(() => {
+    rmSync(base, { force: true, recursive: true });
+  });
 
-	it('should remove what the build wrote, directory included', () => {
-		writeFileSync(join(out, 'app.mjs'), 'x');
-		writeFileSync(join(out, 'chunks', 'a.mjs'), 'x');
-		writeFileSync(join(out, 'chunks', 'a.mjs.map'), 'x');
+  it('should remove what the build wrote, directory included', () => {
+    writeFileSync(join(out, 'app.mjs'), 'x');
+    writeFileSync(join(out, 'chunks', 'a.mjs'), 'x');
+    writeFileSync(join(out, 'chunks', 'a.mjs.map'), 'x');
 
-		undo(out, [
-			{ fileName: 'app.mjs' },
-			{ fileName: 'chunks/a.mjs' },
-			{ fileName: 'chunks/a.mjs.map' },
-		]);
+    undo(out, [
+      { fileName: 'app.mjs' },
+      { fileName: 'chunks/a.mjs' },
+      { fileName: 'chunks/a.mjs.map' },
+    ]);
 
-		// the sourcemaps are assets in the same list, which is why they go too
-		expect(readdirSync(out)).toStrictEqual([]);
-	});
+    // the sourcemaps are assets in the same list, which is why they go too
+    expect(readdirSync(out)).toStrictEqual([]);
+  });
 
-	it('should keep a directory something else is using', () => {
-		// an `--out` the build was told not to clean may hold somebody else's
-		// files, so emptiness is what bounds the climb
-		writeFileSync(join(out, 'chunks', 'a.mjs'), 'x');
-		writeFileSync(join(out, 'chunks', 'index.html'), 'mine');
+  it('should keep a directory something else is using', () => {
+    // an `--out` the build was told not to clean may hold somebody else's
+    // files, so emptiness is what bounds the climb
+    writeFileSync(join(out, 'chunks', 'a.mjs'), 'x');
+    writeFileSync(join(out, 'chunks', 'index.html'), 'mine');
 
-		undo(out, [{ fileName: 'chunks/a.mjs' }]);
+    undo(out, [{ fileName: 'chunks/a.mjs' }]);
 
-		expect(readdirSync(join(out, 'chunks'))).toStrictEqual(['index.html']);
-	});
+    expect(readdirSync(join(out, 'chunks'))).toStrictEqual(['index.html']);
+  });
 
-	it('should carry on past something it cannot remove', () => {
-		// the unwind runs on a failure path, so what has to survive it is the error
-		// the build was about to report. `force` covers a file that is not there
-		// and not a name that turns out to be a directory, which is
-		// `ERR_FS_EISDIR` -- unreachable through rolldown, and the cost of not
-		// guarding it is a message about the file system in place of the real one
-		mkdirSync(join(out, 'oops'));
-		writeFileSync(join(out, 'app.mjs'), 'x');
+  it('should carry on past something it cannot remove', () => {
+    // the unwind runs on a failure path, so what has to survive it is the error
+    // the build was about to report. `force` covers a file that is not there
+    // and not a name that turns out to be a directory, which is
+    // `ERR_FS_EISDIR` -- unreachable through rolldown, and the cost of not
+    // guarding it is a message about the file system in place of the real one
+    mkdirSync(join(out, 'oops'));
+    writeFileSync(join(out, 'app.mjs'), 'x');
 
-		expect(() => undo(out, [{ fileName: 'oops' }, { fileName: 'app.mjs' }])).not.toThrow();
-		expect(existsSync(join(out, 'app.mjs'))).toBe(false);
-	});
+    expect(() => undo(out, [{ fileName: 'oops' }, { fileName: 'app.mjs' }])).not.toThrow();
+    expect(existsSync(join(out, 'app.mjs'))).toBe(false);
+  });
 
-	it('should refuse a path that climbs out of the output directory', () => {
-		const precious = join(base, 'precious.txt');
-		writeFileSync(precious, 'keep me');
+  it('should refuse a path that climbs out of the output directory', () => {
+    const precious = join(base, 'precious.txt');
+    writeFileSync(precious, 'keep me');
 
-		undo(out, [{ fileName: '../precious.txt' }, { fileName: 'chunks/../../precious.txt' }]);
+    undo(out, [{ fileName: '../precious.txt' }, { fileName: 'chunks/../../precious.txt' }]);
 
-		expect(existsSync(precious)).toBe(true);
-	});
+    expect(existsSync(precious)).toBe(true);
+  });
 
-	it('should not read dist-old as being inside dist', () => {
-		// the separator, without which a prefix test says yes to a sibling
-		const sibling = join(base, 'dist-old');
-		mkdirSync(sibling);
-		writeFileSync(join(sibling, 'a.mjs'), 'keep me');
+  it('should not read dist-old as being inside dist', () => {
+    // the separator, without which a prefix test says yes to a sibling
+    const sibling = join(base, 'dist-old');
+    mkdirSync(sibling);
+    writeFileSync(join(sibling, 'a.mjs'), 'keep me');
 
-		undo(out, [{ fileName: '../dist-old/a.mjs' }]);
+    undo(out, [{ fileName: '../dist-old/a.mjs' }]);
 
-		expect(existsSync(join(sibling, 'a.mjs'))).toBe(true);
-	});
+    expect(existsSync(join(sibling, 'a.mjs'))).toBe(true);
+  });
 });
 
 describe('a bundle that still holds JSX', () => {
-	/**
-	 * `"jsx": "preserve"` asks for no transform at all, and rolldown obeys.
-	 *
-	 * The same failure shape as a bundle that reaches for `react`: the build
-	 * reports success and the executable dies the first time it is used, here with
-	 * `Unexpected token '<'`. It is a refusal rather than a thing the build
-	 * honours, because `preserve` means "another tool compiles this" and a bundle
-	 * is the end of the pipeline -- there is no other tool, so the only executable
-	 * the setting can produce is one that will not parse.
-	 *
-	 * The fixture differs from `jsx-dev/` by one tsconfig field, and it
-	 * type-checks: `preserve` still checks the JSX against the `JSX` namespace
-	 * `jsxImportSource` names, so this is an app the build has to refuse on its own
-	 * rather than one the type-check has already refused.
-	 */
-	let out_: string;
+  /**
+   * `"jsx": "preserve"` asks for no transform at all, and rolldown obeys.
+   *
+   * The same failure shape as a bundle that reaches for `react`: the build
+   * reports success and the executable dies the first time it is used, here with
+   * `Unexpected token '<'`. It is a refusal rather than a thing the build
+   * honours, because `preserve` means "another tool compiles this" and a bundle
+   * is the end of the pipeline -- there is no other tool, so the only executable
+   * the setting can produce is one that will not parse.
+   *
+   * The fixture differs from `jsx-dev/` by one tsconfig field, and it
+   * type-checks: `preserve` still checks the JSX against the `JSX` namespace
+   * `jsxImportSource` names, so this is an app the build has to refuse on its own
+   * rather than one the type-check has already refused.
+   */
+  let out_: string;
 
-	beforeAll(() => {
-		out_ = mkdtempSync(join(tmpdir(), 'sigil-preserve-'));
-	});
+  beforeAll(() => {
+    out_ = mkdtempSync(join(tmpdir(), 'sigil-preserve-'));
+  });
 
-	afterAll(() => {
-		rmSync(out_, { force: true, recursive: true });
-	});
+  afterAll(() => {
+    rmSync(out_, { force: true, recursive: true });
+  });
 
-	it('should refuse the build, name the setting, and leave nothing behind', async () => {
-		const preserveApp = resolve(__dirname, '../fixtures/jsx-preserve');
-		const found = discoverApp(preserveApp);
-		const tree = resolveCommandTree(join(preserveApp, 'src', 'commands'));
+  it('should refuse the build, name the setting, and leave nothing behind', async () => {
+    const preserveApp = resolve(__dirname, '../fixtures/jsx-preserve');
+    const found = discoverApp(preserveApp);
+    const tree = resolveCommandTree(join(preserveApp, 'src', 'commands'));
 
-		const failure = await bundleApp({
-			app: found,
-			binName: 'jsx-preserve',
-			out: out_,
-			tree,
-		}).then(
-			// spelled out rather than `rejects.toThrow`, so a build that *succeeded*
-			// fails the assertion with a sentence instead of with chai complaining
-			// about `undefined` -- the shape the unresolved-import test uses
-			() => '(the build succeeded)',
-			(error: unknown) => (error as Error).message
-		);
+    const failure = await bundleApp({
+      app: found,
+      binName: 'jsx-preserve',
+      out: out_,
+      tree,
+    }).then(
+      // spelled out rather than `rejects.toThrow`, so a build that *succeeded*
+      // fails the assertion with a sentence instead of with chai complaining
+      // about `undefined` -- the shape the unresolved-import test uses
+      () => '(the build succeeded)',
+      (error: unknown) => (error as Error).message
+    );
 
-		expect(failure).toContain('still holds JSX');
-		// the setting is the fix, so the message has to name it: a message about a
-		// syntax error in generated code sends the author looking at the generated
-		// code, which is not where the problem is
-		expect(failure).toContain('"jsx"');
-		expect(failure).toContain('tsconfig.json');
-		// and which chunk, because an app with one `.tsx` among fifty modules has
-		// to be able to find it
-		expect(failure).toMatch(/chunks\/.*\.mjs/);
+    expect(failure).toContain('still holds JSX');
+    // the setting is the fix, so the message has to name it: a message about a
+    // syntax error in generated code sends the author looking at the generated
+    // code, which is not where the problem is
+    expect(failure).toContain('"jsx"');
+    expect(failure).toContain('tsconfig.json');
+    // and which chunk, because an app with one `.tsx` among fifty modules has
+    // to be able to find it
+    expect(failure).toMatch(/chunks\/.*\.mjs/);
 
-		// the same reason the unresolved gate unwinds: a bundle that would die the
-		// first time it was run is what the refusal is about
-		expect(readdirSync(out_)).toStrictEqual([]);
-	}, 60_000);
+    // the same reason the unresolved gate unwinds: a bundle that would die the
+    // first time it was run is what the refusal is about
+    expect(readdirSync(out_)).toStrictEqual([]);
+  }, 60_000);
 });
 
 describe('recognising JSX in what was written', () => {
-	/**
-	 * `rawJsxIn()` is asserted directly, because two of the three answers it gives
-	 * cannot be reached through a bundler.
-	 *
-	 * Only `"jsx": "preserve"` on a `.tsx` produces the positive case -- measured,
-	 * `react-native` is compiled by rolldown despite `tsc` preserving it, and
-	 * `compilerOptions.jsx` does not reach a `.jsx` at all. Nothing rolldown emits
-	 * fails to parse for any *other* reason, which is the case this deliberately
-	 * leaves alone, so a call is the only way to ask about it.
-	 */
-	let dir: string;
+  /**
+   * `rawJsxIn()` is asserted directly, because two of the three answers it gives
+   * cannot be reached through a bundler.
+   *
+   * Only `"jsx": "preserve"` on a `.tsx` produces the positive case -- measured,
+   * `react-native` is compiled by rolldown despite `tsc` preserving it, and
+   * `compilerOptions.jsx` does not reach a `.jsx` at all. Nothing rolldown emits
+   * fails to parse for any *other* reason, which is the case this deliberately
+   * leaves alone, so a call is the only way to ask about it.
+   */
+  let dir: string;
 
-	beforeEach(() => {
-		dir = mkdtempSync(join(tmpdir(), 'sigil-rawjsx-'));
-	});
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'sigil-rawjsx-'));
+  });
 
-	afterEach(() => {
-		rmSync(dir, { force: true, recursive: true });
-	});
+  afterEach(() => {
+    rmSync(dir, { force: true, recursive: true });
+  });
 
-	/** Writes a chunk and returns what `rolldown` would have reported for it. */
-	function chunk(name: string, code: string) {
-		mkdirSync(dirname(join(dir, name)), { recursive: true });
-		writeFileSync(join(dir, name), code);
-		return { fileName: name, type: 'chunk' };
-	}
+  /** Writes a chunk and returns what `rolldown` would have reported for it. */
+  function chunk(name: string, code: string) {
+    mkdirSync(dirname(join(dir, name)), { recursive: true });
+    writeFileSync(join(dir, name), code);
+    return { fileName: name, type: 'chunk' };
+  }
 
-	it('should say nothing about a bundle that parses', () => {
-		expect(
-			rawJsxIn(dir, [
-				chunk('app.mjs', 'const a = 1;\nexport { a };\n'),
-				// the shapes the substring probes got wrong while this was written:
-				// a `<` in an operator, and the runtime's own error strings
-				chunk('chunks/a.mjs', 'export const t = (a, b) => a < b ? `<text>` : "<box>";\n'),
-			])
-		).toBeUndefined();
-	});
+  it('should say nothing about a bundle that parses', () => {
+    expect(
+      rawJsxIn(dir, [
+        chunk('app.mjs', 'const a = 1;\nexport { a };\n'),
+        // the shapes the substring probes got wrong while this was written:
+        // a `<` in an operator, and the runtime's own error strings
+        chunk('chunks/a.mjs', 'export const t = (a, b) => a < b ? `<text>` : "<box>";\n'),
+      ])
+    ).toBeUndefined();
+  });
 
-	it('should name the chunk that is JSX rather than JavaScript', () => {
-		expect(
-			rawJsxIn(dir, [
-				chunk('app.mjs', 'export const ok = 1;\n'),
-				chunk(
-					'chunks/p.mjs',
-					'function P({who}){return<text class="h">Hi, {who}!</text>}export{P};\n'
-				),
-			])
-		).toBe('chunks/p.mjs');
-	});
+  it('should name the chunk that is JSX rather than JavaScript', () => {
+    expect(
+      rawJsxIn(dir, [
+        chunk('app.mjs', 'export const ok = 1;\n'),
+        chunk(
+          'chunks/p.mjs',
+          'function P({who}){return<text class="h">Hi, {who}!</text>}export{P};\n'
+        ),
+      ])
+    ).toBe('chunks/p.mjs');
+  });
 
-	it('should find a fragment, and one nested anywhere', () => {
-		// the walk is `visitorKeys`-driven rather than a list of node types, so a
-		// JSX element somewhere the shape of this file never anticipated is still
-		// found. A fragment is the other node kind, and `<></>` is what a component
-		// returning several children compiles from
-		expect(rawJsxIn(dir, [chunk('a.mjs', 'export const e = <></>;\n')])).toBe('a.mjs');
-		expect(
-			rawJsxIn(dir, [
-				chunk('b.mjs', 'export const f = () => ({ k: [0, () => (c ? <text>x</text> : null)] });\n'),
-			])
-		).toBe('b.mjs');
-	});
+  it('should find a fragment, and one nested anywhere', () => {
+    // the walk is `visitorKeys`-driven rather than a list of node types, so a
+    // JSX element somewhere the shape of this file never anticipated is still
+    // found. A fragment is the other node kind, and `<></>` is what a component
+    // returning several children compiles from
+    expect(rawJsxIn(dir, [chunk('a.mjs', 'export const e = <></>;\n')])).toBe('a.mjs');
+    expect(
+      rawJsxIn(dir, [
+        chunk('b.mjs', 'export const f = () => ({ k: [0, () => (c ? <text>x</text> : null)] });\n'),
+      ])
+    ).toBe('b.mjs');
+  });
 
-	it('should leave a chunk that parses as neither alone', () => {
-		// not this failure, and refusing it would risk failing a build that works:
-		// `oxc-parser` and the oxc inside rolldown are separately versioned, so a
-		// grammar this one is behind on would read as a broken bundle
-		expect(rawJsxIn(dir, [chunk('app.mjs', 'const = = ;\n')])).toBeUndefined();
-	});
+  it('should leave a chunk that parses as neither alone', () => {
+    // not this failure, and refusing it would risk failing a build that works:
+    // `oxc-parser` and the oxc inside rolldown are separately versioned, so a
+    // grammar this one is behind on would read as a broken bundle
+    expect(rawJsxIn(dir, [chunk('app.mjs', 'const = = ;\n')])).toBeUndefined();
+  });
 
-	it('should not read a module-only syntax error as JSX', () => {
-		// the false positive the first version of this had, and the reason the
-		// answer is a JSX *node* rather than a parse differential. The extension
-		// moves two axes, not one: a `.mjs` is always a module while a `.jsx` with
-		// no `import` or `export` is inferred a **script**, and a script is allowed
-		// things a module is not -- so every module-only error read as "JSX must be
-		// why". Found by review with the Annex B HTML comment; the other four are
-		// what hunting the class turned up, and the class was never enumerated,
-		// which is the whole argument against inferring.
-		//
-		// Each of these is a chunk node genuinely cannot load, so the conservative
-		// answer is not that it is fine -- only that JSX is not why, and a message
-		// naming `jsx` would send the author somewhere there is nothing to find
-		for (const [label, code] of [
-			['an HTML comment', '<!-- c\nconsole.log(1);\n'],
-			['an HTML close comment', 'x = 1;\n-->\n'],
-			['await as a variable', 'var await = 1;\nconsole.log(await);\n'],
-			['await as a class name', 'class await {}\nnew await();\n'],
-			['await as a label', 'await: for (;;) break await;\n'],
-		] as const) {
-			expect(rawJsxIn(dir, [chunk('app.mjs', code)]), label).toBeUndefined();
-		}
-	});
+  it('should not read a module-only syntax error as JSX', () => {
+    // the false positive the first version of this had, and the reason the
+    // answer is a JSX *node* rather than a parse differential. The extension
+    // moves two axes, not one: a `.mjs` is always a module while a `.jsx` with
+    // no `import` or `export` is inferred a **script**, and a script is allowed
+    // things a module is not -- so every module-only error read as "JSX must be
+    // why". Found by review with the Annex B HTML comment; the other four are
+    // what hunting the class turned up, and the class was never enumerated,
+    // which is the whole argument against inferring.
+    //
+    // Each of these is a chunk node genuinely cannot load, so the conservative
+    // answer is not that it is fine -- only that JSX is not why, and a message
+    // naming `jsx` would send the author somewhere there is nothing to find
+    for (const [label, code] of [
+      ['an HTML comment', '<!-- c\nconsole.log(1);\n'],
+      ['an HTML close comment', 'x = 1;\n-->\n'],
+      ['await as a variable', 'var await = 1;\nconsole.log(await);\n'],
+      ['await as a class name', 'class await {}\nnew await();\n'],
+      ['await as a label', 'await: for (;;) break await;\n'],
+    ] as const) {
+      expect(rawJsxIn(dir, [chunk('app.mjs', code)]), label).toBeUndefined();
+    }
+  });
 
-	it('should still find JSX in a chunk a module is not allowed to be', () => {
-		// the other half of the entry above, and the one that defends the decision
-		// *not* to pin `sourceType: 'module'` on the JSX parse. Pinning it is the
-		// obvious tidy-up once the source type is known to be the confounder, and it
-		// is a false-negative machine: measured over 180 combinations of a name, a
-		// body and a JSX element it loses the JSX in 50 -- every chunk that holds
-		// real JSX *and* something a module may not do, where the pinned parse fails
-		// before the walk can see anything.
-		//
-		// Both clauses are still right about these: node cannot load them, and JSX
-		// is genuinely why they will not parse as JavaScript
-		for (const [label, prefix] of [
-			['await as a variable', 'var await = 1;\n'],
-			['await as a label', 'await: for (;;) break await;\n'],
-			['an HTML comment', '<!-- c\n'],
-		] as const) {
-			expect(
-				rawJsxIn(dir, [chunk('app.mjs', `${prefix}const p = <text class="h">hi</text>;\n`)]),
-				label
-			).toBe('app.mjs');
-		}
-	});
+  it('should still find JSX in a chunk a module is not allowed to be', () => {
+    // the other half of the entry above, and the one that defends the decision
+    // *not* to pin `sourceType: 'module'` on the JSX parse. Pinning it is the
+    // obvious tidy-up once the source type is known to be the confounder, and it
+    // is a false-negative machine: measured over 180 combinations of a name, a
+    // body and a JSX element it loses the JSX in 50 -- every chunk that holds
+    // real JSX *and* something a module may not do, where the pinned parse fails
+    // before the walk can see anything.
+    //
+    // Both clauses are still right about these: node cannot load them, and JSX
+    // is genuinely why they will not parse as JavaScript
+    for (const [label, prefix] of [
+      ['await as a variable', 'var await = 1;\n'],
+      ['await as a label', 'await: for (;;) break await;\n'],
+      ['an HTML comment', '<!-- c\n'],
+    ] as const) {
+      expect(
+        rawJsxIn(dir, [chunk('app.mjs', `${prefix}const p = <text class="h">hi</text>;\n`)]),
+        label
+      ).toBe('app.mjs');
+    }
+  });
 
-	it('should not read an asset, and not report one that is JSX', () => {
-		// an asset is not a module, which is the line `escapeControls()` draws, and
-		// finding a test for that took three goes. A *sourcemap* fails both parses
-		// and falls into the conservative branch anyway, measured, so a test using
-		// one is green with the skip deleted. An asset named `.jsx` parses as JSX on
-		// the first call, so a test using one is green too. What is left is the two
-		// things the skip really decides, and both are asserted because each covers
-		// what the other does not:
-		//
-		// an asset with no file behind it is never **opened** -- without the skip
-		// this is an `ENOENT` rather than an answer...
-		expect(rawJsxIn(dir, [{ fileName: 'nothing-here.map', type: 'asset' }])).toBeUndefined();
+  it('should not read an asset, and not report one that is JSX', () => {
+    // an asset is not a module, which is the line `escapeControls()` draws, and
+    // finding a test for that took three goes. A *sourcemap* fails both parses
+    // and falls into the conservative branch anyway, measured, so a test using
+    // one is green with the skip deleted. An asset named `.jsx` parses as JSX on
+    // the first call, so a test using one is green too. What is left is the two
+    // things the skip really decides, and both are asserted because each covers
+    // what the other does not:
+    //
+    // an asset with no file behind it is never **opened** -- without the skip
+    // this is an `ENOENT` rather than an answer...
+    expect(rawJsxIn(dir, [{ fileName: 'nothing-here.map', type: 'asset' }])).toBeUndefined();
 
-		// ...and an asset that really is JSX under a name that is not is never
-		// **reported**, which is the half a `try`/`catch` around the read could
-		// otherwise fake. `notes.map` is what an app shipping a template as an asset
-		// looks like: the `.map` parse fails and the `.map.jsx` parse succeeds, so
-		// the discriminator would name it
-		writeFileSync(join(dir, 'notes.map'), 'const a = <text>x</text>;\n');
+    // ...and an asset that really is JSX under a name that is not is never
+    // **reported**, which is the half a `try`/`catch` around the read could
+    // otherwise fake. `notes.map` is what an app shipping a template as an asset
+    // looks like: the `.map` parse fails and the `.map.jsx` parse succeeds, so
+    // the discriminator would name it
+    writeFileSync(join(dir, 'notes.map'), 'const a = <text>x</text>;\n');
 
-		expect(rawJsxIn(dir, [{ fileName: 'notes.map', type: 'asset' }])).toBeUndefined();
-	});
+    expect(rawJsxIn(dir, [{ fileName: 'notes.map', type: 'asset' }])).toBeUndefined();
+  });
 });

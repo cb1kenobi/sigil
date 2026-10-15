@@ -54,66 +54,66 @@ export const CONFIG_FILE: string = CONFIG_FILES[0];
 
 /** What `sigil build` reads from the config. */
 export interface BuildConfig {
-	/**
-	 * Packages to import rather than inline.
-	 *
-	 * A native binding leaves no choice -- nothing inlines a `.node` -- and it
-	 * is the app saying its bundle is not self-contained, so it belongs beside
-	 * the app rather than in whoever happens to be typing the command.
-	 */
-	readonly external?: readonly string[];
-	/** What the executable is called, when the manifest's `bin` does not say. */
-	readonly name?: string;
-	/** Where the bundle goes, relative to the app. */
-	readonly out?: string;
-	/**
-	 * Utility classes to keep whatever the app's source says.
-	 *
-	 * The escape hatch style shaking needs and cannot do without: the scan is
-	 * evidence rather than proof, so a class assembled out of values that never
-	 * appear as literals in the source -- read from a config file, joined out of
-	 * an array that came from somewhere else -- leaves nothing behind and its
-	 * rule is dropped. This is how to say it anyway.
-	 */
-	readonly safelist?: readonly string[];
-	/**
-	 * Whether to shake the utility sheet. On by default.
-	 *
-	 * On by default because the sheet is opt-in already -- an app only pays for
-	 * it by calling `utilitySheet()` -- and because a build that quietly kept
-	 * everything is an optimization nobody notices is gone. Off is the blunt
-	 * answer for an app that would otherwise need a long safelist.
-	 */
-	readonly shake?: boolean;
-	/** Whether to write sourcemaps. */
-	readonly sourcemap?: boolean;
+  /**
+   * Packages to import rather than inline.
+   *
+   * A native binding leaves no choice -- nothing inlines a `.node` -- and it
+   * is the app saying its bundle is not self-contained, so it belongs beside
+   * the app rather than in whoever happens to be typing the command.
+   */
+  readonly external?: readonly string[];
+  /** What the executable is called, when the manifest's `bin` does not say. */
+  readonly name?: string;
+  /** Where the bundle goes, relative to the app. */
+  readonly out?: string;
+  /**
+   * Utility classes to keep whatever the app's source says.
+   *
+   * The escape hatch style shaking needs and cannot do without: the scan is
+   * evidence rather than proof, so a class assembled out of values that never
+   * appear as literals in the source -- read from a config file, joined out of
+   * an array that came from somewhere else -- leaves nothing behind and its
+   * rule is dropped. This is how to say it anyway.
+   */
+  readonly safelist?: readonly string[];
+  /**
+   * Whether to shake the utility sheet. On by default.
+   *
+   * On by default because the sheet is opt-in already -- an app only pays for
+   * it by calling `utilitySheet()` -- and because a build that quietly kept
+   * everything is an optimization nobody notices is gone. Off is the blunt
+   * answer for an app that would otherwise need a long safelist.
+   */
+  readonly shake?: boolean;
+  /** Whether to write sourcemaps. */
+  readonly sourcemap?: boolean;
 }
 
 /** `sigil.json`, as it is on disk. */
 export interface SigilConfig {
-	readonly build?: BuildConfig;
-	/** Where ejected components land, relative to the app. */
-	readonly components?: string;
-	/**
-	 * The locale the app falls back on when nothing else named one.
-	 *
-	 * Top level rather than under `build`, because it is a fact about the app
-	 * rather than a bundler knob: `"build": { "locale": ... }` would read as
-	 * *baking* a language in, which is a different thing that is deliberately
-	 * not done. What `sigil build` does with it is write `defaultLocale` into
-	 * the schema it generates, beside the version, because the runtime cannot
-	 * read this file -- reading one at startup is what `Schema.locales` being a
-	 * map rather than a directory convention exists to avoid.
-	 *
-	 * It is the bottom of the locale chain: `AppOptions.locale`, `SIGIL_LOCALE`,
-	 * `LC_ALL`, `LC_MESSAGES` and `LANG` all beat it, and it beats English. So
-	 * it says what the app ships in rather than overriding the user.
-	 *
-	 * Not validated as a locale tag here, because the runtime normalizes it and
-	 * a tag no catalog is keyed by already reads as English -- a second grammar
-	 * for BCP 47 in the toolchain would be one that disagrees with `Intl`.
-	 */
-	readonly locale?: string;
+  readonly build?: BuildConfig;
+  /** Where ejected components land, relative to the app. */
+  readonly components?: string;
+  /**
+   * The locale the app falls back on when nothing else named one.
+   *
+   * Top level rather than under `build`, because it is a fact about the app
+   * rather than a bundler knob: `"build": { "locale": ... }` would read as
+   * *baking* a language in, which is a different thing that is deliberately
+   * not done. What `sigil build` does with it is write `defaultLocale` into
+   * the schema it generates, beside the version, because the runtime cannot
+   * read this file -- reading one at startup is what `Schema.locales` being a
+   * map rather than a directory convention exists to avoid.
+   *
+   * It is the bottom of the locale chain: `AppOptions.locale`, `SIGIL_LOCALE`,
+   * `LC_ALL`, `LC_MESSAGES` and `LANG` all beat it, and it beats English. So
+   * it says what the app ships in rather than overriding the user.
+   *
+   * Not validated as a locale tag here, because the runtime normalizes it and
+   * a tag no catalog is keyed by already reads as English -- a second grammar
+   * for BCP 47 in the toolchain would be one that disagrees with `Intl`.
+   */
+  readonly locale?: string;
 }
 
 /** The fields `build` may hold, as the one list `readSection()` picks by. */
@@ -142,14 +142,14 @@ const FIELDS = ['external', 'name', 'out', 'safelist', 'shake', 'sourcemap'] as 
  * and the semantic checks are this tool's own.
  */
 export const CONFIG_SCHEMA: ConfigSchema = {
-	'build.external': { multiple: true, type: 'string' },
-	'build.name': { type: 'string' },
-	'build.out': { type: 'string' },
-	'build.safelist': { multiple: true, type: 'string' },
-	'build.shake': { type: 'bool' },
-	'build.sourcemap': { type: 'bool' },
-	components: { type: 'string' },
-	locale: { type: 'string' },
+  'build.external': { multiple: true, type: 'string' },
+  'build.name': { type: 'string' },
+  'build.out': { type: 'string' },
+  'build.safelist': { multiple: true, type: 'string' },
+  'build.shake': { type: 'bool' },
+  'build.sourcemap': { type: 'bool' },
+  components: { type: 'string' },
+  locale: { type: 'string' },
 };
 
 /**
@@ -165,20 +165,20 @@ export const CONFIG_SCHEMA: ConfigSchema = {
  * @throws If both files are there.
  */
 function configLayer(root: string): ConfigLayer {
-	const found = CONFIG_FILES.filter((name) => existsSync(join(root, name)));
+  const found = CONFIG_FILES.filter((name) => existsSync(join(root, name)));
 
-	if (found.length > 1) {
-		throw new Error(`${root} has both ${found.join(' and ')}; keep one.`);
-	}
+  if (found.length > 1) {
+    throw new Error(`${root} has both ${found.join(' and ')}; keep one.`);
+  }
 
-	// the `.json` one when there is neither, because that is the one `sigil new`
-	// writes and the one a message should name
-	const name = found[0] ?? CONFIG_FILE;
+  // the `.json` one when there is neither, because that is the one `sigil new`
+  // writes and the one a message should name
+  const name = found[0] ?? CONFIG_FILE;
 
-	// one reader for either extension, so there is nothing here that has to ask
-	// which name it got -- the branch this replaces picked a strict reader for a
-	// `.json`, which is the asymmetry the two stores collapsing removed
-	return { name, store: json(join(root, name)) };
+  // one reader for either extension, so there is nothing here that has to ask
+  // which name it got -- the branch this replaces picked a strict reader for a
+  // `.json`, which is the asymmetry the two stores collapsing removed
+  return { name, store: json(join(root, name)) };
 }
 
 /**
@@ -212,24 +212,24 @@ function configLayer(root: string): ConfigLayer {
  * @throws If the file is not readable as the shape it claims.
  */
 export function readSigilConfig(root: string): SigilConfig {
-	// one layer, which is this file. The stack is what an *app* reaches for; the
-	// toolchain has exactly one place its own settings live, and a second layer
-	// would be a second place to look for an answer to one question
-	const config = createConfigSync({ layers: [configLayer(root)], schema: CONFIG_SCHEMA });
+  // one layer, which is this file. The stack is what an *app* reaches for; the
+  // toolchain has exactly one place its own settings live, and a second layer
+  // would be a second place to look for an answer to one question
+  const config = createConfigSync({ layers: [configLayer(root)], schema: CONFIG_SCHEMA });
 
-	const section = config.get('build');
-	const build = readSection(section);
-	const components = readName(config.get('components'), 'components');
-	const locale = readName(config.get('locale'), 'locale');
+  const section = config.get('build');
+  const build = readSection(section);
+  const components = readName(config.get('components'), 'components');
+  const locale = readName(config.get('locale'), 'locale');
 
-	// the keys are set only where the file said something, so that a directory
-	// with no file in it and a file holding `{}` are the same answer -- which they
-	// are, and which the old reader distinguished only by returning early
-	return {
-		...(build && { build }),
-		...(components !== undefined && { components: readRelative(components) }),
-		...(locale !== undefined && { locale }),
-	};
+  // the keys are set only where the file said something, so that a directory
+  // with no file in it and a file holding `{}` are the same answer -- which they
+  // are, and which the old reader distinguished only by returning early
+  return {
+    ...(build && { build }),
+    ...(components !== undefined && { components: readRelative(components) }),
+    ...(locale !== undefined && { locale }),
+  };
 }
 
 /**
@@ -250,27 +250,27 @@ export function readSigilConfig(root: string): SigilConfig {
  * @throws If it is there and is not an object.
  */
 function readSection(value: unknown): BuildConfig | undefined {
-	if (value === undefined) {
-		return undefined;
-	}
-	if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-		throw new Error(`${CONFIG_FILE}: "build" must be an object`);
-	}
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`${CONFIG_FILE}: "build" must be an object`);
+  }
 
-	// the declared fields and nothing else, which is what the hand-written reader
-	// did by naming each one. The merged view holds whatever the *file* holds, so
-	// passing it through would hand back an object with keys `BuildConfig` does
-	// not declare -- a value that lies about its own type, over a key that is
-	// almost always a typo for one of these six
-	const held = value as Record<string, unknown>;
-	const build: Record<string, unknown> = {};
-	for (const field of FIELDS) {
-		if (Object.hasOwn(held, field)) {
-			build[field] = held[field];
-		}
-	}
+  // the declared fields and nothing else, which is what the hand-written reader
+  // did by naming each one. The merged view holds whatever the *file* holds, so
+  // passing it through would hand back an object with keys `BuildConfig` does
+  // not declare -- a value that lies about its own type, over a key that is
+  // almost always a typo for one of these six
+  const held = value as Record<string, unknown>;
+  const build: Record<string, unknown> = {};
+  for (const field of FIELDS) {
+    if (Object.hasOwn(held, field)) {
+      build[field] = held[field];
+    }
+  }
 
-	return Object.keys(build).length > 0 ? readBuild(build as BuildConfig) : undefined;
+  return Object.keys(build).length > 0 ? readBuild(build as BuildConfig) : undefined;
 }
 
 /**
@@ -288,13 +288,13 @@ function readSection(value: unknown): BuildConfig | undefined {
  * @throws If it is there and empty.
  */
 function readName(value: unknown, field: string): string | undefined {
-	if (value === undefined) {
-		return undefined;
-	}
-	if (!value) {
-		throw new Error(`${CONFIG_FILE}: "${field}" must be a non-empty string`);
-	}
-	return value as string;
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!value) {
+    throw new Error(`${CONFIG_FILE}: "${field}" must be a non-empty string`);
+  }
+  return value as string;
 }
 
 /**
@@ -309,10 +309,10 @@ function readName(value: unknown, field: string): string | undefined {
  * @throws If it is absolute.
  */
 function readRelative(value: string): string {
-	if (isAbsolute(value)) {
-		throw new Error(`${CONFIG_FILE}: "components" must be relative to the app`);
-	}
-	return value;
+  if (isAbsolute(value)) {
+    throw new Error(`${CONFIG_FILE}: "components" must be relative to the app`);
+  }
+  return value;
 }
 
 /**
@@ -327,17 +327,17 @@ function readRelative(value: string): string {
  * @throws If a name in it is empty.
  */
 function readBuild(build: BuildConfig): BuildConfig {
-	readName(build.name, 'build.name');
-	readName(build.out, 'build.out');
+  readName(build.name, 'build.name');
+  readName(build.out, 'build.out');
 
-	for (const [field, names, what] of [
-		['build.external', build.external, 'package names'],
-		['build.safelist', build.safelist, 'class names'],
-	] as const) {
-		if (names?.some((name) => !name)) {
-			throw new Error(`${CONFIG_FILE}: "${field}" must be an array of ${what}`);
-		}
-	}
+  for (const [field, names, what] of [
+    ['build.external', build.external, 'package names'],
+    ['build.safelist', build.safelist, 'class names'],
+  ] as const) {
+    if (names?.some((name) => !name)) {
+      throw new Error(`${CONFIG_FILE}: "${field}" must be an array of ${what}`);
+    }
+  }
 
-	return build;
+  return build;
 }

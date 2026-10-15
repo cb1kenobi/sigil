@@ -18,24 +18,24 @@ import { stringWidth } from '../width/index.js';
 
 /** One row of a two-column list: a term and what it means. */
 export interface Definition {
-	/** What it means, as runs, so a parenthetical can be dimmed. */
-	desc?: readonly (TextRun | string)[];
-	label: string;
+  /** What it means, as runs, so a parenthetical can be dimmed. */
+  desc?: readonly (TextRun | string)[];
+  label: string;
 }
 
 export interface ListOptions {
-	/** The columns between the label and its description. */
-	gap: number;
-	/** How far the labels are indented. */
-	indent: number;
-	/**
-	 * The widest a label column is allowed to get before the descriptions start
-	 * on their own lines instead. A long flag should not push every description
-	 * into a gutter two columns wide.
-	 */
-	maxLabel: number;
-	/** The column to wrap at. */
-	width: number;
+  /** The columns between the label and its description. */
+  gap: number;
+  /** How far the labels are indented. */
+  indent: number;
+  /**
+   * The widest a label column is allowed to get before the descriptions start
+   * on their own lines instead. A long flag should not push every description
+   * into a gutter two columns wide.
+   */
+  maxLabel: number;
+  /** The column to wrap at. */
+  width: number;
 }
 
 /**
@@ -57,35 +57,35 @@ const MIN_DESC = 20;
  * @returns The list.
  */
 export function definitions(items: readonly Definition[], opts: ListOptions): Element {
-	const { gap, indent, maxLabel, width } = opts;
+  const { gap, indent, maxLabel, width } = opts;
 
-	// a label wider than the column is going to take a line of its own, so it
-	// does not get to widen the column for everything else: one long flag would
-	// otherwise leave every short one trailing twenty spaces before its
-	// description
-	const fitting = items.map((item) => stringWidth(item.label)).filter((w) => w <= maxLabel);
-	const labelWidth = Math.max(...fitting, 0);
-	const column = indent + labelWidth + gap;
+  // a label wider than the column is going to take a line of its own, so it
+  // does not get to widen the column for everything else: one long flag would
+  // otherwise leave every short one trailing twenty spaces before its
+  // description
+  const fitting = items.map((item) => stringWidth(item.label)).filter((w) => w <= maxLabel);
+  const labelWidth = Math.max(...fitting, 0);
+  const column = indent + labelWidth + gap;
 
-	// when there is not enough room left for a description to read as prose, the
-	// two columns become one: every label takes a line and its description is
-	// indented under it. Wrapping to a handful of columns is a word per line, and
-	// running past the terminal's edge is worse still
-	const stacked = width - column < MIN_DESC;
+  // when there is not enough room left for a description to read as prose, the
+  // two columns become one: every label takes a line and its description is
+  // indented under it. Wrapping to a handful of columns is a word per line, and
+  // running past the terminal's edge is worse still
+  const stacked = width - column < MIN_DESC;
 
-	return box(
-		{ 'flex-direction': 'column' },
-		...items.map((item) => row(item, { column, gap, indent, labelWidth, maxLabel, stacked, width }))
-	);
+  return box(
+    { 'flex-direction': 'column' },
+    ...items.map((item) => row(item, { column, gap, indent, labelWidth, maxLabel, stacked, width }))
+  );
 }
 
 interface RowOptions extends ListOptions {
-	/** Where a description starts, from the left margin. */
-	column: number;
-	/** How wide the label column came out. */
-	labelWidth: number;
-	/** Whether the list gave up on two columns. */
-	stacked: boolean;
+  /** Where a description starts, from the left margin. */
+  column: number;
+  /** How wide the label column came out. */
+  labelWidth: number;
+  /** Whether the list gave up on two columns. */
+  stacked: boolean;
 }
 
 /**
@@ -96,63 +96,63 @@ interface RowOptions extends ListOptions {
  * @returns The row.
  */
 function row(item: Definition, opts: RowOptions): Element {
-	const { column, gap, indent, labelWidth, stacked, width } = opts;
-	const label = labelLines(item.label, width, indent);
+  const { column, gap, indent, labelWidth, stacked, width } = opts;
+  const label = labelLines(item.label, width, indent);
 
-	// a label wider than the room it has keeps its own width rather than being
-	// stretched to the box it sits in: the grid a string is painted into is as
-	// wide as what came out, so a flag name longer than the terminal survives and
-	// the terminal wraps it -- which is the rule `labelLines()` records, and which
-	// a box shrunk to the screen would silently turn into a truncation
-	const labelWide = Math.max(...label.split('\n').map((line) => stringWidth(line)));
-	const labelProps: Record<string, number | string> = {
-		'flex-shrink': 0,
-		'white-space': 'nowrap',
-		// only where it overhangs, because a declared width is what stops the box
-		// from being stretched to the column and the text from being cut off there;
-		// where the label fits, its own content is already the answer
-		...(labelWide > labelWidth ? { width: labelWide } : {}),
-	};
+  // a label wider than the room it has keeps its own width rather than being
+  // stretched to the box it sits in: the grid a string is painted into is as
+  // wide as what came out, so a flag name longer than the terminal survives and
+  // the terminal wraps it -- which is the rule `labelLines()` records, and which
+  // a box shrunk to the screen would silently turn into a truncation
+  const labelWide = Math.max(...label.split('\n').map((line) => stringWidth(line)));
+  const labelProps: Record<string, number | string> = {
+    'flex-shrink': 0,
+    'white-space': 'nowrap',
+    // only where it overhangs, because a declared width is what stops the box
+    // from being stretched to the column and the text from being cut off there;
+    // where the label fits, its own content is already the answer
+    ...(labelWide > labelWidth ? { width: labelWide } : {}),
+  };
 
-	if (!item.desc?.length) {
-		return box(
-			{ 'align-items': 'flex-start', 'padding-left': indent },
-			textNode(label, labelProps)
-		);
-	}
+  if (!item.desc?.length) {
+    return box(
+      { 'align-items': 'flex-start', 'padding-left': indent },
+      textNode(label, labelProps)
+    );
+  }
 
-	if (stacked) {
-		// the one-column fallback: a label per line, its description under it
-		return box(
-			{ 'align-items': 'flex-start', 'flex-direction': 'column', 'padding-left': indent },
-			textNode(label, labelProps),
-			// at least the padding and a column to put something in: a caller that
-			// set an `indent` as wide as the screen left the description a border-box
-			// width its own padding ate, and every description disappeared
-			description(item.desc, { 'padding-left': 2, width: Math.max(3, width - indent) })
-		);
-	}
+  if (stacked) {
+    // the one-column fallback: a label per line, its description under it
+    return box(
+      { 'align-items': 'flex-start', 'flex-direction': 'column', 'padding-left': indent },
+      textNode(label, labelProps),
+      // at least the padding and a column to put something in: a caller that
+      // set an `indent` as wide as the screen left the description a border-box
+      // width its own padding ate, and every description disappeared
+      description(item.desc, { 'padding-left': 2, width: Math.max(3, width - indent) })
+    );
+  }
 
-	if (stringWidth(item.label) > labelWidth) {
-		// the label does not fit its column, so it takes the line and the whole
-		// description starts on the next one, in the column it would have been in
-		return box(
-			{ 'align-items': 'flex-start', 'flex-direction': 'column', 'padding-left': indent },
-			textNode(label, labelProps),
-			description(item.desc, {
-				'padding-left': labelWidth + gap,
-				width: Math.max(labelWidth + gap + 1, width - indent),
-			})
-		);
-	}
+  if (stringWidth(item.label) > labelWidth) {
+    // the label does not fit its column, so it takes the line and the whole
+    // description starts on the next one, in the column it would have been in
+    return box(
+      { 'align-items': 'flex-start', 'flex-direction': 'column', 'padding-left': indent },
+      textNode(label, labelProps),
+      description(item.desc, {
+        'padding-left': labelWidth + gap,
+        width: Math.max(labelWidth + gap + 1, width - indent),
+      })
+    );
+  }
 
-	return box(
-		{ 'column-gap': gap, 'flex-direction': 'row', 'padding-left': indent },
-		// the label keeps its column whatever the description needs, which is what
-		// lines the descriptions up: shrinking it is what `flex-shrink: 0` refuses
-		textNode(item.label, { 'flex-shrink': 0, 'white-space': 'nowrap', width: labelWidth }),
-		description(item.desc, { width: Math.max(1, width - column) })
-	);
+  return box(
+    { 'column-gap': gap, 'flex-direction': 'row', 'padding-left': indent },
+    // the label keeps its column whatever the description needs, which is what
+    // lines the descriptions up: shrinking it is what `flex-shrink: 0` refuses
+    textNode(item.label, { 'flex-shrink': 0, 'white-space': 'nowrap', width: labelWidth }),
+    description(item.desc, { width: Math.max(1, width - column) })
+  );
 }
 
 /**
@@ -200,7 +200,7 @@ function row(item: Definition, opts: RowOptions): Element {
  * @returns The description.
  */
 function description(runs: readonly (TextRun | string)[], props: Record<string, number>): Element {
-	return paragraph(runs, { 'flex-shrink': 0, ...props });
+  return paragraph(runs, { 'flex-shrink': 0, ...props });
 }
 
 /**
@@ -224,33 +224,33 @@ function description(runs: readonly (TextRun | string)[], props: Record<string, 
  * @returns The label, with its own line breaks in it.
  */
 export function labelLines(label: string, width: number, indent: number): string {
-	const room = Math.max(width - indent, 1);
+  const room = Math.max(width - indent, 1);
 
-	if (stringWidth(label) <= room) {
-		return label;
-	}
+  if (stringWidth(label) <= room) {
+    return label;
+  }
 
-	const parts = label.split(', ');
-	const lines: string[] = [];
-	let line = '';
+  const parts = label.split(', ');
+  const lines: string[] = [];
+  let line = '';
 
-	for (const [index, part] of parts.entries()) {
-		const piece = index < parts.length - 1 ? `${part},` : part;
-		const candidate = line === '' ? piece : `${line} ${piece}`;
+  for (const [index, part] of parts.entries()) {
+    const piece = index < parts.length - 1 ? `${part},` : part;
+    const candidate = line === '' ? piece : `${line} ${piece}`;
 
-		if (line !== '' && stringWidth(candidate) > room) {
-			lines.push(line);
-			line = piece;
-		} else {
-			line = candidate;
-		}
-	}
+    if (line !== '' && stringWidth(candidate) > room) {
+      lines.push(line);
+      line = piece;
+    } else {
+      line = candidate;
+    }
+  }
 
-	if (line !== '') {
-		lines.push(line);
-	}
+  if (line !== '') {
+    lines.push(line);
+  }
 
-	return lines.join('\n');
+  return lines.join('\n');
 }
 
 /**
@@ -262,7 +262,7 @@ export function labelLines(label: string, width: number, indent: number): string
  * @returns The block.
  */
 export function section(title: string, items: readonly Definition[], opts: ListOptions): Element {
-	return box({ 'flex-direction': 'column' }, heading(title), definitions(items, opts));
+  return box({ 'flex-direction': 'column' }, heading(title), definitions(items, opts));
 }
 
 /**
@@ -280,7 +280,7 @@ export function section(title: string, items: readonly Definition[], opts: ListO
  * @returns The heading.
  */
 export function heading(title: string): Element {
-	return paragraph([{ class: 'sigil-help-heading sigil-heading', text: title }]);
+  return paragraph([{ class: 'sigil-help-heading sigil-heading', text: title }]);
 }
 
 /**
@@ -297,20 +297,20 @@ export function heading(title: string): Element {
  * @returns The block.
  */
 export function hanging(
-	label: string,
-	runs: readonly (TextRun | string)[],
-	width: number
+  label: string,
+  runs: readonly (TextRun | string)[],
+  width: number
 ): Element {
-	return box(
-		{ 'column-gap': 1, 'flex-direction': 'row' },
-		textNode(label, {
-			class: 'sigil-help-heading sigil-heading',
-			'flex-shrink': 0,
-			'white-space': 'nowrap',
-		}),
-		paragraph(runs, {
-			'flex-shrink': 0,
-			width: Math.max(1, width - stringWidth(label) - 1),
-		})
-	);
+  return box(
+    { 'column-gap': 1, 'flex-direction': 'row' },
+    textNode(label, {
+      class: 'sigil-help-heading sigil-heading',
+      'flex-shrink': 0,
+      'white-space': 'nowrap',
+    }),
+    paragraph(runs, {
+      'flex-shrink': 0,
+      width: Math.max(1, width - stringWidth(label) - 1),
+    })
+  );
 }

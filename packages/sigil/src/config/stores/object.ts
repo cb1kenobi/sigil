@@ -16,11 +16,11 @@ import type { ConfigDocument, WritableConfigStore, WriteOptions } from '../types
  * const mod = await import('./app.config.js');
  *
  * const config = await createConfig({
- * 	schema,
- * 	layers: [
- * 		{ name: 'defaults', store: object(mod.default) },
- * 		{ name: 'user',     store: jsonc(paths.configHome('myapp', 'config.jsonc')) },
- * 	],
+ *   schema,
+ *   layers: [
+ *     { name: 'defaults', store: object(mod.default) },
+ *     { name: 'user',     store: jsonc(paths.configHome('myapp', 'config.jsonc')) },
+ *   ],
  * });
  * ```
  *
@@ -56,22 +56,22 @@ import type { ConfigDocument, WritableConfigStore, WriteOptions } from '../types
  * @returns The store.
  */
 export function object(value: unknown = {}): WritableConfigStore {
-	let held = value;
+  let held = value;
 
-	return {
-		format: 'object',
-		read(): Promise<ConfigDocument> {
-			return Promise.resolve({ value: held });
-		},
-		readSync(): ConfigDocument {
-			return { value: held };
-		},
-		write(next: unknown, _opts?: WriteOptions): Promise<void> {
-			held = next;
-			return Promise.resolve();
-		},
-		writeSync(next: unknown, _opts?: WriteOptions): void {
-			held = next;
-		},
-	};
+  return {
+    format: 'object',
+    read(): Promise<ConfigDocument> {
+      return Promise.resolve({ value: held });
+    },
+    readSync(): ConfigDocument {
+      return { value: held };
+    },
+    write(next: unknown, _opts?: WriteOptions): Promise<void> {
+      held = next;
+      return Promise.resolve();
+    },
+    writeSync(next: unknown, _opts?: WriteOptions): void {
+      held = next;
+    },
+  };
 }

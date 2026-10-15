@@ -109,23 +109,23 @@ const RELEASE = `${ESC}[<0;41;13m`;
  * @returns What iTerm2 then looks for in the program's screen text.
  */
 function residue(report: string): string {
-	let ignore = 0;
-	let out = '';
-	for (const ch of report) {
-		const code = ch.charCodeAt(0);
-		if (code === 27) {
-			ignore = 3;
-		}
-		if (ignore > 0) {
-			ignore -= 1;
-			continue;
-		}
-		if (code < 32) {
-			continue;
-		}
-		out += ch;
-	}
-	return out.length > 32 ? out.slice(out.length - 32) : out;
+  let ignore = 0;
+  let out = '';
+  for (const ch of report) {
+    const code = ch.charCodeAt(0);
+    if (code === 27) {
+      ignore = 3;
+    }
+    if (ignore > 0) {
+      ignore -= 1;
+      continue;
+    }
+    if (code < 32) {
+      continue;
+    }
+    out += ch;
+  }
+  return out.length > 32 ? out.slice(out.length - 32) : out;
 }
 
 /** Whether iTerm2 would arm an expectation for a report at all. */
@@ -141,19 +141,19 @@ const arms = (report: string): boolean => residue(report).length > 6;
  * calls it through `?.`.
  */
 const PRELOAD = `data:text/javascript,${encodeURIComponent(
-	[
-		'const d=(o,k,v)=>Object.defineProperty(o,k,{configurable:true,writable:true,value:v});',
-		'd(process.stdout,"isTTY",true);d(process.stdout,"columns",100);d(process.stdout,"rows",30);',
-		'd(process.stdin,"isTTY",true);d(process.stdin,"setRawMode",function(){return this;});',
-	].join('')
+  [
+    'const d=(o,k,v)=>Object.defineProperty(o,k,{configurable:true,writable:true,value:v});',
+    'd(process.stdout,"isTTY",true);d(process.stdout,"columns",100);d(process.stdout,"rows",30);',
+    'd(process.stdin,"isTTY",true);d(process.stdin,"setRawMode",function(){return this;});',
+  ].join('')
 )}`;
 
 /** What one run of the probe's raw step came to. */
 interface Run {
-	/** Everything it wrote, with the escape sequences taken out. */
-	screen: string;
-	/** The `raw` lines, which are what the step is for. */
-	rawLines: string[];
+  /** Everything it wrote, with the escape sequences taken out. */
+  screen: string;
+  /** The `raw` lines, which are what the step is for. */
+  rawLines: string[];
 }
 
 /**
@@ -167,127 +167,127 @@ interface Run {
  * never prints one fails for saying so rather than by asserting an absence.
  */
 async function runRawStep(): Promise<Run> {
-	if (!existsSync(built)) {
-		throw new Error(`${built} is missing -- run \`pnpm build\` before this test`);
-	}
+  if (!existsSync(built)) {
+    throw new Error(`${built} is missing -- run \`pnpm build\` before this test`);
+  }
 
-	const child = spawn(process.execPath, ['--import', PRELOAD, probe, '--mouse'], {
-		cwd: root,
-		env: { ...process.env, COLUMNS: '100', LINES: '30', TERM: 'xterm-256color' },
-		stdio: ['pipe', 'pipe', 'pipe'],
-	});
+  const child = spawn(process.execPath, ['--import', PRELOAD, probe, '--mouse'], {
+    cwd: root,
+    env: { ...process.env, COLUMNS: '100', LINES: '30', TERM: 'xterm-256color' },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
 
-	let out = '';
-	child.stdout.on('data', (d: Buffer) => {
-		out += String(d);
-		// answer the cursor-position request an inline canvas asks, the way a
-		// terminal would. Not needed for the raw step, which paints nothing, and
-		// cheap insurance against a step order that changes
-		for (let i = 0; i < String(d).split(`${ESC}[6n`).length - 1; i++) {
-			child.stdin.write(`${ESC}[20;1R`);
-		}
-	});
-	child.stderr.on('data', () => {});
+  let out = '';
+  child.stdout.on('data', (d: Buffer) => {
+    out += String(d);
+    // answer the cursor-position request an inline canvas asks, the way a
+    // terminal would. Not needed for the raw step, which paints nothing, and
+    // cheap insurance against a step order that changes
+    for (let i = 0; i < String(d).split(`${ESC}[6n`).length - 1; i++) {
+      child.stdin.write(`${ESC}[20;1R`);
+    }
+  });
+  child.stderr.on('data', () => {});
 
-	const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-	const rawOf = (text: string) =>
-		strip(text)
-			.split(/\r?\n/)
-			.map((l) => l.trim())
-			.filter((l) => l.startsWith('raw '));
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const rawOf = (text: string) =>
+    strip(text)
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith('raw '));
 
-	try {
-		const deadline = Date.now() + 20_000;
-		while (Date.now() < deadline && rawOf(out).length < 2) {
-			child.stdin.write(PRESS);
-			await sleep(60);
-			child.stdin.write(RELEASE);
-			await sleep(140);
-		}
-		// and then end the step the way a reader does, because the chunk holding
-		// `q` is a chunk the tap sees: recording it printed `raw "q"` under a
-		// heading about what a raw line holds, on every run of every raw step. A
-		// test that never pressed `q` could not see it.
-		child.stdin.write('q');
-		// two drain intervals, which is the probe's own 50ms timer plus slack
-		await sleep(200);
-		return { rawLines: rawOf(out), screen: strip(out) };
-	} finally {
-		child.kill('SIGKILL');
-	}
+  try {
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline && rawOf(out).length < 2) {
+      child.stdin.write(PRESS);
+      await sleep(60);
+      child.stdin.write(RELEASE);
+      await sleep(140);
+    }
+    // and then end the step the way a reader does, because the chunk holding
+    // `q` is a chunk the tap sees: recording it printed `raw "q"` under a
+    // heading about what a raw line holds, on every run of every raw step. A
+    // test that never pressed `q` could not see it.
+    child.stdin.write('q');
+    // two drain intervals, which is the probe's own 50ms timer plus slack
+    await sleep(200);
+    return { rawLines: rawOf(out), screen: strip(out) };
+  } finally {
+    child.kill('SIGKILL');
+  }
 }
 
 describe('the mouse report iTerm2 reads as an echo', () => {
-	it('should strip the introducer and the control bytes, leaving the parameters', () => {
-		expect(residue(PRESS)).to.equal('0;41;13M');
-		expect(residue(RELEASE)).to.equal('0;41;13m');
-		expect(residue(`${ESC}[<35;42;14M`)).to.equal('35;42;14M');
-		expect(residue(`${ESC}[<64;41;13M`)).to.equal('64;41;13M');
-	});
+  it('should strip the introducer and the control bytes, leaving the parameters', () => {
+    expect(residue(PRESS)).to.equal('0;41;13M');
+    expect(residue(RELEASE)).to.equal('0;41;13m');
+    expect(residue(`${ESC}[<35;42;14M`)).to.equal('35;42;14M');
+    expect(residue(`${ESC}[<64;41;13M`)).to.equal('64;41;13M');
+  });
 
-	it("should arm on seven characters and not on six, which is the corner press's edge", () => {
-		// both sides of `if (string.length > 6)`. Six is a real report -- a press in
-		// the very top-left corner -- so the threshold is reachable from below as
-		// well as from above, and asserting only one side leaves the other free
-		expect(residue(`${ESC}[<0;1;1M`)).to.equal('0;1;1M');
-		expect(residue(`${ESC}[<0;1;1M`)).to.have.lengthOf(6);
-		expect(arms(`${ESC}[<0;1;1M`)).to.equal(false);
+  it("should arm on seven characters and not on six, which is the corner press's edge", () => {
+    // both sides of `if (string.length > 6)`. Six is a real report -- a press in
+    // the very top-left corner -- so the threshold is reachable from below as
+    // well as from above, and asserting only one side leaves the other free
+    expect(residue(`${ESC}[<0;1;1M`)).to.equal('0;1;1M');
+    expect(residue(`${ESC}[<0;1;1M`)).to.have.lengthOf(6);
+    expect(arms(`${ESC}[<0;1;1M`)).to.equal(false);
 
-		expect(residue(`${ESC}[<0;10;1M`)).to.equal('0;10;1M');
-		expect(residue(`${ESC}[<0;10;1M`)).to.have.lengthOf(7);
-		expect(arms(`${ESC}[<0;10;1M`)).to.equal(true);
+    expect(residue(`${ESC}[<0;10;1M`)).to.equal('0;10;1M');
+    expect(residue(`${ESC}[<0;10;1M`)).to.have.lengthOf(7);
+    expect(arms(`${ESC}[<0;10;1M`)).to.equal(true);
 
-		expect(arms(PRESS)).to.equal(true);
-	});
+    expect(arms(PRESS)).to.equal(true);
+  });
 
-	it('should keep the last 32 bytes of a run long enough to need capping', () => {
-		// the other branch no fixture reached. Four motion reports coalesced into one
-		// read come to forty characters of residue, and what iTerm2 keeps is the tail
-		const drag = `${ESC}[<32;100;40M`.repeat(4);
+  it('should keep the last 32 bytes of a run long enough to need capping', () => {
+    // the other branch no fixture reached. Four motion reports coalesced into one
+    // read come to forty characters of residue, and what iTerm2 keeps is the tail
+    const drag = `${ESC}[<32;100;40M`.repeat(4);
 
-		// under the cap, so the whole thing survives: three of the same reports
-		expect(residue(`${ESC}[<32;100;40M`.repeat(3))).to.equal('32;100;40M'.repeat(3));
-		expect(residue(`${ESC}[<32;100;40M`.repeat(3))).to.have.lengthOf(30);
+    // under the cap, so the whole thing survives: three of the same reports
+    expect(residue(`${ESC}[<32;100;40M`.repeat(3))).to.equal('32;100;40M'.repeat(3));
+    expect(residue(`${ESC}[<32;100;40M`.repeat(3))).to.have.lengthOf(30);
 
-		// over it, so the first eight go
-		expect(residue(drag)).to.equal('0M32;100;40M32;100;40M32;100;40M');
-		expect(residue(drag)).to.have.lengthOf(32);
-	});
+    // over it, so the first eight go
+    expect(residue(drag)).to.equal('0M32;100;40M32;100;40M32;100;40M');
+    expect(residue(drag)).to.have.lengthOf(32);
+  });
 
-	it(
-		'should not be printed verbatim by the probe, which iTerm2 reads as a stuck mouse',
-		{ timeout: 60_000 },
-		async () => {
-			const { rawLines, screen } = await runRawStep();
+  it(
+    'should not be printed verbatim by the probe, which iTerm2 reads as a stuck mouse',
+    { timeout: 60_000 },
+    async () => {
+      const { rawLines, screen } = await runRawStep();
 
-			// the step has to have run at all, or everything below passes by absence
-			expect(rawLines.length, `raw lines printed:\n${rawLines.join('\n')}`).toBeGreaterThan(1);
+      // the step has to have run at all, or everything below passes by absence
+      expect(rawLines.length, `raw lines printed:\n${rawLines.join('\n')}`).toBeGreaterThan(1);
 
-			// what the probe is for: the introducer is legible, which is what the
-			// step's claim line promises of a raw line of a report. This asserts one
-			// such line is present and spaced -- not that every raw line matches,
-			// which is the heading's claim and a wider thing than a test that feeds
-			// one report can see
-			expect(screen).toContain('ESC [ < 0 ; 41 ; 13 M');
+      // what the probe is for: the introducer is legible, which is what the
+      // step's claim line promises of a raw line of a report. This asserts one
+      // such line is present and spaced -- not that every raw line matches,
+      // which is the heading's claim and a wider thing than a test that feeds
+      // one report can see
+      expect(screen).toContain('ESC [ < 0 ; 41 ; 13 M');
 
-			// and the quit key is not recorded as a report. `q` holds neither
-			// introducer, so a `raw "q"` line is one the heading above cannot be true
-			// of -- and it is the one chunk every raw step receives on every run
-			for (const line of rawLines) {
-				expect(line, 'a raw line that is not a report').to.satisfy(
-					(l: string) => l.includes('ESC [ <') || l.includes('ESC [ M')
-				);
-			}
+      // and the quit key is not recorded as a report. `q` holds neither
+      // introducer, so a `raw "q"` line is one the heading above cannot be true
+      // of -- and it is the one chunk every raw step receives on every run
+      for (const line of rawLines) {
+        expect(line, 'a raw line that is not a report').to.satisfy(
+          (l: string) => l.includes('ESC [ <') || l.includes('ESC [ M')
+        );
+      }
 
-			// and what SIG-128 is for: no line holds the contiguous run
-			for (const report of [PRESS, RELEASE]) {
-				expect(arms(report)).to.equal(true);
-				expect(
-					screen,
-					`${JSON.stringify(residue(report))} reached the screen, which is what iTerm2's ` +
-						'AutodetectMouseReportingStuck watches for'
-				).not.toContain(residue(report));
-			}
-		}
-	);
+      // and what SIG-128 is for: no line holds the contiguous run
+      for (const report of [PRESS, RELEASE]) {
+        expect(arms(report)).to.equal(true);
+        expect(
+          screen,
+          `${JSON.stringify(residue(report))} reached the screen, which is what iTerm2's ` +
+            'AutodetectMouseReportingStuck watches for'
+        ).not.toContain(residue(report));
+      }
+    }
+  );
 });

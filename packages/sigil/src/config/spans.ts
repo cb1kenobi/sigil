@@ -67,10 +67,10 @@ export const LINE_END: RegExp = /[\n\r\u2028\u2029]/;
 
 /** A half-open range of a source text. */
 export interface Span {
-	/** The offset just past it. */
-	readonly end: number;
-	/** The offset it starts at. */
-	readonly start: number;
+  /** The offset just past it. */
+  readonly end: number;
+  /** The offset it starts at. */
+  readonly start: number;
 }
 
 /**
@@ -81,12 +81,12 @@ export interface Span {
  * shapes would be two places to ask it.
  */
 export interface Edit {
-	/** The offset just past what it replaces. */
-	readonly end: number;
-	/** The offset it starts at. */
-	readonly start: number;
-	/** What goes there. */
-	readonly text: string;
+  /** The offset just past what it replaces. */
+  readonly end: number;
+  /** The offset it starts at. */
+  readonly start: number;
+  /** What goes there. */
+  readonly text: string;
 }
 
 /**
@@ -117,43 +117,43 @@ export interface Edit {
  * @throws If two edits overlap, or one ends before it starts.
  */
 export function applyEdits(source: string, edits: readonly Edit[]): string {
-	if (edits.length === 0) {
-		return source;
-	}
+  if (edits.length === 0) {
+    return source;
+  }
 
-	// an insertion before a replacement that starts at the same offset, which is
-	// a rule here rather than an ordering constraint on every emitter: adding a
-	// key to an object whose last member is being removed puts the new member's
-	// separator at exactly the offset the removal starts at, and an emitter that
-	// had to get that order right is one that gets it wrong
-	const sorted = [...edits].sort(
-		(a, b) => a.start - b.start || a.end - a.start - (b.end - b.start)
-	);
-	const out: string[] = [];
-	let at = 0;
+  // an insertion before a replacement that starts at the same offset, which is
+  // a rule here rather than an ordering constraint on every emitter: adding a
+  // key to an object whose last member is being removed puts the new member's
+  // separator at exactly the offset the removal starts at, and an emitter that
+  // had to get that order right is one that gets it wrong
+  const sorted = [...edits].sort(
+    (a, b) => a.start - b.start || a.end - a.start - (b.end - b.start)
+  );
+  const out: string[] = [];
+  let at = 0;
 
-	for (const edit of sorted) {
-		// an inverted span is the other half of "ordered and non-overlapping", and
-		// it was the half that corrupted silently rather than throwing: `end` before
-		// `start` leaves the cursor behind where the slice ended, so `[2, 1)` over
-		// `abc` came out `abXbc` -- the text duplicated rather than replaced. A
-		// tripwire like its sibling, since no emitter here produces one; what it
-		// buys is that the day one does, it is a bug report rather than a file
-		if (edit.end < edit.start) {
-			throw new Error(`Inverted config edit: [${edit.start}, ${edit.end}) ends before it starts`);
-		}
+  for (const edit of sorted) {
+    // an inverted span is the other half of "ordered and non-overlapping", and
+    // it was the half that corrupted silently rather than throwing: `end` before
+    // `start` leaves the cursor behind where the slice ended, so `[2, 1)` over
+    // `abc` came out `abXbc` -- the text duplicated rather than replaced. A
+    // tripwire like its sibling, since no emitter here produces one; what it
+    // buys is that the day one does, it is a bug report rather than a file
+    if (edit.end < edit.start) {
+      throw new Error(`Inverted config edit: [${edit.start}, ${edit.end}) ends before it starts`);
+    }
 
-		if (edit.start < at) {
-			throw new Error(
-				`Overlapping config edits: [${edit.start}, ${edit.end}) starts inside what has already been written to ${at}`
-			);
-		}
-		out.push(source.slice(at, edit.start), edit.text);
-		at = edit.end;
-	}
+    if (edit.start < at) {
+      throw new Error(
+        `Overlapping config edits: [${edit.start}, ${edit.end}) starts inside what has already been written to ${at}`
+      );
+    }
+    out.push(source.slice(at, edit.start), edit.text);
+    at = edit.end;
+  }
 
-	out.push(source.slice(at));
-	return out.join('');
+  out.push(source.slice(at));
+  return out.join('');
 }
 
 /**
@@ -174,17 +174,17 @@ export function applyEdits(source: string, edits: readonly Edit[]): string {
  * @returns The 1-based line.
  */
 export function lineAt(text: string, offset: number): number {
-	let line = 1;
-	for (let i = 0; i < offset && i < text.length; i++) {
-		if (LINE_END.test(text[i] as string)) {
-			// a CRLF is one break rather than two
-			if (text[i] === '\r' && text[i + 1] === '\n') {
-				i++;
-			}
-			line++;
-		}
-	}
-	return line;
+  let line = 1;
+  for (let i = 0; i < offset && i < text.length; i++) {
+    if (LINE_END.test(text[i] as string)) {
+      // a CRLF is one break rather than two
+      if (text[i] === '\r' && text[i + 1] === '\n') {
+        i++;
+      }
+      line++;
+    }
+  }
+  return line;
 }
 
 /**
@@ -195,14 +195,14 @@ export function lineAt(text: string, offset: number): number {
  * @returns The offset of the first character of that line.
  */
 export function lineStartAt(text: string, offset: number): number {
-	// no clamp on `offset`, because every caller hands over a span of this text
-	// -- a sabotage of one changed no answer, and a bounds guard that cannot fire
-	// is one this repository deletes rather than keeps
-	let i = offset;
-	while (i > 0 && !LINE_END.test(text[i - 1] as string)) {
-		i--;
-	}
-	return i;
+  // no clamp on `offset`, because every caller hands over a span of this text
+  // -- a sabotage of one changed no answer, and a bounds guard that cannot fire
+  // is one this repository deletes rather than keeps
+  let i = offset;
+  while (i > 0 && !LINE_END.test(text[i - 1] as string)) {
+    i--;
+  }
+  return i;
 }
 
 /**
@@ -217,12 +217,12 @@ export function lineStartAt(text: string, offset: number): number {
  * @returns The indentation, which may be empty.
  */
 export function lineIndent(text: string, offset: number): string {
-	const start = lineStartAt(text, offset);
-	let i = start;
-	while (i < text.length && (text[i] === ' ' || text[i] === '\t')) {
-		i++;
-	}
-	return text.slice(start, i);
+  const start = lineStartAt(text, offset);
+  let i = start;
+  while (i < text.length && (text[i] === ' ' || text[i] === '\t')) {
+    i++;
+  }
+  return text.slice(start, i);
 }
 
 /**
@@ -240,7 +240,7 @@ export function lineIndent(text: string, offset: number): string {
  * something else sits between.
  */
 export function ownLineIndent(text: string, offset: number): string | undefined {
-	const start = lineStartAt(text, offset);
-	const before = text.slice(start, offset);
-	return before.trim() === '' ? before : undefined;
+  const start = lineStartAt(text, offset);
+  const before = text.slice(start, offset);
+  return before.trim() === '' ? before : undefined;
 }

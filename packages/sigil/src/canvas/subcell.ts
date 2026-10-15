@@ -40,10 +40,10 @@ const BRAILLE_BASE = 0x2800;
  * wrong.
  */
 const DOT_BITS: readonly (readonly number[])[] = [
-	[0x01, 0x08],
-	[0x02, 0x10],
-	[0x04, 0x20],
-	[0x40, 0x80],
+  [0x01, 0x08],
+  [0x02, 0x10],
+  [0x04, 0x20],
+  [0x40, 0x80],
 ];
 
 /** Vertical half blocks: nothing, upper, lower, full. */
@@ -59,253 +59,253 @@ const FULL_BLOCK = '█';
  * cell -- and it is the right one for a plot, where the shape is the data.
  */
 export class Dots {
-	readonly #cells: Uint8Array;
-	readonly #width: number;
-	readonly #height: number;
+  readonly #cells: Uint8Array;
+  readonly #width: number;
+  readonly #height: number;
 
-	/**
-	 * @param width - Width in **cells**, not dots.
-	 * @param height - Height in **cells**, not dots.
-	 */
-	constructor(width: number, height: number) {
-		this.#width = Math.max(0, Math.trunc(width));
-		this.#height = Math.max(0, Math.trunc(height));
-		this.#cells = new Uint8Array(this.#width * this.#height);
-	}
+  /**
+   * @param width - Width in **cells**, not dots.
+   * @param height - Height in **cells**, not dots.
+   */
+  constructor(width: number, height: number) {
+    this.#width = Math.max(0, Math.trunc(width));
+    this.#height = Math.max(0, Math.trunc(height));
+    this.#cells = new Uint8Array(this.#width * this.#height);
+  }
 
-	/** Width in cells. */
-	get width(): number {
-		return this.#width;
-	}
+  /** Width in cells. */
+  get width(): number {
+    return this.#width;
+  }
 
-	/** Height in cells. */
-	get height(): number {
-		return this.#height;
-	}
+  /** Height in cells. */
+  get height(): number {
+    return this.#height;
+  }
 
-	/** Width in dots. */
-	get dotWidth(): number {
-		return this.#width * DOT_COLUMNS;
-	}
+  /** Width in dots. */
+  get dotWidth(): number {
+    return this.#width * DOT_COLUMNS;
+  }
 
-	/** Height in dots. */
-	get dotHeight(): number {
-		return this.#height * DOT_ROWS;
-	}
+  /** Height in dots. */
+  get dotHeight(): number {
+    return this.#height * DOT_ROWS;
+  }
 
-	/** Turns every dot off. */
-	clear(): void {
-		this.#cells.fill(0);
-	}
+  /** Turns every dot off. */
+  clear(): void {
+    this.#cells.fill(0);
+  }
 
-	/**
-	 * Turns a dot on.
-	 *
-	 * Out of range is ignored rather than refused: a plot clips at its box, and
-	 * making every caller bounds-check before every point is how a plot ends up
-	 * with the check in the wrong place.
-	 *
-	 * @param x - Dot column.
-	 * @param y - Dot row.
-	 */
-	set(x: number, y: number): void {
-		this.#poke(x, y, true);
-	}
+  /**
+   * Turns a dot on.
+   *
+   * Out of range is ignored rather than refused: a plot clips at its box, and
+   * making every caller bounds-check before every point is how a plot ends up
+   * with the check in the wrong place.
+   *
+   * @param x - Dot column.
+   * @param y - Dot row.
+   */
+  set(x: number, y: number): void {
+    this.#poke(x, y, true);
+  }
 
-	/**
-	 * Turns a dot off.
-	 *
-	 * @param x - Dot column.
-	 * @param y - Dot row.
-	 */
-	unset(x: number, y: number): void {
-		this.#poke(x, y, false);
-	}
+  /**
+   * Turns a dot off.
+   *
+   * @param x - Dot column.
+   * @param y - Dot row.
+   */
+  unset(x: number, y: number): void {
+    this.#poke(x, y, false);
+  }
 
-	/**
-	 * Whether a dot is on.
-	 *
-	 * @param x - Dot column.
-	 * @param y - Dot row.
-	 * @returns Whether it is set. Out of range is `false`.
-	 */
-	get(x: number, y: number): boolean {
-		const at = this.#locate(x, y);
-		return at !== undefined && (this.#cells[at.index] & at.bit) !== 0;
-	}
+  /**
+   * Whether a dot is on.
+   *
+   * @param x - Dot column.
+   * @param y - Dot row.
+   * @returns Whether it is set. Out of range is `false`.
+   */
+  get(x: number, y: number): boolean {
+    const at = this.#locate(x, y);
+    return at !== undefined && (this.#cells[at.index] & at.bit) !== 0;
+  }
 
-	/**
-	 * Draws a straight line of dots between two points.
-	 *
-	 * Bresenham, in integers, because a plot is mostly lines between samples and
-	 * the alternative is every caller writing this loop again.
-	 *
-	 * @param x0 - Start dot column.
-	 * @param y0 - Start dot row.
-	 * @param x1 - End dot column.
-	 * @param y1 - End dot row.
-	 */
-	line(x0: number, y0: number, x1: number, y1: number): void {
-		let x = Math.trunc(x0);
-		let y = Math.trunc(y0);
-		const endX = Math.trunc(x1);
-		const endY = Math.trunc(y1);
+  /**
+   * Draws a straight line of dots between two points.
+   *
+   * Bresenham, in integers, because a plot is mostly lines between samples and
+   * the alternative is every caller writing this loop again.
+   *
+   * @param x0 - Start dot column.
+   * @param y0 - Start dot row.
+   * @param x1 - End dot column.
+   * @param y1 - End dot row.
+   */
+  line(x0: number, y0: number, x1: number, y1: number): void {
+    let x = Math.trunc(x0);
+    let y = Math.trunc(y0);
+    const endX = Math.trunc(x1);
+    const endY = Math.trunc(y1);
 
-		// a missing sample is the ordinary way a plot reaches this, and the loop
-		// below ends only by arriving at the end point. `NaN === NaN` is false, a
-		// step towards an infinity never arrives, and past 2^53 adding one is a
-		// no-op -- so `line(1e308, 0, 0, 0)` steps forever without moving, exactly
-		// the way `NaN` does, and paints nothing while it does, since `set()`
-		// ignores what is out of range. The endpoints are already truncated, so
-		// what is asked here is whether a step of one still means something. A
-		// point the loop can actually walk to is a different thing and still
-		// clips, which is what a plot wants
-		if (
-			!Number.isSafeInteger(x) ||
-			!Number.isSafeInteger(y) ||
-			!Number.isSafeInteger(endX) ||
-			!Number.isSafeInteger(endY)
-		) {
-			return;
-		}
+    // a missing sample is the ordinary way a plot reaches this, and the loop
+    // below ends only by arriving at the end point. `NaN === NaN` is false, a
+    // step towards an infinity never arrives, and past 2^53 adding one is a
+    // no-op -- so `line(1e308, 0, 0, 0)` steps forever without moving, exactly
+    // the way `NaN` does, and paints nothing while it does, since `set()`
+    // ignores what is out of range. The endpoints are already truncated, so
+    // what is asked here is whether a step of one still means something. A
+    // point the loop can actually walk to is a different thing and still
+    // clips, which is what a plot wants
+    if (
+      !Number.isSafeInteger(x) ||
+      !Number.isSafeInteger(y) ||
+      !Number.isSafeInteger(endX) ||
+      !Number.isSafeInteger(endY)
+    ) {
+      return;
+    }
 
-		const dx = Math.abs(endX - x);
-		const dy = -Math.abs(endY - y);
-		const stepX = x < endX ? 1 : -1;
-		const stepY = y < endY ? 1 : -1;
-		let error = dx + dy;
+    const dx = Math.abs(endX - x);
+    const dy = -Math.abs(endY - y);
+    const stepX = x < endX ? 1 : -1;
+    const stepY = y < endY ? 1 : -1;
+    let error = dx + dy;
 
-		for (;;) {
-			this.set(x, y);
-			if (x === endX && y === endY) {
-				return;
-			}
-			const doubled = 2 * error;
-			if (doubled >= dy) {
-				error += dy;
-				x += stepX;
-			}
-			if (doubled <= dx) {
-				error += dx;
-				y += stepY;
-			}
-		}
-	}
+    for (;;) {
+      this.set(x, y);
+      if (x === endX && y === endY) {
+        return;
+      }
+      const doubled = 2 * error;
+      if (doubled >= dy) {
+        error += dy;
+        x += stepX;
+      }
+      if (doubled <= dx) {
+        error += dx;
+        y += stepY;
+      }
+    }
+  }
 
-	/**
-	 * The braille character for one cell.
-	 *
-	 * @param x - Cell column.
-	 * @param y - Cell row.
-	 * @returns The character, or `undefined` when no dot in it is set.
-	 */
-	charAt(x: number, y: number): string | undefined {
-		// truncated and checked the way `#locate()` does it, because the cell index
-		// is built here rather than there and the arithmetic is as unforgiving: a
-		// fraction or a `NaN` reached `#cells[NaN]` -- `undefined` -- and
-		// `String.fromCodePoint(NaN)` is a `RangeError` out of the one method whose
-		// answer for everything it cannot find is `undefined`
-		const cellX = Math.trunc(x);
-		const cellY = Math.trunc(y);
-		if (
-			!Number.isFinite(cellX) ||
-			!Number.isFinite(cellY) ||
-			cellX < 0 ||
-			cellY < 0 ||
-			cellX >= this.#width ||
-			cellY >= this.#height
-		) {
-			return undefined;
-		}
-		const mask = this.#cells[cellY * this.#width + cellX];
-		return mask === 0 ? undefined : String.fromCodePoint(BRAILLE_BASE + mask);
-	}
+  /**
+   * The braille character for one cell.
+   *
+   * @param x - Cell column.
+   * @param y - Cell row.
+   * @returns The character, or `undefined` when no dot in it is set.
+   */
+  charAt(x: number, y: number): string | undefined {
+    // truncated and checked the way `#locate()` does it, because the cell index
+    // is built here rather than there and the arithmetic is as unforgiving: a
+    // fraction or a `NaN` reached `#cells[NaN]` -- `undefined` -- and
+    // `String.fromCodePoint(NaN)` is a `RangeError` out of the one method whose
+    // answer for everything it cannot find is `undefined`
+    const cellX = Math.trunc(x);
+    const cellY = Math.trunc(y);
+    if (
+      !Number.isFinite(cellX) ||
+      !Number.isFinite(cellY) ||
+      cellX < 0 ||
+      cellY < 0 ||
+      cellX >= this.#width ||
+      cellY >= this.#height
+    ) {
+      return undefined;
+    }
+    const mask = this.#cells[cellY * this.#width + cellX];
+    return mask === 0 ? undefined : String.fromCodePoint(BRAILLE_BASE + mask);
+  }
 
-	/**
-	 * Paints onto a canvas.
-	 *
-	 * A cell with no dots set is left alone rather than painted blank. The braille
-	 * blank is a real character that some fonts draw the dot frame for, and
-	 * leaving it out is what lets a plot sit on top of a background someone else
-	 * drew.
-	 *
-	 * @param painter - Where to paint.
-	 * @param x - The canvas column of this grid's left edge.
-	 * @param y - The canvas row of its top edge.
-	 * @param style - How the dots look.
-	 */
-	blit(painter: Painter, x: number, y: number, style: Partial<Style> = {}): void {
-		for (let row = 0; row < this.#height; row++) {
-			// a run of set cells goes out as one string; a gap ends it, because the
-			// point of skipping blanks is not painting them
-			let run = '';
-			let runStart = 0;
-			for (let column = 0; column <= this.#width; column++) {
-				const cell = column < this.#width ? this.charAt(column, row) : undefined;
-				if (cell === undefined) {
-					if (run) {
-						painter.text(x + runStart, y + row, run, style);
-						run = '';
-					}
-					continue;
-				}
-				if (!run) {
-					runStart = column;
-				}
-				run += cell;
-			}
-		}
-	}
+  /**
+   * Paints onto a canvas.
+   *
+   * A cell with no dots set is left alone rather than painted blank. The braille
+   * blank is a real character that some fonts draw the dot frame for, and
+   * leaving it out is what lets a plot sit on top of a background someone else
+   * drew.
+   *
+   * @param painter - Where to paint.
+   * @param x - The canvas column of this grid's left edge.
+   * @param y - The canvas row of its top edge.
+   * @param style - How the dots look.
+   */
+  blit(painter: Painter, x: number, y: number, style: Partial<Style> = {}): void {
+    for (let row = 0; row < this.#height; row++) {
+      // a run of set cells goes out as one string; a gap ends it, because the
+      // point of skipping blanks is not painting them
+      let run = '';
+      let runStart = 0;
+      for (let column = 0; column <= this.#width; column++) {
+        const cell = column < this.#width ? this.charAt(column, row) : undefined;
+        if (cell === undefined) {
+          if (run) {
+            painter.text(x + runStart, y + row, run, style);
+            run = '';
+          }
+          continue;
+        }
+        if (!run) {
+          runStart = column;
+        }
+        run += cell;
+      }
+    }
+  }
 
-	/**
-	 * The cell and bit a dot lives in.
-	 *
-	 * @param x - Dot column.
-	 * @param y - Dot row.
-	 * @returns The cell index and bit, or `undefined` when out of range.
-	 */
-	#locate(x: number, y: number): { bit: number; index: number } | undefined {
-		const dotX = Math.trunc(x);
-		const dotY = Math.trunc(y);
-		// a point that is not a number is out of range, and the comparisons below
-		// cannot say so: every one of them is false for `NaN`, so it reached
-		// `DOT_BITS[NaN]` -- `undefined` -- and the row lookup threw a `TypeError`
-		// from inside a method whose whole contract is to ignore what it cannot
-		// place
-		if (
-			!Number.isFinite(dotX) ||
-			!Number.isFinite(dotY) ||
-			dotX < 0 ||
-			dotY < 0 ||
-			dotX >= this.dotWidth ||
-			dotY >= this.dotHeight
-		) {
-			return undefined;
-		}
-		const cellX = Math.floor(dotX / DOT_COLUMNS);
-		const cellY = Math.floor(dotY / DOT_ROWS);
-		return {
-			bit: DOT_BITS[dotY % DOT_ROWS][dotX % DOT_COLUMNS],
-			index: cellY * this.#width + cellX,
-		};
-	}
+  /**
+   * The cell and bit a dot lives in.
+   *
+   * @param x - Dot column.
+   * @param y - Dot row.
+   * @returns The cell index and bit, or `undefined` when out of range.
+   */
+  #locate(x: number, y: number): { bit: number; index: number } | undefined {
+    const dotX = Math.trunc(x);
+    const dotY = Math.trunc(y);
+    // a point that is not a number is out of range, and the comparisons below
+    // cannot say so: every one of them is false for `NaN`, so it reached
+    // `DOT_BITS[NaN]` -- `undefined` -- and the row lookup threw a `TypeError`
+    // from inside a method whose whole contract is to ignore what it cannot
+    // place
+    if (
+      !Number.isFinite(dotX) ||
+      !Number.isFinite(dotY) ||
+      dotX < 0 ||
+      dotY < 0 ||
+      dotX >= this.dotWidth ||
+      dotY >= this.dotHeight
+    ) {
+      return undefined;
+    }
+    const cellX = Math.floor(dotX / DOT_COLUMNS);
+    const cellY = Math.floor(dotY / DOT_ROWS);
+    return {
+      bit: DOT_BITS[dotY % DOT_ROWS][dotX % DOT_COLUMNS],
+      index: cellY * this.#width + cellX,
+    };
+  }
 
-	/**
-	 * @param x - Dot column.
-	 * @param y - Dot row.
-	 * @param on - Whether to set or clear.
-	 */
-	#poke(x: number, y: number, on: boolean): void {
-		const at = this.#locate(x, y);
-		if (at === undefined) {
-			return;
-		}
-		if (on) {
-			this.#cells[at.index] |= at.bit;
-		} else {
-			this.#cells[at.index] &= ~at.bit;
-		}
-	}
+  /**
+   * @param x - Dot column.
+   * @param y - Dot row.
+   * @param on - Whether to set or clear.
+   */
+  #poke(x: number, y: number, on: boolean): void {
+    const at = this.#locate(x, y);
+    if (at === undefined) {
+      return;
+    }
+    if (on) {
+      this.#cells[at.index] |= at.bit;
+    } else {
+      this.#cells[at.index] &= ~at.bit;
+    }
+  }
 }
 
 /**
@@ -317,124 +317,124 @@ export class Dots {
  * the trade a picture wants.
  */
 export class Pixels {
-	readonly #colors: Int32Array;
-	readonly #width: number;
-	readonly #height: number;
+  readonly #colors: Int32Array;
+  readonly #width: number;
+  readonly #height: number;
 
-	/**
-	 * @param width - Width in **cells**, which is also the width in pixels.
-	 * @param height - Height in **cells**, not pixels.
-	 */
-	constructor(width: number, height: number) {
-		this.#width = Math.max(0, Math.trunc(width));
-		this.#height = Math.max(0, Math.trunc(height));
-		this.#colors = new Int32Array(this.#width * this.#height * 2).fill(DEFAULT_COLOR);
-	}
+  /**
+   * @param width - Width in **cells**, which is also the width in pixels.
+   * @param height - Height in **cells**, not pixels.
+   */
+  constructor(width: number, height: number) {
+    this.#width = Math.max(0, Math.trunc(width));
+    this.#height = Math.max(0, Math.trunc(height));
+    this.#colors = new Int32Array(this.#width * this.#height * 2).fill(DEFAULT_COLOR);
+  }
 
-	/** Width in cells, which is also the width in pixels. */
-	get width(): number {
-		return this.#width;
-	}
+  /** Width in cells, which is also the width in pixels. */
+  get width(): number {
+    return this.#width;
+  }
 
-	/** Height in cells. */
-	get height(): number {
-		return this.#height;
-	}
+  /** Height in cells. */
+  get height(): number {
+    return this.#height;
+  }
 
-	/** Height in pixels. */
-	get pixelHeight(): number {
-		return this.#height * 2;
-	}
+  /** Height in pixels. */
+  get pixelHeight(): number {
+    return this.#height * 2;
+  }
 
-	/** Puts every pixel back to the terminal's own colour. */
-	clear(): void {
-		this.#colors.fill(DEFAULT_COLOR);
-	}
+  /** Puts every pixel back to the terminal's own colour. */
+  clear(): void {
+    this.#colors.fill(DEFAULT_COLOR);
+  }
 
-	/**
-	 * Colours a pixel. Out of range is ignored, as it is for `Dots`.
-	 *
-	 * @param x - Pixel column.
-	 * @param y - Pixel row.
-	 * @param color - What colour.
-	 */
-	set(x: number, y: number, color: Color): void {
-		const index = this.#index(x, y);
-		if (index !== undefined) {
-			this.#colors[index] = color;
-		}
-	}
+  /**
+   * Colours a pixel. Out of range is ignored, as it is for `Dots`.
+   *
+   * @param x - Pixel column.
+   * @param y - Pixel row.
+   * @param color - What colour.
+   */
+  set(x: number, y: number, color: Color): void {
+    const index = this.#index(x, y);
+    if (index !== undefined) {
+      this.#colors[index] = color;
+    }
+  }
 
-	/**
-	 * A pixel's colour.
-	 *
-	 * @param x - Pixel column.
-	 * @param y - Pixel row.
-	 * @returns The colour, or the default when out of range.
-	 */
-	get(x: number, y: number): Color {
-		const index = this.#index(x, y);
-		return index === undefined ? DEFAULT_COLOR : this.#colors[index];
-	}
+  /**
+   * A pixel's colour.
+   *
+   * @param x - Pixel column.
+   * @param y - Pixel row.
+   * @returns The colour, or the default when out of range.
+   */
+  get(x: number, y: number): Color {
+    const index = this.#index(x, y);
+    return index === undefined ? DEFAULT_COLOR : this.#colors[index];
+  }
 
-	/**
-	 * Paints onto a canvas.
-	 *
-	 * A cell whose halves are both the terminal's own colour is skipped, for the
-	 * reason `Dots.blit` skips an empty cell: nothing was drawn there.
-	 *
-	 * @param painter - Where to paint.
-	 * @param x - The canvas column of this grid's left edge.
-	 * @param y - The canvas row of its top edge.
-	 */
-	blit(painter: Painter, x: number, y: number): void {
-		for (let row = 0; row < this.#height; row++) {
-			for (let column = 0; column < this.#width; column++) {
-				const top = this.get(column, row * 2);
-				const bottom = this.get(column, row * 2 + 1);
+  /**
+   * Paints onto a canvas.
+   *
+   * A cell whose halves are both the terminal's own colour is skipped, for the
+   * reason `Dots.blit` skips an empty cell: nothing was drawn there.
+   *
+   * @param painter - Where to paint.
+   * @param x - The canvas column of this grid's left edge.
+   * @param y - The canvas row of its top edge.
+   */
+  blit(painter: Painter, x: number, y: number): void {
+    for (let row = 0; row < this.#height; row++) {
+      for (let column = 0; column < this.#width; column++) {
+        const top = this.get(column, row * 2);
+        const bottom = this.get(column, row * 2 + 1);
 
-				if (top === DEFAULT_COLOR && bottom === DEFAULT_COLOR) {
-					continue;
-				}
+        if (top === DEFAULT_COLOR && bottom === DEFAULT_COLOR) {
+          continue;
+        }
 
-				// one character per case rather than always the upper half: a solid
-				// cell as `█` in one colour survives a terminal that renders the half
-				// blocks a pixel short, which several do at small font sizes
-				if (top === bottom) {
-					painter.text(x + column, y + row, FULL_BLOCK, { fg: top });
-				} else if (bottom === DEFAULT_COLOR) {
-					painter.text(x + column, y + row, UPPER_HALF, { fg: top });
-				} else if (top === DEFAULT_COLOR) {
-					painter.text(x + column, y + row, LOWER_HALF, { fg: bottom });
-				} else {
-					painter.text(x + column, y + row, UPPER_HALF, { bg: bottom, fg: top });
-				}
-			}
-		}
-	}
+        // one character per case rather than always the upper half: a solid
+        // cell as `█` in one colour survives a terminal that renders the half
+        // blocks a pixel short, which several do at small font sizes
+        if (top === bottom) {
+          painter.text(x + column, y + row, FULL_BLOCK, { fg: top });
+        } else if (bottom === DEFAULT_COLOR) {
+          painter.text(x + column, y + row, UPPER_HALF, { fg: top });
+        } else if (top === DEFAULT_COLOR) {
+          painter.text(x + column, y + row, LOWER_HALF, { fg: bottom });
+        } else {
+          painter.text(x + column, y + row, UPPER_HALF, { bg: bottom, fg: top });
+        }
+      }
+    }
+  }
 
-	/**
-	 * @param x - Pixel column.
-	 * @param y - Pixel row.
-	 * @returns The index into the colour array, or `undefined` when out of range.
-	 */
-	#index(x: number, y: number): number | undefined {
-		const pixelX = Math.trunc(x);
-		const pixelY = Math.trunc(y);
-		// out of range for the reason `Dots.#locate()` gives. It does not throw
-		// here, which is worse rather than better: the index came out `NaN`, a
-		// write to it was silently dropped, and `get()` handed back `undefined`
-		// with `Color` written on it
-		if (
-			!Number.isFinite(pixelX) ||
-			!Number.isFinite(pixelY) ||
-			pixelX < 0 ||
-			pixelY < 0 ||
-			pixelX >= this.#width ||
-			pixelY >= this.pixelHeight
-		) {
-			return undefined;
-		}
-		return pixelY * this.#width + pixelX;
-	}
+  /**
+   * @param x - Pixel column.
+   * @param y - Pixel row.
+   * @returns The index into the colour array, or `undefined` when out of range.
+   */
+  #index(x: number, y: number): number | undefined {
+    const pixelX = Math.trunc(x);
+    const pixelY = Math.trunc(y);
+    // out of range for the reason `Dots.#locate()` gives. It does not throw
+    // here, which is worse rather than better: the index came out `NaN`, a
+    // write to it was silently dropped, and `get()` handed back `undefined`
+    // with `Color` written on it
+    if (
+      !Number.isFinite(pixelX) ||
+      !Number.isFinite(pixelY) ||
+      pixelX < 0 ||
+      pixelY < 0 ||
+      pixelX >= this.#width ||
+      pixelY >= this.pixelHeight
+    ) {
+      return undefined;
+    }
+    return pixelY * this.#width + pixelX;
+  }
 }

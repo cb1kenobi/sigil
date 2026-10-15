@@ -25,18 +25,18 @@ import type { ShellName } from './shells.js';
  * both and letting the reader pick is what the headers already did.
  */
 export interface InstallRoute {
-	/** What distinguishes this route from the other, if anything does. */
-	readonly label?: string;
-	/** The commands, in order, verbatim. */
-	readonly commands: readonly string[];
+  /** What distinguishes this route from the other, if anything does. */
+  readonly label?: string;
+  /** The commands, in order, verbatim. */
+  readonly commands: readonly string[];
 }
 
 /** Every way to install a completion script for one shell. */
 export interface InstallHint {
-	/** The routes, most conventional first. */
-	readonly routes: readonly InstallRoute[];
-	/** What the reader has to do afterwards for any of it to take effect. */
-	readonly after: string;
+  /** The routes, most conventional first. */
+  readonly routes: readonly InstallRoute[];
+  /** What the reader has to do afterwards for any of it to take effect. */
+  readonly after: string;
 }
 
 /**
@@ -47,38 +47,38 @@ export interface InstallHint {
  * @returns The routes and what follows them.
  */
 export function installHint(shell: ShellName, program: string): InstallHint {
-	if (shell === 'zsh') {
-		return {
-			after: 'Then restart your shell.',
-			routes: [
-				{
-					commands: [`${program} completion zsh > "\${fpath[1]}/_${program}"`],
-					label: 'as a file on your $fpath, which compinit autoloads',
-				},
-				{
-					commands: [`echo 'source <(${program} completion zsh)' >> ~/.zshrc`],
-					label: 'or sourced from .zshrc, after compinit',
-				},
-			],
-		};
-	}
+  if (shell === 'zsh') {
+    return {
+      after: 'Then restart your shell.',
+      routes: [
+        {
+          commands: [`${program} completion zsh > "\${fpath[1]}/_${program}"`],
+          label: 'as a file on your $fpath, which compinit autoloads',
+        },
+        {
+          commands: [`echo 'source <(${program} completion zsh)' >> ~/.zshrc`],
+          label: 'or sourced from .zshrc, after compinit',
+        },
+      ],
+    };
+  }
 
-	return {
-		after: 'Then restart your shell.',
-		routes: [
-			{
-				commands: [`${program} completion bash > /etc/bash_completion.d/${program}`],
-				label: 'with bash-completion installed, system wide',
-			},
-			{
-				commands: [
-					`${program} completion bash > ~/.${program}-completion.bash`,
-					`echo 'source ~/.${program}-completion.bash' >> ~/.bashrc`,
-				],
-				label: 'or from your own .bashrc, anywhere',
-			},
-		],
-	};
+  return {
+    after: 'Then restart your shell.',
+    routes: [
+      {
+        commands: [`${program} completion bash > /etc/bash_completion.d/${program}`],
+        label: 'with bash-completion installed, system wide',
+      },
+      {
+        commands: [
+          `${program} completion bash > ~/.${program}-completion.bash`,
+          `echo 'source ~/.${program}-completion.bash' >> ~/.bashrc`,
+        ],
+        label: 'or from your own .bashrc, anywhere',
+      },
+    ],
+  };
 }
 
 /**
@@ -92,22 +92,22 @@ export function installHint(shell: ShellName, program: string): InstallHint {
  * @returns Lines, each already `#`-prefixed, with no trailing newline.
  */
 export function installComment(shell: ShellName, program: string): string {
-	const hint = installHint(shell, program);
-	const out: string[] = [];
+  const hint = installHint(shell, program);
+  const out: string[] = [];
 
-	for (const route of hint.routes) {
-		out.push('#');
-		if (route.label) {
-			out.push(`#   # ${route.label}`);
-		}
-		for (const command of route.commands) {
-			out.push(`#   ${command}`);
-		}
-	}
+  for (const route of hint.routes) {
+    out.push('#');
+    if (route.label) {
+      out.push(`#   # ${route.label}`);
+    }
+    for (const command of route.commands) {
+      out.push(`#   ${command}`);
+    }
+  }
 
-	out.push('#', `# ${hint.after}`);
+  out.push('#', `# ${hint.after}`);
 
-	return out.join('\n');
+  return out.join('\n');
 }
 
 /**
@@ -127,16 +127,16 @@ export function installComment(shell: ShellName, program: string): string {
  * @returns The shell, or nothing where the variable named none this knows.
  */
 export function detectShell(env: Record<string, string | undefined>): ShellName | undefined {
-	const path = env['SHELL'];
-	if (!path) {
-		return undefined;
-	}
+  const path = env['SHELL'];
+  if (!path) {
+    return undefined;
+  }
 
-	// the last segment of either separator, so a value somebody set by hand on
-	// Windows is read the same way
-	const name = path.split(/[/\\]/).pop();
+  // the last segment of either separator, so a value somebody set by hand on
+  // Windows is read the same way
+  const name = path.split(/[/\\]/).pop();
 
-	return name === 'bash' || name === 'zsh' ? name : undefined;
+  return name === 'bash' || name === 'zsh' ? name : undefined;
 }
 
 /**
@@ -152,20 +152,20 @@ export function detectShell(env: Record<string, string | undefined>): ShellName 
  * @returns The block, with a trailing newline.
  */
 export function instructions(shell: ShellName, program: string): string {
-	const hint = installHint(shell, program);
-	const out: string[] = [];
+  const hint = installHint(shell, program);
+  const out: string[] = [];
 
-	for (const route of hint.routes) {
-		if (route.label) {
-			out.push(`  ${route.label}`);
-		}
-		for (const command of route.commands) {
-			out.push(`    ${command}`);
-		}
-		out.push('');
-	}
+  for (const route of hint.routes) {
+    if (route.label) {
+      out.push(`  ${route.label}`);
+    }
+    for (const command of route.commands) {
+      out.push(`    ${command}`);
+    }
+    out.push('');
+  }
 
-	out.push(hint.after, '');
+  out.push(hint.after, '');
 
-	return out.join('\n');
+  return out.join('\n');
 }

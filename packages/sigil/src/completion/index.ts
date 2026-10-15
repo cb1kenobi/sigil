@@ -67,11 +67,11 @@ export { bashQuote } from './bash.js';
 export { SHELL_NAMES, type ShellName } from './shells.js';
 export { completionSpec, oneLine } from './spec.js';
 export type {
-	CompletionCommand,
-	CompletionOption,
-	CompletionSpec,
-	CompletionSubcommand,
-	CompletionTarget,
+  CompletionCommand,
+  CompletionOption,
+  CompletionSpec,
+  CompletionSubcommand,
+  CompletionTarget,
 } from './spec.js';
 export { zshPair, zshQuote } from './zsh.js';
 
@@ -85,8 +85,8 @@ export { zshPair, zshQuote } from './zsh.js';
  * nothing.
  */
 export const SHELLS: Readonly<Record<ShellName, (spec: CompletionSpec) => string>> = Object.freeze({
-	bash: bashScript,
-	zsh: zshScript,
+  bash: bashScript,
+  zsh: zshScript,
 });
 
 /**
@@ -99,17 +99,17 @@ export const SHELLS: Readonly<Record<ShellName, (spec: CompletionSpec) => string
  *   or whatever loading a command module threw.
  */
 export async function completionScript(target: CompletionTarget, shell: string): Promise<string> {
-	// `Object.hasOwn` rather than a truthiness test, which is this repository's
-	// rule for every lookup table: the object is frozen but not null-prototype,
-	// so `SHELLS['constructor']` reads back a function and would be called as an
-	// emitter. The parse refuses an unknown shell first, through the argument's
-	// own `choices`, so this is the guard for a caller reaching the function
-	// directly
-	if (!Object.hasOwn(SHELLS, shell)) {
-		throw new Error(
-			`Unknown shell "${shell}": sigil can generate completion for ${SHELL_NAMES.join(' and ')}.`
-		);
-	}
+  // `Object.hasOwn` rather than a truthiness test, which is this repository's
+  // rule for every lookup table: the object is frozen but not null-prototype,
+  // so `SHELLS['constructor']` reads back a function and would be called as an
+  // emitter. The parse refuses an unknown shell first, through the argument's
+  // own `choices`, so this is the guard for a caller reaching the function
+  // directly
+  if (!Object.hasOwn(SHELLS, shell)) {
+    throw new Error(
+      `Unknown shell "${shell}": sigil can generate completion for ${SHELL_NAMES.join(' and ')}.`
+    );
+  }
 
-	return SHELLS[shell as ShellName](await completionSpec(target));
+  return SHELLS[shell as ShellName](await completionSpec(target));
 }

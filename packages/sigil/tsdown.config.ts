@@ -43,61 +43,61 @@ const CONTROL = /\p{Cc}/gu;
 const FORMATTING = new Set(['\t', '\n', '\r']);
 
 const escapeControls = {
-	generateBundle(_options: unknown, bundle: Record<string, { code?: string; type: string }>) {
-		for (const chunk of Object.values(bundle)) {
-			if (chunk.type === 'chunk' && chunk.code) {
-				chunk.code = chunk.code.replaceAll(CONTROL, (c) =>
-					FORMATTING.has(c)
-						? c
-						: `\\x${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`
-				);
-			}
-		}
-	},
-	name: 'escape-control-characters',
+  generateBundle(_options: unknown, bundle: Record<string, { code?: string; type: string }>) {
+    for (const chunk of Object.values(bundle)) {
+      if (chunk.type === 'chunk' && chunk.code) {
+        chunk.code = chunk.code.replaceAll(CONTROL, (c) =>
+          FORMATTING.has(c)
+            ? c
+            : `\\x${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`
+        );
+      }
+    }
+  },
+  name: 'escape-control-characters',
 };
 
 const config: UserConfig = defineConfig({
-	// Every entry here must have a matching subpath in the package's `exports`
-	// map, and vice versa; `test/exports.test.ts` asserts they stay in sync.
-	entry: {
-		ansi: './src/ansi/index.ts',
-		canvas: './src/canvas/index.ts',
-		components: './src/components/index.ts',
-		config: './src/config/index.ts',
-		element: './src/element/index.ts',
-		'error-handler': './src/error-handler.ts',
-		help: './src/help/index.ts',
-		i18n: './src/i18n/index.ts',
-		'i18n-keys': './src/i18n/keys.ts',
-		input: './src/input/index.ts',
-		'jsx-dev-runtime': './src/template/dev-runtime.ts',
-		'jsx-runtime': './src/template/runtime.ts',
-		layout: './src/layout/index.ts',
-		index: './src/index.ts',
-		paths: './src/paths.ts',
-		renderer: './src/renderer/index.ts',
-		routes: './src/parser/command/routes.ts',
-		signals: './src/signals/index.ts',
-		style: './src/style/index.ts',
-		template: './src/template/index.ts',
-		testing: './src/testing/index.ts',
-		terminal: './src/terminal/index.ts',
-		theme: './src/theme/index.ts',
-		themes: './src/theme/themes.ts',
-		updates: './src/updates/index.ts',
-		width: './src/width/index.ts',
-		which: './src/which.ts',
-		wrap: './src/wrap/index.ts',
-	},
-	format: ['es'],
-	minify: true,
-	platform: 'node',
-	plugins: [escapeControls],
-	tsconfig: './tsconfig.build.json',
-	// `updates` spawns the worker by reading it off disk relative to its own
-	// module URL, so it has to land next to dist/updates.mjs
-	copy: [{ from: './src/updates/get-version-worker.js' }],
+  // Every entry here must have a matching subpath in the package's `exports`
+  // map, and vice versa; `test/exports.test.ts` asserts they stay in sync.
+  entry: {
+    ansi: './src/ansi/index.ts',
+    canvas: './src/canvas/index.ts',
+    components: './src/components/index.ts',
+    config: './src/config/index.ts',
+    element: './src/element/index.ts',
+    'error-handler': './src/error-handler.ts',
+    help: './src/help/index.ts',
+    i18n: './src/i18n/index.ts',
+    'i18n-keys': './src/i18n/keys.ts',
+    input: './src/input/index.ts',
+    'jsx-dev-runtime': './src/template/dev-runtime.ts',
+    'jsx-runtime': './src/template/runtime.ts',
+    layout: './src/layout/index.ts',
+    index: './src/index.ts',
+    paths: './src/paths.ts',
+    renderer: './src/renderer/index.ts',
+    routes: './src/parser/command/routes.ts',
+    signals: './src/signals/index.ts',
+    style: './src/style/index.ts',
+    template: './src/template/index.ts',
+    testing: './src/testing/index.ts',
+    terminal: './src/terminal/index.ts',
+    theme: './src/theme/index.ts',
+    themes: './src/theme/themes.ts',
+    updates: './src/updates/index.ts',
+    width: './src/width/index.ts',
+    which: './src/which.ts',
+    wrap: './src/wrap/index.ts',
+  },
+  format: ['es'],
+  minify: true,
+  platform: 'node',
+  plugins: [escapeControls],
+  tsconfig: './tsconfig.build.json',
+  // `updates` spawns the worker by reading it off disk relative to its own
+  // module URL, so it has to land next to dist/updates.mjs
+  copy: [{ from: './src/updates/get-version-worker.js' }],
 });
 
 export default config;

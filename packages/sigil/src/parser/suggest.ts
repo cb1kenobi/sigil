@@ -59,7 +59,7 @@ import { fold, fuzzyMatch } from '../util/fuzzy.js';
  * @returns The largest distance that still counts as a near miss.
  */
 function limit(shorter: number): number {
-	return Math.max(1, Math.floor(shorter / 3));
+  return Math.max(1, Math.floor(shorter / 3));
 }
 
 /** The shortest query worth reading as an abbreviation. */
@@ -90,38 +90,38 @@ const MIN_ABBREVIATION = 2;
  * @returns The distance, in edits.
  */
 export function distance(a: string, b: string): number {
-	const x = [...fold(a)];
-	const y = [...fold(b)];
+  const x = [...fold(a)];
+  const y = [...fold(b)];
 
-	// one row behind, the row before it, and the row being filled. Three rows
-	// rather than the whole matrix, because a transposition reaches two back and
-	// nothing reaches further
-	let twoBack: number[] = [];
-	let oneBack: number[] = Array.from({ length: y.length + 1 }, (_, j) => j);
+  // one row behind, the row before it, and the row being filled. Three rows
+  // rather than the whole matrix, because a transposition reaches two back and
+  // nothing reaches further
+  let twoBack: number[] = [];
+  let oneBack: number[] = Array.from({ length: y.length + 1 }, (_, j) => j);
 
-	for (let i = 1; i <= x.length; i++) {
-		const row: number[] = [i];
+  for (let i = 1; i <= x.length; i++) {
+    const row: number[] = [i];
 
-		for (let j = 1; j <= y.length; j++) {
-			const cost = x[i - 1] === y[j - 1] ? 0 : 1;
-			let best = Math.min(
-				(oneBack[j] as number) + 1,
-				(row[j - 1] as number) + 1,
-				(oneBack[j - 1] as number) + cost
-			);
+    for (let j = 1; j <= y.length; j++) {
+      const cost = x[i - 1] === y[j - 1] ? 0 : 1;
+      let best = Math.min(
+        (oneBack[j] as number) + 1,
+        (row[j - 1] as number) + 1,
+        (oneBack[j - 1] as number) + cost
+      );
 
-			if (i > 1 && j > 1 && x[i - 1] === y[j - 2] && x[i - 2] === y[j - 1]) {
-				best = Math.min(best, (twoBack[j - 2] as number) + cost);
-			}
+      if (i > 1 && j > 1 && x[i - 1] === y[j - 2] && x[i - 2] === y[j - 1]) {
+        best = Math.min(best, (twoBack[j - 2] as number) + cost);
+      }
 
-			row[j] = best;
-		}
+      row[j] = best;
+    }
 
-		twoBack = oneBack;
-		oneBack = row;
-	}
+    twoBack = oneBack;
+    oneBack = row;
+  }
 
-	return oneBack[y.length] as number;
+  return oneBack[y.length] as number;
 }
 
 /** What a candidate is compared as, where that is not what it is typed as. */
@@ -173,55 +173,55 @@ const withoutDashes: SuggestKey = (s) => s.replace(/^-+/, '');
  * @returns The candidate, as it is typed, or nothing.
  */
 export function nearMiss(
-	typed: string,
-	candidates: readonly string[],
-	key: SuggestKey
+  typed: string,
+  candidates: readonly string[],
+  key: SuggestKey
 ): string | undefined {
-	// folded once here rather than per comparison, so the lengths below and the
-	// distance are measured on the same string. The fold is one code point out for
-	// one code point in -- see `fold()`, and the brute force over every code point
-	// that pins it -- so the folded length *is* the raw length and there is no
-	// second reading of it to keep in agreement. There was, before `U+0130` was
-	// swapped: folding lengthened there, and the two readings answered differently
-	const q = fold(key(typed));
-	const qLength = [...q].length;
-	let best: string | undefined;
-	let bestDistance = Infinity;
-	let ties = 0;
+  // folded once here rather than per comparison, so the lengths below and the
+  // distance are measured on the same string. The fold is one code point out for
+  // one code point in -- see `fold()`, and the brute force over every code point
+  // that pins it -- so the folded length *is* the raw length and there is no
+  // second reading of it to keep in agreement. There was, before `U+0130` was
+  // swapped: folding lengthened there, and the two readings answered differently
+  const q = fold(key(typed));
+  const qLength = [...q].length;
+  let best: string | undefined;
+  let bestDistance = Infinity;
+  let ties = 0;
 
-	for (const candidate of candidates) {
-		const c = fold(key(candidate));
-		const cLength = [...c].length;
-		const shorter = Math.min(qLength, cLength);
+  for (const candidate of candidates) {
+    const c = fold(key(candidate));
+    const cLength = [...c].length;
+    const shorter = Math.min(qLength, cLength);
 
-		// a **declared fast path**: an edit distance is at least the difference in
-		// length, so a pair this refuses is one the two floors below would refuse
-		// anyway, and no answer changes. What it buys is that nothing walks the
-		// whole matrix per candidate -- measured, a 100,000-character token against
-		// twenty-eight ten-character commands is 78ms without it and 5.9ms with,
-		// and an argv token really can be a very long path. What is left is the one
-		// fold and the one count of the token itself, which is why it is 5.9 rather
-		// than nothing
-		if (Math.abs(qLength - cLength) > limit(shorter)) {
-			continue;
-		}
+    // a **declared fast path**: an edit distance is at least the difference in
+    // length, so a pair this refuses is one the two floors below would refuse
+    // anyway, and no answer changes. What it buys is that nothing walks the
+    // whole matrix per candidate -- measured, a 100,000-character token against
+    // twenty-eight ten-character commands is 78ms without it and 5.9ms with,
+    // and an argv token really can be a very long path. What is left is the one
+    // fold and the one count of the token itself, which is why it is 5.9 rather
+    // than nothing
+    if (Math.abs(qLength - cLength) > limit(shorter)) {
+      continue;
+    }
 
-		const d = distance(q, c);
+    const d = distance(q, c);
 
-		if (d >= shorter || d > limit(shorter)) {
-			continue;
-		}
+    if (d >= shorter || d > limit(shorter)) {
+      continue;
+    }
 
-		if (d < bestDistance) {
-			bestDistance = d;
-			best = candidate;
-			ties = 1;
-		} else if (d === bestDistance) {
-			ties++;
-		}
-	}
+    if (d < bestDistance) {
+      bestDistance = d;
+      best = candidate;
+      ties = 1;
+    } else if (d === bestDistance) {
+      ties++;
+    }
+  }
 
-	return ties === 1 ? best : undefined;
+  return ties === 1 ? best : undefined;
 }
 
 /**
@@ -246,39 +246,39 @@ export function nearMiss(
  * @returns The candidate, as it is typed, or nothing.
  */
 function abbreviates(
-	typed: string,
-	candidates: readonly string[],
-	key: SuggestKey
+  typed: string,
+  candidates: readonly string[],
+  key: SuggestKey
 ): string | undefined {
-	const q = key(typed);
+  const q = key(typed);
 
-	if ([...q].length < MIN_ABBREVIATION) {
-		return undefined;
-	}
+  if ([...q].length < MIN_ABBREVIATION) {
+    return undefined;
+  }
 
-	let best: string | undefined;
-	let bestScore = -1;
-	let ties = 0;
+  let best: string | undefined;
+  let bestScore = -1;
+  let ties = 0;
 
-	for (const candidate of candidates) {
-		const match = fuzzyMatch(q, key(candidate));
+  for (const candidate of candidates) {
+    const match = fuzzyMatch(q, key(candidate));
 
-		// a match that does not start at the first character is not an
-		// abbreviation of the candidate, whatever it scored
-		if (!match || match.matched[0] !== 0) {
-			continue;
-		}
+    // a match that does not start at the first character is not an
+    // abbreviation of the candidate, whatever it scored
+    if (!match || match.matched[0] !== 0) {
+      continue;
+    }
 
-		if (match.score > bestScore) {
-			bestScore = match.score;
-			best = candidate;
-			ties = 1;
-		} else if (match.score === bestScore) {
-			ties++;
-		}
-	}
+    if (match.score > bestScore) {
+      bestScore = match.score;
+      best = candidate;
+      ties = 1;
+    } else if (match.score === bestScore) {
+      ties++;
+    }
+  }
 
-	return ties === 1 ? best : undefined;
+  return ties === 1 ? best : undefined;
 }
 
 /**
@@ -311,11 +311,11 @@ function abbreviates(
  * @returns The candidate, as it is typed, or nothing.
  */
 export function nearest(
-	typed: string,
-	candidates: readonly string[],
-	key: SuggestKey = asTyped
+  typed: string,
+  candidates: readonly string[],
+  key: SuggestKey = asTyped
 ): string | undefined {
-	return nearMiss(typed, candidates, key) ?? abbreviates(typed, candidates, key);
+  return nearMiss(typed, candidates, key) ?? abbreviates(typed, candidates, key);
 }
 
 /**
@@ -341,19 +341,19 @@ export function nearest(
  * @returns The tokens, each once.
  */
 export function commandTokens(cmd: InternalCommand): string[] {
-	const tokens = new Set<string>();
+  const tokens = new Set<string>();
 
-	for (const child of cmd[Internal].commands.values()) {
-		if (child.hidden) {
-			continue;
-		}
-		tokens.add(child.name);
-		for (const alias of child[Internal].aliases) {
-			tokens.add(alias);
-		}
-	}
+  for (const child of cmd[Internal].commands.values()) {
+    if (child.hidden) {
+      continue;
+    }
+    tokens.add(child.name);
+    for (const alias of child[Internal].aliases) {
+      tokens.add(alias);
+    }
+  }
 
-	return [...tokens];
+  return [...tokens];
 }
 
 /**
@@ -371,23 +371,23 @@ export function commandTokens(cmd: InternalCommand): string[] {
  * @returns The spellings, each once, dashed as they are typed.
  */
 export function optionTokens(contexts: readonly InternalCommand[]): string[] {
-	const tokens = new Set<string>();
+  const tokens = new Set<string>();
 
-	for (const ctx of contexts) {
-		for (const opt of ctx[Internal].options.values()) {
-			if (opt.hidden) {
-				continue;
-			}
-			for (const name of opt[Internal].long) {
-				tokens.add(name);
-			}
-			for (const name of opt[Internal].short) {
-				tokens.add(name);
-			}
-		}
-	}
+  for (const ctx of contexts) {
+    for (const opt of ctx[Internal].options.values()) {
+      if (opt.hidden) {
+        continue;
+      }
+      for (const name of opt[Internal].long) {
+        tokens.add(name);
+      }
+      for (const name of opt[Internal].short) {
+        tokens.add(name);
+      }
+    }
+  }
 
-	return [...tokens];
+  return [...tokens];
 }
 
 /**
@@ -403,7 +403,7 @@ export function optionTokens(contexts: readonly InternalCommand[]): string[] {
  * @returns Whether a suggestion may be offered.
  */
 function enabled(settings: Settings | undefined): boolean {
-	return settings?.suggestions !== false;
+  return settings?.suggestions !== false;
 }
 
 /**
@@ -428,18 +428,18 @@ function enabled(settings: Settings | undefined): boolean {
  * @returns The message.
  */
 export function unexpectedArgument(
-	subject: unknown,
-	ctx: InternalCommand,
-	settings?: Settings
+  subject: unknown,
+  ctx: InternalCommand,
+  settings?: Settings
 ): string {
-	// `typeof` is the narrowing rather than a guard: `inputs[0]` is an `unknown`
-	// on the parsed value and is a token out of argv in every reachable case
-	const typed = typeof subject === 'string' && enabled(settings) ? subject : undefined;
-	const near = typed === undefined ? undefined : nearest(typed, commandTokens(ctx));
+  // `typeof` is the narrowing rather than a guard: `inputs[0]` is an `unknown`
+  // on the parsed value and is a token out of argv in every reachable case
+  const typed = typeof subject === 'string' && enabled(settings) ? subject : undefined;
+  const near = typed === undefined ? undefined : nearest(typed, commandTokens(ctx));
 
-	return near === undefined
-		? __`Unexpected argument "${subject}"`
-		: __`Unexpected argument "${subject}". Did you mean "${near}"?`;
+  return near === undefined
+    ? __`Unexpected argument "${subject}"`
+    : __`Unexpected argument "${subject}". Did you mean "${near}"?`;
 }
 
 /**
@@ -457,21 +457,21 @@ export function unexpectedArgument(
  * @returns The message.
  */
 export function unknownOption(
-	subject: unknown,
-	contexts: readonly InternalCommand[],
-	settings?: Settings
+  subject: unknown,
+  contexts: readonly InternalCommand[],
+  settings?: Settings
 ): string {
-	// the narrowing rather than a guard, for `unexpectedArgument()`'s reason:
-	// `inputs[0]` is typed as possibly absent and is a token out of argv in
-	// every case that reaches here, because the spelling was matched against
-	// `unknownOptionRE` to get this far
-	const typed = typeof subject === 'string' && enabled(settings) ? subject : undefined;
-	const near =
-		typed === undefined ? undefined : nearest(typed, optionTokens(contexts), withoutDashes);
+  // the narrowing rather than a guard, for `unexpectedArgument()`'s reason:
+  // `inputs[0]` is typed as possibly absent and is a token out of argv in
+  // every case that reaches here, because the spelling was matched against
+  // `unknownOptionRE` to get this far
+  const typed = typeof subject === 'string' && enabled(settings) ? subject : undefined;
+  const near =
+    typed === undefined ? undefined : nearest(typed, optionTokens(contexts), withoutDashes);
 
-	return near === undefined
-		? __`Unknown option "${subject}"`
-		: __`Unknown option "${subject}". Did you mean "${near}"?`;
+  return near === undefined
+    ? __`Unknown option "${subject}"`
+    : __`Unknown option "${subject}". Did you mean "${near}"?`;
 }
 
 /**
@@ -487,13 +487,13 @@ export function unknownOption(
  * @returns The message.
  */
 export function unknownCommand(
-	subject: string,
-	parent: InternalCommand,
-	settings?: Settings
+  subject: string,
+  parent: InternalCommand,
+  settings?: Settings
 ): string {
-	const near = enabled(settings) ? nearest(subject, commandTokens(parent)) : undefined;
+  const near = enabled(settings) ? nearest(subject, commandTokens(parent)) : undefined;
 
-	return near === undefined
-		? __`Unknown command "${subject}"`
-		: __`Unknown command "${subject}". Did you mean "${near}"?`;
+  return near === undefined
+    ? __`Unknown command "${subject}"`
+    : __`Unknown command "${subject}". Did you mean "${near}"?`;
 }

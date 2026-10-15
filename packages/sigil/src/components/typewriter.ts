@@ -53,25 +53,25 @@ export type Pace = (chunk: string, index: number) => number;
  * @returns The chunks, in order.
  */
 export function byWord(value: string): string[] {
-	const chunks: string[] = [];
-	const words = /\s*\S+/g;
-	let end = 0;
+  const chunks: string[] = [];
+  const words = /\s*\S+/g;
+  let end = 0;
 
-	for (let found = words.exec(value); found !== null; found = words.exec(value)) {
-		chunks.push(found[0]);
-		end = words.lastIndex;
-	}
+  for (let found = words.exec(value); found !== null; found = words.exec(value)) {
+    chunks.push(found[0]);
+    end = words.lastIndex;
+  }
 
-	const tail = value.slice(end);
-	if (tail !== '') {
-		if (chunks.length > 0) {
-			chunks[chunks.length - 1] += tail;
-		} else {
-			chunks.push(tail);
-		}
-	}
+  const tail = value.slice(end);
+  if (tail !== '') {
+    if (chunks.length > 0) {
+      chunks[chunks.length - 1] += tail;
+    } else {
+      chunks.push(tail);
+    }
+  }
 
-	return chunks;
+  return chunks;
 }
 
 /**
@@ -86,18 +86,18 @@ export function byWord(value: string): string[] {
  * @returns The chunks, in order.
  */
 export function byLine(value: string): string[] {
-	return value
-		.split('\n')
-		.map((line, index) => (index === 0 ? line : `\n${line}`))
-		.filter((chunk) => chunk !== '');
+  return value
+    .split('\n')
+    .map((line, index) => (index === 0 ? line : `\n${line}`))
+    .filter((chunk) => chunk !== '');
 }
 
 /** One step of a reveal: where it lands, and the text it put on screen. */
 export interface RevealStep {
-	/** The chunk this step reveals. */
-	readonly chunk: string;
-	/** How much of the text is shown once it has been taken. */
-	readonly end: number;
+  /** The chunk this step reveals. */
+  readonly chunk: string;
+  /** How much of the text is shown once it has been taken. */
+  readonly end: number;
 }
 
 /**
@@ -121,30 +121,30 @@ export interface RevealStep {
  * @returns The steps, in order. Empty for an empty string.
  */
 export function revealSteps(value: string, chunk: Chunker): RevealStep[] {
-	const steps: RevealStep[] = [];
-	const length = value.length;
-	let at = 0;
+  const steps: RevealStep[] = [];
+  const length = value.length;
+  let at = 0;
 
-	for (const piece of chunk(value)) {
-		const end = Math.min(at + piece.length, length);
-		if (end > at) {
-			steps.push({ chunk: value.slice(at, end), end });
-			at = end;
-		}
-		// a fast path and nothing more: every chunk after the end clamps to the end,
-		// so `end > at` is false and none of them is pushed. What it buys is the
-		// walk, for a chunker that answers with far more chunks than the string has
-		// characters in it
-		if (at >= length) {
-			break;
-		}
-	}
+  for (const piece of chunk(value)) {
+    const end = Math.min(at + piece.length, length);
+    if (end > at) {
+      steps.push({ chunk: value.slice(at, end), end });
+      at = end;
+    }
+    // a fast path and nothing more: every chunk after the end clamps to the end,
+    // so `end > at` is false and none of them is pushed. What it buys is the
+    // walk, for a chunker that answers with far more chunks than the string has
+    // characters in it
+    if (at >= length) {
+      break;
+    }
+  }
 
-	if (at < length) {
-		steps.push({ chunk: value.slice(at), end: length });
-	}
+  if (at < length) {
+    steps.push({ chunk: value.slice(at), end: length });
+  }
 
-	return steps;
+  return steps;
 }
 
 /**
@@ -173,39 +173,39 @@ export function revealSteps(value: string, chunk: Chunker): RevealStep[] {
  * @returns What is on screen.
  */
 function shownOf(value: string, at: number): string {
-	return value.slice(0, Math.max(0, at));
+  return value.slice(0, Math.max(0, at));
 }
 
 /** How many characters two strings begin the same way. */
 function shared(a: string, b: string): number {
-	const limit = Math.min(a.length, b.length);
-	let at = 0;
-	while (at < limit && a.charCodeAt(at) === b.charCodeAt(at)) {
-		at++;
-	}
-	return at;
+  const limit = Math.min(a.length, b.length);
+  let at = 0;
+  while (at < limit && a.charCodeAt(at) === b.charCodeAt(at)) {
+    at++;
+  }
+  return at;
 }
 
 /** What a typewriter's tree is driven by, and what the facade writes to. */
 export interface TypewriterState {
-	/**
-	 * How much of the text is on screen, as an offset into it.
-	 *
-	 * An offset rather than a count of chunks, because the chunk boundaries move
-	 * when the text does and an offset survives that. Appending `a` to `hel` and
-	 * re-chunking by word turns one chunk into another, and appending a combining
-	 * mark turns `a` into one cluster two code units long -- so a count of chunks
-	 * would have to round back to a boundary and re-reveal what was already on
-	 * screen, which is a visible stutter on every append.
-	 *
-	 * Which means it can land inside a cluster -- the characters two texts share
-	 * need not be a boundary of either -- so the reveal moves it forward to the end
-	 * of the step it fell inside rather than leaving it there. An earlier version let
-	 * it sit until the next step, and that drew a lone high surrogate for one frame.
-	 */
-	readonly revealed: State<number>;
-	/** What is being typed. */
-	readonly text: State<string>;
+  /**
+   * How much of the text is on screen, as an offset into it.
+   *
+   * An offset rather than a count of chunks, because the chunk boundaries move
+   * when the text does and an offset survives that. Appending `a` to `hel` and
+   * re-chunking by word turns one chunk into another, and appending a combining
+   * mark turns `a` into one cluster two code units long -- so a count of chunks
+   * would have to round back to a boundary and re-reveal what was already on
+   * screen, which is a visible stutter on every append.
+   *
+   * Which means it can land inside a cluster -- the characters two texts share
+   * need not be a boundary of either -- so the reveal moves it forward to the end
+   * of the step it fell inside rather than leaving it there. An earlier version let
+   * it sit until the next step, and that drew a lone high surrogate for one frame.
+   */
+  readonly revealed: State<number>;
+  /** What is being typed. */
+  readonly text: State<string>;
 }
 
 /**
@@ -215,34 +215,34 @@ export interface TypewriterState {
  * @returns The signals.
  */
 export function typewriterState(text = ''): TypewriterState {
-	return { revealed: new State(0), text: new State(text) };
+  return { revealed: new State(0), text: new State(text) };
 }
 
 export interface TypewriterViewOptions {
-	/**
-	 * What to draw at the write head. Nothing by default.
-	 *
-	 * A character rather than an attribute over a cell, which is the one decision
-	 * in this component that is not the obvious one. The prompt's caret is reverse
-	 * video over the cluster the cursor is on, and that cannot work here for a
-	 * reason the layout records: there is no inline layout, so a caret beside a
-	 * `text` is a second flex item placed beside that text's *box* -- which for
-	 * text that wraps is the end of its **first** row. Measured: a caret after a
-	 * two-row paragraph lands at the end of row one.
-	 *
-	 * Putting it in the string instead is always right -- it wraps with the text,
-	 * it follows the last character through a broken over-long word, and it moves
-	 * to a new row when the row it was on filled up. What it costs is a class of
-	 * its own, so a theme cannot colour the cursor apart from the text. It buys
-	 * back the thing a reverse-video caret loses: at colour level 0 every
-	 * attribute is dropped, so the prompt's caret is deliberately not drawn there
-	 * at all, and a glyph is what survives `NO_COLOR`.
-	 *
-	 * It is drawn only while there is more to reveal, because the write head is
-	 * where the next character goes and a finished line has no next character --
-	 * which is also what keeps a cursor out of the log.
-	 */
-	cursor?: string;
+  /**
+   * What to draw at the write head. Nothing by default.
+   *
+   * A character rather than an attribute over a cell, which is the one decision
+   * in this component that is not the obvious one. The prompt's caret is reverse
+   * video over the cluster the cursor is on, and that cannot work here for a
+   * reason the layout records: there is no inline layout, so a caret beside a
+   * `text` is a second flex item placed beside that text's *box* -- which for
+   * text that wraps is the end of its **first** row. Measured: a caret after a
+   * two-row paragraph lands at the end of row one.
+   *
+   * Putting it in the string instead is always right -- it wraps with the text,
+   * it follows the last character through a broken over-long word, and it moves
+   * to a new row when the row it was on filled up. What it costs is a class of
+   * its own, so a theme cannot colour the cursor apart from the text. It buys
+   * back the thing a reverse-video caret loses: at colour level 0 every
+   * attribute is dropped, so the prompt's caret is deliberately not drawn there
+   * at all, and a glyph is what survives `NO_COLOR`.
+   *
+   * It is drawn only while there is more to reveal, because the write head is
+   * where the next character goes and a finished line has no next character --
+   * which is also what keeps a cursor out of the log.
+   */
+  cursor?: string;
 }
 
 /**
@@ -269,41 +269,41 @@ export interface TypewriterViewOptions {
  * @returns The tree.
  */
 export function typewriterView(state: TypewriterState, opts: TypewriterViewOptions = {}): Element {
-	const body = textNode('', { class: 'sigil-typewriter-text', 'min-width': 0 });
+  const body = textNode('', { class: 'sigil-typewriter-text', 'min-width': 0 });
 
-	createEffect(() => {
-		const value = state.text.get();
-		const shown = shownOf(value, state.revealed.get());
-		// the cursor only while there is a write head for it to be at
-		const head = opts.cursor !== undefined && shown.length < value.length ? opts.cursor : '';
-		body.setText(shown + head);
-	});
+  createEffect(() => {
+    const value = state.text.get();
+    const shown = shownOf(value, state.revealed.get());
+    // the cursor only while there is a write head for it to be at
+    const head = opts.cursor !== undefined && shown.length < value.length ? opts.cursor : '';
+    body.setText(shown + head);
+  });
 
-	return box({ class: 'sigil-typewriter' }, body);
+  return box({ class: 'sigil-typewriter' }, body);
 }
 
 export interface TypewriterRevealOptions {
-	/**
-	 * Whether the reveal is gradual, or the whole text arrives at once.
-	 *
-	 * False in a pipe, in a CI log, and under a reduced-motion opt-out, which is
-	 * one question rather than three: `mountLive()` hands the build what the
-	 * renderer resolved, and the renderer's own answer already folds a missing
-	 * terminal in. A build log with one line per keystroke is what this is for.
-	 *
-	 * A function rather than a boolean because it is also what says the typewriter
-	 * is *running*, and that moves: `done()` turns it off and the whole text has to
-	 * arrive at once, including the text `done()` was handed. Read on every run, so
-	 * turning it off is what finishes the reveal rather than a second mechanism
-	 * beside it.
-	 */
-	animate: () => boolean;
-	/** How to cut the text. Graphemes by default. */
-	chunk?: Chunker;
-	/** How long each chunk is held before the next. A flat `interval` by default. */
-	pace?: Pace;
-	/** The flat delay, in milliseconds. Defaults to 40. */
-	interval?: number;
+  /**
+   * Whether the reveal is gradual, or the whole text arrives at once.
+   *
+   * False in a pipe, in a CI log, and under a reduced-motion opt-out, which is
+   * one question rather than three: `mountLive()` hands the build what the
+   * renderer resolved, and the renderer's own answer already folds a missing
+   * terminal in. A build log with one line per keystroke is what this is for.
+   *
+   * A function rather than a boolean because it is also what says the typewriter
+   * is *running*, and that moves: `done()` turns it off and the whole text has to
+   * arrive at once, including the text `done()` was handed. Read on every run, so
+   * turning it off is what finishes the reveal rather than a second mechanism
+   * beside it.
+   */
+  animate: () => boolean;
+  /** How to cut the text. Graphemes by default. */
+  chunk?: Chunker;
+  /** How long each chunk is held before the next. A flat `interval` by default. */
+  pace?: Pace;
+  /** The flat delay, in milliseconds. Defaults to 40. */
+  interval?: number;
 }
 
 /**
@@ -333,142 +333,142 @@ export interface TypewriterRevealOptions {
  * @param opts - Whether to animate, how to cut, and how fast.
  */
 export function typewriterReveal(state: TypewriterState, opts: TypewriterRevealOptions): void {
-	const chunk = opts.chunk ?? graphemes;
-	// `Number.isFinite` rather than a bare comparison, because `Infinity >= 0` is
-	// true and `setTimeout` reads a delay past 2^31-1 as 1 -- so `interval: Infinity`
-	// asked for "never" and got "as fast as possible", where `NaN` already fell back
-	// here. One question rather than two answers to it
-	const flat =
-		opts.interval !== undefined && Number.isFinite(opts.interval) && opts.interval >= 0
-			? opts.interval
-			: INTERVAL;
-	const pace = opts.pace;
-	/** The text the position on screen is an offset into, for the prefix rule. */
-	let shown = '';
+  const chunk = opts.chunk ?? graphemes;
+  // `Number.isFinite` rather than a bare comparison, because `Infinity >= 0` is
+  // true and `setTimeout` reads a delay past 2^31-1 as 1 -- so `interval: Infinity`
+  // asked for "never" and got "as fast as possible", where `NaN` already fell back
+  // here. One question rather than two answers to it
+  const flat =
+    opts.interval !== undefined && Number.isFinite(opts.interval) && opts.interval >= 0
+      ? opts.interval
+      : INTERVAL;
+  const pace = opts.pace;
+  /** The text the position on screen is an offset into, for the prefix rule. */
+  let shown = '';
 
-	createEffect(() => {
-		const value = state.text.get();
-		// untracked: a step writes this signal, and an effect that read it here
-		// would re-run -- and re-chunk the whole string -- once per chunk, which is
-		// quadratic in the length of the text for no answer that changes
-		const was = untrack(() => state.revealed.get());
-		const kept = Math.min(was, shared(shown, value));
-		shown = value;
+  createEffect(() => {
+    const value = state.text.get();
+    // untracked: a step writes this signal, and an effect that read it here
+    // would re-run -- and re-chunk the whole string -- once per chunk, which is
+    // quadratic in the length of the text for no answer that changes
+    const was = untrack(() => state.revealed.get());
+    const kept = Math.min(was, shared(shown, value));
+    shown = value;
 
-		if (!opts.animate()) {
-			state.revealed.set(value.length);
-			return;
-		}
+    if (!opts.animate()) {
+      state.revealed.set(value.length);
+      return;
+    }
 
-		const steps = revealSteps(value, chunk);
-		// A position that is not on a step boundary is moved forward to the end of the
-		// step it fell inside, which does two things.
-		//
-		// It puts the first chunk on the first frame rather than one interval later: a
-		// typewriter showing an empty line before it starts reads as a stall, and it is
-		// what makes `pace` unambiguously the time a chunk is *held* -- so the delay
-		// before a chunk is the one in front of it earned, and the last chunk's is
-		// never used.
-		//
-		// And it is what keeps a text change from drawing a cluster in half. The clamp
-		// above stops at the characters the two texts share, which need not be a
-		// boundary of either: typing a combining mark onto an `a` already on screen
-		// makes the two one cluster, and swapping one emoji for another leaves the
-		// position on the surrogate they have in common -- measured, that drew a lone
-		// high surrogate for one frame before the next step repaired it. Moving forward
-		// reveals the whole cluster instead, which is at most one chunk early and is
-		// the only direction that does not take something off the screen that was
-		// already on it. It was written as a special case for the *first* step and
-		// generalised when the surrogate case turned up; `=== 0` before that stalled
-		// the reveal outright, because the schedule below has no previous chunk to take
-		// a delay from and gave up.
-		let at = kept;
-		const inside = steps.findIndex((step) => step.end >= at);
-		if (inside >= 0 && steps[inside]!.end > at) {
-			at = steps[inside]!.end;
-		}
-		// settled before any of the caller's code runs below, so that a `pace` which
-		// writes the position -- a `skip()` from inside one is the shape that found
-		// this -- is the last word rather than the first. Read the other way round, the
-		// effect computed `at` from a position taken before `pace` and then wrote it
-		// back over whatever `pace` had done
-		state.revealed.set(at);
+    const steps = revealSteps(value, chunk);
+    // A position that is not on a step boundary is moved forward to the end of the
+    // step it fell inside, which does two things.
+    //
+    // It puts the first chunk on the first frame rather than one interval later: a
+    // typewriter showing an empty line before it starts reads as a stall, and it is
+    // what makes `pace` unambiguously the time a chunk is *held* -- so the delay
+    // before a chunk is the one in front of it earned, and the last chunk's is
+    // never used.
+    //
+    // And it is what keeps a text change from drawing a cluster in half. The clamp
+    // above stops at the characters the two texts share, which need not be a
+    // boundary of either: typing a combining mark onto an `a` already on screen
+    // makes the two one cluster, and swapping one emoji for another leaves the
+    // position on the surrogate they have in common -- measured, that drew a lone
+    // high surrogate for one frame before the next step repaired it. Moving forward
+    // reveals the whole cluster instead, which is at most one chunk early and is
+    // the only direction that does not take something off the screen that was
+    // already on it. It was written as a special case for the *first* step and
+    // generalised when the surrogate case turned up; `=== 0` before that stalled
+    // the reveal outright, because the schedule below has no previous chunk to take
+    // a delay from and gave up.
+    let at = kept;
+    const inside = steps.findIndex((step) => step.end >= at);
+    if (inside >= 0 && steps[inside]!.end > at) {
+      at = steps[inside]!.end;
+    }
+    // settled before any of the caller's code runs below, so that a `pace` which
+    // writes the position -- a `skip()` from inside one is the shape that found
+    // this -- is the last word rather than the first. Read the other way round, the
+    // effect computed `at` from a position taken before `pace` and then wrote it
+    // back over whatever `pace` had done
+    state.revealed.set(at);
 
-		/**
-		 * What each chunk earns, taken here rather than inside the timer.
-		 *
-		 * `pace` is the caller's code, and a throw from inside a `setTimeout` is an
-		 * uncaught exception: node prints a stack and the process goes, which is the
-		 * opposite of the rule that a CLI shows a message rather than a stack, and it
-		 * skips the renderer's own teardown. From an effect body it is reported
-		 * instead, through the machinery that already answers for a component that
-		 * throws -- so the timer below runs no caller code at all, and a `pace` that
-		 * throws now fails the same way a `chunk` that throws does. Found by probing
-		 * it rather than by a test, which is why there is one now.
-		 *
-		 * The last chunk is left out rather than computed and ignored, because the
-		 * delay before a chunk is the one in front of it earned: asking the last one
-		 * would be asking a question whose answer is never read, and a caller counting
-		 * the calls would see one too many.
-		 */
-		const held: number[] = [];
-		for (let index = 0; index < steps.length - 1; index++) {
-			const earned = pace === undefined ? flat : pace(steps[index]!.chunk, index);
-			// a pace that answers with nothing usable is read as the flat interval
-			// rather than as zero: `NaN` would schedule immediately and reveal the
-			// whole text in one macrotask, which is the one failure that looks like
-			// the feature being broken rather than like a bad return value.
-			//
-			// A negative one is kept, because `setTimeout` documents a delay under 1
-			// as 1 -- so a `Math.max(0, ...)` here was this file saying what the host
-			// already says, and it failed its sabotage for exactly that reason. The
-			// contract is still asserted; it is simply kept somewhere else
-			held.push(Number.isFinite(earned) ? earned : flat);
-		}
+    /**
+     * What each chunk earns, taken here rather than inside the timer.
+     *
+     * `pace` is the caller's code, and a throw from inside a `setTimeout` is an
+     * uncaught exception: node prints a stack and the process goes, which is the
+     * opposite of the rule that a CLI shows a message rather than a stack, and it
+     * skips the renderer's own teardown. From an effect body it is reported
+     * instead, through the machinery that already answers for a component that
+     * throws -- so the timer below runs no caller code at all, and a `pace` that
+     * throws now fails the same way a `chunk` that throws does. Found by probing
+     * it rather than by a test, which is why there is one now.
+     *
+     * The last chunk is left out rather than computed and ignored, because the
+     * delay before a chunk is the one in front of it earned: asking the last one
+     * would be asking a question whose answer is never read, and a caller counting
+     * the calls would see one too many.
+     */
+    const held: number[] = [];
+    for (let index = 0; index < steps.length - 1; index++) {
+      const earned = pace === undefined ? flat : pace(steps[index]!.chunk, index);
+      // a pace that answers with nothing usable is read as the flat interval
+      // rather than as zero: `NaN` would schedule immediately and reveal the
+      // whole text in one macrotask, which is the one failure that looks like
+      // the feature being broken rather than like a bad return value.
+      //
+      // A negative one is kept, because `setTimeout` documents a delay under 1
+      // as 1 -- so a `Math.max(0, ...)` here was this file saying what the host
+      // already says, and it failed its sabotage for exactly that reason. The
+      // contract is still asserted; it is simply kept somewhere else
+      held.push(Number.isFinite(earned) ? earned : flat);
+    }
 
-		let timer: ReturnType<typeof setTimeout> | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
-		const schedule = (): void => {
-			const now = state.revealed.get();
-			// the step this would take, or none. Nothing left to reveal answers `-1`
-			// here, so there is no separate check for the end: a guard for it was
-			// written and deleted again for being subsumed by this one
-			const next = steps.findIndex((step) => step.end > now);
-			// there is no chunk in front of the next one to take a delay from. `-1` is
-			// how the end of the reveal arrives and is the half that fires; `0` cannot
-			// be reached, because the snap above leaves the position at or past the end
-			// of the first step, and it is caught by the same comparison rather than
-			// by a second one
-			if (next < 1) {
-				return;
-			}
+    const schedule = (): void => {
+      const now = state.revealed.get();
+      // the step this would take, or none. Nothing left to reveal answers `-1`
+      // here, so there is no separate check for the end: a guard for it was
+      // written and deleted again for being subsumed by this one
+      const next = steps.findIndex((step) => step.end > now);
+      // there is no chunk in front of the next one to take a delay from. `-1` is
+      // how the end of the reveal arrives and is the half that fires; `0` cannot
+      // be reached, because the snap above leaves the position at or past the end
+      // of the first step, and it is caught by the same comparison rather than
+      // by a second one
+      if (next < 1) {
+        return;
+      }
 
-			timer = setTimeout(
-				() => {
-					// where the reveal has got to is read again at fire time rather than
-					// captured, so that a `skip()` while a timer was in flight cannot be
-					// undone by it: a captured step would write a position behind the one the
-					// skip reached, and the text would come back off the screen
-					const from = state.revealed.get();
-					const index = steps.findIndex((step) => step.end > from);
-					if (index < 0) {
-						return;
-					}
-					state.revealed.set(steps[index]!.end);
-					schedule();
-				},
-				held[next - 1]
-			);
-			// a typewriter is not a reason to stay alive
-			timer.unref?.();
-		};
+      timer = setTimeout(
+        () => {
+          // where the reveal has got to is read again at fire time rather than
+          // captured, so that a `skip()` while a timer was in flight cannot be
+          // undone by it: a captured step would write a position behind the one the
+          // skip reached, and the text would come back off the screen
+          const from = state.revealed.get();
+          const index = steps.findIndex((step) => step.end > from);
+          if (index < 0) {
+            return;
+          }
+          state.revealed.set(steps[index]!.end);
+          schedule();
+        },
+        held[next - 1]
+      );
+      // a typewriter is not a reason to stay alive
+      timer.unref?.();
+    };
 
-		// untracked, for the same reason the position above is read untracked: this
-		// call happens inside the effect body, so a tracked `revealed` here would
-		// make every step re-run the effect and re-chunk the whole string
-		untrack(schedule);
-		onCleanup(() => clearTimeout(timer));
-	});
+    // untracked, for the same reason the position above is read untracked: this
+    // call happens inside the effect body, so a tracked `revealed` here would
+    // make every step re-run the effect and re-chunk the whole string
+    untrack(schedule);
+    onCleanup(() => clearTimeout(timer));
+  });
 }
 
 /**
@@ -480,31 +480,31 @@ export function typewriterReveal(state: TypewriterState, opts: TypewriterRevealO
  * one frame per keystroke in a CI log.
  */
 export interface TypewriterOptions extends MountOptions, Omit<TypewriterRevealOptions, 'animate'> {
-	/** What to draw at the write head. Nothing by default. */
-	cursor?: string;
-	/** What to type. */
-	text?: string;
+  /** What to draw at the write head. Nothing by default. */
+  cursor?: string;
+  /** What to type. */
+  text?: string;
 }
 
 export interface Typewriter {
-	/** Types more on the end, continuing from where the reveal had got to. */
-	append(more: string): void;
-	/** Reveals the rest, leaves the text behind, and gives the screen back. */
-	done(final?: string): void;
-	/** What is on screen. */
-	readonly revealed: string;
-	/** Whether there is more to reveal. */
-	readonly revealing: boolean;
-	/** Reveals the rest at once, and keeps going. */
-	skip(): void;
-	/** Starts typing, optionally replacing the text first. */
-	start(text?: string): Typewriter;
-	/** Stops and erases, leaving nothing behind. */
-	stop(): void;
-	/** What is being typed. Assigning keeps whatever prefix still holds. */
-	text: string;
-	/** Writes a line that stays, above the typewriter. */
-	write(text: string): void;
+  /** Types more on the end, continuing from where the reveal had got to. */
+  append(more: string): void;
+  /** Reveals the rest, leaves the text behind, and gives the screen back. */
+  done(final?: string): void;
+  /** What is on screen. */
+  readonly revealed: string;
+  /** Whether there is more to reveal. */
+  readonly revealing: boolean;
+  /** Reveals the rest at once, and keeps going. */
+  skip(): void;
+  /** Starts typing, optionally replacing the text first. */
+  start(text?: string): Typewriter;
+  /** Stops and erases, leaving nothing behind. */
+  stop(): void;
+  /** What is being typed. Assigning keeps whatever prefix still holds. */
+  text: string;
+  /** Writes a line that stays, above the typewriter. */
+  write(text: string): void;
 }
 
 /**
@@ -523,106 +523,106 @@ export interface Typewriter {
  * @returns The typewriter, not yet started.
  */
 export function createTypewriter(opts: TypewriterOptions = {}): Typewriter {
-	const state = typewriterState(opts.text ?? '');
-	const terminal = opts.terminal ?? defaultTerminal;
-	const running = new State(false);
+  const state = typewriterState(opts.text ?? '');
+  const terminal = opts.terminal ?? defaultTerminal;
+  const running = new State(false);
 
-	let mounted: Mounted | undefined;
+  let mounted: Mounted | undefined;
 
-	function mount(): Mounted {
-		mounted ??= mountLive(
-			(live, motion) => {
-				const moving = live && motion !== 'reduce';
-				typewriterReveal(state, {
-					...opts,
-					// gated on `running` as well, which is what makes `done()` finish the
-					// reveal rather than needing to write the position itself -- and what
-					// makes a typewriter mounted by a `done()` it never started leave its
-					// text rather than type it out to nobody
-					animate: () => moving && running.get(),
-				});
-				return typewriterView(state, { cursor: opts.cursor });
-			},
-			{ ...opts, terminal }
-		);
-		return mounted;
-	}
+  function mount(): Mounted {
+    mounted ??= mountLive(
+      (live, motion) => {
+        const moving = live && motion !== 'reduce';
+        typewriterReveal(state, {
+          ...opts,
+          // gated on `running` as well, which is what makes `done()` finish the
+          // reveal rather than needing to write the position itself -- and what
+          // makes a typewriter mounted by a `done()` it never started leave its
+          // text rather than type it out to nobody
+          animate: () => moving && running.get(),
+        });
+        return typewriterView(state, { cursor: opts.cursor });
+      },
+      { ...opts, terminal }
+    );
+    return mounted;
+  }
 
-	const typewriter: Typewriter = {
-		append(more: string): void {
-			// nothing is done about an append of nothing, and nothing has to be: the
-			// text is the same string, so the signal refuses the write and the frame
-			// after it finds nothing to draw. A guard here failed its sabotage
-			state.text.set(state.text.get() + more);
-			mounted?.frame();
-		},
+  const typewriter: Typewriter = {
+    append(more: string): void {
+      // nothing is done about an append of nothing, and nothing has to be: the
+      // text is the same string, so the signal refuses the write and the frame
+      // after it finds nothing to draw. A guard here failed its sabotage
+      state.text.set(state.text.get() + more);
+      mounted?.frame();
+    },
 
-		done(final?: string): void {
-			if (final !== undefined) {
-				state.text.set(final);
-			}
-			// turning it off is what reveals the rest, through the one path that
-			// does: writing the position here as well would be a second answer to
-			// "how does a reveal finish", and the two would come to disagree
-			running.set(false);
+    done(final?: string): void {
+      if (final !== undefined) {
+        state.text.set(final);
+      }
+      // turning it off is what reveals the rest, through the one path that
+      // does: writing the position here as well would be a second answer to
+      // "how does a reveal finish", and the two would come to disagree
+      running.set(false);
 
-			// mounted even if it never ran, which is what a `done()` on a typewriter
-			// nobody started means: the text is what it had to say
-			const it = mount();
-			it.frame();
-			it.done();
-			mounted = undefined;
-		},
+      // mounted even if it never ran, which is what a `done()` on a typewriter
+      // nobody started means: the text is what it had to say
+      const it = mount();
+      it.frame();
+      it.done();
+      mounted = undefined;
+    },
 
-		get revealed() {
-			return shownOf(state.text.get(), state.revealed.get());
-		},
+    get revealed() {
+      return shownOf(state.text.get(), state.revealed.get());
+    },
 
-		get revealing() {
-			return running.get() && state.revealed.get() < state.text.get().length;
-		},
+    get revealing() {
+      return running.get() && state.revealed.get() < state.text.get().length;
+    },
 
-		skip(): void {
-			state.revealed.set(state.text.get().length);
-			mounted?.frame();
-		},
+    skip(): void {
+      state.revealed.set(state.text.get().length);
+      mounted?.frame();
+    },
 
-		start(next?: string): Typewriter {
-			if (next !== undefined) {
-				state.text.set(next);
-			}
-			// no guard against starting twice, for the reason `append()` has none: the
-			// signal refuses an equal write, so the reveal is not rescheduled and the
-			// frame after it has nothing to draw
-			running.set(true);
-			mount().frame();
-			return typewriter;
-		},
+    start(next?: string): Typewriter {
+      if (next !== undefined) {
+        state.text.set(next);
+      }
+      // no guard against starting twice, for the reason `append()` has none: the
+      // signal refuses an equal write, so the reveal is not rescheduled and the
+      // frame after it has nothing to draw
+      running.set(true);
+      mount().frame();
+      return typewriter;
+    },
 
-		stop(): void {
-			running.set(false);
-			mounted?.stop();
-			mounted = undefined;
-		},
+    stop(): void {
+      running.set(false);
+      mounted?.stop();
+      mounted = undefined;
+    },
 
-		get text() {
-			return state.text.get();
-		},
+    get text() {
+      return state.text.get();
+    },
 
-		set text(next: string) {
-			state.text.set(next);
-			mounted?.frame();
-		},
+    set text(next: string) {
+      state.text.set(next);
+      mounted?.frame();
+    },
 
-		write(line: string): void {
-			if (mounted) {
-				mounted.write(line);
-				return;
-			}
-			// nothing has claimed the screen, so there is nothing to write above
-			terminal.write(line.endsWith('\n') ? line : `${line}\n`);
-		},
-	};
+    write(line: string): void {
+      if (mounted) {
+        mounted.write(line);
+        return;
+      }
+      // nothing has claimed the screen, so there is nothing to write above
+      terminal.write(line.endsWith('\n') ? line : `${line}\n`);
+    },
+  };
 
-	return typewriter;
+  return typewriter;
 }

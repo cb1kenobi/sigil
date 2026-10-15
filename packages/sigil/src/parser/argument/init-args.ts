@@ -15,13 +15,13 @@ import { initArg } from './init-arg.js';
  * @returns The initialized arguments.
  */
 export function initArgs(
-	decls: (string | Argument | InternalArgument)[],
-	where: string
+  decls: (string | Argument | InternalArgument)[],
+  where: string
 ): InternalArgument[] {
-	return normalizeArgs(
-		decls.map((decl) => initArg(decl)),
-		where
-	);
+  return normalizeArgs(
+    decls.map((decl) => initArg(decl)),
+    where
+  );
 }
 
 /**
@@ -38,27 +38,27 @@ export function initArgs(
  * @returns The same list.
  */
 export function normalizeArgs(args: InternalArgument[], where: string): InternalArgument[] {
-	// a variadic argument takes every remaining value, so anything declared after
-	// it could never be given one. this runs before the promotion below so a
-	// rejected list is not left half promoted.
-	for (let i = 0; i < args.length - 1; i++) {
-		if (args[i]!.multiple) {
-			throw new Error(
-				`Only the last argument can be variadic: ${label(args[i]!)} is followed by ${label(args[i + 1]!)} in ${where}`
-			);
-		}
-	}
+  // a variadic argument takes every remaining value, so anything declared after
+  // it could never be given one. this runs before the promotion below so a
+  // rejected list is not left half promoted.
+  for (let i = 0; i < args.length - 1; i++) {
+    if (args[i]!.multiple) {
+      throw new Error(
+        `Only the last argument can be variadic: ${label(args[i]!)} is followed by ${label(args[i + 1]!)} in ${where}`
+      );
+    }
+  }
 
-	// an optional argument before a required one is promoted to required, since
-	// there is no way to skip it. `args` holds copies, so this never reaches the
-	// caller's argument objects.
-	for (let i = args.length - 2; i >= 0; i--) {
-		if (!args[i]!.required) {
-			args[i]!.required = args[i + 1]!.required;
-		}
-	}
+  // an optional argument before a required one is promoted to required, since
+  // there is no way to skip it. `args` holds copies, so this never reaches the
+  // caller's argument objects.
+  for (let i = args.length - 2; i >= 0; i--) {
+    if (!args[i]!.required) {
+      args[i]!.required = args[i + 1]!.required;
+    }
+  }
 
-	return args;
+  return args;
 }
 
 /**
@@ -68,6 +68,6 @@ export function normalizeArgs(args: InternalArgument[], where: string): Internal
  * @returns The spelling.
  */
 function label(arg: InternalArgument): string {
-	const name = `${arg.name}${arg.multiple ? '...' : ''}`;
-	return arg.required ? `<${name}>` : `[${name}]`;
+  const name = `${arg.name}${arg.multiple ? '...' : ''}`;
+  return arg.required ? `<${name}>` : `[${name}]`;
 }

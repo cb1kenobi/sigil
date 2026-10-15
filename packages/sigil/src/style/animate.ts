@@ -39,13 +39,13 @@ import { ease, type Easing } from './easing.js';
 import { interpolate } from './interpolate.js';
 import { difference } from './invalidate.js';
 import {
-	ANIMATABLE_PROPERTIES,
-	type AnimationDirection,
-	type AnimationFillMode,
-	INTERPOLATION,
-	LAYOUT_PROPERTIES,
-	type PropertyName,
-	type Style,
+  ANIMATABLE_PROPERTIES,
+  type AnimationDirection,
+  type AnimationFillMode,
+  INTERPOLATION,
+  LAYOUT_PROPERTIES,
+  type PropertyName,
+  type Style,
 } from './properties.js';
 import type { Keyframes } from './stylesheet.js';
 
@@ -61,19 +61,19 @@ const HORIZON = 64;
 
 /** What one `tick()` decided. */
 export interface AnimationFrame<T> {
-	/** Elements whose presented box may have moved. */
-	readonly layout: ReadonlySet<T>;
-	/** Elements whose presented cells may have changed. */
-	readonly paint: ReadonlySet<T>;
-	/**
-	 * The style to present, for every element the animator is overriding.
-	 *
-	 * **The same object as last frame where nothing quantized differently**, which
-	 * is what makes a text's measurement cache survive an animation: that cache is
-	 * keyed on the resolved style *object*, so a new one per frame would re-wrap
-	 * every string in an animating subtree thirty times a second.
-	 */
-	readonly styles: ReadonlyMap<T, Style>;
+  /** Elements whose presented box may have moved. */
+  readonly layout: ReadonlySet<T>;
+  /** Elements whose presented cells may have changed. */
+  readonly paint: ReadonlySet<T>;
+  /**
+   * The style to present, for every element the animator is overriding.
+   *
+   * **The same object as last frame where nothing quantized differently**, which
+   * is what makes a text's measurement cache survive an animation: that cache is
+   * keyed on the resolved style *object*, so a new one per frame would re-wrap
+   * every string in an animating subtree thirty times a second.
+   */
+  readonly styles: ReadonlyMap<T, Style>;
 }
 
 /**
@@ -93,72 +93,72 @@ export interface AnimationFrame<T> {
  * preference came back.
  */
 interface Settled {
-	readonly animation: Running;
-	readonly ran: boolean;
-	readonly values: ReadonlyMap<PropertyName, unknown>;
+  readonly animation: Running;
+  readonly ran: boolean;
+  readonly values: ReadonlyMap<PropertyName, unknown>;
 }
 
 /** One property on its way from one value to another. */
 interface Transition {
-	readonly duration: number;
-	readonly easing: Easing;
-	readonly from: unknown;
-	/** When the clock started, which is the delay already added in. */
-	readonly start: number;
-	readonly to: unknown;
+  readonly duration: number;
+  readonly easing: Easing;
+  readonly from: unknown;
+  /** When the clock started, which is the delay already added in. */
+  readonly start: number;
+  readonly to: unknown;
 }
 
 /** A running `@keyframes`, with its stops indexed by property. */
 interface Running {
-	readonly delay: number;
-	readonly direction: AnimationDirection;
-	readonly duration: number;
-	readonly easing: Easing;
-	readonly fill: AnimationFillMode;
-	readonly iterations: number;
-	readonly name: string;
-	/** When it was applied, before the delay. */
-	readonly start: number;
-	/**
-	 * Per property, the stops that mention it, in offset order.
-	 *
-	 * Built once when the animation starts rather than searched per frame, and it
-	 * is also what collapses two blocks at one offset: the later one wins per
-	 * property, which is what writing them in order comes to.
-	 */
-	readonly stops: ReadonlyMap<PropertyName, readonly (readonly [number, unknown])[]>;
+  readonly delay: number;
+  readonly direction: AnimationDirection;
+  readonly duration: number;
+  readonly easing: Easing;
+  readonly fill: AnimationFillMode;
+  readonly iterations: number;
+  readonly name: string;
+  /** When it was applied, before the delay. */
+  readonly start: number;
+  /**
+   * Per property, the stops that mention it, in offset order.
+   *
+   * Built once when the animation starts rather than searched per frame, and it
+   * is also what collapses two blocks at one offset: the later one wins per
+   * property, which is what writing them in order comes to.
+   */
+  readonly stops: ReadonlyMap<PropertyName, readonly (readonly [number, unknown])[]>;
 }
 
 /** What the animator holds per element. */
 interface Entry {
-	animation: Running | undefined;
-	/** The cascade's answer, which is what everything is animated *from* and *to*. */
-	base: Style;
-	/**
-	 * Which base object `presented` was built over.
-	 *
-	 * Identity rather than a comparison, for the reason `Element`'s measurement
-	 * cache is keyed that way: the cascade hands back a new `Style` when anything
-	 * about it changed and the same one when nothing did, so this answers "is the
-	 * presented style still built over the current base" exactly and for free.
-	 */
-	builtFrom: Style | undefined;
-	/**
-	 * The end state an animation left behind, and which animation left it.
-	 *
-	 * The name is on it because a fill belongs to its animation: CSS takes the
-	 * fill away with `animation-name: none`, and a *finished* animation whose name
-	 * is still declared must not restart because some unrelated property moved.
-	 * Both of those were wrong while this was only a value map -- a `forwards`
-	 * fill survived `animation-name: none` for the life of the element, and a
-	 * finished animation ran again on the next style change of any kind.
-	 */
-	settled: Settled | undefined;
-	/** The property values currently overriding the base, kept to compare against. */
-	overrides: Map<PropertyName, unknown>;
-	/** What was last handed back, kept so that an unchanged frame hands back the same object. */
-	presented: Style | undefined;
-	readonly transitions: Map<PropertyName, Transition>;
+  animation: Running | undefined;
+  /** The cascade's answer, which is what everything is animated *from* and *to*. */
+  base: Style;
+  /**
+   * Which base object `presented` was built over.
+   *
+   * Identity rather than a comparison, for the reason `Element`'s measurement
+   * cache is keyed that way: the cascade hands back a new `Style` when anything
+   * about it changed and the same one when nothing did, so this answers "is the
+   * presented style still built over the current base" exactly and for free.
+   */
+  builtFrom: Style | undefined;
+  /**
+   * The end state an animation left behind, and which animation left it.
+   *
+   * The name is on it because a fill belongs to its animation: CSS takes the
+   * fill away with `animation-name: none`, and a *finished* animation whose name
+   * is still declared must not restart because some unrelated property moved.
+   * Both of those were wrong while this was only a value map -- a `forwards`
+   * fill survived `animation-name: none` for the life of the element, and a
+   * finished animation ran again on the next style change of any kind.
+   */
+  settled: Settled | undefined;
+  /** The property values currently overriding the base, kept to compare against. */
+  overrides: Map<PropertyName, unknown>;
+  /** What was last handed back, kept so that an unchanged frame hands back the same object. */
+  presented: Style | undefined;
+  readonly transitions: Map<PropertyName, Transition>;
 }
 
 /**
@@ -188,625 +188,625 @@ interface Entry {
  * proportional to the animation rather than to the tree.
  */
 export class Animator<T extends object> {
-	readonly #cascade: Cascade;
-	/** What the cascade last resolved per element, which is what a change is *from*. */
-	readonly #base = new Map<T, Style>();
-	/** Only the elements with something running or something filled. */
-	readonly #entries = new Map<T, Entry>();
+  readonly #cascade: Cascade;
+  /** What the cascade last resolved per element, which is what a change is *from*. */
+  readonly #base = new Map<T, Style>();
+  /** Only the elements with something running or something filled. */
+  readonly #entries = new Map<T, Entry>();
 
-	constructor(cascade: Cascade) {
-		this.#cascade = cascade;
-	}
+  constructor(cascade: Cascade) {
+    this.#cascade = cascade;
+  }
 
-	/** Whether anything will change without a style change to provoke it. */
-	get active(): boolean {
-		for (const entry of this.#entries.values()) {
-			if (entry.transitions.size > 0 || entry.animation) {
-				return true;
-			}
-		}
-		return false;
-	}
+  /** Whether anything will change without a style change to provoke it. */
+  get active(): boolean {
+    for (const entry of this.#entries.values()) {
+      if (entry.transitions.size > 0 || entry.animation) {
+        return true;
+      }
+    }
+    return false;
+  }
 
-	/** How many elements have something in flight or something filled. */
-	get size(): number {
-		return this.#entries.size;
-	}
+  /** How many elements have something in flight or something filled. */
+  get size(): number {
+    return this.#entries.size;
+  }
 
-	/**
-	 * Records an element's base style and starts whatever the change implies.
-	 *
-	 * The diff is the animator's own rather than the restyler's, because what a
-	 * transition needs is the properties that changed *on this element* and the
-	 * `Update` a settle hands back names elements rather than properties. It is
-	 * only asked about elements the restyler reported as changed, so the cost is a
-	 * `difference()` per element that actually moved.
-	 *
-	 * **Nothing transitions on an element's first style.** There is no
-	 * before-change value to animate from, which is CSS, and without the rule
-	 * every element in a tree would animate from its initial style on the first
-	 * frame. An *animation* does start there, because applying one is what starts
-	 * it.
-	 *
-	 * @param target - The element.
-	 * @param base - What the cascade resolved for it.
-	 * @param now - The clock.
-	 */
-	observe(target: T, base: Style, now: number): void {
-		const before = this.#base.get(target);
-		this.#base.set(target, base);
+  /**
+   * Records an element's base style and starts whatever the change implies.
+   *
+   * The diff is the animator's own rather than the restyler's, because what a
+   * transition needs is the properties that changed *on this element* and the
+   * `Update` a settle hands back names elements rather than properties. It is
+   * only asked about elements the restyler reported as changed, so the cost is a
+   * `difference()` per element that actually moved.
+   *
+   * **Nothing transitions on an element's first style.** There is no
+   * before-change value to animate from, which is CSS, and without the rule
+   * every element in a tree would animate from its initial style on the first
+   * frame. An *animation* does start there, because applying one is what starts
+   * it.
+   *
+   * @param target - The element.
+   * @param base - What the cascade resolved for it.
+   * @param now - The clock.
+   */
+  observe(target: T, base: Style, now: number): void {
+    const before = this.#base.get(target);
+    this.#base.set(target, base);
 
-		// a live entry presents its style *over* the base, so it has to follow
-		const live = this.#entries.get(target);
-		if (live) {
-			live.base = base;
-		}
+    // a live entry presents its style *over* the base, so it has to follow
+    const live = this.#entries.get(target);
+    if (live) {
+      live.base = base;
+    }
 
-		if (before !== undefined) {
-			if (this.#reduced) {
-				live?.transitions.clear();
-			} else {
-				for (const property of difference(before, base)) {
-					this.#startTransition(target, property, now, before);
-				}
-				// and a transition whose *declaration* has gone is cancelled, which the
-				// diff above cannot see: removing `transition: width 100ms` changes the
-				// transition longhands and leaves `width` exactly where it was, so
-				// nothing in the loop is ever asked about the property that is running.
-				// CSS cancels there, and so does this -- a transition still easing on a
-				// rule nobody declares any more is one with no live writer
-				const running = this.#entries.get(target);
-				if (running) {
-					// deleting the current entry while iterating a Map is defined and
-					// safe, which is what `#retire()` already relies on
-					for (const property of running.transitions.keys()) {
-						if (!watches(base.transitionProperty, property) || base.transitionDuration <= 0) {
-							running.transitions.delete(property);
-						}
-					}
-				}
-			}
-		}
+    if (before !== undefined) {
+      if (this.#reduced) {
+        live?.transitions.clear();
+      } else {
+        for (const property of difference(before, base)) {
+          this.#startTransition(target, property, now, before);
+        }
+        // and a transition whose *declaration* has gone is cancelled, which the
+        // diff above cannot see: removing `transition: width 100ms` changes the
+        // transition longhands and leaves `width` exactly where it was, so
+        // nothing in the loop is ever asked about the property that is running.
+        // CSS cancels there, and so does this -- a transition still easing on a
+        // rule nobody declares any more is one with no live writer
+        const running = this.#entries.get(target);
+        if (running) {
+          // deleting the current entry while iterating a Map is defined and
+          // safe, which is what `#retire()` already relies on
+          for (const property of running.transitions.keys()) {
+            if (!watches(base.transitionProperty, property) || base.transitionDuration <= 0) {
+              running.transitions.delete(property);
+            }
+          }
+        }
+      }
+    }
 
-		this.#syncAnimation(target, base, now);
-	}
+    this.#syncAnimation(target, base, now);
+  }
 
-	/**
-	 * Advances everything to `now`.
-	 *
-	 * @param now - The clock.
-	 * @returns What to present, and what that disturbed.
-	 */
-	tick(now: number): AnimationFrame<T> {
-		const layout = new Set<T>();
-		const paint = new Set<T>();
-		const styles = new Map<T, Style>();
-		const level = this.#level;
+  /**
+   * Advances everything to `now`.
+   *
+   * @param now - The clock.
+   * @returns What to present, and what that disturbed.
+   */
+  tick(now: number): AnimationFrame<T> {
+    const layout = new Set<T>();
+    const paint = new Set<T>();
+    const styles = new Map<T, Style>();
+    const level = this.#level;
 
-		for (const [target, entry] of this.#entries) {
-			this.#retire(entry, now);
-			const overrides = this.#overridesAt(entry, now, level);
+    for (const [target, entry] of this.#entries) {
+      this.#retire(entry, now);
+      const overrides = this.#overridesAt(entry, now, level);
 
-			if (!same(overrides, entry.overrides)) {
-				const moved = changedProperties(overrides, entry.overrides);
-				paint.add(target);
-				if (moved.some((property) => LAYOUT_PROPERTIES.has(property))) {
-					layout.add(target);
-				}
-				entry.overrides = overrides;
-				entry.presented = overrides.size === 0 ? undefined : apply(entry.base, overrides);
-				entry.builtFrom = entry.presented ? entry.base : undefined;
-			} else if (overrides.size > 0 && entry.builtFrom !== entry.base) {
-				// the overrides did not move and the *base* did: a style change the
-				// animation does not cover -- a colour while a width eases -- has to
-				// reach the screen, and the presented style is built over the base. The
-				// restyler marked that paint itself, so this rebuilds without claiming
-				// it, which is what keeps the object identity stable for every frame
-				// that really did change nothing
-				entry.presented = apply(entry.base, overrides);
-				entry.builtFrom = entry.base;
-			}
+      if (!same(overrides, entry.overrides)) {
+        const moved = changedProperties(overrides, entry.overrides);
+        paint.add(target);
+        if (moved.some((property) => LAYOUT_PROPERTIES.has(property))) {
+          layout.add(target);
+        }
+        entry.overrides = overrides;
+        entry.presented = overrides.size === 0 ? undefined : apply(entry.base, overrides);
+        entry.builtFrom = entry.presented ? entry.base : undefined;
+      } else if (overrides.size > 0 && entry.builtFrom !== entry.base) {
+        // the overrides did not move and the *base* did: a style change the
+        // animation does not cover -- a colour while a width eases -- has to
+        // reach the screen, and the presented style is built over the base. The
+        // restyler marked that paint itself, so this rebuilds without claiming
+        // it, which is what keeps the object identity stable for every frame
+        // that really did change nothing
+        entry.presented = apply(entry.base, overrides);
+        entry.builtFrom = entry.base;
+      }
 
-			if (entry.presented) {
-				styles.set(target, entry.presented);
-			}
+      if (entry.presented) {
+        styles.set(target, entry.presented);
+      }
 
-			// an entry with nothing left to say is dropped, so that `size` is the
-			// animation's footprint rather than the tree's. The element's base stays
-			// in `#base`, because that is what the *next* change animates from.
-			//
-			// An animation that **ran** is something left to say even when it holds
-			// no override: that record is what stops it restarting, and dropping it
-			// is how a `color` write came to replay a finished animation. Two inputs
-			// reach that and a test covered neither -- a `forwards` fill whose value
-			// equals the base, which `#overridesAt()` drops for being equal, and a
-			// fill of `none`, which holds nothing to begin with
-			if (
-				entry.transitions.size === 0 &&
-				entry.animation === undefined &&
-				entry.overrides.size === 0 &&
-				!entry.settled?.ran
-			) {
-				this.#entries.delete(target);
-			}
-		}
+      // an entry with nothing left to say is dropped, so that `size` is the
+      // animation's footprint rather than the tree's. The element's base stays
+      // in `#base`, because that is what the *next* change animates from.
+      //
+      // An animation that **ran** is something left to say even when it holds
+      // no override: that record is what stops it restarting, and dropping it
+      // is how a `color` write came to replay a finished animation. Two inputs
+      // reach that and a test covered neither -- a `forwards` fill whose value
+      // equals the base, which `#overridesAt()` drops for being equal, and a
+      // fill of `none`, which holds nothing to begin with
+      if (
+        entry.transitions.size === 0 &&
+        entry.animation === undefined &&
+        entry.overrides.size === 0 &&
+        !entry.settled?.ran
+      ) {
+        this.#entries.delete(target);
+      }
+    }
 
-		return { layout, paint, styles };
-	}
+    return { layout, paint, styles };
+  }
 
-	/**
-	 * How long until something would quantize differently, in milliseconds.
-	 *
-	 * **The frame skip, done by not setting a timer rather than by waking up and
-	 * returning early.** Geometry interpolates in whole cells and a colour
-	 * quantizes to what the terminal can emit, so a 300ms animation over ten
-	 * columns has ten visible states however many frames go past -- and a frame
-	 * that would paint exactly what is already on screen is one nobody should pay
-	 * for. The alternative, waking at `frameMs` and comparing, pays the wakeup and
-	 * the diff every time; this pays a few dozen evaluations of a pure function
-	 * once and then sleeps through the frames that would have been identical.
-	 *
-	 * It is a floor rather than a promise: a signal write or a tree mutation asks
-	 * for a frame on its own, and an earlier request wins.
-	 *
-	 * @param now - The clock.
-	 * @param step - The frame length to probe at.
-	 * @returns The delay, or `undefined` where nothing is animating.
-	 */
-	nextChange(now: number, step: number): number | undefined {
-		if (!this.active) {
-			return undefined;
-		}
+  /**
+   * How long until something would quantize differently, in milliseconds.
+   *
+   * **The frame skip, done by not setting a timer rather than by waking up and
+   * returning early.** Geometry interpolates in whole cells and a colour
+   * quantizes to what the terminal can emit, so a 300ms animation over ten
+   * columns has ten visible states however many frames go past -- and a frame
+   * that would paint exactly what is already on screen is one nobody should pay
+   * for. The alternative, waking at `frameMs` and comparing, pays the wakeup and
+   * the diff every time; this pays a few dozen evaluations of a pure function
+   * once and then sleeps through the frames that would have been identical.
+   *
+   * It is a floor rather than a promise: a signal write or a tree mutation asks
+   * for a frame on its own, and an earlier request wins.
+   *
+   * @param now - The clock.
+   * @param step - The frame length to probe at.
+   * @returns The delay, or `undefined` where nothing is animating.
+   */
+  nextChange(now: number, step: number): number | undefined {
+    if (!this.active) {
+      return undefined;
+    }
 
-		const level = this.#level;
-		const grain = Math.max(1, step);
-		// an animation that ends inside the horizon is woken for, even where its
-		// last frames are identical: the entry has to be retired for `active` to go
-		// false, and `active` going false is what stops the timer
-		let limit = HORIZON * grain;
-		for (const entry of this.#entries.values()) {
-			for (const transition of entry.transitions.values()) {
-				limit = Math.min(limit, Math.max(0, transition.start + transition.duration - now));
-			}
-			const end = entry.animation ? endOf(entry.animation) - now : undefined;
-			if (end !== undefined && end >= 0) {
-				limit = Math.min(limit, end);
-			}
-		}
+    const level = this.#level;
+    const grain = Math.max(1, step);
+    // an animation that ends inside the horizon is woken for, even where its
+    // last frames are identical: the entry has to be retired for `active` to go
+    // false, and `active` going false is what stops the timer
+    let limit = HORIZON * grain;
+    for (const entry of this.#entries.values()) {
+      for (const transition of entry.transitions.values()) {
+        limit = Math.min(limit, Math.max(0, transition.start + transition.duration - now));
+      }
+      const end = entry.animation ? endOf(entry.animation) - now : undefined;
+      if (end !== undefined && end >= 0) {
+        limit = Math.min(limit, end);
+      }
+    }
 
-		const current = new Map<T, Map<PropertyName, unknown>>();
-		for (const [target, entry] of this.#entries) {
-			current.set(target, this.#overridesAt(entry, now, level));
-		}
+    const current = new Map<T, Map<PropertyName, unknown>>();
+    for (const [target, entry] of this.#entries) {
+      current.set(target, this.#overridesAt(entry, now, level));
+    }
 
-		for (let at = grain; at <= limit; at += grain) {
-			for (const [target, entry] of this.#entries) {
-				const was = current.get(target) as Map<PropertyName, unknown>;
-				if (!same(this.#overridesAt(entry, now + at, level), was)) {
-					return at;
-				}
-			}
-		}
+    for (let at = grain; at <= limit; at += grain) {
+      for (const [target, entry] of this.#entries) {
+        const was = current.get(target) as Map<PropertyName, unknown>;
+        if (!same(this.#overridesAt(entry, now + at, level), was)) {
+          return at;
+        }
+      }
+    }
 
-		return limit;
-	}
+    return limit;
+  }
 
-	/**
-	 * What the media queries are asked about changed.
-	 *
-	 * The same method name the `Restyler` carries and for the same reason, because
-	 * it is the same event: `prefers-reduced-motion` is a media query, so whether
-	 * an animation runs is a live answer rather than one settled when the
-	 * declaration was read. Reading it live from inside the per-frame arithmetic
-	 * was the first version and is what let an infinite animation under reduced
-	 * motion keep `active` true for the life of the process -- the frame loop woke
-	 * every two seconds to present nothing. One decision, re-taken when the thing
-	 * it depends on moves.
-	 *
-	 * Every element the animator has a base style for, because an animation the
-	 * preference *refused* left no entry behind and turning the preference off has
-	 * to be able to start it. That is the same cost `Restyler.touchMedia()` pays,
-	 * on the same event.
-	 *
-	 * @param now - The clock, for an animation this starts.
-	 */
-	touchMedia(now: number): void {
-		for (const [target, base] of this.#base) {
-			this.#syncAnimation(target, base, now);
-		}
-	}
+  /**
+   * What the media queries are asked about changed.
+   *
+   * The same method name the `Restyler` carries and for the same reason, because
+   * it is the same event: `prefers-reduced-motion` is a media query, so whether
+   * an animation runs is a live answer rather than one settled when the
+   * declaration was read. Reading it live from inside the per-frame arithmetic
+   * was the first version and is what let an infinite animation under reduced
+   * motion keep `active` true for the life of the process -- the frame loop woke
+   * every two seconds to present nothing. One decision, re-taken when the thing
+   * it depends on moves.
+   *
+   * Every element the animator has a base style for, because an animation the
+   * preference *refused* left no entry behind and turning the preference off has
+   * to be able to start it. That is the same cost `Restyler.touchMedia()` pays,
+   * on the same event.
+   *
+   * @param now - The clock, for an animation this starts.
+   */
+  touchMedia(now: number): void {
+    for (const [target, base] of this.#base) {
+      this.#syncAnimation(target, base, now);
+    }
+  }
 
-	/**
-	 * Drops everything the animator knows about an element.
-	 *
-	 * Called when an element is unmounted, for the reason `Restyler.forget()` is:
-	 * both maps are keyed by element identity, so a subtree that was shown and
-	 * hidden would stay reachable for the life of the animator.
-	 *
-	 * The **subtree**, which is what that sentence always claimed and what this did
-	 * not do -- `Restyler.forget()` recurses and this deleted the one element it was
-	 * handed, so every descendant of an unmounted subtree stayed in `#base` for the
-	 * life of the animator. What a renderer records as removed is the element whose
-	 * parent dropped it and never its children, so nothing else was going to. A
-	 * windowed list is what makes it unbounded rather than merely untidy: a notch
-	 * unmounts a slot holding a row, and scrolling a ten-thousand-row log through
-	 * once leaves an entry per element ever built. `#entries` only ever held
-	 * something that was actually animating, so the frame timer never stayed awake
-	 * for it -- which is why nothing but the memory said so. Found by review, which
-	 * is where a comment asserting what the code does not do gets found.
-	 *
-	 * The children are read through a cast rather than through the constraint, which
-	 * is the one place this class gives up on knowing nothing about its target. A
-	 * constraint of `{ readonly children?: readonly T[] }` is a **weak type** --
-	 * every property optional -- so TypeScript refuses to match it against something
-	 * with no property in common, and the `{ name: string }` these tests animate is
-	 * exactly that. `T extends object` is what the class promises and it stays; what
-	 * is cast is one optional property read, which is `undefined` for a target that
-	 * is not a tree and is therefore the same answer as not looking.
-	 *
-	 * @param target - The element that went, and everything under it.
-	 */
-	forget(target: T): void {
-		this.#base.delete(target);
-		this.#entries.delete(target);
-		for (const child of (target as { children?: readonly T[] }).children ?? []) {
-			this.forget(child);
-		}
-	}
+  /**
+   * Drops everything the animator knows about an element.
+   *
+   * Called when an element is unmounted, for the reason `Restyler.forget()` is:
+   * both maps are keyed by element identity, so a subtree that was shown and
+   * hidden would stay reachable for the life of the animator.
+   *
+   * The **subtree**, which is what that sentence always claimed and what this did
+   * not do -- `Restyler.forget()` recurses and this deleted the one element it was
+   * handed, so every descendant of an unmounted subtree stayed in `#base` for the
+   * life of the animator. What a renderer records as removed is the element whose
+   * parent dropped it and never its children, so nothing else was going to. A
+   * windowed list is what makes it unbounded rather than merely untidy: a notch
+   * unmounts a slot holding a row, and scrolling a ten-thousand-row log through
+   * once leaves an entry per element ever built. `#entries` only ever held
+   * something that was actually animating, so the frame timer never stayed awake
+   * for it -- which is why nothing but the memory said so. Found by review, which
+   * is where a comment asserting what the code does not do gets found.
+   *
+   * The children are read through a cast rather than through the constraint, which
+   * is the one place this class gives up on knowing nothing about its target. A
+   * constraint of `{ readonly children?: readonly T[] }` is a **weak type** --
+   * every property optional -- so TypeScript refuses to match it against something
+   * with no property in common, and the `{ name: string }` these tests animate is
+   * exactly that. `T extends object` is what the class promises and it stays; what
+   * is cast is one optional property read, which is `undefined` for a target that
+   * is not a tree and is therefore the same answer as not looking.
+   *
+   * @param target - The element that went, and everything under it.
+   */
+  forget(target: T): void {
+    this.#base.delete(target);
+    this.#entries.delete(target);
+    for (const child of (target as { children?: readonly T[] }).children ?? []) {
+      this.forget(child);
+    }
+  }
 
-	/** The style an element is presenting, if the animator is overriding one. */
-	styleOf(target: T): Style | undefined {
-		return this.#entries.get(target)?.presented;
-	}
+  /** The style an element is presenting, if the animator is overriding one. */
+  styleOf(target: T): Style | undefined {
+    return this.#entries.get(target)?.presented;
+  }
 
-	/** Whether animations are collapsed rather than run. */
-	get #reduced(): boolean {
-		return this.#cascade.media.reducedMotion === 'reduce';
-	}
+  /** Whether animations are collapsed rather than run. */
+  get #reduced(): boolean {
+    return this.#cascade.media.reducedMotion === 'reduce';
+  }
 
-	/** The depth a mixed colour has to be degraded to. */
-	get #level(): ColorLevel {
-		return this.#cascade.media.colorLevel as ColorLevel;
-	}
+  /** The depth a mixed colour has to be degraded to. */
+  get #level(): ColorLevel {
+    return this.#cascade.media.colorLevel as ColorLevel;
+  }
 
-	/** The in-flight entry for an element, created on demand. */
-	#entryFor(target: T, base: Style): Entry {
-		let entry = this.#entries.get(target);
-		if (!entry) {
-			entry = {
-				animation: undefined,
-				base,
-				builtFrom: undefined,
-				overrides: new Map(),
-				presented: undefined,
-				settled: undefined,
-				transitions: new Map(),
-			};
-			this.#entries.set(target, entry);
-		}
-		return entry;
-	}
+  /** The in-flight entry for an element, created on demand. */
+  #entryFor(target: T, base: Style): Entry {
+    let entry = this.#entries.get(target);
+    if (!entry) {
+      entry = {
+        animation: undefined,
+        base,
+        builtFrom: undefined,
+        overrides: new Map(),
+        presented: undefined,
+        settled: undefined,
+        transitions: new Map(),
+      };
+      this.#entries.set(target, entry);
+    }
+    return entry;
+  }
 
-	/**
-	 * Starts, replaces or cancels one property's transition.
-	 *
-	 * **Interruptible, from the value currently on screen**, which is CSS and is
-	 * the only answer that does not look broken: a focus ring half way through
-	 * easing in and then unfocused has to ease back from where it is, not jump to
-	 * the full value and ease from there. The alternative -- restart from the
-	 * declared value -- is no cheaper and is visibly wrong on exactly the input
-	 * this feature exists for, a state that toggles faster than the duration.
-	 *
-	 * What is *not* implemented is CSS's reversing-shortening factor, which makes
-	 * a reverse of a half-done transition take half the time rather than the full
-	 * duration. At whole-cell quantization it changes which of a handful of states
-	 * you see rather than whether the result looks right, and it is a second
-	 * timing rule to hold; noted and skipped.
-	 */
-	#startTransition(target: T, property: PropertyName, now: number, before: Style): void {
-		const style = this.#base.get(target) as Style;
-		const live = this.#entries.get(target);
+  /**
+   * Starts, replaces or cancels one property's transition.
+   *
+   * **Interruptible, from the value currently on screen**, which is CSS and is
+   * the only answer that does not look broken: a focus ring half way through
+   * easing in and then unfocused has to ease back from where it is, not jump to
+   * the full value and ease from there. The alternative -- restart from the
+   * declared value -- is no cheaper and is visibly wrong on exactly the input
+   * this feature exists for, a state that toggles faster than the duration.
+   *
+   * What is *not* implemented is CSS's reversing-shortening factor, which makes
+   * a reverse of a half-done transition take half the time rather than the full
+   * duration. At whole-cell quantization it changes which of a handful of states
+   * you see rather than whether the result looks right, and it is a second
+   * timing rule to hold; noted and skipped.
+   */
+  #startTransition(target: T, property: PropertyName, now: number, before: Style): void {
+    const style = this.#base.get(target) as Style;
+    const live = this.#entries.get(target);
 
-		if (INTERPOLATION.get(property) === 'none' || !watches(style.transitionProperty, property)) {
-			return;
-		}
-		if (style.transitionDuration <= 0) {
-			// a transition with no duration is not one. Any running transition for
-			// the property is cancelled rather than left to finish, because the
-			// declaration that would have kept it running has gone
-			live?.transitions.delete(property);
-			return;
-		}
+    if (INTERPOLATION.get(property) === 'none' || !watches(style.transitionProperty, property)) {
+      return;
+    }
+    if (style.transitionDuration <= 0) {
+      // a transition with no duration is not one. Any running transition for
+      // the property is cancelled rather than left to finish, because the
+      // declaration that would have kept it running has gone
+      live?.transitions.delete(property);
+      return;
+    }
 
-		const to = style[property] as unknown;
-		// the value on *screen*, which is the override where one is running and the
-		// style the cascade had before this change where none is
-		const from =
-			live && live.overrides.has(property)
-				? live.overrides.get(property)
-				: (live?.presented ?? before)[property];
+    const to = style[property] as unknown;
+    // the value on *screen*, which is the override where one is running and the
+    // style the cascade had before this change where none is
+    const from =
+      live && live.overrides.has(property)
+        ? live.overrides.get(property)
+        : (live?.presented ?? before)[property];
 
-		if (sameValue(from, to)) {
-			live?.transitions.delete(property);
-			return;
-		}
+    if (sameValue(from, to)) {
+      live?.transitions.delete(property);
+      return;
+    }
 
-		this.#entryFor(target, style).transitions.set(property, {
-			duration: style.transitionDuration,
-			easing: style.transitionTimingFunction,
-			from,
-			start: now + style.transitionDelay,
-			to,
-		});
-	}
+    this.#entryFor(target, style).transitions.set(property, {
+      duration: style.transitionDuration,
+      easing: style.transitionTimingFunction,
+      from,
+      start: now + style.transitionDelay,
+      to,
+    });
+  }
 
-	/**
-	 * Starts, keeps, settles or refuses the element's animation to match its
-	 * style.
-	 *
-	 * **One place decides whether an animation runs**, and getting that wrong is
-	 * what three defects had in common: this function used to take two early exits
-	 * that did not consult what the rest of the class consults. Under reduced
-	 * motion it stored the animation anyway, so an infinite one left `active` true
-	 * and the frame loop woke every two seconds for the life of the process -- by
-	 * the plainest route there is, since a non-TTY resolves to `reduce`. With a
-	 * zero duration it dropped the animation outright, which is right for a fill of
-	 * `none` and loses the 100% keyframe CSS applies for `forwards`. And a fill
-	 * once left behind was never taken away, so it survived `animation-name: none`
-	 * and a finished animation restarted on the next unrelated style change.
-	 *
-	 * So the four answers are named: an animation **runs**, or it is already
-	 * **settled** at the state it would have left behind, or it is **refused**, or
-	 * there is none. Only the first makes `active` true, which is what keeps
-	 * "nothing animating means no timer at all" true of an animation as well as of
-	 * a transition.
-	 *
-	 * A change to `animation-name` restarts; a change to the timing is taken up in
-	 * place without a restart, which is CSS -- a theme that lengthens a duration
-	 * should not jolt every animation on screen back to its first frame.
-	 *
-	 * **A name nothing declares runs nothing, silently.** That looks like the rule
-	 * this repo keeps against a declaration that parses and does nothing, and it is
-	 * the one place that rule cannot hold: the name is resolved against the live set
-	 * of sheets, which an app may add to at runtime for a theme, so an unmatched
-	 * name is as likely to be a sheet that has not arrived as a typo -- and this
-	 * runs inside a frame, where there is nobody to report to and a throw would
-	 * bring the screen down over a stylesheet.
-	 */
-	#syncAnimation(target: T, base: Style, now: number): void {
-		const live = this.#entries.get(target);
-		const name = base.animationName;
-		const frames = name === 'none' ? undefined : this.#cascade.keyframes(name);
+  /**
+   * Starts, keeps, settles or refuses the element's animation to match its
+   * style.
+   *
+   * **One place decides whether an animation runs**, and getting that wrong is
+   * what three defects had in common: this function used to take two early exits
+   * that did not consult what the rest of the class consults. Under reduced
+   * motion it stored the animation anyway, so an infinite one left `active` true
+   * and the frame loop woke every two seconds for the life of the process -- by
+   * the plainest route there is, since a non-TTY resolves to `reduce`. With a
+   * zero duration it dropped the animation outright, which is right for a fill of
+   * `none` and loses the 100% keyframe CSS applies for `forwards`. And a fill
+   * once left behind was never taken away, so it survived `animation-name: none`
+   * and a finished animation restarted on the next unrelated style change.
+   *
+   * So the four answers are named: an animation **runs**, or it is already
+   * **settled** at the state it would have left behind, or it is **refused**, or
+   * there is none. Only the first makes `active` true, which is what keeps
+   * "nothing animating means no timer at all" true of an animation as well as of
+   * a transition.
+   *
+   * A change to `animation-name` restarts; a change to the timing is taken up in
+   * place without a restart, which is CSS -- a theme that lengthens a duration
+   * should not jolt every animation on screen back to its first frame.
+   *
+   * **A name nothing declares runs nothing, silently.** That looks like the rule
+   * this repo keeps against a declaration that parses and does nothing, and it is
+   * the one place that rule cannot hold: the name is resolved against the live set
+   * of sheets, which an app may add to at runtime for a theme, so an unmatched
+   * name is as likely to be a sheet that has not arrived as a typo -- and this
+   * runs inside a frame, where there is nobody to report to and a throw would
+   * bring the screen down over a stylesheet.
+   */
+  #syncAnimation(target: T, base: Style, now: number): void {
+    const live = this.#entries.get(target);
+    const name = base.animationName;
+    const frames = name === 'none' ? undefined : this.#cascade.keyframes(name);
 
-		if (!frames) {
-			// and the fill goes with it, because a fill belongs to its animation
-			if (live) {
-				live.animation = undefined;
-				live.settled = undefined;
-			}
-			return;
-		}
+    if (!frames) {
+      // and the fill goes with it, because a fill belongs to its animation
+      if (live) {
+        live.animation = undefined;
+        live.settled = undefined;
+      }
+      return;
+    }
 
-		const stops = index(frames);
-		const settled = live?.settled;
+    const stops = index(frames);
+    const settled = live?.settled;
 
-		// an animation that has **run** is left alone: it is finished, and a style
-		// change somewhere else on the element is not a reason to run it again.
-		// Only its name changing is -- or its keyframes being rewritten under that
-		// name, which is a sheet swap and makes the fill it is holding stale
-		if (settled?.ran && settled.animation.name === name) {
-			if (settled.animation.stops !== stops) {
-				this.#settle(live as Entry, { ...settled.animation, stops }, true);
-			}
-			return;
-		}
+    // an animation that has **run** is left alone: it is finished, and a style
+    // change somewhere else on the element is not a reason to run it again.
+    // Only its name changing is -- or its keyframes being rewritten under that
+    // name, which is a sheet swap and makes the fill it is holding stale
+    if (settled?.ran && settled.animation.name === name) {
+      if (settled.animation.stops !== stops) {
+        this.#settle(live as Entry, { ...settled.animation, stops }, true);
+      }
+      return;
+    }
 
-		if (live?.animation?.name === name) {
-			// the timing is taken up in place, and two things are asked again with
-			// it. *Whether it runs*, because reduced motion is a media query and a
-			// media query is a live answer. And the **stops**, because `timing()`
-			// deliberately does not carry them: a `touchSheets()` that rewrites
-			// `@keyframes slide` while `animation-name` stays `slide` otherwise ran
-			// on for the rest of its duration against the stops it indexed at start,
-			// which is a stale cache with no way to see it
-			this.#commit(live, { ...live.animation, ...timing(base), stops });
-			return;
-		}
+    if (live?.animation?.name === name) {
+      // the timing is taken up in place, and two things are asked again with
+      // it. *Whether it runs*, because reduced motion is a media query and a
+      // media query is a live answer. And the **stops**, because `timing()`
+      // deliberately does not carry them: a `touchSheets()` that rewrites
+      // `@keyframes slide` while `animation-name` stays `slide` otherwise ran
+      // on for the rest of its duration against the stops it indexed at start,
+      // which is a stale cache with no way to see it
+      this.#commit(live, { ...live.animation, ...timing(base), stops });
+      return;
+    }
 
-		const entry = this.#entryFor(target, base);
-		// whatever the animation this replaces left behind goes with it
-		entry.settled = undefined;
-		this.#commit(entry, { name, start: now, stops, ...timing(base) });
-	}
+    const entry = this.#entryFor(target, base);
+    // whatever the animation this replaces left behind goes with it
+    entry.settled = undefined;
+    this.#commit(entry, { name, start: now, stops, ...timing(base) });
+  }
 
-	/**
-	 * Writes an animation onto an entry as one of three things.
-	 *
-	 * **Runs**, where it will change what is on screen. **Settled**, where it will
-	 * not and its fill mode says it leaves something behind -- a reduced-motion
-	 * animation, which is one that has already finished, and a zero duration or
-	 * zero iteration count, which is one with no play time at all. Or **nothing**,
-	 * which is an infinite animation under reduced motion: there is no end state
-	 * for it to collapse to, so the honest collapse is not to run it, and for a
-	 * spinner in a CI log that is the base style and is what such a log has always
-	 * got.
-	 *
-	 * Only the first makes `active` true, which is the whole point: this is what
-	 * keeps "nothing animating means no timer at all" true of an animation as well
-	 * as of a transition.
-	 */
-	#commit(entry: Entry, running: Running): void {
-		entry.animation = undefined;
+  /**
+   * Writes an animation onto an entry as one of three things.
+   *
+   * **Runs**, where it will change what is on screen. **Settled**, where it will
+   * not and its fill mode says it leaves something behind -- a reduced-motion
+   * animation, which is one that has already finished, and a zero duration or
+   * zero iteration count, which is one with no play time at all. Or **nothing**,
+   * which is an infinite animation under reduced motion: there is no end state
+   * for it to collapse to, so the honest collapse is not to run it, and for a
+   * spinner in a CI log that is the base style and is what such a log has always
+   * got.
+   *
+   * Only the first makes `active` true, which is the whole point: this is what
+   * keeps "nothing animating means no timer at all" true of an animation as well
+   * as of a transition.
+   */
+  #commit(entry: Entry, running: Running): void {
+    entry.animation = undefined;
 
-		const endless = !Number.isFinite(running.iterations);
-		const plays = running.duration > 0 && running.iterations > 0;
+    const endless = !Number.isFinite(running.iterations);
+    const plays = running.duration > 0 && running.iterations > 0;
 
-		// nothing to run and nothing to settle at. An **endless** animation has no
-		// end state, so neither reduced motion nor a zero duration can collapse it
-		// to one -- and a `@keyframes` with no stops in it touches no property, so
-		// it would be an animation that holds the frame loop open to present
-		// nothing. Both reach `active` the same way and both are refused here.
-		//
-		// The endless-with-no-play-time case is the one a review found and it is
-		// worth naming, because the arithmetic is the thing: `animation-duration`
-		// **starts at `0`**, so `animation: slide infinite` and the two longhands
-		// `animation-name` plus `animation-iteration-count: infinite` are the same
-		// input -- and `endOf()` for it is `0 * Infinity`, which is `NaN`. Settling
-		// at `NaN` walked `progressOf()` past both of its guards, since `NaN < 0`
-		// and `NaN >= NaN` are each false, and presented `flexGrow: NaN` and
-		// `cells(NaN)` with `active` false, so nothing on screen said so and no
-		// timer ran. `finalOffset(Infinity)` is `NaN` for the same reason, so
-		// "settle at the end" is not an answer here either
-		if (running.stops.size === 0 || (endless && (this.#reduced || !plays))) {
-			entry.settled = undefined;
-			return;
-		}
+    // nothing to run and nothing to settle at. An **endless** animation has no
+    // end state, so neither reduced motion nor a zero duration can collapse it
+    // to one -- and a `@keyframes` with no stops in it touches no property, so
+    // it would be an animation that holds the frame loop open to present
+    // nothing. Both reach `active` the same way and both are refused here.
+    //
+    // The endless-with-no-play-time case is the one a review found and it is
+    // worth naming, because the arithmetic is the thing: `animation-duration`
+    // **starts at `0`**, so `animation: slide infinite` and the two longhands
+    // `animation-name` plus `animation-iteration-count: infinite` are the same
+    // input -- and `endOf()` for it is `0 * Infinity`, which is `NaN`. Settling
+    // at `NaN` walked `progressOf()` past both of its guards, since `NaN < 0`
+    // and `NaN >= NaN` are each false, and presented `flexGrow: NaN` and
+    // `cells(NaN)` with `active` false, so nothing on screen said so and no
+    // timer ran. `finalOffset(Infinity)` is `NaN` for the same reason, so
+    // "settle at the end" is not an answer here either
+    if (running.stops.size === 0 || (endless && (this.#reduced || !plays))) {
+      entry.settled = undefined;
+      return;
+    }
 
-		// and anything that will never change what is on screen is settled rather
-		// than running
-		if (!plays || this.#reduced) {
-			this.#settle(entry, running, false);
-			return;
-		}
+    // and anything that will never change what is on screen is settled rather
+    // than running
+    if (!plays || this.#reduced) {
+      this.#settle(entry, running, false);
+      return;
+    }
 
-		entry.animation = running;
-	}
+    entry.animation = running;
+  }
 
-	/**
-	 * Records what an animation leaves behind, if it leaves anything.
-	 *
-	 * The fill mode is read in exactly one place -- `progressOf()`, which answers
-	 * `undefined` past the end of an animation that does not fill forwards -- so
-	 * this asks for the end values and keeps them only if there are any. Both
-	 * callers used to repeat the `forwards || both` test themselves, which a
-	 * sabotage pass found was redundant rather than load bearing: the values came
-	 * back empty either way.
-	 *
-	 * It records **whatever** it finds, an empty map included, which is the half a
-	 * previous version got wrong twice over. It used to keep a non-empty fill only,
-	 * on the argument that an empty `settled` would stop an animation ever running
-	 * again and that `tick()` dropped such an entry before anything could read it.
-	 * Both halves were wrong. `touchMedia()` is a reader that does **not** tick --
-	 * a resize and a capability reply each publish one -- so a second
-	 * `#syncAnimation()` in that window did see it. And the real distinction was
-	 * never emptiness but `ran`: a fill of `none` leaves nothing behind and has
-	 * still finished, so dropping the record is what let a `color` write replay a
-	 * whole animation.
-	 *
-	 * @param entry - The element's entry.
-	 * @param animation - The animation that is finishing or has already finished.
-	 * @param ran - Whether it played. A collapsed one may still start later.
-	 */
-	#settle(entry: Entry, animation: Running, ran: boolean): void {
-		entry.settled = {
-			animation,
-			ran,
-			values: this.#animationValues(animation, entry, endOf(animation)),
-		};
-	}
+  /**
+   * Records what an animation leaves behind, if it leaves anything.
+   *
+   * The fill mode is read in exactly one place -- `progressOf()`, which answers
+   * `undefined` past the end of an animation that does not fill forwards -- so
+   * this asks for the end values and keeps them only if there are any. Both
+   * callers used to repeat the `forwards || both` test themselves, which a
+   * sabotage pass found was redundant rather than load bearing: the values came
+   * back empty either way.
+   *
+   * It records **whatever** it finds, an empty map included, which is the half a
+   * previous version got wrong twice over. It used to keep a non-empty fill only,
+   * on the argument that an empty `settled` would stop an animation ever running
+   * again and that `tick()` dropped such an entry before anything could read it.
+   * Both halves were wrong. `touchMedia()` is a reader that does **not** tick --
+   * a resize and a capability reply each publish one -- so a second
+   * `#syncAnimation()` in that window did see it. And the real distinction was
+   * never emptiness but `ran`: a fill of `none` leaves nothing behind and has
+   * still finished, so dropping the record is what let a `color` write replay a
+   * whole animation.
+   *
+   * @param entry - The element's entry.
+   * @param animation - The animation that is finishing or has already finished.
+   * @param ran - Whether it played. A collapsed one may still start later.
+   */
+  #settle(entry: Entry, animation: Running, ran: boolean): void {
+    entry.settled = {
+      animation,
+      ran,
+      values: this.#animationValues(animation, entry, endOf(animation)),
+    };
+  }
 
-	/** Drops transitions and animations that have finished. */
-	#retire(entry: Entry, now: number): void {
-		for (const [property, transition] of entry.transitions) {
-			if (now >= transition.start + transition.duration) {
-				entry.transitions.delete(property);
-			}
-		}
+  /** Drops transitions and animations that have finished. */
+  #retire(entry: Entry, now: number): void {
+    for (const [property, transition] of entry.transitions) {
+      if (now >= transition.start + transition.duration) {
+        entry.transitions.delete(property);
+      }
+    }
 
-		const animation = entry.animation;
-		if (animation && now >= endOf(animation)) {
-			// a `forwards` fill keeps its last value on screen, so the *override*
-			// outlives the animation. What does not outlive it is the entry being
-			// active, which is what stops the frame loop
-			entry.animation = undefined;
-			this.#settle(entry, animation, true);
-		}
-	}
+    const animation = entry.animation;
+    if (animation && now >= endOf(animation)) {
+      // a `forwards` fill keeps its last value on screen, so the *override*
+      // outlives the animation. What does not outlive it is the entry being
+      // active, which is what stops the frame loop
+      entry.animation = undefined;
+      this.#settle(entry, animation, true);
+    }
+  }
 
-	/** Every property override in effect at a moment, animation under transitions. */
-	#overridesAt(entry: Entry, now: number, level: ColorLevel): Map<PropertyName, unknown> {
-		const out = new Map<PropertyName, unknown>(entry.settled?.values);
+  /** Every property override in effect at a moment, animation under transitions. */
+  #overridesAt(entry: Entry, now: number, level: ColorLevel): Map<PropertyName, unknown> {
+    const out = new Map<PropertyName, unknown>(entry.settled?.values);
 
-		if (entry.animation) {
-			for (const [property, value] of this.#animationValues(entry.animation, entry, now, level)) {
-				out.set(property, value);
-			}
-		}
+    if (entry.animation) {
+      for (const [property, value] of this.#animationValues(entry.animation, entry, now, level)) {
+        out.set(property, value);
+      }
+    }
 
-		// transitions last, because CSS puts them above animations: a transition is
-		// a response to a change that has already happened and an animation is a
-		// loop, so the loop losing is the only order that lets a component stop one
-		for (const [property, transition] of entry.transitions) {
-			const elapsed = now - transition.start;
-			if (elapsed < 0) {
-				// the delay has not run out: the before-change value is what is on
-				// screen, which is CSS's own answer for a delayed transition
-				out.set(property, transition.from);
-				continue;
-			}
-			const t = ease(
-				transition.easing,
-				transition.duration <= 0 ? 1 : Math.min(1, elapsed / transition.duration)
-			);
-			out.set(property, interpolate(property, transition.from, transition.to, t, level));
-		}
+    // transitions last, because CSS puts them above animations: a transition is
+    // a response to a change that has already happened and an animation is a
+    // loop, so the loop losing is the only order that lets a component stop one
+    for (const [property, transition] of entry.transitions) {
+      const elapsed = now - transition.start;
+      if (elapsed < 0) {
+        // the delay has not run out: the before-change value is what is on
+        // screen, which is CSS's own answer for a delayed transition
+        out.set(property, transition.from);
+        continue;
+      }
+      const t = ease(
+        transition.easing,
+        transition.duration <= 0 ? 1 : Math.min(1, elapsed / transition.duration)
+      );
+      out.set(property, interpolate(property, transition.from, transition.to, t, level));
+    }
 
-		// an override equal to the base is not an override: the renderer has
-		// already written the base onto the element, so presenting the same value
-		// again would keep an entry alive to say nothing
-		for (const [property, value] of out) {
-			if (sameValue(value, entry.base[property])) {
-				out.delete(property);
-			}
-		}
+    // an override equal to the base is not an override: the renderer has
+    // already written the base onto the element, so presenting the same value
+    // again would keep an entry alive to say nothing
+    for (const [property, value] of out) {
+      if (sameValue(value, entry.base[property])) {
+        out.delete(property);
+      }
+    }
 
-		return out;
-	}
+    return out;
+  }
 
-	/**
-	 * What a running animation says every property it touches is, at a moment.
-	 *
-	 * The level is an argument rather than a read because `nextChange()` captures
-	 * it once and probes with it: every probe has to be resolved at one depth or
-	 * the comparison between two of them is a comparison of two questions.
-	 */
-	#animationValues(
-		animation: Running,
-		entry: Entry,
-		now: number,
-		level: ColorLevel = this.#level
-	): Map<PropertyName, unknown> {
-		const out = new Map<PropertyName, unknown>();
-		const progress = progressOf(animation, now);
-		if (progress === undefined) {
-			return out;
-		}
+  /**
+   * What a running animation says every property it touches is, at a moment.
+   *
+   * The level is an argument rather than a read because `nextChange()` captures
+   * it once and probes with it: every probe has to be resolved at one depth or
+   * the comparison between two of them is a comparison of two questions.
+   */
+  #animationValues(
+    animation: Running,
+    entry: Entry,
+    now: number,
+    level: ColorLevel = this.#level
+  ): Map<PropertyName, unknown> {
+    const out = new Map<PropertyName, unknown>();
+    const progress = progressOf(animation, now);
+    if (progress === undefined) {
+      return out;
+    }
 
-		const t = ease(animation.easing, progress);
+    const t = ease(animation.easing, progress);
 
-		for (const [property, stops] of animation.stops) {
-			out.set(property, valueAt(stops, property, t, entry.base[property], level));
-		}
+    for (const [property, stops] of animation.stops) {
+      out.set(property, valueAt(stops, property, t, entry.base[property], level));
+    }
 
-		return out;
-	}
+    return out;
+  }
 }
 
 /** The timing half of an animation's declaration, which is taken up in place. */
 function timing(style: Style): Omit<Running, 'name' | 'start' | 'stops'> {
-	return {
-		delay: style.animationDelay,
-		direction: style.animationDirection,
-		duration: style.animationDuration,
-		easing: style.animationTimingFunction,
-		fill: style.animationFillMode,
-		iterations: style.animationIterationCount,
-	};
+  return {
+    delay: style.animationDelay,
+    direction: style.animationDirection,
+    duration: style.animationDuration,
+    easing: style.animationTimingFunction,
+    fill: style.animationFillMode,
+    iterations: style.animationIterationCount,
+  };
 }
 
 /** When an animation stops changing. `Infinity` for an infinite one. */
 function endOf(animation: Running): number {
-	return animation.start + animation.delay + animation.duration * animation.iterations;
+  return animation.start + animation.delay + animation.duration * animation.iterations;
 }
 
 /**
@@ -834,34 +834,34 @@ function endOf(animation: Running): number {
  * count, and there is no path left that can produce a `NaN`.
  */
 function progressOf(animation: Running, now: number): number | undefined {
-	const { delay, direction, duration, fill, iterations, start } = animation;
+  const { delay, direction, duration, fill, iterations, start } = animation;
 
-	const elapsed = now - start - delay;
+  const elapsed = now - start - delay;
 
-	if (elapsed < 0) {
-		// before the delay runs out, a `backwards` fill shows the first frame and
-		// anything else shows nothing. The first frame is the one the *direction*
-		// starts at, which for `reverse` is the end of the sequence
-		if (fill !== 'backwards' && fill !== 'both') {
-			return undefined;
-		}
-		return directed(0, 0, direction);
-	}
+  if (elapsed < 0) {
+    // before the delay runs out, a `backwards` fill shows the first frame and
+    // anything else shows nothing. The first frame is the one the *direction*
+    // starts at, which for `reverse` is the end of the sequence
+    if (fill !== 'backwards' && fill !== 'both') {
+      return undefined;
+    }
+    return directed(0, 0, direction);
+  }
 
-	const total = duration * iterations;
-	if (elapsed >= total) {
-		if (fill !== 'forwards' && fill !== 'both') {
-			return undefined;
-		}
-		return directed(finalIteration(iterations), finalOffset(iterations), direction);
-	}
+  const total = duration * iterations;
+  if (elapsed >= total) {
+    if (fill !== 'forwards' && fill !== 'both') {
+      return undefined;
+    }
+    return directed(finalIteration(iterations), finalOffset(iterations), direction);
+  }
 
-	return directed(Math.floor(elapsed / duration), (elapsed % duration) / duration, direction);
+  return directed(Math.floor(elapsed / duration), (elapsed % duration) / duration, direction);
 }
 
 /** Which iteration an animation ends on. */
 function finalIteration(iterations: number): number {
-	return Math.max(0, Math.ceil(iterations) - 1);
+  return Math.max(0, Math.ceil(iterations) - 1);
 }
 
 /**
@@ -872,25 +872,25 @@ function finalIteration(iterations: number): number {
  * because a zero count is now settled with its fill rather than dropped.
  */
 function finalOffset(iterations: number): number {
-	if (iterations <= 0) {
-		return 0;
-	}
-	const fraction = iterations % 1;
-	return fraction === 0 ? 1 : fraction;
+  if (iterations <= 0) {
+    return 0;
+  }
+  const fraction = iterations % 1;
+  return fraction === 0 ? 1 : fraction;
 }
 
 /** `animation-direction` applied to an iteration and an offset within it. */
 function directed(iteration: number, offset: number, direction: AnimationDirection): number {
-	switch (direction) {
-		case 'reverse':
-			return 1 - offset;
-		case 'alternate':
-			return iteration % 2 === 0 ? offset : 1 - offset;
-		case 'alternate-reverse':
-			return iteration % 2 === 0 ? 1 - offset : offset;
-		default:
-			return offset;
-	}
+  switch (direction) {
+    case 'reverse':
+      return 1 - offset;
+    case 'alternate':
+      return iteration % 2 === 0 ? offset : 1 - offset;
+    case 'alternate-reverse':
+      return iteration % 2 === 0 ? 1 - offset : offset;
+    default:
+      return offset;
+  }
 }
 
 /**
@@ -910,8 +910,8 @@ function directed(iteration: number, offset: number, direction: AnimationDirecti
  * it costs to delete is work, not correctness.
  */
 const INDEXED = new WeakMap<
-	Keyframes,
-	Map<PropertyName, readonly (readonly [number, unknown])[]>
+  Keyframes,
+  Map<PropertyName, readonly (readonly [number, unknown])[]>
 >();
 
 /**
@@ -919,44 +919,44 @@ const INDEXED = new WeakMap<
  * collapsed to its last writer.
  */
 function index(frames: Keyframes): Map<PropertyName, readonly (readonly [number, unknown])[]> {
-	const already = INDEXED.get(frames);
-	if (already) {
-		return already;
-	}
-	const built = indexUncached(frames);
-	INDEXED.set(frames, built);
-	return built;
+  const already = INDEXED.get(frames);
+  if (already) {
+    return already;
+  }
+  const built = indexUncached(frames);
+  INDEXED.set(frames, built);
+  return built;
 }
 
 /** The walk itself, which the memo above is over. */
 function indexUncached(
-	frames: Keyframes
+  frames: Keyframes
 ): Map<PropertyName, readonly (readonly [number, unknown])[]> {
-	const byProperty = new Map<PropertyName, Map<number, unknown>>();
+  const byProperty = new Map<PropertyName, Map<number, unknown>>();
 
-	for (const frame of frames) {
-		for (const [property, value] of frame.declarations) {
-			if (INTERPOLATION.get(property) === 'none') {
-				// an animation that animated `animation-duration` would be asking what
-				// its own duration is in order to find out what it is. Skipped rather
-				// than refused at parse time, because a keyframe block is read before
-				// anything knows it will be used as one
-				continue;
-			}
-			let stops = byProperty.get(property);
-			if (!stops) {
-				stops = new Map();
-				byProperty.set(property, stops);
-			}
-			stops.set(frame.offset, value);
-		}
-	}
+  for (const frame of frames) {
+    for (const [property, value] of frame.declarations) {
+      if (INTERPOLATION.get(property) === 'none') {
+        // an animation that animated `animation-duration` would be asking what
+        // its own duration is in order to find out what it is. Skipped rather
+        // than refused at parse time, because a keyframe block is read before
+        // anything knows it will be used as one
+        continue;
+      }
+      let stops = byProperty.get(property);
+      if (!stops) {
+        stops = new Map();
+        byProperty.set(property, stops);
+      }
+      stops.set(frame.offset, value);
+    }
+  }
 
-	const out = new Map<PropertyName, readonly (readonly [number, unknown])[]>();
-	for (const [property, stops] of byProperty) {
-		out.set(property, Object.freeze([...stops].sort((a, b) => a[0] - b[0])));
-	}
-	return out;
+  const out = new Map<PropertyName, readonly (readonly [number, unknown])[]>();
+  for (const [property, stops] of byProperty) {
+    out.set(property, Object.freeze([...stops].sort((a, b) => a[0] - b[0])));
+  }
+  return out;
 }
 
 /**
@@ -968,102 +968,102 @@ function indexUncached(
  * colour is rather than holding red forever.
  */
 function valueAt(
-	stops: readonly (readonly [number, unknown])[],
-	property: PropertyName,
-	t: number,
-	base: unknown,
-	level: ColorLevel
+  stops: readonly (readonly [number, unknown])[],
+  property: PropertyName,
+  t: number,
+  base: unknown,
+  level: ColorLevel
 ): unknown {
-	let lo: readonly [number, unknown] = [0, base];
-	let hi: readonly [number, unknown] = [1, base];
-	let foundLo = false;
-	let foundHi = false;
+  let lo: readonly [number, unknown] = [0, base];
+  let hi: readonly [number, unknown] = [1, base];
+  let foundLo = false;
+  let foundHi = false;
 
-	for (const stop of stops) {
-		if (stop[0] <= t) {
-			lo = stop;
-			foundLo = true;
-		}
-		if (!foundHi && stop[0] >= t) {
-			hi = stop;
-			foundHi = true;
-		}
-	}
+  for (const stop of stops) {
+    if (stop[0] <= t) {
+      lo = stop;
+      foundLo = true;
+    }
+    if (!foundHi && stop[0] >= t) {
+      hi = stop;
+      foundHi = true;
+    }
+  }
 
-	if (!foundLo) {
-		lo = [0, base];
-	}
-	if (!foundHi) {
-		hi = [1, base];
-	}
+  if (!foundLo) {
+    lo = [0, base];
+  }
+  if (!foundHi) {
+    hi = [1, base];
+  }
 
-	const span = hi[0] - lo[0];
-	if (span <= 0) {
-		return hi[1];
-	}
+  const span = hi[0] - lo[0];
+  if (span <= 0) {
+    return hi[1];
+  }
 
-	return interpolate(property, lo[1], hi[1], (t - lo[0]) / span, level);
+  return interpolate(property, lo[1], hi[1], (t - lo[0]) / span, level);
 }
 
 /** Whether a `transition-property` names a property. */
 function watches(watched: Style['transitionProperty'], property: PropertyName): boolean {
-	return watched === 'all'
-		? (ANIMATABLE_PROPERTIES as readonly string[]).includes(property)
-		: watched.includes(property);
+  return watched === 'all'
+    ? (ANIMATABLE_PROPERTIES as readonly string[]).includes(property)
+    : watched.includes(property);
 }
 
 /** Two style values, compared the way `difference()` compares them. */
 function sameValue(a: unknown, b: unknown): boolean {
-	if (a === b) {
-		return true;
-	}
-	return (
-		typeof a === 'object' &&
-		typeof b === 'object' &&
-		a !== null &&
-		b !== null &&
-		(a as { type?: string }).type === (b as { type?: string }).type &&
-		(a as { value?: number }).value === (b as { value?: number }).value
-	);
+  if (a === b) {
+    return true;
+  }
+  return (
+    typeof a === 'object' &&
+    typeof b === 'object' &&
+    a !== null &&
+    b !== null &&
+    (a as { type?: string }).type === (b as { type?: string }).type &&
+    (a as { value?: number }).value === (b as { value?: number }).value
+  );
 }
 
 /** Whether two override maps say the same thing. */
 function same(a: Map<PropertyName, unknown>, b: Map<PropertyName, unknown>): boolean {
-	if (a.size !== b.size) {
-		return false;
-	}
-	for (const [property, value] of a) {
-		if (!b.has(property) || !sameValue(value, b.get(property))) {
-			return false;
-		}
-	}
-	return true;
+  if (a.size !== b.size) {
+    return false;
+  }
+  for (const [property, value] of a) {
+    if (!b.has(property) || !sameValue(value, b.get(property))) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /** Which properties two override maps disagree about, in either direction. */
 function changedProperties(
-	a: Map<PropertyName, unknown>,
-	b: Map<PropertyName, unknown>
+  a: Map<PropertyName, unknown>,
+  b: Map<PropertyName, unknown>
 ): PropertyName[] {
-	const out: PropertyName[] = [];
-	for (const [property, value] of a) {
-		if (!b.has(property) || !sameValue(value, b.get(property))) {
-			out.push(property);
-		}
-	}
-	for (const property of b.keys()) {
-		if (!a.has(property)) {
-			out.push(property);
-		}
-	}
-	return out;
+  const out: PropertyName[] = [];
+  for (const [property, value] of a) {
+    if (!b.has(property) || !sameValue(value, b.get(property))) {
+      out.push(property);
+    }
+  }
+  for (const property of b.keys()) {
+    if (!a.has(property)) {
+      out.push(property);
+    }
+  }
+  return out;
 }
 
 /** The base style with the overrides written over it. */
 function apply(base: Style, overrides: Map<PropertyName, unknown>): Style {
-	const style = { ...base } as Record<PropertyName, unknown>;
-	for (const [property, value] of overrides) {
-		style[property] = value;
-	}
-	return style as Style;
+  const style = { ...base } as Record<PropertyName, unknown>;
+  for (const [property, value] of overrides) {
+    style[property] = value;
+  }
+  return style as Style;
 }

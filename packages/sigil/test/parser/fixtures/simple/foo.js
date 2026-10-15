@@ -1,3 +1,3 @@
 export default {
-	desc: 'foo!',
+  desc: 'foo!',
 };

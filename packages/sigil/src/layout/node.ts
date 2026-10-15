@@ -11,77 +11,77 @@ import type { Length, Style } from '../style/index.js';
  * literal in a test.
  */
 export interface LayoutNode {
-	/**
-	 * Read-only, because nothing here writes them and an implementation whose
-	 * children are its own -- the element tree's are -- cannot hand out an array
-	 * anything may splice.
-	 */
-	children?: readonly LayoutNode[];
-	/**
-	 * How far this node's content is scrolled, for a box that clips.
-	 *
-	 * Read here rather than applied by whoever draws, because a scrolled child's
-	 * box has to *be* where it is drawn: everything above matches a box to an
-	 * element -- paint, and the hit testing input will want -- and a second offset
-	 * applied later would make `box` a position nothing is at. Only read on a box
-	 * whose `overflow` clips, since scrolling what is not clipped moves content
-	 * out from under nothing.
-	 */
-	scroll?: { x: number; y: number };
-	/**
-	 * Measures content that is not laid out from children -- text, almost always.
-	 *
-	 * Called with the width available, because wrapping makes height a function
-	 * of width. Called at most a handful of times per node per pass, and the
-	 * caller is expected to cache: measuring is the most repeated expensive
-	 * operation in the stack.
-	 */
-	measure?: (availableWidth: number) => Measurement;
-	style: Style;
+  /**
+   * Read-only, because nothing here writes them and an implementation whose
+   * children are its own -- the element tree's are -- cannot hand out an array
+   * anything may splice.
+   */
+  children?: readonly LayoutNode[];
+  /**
+   * How far this node's content is scrolled, for a box that clips.
+   *
+   * Read here rather than applied by whoever draws, because a scrolled child's
+   * box has to *be* where it is drawn: everything above matches a box to an
+   * element -- paint, and the hit testing input will want -- and a second offset
+   * applied later would make `box` a position nothing is at. Only read on a box
+   * whose `overflow` clips, since scrolling what is not clipped moves content
+   * out from under nothing.
+   */
+  scroll?: { x: number; y: number };
+  /**
+   * Measures content that is not laid out from children -- text, almost always.
+   *
+   * Called with the width available, because wrapping makes height a function
+   * of width. Called at most a handful of times per node per pass, and the
+   * caller is expected to cache: measuring is the most repeated expensive
+   * operation in the stack.
+   */
+  measure?: (availableWidth: number) => Measurement;
+  style: Style;
 }
 
 export interface Measurement {
-	height: number;
-	/** The widest the content can be, wrapping only where it must. */
-	width: number;
-	/**
-	 * The narrowest the content can be without overflowing -- the longest word,
-	 * for text. Flexbox needs both: `min-content` is the floor a shrinking item
-	 * cannot go below, and `max-content` is what it asks for.
-	 */
-	minWidth?: number;
-	/**
-	 * The shortest the content can be without losing any of itself.
-	 *
-	 * The column-axis twin of `minWidth`, and it has to exist for the same reason:
-	 * CSS's automatic minimum size applies to whichever axis is the main one, so a
-	 * column of text with no room was being crushed to a single row while the same
-	 * text in a row was correctly protected from shrinking past its longest word.
-	 */
-	minHeight?: number;
+  height: number;
+  /** The widest the content can be, wrapping only where it must. */
+  width: number;
+  /**
+   * The narrowest the content can be without overflowing -- the longest word,
+   * for text. Flexbox needs both: `min-content` is the floor a shrinking item
+   * cannot go below, and `max-content` is what it asks for.
+   */
+  minWidth?: number;
+  /**
+   * The shortest the content can be without losing any of itself.
+   *
+   * The column-axis twin of `minWidth`, and it has to exist for the same reason:
+   * CSS's automatic minimum size applies to whichever axis is the main one, so a
+   * column of text with no room was being crushed to a single row while the same
+   * text in a row was correctly protected from shrinking past its longest word.
+   */
+  minHeight?: number;
 }
 
 /** Where a node ended up, in cells, relative to the canvas origin. */
 export interface Box {
-	height: number;
-	width: number;
-	x: number;
-	y: number;
+  height: number;
+  width: number;
+  x: number;
+  y: number;
 }
 
 /** A laid-out node: the box, the content area inside it, and its children. */
 export interface LayoutResult {
-	/** The area inside padding and border, which is where children were placed. */
-	content: Box;
-	/** The border box, which is what `overflow` clips and what paint fills. */
-	box: Box;
-	children: LayoutResult[];
-	node: LayoutNode;
+  /** The area inside padding and border, which is where children were placed. */
+  content: Box;
+  /** The border box, which is what `overflow` clips and what paint fills. */
+  box: Box;
+  children: LayoutResult[];
+  node: LayoutNode;
 }
 
 /** How many cells a border takes on each edge. Always one, or none. */
 export function borderWidth(style: Style): number {
-	return style.borderStyle === 'none' ? 0 : 1;
+  return style.borderStyle === 'none' ? 0 : 1;
 }
 
 /**
@@ -95,22 +95,22 @@ export function borderWidth(style: Style): number {
  * @returns The number of cells, or `undefined` for `auto`.
  */
 export function resolve(length: Length, available: number | undefined): number | undefined {
-	if (length.type === 'cells') {
-		return length.value;
-	}
-	if (length.type === 'percent') {
-		// rounded rather than truncated, and rounded one box at a time: `33%` of 100
-		// is 33 either way, but `50%` of 5 is 2.5, and the nearest cell to what was
-		// asked for is 3. It is not `distribute()` and cannot be -- siblings'
-		// percentages need not partition anything, and this is read once while
-		// measuring and again while placing, where there is no line to divide. So
-		// two boxes at 50% of five ask for three each: the shrink pass, which *is*
-		// `distribute()`, gives back 3 and 2, and where they cannot flex they
-		// overflow. Truncating instead trades that for a guaranteed hole and rounds
-		// `10%` of five away entirely
-		return available === undefined ? undefined : Math.round((available * length.value) / 100);
-	}
-	return undefined;
+  if (length.type === 'cells') {
+    return length.value;
+  }
+  if (length.type === 'percent') {
+    // rounded rather than truncated, and rounded one box at a time: `33%` of 100
+    // is 33 either way, but `50%` of 5 is 2.5, and the nearest cell to what was
+    // asked for is 3. It is not `distribute()` and cannot be -- siblings'
+    // percentages need not partition anything, and this is read once while
+    // measuring and again while placing, where there is no line to divide. So
+    // two boxes at 50% of five ask for three each: the shrink pass, which *is*
+    // `distribute()`, gives back 3 and 2, and where they cannot flex they
+    // overflow. Truncating instead trades that for a guaranteed hole and rounds
+    // `10%` of five away entirely
+    return available === undefined ? undefined : Math.round((available * length.value) / 100);
+  }
+  return undefined;
 }
 
 /**
@@ -123,14 +123,14 @@ export function resolve(length: Length, available: number | undefined): number |
  * @returns The clamped size, never negative.
  */
 export function clamp(value: number, min: number | undefined, max: number | undefined): number {
-	let out = value;
-	if (max !== undefined) {
-		out = Math.min(out, max);
-	}
-	if (min !== undefined) {
-		out = Math.max(out, min);
-	}
-	return Math.max(0, out);
+  let out = value;
+  if (max !== undefined) {
+    out = Math.min(out, max);
+  }
+  if (min !== undefined) {
+    out = Math.max(out, min);
+  }
+  return Math.max(0, out);
 }
 
 /**
@@ -148,41 +148,41 @@ export function clamp(value: number, min: number | undefined, max: number | unde
  * @returns One whole number per weight, summing to `total`.
  */
 export function distribute(total: number, weights: number[]): number[] {
-	const sum = weights.reduce((a, b) => a + b, 0);
-	const out = Array.from({ length: weights.length }, () => 0);
+  const sum = weights.reduce((a, b) => a + b, 0);
+  const out = Array.from({ length: weights.length }, () => 0);
 
-	if (sum <= 0 || total === 0) {
-		return out;
-	}
+  if (sum <= 0 || total === 0) {
+    return out;
+  }
 
-	let handed = 0;
-	let carried = 0;
+  let handed = 0;
+  let carried = 0;
 
-	for (let i = 0; i < weights.length; i++) {
-		if (weights[i] <= 0) {
-			continue;
-		}
-		const exact = (total * weights[i]) / sum + carried;
-		// floored rather than rounded, so the remainder always moves *forward*.
-		// Rounding sends it backwards half the time, which puts the spare cell in
-		// the middle of a row of equal columns -- seven across three came out
-		// 2, 3, 2 -- and contradicts the rule this function is supposed to keep
-		const whole = Math.floor(exact);
-		carried = exact - whole;
-		out[i] = whole;
-		handed += whole;
-	}
+  for (let i = 0; i < weights.length; i++) {
+    if (weights[i] <= 0) {
+      continue;
+    }
+    const exact = (total * weights[i]) / sum + carried;
+    // floored rather than rounded, so the remainder always moves *forward*.
+    // Rounding sends it backwards half the time, which puts the spare cell in
+    // the middle of a row of equal columns -- seven across three came out
+    // 2, 3, 2 -- and contradicts the rule this function is supposed to keep
+    const whole = Math.floor(exact);
+    carried = exact - whole;
+    out[i] = whole;
+    handed += whole;
+  }
 
-	// rounding can leave the total a cell out either way; the last part that
-	// asked for anything absorbs it, so the parts always add up
-	if (handed !== total) {
-		for (let i = weights.length - 1; i >= 0; i--) {
-			if (weights[i] > 0) {
-				out[i] += total - handed;
-				break;
-			}
-		}
-	}
+  // rounding can leave the total a cell out either way; the last part that
+  // asked for anything absorbs it, so the parts always add up
+  if (handed !== total) {
+    for (let i = weights.length - 1; i >= 0; i--) {
+      if (weights[i] > 0) {
+        out[i] += total - handed;
+        break;
+      }
+    }
+  }
 
-	return out;
+  return out;
 }

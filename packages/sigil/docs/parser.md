@@ -7,23 +7,23 @@ subcommands, options, flags, and positional arguments from a declarative schema.
 import { parse } from '@ttylabs/sigil';
 
 const state = await parse({
-	argv: process.argv.slice(2),
-	env: process.env,
-	schema: {
-		options: {
-			'-v, --verbose': 'Print more output',
-			'--no-color': 'Disable colored output',
-		},
-		commands: {
-			build: {
-				options: { '--target <name>': { choices: ['esm', 'cjs'] } },
-				args: ['<entry>', '[rest...]'],
-				run({ argv }) {
-					// argv.target, argv.entry, argv.rest, argv.verbose, argv.color
-				},
-			},
-		},
-	},
+  argv: process.argv.slice(2),
+  env: process.env,
+  schema: {
+    options: {
+      '-v, --verbose': 'Print more output',
+      '--no-color': 'Disable colored output',
+    },
+    commands: {
+      build: {
+        options: { '--target <name>': { choices: ['esm', 'cjs'] } },
+        args: ['<entry>', '[rest...]'],
+        run({ argv }) {
+          // argv.target, argv.entry, argv.rest, argv.verbose, argv.color
+        },
+      },
+    },
+  },
 });
 ```
 
@@ -74,9 +74,9 @@ Aliases can also be given as a property, which is clearer for more than one:
 
 ```js
 const schema = {
-	commands: {
-		build: { alias: ['b', 'compile'] },
-	},
+  commands: {
+    build: { alias: ['b', 'compile'] },
+  },
 };
 ```
 
@@ -123,10 +123,10 @@ A command marked `default` runs when argv never named one:
 
 ```js
 const schema = {
-	commands: {
-		build: { default: true, args: ['<entry>'], run() {} },
-		test: {},
-	},
+  commands: {
+    build: { default: true, args: ['<entry>'], run() {} },
+    test: {},
+  },
 };
 ```
 
@@ -205,7 +205,7 @@ whether the declaration named it — the key it was written under:
 ```js
 commands: './commands'; // a directory *of* commands: siblings
 commands: {
-	db: './db';
+  db: './db';
 } // one command called `db`
 ```
 
@@ -325,7 +325,7 @@ rewrote. `load` is the same statement said as a function instead:
 
 ```js
 commands: {
-	build: { desc: 'Build the app', load: () => import('./commands/build.js') };
+  build: { desc: 'Build the app', load: () => import('./commands/build.js') };
 }
 ```
 
@@ -427,13 +427,13 @@ may be `null`, a description string, or an object of properties.
 
 ```js
 const schema = {
-	options: {
-		'-v, --verbose': null, // flag
-		'-o, --output <dir>': 'Where to write', // takes a value
-		'--cache [dir]': {}, // optional value
-		'--no-color': null, // negated flag
-		'--tag <name>': { multiple: true }, // repeatable
-	},
+  options: {
+    '-v, --verbose': null, // flag
+    '-o, --output <dir>': 'Where to write', // takes a value
+    '--cache [dir]': {}, // optional value
+    '--no-color': null, // negated flag
+    '--tag <name>': { multiple: true }, // repeatable
+  },
 };
 ```
 
@@ -542,8 +542,8 @@ use appends to an array:
 
 ```js
 parse({
-	argv: ['--tag', 'a', '--tag', 'b'],
-	schema: { options: { '--tag <t>': { multiple: true } } },
+  argv: ['--tag', 'a', '--tag', 'b'],
+  schema: { options: { '--tag <t>': { multiple: true } } },
 });
 // { tag: ['a', 'b'] }
 ```
@@ -659,10 +659,10 @@ flag turns it off. Declaration order does not matter.
 
 ```js
 {
-	options: {
-		'--cheese <type>': 'cheese flavour',
-		'--no-cheese': 'hold the cheese'
-	}
+  options: {
+    '--cheese <type>': 'cheese flavour',
+    '--no-cheese': 'hold the cheese'
+  }
 }
 ```
 
@@ -862,22 +862,22 @@ set belongs in more than one place:
 import main, { options } from '@ttylabs/sigil';
 
 const global = options({
-	'-v, --verbose': 'Say more',
-	'--port [n]': { type: 'int', default: 8080 },
+  '-v, --verbose': 'Say more',
+  '--port [n]': { type: 'int', default: 8080 },
 });
 
 await main({
-	schema: {
-		options: global,
-		commands: {
-			build: {
-				options: { '-w, --watch': 'Rebuild on change' },
-				run({ argv }) {
-					// argv.watch, and argv.verbose and argv.port from the schema above
-				},
-			},
-		},
-	},
+  schema: {
+    options: global,
+    commands: {
+      build: {
+        options: { '-w, --watch': 'Rebuild on change' },
+        run({ argv }) {
+          // argv.watch, and argv.verbose and argv.port from the schema above
+        },
+      },
+    },
+  },
 });
 ```
 
@@ -896,29 +896,29 @@ import main, { command, options } from '@ttylabs/sigil';
 const global = options({ '-v, --verbose': 'Say more' });
 
 await main({
-	schema: {
-		options: global,
-		commands: {
-			build: command({
-				args: ['<entry>', '[extras]...'],
-				options: {
-					'--target [name]': { choices: ['node', 'browser'] },
-					'--port [n]': { type: 'int', default: 8080 },
-					'--tag [t]': { multiple: true },
-					'--no-color': 'Turn color off',
-				},
-				run({ argv }) {
-					argv.entry; // string
-					argv.extras; // string[] | undefined
-					argv.target; // 'node' | 'browser' | undefined
-					argv.port; // number
-					argv.tag; // string[] | undefined
-					argv.color; // boolean
-					argv.verbose; // unknown -- declared by the schema, not by `build`
-				},
-			}),
-		},
-	},
+  schema: {
+    options: global,
+    commands: {
+      build: command({
+        args: ['<entry>', '[extras]...'],
+        options: {
+          '--target [name]': { choices: ['node', 'browser'] },
+          '--port [n]': { type: 'int', default: 8080 },
+          '--tag [t]': { multiple: true },
+          '--no-color': 'Turn color off',
+        },
+        run({ argv }) {
+          argv.entry; // string
+          argv.extras; // string[] | undefined
+          argv.target; // 'node' | 'browser' | undefined
+          argv.port; // number
+          argv.tag; // string[] | undefined
+          argv.color; // boolean
+          argv.verbose; // unknown -- declared by the schema, not by `build`
+        },
+      }),
+    },
+  },
 });
 ```
 
@@ -940,11 +940,11 @@ be mounted — so what a command declares is typed, and every other key in `argv
 
 ```js
 build: command({
-	options: { '-w, --watch': 'Rebuild on change' },
-	run({ argv }) {
-		argv.watch; // boolean
-		argv.verbose; // unknown -- the schema declares it, not this command
-	},
+  options: { '-w, --watch': 'Rebuild on change' },
+  run({ argv }) {
+    argv.watch; // boolean
+    argv.verbose; // unknown -- the schema declares it, not this command
+  },
 });
 ```
 
@@ -991,12 +991,12 @@ the program.
 
 ```js
 await main({
-	schema: {
-		name: 'mycli',
-		commands: {
-			build: { args: ['<entry>'], desc: 'Compile the project', run: build },
-		},
-	},
+  schema: {
+    name: 'mycli',
+    commands: {
+      build: { args: ['<entry>'], desc: 'Compile the project', run: build },
+    },
+  },
 });
 ```
 
@@ -1087,9 +1087,9 @@ caller using `parse()` on its own decides what to do with it:
 const state = await parse({ argv, schema });
 
 if (state.help) {
-	const { resolveHelp } = await import('sigil/help');
-	process.stdout.write(`${await resolveHelp(state)}\n`);
-	return;
+  const { resolveHelp } = await import('sigil/help');
+  process.stdout.write(`${await resolveHelp(state)}\n`);
+  return;
 }
 ```
 
@@ -1309,17 +1309,17 @@ raised gets reported. What a hook gets to change is _which_ error that is:
 
 ```js
 await main({
-	schema: {
-		hooks: {
-			beforeError: [
-				(err, state) => {
-					if (err?.code === 'ENOENT') {
-						return new Error(`${state?.cmd?.name ?? 'cli'}: no such file or directory`);
-					}
-				},
-			],
-		},
-	},
+  schema: {
+    hooks: {
+      beforeError: [
+        (err, state) => {
+          if (err?.code === 'ENOENT') {
+            return new Error(`${state?.cmd?.name ?? 'cli'}: no such file or directory`);
+          }
+        },
+      ],
+    },
+  },
 });
 ```
 
@@ -1355,13 +1355,13 @@ and swallowing it would leave nothing at all reporting the original error.
 
 ```js
 await main({
-	schema,
-	settings: {
-		errorHandler(err, { state }) {
-			console.error(`${state?.cmd?.name ?? 'cli'}: ${err.message}`);
-			process.exitCode = 2;
-		},
-	},
+  schema,
+  settings: {
+    errorHandler(err, { state }) {
+      console.error(`${state?.cmd?.name ?? 'cli'}: ${err.message}`);
+      process.exitCode = 2;
+    },
+  },
 });
 ```
 
@@ -1375,7 +1375,7 @@ color to print it in:
 import { errorHandler, renderError } from '@ttylabs/sigil/error-handler';
 
 errorHandler(err, {
-	render: (err, { state }) => `${renderError(err)}\n\n${usageFor(state?.cmd)}`,
+  render: (err, { state }) => `${renderError(err)}\n\n${usageFor(state?.cmd)}`,
 });
 ```
 
@@ -1461,8 +1461,8 @@ one that is already there:
 ```js
 const previous = cmd.hooks.parse;
 cmd.hooks.parse = async (data) => {
-	await previous?.(data);
-	// ...and yours
+  await previous?.(data);
+  // ...and yours
 };
 ```
 
@@ -1481,15 +1481,15 @@ hand:
 
 ```js
 commands: {
-	db: {
-		hooks: {
-			async subcommandLoaded({ cmd, parent }) {
-				// cmd is `migrate`, loaded; parent is `db`
-				await cmd[Internal].options.add({ format: '--dry-run' });
-			},
-		},
-		commands: { migrate: { load: () => import('./migrate.js') } },
-	},
+  db: {
+    hooks: {
+      async subcommandLoaded({ cmd, parent }) {
+        // cmd is `migrate`, loaded; parent is `db`
+        await cmd[Internal].options.add({ format: '--dry-run' });
+      },
+    },
+    commands: { migrate: { load: () => import('./migrate.js') } },
+  },
 }
 ```
 
@@ -1530,7 +1530,7 @@ replaces an error:
 
 ```js
 subcommandLoaded({ cmd }) {
-	return { desc: cmd.desc, run: wrap(cmd.run) };
+  return { desc: cmd.desc, run: wrap(cmd.run) };
 }
 ```
 

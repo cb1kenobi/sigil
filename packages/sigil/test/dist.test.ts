@@ -24,58 +24,58 @@ const FORMATTING = new Set([0x09, 0x0a, 0x0d]);
 
 /** Whether a code point is one a terminal would act on rather than print. */
 function isControl(code: number): boolean {
-	if (FORMATTING.has(code)) {
-		return false;
-	}
-	// C0 and DEL, then C1 -- where U+009B is a CSI all by itself, and is one of
-	// the two escapes `codes.ts` builds
-	return code < 0x20 || (code >= 0x7f && code <= 0x9f);
+  if (FORMATTING.has(code)) {
+    return false;
+  }
+  // C0 and DEL, then C1 -- where U+009B is a CSI all by itself, and is one of
+  // the two escapes `codes.ts` builds
+  return code < 0x20 || (code >= 0x7f && code <= 0x9f);
 }
 
 describe('the shipped bundles', () => {
-	const files = readdirSync(dist).filter((name) => name.endsWith('.mjs'));
+  const files = readdirSync(dist).filter((name) => name.endsWith('.mjs'));
 
-	it('should have been built', () => {
-		// a missing `dist/` is a build that did not run, not a passing test
-		expect(files.length, `no bundles in ${dist}; run \`pnpm build\``).toBeGreaterThan(0);
-	});
+  it('should have been built', () => {
+    // a missing `dist/` is a build that did not run, not a passing test
+    expect(files.length, `no bundles in ${dist}; run \`pnpm build\``).toBeGreaterThan(0);
+  });
 
-	it.each(files)('should carry no raw control characters: %s', (name) => {
-		// a raw `ESC` in a shipped file is a sequence waiting for something to
-		// print it, and Node prints the offending source line on an uncaught
-		// error -- so a crash anywhere inside the bundle wrote `ESC ] 8 ; ;` to
-		// the user's terminal and left every line after it inside a hyperlink
-		// nothing closed. The build escapes them; this is what says it still does
-		const text = readFileSync(join(dist, name), 'utf8');
-		const found = new Map<number, number>();
+  it.each(files)('should carry no raw control characters: %s', (name) => {
+    // a raw `ESC` in a shipped file is a sequence waiting for something to
+    // print it, and Node prints the offending source line on an uncaught
+    // error -- so a crash anywhere inside the bundle wrote `ESC ] 8 ; ;` to
+    // the user's terminal and left every line after it inside a hyperlink
+    // nothing closed. The build escapes them; this is what says it still does
+    const text = readFileSync(join(dist, name), 'utf8');
+    const found = new Map<number, number>();
 
-		for (const char of text) {
-			const code = char.codePointAt(0) ?? 0;
-			if (isControl(code)) {
-				found.set(code, (found.get(code) ?? 0) + 1);
-			}
-		}
+    for (const char of text) {
+      const code = char.codePointAt(0) ?? 0;
+      if (isControl(code)) {
+        found.set(code, (found.get(code) ?? 0) + 1);
+      }
+    }
 
-		const report = [...found]
-			.map(([code, count]) => `U+${code.toString(16).toUpperCase().padStart(4, '0')} x${count}`)
-			.join(', ');
+    const report = [...found]
+      .map(([code, count]) => `U+${code.toString(16).toUpperCase().padStart(4, '0')} x${count}`)
+      .join(', ');
 
-		expect(found.size, `${name} ships raw control characters: ${report}`).toBe(0);
-	});
+    expect(found.size, `${name} ships raw control characters: ${report}`).toBe(0);
+  });
 
-	it('should still spell the escapes it needs', () => {
-		// the other half of it: escaping them must not have taken them away. The
-		// styler cannot work without an `ESC`, and a build that dropped one would
-		// pass the check above by being wrong
-		const ansi = readFileSync(join(dist, 'ansi.mjs'), 'utf8');
-		const imported = readdirSync(dist)
-			.filter((name) => name.endsWith('.mjs'))
-			.map((name) => readFileSync(join(dist, name), 'utf8'))
-			.join('');
+  it('should still spell the escapes it needs', () => {
+    // the other half of it: escaping them must not have taken them away. The
+    // styler cannot work without an `ESC`, and a build that dropped one would
+    // pass the check above by being wrong
+    const ansi = readFileSync(join(dist, 'ansi.mjs'), 'utf8');
+    const imported = readdirSync(dist)
+      .filter((name) => name.endsWith('.mjs'))
+      .map((name) => readFileSync(join(dist, name), 'utf8'))
+      .join('');
 
-		expect(ansi.length).toBeGreaterThan(0);
-		expect(imported).toMatch(/\\x1B/i);
-	});
+    expect(ansi.length).toBeGreaterThan(0);
+    expect(imported).toMatch(/\\x1B/i);
+  });
 });
 
 /**
@@ -91,25 +91,25 @@ describe('the shipped bundles', () => {
  * @returns The bundles reachable from it without calling anything.
  */
 function staticGraph(entry: string): Set<string> {
-	const seen = new Set<string>();
-	const queue = [entry];
+  const seen = new Set<string>();
+  const queue = [entry];
 
-	while (queue.length > 0) {
-		const name = queue.shift() as string;
-		if (seen.has(name)) {
-			continue;
-		}
-		seen.add(name);
+  while (queue.length > 0) {
+    const name = queue.shift() as string;
+    if (seen.has(name)) {
+      continue;
+    }
+    seen.add(name);
 
-		const source = readFileSync(join(dist, name), 'utf8');
-		for (const re of [/\bfrom\s*["'](\.\/[^"']+)["']/g, /\bimport\s*["'](\.\/[^"']+)["']/g]) {
-			for (const [, spec] of source.matchAll(re)) {
-				queue.push((spec as string).slice(2));
-			}
-		}
-	}
+    const source = readFileSync(join(dist, name), 'utf8');
+    for (const re of [/\bfrom\s*["'](\.\/[^"']+)["']/g, /\bimport\s*["'](\.\/[^"']+)["']/g]) {
+      for (const [, spec] of source.matchAll(re)) {
+        queue.push((spec as string).slice(2));
+      }
+    }
+  }
 
-	return seen;
+  return seen;
 }
 
 /**
@@ -140,333 +140,333 @@ const SEGMENTATION = 'grapheme';
  * @returns The chunk's file name.
  */
 function parseChunk(): string {
-	for (const name of staticGraph('index.mjs')) {
-		const m = readFileSync(join(dist, name), 'utf8').match(
-			/import\(`?\.\/(parse-[^`")]+\.mjs)`?\)/
-		);
+  for (const name of staticGraph('index.mjs')) {
+    const m = readFileSync(join(dist, name), 'utf8').match(
+      /import\(`?\.\/(parse-[^`")]+\.mjs)`?\)/
+    );
 
-		if (m) {
-			return m[1] as string;
-		}
-	}
+    if (m) {
+      return m[1] as string;
+    }
+  }
 
-	return expect.fail('the root entry no longer reaches parse() through a dynamic import');
+  return expect.fail('the root entry no longer reaches parse() through a dynamic import');
 }
 
 describe('what importing the package costs', () => {
-	/**
-	 * Names only a component's implementation defines.
-	 *
-	 * Class names would not do: `FRAMEWORK_CSS` carries `.sigil-spinner` and
-	 * every one of its siblings, and that sheet is on the help path because help
-	 * is themed -- so a search for the *vocabulary* finds the theme and reports
-	 * the whole component set as loaded when none of it is.
-	 */
-	// one per component, because the presence half below is what stops the absence
-	// half going vacuous -- so a component added without a name here is one whose
-	// absence from the root entry is pinned by nothing it can be renamed out of.
-	// `ScrollBox` was missing for the same reason `createTypewriter` was: the list
-	// is not derived from anything, so it is a list somebody has to add to
-	const IMPLEMENTATIONS = [
-		'createSpinner',
-		'createProgress',
-		'createTypewriter',
-		'largeTextView',
-		'createDecrypt',
-		'mountLive',
-		'PromptError',
-		'renderBar',
-		'ScrollBox',
-		'tableView',
-		'enableDebugOverlay',
-		'qrcodeView',
-		'commandPalette',
-	];
+  /**
+   * Names only a component's implementation defines.
+   *
+   * Class names would not do: `FRAMEWORK_CSS` carries `.sigil-spinner` and
+   * every one of its siblings, and that sheet is on the help path because help
+   * is themed -- so a search for the *vocabulary* finds the theme and reports
+   * the whole component set as loaded when none of it is.
+   */
+  // one per component, because the presence half below is what stops the absence
+  // half going vacuous -- so a component added without a name here is one whose
+  // absence from the root entry is pinned by nothing it can be renamed out of.
+  // `ScrollBox` was missing for the same reason `createTypewriter` was: the list
+  // is not derived from anything, so it is a list somebody has to add to
+  const IMPLEMENTATIONS = [
+    'createSpinner',
+    'createProgress',
+    'createTypewriter',
+    'largeTextView',
+    'createDecrypt',
+    'mountLive',
+    'PromptError',
+    'renderBar',
+    'ScrollBox',
+    'tableView',
+    'enableDebugOverlay',
+    'qrcodeView',
+    'commandPalette',
+  ];
 
-	/** The bundles in a graph that define any of them. */
-	const carriers = (graph: Set<string>, symbol: string): string[] =>
-		[...graph].filter((name) => readFileSync(join(dist, name), 'utf8').includes(symbol));
+  /** The bundles in a graph that define any of them. */
+  const carriers = (graph: Set<string>, symbol: string): string[] =>
+    [...graph].filter((name) => readFileSync(join(dist, name), 'utf8').includes(symbol));
 
-	it.each(IMPLEMENTATIONS)('should not load %s to import the package', (symbol) => {
-		// `src/index.ts` exports `main`, `command`, `options` and the error
-		// handling, and nothing else -- so a CLI that prints one line pays 4 KB
-		// rather than the 124 KB the component set comes to. It is true by
-		// omission, which is exactly the kind of thing that stops being true when
-		// somebody adds `export * from './components/index.js'` for convenience
-		// and nothing says so.
-		expect(carriers(staticGraph('index.mjs'), symbol)).toEqual([]);
-	});
+  it.each(IMPLEMENTATIONS)('should not load %s to import the package', (symbol) => {
+    // `src/index.ts` exports `main`, `command`, `options` and the error
+    // handling, and nothing else -- so a CLI that prints one line pays 4 KB
+    // rather than the 124 KB the component set comes to. It is true by
+    // omission, which is exactly the kind of thing that stops being true when
+    // somebody adds `export * from './components/index.js'` for convenience
+    // and nothing says so.
+    expect(carriers(staticGraph('index.mjs'), symbol)).toEqual([]);
+  });
 
-	it.each(IMPLEMENTATIONS)('should load %s to import the components', (symbol) => {
-		// the other half, and it is not decoration: a test that only asserts a
-		// symbol is absent passes forever the day the symbol is renamed, and
-		// would then be pinning nothing at all
-		expect(carriers(staticGraph('components.mjs'), symbol)).not.toEqual([]);
-	});
+  it.each(IMPLEMENTATIONS)('should load %s to import the components', (symbol) => {
+    // the other half, and it is not decoration: a test that only asserts a
+    // symbol is absent passes forever the day the symbol is renamed, and
+    // would then be pinning nothing at all
+    expect(carriers(staticGraph('components.mjs'), symbol)).not.toEqual([]);
+  });
 
-	// `runCommand` among them, which the first version left out: it is the export
-	// an app actually imports, and dropping it from the barrel while leaving the
-	// module reachable kept the presence half green. Which is this file's own rule
-	// about an absence-only test, applied to the one name that matters most
-	it.each(['runCommand', 'runOnTerminal', 'createTestTerminal', 'already running'])(
-		'should not load %s to import the package',
-		(symbol) => {
-			// the measurement that decided where the testing helpers live. A subpath
-			// of the runtime rather than a package of its own -- which is the version
-			// skew argument `sigil add` already records, since `runCommand()` has to
-			// run the app's *own* `main()` -- and the cost of that is the question a
-			// subpath raises: it is permanent public surface on the package every app
-			// depends on at run time.
-			//
-			// It is zero. Nothing on the root entry's graph imports it, so the graph
-			// is 7,532 B over the same six modules it was before -- 21 B *less*, which
-			// is a shared chunk boundary moving and is noise. `testing.mjs` is 44,328 B
-			// over fourteen modules and is paid only by a module that asks for it,
-			// which is a test file -- the same figure AGENTS.md records, because two
-			// comments disagreeing about one measurement leave a later reader with no
-			// way to tell which was measured.
-			//
-			// An exported name and a string literal, which survive minification where
-			// a name that is only ever called does not
-			expect(carriers(staticGraph('index.mjs'), symbol)).toEqual([]);
-		}
-	);
+  // `runCommand` among them, which the first version left out: it is the export
+  // an app actually imports, and dropping it from the barrel while leaving the
+  // module reachable kept the presence half green. Which is this file's own rule
+  // about an absence-only test, applied to the one name that matters most
+  it.each(['runCommand', 'runOnTerminal', 'createTestTerminal', 'already running'])(
+    'should not load %s to import the package',
+    (symbol) => {
+      // the measurement that decided where the testing helpers live. A subpath
+      // of the runtime rather than a package of its own -- which is the version
+      // skew argument `sigil add` already records, since `runCommand()` has to
+      // run the app's *own* `main()` -- and the cost of that is the question a
+      // subpath raises: it is permanent public surface on the package every app
+      // depends on at run time.
+      //
+      // It is zero. Nothing on the root entry's graph imports it, so the graph
+      // is 7,532 B over the same six modules it was before -- 21 B *less*, which
+      // is a shared chunk boundary moving and is noise. `testing.mjs` is 44,328 B
+      // over fourteen modules and is paid only by a module that asks for it,
+      // which is a test file -- the same figure AGENTS.md records, because two
+      // comments disagreeing about one measurement leave a later reader with no
+      // way to tell which was measured.
+      //
+      // An exported name and a string literal, which survive minification where
+      // a name that is only ever called does not
+      expect(carriers(staticGraph('index.mjs'), symbol)).toEqual([]);
+    }
+  );
 
-	it.each(['runCommand', 'runOnTerminal', 'createTestTerminal', 'already running'])(
-		'should load %s to import the testing helpers',
-		(symbol) => {
-			// the other half, and it is not decoration: a test that only asserts an
-			// absence passes forever the day the symbol is renamed
-			expect(carriers(staticGraph('testing.mjs'), symbol)).not.toEqual([]);
-		}
-	);
+  it.each(['runCommand', 'runOnTerminal', 'createTestTerminal', 'already running'])(
+    'should load %s to import the testing helpers',
+    (symbol) => {
+      // the other half, and it is not decoration: a test that only asserts an
+      // absence passes forever the day the symbol is renamed
+      expect(carriers(staticGraph('testing.mjs'), symbol)).not.toEqual([]);
+    }
+  );
 
-	// Two exported names and two string literals, which is this file's own rule
-	// rather than a preference: a name that is only ever *called* is one the
-	// minifier renames, so it is in no bundle at all and the absence half passes
-	// while saying nothing. `mergeLayers` was the first spelling and is exactly
-	// that -- it failed the presence half immediately, which is what the presence
-	// half is for.
-	//
-	// The pair is the one SIG-148 asked for in as many words: "nothing in
-	// `main()` or `parse()` loads or accepts a config, and a test that says so"
-	const CONFIG_MARKERS = [
-		'createConfigSync',
-		'isWritableStore',
-		'Unsafe config key',
-		'No writable config layer',
-	];
+  // Two exported names and two string literals, which is this file's own rule
+  // rather than a preference: a name that is only ever *called* is one the
+  // minifier renames, so it is in no bundle at all and the absence half passes
+  // while saying nothing. `mergeLayers` was the first spelling and is exactly
+  // that -- it failed the presence half immediately, which is what the presence
+  // half is for.
+  //
+  // The pair is the one SIG-148 asked for in as many words: "nothing in
+  // `main()` or `parse()` loads or accepts a config, and a test that says so"
+  const CONFIG_MARKERS = [
+    'createConfigSync',
+    'isWritableStore',
+    'Unsafe config key',
+    'No writable config layer',
+  ];
 
-	it.each(CONFIG_MARKERS)('should not load %s to import the package', (symbol) => {
-		// **Core does not load config, and does not accept one either.** Options
-		// and config settings are separate and the app decides how to mix them,
-		// which is the opposite call from `--help`, `--version` and `completion`:
-		// those three the framework can answer identically for every app, and
-		// this it cannot -- the ecosystem does not even agree on what the flag is
-		// called.
-		expect(carriers(staticGraph('index.mjs'), symbol)).toEqual([]);
-	});
+  it.each(CONFIG_MARKERS)('should not load %s to import the package', (symbol) => {
+    // **Core does not load config, and does not accept one either.** Options
+    // and config settings are separate and the app decides how to mix them,
+    // which is the opposite call from `--help`, `--version` and `completion`:
+    // those three the framework can answer identically for every app, and
+    // this it cannot -- the ecosystem does not even agree on what the flag is
+    // called.
+    expect(carriers(staticGraph('index.mjs'), symbol)).toEqual([]);
+  });
 
-	it.each(CONFIG_MARKERS)('should load %s to import the config module', (symbol) => {
-		// the other half, for the reason every pair above gives
-		expect(carriers(staticGraph('config.mjs'), symbol)).not.toEqual([]);
-	});
+  it.each(CONFIG_MARKERS)('should load %s to import the config module', (symbol) => {
+    // the other half, for the reason every pair above gives
+    expect(carriers(staticGraph('config.mjs'), symbol)).not.toEqual([]);
+  });
 
-	// Every one of them a **string literal**, which is this file's own rule
-	// arriving a second time: `parseArgv` and `initOption` were the first two
-	// spellings and are names the minifier renames, so they are in no bundle at
-	// all -- measured, `grep -l` over every `dist/*.mjs` finds neither. Both
-	// absence halves therefore passed while saying nothing, which is the
-	// `mergeLayers` disease one block up, in the test written right after it.
-	//
-	// One per parser area rather than one, because a parser module can come in as
-	// a chunk of its own: measured, `export { initArg } from
-	// '../parser/argument/init-arg.js'` in the config barrel adds an
-	// `init-arg-*.mjs` and pulls the parse chunk in not at all, so a marker set
-	// keyed on `parse`'s own literals cannot see it
-	const PARSER_MARKERS = ['Unknown option', 'Expected command', 'Invalid argument', 'Usage:'];
+  // Every one of them a **string literal**, which is this file's own rule
+  // arriving a second time: `parseArgv` and `initOption` were the first two
+  // spellings and are names the minifier renames, so they are in no bundle at
+  // all -- measured, `grep -l` over every `dist/*.mjs` finds neither. Both
+  // absence halves therefore passed while saying nothing, which is the
+  // `mergeLayers` disease one block up, in the test written right after it.
+  //
+  // One per parser area rather than one, because a parser module can come in as
+  // a chunk of its own: measured, `export { initArg } from
+  // '../parser/argument/init-arg.js'` in the config barrel adds an
+  // `init-arg-*.mjs` and pulls the parse chunk in not at all, so a marker set
+  // keyed on `parse`'s own literals cannot see it
+  const PARSER_MARKERS = ['Unknown option', 'Expected command', 'Invalid argument', 'Usage:'];
 
-	it.each(PARSER_MARKERS)('should not reach %s to import the config module', (symbol) => {
-		// which the packaging measurement assumed and is now a property rather
-		// than a coincidence: a config module usable by an app that does not use
-		// sigil's parser is a better module than one wired into it
-		expect(carriers(staticGraph('config.mjs'), symbol), symbol).toEqual([]);
-	});
+  it.each(PARSER_MARKERS)('should not reach %s to import the config module', (symbol) => {
+    // which the packaging measurement assumed and is now a property rather
+    // than a coincidence: a config module usable by an app that does not use
+    // sigil's parser is a better module than one wired into it
+    expect(carriers(staticGraph('config.mjs'), symbol), symbol).toEqual([]);
+  });
 
-	it.each(PARSER_MARKERS)(
-		'should have %s somewhere in dist, so the absence means something',
-		(symbol) => {
-			// the presence half, for the reason the pair above gives: an absence over a
-			// marker that is in no bundle is an assertion that cannot fail
-			expect(
-				readdirSync(dist).filter(
-					(name) => name.endsWith('.mjs') && readFileSync(join(dist, name), 'utf8').includes(symbol)
-				),
-				symbol
-			).not.toEqual([]);
-		}
-	);
+  it.each(PARSER_MARKERS)(
+    'should have %s somewhere in dist, so the absence means something',
+    (symbol) => {
+      // the presence half, for the reason the pair above gives: an absence over a
+      // marker that is in no bundle is an assertion that cannot fail
+      expect(
+        readdirSync(dist).filter(
+          (name) => name.endsWith('.mjs') && readFileSync(join(dist, name), 'utf8').includes(symbol)
+        ),
+        symbol
+      ).not.toEqual([]);
+    }
+  );
 
-	it('should reach exactly the seven modules the measurement names', () => {
-		// the markers say what it must not reach and this says it reaches nothing
-		// else at all, which is the only form that catches a parser module arriving
-		// as a chunk of its own under a name nothing here could have predicted.
-		// Seven: the entry, `paths.mjs`, `i18n.mjs`, and the `transform`, `debug`,
-		// `env-value` and `mkdir-owner-sync` chunks -- which is the module list the
-		// byte figure below is over, so the two cannot come apart. The last of them
-		// is the write half's: `save()` creates the directory it writes into, which
-		// is the "apply the parent directory's owner under sudo" rule the update
-		// cache already reads
-		expect([...staticGraph('config.mjs')].sort()).toHaveLength(7);
-	});
+  it('should reach exactly the seven modules the measurement names', () => {
+    // the markers say what it must not reach and this says it reaches nothing
+    // else at all, which is the only form that catches a parser module arriving
+    // as a chunk of its own under a name nothing here could have predicted.
+    // Seven: the entry, `paths.mjs`, `i18n.mjs`, and the `transform`, `debug`,
+    // `env-value` and `mkdir-owner-sync` chunks -- which is the module list the
+    // byte figure below is over, so the two cannot come apart. The last of them
+    // is the write half's: `save()` creates the directory it writes into, which
+    // is the "apply the parent directory's owner under sudo" rule the update
+    // cache already reads
+    expect([...staticGraph('config.mjs')].sort()).toHaveLength(7);
+  });
 
-	it('should cost a module rather than a component', () => {
-		const graph = staticGraph('config.mjs');
-		const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
+  it('should cost a module rather than a component', () => {
+    const graph = staticGraph('config.mjs');
+    const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
 
-		// 32,512 B over seven modules, of which 9,880 B over six is what it starts
-		// from: `paths.mjs`, the `transform` chunk -- which is `transform`, `i18n`
-		// and `debug` -- the 66-byte `env-value` chunk the parser shares, and the
-		// 525-byte `mkdir-owner-sync` one the update cache shares. So the module
-		// itself is 22,632 B, and the graph is 4.3x the root entry's 7,518 B and an
-		// eighth of `components.mjs`'s 239,927 B over 26 -- all three measured the
-		// same way, which is the only comparison that means anything. It was
-		// 20,649 B over six before the write half, so the span writer, the atomic
-		// write and the representability check are about 11.5 KB between them.
-		//
-		// A ceiling rather than a measurement, about 2.4x over what it is, so that
-		// ordinary growth never touches it and pulling the parser or the renderer
-		// onto it does. The **measured** figure is here and in AGENTS.md and
-		// nowhere else, for the reason the root entry's is: two comments
-		// disagreeing about one measurement leave a later reader with no way to
-		// tell which was measured. The README carries a rounded "about 31 kB over
-		// seven modules" for an app author deciding whether to import it, which is
-		// a different statement and names the same seven
-		expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(48 * 1024);
-	});
+    // 32,512 B over seven modules, of which 9,880 B over six is what it starts
+    // from: `paths.mjs`, the `transform` chunk -- which is `transform`, `i18n`
+    // and `debug` -- the 66-byte `env-value` chunk the parser shares, and the
+    // 525-byte `mkdir-owner-sync` one the update cache shares. So the module
+    // itself is 22,632 B, and the graph is 4.3x the root entry's 7,518 B and an
+    // eighth of `components.mjs`'s 239,927 B over 26 -- all three measured the
+    // same way, which is the only comparison that means anything. It was
+    // 20,649 B over six before the write half, so the span writer, the atomic
+    // write and the representability check are about 11.5 KB between them.
+    //
+    // A ceiling rather than a measurement, about 2.4x over what it is, so that
+    // ordinary growth never touches it and pulling the parser or the renderer
+    // onto it does. The **measured** figure is here and in AGENTS.md and
+    // nowhere else, for the reason the root entry's is: two comments
+    // disagreeing about one measurement leave a later reader with no way to
+    // tell which was measured. The README carries a rounded "about 31 kB over
+    // seven modules" for an app author deciding whether to import it, which is
+    // a different statement and names the same seven
+    expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(48 * 1024);
+  });
 
-	it('should keep the root entry small enough to be worth it', () => {
-		const graph = staticGraph('index.mjs');
-		const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
+  it('should keep the root entry small enough to be worth it', () => {
+    const graph = staticGraph('index.mjs');
+    const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
 
-		// a ceiling rather than a measurement -- it sits about 2.7x over the 7.5 KB
-		// this is today, so ordinary growth never touches it and pulling a
-		// rendering path onto the entry blows straight through it.
-		//
-		// 4.1 KB of that was the entry before i18n; the 2.2 KB `i18n.mjs` is the
-		// tag, the plural and the locale resolution, and it is here because
-		// `main()` resolves a locale before `parse()` can throw. Splitting the
-		// resolution into a module `main()` imports only when the schema declares
-		// `locales` would give about 1.5 KB of it back, and is not done: nothing
-		// measures a 1.5 KB module, and it would cost an internal/public split of
-		// one barrel. That is the shape to reach for if this ever gets tight.
-		expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(20 * 1024);
-	});
+    // a ceiling rather than a measurement -- it sits about 2.7x over the 7.5 KB
+    // this is today, so ordinary growth never touches it and pulling a
+    // rendering path onto the entry blows straight through it.
+    //
+    // 4.1 KB of that was the entry before i18n; the 2.2 KB `i18n.mjs` is the
+    // tag, the plural and the locale resolution, and it is here because
+    // `main()` resolves a locale before `parse()` can throw. Splitting the
+    // resolution into a module `main()` imports only when the schema declares
+    // `locales` would give about 1.5 KB of it back, and is not done: nothing
+    // measures a 1.5 KB module, and it would cost an internal/public split of
+    // one barrel. That is the shape to reach for if this ever gets tight.
+    expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(20 * 1024);
+  });
 
-	it('should not drag grapheme segmentation in to suggest a command', () => {
-		// SIG-143 gave the parser a reason to want `fuzzyMatch()`, which lives
-		// beside `highlightRuns()` -- and that one is the only thing in that file
-		// that reaches for `graphemes()`. Measured both ways: importing
-		// `components/fuzzy.js` from the parser puts `width`, `strip` and `codes`
-		// on the parse chunk's graph and takes it from 38.8 KB to 43.5 KB, because
-		// rolldown does not shake the segmentation back out of a shared chunk. So
-		// `fuzzyMatch()` moved to `src/util/fuzzy.ts`, which is the move `seeded()`
-		// already made to `src/util/random.ts` and for the same reason.
-		//
-		// Keyed on the symbol rather than on the chunk's name, and that is this
-		// file's own rule rather than a preference: a name filter asserted empty
-		// passes forever the day the chunk is renamed, which is what the pair above
-		// is written about. `SEGMENTATION` is the `granularity` the one
-		// `Intl.Segmenter` in the package is built with, so it is a string literal
-		// the minifier keeps and is named for exactly what is being refused
-		expect(carriers(staticGraph(parseChunk()), SEGMENTATION)).toEqual([]);
-	});
+  it('should not drag grapheme segmentation in to suggest a command', () => {
+    // SIG-143 gave the parser a reason to want `fuzzyMatch()`, which lives
+    // beside `highlightRuns()` -- and that one is the only thing in that file
+    // that reaches for `graphemes()`. Measured both ways: importing
+    // `components/fuzzy.js` from the parser puts `width`, `strip` and `codes`
+    // on the parse chunk's graph and takes it from 38.8 KB to 43.5 KB, because
+    // rolldown does not shake the segmentation back out of a shared chunk. So
+    // `fuzzyMatch()` moved to `src/util/fuzzy.ts`, which is the move `seeded()`
+    // already made to `src/util/random.ts` and for the same reason.
+    //
+    // Keyed on the symbol rather than on the chunk's name, and that is this
+    // file's own rule rather than a preference: a name filter asserted empty
+    // passes forever the day the chunk is renamed, which is what the pair above
+    // is written about. `SEGMENTATION` is the `granularity` the one
+    // `Intl.Segmenter` in the package is built with, so it is a string literal
+    // the minifier keeps and is named for exactly what is being refused
+    expect(carriers(staticGraph(parseChunk()), SEGMENTATION)).toEqual([]);
+  });
 
-	it('should still reach it to draw, which is the half a rename would fail', () => {
-		// the other half, for the reason the component pair gives: an absence on
-		// its own pins nothing once the marker stops existing, and help draws text,
-		// so it is where the segmentation legitimately is
-		expect(carriers(staticGraph('help.mjs'), SEGMENTATION)).not.toEqual([]);
-	});
+  it('should still reach it to draw, which is the half a rename would fail', () => {
+    // the other half, for the reason the component pair gives: an absence on
+    // its own pins nothing once the marker stops existing, and help draws text,
+    // so it is where the segmentation legitimately is
+    expect(carriers(staticGraph('help.mjs'), SEGMENTATION)).not.toEqual([]);
+  });
 
-	it('should not drag the drawing stack in to import the key router', () => {
-		// the mouse gave the router a reason to reach into the element tree, and
-		// reaching it through `element/paint.js` for two lines of arithmetic put the
-		// layout engine, the cascade and the canvas behind `sigil/input`: measured at
-		// 29 kB before and 93 kB after, for an app that wanted a key router and no
-		// rendering at all. `paintOrder()` and `contains()` live in `element/hit.js`
-		// instead, which imports nothing but a type -- so this is 33 kB, and the
-		// 3.6 kB is the mouse itself.
-		//
-		// A ceiling rather than a measurement, at about 3x, so ordinary growth never
-		// touches it and a barrel import does
-		const graph = staticGraph('input.mjs');
-		const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
+  it('should not drag the drawing stack in to import the key router', () => {
+    // the mouse gave the router a reason to reach into the element tree, and
+    // reaching it through `element/paint.js` for two lines of arithmetic put the
+    // layout engine, the cascade and the canvas behind `sigil/input`: measured at
+    // 29 kB before and 93 kB after, for an app that wanted a key router and no
+    // rendering at all. `paintOrder()` and `contains()` live in `element/hit.js`
+    // instead, which imports nothing but a type -- so this is 33 kB, and the
+    // 3.6 kB is the mouse itself.
+    //
+    // A ceiling rather than a measurement, at about 3x, so ordinary growth never
+    // touches it and a barrel import does
+    const graph = staticGraph('input.mjs');
+    const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
 
-		expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(100 * 1024);
-	});
+    expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(100 * 1024);
+  });
 
-	it('should not drag the parser in to import the components', () => {
-		// the worry the palette was written against, and the measurement says it
-		// does not happen: a palette reads the command registries through the
-		// `Internal` symbol, which is `src/types.ts` and is a 154 B chunk, and
-		// coerces a value with `transformValue()`, which is `src/util/transform.ts`
-		// and is 1.8 kB. Neither is in `src/parser/` -- so `parse-*.mjs` (18.5 kB)
-		// and `option-registry-*.mjs` (7.2 kB) are both absent from the graph, and
-		// the components entry grew by 11,008 B rather than by 26 kB.
-		//
-		// Asserted as an absence by two string literals, which survive
-		// minification where a name that is only ever called does not -- the first
-		// spelling of this looked for `parseArgv` and the minifier renames it, so
-		// it was in no bundle at all and the test said nothing.
-		//
-		// What it pins is `parse.ts` specifically rather than everything under
-		// `src/parser/`, which a sabotage established: importing `initArg` from
-		// there leaves the graph where it was, because that module is a leaf
-		// rolldown puts in this chunk. Importing `parse` itself fails this and
-		// takes the graph to 253,201 B, about 29 kB more -- which is what the
-		// palette does not cost
-		const graph = staticGraph('components.mjs');
-		const shipped = new Set(readdirSync(dist).filter((name) => name.endsWith('.mjs')));
+  it('should not drag the parser in to import the components', () => {
+    // the worry the palette was written against, and the measurement says it
+    // does not happen: a palette reads the command registries through the
+    // `Internal` symbol, which is `src/types.ts` and is a 154 B chunk, and
+    // coerces a value with `transformValue()`, which is `src/util/transform.ts`
+    // and is 1.8 kB. Neither is in `src/parser/` -- so `parse-*.mjs` (18.5 kB)
+    // and `option-registry-*.mjs` (7.2 kB) are both absent from the graph, and
+    // the components entry grew by 11,008 B rather than by 26 kB.
+    //
+    // Asserted as an absence by two string literals, which survive
+    // minification where a name that is only ever called does not -- the first
+    // spelling of this looked for `parseArgv` and the minifier renames it, so
+    // it was in no bundle at all and the test said nothing.
+    //
+    // What it pins is `parse.ts` specifically rather than everything under
+    // `src/parser/`, which a sabotage established: importing `initArg` from
+    // there leaves the graph where it was, because that module is a leaf
+    // rolldown puts in this chunk. Importing `parse` itself fails this and
+    // takes the graph to 253,201 B, about 29 kB more -- which is what the
+    // palette does not cost
+    const graph = staticGraph('components.mjs');
+    const shipped = new Set(readdirSync(dist).filter((name) => name.endsWith('.mjs')));
 
-		for (const marker of ['Extra arguments are not allowed', 'Missing required arguments']) {
-			// the presence half first, because an absence alone passes forever the
-			// day the marker stops being in the output -- `parseArgv` was the first
-			// spelling of this and the minifier renames a function nothing exports,
-			// so it was in no bundle at all and the test said nothing
-			expect(carriers(shipped, marker), marker).not.toEqual([]);
-			expect(carriers(graph, marker), marker).toEqual([]);
-		}
+    for (const marker of ['Extra arguments are not allowed', 'Missing required arguments']) {
+      // the presence half first, because an absence alone passes forever the
+      // day the marker stops being in the output -- `parseArgv` was the first
+      // spelling of this and the minifier renames a function nothing exports,
+      // so it was in no bundle at all and the test said nothing
+      expect(carriers(shipped, marker), marker).not.toEqual([]);
+      expect(carriers(graph, marker), marker).toEqual([]);
+    }
 
-		// and the other side of it: the coercion really is the parser's own, in the
-		// bytes rather than in the source
-		expect(carriers(graph, 'Invalid boolean')).not.toEqual([]);
-	});
+    // and the other side of it: the coercion really is the parser's own, in the
+    // bytes rather than in the source
+    expect(carriers(graph, 'Invalid boolean')).not.toEqual([]);
+  });
 
-	it('should keep the components entry worth importing for one component', () => {
-		// 234,912 B over 23 modules today, of which the palette is 10,624: its own
-		// code, the 1,778 B `transform` chunk, the 154 B `types` chunk and 180 B of
-		// class names in `FRAMEWORK_CSS`, which ships because the vocabulary comment
-		// is inside the template literal. The QR encoder is another 10,255 of it,
-		// which is what moved this figure when SIG-136 merged.
-		//
-		// A ceiling rather than a measurement, at about 1.4x, so ordinary growth
-		// never touches it and a second runtime stack does
-		const graph = staticGraph('components.mjs');
-		const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
+  it('should keep the components entry worth importing for one component', () => {
+    // 234,912 B over 23 modules today, of which the palette is 10,624: its own
+    // code, the 1,778 B `transform` chunk, the 154 B `types` chunk and 180 B of
+    // class names in `FRAMEWORK_CSS`, which ships because the vocabulary comment
+    // is inside the template literal. The QR encoder is another 10,255 of it,
+    // which is what moved this figure when SIG-136 merged.
+    //
+    // A ceiling rather than a measurement, at about 1.4x, so ordinary growth
+    // never touches it and a second runtime stack does
+    const graph = staticGraph('components.mjs');
+    const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
 
-		expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(320 * 1024);
-	});
+    expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(320 * 1024);
+  });
 
-	// `mouseenter` and the mode sequence rather than `hitTest` and `enableMouse`: a
-	// name that is only ever called is renamed by the minifier, while an exported one
-	// and a string literal survive. The other half of the ceiling above, for the
-	// reason the component list gives -- a test that only asserts an absence passes
-	// forever the day the symbol is renamed
-	it.each(['parseMouseReport', 'mouseenter', '?1006h', '?1003h'])(
-		'should load %s to import the router',
-		(symbol) => {
-			expect(carriers(staticGraph('input.mjs'), symbol)).not.toEqual([]);
-		}
-	);
+  // `mouseenter` and the mode sequence rather than `hitTest` and `enableMouse`: a
+  // name that is only ever called is renamed by the minifier, while an exported one
+  // and a string literal survive. The other half of the ceiling above, for the
+  // reason the component list gives -- a test that only asserts an absence passes
+  // forever the day the symbol is renamed
+  it.each(['parseMouseReport', 'mouseenter', '?1006h', '?1003h'])(
+    'should load %s to import the router',
+    (symbol) => {
+      expect(carriers(staticGraph('input.mjs'), symbol)).not.toEqual([]);
+    }
+  );
 });

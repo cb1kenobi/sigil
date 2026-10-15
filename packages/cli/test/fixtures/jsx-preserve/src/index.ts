@@ -4,10 +4,10 @@
 // an executable that dies with `Unexpected token '<'` the first time it is
 // loaded, which is why the build refuses it rather than honouring it.
 export default {
-	// what './commands' is relative to, without which this module means one
-	// thing to the build and another to the runtime
-	baseDir: import.meta.dirname,
-	commands: './commands',
-	desc: 'A fixture app whose tsconfig preserves its JSX',
-	name: 'jsx-preserve',
+  // what './commands' is relative to, without which this module means one
+  // thing to the build and another to the runtime
+  baseDir: import.meta.dirname,
+  commands: './commands',
+  desc: 'A fixture app whose tsconfig preserves its JSX',
+  name: 'jsx-preserve',
 };

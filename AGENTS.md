@@ -362,8 +362,34 @@ type-checking both fail until `pnpm build` has run once. Testing across the real
 package boundary is the point; paying for it with a build is the price.
 
 Run `pnpm check` before considering work finished. Formatting is oxfmt with
-tabs, single quotes, and a 100-column width — run `pnpm fmt` rather than
-matching it by hand.
+**two spaces**, single quotes, and a 100-column width — run `pnpm fmt` rather
+than matching it by hand.
+
+**Spaces everywhere, including inside the strings the formatter cannot reach.**
+`useTabs` was `true` while the JSON override beside it was already `false` with
+a `tabWidth` of 2 — so the repository formatted its source with tabs and its
+JSON with spaces, which is the opposite of what that override says. The three
+code paths that **emitted** a tab into JSON are SIG-154's and were fixed there,
+under "Writing a config file back without destroying it"; the one left is
+`generate.ts`'s `INDENT`, which bakes the indentation of the entry `sigil build`
+generates — and `tree.test.ts` pins that entry's shape, so the two move
+together. What a formatter does not touch at all is string **content**, so a tab
+also survived in every CSS template literal, in the source the scaffold writes
+for a new app, and in the `ui` templates the demos are read for. Every one of
+those is indentation somebody reads, so they are spaces now too.
+
+The sweep is over **tracked files** rather than a glob, and that is not a
+preference: `demos/node_modules/@ttylabs/sigil` is a pnpm symlink to
+`packages/sigil`, so a `demos/**/*.js` glob matches 325 files of which **276 are
+vendored dependencies reached through it** — rewriting them silently, because
+`node_modules` is ignored and `git status` says nothing. `pnpm install --force`
+is the way back. Done once, here, which is why it is written down.
+
+The one tab left in the tree is in `assert-label.ts`, inside backticks in a
+sentence about what that guard lets through: it **is** the character being
+described, so replacing it would make the comment false. `test/parser/fixtures/`
+is excluded from the formatter and is left alone, and `favicon.ico` holds the
+byte for reasons of its own.
 
 ## Scope
 
@@ -3188,7 +3214,7 @@ not building it addresses the 72ms." This is not building it.
   `components.mjs` and `help` both import it -- it is where `themedCascade()` is,
   which is the one place every built-in's cascade comes from -- so putting the
   themes there taxes every unbundled app for themes most of them never name. On
-  their own subpath they cost nothing unless imported: `themes.mjs` is **4,062
+  their own subpath they cost nothing unless imported: `themes.mjs` is **4,119
   bytes** of string constants and **imports nothing at all**, so an app that names
   one drags in no module behind it. The figure here used to read 1.26 kB, which was
   four themes with a base half each and went stale when the second palette and
@@ -3198,7 +3224,7 @@ not building it addresses the 72ms." This is not building it.
   app importing `VIOLET` alone bundles `VIOLET` and drops the other **four**,
   verified by bundling a fixture and grepping the chunks for a marker unique to
   each -- re-measured when the fifth theme landed: a one-import entry comes out at
-  **938 bytes** with four of the five markers absent, against 3,966 bytes of CSS in
+  **938 bytes** with four of the five markers absent, against 4,023 bytes of CSS in
   the module. So `sigil/themes/violet` would buy nothing a named export does not --
   which is worth knowing, because a subpath per theme is the obvious shape to
   reach for.

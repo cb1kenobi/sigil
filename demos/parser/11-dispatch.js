@@ -42,54 +42,54 @@ import { join } from 'node:path';
 
 /** The command `shortcut` and `release` both reach for. */
 const clean = {
-	desc: 'Remove the build output',
-	options: {
-		'--force': 'Do not ask',
-		'--mode <mode>': { desc: 'How thorough', default: 'soft', choices: ['soft', 'hard'] },
-	},
-	run({ argv, cmd }) {
-		console.log(
-			`    clean: mode=${JSON.stringify(argv.mode)} force=${JSON.stringify(argv.force)} ` +
-				`verbose=${JSON.stringify(argv.verbose)} cmd=${JSON.stringify(cmd?.name)}`
-		);
-	},
+  desc: 'Remove the build output',
+  options: {
+    '--force': 'Do not ask',
+    '--mode <mode>': { desc: 'How thorough', default: 'soft', choices: ['soft', 'hard'] },
+  },
+  run({ argv, cmd }) {
+    console.log(
+      `    clean: mode=${JSON.stringify(argv.mode)} force=${JSON.stringify(argv.force)} ` +
+        `verbose=${JSON.stringify(argv.verbose)} cmd=${JSON.stringify(cmd?.name)}`
+    );
+  },
 };
 
 const schema = {
-	name: 'rel',
-	desc: 'One command running another',
+  name: 'rel',
+  desc: 'One command running another',
 
-	// a root option, so that what a nested dispatch does and does not inherit is
-	// visible rather than a claim
-	options: { '-v, --verbose': 'Say more' },
+  // a root option, so that what a nested dispatch does and does not inherit is
+  // visible rather than a claim
+  options: { '-v, --verbose': 'Say more' },
 
-	commands: {
-		clean,
+  commands: {
+    clean,
 
-		'build, b': {
-			desc: 'Build the app',
-			args: ['[target]'],
-			options: { '--minify': 'Compress the output' },
-			run({ argv }) {
-				console.log(
-					`    build: target=${JSON.stringify(argv.target ?? 'default')} ` +
-						`minify=${JSON.stringify(argv.minify)}`
-				);
-			},
-		},
+    'build, b': {
+      desc: 'Build the app',
+      args: ['[target]'],
+      options: { '--minify': 'Compress the output' },
+      run({ argv }) {
+        console.log(
+          `    build: target=${JSON.stringify(argv.target ?? 'default')} ` +
+            `minify=${JSON.stringify(argv.minify)}`
+        );
+      },
+    },
 
-		// a *deferred* command: its module is not read until something matches it,
-		// which is what makes `shortcut`'s third finding possible at all
-		deploy: { path: join(import.meta.dirname, 'commands', 'deploy.js') },
+    // a *deferred* command: its module is not read until something matches it,
+    // which is what makes `shortcut`'s third finding possible at all
+    deploy: { path: join(import.meta.dirname, 'commands', 'deploy.js') },
 
-		release: { desc: 'Clean, build and deploy, in order', run: release },
-		ship: {
-			desc: 'Hand the request to whichever command should have it',
-			options: { '--dry-run': 'Route to a build rather than a release' },
-			run: ship,
-		},
-		shortcut: { desc: 'Why calling a sibling’s run() directly is a trap', run: shortcut },
-	},
+    release: { desc: 'Clean, build and deploy, in order', run: release },
+    ship: {
+      desc: 'Hand the request to whichever command should have it',
+      options: { '--dry-run': 'Route to a build rather than a release' },
+      run: ship,
+    },
+    shortcut: { desc: 'Why calling a sibling’s run() directly is a trap', run: shortcut },
+  },
 };
 
 /**
@@ -115,56 +115,56 @@ const schema = {
  * @returns {Promise<unknown>} Whatever the command returned.
  */
 function run(state, argv) {
-	// the root's options are re-read from *this* argv rather than inherited, so a
-	// nested dispatch that wants them has to forward them. Measured: an outer
-	// `--verbose` came back `false` inside the nested call, because the nested
-	// argv never mentioned it
-	const forwarded = state.argv.verbose === true ? ['--verbose', ...argv] : argv;
-	return main({ argv: forwarded, schema: state.schema, settings: { errorHandler: false } });
+  // the root's options are re-read from *this* argv rather than inherited, so a
+  // nested dispatch that wants them has to forward them. Measured: an outer
+  // `--verbose` came back `false` inside the nested call, because the nested
+  // argv never mentioned it
+  const forwarded = state.argv.verbose === true ? ['--verbose', ...argv] : argv;
+  return main({ argv: forwarded, schema: state.schema, settings: { errorHandler: false } });
 }
 
 /** Executing: three commands as three steps of one piece of work. */
 async function release(state) {
-	console.log(`
+  console.log(`
   Executing: each step is a token list through a full parse, so each one
   gets its own defaults, its own coercion and its own validation -- and
   "deploy" is read off disk on the way past, because the parse is what
   loads it.
 `);
 
-	for (const step of [
-		['clean', '--mode', 'hard'],
-		['build', 'dist', '--minify'],
-		['deploy', 'prod'],
-	]) {
-		console.log(`  $ rel ${step.join(' ')}`);
-		// caught, because `errorHandler: false` is asking this command to handle
-		// it: a step's failure is one `release` knows the meaning of and the outer
-		// handler does not. There is a reason past tidiness, under "Known bugs" --
-		// an error that escapes a nested `main()` fires `beforeError` twice
-		try {
-			await run(state, step);
-		} catch (err) {
-			throw new Error(`step \`${step.join(' ')}\` failed: ${err.message}`);
-		}
-	}
+  for (const step of [
+    ['clean', '--mode', 'hard'],
+    ['build', 'dist', '--minify'],
+    ['deploy', 'prod'],
+  ]) {
+    console.log(`  $ rel ${step.join(' ')}`);
+    // caught, because `errorHandler: false` is asking this command to handle
+    // it: a step's failure is one `release` knows the meaning of and the outer
+    // handler does not. There is a reason past tidiness, under "Known bugs" --
+    // an error that escapes a nested `main()` fires `beforeError` twice
+    try {
+      await run(state, step);
+    } catch (err) {
+      throw new Error(`step \`${step.join(' ')}\` failed: ${err.message}`);
+    }
+  }
 
-	// and the half that is worth seeing fail: `choices` is enforced here exactly
-	// as it is from a shell, which is the whole argument for the argv list being
-	// the interface
-	console.log('\n  $ rel clean --mode sideways');
-	try {
-		await run(state, ['clean', '--mode', 'sideways']);
-	} catch (err) {
-		console.log(`    refused: ${err.message}`);
-	}
+  // and the half that is worth seeing fail: `choices` is enforced here exactly
+  // as it is from a shell, which is the whole argument for the argv list being
+  // the interface
+  console.log('\n  $ rel clean --mode sideways');
+  try {
+    await run(state, ['clean', '--mode', 'sideways']);
+  } catch (err) {
+    console.log(`    refused: ${err.message}`);
+  }
 }
 
 /** Re-routing: this command decides another should have the request. */
 async function ship(state) {
-	const to = state.argv.dryRun === true ? ['build', 'dist'] : ['release'];
+  const to = state.argv.dryRun === true ? ['build', 'dist'] : ['release'];
 
-	console.log(`
+  console.log(`
   Re-routing: "ship" does no work of its own. It looks at what it was
   given and hands the whole request to the command that should have had
   it -- which is a token list and a ${'`main()`'} call, the same two things
@@ -173,7 +173,7 @@ async function ship(state) {
   $ rel ${to.join(' ')}
 `);
 
-	return run(state, to);
+  return run(state, to);
 }
 
 /**
@@ -185,17 +185,17 @@ async function ship(state) {
  * wrong quietly: the command runs, it simply runs over the wrong values.
  */
 async function shortcut(state) {
-	const root = state.contexts[state.contexts.length - 1];
-	const registry = root[Internal].commands;
-	// `find()` rather than `get()`: the registry is a `Map` of canonical names with
-	// an alias table beside it, so `get()` is the raw `Map.get` and answers
-	// `undefined` for an alias while `find()` resolves one -- which the line below
-	// prints rather than claims. So `find()` is what takes a name anybody typed or
-	// wrote, and `get()` only a name already known to be canonical. `values()` is
-	// not that: it yields the commands themselves, where `keys()` yields the names
-	const sibling = registry.find('clean');
+  const root = state.contexts[state.contexts.length - 1];
+  const registry = root[Internal].commands;
+  // `find()` rather than `get()`: the registry is a `Map` of canonical names with
+  // an alias table beside it, so `get()` is the raw `Map.get` and answers
+  // `undefined` for an alias while `find()` resolves one -- which the line below
+  // prints rather than claims. So `find()` is what takes a name anybody typed or
+  // wrote, and `get()` only a name already known to be canonical. `values()` is
+  // not that: it yields the commands themselves, where `keys()` yields the names
+  const sibling = registry.find('clean');
 
-	console.log(`
+  console.log(`
   Every sibling is reachable: ${[...registry.keys()].join(', ')}
 
   "b" is build's alias, which is the whole of find() against get():
@@ -204,31 +204,31 @@ async function shortcut(state) {
 
   (a) sibling.run(state) -- the state this command was handed
 `);
-	// `clean` sees *this* command's argv, so none of its own options exist and it
-	// does not even know which command it is
-	await sibling.run(state);
-	console.log(`      mode and force are missing and cmd is wrong: it was handed
+  // `clean` sees *this* command's argv, so none of its own options exist and it
+  // does not even know which command it is
+  await sibling.run(state);
+  console.log(`      mode and force are missing and cmd is wrong: it was handed
       "shortcut"'s values, because that is what it was passed.
 
   (b) sibling.run({ ...state, cmd: sibling, argv: { force: true } })
 `);
-	// closer, and the subtler failure: the value asked for arrives, the
-	// *default* never does, the inherited root option is gone, and `choices`
-	// was never consulted at all
-	await sibling.run({ ...state, cmd: sibling, argv: { force: true } });
-	console.log(`      force arrived, and mode is undefined where the declaration says
+  // closer, and the subtler failure: the value asked for arrives, the
+  // *default* never does, the inherited root option is gone, and `choices`
+  // was never consulted at all
+  await sibling.run({ ...state, cmd: sibling, argv: { force: true } });
+  console.log(`      force arrived, and mode is undefined where the declaration says
       "soft" -- the default was never applied. verbose is gone with it,
       and nothing checked the value against choices.
 
   (c) main({ argv: ['clean', '--force'], schema })
 `);
-	await run(state, ['clean', '--force']);
-	console.log(`      everything: the default, the coercion, the inherited option,
+  await run(state, ['clean', '--force']);
+  console.log(`      everything: the default, the coercion, the inherited option,
       and the command knowing which command it is.`);
 
-	// and the one that is not a matter of degree
-	const deferred = registry.find('deploy');
-	console.log(`
+  // and the one that is not a matter of degree
+  const deferred = registry.find('deploy');
+  console.log(`
   Then the case that settles it. "deploy" is a deferred command, so the
   registry holds a placeholder:
 
@@ -248,6 +248,6 @@ async function shortcut(state) {
 }
 
 await main({
-	argv: process.argv.length > 2 ? undefined : ['release'],
-	schema,
+  argv: process.argv.length > 2 ? undefined : ['release'],
+  schema,
 });

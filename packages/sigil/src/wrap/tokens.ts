@@ -10,9 +10,9 @@ import { graphemes, graphemeWidth } from '../width/index.js';
  * the smallest thing a line can be broken between.
  */
 export interface Token {
-	text: string;
-	type: 'cluster' | 'sequence';
-	width: number;
+  text: string;
+  type: 'cluster' | 'sequence';
+  width: number;
 }
 
 /**
@@ -29,31 +29,31 @@ export interface Token {
  * @returns The tokens, in order.
  */
 export function tokenize(text: string): Token[] {
-	const tokens: Token[] = [];
-	const sequences = matcher();
-	let index = 0;
+  const tokens: Token[] = [];
+  const sequences = matcher();
+  let index = 0;
 
-	for (const match of text.matchAll(sequences)) {
-		// a zero-length match would not advance, and the matcher cannot produce
-		// one -- every alternative requires an introducer -- but a guard here is
-		// cheaper than an infinite loop if that ever stops being true
-		if (match[0] === '') {
-			continue;
-		}
+  for (const match of text.matchAll(sequences)) {
+    // a zero-length match would not advance, and the matcher cannot produce
+    // one -- every alternative requires an introducer -- but a guard here is
+    // cheaper than an infinite loop if that ever stops being true
+    if (match[0] === '') {
+      continue;
+    }
 
-		if (match.index > index) {
-			pushClusters(tokens, text.slice(index, match.index));
-		}
+    if (match.index > index) {
+      pushClusters(tokens, text.slice(index, match.index));
+    }
 
-		tokens.push({ text: match[0], type: 'sequence', width: 0 });
-		index = match.index + match[0].length;
-	}
+    tokens.push({ text: match[0], type: 'sequence', width: 0 });
+    index = match.index + match[0].length;
+  }
 
-	if (index < text.length) {
-		pushClusters(tokens, text.slice(index));
-	}
+  if (index < text.length) {
+    pushClusters(tokens, text.slice(index));
+  }
 
-	return tokens;
+  return tokens;
 }
 
 /**
@@ -63,7 +63,7 @@ export function tokenize(text: string): Token[] {
  * @param text - The run to segment.
  */
 function pushClusters(tokens: Token[], text: string): void {
-	for (const cluster of graphemes(text)) {
-		tokens.push({ text: cluster, type: 'cluster', width: graphemeWidth(cluster) });
-	}
+  for (const cluster of graphemes(text)) {
+    tokens.push({ text: cluster, type: 'cluster', width: graphemeWidth(cluster) });
+  }
 }

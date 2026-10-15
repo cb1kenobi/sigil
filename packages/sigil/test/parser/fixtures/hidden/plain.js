@@ -1,3 +1,3 @@
 export default {
-	desc: 'plain!',
+  desc: 'plain!',
 };

@@ -28,7 +28,7 @@ const taken = new Set(['global']);
  * @returns `true` when it can.
  */
 export function isLabel(value: unknown): boolean {
-	return typeof value === 'string' && !!value.trim() && !controls.test(value);
+  return typeof value === 'string' && !!value.trim() && !controls.test(value);
 }
 
 /**
@@ -49,21 +49,21 @@ export function isLabel(value: unknown): boolean {
  * @returns The trimmed string.
  */
 export function assertSectionTitle(value: unknown, what: string): string {
-	if (typeof value !== 'string' || !value.trim()) {
-		throw new TypeError(`Expected ${what} to be a non-empty string`);
-	}
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new TypeError(`Expected ${what} to be a non-empty string`);
+  }
 
-	const label = value.trim();
+  const label = value.trim();
 
-	if (controls.test(label)) {
-		throw new TypeError(`Expected ${what} to be a single line with no control characters`);
-	}
+  if (controls.test(label)) {
+    throw new TypeError(`Expected ${what} to be a single line with no control characters`);
+  }
 
-	if (taken.has(label.toLowerCase())) {
-		throw new TypeError(
-			`Expected ${what} not to be "${label}": help writes "Global options" itself, and two headings of one name on a screen describe options in different scopes`
-		);
-	}
+  if (taken.has(label.toLowerCase())) {
+    throw new TypeError(
+      `Expected ${what} not to be "${label}": help writes "Global options" itself, and two headings of one name on a screen describe options in different scopes`
+    );
+  }
 
-	return label;
+  return label;
 }

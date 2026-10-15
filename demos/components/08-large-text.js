@@ -36,11 +36,11 @@ console.log(`
   hardblank  ${JSON.stringify(font.hardblank)}
   layout     ${font.layout.mode}
   rules      ${
-		Object.entries(font.layout.rules)
-			.filter(([, on]) => on)
-			.map(([name]) => name)
-			.join(', ') || 'none'
-	}
+    Object.entries(font.layout.rules)
+      .filter(([, on]) => on)
+      .map(([name]) => name)
+      .join(', ') || 'none'
+  }
   characters ${font.characters.size} of the 102 the format lists
   direction  ${font.direction}
 `);
@@ -50,9 +50,9 @@ console.log(`
 // because every glyph already carries a blank column of right bearing -- so the
 // other two take that column away and the letters run into each other
 for (const layout of ['full', 'kern', 'smush']) {
-	console.log(`  layout: ${layout}${layout === font.layout.mode ? "   <- the font's own" : ''}`);
-	console.log(largeText('ok', { font, layout }));
-	console.log('');
+  console.log(`  layout: ${layout}${layout === font.layout.mode ? "   <- the font's own" : ''}`);
+  console.log(largeText('ok', { font, layout }));
+  console.log('');
 }
 
 // the word gap survives all three, and that is the hardblank doing its job: the
@@ -71,18 +71,18 @@ console.log(`  "AÄB", where the font has no Ä:\n${largeText('AÄB', { font })}
 // bordered box, measured and placed by the layout engine like any other
 const { element, width } = largeTextView('2.0', { font });
 console.log(
-	renderToString(
-		box(
-			{
-				'border-style': 'single',
-				'flex-direction': 'column',
-				'padding-left': 1,
-				'padding-right': 1,
-			},
-			element
-		),
-		{ width: width + 4 }
-	)
+  renderToString(
+    box(
+      {
+        'border-style': 'single',
+        'flex-direction': 'column',
+        'padding-left': 1,
+        'padding-right': 1,
+      },
+      element
+    ),
+    { width: width + 4 }
+  )
 );
 console.log('');
 
@@ -91,7 +91,7 @@ console.log('');
 // testable against a character grid
 console.log(`  renderFiglet() answers with rows:`);
 for (const row of renderFiglet('hi', font)) {
-	console.log(`  |${row}|`);
+  console.log(`  |${row}|`);
 }
 
 // no colour in the component's props, so a sheet is what colours it -- which is

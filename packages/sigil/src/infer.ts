@@ -31,10 +31,10 @@ type HintOpen = '<' | '[';
 
 /** The characters up to the first delimiter or hint. */
 type Word<S extends string, Acc extends string = ''> = S extends `${infer C}${infer Rest}`
-	? C extends Delimiter | HintOpen | '>' | ']'
-		? Acc
-		: Word<Rest, `${Acc}${C}`>
-	: Acc;
+  ? C extends Delimiter | HintOpen | '>' | ']'
+    ? Acc
+    : Word<Rest, `${Acc}${C}`>
+  : Acc;
 
 /**
  * The first part of a format string and what follows it, with leading delimiters
@@ -46,45 +46,45 @@ type Word<S extends string, Acc extends string = ''> = S extends `${infer C}${in
  * while `'--all, verbose'` is named `all`.
  */
 type NextPart<S extends string, Acc extends string = ''> = S extends `${infer C}${infer Rest}`
-	? C extends Delimiter
-		? Acc extends ''
-			? NextPart<Rest>
-			: [Acc, Rest]
-		: NextPart<Rest, `${Acc}${C}`>
-	: Acc extends ''
-		? undefined
-		: [Acc, ''];
+  ? C extends Delimiter
+    ? Acc extends ''
+      ? NextPart<Rest>
+      : [Acc, Rest]
+    : NextPart<Rest, `${Acc}${C}`>
+  : Acc extends ''
+    ? undefined
+    : [Acc, ''];
 
 /** The first part that names the option: a long name, or a bare word. */
 type NamingPart<S extends string> =
-	NextPart<S> extends [infer Part extends string, infer Rest extends string]
-		? Part extends `--${infer Long}`
-			? Word<Long>
-			: Part extends `-${string}`
-				? NamingPart<Rest>
-				: Part extends `${HintOpen}${string}`
-					? NamingPart<Rest>
-					: Word<Part>
-		: never;
+  NextPart<S> extends [infer Part extends string, infer Rest extends string]
+    ? Part extends `--${infer Long}`
+      ? Word<Long>
+      : Part extends `-${string}`
+        ? NamingPart<Rest>
+        : Part extends `${HintOpen}${string}`
+          ? NamingPart<Rest>
+          : Word<Part>
+    : never;
 
 /** The first short name, which names the option only when nothing else did. */
 type ShortPart<S extends string> =
-	NextPart<S> extends [infer Part extends string, infer Rest extends string]
-		? Part extends `--${string}`
-			? ShortPart<Rest>
-			: Part extends `-${infer Short}`
-				? Word<Short>
-				: ShortPart<Rest>
-		: never;
+  NextPart<S> extends [infer Part extends string, infer Rest extends string]
+    ? Part extends `--${string}`
+      ? ShortPart<Rest>
+      : Part extends `-${infer Short}`
+        ? Word<Short>
+        : ShortPart<Rest>
+    : never;
 
 type OptionName<S extends string> = [NamingPart<S>] extends [never] ? ShortPart<S> : NamingPart<S>;
 
 /** Whether the format itself carries a hint, and which kind. */
 type FormatHint<S extends string> = S extends `${string}<${string}>`
-	? 'required'
-	: S extends `${string}[${string}]`
-		? 'optional'
-		: 'none';
+  ? 'required'
+  : S extends `${string}[${string}]`
+    ? 'optional'
+    : 'none';
 
 /**
  * Whether the option is a flag.
@@ -95,12 +95,12 @@ type FormatHint<S extends string> = S extends `${string}<${string}>`
  * `'--mode': { choices: [...] }` looks like a flag and is not one.
  */
 type IsFlag<K extends string, D> = D extends { hint: string }
-	? false
-	: FormatHint<FormatOf<K, D>> extends 'none'
-		? D extends { choices: readonly unknown[] }
-			? false
-			: true
-		: false;
+  ? false
+  : FormatHint<FormatOf<K, D>> extends 'none'
+    ? D extends { choices: readonly unknown[] }
+      ? false
+      : true
+    : false;
 
 /**
  * `no-color` gives `color`: a negated flag shares its twin's destination.
@@ -110,25 +110,25 @@ type IsFlag<K extends string, D> = D extends { hint: string }
  * `noCheese` rather than on `cheese`.
  */
 type Negated<K extends string, D> =
-	IsFlag<K, D> extends true
-		? D extends { negate: false }
-			? NameOf<K, D>
-			: NameOf<K, D> extends `no-${infer Rest}`
-				? Rest
-				: NameOf<K, D>
-		: NameOf<K, D>;
+  IsFlag<K, D> extends true
+    ? D extends { negate: false }
+      ? NameOf<K, D>
+      : NameOf<K, D> extends `no-${infer Rest}`
+        ? Rest
+        : NameOf<K, D>
+    : NameOf<K, D>;
 
 /** What `camelCase()` splits on: `-`, `_`, and a space, in runs. */
 type Separator = '-' | '_' | ' ';
 
 type StripSeparators<S extends string> = S extends `${Separator}${infer Rest}`
-	? StripSeparators<Rest>
-	: S;
+  ? StripSeparators<Rest>
+  : S;
 
 /** What `camelCase()` does, which is what the destination is named after. */
 type CamelCase<S extends string> = S extends `${infer Head}${Separator}${infer Tail}`
-	? `${Head}${CamelCase<Capitalize<StripSeparators<Tail>>>}`
-	: S;
+  ? `${Head}${CamelCase<Capitalize<StripSeparators<Tail>>>}`
+  : S;
 
 /**
  * The format string a declaration is read from.
@@ -143,8 +143,8 @@ type FormatOf<K extends string, D> = D extends { format: infer F extends string 
  * in from the format when there is none.
  */
 type NameOf<K extends string, D> = D extends { name: infer N extends string }
-	? N
-	: OptionName<FormatOf<K, D>>;
+  ? N
+  : OptionName<FormatOf<K, D>>;
 
 /** The key on `argv` that one declaration's value lands on. */
 export type OptionDest<K extends string, D = unknown> = CamelCase<Negated<K, D>>;
@@ -153,14 +153,14 @@ export type OptionDest<K extends string, D = unknown> = CamelCase<Negated<K, D>>
 
 /** What each data type coerces to. `auto` and `json` are anything. */
 type FromDataType<T> = T extends 'bool' | 'yesno'
-	? boolean
-	: T extends 'count' | 'int' | 'number'
-		? number
-		: T extends 'date'
-			? Date
-			: T extends 'json' | 'auto'
-				? unknown
-				: string;
+  ? boolean
+  : T extends 'count' | 'int' | 'number'
+    ? number
+    : T extends 'date'
+      ? Date
+      : T extends 'json' | 'auto'
+        ? unknown
+        : string;
 
 /**
  * One option's value, before `multiple` collects it.
@@ -174,12 +174,12 @@ type FromDataType<T> = T extends 'bool' | 'yesno'
  * library's default.
  */
 type OptionValue<K extends string, D> = D extends { choices: readonly unknown[] }
-	? D['choices'][number]
-	: D extends { type: infer T }
-		? FromDataType<T>
-		: IsFlag<K, D> extends true
-			? boolean
-			: string;
+  ? D['choices'][number]
+  : D extends { type: infer T }
+    ? FromDataType<T>
+    : IsFlag<K, D> extends true
+      ? boolean
+      : string;
 
 /**
  * `multiple` collects repeated uses into an array -- except on a counter, which
@@ -190,10 +190,10 @@ type OptionValue<K extends string, D> = D extends { choices: readonly unknown[] 
  * declaration as though it had worked.
  */
 type Collected<K extends string, D> = D extends { type: 'count' }
-	? number
-	: D extends { multiple: true }
-		? OptionValue<K, D>[]
-		: OptionValue<K, D>;
+  ? number
+  : D extends { multiple: true }
+    ? OptionValue<K, D>[]
+    : OptionValue<K, D>;
 
 /** Whether a declaration has a default worth falling back to. */
 type HasDefault<D> = D extends { default: infer V } ? (undefined extends V ? false : true) : false;
@@ -210,15 +210,15 @@ type HasDefault<D> = D extends { default: infer V } ? (undefined extends V ? fal
  * `<>` that would otherwise have implied it.
  */
 type Definite<K extends string, D> =
-	HasDefault<D> extends true
-		? true
-		: D extends { required: true }
-			? true
-			: D extends { required: false }
-				? false
-				: FormatHint<FormatOf<K, D>> extends 'required'
-					? true
-					: false;
+  HasDefault<D> extends true
+    ? true
+    : D extends { required: true }
+      ? true
+      : D extends { required: false }
+        ? false
+        : FormatHint<FormatOf<K, D>> extends 'required'
+          ? true
+          : false;
 
 // ------------------------------------------------------------------- arguments
 
@@ -228,32 +228,32 @@ type ArgSpelling<A> = A extends string ? A : A extends { name: infer N } ? N : n
 type StripVariadic<S extends string> = S extends `${infer N}...` ? N : S;
 
 type ArgName<S extends string> = StripVariadic<
-	S extends `<${infer N}>${string}`
-		? Word<N>
-		: S extends `[${infer N}]${string}`
-			? Word<N>
-			: Word<S>
+  S extends `<${infer N}>${string}`
+    ? Word<N>
+    : S extends `[${infer N}]${string}`
+      ? Word<N>
+      : Word<S>
 >;
 
 /** Every spelling of variadic, and `multiple` written out. */
 type ArgVariadic<S extends string, D> = S extends `${string}...${string}`
-	? true
-	: D extends { multiple: true }
-		? true
-		: false;
+  ? true
+  : D extends { multiple: true }
+    ? true
+    : false;
 
 /** Only brackets decide it, or `required` written out. A bare name is optional. */
 type ArgRequired<S extends string, D> = S extends `<${string}`
-	? true
-	: D extends { required: true }
-		? true
-		: false;
+  ? true
+  : D extends { required: true }
+    ? true
+    : false;
 
 type ArgScalar<D> = D extends { choices: readonly unknown[] }
-	? D['choices'][number]
-	: D extends { type: infer T }
-		? FromDataType<T>
-		: string;
+  ? D['choices'][number]
+  : D extends { type: infer T }
+    ? FromDataType<T>
+    : string;
 
 type ArgValue<S extends string, D> = ArgVariadic<S, D> extends true ? ArgScalar<D>[] : ArgScalar<D>;
 
@@ -289,13 +289,13 @@ type IsWideOptions<O> = IsAny<O> extends true ? true : string extends keyof O ? 
  * assignable to it.
  */
 type IsWideList<A> =
-	IsAny<A> extends true
-		? true
-		: A extends readonly unknown[]
-			? number extends A['length']
-				? true
-				: false
-			: true;
+  IsAny<A> extends true
+    ? true
+    : A extends readonly unknown[]
+      ? number extends A['length']
+        ? true
+        : false
+      : true;
 
 /** Every destination a set of options lands values on. */
 type Dests<O> = { [K in keyof O]-?: OptionDest<K & string, O[K]> }[keyof O];
@@ -307,22 +307,22 @@ type Dests<O> = { [K in keyof O]-?: OptionDest<K & string, O[K]> }[keyof O];
  * destination then holds either of their values.
  */
 type ValueFor<O, D> = {
-	[K in keyof O]-?: OptionDest<K & string, O[K]> extends D ? Collected<K & string, O[K]> : never;
+  [K in keyof O]-?: OptionDest<K & string, O[K]> extends D ? Collected<K & string, O[K]> : never;
 }[keyof O];
 
 /** Whether anything landing on a destination says it is always there. */
 type AnyDefinite<O, D> = true extends {
-	[K in keyof O]-?: OptionDest<K & string, O[K]> extends D ? Definite<K & string, O[K]> : never;
+  [K in keyof O]-?: OptionDest<K & string, O[K]> extends D ? Definite<K & string, O[K]> : never;
 }[keyof O]
-	? true
-	: false;
+  ? true
+  : false;
 
 /** Whether everything landing on a destination is a flag. */
 type AllFlags<O, D> = false extends {
-	[K in keyof O]-?: OptionDest<K & string, O[K]> extends D ? IsFlag<K & string, O[K]> : never;
+  [K in keyof O]-?: OptionDest<K & string, O[K]> extends D ? IsFlag<K & string, O[K]> : never;
 }[keyof O]
-	? false
-	: true;
+  ? false
+  : true;
 
 /**
  * Whether a destination always holds something.
@@ -337,16 +337,16 @@ type AllFlags<O, D> = false extends {
  * and nothing else claims it either.
  */
 type AlwaysSet<O, D> =
-	AnyDefinite<O, D> extends true ? true : AllFlags<O, D> extends true ? true : false;
+  AnyDefinite<O, D> extends true ? true : AllFlags<O, D> extends true ? true : false;
 
 type OptionsArgv<O> =
-	IsWideOptions<O> extends true
-		? Record<string, unknown>
-		: {
-				[D in Dests<O> as AlwaysSet<O, D> extends true ? D : never]: ValueFor<O, D>;
-			} & {
-				[D in Dests<O> as AlwaysSet<O, D> extends true ? never : D]?: ValueFor<O, D>;
-			};
+  IsWideOptions<O> extends true
+    ? Record<string, unknown>
+    : {
+        [D in Dests<O> as AlwaysSet<O, D> extends true ? D : never]: ValueFor<O, D>;
+      } & {
+        [D in Dests<O> as AlwaysSet<O, D> extends true ? never : D]?: ValueFor<O, D>;
+      };
 
 /**
  * Walked head by head rather than mapped over `keyof`, because `keyof` a tuple
@@ -358,33 +358,33 @@ type OptionsArgv<O> =
  * it, which is why the tail is asked.
  */
 type ArgsArgv<A> =
-	IsWideList<A> extends true
-		? Record<string, unknown>
-		: A extends readonly [infer Head, ...infer Tail]
-			? OneArg<Head, AnyArgRequired<Tail>> & ArgsArgv<Tail>
-			: {};
+  IsWideList<A> extends true
+    ? Record<string, unknown>
+    : A extends readonly [infer Head, ...infer Tail]
+      ? OneArg<Head, AnyArgRequired<Tail>> & ArgsArgv<Tail>
+      : {};
 
 type AnyArgRequired<A> = A extends readonly [infer Head, ...infer Tail]
-	? ArgRequired<ArgSpelling<Head> & string, Head> extends true
-		? true
-		: AnyArgRequired<Tail>
-	: false;
+  ? ArgRequired<ArgSpelling<Head> & string, Head> extends true
+    ? true
+    : AnyArgRequired<Tail>
+  : false;
 
 type OneArg<D, Promoted extends boolean> =
-	ArgSpelling<D> extends infer S
-		? S extends string
-			? ArgAlways<S, D, Promoted> extends true
-				? { [K in CamelCase<ArgName<S>>]: ArgValue<S, D> }
-				: { [K in CamelCase<ArgName<S>>]?: ArgValue<S, D> }
-			: {}
-		: {};
+  ArgSpelling<D> extends infer S
+    ? S extends string
+      ? ArgAlways<S, D, Promoted> extends true
+        ? { [K in CamelCase<ArgName<S>>]: ArgValue<S, D> }
+        : { [K in CamelCase<ArgName<S>>]?: ArgValue<S, D> }
+      : {}
+    : {};
 
 /**
  * Whether an argument's key always holds something: it was required, something
  * after it was and it was promoted, or it has a default `processArgs()` fills in.
  */
 type ArgAlways<S extends string, D, Promoted extends boolean> =
-	ArgRequired<S, D> extends true ? true : HasDefault<D> extends true ? true : Promoted;
+  ArgRequired<S, D> extends true ? true : HasDefault<D> extends true ? true : Promoted;
 
 /**
  * Joins two sets of keys, merging rather than intersecting the ones they share.
@@ -399,11 +399,11 @@ type ArgAlways<S extends string, D, Promoted extends boolean> =
  * it, because either filling it is enough.
  */
 type Merge<A, B> = {
-	[K in Extract<keyof A, AlwaysKeys<A>> | Extract<keyof B, AlwaysKeys<B>>]:
-		| Lookup<A, K>
-		| Lookup<B, K>;
+  [K in Extract<keyof A, AlwaysKeys<A>> | Extract<keyof B, AlwaysKeys<B>>]:
+    | Lookup<A, K>
+    | Lookup<B, K>;
 } & {
-	[K in Exclude<keyof A | keyof B, AlwaysKeys<A> | AlwaysKeys<B>>]?: Lookup<A, K> | Lookup<B, K>;
+  [K in Exclude<keyof A | keyof B, AlwaysKeys<A> | AlwaysKeys<B>>]?: Lookup<A, K> | Lookup<B, K>;
 };
 
 /** The keys of an object that are not optional. */

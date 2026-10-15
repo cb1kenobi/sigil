@@ -22,13 +22,13 @@ const ESC = String.fromCharCode(0x1b);
  * in the first place is M2-28.
  */
 async function help(schema: Schema, argv: string[] = [], width = 72) {
-	let state;
-	try {
-		state = await parse({ argv, schema: { completion: false, help: false, ...schema } });
-	} catch (err) {
-		state = stateFromError(err);
-	}
-	return renderHelp(state!, { width });
+  let state;
+  try {
+    state = await parse({ argv, schema: { completion: false, help: false, ...schema } });
+  } catch (err) {
+    state = stateFromError(err);
+  }
+  return renderHelp(state!, { width });
 }
 
 /**
@@ -40,736 +40,736 @@ async function help(schema: Schema, argv: string[] = [], width = 72) {
  * @returns The screen.
  */
 async function themed(schema: Schema, theme: string, sheets?: string[]) {
-	let state;
-	try {
-		state = await parse({ argv: [], schema: { completion: false, help: false, ...schema } });
-	} catch (err) {
-		state = stateFromError(err);
-	}
-	return renderHelp(state!, { sheets, theme, width: 72 });
+  let state;
+  try {
+    state = await parse({ argv: [], schema: { completion: false, help: false, ...schema } });
+  } catch (err) {
+    state = stateFromError(err);
+  }
+  return renderHelp(state!, { sheets, theme, width: 72 });
 }
 
 /** The section under a heading, without the heading. */
 function sectionOf(text: string, title: string): string[] {
-	const lines = text.split('\n');
-	const start = lines.indexOf(`${title}:`);
-	if (start === -1) {
-		return [];
-	}
-	const rest = lines.slice(start + 1);
-	const end = rest.indexOf('');
-	return (end === -1 ? rest : rest.slice(0, end)).map((line) => line.trimEnd());
+  const lines = text.split('\n');
+  const start = lines.indexOf(`${title}:`);
+  if (start === -1) {
+    return [];
+  }
+  const rest = lines.slice(start + 1);
+  const end = rest.indexOf('');
+  return (end === -1 ? rest : rest.slice(0, end)).map((line) => line.trimEnd());
 }
 
 // every assertion here is about the text, so the styling is turned off rather
 // than written into each expectation
 beforeEach(() => {
-	ansi.level = 0;
+  ansi.level = 0;
 });
 
 afterEach(() => {
-	ansi.level = undefined;
+  ansi.level = undefined;
 });
 
 describe('the usage line', () => {
-	it('should name the program from the schema', async () => {
-		const text = await help({ name: 'mycli' });
-		expect(text.split('\n')[0]).toBe('Usage: mycli');
-	});
+  it('should name the program from the schema', async () => {
+    const text = await help({ name: 'mycli' });
+    expect(text.split('\n')[0]).toBe('Usage: mycli');
+  });
 
-	it('should be overridable', async () => {
-		const text = await help({ name: 'mycli' });
-		const state = await parse({
-			argv: [],
-			schema: { completion: false, help: false, name: 'mycli' },
-		});
-		expect(renderHelp(state, { name: 'other' }).split('\n')[0]).toBe('Usage: other');
-		expect(text).toBeTruthy();
-	});
+  it('should be overridable', async () => {
+    const text = await help({ name: 'mycli' });
+    const state = await parse({
+      argv: [],
+      schema: { completion: false, help: false, name: 'mycli' },
+    });
+    expect(renderHelp(state, { name: 'other' }).split('\n')[0]).toBe('Usage: other');
+    expect(text).toBeTruthy();
+  });
 
-	it('should say what there is to type', async () => {
-		const schema: Schema = {
-			name: 'mycli',
-			options: { '-v, --verbose': 'Be loud' },
-			commands: { build: {} },
-		};
-		expect((await help(schema)).split('\n')[0]).toBe('Usage: mycli [options] <command>');
-	});
+  it('should say what there is to type', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      options: { '-v, --verbose': 'Be loud' },
+      commands: { build: {} },
+    };
+    expect((await help(schema)).split('\n')[0]).toBe('Usage: mycli [options] <command>');
+  });
 
-	// leaving the command out runs the default one rather than being an error, so
-	// naming one is optional
-	it('should make the command optional when one of them is the default', async () => {
-		const schema: Schema = {
-			completion: false,
-			help: false,
-			name: 'mycli',
-			commands: { build: {}, serve: { default: true, run: () => {} } },
-		};
-		const state = await parse({ argv: ['build'], schema });
-		// `build` has no subcommands of its own, so ask the root about its own
-		expect(renderHelp({ contexts: [state.contexts[1]!], schema }).split('\n')[0]).toBe(
-			'Usage: mycli [command]'
-		);
-	});
+  // leaving the command out runs the default one rather than being an error, so
+  // naming one is optional
+  it('should make the command optional when one of them is the default', async () => {
+    const schema: Schema = {
+      completion: false,
+      help: false,
+      name: 'mycli',
+      commands: { build: {}, serve: { default: true, run: () => {} } },
+    };
+    const state = await parse({ argv: ['build'], schema });
+    // `build` has no subcommands of its own, so ask the root about its own
+    expect(renderHelp({ contexts: [state.contexts[1]!], schema }).split('\n')[0]).toBe(
+      'Usage: mycli [command]'
+    );
+  });
 
-	it('should show the whole command path, outermost first', async () => {
-		const schema: Schema = {
-			name: 'mycli',
-			commands: { build: { commands: { targets: { commands: { list: {} } } } } },
-		};
-		const text = await help(schema, ['build', 'targets']);
-		expect(text.split('\n')[0]).toBe('Usage: mycli build targets <command>');
-	});
+  it('should show the whole command path, outermost first', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      commands: { build: { commands: { targets: { commands: { list: {} } } } } },
+    };
+    const text = await help(schema, ['build', 'targets']);
+    expect(text.split('\n')[0]).toBe('Usage: mycli build targets <command>');
+  });
 
-	it('should show the arguments the way they are typed', async () => {
-		const schema: Schema = {
-			name: 'mycli',
-			commands: {
-				build: { args: ['<entry>', '[outfile]', '[files...]'] },
-			},
-		};
-		expect((await help(schema, ['build'])).split('\n')[0]).toBe(
-			'Usage: mycli build <entry> [outfile] [files...]'
-		);
-	});
+  it('should show the arguments the way they are typed', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      commands: {
+        build: { args: ['<entry>', '[outfile]', '[files...]'] },
+      },
+    };
+    expect((await help(schema, ['build'])).split('\n')[0]).toBe(
+      'Usage: mycli build <entry> [outfile] [files...]'
+    );
+  });
 
-	it('should say nothing about options or commands when there are none', async () => {
-		expect((await help({ name: 'mycli' })).split('\n')[0]).toBe('Usage: mycli');
-	});
+  it('should say nothing about options or commands when there are none', async () => {
+    expect((await help({ name: 'mycli' })).split('\n')[0]).toBe('Usage: mycli');
+  });
 });
 
 describe('the description', () => {
-	it('should follow the usage line, wrapped', async () => {
-		const schema: Schema = {
-			name: 'mycli',
-			commands: {
-				build: {
-					desc: 'Compile the project into something that can be shipped somewhere else entirely.',
-				},
-			},
-		};
-		const text = await help(schema, ['build'], 40);
-		expect(text.split('\n').slice(0, 4)).toEqual([
-			'Usage: mycli build',
-			'',
-			'Compile the project into something that',
-			'can be shipped somewhere else entirely.',
-		]);
-	});
+  it('should follow the usage line, wrapped', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      commands: {
+        build: {
+          desc: 'Compile the project into something that can be shipped somewhere else entirely.',
+        },
+      },
+    };
+    const text = await help(schema, ['build'], 40);
+    expect(text.split('\n').slice(0, 4)).toEqual([
+      'Usage: mycli build',
+      '',
+      'Compile the project into something that',
+      'can be shipped somewhere else entirely.',
+    ]);
+  });
 });
 
 describe('the commands section', () => {
-	it('should list the commands of the context it is in', async () => {
-		const schema: Schema = {
-			name: 'mycli',
-			commands: {
-				build: { desc: 'Compile the project', commands: { targets: { desc: 'Show targets' } } },
-				serve: { desc: 'Run the dev server' },
-			},
-		};
+  it('should list the commands of the context it is in', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      commands: {
+        build: { desc: 'Compile the project', commands: { targets: { desc: 'Show targets' } } },
+        serve: { desc: 'Run the dev server' },
+      },
+    };
 
-		expect(sectionOf(await help(schema), 'Commands')).toEqual([
-			'  build  Compile the project',
-			'  serve  Run the dev server',
-		]);
+    expect(sectionOf(await help(schema), 'Commands')).toEqual([
+      '  build  Compile the project',
+      '  serve  Run the dev server',
+    ]);
 
-		// and in `build`, its own
-		expect(sectionOf(await help(schema, ['build']), 'Commands')).toEqual([
-			'  targets  Show targets',
-		]);
-	});
+    // and in `build`, its own
+    expect(sectionOf(await help(schema, ['build']), 'Commands')).toEqual([
+      '  targets  Show targets',
+    ]);
+  });
 
-	it('should put aliases on the same row as the command', async () => {
-		const schema: Schema = {
-			name: 'mycli',
-			commands: { build: { alias: ['b', 'compile'], desc: 'Compile the project' } },
-		};
-		expect(sectionOf(await help(schema), 'Commands')).toEqual([
-			'  build, b, compile  Compile the project',
-		]);
-	});
+  it('should put aliases on the same row as the command', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      commands: { build: { alias: ['b', 'compile'], desc: 'Compile the project' } },
+    };
+    expect(sectionOf(await help(schema), 'Commands')).toEqual([
+      '  build, b, compile  Compile the project',
+    ]);
+  });
 
-	// `'@b'` is both the name and an alias of itself, and saying it twice says
-	// nothing twice
-	it('should not repeat a name that is its own alias', async () => {
-		const schema: Schema = { name: 'mycli', commands: { '@b': { desc: 'Build' } } };
-		expect(sectionOf(await help(schema), 'Commands')).toEqual(['  b  Build']);
-	});
+  // `'@b'` is both the name and an alias of itself, and saying it twice says
+  // nothing twice
+  it('should not repeat a name that is its own alias', async () => {
+    const schema: Schema = { name: 'mycli', commands: { '@b': { desc: 'Build' } } };
+    expect(sectionOf(await help(schema), 'Commands')).toEqual(['  b  Build']);
+  });
 
-	it('should leave out a hidden command', async () => {
-		const schema: Schema = {
-			name: 'mycli',
-			commands: {
-				build: { desc: 'Compile the project' },
-				ghost: { desc: 'Not shown', hidden: true },
-				'!secret': { desc: 'Also not shown' },
-			},
-		};
-		const section = sectionOf(await help(schema), 'Commands');
-		expect(section).toEqual(['  build  Compile the project']);
-	});
+  it('should leave out a hidden command', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      commands: {
+        build: { desc: 'Compile the project' },
+        ghost: { desc: 'Not shown', hidden: true },
+        '!secret': { desc: 'Also not shown' },
+      },
+    };
+    const section = sectionOf(await help(schema), 'Commands');
+    expect(section).toEqual(['  build  Compile the project']);
+  });
 });
 
 describe('the arguments section', () => {
-	it('should describe each argument', async () => {
-		const schema: Schema = {
-			name: 'mycli',
-			commands: {
-				build: {
-					args: [
-						{ name: '<entry>', desc: 'The file to start from' },
-						{ name: '[outfile]', desc: 'Where to write it', default: 'out.js' },
-						{ name: '[extras...]', desc: 'Anything else' },
-					],
-				},
-			},
-		};
-		expect(sectionOf(await help(schema, ['build']), 'Arguments')).toEqual([
-			'  <entry>      The file to start from',
-			'  [outfile]    Where to write it (default: out.js)',
-			'  [extras...]  Anything else',
-		]);
-	});
+  it('should describe each argument', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      commands: {
+        build: {
+          args: [
+            { name: '<entry>', desc: 'The file to start from' },
+            { name: '[outfile]', desc: 'Where to write it', default: 'out.js' },
+            { name: '[extras...]', desc: 'Anything else' },
+          ],
+        },
+      },
+    };
+    expect(sectionOf(await help(schema, ['build']), 'Arguments')).toEqual([
+      '  <entry>      The file to start from',
+      '  [outfile]    Where to write it (default: out.js)',
+      '  [extras...]  Anything else',
+    ]);
+  });
 
-	it('should show the accepted values', async () => {
-		const schema: Schema = {
-			name: 'mycli',
-			commands: {
-				build: { args: [{ name: '[mode]', choices: ['dev', 'prod'], desc: 'Which mode' }] },
-			},
-		};
-		expect(sectionOf(await help(schema, ['build']), 'Arguments')).toEqual([
-			'  [mode]  Which mode (choices: dev, prod)',
-		]);
-	});
+  it('should show the accepted values', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      commands: {
+        build: { args: [{ name: '[mode]', choices: ['dev', 'prod'], desc: 'Which mode' }] },
+      },
+    };
+    expect(sectionOf(await help(schema, ['build']), 'Arguments')).toEqual([
+      '  [mode]  Which mode (choices: dev, prod)',
+    ]);
+  });
 });
 
 describe('the options sections', () => {
-	const schema: Schema = {
-		name: 'mycli',
-		options: {
-			'-v, --verbose': 'Print more about what is happening',
-			'--no-color': 'Turn color off',
-		},
-		commands: {
-			build: {
-				options: {
-					'-w, --watch': 'Rebuild when a file changes',
-					'--target [name]': {
-						choices: ['node', 'browser'],
-						default: 'node',
-						desc: 'What to build for',
-					},
-					'--secret': { desc: 'Nobody sees this', hidden: true },
-				},
-			},
-		},
-	};
+  const schema: Schema = {
+    name: 'mycli',
+    options: {
+      '-v, --verbose': 'Print more about what is happening',
+      '--no-color': 'Turn color off',
+    },
+    commands: {
+      build: {
+        options: {
+          '-w, --watch': 'Rebuild when a file changes',
+          '--target [name]': {
+            choices: ['node', 'browser'],
+            default: 'node',
+            desc: 'What to build for',
+          },
+          '--secret': { desc: 'Nobody sees this', hidden: true },
+        },
+      },
+    },
+  };
 
-	it('should list the command own options under Options', async () => {
-		expect(sectionOf(await help(schema, ['build']), 'Options')).toEqual([
-			'  -w, --watch      Rebuild when a file changes',
-			'  --target [name]  What to build for (choices: node, browser) (default:',
-			'                   node)',
-		]);
-	});
+  it('should list the command own options under Options', async () => {
+    expect(sectionOf(await help(schema, ['build']), 'Options')).toEqual([
+      '  -w, --watch      Rebuild when a file changes',
+      '  --target [name]  What to build for (choices: node, browser) (default:',
+      '                   node)',
+    ]);
+  });
 
-	// the point of walking the chain rather than the schema: the options a
-	// subcommand inherits are the ones that still work where it is
-	it('should list the inherited options under Global options', async () => {
-		expect(sectionOf(await help(schema, ['build']), 'Global options')).toEqual([
-			'  -v, --verbose  Print more about what is happening',
-			'  --no-color     Turn color off',
-		]);
-	});
+  // the point of walking the chain rather than the schema: the options a
+  // subcommand inherits are the ones that still work where it is
+  it('should list the inherited options under Global options', async () => {
+    expect(sectionOf(await help(schema, ['build']), 'Global options')).toEqual([
+      '  -v, --verbose  Print more about what is happening',
+      '  --no-color     Turn color off',
+    ]);
+  });
 
-	it('should leave out a hidden option', async () => {
-		expect(await help(schema, ['build'])).not.toContain('--secret');
-	});
+  it('should leave out a hidden option', async () => {
+    expect(await help(schema, ['build'])).not.toContain('--secret');
+  });
 
-	it('should leave out a hidden negated twin', async () => {
-		const text = await help({
-			name: 'mycli',
-			options: { '--cheese [type]': 'Add cheese', '--no-cheese': { hidden: true } },
-		});
-		expect(sectionOf(text, 'Options')).toEqual(['  --cheese [type]  Add cheese']);
-	});
+  it('should leave out a hidden negated twin', async () => {
+    const text = await help({
+      name: 'mycli',
+      options: { '--cheese [type]': 'Add cheese', '--no-cheese': { hidden: true } },
+    });
+    expect(sectionOf(text, 'Options')).toEqual(['  --cheese [type]  Add cheese']);
+  });
 
-	// the parser resolves options across the chain innermost first, so the outer
-	// one cannot be reached from here and listing it would describe nothing
-	it('should not list an inherited option the command redeclares', async () => {
-		const shadowing: Schema = {
-			name: 'mycli',
-			options: { '--mode [name]': 'Root mode' },
-			commands: { build: { options: { '--mode [name]': 'Build mode' } } },
-		};
-		const text = await help(shadowing, ['build']);
-		expect(sectionOf(text, 'Options')).toEqual(['  --mode [name]  Build mode']);
-		expect(sectionOf(text, 'Global options')).toEqual([]);
-	});
+  // the parser resolves options across the chain innermost first, so the outer
+  // one cannot be reached from here and listing it would describe nothing
+  it('should not list an inherited option the command redeclares', async () => {
+    const shadowing: Schema = {
+      name: 'mycli',
+      options: { '--mode [name]': 'Root mode' },
+      commands: { build: { options: { '--mode [name]': 'Build mode' } } },
+    };
+    const text = await help(shadowing, ['build']);
+    expect(sectionOf(text, 'Options')).toEqual(['  --mode [name]  Build mode']);
+    expect(sectionOf(text, 'Global options')).toEqual([]);
+  });
 
-	// every flag has a default, so printing them is noise rather than information
-	it('should not print a default the parser supplied', async () => {
-		const text = await help({ name: 'mycli', options: { '--watch': 'Watch' } });
-		expect(text).toContain('--watch');
-		expect(text).not.toContain('default: false');
-	});
+  // every flag has a default, so printing them is noise rather than information
+  it('should not print a default the parser supplied', async () => {
+    const text = await help({ name: 'mycli', options: { '--watch': 'Watch' } });
+    expect(text).toContain('--watch');
+    expect(text).not.toContain('default: false');
+  });
 
-	// printing it as it is would show nothing at all, or would not show where it
-	// begins and ends
-	it('should quote a default that would otherwise be invisible', async () => {
-		const text = await help({
-			name: 'mycli',
-			options: {
-				'--empty [v]': { default: '', desc: 'Empty' },
-				'--padded [v]': { default: ' x ', desc: 'Padded' },
-				'--plain [v]': { default: 'x', desc: 'Plain' },
-				'--zero [v]': { default: 0, desc: 'Zero', type: 'int' },
-			},
-		});
-		expect(sectionOf(text, 'Options')).toEqual([
-			'  --empty [v]   Empty (default: "")',
-			'  --padded [v]  Padded (default: " x ")',
-			'  --plain [v]   Plain (default: x)',
-			'  --zero [v]    Zero (default: 0)',
-		]);
-	});
+  // printing it as it is would show nothing at all, or would not show where it
+  // begins and ends
+  it('should quote a default that would otherwise be invisible', async () => {
+    const text = await help({
+      name: 'mycli',
+      options: {
+        '--empty [v]': { default: '', desc: 'Empty' },
+        '--padded [v]': { default: ' x ', desc: 'Padded' },
+        '--plain [v]': { default: 'x', desc: 'Plain' },
+        '--zero [v]': { default: 0, desc: 'Zero', type: 'int' },
+      },
+    });
+    expect(sectionOf(text, 'Options')).toEqual([
+      '  --empty [v]   Empty (default: "")',
+      '  --padded [v]  Padded (default: " x ")',
+      '  --plain [v]   Plain (default: x)',
+      '  --zero [v]    Zero (default: 0)',
+    ]);
+  });
 
-	// a spelling is what gets typed, so a short-only option does not shadow a
-	// long one: `mycli build --mode` still reaches the root's
-	it('should still list an inherited option whose spelling is not taken', async () => {
-		const schema: Schema = {
-			name: 'mycli',
-			options: { '--mode [name]': 'Root mode' },
-			commands: { build: { options: { '-m [name]': 'Build m' } } },
-		};
-		const text = await help(schema, ['build']);
-		expect(sectionOf(text, 'Options')).toEqual(['  -m [name]  Build m']);
-		expect(sectionOf(text, 'Global options')).toEqual(['  --mode [name]  Root mode']);
-	});
+  // a spelling is what gets typed, so a short-only option does not shadow a
+  // long one: `mycli build --mode` still reaches the root's
+  it('should still list an inherited option whose spelling is not taken', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      options: { '--mode [name]': 'Root mode' },
+      commands: { build: { options: { '-m [name]': 'Build m' } } },
+    };
+    const text = await help(schema, ['build']);
+    expect(sectionOf(text, 'Options')).toEqual(['  -m [name]  Build m']);
+    expect(sectionOf(text, 'Global options')).toEqual(['  --mode [name]  Root mode']);
+  });
 
-	it('should print a default the schema declared', async () => {
-		const text = await help({
-			name: 'mycli',
-			options: { '--watch': { default: true, desc: 'Watch' } },
-		});
-		expect(sectionOf(text, 'Options')).toEqual(['  --watch  Watch (default: true)']);
-	});
+  it('should print a default the schema declared', async () => {
+    const text = await help({
+      name: 'mycli',
+      options: { '--watch': { default: true, desc: 'Watch' } },
+    });
+    expect(sectionOf(text, 'Options')).toEqual(['  --watch  Watch (default: true)']);
+  });
 
-	// a negated flag also answers to the positive spelling, but printing both
-	// reads as two options that mean opposite things
-	it('should print only the spelling that does what the description says', async () => {
-		const text = await help({ name: 'mycli', options: { '--no-color': 'Turn color off' } });
-		expect(sectionOf(text, 'Options')).toEqual(['  --no-color  Turn color off']);
-	});
+  // a negated flag also answers to the positive spelling, but printing both
+  // reads as two options that mean opposite things
+  it('should print only the spelling that does what the description says', async () => {
+    const text = await help({ name: 'mycli', options: { '--no-color': 'Turn color off' } });
+    expect(sectionOf(text, 'Options')).toEqual(['  --no-color  Turn color off']);
+  });
 
-	// they share a destination, so one of them is the other one's off switch
-	it('should put a negated twin on the same row as the option it pairs with', async () => {
-		const text = await help({
-			name: 'mycli',
-			options: { '--cheese [type]': 'Add cheese', '--no-cheese': undefined },
-		});
-		expect(sectionOf(text, 'Options')).toEqual(['  --cheese [type], --no-cheese  Add cheese']);
-	});
+  // they share a destination, so one of them is the other one's off switch
+  it('should put a negated twin on the same row as the option it pairs with', async () => {
+    const text = await help({
+      name: 'mycli',
+      options: { '--cheese [type]': 'Add cheese', '--no-cheese': undefined },
+    });
+    expect(sectionOf(text, 'Options')).toEqual(['  --cheese [type], --no-cheese  Add cheese']);
+  });
 
-	it('should show a required value in angle brackets and an optional one in square', async () => {
-		const text = await help({
-			name: 'mycli',
-			options: { '--out <file>': 'Where to write', '--in [file]': 'Where to read' },
-		});
-		expect(sectionOf(text, 'Options')).toEqual([
-			'  --out <file>  Where to write',
-			'  --in [file]   Where to read',
-		]);
-	});
+  it('should show a required value in angle brackets and an optional one in square', async () => {
+    const text = await help({
+      name: 'mycli',
+      options: { '--out <file>': 'Where to write', '--in [file]': 'Where to read' },
+    });
+    expect(sectionOf(text, 'Options')).toEqual([
+      '  --out <file>  Where to write',
+      '  --in [file]   Where to read',
+    ]);
+  });
 });
 
 describe('aliases', () => {
-	it('should name the aliases of the command being described', async () => {
-		const schema: Schema = {
-			name: 'mycli',
-			commands: { build: { alias: 'b', desc: 'Compile' } },
-		};
-		expect(await help(schema, ['build'])).toContain('Alias: b');
+  it('should name the aliases of the command being described', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      commands: { build: { alias: 'b', desc: 'Compile' } },
+    };
+    expect(await help(schema, ['build'])).toContain('Alias: b');
 
-		const many: Schema = {
-			name: 'mycli',
-			commands: { build: { alias: ['b', 'c'], desc: 'Compile' } },
-		};
-		expect(await help(many, ['build'])).toContain('Aliases: b, c');
-	});
+    const many: Schema = {
+      name: 'mycli',
+      commands: { build: { alias: ['b', 'c'], desc: 'Compile' } },
+    };
+    expect(await help(many, ['build'])).toContain('Aliases: b, c');
+  });
 
-	it('should say nothing about the program own aliases', async () => {
-		expect(await help({ name: 'mycli' })).not.toContain('Alias');
-	});
+  it('should say nothing about the program own aliases', async () => {
+    expect(await help({ name: 'mycli' })).not.toContain('Alias');
+  });
 
-	// the command is already named on the usage line, and `'@b'` is its own alias
-	it('should not name the command as its own alias', async () => {
-		const schema: Schema = { name: 'mycli', commands: { '@b': { desc: 'Build' } } };
-		expect(await help(schema, ['b'])).not.toContain('Alias');
-	});
+  // the command is already named on the usage line, and `'@b'` is its own alias
+  it('should not name the command as its own alias', async () => {
+    const schema: Schema = { name: 'mycli', commands: { '@b': { desc: 'Build' } } };
+    expect(await help(schema, ['b'])).not.toContain('Alias');
+  });
 
-	it('should wrap a long list of aliases under the label', async () => {
-		const schema: Schema = {
-			name: 'mycli',
-			commands: {
-				build: { alias: ['compile-everything', 'make-the-thing', 'bundle-it-all'], desc: 'Build' },
-			},
-		};
-		expect(sectionOf(await help(schema, ['build'], 40), 'Aliases')).toEqual([]);
-		const lines = (await help(schema, ['build'], 40)).split('\n');
-		const start = lines.findIndex((line) => line.startsWith('Aliases:'));
-		expect(lines.slice(start, start + 2)).toEqual([
-			'Aliases: compile-everything,',
-			'         make-the-thing, bundle-it-all',
-		]);
-	});
+  it('should wrap a long list of aliases under the label', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      commands: {
+        build: { alias: ['compile-everything', 'make-the-thing', 'bundle-it-all'], desc: 'Build' },
+      },
+    };
+    expect(sectionOf(await help(schema, ['build'], 40), 'Aliases')).toEqual([]);
+    const lines = (await help(schema, ['build'], 40)).split('\n');
+    const start = lines.findIndex((line) => line.startsWith('Aliases:'));
+    expect(lines.slice(start, start + 2)).toEqual([
+      'Aliases: compile-everything,',
+      '         make-the-thing, bundle-it-all',
+    ]);
+  });
 });
 
 describe('examples', () => {
-	it('should show the label and the command under it', async () => {
-		const schema: Schema = {
-			name: 'mycli',
-			commands: {
-				build: {
-					examples: [
-						{ label: 'Build once', text: 'mycli build src/index.ts' },
-						{ label: 'Rebuild on change', text: 'mycli build src/index.ts --watch' },
-					],
-				},
-			},
-		};
-		const text = await help(schema, ['build']);
-		expect(text.split('\n').slice(-6)).toEqual([
-			'Examples:',
-			'  Build once',
-			'    mycli build src/index.ts',
-			'',
-			'  Rebuild on change',
-			'    mycli build src/index.ts --watch',
-		]);
-	});
+  it('should show the label and the command under it', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      commands: {
+        build: {
+          examples: [
+            { label: 'Build once', text: 'mycli build src/index.ts' },
+            { label: 'Rebuild on change', text: 'mycli build src/index.ts --watch' },
+          ],
+        },
+      },
+    };
+    const text = await help(schema, ['build']);
+    expect(text.split('\n').slice(-6)).toEqual([
+      'Examples:',
+      '  Build once',
+      '    mycli build src/index.ts',
+      '',
+      '  Rebuild on change',
+      '    mycli build src/index.ts --watch',
+    ]);
+  });
 
-	it('should take a single example as well as a list', async () => {
-		const schema: Schema = {
-			name: 'mycli',
-			commands: { build: { examples: { label: 'Build', text: 'mycli build' } } },
-		};
-		expect(await help(schema, ['build'])).toContain('    mycli build');
-	});
+  it('should take a single example as well as a list', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      commands: { build: { examples: { label: 'Build', text: 'mycli build' } } },
+    };
+    expect(await help(schema, ['build'])).toContain('    mycli build');
+  });
 
-	it('should show a command with no label at the list indent', async () => {
-		const schema: Schema = {
-			name: 'mycli',
-			commands: { build: { examples: { label: '', text: 'mycli build' } } },
-		};
-		expect((await help(schema, ['build'])).split('\n').slice(-2)).toEqual([
-			'Examples:',
-			'  mycli build',
-		]);
-	});
+  it('should show a command with no label at the list indent', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      commands: { build: { examples: { label: '', text: 'mycli build' } } },
+    };
+    expect((await help(schema, ['build'])).split('\n').slice(-2)).toEqual([
+      'Examples:',
+      '  mycli build',
+    ]);
+  });
 });
 
 describe('layout', () => {
-	it('should wrap a description into the column it starts in', async () => {
-		const schema: Schema = {
-			name: 'mycli',
-			options: {
-				'-v, --verbose':
-					'Print a great deal more about what is happening than anybody needs to know',
-			},
-		};
-		expect(sectionOf(await help(schema, [], 48), 'Options')).toEqual([
-			'  -v, --verbose  Print a great deal more about',
-			'                 what is happening than anybody',
-			'                 needs to know',
-		]);
-	});
+  it('should wrap a description into the column it starts in', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      options: {
+        '-v, --verbose':
+          'Print a great deal more about what is happening than anybody needs to know',
+      },
+    };
+    expect(sectionOf(await help(schema, [], 48), 'Options')).toEqual([
+      '  -v, --verbose  Print a great deal more about',
+      '                 what is happening than anybody',
+      '                 needs to know',
+    ]);
+  });
 
-	// one long flag should not squeeze every description into a gutter
-	it('should give a label too wide for its column a line of its own', async () => {
-		const schema: Schema = {
-			name: 'mycli',
-			options: {
-				'-a, --a': 'Short one',
-				'--an-extremely-long-option-name [value]': 'The long one',
-			},
-		};
-		expect(sectionOf(await help(schema, [], 60), 'Options')).toEqual([
-			'  -a, --a  Short one',
-			'  --an-extremely-long-option-name [value]',
-			'           The long one',
-		]);
-	});
+  // one long flag should not squeeze every description into a gutter
+  it('should give a label too wide for its column a line of its own', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      options: {
+        '-a, --a': 'Short one',
+        '--an-extremely-long-option-name [value]': 'The long one',
+      },
+    };
+    expect(sectionOf(await help(schema, [], 60), 'Options')).toEqual([
+      '  -a, --a  Short one',
+      '  --an-extremely-long-option-name [value]',
+      '           The long one',
+    ]);
+  });
 
-	// wrapping to a handful of columns is a word per line, and running past the
-	// terminal's edge is worse still: the terminal wraps it at the margin and the
-	// indent is lost
-	it('should give up on two columns when there is no room for a description', async () => {
-		const schema: Schema = {
-			name: 'mycli',
-			options: { '-v, --verbose': 'Print more about what is happening' },
-		};
-		expect(sectionOf(await help(schema, [], 28), 'Options')).toEqual([
-			'  -v, --verbose',
-			'    Print more about what is',
-			'    happening',
-		]);
-	});
+  // wrapping to a handful of columns is a word per line, and running past the
+  // terminal's edge is worse still: the terminal wraps it at the margin and the
+  // indent is lost
+  it('should give up on two columns when there is no room for a description', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      options: { '-v, --verbose': 'Print more about what is happening' },
+    };
+    expect(sectionOf(await help(schema, [], 28), 'Options')).toEqual([
+      '  -v, --verbose',
+      '    Print more about what is',
+      '    happening',
+    ]);
+  });
 
-	it('should keep every line within the width', async () => {
-		const schema: Schema = {
-			name: 'mycli',
-			options: {
-				'-v, --verbose': 'Print more about what is happening, at length',
-				'--target [name]': { choices: ['node', 'browser'], desc: 'What to build for' },
-			},
-			commands: {
-				build: {
-					alias: ['compile-everything', 'bundle-it-all'],
-					desc: 'Compile the project into something shippable',
-				},
-				serve: { desc: 'Run a development server on a port nobody is using' },
-			},
-		};
-		for (const width of [24, 30, 40, 60, 80, 100]) {
-			// the root screen and a subcommand's, since the sections differ
-			const screens = [await help(schema, [], width), await help(schema, ['build'], width)];
-			for (const line of screens.join('\n').split('\n')) {
-				// measured in columns, not code units, which is the only measurement
-				// that means anything once a description is styled
-				expect(stringWidth(line), `width ${width}: ${JSON.stringify(line)}`).toBeLessThanOrEqual(
-					width
-				);
-			}
-		}
-	});
+  it('should keep every line within the width', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      options: {
+        '-v, --verbose': 'Print more about what is happening, at length',
+        '--target [name]': { choices: ['node', 'browser'], desc: 'What to build for' },
+      },
+      commands: {
+        build: {
+          alias: ['compile-everything', 'bundle-it-all'],
+          desc: 'Compile the project into something shippable',
+        },
+        serve: { desc: 'Run a development server on a port nobody is using' },
+      },
+    };
+    for (const width of [24, 30, 40, 60, 80, 100]) {
+      // the root screen and a subcommand's, since the sections differ
+      const screens = [await help(schema, [], width), await help(schema, ['build'], width)];
+      for (const line of screens.join('\n').split('\n')) {
+        // measured in columns, not code units, which is the only measurement
+        // that means anything once a description is styled
+        expect(stringWidth(line), `width ${width}: ${JSON.stringify(line)}`).toBeLessThanOrEqual(
+          width
+        );
+      }
+    }
+  });
 
-	// a name is printed whole and runs past the edge, and a *description* is prose
-	// and breaks: one is a `nowrap` label that keeps its own width, the other is a
-	// paragraph, and `wrap()` has always broken a word that cannot fit
-	it('should print a name whole and break a word in prose', async () => {
-		const schema: Schema = {
-			name: 'mycli',
-			options: {
-				'--an-option-nobody-could-type': 'Supercalifragilisticexpialidocious behaviour',
-			},
-		};
-		const text = await help(schema, [], 20);
+  // a name is printed whole and runs past the edge, and a *description* is prose
+  // and breaks: one is a `nowrap` label that keeps its own width, the other is a
+  // paragraph, and `wrap()` has always broken a word that cannot fit
+  it('should print a name whole and break a word in prose', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      options: {
+        '--an-option-nobody-could-type': 'Supercalifragilisticexpialidocious behaviour',
+      },
+    };
+    const text = await help(schema, [], 20);
 
-		expect(text).to.contain('--an-option-nobody-could-type');
-		expect(text).to.not.contain('Supercalifragilisticexpialidocious');
-		expect(text).to.contain('Supercalifragili');
-	});
+    expect(text).to.contain('--an-option-nobody-could-type');
+    expect(text).to.not.contain('Supercalifragilisticexpialidocious');
+    expect(text).to.contain('Supercalifragili');
+  });
 
-	// a list of names breaks between them; a name and its hint does not
-	it('should break a label that does not fit after its commas', async () => {
-		const schema: Schema = {
-			name: 'mycli',
-			commands: {
-				build: { alias: ['compile-everything', 'bundle-it-all'], desc: 'Build' },
-				serve: { desc: 'Serve' },
-			},
-		};
-		// `serve` still fits its column, so the list stays in two columns and the
-		// description of the label that did not fit starts under that column
-		expect(sectionOf(await help(schema, [], 30), 'Commands')).toEqual([
-			'  build, compile-everything,',
-			'  bundle-it-all',
-			'         Build',
-			'  serve  Serve',
-		]);
-	});
+  // a list of names breaks between them; a name and its hint does not
+  it('should break a label that does not fit after its commas', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      commands: {
+        build: { alias: ['compile-everything', 'bundle-it-all'], desc: 'Build' },
+        serve: { desc: 'Serve' },
+      },
+    };
+    // `serve` still fits its column, so the list stays in two columns and the
+    // description of the label that did not fit starts under that column
+    expect(sectionOf(await help(schema, [], 30), 'Commands')).toEqual([
+      '  build, compile-everything,',
+      '  bundle-it-all',
+      '         Build',
+      '  serve  Serve',
+    ]);
+  });
 
-	// a flag name broken across two lines is a flag nobody can type, which is
-	// worse than one line the terminal wraps for us
-	it('should print a label wider than the width whole', async () => {
-		const schema: Schema = {
-			name: 'mycli',
-			options: { '--an-extremely-long-option-name [value]': 'The long one' },
-		};
-		expect(sectionOf(await help(schema, [], 28), 'Options')).toEqual([
-			'  --an-extremely-long-option-name [value]',
-			'    The long one',
-		]);
-	});
+  // a flag name broken across two lines is a flag nobody can type, which is
+  // worse than one line the terminal wraps for us
+  it('should print a label wider than the width whole', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      options: { '--an-extremely-long-option-name [value]': 'The long one' },
+    };
+    expect(sectionOf(await help(schema, [], 28), 'Options')).toEqual([
+      '  --an-extremely-long-option-name [value]',
+      '    The long one',
+    ]);
+  });
 });
 
 describe('text kept as it was written', () => {
-	// a paragraph is words with one space between them, and the two spaces lining
-	// a flag up in an example are the author's
-	it('should keep the spacing in an example', async () => {
-		const schema: Schema = {
-			commands: { build: { examples: { label: 'Build twice', text: 'mycli build  --watch' } } },
-			name: 'mycli',
-		};
+  // a paragraph is words with one space between them, and the two spaces lining
+  // a flag up in an example are the author's
+  it('should keep the spacing in an example', async () => {
+    const schema: Schema = {
+      commands: { build: { examples: { label: 'Build twice', text: 'mycli build  --watch' } } },
+      name: 'mycli',
+    };
 
-		expect(await help(schema, ['build'])).to.contain('    mycli build  --watch');
-	});
+    expect(await help(schema, ['build'])).to.contain('    mycli build  --watch');
+  });
 
-	// a description written over two lines stays two lines, which is what `wrap()`
-	// has always done with one
-	it('should keep a line break in a description', async () => {
-		const schema: Schema = {
-			commands: { build: { desc: 'One line.\nAnd another.' } },
-			name: 'mycli',
-		};
+  // a description written over two lines stays two lines, which is what `wrap()`
+  // has always done with one
+  it('should keep a line break in a description', async () => {
+    const schema: Schema = {
+      commands: { build: { desc: 'One line.\nAnd another.' } },
+      name: 'mycli',
+    };
 
-		expect(await help(schema, ['build'])).to.contain('One line.\nAnd another.');
-	});
+    expect(await help(schema, ['build'])).to.contain('One line.\nAnd another.');
+  });
 
-	// and in an option's description, which is a paragraph rather than a text --
-	// a run's newline is a break the author wrote and is not the wrapper's to move
-	it('should keep a line break in an option description', async () => {
-		const schema: Schema = {
-			name: 'mycli',
-			options: { '--x': { default: 'y', desc: 'First.\nSecond.' } },
-		};
+  // and in an option's description, which is a paragraph rather than a text --
+  // a run's newline is a break the author wrote and is not the wrapper's to move
+  it('should keep a line break in an option description', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      options: { '--x': { default: 'y', desc: 'First.\nSecond.' } },
+    };
 
-		expect(sectionOf(await help(schema), 'Options')).to.deep.equal([
-			'  --x  First.',
-			'       Second. (default: y)',
-		]);
-	});
+    expect(sectionOf(await help(schema), 'Options')).to.deep.equal([
+      '  --x  First.',
+      '       Second. (default: y)',
+    ]);
+  });
 });
 
 describe('styling', () => {
-	it('should bold the headings and dim the parentheticals', async () => {
-		ansi.level = 3;
-		const schema: Schema = {
-			name: 'mycli',
-			options: { '--target [name]': { default: 'node', desc: 'What to build for' } },
-		};
-		const text = await help(schema, [], 72);
+  it('should bold the headings and dim the parentheticals', async () => {
+    ansi.level = 3;
+    const schema: Schema = {
+      name: 'mycli',
+      options: { '--target [name]': { default: 'node', desc: 'What to build for' } },
+    };
+    const text = await help(schema, [], 72);
 
-		// a blank that shows nothing is written in whatever is already open, so the
-		// space after a bold heading is inside the bold rather than a sequence of
-		// its own -- identical on screen, and what stops a dim parenthetical from
-		// being closed and reopened at every space in it
-		expect(text).toContain(`${ESC}[1mUsage: ${ESC}[22m`);
-		// a line ends in the state it began in, so a heading that ends its line is
-		// closed by the reset every line carries rather than by its own code
-		expect(text).toContain(`${ESC}[1mOptions:${ESC}[0m`);
-		expect(text).toContain(`${ESC}[2m(default: node)${ESC}[0m`);
-	});
+    // a blank that shows nothing is written in whatever is already open, so the
+    // space after a bold heading is inside the bold rather than a sequence of
+    // its own -- identical on screen, and what stops a dim parenthetical from
+    // being closed and reopened at every space in it
+    expect(text).toContain(`${ESC}[1mUsage: ${ESC}[22m`);
+    // a line ends in the state it began in, so a heading that ends its line is
+    // closed by the reset every line carries rather than by its own code
+    expect(text).toContain(`${ESC}[1mOptions:${ESC}[0m`);
+    expect(text).toContain(`${ESC}[2m(default: node)${ESC}[0m`);
+  });
 
-	// a theme is a stylesheet origin, so restyling help is an ordinary rule with
-	// an ordinary selector: no `!important` and no specificity contest, which is
-	// only true because the defaults sit in the framework origin below it
-	it('should take a theme over the framework defaults', async () => {
-		ansi.level = 3;
-		const schema: Schema = { name: 'mycli', options: { '--x': 'An option' } };
-		const text = await themed(schema, '.sigil-help-heading { color: magenta }');
+  // a theme is a stylesheet origin, so restyling help is an ordinary rule with
+  // an ordinary selector: no `!important` and no specificity contest, which is
+  // only true because the defaults sit in the framework origin below it
+  it('should take a theme over the framework defaults', async () => {
+    ansi.level = 3;
+    const schema: Schema = { name: 'mycli', options: { '--x': 'An option' } };
+    const text = await themed(schema, '.sigil-help-heading { color: magenta }');
 
-		// the bold the framework declares is still there: a theme that names only a
-		// colour changes only the colour
-		expect(text).to.contain(`${ESC}[1;35mUsage: ${ESC}[22;39m`);
-	});
+    // the bold the framework declares is still there: a theme that names only a
+    // colour changes only the colour
+    expect(text).to.contain(`${ESC}[1;35mUsage: ${ESC}[22;39m`);
+  });
 
-	it('should let the app beat the theme', async () => {
-		ansi.level = 3;
-		const schema: Schema = { name: 'mycli', options: { '--x': 'An option' } };
-		const text = await themed(schema, '.sigil-help-heading { color: magenta }', [
-			'.sigil-help-heading { color: green }',
-		]);
+  it('should let the app beat the theme', async () => {
+    ansi.level = 3;
+    const schema: Schema = { name: 'mycli', options: { '--x': 'An option' } };
+    const text = await themed(schema, '.sigil-help-heading { color: magenta }', [
+      '.sigil-help-heading { color: green }',
+    ]);
 
-		expect(text).to.contain(`${ESC}[1;32mUsage: ${ESC}[22;39m`);
-	});
+    expect(text).to.contain(`${ESC}[1;32mUsage: ${ESC}[22;39m`);
+  });
 
-	// the column a description starts in is measured, so the sequences in a
-	// styled label must not push it over
-	it('should line the columns up even when the labels are styled', async () => {
-		ansi.level = 3;
-		const schema: Schema = {
-			name: 'mycli',
-			options: { '-v, --verbose': 'Loud', '--quiet': 'Silent' },
-		};
-		const text = await help(schema, [], 72);
-		const columns = sectionOf(text, `${ESC}[1mOptions${ESC}[22m`)
-			.map((line) => ansi.strip(line).indexOf('Loud') + ansi.strip(line).indexOf('Silent'))
-			.filter((index) => index > 0);
-		expect(new Set(columns).size).toBeLessThanOrEqual(1);
-	});
+  // the column a description starts in is measured, so the sequences in a
+  // styled label must not push it over
+  it('should line the columns up even when the labels are styled', async () => {
+    ansi.level = 3;
+    const schema: Schema = {
+      name: 'mycli',
+      options: { '-v, --verbose': 'Loud', '--quiet': 'Silent' },
+    };
+    const text = await help(schema, [], 72);
+    const columns = sectionOf(text, `${ESC}[1mOptions${ESC}[22m`)
+      .map((line) => ansi.strip(line).indexOf('Loud') + ansi.strip(line).indexOf('Silent'))
+      .filter((index) => index > 0);
+    expect(new Set(columns).size).toBeLessThanOrEqual(1);
+  });
 });
 
 describe('empty and odd declarations', () => {
-	it('should ignore a description of nothing but whitespace', async () => {
-		const schema: Schema = { name: 'mycli', commands: { build: { desc: '   ' } } };
-		expect(await help(schema, ['build'])).toBe('Usage: mycli build');
-	});
+  it('should ignore a description of nothing but whitespace', async () => {
+    const schema: Schema = { name: 'mycli', commands: { build: { desc: '   ' } } };
+    expect(await help(schema, ['build'])).toBe('Usage: mycli build');
+  });
 
-	// nothing in help is worth failing the whole screen over
-	it('should render a default that cannot be written as JSON', async () => {
-		const circular: Record<string, unknown> = {};
-		circular.self = circular;
-		const text = await help({
-			name: 'mycli',
-			options: {
-				'--circular [v]': { default: circular, desc: 'Circular' },
-				'--big [v]': { default: 10n, desc: 'BigInt' },
-			},
-		});
-		expect(sectionOf(text, 'Options')).toEqual([
-			'  --circular [v]  Circular (default: [object Object])',
-			'  --big [v]       BigInt (default: 10)',
-		]);
-	});
+  // nothing in help is worth failing the whole screen over
+  it('should render a default that cannot be written as JSON', async () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    const text = await help({
+      name: 'mycli',
+      options: {
+        '--circular [v]': { default: circular, desc: 'Circular' },
+        '--big [v]': { default: 10n, desc: 'BigInt' },
+      },
+    });
+    expect(sectionOf(text, 'Options')).toEqual([
+      '  --circular [v]  Circular (default: [object Object])',
+      '  --big [v]       BigInt (default: 10)',
+    ]);
+  });
 
-	it('should ignore an empty choices list', async () => {
-		const text = await help({
-			name: 'mycli',
-			options: { '--mode [name]': { choices: [], desc: 'Which mode' } },
-		});
-		expect(sectionOf(text, 'Options')).toEqual(['  --mode [name]  Which mode']);
-	});
+  it('should ignore an empty choices list', async () => {
+    const text = await help({
+      name: 'mycli',
+      options: { '--mode [name]': { choices: [], desc: 'Which mode' } },
+    });
+    expect(sectionOf(text, 'Options')).toEqual(['  --mode [name]  Which mode']);
+  });
 
-	it('should render an option with no description', async () => {
-		const text = await help({ name: 'mycli', options: { '-x, --extra': undefined } });
-		expect(sectionOf(text, 'Options')).toEqual(['  -x, --extra']);
-	});
+  it('should render an option with no description', async () => {
+    const text = await help({ name: 'mycli', options: { '-x, --extra': undefined } });
+    expect(sectionOf(text, 'Options')).toEqual(['  -x, --extra']);
+  });
 
-	it('should render a command with no description', async () => {
-		const text = await help({ name: 'mycli', commands: { build: {} } });
-		expect(sectionOf(text, 'Commands')).toEqual(['  build']);
-	});
+  it('should render a command with no description', async () => {
+    const text = await help({ name: 'mycli', commands: { build: {} } });
+    expect(sectionOf(text, 'Commands')).toEqual(['  build']);
+  });
 });
 
 describe('bad input', () => {
-	it('should refuse a target with no context chain', () => {
-		expect(() => renderHelp({ contexts: [] })).toThrow(
-			'Expected a context chain to render help for'
-		);
-		expect(() => renderHelp(undefined as never)).toThrow(/Expected a context chain/);
-	});
+  it('should refuse a target with no context chain', () => {
+    expect(() => renderHelp({ contexts: [] })).toThrow(
+      'Expected a context chain to render help for'
+    );
+    expect(() => renderHelp(undefined as never)).toThrow(/Expected a context chain/);
+  });
 });
 
 describe('help against a light background', () => {
-	// the ticket's own example: "a dim grey parenthetical in the help screen is
-	// unreadable on a light terminal". `renderHelp()` goes through `themedCascade()`,
-	// so the scheme reaches the sheet the note is styled by -- which is what makes
-	// this work for an app that did nothing but upgrade
-	it('should draw the note without dim on a light terminal', async () => {
-		const schema: Schema = {
-			name: 'mycli',
-			options: { '--port <n>': { default: 8080, desc: 'the port', type: 'int' } },
-		};
-		const state = await parse({ argv: [], schema: { completion: false, help: false, ...schema } });
-		const dark = renderHelp(state, { colorLevel: 3, colorScheme: 'dark', width: 60 });
-		const light = renderHelp(state, { colorLevel: 3, colorScheme: 'light', width: 60 });
+  // the ticket's own example: "a dim grey parenthetical in the help screen is
+  // unreadable on a light terminal". `renderHelp()` goes through `themedCascade()`,
+  // so the scheme reaches the sheet the note is styled by -- which is what makes
+  // this work for an app that did nothing but upgrade
+  it('should draw the note without dim on a light terminal', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      options: { '--port <n>': { default: 8080, desc: 'the port', type: 'int' } },
+    };
+    const state = await parse({ argv: [], schema: { completion: false, help: false, ...schema } });
+    const dark = renderHelp(state, { colorLevel: 3, colorScheme: 'dark', width: 60 });
+    const light = renderHelp(state, { colorLevel: 3, colorScheme: 'light', width: 60 });
 
-		// asserted as SGR *parameters* rather than as a substring, which is this
-		// repository's rule for a reason this test met: `'2m'` also matches the `[22m`
-		// that closes bold, so the loose version fails on a screen with nothing wrong
-		const params = (out: string) =>
-			new Set(
-				[...out.matchAll(new RegExp(`${ESC}\\[([\\d;]*)m`, 'g'))].flatMap((m) => m[1].split(';'))
-			);
+    // asserted as SGR *parameters* rather than as a substring, which is this
+    // repository's rule for a reason this test met: `'2m'` also matches the `[22m`
+    // that closes bold, so the loose version fails on a screen with nothing wrong
+    const params = (out: string) =>
+      new Set(
+        [...out.matchAll(new RegExp(`${ESC}\\[([\\d;]*)m`, 'g'))].flatMap((m) => m[1].split(';'))
+      );
 
-		// 2 is faint, which is what `dim` emits; 90 is the foreground of palette 8
-		expect(params(dark).has('2'), 'dark lost its dim').toBe(true);
-		expect(params(light).has('2'), 'light still emits faint').toBe(false);
-		expect(params(light).has('90'), 'light has no de-emphasis at all').toBe(true);
-		// and the words are the same either way: only how they are drawn moved
-		expect(strip(light)).to.equal(strip(dark));
-	});
+    // 2 is faint, which is what `dim` emits; 90 is the foreground of palette 8
+    expect(params(dark).has('2'), 'dark lost its dim').toBe(true);
+    expect(params(light).has('2'), 'light still emits faint').toBe(false);
+    expect(params(light).has('90'), 'light has no de-emphasis at all').toBe(true);
+    // and the words are the same either way: only how they are drawn moved
+    expect(strip(light)).to.equal(strip(dark));
+  });
 });

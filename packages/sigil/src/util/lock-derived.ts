@@ -21,29 +21,29 @@
  * @param message - Builds the error thrown when one of them is assigned.
  */
 export function lockDerived(
-	it: object,
-	props: readonly string[],
-	message: (prop: string) => string
+  it: object,
+  props: readonly string[],
+  message: (prop: string) => string
 ): void {
-	const target = it as Record<string, unknown>;
+  const target = it as Record<string, unknown>;
 
-	for (const prop of props) {
-		const value = target[prop];
-		const enumerable = Object.hasOwn(target, prop);
+  for (const prop of props) {
+    const value = target[prop];
+    const enumerable = Object.hasOwn(target, prop);
 
-		// a container is frozen as well, so reaching past the property and
-		// editing an entry is just as loud as replacing the whole thing
-		if (value && typeof value === 'object') {
-			Object.freeze(value);
-		}
+    // a container is frozen as well, so reaching past the property and
+    // editing an entry is just as loud as replacing the whole thing
+    if (value && typeof value === 'object') {
+      Object.freeze(value);
+    }
 
-		Object.defineProperty(target, prop, {
-			configurable: false,
-			enumerable,
-			get: () => value,
-			set() {
-				throw new Error(message(prop));
-			},
-		});
-	}
+    Object.defineProperty(target, prop, {
+      configurable: false,
+      enumerable,
+      get: () => value,
+      set() {
+        throw new Error(message(prop));
+      },
+    });
+  }
 }

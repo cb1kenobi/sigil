@@ -29,39 +29,39 @@ export type Cleanup = () => void;
  * account for.
  */
 export interface Owner {
-	readonly parent: Owner | undefined;
+  readonly parent: Owner | undefined;
 }
 
 /** The effect factory an owner tree runs its effects through. */
 export type EffectFactory = (fn: () => void | Cleanup) => Cleanup;
 
 class OwnerNode implements Owner {
-	readonly children = new Set<OwnerNode>();
-	readonly cleanups: Cleanup[] = [];
-	/** Set on a root owner only; every other node walks up to find it. */
-	context: Map<symbol, unknown> | undefined;
-	disposed = false;
-	/** Set on a root owner only. */
-	effects: EffectFactory | undefined;
-	/** Set on a root owner only: callbacks waiting for a frame to have happened. */
-	mounts: Cleanup[] | undefined;
-	readonly parent: OwnerNode | undefined;
-	/** Set on a root owner only: where an unmount's throws go. */
-	report: ((error: unknown) => void) | undefined;
+  readonly children = new Set<OwnerNode>();
+  readonly cleanups: Cleanup[] = [];
+  /** Set on a root owner only; every other node walks up to find it. */
+  context: Map<symbol, unknown> | undefined;
+  disposed = false;
+  /** Set on a root owner only. */
+  effects: EffectFactory | undefined;
+  /** Set on a root owner only: callbacks waiting for a frame to have happened. */
+  mounts: Cleanup[] | undefined;
+  readonly parent: OwnerNode | undefined;
+  /** Set on a root owner only: where an unmount's throws go. */
+  report: ((error: unknown) => void) | undefined;
 
-	constructor(parent: OwnerNode | undefined) {
-		this.parent = parent;
-		parent?.children.add(this);
-	}
+  constructor(parent: OwnerNode | undefined) {
+    this.parent = parent;
+    parent?.children.add(this);
+  }
 
-	root(): OwnerNode {
-		// eslint-disable-next-line @typescript-eslint/no-this-alias
-		let at: OwnerNode = this;
-		while (at.parent) {
-			at = at.parent;
-		}
-		return at;
-	}
+  root(): OwnerNode {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    let at: OwnerNode = this;
+    while (at.parent) {
+      at = at.parent;
+    }
+    return at;
+  }
 }
 
 /** The owner whose body is running. */
@@ -85,7 +85,7 @@ let inBody = 0;
  * @returns The owner, or `undefined` outside a component.
  */
 export function getOwner(): Owner | undefined {
-	return current;
+  return current;
 }
 
 /**
@@ -100,34 +100,34 @@ export function getOwner(): Owner | undefined {
  * @returns Whatever `fn` returned.
  */
 export function runWithOwner<T>(owner: Owner | undefined, fn: () => T): T {
-	const previousOwner = current;
-	const previousCleanups = runCleanups;
-	const previousBody = inBody;
-	// a fresh ownership scope, not just a different context to read: what `fn`
-	// registers belongs to `owner`. Both of the others have to be put aside for
-	// that to be true, and both were found by `For` rather than reasoned out.
-	// `runCleanups` left standing sent a row's `onCleanup` to the *effect run*
-	// that built it, so every row was torn down at the end of every reconcile --
-	// disposing rows that had not gone anywhere. `inBody` left standing made
-	// `createEffect()` decline to register with the branch, on a rule written for
-	// re-registering against one owner that this is the opposite of: the branch
-	// is a new owner each time and disposing it is what disposes the effect
-	current = owner as OwnerNode | undefined;
-	runCleanups = undefined;
-	inBody = 0;
-	try {
-		// and detached at the signals level too, or the ownership this establishes
-		// is the second of two that disagree: an effect created here while some
-		// other effect's body is running would be a child of *that* one and die
-		// when it re-runs. `For` is where the two met -- its reconcile is an effect
-		// body, so every row it built was disposed by the next reconcile, kept rows
-		// included
-		return unowned(fn);
-	} finally {
-		current = previousOwner;
-		runCleanups = previousCleanups;
-		inBody = previousBody;
-	}
+  const previousOwner = current;
+  const previousCleanups = runCleanups;
+  const previousBody = inBody;
+  // a fresh ownership scope, not just a different context to read: what `fn`
+  // registers belongs to `owner`. Both of the others have to be put aside for
+  // that to be true, and both were found by `For` rather than reasoned out.
+  // `runCleanups` left standing sent a row's `onCleanup` to the *effect run*
+  // that built it, so every row was torn down at the end of every reconcile --
+  // disposing rows that had not gone anywhere. `inBody` left standing made
+  // `createEffect()` decline to register with the branch, on a rule written for
+  // re-registering against one owner that this is the opposite of: the branch
+  // is a new owner each time and disposing it is what disposes the effect
+  current = owner as OwnerNode | undefined;
+  runCleanups = undefined;
+  inBody = 0;
+  try {
+    // and detached at the signals level too, or the ownership this establishes
+    // is the second of two that disagree: an effect created here while some
+    // other effect's body is running would be a child of *that* one and die
+    // when it re-runs. `For` is where the two met -- its reconcile is an effect
+    // body, so every row it built was disposed by the next reconcile, kept rows
+    // included
+    return unowned(fn);
+  } finally {
+    current = previousOwner;
+    runCleanups = previousCleanups;
+    inBody = previousBody;
+  }
 }
 
 /**
@@ -142,15 +142,15 @@ export function runWithOwner<T>(owner: Owner | undefined, fn: () => T): T {
  * @returns Whatever `fn` returned.
  */
 export function createRoot<T>(
-	fn: (dispose: Cleanup) => T,
-	effects?: EffectFactory,
-	report?: (error: unknown) => void
+  fn: (dispose: Cleanup) => T,
+  effects?: EffectFactory,
+  report?: (error: unknown) => void
 ): T {
-	const owner = new OwnerNode(undefined);
-	owner.effects = effects;
-	owner.mounts = [];
-	owner.report = report;
-	return runWithOwner(owner, () => fn(() => disposeOwner(owner, true)));
+  const owner = new OwnerNode(undefined);
+  owner.effects = effects;
+  owner.mounts = [];
+  owner.report = report;
+  return runWithOwner(owner, () => fn(() => disposeOwner(owner, true)));
 }
 
 /**
@@ -163,30 +163,30 @@ export function createRoot<T>(
  * @returns The owner and its disposer.
  */
 export function createBranch(): { dispose: Cleanup; owner: Owner } {
-	if (current?.disposed) {
-		// the same answer `createEffect()` gives, for the same reason: there is
-		// nothing left that would ever dispose this branch, so it does not start.
-		// Handed back already disposed, so that what runs under it starts nothing
-		// either
-		const dead = new OwnerNode(undefined);
-		dead.disposed = true;
-		return { dispose: () => {}, owner: dead };
-	}
+  if (current?.disposed) {
+    // the same answer `createEffect()` gives, for the same reason: there is
+    // nothing left that would ever dispose this branch, so it does not start.
+    // Handed back already disposed, so that what runs under it starts nothing
+    // either
+    const dead = new OwnerNode(undefined);
+    dead.disposed = true;
+    return { dispose: () => {}, owner: dead };
+  }
 
-	const owner = new OwnerNode(current);
-	return {
-		// what the disposal threw is reported rather than returned and dropped.
-		// `Show` and `For` are the callers, and neither is in a position to do
-		// anything with a cleanup's throw -- while dropping it is how an unmount
-		// that failed to unsubscribe something becomes silent
-		dispose: () => {
-			const errors = disposeOwner(owner, false);
-			if (errors.length > 0) {
-				reportTo(owner, errors);
-			}
-		},
-		owner,
-	};
+  const owner = new OwnerNode(current);
+  return {
+    // what the disposal threw is reported rather than returned and dropped.
+    // `Show` and `For` are the callers, and neither is in a position to do
+    // anything with a cleanup's throw -- while dropping it is how an unmount
+    // that failed to unsubscribe something becomes silent
+    dispose: () => {
+      const errors = disposeOwner(owner, false);
+      if (errors.length > 0) {
+        reportTo(owner, errors);
+      }
+    },
+    owner,
+  };
 }
 
 /**
@@ -200,13 +200,13 @@ export function createBranch(): { dispose: Cleanup; owner: Owner } {
  * @param errors - What was thrown.
  */
 function reportTo(owner: OwnerNode, errors: readonly unknown[]): void {
-	const sink = owner.root().report;
-	if (!sink) {
-		throw errors.length === 1 ? errors[0] : new AggregateError(errors, 'Errors while unmounting');
-	}
-	for (const error of errors) {
-		sink(error);
-	}
+  const sink = owner.root().report;
+  if (!sink) {
+    throw errors.length === 1 ? errors[0] : new AggregateError(errors, 'Errors while unmounting');
+  }
+  for (const error of errors) {
+    sink(error);
+  }
 }
 
 /**
@@ -219,19 +219,19 @@ function reportTo(owner: OwnerNode, errors: readonly unknown[]): void {
  * @param fn - What to run.
  */
 export function onCleanup(fn: Cleanup): void {
-	if (runCleanups) {
-		runCleanups.push(fn);
-		return;
-	}
+  if (runCleanups) {
+    runCleanups.push(fn);
+    return;
+  }
 
-	if (current?.disposed) {
-		// nothing will ever run it otherwise, and a cleanup that never runs is the
-		// subscription this whole file exists to cancel
-		fn();
-		return;
-	}
+  if (current?.disposed) {
+    // nothing will ever run it otherwise, and a cleanup that never runs is the
+    // subscription this whole file exists to cancel
+    fn();
+    return;
+  }
 
-	current?.cleanups.push(fn);
+  current?.cleanups.push(fn);
 }
 
 /**
@@ -250,7 +250,7 @@ export function onCleanup(fn: Cleanup): void {
  * @param fn - What to run.
  */
 export function onMount(fn: Cleanup): void {
-	current?.root().mounts?.push(fn);
+  current?.root().mounts?.push(fn);
 }
 
 /**
@@ -260,25 +260,25 @@ export function onMount(fn: Cleanup): void {
  * @returns What the callbacks threw, if anything.
  */
 export function drainMounts(owner: Owner): unknown[] {
-	const root = (owner as OwnerNode).root();
-	const queued = root.mounts;
-	if (!queued?.length) {
-		return [];
-	}
+  const root = (owner as OwnerNode).root();
+  const queued = root.mounts;
+  if (!queued?.length) {
+    return [];
+  }
 
-	// drained rather than read and cleared, for the reason `Tree.take()` gives: a
-	// component mounted *by* one of these callbacks queues against the next frame
-	// rather than into the list being walked
-	const taken = queued.splice(0, queued.length);
-	const errors: unknown[] = [];
-	for (const fn of taken) {
-		try {
-			fn();
-		} catch (error) {
-			errors.push(error);
-		}
-	}
-	return errors;
+  // drained rather than read and cleared, for the reason `Tree.take()` gives: a
+  // component mounted *by* one of these callbacks queues against the next frame
+  // rather than into the list being walked
+  const taken = queued.splice(0, queued.length);
+  const errors: unknown[] = [];
+  for (const fn of taken) {
+    try {
+      fn();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  return errors;
 }
 
 /**
@@ -301,71 +301,71 @@ export function drainMounts(owner: Owner): unknown[] {
  * @returns Disposes the effect.
  */
 export function createEffect(fn: () => void | Cleanup): Cleanup {
-	const owner = current;
-	if (owner?.disposed) {
-		// the component this belongs to is gone, so there is nothing for an effect
-		// to keep up to date and nothing left that would ever dispose it. Reached
-		// by a callback that outlived its owner -- a key handler, a promise landing
-		// after unmount -- which is exactly the case `runWithOwner()` exists for and
-		// exactly the case where the answer is to do nothing
-		return () => {};
-	}
-	const run = owner?.root().effects ?? defaultEffect;
-	const owned = inBody === 0;
+  const owner = current;
+  if (owner?.disposed) {
+    // the component this belongs to is gone, so there is nothing for an effect
+    // to keep up to date and nothing left that would ever dispose it. Reached
+    // by a callback that outlived its owner -- a key handler, a promise landing
+    // after unmount -- which is exactly the case `runWithOwner()` exists for and
+    // exactly the case where the answer is to do nothing
+    return () => {};
+  }
+  const run = owner?.root().effects ?? defaultEffect;
+  const owned = inBody === 0;
 
-	const dispose = run(() => {
-		const cleanups: Cleanup[] = [];
-		const previousOwner = current;
-		const previousCleanups = runCleanups;
-		current = owner;
-		runCleanups = cleanups;
-		inBody++;
+  const dispose = run(() => {
+    const cleanups: Cleanup[] = [];
+    const previousOwner = current;
+    const previousCleanups = runCleanups;
+    current = owner;
+    runCleanups = cleanups;
+    inBody++;
 
-		let returned: void | Cleanup;
-		try {
-			returned = fn();
-		} finally {
-			current = previousOwner;
-			runCleanups = previousCleanups;
-			inBody--;
-		}
+    let returned: void | Cleanup;
+    try {
+      returned = fn();
+    } finally {
+      current = previousOwner;
+      runCleanups = previousCleanups;
+      inBody--;
+    }
 
-		if (typeof returned === 'function') {
-			cleanups.push(returned);
-		} else if (
-			returned !== null &&
-			typeof returned === 'object' &&
-			typeof (returned as { then?: unknown }).then === 'function'
-		) {
-			// the same refusal the signals layer makes, and it has to be made here
-			// too: this wrapper always returns a function, so the check downstream
-			// can no longer see what the body returned
-			throw new TypeError(
-				'An effect may not be async: tracking stops at the first await, so nothing read after it is a dependency'
-			);
-		}
+    if (typeof returned === 'function') {
+      cleanups.push(returned);
+    } else if (
+      returned !== null &&
+      typeof returned === 'object' &&
+      typeof (returned as { then?: unknown }).then === 'function'
+    ) {
+      // the same refusal the signals layer makes, and it has to be made here
+      // too: this wrapper always returns a function, so the check downstream
+      // can no longer see what the body returned
+      throw new TypeError(
+        'An effect may not be async: tracking stops at the first await, so nothing read after it is a dependency'
+      );
+    }
 
-		// raised rather than returned, because this is the cleanup the *signals*
-		// layer holds and that layer reports a throw from one on a re-run and raises
-		// it at `dispose()`. Handing back the array swallowed it: an `onCleanup()`
-		// written inside an effect body -- which is where an unsubscribe belongs --
-		// failed in silence, while the same call in a component body was reported
-		return cleanups.length > 0
-			? () => {
-					const errors = runAll(cleanups);
-					if (errors.length > 0) {
-						throw errors.length === 1
-							? errors[0]
-							: new AggregateError(errors, 'Errors in an effect cleanup');
-					}
-				}
-			: undefined;
-	});
+    // raised rather than returned, because this is the cleanup the *signals*
+    // layer holds and that layer reports a throw from one on a re-run and raises
+    // it at `dispose()`. Handing back the array swallowed it: an `onCleanup()`
+    // written inside an effect body -- which is where an unsubscribe belongs --
+    // failed in silence, while the same call in a component body was reported
+    return cleanups.length > 0
+      ? () => {
+          const errors = runAll(cleanups);
+          if (errors.length > 0) {
+            throw errors.length === 1
+              ? errors[0]
+              : new AggregateError(errors, 'Errors in an effect cleanup');
+          }
+        }
+      : undefined;
+  });
 
-	if (owned) {
-		owner?.cleanups.push(dispose);
-	}
-	return dispose;
+  if (owned) {
+    owner?.cleanups.push(dispose);
+  }
+  return dispose;
 }
 
 /**
@@ -381,15 +381,15 @@ export function createEffect(fn: () => void | Cleanup): Cleanup {
  * @returns What they threw, if anything.
  */
 function runAll(cleanups: readonly Cleanup[]): unknown[] {
-	const errors: unknown[] = [];
-	for (let i = cleanups.length - 1; i >= 0; i--) {
-		try {
-			cleanups[i]?.();
-		} catch (error) {
-			errors.push(error);
-		}
-	}
-	return errors;
+  const errors: unknown[] = [];
+  for (let i = cleanups.length - 1; i >= 0; i--) {
+    try {
+      cleanups[i]?.();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  return errors;
 }
 
 /**
@@ -407,32 +407,32 @@ function runAll(cleanups: readonly Cleanup[]): unknown[] {
  * @returns What the cleanups threw, if anything.
  */
 export function disposeOwner(owner: Owner, thrown: boolean): unknown[] {
-	const node = owner as OwnerNode;
-	if (node.disposed) {
-		return [];
-	}
-	node.disposed = true;
-	node.parent?.children.delete(node);
+  const node = owner as OwnerNode;
+  if (node.disposed) {
+    return [];
+  }
+  node.disposed = true;
+  node.parent?.children.delete(node);
 
-	const errors: unknown[] = [];
-	// no copy: disposing a child deletes it from this set, and a `Set` iterator
-	// handles both shapes of that -- the entry it is on, and a sibling a cleanup
-	// disposed before the walk reached it, which is one that should be skipped
-	// because it has already been disposed
-	for (const child of node.children) {
-		errors.push(...disposeOwner(child, false));
-	}
-	node.children.clear();
+  const errors: unknown[] = [];
+  // no copy: disposing a child deletes it from this set, and a `Set` iterator
+  // handles both shapes of that -- the entry it is on, and a sibling a cleanup
+  // disposed before the walk reached it, which is one that should be skipped
+  // because it has already been disposed
+  for (const child of node.children) {
+    errors.push(...disposeOwner(child, false));
+  }
+  node.children.clear();
 
-	errors.push(...runAll(node.cleanups));
-	node.cleanups.length = 0;
+  errors.push(...runAll(node.cleanups));
+  node.cleanups.length = 0;
 
-	if (thrown && errors.length > 0) {
-		throw errors.length === 1
-			? errors[0]
-			: new AggregateError(errors, 'Errors while disposing a component');
-	}
-	return errors;
+  if (thrown && errors.length > 0) {
+    throw errors.length === 1
+      ? errors[0]
+      : new AggregateError(errors, 'Errors while disposing a component');
+  }
+  return errors;
 }
 
 /**
@@ -443,9 +443,9 @@ export function disposeOwner(owner: Owner, thrown: boolean): unknown[] {
  * every component in between having to carry it.
  */
 export interface Context<T> {
-	readonly defaultValue: T;
-	/** @internal */
-	readonly id: symbol;
+  readonly defaultValue: T;
+  /** @internal */
+  readonly id: symbol;
 }
 
 /**
@@ -456,7 +456,7 @@ export interface Context<T> {
  * @returns The context.
  */
 export function createContext<T>(defaultValue: T, name = 'context'): Context<T> {
-	return { defaultValue, id: Symbol(name) };
+  return { defaultValue, id: Symbol(name) };
 }
 
 /**
@@ -468,9 +468,9 @@ export function createContext<T>(defaultValue: T, name = 'context'): Context<T> 
  * @returns Whatever `fn` returned.
  */
 export function provideContext<T, R>(context: Context<T>, value: T, fn: () => R): R {
-	const owner = new OwnerNode(current);
-	owner.context = new Map([[context.id, value]]);
-	return runWithOwner(owner, fn);
+  const owner = new OwnerNode(current);
+  owner.context = new Map([[context.id, value]]);
+  return runWithOwner(owner, fn);
 }
 
 /**
@@ -480,11 +480,11 @@ export function provideContext<T, R>(context: Context<T>, value: T, fn: () => R)
  * @returns The value, or the context's default where nothing provided one.
  */
 export function useContext<T>(context: Context<T>): T {
-	for (let at = current; at; at = at.parent) {
-		const held = at.context;
-		if (held?.has(context.id)) {
-			return held.get(context.id) as T;
-		}
-	}
-	return context.defaultValue;
+  for (let at = current; at; at = at.parent) {
+    const held = at.context;
+    if (held?.has(context.id)) {
+      return held.get(context.id) as T;
+    }
+  }
+  return context.defaultValue;
 }

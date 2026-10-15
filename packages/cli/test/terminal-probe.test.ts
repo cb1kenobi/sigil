@@ -19,21 +19,21 @@ import { describe, expect, it } from 'vitest';
  * behind it, which is the shape this repository keeps finding.
  */
 describe('the terminal probe', () => {
-	it('should load, which is what imports it cannot resolve would stop', () => {
-		// the assertion is almost beside the point: reaching it means every `dist/`
-		// specifier at the top of that file resolved, and every name it asked for
-		// exists on what it imported
-		expect(PROBES.length).toBeGreaterThan(0);
-	});
+  it('should load, which is what imports it cannot resolve would stop', () => {
+    // the assertion is almost beside the point: reaching it means every `dist/`
+    // specifier at the top of that file resolved, and every name it asked for
+    // exists on what it imported
+    expect(PROBES.length).toBeGreaterThan(0);
+  });
 
-	it('should say what to look at and what to expect, for every probe', () => {
-		// a probe with no `expect` line is one whose reader has to guess what agreement
-		// looks like, which is the same as not having run it
-		for (const probe of PROBES) {
-			expect(typeof probe.title, probe.title).toBe('string');
-			expect(probe.title.length, probe.title).toBeGreaterThan(0);
-			expect(probe.expect.length, probe.title).toBeGreaterThan(0);
-			expect(typeof probe.run, probe.title).toBe('function');
-		}
-	});
+  it('should say what to look at and what to expect, for every probe', () => {
+    // a probe with no `expect` line is one whose reader has to guess what agreement
+    // looks like, which is the same as not having run it
+    for (const probe of PROBES) {
+      expect(typeof probe.title, probe.title).toBe('string');
+      expect(probe.title.length, probe.title).toBeGreaterThan(0);
+      expect(probe.expect.length, probe.title).toBeGreaterThan(0);
+      expect(typeof probe.run, probe.title).toBe('function');
+    }
+  });
 });
