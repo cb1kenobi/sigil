@@ -470,6 +470,66 @@ describe('writing', () => {
     });
   });
 
+  describe('a comment that shared the line of the removed element', () => {
+    // it is not the child's to take, and pulling it up **inline** onto the
+    // previous element makes the file say something false. Measured against
+    // the JSONC store, which leaves such a comment on a line of its own: the
+    // two really did disagree and this was the worse one. Found by review
+    // round 2
+    it('should leave it on a line of its own rather than inline', () => {
+      const out = after(`<config>\n  <a>1</a>\n  <b>2</b> <!-- on b -->\n  <c>3</c>\n</config>\n`, {
+        a: '1',
+        c: '3',
+      });
+      expect(out).toBe(`<config>\n  <a>1</a>\n  <!-- on b -->\n  <c>3</c>\n</config>\n`);
+    });
+
+    it('should answer the same as a comment that had its own line already', () => {
+      // the two spellings of one document come out identical, which is what
+      // says the rule is about the line rather than about the comment
+      const inline = `<config>\n  <a>1</a>\n  <b>2</b> <!-- on b -->\n  <c>3</c>\n</config>\n`;
+      const own = `<config>\n  <a>1</a>\n  <!-- on b -->\n  <b>2</b>\n  <c>3</c>\n</config>\n`;
+      expect(after(inline, { a: '1', c: '3' })).toBe(after(own, { a: '1', c: '3' }));
+    });
+
+    it('should keep the indent it had where the removed element was first', () => {
+      const out = after(`<config>\n  <a>1</a> <!-- on a -->\n  <b>2</b>\n</config>\n`, {
+        b: '2',
+      });
+      expect(out).toBe(`<config>\n  <!-- on a -->\n  <b>2</b>\n</config>\n`);
+    });
+
+    it('should take the whole line where nothing shared it', () => {
+      // the control, so the tests above cannot pass by nothing ever being
+      // taken: without the indent a removal leaves an indented blank line
+      const out = after(`<config>\n  <a>1</a>\n  <b>2</b>\n  <c>3</c>\n</config>\n`, {
+        a: '1',
+        c: '3',
+      });
+      expect(out).toBe(`<config>\n  <a>1</a>\n  <c>3</c>\n</config>\n`);
+    });
+
+    it('should take the horizontal whitespace where the line ends after it', () => {
+      // a space before the closing tag is the child's, because nothing shares
+      // the line -- so this is the other side of the same question
+      expect(after(`<config><a>1</a> <b>2</b></config>`, { a: '1' })).toBe(
+        `<config><a>1</a></config>`
+      );
+    });
+
+    it('should keep the comment of a list tail on its own line too', () => {
+      // `writeList()` drops through the same function, so the rule is the
+      // list's as well -- which nothing else here would have shown
+      const schema: ConfigSchema = { p: { multiple: true, type: 'string' } };
+      const out = after(
+        `<config>\n  <p>1</p>\n  <p>2</p>\n  <p>3</p> <!-- on 3 -->\n</config>\n`,
+        { p: ['1', '2'] },
+        schema
+      );
+      expect(out).toBe(`<config>\n  <p>1</p>\n  <p>2</p>\n  <!-- on 3 -->\n</config>\n`);
+    });
+  });
+
   describe('the diff, which is two guards covering for each other', () => {
     // each one deleted alone changes no answer for a same-value write, and
     // both deleted together moves an inner comment -- which is how a survivor

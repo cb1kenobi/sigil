@@ -205,4 +205,45 @@ describe('the store', () => {
       expect(config.get('plugins')).toStrictEqual(['z']);
     });
   });
+
+  describe('the array mutators, which is where the contract was ambiguous', () => {
+    // found by review round 2 and measured: `canRepresent` is handed a value
+    // and the path it is written to, and for a `push` core handed over the
+    // **item** at the **list's** path -- a pair no path-sensitive store can
+    // answer, because `set('plugins', 'a')` and `push('plugins', 'a')` hand
+    // over the identical one. XML is the first store to read a path, since it
+    // cannot tell a list of one occurrence from a scalar, so every push and
+    // unshift on a declared `multiple` path threw. Fixed in core, which now
+    // asks about the list the call produces
+    const schema: ConfigSchema = { plugins: { multiple: true, type: 'string' } };
+
+    it('should push onto a list, which is the commonest way to add one', async () => {
+      const path = file(`<config>\n  <!-- what to load -->\n  <plugins>a</plugins>\n</config>\n`);
+      const config = await createConfig({
+        layers: [{ name: 'user', store: xml(path, { schema }) }],
+        schema,
+      });
+
+      config.push('plugins', 'b');
+      config.unshift('plugins', 'z');
+      expect(config.get('plugins')).toStrictEqual(['z', 'a', 'b']);
+      expect(config.pop('plugins')).toBe('b');
+
+      await config.save();
+      expect(read(path)).toBe(
+        `<config>\n  <!-- what to load -->\n  <plugins>z</plugins>\n  <plugins>a</plugins>\n</config>\n`
+      );
+    });
+
+    it('should refuse a pop that leaves a list XML cannot tell from a scalar', async () => {
+      // the other half of the same finding: `pop` asked nothing at all, so a
+      // value this store cannot hold reached memory and the refusal waited for
+      // `save()` -- which is the one thing `canRepresent` exists to stop
+      const path = file(`<config>\n  <tags>a</tags>\n  <tags>b</tags>\n</config>\n`);
+      const config = await createConfig({ layers: [{ name: 'user', store: xml(path) }] });
+
+      expect(() => config.pop('tags')).toThrow(/declare "tags" as multiple/);
+      expect(config.get('tags'), 'the refused pop changed nothing').toStrictEqual(['a', 'b']);
+    });
+  });
 });

@@ -220,6 +220,14 @@ line-ending normalization are in the XML spec — so they are not this store's t
 avoid. A byte order mark, CRLF line endings and a trailing newline are detected at
 read and reapplied at write, so none of them is a loss.
 
+Each row is matched against the document's **element content** — the source with
+every comment, CDATA section, processing instruction and DOCTYPE blanked out, at
+the same offsets so the line it reports is still the right one. A comment's own
+text is reproduced verbatim, so an `&apos;` or a bare `>` inside one survives and
+a row matching there would send you to a line with nothing wrong with it. NEL is
+the exception and is matched against the raw bytes, because that one is
+normalized everywhere a parser finds it, a comment included.
+
 An **internal DTD entity reference** is refused at read rather than reported here:
 `@xmldom/xmldom` cannot expand one, so the value would be the four characters
 `&e;` where the document says `hi`. A wrong value is not something to write down

@@ -15,6 +15,19 @@ function kinds(text: string): string[] {
   return (losses(text) ?? []).map((it) => it.kind);
 }
 
+/**
+ * What each loss says, and where.
+ *
+ * Asserted rather than the **kind**, which every row of one kind shares with
+ * the unexplained-difference fallback -- so `kinds(...).toContain('formatting')`
+ * held for a document whose row was missing, which is how `&quot;` came to have
+ * a test and no row. Found by review round 2, and it was true of all six
+ * `formatting` rows rather than that one.
+ */
+function said(text: string): string[] {
+  return (losses(text) ?? []).map((it) => `${it.kind}:${it.detail}@${String(it.line)}`);
+}
+
 describe('what a write would lose', () => {
   describe('asked of the document rather than of the format', () => {
     it('should be absent for a document that round-trips', () => {
@@ -92,31 +105,103 @@ describe('what a write would lose', () => {
     });
 
     it('should report a named reference for a quote', () => {
-      expect(kinds(`<config><a>&quot;</a></config>`)).toContain('formatting');
+      // both spellings, which the table has always claimed and the row did not
+      expect(said(`<config>\n  <a>&quot;</a>\n</config>`)).toStrictEqual([
+        'formatting:an &apos; or &quot; reference is rewritten as a literal quote@2',
+      ]);
     });
 
     it('should report an empty paired tag', () => {
-      expect(kinds(`<config><a></a></config>`)).toStrictEqual(['formatting']);
+      expect(said(`<config>\n  <a></a>\n</config>`)).toStrictEqual([
+        'formatting:an empty paired tag becomes self-closing@2',
+      ]);
     });
 
     it('should report a single-quoted attribute value', () => {
-      expect(kinds(`<config a='1'/>`)).toContain('formatting');
+      expect(said(`<config>\n  <a b='1'/>\n</config>`)).toStrictEqual([
+        'formatting:a single-quoted attribute value is rewritten with double quotes@2',
+      ]);
     });
 
     it('should report whitespace around an attribute’s =', () => {
-      expect(kinds(`<config a = "1"/>`)).toContain('formatting');
+      expect(said(`<config>\n  <a b = "1"/>\n</config>`)).toStrictEqual([
+        'formatting:whitespace around an attribute’s = is dropped@2',
+      ]);
     });
 
     it('should report a numeric character reference', () => {
-      expect(kinds(`<config><a>&#38;</a></config>`)).toContain('formatting');
+      expect(said(`<config>\n  <a>&#38;</a></config>`)).toStrictEqual([
+        'formatting:a numeric character reference is rewritten by name@2',
+      ]);
     });
 
     it('should report an &apos; reference', () => {
-      expect(kinds(`<config><a>&apos;</a></config>`)).toContain('formatting');
+      expect(said(`<config>\n  <a>&apos;</a>\n</config>`)).toStrictEqual([
+        'formatting:an &apos; or &quot; reference is rewritten as a literal quote@2',
+      ]);
     });
 
     it('should report a bare > in text', () => {
-      expect(kinds(`<config><a>1 > 2</a></config>`)).toContain('formatting');
+      expect(said(`<config>\n  <a>1 > 2</a>\n</config>`)).toStrictEqual([
+        'formatting:a bare > in text is escaped@2',
+      ]);
+    });
+
+    describe('matched against element content rather than the whole source', () => {
+      // every row but one misfired inside a comment or a CDATA section, each
+      // naming a `kind`, a `detail` and a `line` that sends the author to a
+      // construct with nothing wrong with it -- which is worse than no table,
+      // since the table is the whole of what makes the message actionable.
+      // Review round 2 reported one of the seven and measuring it found the
+      // rest. Each document holds one **real** loss plus a comment holding
+      // what a row looks for, so a misfire is a second entry
+      const real = 'formatting:an empty paired tag becomes self-closing@3';
+
+      it.each([
+        ['a bare >', 'a > b'],
+        ['an &apos;', 'it &apos;s'],
+        ['a &quot;', 'say &quot;hi&quot;'],
+        ['a numeric reference', '&#65;'],
+        ['a single-quoted attribute', `x='1'`],
+        ['whitespace around an =', 'x = 1'],
+        ['an empty paired tag', '<z></z>'],
+      ])('should not report %s inside a comment', (_what, held) => {
+        expect(said(`<!-- ${held} -->\n<config>\n  <a></a>\n</config>`)).toStrictEqual([real]);
+      });
+
+      it.each([
+        ['an &apos;', '&apos;'],
+        ['a bare >', '1 > 0'],
+      ])('should not report %s inside a CDATA section', (_what, held) => {
+        expect(
+          said(`<config>\n  <keep><![CDATA[${held}]]></keep>\n  <a></a>\n</config>`)
+        ).toStrictEqual([real]);
+      });
+
+      it('should not read a DOCTYPE internal subset as a bare > in text', () => {
+        // arbitrary markup, so `<!ELEMENT a (#PCDATA)>` read as one
+        expect(
+          said(`<!DOCTYPE config [<!ELEMENT a (#PCDATA)>]>\n<config>\n  <a></a>\n</config>`)
+        ).toStrictEqual([real]);
+      });
+
+      it('should report a NEL inside a comment, which really is normalized', () => {
+        // the one row matched against the raw source: a comment holding a NEL
+        // comes back holding a newline, so blanking it would suppress a true
+        // positive. Which is why this is per row rather than one rule
+        expect(said(`<!-- a\u0085b -->\n<config>\n  <a></a>\n</config>`)).toStrictEqual([
+          real,
+          'spec:NEL is normalized to a newline, which the XML spec requires@1',
+        ]);
+      });
+
+      it('should point at the real one rather than the one in a comment', () => {
+        // the line is the source's either way, which is what the blanking
+        // keeps the newlines for
+        expect(said(`<!-- <z></z> -->\n<config>\n  <a>1</a>\n  <b></b>\n</config>`)).toStrictEqual([
+          'formatting:an empty paired tag becomes self-closing@4',
+        ]);
+      });
     });
 
     it('should report attribute-value whitespace as the spec’s rather than ours', () => {

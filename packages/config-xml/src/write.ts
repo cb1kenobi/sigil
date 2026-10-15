@@ -278,13 +278,57 @@ function newElement(parent: XmlEl, name: string): XmlEl {
 /** Removes a child, and the whitespace that was laying it out. */
 function dropChild(parent: XmlEl, child: XmlEl): void {
   const prev = child.previousSibling;
+  const kept = trailingTrivia(child);
   parent.removeChild(child);
+
+  // whatever shared the child's line and is not the child's to take -- a
+  // comment, overwhelmingly. The horizontal whitespace between the two goes
+  // with the child and the line break in front of it stays, which puts the
+  // comment on a line of its own at the indent the child had. Without it the
+  // comment is pulled up **inline** onto the previous element, where it reads
+  // as that element's: `<b>2</b> <!-- on b -->` removed left
+  // `<a>1</a> <!-- on b -->`, a file saying something false, which this
+  // repository already calls worse than losing the comment outright.
+  //
+  // Measured against the sibling store rather than invented, which is what
+  // settled it: the JSONC writer leaves such a comment on its own line, and
+  // AGENTS.md's residue entry for it -- "survives onto the line above, so it
+  // then reads as the surviving entry's" -- is about adjacency rather than
+  // about being glued to it. So the two stores really did disagree and this is
+  // the one that was worse. Found by review round 2
+  if (kept) {
+    parent.removeChild(kept);
+    return;
+  }
+
   // the indent in front of it, which belongs to the child rather than to the
   // parent: left behind, a removal leaves an indented blank line, which is the
   // line rule `removeFrom()` in the JSONC writer already keeps
   if (prev && prev.nodeType === TEXT_NODE && (prev.data ?? '').trim() === '') {
     parent.removeChild(prev);
   }
+}
+
+/**
+ * The horizontal whitespace between a child and trivia sharing its line, where
+ * there is any.
+ *
+ * Nothing where the child's line ends after it, which is the ordinary case --
+ * so `dropChild()` takes the indent in front of the child, as it always did.
+ */
+function trailingTrivia(child: XmlEl): XmlNode | undefined {
+  const gap = child.nextSibling ?? undefined;
+  if (!gap || gap.nodeType !== TEXT_NODE) {
+    return undefined;
+  }
+
+  const data = gap.data ?? '';
+  if (data.trim() !== '' || /[\n\r]/.test(data)) {
+    return undefined;
+  }
+
+  // whitespace with no break in it, so whatever follows is on the child's line
+  return (gap as XmlEl).nextSibling ? gap : undefined;
 }
 
 /**
@@ -466,13 +510,17 @@ export function applyInto(
     return;
   }
 
-  // the element held a scalar and now holds named parts, so its text goes --
-  // before anything is inserted, because `addChild()` reads the element's own
-  // layout and a stale scalar would be laid out around
-  if (!isPlainObject(current)) {
-    clearText(el);
-  }
-
+  // the element held a scalar and now holds named parts, so its text has to go
+  // before anything is inserted -- and `addChild()` is what does it, in its own
+  // "nothing to copy a layout from" branch, before it reads any layout. A
+  // `clearText(el)` here was unreachable rather than redundant: an element that
+  // read as a scalar has no element children, so that branch is the one every
+  // insert into one takes, and there is no shape where the text must go and
+  // nothing is inserted -- `{}` at a setting's path is refused by
+  // `canRepresent()` and the root never reads as a scalar. Measured over eight
+  // shapes of leaf-becoming-container, byte for byte identical with it gone,
+  // and `should not clearText before a fresh layout` is what pins the live one.
+  // Raised by review round 2, which reported it of a guard it had invented
   const held = isPlainObject(current) ? current : {};
 
   for (const [name, value] of Object.entries(target)) {

@@ -80,6 +80,81 @@ interface Residual {
   look: RegExp;
   /** What to say about it. */
   say: string;
+  /**
+   * Which text it is matched against, and the split is measured per row.
+   *
+   * `content` is the source with every comment, CDATA section, processing
+   * instruction and DOCTYPE **blanked**, which is where all but one of these
+   * belong: a comment's own text is reproduced verbatim, so `&apos;`, `&#65;`
+   * and a bare `>` inside one all survive -- measured -- and a row matching
+   * there names a line the author would go and find nothing wrong with. Which
+   * is the whole of what this table is for, so getting it wrong is worse than
+   * having no table.
+   *
+   * `source` is the raw bytes, for a normalization the parser applies
+   * **everywhere**. NEL is the one: a comment holding one comes back holding a
+   * newline, so blanking the comment would suppress a true positive.
+   *
+   * Found by review round 2, which reported one row of the seven; the other six
+   * came out of measuring its finding.
+   */
+  where: 'content' | 'source';
+}
+
+/**
+ * The source with every region a `content` row must not match blanked out.
+ *
+ * Blanked rather than removed, so that every offset -- and therefore every
+ * `line` a report names -- is the one it was. That is the JSONC scanner's own
+ * trick in the runtime, where a comment and a trailing comma each become a
+ * space and every newline is kept.
+ *
+ * The four regions are the ones whose content is not element content: a
+ * comment, a CDATA section, a processing instruction or the XML declaration,
+ * and a DOCTYPE -- whose internal subset is arbitrary markup, which is what
+ * made a `<!ELEMENT a (#PCDATA)>` read as a bare `>` in text.
+ */
+function contentOf(source: string): string {
+  const out = Array.from(source);
+  const blank = (from: number, to: number): void => {
+    for (let i = from; i < to && i < out.length; i++) {
+      if (out[i] !== '\n' && out[i] !== '\r') {
+        out[i] = ' ';
+      }
+    }
+  };
+
+  for (let i = 0; i < source.length; i++) {
+    if (source[i] !== '<') {
+      continue;
+    }
+    // each region is `[opener, closer]`, and the DOCTYPE's closer is the first
+    // `>` past its own internal subset rather than the first `>` at all
+    const region = source.startsWith('<!--', i)
+      ? ['<!--', '-->']
+      : source.startsWith('<![CDATA[', i)
+        ? ['<![CDATA[', ']]>']
+        : source.startsWith('<?', i)
+          ? ['<?', '?>']
+          : source.startsWith('<!DOCTYPE', i)
+            ? ['<!DOCTYPE', '>']
+            : undefined;
+
+    if (!region) {
+      continue;
+    }
+
+    const [open, close] = region as [string, string];
+    const subset = open === '<!DOCTYPE' ? source.indexOf(']', i) : -1;
+    const from = subset === -1 ? i + open.length : subset;
+    const at = source.indexOf(close, from);
+    const end = at === -1 ? source.length : at + close.length;
+
+    blank(i, end);
+    i = end - 1;
+  }
+
+  return out.join('');
 }
 
 /**
@@ -94,44 +169,61 @@ interface Residual {
  */
 const RESIDUALS: readonly Residual[] = [
   {
-    kind: 'entity',
-    // an entity declared in an internal DTD subset and then referenced. The
-    // reference is what the serializer corrupts, so the declaration is what
-    // says the document has one to corrupt
-    look: /<!ENTITY\s/,
-    say: 'an internal DTD entity reference is written back as literal text',
-  },
-  {
     kind: 'formatting',
     look: /<([^\s/>]+)([^>]*)><\/\1\s*>/,
     say: 'an empty paired tag becomes self-closing',
+    where: 'content',
   },
   {
     kind: 'formatting',
     look: /=\s*'/,
     say: 'a single-quoted attribute value is rewritten with double quotes',
+    where: 'content',
   },
-  { kind: 'formatting', look: /\s=|=\s/, say: 'whitespace around an attribute’s = is dropped' },
-  { kind: 'formatting', look: /&#/, say: 'a numeric character reference is rewritten by name' },
   {
     kind: 'formatting',
-    look: /&apos;/,
-    say: 'an &apos; reference is rewritten as a literal quote',
+    look: /\s=|=\s/,
+    say: 'whitespace around an attribute’s = is dropped',
+    where: 'content',
+  },
+  {
+    kind: 'formatting',
+    look: /&#/,
+    say: 'a numeric character reference is rewritten by name',
+    where: 'content',
+  },
+  {
+    // both spellings, which the table above has always claimed and this row
+    // did not: `&quot;` in element text comes back a literal `"` exactly as
+    // `&apos;` does -- measured -- and with only `&apos;` here a document
+    // holding one fell through to the unexplained-difference fallback, which
+    // reports no line at all, or was not reported at all where another row
+    // had already matched. Found by review round 2
+    kind: 'formatting',
+    look: /&apos;|&quot;/,
+    say: 'an &apos; or &quot; reference is rewritten as a literal quote',
+    where: 'content',
   },
   {
     kind: 'formatting',
     look: />(?:[^<]*[^<&\s])?[^<]*>[^<]*</,
     say: 'a bare > in text is escaped',
+    where: 'content',
   },
   {
     kind: 'spec',
     look: /="[^"]*[\n\r\t]/,
     say: 'whitespace in an attribute value is normalized to a space, which the XML spec requires',
+    where: 'content',
   },
   {
+    // the one row matched against the raw source, because this one really is
+    // everywhere: a comment holding a NEL comes back holding a newline, so
+    // blanking the comment would suppress a true positive
     kind: 'spec',
     look: /\u0085/,
     say: 'NEL is normalized to a newline, which the XML spec requires',
+    where: 'source',
   },
 ];
 
@@ -155,9 +247,12 @@ export function lossesOf(source: string, rendered: string): readonly Loss[] | un
   }
 
   const out: Loss[] = [];
+  // blanked once rather than per row, and the offsets are the source's either
+  // way -- which is what `contentOf()` keeps the newlines for
+  const content = contentOf(source);
 
   for (const it of RESIDUALS) {
-    const found = it.look.exec(source);
+    const found = it.look.exec(it.where === 'source' ? source : content);
     if (!found) {
       continue;
     }

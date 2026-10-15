@@ -889,8 +889,6 @@ export class Config {
 
     const layer = this.#writable(name, path);
 
-    this.#assertRepresentable(layer, path, value);
-
     const at = readPath(layer.value, parts);
     // a path this layer has nothing at becomes a list, which is what makes a
     // first `push` work on a layer that has never held one. A path holding
@@ -910,6 +908,24 @@ export class Config {
     } else {
       list.unshift(next);
     }
+
+    // the **resulting list** rather than the item, which is what
+    // `canRepresent`'s own `@param` says: "the value about to be written", at a
+    // `path` that is "the dotted path it is being written to". The item is not
+    // written to `path` -- it is written to an index of it -- so the pair core
+    // used to hand over was incoherent for a push, and a store that reasons
+    // about the path cannot answer it. `@ttylabs/config-xml` is the first to
+    // read one: XML cannot tell a list of one occurrence from a scalar, so it
+    // must know which paths a schema declared `multiple`, and every
+    // `push()`/`unshift()` on such a path was refused with "declared multiple,
+    // so XML cannot hold a value that is not a list" -- the commonest way to
+    // add a plugin, unusable. Measured rather than reasoned.
+    //
+    // Nothing is lost by asking about the list: every store's check is a walk,
+    // so the item is still asked about and is now named at the index it lands
+    // at -- `['a', 10n]` is refused at `plugins.1`. And it changes no answer
+    // for either store in here, because `jsonCanHold()` is not path-sensitive.
+    this.#assertRepresentable(layer, path, list);
 
     writePath(layer.value, parts, list);
 
@@ -933,6 +949,17 @@ export class Config {
 
     const list = [...(at as unknown[])];
     const removed = what === 'pop' ? list.pop() : list.shift();
+
+    // the same question, which this had none of -- so a value the store cannot
+    // hold reached memory and the refusal waited for `save()`, which is the one
+    // thing `canRepresent` exists to stop: "refused where it was written rather
+    // than discovered at `save()`". Removing is as able to produce one as
+    // adding, and XML is where that shows -- a `['a', 'b']` popped to `['a']`
+    // at a path no schema declared `multiple` is a list XML cannot tell from a
+    // scalar. Refused at the call, naming the fix, which is what the message
+    // already says
+    this.#assertRepresentable(layer, path, list);
+
     writePath(layer.value, parts, list);
     this.#touch(layer, parts);
     return removed;

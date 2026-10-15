@@ -1087,23 +1087,55 @@ describe('the two refusals', () => {
     expect(config.get('x')).to.equal(1);
   });
 
-  it('should ask canRepresent about a pushed value too', async () => {
-    const seen: unknown[] = [];
+  it('should ask canRepresent about the list a push produces, not the item', async () => {
+    // the pair the store is handed has to be coherent: the item is written to
+    // an index of `path` rather than to `path`, so a store that reasons about
+    // the path cannot answer the item -- and `@ttylabs/config-xml` must,
+    // because XML cannot tell a list of one occurrence from a scalar. Asking
+    // about the list loses nothing, since every store's check is a walk
+    const seen: [unknown, string][] = [];
     const store: WritableConfigStore = {
-      canRepresent: (value: unknown): true => {
-        seen.push(value);
+      canRepresent: (value: unknown, path: string): true => {
+        seen.push([value, path]);
         return true;
       },
       format: 'probe',
-      read: (): Promise<ConfigDocument> => Promise.resolve({ value: {} }),
-      readSync: (): ConfigDocument => ({ value: {} }),
+      read: (): Promise<ConfigDocument> => Promise.resolve({ value: { list: ['one'] } }),
+      readSync: (): ConfigDocument => ({ value: { list: ['one'] } }),
       write: (): Promise<void> => Promise.resolve(),
       writeSync: (): void => undefined,
     };
 
     const config = await createConfig({ layers: [{ name: 'a', store }] });
-    config.push('list', 'one');
-    expect(seen).to.deep.equal(['one']);
+    config.push('list', 'two');
+    config.unshift('list', 'zero');
+    expect(seen).to.deep.equal([
+      [['one', 'two'], 'list'],
+      [['zero', 'one', 'two'], 'list'],
+    ]);
+  });
+
+  it('should ask it about the list a pop produces, which it never used to', async () => {
+    // removing is as able to produce a value the format cannot hold as adding,
+    // and without this the refusal waited for `save()` -- the one thing
+    // `canRepresent` exists to stop
+    const seen: unknown[] = [];
+    const store: WritableConfigStore = {
+      canRepresent: (value: unknown): true | string => {
+        seen.push(value);
+        return Array.isArray(value) && value.length === 1 ? 'no list of one' : true;
+      },
+      format: 'probe',
+      read: (): Promise<ConfigDocument> => Promise.resolve({ value: { list: ['a', 'b'] } }),
+      readSync: (): ConfigDocument => ({ value: { list: ['a', 'b'] } }),
+      write: (): Promise<void> => Promise.resolve(),
+      writeSync: (): void => undefined,
+    };
+
+    const config = await createConfig({ layers: [{ name: 'a', store }] });
+    expect(() => config.pop('list')).to.throw(/no list of one/);
+    expect(seen).to.deep.equal([['a']]);
+    expect(config.get('list'), 'the refused pop changed nothing').to.deep.equal(['a', 'b']);
   });
 
   it('should carry what a store says it would lose', async () => {
