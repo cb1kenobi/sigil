@@ -18,6 +18,8 @@ export const ELEMENT_NODE = 1;
 export const TEXT_NODE = 3;
 /** A CDATA section, which is a text node wearing a different number. */
 export const CDATA_NODE = 4;
+/** A comment, which is trivia an insert has to step over rather than through. */
+export const COMMENT_NODE = 8;
 
 /**
  * Enough of a DOM element for this mapping, structurally.

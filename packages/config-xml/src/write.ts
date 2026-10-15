@@ -1,5 +1,6 @@
 import {
   CDATA_NODE,
+  COMMENT_NODE,
   ELEMENT_NODE,
   elementChildren,
   nameOf,
@@ -178,12 +179,27 @@ function stepOf(root: XmlEl): string | undefined {
   return walk(root, indentBefore(root) ?? '');
 }
 
-/** Whether anything in the document is laid out on its own line. */
+/**
+ * Whether anything in the document is laid out on its own line.
+ *
+ * **Layout** whitespace rather than any line break: a text node that is nothing
+ * but whitespace and holds a break is a document laid out across lines, and a
+ * break *inside a value* is content. Without the distinction a single-line
+ * document holding a multi-line CDATA section reads as laid out, and then a
+ * container with no children to copy from is given a step the document does not
+ * use. Found by review round 1, which reported it as a corrupted layout; what it
+ * actually produces is a correct document formatted differently, because the
+ * step is only read where there is no sibling to copy.
+ */
 function multiline(root: XmlEl): boolean {
   const walk = (el: XmlEl): boolean => {
     for (const node of Array.from(el.childNodes ?? [])) {
-      if (node.nodeType === TEXT_NODE && /[\n\r]/.test(node.data ?? '')) {
-        return true;
+      if (node.nodeType === TEXT_NODE) {
+        const data = node.data ?? '';
+        if (data.trim() === '' && /[\n\r]/.test(data)) {
+          return true;
+        }
+        continue;
       }
       if (node.nodeType === ELEMENT_NODE && walk(node as XmlEl)) {
         return true;
@@ -271,6 +287,50 @@ function dropChild(parent: XmlEl, child: XmlEl): void {
   }
 }
 
+/**
+ * Where an insert goes: past whatever shares the last child's line.
+ *
+ * Which is the JSONC writer's own finding in a second format. `last.nextSibling`
+ * alone splices the new element **in front of** an inline comment, so
+ *
+ * ```xml
+ * <config>
+ *   <a>1</a> <!-- on a -->
+ * </config>
+ * ```
+ *
+ * gaining a `b` came out with the comment on `<b>`'s line -- a file saying
+ * something **false**, which that writer's entry records as worse than losing
+ * the comment outright. So the walk steps over horizontal whitespace and
+ * comments until it meets a line break or anything else, and stops at whatever
+ * that is.
+ *
+ * Measured. Found by review round 1.
+ */
+function afterLastLine(last: XmlEl): XmlNode | null {
+  let at: XmlNode | null = last.nextSibling ?? null;
+
+  while (at) {
+    if (at.nodeType === COMMENT_NODE) {
+      at = (at as XmlEl).nextSibling ?? null;
+      continue;
+    }
+    if (at.nodeType === TEXT_NODE) {
+      const data = at.data ?? '';
+      // a break ends the line, so the insert belongs before this node; anything
+      // with content in it is not trivia and ends the walk too
+      if (/[\n\r]/.test(data) || data.trim() !== '') {
+        return at;
+      }
+      at = (at as XmlEl).nextSibling ?? null;
+      continue;
+    }
+    return at;
+  }
+
+  return null;
+}
+
 /** Appends a child, laid out the way its siblings are. */
 function addChild(parent: XmlEl, child: XmlEl, shape: WriteShape): void {
   const existing = elementChildren(parent) as XmlEl[];
@@ -286,7 +346,7 @@ function addChild(parent: XmlEl, child: XmlEl, shape: WriteShape): void {
     // inconsistent gets the odd one out rather than the majority. Measured on
     // both, which is why it is neither.
     const indent = existing.map(indentBefore).find((it) => it !== undefined);
-    const after = (existing[existing.length - 1] as XmlEl).nextSibling ?? null;
+    const after = afterLastLine(existing[existing.length - 1] as XmlEl);
 
     if (indent !== undefined) {
       parent.insertBefore(doc.createTextNode(`\n${indent}`), after);
@@ -326,20 +386,39 @@ function clearText(el: XmlEl): void {
 }
 
 /**
- * Writes a scalar into an element, replacing whatever it held.
+ * Writes a scalar into an element, replacing **everything** it held.
  *
  * Only reached where the diff said the text has to change, which is what keeps
  * a CDATA section a CDATA section: the one way to destroy one is to write over
  * it, and nothing here writes over a value that already matches.
  *
- * Where the text *does* change and the element held CDATA, the replacement is
- * **also** CDATA -- because the author chose that spelling for a reason, and a
- * value holding `<` or `&` written as a text node is escaped where they wanted
- * it verbatim. An empty value writes no node at all, which is `<a/>`.
+ * ## Its attributes go with its children, which is the half that was missing
+ *
+ * An element holds a scalar or named parts and never both, so an element
+ * becoming a leaf has to stop holding both -- and leaving the attributes behind
+ * wrote `<server host="h">none</server>`, which is **mixed content the read
+ * refuses**: a `save()` producing a file this store cannot read back. Two more
+ * shapes of the same thing, each a wrong value rather than a throw:
+ * `{ server: '' }` over `<server host="h"/>` left the attribute and read back
+ * as `{ host: 'h' }`, and an emptied list over `<p n="a"/>` read back as
+ * `[{ n: 'a' }]`. Found by review round 1, which reasoned it off a source it
+ * had invented and was right about this anyway.
+ *
+ * ## And a value holding `]]>` falls back to a text node
+ *
+ * `createCDATASection` **throws** `data contains "]]>"` -- a DOM error naming
+ * nothing -- and the value is perfectly representable as escaped text, so
+ * refusing it would refuse the format's own answer. What is lost is the
+ * author's CDATA spelling for that one element, which is the smaller of the
+ * two: the standard `a]]]]><![CDATA[>b` split keeps it and produces a file
+ * nobody wants to read.
  */
 function setLeaf(el: XmlEl, value: unknown): void {
   const cdata = Array.from(el.childNodes ?? []).some((node) => node.nodeType === CDATA_NODE);
 
+  for (const attr of settingAttrs(el)) {
+    el.removeAttributeNS(attr.namespaceURI ?? null, nameOf(attr));
+  }
   for (const child of elementChildren(el) as XmlEl[]) {
     dropChild(el, child);
   }
@@ -351,7 +430,9 @@ function setLeaf(el: XmlEl, value: unknown): void {
   }
 
   const doc = docOf(el);
-  el.appendChild(cdata ? doc.createCDATASection(text) : doc.createTextNode(text));
+  el.appendChild(
+    cdata && !text.includes(']]>') ? doc.createCDATASection(text) : doc.createTextNode(text)
+  );
 }
 
 /**

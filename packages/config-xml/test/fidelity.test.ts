@@ -48,6 +48,19 @@ describe('what a write would lose', () => {
       expect(losses(`<config><a>1</a></config>`)).toBeUndefined();
     });
 
+    it('should be absent for a carriage-return-only document, and for a blank last line', () => {
+      // both found by probing: each reported a loss it need not suffer, which is
+      // the guard firing on correct code this whole check is written against
+      expect(losses(`<config>\r  <a>1</a>\r</config>\r`)).toBeUndefined();
+      expect(losses(`<config><a>1</a></config>\n\n`)).toBeUndefined();
+      expect(losses(`<config><a>1</a></config>\r\n`)).toBeUndefined();
+    });
+
+    it('should report a document whose line endings really are mixed', () => {
+      // which genuinely changes, so it is a loss rather than a reapply
+      expect(losses(`<config>\n  <a>1</a>\r\n</config>\n`)).toBeDefined();
+    });
+
     it('should be absent for a document with a byte order mark', () => {
       expect(losses(`\uFEFF<config><a>1</a></config>`)).toBeUndefined();
     });

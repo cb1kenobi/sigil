@@ -193,9 +193,18 @@ const NAME = new RegExp(
   'u'
 );
 
-/** Whether a path segment or a key can be an element name. */
-function nameable(name: string): boolean {
-  return NAME.test(name);
+/**
+ * Whether a path segment or a key can be an element name.
+ *
+ * `xmlns` is refused on top of the production, which allows it: it is a
+ * namespace *declaration* rather than a name, so `createElementNS(null,
+ * 'xmlns')` throws `NAMESPACE_ERR` -- and a `root` of it writes a document that
+ * will not parse. Found by review round 1. Any **other** `xml`-prefixed name is
+ * allowed: the spec reserves them, `@xmldom/xmldom` takes them, and they
+ * round-trip, so refusing would be stricter than the format.
+ */
+export function nameable(name: string): boolean {
+  return name !== 'xmlns' && NAME.test(name);
 }
 
 /**
@@ -209,7 +218,11 @@ function nameable(name: string): boolean {
  * @param path - What to call it, which is a dotted path from the caller's own.
  * @returns `true`, or a sentence saying why not.
  */
-export function xmlCanHold(value: unknown, path: string): true | string {
+export function xmlCanHold(
+  value: unknown,
+  path: string,
+  multiple: ReadonlySet<string> = new Set()
+): true | string {
   // the path's own segments first, because the message should name the segment
   // rather than the value sitting at it: `set('1bad', 'v')` is a *name* XML
   // cannot have, and nothing about `'v'` is wrong. Split here rather than
@@ -226,16 +239,33 @@ export function xmlCanHold(value: unknown, path: string): true | string {
   // hang -- added and removed around the recursion, which is `copyInto()`'s own
   // rule: a value referenced twice is a DAG that writes twice, and only a
   // genuine cycle is refused
-  return look(value, path, new WeakSet<object>()) ?? true;
+  return look(value, path, new WeakSet<object>(), multiple, false) ?? true;
 }
 
 /** The walk, with the objects it is inside. */
-function look(value: unknown, where: string, seen: WeakSet<object>): string | undefined {
+function look(
+  value: unknown,
+  where: string,
+  seen: WeakSet<object>,
+  multiple: ReadonlySet<string>,
+  inList: boolean
+): string | undefined {
   const at = (answer: string): string => (where === '' ? answer : `${answer} (at "${where}")`);
   const answer = why(value);
 
   if (answer !== undefined) {
     return at(answer);
+  }
+
+  // a declared list always **reads** as an array -- `wrap()` sees to that -- so
+  // a scalar at one can never be read back: `write({ items: '' })` over an
+  // `<items/>` that means `[]` was a silent **no-op**, because the diff
+  // compared the element's own `''` against the `''` it was handed and found
+  // them equal. `coerceSetting()` refuses the same value one layer up with
+  // `Expected a list of values`, so this is that answer, earlier. Found by
+  // review round 1
+  if (where !== '' && multiple.has(where) && !Array.isArray(value)) {
+    return at(`"${where}" is declared multiple, so XML cannot hold a value that is not a list`);
   }
 
   if (typeof value !== 'object' || value === null) {
@@ -253,7 +283,12 @@ function look(value: unknown, where: string, seen: WeakSet<object>): string | un
   // to the one case the schema can read -- a general `toJSON` rule would have
   // to answer what to do when one returns structure, and nothing needs it
   if (value instanceof Date) {
-    return undefined;
+    // an **invalid** `Date` is not one: `new Date(NaN).toISOString()` throws
+    // `RangeError: Invalid time value`, so letting it through meant a `set()`
+    // that succeeded and a `save()` that threw out of the serializer with a
+    // message about time rather than about a config. The same call `NaN` gets
+    // one branch up, and found by review round 1
+    return Number.isNaN(value.getTime()) ? at('XML has no invalid Date') : undefined;
   }
 
   const list = Array.isArray(value);
@@ -265,10 +300,30 @@ function look(value: unknown, where: string, seen: WeakSet<object>): string | un
     return at(`XML has no way to write a ${(value as object).constructor?.name ?? 'value'}`);
   }
 
+  // a list inside a list has no path: the inner one is an element's own value,
+  // so it reaches the file as `String(['a','b'])` -- the text `a,b`, which is
+  // the `[object Map]` class with a comma in it. Measured, and the shape a
+  // review round's question about nested values pointed at
+  if (list && inList) {
+    return at('XML has no list inside a list');
+  }
+
   if (list) {
     if (value.length === 1 && value[0] === '') {
       return at(
         'a list of one empty string is the same bytes as an empty list, so it cannot be told apart'
+      );
+    }
+    // a list of fewer than two at a path nothing declared `multiple` writes one
+    // element or none, which reads back as a **scalar** -- so the value changes
+    // type on a round trip, which is the silent class every other refusal here
+    // is about. Refused rather than explained, and the message names the fix:
+    // two or more round-trips because a repeat is unambiguous, which is why the
+    // refusal looks like it depends on the length of the data. It does, and
+    // that is a property of the format rather than of this check
+    if (where !== '' && value.length < 2 && !multiple.has(where)) {
+      return at(
+        `XML cannot tell a list of ${value.length} from a scalar; declare "${where}" as multiple`
       );
     }
   } else if (Object.keys(value).length === 0 && where !== '') {
@@ -292,7 +347,7 @@ function look(value: unknown, where: string, seen: WeakSet<object>): string | un
           return `XML has no hole in a list (at "${label}")`;
         }
 
-        const inner = look(value[i], label, seen);
+        const inner = look(value[i], label, seen, multiple, true);
         if (inner !== undefined) {
           return inner;
         }
@@ -309,7 +364,7 @@ function look(value: unknown, where: string, seen: WeakSet<object>): string | un
           return `XML has no element called "${key}"${where === '' ? '' : ` (at "${where}")`}`;
         }
 
-        const inner = look(it, label, seen);
+        const inner = look(it, label, seen, multiple, false);
         if (inner !== undefined) {
           return inner;
         }

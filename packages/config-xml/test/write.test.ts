@@ -109,6 +109,30 @@ describe('writing', () => {
       ).toBe(`<config>\n  <a>1</a>\n      <b>2</b>\n  <c>3</c>\n</config>\n`);
     });
 
+    it('should go after whatever shares the last sibling\u2019s line', () => {
+      // `last.nextSibling` alone splices the new element **in front of** an
+      // inline comment, so the comment came out on the new element's line -- a
+      // file saying something false, which the JSONC writer's own entry records
+      // as worse than losing the comment outright. The same finding in a second
+      // format, found by review round 1
+      expect(after(`<config>\n  <a>1</a> <!-- on a -->\n</config>\n`, { a: '1', b: '2' })).toBe(
+        `<config>\n  <a>1</a> <!-- on a -->\n  <b>2</b>\n</config>\n`
+      );
+    });
+
+    it('should read a newline inside a value as content rather than as layout', () => {
+      // a text node that is nothing but whitespace and holds a break is a
+      // document laid out across lines; a break *inside a value* is content.
+      // Without the distinction a single-line document holding a multi-line
+      // CDATA section reads as laid out
+      expect(
+        after(`<config><note><![CDATA[l1\nl2]]></note></config>`, {
+          note: 'l1\nl2',
+          port: '80',
+        })
+      ).toBe(`<config><note><![CDATA[l1\nl2]]></note><port>80</port></config>`);
+    });
+
     it('should leave no stray blank line in an empty but laid-out document', () => {
       // the **root** is where this shows, because it reads as `{}` where a leaf
       // reads as `''`: both are plain objects, so the clear that handles a
@@ -148,6 +172,60 @@ describe('writing', () => {
       expect(
         after(`<config>\n  <server>old</server>\n</config>\n`, { server: { port: '80' } })
       ).toBe(`<config>\n  <server>\n    <port>80</port>\n  </server>\n</config>\n`);
+    });
+  });
+
+  describe('an element becoming a leaf', () => {
+    it('should drop its attributes with its children', () => {
+      // an element holds a scalar or named parts and never both, so leaving the
+      // attributes behind wrote `<server host="h">none</server>` -- mixed
+      // content the **read refuses**, which is a `save()` producing a file this
+      // store cannot read back. Found by review round 1
+      expect(
+        after(`<config><server host="h"><port>1</port></server></config>`, {
+          server: 'none',
+        })
+      ).toBe(`<config><server>none</server></config>`);
+    });
+
+    it('should drop them for an empty value too, which is a wrong value rather than a throw', () => {
+      // `{ server: '' }` over `<server host="h"/>` left the attribute and read
+      // back as `{ host: 'h' }`
+      const { path, store } = over(`<config><server host="h"/></config>`);
+      store.writeSync({ server: '' });
+      expect(xml(path).readSync().value).toStrictEqual({ server: '' });
+    });
+
+    it('should drop them for an emptied list, which is the third shape', () => {
+      // an emptied list over `<p n="a"/>` read back as `[{ n: 'a' }]`
+      const schema: ConfigSchema = { p: { multiple: true } };
+      const { path, store } = over(`<config><p n="a"/><p n="b"/></config>`, schema);
+      store.writeSync({ p: [] });
+      expect(xml(path, { schema }).readSync().value).toStrictEqual({ p: [] });
+    });
+
+    it('should fall back to a text node for a value holding ]]>', () => {
+      // `createCDATASection` **throws** `data contains "]]>"` -- a DOM error
+      // naming nothing -- and the value is perfectly representable as escaped
+      // text, so refusing it would refuse the format's own answer. What is lost
+      // is the author's CDATA spelling for that one element, which is smaller
+      // than the `a]]]]><![CDATA[>b` split that keeps it and produces a file
+      // nobody wants to read. Found by review round 1
+      const { path, store } = over(`<config><s><![CDATA[old]]></s></config>`);
+      store.writeSync({ s: 'a]]>b' });
+      expect(read(path)).toBe(`<config><s>a]]&gt;b</s></config>`);
+      expect(xml(path).readSync().value).toStrictEqual({ s: 'a]]>b' });
+    });
+  });
+
+  describe('a document whose root is not an object', () => {
+    it('should be refused at the write as well as at the read', () => {
+      // without it `write([1, 2])` reached the walk as a scalar root and wrote
+      // `<config>1,2</config>` -- the `String(array)` corruption, at the one
+      // path the list check skips because the root is where a document may
+      // legitimately be `{}`
+      expect(() => xml(file(`<config/>`)).writeSync([1, 2])).toThrow(/must hold an object/);
+      expect(() => xml(file(`<config/>`)).writeSync('x')).toThrow(/must hold an object/);
     });
   });
 
@@ -327,6 +405,36 @@ describe('writing', () => {
 
     it('should keep a file with no trailing newline without one', () => {
       expect(after(`<config><a>1</a></config>`, { a: '2' })).toBe(`<config><a>2</a></config>`);
+    });
+
+    it('should keep a carriage return alone, which is the third flavour', () => {
+      // without it an old Mac file reports a loss and cannot be written to
+      // without `lossy`, for a line ending that is merely extinct rather than
+      // wrong -- and three characters is what it costs. Found by probing
+      expect(after(`<config>\r  <a>1</a>\r</config>\r`, { a: '2' })).toBe(
+        `<config>\r  <a>2</a>\r</config>\r`
+      );
+    });
+
+    it('should keep the trailing run rather than one break of it', () => {
+      // the whole run rather than a boolean, which costs the same: the
+      // serializer drops everything after the root, so a boolean puts back one
+      // break where there were two and a file ending in a blank line is
+      // reported as a loss it need not suffer
+      expect(after(`<config><a>1</a></config>\n\n`, { a: '2' })).toBe(
+        `<config><a>2</a></config>\n\n`
+      );
+      expect(after(`<config><a>1</a></config>\r\n`, { a: '2' })).toBe(
+        `<config><a>2</a></config>\r\n`
+      );
+    });
+
+    it('should take CRLF where a mixed document holds one at all', () => {
+      // rather than whichever came first: a mixed document is already mangled
+      // and either answer rewrites somebody's lines, so what is left to pick is
+      // the simpler rule -- and it is reported as a loss either way
+      const out = after(`<config>\n  <a>1</a>\r\n</config>\n`, { a: '2' });
+      expect(out).toBe(`<config>\r\n  <a>2</a>\r\n</config>\n`);
     });
   });
 

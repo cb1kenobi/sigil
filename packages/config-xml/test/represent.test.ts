@@ -1,14 +1,22 @@
 import { xml } from '../src/index.js';
 import { file } from './helpers.js';
 import { createConfigSync } from '@ttylabs/sigil/config';
+import type { ConfigSchema, WritableConfigStore } from '@ttylabs/sigil/config';
 import { describe, expect, it } from 'vitest';
 
 /** What this store says about a value at a path. */
 function hold(value: unknown, path = 'x'): true | string {
-  return (xml(file(`<config/>`)).canRepresent as (v: unknown, p: string) => true | string)(
-    value,
-    path
-  );
+  return ask(value, path, xml(file(`<config/>`)));
+}
+
+/** The same, through a store that declares `list` and `s.list` as lists. */
+function holdList(value: unknown, path = 'list'): true | string {
+  const schema: ConfigSchema = { list: { multiple: true }, 's.list': { multiple: true } };
+  return ask(value, path, xml(file(`<config/>`), { schema }));
+}
+
+function ask(value: unknown, path: string, store: WritableConfigStore): true | string {
+  return (store.canRepresent as (v: unknown, p: string) => true | string)(value, path);
 }
 
 describe('what this store can hold', () => {
@@ -138,6 +146,22 @@ describe('what this store can hold', () => {
       expect(hold({ a: { 'b c': 'v' } }, '')).toMatch(/no element called "b c"/);
     });
 
+    it('should refuse xmlns, which the production allows and the DOM does not', () => {
+      // it is a namespace *declaration* rather than a name, so
+      // `createElementNS(null, 'xmlns')` throws `NAMESPACE_ERR` -- and a `root`
+      // of it writes a document that will not parse, which the store then
+      // reports as unparseable output of its own. Found by review round 1
+      expect(hold('v', 'xmlns')).toMatch(/no element called "xmlns"/);
+      expect(() => xml('x.xml', { root: 'xmlns' })).toThrow(/not a usable XML root element name/);
+    });
+
+    it('should allow any other xml-prefixed name, which the format takes', () => {
+      // the spec reserves them, `@xmldom/xmldom` takes them, and they
+      // round-trip -- so refusing would be stricter than the format
+      expect(hold('v', 'xml')).toBe(true);
+      expect(hold('v', 'xmlfoo')).toBe(true);
+    });
+
     it('should allow a name the production allows', () => {
       expect(hold('v', 'server.port')).toBe(true);
       expect(hold('v', '_x')).toBe(true);
@@ -170,6 +194,14 @@ describe('what this store can hold', () => {
       // `JSON.stringify` **throws** for one; `String(10n)` is exact text, so
       // this refusal is not inherited. It is that no data type reads one back
       expect(hold(10n)).toMatch(/no bigint, and no data type reads one back/);
+    });
+
+    it('should refuse an invalid Date, which crashes the serializer', () => {
+      // `new Date(NaN).toISOString()` throws `RangeError: Invalid time value`,
+      // so letting it through meant a `set()` that succeeded and a `save()`
+      // that threw out of the serializer with a message about time rather than
+      // about a config. Found by review round 1
+      expect(hold(new Date(NaN))).toMatch(/no invalid Date/);
     });
 
     it('should allow a Date, because the schema reads one back', () => {
@@ -217,7 +249,7 @@ describe('what this store can hold', () => {
     it('should refuse a list of one empty string, which is the same bytes as an empty list', () => {
       // an empty list writes one empty element and a declared `multiple` path
       // reads that back as `[]`
-      expect(hold([''])).toMatch(/one empty string is the same bytes/);
+      expect(holdList([''])).toMatch(/one empty string is the same bytes/);
     });
 
     it('should allow an empty item anywhere else in a list', () => {
@@ -226,8 +258,45 @@ describe('what this store can hold', () => {
       expect(hold(['a', '', 'b'])).toBe(true);
     });
 
-    it('should allow an empty list', () => {
-      expect(hold([])).toBe(true);
+    it('should allow an empty list at a path declared multiple', () => {
+      expect(holdList([])).toBe(true);
+      expect(holdList(['a'])).toBe(true);
+    });
+
+    it('should refuse a list of fewer than two where nothing declared one', () => {
+      // one element or none reads back as a **scalar**, so the value changes
+      // type on a round trip -- the silent class every other refusal here is
+      // about. The message names the fix, and the refusal looking like it
+      // depends on the length of the data is a property of the format: a repeat
+      // is unambiguous and a single occurrence is not. Found by review round 1
+      expect(hold(['a'])).toMatch(/cannot tell a list of 1 from a scalar; declare "x" as multiple/);
+      expect(hold([])).toMatch(/cannot tell a list of 0 from a scalar/);
+      expect(hold(['a', 'b'])).toBe(true);
+    });
+
+    it('should refuse a non-list at a path declared multiple', () => {
+      // a declared list always **reads** as an array, so a scalar at one can
+      // never be read back: `write({ list: '' })` over an `<list/>` that means
+      // `[]` was a silent **no-op**, because the diff compared the element's
+      // own `''` against the `''` it was handed. `coerceSetting()` refuses the
+      // same value one layer up, so this is that answer earlier
+      expect(holdList('')).toMatch(
+        /declared multiple, so XML cannot hold a value that is not a list/
+      );
+      expect(holdList('a')).toMatch(/declared multiple/);
+      expect(holdList({ a: '1' })).toMatch(/declared multiple/);
+    });
+
+    it('should refuse a list inside a list, which has no path', () => {
+      // the inner one is an element's own value, so it reaches the file as
+      // `String(['a','b'])` -- the text `a,b`, which is the `[object Map]`
+      // class with a comma in it. Measured
+      expect(
+        holdList([
+          ['a', 'b'],
+          ['c', 'd'],
+        ])
+      ).toMatch(/no list inside a list/);
     });
   });
 

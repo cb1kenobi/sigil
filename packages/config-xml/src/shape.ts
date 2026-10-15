@@ -37,21 +37,35 @@ export interface Shape {
   /** Whether it began with a byte order mark. */
   readonly bom: boolean;
   /** The line ending to write, or nothing where the document had no line break. */
-  readonly eol: '\n' | '\r\n' | undefined;
-  /** Whether it ended with a line break. */
-  readonly trailing: boolean;
+  readonly eol: '\n' | '\r' | '\r\n' | undefined;
+  /**
+   * The run of line breaks the document ended with, or nothing.
+   *
+   * The whole run rather than a boolean, which costs the same and removes a
+   * refusal: a file ending in a blank line is reported as a loss by a boolean,
+   * because the serializer drops everything after the root and the reapply puts
+   * back one break where there were two. Measured.
+   */
+  readonly trailing: string | undefined;
 }
 
 /** The shape a document written from nothing gets. */
-export const FRESH: Shape = Object.freeze({ bom: false, eol: undefined, trailing: true });
+export const FRESH: Shape = Object.freeze({ bom: false, eol: undefined, trailing: '\n' });
 
 /**
  * Reads a document's shape off its bytes, and hands back the text to parse.
  *
- * The line ending is whichever the **first** break in the file is, rather than
- * a count: a file is written by one editor, a mixed one is a file something has
- * already mangled, and picking a majority would rewrite the minority's lines
- * silently. One answer, taken from the first thing that said anything.
+ * The line ending is **CRLF where the document holds one at all**, rather than
+ * whichever came first: a file is written by one editor, so a mixed one is
+ * already mangled and either answer rewrites somebody's lines -- and that is
+ * reported as a loss either way, so what is left to pick is the simpler rule.
+ *
+ * A **carriage return alone** is the third flavour and is kept rather than
+ * normalized, which is three characters and removes a refusal: without it an
+ * old Mac file reports a loss and cannot be written to without `lossy`, for a
+ * line ending that is merely extinct rather than wrong. Which is the opposite
+ * trade from `LINE_END`'s own entry in the runtime, and for the stated reason:
+ * there the failure is **silent**, and here it is reported.
  *
  * @param text - The file's bytes as a string.
  * @returns The shape, and the text with the mark removed.
@@ -59,10 +73,16 @@ export const FRESH: Shape = Object.freeze({ bom: false, eol: undefined, trailing
 export function shapeOf(text: string): { shape: Shape; xml: string } {
   const bom = text.startsWith(BOM);
   const xml = bom ? text.slice(BOM.length) : text;
-  const eol = xml.includes('\r\n') ? '\r\n' : xml.includes('\n') ? '\n' : undefined;
+  const eol = xml.includes('\r\n')
+    ? '\r\n'
+    : xml.includes('\n')
+      ? '\n'
+      : xml.includes('\r')
+        ? '\r'
+        : undefined;
 
   return {
-    shape: { bom, eol, trailing: /[\n\r]$/.test(xml) },
+    shape: { bom, eol, trailing: /[\n\r]+$/.exec(xml)?.[0] },
     xml,
   };
 }
@@ -70,10 +90,12 @@ export function shapeOf(text: string): { shape: Shape; xml: string } {
 /**
  * Puts a document's shape back onto what the serializer wrote.
  *
- * The line endings go back **first** and the trailing break after, because the
+ * The line endings go back **first** and the trailing run after, because the
  * serializer emits `\n` and a `\r\n` document needs every one of them rewritten
  * before a trailing one is added -- the other order appends an `\n` that the
- * rewrite would then have had to find.
+ * rewrite would then have had to find. The run is the document's **own** bytes
+ * rather than one break of the detected flavour, which is what makes a file
+ * ending in a blank line come back ending in one.
  *
  * `replaceAll('\n', eol)` is safe rather than lucky: the serializer emits no
  * `\r` of its own. A `\r` inside *text* is one the parser already normalized to
@@ -86,11 +108,7 @@ export function shapeOf(text: string): { shape: Shape; xml: string } {
  * @returns The bytes to write.
  */
 export function reshape(out: string, shape: Shape): string {
-  let text = shape.eol === '\r\n' ? out.replaceAll('\n', '\r\n') : out;
+  const text = shape.eol && shape.eol !== '\n' ? out.replaceAll('\n', shape.eol) : out;
 
-  if (shape.trailing) {
-    text += shape.eol ?? '\n';
-  }
-
-  return shape.bom ? BOM + text : text;
+  return (shape.bom ? BOM : '') + text + (shape.trailing ?? '');
 }

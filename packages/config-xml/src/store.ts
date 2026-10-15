@@ -1,10 +1,11 @@
 import { lossesOf } from './fidelity.js';
 import { readDocument, type ReadShape } from './read.js';
-import { xmlCanHold } from './represent.js';
+import { nameable, xmlCanHold } from './represent.js';
 import { FRESH, reshape, type Shape, shapeOf } from './shape.js';
 import { applyInto, writeShape, type XmlEl } from './write.js';
 import {
   isMissing,
+  isPlainObject,
   overlay,
   segments,
   writeAtomic,
@@ -146,8 +147,13 @@ export function xml(path: string, opts: XmlStoreOptions = {}): WritableConfigSto
   }
 
   const root = opts.root ?? 'config';
-  if (typeof root !== 'string' || !/^[A-Za-z_][\w.-]*$/.test(root)) {
-    throw new Error(`"${root}" is not a usable XML root element name`);
+  // through `nameable()` rather than a pattern of its own, which is one reader
+  // of what an element may be called: a hand-written pattern accepted `xmlns`,
+  // and a `root` of that writes a document that will not parse -- the DOM
+  // refuses it as `NAMESPACE_ERR` and the store then reports its own output as
+  // unparseable. Found by review round 1
+  if (typeof root !== 'string' || !nameable(root)) {
+    throw new Error(`"${String(root)}" is not a usable XML root element name`);
   }
 
   const source = expand(path);
@@ -342,9 +348,20 @@ export function xml(path: string, opts: XmlStoreOptions = {}): WritableConfigSto
     // the moment they were written -- and this one answers for the merged
     // document, or a part of `value` this write is not claiming would refuse a
     // write that never touches it
-    const ok = xmlCanHold(held, '');
+    const ok = xmlCanHold(held, '', read.multiple);
     if (ok !== true) {
       throw new Error(`Cannot write ${source}: ${ok}`);
+    }
+
+    // and the document's root has to be something a layer can merge, which is
+    // what `readDocument()` already refuses on the way in. Without it
+    // `write('x')` or `write([1, 2])` reached `applyInto()` as a scalar root
+    // and wrote `<config>x</config>` or `<config>1,2</config>` -- the second
+    // being the `String(array)` corruption, at the one path the walk's own
+    // list check skips because the root is where a document may legitimately
+    // be `{}`
+    if (!isPlainObject(held)) {
+      throw new Error(__`${source} must hold an object`);
     }
 
     applyInto(el, current, held, '', writeShape(el, read, blank));
@@ -354,7 +371,7 @@ export function xml(path: string, opts: XmlStoreOptions = {}): WritableConfigSto
 
   return {
     canRepresent(value: unknown, at: string): true | string {
-      return xmlCanHold(value, at);
+      return xmlCanHold(value, at, read.multiple);
     },
     format: 'xml',
     async read(): Promise<ConfigDocument> {

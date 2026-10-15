@@ -21344,6 +21344,112 @@ five things core had deliberately not published, which is the entry below.
   Reading such a file is fine, and `wouldLose` reports nothing about it, which is
   honest: nothing is lost, the file was illegal before and after.
 
+#### What review round 1 found, and it reviewed a source it had invented
+
+`gemini-4-argon-high`, pointed at the commit with the config house rules handed
+over first and the XML section withheld so that it could not simply confirm the
+author's reasoning. Its shell was **rejected by its own harness**, so every
+finding was reasoned -- it said so -- and the identifiers it quoted are not in
+this package: `applyDocument`, `assertXmlCanHold`, `cdataChild`,
+`promoteAttribute`, `detectStep`, `makeElement`, `removeChildWithIndent`,
+`settingAttributes`, `indentOf`, a `UNSAFE_KEYS` in `represent.ts`, a
+`reshape()` doing `text.replace(/\r\n|\r/g, '\n')`. **Zero** occurrences of any
+of them, checked by grep. It reviewed a plausible implementation of the
+description rather than the code.
+
+And it found **eight real defects anyway**, which is the entry worth keeping
+rather than the hallucination: of nine findings, seven were real against the
+actual code, two were false, and probing one of its questions turned up an
+eighth. Every one was measured here before being believed, which is the rule
+this file already records about taking an agent at face value -- and the two
+false ones are exactly the two where the invented source and the real one part
+company on _structure_ rather than on behaviour.
+
+So the useful statement is not "the reviewer was wrong about the code" but:
+**a description precise enough to reason from is enough to find defects in an
+implementation the reviewer never read.** Which also says what the brief is
+worth, since the brief is all it had.
+
+- **`setLeaf()` left an element's attributes behind, and that one writes a file
+  the store cannot read back.** The worst defect in this branch. An element holds
+  a scalar or named parts and never both, so one becoming a leaf has to stop
+  holding both -- and `{ server: 'none' }` over
+  `<server host="h"><port>1</port></server>` wrote
+  `<server host="h">none</server>`, which is **mixed content the read refuses**:
+  a `save()` whose output is a file the next `read()` throws on. Two more shapes
+  of the same cause, each a wrong _value_ rather than a throw: `{ server: '' }`
+  over `<server host="h"/>` read back as `{ host: 'h' }`, and an emptied list
+  over `<p n="a"/>` read back as `[{ n: 'a' }]`.
+
+  The author's own mutation probe had the leaf-becomes-container case in both
+  directions and **no attributes on the element**, which is why 58 cases of two
+  properties passed over it.
+
+- **A value holding `]]>` crashed `createCDATASection`.** `data contains "]]>"`,
+  which is a DOM error naming nothing -- and the value is perfectly
+  representable as escaped text, so refusing it would refuse the format's own
+  answer. It falls back to a text node, and what is lost is the author's CDATA
+  spelling for that one element. The standard `a]]]]><![CDATA[>b` split keeps it
+  and was measured working; it produces three CDATA sections and a file nobody
+  wants to read, which is the larger of the two costs.
+
+- **An invalid `Date` passed `canRepresent()` and crashed the write.**
+  `new Date(NaN).toISOString()` throws `RangeError: Invalid time value`, so a
+  `set()` succeeded and a `save()` threw out of the serializer with a message
+  about time rather than about a config. The same call `NaN` already gets one
+  branch up.
+
+- **`xmlns` is a name the production allows and the DOM refuses.** It is a
+  namespace _declaration_ rather than a name, so `createElementNS(null,
+  'xmlns')` throws `NAMESPACE_ERR` -- and `root: 'xmlns'` passed a
+  hand-written pattern and wrote a document that will not parse, after which the
+  store reported its **own output** as unparseable. The root goes through
+  `nameable()` now, which is one reader of what an element may be called. Any
+  other `xml`-prefixed name is allowed: the spec reserves them, the parser takes
+  them, and they round-trip, so refusing would be stricter than the format.
+
+- **A list of fewer than two at a path nothing declared `multiple` changed type
+  on a round trip.** One element or none reads back as a **scalar**, so
+  `write({ tags: ['a'] })` with no declaration wrote `<tags>a</tags>` and read
+  back `'a'`. Refused, with the message naming the fix -- and the refusal
+  looking like it depends on the length of the data is a property of the format
+  rather than of the check: a repeat is unambiguous and a single occurrence is
+  not. What it means in practice is that **the schema is not optional for a list
+  at all**, which is the README's own sentence about `multiple` widened by one
+  word.
+
+- **A scalar at a path that _is_ declared `multiple` was a silent no-op.** A
+  declared list always reads as an array, so `write({ items: '' })` over an
+  `<items/>` that means `[]` compared the element's own `''` against the `''` it
+  was handed, found them equal, and wrote **nothing** -- the caller asked for a
+  scalar and the file went on saying `[]`. `coerceSetting()` refuses the same
+  value one layer up with `Expected a list of values`, so the store's refusal is
+  that answer earlier.
+
+- **A new element was spliced in front of an inline comment**, so the comment
+  came out on the _new_ element's line. Which is the JSONC writer's own finding
+  in a second format, and that entry records why it is worse than losing the
+  comment: the file says something **false**. The insert steps over horizontal
+  whitespace and comments until it meets a line break or anything else.
+
+- **And probing one of its questions found a list inside a list.**
+  `[['a','b'],['c']]` reached the file as `<t>a,b</t>` -- `String(['a','b'])` --
+  which is the `[object Map]` silent-rewrite class with a comma in it. The inner
+  list is an element's own value and has no path, so it is refused. Found by
+  following the reviewer's question about nested values rather than by any of its
+  findings.
+
+- **Two findings were false, and both are where the invented source and the real
+  one differ structurally.** It predicted a corrupted layout from a newline
+  inside CDATA and from a single-line container inside a multi-line document, and
+  measured both come out correct -- because the step is only _read_ where there
+  is no sibling to copy, which its reconstruction did not have. The newline case
+  is a real imprecision rather than a defect and was tightened anyway:
+  `multiline()` asks about whitespace-only text holding a break, so a break
+  inside a value is content. And it reported an unreachable branch in a
+  `promoteAttribute()` that does not exist; the real `writeKey()` does one lookup
+  and uses it.
+
 #### Parse errors, and the one thing the parser does twice
 
 - **A fatal parse error is reported through `onError` _and then thrown_, so the

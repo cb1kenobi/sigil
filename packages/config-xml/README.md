@@ -249,11 +249,14 @@ in a loss table and carry on from. A declaration nothing references is fine.
   an attribute's value are both trimmed on the way in, because whitespace around a
   value in XML is layout — so a padded string is one this store would read back as
   something else. Refused rather than quietly changed.
-- **A name no element can have.** XML's `Name` production, minus the colon,
-  checked against each segment of the path _and_ each key of the value — so
-  `set('1bad', 'v')` is refused at the `set()` rather than throwing
+- **A name no element can have.** XML's `Name` production, minus the colon and
+  minus `xmlns`, checked against each segment of the path _and_ each key of the
+  value — so `set('1bad', 'v')` is refused at the `set()` rather than throwing
   `invalid character in qualified name` out of the DOM at a `save()`. The colon is
-  excluded because a prefix is not part of a path here.
+  excluded because a prefix is not part of a path here; `xmlns` because it is a
+  namespace declaration rather than a name, which the production allows and the
+  DOM refuses. Any other `xml`-prefixed name is allowed, because the format takes
+  it.
 - **An empty object**, which is the same bytes as the empty string. The mapping
   picks `''`, because that is what `set('host', '')` writes. To clear a subtree,
   `delete()` it. (The whole document is exempt: there `{}` is an empty config.)
