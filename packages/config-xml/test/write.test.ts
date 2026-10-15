@@ -1,5 +1,6 @@
 import { xml } from '../src/index.js';
 import { absent, file, read } from './helpers.js';
+import { createConfigSync } from '@ttylabs/sigil/config';
 import type { ConfigSchema, WritableConfigStore } from '@ttylabs/sigil/config';
 import { statSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
@@ -65,7 +66,14 @@ describe('writing', () => {
       );
     });
 
-    it('should not rewrite a value the schema coerced to a number', () => {
+    it('should leave a CDATA section and an attribute alone on a same-value write', () => {
+      // and its name used to claim the coercion, which it cannot see: `port` is
+      // an attribute, whose bytes serialize identically either way, and
+      // `banner` is a sibling whose value is already a string -- so the
+      // comparison this described could be deleted and the output was still
+      // byte for byte the source. Found by review round 2; the test that does
+      // see it is `should not rewrite a value a schema coerced to a number`
+      //
       // a layer's value has been through `coerceLayer()`, so an `int` setting
       // holds the number 8080 where the document holds the string '8080'.
       // Comparing those as *values* says they differ, and then every typed
@@ -287,11 +295,25 @@ describe('writing', () => {
       );
     });
 
-    it('should leave no collision behind when it promotes', () => {
+    it('should leave no collision behind when it promotes a prefixed one', () => {
       // the attribute is removed *before* the elements are written, or the
-      // document holds a name spelled both ways, which the read refuses
-      const { path, store } = over(`<config server="prod"/>`);
+      // document holds a name spelled both ways, which the read refuses -- and
+      // **prefixed**, which is the half that was untested: the removal is
+      // against the attribute's own namespace, and with it taken off nothing in
+      // the suite failed, because every promotion case used an unprefixed
+      // attribute and the test above already asserts the whole string. Found by
+      // review round 2
+      const { path, store } = over(`<config xmlns:n="urn:x" n:server="prod"/>`);
       store.writeSync({ server: { host: 'x' } });
+
+      // the elements take the **parent's** prefix rather than the attribute's,
+      // which is `newElement()`'s rule and is right here: a promoted key is a
+      // new element, an unprefixed attribute is in no namespace even under a
+      // default one, and the setting is identified by its local name either
+      // way -- so taking the attribute's prefix would be a second rule for one
+      // case. What the namespace on the *removal* buys is that `n:server` goes
+      // at all rather than sitting beside the element as a collision
+      expect(read(path)).toBe(`<config xmlns:n="urn:x"><server><host>x</host></server></config>`);
       expect(xml(path).readSync().value).toStrictEqual({ server: { host: 'x' } });
     });
   });
@@ -509,6 +531,21 @@ describe('writing', () => {
       expect(out).toBe(`<config>\n  <a>1</a>\n  <c>3</c>\n</config>\n`);
     });
 
+    it('should not read a gap holding a line break as sharing the line', () => {
+      // a break ends the line, so what follows is on its own already and the
+      // indent in front of the child is still the child's. Measured on a child
+      // with no indent of its own, which is the one shape where keeping the
+      // gap instead and keeping the indent differ
+      const out = after(`<config><a>1</a>\n  <!-- c -->\n  <b>2</b>\n</config>`, { b: '2' });
+      expect(out).toBe(`<config>\n  <!-- c -->\n  <b>2</b>\n</config>`);
+    });
+
+    it('should not read a gap with nothing after it as sharing the line', () => {
+      // whitespace before the closing tag is the parent's own, so there is no
+      // trivia for it to be in front of and the indent is taken as ever
+      expect(after(`<config>\n  <a>1</a> </config>`, {})).toBe(`<config> </config>`);
+    });
+
     it('should take the horizontal whitespace where the line ends after it', () => {
       // a space before the closing tag is the child's, because nothing shares
       // the line -- so this is the other side of the same question
@@ -550,21 +587,45 @@ describe('writing', () => {
       expect(out).toBe(`<config>\n  <p>1<!-- x --></p>\n  <p>3</p>\n</config>`);
     });
 
-    it('should not rewrite a value the schema coerced to a number', () => {
+    it('should not rewrite a value a schema coerced to a number', () => {
       // `same()` compares through `textFor()` rather than by identity, so a
       // setting declared `int` meeting its own `8080` is not a change -- by
       // identity a string never equals a number, every such key is rewritten,
-      // and the rewrite moves whatever the element held beside its text
-      const schema: ConfigSchema = { a: { type: 'int' } };
-      const out = after(
-        `<config>\n  <a>8080<!-- port --></a>\n  <b>2</b>\n</config>`,
-        {
-          a: 8080,
-          b: '3',
-        },
-        schema
-      );
+      // and the rewrite moves whatever the element held beside its text.
+      //
+      // Handed over directly rather than through a `createConfigSync()`, and
+      // the reason is the finding: review round 2 asked for the second, which
+      // **removes** what this pins. A `saveSync()` claims only the paths this
+      // process touched, so the overlay leaves `a` as the file has it and the
+      // store is handed the file's own string -- never comparing a number with
+      // a string at all. So this claim is a whole-document `write()`'s, which
+      // is what a store's own test should drive anyway. No schema either, for
+      // the other half of that finding: the store reads one for `multiple`
+      // alone, so a `type` in it is decoration -- what matters is that the
+      // value arrives coerced, which is what `coerceLayer()` hands a store
+      const out = after(`<config>\n  <a>8080<!-- port --></a>\n  <b>2</b>\n</config>`, {
+        a: 8080,
+        b: '3',
+      });
       expect(out).toBe(`<config>\n  <a>8080<!-- port --></a>\n  <b>3</b>\n</config>`);
+    });
+
+    it('should leave a value a save did not claim alone, whatever its type', () => {
+      // which is the other half, and is why the test above drives a `write()`:
+      // the three-way merge means a `save()` never hands the store a value this
+      // process did not touch, so the diff is not what protects `a` there
+      const schema: ConfigSchema = { a: { type: 'int' }, b: { type: 'string' } };
+      const path = file(`<config>\n  <a>8080<!-- port --></a>\n  <b>2</b>\n</config>`);
+      const config = createConfigSync({
+        layers: [{ name: 'user', store: xml(path, { schema }) }],
+        schema,
+      });
+
+      expect(config.get('a'), 'the schema coerced it').toBe(8080);
+      config.set('b', '3');
+      config.saveSync();
+
+      expect(read(path)).toBe(`<config>\n  <a>8080<!-- port --></a>\n  <b>3</b>\n</config>`);
     });
   });
 

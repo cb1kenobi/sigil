@@ -21450,6 +21450,187 @@ worth, since the brief is all it had.
   `promoteAttribute()` that does not exist; the real `writeKey()` does one lookup
   and uses it.
 
+#### What review round 2 found, and what reading its findings cost
+
+Nine findings, four real, one half real and declined, and four invalid -- three
+of those quoting code that has never existed in this package, which is round 1's
+failure mode repeated despite a brief that said to grep for the text first. A
+relaunch of the same round against a clean tree added eight more, of which six
+were real. So the ratio across the two rounds is **ten real of seventeen**, and
+every one had to be measured before it was believed.
+
+- **The first finding was mine rather than the reviewer's, and it is the rule
+  this file already records.** It reported that `reshape()` ignores `shape.eol`
+  and quoted `const text = out;` -- which is exactly one of the sabotage
+  mutations, because the review ran **concurrently with the pass** and read a
+  mutated working tree. AGENTS.md's own entry says nothing else touches the tree
+  while a pass is live, written down for a `pnpm fmt` in another terminal; a
+  review round is the same hazard with a worse signature, because what comes back
+  is a confident finding about a defect you introduced on purpose. It cost the
+  whole round its credibility until each finding was re-measured, and the round
+  was relaunched against a quiescent tree. The tell was there to read: the
+  finding said six tests fail against that line, which is the mutation being
+  caught.
+
+- **`push()` and `unshift()` threw on every `multiple` path, and the contract was
+  ambiguous rather than simply wrong.** `canRepresent`'s own `@param` says "the
+  value about to be written" at "the dotted path it is being written to", and core
+  handed over the **item** at the **list's** path. That pair is one no
+  path-sensitive store can answer, because `set('plugins', 'a')` and
+  `push('plugins', 'a')` hand over the identical one -- so this is the ticket's
+  deliverable arriving as its opposite: the interface was not implementable from
+  outside for the one thing an XML store has to know. There was a test pinning the
+  item, which is what made it ambiguous rather than a defect, and what settles it
+  is that asking about the **list** loses nothing: every store's check is a walk,
+  so the item is still asked about and is now named at the index it lands at --
+  `['a', 10n]` is refused at `plugins.1`. Fixed in core, measured end to end, and
+  `#spliceEnd` gained the same question because `pop` validated nothing at all:
+  a value the store cannot hold reached memory and the refusal waited for
+  `save()`, which is the one thing `canRepresent` exists to stop.
+
+- **The `entity` residual row was unreachable and false-positived, and the module
+  said so sixty lines above it.** Its own docblock records that the parser reports
+  `entity not found` at the `error` level, so such a document is refused at read
+  -- and the row matched `/<!ENTITY\s/`, which an **unreferenced** declaration
+  satisfies, so a document the docblock calls fine was reported as losing an
+  entity. A self-contradiction inside one file, which is the shape a documented
+  codebase is most prone to.
+
+  Measuring it found **six more false positives of the same class**, which the
+  reviewer did not reach: every row but one misfired inside a comment or a CDATA
+  section. A comment's own text is reproduced verbatim -- measured, `&apos;`,
+  `&quot;`, `&#65;` and a bare `>` inside one all survive -- so a row matching
+  there names a kind, a detail and a line that send the author to a construct
+  with nothing wrong with it. Which is worse than having no table, since the
+  table is the whole of what makes the message actionable rather than what makes
+  the answer true.
+
+  So each row says which text it is matched against and `contentOf()` blanks
+  every comment, CDATA section, processing instruction and DOCTYPE at the same
+  offsets, which is the JSONC scanner's own trick. **NEL is the one row matched
+  against the raw bytes**, and that is why this is per row rather than one rule:
+  a comment holding one comes back holding a newline, so blanking would suppress
+  a true positive. The split was measured rather than reasoned -- entities and a
+  bare `>` survive a comment, NEL and CR do not.
+
+- **`&quot;` was in the table and in no row.** So a document holding one fell
+  through to the unexplained-difference fallback, which reports no line, or was
+  not reported at all where another row had matched first. And the weak test the
+  reviewer named was true of **all six** `formatting` rows rather than that one:
+  every row test asserted `kinds(...).toContain('formatting')`, which is exactly
+  what the fallback produces, so each was satisfiable without its row existing.
+  They assert the detail and the line now, which only a row can produce.
+
+- **`dropChild()` pulled an inline comment onto the previous element's line**, so
+  `<b>2</b> <!-- on b -->` removed left `<a>1</a> <!-- on b -->` -- a file saying
+  something false, which this repository calls worse than losing the comment
+  outright. What settled the fix was **measuring the sibling store** rather than
+  inventing an ownership rule: the JSONC writer leaves such a comment on a line
+  of its own, and that writer's own residue entry -- "survives onto the line
+  above, so it then reads as the surviving entry's" -- is about adjacency rather
+  than about being glued to it. So the two stores really did disagree and this
+  was the worse one, and matching it is a consistency argument rather than a new
+  rule.
+
+- **A single-quoted attribute's whitespace normalization went unreported**,
+  because the `spec` row hardcoded `="`. That is the half of the two an author
+  most needs, since it is required of every conforming parser rather than
+  cosmetic.
+
+- **The astral range was missing from `NAME_START`** while the comment claimed
+  XML 1.0's `Name` production, so a key in Linear B or Gothic was refused.
+  `@xmldom/xmldom` takes such an element name and round-trips it -- measured --
+  so nothing downstream made the refusal right. Widened to exactly
+  `[#x10000-#xEFFFF]`, which keeps `U+F0000` refused: the parser is lenient about
+  that one and the production is not, and this is the direction to be stricter in.
+
+- **The store kit's own docblock said it costs "nothing" in bytes** where the
+  measurement is 102, and `dist.test.ts` carried the pre-store-kit figure beside
+  a comment saying it must agree with AGENTS.md. Re-measured rather than copied
+  from either: **32,523 B without the kit and 32,625 B with it**, over the same
+  seven modules. The config entry's figure has now moved five times, which is why
+  the comment says to read it again rather than carrying it.
+
+- **And "an empty `wouldLose`" was the fourth copy of a wording this file records
+  being fixed three times.** The field is **absent**, so a caller who reads
+  `wouldLose.length` off it gets a `TypeError`. One copy was real, in
+  `fidelity.ts`; the reviewer's second, in the README, is a **fabricated quote**
+  -- that file has one mention and it says `absent`, at the commit the round read
+  and at every other.
+
+- **Two findings were half real and are declined with the measurement.** Emptying
+  a laid-out document leaves `<config>\n</config>` rather than `<config/>`, which
+  is the parent's own layout rather than the child's and loses nothing either way;
+  the reviewer's second half, a stray blank line on replacement, is measured
+  **false**, because `addChild()` clears the text itself. And a redundant
+  promotion test really was redundant, which is the entry below.
+
+- **One invalid finding raised a real question about a guard it had invented.** A
+  `clearText()` in `applyInto()`'s object branch was unreachable rather than
+  redundant: `addChild()` clears before it reads any layout, and an element that
+  read as a scalar has no element children, so that is the branch every insert
+  into one takes. Measured over eight shapes of leaf-becoming-container, byte for
+  byte identical with it gone, so it is deleted rather than commented.
+
+- **And one of its suggested fixes would have made a good test vacuous**, which is
+  why a suggestion is measured like anything else. It asked for the coercion test
+  to be driven through `createConfigSync()` rather than handed an already-coerced
+  number, and doing that **removes what the test pins**: a `saveSync()` claims only
+  the paths this process touched, so the overlay leaves `a` as the file has it and
+  the store is handed the file's own string, never comparing a number with a
+  string at all. So that claim is a whole-document `write()`'s. The half of the
+  finding that was right is the other one -- the store reads a schema for
+  `multiple` alone, so a `type` in a test's schema is decoration -- and both halves
+  are now tests: the diff's, driven directly, and the three-way merge's, driven
+  through a `Config`.
+
+#### What the pass over round 2's own fixes found
+
+Eighteen mutations over the guards the round produced, which is the gap every
+round leaves: code written in response to a review is code no review and no pass
+has seen. **Fifteen caught and three declared**, after ten survivors -- and the
+split between them is the thing worth recording, because four of the ten were the
+harness being blunt rather than the code being unguarded.
+
+- **Three mutations were equivalent**, and all three were aimed at `contentOf()`'s
+  region table by changing an **opener string** rather than the detection:
+  `['<!--', '-->']` to `['\u0000nope', '-->']` leaves `startsWith('<!--', i)`
+  deciding and `indexOf('-->', from)` finding the same terminator, so the same
+  characters are blanked. Aimed at the `startsWith` instead, all three are caught.
+  The DOCTYPE's internal subset needed a sharper **input** as well as a sharper
+  mutation: with one declaration in it, a scan that stops at the first `>` leaves
+  `]>` behind and the bare-`>` row needs a second `>` before the next `<`, so only
+  a subset with **two** declarations tells the two readings apart.
+
+- **Four were a test that could not see what it was named for**, and each got the
+  input that separates it. A gap holding a line break, where the removed child has
+  no indent of its own -- with one, keeping the gap and keeping the indent produce
+  the same bytes, because the two strings are identical. A gap with nothing after
+  it. The single-quoted attribute row, which was measured by hand and never
+  asserted. And the prefixed attribute promotion, which is the entry below.
+
+- **Three are declared, and two of those are measured rather than reasoned.**
+  `blank()` keeping the line breaks changes no answer -- a character is replaced by
+  one character either way, so every offset and every `line` is the same -- and
+  what it buys is that `content` is line for line `source` for a reader comparing
+  the two, and that a row anchored with `^` or `/m` would work, which none is
+  today. The cursor advance past a blanked region is a cost guard: what it skips
+  has just been blanked, so a rescan finds no `<`. Both were fingerprinted over
+  eighteen documents with the guard removed, every report identical.
+  `trailingTrivia()`'s content half is the third and is a tripwire: a gap between
+  two element children that is not whitespace is mixed content, which the read
+  refuses.
+
+- **And the redundant promotion test became the one that covers the branch.** Two
+  tests used the same unprefixed document and the same value, and the first
+  already asserted the whole serialized string -- while no test promoted a
+  **prefixed** attribute, so `writeKey()`'s removal against the attribute's own
+  namespace could be dropped with all 203 tests green. The second test is that
+  document now, and it also records what the promotion does rather than what
+  somebody would guess: the new elements take the **parent's** prefix, which is
+  `newElement()`'s rule and is right here, since a promoted key is a new element
+  and the setting is identified by its local name either way.
+
 #### Parse errors, and the one thing the parser does twice
 
 - **A fatal parse error is reported through `onError` _and then thrown_, so the

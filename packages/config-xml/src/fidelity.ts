@@ -69,7 +69,11 @@ import type { Loss } from '@ttylabs/sigil/config';
  * `write.ts` rather than reported here -- the first by `createElementNS`, the
  * second by diffing before touching anything -- which is the right place for
  * them, because a loss a store can avoid is one it should avoid rather than
- * report. An empty `wouldLose` is the honest answer to the question it asks.
+ * report. An **absent** `wouldLose` is the honest answer to the question it
+ * asks -- absent rather than empty, which is the field's own contract and is
+ * the fourth copy of a wording AGENTS.md already records being fixed three
+ * times: a caller who reads `wouldLose.length` off this gets a `TypeError`.
+ * Found by review round 2.
  */
 
 /** Where the residual is, so that a report can point at it. */
@@ -116,6 +120,13 @@ interface Residual {
  */
 function contentOf(source: string): string {
   const out = Array.from(source);
+  // the line breaks are kept and that is a statement rather than a guard: a
+  // character is replaced by one character either way, so every offset -- and
+  // therefore every `line`, which is counted off `source` -- is the same with
+  // them blanked too. Measured over eighteen documents, every report identical.
+  // What it buys is that `content` is line for line `source`, which is what a
+  // reader comparing the two to see what was blanked needs; and it is what a
+  // row anchored with `^` or `/m` would need, which none is today
   const blank = (from: number, to: number): void => {
     for (let i = from; i < to && i < out.length; i++) {
       if (out[i] !== '\n' && out[i] !== '\r') {
@@ -151,6 +162,10 @@ function contentOf(source: string): string {
     const end = at === -1 ? source.length : at + close.length;
 
     blank(i, end);
+    // past the region rather than one character into it, which is a cost guard
+    // rather than a claim: what it skips has just been blanked, so a rescan
+    // finds no `<` to open anything with. Measured over the same eighteen
+    // documents, identical with it gone
     i = end - 1;
   }
 
@@ -211,8 +226,13 @@ const RESIDUALS: readonly Residual[] = [
     where: 'content',
   },
   {
+    // either quote, which this hardcoded as `="` -- so a single-quoted
+    // attribute holding a tab or a newline reported the quote rewrite and not
+    // the normalization, which is the half of the two the author most needs,
+    // since it is required of every conforming parser rather than cosmetic.
+    // Found by review round 2
     kind: 'spec',
-    look: /="[^"]*[\n\r\t]/,
+    look: /=\s*(?:"[^"]*|'[^']*)[\n\r\t]/,
     say: 'whitespace in an attribute value is normalized to a space, which the XML spec requires',
     where: 'content',
   },

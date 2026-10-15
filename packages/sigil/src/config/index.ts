@@ -101,9 +101,14 @@
  * - `isPlainObject()` is where the boundary between structure and a leaf is, and
  *   a store walking a value has to draw it in the same place the merge does.
  *
- * It is one decision rather than five, and it costs **nothing** in bytes: every
- * one of them is already in this entry's own graph, because `json()` uses four
- * of the five.
+ * It is one decision rather than five -- six exports, because `writeAtomicSync`
+ * rides with its twin -- and it costs **102 bytes**, measured: the
+ * entry's graph goes from 32,523 B to 32,625 B over the same seven modules,
+ * because `json()` already uses four of the six and what is added is the export
+ * statements. Which is the figure rather than "nothing", a claim this said for
+ * a commit -- review round 2 caught it against the measurement in AGENTS.md,
+ * and two comments disagreeing about one number leave a later reader with no
+ * way to tell which was measured.
  */
 
 export { isMissing, writeAtomic, writeAtomicSync } from './atomic.js';

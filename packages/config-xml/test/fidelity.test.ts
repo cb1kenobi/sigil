@@ -178,10 +178,27 @@ describe('what a write would lose', () => {
         ).toStrictEqual([real]);
       });
 
+      it('should report the whitespace in a single-quoted attribute too', () => {
+        // the row hardcoded `="`, so a single-quoted attribute reported the
+        // quote rewrite and not the normalization -- which is the half that
+        // matters, since it is required of every conforming parser. Both are
+        // true of this document and both are reported
+        expect(said(`<config>\n  <a b='x\ty'/>\n</config>`)).toStrictEqual([
+          'formatting:a single-quoted attribute value is rewritten with double quotes@2',
+          'spec:whitespace in an attribute value is normalized to a space, which the XML spec requires@2',
+        ]);
+      });
+
       it('should not read a DOCTYPE internal subset as a bare > in text', () => {
         // arbitrary markup, so `<!ELEMENT a (#PCDATA)>` read as one
+        // two declarations rather than one, so that a scan ending at the
+        // **first** `>` leaves the rest of the subset unblanked -- with one,
+        // what is left is `]>` and the pattern needs a second `>` before the
+        // next `<`, so a single-declaration subset cannot tell the two apart
         expect(
-          said(`<!DOCTYPE config [<!ELEMENT a (#PCDATA)>]>\n<config>\n  <a></a>\n</config>`)
+          said(
+            `<!DOCTYPE config [<!ELEMENT a (#PCDATA)><!ELEMENT b (#PCDATA)>]>\n<config>\n  <a></a>\n</config>`
+          )
         ).toStrictEqual([real]);
       });
 

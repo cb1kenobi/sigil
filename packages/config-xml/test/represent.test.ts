@@ -170,6 +170,24 @@ describe('what this store can hold', () => {
       expect(hold('v', 'caf\u00e9')).toBe(true);
       expect(hold({ 'a.b': 'v' }, '')).toBe(true);
     });
+
+    it('should allow the astral range the production ends with', () => {
+      // `[#x10000-#xEFFFF]` is the last alternative of `NameStartChar`, and
+      // this check stopped at `\uFFFD` while its own comment claimed the whole
+      // production -- so a key in Linear B or Gothic was refused. Nothing
+      // downstream made that right: `@xmldom/xmldom` takes such an element
+      // name and round-trips it. Found by review round 2
+      expect(hold('v', '\u{10000}')).toBe(true);
+      expect(hold('v', 'a\u{10000}')).toBe(true);
+      expect(hold('v', '\u{EFFFF}')).toBe(true);
+    });
+
+    it('should stop where the production does rather than where the parser does', () => {
+      // `\u{F0000}` is past `#xEFFFF`, in the Private Use Area, so XML 1.0 does
+      // not allow it -- and this parser does, which is the one direction to be
+      // stricter than it in
+      expect(hold('v', '\u{F0000}')).toBe('XML has no element called "\u{F0000}"');
+    });
   });
 
   describe('what the format turns into text, which is a saving rather than a cost', () => {

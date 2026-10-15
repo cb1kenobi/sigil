@@ -323,6 +323,11 @@ function trailingTrivia(child: XmlEl): XmlNode | undefined {
   }
 
   const data = gap.data ?? '';
+  // a break means the line ended, so whatever follows has its own already. The
+  // content half is a tripwire rather than a guard: a gap between two element
+  // children that is not whitespace is **mixed content**, which the read
+  // refuses -- so every document reaching a write has none, and a fresh one is
+  // built here out of whitespace alone
   if (data.trim() !== '' || /[\n\r]/.test(data)) {
     return undefined;
   }
