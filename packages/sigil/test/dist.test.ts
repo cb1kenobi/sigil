@@ -334,10 +334,13 @@ describe('what importing the package costs', () => {
     // 20,649 B over six before the write half, so the span writer, the atomic
     // write and the representability check are about 11.5 KB between them; and
     // 32,523 B before the store kit, which is the 102 bytes that costs. Read
-    // again after every change that moves it, which is five times now -- a
-    // figure only a re-run can confirm is the stale snapshot this file warns
-    // about, and review round 2 caught this one carrying the pre-store-kit
-    // number while the line below said it must agree with AGENTS.md.
+    // again after every change that moves it -- a figure only a re-run can
+    // confirm is the stale snapshot this file warns about, and review round 2
+    // caught this one carrying the pre-store-kit number while the line below
+    // said it must agree with AGENTS.md. A running tally of how many times is
+    // a second such figure, and the two copies of it had drifted to five here
+    // and six in AGENTS.md, so what is kept is the instruction and not the
+    // count.
     //
     // A ceiling rather than a measurement, about 2.4x over what it is, so that
     // ordinary growth never touches it and pulling the parser or the renderer

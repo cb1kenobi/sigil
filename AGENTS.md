@@ -17953,20 +17953,23 @@ without destroying it is SIG-154's.
 
 - **It imports no parser module at all, and that is a test rather than a
   coincidence.** Measured as transitive static import byte weight off `dist/`:
-  **32,512 B over seven modules**, of which **9,880 B over six** is what it starts
+  **32,625 B over seven modules**, of which **9,880 B over six** is what it starts
   from -- `paths.mjs`, the `transform` chunk, which is `transform`, `i18n` and
   `debug`, the 66-byte `env-value` chunk the parser shares, and the 525-byte
   `mkdir-owner-sync` one the update cache shares. So the module itself is
-  22,632 B, and the graph is **4.3x** the root entry's 7,518 B and an **eighth**
-  of `components.mjs`'s 239,927 B over 26 -- all three measured the
+  22,745 B, and the graph is **4.3x** the root entry's 7,518 B and an **eighth**
+  of `components.mjs`'s 239,929 B over 26 -- all three measured the
   same way, which is the only comparison that means anything. It was
   **20,649 B over six** before SIG-154, which is the write half costing about
-  11.5 kB. Re-derived after
-  every change that moved it, which is six times now: a figure only a re-run
-  can confirm is the stale snapshot this file warns about. The shape the
-  ticket's own projection predicted, even though its figure was the starting point
-  rather than the total. `should not reach any parser module to
-  import the config module` holds it, keyed on symbols the minifier keeps.
+  11.5 kB, and **32,523 B** before SIG-149's store kit. Re-derived after every
+  change that moved it: a figure only a re-run can confirm is the stale snapshot
+  this file warns about -- and a running tally of how many times is a second
+  such figure, which is why there is no longer one. The two copies of that tally
+  had drifted to five and six, two lines after the sentence warning about
+  exactly this. The shape the ticket's own projection predicted, even though its
+  figure was the starting point rather than the total. `should not reach any
+  parser module to import the config module` holds it, keyed on symbols the
+  minifier keeps.
 
   The reverse direction is the ticket's own ask in as many words -- "nothing in
   `main()` or `parse()` loads or accepts a config, and a test that says so" --
@@ -20841,9 +20844,11 @@ defect lives.
 
 #### What the write half costs
 
-- **The config module's graph is 32,512 B over seven modules**, against 20,649 B
+- **The config module's graph is 32,625 B over seven modules**, against 20,649 B
   over six for the read half -- so the span writer, the atomic write and the
-  representability check are about 11.5 kB between them. The seventh module is the
+  representability check are about 11.5 kB between them, which is measured
+  before the store kit's own 102 B joined the entry and is why the two figures
+  do not subtract to each other. The seventh module is the
   `mkdir-owner-sync` chunk the update cache already shares. It still imports no
   parser module at all, which is the property the read half's own test holds and is
   why the ceiling did not move.
@@ -20903,8 +20908,8 @@ five things core had deliberately not published, which is the entry below.
   - `isPlainObject()` is where the boundary between structure and a leaf is, and
     a store walking a value has to draw it where the merge does.
 
-  It costs **102 bytes**, measured: the config entry's graph goes from 32,512 B
-  to 32,614 B over the same seven modules, because `json()` already uses four of
+  It costs **102 bytes**, measured: the config entry's graph goes from 32,523 B
+  to 32,625 B over the same seven modules, because `json()` already uses four of
   the six and what is added is the export statements. The root entry is
   **7,518 B, unchanged**, because `config` is its own entry.
 
@@ -21548,8 +21553,8 @@ every one had to be measured before it was believed.
   measurement is 102, and `dist.test.ts` carried the pre-store-kit figure beside
   a comment saying it must agree with AGENTS.md. Re-measured rather than copied
   from either: **32,523 B without the kit and 32,625 B with it**, over the same
-  seven modules. The config entry's figure has now moved five times, which is why
-  the comment says to read it again rather than carrying it.
+  seven modules, which is why the comment says to read it again rather than
+  carrying it.
 
 - **And "an empty `wouldLose`" was the fourth copy of a wording this file records
   being fixed three times.** The field is **absent**, so a caller who reads
@@ -21726,6 +21731,56 @@ here runs, and the other needed an input nobody had thought to write.
   pair because every region boundary is ASCII. Both tests fail against the old
   spelling and **only** those two do -- 2 failed of 217 -- which is what says the
   drift was unpinned rather than covered somewhere else by luck.
+
+#### What the second PR review round found: the same number, three more times
+
+Two comments, both confirmed by **re-measuring** rather than by reading, and
+what they are about is round 2's own fix having reached three of the **seven**
+places that carry the figure -- the `config/index.ts` docblock, `dist.test.ts`
+and its own entry in this file -- leaving four. Which makes it the **third
+consecutive pass** here to find a defect in round 2's own output, after the
+sabotage pass over its fixes and the PR round's `contentOf()` code-unit drift,
+and the first where the defect is a number copied into more places than anybody
+had counted.
+
+- **The published README still said the store kit costs "nothing in bytes".**
+  Round 2 corrected exactly that claim in the `config/index.ts` docblock and in
+  `dist.test.ts`, and left the one copy a **consumer** reads -- so the package
+  docs and the module docblock gave a reader two different answers, which is the
+  disagreement this PR says it closed. It costs 102 bytes.
+
+- **And AGENTS.md held the stale pair in _three_ places, not the one the review
+  named.** The flagged entry said the graph goes from 32,512 B to 32,614 B; the
+  write-half entry said the graph "is 32,512 B"; and the read-half entry said
+  32,512 B along with a module size of 22,632 B and a `components.mjs` of
+  239,927 B. Fixing only the flagged line would have left the file holding two
+  different measurements of one thing, which is the failure mode the comment
+  itself describes -- so the sweep is `git grep` for the number rather than an
+  edit at the line somebody pointed at.
+
+  Measured rather than taken from the three sources that already agreed, because
+  three agreeing copies is still one claim: the shipped graph is **32,625 B over
+  seven modules** with the module itself at **22,745 B**, and the same tree built
+  in a worktree with the six store-kit exports removed is **32,523 B over the
+  same seven** -- 102 bytes, confirmed from both ends rather than from the
+  subtraction. `components.mjs` is **239,929 B over 26** and the root entry
+  **7,518 B over six**, both measured the same way, which is the only comparison
+  that means anything.
+
+- **The running tally of how many times the figure has moved is gone, which is
+  the class rather than the instance.** It said "six times now" in AGENTS.md,
+  "five times now" in `dist.test.ts` and "moved five times" in the round-2 entry
+  -- three copies of a number **nobody can re-derive**, which is precisely what
+  the sentence it sits in warns against, two lines after warning about it. A
+  tally of re-measurements is a second un-checkable figure guarding the first,
+  and it had already drifted. What is kept is the instruction to read it again.
+
+- **Nothing asserts any of these**, which is why they drift: the test holds a
+  48 kB _ceiling_, about 2.4x over, so ordinary growth never touches it and
+  pulling the parser or the renderer onto the entry does. That is the right
+  shape -- a test that pinned the exact byte count would fail on every
+  unrelated minifier change -- and it is also why the prose is the only thing
+  keeping the measurement, and so has to be swept rather than spot-fixed.
 
 #### The sabotage pass, counted in one run against the final tree
 

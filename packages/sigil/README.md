@@ -3006,8 +3006,8 @@ with the mode, the owner, the symlink chain and the five flush failures it
 swallows, `isMissing` is `ENOENT` and nothing else, `overlay` is the whole of
 `WriteOptions.paths`, `segments` carries the prototype-pollution guard, and
 `isPlainObject` is where the boundary between structure and a leaf is. Every one
-of those is a recorded review finding, and it costs nothing in bytes — `json()`
-already uses four of the six.
+of those is a recorded review finding, and it costs 102 bytes, because `json()`
+already uses four of the six and what is added is the export statements.
 
 ```js
 import { createConfigSync, json, object } from '@ttylabs/sigil/config';
