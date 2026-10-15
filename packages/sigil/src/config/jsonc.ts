@@ -1,4 +1,5 @@
 import { __ } from '../i18n/index.js';
+import { LINE_END, lineAt } from './spans.js';
 
 /**
  * JSONC, as the two things it adds to JSON and nothing else.
@@ -13,8 +14,8 @@ import { __ } from '../i18n/index.js';
  * different. So this scans only for what JSONC *adds*: a comment and a trailing
  * comma. Each is replaced with a space, every newline is kept, and what comes
  * out is ordinary JSON at the **same offsets** -- so `JSON.parse`'s own message
- * still points at the character it was about, and SIG-154's span editor works
- * over the original text with this same scan.
+ * still points at the character it was about, and `jsonc-write.ts` reads the
+ * structure out of this blanked text, where its offsets are the source's.
  *
  * ## What it is not
  *
@@ -38,57 +39,31 @@ export interface JsoncScan {
 	comments: JsoncComment[];
 	/** The source with its comments and trailing commas blanked out. */
 	json: string;
-	/** Whether a trailing comma was found. */
-	trailingCommas: boolean;
+	/**
+	 * Where the trailing commas were, as offsets into the source.
+	 *
+	 * Offsets rather than a count, because the span writer needs them and is the
+	 * only thing that can: a trailing comma is **blanked** here, so it is a space
+	 * in `json` and a comma in the source, and nothing reading either text on its
+	 * own can tell it from a comma inside a comment. Found by review, over a
+	 * container whose every key was removed and whose trailing comma was then
+	 * left with nothing in front of it -- `{ , }`, which is not JSON.
+	 */
+	trailing: number[];
 }
 
 /** The byte order mark, which `JSON.parse` refuses and an editor writes. */
 const BOM = '\uFEFF';
 
 /**
- * What ends a line comment.
- *
- * The four JavaScript calls line terminators rather than `\n` alone: a
- * `\r`-only file is rare and the failure is **silent**, which is the
- * combination worth spending four characters on.
- */
-const LINE_END = /[\n\r\u2028\u2029]/;
-
-/**
- * Counts the line a 0-based offset is on.
- *
- * Counted only when a message needs one, which is the rule the stylesheet
- * parser already keeps: counting newlines per token makes reading a file with
- * nothing wrong with it quadratic in its own length.
- *
- * @param text - The source.
- * @param offset - The offset.
- * @returns The 1-based line.
- */
-export function lineAt(text: string, offset: number): number {
-	let line = 1;
-	for (let i = 0; i < offset && i < text.length; i++) {
-		if (text[i] === '\n') {
-			line++;
-		}
-	}
-	return line;
-}
-
-/**
  * Finds the comments and trailing commas in a JSONC source.
  *
  * @param text - The source.
- * @param allow - Whether the extensions are allowed. A `.json` file is scanned
- * with this off, so that a comment in one is reported as a comment -- which is
- * a message somebody can act on, where `JSON.parse`'s `Unexpected token /` is
- * one they have to work out.
- * @param what - The file, for the message.
+ * @param what - The file, for a message.
  * @returns The scan.
- * @throws If an extension is found and not allowed, or a string or block
- * comment is never closed.
+ * @throws If a string or a block comment is never closed.
  */
-export function scanJsonc(text: string, allow: boolean, what: string): JsoncScan {
+export function scanJsonc(text: string, what: string): JsoncScan {
 	// a leading byte order mark is what an editor writes and what `JSON.parse`
 	// refuses, and it is not a character the document holds -- blanked rather
 	// than trimmed, so every offset after it still means what it meant
@@ -96,12 +71,20 @@ export function scanJsonc(text: string, allow: boolean, what: string): JsoncScan
 
 	const out: string[] = [];
 	const comments: JsoncComment[] = [];
-	let trailingCommas = false;
+	const trailing: number[] = [];
 
 	// where the last comma was written, so that a `}` or `]` reached with nothing
-	// but trivia in between can go back and blank it. `-1` is "no comma is
-	// pending", which every value, key and brace resets it to
-	let pendingComma = -1;
+	// but trivia in between can go back and blank it. `undefined` is "no comma is
+	// pending", which every value, key and brace resets it to.
+	//
+	// It carries two numbers because `out`'s index is **not** a source offset: a
+	// string is pushed whole, so one element can be many characters --
+	// `out.join('')` is 1:1 with the source and `out` itself is not. `out` is
+	// what gets blanked and `at` is what `trailing` reports, and conflating them
+	// read the comma of `{"a":1,}` as offset 4 rather than 6. One value rather
+	// than two, so the pair cannot come apart: `at` is only ever read where the
+	// index is live, and two variables would leave a reader to prove that
+	let pending: { at: number; out: number } | undefined;
 
 	// the last character that was not trivia, because a trailing comma is one
 	// that *separated* something: after an opener or another comma there is
@@ -152,7 +135,7 @@ export function scanJsonc(text: string, allow: boolean, what: string): JsoncScan
 			// exactly the case `closed` is false for
 			i = Math.min(i, source.length);
 			out.push(source.slice(start, i));
-			pendingComma = -1;
+			pending = undefined;
 			last = '"';
 			continue;
 		}
@@ -182,10 +165,6 @@ export function scanJsonc(text: string, allow: boolean, what: string): JsoncScan
 				}
 			}
 
-			if (!allow) {
-				throw new Error(__`Comments are not allowed in ${what}, on line ${lineAt(source, start)}`);
-			}
-
 			comments.push({ line: lineAt(source, start), text: source.slice(start, end) });
 			blank(start, end);
 			i = end;
@@ -196,7 +175,10 @@ export function scanJsonc(text: string, allow: boolean, what: string): JsoncScan
 
 		if (c === ',') {
 			// armed only where something precedes it to have been separated
-			pendingComma = last === '' || last === '[' || last === '{' || last === ',' ? -1 : out.length;
+			pending =
+				last === '' || last === '[' || last === '{' || last === ','
+					? undefined
+					: { at: i, out: out.length };
 			out.push(c);
 			last = c;
 			i++;
@@ -204,16 +186,11 @@ export function scanJsonc(text: string, allow: boolean, what: string): JsoncScan
 		}
 
 		if (c === '}' || c === ']') {
-			if (pendingComma !== -1) {
-				if (!allow) {
-					throw new Error(
-						__`Trailing commas are not allowed in ${what}, on line ${lineAt(source, i)}`
-					);
-				}
-				out[pendingComma] = ' ';
-				trailingCommas = true;
+			if (pending !== undefined) {
+				out[pending.out] = ' ';
+				trailing.push(pending.at);
 			}
-			pendingComma = -1;
+			pending = undefined;
 			out.push(c);
 			last = c;
 			i++;
@@ -224,7 +201,7 @@ export function scanJsonc(text: string, allow: boolean, what: string): JsoncScan
 		// closing brace; anything else is a value, which means the comma was a
 		// separator rather than a trailing one
 		if (c !== ' ' && c !== '\t' && c !== '\n' && c !== '\r') {
-			pendingComma = -1;
+			pending = undefined;
 			last = c;
 		}
 
@@ -232,24 +209,22 @@ export function scanJsonc(text: string, allow: boolean, what: string): JsoncScan
 		i++;
 	}
 
-	return { comments, json: out.join(''), trailingCommas };
+	return { comments, json: out.join(''), trailing };
 }
 
 /**
  * Parses a JSON or JSONC source.
  *
  * @param text - The source.
- * @param allow - Whether comments and trailing commas are allowed.
  * @param what - The file, for the message.
  * @returns The value and the comments that were in it.
  * @throws If it is not readable as the format it claims.
  */
 export function parseJsonc(
 	text: string,
-	allow: boolean,
 	what: string
 ): { comments: JsoncComment[]; value: unknown } {
-	const scan = scanJsonc(text, allow, what);
+	const scan = scanJsonc(text, what);
 
 	try {
 		return { comments: scan.comments, value: JSON.parse(scan.json) as unknown };

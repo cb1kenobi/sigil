@@ -8,6 +8,12 @@
  * raised was never "config file or flags" but "this file or a second one". Two
  * files answering for one tool is worse than a long script line.
  *
+ * It stays `sigil.json`, and comments in it are read: `json()` reads a `.json`
+ * as JSONC, so the extension costs nothing and nothing has to be renamed to
+ * carry a comment. This repository's own is a commented `sigil.json`, which is
+ * what makes the span writer dogfood rather than a feature with a test.
+ * `sigil.jsonc` is read too, for an app that prefers the explicit name.
+ *
  * A `next.config.ts`-shaped config was the other candidate and was left alone
  * for now. It has to be *executed*, and everything else this build does is
  * reading: the app's entry is parsed rather than imported precisely so that an
@@ -23,11 +29,28 @@
  * `"sourcemap": true` in the file, and the file wins over the built-in default.
  */
 
-import { createConfigSync, json, type ConfigSchema } from '@ttylabs/sigil/config';
+import { createConfigSync, json, type ConfigLayer, type ConfigSchema } from '@ttylabs/sigil/config';
+import { existsSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 
-/** The name of the config file, which is the shadcn answer to the same question. */
-export const CONFIG_FILE = 'sigil.json';
+/**
+ * The config file, which is `sigil.json` and may be `sigil.jsonc`.
+ *
+ * `.json` first and `sigil new` writes that one, because it is the name an app
+ * already had and there is nothing left for the other extension to buy: one
+ * reader serves both, so a comment in a `sigil.json` is read rather than
+ * reported. `.jsonc` is still accepted for an app that prefers to say so in the
+ * file name -- which is a preference rather than a declaration about the bytes,
+ * since `tsconfig.json` is JSONC under a `.json` name too.
+ *
+ * Both at once is refused, naming them: with both there, picking one picks it by
+ * the order this array happens to be written in and the other silently does
+ * nothing.
+ */
+export const CONFIG_FILES = ['sigil.json', 'sigil.jsonc'] as const;
+
+/** What `sigil new` writes and what every message names where there is no file. */
+export const CONFIG_FILE: string = CONFIG_FILES[0];
 
 /** What `sigil build` reads from the config. */
 export interface BuildConfig {
@@ -99,6 +122,10 @@ const FIELDS = ['external', 'name', 'out', 'safelist', 'shake', 'sourcemap'] as 
 /**
  * What the file may hold, in the parser's own type vocabulary.
  *
+ * Exported so that the write half can be tested against **this** declaration
+ * rather than a copy of it: a round-trip test that re-declared the settings
+ * would be asserting that the writer preserves a file nothing here reads.
+ *
  * The acceptance test for `@ttylabs/sigil/config`, which is why it is a schema
  * rather than the hand-written reader it replaces: the types, the coercion and
  * the choices are the same ones an option declaration gets, so `"shake": "off"`
@@ -114,7 +141,7 @@ const FIELDS = ['external', 'name', 'out', 'safelist', 'shake', 'sourcemap'] as 
  * with keys the type does not declare. The honest split: the schema does types,
  * and the semantic checks are this tool's own.
  */
-const SCHEMA: ConfigSchema = {
+export const CONFIG_SCHEMA: ConfigSchema = {
 	'build.external': { multiple: true, type: 'string' },
 	'build.name': { type: 'string' },
 	'build.out': { type: 'string' },
@@ -124,6 +151,35 @@ const SCHEMA: ConfigSchema = {
 	components: { type: 'string' },
 	locale: { type: 'string' },
 };
+
+/**
+ * The one layer this file is, named after whichever of the two it found.
+ *
+ * Two names and only one of them may exist, which is the two-routes-one-name
+ * rule said about a config file: with both there, picking one picks it by the
+ * order this array happens to be written in and the other silently does
+ * nothing. So it is refused, naming both.
+ *
+ * @param root - The app root.
+ * @returns The layer.
+ * @throws If both files are there.
+ */
+function configLayer(root: string): ConfigLayer {
+	const found = CONFIG_FILES.filter((name) => existsSync(join(root, name)));
+
+	if (found.length > 1) {
+		throw new Error(`${root} has both ${found.join(' and ')}; keep one.`);
+	}
+
+	// the `.json` one when there is neither, because that is the one `sigil new`
+	// writes and the one a message should name
+	const name = found[0] ?? CONFIG_FILE;
+
+	// one reader for either extension, so there is nothing here that has to ask
+	// which name it got -- the branch this replaces picked a strict reader for a
+	// `.json`, which is the asymmetry the two stores collapsing removed
+	return { name, store: json(join(root, name)) };
+}
 
 /**
  * Reads an app's `sigil.json`, if it has one.
@@ -159,10 +215,7 @@ export function readSigilConfig(root: string): SigilConfig {
 	// one layer, which is this file. The stack is what an *app* reaches for; the
 	// toolchain has exactly one place its own settings live, and a second layer
 	// would be a second place to look for an answer to one question
-	const config = createConfigSync({
-		layers: [{ name: CONFIG_FILE, store: json(join(root, CONFIG_FILE)) }],
-		schema: SCHEMA,
-	});
+	const config = createConfigSync({ layers: [configLayer(root)], schema: CONFIG_SCHEMA });
 
 	const section = config.get('build');
 	const build = readSection(section);

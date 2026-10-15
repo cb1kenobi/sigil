@@ -4,7 +4,6 @@ import {
 	createConfigSync,
 	isWritableStore,
 	json,
-	jsonc,
 	object,
 	type ConfigDocument,
 	type ConfigSchema,
@@ -31,6 +30,21 @@ function file(name: string, contents: string): string {
 	const path = join(root, name);
 	writeFileSync(path, contents);
 	return path;
+}
+
+/**
+ * A store with no writer at all.
+ *
+ * Both file stores write since SIG-154, so the first of the two refusals -- a
+ * format that cannot be written -- is now something only somebody else's store
+ * is, which is what a sibling package's XML reader will be.
+ */
+function readOnlyStore(value: unknown = {}): ConfigStore {
+	return {
+		format: 'odd',
+		read: (): Promise<ConfigDocument> => Promise.resolve({ value }),
+		readSync: (): ConfigDocument => ({ value }),
+	};
 }
 
 describe('the layer stack', () => {
@@ -152,13 +166,15 @@ describe('the layer stack', () => {
 
 		expect(config.layers).to.deep.equal([
 			{
-				format: 'json',
+				dirty: false,
+				format: 'jsonc',
 				name: 'system',
 				readOnly: true,
 				source: path,
 				wouldLose: undefined,
 			},
 			{
+				dirty: false,
 				format: 'object',
 				name: 'runtime',
 				readOnly: false,
@@ -166,6 +182,13 @@ describe('the layer stack', () => {
 				wouldLose: undefined,
 			},
 		]);
+
+		// which is the one field that moves on its own: `dirty` is the
+		// set-then-exit hazard made observable, so it reads `true` the moment a
+		// mutator has touched a layer that `save()` has not written
+		config.set('x', 1);
+		expect(config.layers[1]?.dirty).to.equal(true);
+		expect(config.layers[0]?.dirty).to.equal(false);
 	});
 });
 
@@ -561,8 +584,10 @@ describe('set and delete', () => {
 	});
 
 	it('should refuse a config with no writable layer, naming the fix', async () => {
-		const path = file('c.json', '{}');
-		const config = await createConfig({ layers: [{ name: 'system', store: json(path) }] });
+		// a store with no `write()` at all rather than a file store, which is
+		// writable now: the two refusals are a format that cannot be written and a
+		// layer that is not this app's to write, and this is the first
+		const config = await createConfig({ layers: [{ name: 'system', store: readOnlyStore() }] });
 		expect(() => config.set('x', 1)).toThrow(/No writable config layer.*object\(\)/s);
 	});
 
@@ -612,8 +637,9 @@ describe('deleting a value that lives in a read-only layer', () => {
 	it('should fall back to the layer name where the writable store has no source', async () => {
 		// named for what it checks: an `object()` store has no source, so this is
 		// the right-hand side of `source ?? name` and never the left. The title
-		// used to claim the source branch, which no core store can reach -- the
-		// only writable one is `object()`
+		// used to claim the source branch, which that store cannot reach -- a
+		// `json()` or `json()` layer can, since SIG-154 made both writable and
+		// both carry one, which is the sibling test below
 		const config = await createConfig({
 			layers: [
 				{ name: 'system', readOnly: true, store: json(file('system.json', '{"a":1}')) },
@@ -625,11 +651,10 @@ describe('deleting a value that lives in a read-only layer', () => {
 	});
 
 	it('should name the writable layer by its source where it has one', async () => {
-		// reachable only through a store of the caller's own, because `object()` is
-		// the one writable core store and has no source -- which is what SIG-154's
-		// file store will be, so this is the branch that exists for it rather than
-		// dead code. `ConfigStore` is a public interface precisely so an app can
-		// write one
+		// a store of the caller's own, because `object()` has no source to name --
+		// the core stores that do are `json()` and `json()`, which SIG-154 made
+		// writable, so this branch is no longer only for a store nobody has written
+		// yet. `ConfigStore` is a public interface precisely so an app can write one
 		const held: Record<string, unknown> = {};
 		const store: WritableConfigStore = {
 			format: 'probe',
@@ -886,7 +911,7 @@ describe('both entry points', () => {
 			layers: [
 				{ name: 'defaults', store: object({ b: 2 }) },
 				{ name: 'system', store: json(file('c.json', '{"a":0}')) },
-				{ name: 'user', store: jsonc(file('c.jsonc', '{ /* hi */ "a": 1, }')) },
+				{ name: 'user', store: json(file('c.jsonc', '{ /* hi */ "a": 1, }')) },
 			],
 		};
 
@@ -976,18 +1001,13 @@ describe('a layer declaration', () => {
 		).rejects.toThrow(message);
 	});
 
-	it.each([
-		['', 'json'],
-		['', 'jsonc'],
-		[undefined, 'json'],
-	])('should refuse a %o path to %s', (path, kind) => {
+	it.each([[''], [undefined]])('should refuse a %o path', (path) => {
 		// refused where the store is built rather than at the read, because what
 		// the read says names the wrong thing: `expand('')` is `'.'`, so an empty
 		// path reported `EISDIR` about a directory nobody named, and a path that is
 		// not a string threw a `TypeError` out of `expand()` itself
-		const make = kind === 'json' ? json : jsonc;
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		expect(() => make(path as any)).toThrow(/A config file store needs a path/);
+		expect(() => json(path as any)).toThrow(/A config file store needs a path/);
 	});
 
 	it('should refuse two layers of one name', async () => {
@@ -1030,12 +1050,16 @@ describe('a layer declaration', () => {
 describe('the two refusals', () => {
 	it('should narrow a writable store from a read-only one by type', () => {
 		expect(isWritableStore(object())).to.equal(true);
-		expect(isWritableStore(json(join(root, 'nope.json')))).to.equal(false);
+		// both file stores write, which is what the span writer bought them -- so
+		// the one with no writer is a store somebody else's package wrote
+		expect(isWritableStore(json(join(root, 'nope.json')))).to.equal(true);
+		expect(isWritableStore(json(join(root, 'nope.jsonc')))).to.equal(true);
+		expect(isWritableStore(readOnlyStore())).to.equal(false);
 	});
 
 	it('should read a store that cannot write as a read-only layer', async () => {
 		const config = await createConfig({
-			layers: [{ name: 'system', store: json(join(root, 'nope.json')) }],
+			layers: [{ name: 'system', store: readOnlyStore() }],
 		});
 
 		expect(config.layers[0]?.readOnly).to.equal(true);

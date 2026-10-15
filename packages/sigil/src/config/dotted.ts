@@ -113,10 +113,37 @@ export function readPath(root: unknown, parts: readonly string[]): unknown {
 /**
  * Writes a value at a path, making the objects along the way.
  *
- * A non-object in the way is **replaced** rather than written through: a layer
- * whose `server` is the string `"off"` has no `server.port` to set, and the
- * alternative -- refusing -- would make a `set()` fail over what some other
- * layer happens to hold.
+ * A non-object in the way is **replaced** rather than written through, and what
+ * reaches that is exactly one caller with exactly one value. Enumerated rather
+ * than asserted, because this sentence has now been wrong **three times** -- it
+ * said "both of its callers" where there are eight functions, then "no caller
+ * can reach it" where one does, and before either of those it gave a reason that
+ * was false of `set()`. Which is the universal claim this repository keeps
+ * recording as unestablishable by tracing the route you had in mind, written
+ * into the doc of the function it is about. Eight functions, nine sites:
+ *
+ * - `Config.set()`: `#assertWritable()` refuses an ancestor that is there and is
+ *   not an object, where the caller is present and can fix it.
+ * - `Config.#spliceAdd()`, for `push` and `unshift`: the same check.
+ * - `Config.#spliceEnd()`, for `pop` and `shift`: **no** check, and unreachable
+ *   anyway -- it returns early when `readPath()` answers nothing, which it does
+ *   for any non-object ancestor.
+ * - `Config.#restore()`, the rollback after a refused mutation: the ancestors
+ *   are the ones the write being undone had just made, so they are objects.
+ * - `coerceSetting()`: it writes only at a path `readPath()` found a value at,
+ *   so every ancestor is an object by construction.
+ * - `defaultsOf()` and `envOf()`: both build a **fresh** document, and
+ *   `readSchema()` refuses a setting whose path runs through another's -- so
+ *   there is never an ancestor there to conflict with.
+ * - `overlay()`, for a claimed path: its own walk refuses one that is there and
+ *   is not an object, **except `null`** -- and that exemption is the whole of
+ *   what reaches the replace below. A file saying `"a": null` and a claim on
+ *   `a.b` is a create, because `null` means "not configured", and the way it is
+ *   created is this function putting `{}` where the `null` was.
+ *
+ * `Config.delete()` is not on the list: it uses `deletePath()`, which answers
+ * `false` rather than replacing anything.
+ *
  *
  * @param root - The object to write into.
  * @param parts - The path segments, at least one.

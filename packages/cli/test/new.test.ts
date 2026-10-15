@@ -162,7 +162,12 @@ describe('the scaffold', () => {
 	});
 
 	it('should write a sigil.json so add does not have to guess', () => {
+		// `.json` rather than `.jsonc`, because one reader serves both extensions:
+		// a comment in a `sigil.json` is read rather than reported, so the name an
+		// app already had costs it nothing. `readSigilConfig()` reads a `.jsonc`
+		// too, for an app that prefers to say so in the file name
 		expect(json('sigil.json')).toStrictEqual({ components: 'src/components' });
+		expect([...files().keys()]).not.toContain('sigil.jsonc');
 	});
 
 	it('should write a test that runs the app through the real main()', () => {

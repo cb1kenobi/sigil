@@ -122,17 +122,27 @@ describe('the jsonc scan, differentially', () => {
 			const rnd = seeded(seed * 2654435761);
 			const v = value(rnd, 0);
 			const text = jsoncify(v, rnd);
-			const scan = scanJsonc(text, true, 'f');
+			const scan = scanJsonc(text, 'f');
 
 			expect(scan.json, `seed ${seed}: length`).to.have.lengthOf(text.length);
 			expect(scan.json.split('\n').length, `seed ${seed}: lines`).to.equal(text.split('\n').length);
 			expect(JSON.parse(scan.json), `seed ${seed}: ${text}`).to.deep.equal(v);
 
+			// every reported offset is a comma in the source and a space in the
+			// blanked text, which is the whole of what the field claims -- and the
+			// differential above cannot see it, because it reads `scan.json` and a
+			// wrong offset changes nothing there. The span writer is the only reader,
+			// so a drift here is an invalid file rather than a failing test
+			for (const at of scan.trailing) {
+				expect(text[at], `seed ${seed}: offset ${at} in ${text}`).to.equal(',');
+				expect(scan.json[at], `seed ${seed}: blanked at ${at}`).to.equal(' ');
+			}
+
 			const held = reach(v);
 
 			checked++;
 			if (scan.comments.length > 0) withComments++;
-			if (scan.trailingCommas) withTrailing++;
+			if (scan.trailing.length > 0) withTrailing++;
 			if (held.tricky) withTrickyString++;
 			if (held.depth > 1) nested++;
 			// the one that makes the line-count assertion above mean something: a
@@ -159,7 +169,7 @@ describe('the jsonc scan, differentially', () => {
 	it('should keep every string literal shape intact', () => {
 		for (const s of STRINGS) {
 			const text = `{ "k": [${s}, ${s},] /* x */ }`;
-			const scan = scanJsonc(text, true, 'f');
+			const scan = scanJsonc(text, 'f');
 			expect(scan.json).to.have.lengthOf(text.length);
 			expect(JSON.parse(scan.json), text).to.deep.equal({ k: [JSON.parse(s), JSON.parse(s)] });
 		}

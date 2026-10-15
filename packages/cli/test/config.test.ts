@@ -1,4 +1,4 @@
-import { CONFIG_FILE, readSigilConfig } from '../src/config.js';
+import { CONFIG_FILE, CONFIG_FILES, readSigilConfig } from '../src/config.js';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -113,7 +113,7 @@ describe('refusing what it cannot mean', () => {
 		// it would otherwise reach rolldown as a string and match something else.
 		// The message is the shared one now, and it names the setting and the file
 		expect(() => withConfig({ build: { external: 'rolldown' } })).toThrow(
-			/Invalid value for "build\.external" in .*sigil\.json: Expected a list of values/
+			/Invalid value for "build\.external" in sigil\.json: Expected a list of values/
 		);
 	});
 
@@ -206,10 +206,42 @@ describe('refusing what it cannot mean', () => {
 		);
 	});
 
-	it('should refuse a comment in it, naming the line', () => {
-		// a `.json` rather than a `.jsonc`, and the refusal is a sentence somebody
-		// can act on where `JSON.parse`'s is `Unexpected token /`
-		writeFileSync(join(root, CONFIG_FILE), '{\n// a note\n"components":"x"}');
-		expect(() => readSigilConfig(root)).toThrow(/Comments are not allowed in .*on line 2/);
+	it('should read a comment in either of the two names', () => {
+		// one reader rather than one per extension, so the name a file already had
+		// costs it nothing: a comment in `sigil.json` is read rather than reported.
+		// What this replaces asserted the refusal that used to be here
+		for (const name of CONFIG_FILES) {
+			writeFileSync(join(root, name), '{\n// a note\n"components":"x"}');
+			expect(readSigilConfig(root).components, name).to.equal('x');
+			rmSync(join(root, name));
+		}
+	});
+});
+
+describe('which of the two files it reads', () => {
+	it('should read the .json one, which is the name an app already had', () => {
+		writeFileSync(join(root, 'sigil.json'), '{"components":"from-json"}');
+		expect(readSigilConfig(root).components).to.equal('from-json');
+	});
+
+	it('should read a .jsonc one too, for an app that prefers that name', () => {
+		writeFileSync(join(root, 'sigil.jsonc'), '{"components":"from-jsonc"}');
+		expect(readSigilConfig(root).components).to.equal('from-jsonc');
+	});
+
+	it('should refuse both at once, naming them', () => {
+		// the two-routes-one-name rule said about a config file: with both there,
+		// picking one picks it by the order an array happens to be written in and
+		// the other silently does nothing
+		for (const name of CONFIG_FILES) {
+			writeFileSync(join(root, name), '{}');
+		}
+		expect(() => readSigilConfig(root)).toThrow(/has both sigil\.json and sigil\.jsonc; keep one/);
+	});
+
+	it('should name the .json one where there is neither', () => {
+		// which is the one `sigil new` writes and the one a message should name
+		expect(CONFIG_FILE).to.equal('sigil.json');
+		expect(readSigilConfig(root)).toStrictEqual({});
 	});
 });

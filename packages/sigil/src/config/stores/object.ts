@@ -43,11 +43,14 @@ import type { ConfigDocument, WritableConfigStore, WriteOptions } from '../types
  * ## Writable, and what that means here
  *
  * It is a `WritableConfigStore` because it can be one -- `write()` replaces the
- * value it holds -- and that value is in memory, so nothing persists. The file
- * stores beside it are **not** writable in this ticket: a reprinting JSON
- * writer would destroy the comments a `.jsonc` file is read for, which is what
- * SIG-154's span writer exists to prevent, so there is no file write until
- * there is a correct one.
+ * value it holds -- and that value is in memory, so **nothing persists**. A
+ * `save()` of a layer over one therefore succeeds and writes no file, which is
+ * what the runtime override layer means: the file stores beside it are the ones
+ * that reach a disk.
+ *
+ * It reports no `wouldLose`, and that is not an omission either: it holds the
+ * value rather than a serialization of it, so there is no trivia for a write to
+ * drop.
  *
  * @param value - The value, or nothing for an empty override layer.
  * @returns The store.

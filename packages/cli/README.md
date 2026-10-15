@@ -26,9 +26,12 @@ one that checks out.
 ## Configuration
 
 `sigil.json`, beside your `package.json`. Every field is optional, and a
-command-line flag beats the file:
+command-line flag beats the file. Comments and trailing commas are allowed in
+it -- the file is read as JSONC whatever it is called, so you never have to
+rename it to annotate it. `sigil.jsonc` is read too, for a project that prefers
+to say so in the name; both at once is an error.
 
-```json
+```jsonc
 {
   "components": "src/components",
   "locale": "de",
@@ -38,8 +41,8 @@ command-line flag beats the file:
     "out": "dist",
     "safelist": ["text-red"],
     "shake": true,
-    "sourcemap": true
-  }
+    "sourcemap": true,
+  },
 }
 ```
 

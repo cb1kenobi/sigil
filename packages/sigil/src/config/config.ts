@@ -1,6 +1,6 @@
 import { __ } from '../i18n/index.js';
 import { deletePath, isPlainObject, readPath, segments, writePath } from './dotted.js';
-import { copyValue, deepFreeze, mergeLayers } from './merge.js';
+import { copyDocument, copyValue, deepFreeze, mergeLayers, overlay } from './merge.js';
 import { coerceLayer, concatPaths, defaultsOf, envOf, readSchema, type Setting } from './schema.js';
 import type {
 	ConfigDocument,
@@ -10,6 +10,7 @@ import type {
 	ConfigStore,
 	Loss,
 	WritableConfigStore,
+	WriteOptions,
 } from './types.js';
 
 /**
@@ -42,6 +43,17 @@ interface Layer {
 	readonly declared: ConfigLayer;
 	readonly name: string;
 	readonly readOnly: boolean;
+	/**
+	 * The dotted paths this process has changed, which is what `save()` writes.
+	 *
+	 * Paths rather than a before-and-after copy of the value, which is the
+	 * cheaper shape *and* the more honest one: what a three-way merge needs is
+	 * "what did **this** process change", and a path is that said directly where
+	 * a deep diff is it inferred. The empty string is the whole layer, which is
+	 * what `apply()` records -- consistent with the rest of the module, where an
+	 * absent path is already the whole merged view.
+	 */
+	readonly touched: Set<string>;
 	/** The layer's own value, which `set()` mutates and the merge reads. */
 	value: Record<string, unknown>;
 	readonly wouldLose?: readonly Loss[];
@@ -121,6 +133,7 @@ export class Config {
 	/** What each layer is, for diagnostics. */
 	get layers(): readonly ConfigLayerInfo[] {
 		return this.#layers.map((layer) => ({
+			dirty: layer.touched.size > 0,
 			format: layer.declared.store.format,
 			name: layer.name,
 			readOnly: layer.readOnly,
@@ -166,6 +179,16 @@ export class Config {
 		const next = copyValue(value, name) as Record<string, unknown>;
 		coerceLayer(next, this.#settings, name);
 		layer.value = next;
+		// the whole layer, which is what `save()` writes wholesale -- `apply()`'s own
+		// replace-not-merge rule read from the write side. A reload is the same
+		// statement and costs nothing: re-applying what was just read diffs to no
+		// bytes at all, so the write is skipped.
+		//
+		// The paths touched before are left in rather than cleared, because
+		// clearing them changed no answer -- said by a sabotage and true by
+		// construction: with `''` in the set the value written *is* this layer's,
+		// so applying any path of it over itself is a copy of an equal subtree
+		layer.touched.add('');
 		this.#recompute();
 	}
 
@@ -204,7 +227,7 @@ export class Config {
 		// at every level, so a path one finds is one the other removes. An `if`
 		// here was a guard that cannot be false
 		deletePath(layer.value, parts);
-		this.#recompute();
+		this.#touch(layer, parts);
 		return true;
 	}
 
@@ -276,6 +299,148 @@ export class Config {
 	 */
 	push(path: string, value: unknown, name?: string): number {
 		return this.#spliceAdd(path, value, name, 'push');
+	}
+
+	/**
+	 * Persists what `set()` changed, re-reading each layer first.
+	 *
+	 * ## Why `set()` does not write and this does
+	 *
+	 * Every accessor is synchronous and a store's `write()` may not be -- a
+	 * remote store is async by nature -- so a synchronous `set()` cannot report
+	 * an asynchronous write failure, and one that tried would be the silent-loss
+	 * class every other decision in this module refuses. That is better anyway:
+	 * a run that sets five keys writes once rather than five times, and the
+	 * temp-plus-rename and the re-read are one operation rather than five.
+	 *
+	 * The hazard it introduces is named rather than guarded: **an app that
+	 * `set()`s and exits without `save()` loses the write.** `config.layers`
+	 * reports `dirty` so that an app which wants to warn can. There is
+	 * deliberately no `autoSave`, because a `set()` that schedules a write is a
+	 * `set()` that cannot say the write failed.
+	 *
+	 * ## It re-reads, and what that buys
+	 *
+	 * Each layer's store is read again and **this process's own changes are
+	 * applied over what it finds**, which makes the common cross-process case
+	 * work: two invocations setting two *different* keys both survive, where a
+	 * blind write loses one of them. That is what `touched` is for -- a path this
+	 * process wrote is a path that wins, and every other key in the file is left
+	 * exactly as the file has it.
+	 *
+	 * The claimed paths are handed to the store, which is what makes that last
+	 * sentence true rather than nearly true. A store given a whole document and
+	 * nothing else can only diff the whole of it against what it reads, so a key
+	 * **another process** changed between this read and the store's own was
+	 * reverted -- any key, including every one this process never touched, for as
+	 * long as the save took. Found by review, and closed by `WriteOptions.paths`
+	 * rather than by narrowing the claim.
+	 *
+	 * The residual race is then **last-writer-wins on the same key**, documented
+	 * rather than guarded: a lock is the only real fix, nothing has asked for
+	 * one, and a half-guard here would read as safety and not be.
+	 *
+	 * What follows from that is worth knowing: a layer the save re-read may come
+	 * back holding keys it did not hold before, so `get()` can answer differently
+	 * after a `save()` than before it. That is the file being right about itself.
+	 *
+	 * And the layer is what **this** process read plus what it changed, which is
+	 * not quite the bytes: the file is what the *store* read plus the same
+	 * changes, so the two differ for exactly the keys another process wrote in the
+	 * window -- `get('b')` can answer 1 over a file that says 99. The sentence
+	 * here used to claim the opposite, that a view disagreeing with the bytes just
+	 * written is the worse of the two answers, and the claimed paths made it false
+	 * while leaving it in place. Measured, which is how it was found.
+	 *
+	 * It is the better trade rather than a regression: the agreement it gives up
+	 * was bought by **reverting** that other process's key, which is the defect
+	 * the claim exists to fix. Closing it needs a third read to re-stage from, and
+	 * a third read only moves the window -- so the honest statement is that a
+	 * `save()` leaves the layer as stale about somebody else's keys as the read it
+	 * started from, and the next run is where the file is read again.
+	 *
+	 * ## What it skips, and what it refuses
+	 *
+	 * A layer with nothing touched is not written, so a `save()` nobody needed
+	 * costs one read per dirty layer and no writes at all -- and a write whose
+	 * text comes out identical touches no file, which keeps the mtime a watcher
+	 * is reading. A read-only layer is skipped where no name was given and
+	 * **refused** where one was, because naming it is the app asking for
+	 * something it cannot have.
+	 *
+	 * ## It is not atomic across layers
+	 *
+	 * Each layer's write is atomic in itself -- temp file plus rename -- and a
+	 * `save()` over two dirty layers that fails on the second leaves the first
+	 * written, with what it returns naming nothing. That is documented rather
+	 * than guarded, for the reason the same-key race is: making it one
+	 * transaction means a rollback over somebody else's filesystem, and the
+	 * layers are separate files that separate processes may be reading. A
+	 * `save(name)` per layer is how an app that needs to know takes it one at a
+	 * time.
+	 *
+	 * @param name - The layer, or nothing for every dirty one. May be the options
+	 * instead, which is the spelling `save({ lossy: true })` wants.
+	 * @param opts - Whether to write where a store said it would lose something.
+	 * @returns The layers that were written, in stack order.
+	 * @throws If a named layer cannot be written, if a store would lose something
+	 * and nothing said `lossy`, or if the store's own write fails.
+	 */
+	async save(opts?: WriteOptions): Promise<readonly string[]>;
+	async save(name: string, opts?: WriteOptions): Promise<readonly string[]>;
+	async save(name?: string | WriteOptions, opts?: WriteOptions): Promise<readonly string[]> {
+		const [which, how] = saveArgs(name, opts);
+		const written: string[] = [];
+
+		for (const layer of this.#targets(which)) {
+			const doc = await layer.declared.store.read();
+			const next = this.#staged(layer, doc, how);
+			await (layer.declared.store as WritableConfigStore).write(next.write, {
+				...how,
+				paths: next.paths,
+			});
+			this.#saved(layer, next.hold);
+			written.push(layer.name);
+		}
+
+		return written;
+	}
+
+	/**
+	 * The same, without awaiting anything.
+	 *
+	 * Beside the async one rather than instead of it, for the reason
+	 * `createConfigSync()` is: an exit or signal handler cannot await, and "read
+	 * the config on the way in and write it on the way out" is that shape
+	 * exactly. Two real implementations of one loop, because a synchronous entry
+	 * point that awaited an already-settled promise would not be synchronous --
+	 * which is why everything between them is a shared method rather than one
+	 * calling the other.
+	 *
+	 * @param name - The layer, or nothing for every dirty one. May be the options
+	 * instead.
+	 * @param opts - Whether to write where a store said it would lose something.
+	 * @returns The layers that were written, in stack order.
+	 * @throws For the reasons `save()` throws.
+	 */
+	saveSync(opts?: WriteOptions): readonly string[];
+	saveSync(name: string, opts?: WriteOptions): readonly string[];
+	saveSync(name?: string | WriteOptions, opts?: WriteOptions): readonly string[] {
+		const [which, how] = saveArgs(name, opts);
+		const written: string[] = [];
+
+		for (const layer of this.#targets(which)) {
+			const doc = layer.declared.store.readSync();
+			const next = this.#staged(layer, doc, how);
+			(layer.declared.store as WritableConfigStore).writeSync(next.write, {
+				...how,
+				paths: next.paths,
+			});
+			this.#saved(layer, next.hold);
+			written.push(layer.name);
+		}
+
+		return written;
 	}
 
 	/**
@@ -421,6 +586,164 @@ export class Config {
 	}
 
 	/**
+	 * Refuses a write that would lose what a store cannot carry.
+	 *
+	 * Asked of the **document** rather than of the store, which is the whole
+	 * shape of the lossless rule: a reprinting store writing a file that has no
+	 * comments in it loses nothing, and refusing that write would be a guard
+	 * firing on correct code. A span store answers for free because it already
+	 * parsed the file, and a reprinting one can answer cheaply even though it
+	 * cannot preserve.
+	 *
+	 * Which also means the guard is mostly **for the sibling packages**: the
+	 * stores in here never report a loss, so nothing in core ever trips it.
+	 *
+	 * @param layer - The layer being written.
+	 * @param doc - What its store read just now.
+	 * @param opts - Whether this call said `lossy`.
+	 * @throws If something would be lost and nothing said `lossy`.
+	 */
+	#assertLossless(layer: Layer, doc: ConfigDocument, opts: WriteOptions): void {
+		const losses = doc.wouldLose ?? [];
+
+		if (losses.length === 0 || (opts.lossy ?? layer.declared.lossy) === true) {
+			return;
+		}
+
+		// a refusal that states the problem and not the remedy is the thing this
+		// repository complains about repeatedly, so both ways out are in the
+		// message. One key rather than a count and a plural, because the kinds are
+		// the **store's** own open vocabulary -- an XML processing instruction, a
+		// YAML anchor, a TOML table header -- so the detail is words this package
+		// did not choose and cannot translate, which is the split
+		// `Invalid JSON: {0}` already takes with V8's English
+		// `lossy: true` rather than `{ lossy: true }`, because a `{...}` in a key is
+		// what `should number a slot per interpolation, never name one` refuses --
+		// and it is right to: a translator meeting one has no way to tell a literal
+		// brace from a slot somebody spelled with a name
+		throw new Error(
+			__`Refusing to write ${layer.name}: ${describeLosses(losses)} would be lost.
+  Pass lossy: true to write anyway, or use a store that can keep what is there.`
+		);
+	}
+
+	/**
+	 * Records that a layer was written, and holds what was staged.
+	 *
+	 * The layer takes the staged value rather than keeping what it had, so that
+	 * `get()` answers with this process's own changes over the document it read
+	 * rather than with what it held before the save.
+	 *
+	 * That is **not** the same as what the file holds, and this said it was for a
+	 * commit: the file is what the *store* read plus the same changes, so the two
+	 * differ for exactly the keys another process wrote in the window. `save()`
+	 * has the whole of it, including why closing that needs a third read and why a
+	 * third read only moves the window -- and aligning this sentence with itself
+	 * would be re-reading after the write, which is that. Found by review, in the
+	 * commit that corrected the same claim in `save()` and left this one.
+	 */
+	#saved(layer: Layer, hold: Record<string, unknown>): void {
+		layer.value = hold;
+		layer.touched.clear();
+		this.#recompute();
+	}
+
+	/**
+	 * What to write and what to hold afterwards, built before anything is
+	 * written.
+	 *
+	 * Two values, because they are two different readings of one result. What is
+	 * **written** is the freshly read document with this process's own paths
+	 * applied over it, *uncoerced*: a layer holds `false` where the file says
+	 * `"off"`, so coercing what goes back would rewrite a spelling nobody asked
+	 * to change. What is **held** is the coerced copy of it, because a layer's
+	 * value is always one the schema has validated -- and it is built here,
+	 * before the write, so that a document the schema cannot hold is a refusal
+	 * rather than a file already on disk.
+	 *
+	 * @param layer - The layer being written.
+	 * @param doc - What its store read just now.
+	 * @param opts - Whether this call said `lossy`.
+	 * @returns The value to write and the value to hold.
+	 * @throws If the store would lose something, or the merged document is not
+	 * one this schema can hold.
+	 */
+	#staged(
+		layer: Layer,
+		doc: ConfigDocument,
+		opts: WriteOptions
+	): {
+		hold: Record<string, unknown>;
+		paths: readonly string[] | undefined;
+		write: Record<string, unknown>;
+	} {
+		this.#assertLossless(layer, doc, opts);
+
+		const read = doc.value ?? {};
+
+		if (!isPlainObject(read)) {
+			// not translated, for `layerOf()`'s reason: a store that answers with
+			// something a layer cannot hold is a bug in that store's own source
+			throw new Error(`Layer "${layer.name}" read a value that is not an object`);
+		}
+
+		// `apply()` is replace rather than merge, so a layer it replaced is written
+		// wholesale and the other process's keys are not honoured -- which is that
+		// method's own rule read from the write side
+		const write = (
+			layer.touched.has('') ? copyDocument(layer.value, layer.name) : copyDocument(read, layer.name)
+		) as Record<string, unknown>;
+
+		overlay(write, layer.value, layer.touched, layer.name);
+
+		const hold = copyValue(write, layer.name) as Record<string, unknown>;
+		coerceLayer(hold, this.#settings, layer.name);
+
+		// what the store is told is its own, and `undefined` where the layer was
+		// replaced: `apply()` is wholesale, so the other process's keys are not
+		// honoured and the store diffs the whole document. Which is that method's
+		// own rule reaching the one place that can honour it
+		const paths = layer.touched.has('') ? undefined : [...layer.touched];
+
+		return { hold, paths, write };
+	}
+
+	/**
+	 * The layers a save writes, which is every dirty writable one or the one
+	 * named.
+	 *
+	 * A named layer that is clean is skipped rather than rewritten, so
+	 * `save('user')` over nothing changed touches no file. A named one that
+	 * cannot be written is refused, and the message distinguishes the two
+	 * refusals the types already distinguish: a store that has no writer at all
+	 * and a layer that is not this app's to write.
+	 *
+	 * @param name - The layer, or nothing for every dirty one.
+	 * @returns The layers, in stack order.
+	 * @throws If a named layer cannot be written.
+	 */
+	#targets(name: string | undefined): Layer[] {
+		if (name === undefined) {
+			return this.#layers.filter((it) => !it.readOnly && it.touched.size > 0);
+		}
+
+		const layer = this.#layer(name);
+
+		// not translated: naming a layer is the app's own call, so naming one that
+		// cannot be written is a bug in its source rather than anything a user did
+		if (!isWritableStore(layer.declared.store)) {
+			throw new Error(
+				`Cannot save layer "${layer.name}": its ${layer.declared.store.format} store cannot write.`
+			);
+		}
+		if (layer.readOnly) {
+			throw new Error(`Cannot save layer "${layer.name}": it is read-only.`);
+		}
+
+		return layer.touched.size > 0 ? [layer] : [];
+	}
+
+	/**
 	 * Validates the **whole** layer after a mutation and recomputes, putting the
 	 * one path back if either is refused.
 	 *
@@ -440,6 +763,12 @@ export class Config {
 	 * makes this hole-free by construction rather than by a rule about which
 	 * settings a path touches. What it costs is a path read per declared setting
 	 * per mutation, which for a config is a handful of lookups.
+	 *
+	 * Every mutation that **writes a value** runs it. `pop()` and `shift()` do
+	 * not, and need not: what they leave is a subset of a list the schema has
+	 * already accepted rather than anything a caller supplied, so there is no
+	 * value for a pass to judge. Found by review, as a docblock that said every
+	 * mutation and meant every write.
 	 *
 	 * Restoring one path is enough even though the pass rewrites every setting it
 	 * validates, because `coerceSetting()` is idempotent: a coerced value coerces
@@ -475,6 +804,10 @@ export class Config {
 			this.#restore(layer, parts, before);
 			throw e;
 		}
+
+		// after the guard rather than inside it, because a mutation that was rolled
+		// back changed nothing and has nothing for `save()` to write
+		layer.touched.add(parts.join('.'));
 	}
 
 	/**
@@ -491,6 +824,19 @@ export class Config {
 		} else {
 			writePath(layer.value, parts, before);
 		}
+	}
+
+	/**
+	 * Records a path as this process's and rebuilds the merged view.
+	 *
+	 * The joined path rather than the segments, because a `Set` de-duplicates on
+	 * a primitive and `segments()` splits it back when `save()` asks -- which it
+	 * validates a second time, over a path it has already validated, for the
+	 * price of a `split`.
+	 */
+	#touch(layer: Layer, parts: readonly string[]): void {
+		layer.touched.add(parts.join('.'));
+		this.#recompute();
 	}
 
 	/** Rebuilds the merged view from the layers, the defaults and the environment. */
@@ -588,7 +934,7 @@ export class Config {
 		const list = [...(at as unknown[])];
 		const removed = what === 'pop' ? list.pop() : list.shift();
 		writePath(layer.value, parts, list);
-		this.#recompute();
+		this.#touch(layer, parts);
 		return removed;
 	}
 
@@ -621,6 +967,55 @@ export class Config {
 			'No writable config layer. Add one with `{ name, store: object() }`, which is the in-memory override layer.'
 		);
 	}
+}
+
+/**
+ * Which of `save()`'s two spellings was used.
+ *
+ * One method with two signatures rather than two methods, which is the shape
+ * `InputRouter.bind()` already takes: a trailing layer name is the idiom every
+ * mutator here keeps, and `save()` has no positional argument for a name to
+ * trail -- so `save({ lossy: true })` has to work or the common escape hatch is
+ * spelled `save(undefined, { lossy: true })`.
+ *
+ * @param name - The first argument, which may be either.
+ * @param opts - The second, which is only ever the options.
+ * @returns The layer name and the options.
+ */
+function saveArgs(
+	name: string | WriteOptions | undefined,
+	opts: WriteOptions | undefined
+): [string | undefined, WriteOptions] {
+	return typeof name === 'string' ? [name, opts ?? {}] : [undefined, name ?? opts ?? {}];
+}
+
+/**
+ * What a store said it would lose, as one phrase.
+ *
+ * `kind:line` rather than a sentence, and **not translated**, which is the one
+ * deliberate gap in this module's messages: `Loss.kind` is an open string the
+ * *store* chose -- `comment`, `anchor`, or whatever a format this package has
+ * never heard of calls its own trivia -- so the phrase is assembled out of
+ * words this package did not pick and cannot translate. `kind:line` is the
+ * `file:line` convention the toolchain's own diagnostics already use, it needs
+ * no English of its own, and it carries the count by being a list.
+ *
+ * Capped, because a store reporting five hundred losses would otherwise produce
+ * a message nobody reads to the end of.
+ *
+ * @param losses - What the store reported.
+ * @returns The phrase.
+ */
+function describeLosses(losses: readonly Loss[]): string {
+	const shown = losses
+		.slice(0, 10)
+		.map((it) => {
+			const where = it.line === undefined ? it.kind : `${it.kind}:${it.line}`;
+			return it.detail === undefined ? where : `${where} (${it.detail})`;
+		})
+		.join(', ');
+
+	return losses.length > 10 ? `${shown}, ...` : shown;
 }
 
 /**
@@ -661,6 +1056,7 @@ function layerOf(
 		declared: layer,
 		name: layer.name,
 		readOnly: layer.readOnly === true || !isWritableStore(layer.store),
+		touched: new Set<string>(),
 		value,
 		wouldLose: doc?.wouldLose,
 	};
@@ -735,9 +1131,8 @@ function assertLayers(declared: readonly ConfigLayer[]): void {
  *
  * Lazy layer creation is the one thing an async `set()` would buy and it is
  * refused: a `set()` targets a layer that is already registered, and
- * registration is this function's. The *file* need not exist -- `save()`, which
- * is SIG-154's and is not in this ticket, creates it -- so the reason config-kit
- * forces async does not arise here.
+ * registration is this function's. The *file* need not exist -- `save()` creates
+ * it -- so the reason config-kit forces async does not arise here.
  *
  * @param opts - The schema, the layers, and the environment to read.
  * @returns The config.

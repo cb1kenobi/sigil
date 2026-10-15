@@ -3,9 +3,16 @@ import type { DataType } from '../types.js';
 /**
  * Trivia a document holds that **this store** could not carry through a write.
  *
- * Empty for a span store even over a comment-rich file, because it edits rather
- * than reprints; populated by a store that reprints what it parsed. What to do
- * about it is the config's, which is the lossless rule.
+ * **Absent** for a span store even over a comment-rich file, because it edits
+ * rather than reprints; populated by a store that reprints what it parsed. The
+ * field is optional, so nothing lost is no field rather than `[]` -- which makes
+ * `layer.wouldLose?.length` the way to read it, and `layer.wouldLose.length` a
+ * `TypeError`. What to do about it is the config's, which is the lossless rule.
+ *
+ * Said as "empty" here for one commit, which is the fourth copy of that wording
+ * this field has had and the one a store author reads: a store aligned with it
+ * would answer `[]`, and then the optional-chain reading every caller is told to
+ * use is a lie the other way. Found by review.
  */
 export interface Loss {
 	/**
@@ -120,27 +127,88 @@ export interface ConfigStore {
  *
  * The first of a store's two refusals is **a separate interface** rather than a
  * method that throws: a read-only store is not one, so read-only is something
- * TypeScript enforces and a type guard narrows. `write()` and `writeSync()` are
- * declared here and are nobody's caller yet -- `save()` is SIG-154's -- and they
- * are declared now because an interface that grows a required method later is
- * one every existing implementor has to be rewritten for.
+ * TypeScript enforces and a type guard narrows.
+ *
+ * Both halves again, for the reason `read()` and `readSync()` are both
+ * required: `Config.save()` is async because a remote store's write is, and
+ * `Config.saveSync()` exists because an exit or signal handler cannot await --
+ * which is "read the config on the way in and write it on the way out", the
+ * shape `Terminal.syncRestore()` is already written for.
+ *
+ * A `write()` is handed the **whole** value the layer should hold rather than a
+ * list of changes, which is what lets a store choose how to get there: the JSON
+ * stores diff it against the bytes they already hold and splice, where a store
+ * with no editing model reprints and says so through `wouldLose`.
  */
 export interface WritableConfigStore extends ConfigStore {
-	/** Persists a value. */
+	/**
+	 * Persists a value.
+	 *
+	 * The **whole** value the layer should hold rather than a list of changes,
+	 * which is what lets a store choose how to get there -- and `opts.paths` is
+	 * what says which of it is the caller's. A store may ignore that and be
+	 * total, which is a coarser answer rather than a wrong one; a store that
+	 * honours it is what makes `save()`'s re-read mean something, so read
+	 * `WriteOptions.paths` before deciding this takes a whole document and
+	 * nothing else.
+	 */
 	write(value: unknown, opts?: WriteOptions): Promise<void>;
-	/** Persists a value without awaiting anything. */
+	/** Persists a value without awaiting anything, with `write()`'s contract. */
 	writeSync(value: unknown, opts?: WriteOptions): void;
 }
 
-/** How to write. The lossless rule and `lossy` are SIG-154's. */
+/**
+ * How to write.
+ *
+ * `Config.save()` takes the same shape, because what it does with `lossy` is
+ * decide whether to call `write()` at all and then hand it straight on -- so a
+ * second type would be the same field under a second name.
+ */
 export interface WriteOptions {
 	/**
 	 * Whether to write even where this store reported it would lose something.
 	 *
-	 * Declared with the interface it belongs to and read by `save()`, which is
-	 * SIG-154's.
+	 * The opt-in half of the lossless rule, which is
+	 * `clipboardSequence()`'s one subsystem along: over the cap that refuses by
+	 * default and truncates only when asked, because sending and hoping is the
+	 * one answer that cannot be observed. A config file quietly stripped of its
+	 * comments is the same failure with a slower fuse -- the user finds out next
+	 * time they open the file -- so the refusal is visible and this is the
+	 * deliberate other half, exactly as `truncate: true` is there.
+	 *
+	 * Read by `save()`, which asks it of the **document** rather than of the
+	 * store: a store that reprints and a file with no trivia in it lose nothing
+	 * between them, and refusing that write would be a guard firing on correct
+	 * code.
 	 */
 	lossy?: boolean;
+	/**
+	 * The dotted paths of `value` this write is claiming, or nothing for all of
+	 * it.
+	 *
+	 * What it is for is the one thing re-reading buys: a store handed a whole
+	 * document and nothing else can only diff the whole of it against what it
+	 * finds, so a key **another process** changed between the read and the write
+	 * is reverted -- even one this process never touched. That is the opposite of
+	 * what the re-read is there for, and it is not a narrow window: it is every
+	 * key of the file for as long as the save takes. Found by review.
+	 *
+	 * So a caller that knows which paths are its own says so, and the store
+	 * leaves every other key exactly as the file has it. `save()` passes what
+	 * `set()`, `delete()` and the array methods recorded, which is **exact**
+	 * rather than a reconstruction -- a diff of the value against the document it
+	 * came from would guess at the same answer and get a no-op `set()` wrong.
+	 *
+	 * Omitted means the whole document, which is what a caller writing a value
+	 * straight to a store means and is the only thing `write(value)` can mean on
+	 * its own. `apply()` passes nothing for that reason: it is replace rather
+	 * than merge, so the layer it replaced is written wholesale.
+	 *
+	 * A store may ignore it, in which case its write is total -- which is a
+	 * coarser answer rather than a wrong one, and is why this is additive rather
+	 * than a second method.
+	 */
+	paths?: readonly string[];
 }
 
 /**
@@ -213,12 +281,36 @@ export interface ConfigLayer {
 	 * expressible.
 	 */
 	readOnly?: boolean;
+	/**
+	 * Whether a write to this layer may lose what its store cannot carry.
+	 *
+	 * The per-**layer** half of the lossless rule, for the legitimate case: this
+	 * file is generated, so clobber it freely. Per **call** is
+	 * `save(name, { lossy: true })`, which is the escape hatch and is where
+	 * `truncate` already sits on the clipboard rather than on a config object.
+	 *
+	 * There is deliberately no global setting, because a global "allow
+	 * clobbering" is set once in a scaffold and never thought about again, which
+	 * defeats it.
+	 */
+	lossy?: boolean;
 	/** The backing store. */
 	store: ConfigStore;
 }
 
 /** What a layer looks like from outside, for diagnostics. */
 export interface ConfigLayerInfo {
+	/**
+	 * Whether this layer has changes `save()` has not written.
+	 *
+	 * The set-then-exit hazard made observable rather than only documented: a
+	 * `set()` mutates its layer in memory and `save()` persists, so an app that
+	 * sets and exits loses the write -- and an app that wants to warn about one,
+	 * or to ask before discarding, needs this to ask. It is also what makes the
+	 * tracking testable without reaching into a private field, which is the
+	 * decider: a mechanism with no observable is one a test cannot pin.
+	 */
+	readonly dirty: boolean;
 	/** The store's format. */
 	readonly format: string;
 	/** The layer's name. */
