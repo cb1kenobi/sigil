@@ -21641,6 +21641,34 @@ the declaration is content, so a row has to be able to match there.
   `newElement()`'s rule and is right here, since a promoted key is a new element
   and the setting is identified by its local name either way.
 
+#### Round 3 never answered, and what was done in its place
+
+Two launches, both hung in `cursor-agent`'s own reconnect loop with zero bytes
+after twenty minutes and five -- the same failure round 1 survived once. The
+second was narrowed to the tests and the prose, which is the technique that
+landed round 2 after its full-diff attempts died, and it hung too. So three reads
+were delivered rather than four, and what stands in for the fourth is this
+repository's own work, labelled as such: weaker evidence than a reviewer's,
+because nobody who had not written the code read it.
+
+What it found by applying round 3's own brief:
+
+- **The DOCTYPE false positive** above, which is the only runtime defect of the
+  three attempts at a round 3 and came from probing the region scanner's
+  adversarial shapes.
+- **The packaging claims**, each measured rather than left on the strength of
+  having been written -- the entry below.
+- **An absence-only sweep over every test**, which is the class a deletion pass
+  cannot see: a test that passes because nothing happened. Fifteen assertions are
+  an absence and thirteen are the claim itself, each pinned from the other side
+  by a positive test the pass catches -- `fidelity: always lossless` makes every
+  document lossy and is caught, so "this one round-trips" is not standing alone.
+  Two were real: `should write it anyway where the caller said lossy` and its
+  sibling asserted `not.toThrow()`, which **a save that silently did nothing
+  satisfies just as well**. They assert the bytes now. And
+  `should name every export in the README` already guards its own vacuity with a
+  `names.size).toBeGreaterThan(1)`, which is the shape the rest should copy.
+
 #### The sabotage pass, counted in one run against the final tree
 
 **100 mutations, 95 caught, 5 declared.** One run rather than a sum across

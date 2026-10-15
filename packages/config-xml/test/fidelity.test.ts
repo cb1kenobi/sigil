@@ -1,6 +1,6 @@
 import { lossesOf } from '../src/fidelity.js';
 import { xml } from '../src/index.js';
-import { file } from './helpers.js';
+import { file, read } from './helpers.js';
 import type { Loss } from '@ttylabs/sigil/config';
 import { createConfigSync } from '@ttylabs/sigil/config';
 import { describe, expect, it } from 'vitest';
@@ -285,17 +285,26 @@ describe('what a write would lose', () => {
     });
 
     it('should write it anyway where the caller said lossy', () => {
+      // and **what** it wrote, rather than only that it did not throw: a save
+      // that silently did nothing satisfies a `not.toThrow` just as well, which
+      // is the shape this package has already had four of
       const path = file(`<config>\n  <a></a>\n</config>\n`);
       const config = createConfigSync({ layers: [{ name: 'f', store: xml(path) }] });
       config.set('a', '1');
-      expect(() => config.saveSync({ lossy: true })).not.toThrow();
+
+      config.saveSync({ lossy: true });
+
+      expect(read(path)).toBe(`<config>\n  <a>1</a>\n</config>\n`);
     });
 
     it('should write without being asked where the document loses nothing', () => {
       const path = file(`<config>\n  <a>0</a>\n</config>\n`);
       const config = createConfigSync({ layers: [{ name: 'f', store: xml(path) }] });
       config.set('a', '1');
-      expect(() => config.saveSync()).not.toThrow();
+
+      config.saveSync();
+
+      expect(read(path)).toBe(`<config>\n  <a>1</a>\n</config>\n`);
     });
   });
 
