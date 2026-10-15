@@ -106,6 +106,53 @@ interface Residual {
 }
 
 /**
+ * Where a DOCTYPE declaration ends, which its own grammar decides.
+ *
+ * A quoted literal may hold a `>` and an internal subset may hold several, so
+ * the first `>` is the end of neither -- `indexOf()` over either was a false
+ * positive of the bare-`>` row in a document that also had a real loss, which
+ * is the class `contentOf()` exists to close and this was one more member of.
+ * So the walk tracks a quote and treats `[` as entering the subset, which ends
+ * at the matching `]`.
+ *
+ * @param source - The document.
+ * @param from - The offset of the `<` that opens the declaration.
+ * @returns One past the `>` that closes it, or the end of the source.
+ */
+function doctypeEnd(source: string, from: number): number {
+  let quote: string | undefined;
+  let subset = false;
+
+  for (let i = from + '<!DOCTYPE'.length; i < source.length; i++) {
+    const ch = source[i] as string;
+
+    if (quote) {
+      if (ch === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (ch === '[') {
+      subset = true;
+      continue;
+    }
+    if (ch === ']') {
+      subset = false;
+      continue;
+    }
+    if (ch === '>' && !subset) {
+      return i + 1;
+    }
+  }
+
+  return source.length;
+}
+
+/**
  * The source with every region a `content` row must not match blanked out.
  *
  * Blanked rather than removed, so that every offset -- and therefore every
@@ -139,27 +186,29 @@ function contentOf(source: string): string {
     if (source[i] !== '<') {
       continue;
     }
-    // each region is `[opener, closer]`, and the DOCTYPE's closer is the first
-    // `>` past its own internal subset rather than the first `>` at all
+    // each region is `[opener, closer]`, and a DOCTYPE has no literal closer
+    // because its own grammar decides where it ends
     const region = source.startsWith('<!--', i)
       ? ['<!--', '-->']
       : source.startsWith('<![CDATA[', i)
         ? ['<![CDATA[', ']]>']
         : source.startsWith('<?', i)
           ? ['<?', '?>']
-          : source.startsWith('<!DOCTYPE', i)
-            ? ['<!DOCTYPE', '>']
-            : undefined;
+          : undefined;
 
-    if (!region) {
+    const doctype = !region && source.startsWith('<!DOCTYPE', i);
+    if (!region && !doctype) {
       continue;
     }
 
-    const [open, close] = region as [string, string];
-    const subset = open === '<!DOCTYPE' ? source.indexOf(']', i) : -1;
-    const from = subset === -1 ? i + open.length : subset;
-    const at = source.indexOf(close, from);
-    const end = at === -1 ? source.length : at + close.length;
+    let end: number;
+    if (region) {
+      const [open, close] = region as [string, string];
+      const at = source.indexOf(close, i + open.length);
+      end = at === -1 ? source.length : at + close.length;
+    } else {
+      end = doctypeEnd(source, i);
+    }
 
     blank(i, end);
     // past the region rather than one character into it, which is a cost guard

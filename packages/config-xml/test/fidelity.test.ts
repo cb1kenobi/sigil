@@ -202,6 +202,29 @@ describe('what a write would lose', () => {
         ).toStrictEqual([real]);
       });
 
+      it('should not read a > in a DOCTYPE system literal as one in text', () => {
+        // a quoted literal may hold one and an internal subset may hold
+        // several, so the first `>` closes neither -- which made a document
+        // with a real loss report a second, spurious one at line 1
+        expect(
+          said(`<!DOCTYPE config SYSTEM "a>b>c.dtd">\n<config>\n  <a></a>\n</config>`)
+        ).toStrictEqual([real]);
+      });
+
+      it('should not read a > in an internal subset literal as one in text', () => {
+        expect(
+          said(`<!DOCTYPE c [<!ENTITY x "a>b>c">]>\n<config>\n  <a></a>\n</config>`)
+        ).toStrictEqual([real]);
+      });
+
+      it('should end a DOCTYPE at its own > rather than running on', () => {
+        // the other direction: what follows the declaration is content, so a
+        // row has to be able to match there
+        expect(said(`<!DOCTYPE config>\n<config>\n  <a>1 > 2</a>\n</config>`)).toStrictEqual([
+          'formatting:a bare > in text is escaped@3',
+        ]);
+      });
+
       it('should report a NEL inside a comment, which really is normalized', () => {
         // the one row matched against the raw source: a comment holding a NEL
         // comes back holding a newline, so blanking it would suppress a true

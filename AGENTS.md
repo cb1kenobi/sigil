@@ -21592,6 +21592,22 @@ has seen. **Fifteen caught and three declared**, after ten survivors -- and the
 split between them is the thing worth recording, because four of the ten were the
 harness being blunt rather than the code being unguarded.
 
+Eighteen mutations over the guards the round produced, which is the gap every
+round leaves: code written in response to a review is code no review and no pass
+has seen. **Fifteen caught and three declared**, after ten survivors -- and the
+split between them is the thing worth recording, because four of the ten were the
+harness being blunt rather than the code being unguarded.
+
+Then three more over a false positive the probe found that no round did: a `>`
+inside a DOCTYPE's quoted **system literal**, or inside a quoted literal in its
+internal subset, ended the region at the wrong place and left the rest of the
+declaration unblanked -- so the bare-`>` row matched it, and a document with a
+real loss reported a second, spurious one at line 1. The same class `contentOf()`
+exists to close, one member further out, so a DOCTYPE has no literal closer any
+more: `doctypeEnd()` walks it, tracking a quote and treating `[` as entering the
+subset. All three caught, and the other direction is pinned too -- what follows
+the declaration is content, so a row has to be able to match there.
+
 - **Three mutations were equivalent**, and all three were aimed at `contentOf()`'s
   region table by changing an **opener string** rather than the detection:
   `['<!--', '-->']` to `['\u0000nope', '-->']` leaves `startsWith('<!--', i)`
