@@ -1,4 +1,3 @@
-import { xml } from '@ttylabs/config-xml';
 /**
  * A config store from another package, in the same stack as the built-in ones.
  *
@@ -17,6 +16,7 @@ import { xml } from '@ttylabs/config-xml';
  * Needs no terminal: every line is `console.log`, so this is the same output
  * piped as it is on a screen.
  */
+import { xml } from '@ttylabs/config-xml';
 import { createConfig, json } from '@ttylabs/sigil/config';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
