@@ -2995,6 +2995,20 @@ signatures: `createConfig`, `createConfigSync`, `Config`, `isWritableStore`,
 `ConfigDocument`, `ConfigStore`, `WritableConfigStore`, `WriteOptions` and
 `Loss`.
 
+Plus the **store kit** — `writeAtomic`, `writeAtomicSync`, `isMissing`,
+`overlay`, `segments` and `isPlainObject` — which is what a store somebody else
+wrote needs in order to be _correct_ rather than merely to compile. Each was
+deliberately unpublished until something outside asked, and
+[`@ttylabs/config-xml`](https://github.com/cb1kenobi/sigil/tree/main/packages/config-xml)
+is that caller. What they share is that a sibling reimplementing one would not
+merely duplicate it, it would **disagree**: `writeAtomic` is the temp-plus-rename
+with the mode, the owner, the symlink chain and the five flush failures it
+swallows, `isMissing` is `ENOENT` and nothing else, `overlay` is the whole of
+`WriteOptions.paths`, `segments` carries the prototype-pollution guard, and
+`isPlainObject` is where the boundary between structure and a leaf is. Every one
+of those is a recorded review finding, and it costs 102 bytes, because `json()`
+already uses four of the six and what is added is the export statements.
+
 ```js
 import { createConfigSync, json, object } from '@ttylabs/sigil/config';
 ```

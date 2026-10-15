@@ -7,13 +7,14 @@ that lean heavily on subcommands.
 Unqualified `src/...` and `test/...` paths in this file mean
 `packages/sigil/src/...` and `packages/sigil/test/...`.
 
-This is a pnpm workspace with two published packages, and the split is load
+This is a pnpm workspace with three published packages, and the split is load
 bearing.
 
-| Package          | Name             | Dependencies                                |
-| ---------------- | ---------------- | ------------------------------------------- |
-| `packages/sigil` | `@ttylabs/sigil` | **Zero, and that is a hard constraint**     |
-| `packages/cli`   | `@ttylabs/cli`   | Whatever it needs. Provides the `sigil` bin |
+| Package               | Name                  | Dependencies                                       |
+| --------------------- | --------------------- | -------------------------------------------------- |
+| `packages/sigil`      | `@ttylabs/sigil`      | **Zero, and that is a hard constraint**            |
+| `packages/cli`        | `@ttylabs/cli`        | Whatever it needs. Provides the `sigil` bin        |
+| `packages/config-xml` | `@ttylabs/config-xml` | `@ttylabs/sigil` and an XML parser. Opt-in per app |
 
 **Zero production dependencies in `@ttylabs/sigil` is a hard constraint.** Anything the
 runtime needs — ANSI handling, text wrapping, dotenv, `which`, debug logging,
@@ -24,6 +25,17 @@ necessary, raise it rather than adding it.
 of what the app ships, so it may depend on rollup and anything else it needs.
 What it _produces_ has no dependencies. Do not let that licence leak back into
 the runtime.
+
+**`@ttylabs/config-xml` is the third shape, and it is what the constraint allows
+rather than an exception to it.** The rule is about `@ttylabs/sigil`'s own
+dependencies, and the two ways to give an app an XML config layer are
+dependency injection — the app hands a store a parser — or a separate published
+package that depends on one directly. The second is the right read: an app that
+wants XML config installs a thing that brings a parser, and an app that does not
+pays **nothing**, where injection makes every app wire a parser into a store it
+does not otherwise care about. It is also the only way to find out whether
+`ConfigStore` is implementable from outside this repository, which is the thing
+that ticket was actually for. See "An XML config store" below.
 
 ## Layout
 
@@ -69,8 +81,10 @@ sets its own `outDir`.
 
 **`packages/` holds the published packages and nothing else.** `packages/*` is
 the glob the workspace, turbo, vitest's `projects`, and the coverage `include`
-all read, so anything put there joins all four silently -- and the two entries
-that belong there are the ones the table above describes. The website is a
+all read, so anything put there joins all four silently -- and the three entries
+that belong there are the ones the table above describes. A third one joining
+them is what the entry under "An XML config store" records paying for: two
+`--filter` lists, two guards in `cli.test.ts`, and this paragraph. The website is a
 private Next.js app at the top level, a workspace member so it shares the
 lockfile, with its own `website/turbo.json` overriding the root `build` task's
 `dist/**` for `.next/**`. `demos/` is the second such member, for the reason the
@@ -11990,8 +12004,14 @@ a font, `renderFiglet()` turns a string into a rectangle of characters, and
   cannot see.** That file checks C0, `DEL` and C1, and a byte order mark is a
   _format_ character rather than a control one -- so an invisible character sat in
   `src/` and in the test beside it, in the one line whose job is to strip a byte
-  order mark, which is the shape this file already records twice. Both are `﻿`
-  escapes now. Widening the check to `\p{Cc}` plus `\p{Cf}` is the obvious
+  order mark, which is the shape this file already records twice. Both are
+  `\uFEFF` escapes now -- and that sentence held a **literal** one for as long
+  as it existed, which is the fourth instance and the one that makes the point:
+  the paragraph recording the hazard was an example of it, invisibly, in the
+  one file somebody reads to find out about it. `test/sources.test.ts` refuses
+  a byte order mark anywhere in a tracked file now; `oxlint`'s
+  `no-irregular-whitespace` is what found this one, in the `@ttylabs/config-xml`
+  work, after the same lint had found four more in that package's comments. Widening the check to `\p{Cc}` plus `\p{Cf}` is the obvious
   follow-up and is deliberately not taken here: the repository has two legitimate
   U+200D characters, in `packages/sigil/README.md` and in
   `test/components/typewriter.test.ts`, where they are the joiners inside emoji
@@ -17933,20 +17953,23 @@ without destroying it is SIG-154's.
 
 - **It imports no parser module at all, and that is a test rather than a
   coincidence.** Measured as transitive static import byte weight off `dist/`:
-  **32,512 B over seven modules**, of which **9,880 B over six** is what it starts
+  **32,625 B over seven modules**, of which **9,880 B over six** is what it starts
   from -- `paths.mjs`, the `transform` chunk, which is `transform`, `i18n` and
   `debug`, the 66-byte `env-value` chunk the parser shares, and the 525-byte
   `mkdir-owner-sync` one the update cache shares. So the module itself is
-  22,632 B, and the graph is **4.3x** the root entry's 7,518 B and an **eighth**
-  of `components.mjs`'s 239,927 B over 26 -- all three measured the
+  22,745 B, and the graph is **4.3x** the root entry's 7,518 B and an **eighth**
+  of `components.mjs`'s 239,929 B over 26 -- all three measured the
   same way, which is the only comparison that means anything. It was
   **20,649 B over six** before SIG-154, which is the write half costing about
-  11.5 kB. Re-derived after
-  every change that moved it, which is six times now: a figure only a re-run
-  can confirm is the stale snapshot this file warns about. The shape the
-  ticket's own projection predicted, even though its figure was the starting point
-  rather than the total. `should not reach any parser module to
-  import the config module` holds it, keyed on symbols the minifier keeps.
+  11.5 kB, and **32,523 B** before SIG-149's store kit. Re-derived after every
+  change that moved it: a figure only a re-run can confirm is the stale snapshot
+  this file warns about -- and a running tally of how many times is a second
+  such figure, which is why there is no longer one. The two copies of that tally
+  had drifted to five and six, two lines after the sentence warning about
+  exactly this. The shape the ticket's own projection predicted, even though its
+  figure was the starting point rather than the total. `should not reach any
+  parser module to import the config module` holds it, keyed on symbols the
+  minifier keeps.
 
   The reverse direction is the ticket's own ask in as many words -- "nothing in
   `main()` or `parse()` loads or accepts a config, and a test that says so" --
@@ -20821,9 +20844,11 @@ defect lives.
 
 #### What the write half costs
 
-- **The config module's graph is 32,512 B over seven modules**, against 20,649 B
+- **The config module's graph is 32,625 B over seven modules**, against 20,649 B
   over six for the read half -- so the span writer, the atomic write and the
-  representability check are about 11.5 kB between them. The seventh module is the
+  representability check are about 11.5 kB between them, which is measured
+  before the store kit's own 102 B joined the entry and is why the two figures
+  do not subtract to each other. The seventh module is the
   `mkdir-owner-sync` chunk the update cache already shares. It still imports no
   parser module at all, which is the property the read half's own test holds and is
   why the ceiling did not move.
@@ -20831,6 +20856,1167 @@ defect lives.
 - **No new dependency**, which is the hard constraint: the applier is ordered
   splices over a string rather than `magic-string`, and the value grammar is still
   `JSON.parse`'s and `JSON.stringify`'s rather than a second one here.
+
+### An XML config store, in a package of its own
+
+SIG-148 drew `ConfigStore` as public API rather than letting it fall out of
+whichever store was written first, and said why: adding a required method to an
+interface **implementors** write is breaking for every one of them and cannot be
+softened by a default, so the cost of being wrong is paid by somebody else's
+package. `packages/config-xml` is the first external implementation, and that is
+what it is **for** -- an interface nobody has implemented from outside is an
+interface nobody knows is implementable. The XML is the vehicle.
+
+It needed **no change to `ConfigStore`**, which is the result. What it needed was
+five things core had deliberately not published, which is the entry below.
+
+- **A package rather than dependency injection, and the rule is about the
+  runtime's dependencies rather than about this repository's.** An XML layer
+  wants a parser and `@ttylabs/sigil` may not have one; the two ways out are the
+  app handing a store a parser or a separate package depending on one. The second
+  wins on two counts and the first is the one that decides it: an app that does
+  not want XML pays **nothing**, where injection makes every app wire a parser
+  into a store it does not otherwise care about. The second is ergonomic -- an
+  app imports a store that works rather than a store plus the thing it needs.
+  `@xmldom/xmldom` has no dependencies of its own.
+
+#### The store kit, which is the real cost of a sibling
+
+- **Five things core had deliberately not published, published now, and it is one
+  decision rather than five.** `writeAtomic()`, `writeAtomicSync()`,
+  `isMissing()`, `overlay()`, `segments()` and `isPlainObject()`. Each was
+  unpublished on the rule `which` waited eighteen months on -- decide against the
+  first caller that does rather than against one that does not -- and this is that
+  caller; `atomic.ts`'s own entry says so in as many words. What they share is
+  that a sibling reimplementing one would not merely duplicate it, it would
+  **disagree**, and in every case about something that is already a recorded
+  review finding:
+
+  - `writeAtomic()` is the temp-plus-rename, the mode and owner it preserves, the
+    symlink chain it resolves through `realpathSync.native` and the five flush
+    failures it swallows. A second copy inherits none of it, and the thing it is
+    protecting is a user's hand-edited config.
+  - `isMissing()` is which errors mean "the file is not there", which is `ENOENT`
+    alone -- reading every error that way was a real defect that handed a `0o600`
+    config back world-readable.
+  - `overlay()` is the whole of `WriteOptions.paths`: the null exemption, the
+    non-object refusal and the claimed-delete no-op. A store that honours `paths`
+    and gets those wrong reverts another process's keys, which is the defect that
+    option exists for.
+  - `segments()` carries the prototype-pollution guard. A sibling splitting on
+    `.` reopens it.
+  - `isPlainObject()` is where the boundary between structure and a leaf is, and
+    a store walking a value has to draw it where the merge does.
+
+  It costs **102 bytes**, measured: the config entry's graph goes from 32,523 B
+  to 32,625 B over the same seven modules, because `json()` already uses four of
+  the six and what is added is the export statements. The root entry is
+  **7,518 B, unchanged**, because `config` is its own entry.
+
+- **The alternative was publishing nothing and letting the sibling rewrite them**,
+  which is worth stating because it is what a reader will assume happened. It is
+  refused for the reason above, and the asymmetry with the **i18n** gap below is
+  deliberate: the store kit is what makes a sibling store _correct_, so without it
+  the feature cannot exist; the i18n registration is what makes its messages
+  _translatable_, so without it the feature merely has an English corner.
+
+#### The mapping, and why a sentinel is not a spelling preference
+
+- **Attributes and child elements share one path space**, so
+  `<server port="8080"><host>a</host></server>` is `server.port` and
+  `server.host`. Which makes `<port>8080</port>` and `<server port="8080"/>` the
+  same setting at the same path, and that is the whole of this package's design.
+
+  A reserved key -- `_attributes`, `$`, `@_`, which xml2js and fast-xml-parser
+  both use -- is wrong here for a reason with nothing to do with taste: **it puts
+  one setting at two paths depending on the format of the layer it came from.** An
+  XML system layer under a JSON user layer is the ordinary arrangement, and under
+  a sentinel it is `server._attributes.port` against `server.port`: two paths, so
+  neither shadows the other, the merged view holds both, the system default is
+  invisible at the path an app reads, and a user who deletes their override gets
+  `undefined` rather than `8080`. The precedence chain -- the one thing a layered
+  config provides -- broken by the _format_ of a layer, which is precisely what a
+  store interface exists to make invisible. The same argument rules out a parallel
+  accessor and an XPath-ish `server/@port`: both are a second path space wearing a
+  different hat.
+
+  It is a **test** rather than a sentence -- `should let a JSON layer shadow an
+  XML one at the same path` builds exactly that stack, in both spellings, and
+  deletes the override to confirm the default is reachable.
+
+- **A name used twice is refused where it was written, naming the line.** One path
+  space has one value per name. The cost is a document that cannot be expressed,
+  and it is one nobody writes on purpose.
+
+- **A prefix is not part of a path**, so `<n:port>` is `port`. A prefix is a
+  document-level spelling decision and `xmlns:n` against `xmlns:cfg` must not
+  change which config key an app reads -- the sentinel argument one level in. What
+  it costs is that two differently-prefixed names with one local name collide, and
+  that is the same refusal through a second door.
+
+  Which needed a guard the obvious implementation does not have: grouping children
+  by local name alone **merges** `<n:a/>` and `<m:a/>` into one array -- two
+  namespaces silently becoming one setting -- so the grouping tracks the spellings
+  each local name arrived under and refuses more than one.
+
+- **`xmlns`, `xmlns:*` and `xml:*` are no setting at all, matched by namespace URI
+  rather than by spelling.** `xmlns:n` has a `localName` of `n`, so a prefix
+  declaration would otherwise be a setting called `n` -- and `xml:space`, which is
+  the spec's own answer to whitespace and therefore the attribute an author is
+  most likely to write here, would be one called `space`.
+
+- **An element holds a scalar or named parts, never both.**
+  `<name>Chris<title>Mr</title></name>` and `<name sir="yes">Chris</name>` are the
+  same problem -- a value for the element itself _and_ a value for something named
+  inside it, with no path for the first -- so it is one rule rather than two:
+  non-whitespace text beside any attribute or element child is mixed content, and
+  whitespace is not, because every pretty-printed document has it.
+
+- **A leaf's text is trimmed, and so is an attribute's value.** Whitespace around a
+  value in XML is **layout**: a user who breaks a long description across lines
+  for readability means the words, and an untrimmed read gives every
+  pretty-printed leaf its surrounding newlines. Both, because trimming one and not
+  the other is the format split this mapping exists to refuse one level in -- the
+  same path with two values.
+
+  Which is the one place this diverges from the parser, deliberately:
+  `transformValue()`'s own rule is that an attached value is taken exactly as
+  typed. A command line has no pretty-printer and XML does, so "exactly as typed"
+  means something different. What it gives up is a value whose own surrounding
+  whitespace matters, and `canRepresent()` refuses writing one rather than letting
+  a round trip quietly change it -- honest and inconvenient over silent and wrong,
+  which is the direction the `createEffect` type error already records.
+
+- **The root element is the document rather than a setting.** Its name is not in
+  the path space -- `<cfg>` and `<settings>` hold the same config -- and an element
+  with nothing named in it is therefore an **empty config** rather than the empty
+  string. Without that root-only rule `<config/>` reads as `''`, is refused for not
+  holding an object, and an app whose config file exists and is empty cannot
+  start. A root holding a scalar is still refused, which is `json()`'s rule for a
+  file holding `42`.
+
+#### Lists: the reopened question, and the split that was not one
+
+- **A review round reported the list mapping as the cross-format split this
+  package's own argument refuses, and the split it was looking at is between two
+  _shapes_.** Its table was:
+
+  | layer | file says                                                 | path holding the list |
+  | ----- | --------------------------------------------------------- | --------------------- |
+  | XML   | `<plugins><plugin>a</plugin><plugin>b</plugin></plugins>` | `plugins.plugin`      |
+  | JSON  | `{"plugins":["a","b"]}`                                   | `plugins`             |
+
+  Which reads as the `_attributes` table with `plugins.plugin` in it, and is not:
+  **those are two different documents.** The JSON equivalent of the XML wrapper is
+  `{"plugins":{"plugin":["a","b"]}}`, and the XML equivalent of `{"plugins":[…]}`
+  is repeated `<plugins>` **siblings** -- which the plain mapping puts at
+  `plugins`, exactly where JSON does. Both formats spell both shapes, and each
+  shape has one path in both. The `_attributes` case really is a split, because
+  `<server port="8080"/>` and `{"server":{"port":8080}}` are the _same_ document in
+  two formats and a sentinel gives them two paths.
+
+  So the mapping needs **no collapse rule**, which is what the round proposed and
+  what could not have worked: one child of one tag is ambiguous between a list of
+  one and an object of one, so "a wrapper whose children share a tag is an array"
+  turns `<server><host>x</host></server>` into `server: ['x']`.
+
+- **What the round was right about is a different defect, and it is the one the
+  schema fixes.** A setting declared `multiple: true` over an XML layer with a
+  **single** occurrence meets `'a'` where it wants `['a']`, so `coerceSetting()`
+  throws `Expected a list of values` on the **first load**, before anything is
+  written. A real app failing to start.
+
+  Core is right and this is the format leaking: the same document in JSON --
+  `{"plugins":"a"}` -- throws identically, which is `coerceSetting()`'s own
+  recorded decision that a scalar where a list was declared is a mistake worth
+  reporting rather than something to wrap. So the store takes the schema and
+  wraps, which is the ticket's own accepted sentence -- "the schema is how you get
+  rid of the ambiguity" -- made true by something actually reading it.
+
+- **It takes the schema as a constructor option and reads one field of it.**
+  `xml(path, { schema })`, the **same object** an app passes to `createConfig()`,
+  and the store reads `multiple` and nothing else. A constructor option rather
+  than anything on `ConfigStore`, so the no-interface-change claim stands: it is
+  app wiring, and the published surface is unchanged. A path the schema declares
+  that `segments()` refuses is **skipped** rather than thrown over, because
+  `createConfig()` is about to refuse it with a better message and a store is not
+  the right place to report a schema somebody got wrong.
+
+- **An empty occurrence at a `multiple` path is the empty list**, which is what
+  makes `[] -> <plugins/> -> []` hold. Zero elements is the key being _absent_,
+  which merges as nothing and lets the layer below show through rather than
+  shadowing it with an explicit empty -- so an empty list writes **one empty
+  element** and reads back as `[]`.
+
+  What that costs is a list of one empty string, which is the same bytes, and
+  `canRepresent()` refuses exactly that array. `['a', '', 'b']` is three
+  occurrences and reads back whole, so only the single-item case is ambiguous.
+
+- **An attribute at a `multiple` path wraps too**, which is the single-occurrence
+  case met through the other spelling -- refusing it while wrapping the element
+  form would be the two spellings disagreeing again. What it means is that an
+  attribute can never express a list of more than one, which is a property of the
+  format.
+
+#### Writing: through the DOM, diffing first
+
+- **`write()` is re-read, parse, diff, serialize, and it needed no interface
+  change.** `WritableConfigStore.write(value)` is handed the whole value the layer
+  should hold and chooses how to get there -- the JSON store splices spans, this
+  one walks a DOM.
+
+  The read-only decision this reverses had one argument and it is correct about a
+  writer that **reprints**: comments, the declaration, a DOCTYPE, CDATA, attribute
+  order, self-closing versus paired, entity spellings and indentation are all lost
+  by one. It says nothing about a writer that keeps the DOM and serializes it
+  back, which is the third option the argument did not consider. Measured over
+  thirty-two documents, **seventeen round-trip byte for byte**, including every one
+  of those six.
+
+- **Diffing first is a correctness rule rather than an optimization, and the
+  obvious mechanism corrupts the file.** Measured: assigning `textContent` to a
+  CDATA-bearing element **with the string it already holds** turns
+  `<banner><![CDATA[<b>hi</b>]]></banner>` into
+  `<banner>&lt;b&gt;hi&lt;/b&gt;</banner>`, because the assignment replaces the
+  CDATA section with a text node. So "walk the value, find or create each node,
+  set it" destroys every CDATA section in the file on any write, for keys nobody
+  touched. The JSONC writer's own rule, met in a second format: **touch only what
+  changed.**
+
+- **And the diff is structural rather than careful.** What the DOM currently says
+  is read back through `readElement()` -- the _same_ mapping the store reads with
+  -- and a subtree whose current value equals its target is skipped whole. Two
+  separate walks is how a write comes to disagree with a read about what a path
+  means; being the read's own arithmetic is the only way to agree by construction,
+  which is the argument SIG-125 already makes about the layout measure.
+
+- **The comparison is at the level of the bytes, which is the same defect arriving
+  through the schema.** A layer's value has been through `coerceLayer()`, so an
+  `int` setting holds the **number** `8080` where the document holds the string
+  `'8080'`. Comparing those as values says they differ, and then every typed
+  setting is rewritten on every save -- which is the CDATA corruption again, by a
+  route no careless walk is needed for. So a scalar is compared as the text it
+  would be written as, because the question this diff asks is whether the bytes
+  have to change.
+
+- **The spelling follows the DOM where it fits and the value where it does not.**
+  A setting already spelled as an attribute stays an attribute and one spelled as
+  an element stays an element -- the DOM is what remembers which, which is what
+  makes a round trip clean and is why a sentinel mapping was refused. A key with
+  no existing spelling becomes a child **element**, which is the conservative half:
+  an element can hold a scalar, an object or a list, so it never has to be
+  promoted later.
+
+  An object or a list at a path currently spelled as an **attribute** promotes: the
+  attribute is removed and elements are written. Which is the general statement --
+  an element can hold anything and an attribute is the special case kept where it
+  still fits -- rather than the `setAttribute('server', '[object Object]')` a
+  review round measured. Removed **before** the elements are written, or the
+  document holds the collision this mapping refuses.
+
+- **An attribute update goes through its own namespace and qualified name.**
+  `setAttributeNS(null, 'mode', …)` on an element whose attribute is `n:mode` adds
+  a **second** attribute called `mode` beside it -- which is the
+  two-answers-for-one-setting this mapping refuses, created by the write that was
+  meant to keep the spelling. So `XmlAttr` carries `nodeName`, which a read does
+  not need.
+
+- **A new element takes its parent's namespace and prefix.** Measured:
+  `createElement('b')` inside `<n:cfg xmlns:n="urn:x">` yields `<b>2</b>` beside
+  `<n:a>1</n:a>` -- a new key silently out of the namespace every other key is in,
+  which for a document something else validates is a file that stops validating.
+  `createElementNS` with the parent's URI and prefix is what puts it where its
+  siblings are, and for a **default** namespace the two spellings serialize
+  identically -- also measured -- so it is one rule rather than a branch.
+
+- **A removal takes the whitespace that was laying its child out.** Left behind, a
+  removal leaves an indented blank line per key, which is the line rule
+  `removeFrom()` in the JSONC writer already keeps.
+
+- **An insert copies the indentation of the first sibling that _has_ one**, which
+  is neither the first nor the last and took probing the detection to arrive at.
+  The first alone is wrong for `<config><a>1</a>\n  <b>2</b>\n</config>`, where
+  `<a>` shares the opening tag's line and has no preceding text at all -- so an
+  insert read "no layout" off it and landed inline against a `<b>` that is laid
+  out. The last alone copies an **outlier**: a document whose indentation is
+  inconsistent gets the odd one out rather than the majority. Measured on both.
+
+  The step is read off the document -- the first element whose own indent is longer
+  than its parent's -- so it is the user's answer rather than this package's, with
+  two spaces where a document is laid out across lines and has no nesting to read
+  one off. A document with no line break in its layout, `<a><b>1</b></a>`, has no
+  step, and an insert stays on the line it is already on: inventing one would
+  reformat a file nobody asked to reformat.
+
+- **An element with no children to copy has its whitespace dropped before the
+  layout is written, and the _root_ is where that shows.** A scalar becoming a
+  container is already cleared, because the read says `''` and the target says an
+  object; the **root** reads as `{}` by its own rule, so both sides are plain
+  objects, the clear was skipped, and `<config>\n</config>` kept its newline while
+  the insert added a second one beside it -- a stray blank line in every file
+  written into an empty-but-laid-out document. Also found by probing rather than by
+  a report.
+
+  A document written **from nothing** is the one case the detection gets wrong on
+  its own, and the caller says so rather than the bytes: a fresh `<config/>` has no
+  text in it at all, so it reads as single-line and a from-scratch file would come
+  out as one line however many settings it holds.
+
+- **A fresh file carries a declaration and a root the caller can name.** `config`
+  by default, and `root` is the one decision a from-scratch JSON file does not have
+  to make, because `{}` is a whole document and there is no XML equivalent. Only a
+  _write_ needs one -- a missing or blank file reads as an empty document.
+
+- **The acceptance test is `json()`'s own, one format along**: a comment-rich
+  document with a declaration, two comments, a CDATA section and tab indentation,
+  with one key set, and **every other byte identical**.
+
+#### `wouldLose`, per document, and the three things that are not losses
+
+- **Computed at read time by round-tripping the source against itself**, which is
+  `WriteOptions.lossy`'s own rule and this is the store it was written for: a DOM
+  store writing a file with no trivia in it loses nothing, and refusing that write
+  would be a guard firing on correct code. Equal means the field is **absent** --
+  which is how `layer.wouldLose?.length` reads it -- and unequal means the specific
+  normalization is named.
+
+- **A byte order mark, CRLF and a trailing newline are detect-and-reapply rather
+  than losses**, and that is the contradiction a review round found: they were in
+  the residual table _and_ in the reapply, so a check on the raw serialize reports
+  a loss every CRLF config does not actually suffer. `reshape()` runs first and
+  then the comparison does -- and it compares against the document's **own bytes**,
+  mark and all, because comparing the reshaped output against the BOM-stripped
+  body reports every marked file as lossy, which is the same contradiction through
+  the third thing that is reapplied.
+
+  The mark is the one that is not merely cosmetic. Measured: `U+FEFF` then `<a/>`
+  **parses**, reports an `error` through `onError`, and the mark survives into the
+  output as a text node _outside the root_; and `U+FEFF` then a declaration
+  **throws**, because the declaration is no longer at position 0. So stripping it
+  before the parse is what makes a marked file readable at all.
+
+- **An internal DTD entity reference is refused at read rather than reported.** A
+  review round named it as the residual that matters -- `&e;` serializes as
+  `&amp;e;`, a silent corruption rather than a renormalization -- and it is right
+  about the serializer and wrong about where it belongs. Measured:
+  `@xmldom/xmldom` reports **`entity not found`** at the `error` level while
+  parsing one, so the store refuses the document where it was written.
+
+  Which is the stronger answer and the reason is that the loss is not cosmetic: the
+  parser cannot expand the entity, so the _value_ this store would read is the four
+  characters `&e;` where the document says `hi`. A wrong value is not something to
+  write down in a loss table and carry on from. A declaration nothing **references**
+  round-trips untouched -- also measured -- so a document is refused for the
+  reference rather than for the DOCTYPE.
+
+- **The residual that is left is seven cosmetic rows and two the spec requires.**
+  An empty paired tag, a single-quoted attribute value, whitespace around an
+  attribute's `=`, a numeric character reference, `&apos;` and `&quot;`, and a bare
+  `>` in text -- that last one found by the measurement rather than by the ticket.
+  Attribute-value and NEL normalization are **required of every conforming
+  parser**, so they are not this store's to avoid and get a `kind` of `spec`
+  saying so.
+
+- **What a read-time round trip cannot see is edit-induced loss**, and both cases
+  are **closed in the writer** rather than reported: an unprefixed insert by
+  `createElementNS`, and a CDATA section written over by diffing first. Which is
+  the right place for them, because a loss a store can avoid is one it should avoid
+  rather than report -- so an empty `wouldLose` is the honest answer to the
+  question it asks, and is not a bound on what a `set()` will do.
+
+- **A difference the table has not met is still reported**, with a sentence saying
+  the document does not survive a round trip unchanged. The table is what makes a
+  message actionable rather than what makes the answer true, so a normalization
+  this serializer grows later is still a loss rather than silence.
+
+#### `canRepresent()`, and the four things this mapping cannot tell apart
+
+- **Three of the four refusals are this store's mapping rather than the format.**
+  `null` and `undefined` are XML's -- it has no such thing, and core drops a key
+  holding either before it reaches a store, so this is reachable only through a
+  `write()` a caller made directly. The other three are the mapping's:
+
+  - **`{}` against `''`.** An element with nothing in it serializes as `<a/>`
+    whichever it came from, so the mapping has to pick, and it picks `''` -- because
+    that is what `set('host', '')` writes, so the round trip holds for the value an
+    app can actually set. Which makes the empty object the one refused, and the way
+    to clear a subtree is `delete()`. The **document** is exempt: there `{}` is an
+    empty config, is what a store over a file nobody has written yet reads, and
+    `<config/>` reads back as `{}` by the root rule.
+  - **`['']` against `[]`**, which is the empty-list entry above read from the
+    other side.
+  - **A string that does not trim to itself**, which is the trim entry above read
+    from the other side.
+
+- **Everything else is written as text, which is a saving rather than a cost.** XML
+  has no scalar kind, so a number, a boolean and a `Date` all reach the file as a
+  string and `checkValue()` coerces them back -- exactly as an environment variable
+  already reaches an option. So this store calls **no** `checkValue()` of its own,
+  which SIG-148's finding about already-typed values bypassing coercion simply does
+  not apply to.
+
+  Which is true of the _store_ and false read as "an XML value never meets the
+  schema", and the ticket's own prose had to be corrected for it: `Config` runs
+  `coerceLayer()` over every layer whatever produced it, so `'8080'` on an `int`
+  setting is the number every reader after the coercion sees. The saving is that
+  the store does not have to ask. A value with **no** schema setting reads back as
+  a string, which is the format rather than this store.
+
+- **A `Date` is the one non-plain object allowed through, written as its ISO
+  form.** Because `transformValue(iso, 'date')` reads one back, so it really does
+  round-trip where a `Map` or a class instance reaches the file as `[object Map]`.
+  The same reasoning `jsonCanHold()` records for letting a `toJSON` through,
+  narrowed to the one case the schema can read -- a general `toJSON` rule would
+  have to answer what to do when one returns structure, and nothing needs it.
+
+- **A `bigint` is refused**, unlike JSON's reason for refusing one. `JSON.stringify`
+  **throws** for a bigint, where `String(10n)` is exact text -- so the refusal here
+  is not inherited. It is that there is no schema type that reads one back: `'10'`
+  on an `int` is the number `10` rather than `10n`, so a bigint does not round-trip
+  under any declaration, where `8080` does.
+
+- **A non-finite number is refused, and `NaN` is the one that decides it.**
+  `transformValue('NaN', 'number')` **throws** -- measured -- so writing one
+  produces a config the next run cannot load, which is the silent-loss class one
+  step worse. `Infinity` happens to read back and is refused with it rather than
+  explained: one rule is worth more than a divergence from `jsonCanHold()` that has
+  to be remembered.
+
+#### Characters and names, which the probe found and the ticket did not name
+
+- **A C0 control is written _raw_ and parsed back, so the file round-trips here and
+  is rejected by everything else.** Measured, and it is the sharpest defect in this
+  package's own self-review: `set('a', '\u0001')` produced
+  `<config><a>\u0001</a></config>`, which `@xmldom/xmldom` reads back perfectly and
+  which is outside XML 1.0's `Char` production -- so a store whose whole argument
+  is about not corrupting a user's file was writing one no conforming tool can
+  read, with nothing saying so.
+
+  So `canRepresent()` refuses every character outside `Char`: C0 except tab,
+  newline and carriage return; a lone surrogate; U+FFFE and U+FFFF, where the
+  range stops at U+FFFD. **U+007F to U+009F are legal** and are allowed, which is
+  the one place reading the production rather than guessing changed the answer --
+  they are inside `[#x20-#xD7FF]`.
+
+  Expressed as **code points rather than a character class**, which is this
+  repository's own recorded rule and the lint is what asked for it: a class of
+  escapes is what `no-control-regex` is about, and the answer is not a
+  suppression, because one a formatter can detach from the line it was written
+  over stops working without anybody editing anything -- which happened once in
+  the toolchain's copy of the escape pass. `\p{Cc}` is the usual way out and is
+  the **wrong set** here: it is C0, `DEL` and C1, where this wants C0 minus three
+  and neither `DEL` nor C1. And the walk is by code **point**, which is what lets
+  a _lone_ surrogate be the thing refused -- iterating a string yields a paired
+  one as a single code point above U+FFFF and an unpaired one as itself, so
+  "is this in the surrogate range at all" is only ever true for a lone one.
+
+- **And every character this parser _changes_, measured rather than reasoned
+  about.** A carriage return reads back as a newline, which is XML's own
+  line-ending normalization; NEL (U+0085) reads back as a newline in text and as a
+  **space** in an attribute, which is XML 1.1's. A lone surrogate is in both sets:
+  illegal _and_ it reaches the file as U+FFFD, so the value changes even where a
+  tool would read it. Each is a round trip that quietly changes a value, which is
+  the thing the trim refusal is already written for.
+
+  What survives is worth recording because it is not obvious: a tab and a newline
+  round-trip in **both** spellings, because the serializer escapes them in an
+  attribute as `&#9;` and `&#10;` -- so the loss-table row about attribute
+  whitespace is about _reading_ a document that holds one raw rather than about
+  writing one.
+
+- **A name no element can have is refused at the `set()` rather than thrown out of
+  the DOM at a `save()`.** Measured: `set('1bad', 'v')` reached `write()` and threw
+  `invalid character in qualified name "1bad"` -- `@xmldom/xmldom`'s own message,
+  untranslated, with neither the file nor the path in it. Which is exactly what
+  `canRepresent()` is synchronous for.
+
+  XML's `Name` production **minus the colon**, which is the one deliberate
+  narrowing: a colon makes a prefixed name, and this mapping's rule is that a
+  prefix is not part of a path -- so `a:b` would write `b` under a prefix `a` and
+  read back as `b`. The DOM's own answer there is
+  `prefix is non-null and namespace is null`, which names nothing.
+
+  Asked of **each segment of the path and each key of the value**, because
+  `write()` is handed a whole document and the path it is asked about is `''`: a
+  key nothing ever passed to `set()` -- one off an `apply()`, or out of another
+  layer -- reaches the DOM with no segment check behind it.
+
+- **One consequence, conservative on purpose.** The check is asked of the _merged_
+  document rather than of what the caller passed, which is `jsonCanHold()`'s own
+  recorded reason -- so a file that already holds a character XML cannot carry
+  refuses **every** write to it, naming the character and the key. The alternative
+  is the store deliberately emitting a document no conforming tool can read.
+  Reading such a file is fine, and `wouldLose` reports nothing about it, which is
+  honest: nothing is lost, the file was illegal before and after.
+
+#### What review round 1 found, and it reviewed a source it had invented
+
+`gemini-4-argon-high`, pointed at the commit with the config house rules handed
+over first and the XML section withheld so that it could not simply confirm the
+author's reasoning. Its shell was **rejected by its own harness**, so every
+finding was reasoned -- it said so -- and the identifiers it quoted are not in
+this package: `applyDocument`, `assertXmlCanHold`, `cdataChild`,
+`promoteAttribute`, `detectStep`, `makeElement`, `removeChildWithIndent`,
+`settingAttributes`, `indentOf`, a `UNSAFE_KEYS` in `represent.ts`, a
+`reshape()` doing `text.replace(/\r\n|\r/g, '\n')`. **Zero** occurrences of any
+of them, checked by grep. It reviewed a plausible implementation of the
+description rather than the code.
+
+And it found **eight real defects anyway**, which is the entry worth keeping
+rather than the hallucination: of nine findings, seven were real against the
+actual code, two were false, and probing one of its questions turned up an
+eighth. Every one was measured here before being believed, which is the rule
+this file already records about taking an agent at face value -- and the two
+false ones are exactly the two where the invented source and the real one part
+company on _structure_ rather than on behaviour.
+
+So the useful statement is not "the reviewer was wrong about the code" but:
+**a description precise enough to reason from is enough to find defects in an
+implementation the reviewer never read.** Which also says what the brief is
+worth, since the brief is all it had.
+
+- **`setLeaf()` left an element's attributes behind, and that one writes a file
+  the store cannot read back.** The worst defect in this branch. An element holds
+  a scalar or named parts and never both, so one becoming a leaf has to stop
+  holding both -- and `{ server: 'none' }` over
+  `<server host="h"><port>1</port></server>` wrote
+  `<server host="h">none</server>`, which is **mixed content the read refuses**:
+  a `save()` whose output is a file the next `read()` throws on. Two more shapes
+  of the same cause, each a wrong _value_ rather than a throw: `{ server: '' }`
+  over `<server host="h"/>` read back as `{ host: 'h' }`, and an emptied list
+  over `<p n="a"/>` read back as `[{ n: 'a' }]`.
+
+  The author's own mutation probe had the leaf-becomes-container case in both
+  directions and **no attributes on the element**, which is why 58 cases of two
+  properties passed over it.
+
+- **A value holding `]]>` crashed `createCDATASection`.** `data contains "]]>"`,
+  which is a DOM error naming nothing -- and the value is perfectly
+  representable as escaped text, so refusing it would refuse the format's own
+  answer. It falls back to a text node, and what is lost is the author's CDATA
+  spelling for that one element. The standard `a]]]]><![CDATA[>b` split keeps it
+  and was measured working; it produces three CDATA sections and a file nobody
+  wants to read, which is the larger of the two costs.
+
+- **An invalid `Date` passed `canRepresent()` and crashed the write.**
+  `new Date(NaN).toISOString()` throws `RangeError: Invalid time value`, so a
+  `set()` succeeded and a `save()` threw out of the serializer with a message
+  about time rather than about a config. The same call `NaN` already gets one
+  branch up.
+
+- **`xmlns` is a name the production allows and the DOM refuses.** It is a
+  namespace _declaration_ rather than a name, so `createElementNS(null,
+  'xmlns')` throws `NAMESPACE_ERR` -- and `root: 'xmlns'` passed a
+  hand-written pattern and wrote a document that will not parse, after which the
+  store reported its **own output** as unparseable. The root goes through
+  `nameable()` now, which is one reader of what an element may be called. Any
+  other `xml`-prefixed name is allowed: the spec reserves them, the parser takes
+  them, and they round-trip, so refusing would be stricter than the format.
+
+- **A list of fewer than two at a path nothing declared `multiple` changed type
+  on a round trip.** One element or none reads back as a **scalar**, so
+  `write({ tags: ['a'] })` with no declaration wrote `<tags>a</tags>` and read
+  back `'a'`. Refused, with the message naming the fix -- and the refusal
+  looking like it depends on the length of the data is a property of the format
+  rather than of the check: a repeat is unambiguous and a single occurrence is
+  not. What it means in practice is that **the schema is not optional for a list
+  at all**, which is the README's own sentence about `multiple` widened by one
+  word.
+
+- **A scalar at a path that _is_ declared `multiple` was a silent no-op.** A
+  declared list always reads as an array, so `write({ items: '' })` over an
+  `<items/>` that means `[]` compared the element's own `''` against the `''` it
+  was handed, found them equal, and wrote **nothing** -- the caller asked for a
+  scalar and the file went on saying `[]`. `coerceSetting()` refuses the same
+  value one layer up with `Expected a list of values`, so the store's refusal is
+  that answer earlier.
+
+- **A new element was spliced in front of an inline comment**, so the comment
+  came out on the _new_ element's line. Which is the JSONC writer's own finding
+  in a second format, and that entry records why it is worse than losing the
+  comment: the file says something **false**. The insert steps over horizontal
+  whitespace and comments until it meets a line break or anything else.
+
+- **And probing one of its questions found a list inside a list.**
+  `[['a','b'],['c']]` reached the file as `<t>a,b</t>` -- `String(['a','b'])` --
+  which is the `[object Map]` silent-rewrite class with a comma in it. The inner
+  list is an element's own value and has no path, so it is refused. Found by
+  following the reviewer's question about nested values rather than by any of its
+  findings.
+
+- **Two findings were false, and both are where the invented source and the real
+  one differ structurally.** It predicted a corrupted layout from a newline
+  inside CDATA and from a single-line container inside a multi-line document, and
+  measured both come out correct -- because the step is only _read_ where there
+  is no sibling to copy, which its reconstruction did not have. The newline case
+  is a real imprecision rather than a defect and was tightened anyway:
+  `multiline()` asks about whitespace-only text holding a break, so a break
+  inside a value is content. And it reported an unreachable branch in a
+  `promoteAttribute()` that does not exist; the real `writeKey()` does one lookup
+  and uses it.
+
+#### What review round 2 found, and what reading its findings cost
+
+Nine findings, four real, one half real and declined, and four invalid -- three
+of those quoting code that has never existed in this package, which is round 1's
+failure mode repeated despite a brief that said to grep for the text first. A
+relaunch of the same round against a clean tree added eight more, of which six
+were real. So the ratio across the two rounds is **ten real of seventeen**, and
+every one had to be measured before it was believed.
+
+- **The first finding was mine rather than the reviewer's, and it is the rule
+  this file already records.** It reported that `reshape()` ignores `shape.eol`
+  and quoted `const text = out;` -- which is exactly one of the sabotage
+  mutations, because the review ran **concurrently with the pass** and read a
+  mutated working tree. AGENTS.md's own entry says nothing else touches the tree
+  while a pass is live, written down for a `pnpm fmt` in another terminal; a
+  review round is the same hazard with a worse signature, because what comes back
+  is a confident finding about a defect you introduced on purpose. It cost the
+  whole round its credibility until each finding was re-measured, and the round
+  was relaunched against a quiescent tree. The tell was there to read: the
+  finding said six tests fail against that line, which is the mutation being
+  caught.
+
+- **`push()` and `unshift()` threw on every `multiple` path, and the contract was
+  ambiguous rather than simply wrong.** `canRepresent`'s own `@param` says "the
+  value about to be written" at "the dotted path it is being written to", and core
+  handed over the **item** at the **list's** path. That pair is one no
+  path-sensitive store can answer, because `set('plugins', 'a')` and
+  `push('plugins', 'a')` hand over the identical one -- so this is the ticket's
+  deliverable arriving as its opposite: the interface was not implementable from
+  outside for the one thing an XML store has to know. There was a test pinning the
+  item, which is what made it ambiguous rather than a defect, and what settles it
+  is that asking about the **list** loses nothing: every store's check is a walk,
+  so the item is still asked about and is now named at the index it lands at --
+  `['a', 10n]` is refused at `plugins.1`. Fixed in core, measured end to end, and
+  `#spliceEnd` gained the same question because `pop` validated nothing at all:
+  a value the store cannot hold reached memory and the refusal waited for
+  `save()`, which is the one thing `canRepresent` exists to stop.
+
+- **The `entity` residual row was unreachable and false-positived, and the module
+  said so sixty lines above it.** Its own docblock records that the parser reports
+  `entity not found` at the `error` level, so such a document is refused at read
+  -- and the row matched `/<!ENTITY\s/`, which an **unreferenced** declaration
+  satisfies, so a document the docblock calls fine was reported as losing an
+  entity. A self-contradiction inside one file, which is the shape a documented
+  codebase is most prone to.
+
+  Measuring it found **six more false positives of the same class**, which the
+  reviewer did not reach: every row but one misfired inside a comment or a CDATA
+  section. A comment's own text is reproduced verbatim -- measured, `&apos;`,
+  `&quot;`, `&#65;` and a bare `>` inside one all survive -- so a row matching
+  there names a kind, a detail and a line that send the author to a construct
+  with nothing wrong with it. Which is worse than having no table, since the
+  table is the whole of what makes the message actionable rather than what makes
+  the answer true.
+
+  So each row says which text it is matched against and `contentOf()` blanks
+  every comment, CDATA section, processing instruction and DOCTYPE at the same
+  offsets, which is the JSONC scanner's own trick. **NEL is the one row matched
+  against the raw bytes**, and that is why this is per row rather than one rule:
+  a comment holding one comes back holding a newline, so blanking would suppress
+  a true positive. The split was measured rather than reasoned -- entities and a
+  bare `>` survive a comment, NEL and CR do not.
+
+- **`&quot;` was in the table and in no row.** So a document holding one fell
+  through to the unexplained-difference fallback, which reports no line, or was
+  not reported at all where another row had matched first. And the weak test the
+  reviewer named was true of **all six** `formatting` rows rather than that one:
+  every row test asserted `kinds(...).toContain('formatting')`, which is exactly
+  what the fallback produces, so each was satisfiable without its row existing.
+  They assert the detail and the line now, which only a row can produce.
+
+- **`dropChild()` pulled an inline comment onto the previous element's line**, so
+  `<b>2</b> <!-- on b -->` removed left `<a>1</a> <!-- on b -->` -- a file saying
+  something false, which this repository calls worse than losing the comment
+  outright. What settled the fix was **measuring the sibling store** rather than
+  inventing an ownership rule: the JSONC writer leaves such a comment on a line
+  of its own, and that writer's own residue entry -- "survives onto the line
+  above, so it then reads as the surviving entry's" -- is about adjacency rather
+  than about being glued to it. So the two stores really did disagree and this
+  was the worse one, and matching it is a consistency argument rather than a new
+  rule.
+
+- **A single-quoted attribute's whitespace normalization went unreported**,
+  because the `spec` row hardcoded `="`. That is the half of the two an author
+  most needs, since it is required of every conforming parser rather than
+  cosmetic.
+
+- **The astral range was missing from `NAME_START`** while the comment claimed
+  XML 1.0's `Name` production, so a key in Linear B or Gothic was refused.
+  `@xmldom/xmldom` takes such an element name and round-trips it -- measured --
+  so nothing downstream made the refusal right. Widened to exactly
+  `[#x10000-#xEFFFF]`, which keeps `U+F0000` refused: the parser is lenient about
+  that one and the production is not, and this is the direction to be stricter in.
+
+- **The store kit's own docblock said it costs "nothing" in bytes** where the
+  measurement is 102, and `dist.test.ts` carried the pre-store-kit figure beside
+  a comment saying it must agree with AGENTS.md. Re-measured rather than copied
+  from either: **32,523 B without the kit and 32,625 B with it**, over the same
+  seven modules, which is why the comment says to read it again rather than
+  carrying it.
+
+- **And "an empty `wouldLose`" was the fourth copy of a wording this file records
+  being fixed three times.** The field is **absent**, so a caller who reads
+  `wouldLose.length` off it gets a `TypeError`. One copy was real, in
+  `fidelity.ts`; the reviewer's second, in the README, is a **fabricated quote**
+  -- that file has one mention and it says `absent`, at the commit the round read
+  and at every other.
+
+- **Two findings were half real and are declined with the measurement.** Emptying
+  a laid-out document leaves `<config>\n</config>` rather than `<config/>`, which
+  is the parent's own layout rather than the child's and loses nothing either way;
+  the reviewer's second half, a stray blank line on replacement, is measured
+  **false**, because `addChild()` clears the text itself. And a redundant
+  promotion test really was redundant, which is the entry below.
+
+- **One invalid finding raised a real question about a guard it had invented.** A
+  `clearText()` in `applyInto()`'s object branch was unreachable rather than
+  redundant: `addChild()` clears before it reads any layout, and an element that
+  read as a scalar has no element children, so that is the branch every insert
+  into one takes. Measured over eight shapes of leaf-becoming-container, byte for
+  byte identical with it gone, so it is deleted rather than commented.
+
+- **And one of its suggested fixes would have made a good test vacuous**, which is
+  why a suggestion is measured like anything else. It asked for the coercion test
+  to be driven through `createConfigSync()` rather than handed an already-coerced
+  number, and doing that **removes what the test pins**: a `saveSync()` claims only
+  the paths this process touched, so the overlay leaves `a` as the file has it and
+  the store is handed the file's own string, never comparing a number with a
+  string at all. So that claim is a whole-document `write()`'s. The half of the
+  finding that was right is the other one -- the store reads a schema for
+  `multiple` alone, so a `type` in a test's schema is decoration -- and both halves
+  are now tests: the diff's, driven directly, and the three-way merge's, driven
+  through a `Config`.
+
+#### What the pass over round 2's own fixes found
+
+Eighteen mutations over the guards the round produced, which is the gap every
+round leaves: code written in response to a review is code no review and no pass
+has seen. **Fifteen caught and three declared**, after ten survivors -- and the
+split between them is the thing worth recording, because four of the ten were the
+harness being blunt rather than the code being unguarded.
+
+Then three more over a false positive the probe found that no round did: a `>`
+inside a DOCTYPE's quoted **system literal**, or inside a quoted literal in its
+internal subset, ended the region at the wrong place and left the rest of the
+declaration unblanked -- so the bare-`>` row matched it, and a document with a
+real loss reported a second, spurious one at line 1. The same class `contentOf()`
+exists to close, one member further out, so a DOCTYPE has no literal closer any
+more: `doctypeEnd()` walks it, tracking a quote and treating `[` as entering the
+subset. All three caught, and the other direction is pinned too -- what follows
+the declaration is content, so a row has to be able to match there.
+
+- **Three mutations were equivalent**, and all three were aimed at `contentOf()`'s
+  region table by changing an **opener string** rather than the detection:
+  `['<!--', '-->']` to `['\u0000nope', '-->']` leaves `startsWith('<!--', i)`
+  deciding and `indexOf('-->', from)` finding the same terminator, so the same
+  characters are blanked. Aimed at the `startsWith` instead, all three are caught.
+  The DOCTYPE's internal subset needed a sharper **input** as well as a sharper
+  mutation: with one declaration in it, a scan that stops at the first `>` leaves
+  `]>` behind and the bare-`>` row needs a second `>` before the next `<`, so only
+  a subset with **two** declarations tells the two readings apart.
+
+- **Four were a test that could not see what it was named for**, and each got the
+  input that separates it. A gap holding a line break, where the removed child has
+  no indent of its own -- with one, keeping the gap and keeping the indent produce
+  the same bytes, because the two strings are identical. A gap with nothing after
+  it. The single-quoted attribute row, which was measured by hand and never
+  asserted. And the prefixed attribute promotion, which is the entry below.
+
+- **Three are declared, and two of those are measured rather than reasoned.**
+  `blank()` keeping the line breaks changes no answer -- a character is replaced by
+  one character either way, so every offset and every `line` is the same -- and
+  what it buys is that `content` is line for line `source` for a reader comparing
+  the two, and that a row anchored with `^` or `/m` would work, which none is
+  today. The cursor advance past a blanked region is a cost guard: what it skips
+  has just been blanked, so a rescan finds no `<`. Both were fingerprinted over
+  eighteen documents with the guard removed, every report identical.
+  `trailingTrivia()`'s content half is the third and is a tripwire: a gap between
+  two element children that is not whitespace is mixed content, which the read
+  refuses.
+
+- **And the redundant promotion test became the one that covers the branch.** Two
+  tests used the same unprefixed document and the same value, and the first
+  already asserted the whole serialized string -- while no test promoted a
+  **prefixed** attribute, so `writeKey()`'s removal against the attribute's own
+  namespace could be dropped with all 203 tests green. The second test is that
+  document now, and it also records what the promotion does rather than what
+  somebody would guess: the new elements take the **parent's** prefix, which is
+  `newElement()`'s rule and is right here, since a promoted key is a new element
+  and the setting is identified by its local name either way.
+
+#### Round 3 never answered, and what was done in its place
+
+Two launches, both hung in `cursor-agent`'s own reconnect loop with zero bytes
+after twenty minutes and five -- the same failure round 1 survived once. The
+second was narrowed to the tests and the prose, which is the technique that
+landed round 2 after its full-diff attempts died, and it hung too. So three reads
+were delivered rather than four, and what stands in for the fourth is this
+repository's own work, labelled as such: weaker evidence than a reviewer's,
+because nobody who had not written the code read it.
+
+What it found by applying round 3's own brief:
+
+- **The DOCTYPE false positive** above, which is the only runtime defect of the
+  three attempts at a round 3 and came from probing the region scanner's
+  adversarial shapes.
+- **The packaging claims**, each measured rather than left on the strength of
+  having been written -- the entry below.
+- **An absence-only sweep over every test**, which is the class a deletion pass
+  cannot see: a test that passes because nothing happened. Fifteen assertions are
+  an absence and thirteen are the claim itself, each pinned from the other side
+  by a positive test the pass catches -- `fidelity: always lossless` makes every
+  document lossy and is caught, so "this one round-trips" is not standing alone.
+  Two were real: `should write it anyway where the caller said lossy` and its
+  sibling asserted `not.toThrow()`, which **a save that silently did nothing
+  satisfies just as well**. They assert the bytes now. And
+  `should name every export in the README` already guards its own vacuity with a
+  `names.size).toBeGreaterThan(1)`, which is the shape the rest should copy.
+
+#### What the PR review round found: an errno and a code unit
+
+Two draft comments on the PR, **both confirmed**, and they are the two halves
+this ticket's own reading rounds could not reach: one needed a platform nobody
+here runs, and the other needed an input nobody had thought to write.
+
+- **A path under a file is `ENOTDIR` on POSIX and absence on Windows, so the
+  non-absence read test pinned nothing on the platform it ran on.** All three
+  Windows jobs failed where macOS and Linux were green, which is this
+  repository's own signature for the fifth time. `isMissing()` is `ENOENT`
+  alone -- reading every error as absence was a real defect in core, found by
+  review -- so the test points the store at something unreadable and expects it
+  to say so. `ENOTDIR` is that on POSIX; Windows reports a path through a file
+  as **absent**, so the store answered `{ value: {} }` and the assertion failed.
+
+  The portable fixture was already in the repository, which is what makes this
+  the Conventions rule rather than a new one: core's own test of the same claim
+  uses **a directory**, which is `EISDIR` everywhere, and it passes on all three
+  Windows jobs. Measured locally at `ENOTDIR` against `EISDIR` for the two
+  shapes, and the Windows half is CI's own answer rather than a claim about an
+  errno -- the directory fixture throws there and the under-a-file one does not,
+  which is the whole of what the test needs to be true.
+
+- **And it turned up a second `isMissing()` call site with no test at all.**
+  `store.ts` has two, the sync read and the async one, and only the sync was
+  pinned -- which is the pair core keeps a test each for. Both are pinned now,
+  and the 1:1 pairing is measured rather than assumed: swallowing every error at
+  one call site fails exactly the one test named for it and leaves the other
+  passing, in both directions.
+
+- **`contentOf()` mixed code points with code units, so a loss report drifted
+  after any astral character.** `Array.from(source)` splits into code points
+  while every offset the function is handed -- `i` and `end`, out of `indexOf()`
+  and `startsWith()` -- is a code **unit**, so the array drifts one place per
+  astral character before a region. Which contradicted the function's own
+  standing claim that blanking keeps "every offset -- and therefore every
+  `line`". Both halves were measured before anything was changed, and they fail
+  differently, which is why there are two tests.
+
+  The blanking lands **past** the region it was for, so the first `D` characters
+  of a comment stay visible to the content rows -- and where `D` exceeds the
+  comment's own prefix a row matches **inside a comment**, which is the one
+  class `contentOf()` exists to close. Twelve astral characters in front of
+  `<!--<x></x>-->` is the input, and the row reported the `<x></x>` that is in
+  the comment.
+
+  And a blanked astral character collapses to one space, so `content` comes out
+  **shorter** than `source` -- measured at 55 against 58 for three of them --
+  after which `found.index` indexes the shorter string and
+  `source.slice(0, found.index)` names **the line before**. Three astral
+  characters inside a comment reported line 3 where the real loss is on line 4.
+
+  `source.split('')` is the fix, which is by code unit: a surrogate half is
+  blanked to a space on its own, the lengths stay equal, and nothing can split a
+  pair because every region boundary is ASCII. Both tests fail against the old
+  spelling and **only** those two do -- 2 failed of 217 -- which is what says the
+  drift was unpinned rather than covered somewhere else by luck.
+
+#### What the second PR review round found: the same number, three more times
+
+Two comments, both confirmed by **re-measuring** rather than by reading, and
+what they are about is round 2's own fix having reached three of the **seven**
+places that carry the figure -- the `config/index.ts` docblock, `dist.test.ts`
+and its own entry in this file -- leaving four. Which makes it the **third
+consecutive pass** here to find a defect in round 2's own output, after the
+sabotage pass over its fixes and the PR round's `contentOf()` code-unit drift,
+and the first where the defect is a number copied into more places than anybody
+had counted.
+
+- **The published README still said the store kit costs "nothing in bytes".**
+  Round 2 corrected exactly that claim in the `config/index.ts` docblock and in
+  `dist.test.ts`, and left the one copy a **consumer** reads -- so the package
+  docs and the module docblock gave a reader two different answers, which is the
+  disagreement this PR says it closed. It costs 102 bytes.
+
+- **And AGENTS.md held the stale pair in _three_ places, not the one the review
+  named.** The flagged entry said the graph goes from 32,512 B to 32,614 B; the
+  write-half entry said the graph "is 32,512 B"; and the read-half entry said
+  32,512 B along with a module size of 22,632 B and a `components.mjs` of
+  239,927 B. Fixing only the flagged line would have left the file holding two
+  different measurements of one thing, which is the failure mode the comment
+  itself describes -- so the sweep is `git grep` for the number rather than an
+  edit at the line somebody pointed at.
+
+  Measured rather than taken from the three sources that already agreed, because
+  three agreeing copies is still one claim: the shipped graph is **32,625 B over
+  seven modules** with the module itself at **22,745 B**, and the same tree built
+  in a worktree with the six store-kit exports removed is **32,523 B over the
+  same seven** -- 102 bytes, confirmed from both ends rather than from the
+  subtraction. `components.mjs` is **239,929 B over 26** and the root entry
+  **7,518 B over six**, both measured the same way, which is the only comparison
+  that means anything.
+
+- **The running tally of how many times the figure has moved is gone, which is
+  the class rather than the instance.** It said "six times now" in AGENTS.md,
+  "five times now" in `dist.test.ts` and "moved five times" in the round-2 entry
+  -- three copies of a number **nobody can re-derive**, which is precisely what
+  the sentence it sits in warns against, two lines after warning about it. A
+  tally of re-measurements is a second un-checkable figure guarding the first,
+  and it had already drifted. What is kept is the instruction to read it again.
+
+- **Nothing asserts any of these**, which is why they drift: the test holds a
+  48 kB _ceiling_, about 2.4x over, so ordinary growth never touches it and
+  pulling the parser or the renderer onto the entry does. That is the right
+  shape -- a test that pinned the exact byte count would fail on every
+  unrelated minifier change -- and it is also why the prose is the only thing
+  keeping the measurement, and so has to be swept rather than spot-fixed.
+
+#### The sabotage pass, counted in one run against the final tree
+
+**100 mutations, 95 caught, 5 declared.** One run rather than a sum across
+rounds, which is what makes the figure re-derivable: three batches over every
+source file, a green control first, and the four verdict guards this repository
+has learned to need -- a pattern that matched nothing, one that matched more than
+once, a replacement equal to its original, and a run that found fewer suites than
+the control, each its own verdict rather than a pass. The harness restores on
+`SIGINT` and `SIGTERM` as well as on an exception, because a killed pass that
+left a mutation behind poisons the next control.
+
+The five that stay are each declared where they live, and only one of them is a
+guard in the ordinary sense:
+
+- `applyInto()`'s **per-key diff**, which is a fast path: every path out of
+  `writeKey()` either recurses into `applyInto()`, whose own whole-subtree skip
+  asks the same question, or writes an attribute whose bytes serialize
+  identically. Measured over an attribute, a nested element, a duplicate spelling
+  and a list.
+- `lossesOf()`'s tail, where the fallback push makes `out` never empty, so
+  `out.length > 0 ? out : []` is an **equivalent spelling**.
+- `blank()` keeping the line breaks, which is a **statement**: a character is
+  replaced by one character either way, so every offset and every `line` is the
+  same. Fingerprinted over eighteen documents, every report identical.
+- The cursor advance past a blanked region, a **cost guard** for the same reason
+  and over the same eighteen.
+- `trailingTrivia()`'s content half, a **tripwire**: a gap between two element
+  children that is not whitespace is mixed content, which the read refuses.
+
+What the pass found rather than confirmed is under the three headings above: the
+two guards covering for each other in the diff, the no-op write test that
+compared bytes which are the same either way, and the four cases where a fixture
+could not reach the branch it was named for.
+
+#### What the packaging claims come to, measured
+
+Both review rounds listed the manifest, the `exports` map, the build config and
+the turbo wiring as regions they did not examine, so each claim was checked
+rather than left on the strength of having been written.
+
+- **The published declaration is two names and no `@xmldom/xmldom` at all**,
+  which is what `names.ts`'s structural `XmlNode` and `XmlAttr` are for: a
+  parser's types in a published `.d.mts` would be a dependency of every consumer
+  that reads the store's signature. Measured -- `dist/index.d.mts` holds `xml()`
+  and `XmlStoreOptions` and zero references to the parser.
+- **What publishes is four files**: the README, `dist/index.mjs`,
+  `dist/index.d.mts` and the manifest, which is exactly what the `exports` map
+  names and nothing else. `npm pack --dry-run` rather than reading `files`.
+- **Both dependencies stay imports**, so the 12.9 kB bundle begins with four
+  `import` statements -- `@ttylabs/sigil/i18n`, `/config`, `/paths` and
+  `@xmldom/xmldom` -- which is the call `@ttylabs/cli` already makes about the
+  runtime. The `/config` one names **six** store-kit symbols, which is what
+  settled the count that docblock had wrong.
+- **The build's resolved inputs are complete and the package needs no
+  `turbo.json` of its own.** `turbo run build --dry-run=json` reports
+  `package.json`, every `src/*.ts`, `tsconfig.json`, `tsconfig.build.json` and
+  `tsdown.config.ts` -- which is everything its build reads, since it has no
+  `scripts/` and no `sigil.json`. So the root's `inputs` covers it and there is
+  nothing to override, which is the opposite of `@ttylabs/cli`'s case and for the
+  stated reason: nothing here type-checks as part of its build.
+
+  The tracer the other two packages were audited with says nothing here, and that
+  is the method's recorded limit rather than a gap: `tsdown` is rolldown, which is
+  native, so its reads do not go through node's `fs`. The dry run is the evidence.
+
+- **A symlinked config is written through and a dangling one has its target
+  created**, which is the one place this store's use of `writeAtomic()` is
+  observable -- the path it hands over. Both are defects core's own PR rounds
+  found and fixed, both are a dotfile manager's ordinary state, and the comment
+  in the file survives the write either way. The mode is kept too, asserted
+  everywhere but Windows, where `chmod` only toggles the read-only flag.
+
+#### Parse errors, and the one thing the parser does twice
+
+- **A fatal parse error is reported through `onError` _and then thrown_, so the
+  parse is bracketed as well as handled.** Measured over ten malformed documents:
+  seven do both and three only report. Without the bracket a `ParseError` escapes
+  with its own message -- `Opening and ending tag mismatch: "a" != "config"`,
+  untranslated, with the path nowhere in it -- which is the whole of what reached a
+  caller. Found by a test rather than by review, and the collected message is
+  preferred over the thrown one because a parser that reported before it threw has
+  already said the thing closest to the first offending byte.
+
+- **An `error` level is a refusal rather than something to carry on from**, and
+  what makes that affordable is the mark being stripped first: with it, content
+  outside the root really is content somebody wrote, which has no config path and
+  would be silently kept or silently dropped either way. `&nope;` and `<1b/>` are
+  the other two that report and do not throw.
+
+#### A sibling package's translated messages have no key registration
+
+- **Everything a user's file can provoke is translated, and `sigil check` reports
+  every one of them as an orphan.** Measured through `checkCatalogs()` directly:
+  a catalog carrying this store's own key gets
+
+  > `"de" translates "…", which nothing asks for; the English may have been reworded`
+
+  which is a **warning on correct code with a message pointing the wrong way** --
+  the key is not a reword, it belongs to a dependency. The check compares an app's
+  catalogs against `SIGIL_KEYS` plus the app's own, and `appKeys()` walks the app's
+  tree, so a dependency's keys are in neither set.
+
+- **Translated anyway, and the gap recorded rather than closed.** The alternative
+  is English messages, and those are _unfixable_: no app can make them German,
+  where the warning is a warning, says exactly what it found, and only appears for
+  an app that chose to translate them. The i18n work's own `PromptError` finding is
+  the same call -- `Fehler: Cancelled` is half a sentence, and fixing it was worth
+  three keys.
+
+- **The shape of the fix is `sigil check` unioning an `./i18n-keys` subpath from
+  each dependency that publishes one**, which is purely additive -- it can only
+  make the framework set larger, turning an orphan into a count. It is not taken
+  here because it is a change to what `sigil check` promises **every** app, inside
+  a ticket about one store, which is the call this file refuses repeatedly. The
+  asymmetry with the store kit is above: that one the feature cannot exist without.
+
+#### What a third workspace member cost, which is what the ticket asked
+
+Every item the ticket predicted, paid:
+
+- **The Layout table and the `packages/`-holds-two paragraph**, both edited at the
+  top of this file.
+- **Two `--filter` lists.** `pnpm test` and `pnpm coverage` name their packages
+  exactly rather than by glob, for the recorded Windows reason, so a third package
+  is a third filter in each -- and `the root build filter` reads the workspace and
+  fails if one is added without joining the build, which is that test working.
+- **Two guards in `cli.test.ts`.** `pinned dependencies` gains the manifest and its
+  count, and `the build hash` gains the task plus a `reads` row -- which for this
+  package is `tsdown` over `tsconfig.build.json` and nothing else: no generator, no
+  registry and no test read, so it is `@ttylabs/sigil`'s shape with the generator
+  taken out rather than `@ttylabs/cli`'s.
+- **`turbo.json` needed no edit at all**, which is worth saying because the ticket
+  expected one: the root `build` task's `inputs` and `outputs` are inherited, and
+  this package writes only `dist/**`, which is already named. Claiming
+  `registry/**` it never writes is harmless -- turbo captures nothing from a glob
+  that does not match -- and is the same inheritance `@ttylabs/cli` already relies
+  on, which is why the outputs assertion reads the **resolved** definition.
+
+- **`demos/` is a fourth consumer, and it is the only one that proves the
+  package is reachable the way an app reaches it.** Every test in
+  `packages/config-xml/` imports relatively, so none of them goes through the
+  `exports` map or reads `dist/` -- which is the gap `demos.test.ts` exists for
+  and which `padCell()` once sat in for a whole pull request. So
+  `demos/package.json` declares `@ttylabs/config-xml` as `workspace:*`, which is
+  the shape `website` and `demos` already have and is deliberately **not** a root
+  dependency, for the reason the global-hash entry gives at length.
+
+#### The demo, and the import check it found a hole in
+
+`demos/config/02-xml.js` is an XML layer under a JSON one in a single stack, and
+it was written because nothing in the suite shows the thing the ticket is for:
+that past the layer list nothing asks which format a layer is. The claims it
+makes were each measured against the running demo before the prose was written.
+
+- **It is a second demo rather than a layer added to `01-layers.js`.** That one
+  is about the merge -- the chain, the schema, `set()` touching one layer, the
+  frozen view -- and an XML layer in it would have been a format detail inside a
+  demo about something else. This one is about a **store from another package**,
+  which is a different claim and has four parts: one path space, the schema
+  coercing text, a write that keeps the file, and the two refusals.
+
+- **The two refusals are the half that could not be shown anywhere else.**
+  `canRepresent()` names what the format cannot hold at the `set()` that wrote
+  the value, and `wouldLose` plus the `save()` refusal is the lossless rule --
+  which this file already records as being "mostly for the sibling packages,
+  the stores in here never report a loss, so nothing in core ever trips it". So
+  a demo in `packages/sigil` could not have shown it firing at all, and this one
+  can: a single-quoted attribute and a numeric character reference are enough.
+
+- **Both refusal blocks assert rather than merely catching**, because a `catch`
+  that logs is the vacuous shape this file keeps deleting: a save that stopped
+  refusing would have printed its heading with nothing under it and still exited
+  0, which is exactly how a renamed import once went unnoticed. The cleanup is a
+  bare `try`/`finally` for the same reason -- `01-layers.js`'s own gated `catch`
+  is written up above as the mistake that cost a round.
+
+- **And the import check had a hole the demo walked straight into.**
+  `demos.test.ts` matched `@ttylabs/sigil` alone and resolved each specifier the
+  way **that test file** would, which answered correctly only because
+  `@ttylabs/cli` happens to depend on sigil too. A `@ttylabs/config-xml` import
+  was therefore unchecked -- measured, a named import of an export that does not
+  exist passes with the narrow pattern and fails with the widened one, which is
+  what says the widening is load bearing rather than tidy. It matches every
+  `@ttylabs/` specifier now and resolves through `createRequire` from
+  `demos/package.json`, which is the more honest question besides: the demo is
+  what runs, so the resolution that matters is the demo's.
+
+  Resolving it from the test instead would have meant a devDependency on
+  `@ttylabs/config-xml` for `@ttylabs/cli`, and `the toolchain's dependencies`
+  writes that list out so that taking one is a decision somebody makes. Taking a
+  dependency to make a test resolve, when the correct resolution needs none, is
+  not that decision.
+
+#### And the lint found a byte order mark in four comments, which `sources.test.ts` could not
+
+- **The gap the FIGlet pass recorded, walked into again, and closed this time.**
+  That entry says a byte order mark is a **format** character rather than a control
+  one, so `test/sources.test.ts` -- which checks C0, `DEL` and C1 -- cannot see
+  one, and that widening to `\p{Cf}` needs an allow-list for the two legitimate
+  U+200D in the tree. So it was left. Four literal marks then went into this
+  package's comments, written by a `\uFEFF` in a shell heredoc being interpreted,
+  and `oxlint`'s `no-irregular-whitespace` is what said so.
+
+- **Closed for the mark alone**, which needs no allow-list because no file here has
+  a reason to hold one -- and it is the one format character that is not merely
+  invisible: it changes how a file **parses**, which is what `shape.ts` spends a
+  module on.
+
+- **It found two more that predate it, and one of them is the entry recording the
+  hazard.** `AGENTS.md`'s own sentence -- "Both are `\uFEFF` escapes now" -- held a
+  **literal** mark where it meant to show the escape, invisibly, in the one file
+  somebody reads to find out about it. The other is `jsonc.test.ts`'s own
+  leading-BOM case, which is escaped rather than allow-listed: the escape feeds the
+  same byte and keeps the source readable, so the allow-list stays for the tests
+  where a raw byte really is the subject.
+
+- **And a blind replace is how it got worse before it got better.** Replacing every
+  literal mark with the prose `U+FEFF` hit the `const BOM` and two test strings as
+  well as the comments, because the character is invisible and a bulk edit cannot
+  see which is which. Which is the hazard stated as a cost: the fix for an
+  invisible character is itself hard to do by eye.
+
+- **Then the paragraph above put two more in, and a test file a third**, which is
+  the fourth and fifth instances and what they say is about the tooling rather than
+  about anybody's care: the
+  two sentences naming the escape were written into this file through a shell
+  heredoc, and the `\uFEFF` in them arrived as the character. So the new check caught
+  the prose describing it, twice, in the commit that added the check -- and then a
+  third time, in a test asserting that a marked file is **not** a loss, written
+  through the same heredoc an hour later. The fix is to build the six characters in
+  a script rather than to type them. Which is the whole argument for the check in
+  one line: an escape sequence for an invisible character is itself something a
+  layer of tooling can quietly turn back into the character, so nothing but reading
+  the bytes answers it -- and the check caught all three, which is the first time
+  anything in this repository has.
 
 ### Updates
 
@@ -21878,6 +23064,17 @@ has been corrected.
   `sep` where a separator really is the subject, and a path compared against
   another path built the same way -- `startsWith(root)` and `slice(root.length)`
   were fine in that same file for exactly that reason.
+
+  **A fifth arrived in SIG-149, and it is an errno rather than a spelling.** A
+  test provoked a non-absence read error with a path **under a file**, which is
+  `ENOTDIR` on POSIX and reads as **absence** on Windows -- so it pinned the
+  claim on two platforms and failed on the third. Neither `asWindows()` nor a
+  rule about separators reaches it: what differed is what the filesystem
+  answered. The portable way to provoke one is a **directory**, which is
+  `EISDIR` everywhere, and core's own test of the same claim already used one.
+  So before writing a fixture that depends on a failure, check whether a sibling
+  test provokes the same one some other way -- the repository usually knows, and
+  the full entry is under "An XML config store, in a package of its own".
 
 - **An assertion is a call, and `expect(x).to.be.ok` is not one.** Chai spells
   that one as a getter, so it reads to a linter as an expression nobody used --

@@ -74,9 +74,47 @@
  * environment variables. They have to agree, or `PORT=` means one thing to an
  * option and another to a setting. `envValue()` is that rule, in one module,
  * read by both.
+ *
+ * ## The store kit, and why it is published
+ *
+ * `writeAtomic()`, `isMissing()`, `overlay()`, `segments()` and
+ * `isPlainObject()` are exported because `ConfigStore` is public API and a
+ * store nobody in this repository wrote has to be able to be *correct*. Each of
+ * the five was deliberately unpublished until something outside asked, which is
+ * the rule `which` waited eighteen months on -- and
+ * `@ttylabs/config-xml` is that caller. What they share is that a sibling
+ * reimplementing one would not merely duplicate it, it would **disagree**:
+ *
+ * - `writeAtomic()` is the temp-plus-rename, the mode and owner it preserves,
+ *   the symlink chain it resolves and the five flush failures it swallows. Every
+ *   one of those is a recorded review finding, and a second copy inherits none
+ *   of them.
+ * - `isMissing()` is which errors mean "the file is not there", which is
+ *   `ENOENT` alone -- reading every error that way was a real defect, found by
+ *   review, that handed a `0o600` config back world-readable.
+ * - `overlay()` is the whole of `WriteOptions.paths`: the null exemption, the
+ *   non-object refusal and the claimed-delete no-op, all three of them review
+ *   findings. A store that honours `paths` and gets those wrong reverts another
+ *   process's keys, which is the defect that option exists for.
+ * - `segments()` carries the prototype-pollution guard, which is the sharpest
+ *   thing in this module. A sibling splitting on `.` reopens it.
+ * - `isPlainObject()` is where the boundary between structure and a leaf is, and
+ *   a store walking a value has to draw it in the same place the merge does.
+ *
+ * It is one decision rather than five -- six exports, because `writeAtomicSync`
+ * rides with its twin -- and it costs **102 bytes**, measured: the
+ * entry's graph goes from 32,523 B to 32,625 B over the same seven modules,
+ * because `json()` already uses four of the six and what is added is the export
+ * statements. Which is the figure rather than "nothing", a claim this said for
+ * a commit -- review round 2 caught it against the measurement in AGENTS.md,
+ * and two comments disagreeing about one number leave a later reader with no
+ * way to tell which was measured.
  */
 
+export { isMissing, writeAtomic, writeAtomicSync } from './atomic.js';
 export { Config, createConfig, createConfigSync, isWritableStore } from './config.js';
+export { isPlainObject, segments } from './dotted.js';
+export { overlay } from './merge.js';
 export { object } from './stores/object.js';
 export { json } from './stores/file.js';
 export type {

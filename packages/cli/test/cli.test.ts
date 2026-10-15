@@ -350,6 +350,7 @@ describe('@ttylabs/cli', () => {
       'demos/package.json',
       'packages/sigil/package.json',
       'packages/cli/package.json',
+      'packages/config-xml/package.json',
       'website/package.json',
     ].map((path) => ({
       json: JSON.parse(readFileSync(resolve(root, '../..', path), 'utf-8')) as Record<
@@ -362,7 +363,7 @@ describe('@ttylabs/cli', () => {
     it('should find every manifest it means to check', () => {
       // a path that stopped resolving would pass this suite by checking
       // nothing, which is the failure mode a list of paths has
-      expect(manifests).toHaveLength(5);
+      expect(manifests).toHaveLength(6);
       for (const { json, path } of manifests) {
         expect(json.name, `${path} has no name`).toBeDefined();
       }
@@ -545,7 +546,7 @@ describe('@ttylabs/cli', () => {
    * through a third.
    */
   describe('the build hash', () => {
-    const published = ['@ttylabs/sigil#build', '@ttylabs/cli#build'];
+    const published = ['@ttylabs/sigil#build', '@ttylabs/cli#build', '@ttylabs/config-xml#build'];
 
     /**
      * What each package's build command reads that is not under `src/**`,
@@ -567,6 +568,15 @@ describe('@ttylabs/cli', () => {
      */
     const reads: Record<string, string[]> = {
       '@ttylabs/cli#build': ['package.json', 'sigil.json', 'tsconfig.json', 'vitest.config.ts'],
+      // `tsdown` over `tsconfig.build.json`, and nothing else: no generator, no
+      // registry, and no test read -- which is `@ttylabs/sigil`'s shape with
+      // the generator taken out rather than `@ttylabs/cli`'s
+      '@ttylabs/config-xml#build': [
+        'package.json',
+        'tsconfig.build.json',
+        'tsconfig.json',
+        'tsdown.config.ts',
+      ],
       '@ttylabs/sigil#build': [
         'package.json',
         'scripts/generate-registry.mjs',

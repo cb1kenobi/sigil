@@ -324,15 +324,23 @@ describe('what importing the package costs', () => {
     const graph = staticGraph('config.mjs');
     const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
 
-    // 32,512 B over seven modules, of which 9,880 B over six is what it starts
+    // 32,625 B over seven modules, of which 9,880 B over six is what it starts
     // from: `paths.mjs`, the `transform` chunk -- which is `transform`, `i18n`
     // and `debug` -- the 66-byte `env-value` chunk the parser shares, and the
     // 525-byte `mkdir-owner-sync` one the update cache shares. So the module
-    // itself is 22,632 B, and the graph is 4.3x the root entry's 7,518 B and an
-    // eighth of `components.mjs`'s 239,927 B over 26 -- all three measured the
+    // itself is 22,745 B, and the graph is 4.3x the root entry's 7,518 B and an
+    // eighth of `components.mjs`'s 239,929 B over 26 -- all three measured the
     // same way, which is the only comparison that means anything. It was
     // 20,649 B over six before the write half, so the span writer, the atomic
-    // write and the representability check are about 11.5 KB between them.
+    // write and the representability check are about 11.5 KB between them; and
+    // 32,523 B before the store kit, which is the 102 bytes that costs. Read
+    // again after every change that moves it -- a figure only a re-run can
+    // confirm is the stale snapshot this file warns about, and review round 2
+    // caught this one carrying the pre-store-kit number while the line below
+    // said it must agree with AGENTS.md. A running tally of how many times is
+    // a second such figure, and the two copies of it had drifted to five here
+    // and six in AGENTS.md, so what is kept is the instruction and not the
+    // count.
     //
     // A ceiling rather than a measurement, about 2.4x over what it is, so that
     // ordinary growth never touches it and pulling the parser or the renderer
