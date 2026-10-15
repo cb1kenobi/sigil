@@ -21592,12 +21592,6 @@ has seen. **Fifteen caught and three declared**, after ten survivors -- and the
 split between them is the thing worth recording, because four of the ten were the
 harness being blunt rather than the code being unguarded.
 
-Eighteen mutations over the guards the round produced, which is the gap every
-round leaves: code written in response to a review is code no review and no pass
-has seen. **Fifteen caught and three declared**, after ten survivors -- and the
-split between them is the thing worth recording, because four of the ten were the
-harness being blunt rather than the code being unguarded.
-
 Then three more over a false positive the probe found that no round did: a `>`
 inside a DOCTYPE's quoted **system literal**, or inside a quoted literal in its
 internal subset, ended the region at the wrong place and left the rest of the
@@ -21646,6 +21640,40 @@ the declaration is content, so a row has to be able to match there.
   somebody would guess: the new elements take the **parent's** prefix, which is
   `newElement()`'s rule and is right here, since a promoted key is a new element
   and the setting is identified by its local name either way.
+
+#### The sabotage pass, counted in one run against the final tree
+
+**100 mutations, 95 caught, 5 declared.** One run rather than a sum across
+rounds, which is what makes the figure re-derivable: three batches over every
+source file, a green control first, and the four verdict guards this repository
+has learned to need -- a pattern that matched nothing, one that matched more than
+once, a replacement equal to its original, and a run that found fewer suites than
+the control, each its own verdict rather than a pass. The harness restores on
+`SIGINT` and `SIGTERM` as well as on an exception, because a killed pass that
+left a mutation behind poisons the next control.
+
+The five that stay are each declared where they live, and only one of them is a
+guard in the ordinary sense:
+
+- `applyInto()`'s **per-key diff**, which is a fast path: every path out of
+  `writeKey()` either recurses into `applyInto()`, whose own whole-subtree skip
+  asks the same question, or writes an attribute whose bytes serialize
+  identically. Measured over an attribute, a nested element, a duplicate spelling
+  and a list.
+- `lossesOf()`'s tail, where the fallback push makes `out` never empty, so
+  `out.length > 0 ? out : []` is an **equivalent spelling**.
+- `blank()` keeping the line breaks, which is a **statement**: a character is
+  replaced by one character either way, so every offset and every `line` is the
+  same. Fingerprinted over eighteen documents, every report identical.
+- The cursor advance past a blanked region, a **cost guard** for the same reason
+  and over the same eighteen.
+- `trailingTrivia()`'s content half, a **tripwire**: a gap between two element
+  children that is not whitespace is mixed content, which the read refuses.
+
+What the pass found rather than confirmed is under the three headings above: the
+two guards covering for each other in the diff, the no-op write test that
+compared bytes which are the same either way, and the four cases where a fixture
+could not reach the branch it was named for.
 
 #### What the packaging claims come to, measured
 
