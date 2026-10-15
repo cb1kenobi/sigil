@@ -21669,6 +21669,64 @@ What it found by applying round 3's own brief:
   `should name every export in the README` already guards its own vacuity with a
   `names.size).toBeGreaterThan(1)`, which is the shape the rest should copy.
 
+#### What the PR review round found: an errno and a code unit
+
+Two draft comments on the PR, **both confirmed**, and they are the two halves
+this ticket's own reading rounds could not reach: one needed a platform nobody
+here runs, and the other needed an input nobody had thought to write.
+
+- **A path under a file is `ENOTDIR` on POSIX and absence on Windows, so the
+  non-absence read test pinned nothing on the platform it ran on.** All three
+  Windows jobs failed where macOS and Linux were green, which is this
+  repository's own signature for the fifth time. `isMissing()` is `ENOENT`
+  alone -- reading every error as absence was a real defect in core, found by
+  review -- so the test points the store at something unreadable and expects it
+  to say so. `ENOTDIR` is that on POSIX; Windows reports a path through a file
+  as **absent**, so the store answered `{ value: {} }` and the assertion failed.
+
+  The portable fixture was already in the repository, which is what makes this
+  the Conventions rule rather than a new one: core's own test of the same claim
+  uses **a directory**, which is `EISDIR` everywhere, and it passes on all three
+  Windows jobs. Measured locally at `ENOTDIR` against `EISDIR` for the two
+  shapes, and the Windows half is CI's own answer rather than a claim about an
+  errno -- the directory fixture throws there and the under-a-file one does not,
+  which is the whole of what the test needs to be true.
+
+- **And it turned up a second `isMissing()` call site with no test at all.**
+  `store.ts` has two, the sync read and the async one, and only the sync was
+  pinned -- which is the pair core keeps a test each for. Both are pinned now,
+  and the 1:1 pairing is measured rather than assumed: swallowing every error at
+  one call site fails exactly the one test named for it and leaves the other
+  passing, in both directions.
+
+- **`contentOf()` mixed code points with code units, so a loss report drifted
+  after any astral character.** `Array.from(source)` splits into code points
+  while every offset the function is handed -- `i` and `end`, out of `indexOf()`
+  and `startsWith()` -- is a code **unit**, so the array drifts one place per
+  astral character before a region. Which contradicted the function's own
+  standing claim that blanking keeps "every offset -- and therefore every
+  `line`". Both halves were measured before anything was changed, and they fail
+  differently, which is why there are two tests.
+
+  The blanking lands **past** the region it was for, so the first `D` characters
+  of a comment stay visible to the content rows -- and where `D` exceeds the
+  comment's own prefix a row matches **inside a comment**, which is the one
+  class `contentOf()` exists to close. Twelve astral characters in front of
+  `<!--<x></x>-->` is the input, and the row reported the `<x></x>` that is in
+  the comment.
+
+  And a blanked astral character collapses to one space, so `content` comes out
+  **shorter** than `source` -- measured at 55 against 58 for three of them --
+  after which `found.index` indexes the shorter string and
+  `source.slice(0, found.index)` names **the line before**. Three astral
+  characters inside a comment reported line 3 where the real loss is on line 4.
+
+  `source.split('')` is the fix, which is by code unit: a surrogate half is
+  blanked to a space on its own, the lengths stay equal, and nothing can split a
+  pair because every region boundary is ASCII. Both tests fail against the old
+  spelling and **only** those two do -- 2 failed of 217 -- which is what says the
+  drift was unpinned rather than covered somewhere else by luck.
+
 #### The sabotage pass, counted in one run against the final tree
 
 **100 mutations, 95 caught, 5 declared.** One run rather than a sum across
@@ -22896,6 +22954,17 @@ has been corrected.
   `sep` where a separator really is the subject, and a path compared against
   another path built the same way -- `startsWith(root)` and `slice(root.length)`
   were fine in that same file for exactly that reason.
+
+  **A fifth arrived in SIG-149, and it is an errno rather than a spelling.** A
+  test provoked a non-absence read error with a path **under a file**, which is
+  `ENOTDIR` on POSIX and reads as **absence** on Windows -- so it pinned the
+  claim on two platforms and failed on the third. Neither `asWindows()` nor a
+  rule about separators reaches it: what differed is what the filesystem
+  answered. The portable way to provoke one is a **directory**, which is
+  `EISDIR` everywhere, and core's own test of the same claim already used one.
+  So before writing a fixture that depends on a failure, check whether a sibling
+  test provokes the same one some other way -- the repository usually knows, and
+  the full entry is under "An XML config store, in a package of its own".
 
 - **An assertion is a call, and `expect(x).to.be.ok` is not one.** Chai spells
   that one as a getter, so it reads to a linter as an expression nobody used --

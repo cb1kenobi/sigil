@@ -242,6 +242,30 @@ describe('what a write would lose', () => {
           'formatting:an empty paired tag becomes self-closing@4',
         ]);
       });
+
+      // `contentOf()` indexes by code **unit**, because every offset it is
+      // handed is one. Both of these fail against an `Array.from()` array,
+      // whose elements are code points -- and they fail differently, which is
+      // why there are two. Found by review.
+      it('should blank a comment that astral characters sit in front of', () => {
+        // the blanking drifts one place per astral character before the region,
+        // so where the drift exceeds the comment's own prefix the row matches
+        // **inside the comment** -- the one class this blanking exists to close
+        const far = '\u{1F600}'.repeat(12);
+        expect(
+          said(`<config>\n  <v>${far}</v>\n  <!--<x></x>-->\n  <b></b>\n</config>`)
+        ).toStrictEqual(['formatting:an empty paired tag becomes self-closing@4']);
+      });
+
+      it('should name the line a real loss is on, past a comment holding astral characters', () => {
+        // a blanked astral character collapsing to one space makes `content`
+        // shorter than `source`, so `found.index` indexes the shorter string
+        // and the line comes out as the one before
+        const held = '\u{1F600}'.repeat(3);
+        expect(
+          said(`<config>\n  <!-- ${held} -->\n  <c>1</c>\n  <b></b>\n</config>`)
+        ).toStrictEqual(['formatting:an empty paired tag becomes self-closing@4']);
+      });
     });
 
     it('should report attribute-value whitespace as the spec’s rather than ours', () => {

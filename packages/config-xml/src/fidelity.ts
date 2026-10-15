@@ -166,9 +166,21 @@ function doctypeEnd(source: string, from: number): number {
  * made a `<!ELEMENT a (#PCDATA)>` read as a bare `>` in text.
  */
 function contentOf(source: string): string {
-  const out = Array.from(source);
+  // by code **unit** rather than by code point, which is what makes the offsets
+  // below mean anything: every `i` and `end` here is a code-unit offset, out of
+  // `indexOf()` and `startsWith()`, so an `Array.from()` array -- whose elements
+  // are code points -- drifts one place per astral character before a region.
+  // Both halves of that were measured rather than argued. The blanking lands
+  // past the region it was for, so a row matches **inside a comment** where the
+  // drift exceeds the comment's own prefix, which is the one class this function
+  // exists to close; and a blanked astral character becomes a single space, so
+  // `content` comes out shorter than `source` and the `line` a report names is
+  // the one before. A surrogate half is blanked to a space on its own here,
+  // which keeps the lengths equal -- and nothing can split a pair, because every
+  // region boundary is ASCII. Found by review.
+  const out = source.split('');
   // the line breaks are kept and that is a statement rather than a guard: a
-  // character is replaced by one character either way, so every offset -- and
+  // code unit is replaced by one code unit either way, so every offset -- and
   // therefore every `line`, which is counted off `source` -- is the same with
   // them blanked too. Measured over eighteen documents, every report identical.
   // What it buys is that `content` is line for line `source`, which is what a
