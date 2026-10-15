@@ -1,6 +1,7 @@
 import { xml } from '../src/index.js';
 import { absent, file, read } from './helpers.js';
 import type { ConfigSchema, WritableConfigStore } from '@ttylabs/sigil/config';
+import { statSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 /** A store over a file holding this, and the path, so a test can read it back. */
@@ -439,12 +440,105 @@ describe('writing', () => {
   });
 
   describe('a write that changes nothing', () => {
+    // asserted on the **inode** rather than on the bytes, which is what the
+    // first version of this did and could not see: what a no-op write would
+    // put there is byte for byte what is there, so comparing the file's
+    // contents passes whether or not the file was written. `writeAtomic()`
+    // renames a temp file over the target, so a write changes the inode and a
+    // skipped write does not -- exact, and with no timing in it, where an
+    // mtime at millisecond resolution is a flaky test one busy machine later
     it('should touch no file, which is what keeps the mtime a watcher reads', () => {
       const src = `<config>\n  <a>1</a>\n</config>\n`;
       const { path, store } = over(src);
-      const before = read(path);
+      const was = statSync(path).ino;
       store.writeSync({ a: '1' });
-      expect(read(path)).toBe(before);
+      expect(statSync(path).ino, 'skipped').toBe(was);
+      store.writeSync({ a: '2' });
+      expect(statSync(path).ino, 'written').not.toBe(was);
+    });
+
+    it('should touch no file through the async path either', async () => {
+      // the two are separate implementations of one loop, for the reason
+      // `createConfigSync()` is -- so the guard is two guards, and the sync
+      // test above cannot see the other one
+      const { path, store } = over(`<config>\n  <a>1</a>\n</config>\n`);
+      const was = statSync(path).ino;
+      await store.write({ a: '1' });
+      expect(statSync(path).ino, 'skipped').toBe(was);
+      await store.write({ a: '2' });
+      expect(statSync(path).ino, 'written').not.toBe(was);
+    });
+  });
+
+  describe('the diff, which is two guards covering for each other', () => {
+    // each one deleted alone changes no answer for a same-value write, and
+    // both deleted together moves an inner comment -- which is how a survivor
+    // becomes a wrong conclusion. So each is pinned by the input that
+    // separates it, and the per-key one turns out to be a fast path
+    it('should skip a list element that did not change, where the key diff cannot', () => {
+      // the second element changed, so `same()` over the array is false and
+      // the per-key skip cannot fire; what skips the first is `applyInto()`'s
+      // own whole-subtree guard, and without it the comment inside it moves
+      const schema: ConfigSchema = { p: { multiple: true, type: 'string' } };
+      const out = after(
+        `<config>\n  <p>1<!-- x --></p>\n  <p>2</p>\n</config>`,
+        {
+          p: ['1', '3'],
+        },
+        schema
+      );
+      expect(out).toBe(`<config>\n  <p>1<!-- x --></p>\n  <p>3</p>\n</config>`);
+    });
+
+    it('should not rewrite a value the schema coerced to a number', () => {
+      // `same()` compares through `textFor()` rather than by identity, so a
+      // setting declared `int` meeting its own `8080` is not a change -- by
+      // identity a string never equals a number, every such key is rewritten,
+      // and the rewrite moves whatever the element held beside its text
+      const schema: ConfigSchema = { a: { type: 'int' } };
+      const out = after(
+        `<config>\n  <a>8080<!-- port --></a>\n  <b>2</b>\n</config>`,
+        {
+          a: 8080,
+          b: '3',
+        },
+        schema
+      );
+      expect(out).toBe(`<config>\n  <a>8080<!-- port --></a>\n  <b>3</b>\n</config>`);
+    });
+  });
+
+  describe('a new element takes the prefix its parent has', () => {
+    it('should not let the serializer pick, where one namespace has two', () => {
+      // `createElementNS()` with no prefix leaves the serializer to find one
+      // for the URI, and with two bound it picks whichever it meets -- so a
+      // new key beside a `q:`-spelled sibling came out `q:b` under a `p:`
+      // parent. Legal, unusual, and silent: nobody reads a prefix twice
+      const out = after(`<p:config xmlns:p="urn:x" xmlns:q="urn:x">\n  <q:a>1</q:a>\n</p:config>`, {
+        a: '1',
+        b: '2',
+      });
+      expect(out).toBe(
+        `<p:config xmlns:p="urn:x" xmlns:q="urn:x">\n  <q:a>1</q:a>\n  <p:b>2</p:b>\n</p:config>`
+      );
+    });
+  });
+
+  describe('whether the document is laid out at all', () => {
+    it('should not read a newline inside a value as a layout', () => {
+      // `multiline()` asks about **whitespace-only** text holding a newline,
+      // which is an indent; a newline inside a value is content. Without the
+      // first half, a document written on one line whose only newline is in a
+      // value is laid out, and the one place `step` is read -- a parent with
+      // no element children -- then indents inside it
+      const out = after(`<config><a>one\ntwo</a></config>`, { a: { z: '1' } });
+      expect(out).toBe(`<config><a><z>1</z></a></config>`);
+    });
+
+    it('should lay a fresh insert out where the document really is', () => {
+      // the control, so the test above cannot pass by nothing being laid out
+      const out = after(`<config>\n  <a>x</a>\n</config>`, { a: { z: '1' } });
+      expect(out).toBe(`<config>\n  <a>\n    <z>1</z>\n  </a>\n</config>`);
     });
   });
 });

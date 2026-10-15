@@ -477,6 +477,15 @@ export function applyInto(
 
   for (const [name, value] of Object.entries(target)) {
     const was = Object.hasOwn(held, name) ? held[name] : undefined;
+    // a declared fast path rather than a guard: every path out of `writeKey()`
+    // either recurses into `applyInto()`, whose own whole-subtree skip asks
+    // this same question, or writes an attribute whose bytes serialize
+    // identically -- so deleting this changes no answer, measured over an
+    // attribute, a nested element, a duplicate spelling and a list. What it
+    // buys is not taking a `readElement()` and not walking a subtree per key
+    // that already matches. The skip at the top of this function is the one
+    // that is load bearing, and a list whose second element changed is the
+    // input that separates them
     if (was !== undefined && same(was, value)) {
       continue;
     }

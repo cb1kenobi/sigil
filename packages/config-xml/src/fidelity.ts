@@ -180,5 +180,8 @@ export function lossesOf(source: string, rendered: string): readonly Loss[] | un
     });
   }
 
+  // never empty, because of the fallback above -- so `out.length > 0 ? out : []`
+  // is an equivalent spelling rather than a defect, and what makes the answer
+  // **absent** for a document that round-trips is the early return at the top
   return out;
 }
