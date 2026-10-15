@@ -1,11 +1,12 @@
 import { spawn } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 /**
- * The demos import `@ttylabs/sigil` by name, so they go through the package's
+ * The demos import their packages by name, so they go through each one's
  * `exports` map and read `dist/` -- which is the one part of the surface no
  * other test covers. Nothing type-checks them, and a named import of an export
  * that no longer exists is not a lint error: it is a `SyntaxError` at the point
@@ -20,6 +21,23 @@ import { describe, expect, it } from 'vitest';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const demos = resolve(root, 'demos');
+
+/**
+ * A specifier resolved the way the *demo* resolves it, rather than the way this
+ * file would.
+ *
+ * `demos/` is a workspace member with a manifest of its own, so what it may
+ * import is what that manifest declares -- and `@ttylabs/cli` declares a
+ * different set. Resolving here would therefore have asked the wrong question
+ * twice over: it answered for `@ttylabs/sigil` only because this package
+ * happens to depend on it too, and it threw `ERR_MODULE_NOT_FOUND` for
+ * `@ttylabs/config-xml`, which the demos declare and this package does not.
+ *
+ * So the check reads the demo's own `node_modules`, which is also the honest
+ * statement of what it is checking: the import the demo makes, resolved the way
+ * node will resolve it when `demos.test.ts` spawns the file below.
+ */
+const fromDemos = createRequire(join(demos, 'package.json'));
 
 /** Every `.js` under `demos/`, including the command modules in subdirectories. */
 function scripts(dir: string): string[] {
@@ -52,13 +70,18 @@ interface DemoImport {
 }
 
 /**
- * The static imports a demo makes from `@ttylabs/sigil`. Only the named ones
+ * The static imports a demo makes from a workspace package. Only the named ones
  * carry a promise this test can check; a namespace or default import merely
  * has to resolve, which importing the module proves on its own.
+ *
+ * Every `@ttylabs/` specifier rather than `@ttylabs/sigil` alone, because the
+ * reason this check exists is true of any of them: `@ttylabs/config-xml` is a
+ * second package the demos import by name, and a named import of an export it
+ * no longer has is the same `SyntaxError` at the same moment.
  */
 function imports(source: string): DemoImport[] {
   const found: DemoImport[] = [];
-  const re = /import\s+([^'"]*?)\s*from\s*'(@ttylabs\/sigil(?:\/[^']+)?)'/g;
+  const re = /import\s+([^'"]*?)\s*from\s*'(@ttylabs\/[^']+)'/g;
   for (const match of source.matchAll(re)) {
     const clause = match[1] ?? '';
     const braces = /\{([^}]*)\}/.exec(clause);
@@ -92,7 +115,8 @@ describe('the demos', () => {
 
     it(`should import what ${name} says it does`, async () => {
       for (const { names, specifier } of declared) {
-        const module = (await import(specifier)) as Record<string, unknown>;
+        const file = pathToFileURL(fromDemos.resolve(specifier)).href;
+        const module = (await import(file)) as Record<string, unknown>;
         for (const exported of names) {
           expect(Object.hasOwn(module, exported), `${specifier} exports ${exported}`).toBe(true);
         }

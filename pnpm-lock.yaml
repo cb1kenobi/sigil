@@ -199,6 +199,9 @@ importers:
 
   demos:
     dependencies:
+      '@ttylabs/config-xml':
+        specifier: workspace:*
+        version: link:../packages/config-xml
       '@ttylabs/sigil':
         specifier: workspace:*
         version: link:../packages/sigil

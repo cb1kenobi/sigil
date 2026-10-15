@@ -5,6 +5,7 @@
   "description": "Runnable examples, a workspace member so that they import @ttylabs/sigil by name",
   "type": "module",
   "dependencies": {
+    "@ttylabs/config-xml": "workspace:*",
     "@ttylabs/sigil": "workspace:*"
   }
 }

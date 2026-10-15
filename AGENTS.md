@@ -21920,6 +21920,61 @@ Every item the ticket predicted, paid:
   that does not match -- and is the same inheritance `@ttylabs/cli` already relies
   on, which is why the outputs assertion reads the **resolved** definition.
 
+- **`demos/` is a fourth consumer, and it is the only one that proves the
+  package is reachable the way an app reaches it.** Every test in
+  `packages/config-xml/` imports relatively, so none of them goes through the
+  `exports` map or reads `dist/` -- which is the gap `demos.test.ts` exists for
+  and which `padCell()` once sat in for a whole pull request. So
+  `demos/package.json` declares `@ttylabs/config-xml` as `workspace:*`, which is
+  the shape `website` and `demos` already have and is deliberately **not** a root
+  dependency, for the reason the global-hash entry gives at length.
+
+#### The demo, and the import check it found a hole in
+
+`demos/config/02-xml.js` is an XML layer under a JSON one in a single stack, and
+it was written because nothing in the suite shows the thing the ticket is for:
+that past the layer list nothing asks which format a layer is. The claims it
+makes were each measured against the running demo before the prose was written.
+
+- **It is a second demo rather than a layer added to `01-layers.js`.** That one
+  is about the merge -- the chain, the schema, `set()` touching one layer, the
+  frozen view -- and an XML layer in it would have been a format detail inside a
+  demo about something else. This one is about a **store from another package**,
+  which is a different claim and has four parts: one path space, the schema
+  coercing text, a write that keeps the file, and the two refusals.
+
+- **The two refusals are the half that could not be shown anywhere else.**
+  `canRepresent()` names what the format cannot hold at the `set()` that wrote
+  the value, and `wouldLose` plus the `save()` refusal is the lossless rule --
+  which this file already records as being "mostly for the sibling packages,
+  the stores in here never report a loss, so nothing in core ever trips it". So
+  a demo in `packages/sigil` could not have shown it firing at all, and this one
+  can: a single-quoted attribute and a numeric character reference are enough.
+
+- **Both refusal blocks assert rather than merely catching**, because a `catch`
+  that logs is the vacuous shape this file keeps deleting: a save that stopped
+  refusing would have printed its heading with nothing under it and still exited
+  0, which is exactly how a renamed import once went unnoticed. The cleanup is a
+  bare `try`/`finally` for the same reason -- `01-layers.js`'s own gated `catch`
+  is written up above as the mistake that cost a round.
+
+- **And the import check had a hole the demo walked straight into.**
+  `demos.test.ts` matched `@ttylabs/sigil` alone and resolved each specifier the
+  way **that test file** would, which answered correctly only because
+  `@ttylabs/cli` happens to depend on sigil too. A `@ttylabs/config-xml` import
+  was therefore unchecked -- measured, a named import of an export that does not
+  exist passes with the narrow pattern and fails with the widened one, which is
+  what says the widening is load bearing rather than tidy. It matches every
+  `@ttylabs/` specifier now and resolves through `createRequire` from
+  `demos/package.json`, which is the more honest question besides: the demo is
+  what runs, so the resolution that matters is the demo's.
+
+  Resolving it from the test instead would have meant a devDependency on
+  `@ttylabs/config-xml` for `@ttylabs/cli`, and `the toolchain's dependencies`
+  writes that list out so that taking one is a decision somebody makes. Taking a
+  dependency to make a test resolve, when the correct resolution needs none, is
+  not that decision.
+
 #### And the lint found a byte order mark in four comments, which `sources.test.ts` could not
 
 - **The gap the FIGlet pass recorded, walked into again, and closed this time.**

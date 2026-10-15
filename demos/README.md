@@ -75,10 +75,9 @@ parse is what loads it.
 
 ## Translating
 
-|                                                    |                                                                                                        |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| [`i18n/01-translating.js`](i18n/01-translating.js) | A translated string, plurals, a prompt's vocabulary, and the locale changing mid-run                   |
-| [`config/01-layers.js`](config/01-layers.js)       | The layer stack, the merged read, a schema, the environment on top, and what `set()` does to one layer |
+|                                                    |                                                                                      |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| [`i18n/01-translating.js`](i18n/01-translating.js) | A translated string, plurals, a prompt's vocabulary, and the locale changing mid-run |
 
 The English sentence _is_ the catalog key, so there is nothing to invent and
 nothing to look up:
@@ -136,6 +135,75 @@ partial catalog is the normal state of a translation and `[missing: …]` would
 replace a working message with a broken one. What is loud is `sigil check`,
 which compares the key sets both ways — so a reworded English sentence shows up
 as one missing key and one orphan.
+
+## Config
+
+|                                              |                                                                                                        |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| [`config/01-layers.js`](config/01-layers.js) | The layer stack, the merged read, a schema, the environment on top, and what `set()` does to one layer |
+| [`config/02-xml.js`](config/02-xml.js)       | A store from another package in the same stack, and the two refusals the interface exists for          |
+
+```sh
+node demos/config/01-layers.js
+PORT=3000 node demos/config/01-layers.js     # a variable beats every file
+node demos/config/01-layers.js --bad         # what a wrong value says
+```
+
+One merged view over an ordered stack. A setting's environment variable wins,
+then the layers from last to first, then the setting's `default` — written as a
+single chain because that is the only form in which a precedence rule can be
+read. `set()` mutates **one** layer rather than the merged view, because a
+merged value has no single home to write to, and `get()` hands back a frozen
+value, because mutating a computed one would change what a later `get()`
+answers while changing no layer.
+
+The second demo is the one that is not about config at all:
+
+```sh
+node demos/config/02-xml.js
+PORT=3000 node demos/config/02-xml.js        # the environment still wins
+```
+
+`ConfigStore` is public API so that a store nobody in this repository wrote can
+be _correct_ rather than merely compile, and
+[`@ttylabs/config-xml`](../packages/config-xml) is the first one from outside.
+It needed **no change to that interface** — what it needed was the store kit,
+the six exports `@ttylabs/sigil/config` publishes for exactly this. So the
+thing to watch is that nothing past the layer list asks which format a layer
+is: an XML file sits under a JSON one and is shadowed by it at the same path.
+
+That last clause is the whole of the mapping. An attribute and a child element
+are the **same setting at the same path**, so `<server port="8080"/>` and
+`<port>8080</port>` are one thing:
+
+```
+<config mode="production">        mode          'production'
+  <server port="8080">            server.port   '8080'
+    <host>0.0.0.0</host>          server.host   '0.0.0.0'
+```
+
+The obvious alternative is a reserved key — `_attributes`, `$`, `@_`, which
+xml2js and fast-xml-parser both use — and it is wrong for a reason that has
+nothing to do with spelling: a sentinel puts one setting at **two paths
+depending on the format of the layer it came from**, so an XML system default
+would stop being shadowed by the JSON user file above it. The precedence chain,
+broken by a layer's format, is exactly what a store interface exists to hide.
+
+XML has no scalar kinds, so every value in that file is text and the schema is
+what turns `"8080"` into `8080` — through the parser's own `transformValue()`,
+which is why `--port=off`, `PORT=off` and an XML `off` cannot come to mean three
+different things.
+
+Then the two refusals, which are what the interface is really for. The write
+walks the DOM and puts back only what changed, so the declaration, the comment,
+the indentation and a self-closing tag all survive a `save()` that moved two
+tokens. `canRepresent()` is the store saying what the format cannot hold —
+asked at the `set()` that wrote the value rather than discovered by a `save()`
+in an exit handler, which is why it is synchronous. And `wouldLose` is the
+other direction: a write either preserves everything it was not asked to change
+or it **names what it would lose and refuses**, with `lossy: true` as the
+deliberate way past. The built-in stores never report a loss, so this demo is
+the only place in the repository where that rule can be seen firing.
 
 ## Components
 
