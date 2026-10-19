@@ -22951,6 +22951,32 @@ is the distinction worth keeping:
   is a comparison _between_ two cells -- measured over 4,000 random pairs, the
   alignment is identical with a base of 0 and a base of 1.
 
+**And a pass over that commit's own guards found the sign unpinned, which takes
+this package to eighty-nine, eighty-three caught and six declared.** The fourth
+consecutive pass here to find something in the previous one's output, which is
+the pattern rather than a run of luck: `INTEGER_SOURCE` is code the PR round
+wrote, and every integer case in the read block is **unsigned**, so dropping
+`[-+]?` left all 198 tests green. What that costs is not cosmetic -- every
+negative integer past 2^53 then reads back **silently wrong**, which is the
+defect the guard exists for, arriving through the one spelling no test covered.
+
+The probe that found it is worth more than the finding, because it is the one
+that says the regex has no _other_ hole: every integer form `yaml` resolves under
+1.2 core was fed through it and compared against what the pattern matches.
+`0b101`, `1_000` and the uppercase `0O`/`0X` prefixes each come back a **string**,
+so the regex misses nothing -- and `1e21` and `1.5e20` come back as numbers it
+deliberately skips, which is the PR round's own fix rather than a gap.
+`BigInt('+5')` was measured rather than assumed, because a `BigInt` that refused
+a sign YAML's own int production allows would have been a throw out of the read
+for a file with nothing wrong with it.
+
+`-0` is the edge the second test keeps, and it is why the pair is two tests
+rather than one: a guard that refused every signed integer there is would pass
+the refusal test alone. It goes through the same branch, both `BigInt`s are `0n`
+so it is taken, and it reads back as **negative** zero rather than zero --
+measured, since `toStrictEqual` tells the two apart and a guess would have
+written that assertion the other way round.
+
 #### The i18n gap is the sibling's, unchanged
 
 Everything a user's **file** can provoke is translated and everything only the

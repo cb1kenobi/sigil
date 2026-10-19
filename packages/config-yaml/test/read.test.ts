@@ -271,6 +271,42 @@ describe('reading a document', () => {
       );
     });
 
+    it('should refuse a signed integer the same way, which is the regex own branch', () => {
+      // the sign alternation in `INTEGER_SOURCE` is load bearing and nothing
+      // else in this block reaches it: every other case here is unsigned, so a
+      // sabotage dropping `[-+]?` leaves **every negative integer past 2^53**
+      // read back silently wrong -- the defect the guard exists for, arriving
+      // through the one spelling no test covered. Measured: 198 of 198 still
+      // passed with the sign gone
+      expect(() => yaml(file('a: -9007199254740993\n')).readSync()).toThrow(
+        /-9007199254740993 is not exactly representable; it would read back as -9007199254740992/
+      );
+      // `+` is a sign YAML 1.2's int production allows and `BigInt('+5')`
+      // accepts, so it is the same branch rather than a second one -- measured,
+      // because a `BigInt` that refused it would have been a throw out of the
+      // read for a file with nothing wrong with it
+      expect(() => yaml(file('a: +9007199254740993\n')).readSync()).toThrow(
+        /\+9007199254740993 is not exactly representable/
+      );
+      // and the non-finite branch, which a sign reaches too
+      expect(() => yaml(file(`a: -${'1'.repeat(400)}\n`)).readSync()).toThrow(
+        /larger than this runtime can hold at all/
+      );
+    });
+
+    it('should take a signed integer the double holds exactly', () => {
+      // the other side of it, or the test above would pass for a guard that
+      // refused every signed integer there is. `-0` is the edge worth keeping:
+      // it goes through the same branch, `BigInt('-0')` and `BigInt(-0)` are
+      // both `0n` so it is taken, and it reads back as **negative** zero rather
+      // than zero -- measured, since `toStrictEqual` tells the two apart
+      expect(yaml(file('a: -9007199254740992\nb: +8080\nc: -0\n')).readSync().value).toStrictEqual({
+        a: -9007199254740992,
+        b: 8080,
+        c: -0,
+      });
+    });
+
     it('should take an integer the double holds exactly, 2^53 included', () => {
       // the test is **exactness** rather than `Number.isSafeInteger`
       // distinctness, which refused 2^53 itself -- a value the file names
