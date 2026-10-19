@@ -156,6 +156,47 @@ function underFolded(at: At): boolean {
  * Ordered most specific first: the first one that recognizes the pair names it,
  * and the fallback below catches a difference none of them has met.
  */
+/**
+ * The largest alignment table `align()` will build, past which it pairs
+ * index-wise within the changed region.
+ *
+ * A million cells is a thousand changed lines against a thousand, which no
+ * config file reaches once the common prefix and suffix are off -- and the
+ * fallback is the old whole-file behaviour narrowed to the region, so the worst
+ * a document past it gets is the report it used to get.
+ */
+const LCS_CELLS = 1_000_000;
+
+/**
+ * The next line after `i` that is neither blank nor a comment.
+ *
+ * What the comment-indent row needs in order to name the sequence item it is
+ * about, rather than reporting every surviving comment as one.
+ */
+function nextContent(source: readonly string[], i: number): string {
+  for (let at = i + 1; at < source.length; at++) {
+    const line = (source[at] as string).replace(/\r$/, '');
+    if (line.trim() !== '' && !line.trimStart().startsWith('#')) {
+      return line;
+    }
+  }
+  return '';
+}
+
+/**
+ * Whether a line is blank, with a CRLF ending taken off first.
+ *
+ * `lossesOf()` splits on `\n` and keeps the `\r`, deliberately -- so that a
+ * line-ending change is still something the diff can see -- which left every
+ * recognizer that asked `=== ''` blind on a CRLF file: a blank line there is
+ * `"\r"`. Measured, `a: 1\r\n\r\n\r\nb: 2\r\n` reported the bare "does not
+ * survive" sentence where the LF spelling of the same file named the collapsed
+ * run, and the trailing-comment row missed the same way.
+ */
+function isBlank(line: string | undefined): boolean {
+  return line !== undefined && line.replace(/\r$/, '') === '';
+}
+
 const RECOGNIZERS: readonly Recognizer[] = [
   {
     kind: 'comment',
@@ -169,7 +210,13 @@ const RECOGNIZERS: readonly Recognizer[] = [
   },
   {
     kind: 'formatting',
-    saw: ({ was }) => was !== undefined && /^[ \t]*\? /.test(was),
+    // the **rendered** line is asked about as well, or any line that merely
+    // starts with `? ` is reported as an explicit key being rewritten -- which
+    // for a `? not a key` line inside a literal block is a sentence about a
+    // construct that is not there. Measured: only its indent had moved, and the
+    // indentation row below would have said so
+    saw: ({ now, was }) =>
+      was !== undefined && /^[ \t]*\? /.test(was) && (now === undefined || !/^[ \t]*\? /.test(now)),
     say: 'an explicit "? key" is rewritten as an ordinary key',
   },
   {
@@ -185,7 +232,13 @@ const RECOGNIZERS: readonly Recognizer[] = [
   },
   {
     kind: 'comment',
-    saw: ({ now, was }) => was !== undefined && now === '' && was.trimStart().startsWith('#'),
+    // a line only the **rendering** has, which is what an inserted blank now is:
+    // paired alignment reports it with no source half at all, where the index
+    // walk used to compare the comment against the blank and read that as the
+    // comment changing. `At.i` is the source line the blank sits in front of,
+    // so this asks about that line rather than about a `was` there is none of
+    saw: ({ i, now, source, was }) =>
+      was === undefined && isBlank(now) && (source[i] ?? '').trimStart().startsWith('#'),
     say: 'a blank line is added before a comment at the end of the document',
   },
   {
@@ -201,8 +254,19 @@ const RECOGNIZERS: readonly Recognizer[] = [
     // that names the wrong cause is the thing a table of patterns is criticised
     // for one paragraph up. Found by the sabotage pass rather than by a test
     kind: 'formatting',
-    saw: ({ i, now, source, was }) =>
-      (was === '' && source[i - 1] === '') || (now === '' && was === ''),
+    // `now === '' && was === ''` was the second disjunct and was unreachable:
+    // the walk only ever asks about a pair that differs. CRLF-tolerant, because
+    // a blank line in a CRLF file is `"\r"` rather than `''`.
+    //
+    // It looks **both** ways, because which blank of a run is the one reported
+    // gone is the alignment's choice rather than a fixed one: where the lines
+    // before the run are identical they come off as the common prefix and the
+    // **second** blank is left over, and where something earlier in the file
+    // also changed the subsequence match takes the **first**. Measured on the
+    // demo's own file, which changes line 1 as well -- looking back alone
+    // dropped it to the bare "does not survive" sentence there while naming the
+    // run correctly for a file whose first line is untouched
+    saw: ({ i, source, was }) => isBlank(was) && (isBlank(source[i - 1]) || isBlank(source[i + 1])),
     say: 'a run of blank lines is collapsed to one',
   },
   {
@@ -218,11 +282,17 @@ const RECOGNIZERS: readonly Recognizer[] = [
     // different and so is what a reader would do about it: this is one comment
     // moving rather than the document's layout being unrenderable
     kind: 'comment',
-    saw: ({ now, was }) =>
+    // the **sequence** this names has to be in the file. Without that test any
+    // full-line comment whose text survived was reported as a comment above an
+    // unindented sequence item: measured, `a:\n      # note\n  b: 1\n` has no
+    // `- ` anywhere and got this sentence, where what moved it was the
+    // document's indentation and the row below says so accurately
+    saw: ({ i, now, source, was }) =>
       was !== undefined &&
       now !== undefined &&
       was.trimStart().startsWith('#') &&
-      was.trimStart() === now.trimStart(),
+      was.trimStart() === now.trimStart() &&
+      /^[ \t]*- /.test(nextContent(source, i)),
     say: "a comment above an unindented sequence item is moved to the item's own indent",
   },
   {
@@ -244,6 +314,171 @@ const RECOGNIZERS: readonly Recognizer[] = [
  * @param rendered - What a no-op write of it would produce, reshaped.
  * @returns The losses, or nothing.
  */
+/** A source line paired with the rendered line it became, where there is one. */
+interface Aligned {
+  /** The rendered line index, or nothing for a source line that is gone. */
+  now?: number;
+  /** The source line index, or nothing for a line only the rendering has. */
+  was?: number;
+}
+
+/**
+ * Pairs the source's lines with the rendering's.
+ *
+ * Index alignment -- `source[i]` against `rendered[i]` -- is what this used to
+ * do, and it falsified the claim the whole design rests on. An inserted or
+ * deleted line shifts every index after it, so a line that **survived** was
+ * reported as not surviving: measured, `a: 1\n\n\nb: 2\n` renders as
+ * `a: 1\n\nb: 2\n` and the report named line 4, `b: 2`, which is in the output
+ * one line higher. And `Math.max` of the two lengths walked past the end of the
+ * source, so `a: 1\n# tail\n` reported a **phantom** line 3: the empty string
+ * `split` leaves after a final newline.
+ *
+ * So the lines are paired instead. The common prefix and the common suffix come
+ * off first, which for a document against its own re-render is nearly all of
+ * it, and what is left is matched by longest common subsequence. A pair with
+ * both halves is a line that changed; one with only a source index is a line
+ * that is gone; one with only a rendered index is a line that was added. No
+ * pair names an index either array does not have, so a reported line is a real
+ * line of the file again -- which is what makes "it cannot be a false positive"
+ * true rather than merely written down.
+ *
+ * The table is bounded: the trim makes the middle small in practice, and a
+ * middle past `LCS_CELLS` falls back to pairing index-wise within it, which is
+ * the old behaviour over a region rather than over the file.
+ *
+ * @param was - The source's lines.
+ * @param now - The rendering's lines.
+ * @returns The pairs, in source order.
+ */
+function align(was: readonly string[], now: readonly string[]): readonly Aligned[] {
+  let head = 0;
+  while (head < was.length && head < now.length && was[head] === now[head]) {
+    head++;
+  }
+
+  let tail = 0;
+  while (
+    tail < was.length - head &&
+    tail < now.length - head &&
+    was[was.length - 1 - tail] === now[now.length - 1 - tail]
+  ) {
+    tail++;
+  }
+
+  const a = was.slice(head, was.length - tail);
+  const b = now.slice(head, now.length - tail);
+  const out: Aligned[] = [];
+
+  if (a.length * b.length > LCS_CELLS) {
+    for (let i = 0; i < Math.max(a.length, b.length); i++) {
+      out.push({
+        ...(i < b.length ? { now: head + i } : {}),
+        ...(i < a.length ? { was: head + i } : {}),
+      });
+    }
+    return out;
+  }
+
+  const lcs: number[][] = Array.from({ length: a.length + 1 }, () =>
+    new Array<number>(b.length + 1).fill(0)
+  );
+
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) {
+      (lcs[i] as number[])[j] =
+        a[i] === b[j]
+          ? ((lcs[i + 1] as number[])[j + 1] as number) + 1
+          : Math.max((lcs[i + 1] as number[])[j] as number, (lcs[i] as number[])[j + 1] as number);
+    }
+  }
+
+  let i = 0;
+  let j = 0;
+
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      i++;
+      j++;
+      continue;
+    }
+    // the line with more of the common subsequence behind it is the one that
+    // stays; its partner is the one that was added or removed
+    if (((lcs[i + 1] as number[])[j] as number) >= ((lcs[i] as number[])[j + 1] as number)) {
+      out.push({ was: head + i });
+      i++;
+      continue;
+    }
+    out.push({ now: head + j });
+    j++;
+  }
+
+  for (; i < a.length; i++) {
+    out.push({ was: head + i });
+  }
+  for (; j < b.length; j++) {
+    out.push({ now: head + j });
+  }
+
+  return coalesce(out);
+}
+
+/**
+ * Zips a run of gone lines with the run of added lines that follows it.
+ *
+ * A line whose *text* changed is not in the common subsequence either way, so
+ * the walk above emits it as a line gone and a line added -- which is the
+ * truth and is useless to a recognizer, every one of which compares the source
+ * line against the rendered line it became. A reindented line, a comment whose
+ * spacing moved, a re-folded scalar: each is one line against one line, and
+ * each would otherwise fall through to the bare "does not survive" sentence
+ * with the cause lost.
+ *
+ * So a maximal run of gone lines immediately followed by a run of added ones is
+ * paired off index-wise, which is what a diff calls a replace. The overlap pairs
+ * up and whatever is left over on either side stays a line gone or a line added,
+ * so nothing is invented: the pairing is only ever within one changed region,
+ * never across an unchanged line.
+ *
+ * @param pairs - The pairs as the walk produced them.
+ * @returns The same pairs with each replace run zipped.
+ */
+function coalesce(pairs: readonly Aligned[]): readonly Aligned[] {
+  const out: Aligned[] = [];
+
+  for (let at = 0; at < pairs.length;) {
+    let gone = at;
+    while (gone < pairs.length && (pairs[gone] as Aligned).now === undefined) {
+      gone++;
+    }
+
+    let added = gone;
+    while (added < pairs.length && (pairs[added] as Aligned).was === undefined) {
+      added++;
+    }
+
+    const left = pairs.slice(at, gone);
+    const right = pairs.slice(gone, added);
+
+    if (left.length === 0 && right.length === 0) {
+      out.push(pairs[at] as Aligned);
+      at++;
+      continue;
+    }
+
+    for (let k = 0; k < Math.max(left.length, right.length); k++) {
+      out.push({
+        ...(k < right.length ? { now: (right[k] as Aligned).now } : {}),
+        ...(k < left.length ? { was: (left[k] as Aligned).was } : {}),
+      });
+    }
+
+    at = added;
+  }
+
+  return out;
+}
+
 export function lossesOf(source: string, rendered: string): readonly Loss[] | undefined {
   if (rendered === source) {
     return undefined;
@@ -257,12 +492,18 @@ export function lossesOf(source: string, rendered: string): readonly Loss[] | un
   // of each kind is what a reader is pointed at
   const seen = new Map<string, Loss>();
 
-  for (let i = 0; i < Math.max(was.length, now.length); i++) {
-    const at: At = { i, now: now[i], rendered: now, source: was, was: was[i] };
-
-    if (at.was === at.now) {
-      continue;
-    }
+  for (const pair of align(was, now)) {
+    // a line only the rendering has is reported against the source line it
+    // sits in front of, because that is the line a reader has to look at --
+    // clamped to the file, so an addition at the end names its last line
+    const i = pair.was ?? Math.min(pair.now ?? 0, was.length - 1);
+    const at: At = {
+      i,
+      now: pair.now === undefined ? undefined : now[pair.now],
+      rendered: now,
+      source: was,
+      was: pair.was === undefined ? undefined : was[pair.was],
+    };
 
     const found = RECOGNIZERS.find((it) => it.saw(at));
     const detail =
@@ -273,11 +514,11 @@ export function lossesOf(source: string, rendered: string): readonly Loss[] | un
     }
   }
 
-  // never empty, and that is a proof rather than a hope: `split('\n')` is
-  // injective, so two strings that differ have line arrays that differ, so some
-  // index above is reached and the per-line fallback records something. Which
-  // is what makes the **document**-level fallback the sibling store needs
-  // unreachable here -- every answer names a line, which is the whole advantage
-  // of diffing the two renderings over matching patterns against the source
+  // never empty, and that is a proof rather than a hope: two strings that
+  // differ cannot have identical line arrays, so the trim above cannot consume
+  // all of both and `align()` yields at least one pair. Which is what makes the
+  // **document**-level fallback the sibling store needs unreachable here --
+  // every answer names a line of the file, which is the whole advantage of
+  // diffing the two renderings over matching patterns against the source
   return [...seen.values()];
 }

@@ -106,11 +106,51 @@ describe('reading a document', () => {
     it('should take a scalar key of any type, because it names a path', () => {
       // `1: a` is the path `1`, which is where `{"1": "a"}` puts it in JSON --
       // so the two formats agree and there is nothing to refuse
-      expect(yaml(file('1: a\ntrue: b\nnull: c\n')).readSync().value).toStrictEqual({
-        '': 'c',
+      expect(yaml(file('1: a\ntrue: b\n2.5: c\n')).readSync().value).toStrictEqual({
         '1': 'a',
+        '2.5': 'c',
         true: 'b',
       });
+    });
+
+    it('should refuse a null key, which names no path either', () => {
+      // this used to read as `''`, which no dotted path can address, and the
+      // JSON analogy the rule above rests on says `'null'`:
+      // `JSON.stringify({[null]: 1})` is `{"null":1}`. Keeping it was a silent
+      // data drop -- a null key beside an empty-string key read as the
+      // empty-string one with the other value gone
+      expect(() => yaml(file('null: c\n')).readSync()).toThrow(
+        /null mapping key names no config path/
+      );
+      expect(() => yaml(file('~: c\n')).readSync()).toThrow(/null mapping key/);
+      expect(() => yaml(file('? null\n: c\n')).readSync()).toThrow(/null mapping key/);
+    });
+
+    it('should not read a null key and an empty-string key as one, dropping a value', () => {
+      // `null: a` beside `"": b` read as `{"": "b"}`: no error, nothing thrown,
+      // and `a` gone. The refusal is what makes the collision impossible
+      expect(() => yaml(file('null: a\n"": b\n')).readSync()).toThrow(/null mapping key/);
+    });
+
+    it('should still take an empty-string key, which a JSON layer holds too', () => {
+      // equally unreachable by a dotted path, and deliberately kept: it is what
+      // the user wrote and what the sibling store holds, so refusing it would
+      // invent a divergence. A null key is a *different* key yaml maps onto the
+      // same path, and inconsistently -- through a `<<` it lands on `'null'`
+      expect(yaml(file('"": b\nname: x\n')).readSync().value).toStrictEqual({
+        '': 'b',
+        name: 'x',
+      });
+    });
+
+    it('should not call a null key a duplicate of the string "null"', () => {
+      // `String(null)` is `'null'`, so the uniqueness comparator widened the two
+      // onto one path and refused them as one. They are different keys and, by
+      // the JSON rule, different paths -- so the refusal a reader gets is the
+      // one that says what is actually wrong
+      expect(() => yaml(file('null: a\n"null": b\n')).readSync()).toThrow(
+        /null mapping key names no config path/
+      );
     });
 
     it('should refuse a recursive alias, whose value is a cycle', () => {
@@ -189,5 +229,66 @@ describe('reading a document', () => {
     // which is what the interface asks for
     const path = file('a: 1\nb:\n  c: [1, 2]\n');
     expect((await yaml(path).read()).value).toStrictEqual(yaml(path).readSync().value);
+  });
+
+  describe('what the parse is pinned to', () => {
+    it('should keep 1.2 core over a document that names its own version', () => {
+      // the `schema` pin was written down as a declared sabotage survivor on
+      // the ground that `yaml` already defaults to 1.2 core. A document naming
+      // `%YAML 1.1` is what separates them: without the pin `setSchema` takes
+      // the directive and `yes` is `true`, `017` is `15`, `12:30` is `750` and
+      // a date is a `Date` -- the whole Norway family this exists to refuse
+      expect(
+        yaml(file('%YAML 1.1\n---\na: yes\nb: 017\nc: 12:30\nd: on\n')).readSync().value
+      ).toStrictEqual({ a: 'yes', b: 17, c: '12:30', d: 'on' });
+    });
+  });
+
+  describe('a scalar this runtime cannot hold as written', () => {
+    it('should refuse an integer past 2^53-1, which reads back as a different one', () => {
+      // the framework's own rule: the parser's `int` type throws on exactly
+      // this rather than handing back `...992` for `...993`
+      expect(() => yaml(file('a: 9007199254740993\n')).readSync()).toThrow(/past 2\^53-1/);
+      expect(() => yaml(file('a: 0x20000000000001\n')).readSync()).toThrow(/past 2\^53-1/);
+    });
+
+    it('should take every integer it can tell apart', () => {
+      expect(yaml(file('a: 9007199254740991\n')).readSync().value).toStrictEqual({
+        a: 9007199254740991,
+      });
+      expect(yaml(file('a: 8080\nb: -1\nc: 1.5\n')).readSync().value).toStrictEqual({
+        a: 8080,
+        b: -1,
+        c: 1.5,
+      });
+    });
+  });
+
+  describe('the non-specific tag', () => {
+    it('should take ! on a scalar, which the core schema resolves to a string', () => {
+      // refused as "outside the core schema" although the parser reports
+      // neither an error nor a warning for it and resolves it to its own text
+      expect(yaml(file('a: ! true\nb: ! 8080\n')).readSync().value).toStrictEqual({
+        a: 'true',
+        b: '8080',
+      });
+    });
+
+    it('should still refuse a tag the core schema has not got', () => {
+      expect(() => yaml(file('a: !!set\n  ? x\n')).readSync()).toThrow();
+    });
+  });
+
+  describe('a key that is not a scalar', () => {
+    it('should name an alias as an alias rather than as a mapping', () => {
+      expect(() => yaml(file('id: &id name\n*id : 1\n')).readSync()).toThrow(
+        /key is an alias, which names no config path/
+      );
+    });
+
+    it('should still name a sequence and a mapping', () => {
+      expect(() => yaml(file('[1, 2]: a\n')).readSync()).toThrow(/key is a sequence/);
+      expect(() => yaml(file('? {a: 1}\n: b\n')).readSync()).toThrow(/key is a mapping/);
+    });
   });
 });

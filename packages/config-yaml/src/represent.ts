@@ -91,7 +91,46 @@ function why(value: unknown): string | undefined {
 
 /** What YAML writes an object of no kind it knows as, which is its own keys. */
 function asPlain(value: object): string {
-  return `YAML writes a ${value.constructor?.name ?? 'value'} of this kind as a plain mapping`;
+  const name = value.constructor?.name ?? 'value';
+
+  // not every refused object is written as a **mapping**, and saying so of all
+  // of them contradicted the table this module's own doc carries: measured
+  // through `Document.createNode()`, which is the call `setIn()` makes, a `Set`
+  // stringifies as `[1, 2]`, a `Uint8Array` the same, and a boxed `new
+  // Number(1)` as `1`. The refusal is right in every case; the sentence naming
+  // the cause was wrong, which is the thing a table of patterns is criticised
+  // for one module along
+  return `YAML writes a ${name} of this kind as ${writtenAs(value)}`;
+}
+
+/**
+ * What `createNode()` writes an object of this kind as.
+ *
+ * Measured against `Document.createNode()`, which is the call `setIn()` makes,
+ * rather than reasoned about -- and it is three answers where the sentence this
+ * replaces had one. A `Map` is a **mapping** although it is iterable, a `Set`,
+ * a typed array and a generator are each a **sequence**, and a boxed `Number`,
+ * `String` or `Boolean` is a **scalar**. A class instance is a mapping of its
+ * own enumerable keys.
+ */
+function writtenAs(value: object): string {
+  if (value instanceof Map) {
+    return 'a plain mapping';
+  }
+
+  if (
+    value instanceof Set ||
+    ArrayBuffer.isView(value) ||
+    typeof (value as { [Symbol.iterator]?: unknown })[Symbol.iterator] === 'function'
+  ) {
+    return 'a sequence of its own members';
+  }
+
+  if (value instanceof Number || value instanceof String || value instanceof Boolean) {
+    return 'a plain scalar';
+  }
+
+  return 'a plain mapping';
 }
 
 /**
@@ -109,13 +148,23 @@ function asPlain(value: object): string {
 export function yamlCanHold(value: unknown, path: string): true | string {
   // the objects this walk is inside, added and removed around the recursion
   // rather than only added, which is `jsonCanHold()`'s own rule and for its
-  // reason: a value referenced twice is a DAG that YAML writes twice -- as an
-  // anchor and an alias, in fact -- and only a genuine cycle is refused
+  // reason: a value referenced twice is a DAG that YAML writes twice, and only
+  // a genuine cycle is refused. **How** it writes it twice depends on the route
+  // and this used to claim one of the two: one `createNode()` of
+  // `{x: shared, y: shared}` really does write an anchor and an alias, and the
+  // two `setIn()` calls `editsFor()` emits for two new keys write two plain
+  // copies with no anchor at all -- measured. Neither loses a value, which is
+  // all this guard is about
   return look(value, path, new WeakSet<object>()) ?? true;
 }
 
 /** The walk, with the objects it is inside. */
-function look(value: unknown, where: string, seen: WeakSet<object>): string | undefined {
+function look(
+  value: unknown,
+  where: string,
+  seen: WeakSet<object>,
+  unwrap = true
+): string | undefined {
   const at = (answer: string): string => (where === '' ? answer : `${answer} (at "${where}")`);
   const answer = why(value);
 
@@ -146,14 +195,56 @@ function look(value: unknown, where: string, seen: WeakSet<object>): string | un
   // the value's own keys would refuse it for what it holds rather than for what
   // it says. A valid `Date` is the case that matters -- its JSON form is an ISO
   // string and `type: 'date'` reads one back, so it round-trips through the
-  // schema exactly as it does on a JSON layer
-  if (typeof (value as { toJSON?: unknown }).toJSON === 'function') {
-    return undefined;
+  // schema exactly as it does on a JSON layer.
+  //
+  // What it answers is **checked**, which it was not: returning here meant any
+  // object with a `toJSON` was representable whatever it then wrote. Measured,
+  // `canRepresent` said yes and the write produced `null` for `() => undefined`,
+  // the number `10` for `() => 10n`, a mapping for a `Map`, a sequence for a
+  // `Set`, `{}` for `() => new Date(...)`, and a raw `Tag not resolved for
+  // Function value` naming neither path nor file for `() => () => 1`. Every one
+  // of those is a silent rewrite or an unnameable throw, which are the two
+  // classes this function exists to refuse.
+  //
+  // `unwrap` goes false for the answer alone, because that is what `createNode`
+  // does: it calls `toJSON` **once** per value and does not call it again on
+  // what came back -- which is why a `toJSON` returning a `Date` writes `{}`
+  // rather than an ISO string, and so is refused here structurally. Anything
+  // *nested* inside the answer is a different value and gets its own single
+  // application, which is what `unwrap` defaulting back to true on the
+  // recursion below means
+  if (unwrap && typeof (value as { toJSON?: unknown }).toJSON === 'function') {
+    let said: unknown;
+    try {
+      said = (value as { toJSON: () => unknown }).toJSON();
+    } catch (e: unknown) {
+      return at(`its own toJSON threw: ${(e as Error).message.split('\n')[0] as string}`);
+    }
+    return look(said, where, seen, false);
   }
 
   const list = Array.isArray(value);
   if (!list && !isPlainObject(value)) {
     return at(asPlain(value));
+  }
+
+  // a **symbol** key and a non-index own property of an array are each dropped
+  // on the way out, by this walk and by `editsFor()` alike, because both read
+  // an object with `Object.entries` and an array by index. Measured,
+  // `canRepresent` said yes and the write left the file untouched for
+  // `{a: 1, [Symbol('k')]: 2}`, and wrote `[1, 2]` for an array carrying an own
+  // `extra: 3`. A value that is silently not written is the class this function
+  // exists to refuse, so it is named rather than dropped
+  const symbols = Object.getOwnPropertySymbols(value);
+  if (symbols.length > 0) {
+    return at(`YAML has no symbol key; ${String(symbols[0])} would be dropped`);
+  }
+
+  if (list) {
+    const extra = Object.keys(value).find((key) => String(Number(key)) !== key);
+    if (extra !== undefined) {
+      return at(`YAML writes a sequence as its items; the property "${extra}" would be dropped`);
+    }
   }
 
   seen.add(value);

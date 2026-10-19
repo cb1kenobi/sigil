@@ -38,8 +38,20 @@ import {
  * than reimplemented.
  */
 
-/** The seven tags YAML 1.2's core schema has. */
+/**
+ * The seven tags YAML 1.2's core schema has, plus the non-specific one.
+ *
+ * `!` is **not** outside the schema: it says "resolve this by the schema" and
+ * for a scalar the core schema resolves it to the scalar's own text, so
+ * `a: ! true` is the string `"true"` and `a: ! 8080` the string `"8080"`. Both
+ * are values this store can hold and write back, and refusing them was a false
+ * refusal of a document with nothing wrong with it -- measured, with no error
+ * and no warning from the parser either. On a **collection** `yaml` rewrites
+ * `!` to the core map or seq tag before this walk sees it, so the scalar
+ * spelling is the only one that ever arrives.
+ */
 const CORE_TAGS: ReadonlySet<string> = new Set([
+  '!',
   'tag:yaml.org,2002:bool',
   'tag:yaml.org,2002:float',
   'tag:yaml.org,2002:int',
@@ -80,7 +92,11 @@ function lineAt(node: Node, read: ReadShape): number {
 export function assertReadable(doc: Document, read: ReadShape): void {
   // the first thing the parser had to say, which already carries a line and
   // says it better than this could: a multi-document stream, two keys naming one
-  // path, a syntax error. `prettyErrors` is off, so the message is one line
+  // path, a syntax error. `prettyErrors` is the parser's **default**, which is
+  // on -- this comment used to say it was off -- so the message is several
+  // lines and the first of them is the one with the line number in it, which is
+  // what `split` below takes. Setting it off to match the old sentence would
+  // leave `Map keys must be unique` with no line at all
   const first = doc.errors[0];
   if (first) {
     throw new Error(__`Failed to parse ${read.what}: ${first.message.split('\n')[0] as string}`);
@@ -109,6 +125,35 @@ export function assertReadable(doc: Document, read: ReadShape): void {
     const name = (node as { anchor?: string }).anchor;
     if (typeof name === 'string') {
       anchors.add(name);
+    }
+  };
+
+  // an integer the source names and JS cannot hold is a **different integer**,
+  // which is the one failure a caller cannot detect -- and is the framework's
+  // own recorded rule: the parser's `int` data type throws on exactly this
+  // rather than handing back `...992` for `...993`. `yaml` resolves the core int
+  // tag with `parseInt` and `intAsBigInt` is off, so measured,
+  // `a: 9007199254740993` read as `9007199254740992` with no error, and the hex
+  // spelling `0x20000000000001` read the same. Turning `intAsBigInt` on is not
+  // the fix: every integer in every document would become a `bigint`, which
+  // `checkValue()` then refuses on a `number` setting.
+  //
+  // The test is **distinctness** rather than exactness, which is why 2^53 is
+  // refused along with 2^53+1 although it is itself representable: past
+  // 2^53-1 two integers a file could name collide on one value, so the store
+  // cannot say which was written -- and the message says that rather than
+  // calling an exact value inexact. The number it names is the one the runtime
+  // holds, which for the hex spelling is not the digits in the file; that is
+  // the honest half, since the digits are exactly what cannot be recovered
+  const counted = (node: Node): void => {
+    const value = (node as { value?: unknown }).value;
+    if (
+      fault === undefined &&
+      typeof value === 'number' &&
+      Number.isInteger(value) &&
+      !Number.isSafeInteger(value)
+    ) {
+      fault = __`${read.what}:${lineAt(node, read)}: the integer ${String(value)} is past 2^53-1, where this runtime cannot tell two integers apart`;
     }
   };
 
@@ -160,7 +205,31 @@ export function assertReadable(doc: Document, read: ReadShape): void {
         // **collection** key is the one that has no path at all, and it is the
         // one `toJS()` would warn about on stderr
         if (key && !isScalar(key)) {
-          fault = __`${read.what}:${lineAt(key, read)}: a mapping key is a ${isSeq(key) ? 'sequence' : 'mapping'}, which names no config path`;
+          // an **alias** is a third kind and used to be reported as a mapping,
+          // which is a sentence about a construct that is not there: `*id : 1`
+          // names an alias, and what it would have resolved to is a plain
+          // object rather than a key
+          const kind = isAlias(key) ? 'an alias' : isSeq(key) ? 'a sequence' : 'a mapping';
+          fault = __`${read.what}:${lineAt(key, read)}: a mapping key is ${kind}, which names no config path`;
+          return;
+        }
+        // and a **null** key names none either, which is the rule above one
+        // case short. The JSON analogy it rests on says `'null'` --
+        // `JSON.stringify({[null]: 1})` is `{"null":1}` -- and `toJS()` says
+        // `''`, which no dotted path can address, since `get('')` is the whole
+        // merged view. Measured, keeping it was a silent data drop: `null: a`
+        // beside `"": b` read as `{"": "b"}` with the value `a` gone, no error
+        // and nothing thrown. `yaml` is not even consistent with itself about
+        // it -- a null key copied by a `<<` lands on `'null'` while the direct
+        // key lands on `''`, so one document read two paths for one key.
+        //
+        // An **empty-string** key is deliberately still taken: it is equally
+        // unreachable, and it is what the user literally wrote and what a JSON
+        // layer holds, so refusing it would invent a divergence from the
+        // sibling store. A null key is a *different* key `yaml` maps onto that
+        // same unreachable path, and inconsistently
+        if (key && isScalar(key) && key.value === null) {
+          fault = __`${read.what}:${lineAt(key, read)}: a null mapping key names no config path`;
           return;
         }
       }
@@ -168,6 +237,7 @@ export function assertReadable(doc: Document, read: ReadShape): void {
     Scalar(_key, node) {
       if (fault === undefined) {
         tagged(node);
+        counted(node);
         anchorOf(node);
       }
     },
@@ -200,8 +270,11 @@ export function assertReadable(doc: Document, read: ReadShape): void {
  * by design, so the copy is written: a plain recursive walk with **no memo**,
  * which is what duplicates each occurrence rather than linking them. A cycle
  * cannot reach here, because `assertReadable()` refuses a recursive alias --
- * and `maxAliasCount` bounds how many aliases a document may have at all, so an
- * unshared copy is bounded too.
+ * and `maxAliasCount` bounds the **product of resolutions** rather than how
+ * many aliases a document may have -- this used to say the second -- so an
+ * unshared copy is bounded too. It is left at `toJS()`'s own default of 100,
+ * which is the resource-exhaustion guard doing its job rather than something
+ * this store has to set.
  *
  * It also makes this store's own answer the same shape every other store's is:
  * core copies a layer's value on the way in, so the sharing never reached a
@@ -253,8 +326,14 @@ function unshare(value: unknown): unknown {
  * later in the document: measured, `b: *x` above `a: &x 1` leaves `doc.errors`
  * empty and `toJS()` raises `Unresolved alias`. `assertReadable()` refuses that
  * document first, so what is left reaching this catch is a shape neither it nor
- * `doc.errors` has met -- kept as a tripwire, because what it stands against is
- * a parser error escaping with neither the path nor a line in it.
+ * `doc.errors` has met -- which this used to call a tripwire for a case nobody
+ * has. **Two shapes a file can hold reach it**, and both are a user's file
+ * rather than a hypothetical: a merge source that is not a map (`<<: 1`, an
+ * empty `<<:`, `<<: [1, 2]`) throws `Merge sources must be maps or map
+ * aliases`, and one anchor aliased past `toJS()`'s own `maxAliasCount` throws
+ * `Excessive alias count indicates a resource exhaustion attack`. The wrap is
+ * what puts the file on each of those; neither carries a line, which is the
+ * honest limit of it.
  *
  * And it is **unshared**, for the reason above.
  *
@@ -271,6 +350,45 @@ export function readDocument(doc: Document, read: ReadShape): unknown {
       __`Failed to read ${read.what}: ${(e as Error).message.split('\n')[0] as string}`
     );
   }
+}
+
+/**
+ * The mapping a document's root holds.
+ *
+ * One reader of one rule, because there were two and they disagreed. A YAML
+ * document whose root resolves to `null` -- a comment-only file, a bare `---`
+ * or `...`, an explicit `null` or `~` -- is an **empty config** rather than a
+ * document holding `null`: `raw.trim()` cannot see any of those, so this is
+ * where they land. And a root that is neither a mapping nor null is refused,
+ * because merging it would make every key of every layer below it vanish.
+ *
+ * Both of those used to live in `store.ts`'s read path alone, while its write
+ * path cast `readDocument()`'s `unknown` to a record and handed it to
+ * `overlay()`. Measured, that was a crash, a silent comment loss or a silent
+ * byte change depending on which door the caller came in: `set()` plus `save()`
+ * threw `TypeError: Cannot set properties of null` naming no file; `apply()`
+ * plus `save()` **succeeded** and dropped the file's comment with `wouldLose`
+ * absent, which is this package's headline guarantee broken with nothing
+ * reported; and `writeSync(readSync().value)` rewrote `null # c` to `{}`. The
+ * cast is what silenced the type system, so the return type is the guard now.
+ *
+ * @param doc - The parsed document.
+ * @param read - The line counter and the path.
+ * @returns The root mapping, or `{}` where the root resolves to null.
+ * @throws If the root is neither a mapping nor null.
+ */
+export function rootOf(doc: Document, read: ReadShape): Record<string, unknown> {
+  const value = readDocument(doc, read);
+
+  if (value === null || value === undefined) {
+    return {};
+  }
+
+  if (!isPlainObject(value)) {
+    throw new Error(__`${read.what} must hold an object`);
+  }
+
+  return value;
 }
 
 /** Whether a node carries an anchor something else could alias. */

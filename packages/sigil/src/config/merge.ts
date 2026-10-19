@@ -348,6 +348,24 @@ export function overlay(
   paths: Iterable<string>,
   where: string
 ): void {
+  // a **string** is an `Iterable<string>`, so the type permits one and
+  // iterating it yields characters. Measured over all three stores before this
+  // guard existed, `write({ keep: 3 }, { paths: 'ab' })` over
+  // `{a: 1, b: 2, keep: 3}` claimed the paths `a` and `b`, found neither in the
+  // value, and **deleted both**: `json()` wrote `{"keep":3}`, `xml()` wrote
+  // `<config><keep>3</keep></config>`, and `yaml()` the same. No throw, exit
+  // normal, two keys gone and nothing said.
+  //
+  // Refused here rather than in a store, because all three share it and a guard
+  // in one would leave the other two holding it. `Iterable<string>` is kept
+  // rather than narrowed to an array, because this module's own caller hands
+  // over a `Set` -- so what is refused is the one iterable of strings that is
+  // never a list of paths. English, because only an app's or a store's own code
+  // can reach it
+  if (typeof paths === 'string') {
+    throw new TypeError(`Config paths must be a list of paths, not the string "${paths}"`);
+  }
+
   for (const path of paths) {
     const parts = segments(path);
 

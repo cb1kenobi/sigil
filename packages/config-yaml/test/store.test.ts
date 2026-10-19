@@ -224,4 +224,98 @@ describe('the store', () => {
     expect(() => yaml(dir).readSync()).toThrow(/Failed to read/);
     await expect(yaml(dir).read()).rejects.toThrow(/Failed to read/);
   });
+
+  describe('a document whose root resolves to null', () => {
+    // `rootOf()` is one reader of one rule where there were two: the read said a
+    // null root is `{}` and the write cast `readDocument()`'s `unknown` to a
+    // record and handed it to `overlay()`. The symptom depended on the door
+    const nulls = ['# only a comment\n', 'null\n', '~\n', '---\n', '...\n'];
+
+    it('should read each of them as an empty config', () => {
+      for (const body of nulls) {
+        expect(yaml(file(body)).readSync().value, body).toStrictEqual({});
+      }
+    });
+
+    it('should save a setting into one rather than throwing a TypeError', () => {
+      // `set()` plus `saveSync()` threw `Cannot set properties of null (setting
+      // 'a')`, naming no file and nothing a reader could act on
+      for (const body of nulls) {
+        const path = file(body);
+        const config = createConfigSync({ layers: [{ name: 'u', store: yaml(path) }] });
+        config.set('a', 1);
+        expect(() => config.saveSync({ lossy: true }), body).not.toThrow();
+        expect(yaml(path).readSync().value, body).toStrictEqual({ a: 1 });
+      }
+    });
+
+    it('should keep the comment a null root carried, which apply() plus save() ate', () => {
+      // the worst of the three doors: this **succeeded**, with `wouldLose`
+      // absent, and dropped the comment -- the lossless rule broken with nothing
+      // reported
+      const path = file('null # c\n');
+      const config = createConfigSync({ layers: [{ name: 'u', store: yaml(path) }] });
+      config.apply('u', { a: 1 });
+      config.saveSync();
+      expect(read(path)).toContain('# c');
+      expect(yaml(path).readSync().value).toStrictEqual({ a: 1 });
+    });
+
+    it('should carry a comment attached to the null scalar itself', () => {
+      // `---\n# hi\n` keeps it on `contents.comment` and a bare `# hi\n` on the
+      // document's own `commentBefore`, so only the first needs carrying -- and
+      // `setIn()` throws `Expected a YAML collection as document contents` on
+      // that shape, which is why `openRoot()` replaces the scalar rather than
+      // leaving it
+      for (const body of ['---\n# hi\n', '# h\n---\n# b\nnull # t\n']) {
+        const path = file(body);
+        yaml(path).writeSync({ a: 1 });
+        const after = read(path);
+        for (const mark of body.match(/#[^\n]*/g) ?? []) {
+          expect(after, body).toContain(mark);
+        }
+      }
+    });
+
+    it('should touch no file where nothing was asked for', () => {
+      // `openRoot()` runs after the no-op return, so a null root and an empty
+      // target leave the document exactly as it parsed. Without that ordering a
+      // no-op write of `null # c\n` rendered `{}\n`
+      for (const body of ['null # c\n', 'null\n', '---\n']) {
+        const path = file(body);
+        yaml(path).writeSync(yaml(path).readSync().value);
+        expect(read(path), body).toBe(body);
+      }
+    });
+
+    it('should still refuse a root that is neither a mapping nor null', () => {
+      for (const body of ['42\n', '"s"\n', 'true\n', '- 1\n- 2\n']) {
+        expect(() => yaml(file(body)).readSync(), body).toThrow(/must hold an object/);
+      }
+    });
+
+    it('should refuse a non-mapping root through a claimed write too', () => {
+      // the direct door, which `save()` hides by re-reading and refusing first:
+      // this threw `TypeError: Cannot create property 'a' on number '42'`
+      const path = file('42\n');
+      expect(() => yaml(path).writeSync({ a: 1 }, { paths: ['a'] })).toThrow(/must hold an object/);
+      expect(read(path)).toBe('42\n');
+    });
+  });
+
+  describe('the options a store is built with', () => {
+    it('should refuse options that are not an object', () => {
+      // `yaml(p, 'yml')`, `['yml']` and `false` each succeeded with the format
+      // left at `'yaml'`, so the argument parsed and did nothing, and
+      // `yaml(p, null)` was a raw TypeError about reading `format` of null
+      for (const bad of [null, 'yml', ['yml'], false, 42]) {
+        expect(() => yaml(absent(), bad as never), String(bad)).toThrow(/options as an object/);
+      }
+    });
+
+    it('should still take no options at all, and a format', () => {
+      expect(yaml(absent()).format).toBe('yaml');
+      expect(yaml(absent(), { format: 'yml' }).format).toBe('yml');
+    });
+  });
 });

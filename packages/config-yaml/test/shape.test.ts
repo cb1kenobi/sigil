@@ -1,5 +1,7 @@
+import { yaml } from '../src/index.js';
 import { PARSE_OPTIONS } from '../src/options.js';
 import { candidates, reshape, shapeOf } from '../src/shape.js';
+import { file, read } from './helpers.js';
 import { describe, expect, it } from 'vitest';
 import { parseDocument } from 'yaml';
 
@@ -152,5 +154,76 @@ describe('the shape and the layout', () => {
     // for the detection to be wrong about
     expect(candidates('a: 1\nb: 2\n')[0]).toMatchObject({ indent: 2 });
     expect(noop('a: 1\nb: 2\n')).toBe('a: 1\nb: 2\n');
+  });
+
+  describe('the indent a layout is detected as', () => {
+    it('should not read a comment shallower than the content as the step', () => {
+      // `indentOf` took the smallest run of leading spaces on any line, a
+      // comment included, while `seqIndented` already skipped one -- two
+      // readers of one rule. The write then reindented the mapping itself
+      const body = 'a:\n  # note\n      b: 1\n';
+      const path = file(body);
+      yaml(path).writeSync(yaml(path).readSync().value);
+      expect(read(path)).toContain('      b: 1');
+    });
+
+    it("should not read a block scalar's own content as the step", () => {
+      // its content is the author's text rather than the document's structure,
+      // and unlike the comment that minimum is not a step the serializer can
+      // satisfy both ways
+      const body = 'a: |\n  hello\nb:\n      c: 1\n';
+      const path = file(body);
+      yaml(path).writeSync(yaml(path).readSync().value);
+      expect(read(path)).toContain('      c: 1');
+    });
+
+    it('should keep the value of a block scalar it had to reindent', () => {
+      // the layout may move; the string may not
+      for (const body of [
+        'a: |\n  hello\nb:\n      c: 1\n',
+        'a: |\n    deeper\n      deeper still\nb:\n      c: 1\n',
+        'a: >\n  folded one\n  folded two\nb:\n      c: 1\n',
+      ]) {
+        const path = file(body);
+        const before = yaml(path).readSync().value;
+        yaml(path).writeSync(before);
+        expect(yaml(path).readSync().value, body).toStrictEqual(before);
+      }
+    });
+
+    it('should still read an ordinary layout', () => {
+      for (const body of ['a:\n    b: 1\n', 'a:\n  b: 1\n', 'plugins:\n- a\n- b\n']) {
+        const path = file(body);
+        yaml(path).writeSync(yaml(path).readSync().value);
+        expect(read(path), body).toBe(body);
+      }
+    });
+  });
+
+  describe('a file whose line endings are mixed', () => {
+    const endings = (text: string): string => {
+      const crlf = (text.match(/\r\n/g) ?? []).length;
+      return `${crlf}/${(text.match(/\n/g) ?? []).length - crlf}`;
+    };
+
+    it('should write the ending it mostly has, which `includes` did not', () => {
+      // two LF against one CRLF converted wholly to CRLF, changing the two
+      // lines that were already right to fix the one that was not
+      const path = file('a: 1\nb: 2\nc: 3\r\n');
+      yaml(path).writeSync(yaml(path).readSync().value);
+      expect(endings(read(path))).toBe('0/3');
+    });
+
+    it('should write CRLF where that is the majority', () => {
+      const path = file('a: 1\nb: 2\r\nc: 3\r\n');
+      yaml(path).writeSync(yaml(path).readSync().value);
+      expect(endings(read(path))).toBe('3/0');
+    });
+
+    it('should give a tie to LF, which is what no ending at all gets', () => {
+      const path = file('a: 1\nb: 2\r\n');
+      yaml(path).writeSync(yaml(path).readSync().value);
+      expect(endings(read(path))).toBe('0/2');
+    });
   });
 });

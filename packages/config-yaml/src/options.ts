@@ -38,7 +38,10 @@ import {
  * `transformValue()`'s `bool` takes `true`/`t`/`yes`/`y`/`on`/`1` and their
  * negatives, so `verbose: yes` reaches a `bool` setting as `true` whether the
  * parser handed over the string `'yes'` or the boolean `true`. Measured through
- * a real `createConfigSync()`, which is `test/version.test.ts`'s whole subject.
+ * a real `createConfigSync()`, under "what a scalar reaches a setting as" in
+ * `test/options.test.ts` -- this used to cite a `test/version.test.ts` that has
+ * never existed in this package, which is the dead-instruction class AGENTS.md
+ * keeps an entry about: a comment naming a file a reader then goes looking for.
  *
  * That agreement is **luck rather than design**, which is the argument for
  * pinning rather than leaving it to the parser's default: the two vocabularies
@@ -92,18 +95,37 @@ function samePath(a: Node, b: Node): boolean {
   if (typeof a.value === 'symbol' || typeof b.value === 'symbol') {
     return false;
   }
+  // a **null** key is only ever a duplicate of another null key. `String(null)`
+  // is `'null'`, so widening it made `null: a` beside `"null": b` a *false*
+  // duplicate -- two different keys, and two different paths under the JSON
+  // rule this comparator is written to, refused as one. `read.ts` refuses a
+  // null key outright with a message that says why, and it can only get there
+  // if this does not refuse it first
+  if (a.value === null || b.value === null) {
+    return a.value === b.value;
+  }
   return String(a.value) === String(b.value);
 }
 
 /**
  * What every parse in this package reads with.
  *
- * `version` and `schema` are a **declared sabotage survivor**: `yaml` 2.9.1
- * already defaults to 1.2 with the core schema, so removing either changes no
- * answer and nothing can be written that fails when it goes. What they buy is
- * the entry above -- a `yaml` major that moved its default would otherwise move
- * what a user's file means, which is the one thing a store must not let a
- * dependency decide, and no test in this package can see that until it happens.
+ * `version` and `schema` were written down as a **declared sabotage survivor**
+ * -- `yaml` 2.9.1 already defaults to 1.2 with the core schema, so removing
+ * either was said to change no answer. That is false, and a review round
+ * measured it: a document that names its **own** version is what separates
+ * them. With `%YAML 1.1` at the top and `schema` removed, `Document.setSchema`
+ * takes the directive and installs `yaml-1.1`, after which `yes` is `true`,
+ * `017` is `15`, `12:30` is `750` and a date is a `Date` -- which is the whole
+ * Norway family this pin exists to refuse, arriving through a door the pin
+ * was thought not to need. So it is a real guard, `should keep 1.2 core over a
+ * document that names its own version` is the test it had none of, and the
+ * figure in AGENTS.md's sabotage tally moved with it.
+ *
+ * `version` on its own really is the default restated, and it stays for the
+ * reason the entry above gives: a `yaml` major that moved its default would
+ * move what a user's file means, which is the one thing a store must not let a
+ * dependency decide.
  */
 export const PARSE_OPTIONS: DocumentOptions & ParseOptions & SchemaOptions = {
   merge: true,

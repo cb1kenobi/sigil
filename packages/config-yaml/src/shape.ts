@@ -90,14 +90,31 @@ export function shapeOf(source: string): Shaped {
   }
 
   // asked of the whole text rather than of its last line, because a file with
-  // mixed endings is one somebody's editor half-converted and the ending a
-  // write should produce is the one it mostly has. `\r` alone is deliberately
-  // not read: `yaml` normalizes it to `\n` the way the XML spec requires of a
-  // conforming parser, so it is a loss to report rather than a shape to carry
-  const crlf = body.includes('\r\n');
-  if (crlf) {
-    body = body.replaceAll('\r\n', '\n');
-  }
+  // mixed endings is one somebody's editor half-converted -- and the ending a
+  // write produces is the one it **mostly** has, which is what this comment
+  // claimed while the code asked `includes('\r\n')`. Measured, that converted
+  // `a: 1\nb: 2\nc: 3\r\n` -- two LF endings against one CRLF -- wholly to
+  // CRLF, changing the two lines that were already right to fix the one that
+  // was not. A mixed file cannot round-trip either way, because `reshape()`
+  // applies one ending to every line, so what is left to choose is which lines
+  // change: the minority. A tie goes to LF, which is what a file with no
+  // ending at all gets.
+  //
+  // The body is normalized **whatever** is chosen, because that is what the
+  // parser is handed; `shape.crlf` only decides what goes back. Under the old
+  // rule the two could not come apart, since any CRLF meant both
+  const endings = (body.match(/\n/g) ?? []).length;
+  const crlfs = (body.match(/\r\n/g) ?? []).length;
+  const crlf = crlfs * 2 > endings;
+
+  body = body.replaceAll('\r\n', '\n');
+
+  // a **lone** `\r` is deliberately not part of the shape, and the reason used
+  // to be given as `yaml` normalizing it so that it is a loss to report.
+  // Measured, it is a parse error: a lone CR is not a line break in YAML 1.2,
+  // so `a: 1\rb: 2\r` is one line and `Nested mappings are not allowed in
+  // compact mappings`. `readSync()` throws naming the file and the line, and no
+  // shape or loss is ever computed for such a document
 
   return { body, shape: { bom, crlf, trailing: /\n*$/.exec(body)?.[0] ?? '' } };
 }
@@ -138,11 +155,42 @@ export function reshape(rendered: string, shape: Shape): string {
  */
 function indentOf(lines: readonly string[]): number {
   let found = 0;
+  // the indent of the line that opened a block scalar, while inside one
+  let block: number | undefined;
 
   for (const line of lines) {
-    const at = /^( +)\S/.exec(line);
-    if (at && (!found || (at[1] as string).length < found)) {
-      found = (at[1] as string).length;
+    const own = (/^( *)/.exec(line)?.[1] as string).length;
+
+    // a block scalar's content is the **author's text**, not the document's
+    // structure, so the step cannot be read off it. Measured,
+    // `a: |\n  hello\nb:\n      c: 1\n` detected 2 from `hello` and the write
+    // then reindented `c` from six spaces to two -- and unlike the comment
+    // below, that minimum is not a step the serializer can satisfy both ways
+    if (block !== undefined) {
+      if (line.trim() === '' || own > block) {
+        continue;
+      }
+      block = undefined;
+    }
+
+    // a **comment** carries no indent worth reading, which is what
+    // `seqIndented()` already says and this did not: two readers of one rule.
+    // Measured, `a:\n  # note\n      b: 1\n` detected 2 from the comment and
+    // the write reindented `b` from six to two -- an avoidable loss rather
+    // than a limit, because rendering at 6 reproduces the line and only moves
+    // the comment, and the candidate sweep never tries 6
+    if (line.trimStart().startsWith('#')) {
+      continue;
+    }
+
+    if (/^ +\S/.test(line) && (!found || own < found)) {
+      found = own;
+    }
+
+    // `|`, `>` and their chomping and indentation indicators, with an inline
+    // comment allowed after
+    if (/[|>][-+]?\d*[ \t]*(#.*)?$/.test(line)) {
+      block = own;
     }
   }
 

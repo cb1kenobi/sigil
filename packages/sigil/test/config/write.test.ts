@@ -1791,4 +1791,27 @@ describe('writing a store directly', () => {
     json(path).writeSync({ a: 2 });
     expect(readFileSync(path, 'utf8')).to.equal('{\n\t// keep me\n\t"a": 2\n}\n');
   });
+
+  describe('a claim that is not a list of paths', () => {
+    it('should refuse a string, which every store deleted keys for', () => {
+      // a string is an `Iterable<string>`, so the type permits one and
+      // iterating it yields characters. Measured over all three stores,
+      // `write({ keep: 3 }, { paths: 'ab' })` over `{a: 1, b: 2, keep: 3}`
+      // claimed the paths `a` and `b`, found neither in the value, and deleted
+      // both: no throw, exit normal, two keys gone and nothing said
+      const path = file('claim.json', '{"a":1,"b":2,"keep":3}');
+      expect(() => json(path).writeSync({ keep: 3 }, { paths: 'ab' as never })).toThrow(
+        /must be a list of paths/
+      );
+      expect(readFileSync(path, 'utf8')).toBe('{"a":1,"b":2,"keep":3}');
+    });
+
+    it('should still take a list and a set, which is what core itself hands over', () => {
+      const path = file('ok.json', '{"a":1,"keep":3}');
+      json(path).writeSync({ a: 9, keep: 3 }, { paths: ['a'] });
+      expect(readFileSync(path, 'utf8')).toContain('9');
+      json(path).writeSync({ a: 7, keep: 3 }, { paths: new Set(['a']) as never });
+      expect(readFileSync(path, 'utf8')).toContain('7');
+    });
+  });
 });

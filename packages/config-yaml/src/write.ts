@@ -88,6 +88,20 @@ export interface Fences {
   blocked: ReadonlyMap<string, Fence>;
   /** Maps with a merge key, by dotted path. */
   merged: ReadonlyMap<string, Merged>;
+  /** Pairs whose **key** carries an aliased anchor, by dotted path. */
+  keyAnchored: ReadonlyMap<string, Fence>;
+  /** Scalars carrying an explicit tag, by dotted path. */
+  tagged: ReadonlyMap<string, Tagged>;
+}
+
+/** A scalar whose own tag decides what a value written onto it becomes. */
+interface Tagged {
+  /** The line it is on. */
+  line: number;
+  /** The tag as it is written. */
+  tag: string;
+  /** `typeof` the value it currently holds. */
+  type: string;
 }
 
 /** The dotted spelling of a path, for a message and for a map key. */
@@ -137,6 +151,8 @@ function aliasedAnchors(doc: Document): ReadonlySet<string> {
 export function fencesOf(doc: Document, read: ReadShape): Fences {
   const blocked = new Map<string, Fence>();
   const merged = new Map<string, Merged>();
+  const tagged = new Map<string, Tagged>();
+  const keyAnchored = new Map<string, Fence>();
   const shared = aliasedAnchors(doc);
 
   const lineOf = (node: Node): number => {
@@ -161,6 +177,16 @@ export function fencesOf(doc: Document, read: ReadShape): Fences {
       }
     }
 
+    // a scalar whose tag is written in the file decides what a value set onto
+    // it becomes, because `setIn()` keeps the node and only swaps its value
+    if (isScalar(node) && typeof node.tag === 'string') {
+      tagged.set(dotted(at), {
+        line: lineOf(node),
+        tag: node.tag,
+        type: typeof node.value,
+      });
+    }
+
     if (isMap(node)) {
       const own = new Set<string>();
       let mergeLine: number | undefined;
@@ -177,6 +203,20 @@ export function fencesOf(doc: Document, read: ReadShape): Fences {
         }
         if (key && isScalar(key)) {
           own.add(String(key.value));
+
+          // an anchor can sit on a **key**, and this walk only ever visits
+          // values -- so `&k host: x` with `copy: *k` was invisible to every
+          // fence. Measured, deleting `host` removed the pair the alias points
+          // at, `deleteIn()` having already run, and the document could not even
+          // be rendered: `toString()` threw `Unresolved alias`, naming no file.
+          // Only a **removal** is refused, because editing the value keeps the
+          // key and its anchor and round-trips
+          if (typeof key.anchor === 'string' && shared.has(key.anchor)) {
+            keyAnchored.set(dotted([...at, String(key.value)]), {
+              line: lineOf(key),
+              why: 'anchor',
+            });
+          }
         }
       }
 
@@ -199,7 +239,7 @@ export function fencesOf(doc: Document, read: ReadShape): Fences {
   };
 
   walk(doc.contents, []);
-  return { blocked, merged };
+  return { blocked, keyAnchored, merged, tagged };
 }
 
 /** Whether two leaf values are the same value as far as a write is concerned. */
@@ -286,30 +326,207 @@ function assertEditable(edit: Edit, fences: Fences, read: ReadShape): void {
     );
   }
 
-  if (!edit.drop || edit.at.length === 0) {
+  // a key a map takes from a **merge key** is not one of its own pairs, and
+  // `setIn()` and `deleteIn()` only ever see own pairs. Every segment of the
+  // path is asked about, not just the last: the guard used to ask about the
+  // immediate parent of a *drop* alone, and what that left through was measured
+  // as data loss. With `base: &b {nest: {a: 1, b: 2}}` and `c: {<<: *b}`,
+  // asking for `c.nest = {a: 9, b: 2}` wrote `c.nest.a` as a new own pair and
+  // the read then answered `{a: 9}` -- key `b` **gone**, because the own pair
+  // shadows the whole merged `nest` rather than merging into it. The same shape
+  // over a sequence wrote `c.items` as `"1": 9`, so an array came back a
+  // mapping. And a *delete* one level deeper threw `yaml`'s own `Expected YAML
+  // collection at nest. Remaining path: a`, which names neither the file nor
+  // the path
+  for (let i = 0; i < edit.at.length; i++) {
+    const merge = fences.merged.get(dotted(edit.at.slice(0, i)));
+    const key = edit.at[i] as string;
+
+    if (!merge || merge.own.has(key)) {
+      continue;
+    }
+
+    // the merged key **itself**, set rather than dropped, is the one case that
+    // works and is documented: `yaml` writes an own pair that shadows it and
+    // the value round-trips. Deeper than that the own pair shadows a subtree it
+    // was meant to edit, and a drop has nothing of its own to remove
+    if (i === edit.at.length - 1 && !edit.drop) {
+      continue;
+    }
+
+    throw new Error(
+      edit.drop
+        ? __`Cannot remove "${dotted(edit.at)}" from ${read.what}: it comes from the merge key on line ${merge.line}`
+        : __`Cannot write "${dotted(edit.at)}" in ${read.what}: it comes from the merge key on line ${merge.line}`
+    );
+  }
+
+  if (edit.drop) {
+    const key = fences.keyAnchored.get(dotted(edit.at));
+
+    if (key) {
+      throw new Error(
+        __`Cannot remove "${dotted(edit.at)}" from ${read.what}: its key carries an anchor another node aliases, on line ${key.line}`
+      );
+    }
+  }
+
+  if (edit.drop || edit.at.length === 0) {
     return;
   }
 
-  // a **removal** of a key a map takes from a merge key, which `deleteIn()`
-  // answers `false` for and changes nothing. A *set* of one is allowed, because
-  // `yaml` shadows it and the value round-trips
-  const parent = dotted(edit.at.slice(0, -1));
-  const last = edit.at[edit.at.length - 1] as string;
-  const merge = fences.merged.get(parent);
+  // a scalar carrying an explicit tag re-stringifies whatever is set onto it,
+  // because `setIn()` keeps the node and swaps its value. Measured, that was a
+  // write that silently did not take and a write that produced an unreadable
+  // file: `a: !!bool true` set to the string `'false'` left the file **byte
+  // identical** and read back boolean `true`, and `a: !!int 5` set to `'nope'`
+  // wrote `!!int .nan`, which the next read refuses with `Unresolved tag`.
+  //
+  // Refused only where the **type** differs, which is where the tag can change
+  // the value: a string onto `!!str`, a number onto `!!int`, a boolean onto
+  // `!!bool` all re-stringify as themselves and round-trip, so those are left
+  // alone. A kind change -- a scalar becoming a map -- replaces the node and
+  // its tag with it, which is the node genuinely going rather than its value
+  // being rewritten
+  const tag = fences.tagged.get(dotted(edit.at));
+  const kind = typeof edit.value;
 
-  if (merge && !merge.own.has(last)) {
+  if (tag && kind !== 'object' && kind !== tag.type) {
     throw new Error(
-      __`Cannot remove "${dotted(edit.at)}" from ${read.what}: it comes from the merge key on line ${merge.line}`
+      __`Cannot write "${dotted(edit.at)}" in ${read.what}: it carries the tag ${tag.tag} on line ${tag.line}, which would rewrite a ${kind} as a ${tag.type}`
     );
   }
 }
 
 /**
+ * An edit path spelled the way the **document** spells it.
+ *
+ * `editsFor()` diffs the value `toJS()` produced, so every segment it builds is
+ * a string -- a mapping key stringified, and a sequence index as `String(i)`.
+ * `setIn()` and `deleteIn()` match a path element against the node's own key,
+ * and a YAML key is not always a string, so the two came apart in the two ways
+ * a mismatch can:
+ *
+ * - **A write appended a second key and the file stopped parsing.** Measured,
+ *   `writeSync({'1': 'b'})` over `1: a` left `1: a` and added `"1": b`, and the
+ *   read then refused the result with `Map keys must be unique`. The same for
+ *   `true: a`, `2.5: a` and `null: a`. No throw: `save()` exited normally having
+ *   written a config nothing can load. That is the exact violation the
+ *   uniqueness comparator in `options.ts` exists to refuse on the way *in* --
+ *   `1: a` and `"1": b` are one path -- created by the way out.
+ * - **A delete was a silent no-op.** `writeSync({name: 'x'})` over
+ *   `1: a\nname: x\n` left `1: a` in place, where a string key was removed.
+ *
+ * So each segment is resolved against the document as the path is walked: a
+ * mapping key keeps the **key's own value**, which is the number `1` rather
+ * than the string `'1'`, and a sequence index becomes a **number**. The number
+ * matters on its own -- `collectionFromPath` builds an array for a numeric key
+ * and a mapping for a string one, so a new collection reached through a merge
+ * key came out `{"1": 9}` where `[1, 9, 3]` was asked for.
+ *
+ * A segment the document does not have is kept as the string it is, which is a
+ * new key and is correct: a key this write is adding is a string key.
+ *
+ * `String(value)` is the same widening `samePath()` compares with, deliberately
+ * -- one rule for "the same path segment" rather than two that can disagree. A
+ * **null** key cannot reach here, because `assertReadable()` refuses one.
+ *
+ * @param doc - The parsed document.
+ * @param at - The path as `editsFor()` built it.
+ * @returns The same path, each segment as the document spells it.
+ */
+function nativePath(doc: Document, at: readonly string[]): (string | number)[] {
+  const out: (string | number)[] = [];
+  let node: unknown = doc.contents;
+
+  for (const segment of at) {
+    if (isSeq(node)) {
+      const index = Number(segment);
+      out.push(index);
+      node = Number.isInteger(index) ? node.items[index] : undefined;
+      continue;
+    }
+
+    if (isMap(node)) {
+      const pair = node.items.find(
+        (it) => isScalar(it.key) && String((it.key as { value: unknown }).value) === segment
+      );
+
+      if (pair) {
+        out.push((pair.key as { value: string | number }).value);
+        node = pair.value;
+        continue;
+      }
+    }
+
+    out.push(segment);
+    node = undefined;
+  }
+
+  return out;
+}
+
+/**
+ * Gives a null root an empty mapping to be edited into, carrying its comments.
+ *
+ * `rootOf()` reads a null root as `{}`, so the diff against it emits ordinary
+ * key inserts rather than a root edit -- and `setIn()` then needs a collection
+ * to put them in. Two shapes reach here and only one of them is obvious:
+ * measured, a comment-only file parses with `contents === null` and `setIn()`
+ * works, while anything with a `---`, and an explicit `null` or `~`, parses
+ * with `contents` a **scalar** holding null and `setIn()` throws `Expected a
+ * YAML collection as document contents`.
+ *
+ * The comments are carried because that scalar is where they sit: a
+ * `---\n# hi\n` keeps the comment on `contents.comment`, and `null # c\n` the
+ * same, where a bare `# hi\n` keeps it on the document's own `commentBefore`
+ * and needs nothing. Replacing the contents without carrying them is the silent
+ * comment loss `rootOf()`'s own doc records, one step along.
+ *
+ * Called after the no-op return, so a write that asks for nothing still touches
+ * nothing: a null root and an empty target produce no edits, the document is
+ * left exactly as it parsed, and the file is not rewritten. Without that
+ * ordering a no-op write of `# hi\n` rendered `# hi\n\n{}\n`.
+ *
+ * @param doc - The parsed document, which is modified where its root is null.
+ */
+function openRoot(doc: Document): void {
+  const was: unknown = doc.contents;
+  if (was !== null && !(isScalar(was) && was.value === null)) {
+    return;
+  }
+
+  const map = doc.createNode({}) as Node & {
+    comment?: string;
+    commentBefore?: string;
+  };
+
+  // `yaml` types these as `string | null` where the node's own fields are
+  // `string | undefined`, so the null is excluded rather than cast
+  if (isScalar(was)) {
+    if (typeof was.comment === 'string') {
+      map.comment = was.comment;
+    }
+    if (typeof was.commentBefore === 'string') {
+      map.commentBefore = was.commentBefore;
+    }
+  }
+
+  doc.contents = map;
+}
+
+/**
  * Applies a value to a document, touching only what differs.
  *
- * Every edit is **checked before any is applied**, which is the rule `Show`
- * keeps in the runtime: build first and touch nothing until there is something
- * to put there, because that is the only order where a failure needs no undo.
+ * Every edit is **checked before any is applied** by the pass below, which is
+ * the rule `Show` keeps in the runtime: build first and touch nothing until
+ * there is something to put there. What that pass checks is `assertEditable()`
+ * and nothing else, which is narrower than this used to claim: `deleteIn()` and
+ * `setIn()` can still throw out of `yaml` itself on the apply pass, and the
+ * document is already part-modified when they do. Measured, an edit pair whose
+ * second half was a delete through a merge key left `ok: 2` applied and then
+ * threw -- so the **file** is untouched, because `store.ts` throws before
+ * `writeAtomic()`, and the document handed in is not.
  *
  * It is a **declared sabotage survivor** rather than a guard a test can see.
  * `store.ts` renders into a document it made itself and writes the file from
@@ -333,6 +550,8 @@ export function applyInto(doc: Document, current: unknown, target: unknown, read
     return;
   }
 
+  openRoot(doc);
+
   const fences = fencesOf(doc, read);
   for (const edit of edits) {
     assertEditable(edit, fences, read);
@@ -348,10 +567,12 @@ export function applyInto(doc: Document, current: unknown, target: unknown, read
       doc.contents = doc.createNode(edit.value);
       continue;
     }
+    const at = nativePath(doc, edit.at);
+
     if (edit.drop) {
-      doc.deleteIn(edit.at);
+      doc.deleteIn(at);
       continue;
     }
-    doc.setIn(edit.at, edit.value);
+    doc.setIn(at, edit.value);
   }
 }

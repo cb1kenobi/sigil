@@ -22306,17 +22306,35 @@ reimplemented.
   and would still be a guess.
 
   So what is compared is the **two renderings, line by line**, and what is
-  reported is the first line of each kind of difference. That cannot be a false
-  positive by construction: a line it names is a line where the source and a
-  no-op write really do differ. One entry per _kind_ rather than per line, keyed
-  by the sentence, because a reindented file differs on every line and ten
-  entries saying so is a wall nobody reads.
+  reported is the first line of each kind of difference. One entry per _kind_
+  rather than per line, keyed by the sentence, because a reindented file differs
+  on every line and ten entries saying so is a wall nobody reads.
+
+  That was written down as "cannot be a false positive by construction: a line
+  it names is a line where the source and a no-op write really do differ", and a
+  review round falsified it. It held for the _kind_ and not for the _line_: the
+  comparison was `source.split('\n')[i]` against `rendered.split('\n')[i]`, so
+  an inserted or deleted line shifted every index after it. Measured,
+  `a: 1\n\n\nb: 2\n` renders as `a: 1\n\nb: 2\n` and the report named line 4,
+  `b: 2`, which is in the output one line higher -- and `Math.max` of the two
+  lengths walked past the end of the source, so `a: 1\n# tail\n` reported a
+  **phantom** line 3: the empty string `split` leaves after a final newline.
+
+  The claim is true again rather than weakened, because the lines are **paired**
+  now. `align()` takes the common prefix and suffix off -- for a document
+  against its own re-render that is nearly all of it -- and matches what is left
+  by longest common subsequence, with `coalesce()` zipping a run of gone lines
+  against the run of added lines that follows it so that a line whose _text_
+  changed is still one pair for a recognizer to read. A pair with both halves is
+  a line that changed, one half is a line gone or added, and no pair names an
+  index either array has not got.
 
 - **It is also strictly more informative, and that made the sibling's
-  document-level fallback unreachable.** `split('\n')` is injective, so two
-  strings that differ have line arrays that differ, so some index is reached and
-  the per-line fallback records something -- which means **every** answer names a
-  line, where XML's fallback can only say that the document differs. The
+  document-level fallback unreachable.** Two strings that differ cannot have
+  identical line arrays, so the trim in `align()` cannot consume all of both and
+  it yields at least one pair, which the per-line fallback records something for
+  -- which means **every** answer names a line of the file, where XML's fallback
+  can only say that the document differs. The
   document-level fallback was written, proved unreachable and **deleted**, which
   is what this file does with a guard that cannot fire; the property is asserted
   over a corpus instead.
@@ -22449,9 +22467,14 @@ Both were better found here than guessed at there, which is what the ticket said
 
 #### What it costs
 
-- **10.4 kB of its own code over one module**, plus `yaml`, which is about 300 kB
+- **14.8 kB of its own code over one module**, plus `yaml`, which is about 300 kB
   of JavaScript and has no dependencies of its own. An app that does not import
-  it pays nothing for either.
+  it pays nothing for either. It was 10.4 kB before the review round, and the
+  4.4 kB is what the seven severe fixes come to: `rootOf()` and `openRoot()`,
+  `nativePath()`, the tagged-scalar and merge-descent refusals, the key-anchor
+  fence, `align()` with `coalesce()`, and the `toJSON` walk. Re-measured rather
+  than carried, which is this file's own rule about a figure only a re-run can
+  confirm.
 
 - **The published declaration names no `yaml` type.** Its only import is
   `@ttylabs/sigil/config`, so a consumer that reads this store's signature does
@@ -22475,7 +22498,7 @@ Both were better found here than guessed at there, which is what the ticket said
   otherwise have arrived uncovered by. Checked rather than assumed -- a named
   import of an export this package does not have fails that test.
 
-#### What the sabotage pass found, and the four it declared
+#### What the sabotage pass found, and the three it declared
 
 Seventy-eight mutations, one at a time with this package's own suite run after
 each. **Seventy-four caught, four declared**, counted against the shipped tree in
@@ -22578,11 +22601,16 @@ than as a mutation nothing caught.
   to be: it matches a line's own start, so a `- ` inside a string is on a line
   that does not begin with one.
 
-- **The four that stay are each declared where they live.** `version` and
-  `schema` in `PARSE_OPTIONS` are **equivalent** mutations: `yaml` 2.9.1 already
-  defaults to 1.2 core, so nothing can be written that fails when they go, and
-  what they buy is a future `yaml` default not moving what a user's file means.
-  The two-pass check in `applyInto()` changes no answer, because `store.ts`
+- **The three that stay are each declared where they live, and a fourth was
+  declared on a false premise.** `schema` in `PARSE_OPTIONS` was called an
+  **equivalent** mutation on the ground that `yaml` 2.9.1 already defaults to
+  1.2 core -- and a review round measured that false: a document naming
+  `%YAML 1.1` makes `Document.setSchema` install `yaml-1.1` once the pin is
+  gone, after which `yes` is `true`, `017` is `15` and `12:30` is `750`. It is a
+  real guard, it had no test, and `should keep 1.2 core over a document that
+  names its own version` is the one it now has. `version` on its own is the
+  default restated and stays for the reason given: a future `yaml` default must
+  not move what a user's file means. The two-pass check in `applyInto()` changes no answer, because `store.ts`
   renders into a document it made itself and the file is written from what that
   returns -- so a half-applied document is unreachable and the file is untouched
   either way; it is kept for that function's own contract, which is the footing
@@ -22593,6 +22621,249 @@ than as a mutation nothing caught.
   document with mixed indentation -- every candidate ties or the detected one
   wins. It is kept because "the closest layout" is the rule and "the first one"
   is correct only by the detection being right.
+
+#### What the review round found, and the two claims above it that were false
+
+Four reviewers, one per pair of modules, each given the constraints and **not**
+the rationale so that it could not simply confirm the argument above. Between
+them and the probes they left behind, **twenty-six confirmed findings, seven of
+them severe** -- every severe one a silent data loss, a silent corruption, or
+output the store's own reader refuses. Each was reproduced here before it was
+believed, and the two least believable were re-measured independently.
+
+That is a much larger tally than the sabotage pass's, and the reason is the one
+this file already records twice: a pass built out of deletions asks whether the
+code that is **there** is load bearing. Not one of these is a dead guard. They
+are guards that were never written, and prose that does not match the code.
+
+**It also falsified two claims this section makes**, which is the half worth
+reading first, because both were stated as proofs.
+
+- **`version` and `schema` are not "equivalent mutations".** The tally below
+  declared them a survivor on the ground that `yaml` 2.9.1 already defaults to
+  1.2 core. A document that names its **own** version is what separates them:
+  with `%YAML 1.1` at the top and `schema` removed, `Document.setSchema` takes
+  the directive and installs `yaml-1.1`, after which `yes` is `true`, `017` is
+  `15`, `12:30` is `750` and a date is a `Date` -- the whole Norway family the
+  pin exists to refuse, arriving through the door the pin was thought not to
+  need. A real guard with no test, and no test in the package fed a `%YAML`
+  directive. So the declared survivors are **three** rather than four.
+- **The line diff can produce a false positive.** "That cannot be a false
+  positive by construction: a line it names is a line where the source and a
+  no-op write really do differ" was the whole argument for diffing two
+  renderings over matching patterns against the source. It held for the _kind_
+  and not for the _line_: `lossesOf()` compared `source.split('\n')[i]` with
+  `rendered.split('\n')[i]`, so an inserted or deleted line shifted every index
+  after it. Measured, `a: 1\n\n\nb: 2\n` renders as `a: 1\n\nb: 2\n` and the
+  report named line 4, `b: 2`, which is in the output one line higher -- and
+  `Math.max` of the two lengths walked past the end of the source, so
+  `a: 1\n# tail\n` reported a **phantom** line 3: the empty string `split`
+  leaves after a final newline.
+
+  The claim is true again rather than weakened. The lines are **paired** now:
+  the common prefix and suffix come off, which for a document against its own
+  re-render is nearly all of it, and what is left is matched by longest common
+  subsequence, with a run of gone lines zipped against the run of added lines
+  that follows it so that a changed line is still one pair for a recognizer to
+  read. No pair names an index either array does not have.
+
+  And a `test/version.test.ts` the options doc cited has never existed in this
+  package -- the dead-instruction class this file keeps an entry about, a
+  comment naming a file a reader then goes looking for.
+
+##### The seven severe findings, and the design call each one forced
+
+- **A null root was a crash, a silent comment loss, or a silent byte change,
+  depending on the door.** `rootOf()` is the fix and it is one reader of one
+  rule where there were two: the read said a null root is `{}` and `render()`
+  cast `readDocument()`'s `unknown` to a record and handed it to `overlay()`.
+  The cast is what silenced the type system, so the return type is the guard
+  now. Measured, `set()` plus `saveSync()` over a comment-only file, a `null`,
+  a `~`, a `---` or a `...` threw `TypeError: Cannot set properties of null`
+  naming no file; `apply()` plus `saveSync()` **succeeded** and dropped the
+  file's comment with `wouldLose` **absent**, which is this package's headline
+  guarantee broken with nothing reported; and `writeSync(readSync().value)`
+  rewrote `null # c` to `{}`. The lossless guard's own remedy crashed too: a
+  comment-only file is refused by the guard, and `saveSync({lossy: true})` --
+  the fix the message prints -- threw the same TypeError.
+
+  `openRoot()` is the document half, and the shape that forced it is not the
+  obvious one: a comment-only file parses with `contents === null` and `setIn()`
+  works, while anything with a `---`, and an explicit `null` or `~`, parses with
+  `contents` a **scalar** holding null and `setIn()` throws `Expected a YAML
+  collection as document contents`. The comments are carried because that
+  scalar is where they sit. It runs after the no-op return, so a write that asks
+  for nothing still touches nothing -- without that ordering a no-op write of
+  `# hi` rendered `{}`.
+
+  XML and JSON were measured on the same inputs and both save correctly, with a
+  comment above too, so this one was YAML's alone.
+
+- **A non-string key made a write produce a file the reader refuses.**
+  `editsFor()` diffs the value `toJS()` produced, so every segment it builds is
+  a string, and `setIn()` matches a path element against the node's own key.
+  Measured, `writeSync({'1': 'b'})` over `1: a` left `1: a` and added `"1": b`,
+  and the read then refused the result with `Map keys must be unique` -- no
+  throw, `save()` exiting normally having written a config nothing can load.
+  Same for `true: a`, `2.5: a` and `null: a`. And a delete of such a key was a
+  silent no-op where a string key was removed.
+
+  `nativePath()` resolves each segment against the document as the path is
+  walked, so a mapping key keeps the key's **own value** and a sequence index
+  becomes a **number** -- which matters on its own, because
+  `collectionFromPath` builds an array for a numeric key and a mapping for a
+  string one, so a new collection reached through a merge key came out
+  `{"1": 9}` where `[1, 9, 3]` was asked for. `String(value)` is the same
+  widening `samePath()` compares with, deliberately: one rule for "the same path
+  segment" rather than two that can disagree.
+
+- **A null key was three different paths and one of them dropped a value.**
+  `samePath()` compared `String(a.value)`, which is `'null'`, while `toJS()`'s
+  direct-key path stringifies a null key to `''`. Measured, `null: a` beside
+  `"": b` read as `{"": "b"}` with the value `a` **gone**, no error and nothing
+  thrown; `null: a` beside `"null": b` threw a **false** duplicate-key error;
+  and a null key copied by a `<<` landed on `'null'` while the direct key landed
+  on `''`, so one document read two paths for one key.
+
+  **The design call is to refuse a null key**, extending the rule one case above
+  it rather than inventing one: a collection key is already refused because it
+  "names no config path", and a null key names none either. The JSON analogy
+  that rule rests on says `'null'` -- `JSON.stringify({[null]: 1})` is
+  `{"null":1}` -- while `toJS()` says `''`, which **no dotted path can
+  address**, since `get('')` is the whole merged view. An **empty-string** key
+  is deliberately still taken: it is equally unreachable, and it is what the
+  user literally wrote and what a JSON layer holds, so refusing it would invent
+  a divergence from the sibling. A null key is a _different_ key `yaml` maps
+  onto that same unreachable path, and inconsistently. `samePath()` stops
+  widening null with it, so the reader gets the message that says what is
+  actually wrong rather than a false duplicate.
+
+- **A tagged scalar coerced whatever was written onto it.** `setIn()` keeps the
+  existing scalar node when the new value is also a scalar, so the old core tag
+  re-stringifies it -- and `!!str`, `!!int`, `!!float` and `!!bool` are core
+  tags `assertReadable()` keeps, so a user can write such a file. Measured,
+  `a: !!bool true` set to the string `'false'` left the file **byte identical**
+  and read back boolean `true` -- the write silently not taking -- and
+  `a: !!int 5` set to `'nope'` wrote `!!int .nan`, which the next read refuses
+  with `Unresolved tag`. `yamlCanHold` allowed every one of them.
+
+  **The design call is to refuse where the type differs**, which is a fourth
+  member of the write-refusal family the anchor, the alias and the merge key
+  already form, and is the narrowest rule that cannot be subtly wrong: a string
+  onto `!!str`, a number onto `!!int` and a boolean onto `!!bool` all
+  re-stringify as themselves and round-trip, so those are left alone. Refusing
+  every write onto a tagged scalar was the other option and refuses a safe one;
+  dropping the tag changes something the write was not asked to change, which
+  by this module's own rule would have to be a reported loss.
+
+- **A set descending through a merge key lost keys.** `assertEditable()` refused
+  a **deletion** whose immediate parent was the merged map; a set was not
+  checked, and a longer path's parent is `c.nest` rather than the merged `c`.
+  Measured, asking for `c.nest = {a: 9, b: 2}` wrote `c.nest.a` as a new own
+  pair and the read answered `{a: 9}` -- key `b` **gone**, because the own pair
+  shadows the whole merged `nest` rather than merging into it. The same shape
+  over a sequence came back `{"1": 9}`, an array as a mapping, and appending
+  dropped every element. A delete one level deeper threw `yaml`'s own `Expected
+  YAML collection at nest. Remaining path: a`, naming neither file nor path.
+
+  **The design call is to refuse any edit whose path passes through a merged
+  key, except a set of the merged key itself** -- which is the one case that
+  works and is already documented, since `yaml` writes an own pair that shadows
+  it and the value round-trips. Every segment of the path is asked about now
+  rather than the last one of a drop.
+
+- **An integer past 2^53-1 was silently a different integer.** `intAsBigInt` is
+  off and the core int tag resolves with `parseInt`, so `a: 9007199254740993`
+  read as `...992` with no error, and the hex spelling read the same. This is
+  the framework's own recorded rule broken: the parser's `int` data type
+  **throws** on exactly this, because it is "the one failure a caller cannot
+  detect".
+
+  **The design call is to refuse it at read**, rather than turning `intAsBigInt`
+  on -- which would make every integer in every document a `bigint`, which
+  `checkValue()` then refuses on a `number` setting. The test is
+  **distinctness** rather than exactness, which is why 2^53 is refused along
+  with 2^53+1 although it is itself representable: past 2^53-1 two integers a
+  file could name collide on one value, so the store cannot say which was
+  written, and the message says that rather than calling an exact value inexact.
+
+- **`paths` as a string silently deleted keys, in all three stores.** A string
+  is an `Iterable<string>`, so `overlay()`'s own type permitted one and
+  iterating it yielded characters. Measured, `write({keep: 3}, {paths: 'ab'})`
+  over `{a: 1, b: 2, keep: 3}` claimed `a` and `b`, found neither in the value,
+  and deleted both: `json()` wrote `{"keep":3}`, `xml()` wrote
+  `<config><keep>3</keep></config>`, and `yaml()` the same.
+
+  **Fixed in core**, because all three share it and a guard in one would leave
+  the other two holding it -- the precedent being SIG-149, which moved
+  `canRepresent`'s path/item ambiguity into core for the same reason: it is the
+  contract the store implements. `Iterable<string>` is kept rather than narrowed
+  to an array, because `config.ts` hands over a `Set`, so what is refused is the
+  one iterable of strings that is never a list of paths.
+
+##### The rest of it, and the two sentences that were load bearing
+
+Nine moderate findings, each a refusal that failed safe or a value quietly
+dropped, and each now named where it happens: an **anchor on a key** was
+invisible to every fence, so deleting that key left a document `toString()`
+could not even render (`Unresolved alias`) -- only a **removal** is refused,
+because editing the value keeps the key and its anchor and round-trips; a
+**symbol key** and a **non-index own property of an array** were dropped on the
+way out with `canRepresent` saying the value was fine; `yaml(p, 'yml')`,
+`['yml']` and `false` each **succeeded** with the format left at `'yaml'`, so
+the argument parsed and did nothing, and `yaml(p, null)` was a raw `TypeError`;
+an **alias used as a key** was reported as a mapping; the non-specific tag `!`
+on a scalar was refused although the core schema resolves it to the scalar's own
+text, with the parser reporting neither an error nor a warning; a **shallower
+comment** was read as the indent step, so the write reindented the mapping
+itself -- `seqIndented()` already skipped a comment and `indentOf()` did not,
+two readers of one rule, and a block scalar's content is skipped with it because
+there the minimum is not a step the serializer can satisfy both ways; and the
+fidelity recognizers named the wrong cause three ways -- every surviving
+full-line comment reported as "above an unindented sequence item" with no `- `
+in the file, a `? not a key` line inside a literal block reported as an explicit
+key, and every `=== ''` test blind on a CRLF file, where a blank line is `"\r"`.
+
+And **four sentences were false about the code beside them**, which is the class
+a deletion pass cannot read at all: `applyInto()`'s "every edit is checked
+before any is applied" (the check pass runs `assertEditable()` and nothing else,
+so `setIn()` and `deleteIn()` can still throw on the apply pass with the
+document part-modified -- the **file** is untouched because `store.ts` throws
+before `writeAtomic()`); `prettyErrors` described as off when it is the
+parser's default, which is on, and the message being one line because of
+`split('\n')` rather than because of that; `asPlain()` refusing every object
+with "written as a plain mapping" where a `Set` and a typed array are written as
+a **sequence** and a boxed primitive as a **scalar**, measured against
+`createNode()` -- which contradicted this module's own table; and the DAG
+comment claiming an anchor and an alias, which is true of one `createNode()` and
+false of the two `setIn()` calls `editsFor()` emits for two new keys.
+
+The one sentence worth keeping as a decision rather than a correction: a no-op
+write over a file that **does not survive `yaml`'s own round trip** still
+rewrites it, because a direct `write()` is documented not to consult `lossy`.
+`# hi\n` renders as `# hi\n\nnull\n`, the fidelity check reports it, and
+`save()` refuses -- so the guarantee holds where it is claimed. An **empty**
+file becoming `{}` is outside the invariant by construction, because the blank
+branch never parses and so has nothing to compare; nothing is lost either way.
+
+##### What it cost, and the sabotage pass over the fixes
+
+**Twenty-four mutations, twenty-four caught** -- one per fix, run with a green
+control first and the tree restored on a signal as well as on an exception. Two
+needed a second run and both were the harness rather than the code, which is
+the third and fourth time this file has had to record that: one pattern went
+**stale** when `pnpm fmt` reflowed the condition it quoted onto one line, and
+the summary regex required a `passed` count, which a run where **every** suite
+fails does not print -- the identical bug this file already records from the
+config write pass, reproduced by somebody who had read that entry.
+
+The suite went from **139 tests to 191** in this package, and from 6,750 to
+6,804 across the workspace. One pre-existing test was rewritten rather than
+deleted: `should take a scalar key of any type` pinned a null key reading as
+`''`, which is the behaviour the null-key decision deliberately changed, so it
+now pins the types that remain and four tests beside it pin the refusal, the
+dropped value it prevents, the empty-string key that is still taken, and the
+false duplicate it no longer reports.
 
 #### The i18n gap is the sibling's, unchanged
 

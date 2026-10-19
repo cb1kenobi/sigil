@@ -1,6 +1,6 @@
 import { lossesOf } from './fidelity.js';
 import { PARSE_OPTIONS } from './options.js';
-import { assertReadable, readDocument, type ReadShape } from './read.js';
+import { assertReadable, rootOf, type ReadShape } from './read.js';
 import { yamlCanHold } from './represent.js';
 import { candidates, reshape, shapeOf, type Shape } from './shape.js';
 import { applyInto } from './write.js';
@@ -103,6 +103,17 @@ export function yaml(path: string, opts: YamlStoreOptions = {}): WritableConfigS
     throw new Error('A config YAML store needs a path');
   }
 
+  // and the options themselves, which defaulted only for `undefined` while
+  // `opts.format` was read at once. Measured, `yaml(p, null)` threw
+  // `Cannot read properties of null (reading 'format')` -- a raw TypeError
+  // where the format check already has a message -- and `yaml(p, 'yml')`,
+  // `yaml(p, ['yml'])` and `yaml(p, false)` each **succeeded** with the format
+  // left at `'yaml'`, so an untyped caller could pass the format name as the
+  // second argument and have it silently ignored. Parses and does nothing
+  if (typeof opts !== 'object' || opts === null || Array.isArray(opts)) {
+    throw new Error('A config YAML store needs its options as an object');
+  }
+
   const format = opts.format ?? 'yaml';
   if (typeof format !== 'string' || !format) {
     throw new Error('A config YAML store needs a non-empty format name');
@@ -202,22 +213,10 @@ export function yaml(path: string, opts: YamlStoreOptions = {}): WritableConfigS
 
     const read: ReadShape = { lines: new LineCounter(), what: source };
     const { doc, losses } = parse(raw, read);
-    const value = readDocument(doc, read);
 
-    // a comment-only file, or one holding nothing but a document marker, is an
-    // empty config rather than a document that holds `null`: `raw.trim()` above
-    // cannot see either, so this is where they land
-    if (value === null || value === undefined) {
-      return losses ? { value: {}, wouldLose: losses } : { value: {} };
-    }
-
-    // a document's root has to be something a layer can merge, which is a map.
-    // A file holding `42` or `- 1\n- 2` is not a config, and merging it would
-    // make every key of every layer below it vanish -- so it is refused where it
-    // was read rather than discovered as a missing setting later
-    if (!isPlainObject(value)) {
-      throw new Error(__`${source} must hold an object`);
-    }
+    // the null root and the must-hold-a-map refusal are `rootOf()`'s, which is
+    // the one reader `render()` shares -- the two used to be written here only
+    const value = rootOf(doc, read);
 
     return losses ? { value, wouldLose: losses } : { value };
   };
@@ -278,12 +277,8 @@ export function yaml(path: string, opts: YamlStoreOptions = {}): WritableConfigS
     // also be the `current` the diff compares against -- that one has to be
     // what the document still says. One read used for both would make every
     // claimed path look unchanged and the write a no-op
-    const held = claim(
-      blank ? {} : (readDocument(doc, read) as Record<string, unknown>),
-      value,
-      paths
-    );
-    const current = blank ? {} : readDocument(doc, read);
+    const held = claim(blank ? {} : rootOf(doc, read), value, paths);
+    const current = blank ? {} : rootOf(doc, read);
 
     // asked here as well as at `set()`, because this is public API and a
     // `write()` a caller made directly has had nothing checked. `set()`'s own

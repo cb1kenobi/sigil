@@ -127,12 +127,56 @@ describe('what YAML can hold', () => {
     });
 
     it('should refuse a Map, a Set and a class instance, each a different kind on the way back', () => {
+      // and name the kind each is really written as, which is three answers
+      // rather than one: measured through `Document.createNode()`, a `Map` is a
+      // mapping although it is iterable, a `Set` and a typed array are each a
+      // sequence, and a boxed primitive is a scalar. Saying "a plain mapping"
+      // of all of them contradicted this module's own table
       expect(yamlCanHold(new Map([['a', 1]]), 'a')).toMatch(/Map of this kind as a plain mapping/);
-      expect(yamlCanHold(new Set([1]), 'a')).toMatch(/Set of this kind as a plain mapping/);
+      expect(yamlCanHold(new Set([1]), 'a')).toMatch(/Set of this kind as a sequence/);
+      expect(yamlCanHold(new Uint8Array([1]), 'a')).toMatch(
+        /Uint8Array of this kind as a sequence/
+      );
+      expect(yamlCanHold(new Number(1), 'a')).toMatch(/Number of this kind as a plain scalar/);
       class Thing {
         x = 1;
       }
       expect(yamlCanHold(new Thing(), 'a')).toMatch(/Thing of this kind as a plain mapping/);
+    });
+
+    it('should check what a toJSON answers rather than taking its word', () => {
+      // returning as soon as `toJSON` was a function meant any object with one
+      // was representable whatever it then wrote: measured, `canRepresent` said
+      // yes and the write produced `null`, the number `10`, a mapping, a
+      // sequence, `{}` and a raw `Tag not resolved` naming neither path nor file
+      expect(yamlCanHold({ toJSON: () => undefined }, 'k')).toMatch(/undefined/);
+      expect(yamlCanHold({ toJSON: () => 10n }, 'k')).toMatch(/bigint|10/);
+      expect(yamlCanHold({ toJSON: () => new Map([['a', 1]]) }, 'k')).toMatch(/Map/);
+      expect(yamlCanHold({ toJSON: () => new Set([1]) }, 'k')).toMatch(/Set/);
+      expect(yamlCanHold({ toJSON: () => () => 1 }, 'k')).toMatch(/function/i);
+      expect(yamlCanHold({ toJSON: () => ({ n: 10n }) }, 'k')).toMatch(/k\.n/);
+    });
+
+    it('should refuse a toJSON that answers a Date, which is written as an empty mapping', () => {
+      // `createNode` calls `toJSON` **once** and does not call it again on what
+      // came back, so a Date in the answer position is written as a mapping of
+      // its own enumerable keys, which is `{}`. The valid Date beside it still
+      // passes, through its own ISO string
+      expect(yamlCanHold({ toJSON: () => new Date('2026-01-01T00:00:00Z') }, 'k')).toMatch(/Date/);
+      expect(yamlCanHold(new Date('2026-01-01T00:00:00Z'), 'k')).toBe(true);
+    });
+
+    it('should report a toJSON that throws rather than letting it escape', () => {
+      expect(
+        yamlCanHold(
+          {
+            toJSON: () => {
+              throw new Error('nope');
+            },
+          },
+          'k'
+        )
+      ).toMatch(/its own toJSON threw: nope/);
     });
 
     it('should refuse a hole in a sequence, which YAML writes as null', () => {
@@ -169,5 +213,16 @@ describe('what YAML can hold', () => {
         .createNode({ toJSON: () => 'x' })
         .toString()
     ).toBe('x');
+  });
+
+  it('should refuse a symbol key, which is silently dropped on the way out', () => {
+    // `canRepresent` said yes and the write left the file untouched
+    expect(yamlCanHold({ a: 1, [Symbol('k')]: 2 }, 'x')).toMatch(/no symbol key/);
+  });
+
+  it('should refuse a non-index own property of a sequence, dropped the same way', () => {
+    const list: number[] & { extra?: number } = [1, 2];
+    list.extra = 3;
+    expect(yamlCanHold(list, 'x')).toMatch(/would be dropped/);
   });
 });

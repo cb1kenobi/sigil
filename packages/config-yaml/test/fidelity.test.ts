@@ -183,4 +183,88 @@ describe('what a write would lose', () => {
       },
     ]);
   });
+
+  describe('which line a loss names', () => {
+    // `Loss.line` and `Loss.detail` are both optional on the published type, so
+    // these answer what the type says rather than what every row happens to set
+    const lines = (body: string): readonly (number | undefined)[] =>
+      (yaml(file(body)).readSync().wouldLose ?? []).map((it) => it.line);
+
+    it('should not name a line that survived, which index alignment did', () => {
+      // `a: 1\n\n\nb: 2\n` renders as `a: 1\n\nb: 2\n`, and the index walk
+      // reported line 4 -- `b: 2`, which is in the output one line higher.
+      // Every later index shifts once a line is inserted or deleted, which
+      // falsified the claim this module is built on
+      const got = yaml(file('a: 1\n\n\nb: 2\n')).readSync().wouldLose ?? [];
+      expect(got).toHaveLength(1);
+      expect(got[0]?.line).toBe(3);
+      expect(got[0]?.detail).toMatch(/run of blank lines/);
+    });
+
+    it('should name no line the file has not got', () => {
+      // `Math.max` of the two lengths walked past the end of the source, so
+      // `a: 1\n# tail\n` reported a phantom line 3: the empty string `split`
+      // leaves after a final newline
+      for (const body of ['a: 1\n# tail\n', 'a: >\n  l1\n  l2\n', 'a: 1\n\n\nb: 2\n']) {
+        const count = body.split('\n').length - 1;
+        for (const at of lines(body)) {
+          expect(at, `${body} named ${at} of ${count}`).toBeLessThanOrEqual(count);
+        }
+      }
+    });
+
+    it('should name a blank run whichever of its lines the alignment dropped', () => {
+      // which blank is reported gone is the alignment's choice: with the lines
+      // before the run identical they come off as the common prefix and the
+      // second is left over, and with something earlier changed too the
+      // subsequence match takes the first. The demo's own file is the second
+      // shape, and looking back alone dropped it to the bare sentence there
+      for (const body of ['a: 1\n\n\nb: 2\n', 'a: 1   # c\nb: 2\n\n\nc: 3\n']) {
+        const got = (yaml(file(body)).readSync().wouldLose ?? []).map((it) => it.detail);
+        expect(got.join(' '), body).toMatch(/run of blank lines/);
+      }
+    });
+
+    it('should name the minority line where the endings are mixed', () => {
+      // two LF against one CRLF chooses LF and names line 3; the other way
+      // round chooses CRLF and names line 1
+      expect(lines('a: 1\nb: 2\nc: 3\r\n')).toStrictEqual([3]);
+      expect(lines('a: 1\nb: 2\r\nc: 3\r\n')).toStrictEqual([1]);
+    });
+  });
+
+  describe('a recognizer naming the right cause', () => {
+    const details = (body: string): readonly (string | undefined)[] =>
+      (yaml(file(body)).readSync().wouldLose ?? []).map((it) => it.detail);
+
+    it('should not claim a sequence item where the file has no sequence', () => {
+      // any full-line comment whose text survived was reported as a comment
+      // above an unindented sequence item, with no `- ` anywhere
+      expect(details('a:\n      # note\n  b: 1\n').join(' ')).not.toMatch(/sequence item/);
+    });
+
+    it('should still claim one where there is a sequence', () => {
+      expect(details('plugins:\n  # note\n- a\n- b\n').join(' ')).toMatch(/sequence item/);
+    });
+
+    it('should not read a block scalar line as an explicit key', () => {
+      // `/^[ \t]*\? /` matched the source line alone, so a `? not a key` line
+      // inside a literal block was reported as an explicit key being rewritten
+      // when only its indent had moved
+      expect(details('a:\n    b: |\n          ? not a key\n').join(' ')).not.toMatch(
+        /explicit "\? key"/
+      );
+    });
+
+    it('should still read a real explicit key as one', () => {
+      expect(details('? a\n: 1\n').join(' ')).toMatch(/explicit "\? key"/);
+    });
+
+    it('should name the cause on a CRLF file as it does on an LF one', () => {
+      // a blank line in a CRLF file is `"\r"`, so every recognizer asking
+      // `=== ''` missed and the report fell back to the bare sentence
+      expect(details('a: 1\r\n\r\n\r\nb: 2\r\n').join(' ')).toMatch(/run of blank lines/);
+      expect(details('a: 1\r\n# tail\r\n').join(' ')).toMatch(/blank line is added before/);
+    });
+  });
 });

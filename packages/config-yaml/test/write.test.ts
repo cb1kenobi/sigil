@@ -347,4 +347,140 @@ flow: {x: 1, y: 2}
     expect(read(sync)).toBe(read(async));
     expect(read(sync)).toBe('# c\na: 2\n');
   });
+
+  describe('a key the document does not spell as a string', () => {
+    it('should edit the key it has rather than appending a second one', () => {
+      // the write used to leave `1: a` and add `"1": b`, after which the read
+      // refused the result with `Map keys must be unique` -- `save()` exiting
+      // normally having written a config nothing can load
+      for (const [body, target, want] of [
+        ['1: a\n', { '1': 'b' }, '1: b\n'],
+        ['true: a\n', { true: 'b' }, 'true: b\n'],
+        ['2.5: a\n', { '2.5': 'b' }, '2.5: b\n'],
+      ] as const) {
+        const path = file(body);
+        yaml(path).writeSync(target);
+        expect(read(path), body).toBe(want);
+        expect(yaml(path).readSync().value, body).toStrictEqual(target);
+      }
+    });
+
+    it('should delete it, where it used to be a silent no-op', () => {
+      for (const body of ['1: a\nname: x\n', 'true: a\nname: x\n']) {
+        const path = file(body);
+        yaml(path).writeSync({ name: 'x' });
+        expect(read(path), body).toBe('name: x\n');
+      }
+    });
+
+    it('should build a sequence rather than a mapping for an index', () => {
+      // `collectionFromPath` builds an array for a numeric key and a mapping
+      // for a string one, and every segment used to be `String(i)`
+      const path = file('a: 1\n');
+      yaml(path).writeSync({ a: 1, items: [1, 2] });
+      expect(yaml(path).readSync().value).toStrictEqual({ a: 1, items: [1, 2] });
+      expect(Array.isArray((yaml(path).readSync().value as { items: unknown }).items)).toBe(true);
+    });
+  });
+
+  describe('a scalar carrying an explicit tag', () => {
+    it('should refuse a value of a different type rather than letting the tag rewrite it', () => {
+      // `a: !!bool true` set to the string `'false'` left the file **byte
+      // identical** and read back boolean `true` -- the write silently not
+      // taking -- and `a: !!int 5` set to `'nope'` wrote `!!int .nan`, which the
+      // next read refuses with `Unresolved tag`
+      for (const [body, target] of [
+        ['a: !!bool true\n', { a: 'false' }],
+        ['a: !!bool true\n', { a: 2 }],
+        ['a: !!str 5\n', { a: 6 }],
+        ['a: !!int 5\n', { a: 'nope' }],
+        ['a: !!float 1.5\n', { a: 'x' }],
+      ] as const) {
+        const path = file(body);
+        expect(() => yaml(path).writeSync(target), body).toThrow(/carries the tag/);
+        expect(read(path), body).toBe(body);
+      }
+    });
+
+    it('should allow a value of the same type, which the tag re-stringifies as itself', () => {
+      for (const [body, target] of [
+        ['a: !!str 5\n', { a: '6' }],
+        ['a: !!int 5\n', { a: 6 }],
+        ['a: !!bool true\n', { a: false }],
+      ] as const) {
+        const path = file(body);
+        yaml(path).writeSync(target);
+        expect(yaml(path).readSync().value, body).toStrictEqual(target);
+      }
+    });
+
+    it('should leave an untagged scalar alone', () => {
+      const path = file('a: true\n');
+      yaml(path).writeSync({ a: 'false' });
+      expect(yaml(path).readSync().value).toStrictEqual({ a: 'false' });
+    });
+  });
+
+  describe('a path that descends through a merge key', () => {
+    const nested = 'base: &b\n  nest:\n    a: 1\n    b: 2\nc:\n  <<: *b\n';
+
+    it('should refuse a set deeper than the merged key, which lost a key', () => {
+      // the own pair shadows the whole merged `nest` rather than merging into
+      // it, so asking for `{a: 9, b: 2}` wrote `c.nest.a` and the read answered
+      // `{a: 9}` -- key `b` gone, with no throw
+      const path = file(nested);
+      const value = yaml(path).readSync().value as { c: { nest: { a: number } } };
+      value.c.nest.a = 9;
+      expect(() => yaml(path).writeSync(value)).toThrow(/comes from the merge key/);
+      expect(read(path)).toBe(nested);
+    });
+
+    it('should refuse one that would turn a sequence into a mapping', () => {
+      const body = 'base: &b\n  items:\n    - 1\n    - 2\nc:\n  <<: *b\n';
+      const path = file(body);
+      const value = yaml(path).readSync().value as { c: { items: number[] } };
+      value.c.items[0] = 9;
+      expect(() => yaml(path).writeSync(value)).toThrow(/comes from the merge key/);
+      expect(read(path)).toBe(body);
+    });
+
+    it('should refuse a delete below one, which threw a raw yaml message', () => {
+      // `Expected YAML collection at nest. Remaining path: a`, naming neither
+      // the file nor the path
+      const path = file(nested);
+      const value = yaml(path).readSync().value as { c: { nest: { a?: number } } };
+      delete value.c.nest.a;
+      expect(() => yaml(path).writeSync(value)).toThrow(/comes from the merge key/);
+      expect(read(path)).toBe(nested);
+    });
+
+    it('should still shadow the merged key itself, which is documented and works', () => {
+      const path = file('base: &b\n  p: 1\n  q: 2\nc:\n  <<: *b\n');
+      const value = yaml(path).readSync().value as { c: { p: number } };
+      value.c.p = 9;
+      yaml(path).writeSync(value);
+      expect(read(path)).toContain('p: 9');
+      expect((yaml(path).readSync().value as { c: { p: number } }).c.p).toBe(9);
+    });
+  });
+
+  describe('an anchor on a key', () => {
+    const body = '&k host: example.com\ncopy: *k\n';
+
+    it('should refuse a removal, which left the document unrenderable', () => {
+      // `deleteIn()` had already removed the pair the alias points at, after
+      // which `toString()` threw `Unresolved alias` naming no file
+      const path = file(body);
+      expect(() => yaml(path).writeSync({ copy: 'host' })).toThrow(/its key carries an anchor/);
+      expect(read(path)).toBe(body);
+    });
+
+    it('should still allow its value to be edited, which keeps both', () => {
+      const path = file(body);
+      yaml(path).writeSync({ copy: 'host', host: 'other' });
+      expect(read(path)).toContain('&k');
+      expect(read(path)).toContain('*k');
+      expect(read(path)).toContain('other');
+    });
+  });
 });
