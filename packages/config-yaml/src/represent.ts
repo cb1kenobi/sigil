@@ -83,10 +83,54 @@ function why(value: unknown): string | undefined {
       // `checkValue()` refuses on a `number` setting: writing one produces a
       // config the next run cannot load, which is the same reasoning
       // `@ttylabs/config-xml` records for the text spelling
-      return Number.isNaN(value) ? 'YAML writes NaN as .nan, which no load accepts' : undefined;
+      if (Number.isNaN(value)) {
+        return 'YAML writes NaN as .nan, which no load accepts';
+      }
+      return inexactInteger(value);
     default:
       return undefined;
   }
+}
+
+/**
+ * Whether a number is written as an integer the next read would refuse.
+ *
+ * The one defect this guard was added for: `canRepresent()` allowed every
+ * number, so `set('a', 2 ** 60)` saved `a: 1152921504606847000` and the next
+ * load **threw** -- the store writing a file it cannot read, which is the exact
+ * class this module exists to refuse, introduced by the read-time check that
+ * was meant to close it. Found by review.
+ *
+ * The mirror of `read.ts`'s own test, asked of the text `yaml` will write
+ * rather than of the value, which is what keeps the two symmetric. So `1e21` is
+ * **allowed**: it prints `1e+21`, which is a float in the file and a float the
+ * read takes, and it round-trips exactly. `1.5e20` prints
+ * `150000000000000000000`, which is integer form and does round-trip, so that is
+ * allowed too. What is refused is the set whose decimal printing carries more
+ * digits than the double holds -- `2 ** 60`, `2 ** 64` -- where `2 ** 53` and
+ * `2 ** 54` print exactly and are taken.
+ *
+ * Which states the asymmetry with the read rather than leaving it to be found:
+ * the read refuses a **source** whose digits the double does not hold, and this
+ * refuses a **double** whose printing is not the double. So a *literal* past
+ * 2^53 is not a counterexample to either -- `9007199254740993` in source is
+ * already `...992`, so writing `9007199254740992` loses nothing, and there is
+ * no third case for a guard to miss.
+ */
+function inexactInteger(value: number): string | undefined {
+  // no `Number.isFinite()` guard, because the integer-form test already
+  // answers for one: `String(Infinity)` is `Infinity` and `String(-Infinity)`
+  // is `-Infinity`, neither of which is all digits -- so a finite check could
+  // not change an answer, and a sabotage pass is what said so. The read's own
+  // non-finite branch is a different question: there the *source* is all digits
+  // and the **value** is `Infinity`, which is a real disagreement
+  const text = String(value);
+
+  if (/^-?[0-9]+$/.test(text) && BigInt(text) !== BigInt(value)) {
+    return `YAML writes ${text}, which is not the integer this runtime holds`;
+  }
+
+  return undefined;
 }
 
 /** What YAML writes an object of no kind it knows as, which is its own keys. */

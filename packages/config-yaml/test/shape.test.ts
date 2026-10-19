@@ -191,6 +191,27 @@ describe('the shape and the layout', () => {
       }
     });
 
+    it('should skip a tab-led line, which is the only place a tab can be', () => {
+      // what makes `indentOf`'s spaces-only counting unobservable, which is why
+      // a sabotage of it survives: a tab-led line is valid YAML in exactly two
+      // places and this skips both already. Everything else that leads with one
+      // is a parse error, so the document never reaches `shape` -- asserted
+      // here, so that a later change to either skip meets the reason
+      for (const body of [
+        'a: 1\n\t# tab-led comment\nb:\n      c: 2\n',
+        'a: |\n  \thello\nb:\n      c: 1\n',
+      ]) {
+        const path = file(body);
+        yaml(path).writeSync(yaml(path).readSync().value);
+        expect(read(path), body).toContain('      c:');
+      }
+
+      // and the shapes that cannot arrive at all
+      for (const body of ['a:\n\tb: 1\n', 'a: [1,\n\t2]\n']) {
+        expect(() => yaml(file(body)).readSync(), body).toThrow();
+      }
+    });
+
     it('should still read an ordinary layout', () => {
       for (const body of ['a:\n    b: 1\n', 'a:\n  b: 1\n', 'plugins:\n- a\n- b\n']) {
         const path = file(body);

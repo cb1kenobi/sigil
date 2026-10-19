@@ -159,7 +159,25 @@ function indentOf(lines: readonly string[]): number {
   let block: number | undefined;
 
   for (const line of lines) {
-    const own = (/^( *)/.exec(line)?.[1] as string).length;
+    // counted rather than matched, because `exec(...)?.[1] as string` is a
+    // cast over a short-circuit -- `undefined.length` if the match ever failed,
+    // which `oxlint`'s `no-unsafe-optional-chaining` is right about even though
+    // ` *` cannot fail.
+    //
+    // **Spaces** only, and that is a **statement rather than a guard**: a
+    // sabotage counting a tab too survives, and measuring why is the useful
+    // half. A tab-led line is valid YAML in exactly two places -- a comment,
+    // `a: 1\n\t# c`, and a block scalar's content, `a: |\n  \thello` -- and
+    // this function skips both already, for their own reasons below. Every
+    // other tab-led line is a **parse error**, so the document is refused
+    // before `shape` is reached: measured, `a:\n\tb: 1` is
+    // `Tabs are not allowed as indentation` and a tab inside a flow collection
+    // is an error too. So what the spelling buys is saying what a YAML indent
+    // is, and `trimStart()` would have said something else
+    let own = 0;
+    while (line[own] === ' ') {
+      own++;
+    }
 
     // a block scalar's content is the **author's text**, not the document's
     // structure, so the step cannot be read off it. Measured,

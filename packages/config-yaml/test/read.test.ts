@@ -245,21 +245,59 @@ describe('reading a document', () => {
   });
 
   describe('a scalar this runtime cannot hold as written', () => {
-    it('should refuse an integer past 2^53-1, which reads back as a different one', () => {
+    it('should refuse an integer whose digits the double does not hold', () => {
       // the framework's own rule: the parser's `int` type throws on exactly
-      // this rather than handing back `...992` for `...993`
-      expect(() => yaml(file('a: 9007199254740993\n')).readSync()).toThrow(/past 2\^53-1/);
-      expect(() => yaml(file('a: 0x20000000000001\n')).readSync()).toThrow(/past 2\^53-1/);
+      // this rather than handing back `...992` for `...993`. The message names
+      // both numbers, because what is lost is the digits
+      expect(() => yaml(file('a: 9007199254740993\n')).readSync()).toThrow(
+        /9007199254740993 is not exactly representable; it would read back as 9007199254740992/
+      );
+      // base-agnostic, because the test is `BigInt` of the source against
+      // `BigInt` of the value rather than a pattern over decimal digits
+      expect(() => yaml(file('a: 0x20000000000001\n')).readSync()).toThrow(
+        /0x20000000000001 is not exactly representable/
+      );
+      expect(() => yaml(file('a: 0o400000000000000001\n')).readSync()).toThrow(
+        /not exactly representable/
+      );
     });
 
-    it('should take every integer it can tell apart', () => {
-      expect(yaml(file('a: 9007199254740991\n')).readSync().value).toStrictEqual({
-        a: 9007199254740991,
+    it('should refuse an integer the double cannot hold at all', () => {
+      // `Number('1'.repeat(400))` is `Infinity`, where `BigInt(value)` throws
+      // rather than disagreeing -- so this is its own branch rather than a
+      // sharper case of the one above
+      expect(() => yaml(file(`a: ${'1'.repeat(400)}\n`)).readSync()).toThrow(
+        /larger than this runtime can hold at all/
+      );
+    });
+
+    it('should take an integer the double holds exactly, 2^53 included', () => {
+      // the test is **exactness** rather than `Number.isSafeInteger`
+      // distinctness, which refused 2^53 itself -- a value the file names
+      // unambiguously and the double holds to the digit
+      expect(yaml(file('a: 9007199254740992\n')).readSync().value).toStrictEqual({
+        a: 9007199254740992,
       });
+      expect(
+        yaml(file('a: 9007199254740991\nb: 150000000000000000000\n')).readSync().value
+      ).toStrictEqual({ a: 9007199254740991, b: 150000000000000000000 });
       expect(yaml(file('a: 8080\nb: -1\nc: 1.5\n')).readSync().value).toStrictEqual({
         a: 8080,
         b: -1,
         c: 1.5,
+      });
+    });
+
+    it('should take a float whose value happens to be integral', () => {
+      // the half of this a review round found: asked of the **value** rather
+      // than of the source, the check fires on a float the file wrote as a
+      // float and the double holds exactly -- so `a: 1e21` was refused as "the
+      // integer", and the store refused a file it had written itself
+      expect(yaml(file('a: 1e21\nb: 1.0e21\nc: 1.5e20\nd: 1e3\n')).readSync().value).toStrictEqual({
+        a: 1e21,
+        b: 1e21,
+        c: 1.5e20,
+        d: 1000,
       });
     });
   });

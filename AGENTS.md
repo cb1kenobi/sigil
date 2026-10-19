@@ -22501,7 +22501,9 @@ Both were better found here than guessed at there, which is what the ticket said
 #### What the sabotage pass found, and the three it declared
 
 Seventy-eight mutations, one at a time with this package's own suite run after
-each. **Seventy-four caught, four declared**, counted against the shipped tree in
+each. **Seventy-four caught, four declared** -- eighty-eight, eighty-two and six
+once the PR review round's own ten are counted, which is a section of its own
+below. Counted against the shipped tree in
 one run rather than summed across rounds, with every verdict guard this
 repository has learned to need: a green control first, and a pattern that matched
 nothing, a pattern that matched more than once, a replacement equal to its
@@ -22781,11 +22783,37 @@ reading first, because both were stated as proofs.
 
   **The design call is to refuse it at read**, rather than turning `intAsBigInt`
   on -- which would make every integer in every document a `bigint`, which
-  `checkValue()` then refuses on a `number` setting. The test is
-  **distinctness** rather than exactness, which is why 2^53 is refused along
-  with 2^53+1 although it is itself representable: past 2^53-1 two integers a
-  file could name collide on one value, so the store cannot say which was
-  written, and the message says that rather than calling an exact value inexact.
+  `checkValue()` then refuses on a `number` setting.
+
+  **The test is exactness, asked of the scalar's own source text, and both
+  halves of that are a defect the first version had.** It was
+  `Number.isSafeInteger` over the **value**, and a PR review round measured what
+  that costs in both directions. Over the value it fires on a **float**:
+  `a: 1e21` and `a: 1.5e20` were each refused as "the integer", although the
+  file wrote a float and the double holds it exactly -- so the store refused a
+  file it had written itself, which is the class this whole package is about.
+  And `canRepresent()` allowed every number, so `set('a', 2 ** 60)` saved
+  `a: 1152921504606847000` and the next load **threw**: a store writing a file
+  it cannot read, by the guard that was meant to close exactly that.
+
+  So it is `BigInt(source) !== BigInt(value)`, which is exact and
+  base-agnostic -- the hex and octal spellings need no normalizing, since
+  `0x20000000000001` is `9007199254740993n` against the `...992n` the double
+  holds. A source so long the double cannot hold it at all is its own branch,
+  because `BigInt(Infinity)` throws rather than disagreeing. And the mirror is
+  in `canRepresent()`, asked of the **text `yaml` will write**, which is what
+  keeps the two symmetric.
+
+  Exactness rather than distinctness changes three answers and each is measured:
+  **2^53 and 2^54 are taken**, because the file names them unambiguously and the
+  double holds them to the digit, where distinctness refused both; `1.5e20` is
+  taken written either way, as a float or as `150000000000000000000`; and
+  `2 ** 60` and `2 ** 64` are refused at the `set()` rather than at the next
+  load. Stated exactly, because the obvious counterexample is not one: the read
+  refuses a **source** whose digits the double does not hold and the write
+  refuses a **double** whose printing is not the double, so a _literal_ past
+  2^53 is neither -- `9007199254740993` in source is already `...992`, and
+  writing `9007199254740992` loses nothing. There is no third case.
 
 - **`paths` as a string silently deleted keys, in all three stores.** A string
   is an `Iterable<string>`, so `overlay()`'s own type permitted one and
@@ -22864,6 +22892,64 @@ deleted: `should take a scalar key of any type` pinned a null key reading as
 now pins the types that remain and four tests beside it pin the refusal, the
 dropped value it prevents, the empty-string key that is still taken, and the
 false duplicate it no longer reports.
+
+#### What the PR review round found: the guard that refused its own output
+
+One comment, confirmed in both of its halves, and it is the **third consecutive
+pass here to find a defect in the previous round's own output** -- the review
+round's own integer fix, written two commits earlier. Which is the pattern this
+file already records: code written in response to a review is code no review has
+seen, and that gap grows with every round.
+
+- **The read-time integer refusal fired on floats and the write had no mirror,
+  so the store refused a file it had written itself.** Both halves measured
+  before anything was changed. Over the **value** rather than the source,
+  `a: 1e21`, `a: 1.0e21` and `a: 1.5e20` were each refused as "the integer",
+  although the file wrote a float and the double holds it exactly. And
+  `canRepresent()` allowed every number, so `set('a', 2 ** 60)` wrote
+  `a: 1152921504606847000` and the next load **threw** -- which is the exact
+  class this package exists to refuse, introduced by the guard meant to close
+  it. The integer entry above has the fix and what it changes.
+
+- **The Scalar's own `source` is what makes the fix exact rather than
+  conservative**, and finding it is what turned a two-sided approximation into
+  one rule: `BigInt(source) !== BigInt(value)` is base-agnostic, so the hex and
+  octal spellings need no normalizing, and it allows 2^53 and
+  `150000000000000000000` -- both exact -- where `Number.isSafeInteger` refused
+  the first and a decimal-digit pattern would have had to special-case the
+  second.
+
+- **A guard was deleted for being provably dead, which the pass found rather
+  than the review.** `inexactInteger()` had a `Number.isFinite()` check in front
+  of its integer-form test, and `String(Infinity)` is `Infinity` -- not all
+  digits -- so the form test already answered for it. The read's non-finite
+  branch is a different question and stays: there the _source_ is all digits and
+  the value is `Infinity`, which is a real disagreement.
+
+- **And two `oxlint` warnings were mine from the round before, one of them a
+  real `TypeError` hazard.** `pnpm check` passes over a warning, so
+  `exec(line)?.[1] as string` -- a cast over a short-circuit -- shipped in the
+  review-round commit along with a `new Array(n)`. Which is a gap in this
+  repository's own standing instruction rather than in the linter: _run `pnpm
+  check`_ is satisfied by a run that warns, so a warning on code you just wrote
+  has to be read rather than exited-zero past.
+
+**Ten more mutations over the round's own guards, eight caught and two
+declared**, which takes this package's pass to **eighty-eight, eighty-two caught
+and six declared**. Both new survivors are provable rather than untested, which
+is the distinction worth keeping:
+
+- **`indentOf()` counting spaces only cannot be observed**, and measuring why is
+  the useful half. A tab-led line is valid YAML in exactly two places -- a
+  comment, and a block scalar's content -- and that function skips both already
+  for their own reasons; every other tab-led line is a **parse error**, so the
+  document is refused before `shape` is reached. So the test that was added
+  pins the two **skips**, which is what makes the counting unobservable, rather
+  than the counting.
+- **The LCS base row is a uniform offset.** Both branches add the same constant,
+  so by induction every cell is offset equally and every decision the walk takes
+  is a comparison _between_ two cells -- measured over 4,000 random pairs, the
+  alignment is identical with a base of 0 and a base of 1.
 
 #### The i18n gap is the sibling's, unchanged
 

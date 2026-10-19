@@ -103,6 +103,51 @@ describe('what YAML can hold', () => {
       expect(yamlCanHold(NaN, 'a')).toMatch(/no load accepts/);
     });
 
+    it('should refuse a number YAML writes as an integer the read then refuses', () => {
+      // the other half of the read-time check, and the defect a review round
+      // found: `canRepresent` allowed every number, so `set('a', 2 ** 60)`
+      // saved `a: 1152921504606847000` and the next load **threw** -- the store
+      // writing a file it cannot read, which is the exact class this module
+      // exists to refuse, introduced by the guard that was meant to close it
+      expect(yamlCanHold(2 ** 60, 'a')).toMatch(
+        /YAML writes 1152921504606847000, which is not the integer this runtime holds/
+      );
+      expect(yamlCanHold(-(2 ** 60), 'a')).toMatch(/not the integer this runtime holds/);
+      expect(yamlCanHold(Number('12345678901234567890'), 'a')).toMatch(
+        /not the integer this runtime holds/
+      );
+      // and the one that looks like a counterexample and is not: a **literal**
+      // past 2^53 is already the double, so `Number('9007199254740993')` is
+      // `...992` and writing `9007199254740992` loses nothing. Which is the
+      // asymmetry with the read stated exactly -- the read refuses a *source*
+      // whose digits the double does not hold, and this refuses a *double*
+      // whose printing is not the double. There is no third case
+      expect(yamlCanHold(Number('9007199254740993'), 'a')).toBe(true);
+      expect(yamlCanHold(2 ** 54, 'a')).toBe(true);
+    });
+
+    it('should allow a number that round-trips, however large', () => {
+      // asked of the **text** `yaml` will write rather than of the value, which
+      // is what keeps the two halves symmetric. `1e21` prints `1e+21`, which is
+      // a float in the file and a float the read takes; `1.5e20` prints
+      // `150000000000000000000`, which is integer form and does survive; and
+      // 2^53 is exact, so refusing it would refuse a value the file names
+      // unambiguously
+      expect(yamlCanHold(1e21, 'a')).toBe(true);
+      expect(yamlCanHold(1.5e20, 'a')).toBe(true);
+      expect(yamlCanHold(2 ** 53, 'a')).toBe(true);
+      expect(yamlCanHold(-1.5, 'a')).toBe(true);
+    });
+
+    it('should not write a file its own next read refuses', () => {
+      // the two halves meeting, which is the claim rather than either guard:
+      // every number the write accepts is one the read takes back
+      for (const value of [1e21, 1.5e20, 2 ** 53, 8080, -1.5, Infinity]) {
+        expect(yamlCanHold(value, 'k'), String(value)).toBe(true);
+        expect(roundTrip(value).back).toStrictEqual(value);
+      }
+    });
+
     it('should refuse a bigint, because no scalar reads one back', () => {
       // `String(10n)` is exact text, so unlike JSON -- which throws -- YAML
       // writes it happily and it reads back as the **number** 10

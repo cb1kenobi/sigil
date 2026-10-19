@@ -39,6 +39,15 @@ import {
  */
 
 /**
+ * An integer as YAML 1.2's core schema spells one.
+ *
+ * The sign is decimal-only, which is the production rather than an oversight.
+ * Read against a scalar's own `source`, so that a float whose value happens to
+ * be integral -- `1e21`, `1.5e20` -- is not mistaken for one.
+ */
+const INTEGER_SOURCE = /^(?:[-+]?[0-9]+|0o[0-7]+|0x[0-9a-fA-F]+)$/;
+
+/**
  * The seven tags YAML 1.2's core schema has, plus the non-specific one.
  *
  * `!` is **not** outside the schema: it says "resolve this by the schema" and
@@ -138,22 +147,47 @@ export function assertReadable(doc: Document, read: ReadShape): void {
   // the fix: every integer in every document would become a `bigint`, which
   // `checkValue()` then refuses on a `number` setting.
   //
-  // The test is **distinctness** rather than exactness, which is why 2^53 is
-  // refused along with 2^53+1 although it is itself representable: past
-  // 2^53-1 two integers a file could name collide on one value, so the store
-  // cannot say which was written -- and the message says that rather than
-  // calling an exact value inexact. The number it names is the one the runtime
-  // holds, which for the hex spelling is not the digits in the file; that is
-  // the honest half, since the digits are exactly what cannot be recovered
+  // Asked of the scalar's **own source text** rather than of its value, for two
+  // reasons a review round measured. A value-only test fires on a **float**
+  // whose value happens to be integral: `a: 1e21` and `a: 1.5e20` were each
+  // refused as "the integer", although the file wrote a float and the double
+  // holds it exactly. And the test is **exactness** rather than the
+  // `Number.isSafeInteger` distinctness this first used, which refused 2^53
+  // itself -- a value the file names unambiguously. `BigInt` of the source
+  // against `BigInt` of the value is exact and base-agnostic, so the hex and
+  // octal spellings need no normalizing: `0x20000000000001` is
+  // `9007199254740993n` against the `9007199254740992n` the double holds, while
+  // `150000000000000000000` and `9007199254740992` each come back equal and are
+  // taken. What it refuses is exactly the set whose digits do not survive, and
+  // the message names both numbers because the digits are what is lost.
+  //
+  // `canRepresent()` refuses the mirror of this set, which is what stops the
+  // store writing a file its own next read would refuse -- and the mirror is
+  // the *same* rule asked of the other side: this refuses a **source** whose
+  // digits the double does not hold, and that refuses a **double** whose
+  // printing is not the double.
   const counted = (node: Node): void => {
     const value = (node as { value?: unknown }).value;
+    const source = (node as { source?: unknown }).source;
+
     if (
-      fault === undefined &&
-      typeof value === 'number' &&
-      Number.isInteger(value) &&
-      !Number.isSafeInteger(value)
+      fault !== undefined ||
+      typeof value !== 'number' ||
+      typeof source !== 'string' ||
+      !INTEGER_SOURCE.test(source)
     ) {
-      fault = __`${read.what}:${lineAt(node, read)}: the integer ${String(value)} is past 2^53-1, where this runtime cannot tell two integers apart`;
+      return;
+    }
+
+    // a source so long the double cannot hold it at all, where `BigInt()` of
+    // the value throws rather than disagreeing
+    if (!Number.isFinite(value)) {
+      fault = __`${read.what}:${lineAt(node, read)}: the integer ${source} is larger than this runtime can hold at all`;
+      return;
+    }
+
+    if (BigInt(source) !== BigInt(value)) {
+      fault = __`${read.what}:${lineAt(node, read)}: the integer ${source} is not exactly representable; it would read back as ${String(value)}`;
     }
   };
 
