@@ -324,10 +324,10 @@ describe('what importing the package costs', () => {
     const graph = staticGraph('config.mjs');
     const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
 
-    // 37,966 B over seven modules, of which about 9.9 KB is what it starts
+    // 37,966 B over seven modules, of which 9,880 B over six is what it starts
     // from: `paths.mjs`, `i18n.mjs`, the `transform` and `debug` chunks, the
     // 66-byte `env-value` chunk the parser shares, and the 525-byte
-    // `mkdir-owner-sync` one the update cache shares. The graph is 4.9x the root
+    // `mkdir-owner-sync` one the update cache shares. The graph is 5.05x the root
     // entry's 7,518 B and a sixth of `components.mjs`'s 239,929 B over 26 --
     // all three measured the same way, which is the only comparison that means
     // anything. It was 20,649 B over six before the write half, so the span

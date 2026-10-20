@@ -17961,15 +17961,16 @@ without destroying it is SIG-154's.
 
 - **It imports no parser module at all, and that is a test rather than a
   coincidence.** Measured as transitive static import byte weight off `dist/`:
-  **32,625 B over seven modules**, of which **9,880 B over six** is what it starts
-  from -- `paths.mjs`, the `transform` chunk, which is `transform`, `i18n` and
-  `debug`, the 66-byte `env-value` chunk the parser shares, and the 525-byte
+  **37,966 B over seven modules**, of which **9,880 B over six** is what it starts
+  from -- `paths.mjs`, `i18n.mjs`, the `transform` and `debug` chunks, the
+  66-byte `env-value` chunk the parser shares, and the 525-byte
   `mkdir-owner-sync` one the update cache shares. So the module itself is
-  22,745 B, and the graph is **4.3x** the root entry's 7,518 B and an **eighth**
+  28,086 B, and the graph is **5.05x** the root entry's 7,518 B and a **sixth**
   of `components.mjs`'s 239,929 B over 26 -- all three measured the
   same way, which is the only comparison that means anything. It was
   **20,649 B over six** before SIG-154, which is the write half costing about
-  11.5 kB, and **32,523 B** before SIG-149's store kit. Re-derived after every
+  11.5 kB, **32,523 B** before SIG-149's store kit, and **32,625 B** before
+  SIG-153's watcher, which is 5,341 B and no new module. Re-derived after every
   change that moved it: a figure only a re-run can confirm is the stale snapshot
   this file warns about -- and a running tally of how many times is a second
   such figure, which is why there is no longer one. The two copies of that tally
@@ -20852,7 +20853,7 @@ defect lives.
 
 #### What the write half costs
 
-- **The config module's graph is 32,625 B over seven modules**, against 20,649 B
+- **The config module's graph was 32,625 B over seven modules**, against 20,649 B
   over six for the read half -- so the span writer, the atomic write and the
   representability check are about 11.5 kB between them, which is measured
   before the store kit's own 102 B joined the entry and is why the two figures
@@ -22382,7 +22383,7 @@ had counted.
   edit at the line somebody pointed at.
 
   Measured rather than taken from the three sources that already agreed, because
-  three agreeing copies is still one claim: the shipped graph is **32,625 B over
+  three agreeing copies is still one claim: the shipped graph was **32,625 B over
   seven modules** with the module itself at **22,745 B**, and the same tree built
   in a worktree with the six store-kit exports removed is **32,523 B over the
   same seven** -- 102 bytes, confirmed from both ends rather than from the

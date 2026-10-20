@@ -3147,7 +3147,7 @@ import { createConfigSync, json, object } from '@ttylabs/sigil/config';
 ```
 
 It imports no parser module at all, which makes it usable from an app that does
-not use sigil's parser. The subpath is about 31 kB over seven modules — `paths`,
+not use sigil's parser. The subpath is about 37 kB over seven modules — `paths`,
 the type coercion, i18n, the debug logger, the environment-variable rule the
 parser shares, the directory creation the update cache shares, and the module
 itself — which is a module rather than anything like `sigil/components`.
