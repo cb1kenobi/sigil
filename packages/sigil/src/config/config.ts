@@ -39,6 +39,14 @@ const DEFAULTS = '<schema defaults>';
 const ENVIRONMENT = '<environment>';
 
 /**
+ * A store source the watcher cannot read as a file path.
+ *
+ * `://` rather than a bare scheme, for the reason `#start()` gives: a Windows
+ * drive letter is one character before its colon and a URL has the slashes.
+ */
+const URL_SOURCE = /^[a-z][a-z\d+.-]*:\/\//i;
+
+/**
  * Whether a store will write.
  *
  * The type guard the two-interface split exists for: read-only is a *type* here
@@ -655,12 +663,28 @@ export class Config {
     for (const layer of this.#layers) {
       const at = layer.declared.store.source;
       // a store with no source is an object layer, which `apply()` is the way
-      // into the diff for. A source that is not a file path -- a URL -- is read
-      // as one anyway, which is the declared limit rather than a guess: nothing
-      // here can tell a path from a URL on every platform, `C:\x` and
-      // `https://x` differ by more than a scheme, and no store in this
-      // repository or either sibling has one
+      // into the diff for
       if (typeof at !== 'string' || !at) {
+        continue;
+      }
+
+      // and a source that is **not a file path** is skipped and said out loud.
+      // `ConfigStore.source` is documented as "a path, a URL, or nothing", so
+      // the interface invites one -- and read as a path a URL climbs from
+      // `<cwd>/https:/host` to the working directory and watches that, which is
+      // a watcher that is dead and says nothing. Reported rather than silently
+      // skipped, because a layer with a source looks watchable where one with
+      // none does not. Found by review.
+      //
+      // Matched on `://` rather than on a scheme, which is what keeps a Windows
+      // drive letter out of it: `C:\x` is one character before the colon and
+      // every URL a store would report has the slashes. A POSIX path really can
+      // hold a colon, and one holding `://` is a path `resolve()` collapses
+      if (URL_SOURCE.test(at)) {
+        // not translated: a store's own source is the app's
+        this.#onError(
+          new Error(`Config layer "${layer.name}" has a source that is not a file path: ${at}`)
+        );
         continue;
       }
 
@@ -1479,8 +1503,20 @@ function assertEnv(env: ConfigOptions['env']): void {
  * whose whole purpose is the filesystem where the other choice does not work.
  * Not translated: these are the app's own.
  *
+ * The three fields with no coercion are refused here too, and the asymmetry with
+ * `debounce` and `interval` has a reason rather than being an oversight. A
+ * **delay** that is not a finite number at or above zero falls back, which is
+ * the rule every timer option in this library keeps. A **function** has nothing
+ * to fall back to that is not a different answer: a `source` that is not one
+ * would silently get the built-in watcher, so an app that handed over its own
+ * file watcher would be watching with ours and never know, and an `onError`
+ * that is not one would send every report to a debug log nobody reads. And
+ * `poll` is neither -- a truthy non-boolean read as `true` or a non-`true`
+ * value read as `false` is the "works in dev, dead in Docker" failure the
+ * option exists to prevent, chosen by a typo.
+ *
  * @param watch - What the caller passed.
- * @throws If it is there and is not an object.
+ * @throws If it is there and is not an object, or a field cannot mean anything.
  */
 function assertWatch(watch: ConfigOptions['watch']): void {
   if (watch === undefined) {
@@ -1488,6 +1524,15 @@ function assertWatch(watch: ConfigOptions['watch']): void {
   }
   if (typeof watch !== 'object' || watch === null || Array.isArray(watch)) {
     throw new Error('Config watch options must be an object');
+  }
+  for (const field of ['onError', 'source'] as const) {
+    const it = watch[field];
+    if (it !== undefined && typeof it !== 'function') {
+      throw new Error(`Config watch ${field} must be a function`);
+    }
+  }
+  if (watch.poll !== undefined && typeof watch.poll !== 'boolean') {
+    throw new Error('Config watch poll must be a boolean');
   }
 }
 

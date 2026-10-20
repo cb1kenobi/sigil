@@ -118,6 +118,14 @@ export interface ConfigStore {
    * `delete()` has to print names two paths -- the one to write instead and the
    * one to edit by hand -- and a layer name is what the app chose to call it,
    * which is not a file a user can open.
+   *
+   * `Config.watch()` reads it as a **file path**, which is the one place the
+   * three answers are not interchangeable: a store with no source is not
+   * watched and `apply()` is how it participates in the diff, and one whose
+   * source holds `://` is not watched either and says so through
+   * `WatchOptions.onError` -- because read as a path a URL would climb to the
+   * working directory and watch that, which is a watcher that is dead and says
+   * nothing.
    */
   readonly source?: string;
 }

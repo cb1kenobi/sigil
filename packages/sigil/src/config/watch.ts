@@ -68,6 +68,24 @@ export const DEFAULT_DEBOUNCE = 50;
 export const DEFAULT_INTERVAL = 1000;
 
 /**
+ * The fastest `interval` is allowed to be.
+ *
+ * `debounce` has no floor because zero means "do not wait", which fires once.
+ * An **interval repeats forever**, so zero is not a rate but a spin:
+ * `setInterval(fn, 0)` is clamped by node to 1ms, measured, so
+ * `watch: { interval: 0 }` over a directory that does not exist yet put a
+ * `statSync` of the ancestor chain through a thousand times a second for the
+ * life of the process. A type-correct option producing a permanent busy loop,
+ * found by review.
+ *
+ * Clamped rather than fallen back to the default, which is the other end of the
+ * same rule: somebody who wrote `0` meant "as fast as you can", and a hundred
+ * stats a second is the point below which the number has stopped meaning how
+ * often.
+ */
+const MIN_INTERVAL = 10;
+
+/**
  * How many times the climb may fail before it gives up.
  *
  * It fails only where the directory it just found has vanished between the
@@ -86,7 +104,11 @@ const MAX_CLIMB = 32;
  * The path form's own compare lives in the closure rather than in the dispatch,
  * which is what makes that true.
  */
-export type Watcher = (changes: readonly ConfigChange[], before: unknown, after: unknown) => void;
+export type Watcher = (
+  changes: readonly ConfigChange[],
+  before: unknown,
+  after: unknown
+) => unknown;
 
 /**
  * Whether two merged values are the same thing.
@@ -124,16 +146,29 @@ export type Watcher = (changes: readonly ConfigChange[], before: unknown, after:
  * @returns Whether an app would see the same thing.
  */
 export function sameValue(a: unknown, b: unknown): boolean {
-  if (Object.is(a, b)) {
+  if (sameLeaf(a, b)) {
     return true;
   }
 
-  const kind = Object.prototype.toString.call(a);
-  if (kind === '[object Date]') {
-    return (
-      Object.prototype.toString.call(b) === '[object Date]' &&
-      Object.is((a as Date).getTime(), (b as Date).getTime())
-    );
+  if (
+    Object.prototype.toString.call(a) === '[object Date]' &&
+    Object.prototype.toString.call(b) === '[object Date]'
+  ) {
+    // `getTime` is read before it is called, because that test honours
+    // `Symbol.toStringTag`: a class instance with
+    // `get [Symbol.toStringTag]() { return 'Date' }` and no such method answers
+    // `[object Date]` here, and an object layer carries a class instance by
+    // reference. Measured -- `apply()` threw `e.getTime is not a function`
+    // *after* assigning the layer, so the caller was told the apply failed while
+    // the config had already changed, and in a reload the same throw escapes a
+    // timer callback. Found by review. Where either is not callable this falls
+    // through to the structural walk, which answers `false` for two values
+    // `sameLeaf()` has already said are not the same thing
+    const mine = (a as Date).getTime;
+    const theirs = (b as Date).getTime;
+    if (typeof mine === 'function' && typeof theirs === 'function') {
+      return sameLeaf(mine.call(a), theirs.call(b));
+    }
   }
 
   if (Array.isArray(a)) {
@@ -149,6 +184,31 @@ export function sameValue(a: unknown, b: unknown): boolean {
   }
 
   return false;
+}
+
+/**
+ * Whether two leaves are the same value.
+ *
+ * `===` rather than `Object.is`, with `NaN` added back. The difference between
+ * them is `0` and `-0`, and `Object.is` reads those as two values -- which was
+ * a spurious publish after **our own write**: `JSON.stringify(-0)` is `"0"`, so
+ * a `set('n', -0)` followed by `save()` writes `0`, the reload reads `0`, and
+ * handlers were handed a change nobody made. Measured, and found by review.
+ * Nothing a config can observe tells the two apart and the one store that could
+ * write the difference cannot, so they are one number here.
+ *
+ * `NaN` is equal to itself for the opposite reason: an object layer can hold one
+ * and `===` would report it as moved on every reload.
+ *
+ * @param a - One leaf.
+ * @param b - The other.
+ * @returns Whether they are the same value.
+ */
+function sameLeaf(a: unknown, b: unknown): boolean {
+  return (
+    a === b ||
+    (typeof a === 'number' && typeof b === 'number' && Number.isNaN(a) && Number.isNaN(b))
+  );
 }
 
 /**
@@ -219,18 +279,45 @@ export function diffMerged(before: unknown, after: unknown): ConfigChange[] {
  */
 function diffInto(before: unknown, after: unknown, at: string, out: ConfigChange[]): void {
   if (isPlainObject(before) && isPlainObject(after)) {
-    const keys = [...Object.keys(before), ...Object.keys(after).filter((k) => !(k in before))];
+    // `Object.hasOwn`, not `k in before`: `in` walks the prototype chain, so
+    // `'toString' in {}` is `true` and a key **added** under any name
+    // `Object.prototype` has -- `toString`, `valueOf`, `hasOwnProperty`,
+    // `isPrototypeOf`, `toLocaleString` -- never entered this list. Measured:
+    // `{}` becoming `{"toString": 42}` left `get('toString')` answering `42`
+    // with every handler told nothing, because an empty diff dispatches
+    // nothing. `__proto__` and `constructor` are unreachable only because
+    // `copyValue()` refuses them; these are ordinary JSON keys nothing refuses.
+    // The question `sameValue()` one function up already asks the same way, and
+    // found by review
+    const keys = [
+      ...Object.keys(before),
+      ...Object.keys(after).filter((k) => !Object.hasOwn(before, k)),
+    ];
+
+    /**
+     * What one side holds at a key, which is **its own** or nothing.
+     *
+     * The other half of the same defect, and the sharper one: `before[key]` for
+     * a key only the prototype has answers with the inherited member, so
+     * `{}` becoming `{"toString": 42}` reported `previous` as
+     * `Object.prototype.toString` -- a function, where `get()` on that view
+     * answers `undefined`, because `readPath()` reads with `Object.hasOwn`. So
+     * the diff and `get()` disagreed about what had been there. Found by the
+     * test written for the key-list half
+     */
+    const own = (it: Record<string, unknown>, key: string): unknown =>
+      Object.hasOwn(it, key) ? it[key] : undefined;
 
     // asked before anything is emitted, so that the "one change at the parent"
     // answer and the per-key answers are never both produced for one object
-    if (keys.some((key) => !expressible(key) && !sameValue(before[key], after[key]))) {
+    if (keys.some((key) => !expressible(key) && !sameValue(own(before, key), own(after, key)))) {
       out.push({ path: at, previous: before, value: after });
       return;
     }
 
     for (const key of keys) {
       if (expressible(key)) {
-        diffInto(before[key], after[key], at === '' ? key : `${at}.${key}`, out);
+        diffInto(own(before, key), own(after, key), at === '' ? key : `${at}.${key}`, out);
       }
     }
     return;
@@ -266,9 +353,11 @@ export function pathWatcher(
   return (_changes, before, after) => {
     const previous = readPath(before, parts);
     const value = readPath(after, parts);
-    if (!sameValue(previous, value)) {
-      handler({ path, previous, value });
-    }
+    // **returned**, not discarded: what comes back is the handler's own, and a
+    // handler written `async` returns a promise the dispatch has to be able to
+    // see. Swallowing it here is what made the rejection unhandled even with
+    // the dispatch's own guard in place
+    return sameValue(previous, value) ? undefined : handler({ path, previous, value });
   };
 }
 
@@ -279,9 +368,8 @@ export function pathWatcher(
  * @returns The registration.
  */
 export function allWatcher(handler: (changes: readonly ConfigChange[]) => void): Watcher {
-  return (changes) => {
-    handler(changes);
-  };
+  // returned rather than discarded, for `pathWatcher()`'s reason
+  return (changes) => handler(changes);
 }
 
 /**
@@ -319,7 +407,19 @@ export function dispatch(
       continue;
     }
     try {
-      watcher(changes, before, after);
+      const settled: unknown = watcher(changes, before, after);
+      // a handler written `async` returns a promise, and a `try` cannot catch a
+      // rejection -- so `config.watch(async () => { throw ... })` was an
+      // **unhandled rejection** from a timer callback, which is the one thing
+      // `WatchOptions.onError` says must not happen, on the half of the
+      // handlers apps actually write. Duck-typed rather than `instanceof
+      // Promise`, which is false across realms. It is still fire-and-forget --
+      // nothing awaits it, so a second change can be dispatched before the
+      // first handler finished -- and what is added is that its failure is
+      // reported rather than lost. Found by review
+      if (typeof (settled as { then?: unknown } | null)?.then === 'function') {
+        void (settled as Promise<unknown>).catch(onError);
+      }
     } catch (e: unknown) {
       onError(e);
     }
@@ -338,16 +438,26 @@ export function dispatch(
  */
 export function reporter(opts: WatchOptions): (error: unknown) => void {
   const { onError } = opts;
-  if (typeof onError === 'function') {
+  // a **narrowing** rather than a guard since `assertWatch()` refuses a
+  // non-function, which is where an option the app got wrong belongs -- so what
+  // is left here is `undefined`, and this is how the type says so
+  if (onError !== undefined) {
     return (e: unknown) => {
       try {
         onError(e);
-      } catch {
+      } catch (failed: unknown) {
         // a reporter that throws has nowhere left to report to, and raising
         // from here would take down whatever was being told -- a reload, or
         // another handler's turn. The same call `beforeError` makes for a hook
-        // that throws: logged and skipped
+        // that throws: logged and skipped.
+        //
+        // **Both**, which is the correction: the original must not be lost,
+        // because losing it is what this whole path exists to prevent, and the
+        // reporter's own failure is a second thing worth knowing. The first
+        // version logged `e` alone under a comment that read as though it
+        // logged the reporter's, which is the wrong one of the two to drop
         logError(e);
+        logError(failed);
       }
     };
   }
@@ -367,11 +477,16 @@ export function reporter(opts: WatchOptions): (error: unknown) => void {
  * @param fallback - The default.
  * @returns A delay.
  */
-export function delay(value: number | undefined, fallback: number): number {
+export function delay(value: number | undefined, fallback: number, min = 0): number {
+  // the `typeof` is what **narrows**, not what guards: `Number.isFinite()` does
+  // not coerce, so it already answers `false` for a string and for `undefined`
+  // -- and it is not a type guard, so without this the comparison below is a
+  // type error. A sabotage reported it as a survivor, which is the right answer
+  // about behaviour and the wrong one about why the line is there
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
     return fallback;
   }
-  return Math.min(value, 2 ** 31 - 1);
+  return Math.min(Math.max(value, min), 2 ** 31 - 1);
 }
 
 /**
@@ -381,10 +496,16 @@ export function delay(value: number | undefined, fallback: number): number {
  * @returns The source.
  */
 export function createSource(opts: WatchOptions): WatchSource {
+  // both tests here are **equivalent spellings** rather than guards, and a
+  // sabotage of each is a declared survivor: `assertWatch()` refuses a
+  // non-function `source` and a non-boolean `poll`, so what is left of either is
+  // `undefined` -- which is falsy, so truthiness answers the same. They are
+  // written this way because each says what the field can hold, where
+  // truthiness would leave a reader to work it out
   if (typeof opts.source === 'function') {
     return opts.source;
   }
-  const interval = delay(opts.interval, DEFAULT_INTERVAL);
+  const interval = delay(opts.interval, DEFAULT_INTERVAL, MIN_INTERVAL);
   return opts.poll === true ? pollSource(interval) : fsSource(interval);
 }
 
@@ -421,12 +542,11 @@ function pollSource(interval: number): WatchSource {
     // the event source gives: there is no window in which it is ref'd
     watchFile(at, { interval, persistent: false }, listener);
 
-    let live = true;
+    // no latch, because `unwatchFile(path, listener)` removes that listener and
+    // answers for a listener it does not hold: calling it twice is a no-op, so a
+    // flag beside it changed nothing and is the guard this repository deletes
     return () => {
-      if (live) {
-        live = false;
-        unwatchFile(at, listener);
-      }
+      unwatchFile(at, listener);
     };
   };
 }
@@ -552,15 +672,18 @@ function fsSource(interval: number): WatchSource {
     }
   };
 
-  /** Tells whoever is listening for a file in this directory. */
+  /**
+   * Tells whoever is listening for a file in this directory.
+   *
+   * No copy and no membership check, unlike every other handler set here, and
+   * the reason is the one caller: a listener is `Config`'s own, and all it does
+   * is set a debounce timer -- it registers nothing and disposes nothing, so
+   * neither rule can fire. A `Set` tolerates being mutated while it is iterated
+   * besides, so what the copy would buy is not even an exception.
+   */
   const notify = (entry: Dir): void => {
-    // a copy and a `has` here too, for the dispatch's own two reasons: one
-    // layer's reload can stop another's watch
-    // eslint-disable-next-line unicorn/no-useless-spread
-    for (const listener of [...entry.listeners]) {
-      if (entry.listeners.has(listener)) {
-        listener();
-      }
+    for (const listener of entry.listeners) {
+      listener();
     }
   };
 
@@ -569,8 +692,12 @@ function fsSource(interval: number): WatchSource {
     try {
       const watcher = fsWatch(at, { persistent: false, recursive: false }, () => {
         // the event itself is never read: not `eventType`, not `filename`.
-        // Re-target **first**, so that a file in a directory that just appeared
-        // is watched before anybody is told it may have changed
+        //
+        // Re-target before telling anybody, which is a **statement rather than
+        // a claim**: the two are one synchronous block, so no write can land
+        // between them and a sabotage that swaps them changes no answer. It is
+        // written this way because a listener told about a path should be told
+        // about one that is already being watched, and the order costs nothing
         retarget(dir, entry);
         notify(entry);
       });
@@ -582,8 +709,17 @@ function fsSource(interval: number): WatchSource {
       // as an ordinary event instead, measured, which the re-target above
       // already handles; this is the platforms where it does not
       watcher.on('error', () => {
+        // and **notify**, which is what the event callback above does and what
+        // this did not: on a platform where removing the watched directory
+        // arrives as an error rather than an event -- which is the only reason
+        // this branch exists -- the watch climbed to the ancestor and nobody was
+        // told the file had gone, so `get()` went on answering the deleted
+        // file's values for the life of the process. The probe cannot cover it
+        // either: it tells the listeners only where it **moved**, and the
+        // re-target here has already moved. Found by review
         close(entry);
         retarget(dir, entry);
+        notify(entry);
       });
 
       entry.at = at;
@@ -635,12 +771,26 @@ function fsSource(interval: number): WatchSource {
    */
   const retarget = (dir: string, entry: Dir): boolean => {
     const was = entry.at;
+    let tried: string | undefined;
 
     for (let tries = 0; tries < MAX_CLIMB; tries++) {
       const at = deepest(dir);
       if (entry.watcher && at === entry.at) {
         break;
       }
+
+      // the same level twice means the failure was **not** the directory
+      // vanishing -- `EMFILE`, a watcher limit, a permission -- and retrying it
+      // cannot help. Without this the loop tried one directory 32 times in a row
+      // and the probe repeated those 32 attempts every interval for as long as
+      // the failure lasted, which under `EMFILE` is the recovery path amplifying
+      // the pressure it is recovering from. It is also what makes `MAX_CLIMB` a
+      // bound on the **depth**, which is what its own comment claims. Found by
+      // review; `settle()` below is what tries again later
+      if (at === tried) {
+        break;
+      }
+      tried = at;
 
       close(entry);
       if (open(dir, entry, at)) {
@@ -665,6 +815,19 @@ function fsSource(interval: number): WatchSource {
     entry.listeners.add(onEvent);
     const held = entry;
 
+    // a latch, unlike the poll source's, and a review round is what established
+    // the difference. `Set.delete` answering for something it does not hold is
+    // enough while this entry is still the one in the map; it is not once the
+    // directory has been torn down and re-registered. Two files in one
+    // directory, both disposers called -- so the entry is closed and
+    // `dirs.delete(dir)` has run -- then a third file registered, which makes a
+    // **new** entry, then the first disposer called again: `held` is the old
+    // entry, its listener set is empty, so it re-enters the branch below and
+    // deletes the *new* entry from the map, after which the next registration
+    // opens a second `fs.watch` on the same directory. `Config`'s own disposer
+    // guards that off today, so it is unreachable through `watch()` -- and the
+    // contract `WatchSource` is written against is a disposer safe to call more
+    // than once, which this is the whole of
     let live = true;
     return () => {
       if (!live) {

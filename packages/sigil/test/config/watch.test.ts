@@ -120,19 +120,54 @@ describe('sameValue', () => {
   });
 
   it('should hold a key an object has from one whose value is undefined', () => {
-    // `Object.hasOwn`, not `b[key] === undefined`: a key written `undefined` is
-    // a key the walk has to see, or `{ a: undefined }` and `{}` compare equal
-    // and a change between them publishes nothing
+    // the key **count** answers this one, which is why the input below exists
     expect(sameValue({ a: undefined }, {})).toBe(false);
+    // and this is what `Object.hasOwn` is for rather than `b[key] === undefined`:
+    // two objects with the same number of keys, different keys, and `undefined`
+    // on both sides of the read. Without it the walk compares `undefined` with
+    // `undefined` and reports two different objects as the same thing
+    expect(sameValue({ a: undefined }, { b: undefined })).toBe(false);
   });
 
   it('should make NaN equal to itself, which an object layer can hold', () => {
-    // `Object.is` rather than `===`, or a `NaN` in an object layer reads as
-    // moved on every reload
+    // or a `NaN` in an object layer reads as moved on every reload
     expect(sameValue(Number.NaN, Number.NaN)).toBe(true);
     expect(sameValue({ a: Number.NaN }, { a: Number.NaN })).toBe(true);
-    // and the cost of that choice, which is a change somebody really wrote
-    expect(sameValue(0, -0)).toBe(false);
+  });
+
+  it('should read 0 and -0 as one number, because our own write cannot tell them apart', () => {
+    // `Object.is` read these as two values, which was a spurious publish after
+    // **our own save**: `JSON.stringify(-0)` is `"0"`, so a `set('n', -0)` plus
+    // `save()` writes `0`, the reload reads `0`, and handlers were handed a
+    // change nobody made. Found by review
+    expect(sameValue(0, -0)).toBe(true);
+    expect(sameValue({ n: -0 }, { n: 0 })).toBe(true);
+  });
+
+  it('should not call getTime on something that only claims to be a Date', () => {
+    // `Object.prototype.toString` honours `Symbol.toStringTag`, so a class
+    // instance can answer `[object Date]` with no such method -- and an object
+    // layer carries a class instance by reference. Measured: this threw
+    // `e.getTime is not a function` out of `apply()` *after* the layer was
+    // assigned, so the caller was told the apply failed while the config had
+    // already changed. Found by review
+    class Claims {
+      get [Symbol.toStringTag](): string {
+        return 'Date';
+      }
+    }
+    const one = new Claims();
+    expect(() => sameValue(one, new Claims())).not.toThrow();
+    expect(sameValue(one, new Claims())).toBe(false);
+    // the same instance is still the same instance, by identity
+    expect(sameValue(one, one)).toBe(true);
+    // and a real Date beside one of these is not a crash either
+    expect(() => sameValue(new Date(5), one)).not.toThrow();
+    expect(sameValue(new Date(5), one)).toBe(false);
+    expect(sameValue(one, new Date(5))).toBe(false);
+    // two invalid Dates are the same invalid Date rather than a change on
+    // every reload, which is `NaN`'s own rule read through `getTime()`
+    expect(sameValue(new Date(Number.NaN), new Date(Number.NaN))).toBe(true);
   });
 
   it('should compare anything the merge carries by reference by identity', () => {
@@ -169,6 +204,24 @@ describe('diffMerged', () => {
     // which is what an app watching `exclude` wants: a list is a value
     expect(diffMerged({ x: [1, 2] }, { x: [1, 3] })).to.deep.equal([
       { path: 'x', previous: [1, 2], value: [1, 3] },
+    ]);
+  });
+
+  it('should report a key added under a name Object.prototype has', () => {
+    // `k in before` walks the prototype chain, so `'toString' in {}` is `true`
+    // and an added `toString` never entered the key list at all -- measured,
+    // `get('toString')` answered `42` with every handler told nothing. These are
+    // ordinary JSON keys: `__proto__` and `constructor` are unreachable only
+    // because `copyValue()` refuses them, and nothing refuses these. Found by
+    // review
+    for (const key of ['toString', 'valueOf', 'hasOwnProperty', 'isPrototypeOf']) {
+      expect(diffMerged({}, { [key]: 42 }), key).to.deep.equal([
+        { path: key, previous: undefined, value: 42 },
+      ]);
+    }
+    // and one nested, so it is the walk rather than the root
+    expect(diffMerged({ s: {} }, { s: { toString: 1 } })).to.deep.equal([
+      { path: 's.toString', previous: undefined, value: 1 },
     ]);
   });
 
@@ -248,11 +301,15 @@ describe('watch()', () => {
     const { config, source, store } = watched({ a: 1 });
     let fired = 0;
     config.watch(() => fired++);
+    // **after** the watch, because `createConfigSync` already read the store
+    // once at construction -- so a `> 0` here passes with the reload deleted,
+    // which is what this test is for. Found by review
+    const before = store.reads();
 
     source.fire();
     vi.advanceTimersByTime(50);
 
-    expect(store.reads()).toBeGreaterThan(0);
+    expect(store.reads() - before).toBe(1);
     expect(fired).toBe(0);
   });
 
@@ -344,6 +401,7 @@ describe('watch()', () => {
     });
     let fired = 0;
     config.watch(() => fired++);
+    const reads = store.reads();
 
     store.set({ a: 2 });
     source.fire();
@@ -351,8 +409,11 @@ describe('watch()', () => {
 
     expect(fired).toBe(0);
     expect(config.get('a')).toBe(99);
-    // and the layer really did reload, so the shadow is what suppressed it
-    expect(config.layers[0]?.dirty).toBe(false);
+    // and the layer really did **read**, so the shadow is what suppressed the
+    // publish rather than nothing having happened. `dirty` was the first
+    // spelling of this and is `false` before the event too, so it passed with
+    // the watcher never registered. Found by review
+    expect(store.reads() - reads).toBe(1);
   });
 
   it('should hand a path handler its own value rather than a change it was near', () => {
@@ -433,6 +494,32 @@ describe('watch()', () => {
     // and the one registered during it did not see the event it was born in
     expect(added).toBe(0);
     expect(errors).to.deep.equal([]);
+  });
+
+  it('should report an async handler that rejected rather than losing it', async () => {
+    // a `try` cannot catch a rejection, and the handler types return `void`, so
+    // TypeScript takes an `async` one happily: `config.watch(async () => {
+    // throw ... })` was an **unhandled rejection** from a timer callback, which
+    // is the one thing `onError` says must not happen. Found by review
+    const { config, errors, source, store } = watched({ a: 1 });
+    let after = 0;
+    config.watch(async () => {
+      await Promise.resolve();
+      throw new Error('async handler');
+    });
+    config.watch(() => after++);
+
+    store.set({ a: 2 });
+    source.fire();
+    vi.advanceTimersByTime(50);
+    // the rejection lands on a later microtask, which is what fire-and-forget
+    // means: nothing awaits the handler
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(after).toBe(1);
+    expect(errors).toHaveLength(1);
+    expect((errors[0] as Error).message).toBe('async handler');
   });
 
   it('should report a handler that threw and still run the rest', () => {
@@ -549,6 +636,46 @@ describe('watch()', () => {
     expect(config.layers[0]?.dirty).toBe(false);
   });
 
+  it('should leave the merged view it was holding, object and all', () => {
+    // a reload that publishes nothing must change nothing **observable**, and
+    // the identity of what `get()` hands back is observable: an app that keeps
+    // a reference and compares it -- a memo, a render cache -- would see a
+    // change where the file said the same thing
+    const { config, source } = watched({ server: { port: 1 } });
+    config.watch(() => {});
+    const before = config.get('server');
+
+    source.fire();
+    vi.advanceTimersByTime(50);
+
+    expect(config.get('server')).toBe(before);
+  });
+
+  it('should report a source disposer that threw and still call the rest', () => {
+    // put back what was attached, and keep going: a source whose disposer throws
+    // must not strand the others
+    const stopped: string[] = [];
+    const errors: unknown[] = [];
+    const config = createConfigSync({
+      layers: [
+        { name: 'a', store: stubStore({}) },
+        { name: 'b', store: stubStore({}) },
+      ],
+      watch: {
+        onError: (e) => errors.push(e),
+        source: ((path: string) => () => {
+          stopped.push(path);
+          throw new Error(`disposer ${stopped.length}`);
+        }) as never,
+      },
+    });
+
+    const stop = config.watch(() => {});
+    expect(() => stop()).not.toThrow();
+    expect(stopped).toHaveLength(2);
+    expect(errors).toHaveLength(2);
+  });
+
   it('should clear dirty on a reload that published nothing', () => {
     // a successful read means the layer **is** what the file says, which is
     // exactly what `dirty` reports -- the compare decides whether to publish,
@@ -621,9 +748,33 @@ describe('watch()', () => {
     expect(fired).toBe(1);
   });
 
-  it('should put the latch back after a handler threw', () => {
-    // the `finally`, because a layer left deaf for the life of the process is
-    // worse than the throw
+  it('should keep reloading after a reload that published nothing', () => {
+    // the `finally`'s real job, which is **the early returns** rather than a
+    // throw: `#reload` returns from inside the `try` three times -- a retry, a
+    // report, and an unchanged value -- and a `return` inside a `try` skips
+    // anything after the block, so without the `finally` the first unchanged
+    // reload would leave the layer latched for the life of the process. A
+    // review round read the latch as only reachable by a throw; the sabotage
+    // that moves the delete out of the `finally` is caught by this shape
+    const { config, source, store } = watched({ a: 1 });
+    let fired = 0;
+    config.watch(() => fired++);
+
+    // an unchanged read, which takes the early return
+    source.fire();
+    vi.advanceTimersByTime(50);
+    expect(fired).toBe(0);
+
+    store.set({ a: 2 });
+    source.fire();
+    vi.advanceTimersByTime(50);
+    expect(fired).toBe(1);
+  });
+
+  it('should keep reloading after a handler threw', () => {
+    // a handler's throw never reaches `#reload`, because the dispatch catches
+    // it first -- so what this pins is the ordinary exit and that one bad
+    // handler does not stop the next reload, rather than the `finally` itself
     const { config, errors, source, store } = watched({ a: 1 });
     let fired = 0;
     config.watch(() => {
@@ -672,13 +823,57 @@ describe('watch()', () => {
       expect(fired, String(debounce)).toBe(1);
     }
 
-    const { config, source, store } = watched({ a: 1 }, { debounce: 2 ** 40 });
-    let fired = 0;
-    config.watch(() => fired++);
-    store.set({ a: 2 });
-    source.fire();
-    vi.advanceTimersByTime(2 ** 31);
-    expect(fired).toBe(1);
+    // the clamp is read off what `setTimeout` was **handed**, because vitest's
+    // fake timers emulate node's own 32-bit truncation -- so advancing past it
+    // fires either way and an assertion on the firing cannot see the clamp
+    const delays: unknown[] = [];
+    const real = globalThis.setTimeout;
+    const spy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+      ...args: Parameters<typeof real>
+    ) => {
+      delays.push(args[1]);
+      return real(...args);
+    }) as never);
+
+    try {
+      const { config, source } = watched({ a: 1 }, { debounce: 2 ** 40 });
+      config.watch(() => {});
+      source.fire();
+      expect(delays).to.deep.equal([2 ** 31 - 1]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('should refuse to watch a source that is not a file path, and say so', () => {
+    // `ConfigStore.source` is documented as "a path, a URL, or nothing", so the
+    // interface invites one -- and read as a path a URL climbs to the working
+    // directory and watches that, which is a watcher that is dead and says
+    // nothing. Found by review
+    const source = fakeSource();
+    const errors: unknown[] = [];
+    const remote = { ...stubStore({}), source: 'https://example.com/config.json' };
+    const config = createConfigSync({
+      layers: [{ name: 'remote', store: remote }],
+      watch: { onError: (e) => errors.push(e), source },
+    });
+
+    config.watch(() => {});
+    expect(source.live()).toBe(0);
+    expect(errors).toHaveLength(1);
+    expect((errors[0] as Error).message).toContain('not a file path');
+  });
+
+  it('should still watch a Windows drive letter, which is not a scheme', () => {
+    // `C:\\x` is one character before its colon, which is what the `://` form
+    // keeps out of the refusal above
+    const source = fakeSource();
+    const config = createConfigSync({
+      layers: [{ name: 'win', store: { ...stubStore({}), source: 'C:\\app\\config.json' } }],
+      watch: { source },
+    });
+    config.watch(() => {});
+    expect(source.live()).toBe(1);
   });
 
   it('should watch no layer that has no path to watch', () => {
@@ -726,6 +921,32 @@ describe('watch()', () => {
     }
   });
 
+  it('should refuse a field that has nothing to fall back to', () => {
+    // the three with no coercion, where falling back is a **different answer**
+    // rather than a default: a `source` that is not a function would silently
+    // get the built-in watcher, an `onError` that is not one would send every
+    // report to a log nobody reads, and a non-boolean `poll` picks the
+    // works-in-dev-dead-in-Docker failure the option exists to prevent
+    for (const onError of [42, 'log', {}, null] as never[]) {
+      expect(() => createConfigSync({ watch: { onError } })).toThrow(
+        /watch onError must be a function/
+      );
+    }
+    for (const source of [42, 'fs', {}, null] as never[]) {
+      expect(() => createConfigSync({ watch: { source } })).toThrow(
+        /watch source must be a function/
+      );
+    }
+    for (const poll of [1, 0, 'yes', null] as never[]) {
+      expect(() => createConfigSync({ watch: { poll } })).toThrow(/watch poll must be a boolean/);
+    }
+    // and `undefined` is the absence rather than a mistake, which is what makes
+    // the refusals above about a value somebody wrote
+    expect(() =>
+      createConfigSync({ watch: { onError: undefined, poll: undefined, source: undefined } })
+    ).not.toThrow();
+  });
+
   it('should report a source that refused one layer and still start the rest', () => {
     const errors: unknown[] = [];
     let started = 0;
@@ -750,11 +971,12 @@ describe('watch()', () => {
     expect(errors).toHaveLength(1);
   });
 
-  it('should fall back to the debug log where the app named nowhere', () => {
-    // there is no default that can be right -- `console.error` from a library
-    // corrupts a full-screen app's screen and throwing from a timer is an
-    // uncaught exception -- so the floor is the silent one and this says the
-    // absence of `onError` is not a crash
+  it('should not crash where the app named no onError', () => {
+    // named for what it asserts: the floor is the `sigil:config` debug log,
+    // which is silent without `DEBUG`, so nothing here can see it -- and a test
+    // named for the log that asserts `not.toThrow()` would pass with the
+    // logging deleted. That claim is in `watch-debug.test.ts`, which sets the
+    // variable before the import. Found by review
     const store = stubStore({ a: 1 });
     const source = fakeSource();
     const config = createConfigSync({ layers: [{ name: 'u', store }], watch: { source } });
@@ -767,9 +989,10 @@ describe('watch()', () => {
     expect(() => vi.advanceTimersByTime(50)).not.toThrow();
   });
 
-  it('should log an onError that threw rather than raising it', () => {
+  it('should not let an onError that threw stop the handler after it', () => {
     // a reporter with nowhere left to report to: raising from there would take
-    // down whatever was being told -- another handler's turn, or a reload
+    // down whatever was being told -- another handler's turn, or a reload. What
+    // it *logs* is `watch-debug.test.ts`'s, for the reason above
     const store = stubStore({ a: 1 });
     const source = fakeSource();
     const config = createConfigSync({

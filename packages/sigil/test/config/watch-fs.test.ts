@@ -21,7 +21,7 @@
  * code, and `watch-real.test.ts` is where they are measured.
  */
 
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -43,18 +43,38 @@ const live: Fake[] = [];
 /** Which call should fail next, and how many times. */
 let failWatch = 0;
 
+/** Whether a failing `fs.watch` also removes the directory it was given. */
+let vanishOnFail = false;
+
 /** Whether `close()` should throw, which a torn-down watcher really does. */
 let failClose = false;
+
+/** One entry per `fs.watchFile` call, as `poll <path> <interval> <persistent>`. */
+const polls: string[] = [];
 
 vi.mock('node:fs', async (importOriginal) => {
   const real = await importOriginal<typeof import('node:fs')>();
 
   return {
     ...real,
+    unwatchFile(path: string): void {
+      polls.push(`unwatch ${path}`);
+    },
+    watchFile(path: string, opts: { interval: number; persistent: boolean }): unknown {
+      polls.push(`poll ${path} ${opts.interval} ${opts.persistent}`);
+      return undefined;
+    },
     watch(path: string, opts: unknown, listener: (t: string, n: string) => void): unknown {
       calls.push(`watch ${path}`);
       if (failWatch > 0) {
         failWatch--;
+        // the directory can be made to vanish with the failure, which is the
+        // only shape that makes the climb climb: a failure over a directory that
+        // is still there is not the directory vanishing, and retrying the same
+        // level cannot help
+        if (vanishOnFail) {
+          rmSync(path, { force: true, recursive: true });
+        }
         const e = new Error('ENOENT') as Error & { code: string };
         e.code = 'ENOENT';
         throw e;
@@ -94,7 +114,9 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'sigil-watch-fs-'));
   calls.length = 0;
   live.length = 0;
+  polls.length = 0;
   failWatch = 0;
+  vanishOnFail = false;
   failClose = false;
 });
 
@@ -125,6 +147,16 @@ describe('the fs source', () => {
     mkdirSync(dir);
     createSource({})(join(dir, 'config.json'), () => {});
     expect(live[0]?.opts).to.deep.equal({ persistent: false, recursive: false });
+  });
+
+  it('should climb past something that exists and is not a directory', () => {
+    // `statSync()` succeeds for a file, so without asking whether it **is** a
+    // directory the watch lands on one -- and then the climb never moves, since
+    // a file cannot come to hold the config
+    const notADir = join(root, 'cfg');
+    writeFileSync(notADir, 'not a directory');
+    createSource({})(join(notADir, 'config.json'), () => {});
+    expect(calls).to.deep.equal([`watch ${root}`]);
   });
 
   it('should climb to the deepest existing ancestor of a missing directory', () => {
@@ -166,6 +198,26 @@ describe('the fs source', () => {
     rmSync(dir, { recursive: true });
     watching(dir)?.fire();
     expect(calls.at(-1)).toBe(`watch ${root}`);
+  });
+
+  it('should tell the listeners when an error took the directory away', () => {
+    // the error branch exists for the platforms where removing the watched
+    // directory arrives as an error rather than an event -- and it re-targeted
+    // without telling anybody, so `get()` went on answering the deleted file's
+    // values for the life of the process. The probe cannot cover it: it tells
+    // the listeners only where it **moved**, and the re-target here has already
+    // moved. Found by review
+    const dir = join(root, 'cfg');
+    mkdirSync(dir);
+    let told = 0;
+    createSource({ interval: 50 })(join(dir, 'config.json'), () => told++);
+    const it = watching(dir);
+
+    rmSync(dir, { recursive: true });
+    it?.errors[0]?.(new Error('gone'));
+
+    expect(calls.at(-1)).toBe(`watch ${root}`);
+    expect(told).toBe(1);
   });
 
   it('should re-target rather than throw when an error arrives', () => {
@@ -241,6 +293,35 @@ describe('the fs source', () => {
     expect(watching(dir)).toBeUndefined();
   });
 
+  it('should take a disposer called again after the directory was re-registered', () => {
+    // the sequence the latch is really for, which a two-listener fixture cannot
+    // reach: both disposers called, so the entry is closed and removed from the
+    // map, then a third file registered -- which makes a **new** entry -- then
+    // the first disposer called again. Without the latch `held` is the old
+    // entry, its listener set is empty, so it deletes the new entry from the map
+    // and the next registration opens a second watcher on the same directory.
+    // Found by review, after a sabotage had reported the latch as inert
+    const dir = join(root, 'cfg');
+    mkdirSync(dir);
+    const source = createSource({});
+    const stopA = source(join(dir, 'one.json'), () => {});
+    const stopB = source(join(dir, 'two.json'), () => {});
+    stopA();
+    stopB();
+    expect(watching(dir)).toBeUndefined();
+
+    source(join(dir, 'three.json'), () => {});
+    expect(watching(dir)).toBeDefined();
+
+    stopA();
+    // still exactly one watcher for this directory, and a fourth registration
+    // shares it rather than opening a second
+    const was = calls.length;
+    source(join(dir, 'four.json'), () => {});
+    expect(calls.length).toBe(was);
+    expect(live.filter((it) => it.path === dir && !it.closed)).toHaveLength(1);
+  });
+
   it('should watch each directory separately', () => {
     const a = join(root, 'a');
     const b = join(root, 'b');
@@ -254,21 +335,41 @@ describe('the fs source', () => {
 
   it('should climb again where the directory it just found has gone', () => {
     // the only way `fs.watch` fails after a `statSync` said the directory is
-    // there, and each failure is one level nearer a root that does not vanish
+    // there. The fixture has to **remove** it, which the first version did not:
+    // it left the directory in place and expected two attempts at the same one,
+    // which is the behaviour the retry fix deliberately stopped. Found by
+    // following a review finding about the comment
     const dir = join(root, 'cfg');
     mkdirSync(dir);
     failWatch = 1;
+    vanishOnFail = true;
     createSource({})(join(dir, 'config.json'), () => {});
-    // it tried the directory, was refused, and climbed
-    expect(calls).to.deep.equal([`watch ${dir}`, `watch ${dir}`]);
-    expect(watching(dir)).toBeDefined();
+    // it tried the directory, the directory went, and it climbed one level
+    expect(calls).to.deep.equal([`watch ${dir}`, `watch ${root}`]);
+    expect(watching(root)).toBeDefined();
+  });
+
+  it('should not retry a level that is still there, which cannot have vanished', () => {
+    // a failure over a directory that still exists is `EMFILE`, a watcher limit
+    // or a permission -- and retrying the same level 32 times in a row, which
+    // the probe then repeats every interval, is the recovery path amplifying
+    // the pressure it is recovering from. Found by review
+    const dir = join(root, 'cfg');
+    mkdirSync(dir);
+    failWatch = 1000;
+    createSource({ interval: 50 })(join(dir, 'config.json'), () => {});
+    expect(calls).to.deep.equal([`watch ${dir}`]);
   });
 
   it('should give up rather than climb forever', () => {
-    // a bound on a terminating loop rather than a budget: reached only by
-    // something deleting a tree underneath us as fast as we can walk it
+    // a bound on the **depth** now rather than on the attempts, which is what
+    // its own comment always claimed: reached only by something deleting a tree
+    // underneath us as fast as we can walk it
+    const deep = join(root, ...Array.from({ length: 50 }, (_, i) => `d${i}`));
+    mkdirSync(deep, { recursive: true });
     failWatch = 1000;
-    expect(() => createSource({})(join(root, 'config.json'), () => {})).not.toThrow();
+    vanishOnFail = true;
+    expect(() => createSource({})(join(deep, 'config.json'), () => {})).not.toThrow();
     expect(calls.length).toBeLessThan(40);
   });
 
@@ -334,6 +435,26 @@ describe('the climb probe', () => {
     expect(told).toBe(1);
   });
 
+  it('should keep one probe however many levels it climbs through', () => {
+    // two hops, which is what it takes to see this: with one, `settle()` is only
+    // reached once with the watch away from where it wants to be, so a version
+    // that made a fresh interval per call looks identical
+    const a = join(root, 'a');
+    const b = join(a, 'b');
+    createSource({ interval: 100 })(join(b, 'config.json'), () => {});
+    expect(vi.getTimerCount()).toBe(1);
+
+    mkdirSync(a);
+    watching(root)?.fire();
+    expect(calls.at(-1)).toBe(`watch ${a}`);
+    expect(vi.getTimerCount()).toBe(1);
+
+    mkdirSync(b);
+    watching(a)?.fire();
+    expect(calls.at(-1)).toBe(`watch ${b}`);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('should stop the moment the directory it wants is reached', () => {
     const b = join(root, 'a', 'b');
     createSource({ interval: 100 })(join(b, 'config.json'), () => {});
@@ -379,6 +500,37 @@ describe('the climb probe', () => {
     expect(calls.at(-1)).toBe(`watch ${join(root, 'cfg')}`);
   });
 
+  it('should floor the interval, because an interval that is zero is a spin', () => {
+    // `debounce` has no floor because zero means "do not wait", which fires
+    // once; an interval **repeats**, and `setInterval(fn, 0)` is clamped by node
+    // to 1ms -- measured -- so `interval: 0` over a missing directory put a
+    // `statSync` of the ancestor chain through a thousand times a second for the
+    // life of the process. Clamped rather than fallen back to the default,
+    // because somebody who wrote `0` meant "as fast as you can". Found by review
+    const delays: unknown[] = [];
+    const real = globalThis.setInterval;
+    const spy = vi.spyOn(globalThis, 'setInterval').mockImplementation(((
+      ...args: Parameters<typeof real>
+    ) => {
+      delays.push(args[1]);
+      return real(...args);
+    }) as never);
+
+    try {
+      for (const interval of [0, 1, 9]) {
+        delays.length = 0;
+        createSource({ interval })(join(root, 'a', 'b', 'config.json'), () => {});
+        expect(delays, String(interval)).to.deep.equal([10]);
+      }
+      // and above the floor it is what was asked for
+      delays.length = 0;
+      createSource({ interval: 250 })(join(root, 'a', 'b', 'config.json'), () => {});
+      expect(delays).to.deep.equal([250]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('should hold no timer the process has to wait for', () => {
     // the rule the debounce keeps, one layer down -- and a spy rather than a
     // count, because vitest's fake timers do not model `unref`
@@ -413,6 +565,50 @@ describe('the climb probe', () => {
     expect(vi.getTimerCount()).toBe(1);
     stop();
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('the poll source', () => {
+  it('should poll the file itself, with no climb and no directory', () => {
+    // the finding this module is built around: each poll is a fresh `stat()` of
+    // the path, so polling is immune to everything the event source has to
+    // handle -- a missing file fires once and goes quiet, it fires when the file
+    // appears, it survives a rename-over, and Node already refcounts per path
+    const stop = createSource({ interval: 25, poll: true })(
+      join(root, 'a', 'b', 'config.json'),
+      () => {}
+    );
+    expect(polls).to.deep.equal([`poll ${join(root, 'a', 'b', 'config.json')} 25 false`]);
+    // and no `fs.watch` at all
+    expect(calls).to.deep.equal([]);
+
+    stop();
+    expect(polls.at(-1)).toBe(`unwatch ${join(root, 'a', 'b', 'config.json')}`);
+  });
+
+  it('should pass persistent: false, so a CLI that reads config still exits', () => {
+    createSource({ poll: true })(join(root, 'config.json'), () => {});
+    expect(polls[0]).toContain(' false');
+  });
+
+  it('should take the default interval where the caller named none', () => {
+    createSource({ poll: true })(join(root, 'config.json'), () => {});
+    // Node's own default is 5007ms, which is too slow to notice a change during
+    // a run; chokidar's 100ms is ten stats a second forever
+    expect(polls[0]).toContain(' 1000 ');
+  });
+
+  it('should resolve a relative path, since a store may hold one', () => {
+    createSource({ poll: true })('x.json', () => {});
+    expect(polls[0]).toContain(join(process.cwd(), 'x.json'));
+  });
+
+  it('should take a disposer called more than once', () => {
+    // no latch, because `unwatchFile(path, listener)` answers for a listener it
+    // does not hold -- so a second call is a no-op rather than a wrong answer
+    const stop = createSource({ poll: true })(join(root, 'config.json'), () => {});
+    stop();
+    expect(() => stop()).not.toThrow();
   });
 });
 

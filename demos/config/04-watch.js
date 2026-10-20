@@ -120,8 +120,13 @@ await step('the user file is replaced atomically, the way an editor saves:', () 
 );
 
 await step('our own save() writes the user file:', async () => {
-  config.set('editor.theme', 'dark');
-  await config.save();
+  // **named**, because `set()` with no layer picks the topmost writable one --
+  // which here is `runtime`, an in-memory store. Unnamed, this wrote to memory,
+  // the file on disk never moved, and the step printed "nothing was published"
+  // for the wrong reason: not the compare, but nothing having been written.
+  // Found by review, in the demo for exactly that rule
+  config.set('editor.theme', 'dark', 'user');
+  await config.save('user');
   // the value read back is the one we just wrote, so the diff is empty. Which
   // is better than suppressing events for a window after a write, because that
   // would also swallow somebody else's write in the same window

@@ -1583,8 +1583,10 @@ nothing was watching yet. And a filesystem event can be **dropped** — measured
 at about 3% for a watcher written to immediately after it is created, under heavy
 parallel load — which in the steady state costs latency and recovers on the next
 write. During a climb it would be permanent, so while the watcher is not on the
-directory it wants it re-checks every `interval`; that is the only time any timer
-runs, and it stops the moment the real directory appears.
+directory it wants it re-checks every `interval`; that is the only **interval**
+there is, and it stops the moment the real directory appears. (A debounce
+`setTimeout` runs on every event, and under `poll` a `watchFile` runs for as long
+as you are watching; both are unref'd, so neither holds the process open.)
 
 ### The schema
 
