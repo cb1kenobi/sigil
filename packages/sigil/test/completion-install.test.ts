@@ -9,6 +9,7 @@ import {
   planUninstall,
   resultLines,
   type InstallTarget,
+  type RcState,
 } from '../src/completion/installer.js';
 import { SHELL_NAMES, type ShellName } from '../src/completion/shells.js';
 import { parse } from '../src/parser/parse.js';
@@ -364,28 +365,33 @@ describe('what the round-1 review found', () => {
     expect(readFileSync(target.file, 'utf8')).toBe('# mine\n');
   });
 
-  it('should see the rc line in the spelling its own instructions print', async () => {
-    const st = await state();
-    const target = pick('zsh');
+  it('should see the rc line in the spelling its own instructions print', () => {
+    // the target under the **home** base rather than the box's, because the
+    // spelling under test is `~` and only a path under the home has one
+    const [target] = installTargets('zsh', 'mycli', {});
+    const rcFile = join(FAKE_HOME, '.zshrc');
+    const held = (): RcState => planInstall(target as InstallTarget, '', 'mycli').rc;
+
+    expect(target?.rc?.needle).toBe(join(FAKE_HOME, '.local', 'share', 'completions'));
 
     // `~`, which is what `installComment()` writes into every script's header
     // and what `instructions()` prints -- so this is our own output not being
     // recognised by our own check, which reprinted the line for ever
-    writeFileSync(join(FAKE_HOME, '.zshrc'), `fpath=(~/.local/share/completions $fpath)\n`);
-
-    const home = installTargets('zsh', 'mycli', {});
-    expect(home[0]?.rc?.needle).toBe(join(FAKE_HOME, '.local', 'share', 'completions'));
-    expect(planInstall(home[0] as InstallTarget, '', 'mycli').rc).toBe('present');
+    writeFileSync(rcFile, 'fpath=(~/.local/share/completions $fpath)\n');
+    expect(held()).toBe('present');
 
     // and `$HOME`, for a writer who did not want the tilde
-    writeFileSync(join(FAKE_HOME, '.zshrc'), `fpath=($HOME/.local/share/completions $fpath)\n`);
-    expect(planInstall(home[0] as InstallTarget, '', 'mycli').rc).toBe('present');
+    writeFileSync(rcFile, 'fpath=($HOME/.local/share/completions $fpath)\n');
+    expect(held()).toBe('present');
+
+    // and the absolute one, which is the spelling this prints
+    writeFileSync(rcFile, `fpath=('${join(FAKE_HOME, '.local', 'share', 'completions')}')\n`);
+    expect(held()).toBe('present');
 
     // while a path that is not the one is still absent, or the match is a
     // search for anything at all
-    writeFileSync(join(FAKE_HOME, '.zshrc'), `fpath=(~/.local/share/other $fpath)\n`);
-    expect(planInstall(home[0] as InstallTarget, '', 'mycli').rc).toBe('absent');
-    void target;
+    writeFileSync(rcFile, 'fpath=(~/.local/share/other $fpath)\n');
+    expect(held()).toBe('absent');
   });
 
   it('should refuse a program name that is not one path segment', () => {
