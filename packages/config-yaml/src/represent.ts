@@ -1,0 +1,363 @@
+import { isPlainObject } from '@ttylabs/sigil/config';
+
+/**
+ * What YAML cannot hold, asked before a write rather than discovered after one.
+ *
+ * This is the **widest** of the three stores' answers and the only one that is
+ * wider than JSON's, which is the finding rather than a convenience: YAML has a
+ * spelling for things JSON does not, so refusing them here would be this store
+ * declining to use its own format.
+ *
+ * ## What it allows that `jsonCanHold()` refuses
+ *
+ * - **`Infinity` and `-Infinity`**, written `.inf` and `-.inf`. They read back
+ *   as themselves and `checkValue(Infinity, 'number')` takes one -- it refuses
+ *   only `NaN` -- so the value survives a round trip and the next load. JSON
+ *   rewrites both as `null`, which is why its store refuses them.
+ *
+ * ## What it allows that `@ttylabs/config-xml` refuses
+ *
+ * - **Every string there is.** XML refuses a whole class -- a C0 control, a lone
+ *   surrogate, `U+FFFE`, a value whose own leading or trailing whitespace
+ *   matters -- because XML has no escape for most of them and its parser
+ *   normalizes the rest. YAML has a double-quoted scalar with an escape for
+ *   everything, and `yaml` reaches for one when it has to: measured through a
+ *   real UTF-8 file, `\u0001`, `\u0000`, `\u007f`, NEL, LS, PS, a bare CR, a
+ *   CRLF, `U+FFFE`, both halves of a surrogate pair on their own, a byte order
+ *   mark inside a value and `' padded '` each round-trip byte for byte.
+ * - **Any key.** XML holds a key to the `Name` production; YAML quotes one. A
+ *   key with a space, a colon, a newline or a control character in it
+ *   round-trips. What a key still cannot be is unreachable-by-path, and that
+ *   is **core's** refusal rather than this one's: `__proto__` and `constructor`
+ *   are `Unsafe config key` out of `copyValue()`, which names the layer, and an
+ *   empty key or one with a dot in it is allowed by core over a JSON layer too
+ *   -- so this store allows both rather than inventing a refusal its sibling
+ *   format does not have.
+ *
+ * ## What it refuses, each because the write would be silent
+ *
+ * Measured against `yaml` 2.9.1 by writing the value and reading it back:
+ *
+ * | value | `yaml` writes | reads back as |
+ * | -- | -- | -- |
+ * | `undefined` | `null` | `null` |
+ * | `NaN` | `.nan` | `NaN`, which `checkValue()` refuses |
+ * | a `bigint` | `10` | the **number** 10 |
+ * | an invalid `Date` | `null` | `null` |
+ * | a `Map` | its entries | a plain object |
+ * | a `Set` | its members | an array |
+ * | a class instance | its own keys | a plain object |
+ * | a hole in an array | `null` | `null` |
+ * | a function or a symbol | -- | `Tag not resolved`, thrown |
+ *
+ * Only the last is loud, and it is thrown out of `toString()` with neither the
+ * path nor the file in it. The other eight are the silent-loss class every
+ * decision in this package refuses.
+ *
+ * Not translated, which is the line `dotted.ts` draws in the runtime: a value
+ * handed to `set()` is the **app's** own, and a user's file cannot hold anything
+ * YAML cannot represent by construction -- so nothing a user writes reaches
+ * this.
+ */
+
+/** Why YAML cannot hold a value, or nothing where it can. */
+function why(value: unknown): string | undefined {
+  switch (typeof value) {
+    case 'bigint':
+      // `String(10n)` is exact text, so unlike JSON -- which throws -- YAML
+      // writes it happily. What refuses it is the other end: no data type reads
+      // one back, so `'10'` on an `int` is the number 10 rather than `10n` and
+      // the value does not survive a round trip under any declaration. Which is
+      // `@ttylabs/config-xml`'s reason rather than JSON's
+      return 'no YAML scalar reads back as a bigint';
+    case 'function':
+      return 'YAML has no function';
+    case 'symbol':
+      return 'YAML has no symbol';
+    case 'undefined':
+      return 'YAML writes undefined as null; delete the key instead';
+    case 'number':
+      // `Infinity` is `.inf` and reads back as itself, and `checkValue()` takes
+      // one -- so it is allowed, which is the one place this store is wider
+      // than JSON's. `NaN` is `.nan` and reads back as `NaN`, which
+      // `checkValue()` refuses on a `number` setting: writing one produces a
+      // config the next run cannot load, which is the same reasoning
+      // `@ttylabs/config-xml` records for the text spelling
+      if (Number.isNaN(value)) {
+        return 'YAML writes NaN as .nan, which no load accepts';
+      }
+      return inexactInteger(value);
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Whether a number is written as an integer the next read would refuse.
+ *
+ * The one defect this guard was added for: `canRepresent()` allowed every
+ * number, so `set('a', 2 ** 60)` saved `a: 1152921504606847000` and the next
+ * load **threw** -- the store writing a file it cannot read, which is the exact
+ * class this module exists to refuse, introduced by the read-time check that
+ * was meant to close it. Found by review.
+ *
+ * The mirror of `read.ts`'s own test, asked of the text `yaml` will write
+ * rather than of the value, which is what keeps the two symmetric. So `1e21` is
+ * **allowed**: it prints `1e+21`, which is a float in the file and a float the
+ * read takes, and it round-trips exactly. `1.5e20` prints
+ * `150000000000000000000`, which is integer form and does round-trip, so that is
+ * allowed too. What is refused is the set whose decimal printing carries more
+ * digits than the double holds -- `2 ** 60`, `2 ** 64` -- where `2 ** 53` and
+ * `2 ** 54` print exactly and are taken.
+ *
+ * Which states the asymmetry with the read rather than leaving it to be found:
+ * the read refuses a **source** whose digits the double does not hold, and this
+ * refuses a **double** whose printing is not the double. So a *literal* past
+ * 2^53 is not a counterexample to either -- `9007199254740993` in source is
+ * already `...992`, so writing `9007199254740992` loses nothing, and there is
+ * no third case for a guard to miss.
+ */
+function inexactInteger(value: number): string | undefined {
+  // no `Number.isFinite()` guard, because the integer-form test already
+  // answers for one: `String(Infinity)` is `Infinity` and `String(-Infinity)`
+  // is `-Infinity`, neither of which is all digits -- so a finite check could
+  // not change an answer, and a sabotage pass is what said so. The read's own
+  // non-finite branch is a different question: there the *source* is all digits
+  // and the **value** is `Infinity`, which is a real disagreement
+  const text = String(value);
+
+  if (/^-?[0-9]+$/.test(text) && BigInt(text) !== BigInt(value)) {
+    return `YAML writes ${text}, which is not the integer this runtime holds`;
+  }
+
+  return undefined;
+}
+
+/**
+ * Whether a key is an **array index** rather than merely a canonical number.
+ *
+ * `String(Number(key)) === key` alone is the second of those, which is what
+ * this first tested: `-1`, `1.5`, `Infinity`, `NaN`, `4294967295` (one past
+ * the last index there is) and `9007199254740991` all satisfy it, none of them
+ * extends `length` or makes a hole for the hole check to catch, and `yaml`
+ * writes a sequence as its items alone -- so each was an own enumerable
+ * property silently dropped by a guard written to refuse exactly that.
+ */
+function isIndex(key: string): boolean {
+  const n = Number(key);
+
+  return String(n) === key && Number.isInteger(n) && n >= 0 && n < 2 ** 32 - 1;
+}
+
+/** What YAML writes an object of no kind it knows as, which is its own keys. */
+function asPlain(value: object): string {
+  // `|| 'value'` rather than `??`, because a **generator**'s constructor name
+  // is the empty string -- measured -- which `??` passes through and the
+  // sentence then reads "YAML writes a  of this kind as ..."
+  const named = value.constructor?.name;
+  const name = named === undefined || named === '' ? 'value' : named;
+
+  // not every refused object is written as a **mapping**, and saying so of all
+  // of them contradicted the table this module's own doc carries: measured
+  // through `Document.createNode()`, which is the call `setIn()` makes, a `Set`
+  // stringifies as `[1, 2]`, a `Uint8Array` the same, and a boxed `new
+  // Number(1)` as `1`. The refusal is right in every case; the sentence naming
+  // the cause was wrong, which is the thing a table of patterns is criticised
+  // for one module along
+  return `YAML writes a ${name} of this kind as ${writtenAs(value)}`;
+}
+
+/**
+ * What `createNode()` writes an object of this kind as.
+ *
+ * Measured against `Document.createNode()`, which is the call `setIn()` makes,
+ * rather than reasoned about -- and it is three answers where the sentence this
+ * replaces had one. A `Map` is a **mapping** although it is iterable, a `Set`,
+ * a typed array and a generator are each a **sequence**, and a boxed `Number`,
+ * `String` or `Boolean` is a **scalar**. A class instance is a mapping of its
+ * own enumerable keys.
+ */
+function writtenAs(value: object): string {
+  // a boxed primitive **first**, because a boxed `String` is iterable and the
+  // sequence test below claimed it -- measured, `createNode(new String('ab'))`
+  // writes the scalar `ab`. A boxed `BigInt` is a scalar too, which the
+  // `instanceof` list did not name, so it fell through to the mapping default
+  if (
+    value instanceof Number ||
+    value instanceof String ||
+    value instanceof Boolean ||
+    value instanceof BigInt
+  ) {
+    return 'a plain scalar';
+  }
+
+  if (value instanceof Map) {
+    return 'a plain mapping';
+  }
+
+  // a `DataView` **is** an `ArrayBuffer.isView`, and it has no iterator and no
+  // indexed members, so `createNode()` writes it as the empty mapping rather
+  // than as a sequence of its bytes -- which is the distinction the single
+  // `isView` test missed
+  if (value instanceof DataView) {
+    return 'a plain mapping';
+  }
+
+  if (
+    value instanceof Set ||
+    ArrayBuffer.isView(value) ||
+    typeof (value as { [Symbol.iterator]?: unknown })[Symbol.iterator] === 'function'
+  ) {
+    return 'a sequence of its own members';
+  }
+
+  return 'a plain mapping';
+}
+
+/**
+ * Whether YAML can hold a value, and where it cannot.
+ *
+ * Walks, because the offending value is almost never the one that was handed
+ * over: `set('server', { retries: new Map() })` is a plain object holding
+ * something that reads back as a different kind, and a refusal naming `server`
+ * would be pointing at the thing that is fine.
+ *
+ * @param value - The value.
+ * @param path - What to call it, which is a dotted path from the caller's own.
+ * @returns `true`, or a sentence saying why not.
+ */
+export function yamlCanHold(value: unknown, path: string): true | string {
+  // the objects this walk is inside, added and removed around the recursion
+  // rather than only added, which is `jsonCanHold()`'s own rule and for its
+  // reason: a value referenced twice is a DAG that YAML writes twice, and only
+  // a genuine cycle is refused. **How** it writes it twice depends on the route
+  // and this used to claim one of the two: one `createNode()` of
+  // `{x: shared, y: shared}` really does write an anchor and an alias, and the
+  // two `setIn()` calls `editsFor()` emits for two new keys write two plain
+  // copies with no anchor at all -- measured. Neither loses a value, which is
+  // all this guard is about
+  return look(value, path, new WeakSet<object>()) ?? true;
+}
+
+/** The walk, with the objects it is inside. */
+function look(
+  value: unknown,
+  where: string,
+  seen: WeakSet<object>,
+  unwrap = true
+): string | undefined {
+  const at = (answer: string): string => (where === '' ? answer : `${answer} (at "${where}")`);
+  const answer = why(value);
+
+  if (answer !== undefined) {
+    return at(answer);
+  }
+
+  if (typeof value !== 'object' || value === null) {
+    return undefined;
+  }
+
+  if (seen.has(value)) {
+    return at('a value that refers back to itself');
+  }
+
+  // an **invalid** `Date` before the `toJSON` pass below, because its own
+  // `toJSON` is what makes it silent: `new Date(NaN).toJSON()` is `null`, so
+  // `yaml` writes `null` and the value is gone. Core's JSON store has the same
+  // hole and closing it there is a change to what every app's `set()` accepts,
+  // taken inside a sibling package's ticket -- so this store is narrower than
+  // its sibling by exactly one value and says so
+  if (value instanceof Date && Number.isNaN(value.getTime())) {
+    return at('YAML writes an invalid Date as null');
+  }
+
+  // asked before the structure, because `yaml` asks it before the structure:
+  // `createNode()` calls `toJSON` and writes whatever it answers, so walking
+  // the value's own keys would refuse it for what it holds rather than for what
+  // it says. A valid `Date` is the case that matters -- its JSON form is an ISO
+  // string and `type: 'date'` reads one back, so it round-trips through the
+  // schema exactly as it does on a JSON layer.
+  //
+  // What it answers is **checked**, which it was not: returning here meant any
+  // object with a `toJSON` was representable whatever it then wrote. Measured,
+  // `canRepresent` said yes and the write produced `null` for `() => undefined`,
+  // the number `10` for `() => 10n`, a mapping for a `Map`, a sequence for a
+  // `Set`, `{}` for `() => new Date(...)`, and a raw `Tag not resolved for
+  // Function value` naming neither path nor file for `() => () => 1`. Every one
+  // of those is a silent rewrite or an unnameable throw, which are the two
+  // classes this function exists to refuse.
+  //
+  // `unwrap` goes false for the answer alone, because that is what `createNode`
+  // does: it calls `toJSON` **once** per value and does not call it again on
+  // what came back -- which is why a `toJSON` returning a `Date` writes `{}`
+  // rather than an ISO string, and so is refused here structurally. Anything
+  // *nested* inside the answer is a different value and gets its own single
+  // application, which is what `unwrap` defaulting back to true on the
+  // recursion below means
+  if (unwrap && typeof (value as { toJSON?: unknown }).toJSON === 'function') {
+    let said: unknown;
+    try {
+      said = (value as { toJSON: () => unknown }).toJSON();
+    } catch (e: unknown) {
+      return at(`its own toJSON threw: ${(e as Error).message.split('\n')[0] as string}`);
+    }
+    return look(said, where, seen, false);
+  }
+
+  const list = Array.isArray(value);
+  if (!list && !isPlainObject(value)) {
+    return at(asPlain(value));
+  }
+
+  // a **symbol** key and a non-index own property of an array are each dropped
+  // on the way out, by this walk and by `editsFor()` alike, because both read
+  // an object with `Object.entries` and an array by index. Measured,
+  // `canRepresent` said yes and the write left the file untouched for
+  // `{a: 1, [Symbol('k')]: 2}`, and wrote `[1, 2]` for an array carrying an own
+  // `extra: 3`. A value that is silently not written is the class this function
+  // exists to refuse, so it is named rather than dropped
+  const symbols = Object.getOwnPropertySymbols(value);
+  if (symbols.length > 0) {
+    return at(`YAML has no symbol key; ${String(symbols[0])} would be dropped`);
+  }
+
+  if (list) {
+    const extra = Object.keys(value).find((key) => !isIndex(key));
+    if (extra !== undefined) {
+      return at(`YAML writes a sequence as its items; the property "${extra}" would be dropped`);
+    }
+  }
+
+  seen.add(value);
+  try {
+    if (list) {
+      // by index rather than through `map()`, because an array can have
+      // **holes** and every array method skips one -- which is
+      // `jsonCanHold()`'s own recorded finding, and `yaml` writes a hole as
+      // `null` exactly as `JSON.stringify` does
+      for (let i = 0; i < value.length; i++) {
+        const label = where === '' ? `${i}` : `${where}.${i}`;
+
+        if (!(i in value)) {
+          return `YAML has no hole in a sequence; it writes one as null (at "${label}")`;
+        }
+
+        const inner = look(value[i], label, seen);
+        if (inner !== undefined) {
+          return inner;
+        }
+      }
+    } else {
+      for (const [key, it] of Object.entries(value)) {
+        const inner = look(it, where === '' ? key : `${where}.${key}`, seen);
+        if (inner !== undefined) {
+          return inner;
+        }
+      }
+    }
+  } finally {
+    seen.delete(value);
+  }
+
+  return undefined;
+}

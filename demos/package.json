@@ -6,6 +6,7 @@
   "type": "module",
   "dependencies": {
     "@ttylabs/config-xml": "workspace:*",
+    "@ttylabs/config-yaml": "workspace:*",
     "@ttylabs/sigil": "workspace:*"
   }
 }

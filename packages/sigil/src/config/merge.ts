@@ -348,6 +348,31 @@ export function overlay(
   paths: Iterable<string>,
   where: string
 ): void {
+  // a **string** is an `Iterable<string>`, so the type permits one and
+  // iterating it yields characters. Measured over all three stores before this
+  // guard existed, `write({ keep: 3 }, { paths: 'ab' })` over
+  // `{a: 1, b: 2, keep: 3}` claimed the paths `a` and `b`, found neither in the
+  // value, and **deleted both**: `json()` wrote `{"keep":3}`, `xml()` wrote
+  // `<config><keep>3</keep></config>`, and `yaml()` the same. No throw, exit
+  // normal, two keys gone and nothing said.
+  //
+  // Refused here rather than in a store, because all three share it and a guard
+  // in one would leave the other two holding it. `Iterable<string>` is kept
+  // rather than narrowed to an array, because this module's own caller hands
+  // over a `Set` -- so what is refused is the one iterable of strings that is
+  // never a list of paths. English, because only an app's or a store's own code
+  // can reach it
+  // asked with `Object.prototype.toString` rather than `typeof`, because a
+  // **boxed** `String` is an object and evades the narrower test while
+  // iterating as characters exactly as a primitive one does -- measured over
+  // all three stores, `new String('ab')` claimed `a` and `b` and deleted both,
+  // which is byte for byte the behaviour above that this guard was written to
+  // stop. One test covers both spellings and is cross-realm, where
+  // `instanceof String` is not
+  if (Object.prototype.toString.call(paths) === '[object String]') {
+    throw new TypeError(`Config paths must be a list of paths, not the string "${String(paths)}"`);
+  }
+
   for (const path of paths) {
     const parts = segments(path);
 

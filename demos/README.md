@@ -138,10 +138,11 @@ as one missing key and one orphan.
 
 ## Config
 
-|                                              |                                                                                                        |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| [`config/01-layers.js`](config/01-layers.js) | The layer stack, the merged read, a schema, the environment on top, and what `set()` does to one layer |
-| [`config/02-xml.js`](config/02-xml.js)       | A store from another package in the same stack, and the two refusals the interface exists for          |
+|                                              |                                                                                                             |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| [`config/01-layers.js`](config/01-layers.js) | The layer stack, the merged read, a schema, the environment on top, and what `set()` does to one layer      |
+| [`config/02-xml.js`](config/02-xml.js)       | A store from another package in the same stack, and the two refusals the interface exists for               |
+| [`config/03-yaml.js`](config/03-yaml.js)     | The second one, which writes properly — anchors, merge keys, and a version that changes what a scalar means |
 
 ```sh
 node demos/config/01-layers.js
@@ -157,7 +158,7 @@ merged value has no single home to write to, and `get()` hands back a frozen
 value, because mutating a computed one would change what a later `get()`
 answers while changing no layer.
 
-The second demo is the one that is not about config at all:
+The other two are the ones that are not about config at all:
 
 ```sh
 node demos/config/02-xml.js
@@ -202,8 +203,34 @@ asked at the `set()` that wrote the value rather than discovered by a `save()`
 in an exit handler, which is why it is synchronous. And `wouldLose` is the
 other direction: a write either preserves everything it was not asked to change
 or it **names what it would lose and refuses**, with `lossy: true` as the
-deliberate way past. The built-in stores never report a loss, so this demo is
-the only place in the repository where that rule can be seen firing.
+deliberate way past. The built-in stores never report a loss, so these two
+demos are the only places in the repository where that rule can be seen firing.
+
+```sh
+node demos/config/03-yaml.js
+PORT=3000 node demos/config/03-yaml.js       # the environment still wins
+```
+
+The third is the **second** external store, and that matters more than either
+format: one implementation proves an interface is writable, two prove it is not
+shaped around the first one. [`@ttylabs/config-yaml`](../packages/config-yaml)
+needed no change to the interface either.
+
+What it shows that the XML one cannot is the three things only YAML has. A
+**version** that changes what a scalar means — the famous row is `yes` becoming
+`false`, the Norway problem, and the two that would actually bite a CLI config
+are `017` and `12:30`, because a file mode and a time are each a different
+number under YAML 1.1. **Anchors and merge keys**, read: `<<: *d` is three
+settings at three paths and `worker: *d` is the same map again. And a write
+that **refuses** rather than guessing, three times over, because each of the
+three would be wrong in a different way — `setIn()` through an alias throws an
+internal error, `deleteIn()` of a merged key answers `false` and changes
+nothing, and editing an aliased anchor moves a path nobody claimed.
+
+It is also the one store whose `canRepresent()` is **wider** than JSON's:
+`Infinity` is `.inf`, and a padded string, a control character and a lone
+surrogate each round-trip through a real file, where XML refuses the whole
+class. That is the format rather than a preference, in both directions.
 
 ## Components
 
