@@ -1,0 +1,675 @@
+import { completionScript } from '../src/completion/index.js';
+import { generatedBy, installHint, shQuote } from '../src/completion/install.js';
+import {
+  applyInstall,
+  applyUninstall,
+  installTargets,
+  planInstall,
+  planLines,
+  planUninstall,
+  resultLines,
+  type InstallTarget,
+} from '../src/completion/installer.js';
+import { SHELL_NAMES, type ShellName } from '../src/completion/shells.js';
+import { parse } from '../src/parser/parse.js';
+import type { ParseState, Schema } from '../src/types.js';
+import {
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { basename, dirname, join } from 'node:path';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+/**
+ * A home directory nothing in this file can escape.
+ *
+ * `node:os` is mocked rather than only `HOME` being stubbed, and both halves
+ * are load bearing. `paths.home()` memoizes `homedir()` on first read, so a
+ * variable set after any other test in the worker has already asked would be
+ * too late -- and `vi.mock` is hoisted above every import, so the first ask in
+ * this file gets the fake. The *variables* are stubbed as well because
+ * `expand()` reads `%VAR%` on Windows and because a second reader added later
+ * should find a fake there too: this is a feature that writes files into a home
+ * directory, and this repository has already been bitten by a test that
+ * scaffolded into the runner's real profile because it set only `HOME`.
+ *
+ * Under `tmpdir()` rather than anywhere clever, which is what every other test
+ * here that needs a directory does.
+ */
+const FAKE_HOME = join(tmpdir(), `sigil-completion-home-${process.pid}`);
+
+vi.mock('node:os', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:os')>()),
+  homedir: () => FAKE_HOME,
+}));
+
+/** Where each case's own files go, so one case cannot see another's. */
+let box: string;
+
+/** The environment handed to `installTargets()`, pointed at `box`. */
+function envFor(
+  extra: Record<string, string | undefined> = {}
+): Record<string, string | undefined> {
+  return { XDG_DATA_HOME: join(box, 'data'), ...extra };
+}
+
+beforeEach(() => {
+  box = mkdtempSync(join(tmpdir(), 'sigil-completion-install-'));
+  // emptied rather than only created, because it is one directory for the
+  // whole file: a `.bashrc` one case wrote is a `.bashrc` the next case's
+  // `firstExisting()` finds, which is a test passing on a fixture it did not
+  // set up
+  rmSync(FAKE_HOME, { force: true, recursive: true });
+  mkdirSync(FAKE_HOME, { recursive: true });
+  vi.stubEnv('HOME', FAKE_HOME);
+  vi.stubEnv('USERPROFILE', FAKE_HOME);
+});
+
+afterEach(() => {
+  rmSync(box, { force: true, recursive: true });
+  vi.unstubAllEnvs();
+});
+
+afterAll(() => {
+  rmSync(FAKE_HOME, { force: true, recursive: true });
+});
+
+/** The parse a script is printed from. */
+async function state(schema: Schema = {}): Promise<ParseState> {
+  return await parse({
+    argv: [],
+    env: {},
+    schema: { commands: { build: { desc: 'Build it', run(): void {} } }, name: 'mycli', ...schema },
+  });
+}
+
+/** The target the installer would pick, for one shell. */
+function pick(shell: ShellName, extra: Record<string, string | undefined> = {}): InstallTarget {
+  const [first] = installTargets(shell, 'mycli', envFor(extra));
+  expect(first, `no target for ${shell}`).toBeDefined();
+  return first as InstallTarget;
+}
+
+/** Installs for real, through the plan, and answers what was written. */
+async function install(target: InstallTarget, script: string): Promise<boolean> {
+  return await applyInstall(planInstall(target, script, 'mycli'), script);
+}
+
+describe('the home this file writes into', () => {
+  it('should be the fake one, so the real one is unreachable', () => {
+    // the guard the whole file rests on, asserted rather than assumed: a
+    // mock that silently stopped applying would leave every case below
+    // writing into somebody's actual home directory, and every one of them
+    // would still pass
+    expect(homedir()).toBe(FAKE_HOME);
+    expect(homedir()).not.toBe(process.env.npm_config_userconfig);
+    expect(FAKE_HOME.startsWith(tmpdir())).toBe(true);
+  });
+});
+
+describe('installTargets()', () => {
+  it('should put a zsh completion in a directory of our own, with an fpath line', () => {
+    const target = pick('zsh');
+
+    expect(target.id).toBe('user');
+    expect(target.dir).toBe(join(box, 'data', 'completions'));
+    expect(basename(target.file)).toBe('_mycli');
+    expect(target.rc?.file).toBe(join(FAKE_HOME, '.zshrc'));
+    expect(target.rc?.line).toBe(`fpath=(${shQuote(target.dir)} $fpath)`);
+    expect(target.rc?.needle).toBe(target.dir);
+  });
+
+  it('should name the directory rather than the file in the zsh line, so a second app needs none', () => {
+    // the payoff of one shared directory: the `fpath` line every sigil app
+    // would print is the same line, so the second one you install finds it
+    // already there. Asserted as the property rather than through two installs,
+    // because what makes it true is the needle being the directory
+    const [one] = installTargets('zsh', 'one', envFor());
+    const [two] = installTargets('zsh', 'two', envFor());
+
+    expect(one?.rc?.needle).toBe(two?.rc?.needle);
+    expect(one?.file).not.toBe(two?.file);
+  });
+
+  it('should put a bash completion in a directory of our own, with a source line', () => {
+    const target = pick('bash');
+
+    expect(target.id).toBe('user');
+    expect(basename(target.file)).toBe('mycli.bash');
+    expect(target.rc?.line).toBe(`source ${shQuote(target.file)}`);
+    expect(target.rc?.needle).toBe(target.file);
+  });
+
+  it("should prefer bash-completion's own user directory where it is there", () => {
+    const bc = join(box, 'data', 'bash-completion', 'completions');
+    mkdirSync(bc, { recursive: true });
+
+    const [first, second] = installTargets('bash', 'mycli', envFor());
+
+    expect(first?.id).toBe('bash-completion');
+    expect(first?.file).toBe(join(bc, 'mycli'));
+    // nothing to add, which is the whole reason it is preferred
+    expect(first?.rc).toBeUndefined();
+    // and the route that works anywhere is still behind it
+    expect(second?.id).toBe('user');
+  });
+
+  it('should offer it only where the directory is there, which is the version signal', () => {
+    // the input that makes the gate load bearing: with the directory absent
+    // this must fall back, because a file written to a path nothing reads is
+    // worse than one that needs a line added
+    expect(installTargets('bash', 'mycli', envFor()).map((it) => it.id)).toEqual(['user']);
+  });
+
+  it('should refuse a bash-completion path that is a file rather than a directory', () => {
+    // `statSync` answers for a file too, so a plain file at that path would
+    // have been taken as the directory and the write would then fail with an
+    // `ENOTDIR` naming nothing
+    mkdirSync(join(box, 'data', 'bash-completion'), { recursive: true });
+    writeFileSync(join(box, 'data', 'bash-completion', 'completions'), 'not a directory');
+
+    expect(installTargets('bash', 'mycli', envFor()).map((it) => it.id)).toEqual(['user']);
+  });
+
+  it('should read ZDOTDIR for the zsh startup file, and only an absolute one', () => {
+    const zdot = join(box, 'zdot');
+
+    expect(pick('zsh', { ZDOTDIR: zdot }).rc?.file).toBe(join(zdot, '.zshrc'));
+    // relative, so not a directory zsh would read either -- which is
+    // `baseDir()`'s rule rather than a second one
+    expect(pick('zsh', { ZDOTDIR: 'relative/zdot' }).rc?.file).toBe(join(FAKE_HOME, '.zshrc'));
+  });
+
+  it('should fall back to ~/.local/share where XDG_DATA_HOME says nothing usable', () => {
+    const under = join(FAKE_HOME, '.local', 'share', 'completions');
+
+    expect(installTargets('zsh', 'mycli', {})[0]?.dir).toBe(under);
+    // set and relative is set and unusable, which is the spec's own rule and
+    // the one `baseDir()` keeps
+    expect(installTargets('zsh', 'mycli', { XDG_DATA_HOME: './data' })[0]?.dir).toBe(under);
+    expect(installTargets('zsh', 'mycli', { XDG_DATA_HOME: '' })[0]?.dir).toBe(under);
+  });
+
+  it('should expand a ~ in XDG_DATA_HOME rather than making a directory called ~', () => {
+    // the defect `paths.ts` records for its own table, met through a variable:
+    // `expand()` runs before the absoluteness is asked, which is the order
+    // `baseDir()` is written in
+    expect(installTargets('zsh', 'mycli', { XDG_DATA_HOME: '~/xdg' })[0]?.dir).toBe(
+      join(FAKE_HOME, 'xdg', 'completions')
+    );
+  });
+
+  it('should name the bash startup file that is there rather than always .bashrc', () => {
+    // macOS starts bash as a login shell, which reads `.bash_profile` and not
+    // `.bashrc` -- so a line in the file that is not there is a line the shell
+    // never reads
+    expect(pick('bash').rc?.file).toBe(join(FAKE_HOME, '.bashrc'));
+
+    writeFileSync(join(FAKE_HOME, '.bash_profile'), '# mine\n');
+    expect(pick('bash').rc?.file).toBe(join(FAKE_HOME, '.bash_profile'));
+
+    writeFileSync(join(FAKE_HOME, '.bashrc'), '# mine\n');
+    expect(pick('bash').rc?.file).toBe(join(FAKE_HOME, '.bashrc'));
+  });
+
+  it('should skip a startup-file candidate that is a directory', () => {
+    // `EISDIR` is not absence, and a directory called `.bashrc` is not a file
+    // a shell reads -- a **directory** rather than a path under a file, because
+    // that one is `ENOTDIR` on POSIX and reads as absence on Windows
+    mkdirSync(join(FAKE_HOME, '.bashrc'));
+    writeFileSync(join(FAKE_HOME, '.bash_profile'), '# mine\n');
+
+    expect(pick('bash').rc?.file).toBe(join(FAKE_HOME, '.bash_profile'));
+  });
+
+  it('should name the path it writes in the route it came from', () => {
+    // the differential the whole "one mechanism" claim rests on, and the only
+    // thing that can check it: no type can say that a printed command holds a
+    // path. The shown form is `~`-relative and machine-independent because it
+    // goes into a script's own header, so what is compared is the resolved path
+    // with the home put back as a `~`
+    for (const shell of SHELL_NAMES) {
+      const { routes } = installHint(shell, 'mycli');
+
+      // every route the installer resolves, over an environment where the
+      // bash-completion directory is there so that route is reached too
+      mkdirSync(join(box, 'data', 'bash-completion', 'completions'), { recursive: true });
+
+      for (const target of installTargets(shell, 'mycli', { HOME: FAKE_HOME })) {
+        const route = routes.find((it) => it.id === target.id);
+        const shown = target.file.replace(FAKE_HOME, '~');
+
+        expect(route, `no route for ${target.id}`).toBeDefined();
+        expect(
+          route?.commands.some((command) => command.includes(shown)),
+          `${shell}/${target.id}: no command names ${shown} in ${JSON.stringify(route?.commands)}`
+        ).toBe(true);
+      }
+    }
+  });
+
+  it('should resolve every route the table offers and no route it does not', () => {
+    // the other half of the differential: a target whose id is in no route is
+    // a resolver that outlived its table, which the `installTargets()` walk
+    // makes structurally impossible -- so this is what fails if somebody
+    // reintroduces a lookup
+    mkdirSync(join(box, 'data', 'bash-completion', 'completions'), { recursive: true });
+
+    for (const shell of SHELL_NAMES) {
+      const ids = new Set(installHint(shell, 'mycli').routes.map((it) => it.id));
+      for (const target of installTargets(shell, 'mycli', envFor())) {
+        expect(ids.has(target.id), `${shell}: ${target.id} is in no route`).toBe(true);
+      }
+    }
+  });
+});
+
+describe('the marker', () => {
+  it('should be in every script both emitters print', async () => {
+    const st = await state();
+
+    for (const shell of SHELL_NAMES) {
+      expect(await completionScript(st, shell)).toContain(generatedBy(shell, 'mycli'));
+    }
+  });
+
+  it('should name the shell, so a script at the other shell path is foreign', async () => {
+    const st = await state();
+    const zsh = await completionScript(st, 'zsh');
+    const target = pick('bash');
+
+    mkdirSync(target.dir, { recursive: true });
+    writeFileSync(target.file, zsh);
+
+    expect(planInstall(target, await completionScript(st, 'bash'), 'mycli').file).toBe('foreign');
+  });
+});
+
+describe('planInstall()', () => {
+  it('should say create where there is nothing there', async () => {
+    const script = await completionScript(await state(), 'zsh');
+    const plan = planInstall(pick('zsh'), script, 'mycli');
+
+    expect(plan.file).toBe('create');
+    expect(plan.rc).toBe('absent');
+    expect(plan.changes).toBe(true);
+  });
+
+  it('should say foreign for a file nobody generated, and refuse to call it a change we can make quietly', async () => {
+    const target = pick('zsh');
+    mkdirSync(target.dir, { recursive: true });
+    writeFileSync(target.file, '# my own completion, hands off\n');
+
+    const plan = planInstall(target, await completionScript(await state(), 'zsh'), 'mycli');
+
+    expect(plan.file).toBe('foreign');
+    expect(plan.changes).toBe(true);
+  });
+
+  it('should say present where the startup file already names the path', async () => {
+    const target = pick('zsh');
+    writeFileSync(join(FAKE_HOME, '.zshrc'), `# mine\n${target.rc?.line ?? ''}\n`);
+
+    expect(planInstall(target, await completionScript(await state(), 'zsh'), 'mycli').rc).toBe(
+      'present'
+    );
+  });
+
+  it('should read the path rather than the line, so a hand-written spelling counts', async () => {
+    const target = pick('zsh');
+    // double quotes and a different order, which is what somebody who added it
+    // themselves is likely to have written -- the path is the granularity a
+    // human checks at
+    writeFileSync(join(FAKE_HOME, '.zshrc'), `fpath+=("${target.dir}")\n`);
+
+    expect(planInstall(target, await completionScript(await state(), 'zsh'), 'mycli').rc).toBe(
+      'present'
+    );
+  });
+
+  it('should say none where the route needs no line at all', async () => {
+    mkdirSync(join(box, 'data', 'bash-completion', 'completions'), { recursive: true });
+    const target = pick('bash');
+
+    expect(target.id).toBe('bash-completion');
+    expect(planInstall(target, await completionScript(await state(), 'bash'), 'mycli').rc).toBe(
+      'none'
+    );
+  });
+
+  it('should raise a read failure that is not the file being absent', async () => {
+    const target = pick('zsh');
+    // a **directory** at the script's path, which is `EISDIR` on every
+    // platform -- a path under a file would be `ENOTDIR` on POSIX and read as
+    // absence on Windows, so it would pin nothing there
+    mkdirSync(target.file, { recursive: true });
+
+    expect(() => planInstall(target, 'x', 'mycli')).toThrow(/EISDIR|illegal operation/);
+  });
+});
+
+describe('installing, and re-running', () => {
+  it('should write the script and then leave it alone', async () => {
+    const st = await state();
+    const script = await completionScript(st, 'zsh');
+    const target = pick('zsh');
+
+    // first run: it has to have actually written, or the second run's "nothing
+    // to do" is a test that passes over an installer that does nothing
+    expect(await install(target, script)).toBe(true);
+    expect(readFileSync(target.file, 'utf8')).toBe(script);
+
+    const again = planInstall(target, script, 'mycli');
+    expect(again.file).toBe('current');
+    expect(await applyInstall(again, script)).toBe(false);
+    expect(readFileSync(target.file, 'utf8')).toBe(script);
+  });
+
+  it('should not touch the file it left alone, which is what current means', async () => {
+    const st = await state();
+    const script = await completionScript(st, 'zsh');
+    const target = pick('zsh');
+
+    await install(target, script);
+    const before = lstatSync(target.file).mtimeMs;
+
+    // a sentinel rather than only the mtime, because an mtime can tie: the
+    // file is made unwritable, so a write would throw rather than passing
+    const plan = planInstall(target, script, 'mycli');
+    expect(await applyInstall(plan, script)).toBe(false);
+    expect(lstatSync(target.file).mtimeMs).toBe(before);
+  });
+
+  it('should say update rather than current when the app changed, which is the input that makes the comparison matter', async () => {
+    const target = pick('zsh');
+    const before = await completionScript(await state(), 'zsh');
+    await install(target, before);
+
+    // the same app with one more command, which is exactly why a completion
+    // script is regenerated -- and a `current` here would be a stale script
+    // left on disk for ever
+    const after = await completionScript(
+      await state({
+        commands: {
+          build: { desc: 'Build it', run(): void {} },
+          deploy: { desc: 'Ship it', run(): void {} },
+        },
+      }),
+      'zsh'
+    );
+
+    const plan = planInstall(target, after, 'mycli');
+    expect(plan.file).toBe('update');
+    expect(plan.changes).toBe(true);
+    expect(await applyInstall(plan, after)).toBe(true);
+    expect(readFileSync(target.file, 'utf8')).toBe(after);
+  });
+
+  it('should have nothing to write where only the line is outstanding, which is what decides whether to ask', async () => {
+    const st = await state();
+    const script = await completionScript(st, 'zsh');
+    const target = pick('zsh');
+
+    await install(target, script);
+
+    // the two booleans part here, and this is the input that separates them: a
+    // confirm gated on `changes` would ask permission to write a file that is
+    // already right, and then be told "nothing to do" by the answer
+    const plan = planInstall(target, script, 'mycli');
+    expect(plan.changes).toBe(true);
+    expect(plan.writes).toBe(false);
+
+    // and what it says is the line, without claiming it wrote or that there is
+    // nothing to do -- both of which shipped for a commit each
+    const said = resultLines(plan, 'install', false).join('\n');
+    expect(said).not.toContain('Nothing to do');
+    expect(said).not.toContain('Wrote');
+    expect(said).toContain(target.rc?.line ?? '!');
+  });
+
+  it('should say nothing to do only where nothing at all is outstanding', async () => {
+    const st = await state();
+    const script = await completionScript(st, 'zsh');
+    const target = pick('zsh');
+
+    await install(target, script);
+    writeFileSync(join(FAKE_HOME, '.zshrc'), `${target.rc?.line ?? ''}\n`);
+
+    const plan = planInstall(target, script, 'mycli');
+    expect(plan.changes).toBe(false);
+    expect(resultLines(plan, 'install', false).join('\n')).toContain('Nothing to do');
+  });
+
+  it('should still have something to do where the file is current and the line is not there', async () => {
+    const st = await state();
+    const script = await completionScript(st, 'zsh');
+    const target = pick('zsh');
+
+    await install(target, script);
+
+    // the case a bare `changes = file === 'current'` would get wrong: the
+    // script is right and the startup file never got its line, which is not
+    // "nothing to do"
+    const plan = planInstall(target, script, 'mycli');
+    expect(plan.file).toBe('current');
+    expect(plan.rc).toBe('absent');
+    expect(plan.changes).toBe(true);
+  });
+
+  it('should be nothing to do only when both halves are done', async () => {
+    const st = await state();
+    const script = await completionScript(st, 'zsh');
+    const target = pick('zsh');
+
+    await install(target, script);
+    writeFileSync(join(FAKE_HOME, '.zshrc'), `${target.rc?.line ?? ''}\n`);
+
+    expect(planInstall(target, script, 'mycli').changes).toBe(false);
+  });
+
+  it('should create the directory it writes into', async () => {
+    const target = pick('zsh');
+    expect(() => lstatSync(target.dir)).toThrow();
+
+    await install(target, await completionScript(await state(), 'zsh'));
+
+    expect(lstatSync(target.dir).isDirectory()).toBe(true);
+  });
+
+  it('should write through a symlink rather than replacing it', async () => {
+    // the defect `config/atomic.ts` was fixed for twice, which reaches here
+    // because people check completions into a dotfiles repository. A second
+    // resolver would have had to get it right again; this is a second *caller*
+    const real = join(box, 'dotfiles', '_mycli');
+    const target = pick('zsh');
+
+    mkdirSync(dirname(real), { recursive: true });
+    writeFileSync(real, '# old\n');
+    mkdirSync(target.dir, { recursive: true });
+    symlinkSync(real, target.file);
+
+    const script = await completionScript(await state(), 'zsh');
+
+    // the link's **target** is what is read, so a target with no marker in it
+    // is foreign -- the refusal reaching through the link rather than stopping
+    // at it
+    expect(planInstall(target, script, 'mycli').file).toBe('foreign');
+
+    // and once the target is ours, the write goes through the link: the link
+    // survives and the real file is what changed, which is the defect
+    // `realPathOf()` exists for
+    writeFileSync(real, `${script}# stale\n`);
+    expect(planInstall(target, script, 'mycli').file).toBe('update');
+    expect(await install(target, script)).toBe(true);
+    expect(lstatSync(target.file).isSymbolicLink()).toBe(true);
+    expect(readFileSync(real, 'utf8')).toBe(script);
+  });
+
+  it('should keep the mode of a file somebody chmod-ed', async () => {
+    const st = await state();
+    const script = await completionScript(st, 'zsh');
+    const target = pick('zsh');
+
+    await install(target, script);
+    const { chmodSync } = await import('node:fs');
+    chmodSync(target.file, 0o600);
+
+    await applyInstall(planInstall(target, `${script}\n# more\n`, 'mycli'), `${script}\n# more\n`);
+
+    // `writeAtomic()`'s own rule, reached through this caller: a completion
+    // somebody made private stays private
+    expect(lstatSync(target.file).mode & 0o777).toBe(0o600);
+  });
+});
+
+describe('uninstalling', () => {
+  it('should remove a script it wrote and say there is nothing left', async () => {
+    const st = await state();
+    const target = pick('zsh');
+    await install(target, await completionScript(st, 'zsh'));
+
+    const plan = planUninstall(target, 'mycli');
+    expect(plan.file).toBe('update');
+    expect(plan.changes).toBe(true);
+    // the same for an uninstall, because a `foreign` file is refused outright:
+    // there is nothing to ask about that is not also something to do
+    expect(plan.writes).toBe(true);
+    expect(applyUninstall(plan)).toBe(true);
+    expect(() => lstatSync(target.file)).toThrow();
+
+    const again = planUninstall(target, 'mycli');
+    expect(again.file).toBe('create');
+    expect(again.changes).toBe(false);
+    expect(applyUninstall(again)).toBe(false);
+  });
+
+  it('should refuse a file it did not write, outright rather than by asking', async () => {
+    const target = pick('zsh');
+    mkdirSync(target.dir, { recursive: true });
+    writeFileSync(target.file, '# somebody else\n');
+
+    const plan = planUninstall(target, 'mycli');
+    expect(plan.file).toBe('foreign');
+    // `false`, which is what makes the question unreachable: the install side
+    // asks before replacing a generated path, and deleting a stranger's file
+    // gains nothing a `rm` would not. The plan says whose it is instead
+    expect(plan.changes).toBe(false);
+    expect(plan.writes).toBe(false);
+    expect(planLines(plan, 'uninstall').join('\n')).toContain('not written by sigil');
+    expect(readFileSync(target.file, 'utf8')).toBe('# somebody else\n');
+  });
+
+  it('should still say the startup file names it, because that line is the reader to remove', async () => {
+    const st = await state();
+    const target = pick('zsh');
+    await install(target, await completionScript(st, 'zsh'));
+    writeFileSync(join(FAKE_HOME, '.zshrc'), `${target.rc?.line ?? ''}\n`);
+
+    expect(planUninstall(target, 'mycli').rc).toBe('present');
+  });
+});
+
+describe('what it says', () => {
+  it('should say whose a foreign file is rather than that it will replace it', async () => {
+    // the defect the end-to-end test found: the plan had no `foreign` branch,
+    // so a file somebody wrote was previewed as "It will replace", which reads
+    // as a decision already taken. A unit test of the plan's *state* could not
+    // see it -- it was `foreign` all along -- so what is asserted is the
+    // sentence
+    const target = pick('zsh');
+    mkdirSync(target.dir, { recursive: true });
+    writeFileSync(target.file, '# mine\n');
+
+    const said = planLines(
+      planInstall(target, await completionScript(await state(), 'zsh'), 'mycli'),
+      'install'
+    ).join('\n');
+
+    expect(said).toContain('not written by sigil');
+    expect(said).not.toContain('will replace');
+  });
+
+  it('should name the path in the plan, for every state', async () => {
+    const st = await state();
+    const script = await completionScript(st, 'zsh');
+    const target = pick('zsh');
+
+    expect(planLines(planInstall(target, script, 'mycli'), 'install').join('\n')).toContain(
+      target.file
+    );
+
+    await install(target, script);
+    expect(planLines(planInstall(target, script, 'mycli'), 'install').join('\n')).toContain(
+      target.file
+    );
+    expect(planLines(planUninstall(target, 'mycli'), 'uninstall').join('\n')).toContain(
+      target.file
+    );
+  });
+
+  it('should print the line to add and never add it', async () => {
+    const st = await state();
+    const script = await completionScript(st, 'zsh');
+    const target = pick('zsh');
+    const rcFile = join(FAKE_HOME, '.zshrc');
+
+    writeFileSync(rcFile, '# mine\n');
+    const plan = planInstall(target, script, 'mycli');
+    await applyInstall(plan, script);
+
+    const said = resultLines(plan, 'install', true).join('\n');
+
+    expect(said).toContain(target.rc?.line ?? '!');
+    expect(said).toContain('compinit');
+    // the half that is the whole decision: the startup file is read and not
+    // written
+    expect(readFileSync(rcFile, 'utf8')).toBe('# mine\n');
+  });
+
+  it('should quote the line it prints, so a home with a space in it is one word', () => {
+    // `homedir()` can answer anything, and `~/Library/Application Support` is
+    // the obvious one: an unquoted line is a shell injection into a file that
+    // runs on every login
+    const dir = join(box, 'a dir', "it's");
+    expect(shQuote(dir)).toBe(`'${join(box, 'a dir', "it'\\''s")}'`);
+    expect(installTargets('zsh', 'mycli', { XDG_DATA_HOME: dir })[0]?.rc?.line).toContain(
+      shQuote(join(dir, 'completions'))
+    );
+  });
+
+  it('should say nothing to add where the route needs no line', async () => {
+    mkdirSync(join(box, 'data', 'bash-completion', 'completions'), { recursive: true });
+    const st = await state();
+    const script = await completionScript(st, 'bash');
+    const target = pick('bash');
+    const plan = planInstall(target, script, 'mycli');
+
+    await applyInstall(plan, script);
+    const said = resultLines(plan, 'install', true).join('\n');
+
+    expect(said).toContain(target.file);
+    expect(said).not.toContain('source');
+    expect(said).toContain('restart');
+  });
+
+  it('should print the line to remove on the way out, and never remove it', async () => {
+    const st = await state();
+    const target = pick('zsh');
+    const rcFile = join(FAKE_HOME, '.zshrc');
+    await install(target, await completionScript(st, 'zsh'));
+    writeFileSync(rcFile, `${target.rc?.line ?? ''}\n`);
+
+    const plan = planUninstall(target, 'mycli');
+    applyUninstall(plan);
+    const said = resultLines(plan, 'uninstall', true).join('\n');
+
+    expect(said).toContain(target.rc?.line ?? '!');
+    expect(readFileSync(rcFile, 'utf8')).toBe(`${target.rc?.line ?? ''}\n`);
+  });
+});

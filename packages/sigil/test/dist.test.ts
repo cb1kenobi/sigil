@@ -153,6 +153,30 @@ function parseChunk(): string {
   return expect.fail('the root entry no longer reaches parse() through a dynamic import');
 }
 
+/**
+ * The chunk the `completion` command reaches the emitters through.
+ *
+ * A hashed name for `parseChunk()`'s reason: the printer is behind an
+ * `await import()`, which is the whole point, so it is read out of the
+ * specifier. The parse chunk is where the `import()` is, because that is where
+ * the command's `run` lives.
+ *
+ * @returns The chunk's file name.
+ */
+function printerChunk(): string {
+  for (const name of staticGraph(parseChunk())) {
+    const m = readFileSync(join(dist, name), 'utf8').match(
+      /import\(`?\.\/(completion-[^`")]+\.mjs)`?\)/
+    );
+
+    if (m) {
+      return m[1] as string;
+    }
+  }
+
+  return expect.fail('the completion command no longer reaches the emitters dynamically');
+}
+
 describe('what importing the package costs', () => {
   /**
    * Names only a component's implementation defines.
@@ -307,17 +331,25 @@ describe('what importing the package costs', () => {
     }
   );
 
-  it('should reach exactly the seven modules the measurement names', () => {
+  it('should reach exactly the eight modules the measurement names', () => {
     // the markers say what it must not reach and this says it reaches nothing
     // else at all, which is the only form that catches a parser module arriving
     // as a chunk of its own under a name nothing here could have predicted.
-    // Seven: the entry, `paths.mjs`, `i18n.mjs`, and the `transform`, `debug`,
-    // `env-value` and `mkdir-owner-sync` chunks -- which is the module list the
-    // byte figure below is over, so the two cannot come apart. The last of them
-    // is the write half's: `save()` creates the directory it writes into, which
-    // is the "apply the parent directory's owner under sudo" rule the update
-    // cache already reads
-    expect([...staticGraph('config.mjs')].sort()).toHaveLength(7);
+    // Eight: the entry, `paths.mjs`, `i18n.mjs`, and the `transform`, `debug`,
+    // `env-value`, `mkdir-owner-sync` and `atomic` chunks -- which is the
+    // module list the byte figure below is over, so the two cannot come apart.
+    // `mkdir-owner-sync` is the write half's: `save()` creates the directory it
+    // writes into, which is the "apply the parent directory's owner under sudo"
+    // rule the update cache already reads.
+    //
+    // It was seven until SIG-151, and the eighth is a chunk boundary rather
+    // than a module: `completion/installer.ts` writes a completion script with
+    // `writeAtomic()` -- a second *caller* rather than a second writer, which
+    // is what keeps the symlink and the chown out of a second resolver -- so
+    // `atomic.ts` is shared and rolldown splits it out of this entry instead of
+    // inlining it. Measured at 38,101 B over seven before and 38,239 over
+    // eight after: 138 bytes of preamble for the sharing
+    expect([...staticGraph('config.mjs')].sort()).toHaveLength(8);
   });
 
   it('should cost a module rather than a component', () => {
@@ -450,6 +482,49 @@ describe('what importing the package costs', () => {
     // and the other side of it: the coercion really is the parser's own, in the
     // bytes rather than in the source
     expect(carriers(graph, 'Invalid boolean')).not.toEqual([]);
+  });
+
+  it('should not put the prompts on the path that only prints a script', () => {
+    // the whole packaging argument for SIG-151. `app completion bash > file` is
+    // the scriptable form and loads the printer: the prompts are 190,692 B over
+    // 23 modules, which is about four times the printer's own graph, so a
+    // statically imported `confirm()` would make the redirect pay for an
+    // installer it never reaches.
+    //
+    // `interactive.ts` is the module that holds them and the command reaches it
+    // through `await import()`, so what is asserted is that the **printer's**
+    // graph names no prompt -- and the presence half beside it, because an
+    // absence alone passes forever the day the marker is reworded.
+    //
+    // Measured: the printer is 62,319 B over 12 modules and the interactive
+    // path is 256,906 over 36, so the prompts are +194,587 and +24. The
+    // estimate the ticket was taken on was +180 kB, which held
+    const shipped = new Set(readdirSync(dist).filter((name) => name.endsWith('.mjs')));
+    const printer = printerChunk();
+
+    for (const marker of ['because the input is not a terminal', '(space to select']) {
+      expect(carriers(shipped, marker), marker).not.toEqual([]);
+      expect(carriers(staticGraph(printer), marker), marker).toEqual([]);
+    }
+
+    // and the other side of it: the printer really is what prints
+    expect(carriers(staticGraph(printer), '#compdef ')).not.toEqual([]);
+  });
+
+  it('should keep the completion installer off the root entry', () => {
+    // it writes files into a home directory, so every module it needs --
+    // `config/atomic.ts`, `paths.ts`, `mkdir-owner-sync.ts` -- would be on the
+    // path a `--version` takes if the command reached it statically. The
+    // command is on the parse path by construction, because a `choices` list
+    // has to exist while the schema is built; the installer is two dynamic
+    // imports past it
+    const shipped = new Set(readdirSync(dist).filter((name) => name.endsWith('.mjs')));
+    const root = staticGraph('index.mjs');
+
+    for (const marker of ['was not written by sigil', 'bash-completion']) {
+      expect(carriers(shipped, marker), marker).not.toEqual([]);
+      expect(carriers(root, marker), marker).toEqual([]);
+    }
   });
 
   it('should keep the components entry worth importing for one component', () => {

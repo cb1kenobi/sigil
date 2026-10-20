@@ -55,7 +55,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Settings](#settings)
 - [Hooks](#hooks)
 - [Help](#help)
-- [Shell completion](#shell-completion) — `completion bash`, `completion zsh`
+- [Shell completion](#shell-completion) — `completion` installs it, `completion bash` prints it
 - [Translating](#translating) — `__`, `__n`, catalogs, `SIGIL_LOCALE`
 - [Typed argv](#typed-argv)
 - [Testing](#testing) — `runCommand()`, `runOnTerminal()`, `createTestTerminal()`, `KEYS`
@@ -716,26 +716,62 @@ Writing your own screen for one command:
 ## Shell completion
 
 A `completion` command is added to the root, the same way `help` is. Run it with
-no shell and it works out which one you are in and tells you how to install it:
+no shell, on a terminal, and it installs one:
 
 ```
 $ mycli completion
-Set up completion for mycli, detected zsh:
+? Which shell? zsh
+  It will write /Users/you/.local/share/completions/_mycli
+  A line has to go in /Users/you/.zshrc
 
-  as a file on your $fpath, which compinit autoloads
-    mycli completion zsh > "${fpath[1]}/_mycli"
+? Install zsh completion for mycli? yes
+Wrote /Users/you/.local/share/completions/_mycli
 
-  or sourced from .zshrc, after compinit
-    echo 'source <(mycli completion zsh)' >> ~/.zshrc
+Add this line to /Users/you/.zshrc, above your compinit line:
+
+    fpath=('/Users/you/.local/share/completions' $fpath)
 
 Then restart your shell.
 ```
 
-Name the shell and it prints the script instead, which is the form to redirect:
+The two questions are a `select()` with what `$SHELL` named already highlighted
+— so the detected answer is one Enter and the other shell is an arrow key — and
+a `confirm()` over the plan. They draw on **stderr**, because this command's
+stdout is the script.
+
+It writes the file and **prints** the line rather than editing a dotfile: a
+`.zshrc` is very often under version control and is routinely written by a
+dotfile manager, so appending to one is not this command's to do. On bash with
+`bash-completion` 2.8 or newer there is no line at all — the file goes in its
+user directory and it loads it.
+
+Re-running is a no-op that says so, and it reads the startup file to decide:
 
 ```
-$ mycli completion bash > ~/.mycli-completion.bash
-$ echo 'source ~/.mycli-completion.bash' >> ~/.bashrc
+$ mycli completion
+? Which shell? zsh
+  /Users/you/.local/share/completions/_mycli is already up to date
+  /Users/you/.zshrc already names it
+
+Nothing to do.
+```
+
+It does not ask there, because there is nothing to write: where the script is
+already right and only the line is outstanding it prints the line and asks
+nothing at all. The script is replaced without ceremony when your app's commands
+change — it is generated output, and the marker in its own header is how the
+installer knows one of its own from a file you wrote, which it refuses to touch.
+
+`--uninstall` is the same thing backwards. It removes the file it wrote — and
+only one it wrote, checked by the marker every generated script carries — and
+prints the line to take out.
+
+Name the shell and it prints the script instead, which is the form to redirect
+and is what `gh`, `kubectl`, `rustup` and `deno` all do:
+
+```
+$ mycli completion bash > ~/.local/share/completions/mycli.bash
+$ echo 'source ~/.local/share/completions/mycli.bash' >> ~/.bashrc
 ```
 
 ```
@@ -746,15 +782,15 @@ $ echo 'source ~/.mycli-completion.bash' >> ~/.bashrc
 % source <(mycli completion zsh)
 ```
 
-The script's own header repeats those recipes, so the file tells you what to do
-with it. `schema.completion: false` adds nothing, and an app that declares its
-own `completion` keeps it.
+The script's own header repeats every recipe, so the file tells you what to do
+with it, and the installer writes to the paths that header names — one table,
+three readers. `schema.completion: false` adds nothing, and an app that declares
+its own `completion` keeps it.
 
-Nothing is installed for you yet and nothing is written to your dotfiles. Those
-are two separate promises: where a completion script lives is a decision about
-your machine, which is the same answer `gh`, `kubectl`, `rustup` and `deno` all
-give — and the recipes above go to stderr with a non-zero exit, so
-`mycli completion > file` cannot fill the file you wanted a script in.
+With nobody to ask — a pipe, a CI job — it prints the recipes to stderr and
+exits non-zero rather than installing, which is both halves of one promise:
+installing into a home directory is not a thing to do unasked, and
+`mycli completion > file` must not fill the file you wanted a script in.
 
 ### What it completes
 
@@ -3086,6 +3122,7 @@ XDG base directories, per-platform, with `~` expanded.
 
 ```js
 import {
+  baseDir,
   cache,
   configHome,
   data,
@@ -3107,6 +3144,19 @@ expand('~/x'); // '/Users/you/x'
 
 `XDG_*_HOME` and `XDG_*_DIRS` are honored everywhere. Linux and Windows get
 their own tables; other platforms follow the Linux ones.
+
+`baseDir(value)` is the rule each of those applies to one variable: expand the
+`~`, then require an absolute path, else nothing. The spec says a relative base
+directory is to be ignored, so `XDG_CACHE_HOME=./.cache` falls back rather than
+putting a cache in whatever directory you started the app from — and the
+expansion comes first, or `XDG_CACHE_HOME=~/.cache` reaches `mkdir` as a
+directory named `~`. It takes no platform fallback, which is the half `data()`
+adds: reach for `baseDir()` when you want _this variable, read properly_, and
+for `data()` when you want the data directory.
+
+```js
+baseDir(process.env.XDG_DATA_HOME) ?? expand('~/.local/share');
+```
 
 `configHome()` reads `XDG_CONFIG_HOME` and `configDirs()` reads
 `XDG_CONFIG_DIRS`, so each is named for its own variable. It was called
