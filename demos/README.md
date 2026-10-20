@@ -143,6 +143,7 @@ as one missing key and one orphan.
 | [`config/01-layers.js`](config/01-layers.js) | The layer stack, the merged read, a schema, the environment on top, and what `set()` does to one layer      |
 | [`config/02-xml.js`](config/02-xml.js)       | A store from another package in the same stack, and the two refusals the interface exists for               |
 | [`config/03-yaml.js`](config/03-yaml.js)     | The second one, which writes properly — anchors, merge keys, and a version that changes what a scalar means |
+| [`config/04-watch.js`](config/04-watch.js)   | Reloading when a file changes, the diff it publishes, and surviving our own atomic write                    |
 
 ```sh
 node demos/config/01-layers.js
@@ -231,6 +232,32 @@ It is also the one store whose `canRepresent()` is **wider** than JSON's:
 `Infinity` is `.inf`, and a padded string, a control character and a lone
 surrogate each round-trip through a real file, where XML refuses the whole
 class. That is the format rather than a preference, in both directions.
+
+```sh
+node demos/config/04-watch.js
+```
+
+The fourth watches. It writes its own files and then changes them the way an
+editor that saves atomically does — a temp file and a rename — which is the
+thing a naive watcher does not survive: a rename swaps the inode, so
+`fs.watch(file)` is watching a file nothing will ever write to again. Measured
+on macOS, a file watch saw the first rename and **nothing** for the second,
+where a watch on the directory saw both.
+
+What it shows beyond that is the half that makes watching worth having: a
+handler is handed **a diff rather than the fact of a change**, so a change in the
+system file that the user file **shadows publishes nothing at all** — the one
+thing a per-file watcher can never tell you. And our own `save()` publishes
+nothing either, because the value read back is the one just written, which is
+better than suppressing events for a window after a write: that would also
+swallow somebody else's write in the same window.
+
+It takes a couple of seconds, because every step awaits a real filesystem event.
+The one line in it that is not about the feature is the warm-up loop: a watcher
+written to in the moment after it is created can lose its event, measured at
+about 3% under heavy parallel load, so the demo makes one throwaway change and
+waits for it rather than printing "nothing was published" about something that
+did happen.
 
 ## Components
 

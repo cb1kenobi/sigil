@@ -324,16 +324,17 @@ describe('what importing the package costs', () => {
     const graph = staticGraph('config.mjs');
     const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
 
-    // 32,625 B over seven modules, of which 9,880 B over six is what it starts
-    // from: `paths.mjs`, the `transform` chunk -- which is `transform`, `i18n`
-    // and `debug` -- the 66-byte `env-value` chunk the parser shares, and the
-    // 525-byte `mkdir-owner-sync` one the update cache shares. So the module
-    // itself is 22,745 B, and the graph is 4.3x the root entry's 7,518 B and an
-    // eighth of `components.mjs`'s 239,929 B over 26 -- all three measured the
-    // same way, which is the only comparison that means anything. It was
-    // 20,649 B over six before the write half, so the span writer, the atomic
-    // write and the representability check are about 11.5 KB between them; and
-    // 32,523 B before the store kit, which is the 102 bytes that costs. Read
+    // 37,031 B over seven modules, of which about 9.9 KB is what it starts
+    // from: `paths.mjs`, `i18n.mjs`, the `transform` and `debug` chunks, the
+    // 66-byte `env-value` chunk the parser shares, and the 525-byte
+    // `mkdir-owner-sync` one the update cache shares. The graph is 4.9x the root
+    // entry's 7,518 B and a sixth of `components.mjs`'s 239,929 B over 26 --
+    // all three measured the same way, which is the only comparison that means
+    // anything. It was 20,649 B over six before the write half, so the span
+    // writer, the atomic write and the representability check are about 11.5 KB
+    // between them; 32,523 B before the store kit, which is the 102 bytes that
+    // costs; and 32,625 B before the watcher, which is 4,406 B and **no new
+    // module** -- the entry already reached `debug` through `i18n`. Read
     // again after every change that moves it -- a figure only a re-run can
     // confirm is the stale snapshot this file warns about, and review round 2
     // caught this one carrying the pre-store-kit number while the line below
