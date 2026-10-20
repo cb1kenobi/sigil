@@ -21465,6 +21465,21 @@ one the drive-letter test now covers in all four spellings. And it read the
 finding: the comment is correct about what it says and silent about what it does
 not.
 
+**Eighteen sabotages over the round's own fixes, all eighteen caught**, run as
+each landed rather than in a pass afterwards -- which is the gap this file
+records five times over, since code written in answer to a review is code no
+review has seen. Two per behavioural fix, so each is pinned from **both**
+directions rather than only against the defect: the save latch removed and the
+refusal dropped rather than re-scheduled; the link not resolved and resolved
+without the tolerance; the old `://` pattern and a one-character scheme; the
+`wouldLose` assignment dropped and moved past the unchanged return; the `getTime`
+catch answering `false` and no try at all; `.catch` on the thenable directly and
+no async `onError` handling. Three for the both-sides `getTime` guard, because
+each conjunct alone had to be tried before the measurement showed they are not
+individually observable once the catch falls through. And the demo's was run
+against the **built** `dist/` it actually imports, since a `src/` sabotage never
+reaches it.
+
 ### An XML config store, in a package of its own
 
 SIG-148 drew `ConfigStore` as public API rather than letting it fall out of
