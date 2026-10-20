@@ -21082,18 +21082,18 @@ sources; the state -- the handler set, the debounce, the reload -- is on
   sleeps.** The debounce, the compare, the retry, the diff, the dispatch, the
   latch, the handler sets and every refusal run against a function that fires on
   demand, with vitest's fake timers for the debounce -- which is the repository's
-  own idiom rather than a new seam. 56 tests in tens of milliseconds.
+  own idiom rather than a new seam. 61 tests in tens of milliseconds.
 - **The fs source's climb, refcount and re-target run against a wrapped
   `node:fs`**, which is `atomic-temp.test.ts`'s and `shake-walk.test.ts`'s own
   technique and for their reason: which directory the source ended up watching is
   visible nowhere outside, and the alternative is a seam whose only reader would
-  be that file. 36 tests, likewise.
-- **Six integration tests await real events, sequenced rather than slept.** A
+  be that file. 38 tests, likewise.
+- **Seven integration tests await real events, sequenced rather than slept.** A
   negative is asserted by waiting for a **later** event and then counting, never
   by waiting a fixed time and hoping -- so "our own `save()` published nothing" is
   established by an external write afterwards whose own publish arrives, by which
-  time the save's event has certainly been handled. About 800ms for those six,
-  against tens of milliseconds for the ninety-two above them, which is what says
+  time the save's event has certainly been handled. About 800ms for those seven,
+  against tens of milliseconds for the 103 above them, which is what says
   the injectable source is worth having.
 - **And the first change in each of them is re-applied until it lands**, which is
   not a sleep dressed up: every one writes microseconds after `watch()`, so every
