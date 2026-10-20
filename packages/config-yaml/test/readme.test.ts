@@ -192,13 +192,18 @@ describe("the README's own claims", () => {
   });
 
   it('should hold its own measured figures to what the build produces', () => {
-    // "10 kB of its own code over one module", which is the figure a re-run is
+    // "17 kB of its own code over one module", which is the figure a re-run is
     // the only way to confirm -- so the assertion is the magnitude rather than
-    // the number, which is what stops it going stale on every minifier change
+    // the number, which is what stops it going stale on every minifier change.
+    // The ceiling is for one failure and is set against it rather than against
+    // today's size: `yaml` is about 300 kB, so inlining it instead of importing
+    // it is what this catches, and 30k leaves the ordinary growth that took the
+    // figure from 10 kB to 17 over two review rounds room to happen without
+    // failing a test about something else
     const bundle = readFileSync(join(import.meta.dirname, '../dist/index.mjs'), 'utf8');
     expect(bundle.length).toBeGreaterThan(5_000);
-    expect(bundle.length).toBeLessThan(20_000);
-    expect(readme).toContain('**10 kB** of its own code over one module');
+    expect(bundle.length).toBeLessThan(30_000);
+    expect(readme).toContain('**17 kB** of its own code over one module');
 
     // and the claim a consumer can check: the declaration names no `yaml` type
     const types = readFileSync(join(import.meta.dirname, '../dist/index.d.mts'), 'utf8');

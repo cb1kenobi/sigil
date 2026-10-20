@@ -169,7 +169,7 @@ export function yaml(path: string, opts: YamlStoreOptions = {}): WritableConfigS
       | undefined;
 
     for (const style of candidates(body)) {
-      const losses = lossesOf(raw, reshape(doc.toString(style), shape));
+      const losses = lossesOf(raw, reshape(doc.toString(style), shape, doc));
       if (!losses) {
         return { doc, losses: undefined, shape, style };
       }
@@ -297,7 +297,7 @@ export function yaml(path: string, opts: YamlStoreOptions = {}): WritableConfigS
 
     applyInto(doc, current, held, read);
 
-    return reshape(doc.toString(style), shape);
+    return reshape(doc.toString(style), shape, doc);
   };
 
   return {

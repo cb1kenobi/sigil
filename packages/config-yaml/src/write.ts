@@ -333,11 +333,23 @@ export function editsFor(current: unknown, target: unknown, at: readonly string[
  * is **not**, because JS cannot spell `2.0` and `!!float 2` does not resolve.
  * Conservative where the measurement was odd -- a string onto `!!float`
  * round-tripped and is refused anyway, because nothing should rely on it.
+ *
+ * The **non-specific** tag `!` is a **sixth** the matrix above did not cover,
+ * and leaving it out made every write onto it a false refusal: `read.ts` keeps
+ * `!` in `CORE_TAGS`, so `a: ! true` reads as the string `"true"`, and with no
+ * case here the `default` refused `set('a', 'false')` on a document the store
+ * had just read. Measured, a **string** written there round-trips exactly --
+ * `'false'` renders `! "false"` and reads back `'false'` -- because the core
+ * schema resolves `!` on a scalar to its own text. Which is also why nothing
+ * else may: `8080` renders `! 8080` and reads back the **string** `'8080'`,
+ * `true` the string `'true'` and `null` the string `'null'`, each the silent
+ * type change the named tags are refused for.
  */
 function tagTakes(tag: string, value: unknown): boolean {
   const integral = typeof value === 'number' && /^[-+]?[0-9]+$/.test(String(value));
 
   switch (tag) {
+    case '!':
     case 'tag:yaml.org,2002:str':
       return typeof value === 'string';
     case 'tag:yaml.org,2002:bool':

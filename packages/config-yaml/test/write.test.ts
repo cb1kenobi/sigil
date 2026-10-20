@@ -493,6 +493,35 @@ flow: {x: 1, y: 2}
       yaml(path).writeSync({ a: 'false' });
       expect(yaml(path).readSync().value).toStrictEqual({ a: 'false' });
     });
+
+    it('should take a string onto the non-specific tag, which read.ts admits', () => {
+      // `!` is in `CORE_TAGS`, so `a: ! true` reads as the string `"true"` --
+      // and with no case for it in `tagTakes()` every write onto it was
+      // refused, so a document the store reads could not be written at that
+      // key. A string round-trips exactly, because the core schema resolves
+      // `!` on a scalar to its own text
+      const path = file('a: ! true\n');
+      yaml(path).writeSync({ a: 'false' });
+      expect(read(path)).toBe('a: ! "false"\n');
+      expect(yaml(path).readSync().value).toStrictEqual({ a: 'false' });
+
+      const plain = file('a: ! 8080\n');
+      yaml(plain).writeSync({ a: 'nope' });
+      expect(yaml(plain).readSync().value).toStrictEqual({ a: 'nope' });
+    });
+
+    it('should refuse anything but a string onto the non-specific tag', () => {
+      // each of these renders and then reads back as a **string** of itself --
+      // `8080` as `'8080'`, `true` as `'true'`, `null` as `'null'` -- which is
+      // the silent type change the other four tags are refused for
+      for (const target of [{ a: 8080 }, { a: true }, { a: null }] as const) {
+        const path = file('a: ! true\n');
+        expect(() => yaml(path).writeSync(target), JSON.stringify(target)).toThrow(
+          /would not write .* back as itself/
+        );
+        expect(read(path), JSON.stringify(target)).toBe('a: ! true\n');
+      }
+    });
   });
 
   describe('a path that descends through a merge key', () => {

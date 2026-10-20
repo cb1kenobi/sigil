@@ -1,7 +1,7 @@
 import { yaml } from '../src/index.js';
 import { PARSE_OPTIONS } from '../src/options.js';
 import { candidates, reshape, shapeOf } from '../src/shape.js';
-import { file, read } from './helpers.js';
+import { absent, file, read } from './helpers.js';
 import { describe, expect, it } from 'vitest';
 import { parseDocument } from 'yaml';
 
@@ -19,7 +19,7 @@ describe('the shape and the layout', () => {
   const noop = (source: string): string => {
     const { body, shape } = shapeOf(source);
     const doc = parseDocument(body, PARSE_OPTIONS);
-    return reshape(doc.toString(candidates(body)[0]), shape);
+    return reshape(doc.toString(candidates(body)[0]), shape, doc);
   };
 
   /** The same, trying every candidate rather than only the detected one. */
@@ -27,7 +27,7 @@ describe('the shape and the layout', () => {
     const { body, shape } = shapeOf(source);
     const doc = parseDocument(body, PARSE_OPTIONS);
     for (const style of candidates(body)) {
-      const out = reshape(doc.toString(style), shape);
+      const out = reshape(doc.toString(style), shape, doc);
       if (out === source) {
         return out;
       }
@@ -84,6 +84,81 @@ describe('the shape and the layout', () => {
       expect(noop('a: 1\n\n')).toBe('a: 1\n\n');
       expect(noop('a: 1\n\n\n')).toBe('a: 1\n\n\n');
       expect(noop('a: 1\r\n\r\n')).toBe('a: 1\r\n\r\n');
+    });
+
+    it('should leave a keep-chomped scalar its own newlines, which are its value', () => {
+      // the run a `|+` at the end of a document ends with is part of the
+      // scalar, so reapplying the shape's over it is a silent data change:
+      // writing `'hello\n\n'` into a file ending `a: 1\n` rendered
+      // `motd: |+\n  hello\n\n`, this cut it to the source's one newline, and
+      // the read answered `'hello\n'`
+      const path = file('a: 1\n');
+      yaml(path).writeSync({ a: 1, motd: 'hello\n\n' });
+      expect(read(path)).toBe('a: 1\nmotd: |+\n  hello\n\n');
+      expect(yaml(path).readSync().value).toStrictEqual({ a: 1, motd: 'hello\n\n' });
+
+      // and the other direction: an existing `|+` edited to a different count
+      // had the source's run put back over the new value's
+      const more = file('motd: |+\n  hi\n\n');
+      yaml(more).writeSync({ motd: 'bye\n\n\n' });
+      expect(yaml(more).readSync().value).toStrictEqual({ motd: 'bye\n\n\n' });
+
+      const fewer = file('motd: |+\n  hi\n\n\n');
+      yaml(fewer).writeSync({ motd: 'bye\n\n' });
+      expect(yaml(fewer).readSync().value).toStrictEqual({ motd: 'bye\n\n' });
+
+      // including the blank-file path, where `store.ts` forces the run to one
+      const fresh = absent();
+      yaml(fresh).writeSync({ motd: 'hello\n\n' });
+      expect(yaml(fresh).readSync().value).toStrictEqual({ motd: 'hello\n\n' });
+
+      // an unmodified one still round-trips, which is what says the shape is
+      // not needed where the render carries its own run -- including with the
+      // other two bytes on it, which is the order `reshape()` puts them back in
+      expect(noop('motd: |+\n  hi\n\n')).toBe('motd: |+\n  hi\n\n');
+      expect(noop('motd: >+\n  hi\n\n')).toBe('motd: >+\n  hi\n\n');
+      expect(noop('motd: |+\r\n  hi\r\n\r\n')).toBe('motd: |+\r\n  hi\r\n\r\n');
+      expect(noop('\uFEFFmotd: |+\r\n  hi\r\n\r\n')).toBe('\uFEFFmotd: |+\r\n  hi\r\n\r\n');
+
+      // and a write into a CRLF file keeps both
+      const crlf = file('a: 1\r\n');
+      yaml(crlf).writeSync({ a: 1, motd: 'hi\n\n' });
+      expect(read(crlf)).toBe('a: 1\r\nmotd: |+\r\n  hi\r\n\r\n');
+      expect(yaml(crlf).readSync().value).toStrictEqual({ a: 1, motd: 'hi\n\n' });
+    });
+
+    it('should find it wherever the write put it, node or raw value alike', () => {
+      // `setIn()` stores the plain JS value it was handed rather than a
+      // `Scalar`, so the walk has to read an object and an array a write
+      // stored as well as a node a parse built -- a visitor over nodes alone
+      // reported the last value as the one before it and lost the newlines
+      for (const [src, value] of [
+        ['a: 1\n', { a: 1, nested: { motd: 'hi\n\n' } }],
+        ['a: 1\n', { a: 1, items: ['x', 'hi\n\n'] }],
+        ['a: 1\n', { a: 1, n: { m: { motd: 'hi\n\n\n' } } }],
+        ['items:\n  - x\n', { items: ['x', 'hi\n\n'] }],
+        ['n:\n  m: y\n', { n: { m: 'hi\n\n' } }],
+      ] as const) {
+        const path = file(src);
+        yaml(path).writeSync(value);
+        expect(yaml(path).readSync().value, src).toStrictEqual(value);
+      }
+
+      // and a container with nothing in it is the end of the walk rather than
+      // a value -- which the walk answers by reading one past the end, so this
+      // asserts that answer rather than the three guards it used to need
+      const empty = file('a: 1\n');
+      yaml(empty).writeSync({ a: 1, n: {}, s: [] });
+      expect(read(empty)).toBe('a: 1\nn: {}\ns: []\n');
+    });
+
+    it('should still put the run back where a value keeping newlines is quoted', () => {
+      // the half the count guard is for: `yaml` keeps the source's own
+      // double-quoted style, so the value ends in two newlines and the render
+      // ends in one. Asking the document alone would read that as a run to
+      // leave alone and drop the file's trailing blank line
+      expect(noop('a: "x\\n\\n"\n\n')).toBe('a: "x\\n\\n"\n\n');
+      expect(noop('a: 1\nb: "x\\n\\n"\n\n\n')).toBe('a: 1\nb: "x\\n\\n"\n\n\n');
     });
   });
 
